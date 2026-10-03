@@ -3080,8 +3080,17 @@ function modelState(e) {
 const modelLines = m => (m.models || []).map(e => { const s = modelState(e); return s.word + ": " + s.why; });
 const modelRows = m => kvl((m.models || []).map(e => { const s = modelState(e); return [s.word, esc(s.why)]; }));
 // The legend's 3D section: parts by model state, the ones without a model, retry, and the dim toggle.
+const pointIn = (pt, l) => { let h = false; for (let i = 0, j = l.length - 1; i < l.length; j = i++) { const a = l[i], b = l[j]; if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < (b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1]) + a[0]) h = !h; } return h; };
+// The placed items whose place is outside the board's outline: parts the generator left in its staging area, drawn where the board file has them.
+function offBoard(p) {
+  const ls = ((p && p.board && p.board.loops) || []).filter(l => l.length >= 3);
+  if (!ls.length) return [];
+  const area = l => (Math.max(...l.map(q => q[0])) - Math.min(...l.map(q => q[0]))) * (Math.max(...l.map(q => q[1])) - Math.min(...l.map(q => q[1])));
+  const outer = ls.reduce((a, b) => area(b) > area(a) ? b : a);
+  return itemsOf(p).filter(it => it.at && !pointIn(it.at, outer));
+}
 function legend3d(p) {
-  const rows = [], counts = {model: 0, none: 0, loading: 0};
+  const rows = [], counts = {model: 0, none: 0, loading: 0}, off = offBoard(p);
   for (const it of itemsOf(p)) for (const m of it.members) {
     const es = m.models || [];
     if (!es.length) continue;
@@ -3094,6 +3103,7 @@ function legend3d(p) {
   const warn = st.ready && !st.cli ? "3D needs kicad-cli on the path, or set studio_3d_kicad_cli" : st.ready && !st.ok && st.message ? st.message : "";
   const stats = V3 ? V3.stats() : {};
   return '<h4>3D models</h4><div class="m3">' + (warn ? '<div class="row3">' + pill("converter", "bad") + "<span>" + esc(warn) + "</span></div>" : "") +
+    (off.length ? '<div class="row3"><span>' + off.length + " part" + (off.length === 1 ? " stands" : "s stand") + " off the board, where the board file has " + (off.length === 1 ? "it" : "them") + "</span></div>" : "") +
     '<div class="row3"><span>' + counts.model + " with a model, " + counts.none + " without" + (counts.loading ? ", " + counts.loading + " loading" : "") + "</span></div>" +
     rows.slice(0, 40).map(r => '<div class="row3"><a data-m3="sel" data-key="' + escRaw(r.it.key) + '" data-ref="' + escRaw(r.m.ref) + '">' + esc(r.m.ref) + "</a><span class=\"dim\" title=\"" + esc(r.s.why) + "\">" + esc(r.s.short || r.s.why) + "</span></div>").join("") +
     (rows.length > 40 ? '<div class="row3 dim">and ' + (rows.length - 40) + " more</div>" : "") +

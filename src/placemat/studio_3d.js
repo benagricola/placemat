@@ -66,11 +66,12 @@ export async function mount(host) {
     const d = dark();
     const t = {
       bg: css("--b3-bg", d ? "#1b2027" : "#e6e9ed"), body: css("--b3-body", d ? "#1d5a3c" : "#2f7a52"), plate: css("--b3-plate", d ? "#8f8bf0" : "#5b54c9"),
-      text: css("--b3-text", d ? "#d8dce2" : "#1b1f24"), edge: css("--b3-edge", d ? "#7fd1a0" : "#103a26"), accent: css("--accent", "#2563eb"),
+      grid: css("--b3-grid", d ? "#3a424d" : "#b9c0c9"), text: css("--b3-text", d ? "#d8dce2" : "#1b1f24"), edge: css("--b3-edge", d ? "#7fd1a0" : "#103a26"), accent: css("--accent", "#2563eb"),
     };
     state.theme = t;
     renderer.setClearColor(new THREE.Color(t.bg), 1);
     if (state.body) state.body.material.color.set(t.body);
+    if (state.grid) state.grid.material.color.set(t.grid);
     if (state.plateMat) { state.plateMat.map.dispose(); state.plateMat.map = hatch(t.plate); state.plateMat.needsUpdate = true; }
     request();
   }
@@ -102,6 +103,24 @@ export async function mount(host) {
     const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color: state.theme.body, roughness: 0.75, metalness: 0.0, side: THREE.DoubleSide}));
     mesh.userData.body = true;
     state.body = mesh; state.root.add(mesh);
+  }
+  // A grid under the whole scene, as the 2D view has: a part that stands off the board (a part the generator left in its staging area) is
+  // seen to have nothing under it.
+  function buildGrid(plan) {
+    if (state.grid) { state.root.remove(state.grid); state.grid.geometry.dispose(); state.grid.material.dispose(); state.grid = null; }
+    const e = state.extent.slice();
+    for (const it of plan.items || []) if (it.at) { e[0] = Math.min(e[0], it.at[0] - 3); e[1] = Math.min(e[1], it.at[1] - 3); e[2] = Math.max(e[2], it.at[0] + 3); e[3] = Math.max(e[3], it.at[1] + 3); }
+    let step = 5;
+    while ((e[2] - e[0]) / step > 160 || (e[3] - e[1]) / step > 160) step *= 2;
+    const pts = [];
+    const x0 = Math.floor(e[0] / step) * step, x1 = Math.ceil(e[2] / step) * step, z0 = Math.floor(e[1] / step) * step, z1 = Math.ceil(e[3] / step) * step;
+    for (let x = x0; x <= x1; x += step) pts.push(x, 0, z0, x, 0, z1);
+    for (let z = z0; z <= z1; z += step) pts.push(x0, 0, z, x1, 0, z);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    state.grid = new THREE.LineSegments(g, new THREE.LineBasicMaterial({color: new THREE.Color(state.theme.grid), transparent: true, opacity: 0.6, depthWrite: false}));
+    state.grid.position.y = -0.03;
+    state.root.add(state.grid);
   }
   function ptIn(p, loop) { let h = false; for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) { const a = loop[i], b = loop[j]; if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) h = !h; } return h; }
 
@@ -416,6 +435,8 @@ export async function mount(host) {
         const before = new Set(state.seen);
         if (!state.body || (state.bodySig !== boardSig(plan))) { buildBody(plan); state.bodySig = boardSig(plan); }
         rebuild(plan, order);
+        const gsig = state.extent.join(",") + "|" + (plan.items || []).reduce((s, i) => s + (i.at ? Math.round(i.at[0] / 5) + Math.round(i.at[1] / 5) * 7 : 0), 0) + "|" + state.theme.grid;
+        if (gsig !== state.gridSig) { buildGrid(plan); state.gridSig = gsig; }
         state.sig = sig;
         state.seen = new Set((plan.items || []).map(i => i.key));
         fresh = first || !opts.animate ? [] : [...state.seen].filter(k => !before.has(k));
