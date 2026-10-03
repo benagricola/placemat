@@ -65,7 +65,7 @@ const fakeGroup = (key, s) => { const g = {dataset: {key, s: String(s)}, style: 
 const groups = html => [...html.matchAll(/<g class="item[^"]*" data-key="([^"]*)" data-s="(\d+)"/g)].map(m => fakeGroup(m[1], +m[2]));
 const mk = sel => new Proxy({
   innerHTML: "", textContent: "", value: "", style: {}, dataset: {}, className: "", attrs: {}, max: 0, handlers: {}, disabled: false,
-  classList: {toggle() {}, add() {}, remove() {}},
+  classList: {toggle() {}, add() {}, remove() {}, contains() { return false; }},
   addEventListener(t, f) { (this.handlers[t] = this.handlers[t] || []).push(f); },
   insertAdjacentHTML(_, html) { this.innerHTML += html; },
   querySelectorAll(q) {
@@ -82,7 +82,7 @@ const listeners = {}, frames = [], fetched = [];
 const flush = () => { while (frames.length) frames.shift()(); };
 const flushOnce = () => { frames.splice(0).forEach(f => f()); };
 const ctx = {
-  document: {querySelector: stub, querySelectorAll: () => [], addEventListener() {}, body: {dataset: {}}, elementFromPoint: () => null},
+  document: {querySelector: stub, querySelectorAll: () => [], __keys: [], addEventListener(t, f) { if (t === "keydown") this.__keys.push(f); }, body: {dataset: {}}, elementFromPoint: () => null},
   window: {addEventListener() {}}, location: {search: "?t=x"}, matchMedia: () => ({matches: true}), Date: FakeDate,
   EventSource: class { constructor() { this.addEventListener = (n, f) => { listeners[n] = f; }; } },
   requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
@@ -388,7 +388,7 @@ click("ko:antenna_clear");
 out.ko = els["#visrules"].textContent;
 out.rules2 = ev('visRules(new Set(["cy", "ko", "cu:F.Cu", "link:ok"]))');
 """)
-    assert out["start"].split("\n") == ["#board .ref { display: none; }", '#board [data-ko="antenna_clear"] { display: none; }', '#board [data-res="fanout of mcu (north side)"] { display: none; }']   # designators, keepouts and reserved areas start hidden
+    assert out["start"].split("\n") == ["#board .ref { display: none; }", '#board [data-ko="antenna_clear"], #board [data-ko-of="antenna_clear"] { display: none; }', '#board [data-res="fanout of mcu (north side)"] { display: none; }']   # designators, keepouts and reserved areas start hidden
     for row in ('data-id="cy"', 'data-id="cu:F.Cu"', 'data-id="via"', 'data-id="link:ok"', 'data-id="link:over"', 'data-grp="ko"', 'data-grp="res"', 'data-id="findings"'):
         assert row in out["legend"]
     assert '<em>1</em>' in out["legend"] and "within its limit" in out["legend"]
@@ -454,8 +454,8 @@ out.module = els["#card"].innerHTML; out.sel = ev("[S.sel, S.selRef, S.module]")
 out.single = ev('moduleOf(Object.assign({}, plan().items.find(i => i.key === "b"), {kind: "part"}), "Rb")');
 """)
     assert out["keys"] == ["psu"] and out["refs"] == ["C1", "C2"]
-    assert "C2" in out["part"] and "select module" in out["part"] and "psu" in out["part"]
-    assert "module psu" in out["module"] and 'data-ref="C1"' in out["module"] and 'data-ref="C2"' in out["module"]
+    assert "C2" in out["part"] and "select cell" in out["part"] and "psu" in out["part"]
+    assert "cell psu" in out["module"] and 'data-ref="C1"' in out["module"] and 'data-ref="C2"' in out["module"]
     assert out["sel"] == ["psu", None, "psu"] and out["single"] == ""
 
 
@@ -822,3 +822,75 @@ out.row = els["#tab-steps"].innerHTML;
     import re as _re
     text = _re.sub(r"<[^>]+>", "", c.replace('<span class="sep">: </span>', ": "))      # what copying the card gives: label: value
     assert "rank: 8 of 24" in text and "face: front" in text and "rotation: 90" in text and "area: 204.8 mm" in text
+
+
+@needs_node
+def test_a_keepouts_reservation_follows_its_row_and_a_name_with_a_comma_still_hides(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const why = "keepout 'antenna_clear' (no copper here, on either face)";
+ev('plan().reservations.push({poly: [[0, 0], [3, 0], [3, 3]], why: ' + JSON.stringify(why) + ', face: null, source: "", allow: [], rule_area: false})');
+ev('plan().reservations.push({poly: [[7, 7], [9, 7], [9, 9]], why: "label X, north of A", face: null, source: "", allow: [], rule_area: false})');
+ev("renderBoard()"); ev("renderLegend()");
+out.rules = els["#visrules"].textContent; out.board = board().innerHTML; out.legend = els["#legend"].innerHTML;
+out.names = ev("REGION_GROUPS.res(plan())");
+out.rule = ev('visRules(new Set(["res:label X, north of A"]))');
+""")
+    assert out["names"] == ["fanout of mcu (north side)", "label X, north of A"]                       # the keepout's own reservation is not a row of its own
+    assert 'data-ko-of="antenna_clear"' in out["board"] and 'data-id="res:keepout' not in out["legend"]
+    assert '[data-ko-of="antenna_clear"]' in out["rules"] and '#board [data-res="label X, north of A"] { display: none; }' in out["rules"]
+    assert out["rule"] == '#board [data-res="label X, north of A"] { display: none; }'                  # not cut at its comma
+
+
+@needs_node
+def test_zones_are_rows_under_their_layer_and_the_layer_row_switches_them(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const rules = () => els["#visrules"].textContent, legend = () => els["#legend"].innerHTML;
+const row = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
+out.rows = legend(); out.board = board().innerHTML;
+row("cu:In1.Cu"); out.layer_off = rules();
+row("cu:In1.Cu"); out.layer_on = rules();
+row("z:1"); out.zone_off = rules();
+row("cu:In1.Cu"); out.layer_off2 = rules(); row("z:1"); out.zone_back = rules();
+""")
+    assert 'data-id="z:1"' in out["rows"] and "G plane" in out["rows"] and out["rows"].index('data-id="cu:In1.Cu"') < out["rows"].index('data-id="z:1"')
+    assert 'class="plane l-In" data-z="1"' in out["board"].replace(' data-s="2"', "")
+    assert '[data-l="In1.Cu"]' in out["layer_off"] and '[data-z="1"]' in out["layer_off"]                    # the layer row hides its zone with it
+    assert '[data-l="In1.Cu"]' not in out["layer_on"] and '[data-z="1"]' not in out["layer_on"]
+    assert '[data-z="1"]' in out["zone_off"] and '[data-l="In1.Cu"]' not in out["zone_off"]               # a zone alone
+    assert '[data-l="In1.Cu"]' in out["layer_off2"] and '[data-z="1"]' in out["layer_off2"] and '[data-z="1"]' not in out["zone_back"] and '[data-l="In1.Cu"]' not in out["zone_back"]
+
+
+@needs_node
+def test_every_finding_that_names_a_pad_a_part_or_an_item_is_marked_and_counted(tmp_path):
+    out = run_more(tmp_path, r"""
+const fnd = (text, extra) => Object.assign({text, kind: "k", at: null, item: "", refs: [], pads: [], severity: "warning"}, extra);
+const it = item("a", 1); it.members[0].shapes.push({kind: "pad", faces: ["front"], number: "7", poly: [[1, 1], [1.4, 1], [1.4, 1.4]]});
+full([it, item("b", 5)], [st("a"), st("b")], {findings: [fnd("with a place", {at: [20, 20]}), fnd("at a pad", {refs: ["Ra"], pads: [["Ra", "7"]]}), fnd("at a part", {refs: ["Rb"]}), fnd("an item", {item: "a"}), fnd("nothing")]});
+out.places = ev("findingPlaces(plan())"); out.board = (board().innerHTML.match(/class="fmark /g) || []).length;
+out.legend = els["#legend"].innerHTML;
+""")
+    assert out["places"][0] == [20, 20] and out["places"][4] is None
+    assert out["places"][1][0] == (1 + 1.4) / 2 and out["places"][1][1] == (1 + 1.4) / 2                    # at the pad's centre
+    assert out["places"][2] is not None and out["places"][3] is not None
+    assert out["board"] >= 4
+    assert "4 of 5 findings are placed on the board" in out["legend"] and "<em>4</em>" in out["legend"]
+
+
+@needs_node
+def test_each_overlay_has_a_close_control_that_stays_in_view_and_escape_closes_one_at_a_time(tmp_path):
+    page = PAGE.read_text()
+    assert "#legend .lgh { display: none; align-items: center; padding: 10px 12px 6px; font-weight: 650; position: sticky; top: 0;" in page
+    assert "#card .h { display: flex; gap: 8px; align-items: center; position: sticky; top: 0;" in page
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const key = k => ctx.document.__keys.forEach(f => f({key: k}));
+ev('selectItem("a", {})'); flush();
+out.card_open = els["#card"].style.display;
+ev('openScript("x_layout.py", 1)'); flush();
+els["#infopop"].hidden = true; els["#menu"].hidden = true;
+key("Escape"); flush(); out.after1 = [ev("S.scriptOpen"), els["#card"].style.display];
+key("Escape"); flush(); out.after2 = els["#card"].style.display;
+""")
+    assert out["card_open"] == "block" and out["after1"] == [False, "block"] and out["after2"] == "none"      # the script first, then the card

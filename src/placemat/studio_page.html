@@ -118,7 +118,7 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 #dock { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; pointer-events: none; z-index: 3; }
 #dock > * { pointer-events: auto; }
 #card { display: none; width: min(380px, 100%); max-height: 46vh; overflow: auto; font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 8px 10px 9px; }
-#card .h { display: flex; gap: 8px; align-items: center; }
+#card .h { display: flex; gap: 8px; align-items: center; position: sticky; top: 0; z-index: 2; background: var(--surface); margin: -8px -10px 0; padding: 8px 10px 4px; }
 #card .h b { font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #card .x { border: 0; background: none; color: var(--dim); font-size: 18px; line-height: 1; padding: 2px 6px; }
 #card .sub { color: var(--dim); margin: 1px 0 4px; }
@@ -186,8 +186,8 @@ main { position: relative; }
 /* the legend: the colour key and the switch for each kind of thing */
 #legend { min-width: 224px; background: var(--surface); border-right: 1px solid var(--line); overflow: auto; min-height: 0; padding-bottom: 12px; z-index: 8; }
 #legend h4 { margin: 0; padding: 12px 12px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); font-weight: 650; }
-#legend .lgh { display: none; align-items: center; padding: 10px 12px 2px; font-weight: 650; }
-#legend .lgh button { margin-left: auto; border: 0; background: none; font-size: 20px; line-height: 1; color: var(--dim); }
+#legend .lgh { display: none; align-items: center; padding: 10px 12px 6px; font-weight: 650; position: sticky; top: 0; z-index: 3; background: var(--surface); }
+#legend .lgh button { margin-left: auto; border: 0; background: none; font-size: 24px; line-height: 1; color: var(--dim); padding: 2px 10px; }
 .lg { display: flex; align-items: center; gap: 8px; padding: 5px 12px; cursor: pointer; user-select: none; }
 .lg:hover { background: var(--hover); }
 .lg.off { opacity: 0.45; }
@@ -858,6 +858,26 @@ function heatColour(u) {
   return "rgb(" + a.map((v, n) => Math.round(v + (b[n] - v) * k)).join(",") + ")";
 }
 const heatScale = () => '<div class="lgscale"><span>' + Math.round(HEAT_LO * 100) + '%</span><i style="background:linear-gradient(to right,' + HEAT_STOPS.map(([s, c]) => "rgb(" + c.join(",") + ") " + Math.round(s * 100) + "%").join(",") + '"></i><span>' + Math.round(HEAT_HI * 100) + "%+</span></div>";
+// Where each finding is on the board: where it says (x, y), else at the pad it names, else the centre of the part it
+// names or of its item; null for one that names no place. Kept while the plan's findings and items stay as they are.
+let fplaceCache = null;
+function findingPlaces(p) {
+  const fs = (p && p.findings) || [], its = (p && p.items) || [];
+  if (fplaceCache && fplaceCache.fs === fs && fplaceCache.n === fs.length && fplaceCache.its === its && fplaceCache.m === its.length) return fplaceCache.v;
+  const owner = new Map(), imap = itemMap(p);
+  for (const it of itemsOf(p)) for (const m of it.members) owner.set(m.ref, [it, m]);
+  const mid = b => b ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : null;
+  const padAt = (ref, n) => { const e = owner.get(ref), s = e && e[1].shapes.find(x => (x.kind === "pad" || x.kind === "through") && String(x.number) === String(n)); return s ? mid(bboxOf([s.poly])) : null; };
+  const v = fs.map(f => {
+    if (f.at) return f.at;
+    for (const [r, n] of f.pads || []) { const a = padAt(r, n); if (a) return a; }
+    for (const r of f.refs || []) { const e = owner.get(r), a = e && mid(itemBox(e[0], r)); if (a) return a; }
+    const it = f.item && imap.get(f.item);
+    return it ? mid(itemBox(it)) : null;
+  });
+  fplaceCache = {fs, n: fs.length, its, m: its.length, v};
+  return v;
+}
 function panelSVG(p, pn, first, order, diffLayer) {
   const f = pn.face, o = [];
   const tr = pn.mirror ? "translate(" + num(pn.dx + lay.L + lay.R) + " 0) scale(-1 1)" : "translate(" + num(pn.dx) + " 0)";
@@ -877,10 +897,11 @@ function panelSVG(p, pn, first, order, diffLayer) {
     o.push('<circle class="worst" cx="' + c.worst_at[0] + '" cy="' + c.worst_at[1] + '" r="' + num(cs * 1.6) + '"/>');
   }
   const selK = S.selRegion && S.selRegion.kind === "ko" ? S.selRegion.id : null, selR = S.selRegion && S.selRegion.kind === "res" ? S.selRegion.id : null;
-  for (const k of p.keepouts || []) o.push('<polygon class="ko' + (k.name === selK ? " sel" : "") + '" data-ko="' + esc(k.name) + '" points="' + polyPts(k.poly) + '"/>');
+  for (const k of p.keepouts || []) o.push('<polygon class="ko' + (k.name === selK ? " sel" : "") + '" data-ko="' + escRaw(k.name) + '" points="' + polyPts(k.poly) + '"/>');
   for (const r of p.reservations || []) {
     if (r.face && r.face !== f) continue;
-    o.push('<polygon class="res' + (r.why === selR ? " sel" : "") + '" data-res="' + esc(r.why) + '" points="' + polyPts(r.poly) + '"/>');
+    const ko = koOf(r.why);
+    o.push('<polygon class="res' + (r.why === selR ? " sel" : "") + '" data-res="' + escRaw(r.why) + '"' + (ko ? ' data-ko-of="' + escRaw(ko) + '"' : "") + ' points="' + polyPts(r.poly) + '"/>');
   }
   const mapped = S.opStep && S.opStep.size ? i => S.opStep.has(i) ? S.opStep.get(i) : S.lastStep : null;     // copper no step laid shows with the last
   o.push(copperSVG(p.copper || [], f, pn, "", mapped));
@@ -902,7 +923,8 @@ function panelSVG(p, pn, first, order, diffLayer) {
   });
   o.push("</g>");
   o.push('<g class="fnds">');
-  for (const fd of p.findings || []) if (fd.at) o.push('<circle class="fmark ' + sevOf(fd) + '" cx="' + fd.at[0] + '" cy="' + fd.at[1] + '" r="0.9"/>');
+  const places = findingPlaces(p);
+  (p.findings || []).forEach((fd, i) => { const at = places[i]; if (at) o.push('<circle class="fmark ' + sevOf(fd) + '" cx="' + num(at[0]) + '" cy="' + num(at[1]) + '" r="0.9"/>'); });
   o.push("</g>");
   o.push(diffLayer(f, pn));
   o.push("</g>");
@@ -928,7 +950,7 @@ function copperSVG(ops, f, pn, mode, stepOf) {
     } else if (c.t === "via") {      // a ring with its drill hole, on every panel: a via goes through
       o.push('<g class="viag"' + ds + '><circle class="via' + cls + '" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.size / 2) + '"/><circle class="vhole" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.drill / 2) + '"/></g>');
     } else if ((c.t === "plane" || c.t === "pour") && (c.face === f || c.face === "inner") && !mode) {
-      o.push('<polygon class="plane ' + layerClass(c.layer) + '"' + ds + ' data-l="' + esc(c.layer) + '" points="' + polyPts(c.points) + '"/>');
+      o.push('<polygon class="plane ' + layerClass(c.layer) + '"' + ds + ' data-z="' + i + '" data-l="' + esc(c.layer) + '" points="' + polyPts(c.points) + '"/>');
     } else if (c.t === "text" && c.face === f && !mode) {
       o.push(ds ? silkText(c).replace("<text ", "<text" + ds + " ") : silkText(c));
     }
@@ -1014,7 +1036,7 @@ function showSteps(k) {
 // A streamed step redraws the board and the lists: the timeline's positions index every step, copper and cutouts too.
 function flushLive() { renderBoard(); renderSteps(); schedule("status", "counts", "legend"); }
 
-// The marks on the drawing for what is selected: the item or its part, its module, a region, and the links it holds.
+// The marks on the drawing for what is selected: the item or its part, its cell, a region, and the links it holds.
 function selRefs(p) {
   const it = S.sel && p ? itemMap(p).get(S.sel) : null;
   return new Set(!it ? [] : S.selRef ? [S.selRef] : it.members.map(m => m.ref));
@@ -1054,7 +1076,7 @@ function applyMarks() {
   if (B.svg) B.svg.classList.toggle("hassel", refs.size > 0);
   document.querySelectorAll("#tab-steps .row[data-item]").forEach(r => r.classList.toggle("sel", r.dataset.item === S.sel));
 }
-// A hovered item's module lights up with it.
+// A hovered item's cell lights up with it.
 function setHover(keys) {
   for (const k of B.hov || []) for (const g of B.groups.get(k) || []) g.classList.remove("modhov");
   B.hov = keys;
@@ -1070,6 +1092,7 @@ const INFO = {
   other: "These put nothing of their own on the board, so they are not replayed. Keepouts and reserved areas are in the legend.",
 };
 const infoBtn = id => '<button class="info" data-info="' + id + '" aria-label="about this" draggable="false">i</button>';
+let infoHide = () => {};
 (function () {
   const pop = $("#infopop");
   let pinned = null;
@@ -1088,7 +1111,7 @@ const infoBtn = id => '<button class="info" data-info="' + id + '" aria-label="a
   });
   document.addEventListener("pointerover", e => { const b = infoOf(e); if (b && e.pointerType === "mouse" && !pinned) show(b); });
   document.addEventListener("pointerout", e => { if (infoOf(e) && e.pointerType === "mouse" && !pinned) pop.hidden = true; });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") hide(); });
+  infoHide = hide;
   document.addEventListener("dragstart", e => e.preventDefault());       // a mouse drag never starts a native drag-and-drop
 })();
 
@@ -1100,20 +1123,24 @@ function visRules(off) {
   const out = [];
   for (const id of off) {
     const i = id.indexOf(":"), k = i < 0 ? id : id.slice(0, i), v = i < 0 ? "" : id.slice(i + 1);
-    let sel = null;
-    if (k === "ko" && v) sel = '[data-ko="' + q(v) + '"]';
-    else if (k === "res" && v) sel = '[data-res="' + q(v) + '"]';
-    else if (k === "cu") sel = '[data-l="' + q(v) + '"]';
-    else if (k === "link") sel = '.lkg[data-st="' + q(v) + '"]';
-    else if (OFFCSS[k]) sel = OFFCSS[k];
-    if (sel) out.push(sel.split(",").map(s => "#board " + s.trim()).join(", ") + " { display: none; }");
+    let sels = null;                       // one selector each: a name may hold a comma, so they are never split
+    if (k === "ko" && v) sels = ['[data-ko="' + q(v) + '"]', '[data-ko-of="' + q(v) + '"]'];       // a keepout, and the reservation made from it
+    else if (k === "res" && v) sels = ['[data-res="' + q(v) + '"]'];
+    else if (k === "z" && v) sels = ['[data-z="' + q(v) + '"]'];
+    else if (k === "cu") sels = ['[data-l="' + q(v) + '"]'];
+    else if (k === "link") sels = ['.lkg[data-st="' + q(v) + '"]'];
+    else if (OFFCSS[k]) sels = OFFCSS[k].split(",").map(s => s.trim());
+    if (sels) out.push(sels.map(s => "#board " + s).join(", ") + " { display: none; }");
   }
   return out.join("\n");
 }
 function applyVisibility() { $("#visrules").textContent = visRules(S.off); }
 // Keepouts and reserved areas start hidden: a region the page has not seen yet is switched off once, so the choice
 // to show one stays through later resolves.
-const REGION_GROUPS = {ko: p => ((p && p.keepouts) || []).map(k => k.name), res: p => [...new Set(((p && p.reservations) || []).map(r => r.why))]};
+// A keepout is drawn as a region and as the reservation it made ("keepout 'name' (why)"): the reservation follows the
+// keepout's own row, so only the reservations that are not a keepout's are listed under reserved areas.
+const koOf = why => { const m = /^keepout '([^']+)'/.exec(String(why)); return m ? m[1] : ""; };
+const REGION_GROUPS = {ko: p => ((p && p.keepouts) || []).map(k => k.name), res: p => [...new Set(((p && p.reservations) || []).filter(r => !koOf(r.why)).map(r => r.why))]};
 function seedRegions(p) {
   let changed = false;
   for (const g of Object.keys(REGION_GROUPS)) for (const n of REGION_GROUPS[g](p)) {
@@ -1129,7 +1156,32 @@ function toggleGroup(g) {
   for (const id of ids) { if (hide) S.off.add(id); else S.off.delete(id); }
   applyVisibility(); renderLegend();
 }
-function toggleOff(id) { if (S.off.has(id)) S.off.delete(id); else S.off.add(id); applyVisibility(); renderLegend(); }
+// The planes and pours of a copper layer, each named for its net: "GND plane", a second one "GND plane 2".
+function zonesOf(p, layer) {
+  const out = [], seen = {};
+  ((p && p.copper) || []).forEach((c, i) => {
+    if ((c.t !== "plane" && c.t !== "pour") || c.layer !== layer) return;
+    const base = (c.net || "no net") + " " + c.t, n = seen[base] = (seen[base] || 0) + 1;
+    out.push({i, t: c.t, name: n > 1 ? base + " " + n : base});
+  });
+  return out;
+}
+// A layer row switches its zones with it; showing one zone of a hidden layer brings the layer back with just that zone.
+function toggleOff(id) {
+  const p = plan();
+  if (id.startsWith("cu:")) {
+    const hide = !S.off.has(id);
+    for (const z of zonesOf(p, id.slice(3))) { if (hide) S.off.add("z:" + z.i); else S.off.delete("z:" + z.i); }
+  } else if (id.startsWith("z:")) {
+    const layer = ((p && p.copper) || [])[+id.slice(2)];
+    if (layer && S.off.has("cu:" + layer.layer) && S.off.has(id)) {
+      S.off.delete("cu:" + layer.layer);
+      for (const z of zonesOf(p, layer.layer)) if ("z:" + z.i !== id) S.off.add("z:" + z.i);
+    }
+  }
+  if (S.off.has(id)) S.off.delete(id); else S.off.add(id);
+  applyVisibility(); renderLegend();
+}
 
 const SW = {   // the legend's swatches draw with the board's own classes, so the key is the colours the board uses
   cy: '<rect x="3" y="2" width="20" height="10" class="cy" style="stroke-width:1.4;stroke-dasharray:3 2;fill-opacity:0.18"/>',
@@ -1144,6 +1196,7 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
   ko: '<rect x="3" y="2" width="20" height="10" class="ko" style="stroke-width:1.2;fill-opacity:0.3"/>',
   res: '<rect x="3" y="2" width="20" height="10" class="res" style="stroke-width:1.2;stroke-dasharray:3 2;fill-opacity:0.25"/>',
   findings: '<circle cx="13" cy="7" r="5.5" class="fmark" style="stroke-width:1.6"/>',
+  zone: cls => '<rect x="3" y="2" width="20" height="10" class="plane ' + cls + '" style="stroke-width:1.2"/>',
   heat: '<rect x="3" y="2" width="5" height="10" fill="rgb(59,76,192)"/><rect x="8" y="2" width="5" height="10" fill="rgb(53,176,171)"/><rect x="13" y="2" width="5" height="10" fill="rgb(253,231,37)"/><rect x="18" y="2" width="5" height="10" fill="rgb(249,142,9)"/>',
   changes: '<line x1="2" y1="11" x2="19" y2="3" style="stroke:var(--accent);stroke-width:1.8"/><path d="M 16 1 L 24 2 L 19 8 z" class="arrowhead" style="fill:var(--accent)"/>',
 };
@@ -1155,8 +1208,8 @@ function copperLayers(p) {
 function legendHTML(p) {
   const items = itemsOf(p), shapes = (kind, layer) => items.reduce((n, it) => n + it.members.reduce((m, x) => m + x.shapes.filter(s => kind.includes(s.kind) && (!layer || (s.layers || []).includes(layer))).length, 0), 0);
   const copper = (p && p.copper) || [], links = (p && p.links) || [], kos = (p && p.keepouts) || [], res = (p && p.reservations) || [];
-  const resNames = [...new Set(res.map(r => r.why))];
-  const row = (id, sw, name, n, o = {}) => '<div class="lg' + (S.off.has(id) ? " off" : "") + (o.sub ? " sub" : "") + (n === 0 ? " zero" : "") + '" data-id="' + esc(id) + '"' + (o.title ? ' title="' + esc(o.title) + '"' : "") + ">" +
+  const resNames = REGION_GROUPS.res(p);
+  const row = (id, sw, name, n, o = {}) => '<div class="lg' + (S.off.has(id) ? " off" : "") + (o.sub ? " sub" : "") + (n === 0 ? " zero" : "") + '" data-id="' + escRaw(id) + '"' + (o.title ? ' title="' + esc(o.title) + '"' : "") + ">" +
     (o.exp ? '<span class="car" data-exp="' + esc(o.exp) + '">' + (S.exp.has(o.exp) ? "&#9662;" : "&#9656;") + "</span>" : "") +
     (sw ? '<svg class="sw" viewBox="0 0 26 14">' + sw + "</svg>" : "") + '<span class="nm">' + esc(name) + "</span>" +
     (o.only ? '<button class="only" data-only="' + esc(id) + '">only</button>' : "") + (n != null ? "<em>" + n + "</em>" : "") + "</div>";
@@ -1166,6 +1219,7 @@ function legendHTML(p) {
   for (const l of copperLayers(p)) {
     const face = LAYER_FACE(l), n = copper.filter(c => c.layer === l && c.t !== "via" && c.t !== "text").length + shapes(["copper"], l), other = face !== "inner" && S.face !== "both" && S.face !== face;
     o.push(row("cu:" + l, SW.track(layerClass(l)), l + (other ? " (other face)" : ""), n, {only: true, title: other ? "drawn on the " + face + " face" : ""}));
+    for (const z of zonesOf(p, l)) o.push(row("z:" + z.i, SW.zone(layerClass(l)), z.name, null, {sub: true, title: z.t === "pour" ? "a fitted pour" : "a plane"}));
   }
   o.push(row("via", SW.via, "vias (ring, drill hole)", copper.filter(c => c.t === "via").length));
   o.push("<h4>Links" + infoBtn("links") + "</h4>");
@@ -1179,7 +1233,7 @@ function legendHTML(p) {
   if (S.exp.has("ko")) for (const k of kos) o.push(row("ko:" + k.name, SW.ko, k.name, null, {sub: true, title: k.why}));
   o.push(head("res", SW.res, "reserved areas", resNames.length));
   if (S.exp.has("res")) for (const w of resNames) o.push(row("res:" + w, SW.res, w, null, {sub: true}));
-  o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", ((p && p.findings) || []).filter(f => f.at).length), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
+  o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", findingPlaces(p).filter(Boolean).length, {title: findingPlaces(p).filter(Boolean).length + " of " + ((p && p.findings) || []).length + " findings are placed on the board: where they say, else at the pad or part they name. The rest name no place."}), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
   return o.join("");
 }
 function renderLegend() { seedRegions(plan()); $("#legend").innerHTML = legendHTML(plan()); }
@@ -1187,6 +1241,7 @@ function soloLayer(id) {
   const p = plan(), all = copperLayers(p).map(l => "cu:" + l), others = all.filter(x => x !== id);
   const alone = others.every(x => S.off.has(x)) && !S.off.has(id);
   for (const x of all) { if (alone || x === id) S.off.delete(x); else S.off.add(x); }
+  for (const x of all) for (const z of zonesOf(p, x.slice(3))) { if (S.off.has(x)) S.off.add("z:" + z.i); else S.off.delete("z:" + z.i); }
   applyVisibility(); renderLegend();
 }
 $("#legend").onclick = e => {
@@ -1353,7 +1408,7 @@ function zoomAbout(vb, r, cx, cy, k) {                // vb scaled by k (width),
 })();
 
 // ---------------------------------------------------------------- modules, and how an item was placed
-// A module is a cell: its parts are the members of the item, or the members of other items that name it as their cell.
+// What the page calls a cell is placemat's Cell: its parts are the members of the item, or the members of other items that name it as their cell.
 function moduleOf(it, ref) {
   const m = (it.members || []).find(x => x.ref === ref) || (it.members || [])[0];
   return (m && m.cell) || (it.members.length > 1 || it.kind === "cell" || it.kind === "block" ? it.key : "");
@@ -1403,7 +1458,7 @@ function tipItem(g, e, p) {
   const mem = e.target.closest && e.target.closest(".mem"), ref = mem ? mem.dataset.ref : null, m = it.members.find(x => x.ref === ref) || it.members[0];
   const mod = moduleOf(it, ref), {links, refs} = describe(it, p, ref);
   const lines = [(ref || it.key) + (m && m.value ? "  " + m.value : "") + "   (" + it.kind + (it.key !== (ref || it.key) ? " " + it.key : "") + ")",
-    mod ? "module " + mod + (it.members.length > 1 ? ", " + it.members.length + " parts" : "") : "", it.face + ", rotated " + deg(it.rotation), howText(null, it)];
+    mod ? "cell " + mod + (it.members.length > 1 ? ", " + it.members.length + " parts" : "") : "", it.face + ", rotated " + deg(it.rotation), howText(null, it)];
   for (const f of findingsOf(p, it.key, it)) lines.push(sevOf(f) + ": " + f.text);
   if (links.length) { lines.push("links:"); links.slice(0, 6).forEach(l => lines.push("  " + linkLine(l, refs))); if (links.length > 6) lines.push("  ... " + (links.length - 6) + " more"); }
   if (it.file) lines.push(it.file + ":" + it.line);
@@ -1607,8 +1662,8 @@ function partCard(p, it) {
   const m = it.members.find(x => x.ref === S.selRef) || (it.members.length === 1 ? it.members[0] : null);
   const title = m ? m.ref : it.key, mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
   const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = noteParts(it.note);
-  const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select module</a>' : "";
-  const place = kvl([["module", mod && mod !== title ? esc(mod) : ""], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["placed", pill(howWord(s, it), howClass(s, it))], ["step", step != null ? esc((step + 1) + " of " + replaySteps(p).length) : ""], ...noteRows(np)]);
+  const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select cell</a>' : "";
+  const place = kvl([["cell", mod && mod !== title ? esc(mod) : ""], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["placed", pill(howWord(s, it), howClass(s, it))], ["step", step != null ? esc((step + 1) + " of " + replaySteps(p).length) : ""], ...noteRows(np)]);
   return cardHead(title, it.kind, "", modPill) +
     (m && m.value ? '<div class="sub">' + esc(m.value) + (it.key !== m.ref ? "  (item " + esc(it.key) + ")" : "") + "</div>" : "") +
     sect("Placement", place) + noteExtra(np, it.moved_mm, it.why) +
@@ -1618,7 +1673,7 @@ function partCard(p, it) {
 function moduleCard(p) {
   const id = S.module, keys = moduleKeys(p, id), refs = moduleRefs(p, id);
   const fs = [...keys].flatMap(k => findingsOf(p, k, itemMap(p).get(k)));
-  return cardHead("module " + id, "module", "") + '<div class="sub">' + refs.length + (refs.length === 1 ? " part" : " parts") + "</div>" +
+  return cardHead("cell " + id, "cell", "") + '<div class="sub">' + refs.length + (refs.length === 1 ? " part" : " parts") + "</div>" +
     '<div class="mods">' + refs.map(r => '<button data-act="part" data-ref="' + esc(r) + '">' + esc(r) + "</button>").join("") + "</div>" +
     sect("Findings", sevPills(fs)) + linkRows(p, new Set(refs), S.cardLinks);
 }
@@ -2067,7 +2122,20 @@ function closeMenu() { const m = $("#menu"); m.hidden = true; $("#brandbtn").set
 $("#brandbtn").onclick = () => { if ($("#menu").hidden) openMenu(); else closeMenu(); };
 $("#menu").onclick = e => { const b = e.target.closest("[data-script]"); if (b) switchTo(b.dataset.script); };
 document.addEventListener("click", e => { if ($("#menu").hidden) return; if (!(e.target.closest && (e.target.closest("#menu") || e.target.closest("#brandbtn")))) closeMenu(); });
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closeMenu(); if (S.scriptOpen && $("#infopop").hidden) closeScript(); } });
+// Escape closes the topmost thing that is open, one at a time: a note, the menu, the legend sheet, the script, the card.
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!$("#infopop").hidden) infoHide();
+  else if (!$("#menu").hidden) closeMenu();
+  else if (narrow() && $("#legend").classList.contains("open")) $("#legend").classList.remove("open");
+  else if (S.scriptOpen) closeScript();
+  else if ($("#card").style.display === "block") { S.cardOff = cardKey(); renderCard(); }
+});
+// A tap outside the legend sheet closes it, and so does a swipe down on its header.
+document.addEventListener("click", e => { const lg = $("#legend"); if (narrow() && lg.classList.contains("open") && e.target.closest && !e.target.closest("#legend") && !e.target.closest("#keybtn")) lg.classList.remove("open"); });
+let lgSwipe = null;
+$("#legend").addEventListener("pointerdown", e => { lgSwipe = e.pointerType === "touch" && e.target.closest && e.target.closest(".lgh") ? e.clientY : null; });
+$("#legend").addEventListener("pointerup", e => { if (lgSwipe != null && e.clientY - lgSwipe > 50) $("#legend").classList.remove("open"); lgSwipe = null; });
 // With no script given, the page opens on this list and nothing resolves until one is chosen.
 function renderPicker() {
   const el = $("#picker"), pick = !!(S.hello && S.hello.picker);
