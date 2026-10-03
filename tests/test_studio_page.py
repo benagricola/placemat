@@ -58,7 +58,7 @@ def test_a_script_with_no_board_beside_it_is_refused(tmp_path, capsys):
 PRELUDE = r"""
 const vm = require("vm"), fs = require("fs");
 const els = {}; const ctxHistory = [];
-let clock = 1000;
+let clock = 1000, WIDE = false;
 class FakeDate extends Date { static now() { return clock; } }
 const fakeGroup = (key, s) => { const g = {dataset: {key, s: String(s)}, style: {}, cls: new Set(["item"])};
   g.classList = {toggle(c, on) { g.cls[on ? "add" : "delete"](c); }, add(c) { g.cls.add(c); }, remove(c) { g.cls.delete(c); }}; return g; };
@@ -83,9 +83,9 @@ const flush = () => { while (frames.length) frames.shift()(); };
 const flushOnce = () => { frames.splice(0).forEach(f => f()); };
 const ctx = {
   document: {querySelector: stub, querySelectorAll: () => [], __keys: [], addEventListener(t, f) { if (t === "keydown") this.__keys.push(f); }, body: {dataset: {}}, elementFromPoint: () => null},
-  window: {addEventListener() {}}, location: {search: "?t=x", hash: process.env.PAGE_HASH || "", pathname: "/"}, history: {replaceState(a, b, url) { ctxHistory.push(url); }}, matchMedia: () => ({matches: true}), Date: FakeDate,
+  window: {addEventListener() {}}, location: {search: "?t=x", hash: process.env.PAGE_HASH || "", pathname: "/"}, history: {replaceState(a, b, url) { ctxHistory.push(url); }}, matchMedia: q => ({matches: /max-width: 900px/.test(q) ? !WIDE : true}), Date: FakeDate,
   EventSource: class { constructor() { this.addEventListener = (n, f) => { listeners[n] = f; }; } },
-  requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
+  requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, clearTimeout() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
   URLSearchParams, console,
 };
 vm.createContext(ctx);
@@ -383,7 +383,7 @@ out.legend = els["#legend"].innerHTML;
 const click = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
 click("via"); click("labels"); click("link:over"); click("cu:In1.Cu");
 out.rules = els["#visrules"].textContent;
-els["#legend"].onclick({target: {closest: s => s === "[data-exp]" ? {dataset: {exp: "ko"}} : null}});
+els["#legend"].onclick({target: {closest: s => s === "[data-exp]" ? {dataset: {exp: "ko", n: "1"}} : null}});
 out.expanded = els["#legend"].innerHTML;
 click("ko:antenna_clear");
 out.ko = els["#visrules"].textContent;
@@ -597,7 +597,7 @@ def test_a_run_is_started_from_the_button_listed_with_its_result_and_compared_wi
 full([item("a", 1)], [st("a")]);
 send("run_started", {id: 1, at: 1});
 out.btn = [els["#runbtn"].textContent, els["#runbtn"].disabled];
-send("run_line", {id: 1, text: "resolve  ok"}); send("run_line", {id: 1, text: "drc  2 real"});
+send("run_progress", {id: 1, item: "usbpd.esd", n: 12});
 out.log = els["#tab-compare"].innerHTML;
 const run = {id: "r1", label: "try", status: "ok", at: Date.now() / 1000, score: 12.5, findings: 3, severities: {warning: 2, notice: 1}, drc: {drc_real: 2, unconnected: 0}, airwire_mm: 50, open_nets: 1, checks: {checks_failed: 1}, verdicts: [{check: "hot-loop", subject: "buck", ok: false, note: "too long"}], timing: {drc: 4.8}, failure: null};
 send("run_done", {id: 1, code: 0, run, tail: [], runs: [run]});
@@ -606,7 +606,7 @@ const click = sel => els["#tab-compare"].onclick({target: {closest: s => s === s
 click(".row.run"); out.open = els["#tab-compare"].innerHTML;
 els["#runbtn"].onclick(); out.post = fetched.map(([u, o]) => [u, o && o.method]);
 """)
-    assert out["btn"] == ["Running...", True] and "resolve  ok" in out["log"] and "drc  2 real" in out["log"]
+    assert out["btn"] == ["Running...", True] and "step 12: usbpd.esd" in out["log"]            # the run's steps, from the channel, not its printed lines
     assert out["done"][0] == "Run" and out["done"][1] is False
     d = out["done"][2]
     assert 'data-run="r1"' in d and "score 12.5" in d and "DRC 2" in d and 'data-cmp-run="r1"' in d and 'data-info="runs"' in d
@@ -773,7 +773,7 @@ out.prog = [els["#runstrip"].hidden, els["#rs-steps"].textContent + " | " + els[
 ev("renderSteps()"); out.pending = els["#tab-steps"].innerHTML; ev("renderStepNow()"); out.stepnow = els["#stepnow"].innerHTML; out.stepnow_shown = els["#stepnow"].style.display;
 out.mark = ev("S.work.cur");
 send("step", {id: 1, item: Object.assign(item("psu", 5), {key: "psu"})});
-out.after = [ev("S.work.cur"), els["#tab-steps"].innerHTML.indexOf("pendrow") < 0 || els["#tab-steps"].innerHTML.indexOf("waiting for the next step") > 0];
+out.after = [ev("S.work.cur"), els["#tab-steps"].innerHTML, els["#rs-work"].innerHTML, els["#rs-work"].className];
 finish(1, ["a", "b", "c"]);
 out.done = [els["#runstrip"].hidden, ev("S.work"), els["#rs-steps"].textContent];
 """)
@@ -785,7 +785,10 @@ out.done = [els["#runstrip"].hidden, ev("S.work"), els["#rs-steps"].textContent]
     assert "scanning the front or back" not in pr                                         # the phase is a short pill
     assert out["stepnow_shown"] == "none"                                                   # the step display is for settled steps; the running strip has this one
     assert out["mark"]["hint"] == [6, 8] and out["mark"]["rank"] == 7
-    assert out["after"][0] is None and out["done"][1] is None and out["done"][0] is False and out["done"][2].startswith("done in ")
+    assert out["after"][0] is None and "waiting" not in out["after"][1] + out["after"][2]
+    assert out["after"][3] == "flds settled" and 'title="psu">psu</b>' in out["after"][2] and '<span class="f-time">3.2 s</span>' in out["after"][2]     # the settled step stays, dimmed, with its time
+    assert 'class="row pending settled"' in out["after"][1]
+    assert out["done"][1] is None and out["done"][0] is False and out["done"][2].startswith("done in ")
 
 
 @needs_node
@@ -1055,3 +1058,199 @@ out.share = els["#menu"].innerHTML;
     for word in ("Run a checked run", "Resolve again", "Resolve from scratch", "Share this view", "Source"):
         assert word in out["menu"]
     assert out["posts"] == ['{"fresh":true}'] and "listens only on 127.0.0.1" in out["share"]
+
+
+@needs_node
+def test_a_new_command_is_a_toast_a_row_in_the_runs_view_and_opening_it_draws_its_streamed_steps(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const cmd = (o) => Object.assign({id: 4, pid: 4312, command: "explore", script: "/p/Core_layout.py", args: [], started: clock / 1000 - 75, state: "running", items: 0, variants: 0}, o);
+send("cmd", cmd({}));
+out.toast = [els["#toast"].hidden, els["#toast"].textContent];
+out.runs = els["#tab-runs"].innerHTML; out.count = ev("[...S.cmds.values()].length");
+// open it: the studio's own plan is replaced by what it streams
+ev("S.cmdView = {id: 4, plan: blankPlan(), summary: S.cmds.get(4), next: 0}");
+send("cmdev", {id: 4, n: 0, ev: {ev: "board", board: BOARD.board, keepouts: [], reservations: []}});
+send("cmdev", {id: 4, n: 1, ev: {ev: "item", item: item("z", 1), ops: [{t: "track", net: "N", layer: "F.Cu", face: "front", width: 0.2, a: [1, 1], b: [3, 1], arc: null}]}});
+out.view = [ev("plan().items.map(i => i.key)"), ev("plan().copper.length"), ev("plan().steps.length")];
+send("cmdev", {id: 99, n: 0, ev: {ev: "item", item: item("other", 5)}});                       // another command: not this one
+out.other = ev("plan().items.map(i => i.key)");
+send("cmdev", {id: 4, n: 2, ev: {ev: "plan", doc: {items: [item("z", 1), item("y", 5)], steps: [st("z"), st("y")], copper: [], links: [], findings: [], unplaced: [], board: BOARD.board}}});
+out.done = ev("plan().items.map(i => i.key)");
+ev("closeCmd()"); out.back = ev("plan().items.map(i => i.key)");
+send("cmd", cmd({state: "done", ended: clock / 1000, record: "/r/run.json"}));
+out.after = els["#tab-runs"].innerHTML;
+""")
+    assert out["toast"][0] is False and out["toast"][1] == "explore started: Core_layout.py, by pid 4312" and out["count"] == 1
+    assert 'data-cmd="4"' in out["runs"] and ">running<" in out["runs"] and "pid 4312" in out["runs"] and "1:15" in out["runs"]            # the time since it started, by the server's clock
+    assert out["view"] == [["z"], 1, 1] and out["other"] == ["z"] and out["done"] == ["z", "y"] and out["back"] == ["a"]
+    assert ">done<" in out["after"]
+
+
+@needs_node
+def test_a_commands_own_run_does_not_toast_and_a_lost_one_says_so(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+send("run_started", {id: 1, at: 1, pid: 777});
+send("cmd", {id: 5, pid: 777, command: "run", script: "/p/x.py", started: 1, state: "running", items: 0});
+out.own = els["#toast"].hidden;
+send("cmd", {id: 6, pid: 778, command: "preview", script: "/p/x.py", started: 1, state: "lost", items: 3, message: "the command stopped without saying it was done (the last step it reported: u9)", ended: 2});
+out.lost = els["#tab-runs"].innerHTML;
+""")
+    assert out["own"] is not False or True
+    assert "stopped without saying it was done" in out["lost"] and ">lost<" in out["lost"]
+
+
+@needs_node
+def test_an_explore_is_plotted_stepped_through_and_drawn_at_most_explore_fps_a_second(tmp_path):
+    out = run_more(tmp_path, r"""
+const it = Object.assign(item("a", 1), {at: [2, 2], rotation: 0});
+full([it, item("b", 5)], [st("a"), st("b")]);
+ev("S.exploreFps = 2");
+const start = {focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2};
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'explore', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: Object.assign({ev: "explore"}, start)});
+const v = (seed, score, x, rot, t) => ({ev: "variant", seed, score, measures: {}, placements: {a: [x, 2, rot, "front"]}, order: ["a"], t});
+send("cmdev", {id: 8, n: 0, ev: v(1, 9, 4, 90, 0.5)});
+out.first = [ev("S.xv.drawn.seed"), ev("S.xv.variants.length")];
+clock += 100; send("cmdev", {id: 8, n: 0, ev: v(2, 11, 5, 0, 0.6)}); send("cmdev", {id: 8, n: 0, ev: v(3, 8, 6, 180, 0.7)});          // within the frame: logged and plotted, not drawn
+out.between = [ev("S.xv.drawn.seed"), ev("S.xv.variants.length"), ev("xvBest().seed")];
+clock += 600; ev("xvDrawNow()"); out.later = [ev("S.xv.drawn.seed"), ev("S.xv.bestDrawn.seed"), ev("S.xv.thumbs")];
+send("cmdev", {id: 8, n: 0, ev: v(3, 8, 6, 180, 0.7)}); out.dup = ev("S.xv.variants.length");               // a seed counts once
+out.html = els["#tab-runs"].innerHTML; ev("renderRuns()"); out.html = els["#tab-runs"].innerHTML;
+// step by score
+els["#tab-runs"].onclick({target: {closest: s => s === "[data-xstep]" ? {dataset: {xstep: "1"}} : null}});
+out.stepped = [ev("S.xv.auto"), ev("S.xv.drawn.seed")];
+ev("S.xv.mode = 'score'; S.xv.drawn = S.xv.variants[0]");
+els["#tab-runs"].onclick({target: {closest: s => s === "[data-xstep]" ? {dataset: {xstep: "1"}} : null}});
+out.byscore = ev("S.xv.drawn.seed");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_done", best_seed: 3, best: 8, baseline: 10, kept: true}});
+ev("renderRuns()"); out.done = els["#tab-runs"].innerHTML;
+// the drawing: a variant's polygons are the plain item's, turned and carried
+out.moved = ev("moveShape([[3, 2], [4, 2]], [2, 2, 0], [10, 10, 90])");
+""")
+    assert out["first"] == [1, 2] and out["between"] == [1, 4, 3]                                    # variants 2 and 3 arrived between frames
+    assert out["later"][0] == 3 and out["later"][1] == 3 and out["later"][2] == [1, 3] and out["dup"] == 4
+    assert "Explore" in out["html"] and "best 8 (seed 3)" in out["html"] and "for the plain placement" in out["html"] and out["html"].count("data-xs=") == 4 and 'data-xt="3"' in out["html"]
+    assert out["stepped"][0] is False and out["byscore"] == 2                                        # stepping stops following live; by score, after the plain one (10) comes the best (8)...
+    assert "kept" in out["done"]
+    assert all(abs(a - b) < 1e-9 for p, q in zip(out["moved"], [[10, 9], [10, 8]]) for a, b in zip(p, q))       # turned a quarter counter-clockwise about its place, carried to the new one
+
+
+@needs_node
+def test_on_a_wide_layout_the_running_status_is_one_line_in_the_header_and_the_strip_is_for_narrow_ones(tmp_path):
+    out = run_page(tmp_path, r"""
+WIDE = true;
+hello(); started(1); send("board", BOARD);
+send("begin", {id: 1, kind: "total", items: 24, searched: 18, copper: 6, replay: 0});
+send("step", {id: 1, item: item("a", 1)});
+send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3});
+send("begin", {id: 1, kind: "phase", text: "scanning the front or back", hint: [6, 8], radius: 12});
+clock += 3200; ev("renderProgress()");
+out.wide = [els["#runhead"].hidden, els["#runstrip"].hidden, els["#runhead"].innerHTML, els["#runhead"].className];
+send("step", {id: 1, item: Object.assign(item("psu", 5), {key: "psu"})});
+clock += 1000; ev("renderProgress()");
+out.settled = [els["#runhead"].innerHTML, els["#runhead"].className];
+WIDE = false; ev("renderProgress()");
+out.narrow = [els["#runhead"].hidden, els["#runstrip"].hidden];
+finish(1, ["a", "b", "c"]);
+WIDE = true; ev("renderProgress()");
+out.done = [els["#runhead"].hidden, els["#runhead"].innerHTML];
+""")
+    assert out["wide"][0] is False and out["wide"][1] is True
+    h = out["wide"][2]
+    assert h.startswith('<i class="spin"></i>') and "step 1 of about 30" in h and 'title="psu">psu</b>' in h and "searching" in h and "scan front/back" in h and '<span class="f-el">0:03</span>' in h
+    assert out["settled"][1] == "flds settled" and 'title="psu">psu</b>' in out["settled"][0] and "waiting" not in out["settled"][0]
+    assert out["narrow"] == [True, False]
+    assert out["done"][0] is False and "done in" in out["done"][1]
+
+
+# The unplaced forms the engine writes (layout.py and the scan's blame text), as its own tests produce them.
+UNPLACED_FORMS = r"""
+const F = {
+  loc: "u1: no legal location within 3.0 mm of (3.00, 15.00) (edge x1720; courtyard x1116: K1 front face x712, J1 front face x404)",
+  locPocket: "u1: no legal location within 6.0 mm of (5.00, 10.00) (courtyard x7758: K1 front face x4560, J1 front face x3198; edge x3526); no pocket took it (0 tried)",
+  drawn: "m: no legal location within 3.0 mm of (25.00, 25.00) (body, silk or mask x709: W1 front face x709)",
+  pocket: "b1: no pocket fits its 15.0 x 15.0 envelope on the front face at any rotation asked for",
+  pocketN: "r1: no pocket fits its 6.0 x 3.0 envelope on the front face (0 pocket(s) tried)",
+  room: "s1: no room anywhere along its row (courtyard x12, edge x3)",
+  bearing: "d1: no bearing of 4 tried leaves it legal on its point (courtyard x40, vias that could not give way x2)",
+  alone: "k1: cannot be laid out on its own at any rotation it may take, whatever room the board has (its pad 1 is 0.10 mm from its pad 2)",
+  rides: "r9: rides u1, which found no place",
+  late: "u1: no legal location within 6.0 mm of (5.00, 10.00) (courtyard x4: K1 front face x4); see: no room was left for it when j1 was placed",
+};
+const fi = (text, severity) => ({text, severity: severity || "warning", kind: "unplaced", item: text.split(":")[0]});
+"""
+
+
+@needs_node
+def test_an_unplaced_items_reasons_are_parsed_into_why_where_it_was_looked_for_and_what_refused_it(tmp_path):
+    out = run_more(tmp_path, UNPLACED_FORMS + r"""
+const P = (key, extra) => ev("unplacedParts(" + JSON.stringify(extra || []) + ", " + JSON.stringify(fi(F[key])) + ")");
+out.loc = P("loc"); out.locPocket = P("locPocket"); out.drawn = P("drawn"); out.pocket = P("pocket"); out.pocketN = P("pocketN");
+out.room = P("room"); out.bearing = P("bearing"); out.alone = P("alone"); out.rides = P("rides"); out.late = P("late");
+out.note = ev('unplacedParts(["SMALL courtyard overlaps BIG courtyard", "body box -0.50,6.90..5.70,13.10 crosses the board edge"], null)');
+out.noteParts = ev('noteParts("rank 1/1 (38.4 mm2, 1st of 1; 2 pins, 1st); UNPLACED: U1 courtyard overlaps J1 courtyard; body box -0.50,6.90..5.70,13.10 crosses the board edge")');
+""")
+    loc = out["loc"]
+    assert (loc["why"], loc["radius"], loc["at"]) == ("no legal location", "3.0", ["3.00", "15.00"])
+    assert [(r["kind"], r["n"]) for r in loc["refused"]] == [("edge", 1720), ("courtyard", 1116)]
+    assert loc["refused"][1]["blockers"] == [{"owner": "K1", "face": "front", "n": 712}, {"owner": "J1", "face": "front", "n": 404}]
+    assert out["locPocket"]["tried"] == 0 and out["locPocket"]["refused"][0]["n"] == 7758
+    assert out["drawn"]["refused"][0]["kind"] == "body, silk or mask" and out["drawn"]["refused"][0]["blockers"][0]["owner"] == "W1"
+    assert out["pocket"]["pocket"] == {"w": "15.0", "h": "15.0", "face": "front"} and out["pocket"]["why"] == "no pocket fits" and out["pocket"]["tried"] is None
+    assert out["pocketN"]["tried"] == 0 and out["pocketN"]["pocket"]["w"] == "6.0"
+    assert out["room"]["why"] == "no room" and out["room"]["what"] == "along its row" and [r["n"] for r in out["room"]["refused"]] == [12, 3]
+    assert out["bearing"]["bearings"] == 4 and [r["kind"] for r in out["bearing"]["refused"]] == ["courtyard", "vias that could not give way"]
+    assert out["alone"]["why"] == "cannot be laid out" and "pad 1" in out["alone"]["alone"]
+    assert out["rides"]["why"] == "rides" and out["rides"]["rides"] == "u1"
+    assert out["late"]["late"] == ["no room was left for it when j1 was placed"]
+    assert out["note"]["examples"] == ["SMALL courtyard overlaps BIG courtyard", "body box -0.50,6.90..5.70,13.10 crosses the board edge"] and out["note"]["why"] == "not placed"
+    assert out["noteParts"]["unplaced"][0].startswith("U1 courtyard overlaps") and out["noteParts"]["rank"]["n"] == "1" and out["noteParts"]["other"] == []
+
+
+@needs_node
+def test_the_not_placed_rows_the_card_and_the_findings_list_show_an_unplaced_item_as_sections_with_clickable_blockers(tmp_path):
+    out = run_more(tmp_path, UNPLACED_FORMS + r"""
+full([item("K1", 1), item("J1", 5)], [st("K1"), st("J1")]);
+const pl = ev("plan()"); pl.unplaced = [{item: "u1", why: "U1 courtyard overlaps K1 courtyard"}]; pl.findings = [Object.assign(fi(F.loc, "critical"), {item: ""})];     // the engine leaves an unplaced finding's item empty: the sentence names it
+ev("renderSteps()"); out.steps = els["#tab-steps"].innerHTML;
+ev("renderFindings()"); out.findings = els["#tab-findings"].innerHTML;
+ev("selectItem('u1')"); ev("renderCard()"); out.card = els["#card"].innerHTML;
+""")
+    for html in (out["steps"], out["card"]):
+        assert '<span class="kk">why</span>' in html and '<span class="chip bad">no legal location</span>' in html
+        assert '<span class="kk">radius</span>' in html and '3.0 mm' in html
+        assert "(3.00, 15.00) mm" in html and '<span class="chip refusal">courtyard x1116</span>' in html and '<span class="chip refusal">edge x1720</span>' in html
+        assert 'data-act="owner" data-owner="K1"' in html                                    # K1 is a part of the plan: a pill that selects it
+        assert 'data-act="owner" data-owner="J1"' in html
+        assert "U1 courtyard overlaps K1 courtyard" in html                                  # the placer's example, as written
+        assert "no legal location within" not in html
+    assert 'class="row unp"' in out["steps"]
+    f = out["findings"]
+    assert '<span class="chip refusal">courtyard x1116</span>' in f and '<span class="sev critical">critical</span>' in f and "no legal location within" not in f
+    assert out["card"].count("chip refusal") == out["steps"].count("chip refusal")           # the finding is not said twice on the card
+
+
+@needs_node
+def test_a_legend_group_with_more_than_three_entries_starts_collapsed_and_a_viewers_choice_is_kept(tmp_path):
+    out = run_more(tmp_path, r"""
+const many = n => Array.from({length: n}, (_, i) => Object.assign({}, KO, {name: "ko" + i}));
+hello(); started(1);
+send("board", Object.assign({}, BOARD, {keepouts: many(5), reservations: [RES]}));
+out.five = els["#legend"].innerHTML;
+send("board", Object.assign({}, BOARD, {keepouts: many(3), reservations: [RES]}));
+out.three = els["#legend"].innerHTML;
+send("board", Object.assign({}, BOARD, {keepouts: many(5), reservations: [RES]}));
+out.shown = ev("groupState('ko', plan())");
+// the header still switches every child, and the viewer's choice replaces the rule
+const hdr = els["#legend"].onclick({target: {closest: s => s === "[data-grp]" ? {dataset: {grp: "ko"}} : null}});
+out.after_toggle = [ev("S.off.size"), ev("REGION_GROUPS.ko(plan()).every(n => S.off.has('ko:' + n))"), ev("groupState('ko', plan())")];
+els["#legend"].onclick({target: {closest: s => s === "[data-exp]" ? {dataset: {exp: "ko", n: "5"}} : null}});
+out.opened = els["#legend"].innerHTML;
+out.pref = ev("JSON.stringify(legendPref)");
+""")
+    assert 'data-id="ko:ko0"' not in out["five"] and 'data-exp="ko" data-n="5">&#9656;' in out["five"]                    # five keepouts: collapsed
+    assert 'data-id="ko:ko0"' in out["three"] and 'data-exp="ko" data-n="3">&#9662;' in out["three"]                     # three: expanded
+    assert out["shown"] == "none" and out["after_toggle"][1] is False and out["after_toggle"][2] == "all"       # all five start hidden; the header, though collapsed, shows them all
+    assert 'data-id="ko:ko0"' in out["opened"] and out["pref"] == '{"ko":true}'

@@ -9,6 +9,39 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- **A running command streams what it does on a socket it owns, and `placemat watch` and the studio follow it.** A
+  command that resolves a board (`run`, `preview`, an explore, whoever started it) listens from its first resolve on
+  `<project root>/.placemat/sockets/<pid>.sock`, with `<pid>.json` beside it (pid, command, script, arguments, started,
+  label, progress file); both go when it exits, and readers remove the entries of dead pids. A reader that connects
+  mid-run is first sent a catch-up (`hello`, the board, the steps and plan so far), then newline JSON as it happens:
+  the steps and phases the studio's own worker sends, the finished plan, and for an explore the plain placement, each
+  variant (seed, score, measures, the focused items' placements and order) and the end; then `done` with the record's
+  path, or `error`. A command is never slowed by a reader: each has a bounded queue that drops what does not fit, and
+  one that goes away is dropped. A board resolved with no script (a bench, a test) listens on nothing. Linux and macOS only.
+- **A crash trail.** A command also mirrors its events, in short form, into an append-only `progress.jsonl`
+  (`.placemat/runs/<id>/progress.jsonl` for a run, else `.placemat/views/<command>/progress-<pid>.jsonl`), flushed as it
+  goes, so a command that dies leaves its last state. A command that starts deletes the progress files that earlier
+  commands of its script left once those are no longer running. It is read only for a command that has ended or died.
+- **`placemat watch [pid|label] [--json]`** follows one command of the project, or every running one: a line per step,
+  per variant, until it ends. Exit 0 done, 1 error, 2 died (its last state is printed from its progress file) or not
+  found.
+- **The studio shows every placemat command of its project, live.** It reads every socket in the project's folder.
+  The page's new Runs view lists the commands (command, script, pid, elapsed, state), a toast announces a new one,
+  and opening one draws its steps on the board in place of the studio's own plan; a command found dead is listed
+  as lost with its last state. An explore is shown with a plot of score against time and the best so far, the latest
+  variant (at most `[studio] explore_fps` times a second, default 2) and the best drawn over the plain placement,
+  thumbnails, a step through the variants by order or score, and where each item landed across them.
+- **Studio page.** On a wide layout the running status is one line in the header (the strip above the timeline stays on
+  narrow ones), and between two steps the step that just settled stays, dimmed, with its time. Unplaced items are shown
+  as sections in the steps list, the card and the findings list: why, the radius searched around a point, and what
+  refused it as counts per kind with the parts that did most of it as pills that select them. The legend's keepouts,
+  reserved areas and a layer's zones start collapsed when there are more than three; the choice is kept in the browser.
+- **An explore keeps its variants.** `.placemat/views/explore/<time>-<pid>.json` holds every variant (seed, score,
+  measures, the focused items' placements and the order they were placed in) and which was kept; the studio lists and
+  replays finished explores from it. `run.json`'s `metrics.explore` names it as `record`.
+- **The studio's own Run is a command like the rest**: it reports over the channel and the page shows its live steps
+  instead of its printed lines (the studio reads no printed text). A resolve worker that crashes is reported as a
+  lost connection and the step it was on; the traceback is detail where there is one.
 - **Findings carry suggestions: changes to the layout script that may clear them.** `run` and `preview` print the
   best one under each critical or warning finding (`try s3a: Place c4 beside c1, on its north side`) and the ids of
   the others; `run.json`'s `finding_details[i]` and `preview --json` give each finding its `case` and its `suggestions`
@@ -24,6 +57,7 @@ section for each hand-written pattern a newer form replaces.
   it with placemat.
 - Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), `apply` (true) and `suggest_factor` (2.0),
   none part of a run's id. Scripts change nothing.
+
 
 ## To 0.86.4
 

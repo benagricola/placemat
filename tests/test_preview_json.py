@@ -214,3 +214,25 @@ def test_the_engine_tells_on_begin_the_queue_each_item_it_starts_and_what_a_long
     plain = _board().resolve()
     assert [s.item for s in plain.steps] == [s.item for s in plan.steps]
     assert [(s.item, s.placement) for s in plain.steps] == [(s.item, s.placement) for s in plan.steps]
+
+
+def test_a_variants_shapes_are_the_plain_ones_turned_about_the_item_and_carried_as_the_page_draws_them():
+    """The explore view draws a variant by moving the plain item's shapes (page: moveShape); the engine's own shapes of an
+    item placed at a turn agree with that."""
+    import math
+
+    def build(rot):
+        fps = [footprint("U1", 20, 20, w=8, h=2, inst="u1", nets=("A", "B"))]
+        b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5, keep_going=True)
+        b.place(Part("u1"), at=Location(20, 20), rotation=rot)
+        doc = plan_json(b.resolve(), declared_sites(b))
+        it = doc["items"][0]
+        return it["at"], it["rotation"], [s for m in it["members"] for s in m["shapes"] if s["kind"] == "courtyard"][0]["poly"]
+    for turn in (90, 180, 270):
+        a0, r0, p0 = build(0)
+        a1, r1, p1 = build(turn)
+        d = math.radians(r1 - r0)
+        c, s = math.cos(d), math.sin(d)
+        mine = [[a1[0] + (x - a0[0]) * c + (y - a0[1]) * s, a1[1] - (x - a0[0]) * s + (y - a0[1]) * c] for x, y in p0]
+        norm = lambda ps: sorted([round(v, 2) + 0.0 for v in p] for p in ps)
+        assert norm(mine) == norm(p1), turn

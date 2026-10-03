@@ -37,6 +37,7 @@ import threading
 import time
 from urllib.parse import parse_qs, urlparse
 
+from . import channel
 from .console import console
 from .studio_diff import diff_plans, line_diff, trace, unified_diff, with_spans
 from .studio_watch import Debounce, Poller
@@ -347,6 +348,8 @@ class Studio:
         self._initial = self.script is not None
         self._error = None
         self._fresh_next = False                # the next resolve replays nothing from an earlier one
+        self.cmds: dict = {}                    # the commands of the project that report over the channel, by connection id
+        self.watcher = None
         self._run = None                        # the checked run in progress: {"id", "lines"}
         self._run_cache: dict = {}              # run.json path -> (mtime, summary)
         self.worker = WorkerProcess(self._on_worker, self._views() / "worker.log")
@@ -467,6 +470,8 @@ class Studio:
         self.url = "http://%s:%d/?t=%s" % (_url_host(self.host), self.port, self.token)
         self._files = self.watched()
         self._poller = Poller(lambda: self._files)
+        self.watcher = channel.Watcher(self.root, self._on_channel, self._on_dead)
+        self.watcher.start()
         for target in (self.server.serve_forever, self._watch, self._scan_scripts):
             t = threading.Thread(target=target, daemon=True)
             t.start()
@@ -475,6 +480,8 @@ class Studio:
 
     def stop(self) -> None:
         self._stopping.set()
+        if self.watcher is not None:
+            self.watcher.stop()
         if self.server is not None:
             self.server.shutdown()
             self.server.server_close()
@@ -604,6 +611,7 @@ class Studio:
             if kind == "board":
                 self.hub.emit("board", {k: v for k, v in ev.items() if k not in ("ev", "id")} | {"id": rid}, keep=True)
             elif kind == "item":
+                cur["last"] = ev["item"].get("key")
                 if cur["now"] is not None and cur["now"].get("replaying"):
                     cur["replayed"] += 1
                 cur["now"] = None
@@ -649,13 +657,21 @@ class Studio:
             if sig in ("SIGTERM", "SIGKILL", "SIGINT", "SIGHUP"):
                 return {"message": "the resolve worker was stopped by %s from outside the studio; the next change resolves again" % sig}
             if sig:
-                return {"message": "the resolve worker was stopped by %s" % sig}
-            return {"message": "the resolve worker exited (code %s) without an error; its log: %s" % (code, self.worker.log_path)}
+                return {"message": "the resolve worker was stopped by %s%s" % (sig, self._last_step_note())}
+            return {"message": "the resolve worker exited (code %s) without an error%s" % (code, self._last_step_note())}
         mine = self.user_frame(fatal["frames"])
-        message = "the resolve worker crashed: %s%s" % (fatal["what"], " (%s)" % sig if sig else "")
+        message = "the resolve worker crashed: %s%s%s" % (fatal["what"], " (%s)" % sig if sig else "", self._last_step_note())
         extra = {"file": self.name_of(mine[0]) if mine else "", "line": mine[1] if mine else None, "source": _source_line(mine) if mine else None}
         extra["detail"] = "\n".join('  File "%s", line %d in %s' % f for f in fatal["frames"][:12])
         return {"message": message, **extra}
+
+    def _last_step_note(self) -> str:
+        """What the worker last reported before it was lost: the item it was working on, and the last it settled. A lost
+        connection and these are the crash report; the traceback is detail where there is one."""
+        c = self._cur or {}
+        now, last = (c.get("now") or {}).get("item"), c.get("last")
+        bits = (["while working on %s" % now] if now else []) + (["the last step it settled was %s" % last] if last else [])
+        return (" " + ", ".join(bits)) if bits else ""
 
     def user_frame(self, frames):
         """The innermost of `frames` ((file, line, function), innermost first) that is in the script or a module it
@@ -701,6 +717,166 @@ class Studio:
         if previous is not None:
             emit("compare", self.compare(previous, rec), keep=True)
         self.hub.log.clear()                    # a page that connects now is given the whole of it by hello()
+
+    # ------------------------------------------------------------ the live channel
+    MAX_EVENTS = 6000                           # kept for a command: what a page opening it late is given
+    MAX_CMDS = 30
+
+    @staticmethod
+    def _cmd_summary(c: dict) -> dict:
+        return {k: c.get(k) for k in ("id", "pid", "command", "script", "args", "started", "state", "message", "record", "last", "items",
+                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated")}
+
+    def commands(self) -> list:
+        with self.lock:
+            return [self._cmd_summary(c) for c in self.cmds.values()]
+
+    def _rel(self, c: dict, text):
+        """A file an event names, as the page names files: relative to the script's folder."""
+        if not text or not c.get("script"):
+            return text
+        try:
+            return os.path.relpath(text, Path(c["script"]).parent)
+        except ValueError:
+            return text
+
+    def _on_channel(self, cid: int, ev: dict) -> None:
+        """An event from a command reporting over the socket (any thread)."""
+        kind = ev.get("ev")
+        with self.lock:
+            c = self.cmds.get(cid)
+            if kind == "hello":
+                run = self._run
+                c = {"id": cid, "pid": ev.get("pid"), "command": ev.get("command", ""), "script": ev.get("script", ""), "args": ev.get("args", []),
+                     "started": time.time(), "state": "running", "items": 0, "variants": 0, "resolves": 0, "log": [], "plan": None, "explore": None,
+                     "own_run": run["id"] if run is not None and run.get("pid") == ev.get("pid") else None}
+                self.cmds[cid] = c
+                for old in [k for k, v in self.cmds.items() if v["state"] != "running"][:-self.MAX_CMDS]:
+                    del self.cmds[old]
+                self.hub.emit("cmd", self._cmd_summary(c))
+                return
+            if c is None:
+                return
+            if kind == "lost":
+                if c["state"] == "running":
+                    c.update(state="lost", ended=time.time(), message="the command stopped without saying it was done" +
+                             ((" (the last step it reported: %s)" % c["last"]) if c.get("last") else ""))
+                self.hub.emit("cmd", self._cmd_summary(c))
+                return
+            if kind == "item":
+                it = ev.get("item") or {}
+                if it.get("file"):
+                    it["file"] = self._rel(c, it["file"])
+                c["last"] = it.get("key") or c.get("last")
+                c["items"] += 1
+            elif kind == "resolve":
+                c["resolves"] = ev.get("n", c["resolves"] + 1)
+                c["plan"] = None
+            elif kind == "plan":
+                doc = ev.get("doc") or {}
+                for it in doc.get("items", ()):
+                    if it.get("file"):
+                        it["file"] = self._rel(c, it["file"])
+                c["plan"] = ev
+            elif kind == "explore":
+                c["explore"] = {"start": ev, "variants": [], "done": None}
+            elif kind == "variant":
+                c["variants"] += 1
+                if c["explore"] is not None:
+                    c["explore"]["variants"].append(ev)
+                    c["best"] = min([c.get("best") if c.get("best") is not None else ev["score"], ev["score"]])
+            elif kind == "explore_done":
+                if c["explore"] is not None:
+                    c["explore"]["done"] = ev
+                c["best"], c["baseline"], c["kept"] = ev.get("best"), ev.get("baseline"), ev.get("kept")
+                if ev.get("record"):
+                    c["record"] = ev["record"]
+            elif kind == "done":
+                c.update(state="done", ended=time.time(), record=ev.get("record") or c.get("record"))
+            elif kind == "error":
+                c.update(state="error", ended=time.time(), message=ev.get("message", ""), error=ev)
+            if kind in ("explore", "variant", "explore_done"):
+                pass
+            n = len(c["log"])
+            if kind not in ("plan", "explore", "variant", "explore_done"):
+                if n < self.MAX_EVENTS:
+                    c["log"].append(ev)
+                else:
+                    c["truncated"] = True
+            self.hub.emit("cmdev", {"id": cid, "n": n, "ev": ev})
+            if kind in ("done", "error"):
+                self.hub.emit("cmd", self._cmd_summary(c))
+                if c.get("own_run") is not None and kind == "error":
+                    self._run_note = ev.get("message", "")
+            elif c.get("own_run") is not None and kind in ("item", "begin"):
+                self.hub.emit("run_progress", {"id": c["own_run"], "item": c.get("last") or "", "n": c["items"]})
+
+    def _on_dead(self, cid: int, entry: dict, events: list) -> None:
+        """A command found dead (its pid gone, its entry left behind): shown with the last state in its progress file."""
+        done = next((e for e in reversed(events) if e.get("ev") in ("done", "error")), None)
+        items = [e for e in events if e.get("ev") == "item"]
+        last = items[-1].get("key") if items else None
+        c = {"id": cid, "pid": entry.get("pid"), "command": entry.get("command", ""), "script": entry.get("script", ""),
+             "args": entry.get("args", []), "started": entry.get("started") or time.time(), "ended": time.time(), "items": len(items),
+             "variants": sum(1 for e in events if e.get("ev") == "variant"), "resolves": sum(1 for e in events if e.get("ev") == "resolve"),
+             "log": [], "plan": None, "explore": None, "last": last, "own_run": None}
+        if done is not None and done.get("ev") == "done":
+            c.update(state="done", record=done.get("record"))
+        elif done is not None:
+            c.update(state="error", message=done.get("message", ""))
+        else:
+            c.update(state="lost", message="the command stopped without saying it was done" +
+                     ((" (the last step it reported: %s)" % last) if last else ""))
+        with self.lock:
+            self.cmds[cid] = c
+        self.hub.emit("cmd", self._cmd_summary(c))
+
+    def cmd_detail(self, cid: int):
+        """A command's events so far, its latest plan and, for an explore, its variants: what a page that opens it is given."""
+        with self.lock:
+            c = self.cmds.get(cid)
+            if c is None:
+                return None
+            return {"summary": self._cmd_summary(c), "events": list(c["log"]), "plan": c["plan"], "explore": c["explore"]}
+
+    def explores(self, limit: int = 20) -> list:
+        """The recorded explores of the project's boards (their result files), newest first, as the page lists them."""
+        dirs = set()
+        if self.src is not None:
+            dirs.add(self.src.board_dir / ".placemat" / "views" / "explore")
+        with self.lock:
+            for c in self.cmds.values():
+                if c.get("record") and "views" in c["record"] and "explore" in c["record"]:
+                    dirs.add(Path(c["record"]).parent)
+        out = []
+        for d in dirs:
+            try:
+                files = [f for f in d.glob("*.json")]
+            except OSError:
+                continue
+            for f in files:
+                try:
+                    doc = json.loads(f.read_text())
+                except (OSError, ValueError):
+                    continue
+                if doc.get("version") != 1:
+                    continue
+                out.append({"file": str(f), "script": doc.get("script", ""), "at": doc.get("at"), "pid": doc.get("pid"), "tried": len(doc.get("variants", ())),
+                            "best": doc.get("best"), "baseline": doc.get("baseline"), "kept": doc.get("kept"), "focus": len(doc.get("focus", ()))})
+        out.sort(key=lambda e: -(e["at"] or 0))
+        return out[:limit]
+
+    def explore_record(self, path: str):
+        """One explore's result file, if it is one of this project's."""
+        p = Path(path).resolve()
+        if p.suffix != ".json" or p.parent.name != "explore" or p.parent.parent.name != "views":
+            return None
+        try:
+            if self.root.resolve() not in p.parents:
+                return None
+            return json.loads(p.read_text())
+        except (OSError, ValueError):
+            return None
 
     # ------------------------------------------------------------ checked runs
     def runs_dir(self) -> Path:
@@ -780,7 +956,6 @@ class Studio:
             self._next_run = getattr(self, "_next_run", 0) + 1
             self._run = {"id": self._next_run, "lines": [], "t0": time.time()}
             rid = self._run["id"]
-        self.hub.emit("run_started", {"id": rid, "at": self._run["t0"]})
         threading.Thread(target=self._do_run, args=(rid,), daemon=True).start()
         return {"id": rid}
 
@@ -789,15 +964,17 @@ class Studio:
         cmd = [sys.executable, "-m", "placemat", "run", str(self.script), "--no-render"]
         code, tail = None, []
         try:
-            proc = subprocess.Popen(cmd, cwd=str(self.src.board_dir), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            # the run is a command like any other: it reports over the channel (its steps reach the page as the command's
+            # events), and what it leaves is its record. Its printed text is not read.
+            proc = subprocess.Popen(cmd, cwd=str(self.src.board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self._run_proc = proc
-            for line in proc.stdout:
-                line = line.rstrip("\n")
-                with self.lock:
-                    if self._run is not None:
-                        self._run["lines"].append(line)
-                tail.append(line)
-                self.hub.emit("run_line", {"id": rid, "text": line})
+            with self.lock:
+                if self._run is not None:
+                    self._run["pid"] = proc.pid
+                for c in self.cmds.values():
+                    if c.get("pid") == proc.pid:
+                        c["own_run"] = rid
+            self.hub.emit("run_started", {"id": rid, "at": t0, "pid": proc.pid})
             code = proc.wait()
         except OSError as e:
             tail.append("could not start the run: %s" % e)
@@ -808,6 +985,9 @@ class Studio:
                 break
         with self.lock:
             self._run = None
+            note = next((c.get("message") for c in self.cmds.values() if c.get("own_run") == rid and c.get("message")), "")
+        if note:
+            tail.append(note)
         self.hub.emit("run_done", {"id": rid, "code": code, "run": newest, "tail": tail[-25:], "runs": self.runs()})
 
     def run_doc(self, run_id: str) -> dict | None:
@@ -881,7 +1061,8 @@ class Studio:
         return {"t0": c.get("at", time.time()), "total": c.get("total"), "cur": c.get("now"), "replayed": c.get("replayed", 0)}
 
     def _hello_data(self) -> dict:
-        common = {"now": time.time(), "origin": self.origin(), "port": self.port}
+        common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
+                  "explores": self.explores(), "explore_fps": self.cfg.studio_explore_fps}
         if self.script is None:
             return {**common, "script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
                     "scripts": self.script_list(), "history": [], "resolving": None, "error": None, "runs": [], "run": None}
@@ -961,6 +1142,12 @@ def _handler(studio: Studio):
                     return self._send(200, "image/svg+xml", qr.to_svg(qr.encode(u)).encode())
                 except ValueError as e:
                     return self._refuse(400, str(e))
+            if path.startswith("/cmd/"):
+                d = studio.cmd_detail(_int(path[len("/cmd/"):]))
+                return self._json(d) if d is not None else self._refuse(404, "no such command")
+            if path == "/explore":
+                doc = studio.explore_record(query.get("f", [""])[0])
+                return self._json(doc) if doc is not None else self._refuse(404, "no such explore record")
             if path == "/runs":
                 return self._json(studio.runs())
             if path == "/runcompare":
