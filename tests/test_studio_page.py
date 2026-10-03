@@ -769,7 +769,7 @@ send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 7, of:
 send("begin", {id: 1, kind: "phase", text: "scanning the front or back", hint: [6, 8], radius: 12});
 clock += 3200;
 out.prog = [els["#progress"].hidden, els["#progtext"].textContent, els["#progbar"].style.width, els["#progbarbox"].classList];
-ev("renderSteps()"); out.pending = els["#tab-steps"].innerHTML;
+ev("renderSteps()"); out.pending = els["#tab-steps"].innerHTML; ev("renderStepNow()"); out.stepnow = els["#stepnow"].innerHTML; out.stepnow_shown = els["#stepnow"].style.display;
 out.mark = ev("S.work.cur");
 send("step", {id: 1, item: Object.assign(item("psu", 5), {key: "psu"})});
 out.after = [ev("S.work.cur"), els["#tab-steps"].innerHTML.indexOf("pendrow") < 0 || els["#tab-steps"].innerHTML.indexOf("waiting for the next step") > 0];
@@ -778,7 +778,12 @@ out.done = [els["#progress"].hidden, ev("S.work")];
 """)
     assert out["start"][0] is False and "step 0" in out["start"][1] and "so far" in out["start"][1]
     assert out["prog"][0] is False and "step 1 of about 30" in out["prog"][1] and "searching psu" in out["prog"][1] and out["prog"][2] == "3%"
-    assert 'id="pendrow"' in out["pending"] and "<b>psu</b>" in out["pending"] and "searching" in out["pending"] and "rank 7 of 18" in out["pending"] and "scanning the front or back" in out["pending"] and "3.2 s" in out["pending"]
+    pr = out["pending"]
+    assert 'id="pendrow"' in pr and 'class="f-item" title="psu">psu</b>' in pr and '<span class="chip searched">searching</span>' in pr
+    assert '<span class="f-rank">rank 7 of 18</span>' in pr and '<span class="chip phase">scanning front/back</span>' in pr and '<span class="f-time">3.2 s</span>' in pr
+    assert "scanning the front or back" not in pr                                         # the phase is a short pill
+    sn = out["stepnow"]
+    assert out["stepnow_shown"] == "block" and '<span class="f-n">Step 2</span>' in sn and 'title="psu"' in sn and "rank 7 of 18" in sn and "scanning front/back" in sn
     assert out["mark"]["hint"] == [6, 8] and out["mark"]["rank"] == 7
     assert out["after"][0] is None and out["done"] == [True, None]
 
@@ -796,7 +801,7 @@ out.text = els["#progtext"].textContent;
 send("begin", {id: 1, kind: "begin", item: "c", what: "searched", rank: 1, of: 1, replaying: false, n: 2});
 out.after = els["#tab-steps"].innerHTML;
 """)
-    assert out["replayed"] == 1 and "replaying unchanged steps" in out["row"] and "1 of 3 steps replayed" in out["row"] and out["row"].count('id="pendrow"') == 1
+    assert out["replayed"] == 1 and "replaying unchanged steps" in out["row"] and "1 of 3" in out["row"] and '<span class="chip decided">replay</span>' in out["row"] and out["row"].count('id="pendrow"') == 1
     assert "replaying unchanged steps" in out["text"]
     assert "replaying unchanged steps" not in out["after"] and "searching" in out["after"]
 
@@ -894,3 +899,11 @@ key("Escape"); flush(); out.after1 = [ev("S.scriptOpen"), els["#card"].style.dis
 key("Escape"); flush(); out.after2 = els["#card"].style.display;
 """)
     assert out["card_open"] == "block" and out["after1"] == [False, "block"] and out["after2"] == "none"      # the script first, then the card
+
+
+def test_phase_notes_are_shortened_to_a_pill_and_no_field_can_run_off_its_box():
+    import re as _re
+    page = PAGE.read_text()
+    assert ".flds { display: flex; flex-wrap: wrap;" in page and ".flds .f-item { flex: 1 1 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }" in page
+    assert _re.search(r"\.flds \.f-time \{ width: [\d.]+em; text-align: right;", page) and "#stepnow { display: none; box-sizing: border-box; max-width: 100%; min-width: 0;" in page
+    assert "white-space: nowrap; }\n#stepnow" not in page

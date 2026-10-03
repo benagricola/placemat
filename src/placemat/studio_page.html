@@ -141,7 +141,17 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 #slider { flex: 1; min-width: 0; height: 30px; margin: 0; accent-color: var(--accent); touch-action: none; }
 /* the label and the button have fixed widths: the slider's own width never changes while it is dragged */
 #steplabel { flex: none; width: 6em; text-align: right; white-space: nowrap; overflow: hidden; }
-#stepnow { display: none; max-width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow); padding: 3px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#stepnow { display: none; box-sizing: border-box; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 4px 12px; }
+/* the current step as fields: each keeps its width where its value changes, the name takes the rest, and the line wraps rather than overflows */
+.flds { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; max-width: 100%; }
+.flds > * { min-width: 0; flex: none; }
+.flds .f-n { width: 5.2em; color: var(--dim); }
+.flds .f-item { flex: 1 1 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flds .f-rank { width: 6.8em; color: var(--dim); white-space: nowrap; }
+.flds .f-phase { width: 11.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flds .f-time { width: 3.8em; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.flds .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.pending .flds { margin-top: 2px; }
 #tip { position: absolute; pointer-events: none; background: #20252b; color: #f2f4f6; padding: 6px 9px; border-radius: 6px; font-size: 12px; max-width: 360px; display: none; white-space: pre-wrap; z-index: 7; box-shadow: var(--shadow); }
 
 /* the sidebar */
@@ -740,22 +750,40 @@ function renderProgress() {
   const box = $("#progbarbox"); box.classList.toggle("ind", !T);
   $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
 }
+// The engine's phase notes, shortened to a pill's width.
+function phaseShort(text, what) {
+  const s = String(text || "");
+  if (what === "copper") return "copper batch";
+  let m;
+  if ((m = /^refining around the best spots: (\\d+ of \\d+)$/.exec(s))) return "refining " + m[1];
+  if (/^seeding/.test(s)) return "seeding";
+  if (/^coarse pass/.test(s)) return "coarse pass";
+  if (/^placing at/.test(s)) return "placing";
+  if ((m = /^scanning the (.*)$/.exec(s))) return "scanning " + m[1].replace(/ or /, "/");
+  return s;
+}
+// The fields of the step being worked on: the rank in the queue (k of n), the phase as a pill, the time on this step.
+// A field keeps its width, so a changing value moves nothing (formatting rule 3: "rank k of n").
+const workFields = c => (c.rank ? '<span class="f-rank">' + esc("rank " + c.rank + " of " + c.of) + "</span>" : '<span class="f-rank"></span>') +
+  '<span class="f-phase">' + (c.phase || c.what === "copper" ? pill(phaseShort(c.phase, c.what), "phase") : "") + "</span>" +
+  '<span class="f-time">' + esc(((Date.now() - c.t) / 1000).toFixed(1) + " s") + "</span>";
+const whatClass = what => what === "searched" ? "searched" : what === "decided" ? "decided" : what === "copper" ? "copper" : what === "cutout" ? "cutout" : what === "replay" ? "decided" : "keepout";
+const itemField = name => '<b class="f-item" title="' + escRaw(name) + '">' + esc(name) + "</b>";
 function pendingRow() {
   const w = S.work; if (!S.resolving || !w) return "";
-  const c = w.cur, R = w.total ? w.total.replay : 0;
+  const c = w.cur, R = w.total ? w.total.replay : 0, spin = '<span class="i"><i class="spin"></i></span>';
   if (w.replayed && (!c || c.replaying)) {
-    return '<div class="row pending" id="pendrow"><span class="i"><i class="spin"></i></span><div class="sb"><div class="l1"><b>replaying unchanged steps</b><span class="chip decided">replay</span></div><div class="l2" id="pendtext">' + w.replayed + (R ? " of " + R : "") + " steps replayed from the last resolve</div>" +
+    return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField("replaying unchanged steps") + pill("replay", "decided") + '</div><div class="flds" id="pendtext"><span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span></div>" +
       (R ? '<div class="pbar"><b style="width:' + Math.min(100, Math.round(100 * w.replayed / R)) + '%"></b></div>' : "") + "</div></div>";
   }
-  if (!c) return '<div class="row pending" id="pendrow"><span class="i"><i class="spin"></i></span><div class="sb"><div class="l1"><b>working</b></div><div class="l2" id="pendtext">waiting for the next step</div></div></div>';
-  const cls = c.what === "searched" ? "searched" : c.what === "decided" ? "decided" : c.what === "copper" ? "copper" : c.what === "cutout" ? "cutout" : "keepout";
-  return '<div class="row pending" id="pendrow"><span class="i"><i class="spin"></i></span><div class="sb"><div class="l1"><b>' + esc(c.item) + '</b><span class="chip ' + cls + '">' + esc(WHAT_WORD[c.what] || c.what) + '</span></div><div class="l2" id="pendtext">' + esc(pendingText(c)) + "</div></div></div>";
+  if (!c) return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField("working") + '</div><div class="flds" id="pendtext"><span class="f-phase dim">waiting for the next step</span></div></div></div>';
+  return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField(c.item) + pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + '</div><div class="flds" id="pendtext">' + workFields(c) + "</div></div></div>";
 }
-const pendingText = c => [c.rank ? "rank " + c.rank + " of " + c.of : "", c.phase, ((Date.now() - c.t) / 1000).toFixed(1) + " s"].filter(Boolean).join(", ");
 // The pending row's own text and the header's, refreshed without drawing the lists again.
 function updatePending() {
   const w = S.work, c = w && w.cur, el = $("#pendtext");
-  if (c && el && !c.replaying) el.textContent = pendingText(c);
+  if (c && el && !c.replaying) el.innerHTML = workFields(c);
+  renderStepNow();
   renderProgress();
 }
 setInterval(() => { if (S.resolving && S.work) updatePending(); }, 500);
@@ -1735,11 +1763,22 @@ function renderReplay() {
   }
   $("#steplabel").textContent = n ? k + " / " + n + (S.resolving ? " so far" : "") : S.resolving ? "..." : "0";
   const fb = $("#follow"); fb.hidden = !(S.resolving && S.replay != null);
-  const now = S.replay != null && order[k - 1], sn = $("#stepnow");
-  sn.style.display = now ? "block" : "none";
-  if (now) sn.textContent = "Step " + k + ": " + now.item + (now.note || now.why ? " - " + (now.note || now.why) : "");
+  renderStepNow();
   $("#play").textContent = S.play ? "Pause" : "Play";
   $("#play").disabled = !n || !!S.resolving;
+}
+// The display above the timeline: the step the slider is on, or while a resolve runs and the slider follows it, the
+// step being worked on. Fields, not a sentence: step number, name, kind pill, rank, phase pill, time.
+function renderStepNow() {
+  const sn = $("#stepnow"), p = plan(), order = replaySteps(p), n = order.length, k = S.replay == null ? n : clamp(S.replay, 0, n), w = S.work;
+  const settled = S.replay != null && order[k - 1], work = !settled && S.resolving && w && w.cur && !w.cur.replaying ? w.cur : null;
+  sn.style.display = settled || work ? "block" : "none";
+  if (settled) {
+    const it = S.itemAt && S.itemAt.get(settled.item), kind = stepKind(settled, it), np = noteParts(settled.note || (it && it.note) || "");
+    sn.innerHTML = '<div class="flds"><span class="f-n">' + esc("Step " + k) + "</span>" + itemField(kind.name) + pill(kind.word, kind.cls) + '<span class="f-rank">' + (np.rank ? esc("rank " + np.rank.n + " of " + np.rank.of) : "") + "</span></div>";
+  } else if (work) {
+    sn.innerHTML = '<div class="flds"><span class="f-n">' + esc("Step " + (n + 1)) + "</span>" + itemField(work.item) + pill(WHAT_WORD[work.what] || work.what, whatClass(work.what)) + workFields(work) + "</div>";
+  }
 }
 const R = {rows: [], k: -1, n: 0};
 function collectRows() { R.rows = [...document.querySelectorAll("#steplist .row[data-n]")]; R.k = -1; }
