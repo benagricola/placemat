@@ -1,17 +1,14 @@
 """The studio's 3D side: the jobs it accepts, the converter process it keeps (a fake one here; test_model_convert runs the real one), the routes that
 serve meshes and the viewer, and the whole thing over a live studio on a staged module."""
-import json
 import sys
 import textwrap
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from placemat import model_cache, model_mesh as mm, studio_3d
+from placemat import model_mesh as mm, studio_3d
 from placemat.settings import Settings
-from tests.conftest import needs_kicad
 
 FAKE = textwrap.dedent('''
     import json, sys, time

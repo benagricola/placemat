@@ -1,6 +1,5 @@
 """A via the script declares at a part's pad goes with the part through its
 search: the part lands where the via clears the other face."""
-import dataclasses
 
 from placemat.copper import Via
 from placemat.geometry import poly_distance, via_ring
@@ -59,7 +58,7 @@ def test_a_via_at_a_pad_named_by_its_net_is_carried_too():
 
 
 def test_a_cell_carries_the_vias_at_its_members_pads():
-    from placemat.values import Cell, Centre
+    from placemat.values import Cell
     fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=("GND", "X"), cell="m"),
            footprint("R9", 20, 20, w=2, h=1, inst="r9", nets=("S", "T"), face=Face.BACK)]
     b = Board(board_geometry(fps, cells=["m"], width=50, height=50, extra_nets=("GND",)), edge_margin=0.5)

@@ -9,7 +9,7 @@ import pytest
 from placemat.board_geometry import CopperItem
 from placemat.layout import Board
 from placemat.project import fab_profile
-from placemat.values import Box, Cell, CopperLayer, Location, Net
+from placemat.values import Box, CopperLayer, Location, Net
 from tests.fixtures import board_geometry, footprint
 
 F, B = CopperLayer.F, CopperLayer.B

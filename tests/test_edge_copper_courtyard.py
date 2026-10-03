@@ -7,9 +7,7 @@ import pytest
 
 from placemat.board_geometry import Footprint
 from placemat.layout import Board
-from placemat.occupancy import Occupancy
-from placemat.placement import Placement
-from placemat.values import Box, Cell, Disc, Face, Location, Near, Part
+from placemat.values import Box, Cell, Face, Location, Near, Part
 from tests.fixtures import board_geometry, footprint, pad
 
 CENTRE = 26.5           # a 53 mm disc: rim radius 26.5, keep-in 0.4 -> copper to 26.1

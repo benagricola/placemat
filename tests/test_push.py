@@ -5,7 +5,7 @@ import pytest
 
 from placemat.cutouts import Circle
 from placemat.layout import Board
-from placemat.values import Face, Location, PadRef, Part, Priority
+from placemat.values import Face, Location, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 

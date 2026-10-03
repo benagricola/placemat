@@ -31,13 +31,6 @@ def run(op, text, needle, **kw):
 FACE = {"enum": "Face.EITHER"}
 
 
-def assert_parses_and_outside_equal(before, after, needle):
-    ast.parse(after)
-    b, a = before.splitlines(keepends=True), after.splitlines(keepends=True)
-    assert b[0] == a[0]
-    assert b[-1] == a[-1] or b[-2] == a[-2]
-
-
 # ------------------------------------------------------------------ set_kwarg
 def test_set_kwarg_adds_a_keyword_to_a_call_on_one_line():
     text = HEAD + 'board.place(Part("c4"))  # the cap\nboard.place(Part("c5"))\n'

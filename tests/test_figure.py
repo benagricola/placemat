@@ -6,7 +6,7 @@ from placemat import reuse
 from placemat.copper import Track, Via
 from placemat.cutouts import Path
 from placemat.layout import Board
-from placemat.values import (CopperLayer, Face, Figure, FigurePoint, Location, Mid, Net, PadRef, Part, Pin, Polar,
+from placemat.values import (CopperLayer, Face, Location, Mid, Net, PadRef, Part, Pin, Polar,
                              Turned, X, Y)
 from tests.fixtures import board_geometry, footprint
 

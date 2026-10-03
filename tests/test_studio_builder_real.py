@@ -1,7 +1,6 @@
 """The builder's facts batch with a real generation: `pcb layout` (the Zener tool, shipped with its stdlib) runs on a two-part board in a scratch
 project, the facts are written to the .zen, fab-profile.json and placemat.toml, the board is regenerated and the facts read back from it, and
 the script made from the outline resolves. Skipped where `pcb` is not installed."""
-import json
 import shutil
 import time
 

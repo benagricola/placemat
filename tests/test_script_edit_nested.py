@@ -3,7 +3,7 @@ list, a `Cutout` in `holes=`, an intent `Centre`), reached by `args["into"]`, an
 import pytest
 
 from placemat import script_edit as se
-from tests.test_script_edit import FACE, line_of, run as _run
+from tests.test_script_edit import run as _run
 
 HEAD = ("from placemat import board, Along, Beside, Centre, Cutout, Edge, Location, PadRef, Part, Past, Slot, X, Y\n\n")
 

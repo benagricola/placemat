@@ -6,7 +6,7 @@ from placemat.board_geometry import CopperItem
 from placemat.layout import Board
 from placemat.occupancy import Occupancy
 from placemat.placer import pockets
-from placemat.values import Box, CopperLayer, Face, Location, Part
+from placemat.values import Box, CopperLayer, Face, Part
 from tests.fixtures import board_geometry, footprint, rect
 
 

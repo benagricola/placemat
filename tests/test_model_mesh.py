@@ -1,7 +1,5 @@
 """The `.pmm` mesh file, vertex-clustering decimation, and the shared model cache."""
 import os
-import struct
-import time
 from array import array
 
 import pytest

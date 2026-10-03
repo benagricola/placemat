@@ -250,7 +250,6 @@ def test_a_via_keeps_clear_of_an_unplated_hole():
     """A connector's locating peg is a hole with no copper: the via keeps the
     hole-to-hole rule from it and its copper the hole clearance."""
     import dataclasses
-    from placemat.geometry import poly_distance
     b0 = _board()
     b0.place(Part("u1"), at=Location(20, 20))
     b0.place(Part("r1"), at=Location(20, 26))

@@ -108,7 +108,7 @@ def test_copper_is_named_even_when_other_kinds_refused_more():
     from types import SimpleNamespace
     from placemat.blame import blame_of
     from placemat.finding_text import blame_text
-    from placemat.refusals import Owner, ReservedBy
+    from placemat.refusals import Owner
     result = SimpleNamespace(rejected=Counter({"edge": 797980, "reservation": 69551, "body": 14376, "copper": 2210}),
                              reasons={}, blockers=Counter({("pad", Owner("who", "U7", "", "GND"), "front"): 2210}))
     text = blame_text(blame_of(result))

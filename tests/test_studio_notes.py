@@ -1,6 +1,5 @@
 """Notes: records an agent leaves for the studio (`placemat studio note`), the file they are kept in, and the studio reading it."""
 import json
-import os
 import time
 
 import pytest

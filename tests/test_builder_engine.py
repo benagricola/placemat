@@ -5,7 +5,6 @@ import ast
 import pytest
 
 from placemat import project, script_edit as se
-from placemat.suggestions import Edit
 from tests.test_builder_ops import HEAD, ed, one
 
 

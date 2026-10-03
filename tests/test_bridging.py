@@ -2,7 +2,7 @@
 which passes under, never the order they were declared in."""
 from placemat.layout import Board
 from placemat.copper import Pour, Track, Via
-from placemat.values import CopperLayer, Location, Net, Part, PadRef, Priority, X, Y
+from placemat.values import CopperLayer, Location, Net, Part, PadRef, Priority, Y
 from tests.fixtures import board_geometry, footprint, declared_findings
 
 F, B = CopperLayer.F, CopperLayer.B

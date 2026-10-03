@@ -231,7 +231,6 @@ def test_a_block_scan_gathers_each_members_obstacles_once(monkeypatch):
 def test_a_block_lands_where_it_did_with_the_obstacles_gathered_once():
     """The placements are those of the per-call gather, to the nanometre."""
     import placemat.placer as placer
-    from placemat.occupancy import Occupancy
 
     def run():
         b = make_board()

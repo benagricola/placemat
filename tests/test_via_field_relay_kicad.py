@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 
 from placemat.giveway_field import FieldStep
-from placemat.settings import Settings
 from tests.conftest import needs_kicad
 from tests.test_via_field_relay import FIELD, NO_LEAVE, SHIFT, TOP_ROW, _board, _placed
 

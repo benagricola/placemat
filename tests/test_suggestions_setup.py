@@ -1,10 +1,8 @@
 """setup, escape, fixed and slide cases on synthetic scripts."""
-import pytest
 
 from placemat import suggestions as sg
-from placemat.values import Edge
 from tests.fixtures import footprint
-from tests.suggest_support import apply_and_resolve, make_board, resolve, suggestions_of
+from tests.suggest_support import apply_and_resolve, resolve, suggestions_of
 from tests.test_escape_findings import _walled_in
 
 

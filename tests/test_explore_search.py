@@ -1,7 +1,7 @@
 """Scoring a variant and searching seeds in parallel under a deadline."""
 import time
 
-from placemat.explore import Explore, explore, score
+from placemat.explore import explore, score
 from placemat.layout import Board
 from placemat.values import Location, Part
 from tests.fixtures import board_geometry, footprint

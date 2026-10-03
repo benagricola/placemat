@@ -6,7 +6,7 @@ import pytest
 
 from placemat.copper import Track
 from placemat.geometry import poly_distance
-from placemat.values import Beside, Corner, CopperLayer, Edge, Location, Net, PadRef, Part
+from placemat.values import Beside, Corner, CopperLayer, Edge, Net, PadRef, Part
 from tests.escape_fixtures import CLEAR56, bypass_135, fan_board, one_pad
 
 F = CopperLayer.F

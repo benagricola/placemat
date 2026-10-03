@@ -5,7 +5,7 @@ import pytest
 
 from placemat import script_edit as se
 from placemat.suggestions import Edit, Target
-from tests.test_script_edit import FACE, HEAD, edit, line_of, run
+from tests.test_script_edit import FACE, HEAD, line_of, run
 
 
 # ------------------------------------------------------------------ nesting and encoding

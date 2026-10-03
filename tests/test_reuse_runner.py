@@ -1,5 +1,4 @@
 """What a run says about the steps it reused, and its record on disk."""
-import json
 
 from placemat import reuse
 
