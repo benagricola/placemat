@@ -16,13 +16,19 @@ from tests.conftest import needs_kicad
 CLI = mc.find_kicad_cli()
 pytestmark = [needs_kicad, pytest.mark.skipif(CLI is None, reason="kicad-cli is not installed")]
 
-MODULE = "usbcells"                    # has parts the plan flips to the back
+MODULE = "usbconverter"                # its parts stand turned 0, 90, 180 and 270; one is put on the back below
+
+
+def _one_part_on_the_back(text):
+    text = text.replace('board.place(Part("r_vbus_en"), at=Beside(CTL, Edge.SOUTH, gap=VIA_ROWS, align=pin(4)),',
+                        'board.place(Part("r_vbus_en"), at=Beside(CTL, Edge.SOUTH, gap=VIA_ROWS, align=pin(4)), face=Face.BACK,')
+    return text.replace("from placemat import (board,", "from placemat import (Face, board,", 1)
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("e2e3d")
-    result, drc, pcb = real_modules.run(tmp, MODULE, keep_going=True)
+    result, drc, pcb = real_modules.run(tmp, MODULE, keep_going=True, edit=_one_part_on_the_back)
     plan = result.plan
     ctx = ModelContext(pcb)
     placed = []
