@@ -2647,6 +2647,10 @@ class Board:
             ctx.ops_at[c.index] = ops
             shapes = []
             for op in ops:
+                if isinstance(op, Via) and any(
+                        x.net == op.net and x.kind in ("pad", "through") and point_in_polygon((op.at.x, op.at.y), x.poly)
+                        for g in occ.items.values() for x in g.shapes if x.box.contains_point(op.at)):
+                    continue            # a via in a pad of its net is carried by the part, and gives way with it
                 if isinstance(op, (Track, Via)):
                     sh = _shape_of(op)
                     if sh is not None:
