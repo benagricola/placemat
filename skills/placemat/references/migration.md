@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.90.1
+
+### Changed
+
+- **The studio's running status shows one counter**, "step n of ~N", with the kind and phase pills and an info tooltip; the
+  search rank stays on the card. On desktop the status gives way (subtitle, phase, kind, name) before it can reach the buttons.
+  Scripts change nothing.
+
 ## To 0.90.0
 
 ### New
