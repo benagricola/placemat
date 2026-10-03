@@ -65,7 +65,8 @@ Specced work first, then the loose ends.
     commits only (no per-net begin/end, so pair nets get no routed/failed
     counts); a ripped net's copper is removed for the whole replay instead of
     at the rip step; the "of N" total grows as each router launch's queue
-    arrives.
+    arrives; events dropped on a full queue are missing from the record too;
+    a stopped route leaves a partial record listed with the finished ones.
 
 ## Open
 
