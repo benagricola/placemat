@@ -136,13 +136,34 @@ def _enum_name(v):
     return v["enum"].split(".")[-1] if isinstance(v, dict) and "enum" in v else None
 
 
+_NAMES: dict = {}          # the names the script binds to items (`U1 = Part("u1")`), for the relation being read
+
+
+def bound_items(text: str) -> dict:
+    """{NAME: item key} of the module-level `NAME = Part("key")` and `NAME = Cell("key")` bindings of a script."""
+    out = {}
+    for st in se._parse(text).tree.body:
+        v = st.value if isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name) else None
+        if isinstance(v, ast.Call) and se._func_name(v) in ("Part", "Cell") and v.args and isinstance(v.args[0], ast.Constant) \
+                and isinstance(v.args[0].value, str):
+            out[st.targets[0].id] = v.args[0].value
+    return out
+
+
 def _item_of(v):
-    return v["item"] if isinstance(v, dict) and "item" in v else None
+    if isinstance(v, dict) and "item" in v:
+        return v["item"]
+    if isinstance(v, dict) and "name" in v and v["name"] in _NAMES:
+        return _NAMES[v["name"]]
+    return None
 
 
 def _pad_of(v):
     if isinstance(v, dict) and "pad" in v:
         return {"item": v["pad"][0], "pad": v["pad"][1]}
+    if isinstance(v, dict) and v.get("form") == "PadRef" and len(v.get("args", ())) == 2 and _item_of(v["args"][0]) is not None:
+        pad = v["args"][1]
+        return {"item": _item_of(v["args"][0]), "pad": pad["str"] if isinstance(pad, dict) and "str" in pad else pad}
     return None
 
 
@@ -154,9 +175,11 @@ def _num_or_name(v):
     return None
 
 
-def relation_of(intent):
+def relation_of(intent, names: dict | None = None):
     """A placement's `at=` (an intent expression, script_edit.read_intent) as a relation record, `{"kind": ...}` with the fields
     that kind has; `{"kind": "searched"}` where it gives none; None where it is not one of the builder's relations (by hand)."""
+    _NAMES.clear()
+    _NAMES.update(names or {})
     if intent is None:
         return None
     if isinstance(intent, dict) and intent.get("absent"):
@@ -352,8 +375,8 @@ def parts_rows(board: dict, plan: dict | None, texts: dict, base, *, script_name
             r.update(status="decided", source=src_line, relation={"kind": kind})
             r["phrase"] = phrase(r["relation"], label)
             continue
-        if kind != "place" or shared > 1:
-            r.update(status="by hand", source=src_line)
+        if kind != "place" or shared > 1 or line not in {st.lineno for st in se._parse(text).tree.body}:
+            r.update(status="by hand", source=src_line)          # a loop, a helper, a conditional: an edit there would change more than this item
             continue
         target = Target("place", key, _abs(base, file), line)
         try:
@@ -362,7 +385,7 @@ def parts_rows(board: dict, plan: dict | None, texts: dict, base, *, script_name
         except se.EditRefused:
             r.update(status="by hand", source=src_line)
             continue
-        rel = relation_of(intent)
+        rel = relation_of(intent, bound_items(text))
         r["mods"] = modifiers_of(call)
         if rel is None:
             r.update(status="by hand", source=src_line)

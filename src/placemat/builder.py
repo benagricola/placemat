@@ -297,6 +297,50 @@ def _cutout_form(h: dict, shape_names: dict, const_name: str) -> dict:
     return {"form": "Cutout", "args": [shape, _str(h["name"])], "kwargs": {"at": place}, "bind": const_name}
 
 
+def hole_edits(holes: list, is_disc: bool, names, file: str, web=None, have_web: bool = False) -> dict:
+    """The constants and the `Cutout` bindings for `holes` (a round hole or a slot, each placed by an edge of a rectangle or a bearing
+    and radius on a disc), as `{"edits", "binds": [(name, form)], "imports", "web": the web constant's name or None}`. A hole on an
+    edge needs the web (material kept round it), a constant of its own unless the outline already has one (`have_web`)."""
+    edits, binds, imports = [], [], set()
+    for h in holes:
+        if h.get("kind") not in ("circle", "slot") or not h.get("name"):
+            raise BuilderRefused("a hole is a circle or a slot, with a name")
+        at = h.get("at") or {}
+        if is_disc and "bearing" not in at or (not is_disc and "edge" not in at):
+            raise BuilderRefused("a hole is placed at an edge of a rectangle or at a radius and a bearing on a disc")
+    on_edge = any("edge" in h["at"] for h in holes)
+    if on_edge and not have_web and (not isinstance(web, (int, float)) or isinstance(web, bool) or web <= 0):
+        raise BuilderRefused("a hole on an edge needs the web: the material kept round it, above 0 mm",
+                             "a hole that touches the outline is a notch, which belongs in the outline's own path")
+    for h in holes:
+        base = _identifier(h["name"])
+        nm = {}
+        if h["kind"] == "circle":
+            nm["diameter"] = names.take(base + "_DIAMETER_MM")
+            edits.append(_constant(file, nm["diameter"], _positive(h, "diameter"),
+                                   wrap("The diameter of the %s hole, chosen in %s." % (h["name"], BUILDER))))
+        else:
+            nm["length"] = names.take(base + "_LENGTH_MM")
+            nm["width"] = names.take(base + "_WIDTH_MM")
+            edits.append(_constant(file, nm["length"], _positive(h, "length"),
+                                   wrap("The length of the %s slot, chosen in %s." % (h["name"], BUILDER))))
+            edits.append(_constant(file, nm["width"], _positive(h, "width"),
+                                   wrap("The width of the %s slot, chosen in %s." % (h["name"], BUILDER))))
+        if "bearing" in h["at"]:
+            nm["radius"] = names.take(base + "_RADIUS_MM")
+            edits.append(_constant(file, nm["radius"], _positive(h["at"], "radius"),
+                                   wrap("The distance of the %s hole's centre from the middle of the board, chosen in %s."
+                                        % (h["name"], BUILDER))))
+        bind = names.take(base)
+        binds.append((bind, _cutout_form(h, nm, bind)))
+        imports |= {"Cutout", "Circle" if h["kind"] == "circle" else "Slot"} | ({"OnEdge", "Along", "Edge"} if "edge" in h["at"] else {"Polar", "Edge"})
+    web_name = None
+    if on_edge and not have_web:
+        web_name = names.take("BOARD_WEB_MM")
+        edits.append(_constant(file, web_name, float(web), wrap("The material kept round a hole, chosen in %s." % BUILDER)))
+    return {"edits": edits, "binds": binds, "imports": imports, "web": web_name}
+
+
 def outline_edits(text: str, spec: dict, file: str) -> list:
     """The edits that give a script with no outline the one `spec` describes: its size constants (each with the comment saying
     where the number came from), a hole's constants and binding, the web, the outline statement, and the names it needs imported.
@@ -364,43 +408,11 @@ def outline_edits(text: str, spec: dict, file: str) -> list:
     # holes
     hole_names = []
     if holes:
-        is_disc = shape in ("disc", "disc_bore")
-        for h in holes:
-            if h.get("kind") not in ("circle", "slot") or not h.get("name"):
-                raise BuilderRefused("a hole is a circle or a slot, with a name")
-            at = h.get("at") or {}
-            if is_disc and "bearing" not in at or (not is_disc and "edge" not in at):
-                raise BuilderRefused("a hole is placed at an edge of a rectangle or at a radius and a bearing on a disc")
-        web = spec.get("web")
-        if any("edge" in h["at"] for h in holes):
-            if not isinstance(web, (int, float)) or isinstance(web, bool) or web <= 0:
-                raise BuilderRefused("a hole on an edge needs the web: the material kept round it, above 0 mm",
-                                     "a hole that touches the outline is a notch, which belongs in the outline's own path")
-        for h in holes:
-            base = _identifier(h["name"])
-            nm = {}
-            if h["kind"] == "circle":
-                nm["diameter"] = names.take(base + "_DIAMETER_MM")
-                edits.append(_constant(file, nm["diameter"], _positive(h, "diameter"),
-                                       wrap("The diameter of the %s hole, chosen in %s." % (h["name"], BUILDER))))
-            else:
-                nm["length"] = names.take(base + "_LENGTH_MM")
-                nm["width"] = names.take(base + "_WIDTH_MM")
-                edits.append(_constant(file, nm["length"], _positive(h, "length"),
-                                       wrap("The length of the %s slot, chosen in %s." % (h["name"], BUILDER))))
-                edits.append(_constant(file, nm["width"], _positive(h, "width"),
-                                       wrap("The width of the %s slot, chosen in %s." % (h["name"], BUILDER))))
-            if "bearing" in h["at"]:
-                nm["radius"] = names.take(base + "_RADIUS_MM")
-                edits.append(_constant(file, nm["radius"], _positive(h["at"], "radius"),
-                                       wrap("The distance of the %s hole's centre from the middle of the board, chosen in %s."
-                                            % (h["name"], BUILDER))))
-            bind = names.take(base)
-            hole_names.append((bind, _cutout_form(h, nm, bind)))
-            imports |= {"Cutout", "Circle" if h["kind"] == "circle" else "Slot"} | ({"OnEdge", "Along", "Edge"} if "edge" in h["at"]
-                                                                                    else {"Polar", "Edge"})
-        if any("edge" in h["at"] for h in holes):
-            kw["web"] = _name(size("BOARD_WEB_MM", "web", "The material kept round a hole", value=float(web)))
+        got = hole_edits(holes, shape in ("disc", "disc_bore"), names, file, spec.get("web"))
+        edits += got["edits"]
+        hole_names, imports = got["binds"], imports | got["imports"]
+        if got["web"]:
+            kw["web"] = _name(got["web"])
         kw["holes"] = {"list": [_name(b) for b, _ in hole_names]}
     outline = {"form": call, "args": args, "kwargs": kw}
     if imports:

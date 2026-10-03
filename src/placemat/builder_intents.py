@@ -38,6 +38,73 @@ class Ctx:
         self.digests = {str(self.script): se.digest(self.text)}
         self.parts = {p["key"]: p for p in board["parts"]}
         self.cells = {c["key"]: c for c in board["cells"]}
+        self.bound_items, self.use_names = self._spelling()
+        self.plain = self._plain()
+
+    # -------- the script as it is written
+    def _spelling(self) -> tuple:
+        """({item key: the name the script binds it to (`U1 = Part("u1")`)}, whether the script writes its parts by those names): a script
+        that places by name, or has bindings and no literal, gets the name; one that mixes, or writes literals, gets the literal."""
+        import ast
+        mod = se._parse(self.text)
+        bound = {}
+        for st in mod.tree.body:
+            v = st.value if isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name) else None
+            if isinstance(v, ast.Call) and se._func_name(v) in ("Part", "Cell") and v.args and isinstance(v.args[0], ast.Constant) \
+                    and isinstance(v.args[0].value, str):
+                bound.setdefault(v.args[0].value, st.targets[0].id)
+        names = literals = 0
+        for st in mod.tree.body:
+            c = st.value if isinstance(st, ast.Expr) else None
+            if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr in ("place", "row", "ring") and c.args:
+                a = c.args[0]
+                items = a.elts if isinstance(a, (ast.List, ast.Tuple)) else [a]
+                for it in items:
+                    if isinstance(it, ast.Name):
+                        names += 1
+                    elif isinstance(it, ast.Call):
+                        literals += 1
+        return bound, bool(bound) and literals == 0
+
+    def _plain(self) -> bool:
+        """Whether the script is of the shape the builder writes (a header, constants, bindings and board calls at the top level, no loop
+        or function): its statements go in the decided and searched regions. Any other is a hand-written script, and a statement goes
+        after the right statement of it (`insertion_anchor`)."""
+        import ast
+        ok = (ast.Assign, ast.Import, ast.ImportFrom)
+        for st in se._parse(self.text).tree.body:
+            if isinstance(st, ok) or se._is_docstring(st):
+                continue
+            c = st.value if isinstance(st, ast.Expr) else None
+            if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and isinstance(c.func.value, ast.Name) and c.func.value.id == "board":
+                continue
+            return False
+        return True
+
+    def module_level(self, line: int) -> bool:
+        return any(st.lineno == line for st in se._parse(self.text).tree.body)
+
+    def insertion_anchor(self, refs: dict):
+        """Where a new statement goes in a hand-written script, as `(a Target to insert after, None)` or `(None, a region)`: after the
+        statement that declares what it names (the last of them, when it names several) if that is at the top level; else after the last
+        top-level `place`, `row`, `ring` or `block`; else after the outline; and where the only placements are in functions or loops, at
+        the end of the module."""
+        import ast
+        cands = [t for t in refs.values() if t.file == str(self.script) and self.module_level(t.line)]
+        if cands:
+            return max(cands, key=lambda t: t.line), None
+        last = None
+        for st in se._parse(self.text).tree.body:
+            c = st.value if isinstance(st, (ast.Expr, ast.Assign)) else None
+            if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr in ("place", "row", "ring", "block") \
+                    and se._stands_alone(se._parse(self.text).src, st):
+                last = (c.func.attr, st.lineno)
+        if last is not None:
+            return Target(last[0], "", str(self.script), last[1], 1, se.digest(self.text)), None
+        if self.outline["kind"] is not None and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("place", "row")
+                                                  for n in ast.walk(se._parse(self.text).tree)):
+            return None, "end"
+        return None, "outline"
 
     # -------- naming
     def label(self, key) -> str:
@@ -45,6 +112,9 @@ class Ctx:
         return r["ref"] if r else key
 
     def form(self, key) -> dict:
+        """An item written inline, `Part("u1")`: or, where the script writes its parts by the names it binds, that name."""
+        if self.use_names and key in self.bound_items:
+            return _name(self.bound_items[key])
         return _cell(key) if key in self.cells else _part(key)
 
     def abs(self, name) -> str:
@@ -56,7 +126,7 @@ class Ctx:
         if r is None or not r["line"] or r["status"] in ("unplaced", "by hand") and not r["file"]:
             return None
         text = self.texts.get(r["file"])
-        if text is None or se.site_calls(text, r["line"])[:1] != ["place"]:
+        if text is None or se.site_calls(text, r["line"])[:1] != ["place"] or not self.module_level(r["line"]) or r["file"] != self.name:
             return None
         shared = sum(1 for o in self.rows.values() if o["file"] == r["file"] and o["line"] == r["line"])
         return Target("place", key, self.abs(r["file"]), r["line"], shared, se.digest(text))
@@ -244,14 +314,37 @@ def _limit_constant(ctx: Ctx, names: _Names, subject: str, target: str, params: 
 
 
 # ------------------------------------------------------------------ modifiers
-def modifier_kwargs(params: dict) -> dict:
-    """The keyword arguments of a placement the user may add: rotation (a quarter turn), face, priority, required and why."""
+def modifier_kwargs(params: dict, ctx=None, subject: str = "") -> dict:
+    """The keyword arguments of a placement the user may add: rotation (a quarter turn, `facing` a pad toward an edge, or `turned`
+    with another part), face, priority, required and why."""
     kw = {}
+    f, t = params.get("facing"), params.get("turned")
+    if f or t:
+        if ctx is None:
+            raise BuilderRefused("a rotation by a pad or by another part needs the board's parts")
+        if f and t:
+            raise BuilderRefused("a rotation is one of: a quarter turn, a pad facing an edge, or turned with another part")
+        if f:
+            if f.get("edge") not in EDGES:
+                raise BuilderRefused("a pad faces NORTH, EAST, SOUTH or WEST")
+            part = ctx.parts.get(subject)
+            pad = _find_pad(part, f.get("pad")) if part else None
+            if pad is None:
+                raise BuilderRefused("%s has no pad %s to turn by" % (ctx.label(subject), f.get("pad")))
+            kw["rotation"] = _form("Facing", ctx.padref(subject, pad, {}), _enum("Edge." + f["edge"]))
+        else:
+            if t.get("key") not in ctx.rows or t["key"] == subject:
+                raise BuilderRefused("turn with another part of the board")
+            if ctx.rows[t["key"]]["status"] == "unplaced":
+                raise BuilderRefused("%s is not placed yet, so there is no turn to follow" % ctx.label(t["key"]), "an unplaced item is not a target")
+            if t.get("degrees", 0) not in TURNS:
+                raise BuilderRefused("a rotation is a quarter turn: 0, 90, 180 or 270", "rotation is a quarter turn")
+            kw["rotation"] = _form("Turned", ctx.item(t["key"], {}) if ctx.declared(t["key"]) else _part(t["key"]), t.get("degrees", 0))
     rot = params.get("rotation")
     if rot not in (None, ""):
         if rot not in TURNS:
             raise BuilderRefused("a rotation is a quarter turn: 0, 90, 180 or 270", "rotation is a quarter turn")
-        if rot != 0:
+        if rot != 0 and "rotation" not in kw:
             kw["rotation"] = rot
     if params.get("face"):
         if params["face"] not in FACES:
@@ -296,10 +389,16 @@ def is_decided(at) -> bool:
 
 
 def _insert(ctx, stmts: list, decided: bool, refs: dict) -> Edit:
+    value = {"block": stmts} if len(stmts) > 1 else stmts[0]
+    if not ctx.plain:                       # a hand-written script: after the right statement of it, with no comment of the builder's
+        target, region = ctx.insertion_anchor(refs)
+        if target is not None:
+            return Edit("insert_statement", target, {}, value, dict(refs), str(ctx.script))
+        return Edit("insert_statement", None, {"after": {"region": region}}, value, dict(refs), str(ctx.script))
     args = {"after": {"region": "decided" if decided else "searched"}}
     if not decided:
         args["comment"] = SEARCHED_NOTE
-    return Edit("insert_statement", None, args, {"block": stmts} if len(stmts) > 1 else stmts[0], dict(refs), str(ctx.script))
+    return Edit("insert_statement", None, args, value, dict(refs), str(ctx.script))
 
 
 def placement_edits(ctx: Ctx, key: str, at, mods: dict, refs: dict, before: list = ()) -> list:
@@ -349,12 +448,47 @@ class Offer:
     pre: list = field(default_factory=list)         # edits made first: the constants a typed number needs
     before: list = field(default_factory=list)      # statements written with the placement, above it (a link)
     refs: dict = field(default_factory=dict)        # the declarations the expressions name, for the script's own spelling
+    group: object = None                            # a row or a ring: the whole statement, placed in the decided part of the script
     needs: list = field(default_factory=list)       # what the user must still say: "own_pad"
     notes: list = field(default_factory=list)
     edits: list = field(default_factory=list)
 
 
-def _edge_offers(ctx: Ctx, target: dict) -> list:
+def edge_bindings(ctx: Ctx) -> dict:
+    """{(facing, outermost): name} of the module-level `name = board.edge(facing=Edge.X[, outermost=True])` statements of the script."""
+    import ast
+    out = {}
+    for st in se._parse(ctx.text).tree.body:
+        v = st.value if isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name) else None
+        if isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr == "edge" and not v.args:
+            kw = {k.arg: k.value for k in v.keywords}
+            f = kw.get("facing")
+            if set(kw) <= {"facing", "outermost"} and isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == "Edge":
+                om = isinstance(kw.get("outermost"), ast.Constant) and kw["outermost"].value is True
+                out[(f.attr, om)] = st.targets[0].id
+    return out
+
+
+def _run_target(ctx: Ctx, edge: str, names: _Names):
+    """(the expression naming the stretch of a shaped board facing `edge`, the edits that bind it where the script has no binding)."""
+    from . import builder_runs as br
+    loops = ((ctx.plan or {}).get("board") or {}).get("loops") or []
+    got = br.nameable(loops, edge)
+    if not got["ok"]:
+        raise BuilderRefused(got["why"], "a shaped board's sides are chosen, not named: a stretch that cannot be named without a number is greyed")
+    have = edge_bindings(ctx)
+    key = (edge, got["outermost"])
+    if key in have:
+        return _name(have[key]), []
+    bound = names.take("%s_edge" % bp.SIDE[edge])
+    kwargs = {"facing": _enum("Edge." + edge)}
+    if got["outermost"]:
+        kwargs["outermost"] = True
+    pre = Edit("insert_statement", None, {"after": {"region": "outline"}, "bind": bound}, _form("board.edge", **kwargs), {}, str(ctx.script))
+    return _name(bound), [pre]
+
+
+def _edge_offers(ctx: Ctx, target: dict, names: _Names) -> list:
     kind = ctx.outline["kind"]
     edge = target.get("edge")
     if kind == "rect":
@@ -377,8 +511,18 @@ def _edge_offers(ctx: Ctx, target: dict) -> list:
             out.append(Offer("on_rim", "on the rim, facing %s" % bp.SIDE[edge], _form("OnRim", _enum("Edge." + edge))))
         out.append(Offer("on_rim_any", "anywhere on the rim", _form("OnRim")))
         return out
-    raise BuilderRefused("this board's outline is not a rectangle or a disc, so its sides are chosen by the stretch of edge they face: "
-                         "choose a run of the edge", "a shaped board's sides are chosen, not named")
+    if kind == "outline":
+        if edge not in EDGES:
+            raise BuilderRefused("choose the side the stretch faces: NORTH, EAST, SOUTH or WEST")
+        run, pre = _run_target(ctx, edge, names)
+        side = bp.SIDE[edge]
+        out = []
+        for along, word in ((None, "somewhere on the edge facing %s" % side), ("START", "at the start of the edge facing %s" % side),
+                            ("MID", "in the middle of the edge facing %s" % side), ("END", "at the end of the edge facing %s" % side)):
+            kw = {"along": _enum("Along." + along)} if along else {}
+            out.append(Offer("on_edge_" + (along or "any").lower(), word, _form("OnEdge", run, **kw), list(pre)))
+        return out
+    raise BuilderRefused("this board's outline is not one the builder places on", "an outline the builder cannot read is shown as written")
 
 
 def _part_offers(ctx: Ctx, subject: str, target: dict, params: dict, names: _Names) -> list:
@@ -486,7 +630,7 @@ def _side_of_pad(ctx: Ctx, key: str, pad: dict):
 
 def _finish(ctx: Ctx, subject: str, o: Offer, mods: dict) -> list:
     edits = list(o.pre) + placement_edits(ctx, subject, o.at, mods, o.refs, o.before)
-    imp = imports_for(ctx, o.at, o.before, list(mods.values()), ctx.form(subject), [ctx.form(k) for k in o.refs])
+    imp = imports_for(ctx, o.at, o.before, list(mods.values()), ctx.form(subject), [ctx.form(k) for k in o.refs], [e.value for e in o.pre])
     if imp is not None:
         edits.insert(0, imp)
     return edits
@@ -498,27 +642,98 @@ def menu(ctx: Ctx, subjects: list, target: dict | None, params: dict | None = No
     yet."""
     params = params or {}
     check_request(ctx, subjects, target)
-    if len(subjects) != 1:
-        raise BuilderRefused("a row of several items is written from the row's own dialog", "")
-    subject = subjects[0]
     names = _Names(ctx.text)
+    if len(subjects) != 1:
+        return group_menu(ctx, subjects, target, params, names)
+    subject = subjects[0]
     if target is None:
         offers = [Offer("searched", "leave it to the search, from its links", None)]
     elif target["kind"] == "edge":
-        offers = _edge_offers(ctx, target)
+        offers = _edge_offers(ctx, target, names)
     elif target["kind"] == "part":
         offers = _part_offers(ctx, subject, target, params, names)
     else:
         offers = _pad_offers(ctx, subject, target, params, names)
-    mods = modifier_kwargs(params)
+    mods = modifier_kwargs(params, ctx, subject)
     for o in offers:
         if not o.needs:
             o.edits = _finish(ctx, subject, o, mods)
     return offers
 
 
-def offer_suggestion(ctx: Ctx, o: Offer, subject: str) -> Suggestion:
-    return _suggestion(ctx, "%s %s" % ("Place %s" % ctx.label(subject), o.text), o.edits)
+def group_menu(ctx: Ctx, subjects: list, target: dict | None, params: dict, names: _Names) -> list:
+    """Several unplaced items and an edge or a part's side: a row (`board.row(items, edge)`), or on a disc's rim a ring. The items go in
+    the selection's order, which `params["order"]` changes. A gap is left out (courtyards touch) unless the user gives one with its
+    reason."""
+    order = list(params.get("order") or subjects)
+    if sorted(order) != sorted(subjects):
+        raise BuilderRefused("the row's order names the items selected")
+    for k in order:
+        if ctx.rows[k]["status"] != "unplaced":
+            raise BuilderRefused("%s is placed already: take it off the board before it joins a row" % ctx.label(k), "a row is made of unplaced items")
+    if target is None or target.get("kind") not in ("edge", "part"):
+        raise BuilderRefused("a row goes along an edge or beside a part: choose one", "")
+    items = {"list": [ctx.form(k) for k in order]}
+    pre: list = []
+    refs: dict = {}
+    kw_common = {}
+    gap = _gap_constant(ctx, names, order[0], target.get("key") or order[0], params, pre) if params.get("gap") else None
+    if gap:
+        kw_common["gap"] = gap
+    why = (params.get("why") or "").strip()
+    rot = params.get("rotation")
+    if rot not in (None, "", 0):
+        if rot not in TURNS:
+            raise BuilderRefused("a rotation is a quarter turn: 0, 90, 180 or 270", "rotation is a quarter turn")
+        kw_common["rotation"] = rot
+    if why:
+        kw_common["why"] = _str(why)
+    out = []
+    if target["kind"] == "edge" and ctx.outline["kind"] == "disc":
+        edge = target.get("edge")
+        kw = dict(kw_common)
+        if edge in EDGES:
+            kw["start"] = _enum("Edge." + edge)
+        out.append(Offer("ring", "in a ring round the rim" + ((", starting %s" % bp.SIDE[edge]) if edge in EDGES else ""), None, list(pre)))
+        out[-1].group = _form("board.ring", items, **{k: v for k, v in kw.items() if k != "gap"})
+    else:
+        if target["kind"] == "edge":
+            edge = target.get("edge")
+            if ctx.outline["kind"] == "outline":
+                where, p2 = _run_target(ctx, edge, names)
+                pre = pre + p2
+            elif edge in EDGES:
+                where = _enum("Edge." + edge)
+            else:
+                raise BuilderRefused("a row goes along NORTH, EAST, SOUTH or WEST")
+            label, extra = "along the %s edge" % bp.SIDE.get(edge, "?"), {}
+        else:
+            side = target.get("side")
+            if side not in EDGES:
+                raise BuilderRefused("choose a side of %s" % ctx.label(target["key"]))
+            where = _enum("Edge." + side)
+            extra = {"of": ctx.item(target["key"], refs)}
+            label = "along %s, %s" % (ctx.label(target["key"]), bp.SIDE[side])
+        for al, word in ((None, "from the start"), ("MID", "centred"), ("END", "from the end")):
+            kw = dict(extra)                                  # in the order row() takes them: of, gap, align, rotation, why
+            if "gap" in kw_common:
+                kw["gap"] = kw_common["gap"]
+            if al:
+                kw["align"] = _enum("Along." + al)
+            kw.update({k: v for k, v in kw_common.items() if k != "gap"})
+            o = Offer("row_" + (al or "start").lower(), "a row %s, %s" % (label, word), None, list(pre), refs=refs)
+            o.group = _form("board.row", items, where, **kw)
+            out.append(o)
+    for o in out:
+        imp = imports_for(ctx, o.group, [ctx.form(k) for k in order], [ctx.form(k) for k in o.refs], [e.value for e in o.pre])
+        o.edits = ([imp] if imp is not None else []) + list(o.pre) + [Edit("insert_statement", None, {"after": {"region": "decided"}}, o.group, dict(o.refs), str(ctx.script))]
+    return out
+
+
+def offer_suggestion(ctx: Ctx, o: Offer, subject) -> Suggestion:
+    """The offer as a suggestion; `subject` is the item, or the list of items a row is made of."""
+    who = ", ".join(ctx.label(k) for k in subject) if isinstance(subject, (list, tuple)) else ctx.label(subject)
+    return _suggestion(ctx, "Place %s %s" % (who, o.text), o.edits)
 
 
 # ------------------------------------------------------------------ searching the rest
@@ -554,7 +769,7 @@ def item_mods(ctx: Ctx, key: str, params: dict) -> Suggestion:
     have = row.get("mods") or {}
     file = str(ctx.script)
     edits = []
-    want = modifier_kwargs({k: v for k, v in params.items() if v not in ("", None, False)})
+    want = modifier_kwargs({k: v for k, v in params.items() if v not in ("", None, False)}, ctx, key)
     for name in ("rotation", "face", "priority", "required", "why"):
         given = params.get(name, None)
         if name in want:
@@ -569,6 +784,62 @@ def item_mods(ctx: Ctx, key: str, params: dict) -> Suggestion:
     if imp is not None:
         edits.insert(0, imp)
     return _suggestion(ctx, "Change how %s is placed" % ctx.label(key), edits)
+
+
+# ------------------------------------------------------------------ the order of decided statements, and a row's members
+def move_offer(ctx: Ctx, key: str, direction: str) -> Suggestion:
+    """A decided placement moved up or down among the decided placements (they go down as declared, so the order is meaningful): the
+    statement and its trailing comment move; the rest of the file is as it was."""
+    if direction not in ("up", "down"):
+        raise BuilderRefused("a statement moves up or down")
+    row = ctx.rows.get(key)
+    if row is None or row["status"] != "decided" or (row["relation"] or {}).get("kind") in ("row", "ring"):
+        raise BuilderRefused("only a decided placement is moved among the decided ones")
+    mine = _target_of(ctx, row)
+    decided = sorted((r for r in ctx.rows.values() if r["status"] == "decided" and r["line"] and r["file"] == row["file"]
+                      and (r["relation"] or {}).get("kind") not in ("row", "ring")), key=lambda r: r["line"])
+    i = next(k for k, r in enumerate(decided) if r["key"] == key)
+    j = i - 1 if direction == "up" else i + 1
+    if not 0 <= j < len(decided):
+        raise BuilderRefused("%s is already the %s of the decided placements" % (ctx.label(key), "first" if direction == "up" else "last"))
+    other = _target_of(ctx, decided[j])
+    e = Edit("move_statement", mine, {"before" if direction == "up" else "after": other.to_json()}, None, {}, str(ctx.script))
+    return _suggestion(ctx, "Move %s %s" % (ctx.label(key), direction), [e])
+
+
+def row_edit(ctx: Ctx, key: str, action: str, member: str = "", before: str = "") -> Suggestion:
+    """A change to the members of the row `key` is in: take one out (it is unplaced again), add an unplaced item, or move one before
+    another: `edit_list` on the row's items, the rest of the call as it was."""
+    row = ctx.rows.get(key)
+    rel = (row or {}).get("relation") or {}
+    if row is None or rel.get("kind") != "row":
+        raise BuilderRefused("%s is not in a row the builder wrote" % ctx.label(key))
+    text = ctx.texts[row["file"]]
+    target = Target("row", key, ctx.abs(row["file"]), row["line"], 1, se.digest(text))
+    member = member or key
+    if member not in ctx.rows:
+        raise BuilderRefused("%s is not a part or a cell of this board" % member)
+    spec = ctx.form(member)
+    edits = []
+    file = str(ctx.script)
+    if action == "remove":
+        if ctx.rows[member]["line"] != row["line"]:
+            raise BuilderRefused("%s is not in this row" % ctx.label(member))
+        edits.append(Edit("edit_list", target, {"arg": 0, "action": "remove"}, spec, {}, file))
+        text_ = "Take %s out of its row" % ctx.label(member)
+    elif action == "add":
+        if ctx.rows[member]["status"] != "unplaced":
+            raise BuilderRefused("%s is placed already: take it off the board before it joins a row" % ctx.label(member))
+        edits.append(Edit("edit_list", target, {"arg": 0, "action": "add"}, spec, {}, file))
+        text_ = "Add %s to the row" % ctx.label(member)
+    elif action == "move":
+        if not before or before not in ctx.rows or ctx.rows[before]["line"] != row["line"]:
+            raise BuilderRefused("move it before a member of the same row")
+        edits.append(Edit("edit_list", target, {"arg": 0, "action": "move", "before": ctx.form(before)}, spec, {}, file))
+        text_ = "Move %s before %s in its row" % (ctx.label(member), ctx.label(before))
+    else:
+        raise BuilderRefused("a row's member is taken out, added or moved")
+    return _suggestion(ctx, text_, edits)
 
 
 # ------------------------------------------------------------------ taking an item off the board

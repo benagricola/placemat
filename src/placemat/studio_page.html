@@ -3133,7 +3133,8 @@ showNarrow("board");
 window.addEventListener("resize", () => { applyView(); layoutScript(); renderProgress(); });
 if (window.ResizeObserver) new ResizeObserver(() => applyView()).observe($("#boardwrap"));   // the notice and the tab bar change its height
 schedule("all");
+// The board builder is a script of its own, served by the studio beside this page (studio_builder.js); it adds its own tab and panels.
+try { const b = document.createElement("script"); b.src = "/builder.js?t=" + encodeURIComponent(T); document.body.appendChild(b); } catch (e) { /* the studio without its builder */ }
 </script>
-<script>{ const b = document.createElement("script"); b.src = "/builder.js?t=" + encodeURIComponent(T); document.body.appendChild(b); }</script>
 </body>
 </html>

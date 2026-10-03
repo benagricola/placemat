@@ -113,6 +113,57 @@ def change_outline(ctx, spec: dict, params: dict) -> dict:
     return {"suggestion": s, "affected": affected}
 
 
+def _binding_constants(ctx, name: str) -> list:
+    """The constants a binding (`MOUNT = Cutout(Circle(MOUNT_DIAMETER_MM), ...)`) reads and nothing else does."""
+    import ast
+    mod = se._parse(ctx.text)
+    bind = next((st for st in mod.tree.body if se._assigns(st, name)), None)
+    if bind is None:
+        return []
+    read = {n.id for n in ast.walk(bind.value) if isinstance(n, ast.Name) and n.id.isupper()}
+    out = []
+    for c in sorted(read):
+        uses = [n for n in ast.walk(mod.tree) if isinstance(n, ast.Name) and n.id == c and isinstance(n.ctx, ast.Load)]
+        if all(bind.lineno <= u.lineno <= bind.end_lineno for u in uses):
+            out.append(c)
+    return out
+
+
+def _hole_changes(ctx, old: dict, spec: dict, target, names, file: str) -> list:
+    """Holes added (`spec["add_holes"]`: builder.hole_edits' request) or taken out (`spec["remove_holes"]`: their binding names)."""
+    edits = []
+    is_disc = FAMILY[old["shape"]] == "disc"
+    add = spec.get("add_holes") or []
+    if add:
+        got = builder.hole_edits(add, is_disc, names, file, spec.get("web"), have_web="web" in old["dims"])
+        edits += got["edits"]
+        for bind, form in got["binds"]:
+            edits.append(Edit("insert_statement", None, {"after": {"region": "constants"}, "bind": bind}, form, {}, file))
+        for bind, _ in got["binds"]:
+            edits.append(Edit("edit_list", target, {"arg": "holes", "action": "add", "create": True}, {"name": bind}, {}, file))
+        if got["web"]:
+            edits.append(Edit("set_kwarg", target, {"name": "web"}, {"name": got["web"]}, {}, file))
+        imp = bi.imports_for(ctx, *[f for _, f in got["binds"]])
+        if imp is not None:
+            edits.insert(0, imp)
+    remove = list(spec.get("remove_holes") or [])
+    for name in remove:
+        if name not in old["holes"]:
+            raise BuilderRefused("%s is not a hole of this outline" % name)
+    if remove:
+        keep = [h for h in old["holes"] if h not in remove]
+        if not keep and not add:
+            edits.append(Edit("remove_kwarg", target, {"name": "holes"}, None, {}, file))
+        else:
+            for name in remove:
+                edits.append(Edit("edit_list", target, {"arg": "holes", "action": "remove"}, {"name": name}, {}, file))
+        for name in remove:
+            edits.append(Edit("remove_constant", None, {"name": name}, None, {}, file))
+            for c in _binding_constants(ctx, name):
+                edits.append(Edit("remove_constant", None, {"name": c}, None, {}, file))
+    return edits
+
+
 def _outline_edits(ctx, old: dict, spec: dict, file: str) -> list:
     family_old, family_new = FAMILY[old["shape"]], FAMILY[spec["shape"]]
     names = _Names(ctx.text)
@@ -128,8 +179,8 @@ def _outline_edits(ctx, old: dict, spec: dict, file: str) -> list:
         after = se.apply_edits(edits, lambda p: ctx.text)[file][1]
         edits += builder.outline_edits(after, spec, file)
         return edits
-    # the same kind of outline: the numbers change in place, a corner or a bore is added or taken off
-    edits = []
+    # the same kind of outline: the numbers change in place, a corner or a bore is added or taken off, holes are added or taken out
+    edits = _hole_changes(ctx, old, spec, target, names, file)
     want = _dims_of(spec)
     if spec["shape"] == "polygon":
         problems = builder.polygon_problems(spec.get("points"))

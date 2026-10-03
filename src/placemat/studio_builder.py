@@ -544,7 +544,7 @@ class BuilderService:
                     if o.needs:
                         out.append({"intent": o.intent, "text": o.text, "needs": o.needs, "notes": o.notes})
                     else:
-                        out.append(self._register(rid, ctx, subjects[0], bi.offer_suggestion(ctx, o, subjects[0]), intent=o.intent,
+                        out.append(self._register(rid, ctx, subjects[0], bi.offer_suggestion(ctx, o, subjects if len(subjects) > 1 else subjects[0]), intent=o.intent,
                                                   needs=[], notes=o.notes))
                 return {"offers": out}
             if kind == "search":
@@ -555,6 +555,15 @@ class BuilderService:
                 self._need_gate()
                 subject = (req.get("subject") or [None])[0]
                 return {"offers": [self._register(rid, ctx, subject, bi.remove_edits(ctx, subject), intent="remove")]}
+            if kind == "move":
+                self._need_gate()
+                subject = (req.get("subject") or [None])[0]
+                return {"offers": [self._register(rid, ctx, subject, bi.move_offer(ctx, subject, (req.get("params") or {}).get("direction")), intent="move")]}
+            if kind == "row":
+                self._need_gate()
+                p = req.get("params") or {}
+                subject = (req.get("subject") or [None])[0]
+                return {"offers": [self._register(rid, ctx, subject, bi.row_edit(ctx, subject, p.get("action", ""), p.get("member", ""), p.get("before", "")), intent="row")]}
             if kind == "item":
                 self._need_gate()
                 subject = (req.get("subject") or [None])[0]

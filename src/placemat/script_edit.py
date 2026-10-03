@@ -972,22 +972,32 @@ def _edit_list(text, edit, ctx_for):
 
 
 def _insert_statement(text, edit, ctx_for):
+    """The statement(s) of `edit.value` (a call, or `{"block": [calls]}`) written on the lines after the target statement, at its indent."""
     mod, hit = _locate_stmt(text, edit.target)
-    if not isinstance(edit.value, dict) or "form" not in edit.value:
+    value = edit.value
+    forms = value.get("block") if isinstance(value, dict) and "block" in value else [value]
+    if not forms or not all(isinstance(f, dict) and "form" in f for f in forms):
         raise EditRefused("an inserted statement is a call")
-    new = _render(edit.value, ctx_for(mod, hit))
-    _check_expr(new)
+    ctx = ctx_for(mod, hit)
+    news = []
+    for f in forms:
+        new = _render(f, ctx)
+        _check_expr(new)
+        news.append(new)
     src = mod.src
     s, e = src.span(hit.stmt)
     le = src.line_end(e)
     nl = src.newline_at(le)
-    line = src.indent_of(s) + new
-    out = text + nl + line if le >= len(text) else _splice(text, [(le + len(nl), le + len(nl), line + nl)])
+    body = nl.join(src.indent_of(s) + n for n in news)
+    out = text + nl + body if le >= len(text) else _splice(text, [(le + len(nl), le + len(nl), body + nl)])
     try:
-        ast.parse(out)
+        tree = ast.parse(out)
     except SyntaxError as e:
         raise EditRefused("the edited file would not parse: %s" % e)
-    if _dump_without(out, hit.stmt.end_lineno + 1) != ast.dump(ast.parse(text)):
+    new_lines = {hit.stmt.end_lineno + 1 + k for k in range(len(news))}
+    for seq in _stmt_lists(tree):
+        seq[:] = [st for st in seq if st.lineno not in new_lines]
+    if ast.dump(tree) != ast.dump(ast.parse(text)):
         raise EditRefused("the edit would change more than the inserted statement")
     return out
 
@@ -1520,6 +1530,8 @@ def _region_after(mod, region):
     base = out_end if out_end is not None else consts
     decided = [k for k, s in enumerate(body) if (_is_place(s) or _is_group(s)) and _decided(s)]
     searched = [k for k, s in enumerate(body) if _is_place(s) and not _decided(s)]
+    if region == "end":
+        return len(body), False
     if region == "header":
         return header, False
     if region == "constants":
@@ -1849,7 +1861,7 @@ def _remap(before: str, after: str, line: int) -> int:
     import difflib
     a, b = before.splitlines(), after.splitlines()
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
-        if i1 < line <= i2 or (i1 == i2 == line - 1 and tag == "insert"):
+        if i1 < line <= i2:
             if tag == "equal":
                 return j1 + (line - i1)
             return j1 + 1

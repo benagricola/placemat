@@ -51,6 +51,8 @@ def coordinates_in(text: str) -> list:
                 found.append("%s with an offset at line %d" % (name, node.lineno))
             if name == "Centre" and any(isinstance(a, ast.Constant) and isinstance(a.value, (int, float)) for a in node.args[:2]):
                 found.append("a numeric Centre at line %d" % node.lineno)
+            if name == "Turned":                           # a quarter turn with another part
+                consts |= {id(a) for a in node.args if isinstance(a, ast.Constant)}
             if name in ("PadRef", "CellPadRef"):          # a pad is named by its number or its net: not a coordinate
                 consts |= {id(a) for a in node.args if isinstance(a, ast.Constant)}
             if name in ("local", "offset"):
@@ -87,7 +89,7 @@ class Session:
     """A builder session on a synthetic board: the script's text, resolved after each action, and the context a request is
     answered in. `act` applies an offer's edits to the text in memory (the same `apply_edits` the studio's apply path calls)."""
 
-    def __init__(self, tmp_path: Path, parts=None, shape=None, name="Demo", description="layout.", **board):
+    def __init__(self, tmp_path: Path, parts=None, shape=None, name="Demo", description="layout.", text=None, **board):
         from placemat import builder, script_edit
         from placemat.builder_worker import parts_record
         self.tmp, self.name, self.board_kw = Path(tmp_path), name, board
@@ -95,7 +97,8 @@ class Session:
         self.parts = parts
         self.data = parts_record(make_board(parts, **board).geometry)
         self.path = self.tmp / ("%s_layout.py" % name)
-        self.text = builder.new_script(name, description, shape or {"shape": "rect", "width": 60.0, "height": 40.0}, str(self.path.resolve()))
+        self.text = text if text is not None else builder.new_script(name, description, shape or {"shape": "rect", "width": 60.0, "height": 40.0},
+                                                                     str(self.path.resolve()))
         self.history = [self.text]
         self.script_edit = script_edit
         self.resolve()
