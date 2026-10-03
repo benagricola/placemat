@@ -26,8 +26,10 @@ def test_a_rim_or_cutout_refusal_is_the_edges_not_a_drawn_one():
     edge's refusal, not silk or a body in the way."""
     from collections import Counter
     from types import SimpleNamespace
-    from placemat.layout import _blame_text
+    from placemat.blame import blame_of
+    from placemat.finding_text import blame_text
+    from placemat.refusals import Owner
     r = SimpleNamespace(rejected=Counter({"body": 120, "C1": 5}),
-                        blockers=Counter({("edge", "", ""): 120, ("body", "W1", "front"): 5}))
-    text = _blame_text(r)
+                        reasons={}, blockers=Counter({("edge", "", ""): 120, ("body", Owner("who", "W1"), "front"): 5}))
+    text = blame_text(blame_of(r))
     assert text.startswith("edge x120") and text.count("W1") == 1, text

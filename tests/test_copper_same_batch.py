@@ -92,20 +92,24 @@ def test_a_refusal_by_another_parts_pads_names_that_part():
     as pads, and they count under copper."""
     from collections import Counter
     from types import SimpleNamespace
-    from placemat.layout import _blame_text
+    from placemat.blame import blame_of
+    from placemat.finding_text import blame_text
+    from placemat.refusals import Owner, ReservedBy
     result = SimpleNamespace(rejected=Counter({"copper": 471, "reservation": 163}), reasons={},
-                             blockers=Counter({("pad", "cell debug's J4 GND", "back"): 300,
-                                               ("through", "via GND", "back/front"): 171,
-                                               ("reservation", "C49 in keepout 'seal_rim'", ""): 163}))
-    text = _blame_text(result)
+                             blockers=Counter({("pad", Owner("who", "J4", "debug", "GND"), "back"): 300,
+                                               ("through", Owner("who", "via", "", "GND"), "back/front"): 171,
+                                               ("reservation", Owner("member_in", "C49", by=ReservedBy("keepout", "seal_rim", "seal")), ""): 163}))
+    text = blame_text(blame_of(result))
     assert "copper x471: cell debug's J4 GND back face x300" in text, text
 
 
 def test_copper_is_named_even_when_other_kinds_refused_more():
     from collections import Counter
     from types import SimpleNamespace
-    from placemat.layout import _blame_text
+    from placemat.blame import blame_of
+    from placemat.finding_text import blame_text
+    from placemat.refusals import Owner, ReservedBy
     result = SimpleNamespace(rejected=Counter({"edge": 797980, "reservation": 69551, "body": 14376, "copper": 2210}),
-                             reasons={}, blockers=Counter({("pad", "U7 GND", "front"): 2210}))
-    text = _blame_text(result)
+                             reasons={}, blockers=Counter({("pad", Owner("who", "U7", "", "GND"), "front"): 2210}))
+    text = blame_text(blame_of(result))
     assert "copper x2210: U7 GND front face x2210" in text, text

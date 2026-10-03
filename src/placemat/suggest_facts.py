@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import re
 from collections import Counter
 
 from .board_geometry import members_of
@@ -114,18 +113,18 @@ def owners_of(result, bucket: str, buckets) -> list:
     return [o for o, _ in counts.most_common()]
 
 
-def reservation_source(owner: str) -> dict:
-    """What a reservation was made by, from the text that names it as a blocker: {"keepout": name}, {"label": key}
-    or {"fanout": item}; {} for anything else."""
-    m = re.search(r"keepout '([^']+)'", owner) or re.search(r'keepout "([^"]+)"', owner)
-    if m:
-        return {"keepout": m.group(1)}
-    m = re.search(r"\blabel (\S+ .*)$", owner)
-    if m:
-        return {"label": "label " + m.group(1)}
-    m = re.search(r"fanout of (\S+)", owner)
-    if m:
-        return {"fanout": m.group(1)}
+def reservation_source(owner) -> dict:
+    """What a reservation was made by, from the Owner a scan blamed: {"keepout": name}, {"label": key} or
+    {"fanout": item}; {} for anything else."""
+    by = getattr(owner, "by", None)
+    if by is None:
+        return {}
+    if by.kind == "keepout":
+        return {"keepout": by.name}
+    if by.kind == "label":
+        return {"label": "label " + by.name}
+    if by.kind == "fanout":
+        return {"fanout": by.name}
     return {}
 
 
@@ -139,17 +138,18 @@ def _item_facts(board, i) -> dict:
 def unplaced_search(board, occ, plan, i, placed, result, hint, radius) -> dict:
     """The facts for a search that found no legal spot: what refused most candidates and who, the parts that pull the
     item and the sides of each it may stand beside, and what the declaration leaves the search."""
-    from .layout import _BLOCKED_BY, _KNOWN_BUCKETS, VIA_BUCKET
+    from .blame import BLOCKED_BY, KNOWN_BUCKETS
+    from .occupancy import VIA_BUCKET
     top = dominant(result)
     facts = _item_facts(board, i)
     facts.update(dominant=top, radius=round(radius, 3), near=i.near is not None,
                  turns=len(board._turns(i)) if i.rotation is not None else 0, rotation_given=bool(i.rotation_given),
                  envelope=board.settings.place_envelope, via_move=board.settings.place_via_move,
                  via_leave=board.settings.place_via_leave)
-    facts["drawn"] = bool(top) and top not in _KNOWN_BUCKETS and top != VIA_BUCKET and not top.startswith("rider ")
+    facts["drawn"] = bool(top) and top not in KNOWN_BUCKETS and top != VIA_BUCKET and not top.startswith("rider ")
     facts["via"] = top == VIA_BUCKET
-    owners = owners_of(result, top, _BLOCKED_BY) if top else []
-    facts["blockers"] = owners[:3]
+    owners = owners_of(result, top, BLOCKED_BY) if top else []
+    facts["blockers"] = [o.to_json() for o in owners[:3]]
     if top == "reservation":
         facts["reservations"] = [s for s in (reservation_source(o) for o in owners[:3]) if s]
         for r in facts["reservations"]:

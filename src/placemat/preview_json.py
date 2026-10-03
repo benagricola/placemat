@@ -254,7 +254,7 @@ def board_json(plan) -> dict:
     reservations = []
     for r in plan.occupancy.reservations:
         face = _face_of(r.layer) if r.layer is not None else None
-        reservations.append({"poly": _poly(r.poly), "why": r.why, "face": face.value if face is not None else None,
+        reservations.append({"poly": _poly(r.poly), "why": str(r.why), "face": face.value if face is not None else None,
                              "source": r.source, "allow": sorted(r.allow), "rule_area": bool(r.courtyard)})
     ext = _extent(plan)
     return {"board": {"loops": [_poly(l) for l in _board_loops(plan)], "drawn": bool(plan.draw_outline),

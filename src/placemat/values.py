@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 import math
 
-from .cutouts import Cutouts
+from .cutouts import Cutouts, EdgeWhy
 
 
 class _CopperLayerNames(str, Enum):
@@ -1025,18 +1025,18 @@ class Disc:
         """The point `radius` from the centre on that bearing."""
         return polar_point(self.centre, angle, radius)
 
-    def why_not(self, box: Box, margin: float) -> str | None:
+    def why_not(self, box: Box, margin: float):
         """None when `box` sits inside the board with `margin` to spare
         everywhere, else which side of the board it crosses."""
         far = max(math.hypot(x - self.centre.x, y - self.centre.y)
                   for x in (box.left, box.right) for y in (box.top, box.bottom))
         if far > self.radius - margin + _NM:
-            return "past the rim's keep-in (%.2f mm)" % margin
+            return EdgeWhy.PAST_RIM
         if self.bore:
             dx = max(box.left - self.centre.x, 0.0, self.centre.x - box.right)
             dy = max(box.top - self.centre.y, 0.0, self.centre.y - box.bottom)
             if math.hypot(dx, dy) < self.bore + margin - _NM:
-                return "into the bore's keep-in (%.2f mm)" % margin
+                return EdgeWhy.INTO_BORE
         return self.cutouts.why_not(box, margin)
 
     def polygon(self, inset: float = 0.0, segments: int = 72) -> tuple:

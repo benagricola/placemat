@@ -178,3 +178,137 @@ def _setup_accept(f):
 def _fab_minimum(f):
     return "net class %s: %s %.3g mm is below the fab's minimum %.3g mm (fab-profile.json min.%s)" % (
         f["net_class"], f["what"], f["value_mm"], f["minimum_mm"], f["key"])
+
+
+# ------------------------------------------------------------------ what refused a scan
+def _loc(at) -> str:
+    return "(%.2f, %.2f)" % (at[0], at[1])
+
+
+def blame_text(entries: list) -> str:
+    """The rejection counts of a scan (blame.blame_of) and, for each kind, the owners that caused most of them."""
+    from .refusals import Owner, Refusal
+    parts = []
+    for e in entries:
+        n = e["count"]
+        if e["form"] == "vias":
+            parts.append("vias that could not give way x%d" % n)
+        elif e["form"] == "rider":
+            parts.append("%s x%d" % (Refusal.from_json(e["reason"]), n))
+        else:
+            detail = "" if not e["owners"] else ": " + ", ".join(
+                "%s%s x%d" % (Owner.from_json(o["owner"]), (" %s face" % o["faces"]) if o["faces"] else "", o["count"])
+                for o in e["owners"])
+            parts.append("%s x%d%s" % (e["label"], n, detail))
+    return "; ".join(parts)
+
+
+def counts_text(counts: list) -> str:
+    """"courtyard x12, edge x3": a scan's refusals by kind, most first."""
+    return ", ".join("%s x%d" % (k, n) for k, n in counts)
+
+
+def room_lost_text(room_lost: dict) -> str:
+    """What a part with no legal spot says of the look-ahead of a limit partner placed before it: that no room was left
+    for it, or that room was left and what was placed since took it."""
+    out = ""
+    if room_lost.get("gone"):
+        out += "; see: no room was left for it when %s was placed" % ", ".join(room_lost["gone"])
+    if room_lost.get("kept"):
+        out += "; the look-ahead left it room when %s was placed, but what was placed since took it" % ", ".join(room_lost["kept"])
+    return out
+
+
+def where_text(w: dict) -> str:
+    """Where a one-freedom item slides: {"form": "edge", "edge": "north"}, "run" (facing_deg), "rim" (word), "ring"
+    (radius_mm), "spoke" (angle_deg), "line" (axis, at_mm, and `toward` or `across` as it was seeded)."""
+    form = w["form"]
+    if form == "edge":
+        return "along the %s edge" % w["edge"]
+    if form == "run":
+        return "along the run facing %.0f degrees" % w["facing_deg"]
+    if form == "rim":
+        return "round the %s" % w["word"]
+    if form == "ring":
+        return "round the %.2f mm ring" % w["radius_mm"]
+    if form == "spoke":
+        return "out along the %.0f degree spoke" % w["angle_deg"]
+    seeded = ("; as far %s as it is legal" % w["toward"]) if w.get("toward") else \
+        "; across from what it connects to" if w.get("across") else ""
+    return "on the line %s = %.2f%s" % (w["axis"], w["at_mm"], seeded)
+
+
+def _refusal(d) -> str:
+    from .refusals import Refusal
+    return str(Refusal.from_json(d))
+
+
+def _riders(riders: list) -> str:
+    return "".join("; %s" % _refusal(r) for r in riders)
+
+
+def pocket_note(f: dict) -> str:
+    """What a pocket search says, without the item's key."""
+    if f["variant"] == "any_rotation":
+        return "no pocket fits its %.1f x %.1f envelope on the %s face at any rotation asked for" % (
+            f["w_mm"], f["h_mm"], f["face"])
+    return "no pocket fits its %.1f x %.1f envelope on the %s face (%d pocket(s) tried)%s" % (
+        f["w_mm"], f["h_mm"], f["face"], f["tried"], _riders(f.get("riders", ())))
+
+
+def turns_text(turns: list) -> str:
+    """"0: ...; 90: ...": a refusal at each rotation tried."""
+    return "; ".join("%g: %s" % (rot, _refusal(why)) for rot, why in turns)
+
+
+def block_alone_note(f: dict) -> str:
+    return "cannot be laid out on its own at any rotation it may take, whatever room the board has (%s)" % turns_text(f["turns"])
+
+
+def riders_alone_note(f: dict) -> str:
+    return "cannot be laid out with its riders at any rotation it may take, whatever room the board has (%s)" % turns_text(f["turns"])
+
+
+def rides_note(f: dict) -> str:
+    return "rides %s, which found no place" % f["rider_of"]
+
+
+@renders(C.UNPLACED_SEARCH, "item", "radius_mm", "at", "blame")
+def _unplaced_search(f):
+    blame = "no legal location within %.1f mm of %s (%s)" % (f["radius_mm"], _loc(f["at"]), blame_text(f["blame"]))
+    if f.get("pocket_tried") is not None:
+        blame += "; no pocket took it (%d tried)" % f["pocket_tried"]
+    return "%s: %s%s" % (f["item"], blame, room_lost_text(f.get("room_lost", {})))
+
+
+@renders(C.UNPLACED_POCKET, "item", "variant", "w_mm", "h_mm", "face")
+def _unplaced_pocket(f):
+    return "%s: %s" % (f["item"], pocket_note(f))
+
+
+@renders(C.UNPLACED_SLIDE, "item", "where", "counts")
+def _unplaced_slide(f):
+    return "%s: no room anywhere %s (%s)%s" % (f["item"], where_text(f["where"]), counts_text(f["counts"]),
+                                             _riders(f.get("riders", ())))
+
+
+@renders(C.UNPLACED_BLOCK, "item", "variant")
+def _unplaced_block(f):
+    if f["variant"] == "alone":
+        return "%s: %s" % (f["item"], block_alone_note(f))
+    return "%s: no legal spot within %.1f mm of %s (%s)" % (f["item"], f["radius_mm"], _loc(f["at"]), counts_text(f["counts"]))
+
+
+@renders(C.UNPLACED_BEARING, "item", "turns", "counts")
+def _unplaced_bearing(f):
+    return "%s: no bearing of %d tried leaves it legal on its point (%s)" % (f["item"], f["turns"], counts_text(f["counts"]))
+
+
+@renders(C.UNPLACED_RIDES, "item", "variant")
+def _unplaced_rides(f):
+    return "%s: %s" % (f["item"], riders_alone_note(f) if f["variant"] == "alone" else rides_note(f))
+
+
+@renders(C.FIXED_PART, "item", "freedom", "why")
+def _fixed_part(f):
+    return "%s (%s): %s" % (f["item"], f["freedom"], _refusal(f["why"]))

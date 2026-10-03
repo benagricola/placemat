@@ -19,7 +19,7 @@ def test_courtyards_on_the_same_face_may_not_overlap():
     occ = occ_with(footprint("R1", 10, 10))
     r2 = footprint("R2", 30, 30)
     why = occ.legal(r2, Placement(Location(12, 10), 0, Face.FRONT))
-    assert why is not None and "R1" in why and "courtyard" in why
+    assert why is not None and "R1" in str(why) and "courtyard" in str(why)
 
 
 def test_smd_parts_on_opposite_faces_may_share_an_xy():
@@ -32,7 +32,7 @@ def test_a_through_hole_part_blocks_both_faces_at_its_holes():
     occ = occ_with(footprint("J1", 10, 10, through=True))
     r2 = footprint("R2", 30, 30, face=Face.BACK)
     why = occ.legal(r2, Placement(Location(10, 10), 0, Face.BACK))
-    assert why is not None and "J1" in why
+    assert why is not None and "J1" in str(why)
 
 
 def test_the_far_face_under_a_through_hole_part_is_free_between_its_leads():
@@ -48,8 +48,8 @@ def test_a_courtyard_may_not_sit_over_another_part_s_lead_on_the_far_face():
     its courtyard still not sit over it."""
     occ = occ_with(footprint("J1", 10, 10, w=8, through=True))
     r2 = footprint("R2", 30, 30, w=2, h=1, face=Face.BACK, excess=1.0)  # courtyard 2 mm past its pads
-    why = occ.legal(r2, Placement(Location(8.5, 10), 0, Face.BACK)) or ""
-    assert "J1" in why and "lead" in why
+    why = occ.legal(r2, Placement(Location(8.5, 10), 0, Face.BACK))
+    assert "J1" in str(why) and "lead" in str(why)
 
 
 def test_a_via_in_an_exposed_pad_claims_only_its_copper_on_the_far_face():
@@ -71,7 +71,7 @@ def test_a_pad_may_not_come_within_clearance_of_foreign_copper():
     r2 = footprint("R2", 30, 30)
     # pad 2's east edge would land 0.1 mm short of the track: inside the 0.2 clearance
     why = occ.legal(r2, Placement(Location(18.0 - 0.15 + 0.1, 20), 0, Face.FRONT))
-    assert why is not None and "X" in why
+    assert why is not None and "X" in str(why)
     assert occ.legal(r2, Placement(Location(15, 20), 0, Face.FRONT)) is None
 
 
@@ -85,7 +85,7 @@ def test_same_net_copper_is_not_an_obstacle_to_a_pad():
 def test_the_board_edge_margin_is_enforced():
     occ = occ_with(footprint("R1", 10, 10))
     r2 = footprint("R2", 30, 30)
-    assert "edge" in occ.legal(r2, Placement(Location(2.0, 30), 0, Face.FRONT))
+    assert "edge" in str(occ.legal(r2, Placement(Location(2.0, 30), 0, Face.FRONT)))
     assert occ.legal(r2, Placement(Location(3.1, 30), 0, Face.FRONT)) is None
 
 
@@ -108,9 +108,9 @@ def test_a_reservation_blocks_parts_its_nets_do_not_admit_and_lets_a_named_one_i
     occ = occ_with(footprint("R1", 10, 10))
     occ.reserve(Box(20, 20, 30, 30), why="the bar", allow=("A",), owners=("R4",), layer=None)
     r2 = footprint("R2", 30, 30, nets=("C", "D"))
-    assert "bar" in occ.legal(r2, Placement(Location(25, 25), 0, Face.FRONT))
+    assert "bar" in str(occ.legal(r2, Placement(Location(25, 25), 0, Face.FRONT)))
     r3 = footprint("R3", 30, 30, nets=("A", "GND"))
-    assert "bar" in occ.legal(r3, Placement(Location(25, 25), 0, Face.FRONT))
+    assert "bar" in str(occ.legal(r3, Placement(Location(25, 25), 0, Face.FRONT)))
     r4 = footprint("R4", 30, 30, nets=("A", "GND"))
     assert occ.legal(r4, Placement(Location(25, 25), 0, Face.FRONT)) is None
 
@@ -210,7 +210,7 @@ def test_a_collision_with_a_cell_member_names_the_cell():
     g = board_geometry(fps, cells=["a1"], width=60, height=60)
     occ = Occupancy(g, edge_margin=0.0, board_box=g.outline_box)
     why = occ.legal(fps[1], Placement(Location(10, 10), 0, Face.FRONT))
-    assert why == "J5 courtyard overlaps cell a1's R2 courtyard"
+    assert str(why) == "J5 courtyard overlaps cell a1's R2 courtyard"
 
 
 def test_legal_can_name_who_blocked_and_on_which_face():
@@ -254,7 +254,7 @@ def test_a_lead_in_a_far_face_courtyard_says_it_is_a_lead():
                        width=60, height=60)
     occ = Occupancy(g, edge_margin=0.0)
     why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
-    assert why is not None and "through-hole lead of U1" in why
+    assert why is not None and "through-hole lead of U1" in str(why)
 
 
 def test_a_same_face_courtyard_finding_is_left_alone():
@@ -268,7 +268,7 @@ def test_a_same_face_courtyard_finding_is_left_alone():
                        width=60, height=60)
     occ = Occupancy(g, edge_margin=0.0)
     why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
-    assert "courtyard overlaps" in why and "both faces" not in why
+    assert "courtyard overlaps" in str(why) and "both faces" not in str(why)
 
 
 def test_a_lead_with_no_net_is_named_as_such():
@@ -287,7 +287,7 @@ def test_a_lead_with_no_net_is_named_as_such():
                                       face=Face.BACK)], width=60, height=60)
     occ = Occupancy(g, edge_margin=0.0)
     why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
-    assert "through-hole lead of U1" in why and "no net" in why, why
+    assert "through-hole lead of U1" in str(why) and "no net" in str(why), why
 
 
 def test_courtyards_overlapping_by_exactly_the_touch_allowance_may_sit_there():
@@ -310,7 +310,7 @@ def test_by_default_courtyards_may_touch_and_may_not_overlap():
     occ = occ_with(footprint("R1", 10, 10), width=60)          # courtyard x 7.9 .. 12.1
     r2 = footprint("R2", 40, 30)
     assert occ.legal(r2, Placement(Location(14.2, 10), 0, Face.FRONT)) is None             # touching
-    assert "courtyard" in (occ.legal(r2, Placement(Location(14.19, 10), 0, Face.FRONT)) or "")  # 0.01 in
+    assert "courtyard" in str(occ.legal(r2, Placement(Location(14.19, 10), 0, Face.FRONT)) or "")  # 0.01 in
 
 
 def test_courtyards_may_overlap_by_the_margin_kicad_s_own_lie_inside_ours():
@@ -322,4 +322,4 @@ def test_courtyards_may_overlap_by_the_margin_kicad_s_own_lie_inside_ours():
     b = dataclasses.replace(footprint("R2", 40, 30), courtyard_margin=0.03)
     occ = occ_with(a, b, width=60)
     assert occ.legal(b, Placement(Location(14.2 - 0.05, 10), 0, Face.FRONT)) is None
-    assert "courtyard" in (occ.legal(b, Placement(Location(14.2 - 0.06, 10), 0, Face.FRONT)) or "")
+    assert "courtyard" in str(occ.legal(b, Placement(Location(14.2 - 0.06, 10), 0, Face.FRONT)) or "")
