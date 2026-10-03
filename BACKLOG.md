@@ -9,11 +9,6 @@ file. An item cites its source as "a board's session, <date>".
 - **Board builder B4** (spec `2026-10-03-studio-board-builder-design.md`):
   B0-B3 released in 0.95.0; B4 (editing an existing script) next.
 
-- **Studio status bar and collapsible panels** (the user, 2026-10-03): one
-  status bar with step progress and within-step progress in a second colour;
-  the legend and right panels collapsible; full-screen source with no canvas
-  sliver. Queued behind step durations.
-
 ## Next, in order
 
 Specced work first, then the loose ends.
@@ -22,18 +17,28 @@ Specced work first, then the loose ends.
    limit_mm=6, hard=True)` refuses a candidate where the link would exceed its
    limit (as a push's hard limit reserves a disc), so the search finds the best
    spot that meets it, or leaves the item unplaced with a finding naming the
-   link. After the preview slowdown fix, which touches the same search code.
+   link. Next (the preview slowdown fix is in 0.96.0).
 0b. **Placement order by search-space size** (a board's session and the user,
    2026-10-03): within a tier the most constrained item goes first, measured by
    how many legal spots it could have (a slide's line length, a region's area,
    shrunk by hard limits - hard links, pushes, keepouts), then rank; replaces
    "fewer freedoms first", which put a long slide (the debug panel) before an
    MCU that needed its spot near the antenna. After the hard link limit.
+0c. **A searched cell over another cell's plane drops** (a board's session,
+   2026-10-03): a back-face 15 mm cell is refused everywhere because the only
+   room it fits is over front cells' through GND drops; the hand layout puts it
+   there with the drops re-sited. Give way reaches 0.5 mm move / 1 mm leave and
+   keeps half a pad's drops. Find on the real board (as a fixture) which via
+   refuses and why, then decide the reach or a re-site form with the user.
+0d. **Pocket path misses non-rectangular room** (same session): an unlinked
+   13.2 x 15.2 part finds no pocket among the few largest free rectangles though
+   the hand layout has a legal spot; fall back to a full sweep of the face.
 1a. **Measurements for the other searched levers**: blocker gap/side, search
    radius, fanout depth, turns, label size, stitch pitch and the tuning limits
    get a searched suggestion only once the sites that raise their findings
    record the number that bounds them.
-4. **Studio 3D with live models** (spec `2026-10-03-studio-3d-design.md`).
+4. **Studio 3D phases 2-3** (spec `2026-10-03-studio-3d-design.md`; phase 1 in
+   0.96.0): copper, silk, findings markers and ghosts; routing replay and mask.
 5. **Suggestions phase 7: the improve loop** (recommended in the suggestions
    work; needs a short design): instant suggestions tried on an overlay,
    kept when the score improves, before explore runs.
@@ -48,10 +53,13 @@ Specced work first, then the loose ends.
    lazily on the pure-Python path.
 10. **A flaky native parity test**: `test_native_legal` failed under the
     two-process release suite twice (SlotControl-physical; MCU_RP2350B-union),
-    passing on rerun each time: find the cause. Likewise
+    passing on rerun each time. It seeds its sampler with `hash()` and fails on
+    about 7% of hash seeds with a native/Python blame difference (a pour
+    blocker), also on 0.93.0: a parity bug, with the native sweep. Likewise
     `test_studio_builder_real` (0.95.0 release suite, while a second suite
-    ran): pcb failed to load a stdlib footprint; passes alone. Two builds
-    probably share pcb's package cache.
+    ran; again in 0.96.0's): pcb failed to load a stdlib footprint; passes
+    alone. Probably another pcb process sharing pcb's package cache: isolate
+    the test's pcb cache or find what the other process changes.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
 12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
@@ -309,6 +317,11 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Step durations, one status bar, folding panels; the studio's 3D view
+  (phase 1); a faster big-cell search** (0.96.0): each step's time in the
+  studio and run.json; a 2D | 3D switch drawing the parts' models; the core
+  preview 579 -> 382 s CPU with identical output; watch from the workspace root.
 
 - **Beside stands at the first legal contact; placement keeps room for
   declared copper; the studio's board builder B0-B3** (0.95.0): Beside fits

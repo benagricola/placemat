@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.96.0
 
 ### New
 
@@ -23,6 +23,14 @@ section for each hand-written pattern a newer form replaces.
   done and, in a second colour, how far the step under way has got where its phase counts (`begin` phase events carry `within`, `[k, n]`;
   a phase with no count does not move the bar). The legend and the right panel each fold away (a handle on each edge, kept per
   viewer), and the source dialog's full-screen view fills the page below the header with no canvas showing under it.
+
+### Changed
+
+- **Searching a big cell is faster.** A searched cell's member boxes are moved when read, far reservations are rejected before
+  rounding, the empty occupancy is built once and reservations are judged once per cell: a large board's preview took about a third
+  less CPU, with identical placements and findings.
+- **`placemat watch` finds a board's command from the workspace root.** The project root is the outermost folder with a
+  `placemat.toml` or a workspace `pcb.toml`, so every command of a project registers in one sockets folder.
 
 ## To 0.95.0
 
