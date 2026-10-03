@@ -14,6 +14,18 @@ section for each hand-written pattern a newer form replaces.
   cells of their own"). "Module" stays for the source on disk: a module's layout script, its fragment, the
   `modules/` folder. A script or tool that matches finding text containing "module" should match "cell".
 
+### New
+
+- **The studio shows what a resolve is doing now.** Besides the steps that have settled, the page shows a spinner
+  with the elapsed time and the steps so far out of about as many as are queued, a pending row for the step being
+  worked on (searching, rank k of n, scanning the front, refining ...), a ring where an item is being tried, and
+  replayed unchanged steps as one progress row. The stream has a new `begin` event for it: `{kind: "total", items,
+  searched, copper, replay}` once, `{kind: "begin", item, what, rank, of, replaying, n}` as each item or copper batch
+  starts, and `{kind: "phase", text, hint, radius}` a few times a second inside a long step. `Board.resolve` takes
+  an `on_begin(plan, info)` callback beside `on_step`; with none, nothing is reported and nothing is slower.
+- The studio's findings are marked on the board at the pad or part they name when they give no position, zones are
+  rows under their copper layer in the legend, and every keepout is hidden by its own row.
+
 ## To 0.85.0
 
 ### Changed

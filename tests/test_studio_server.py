@@ -132,7 +132,7 @@ def test_the_stream_shows_a_resolve_then_an_edit_with_what_it_moved(studio):
         kinds = [n for n, d in s.events if isinstance(d, dict) and d.get("id") == first_id]
         assert kinds[0] == "started" and kinds.index("board") < kinds.index("step")
         assert kinds.count("step") >= 10
-        order = [k for k in kinds if k != "step" and k != "board"]
+        order = [k for k in kinds if k not in ("step", "board", "begin")]
         assert order == ["started", "copper", "links", "congestion", "findings", "items", "finished"]
         assert fin["counts"]["placed"] > 10 and fin["timing"]["total_s"] > 0
         steps = [d["item"] for n, d in s.events if n == "step" and d["id"] == first_id]
@@ -255,3 +255,23 @@ def test_a_script_that_crashes_the_worker_is_a_crash_error_at_its_line_and_the_n
         s.until("finished")
     finally:
         s.close()
+
+
+@needs_kicad
+def test_a_resolve_streams_the_queue_and_each_item_it_begins_before_it_settles(tmp_path):
+    script = real_modules.stage(tmp_path, "mcu")
+    s = Studio(script, port=0, open_browser=False, debounce_ms=50, poll_ms=50)
+    s.start()
+    st = Stream(s)
+    try:
+        st.until("finished")
+        evs = [(n, d) for n, d in st.events if n in ("begin", "step", "finished")]
+        total = next(d for n, d in evs if n == "begin" and d["kind"] == "total")
+        assert total["items"] > 5 and total["searched"] > 0
+        begins = [d for n, d in evs if n == "begin" and d["kind"] == "begin"]
+        assert any(b["what"] == "searched" and b["rank"] and b["of"] for b in begins)
+        first_step = next(i for i, (n, d) in enumerate(evs) if n == "step")
+        assert any(n == "begin" for n, _ in evs[:first_step])              # the first item is announced before it settles
+    finally:
+        st.close()
+        s.stop()

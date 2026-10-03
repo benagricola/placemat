@@ -237,3 +237,22 @@ def test_a_run_is_started_on_request_and_its_result_reaches_the_page(project, mo
     assert names[0] == "run_started" and names.count("run_line") == 2 and names[-1] == "run_done"
     done = json.loads(ev[-1][1])
     assert done["code"] == 0 and done["run"]["id"] == "eeee0005" and done["tail"] == ["resolve  ok", "drc  2 real"] and done["runs"]
+
+
+def test_a_begin_notice_from_the_worker_reaches_the_pages_without_being_kept(project):
+    s = _fresh(project)
+    drain = _events(s)
+    s._cur = {"id": 3, "texts": {}, "changed": [], "t0": 0}
+    s._on_worker({"ev": "begin", "id": 3, "kind": "begin", "item": "u1", "what": "searched", "rank": 2, "of": 9}, s.worker.serial)
+    s._on_worker({"ev": "begin", "id": 99, "kind": "begin", "item": "stale"}, s.worker.serial)            # not the resolve in flight
+    got = [(n, json.loads(t)) for n, t in drain()]
+    assert got == [("begin", {"id": 3, "kind": "begin", "item": "u1", "what": "searched", "rank": 2, "of": 9})]
+    assert s.hub.log == []
+
+
+def test_the_size_of_the_queue_is_kept_for_a_page_that_joins_part_way(project):
+    s = _fresh(project)
+    s._cur = {"id": 3, "texts": {}, "changed": [], "t0": 0}
+    s._on_worker({"ev": "begin", "id": 3, "kind": "total", "items": 9, "searched": 4, "copper": 2, "replay": 0}, s.worker.serial)
+    s._on_worker({"ev": "begin", "id": 3, "kind": "begin", "item": "u1", "what": "decided"}, s.worker.serial)
+    assert [json.loads(x)["kind"] for n, x in s.hub.log if n == "begin"] == ["total"]

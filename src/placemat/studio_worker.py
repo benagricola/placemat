@@ -64,9 +64,22 @@ class Session:
                 send({"ev": "board", "id": id, **board_json(plan)})
             send({"ev": "item", "id": id, "item": item_json(plan, step, state["sites"]), **step_extras(plan, step)})
 
+        last_phase = [0.0]
+
+        def on_begin(plan, info):
+            """What the engine is starting or doing: the queue's size, the item it begins, a phase of a long step. Phases
+            go out a few times a second, the rest as they come."""
+            self._check(id)
+            now = time.monotonic()
+            if info["kind"] == "phase":
+                if now - last_phase[0] < 0.25:
+                    return
+                last_phase[0] = now
+            send({"ev": "begin", "id": id, **info})
+
         try:
             out = _views(find_board(Path(script).resolve()))
-            with resolved(script, out, quiet=True, progress=lambda text: self._check(id), on_step=on_step,
+            with resolved(script, out, quiet=True, progress=lambda text: self._check(id), on_step=on_step, on_begin=on_begin,
                           cache=self.cache, on_board=on_board) as r:
                 t1 = time.monotonic()
                 self._check(id)

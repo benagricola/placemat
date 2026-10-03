@@ -65,7 +65,7 @@ const fakeGroup = (key, s) => { const g = {dataset: {key, s: String(s)}, style: 
 const groups = html => [...html.matchAll(/<g class="item[^"]*" data-key="([^"]*)" data-s="(\d+)"/g)].map(m => fakeGroup(m[1], +m[2]));
 const mk = sel => new Proxy({
   innerHTML: "", textContent: "", value: "", style: {}, dataset: {}, className: "", attrs: {}, max: 0, handlers: {}, disabled: false,
-  classList: {toggle() {}, add() {}, remove() {}},
+  classList: {toggle() {}, add() {}, remove() {}, contains() { return false; }},
   addEventListener(t, f) { (this.handlers[t] = this.handlers[t] || []).push(f); },
   insertAdjacentHTML(_, html) { this.innerHTML += html; },
   querySelectorAll(q) {
@@ -82,7 +82,7 @@ const listeners = {}, frames = [], fetched = [];
 const flush = () => { while (frames.length) frames.shift()(); };
 const flushOnce = () => { frames.splice(0).forEach(f => f()); };
 const ctx = {
-  document: {querySelector: stub, querySelectorAll: () => [], addEventListener() {}, body: {dataset: {}}, elementFromPoint: () => null},
+  document: {querySelector: stub, querySelectorAll: () => [], __keys: [], addEventListener(t, f) { if (t === "keydown") this.__keys.push(f); }, body: {dataset: {}}, elementFromPoint: () => null},
   window: {addEventListener() {}}, location: {search: "?t=x"}, matchMedia: () => ({matches: true}), Date: FakeDate,
   EventSource: class { constructor() { this.addEventListener = (n, f) => { listeners[n] = f; }; } },
   requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
@@ -388,7 +388,7 @@ click("ko:antenna_clear");
 out.ko = els["#visrules"].textContent;
 out.rules2 = ev('visRules(new Set(["cy", "ko", "cu:F.Cu", "link:ok"]))');
 """)
-    assert out["start"].split("\n") == ["#board .ref { display: none; }", '#board [data-ko="antenna_clear"] { display: none; }', '#board [data-res="fanout of mcu (north side)"] { display: none; }']   # designators, keepouts and reserved areas start hidden
+    assert out["start"].split("\n") == ["#board .ref { display: none; }", '#board [data-ko="antenna_clear"], #board [data-ko-of="antenna_clear"] { display: none; }', '#board [data-res="fanout of mcu (north side)"] { display: none; }']   # designators, keepouts and reserved areas start hidden
     for row in ('data-id="cy"', 'data-id="cu:F.Cu"', 'data-id="via"', 'data-id="link:ok"', 'data-id="link:over"', 'data-grp="ko"', 'data-grp="res"', 'data-id="findings"'):
         assert row in out["legend"]
     assert '<em>1</em>' in out["legend"] and "within its limit" in out["legend"]
@@ -410,7 +410,7 @@ out.tip = ev('fmtUnits("12.3 mm2")');
 out.code = ev('highlightPython("x = mm2")').join("");
 """)
     assert out["area"] == "rank 3/9 (12.3 mm\u00b2, 2 pins)" and out["deg"] == "90\u00b0" and out["tip"] == "12.3 mm\u00b2"
-    assert "rotated 0\u00b0" in out["card"]
+    assert '<span class="kk">rotation</span><span class="sep">: </span><span class="kvv">0\u00b0</span>' in out["card"]
     assert "mm2" in out["code"]                                                   # source code is shown as written
 
 
@@ -437,7 +437,7 @@ out.card = els["#card"].innerHTML;
 out.tip = ev('regionLines("ko", "antenna_clear", plan())'); out.res = ev('regionLines("res", "fanout of mcu (north side)", plan())');
 ev("renderBoard()"); out.board = board().innerHTML;
 """)
-    assert "antenna_clear" in out["card"] and "F.Cu" in out["card"] and "tracks, vias" in out["card"] and "GND" in out["card"] and "no copper here" in out["card"]
+    assert "antenna_clear" in out["card"] and '<span class="chip ">F.Cu</span>' in out["card"] and '<span class="chip ">tracks</span>' in out["card"] and '<span class="chip net">GND</span>' in out["card"] and "no copper here" in out["card"]
     assert out["tip"][0] == "keepout antenna_clear" and "excludes: tracks, vias" in out["tip"] and out["res"][0] == "reserved area"
     assert 'class="ko sel" data-ko="antenna_clear"' in out["board"] and 'data-res="fanout of mcu (north side)"' in out["board"]
 
@@ -454,8 +454,8 @@ out.module = els["#card"].innerHTML; out.sel = ev("[S.sel, S.selRef, S.module]")
 out.single = ev('moduleOf(Object.assign({}, plan().items.find(i => i.key === "b"), {kind: "part"}), "Rb")');
 """)
     assert out["keys"] == ["psu"] and out["refs"] == ["C1", "C2"]
-    assert "C2" in out["part"] and "select module" in out["part"] and "psu" in out["part"]
-    assert "module psu" in out["module"] and 'data-ref="C1"' in out["module"] and 'data-ref="C2"' in out["module"]
+    assert "C2" in out["part"] and "select cell" in out["part"] and "psu" in out["part"]
+    assert "cell psu" in out["module"] and 'data-ref="C1"' in out["module"] and 'data-ref="C2"' in out["module"]
     assert out["sel"] == ["psu", None, "psu"] and out["single"] == ""
 
 
@@ -652,7 +652,10 @@ ev('S.face = "back"'); ev("renderBoard()"); out.back = board().innerHTML;
     assert 'class="lk ok" x1="1" y1="1" x2="5" y2="1"' in b.split('data-i="0"')[1].split("</g>")[0]      # the one within its limit stays whole
     assert 'class="lk ok" x1="1" y1="1" x2="5" y2="1"' not in b.split('data-i="1"')[1]                    # the over link has no all-green line
     for text in ("Ra.1", "Rb.2", "Ra.3", "Rb.4"):
-        assert text in out["back"] and 'class="lkend' in out["back"]
+        assert text in out["back"]
+    assert "lkend" not in b and "lkend" not in out["back"]                                                       # no ring round an end
+    assert 'class="lkdot ok" cx="1" cy="1"' in b.split('data-i="1"')[1]                                      # the start of a link over its limit is green
+    assert re.search(r'class="lkdot over"', b.split('data-i="1"')[1]) is None
 
 
 @needs_node
@@ -673,9 +676,10 @@ out.solo = els["#card"].innerHTML;
     for title in ("Placement", "Why it moved", "Vias", "Links", "Findings"):
         assert '<div class="cst">' + title + "</div>" in c, title
     assert '<span class="chip net">USB_CC1</span>' in c and '<span class="chip net">USB_CC2</span>' in c
-    assert "20 of 24" in c and "22.4 mm\u00b2" in c and "17 pins" not in c
-    assert '<span class="chip warn">10.48 mm</span>' in c and "silk is 0.00 mm from" in c
-    assert "GND via shared" in c and "left its pad" in c and '<span class="chip net">L1</span> 2.5 at 3.0 mm, limit 8' in c
+    assert '<span class="kvv">20 of 24</span>' in c and "22.4 mm\u00b2, 19th largest of 24" in c and "17 pins, 15th most of 24" in c
+    assert '<span class="val warn">10.48 mm</span>' in c and "silk is 0.00 mm from" in c
+    assert '<span class="chip face-front">front</span>' in c and '<span class="chip searched">searched</span>' in c
+    assert "GND via shared" in c and "left its pad" in c and "<b>L1</b> 2.5 at 3.0 mm, limit 8" in c
     assert "critical" in c and "x_layout.py:358" in c
     assert 'data-act="module"' not in out["solo"]
 
@@ -752,3 +756,141 @@ ev("plan().congestion = {cell: 0.5, origin: [0, 0], worst: 1.4, worst_at: [2, 2]
     assert len(set(out["cols"])) == 5 and out["cols"][-1] == out["cols"][-2]                       # distinct hues up to the top of the scale
     assert 'class="fcu l-F" data-l="F.Cu"' in out["board"] and 'class="fcu l-In" data-l="In1.Cu"' in out["board"]
     assert 'class="lgscale"' in out["legend"] and 'data-info="marks"' in out["legend"]
+
+
+@needs_node
+def test_a_resolve_in_progress_shows_a_spinner_the_time_the_steps_and_the_step_being_worked_on(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+out.start = [els["#progress"].hidden, els["#progtext"].textContent];
+send("begin", {id: 1, kind: "total", items: 24, searched: 18, copper: 6, replay: 0});
+send("step", {id: 1, item: item("a", 1)});
+send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3});
+send("begin", {id: 1, kind: "phase", text: "scanning the front or back", hint: [6, 8], radius: 12});
+clock += 3200;
+out.prog = [els["#progress"].hidden, els["#progtext"].textContent, els["#progbar"].style.width, els["#progbarbox"].classList];
+ev("renderSteps()"); out.pending = els["#tab-steps"].innerHTML;
+out.mark = ev("S.work.cur");
+send("step", {id: 1, item: Object.assign(item("psu", 5), {key: "psu"})});
+out.after = [ev("S.work.cur"), els["#tab-steps"].innerHTML.indexOf("pendrow") < 0 || els["#tab-steps"].innerHTML.indexOf("waiting for the next step") > 0];
+finish(1, ["a", "b", "c"]);
+out.done = [els["#progress"].hidden, ev("S.work")];
+""")
+    assert out["start"][0] is False and "step 0" in out["start"][1] and "so far" in out["start"][1]
+    assert out["prog"][0] is False and "step 1 of about 30" in out["prog"][1] and "searching psu" in out["prog"][1] and out["prog"][2] == "3%"
+    assert 'id="pendrow"' in out["pending"] and "<b>psu</b>" in out["pending"] and "searching" in out["pending"] and "rank 7 of 18" in out["pending"] and "scanning the front or back" in out["pending"] and "3.2 s" in out["pending"]
+    assert out["mark"]["hint"] == [6, 8] and out["mark"]["rank"] == 7
+    assert out["after"][0] is None and out["done"] == [True, None]
+
+
+@needs_node
+def test_replayed_steps_are_one_pending_row_not_a_flicker_of_rows(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+send("begin", {id: 1, kind: "total", items: 3, searched: 0, copper: 0, replay: 3});
+send("begin", {id: 1, kind: "begin", item: "a", what: "decided", rank: null, of: null, replaying: true, n: 0});
+send("step", {id: 1, item: item("a", 1)});
+send("begin", {id: 1, kind: "begin", item: "b", what: "decided", rank: null, of: null, replaying: true, n: 1});
+out.row = els["#tab-steps"].innerHTML; out.replayed = ev("S.work.replayed");
+out.text = els["#progtext"].textContent;
+send("begin", {id: 1, kind: "begin", item: "c", what: "searched", rank: 1, of: 1, replaying: false, n: 2});
+out.after = els["#tab-steps"].innerHTML;
+""")
+    assert out["replayed"] == 1 and "replaying unchanged steps" in out["row"] and "1 of 3 steps replayed" in out["row"] and out["row"].count('id="pendrow"') == 1
+    assert "replaying unchanged steps" in out["text"]
+    assert "replaying unchanged steps" not in out["after"] and "searching" in out["after"]
+
+
+@needs_node
+def test_the_note_forms_are_parsed_into_labelled_values_with_units_and_orders_one_way(tmp_path):
+    out = run_more(tmp_path, r"""
+const note = "rank 8/24 (204.8 mm2, 4th of 24; 3 pins, 23rd) (script: high), required; pocket 16.5 x 22.0 at (26.6, 36.4): nothing it connects to is placed; on the line x = 26.50; slid 0.50 mm from its slot: x; stopped 19.40 mm short of the south end by: its member U8 sits in a keepout";
+const it = Object.assign(cellItem("psu", "psu", ["Ra", "C2"], 1), {freedom: "searched", how: "searched", note, why: ""});
+full([it], [st("psu", "cell")]);
+ev('selectItem("psu", {})'); flush();
+out.card = els["#card"].innerHTML; out.parts = ev("noteParts(" + JSON.stringify(note) + ")");
+out.row = els["#tab-steps"].innerHTML;
+""")
+    c = out["card"]
+    assert '<span class="kvv">8 of 24</span>' in c and "204.8 mm\u00b2, 4th largest of 24" in c and "3 pins, 23rd most of 24" in c
+    assert '<span class="chip prio-high">high</span> <span class="dim">from the script</span>' in c and '<span class="chip bad">required</span>' in c
+    assert '<div class="cst">Pocket</div>' in c and "16.5 x 22.0 mm" in c and "(26.6, 36.4) mm" in c and "nothing it connects to is placed" in c
+    assert "x = 26.50 mm" in c and '<span class="val warn">0.50 mm</span> from its slot' in c and "19.40 mm</span> before the south end" in c
+    assert "script: high" not in c and "pocket 16.5" not in c
+    assert out["parts"]["pocket"] == {"w": "16.5", "h": "22.0", "x": "26.6", "y": "36.4", "why": "nothing it connects to is placed"}
+    assert "rank 8 of 24" in out["row"]
+    import re as _re
+    text = _re.sub(r"<[^>]+>", "", c.replace('<span class="sep">: </span>', ": "))      # what copying the card gives: label: value
+    assert "rank: 8 of 24" in text and "face: front" in text and "rotation: 90" in text and "area: 204.8 mm" in text
+
+
+@needs_node
+def test_a_keepouts_reservation_follows_its_row_and_a_name_with_a_comma_still_hides(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const why = "keepout 'antenna_clear' (no copper here, on either face)";
+ev('plan().reservations.push({poly: [[0, 0], [3, 0], [3, 3]], why: ' + JSON.stringify(why) + ', face: null, source: "", allow: [], rule_area: false})');
+ev('plan().reservations.push({poly: [[7, 7], [9, 7], [9, 9]], why: "label X, north of A", face: null, source: "", allow: [], rule_area: false})');
+ev("renderBoard()"); ev("renderLegend()");
+out.rules = els["#visrules"].textContent; out.board = board().innerHTML; out.legend = els["#legend"].innerHTML;
+out.names = ev("REGION_GROUPS.res(plan())");
+out.rule = ev('visRules(new Set(["res:label X, north of A"]))');
+""")
+    assert out["names"] == ["fanout of mcu (north side)", "label X, north of A"]                       # the keepout's own reservation is not a row of its own
+    assert 'data-ko-of="antenna_clear"' in out["board"] and 'data-id="res:keepout' not in out["legend"]
+    assert '[data-ko-of="antenna_clear"]' in out["rules"] and '#board [data-res="label X, north of A"] { display: none; }' in out["rules"]
+    assert out["rule"] == '#board [data-res="label X, north of A"] { display: none; }'                  # not cut at its comma
+
+
+@needs_node
+def test_zones_are_rows_under_their_layer_and_the_layer_row_switches_them(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const rules = () => els["#visrules"].textContent, legend = () => els["#legend"].innerHTML;
+const row = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
+out.rows = legend(); out.board = board().innerHTML;
+row("cu:In1.Cu"); out.layer_off = rules();
+row("cu:In1.Cu"); out.layer_on = rules();
+row("z:1"); out.zone_off = rules();
+row("cu:In1.Cu"); out.layer_off2 = rules(); row("z:1"); out.zone_back = rules();
+""")
+    assert 'data-id="z:1"' in out["rows"] and "G plane" in out["rows"] and out["rows"].index('data-id="cu:In1.Cu"') < out["rows"].index('data-id="z:1"')
+    assert 'class="plane l-In" data-z="1"' in out["board"].replace(' data-s="2"', "")
+    assert '[data-l="In1.Cu"]' in out["layer_off"] and '[data-z="1"]' in out["layer_off"]                    # the layer row hides its zone with it
+    assert '[data-l="In1.Cu"]' not in out["layer_on"] and '[data-z="1"]' not in out["layer_on"]
+    assert '[data-z="1"]' in out["zone_off"] and '[data-l="In1.Cu"]' not in out["zone_off"]               # a zone alone
+    assert '[data-l="In1.Cu"]' in out["layer_off2"] and '[data-z="1"]' in out["layer_off2"] and '[data-z="1"]' not in out["zone_back"] and '[data-l="In1.Cu"]' not in out["zone_back"]
+
+
+@needs_node
+def test_every_finding_that_names_a_pad_a_part_or_an_item_is_marked_and_counted(tmp_path):
+    out = run_more(tmp_path, r"""
+const fnd = (text, extra) => Object.assign({text, kind: "k", at: null, item: "", refs: [], pads: [], severity: "warning"}, extra);
+const it = item("a", 1); it.members[0].shapes.push({kind: "pad", faces: ["front"], number: "7", poly: [[1, 1], [1.4, 1], [1.4, 1.4]]});
+full([it, item("b", 5)], [st("a"), st("b")], {findings: [fnd("with a place", {at: [20, 20]}), fnd("at a pad", {refs: ["Ra"], pads: [["Ra", "7"]]}), fnd("at a part", {refs: ["Rb"]}), fnd("an item", {item: "a"}), fnd("nothing")]});
+out.places = ev("findingPlaces(plan())"); out.board = (board().innerHTML.match(/class="fmark /g) || []).length;
+out.legend = els["#legend"].innerHTML;
+""")
+    assert out["places"][0] == [20, 20] and out["places"][4] is None
+    assert out["places"][1][0] == (1 + 1.4) / 2 and out["places"][1][1] == (1 + 1.4) / 2                    # at the pad's centre
+    assert out["places"][2] is not None and out["places"][3] is not None
+    assert out["board"] >= 4
+    assert "4 of 5 findings are placed on the board" in out["legend"] and "<em>4</em>" in out["legend"]
+
+
+@needs_node
+def test_each_overlay_has_a_close_control_that_stays_in_view_and_escape_closes_one_at_a_time(tmp_path):
+    page = PAGE.read_text()
+    assert "#legend .lgh { display: none; align-items: center; padding: 10px 12px 6px; font-weight: 650; position: sticky; top: 0;" in page
+    assert "#card .h { display: flex; gap: 8px; align-items: center; position: sticky; top: 0;" in page
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const key = k => ctx.document.__keys.forEach(f => f({key: k}));
+ev('selectItem("a", {})'); flush();
+out.card_open = els["#card"].style.display;
+ev('openScript("x_layout.py", 1)'); flush();
+els["#infopop"].hidden = true; els["#menu"].hidden = true;
+key("Escape"); flush(); out.after1 = [ev("S.scriptOpen"), els["#card"].style.display];
+key("Escape"); flush(); out.after2 = els["#card"].style.display;
+""")
+    assert out["card_open"] == "block" and out["after1"] == [False, "block"] and out["after2"] == "none"      # the script first, then the card

@@ -72,6 +72,23 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 .pill.busy i { animation: pulse 1s ease-in-out infinite; }
 .pill.stale { background: var(--warn-soft); color: var(--warn); }
 .pill.error { background: var(--bad-soft); color: var(--bad); }
+/* a resolve is running: a spinner, the time, the steps so far, and the step being worked on */
+.prog { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; font-weight: 600; min-width: 0; }
+.prog[hidden] { display: none; }
+.spin { display: inline-block; flex: none; width: 13px; height: 13px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.prog .bar { width: 96px; height: 5px; border-radius: 3px; background: var(--surface2); overflow: hidden; flex: none; }
+.prog .bar b { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+.prog .bar.ind b { width: 35%; animation: slide 1.3s ease-in-out infinite; }
+@keyframes slide { from { margin-left: -35%; } to { margin-left: 100%; } }
+.row.pending { cursor: default; align-items: flex-start; background: var(--accent-soft); }
+.row.pending .i { display: flex; justify-content: flex-end; padding-top: 4px; }
+.row.pending .pbar { height: 3px; border-radius: 2px; background: var(--surface2); margin-top: 4px; overflow: hidden; }
+.row.pending .pbar b { display: block; height: 100%; background: var(--accent); }
+.workmark circle { fill: none; stroke: var(--accent); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.workmark .wm2 { animation: wm 1.2s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes wm { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(2.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .spin, .workmark .wm2, .prog .bar.ind b { animation-duration: 3s; } }
 @keyframes pulse { 50% { opacity: 0.25; } }
 #stats { display: flex; gap: 4px 16px; margin-left: auto; white-space: nowrap; overflow-x: auto; scrollbar-width: none; color: var(--dim); }
 #stats::-webkit-scrollbar { display: none; }
@@ -101,7 +118,7 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 #dock { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; pointer-events: none; z-index: 3; }
 #dock > * { pointer-events: auto; }
 #card { display: none; width: min(380px, 100%); max-height: 46vh; overflow: auto; font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 8px 10px 9px; }
-#card .h { display: flex; gap: 8px; align-items: center; }
+#card .h { display: flex; gap: 8px; align-items: center; position: sticky; top: 0; z-index: 2; background: var(--surface); margin: -8px -10px 0; padding: 8px 10px 4px; }
 #card .h b { font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #card .x { border: 0; background: none; color: var(--dim); font-size: 18px; line-height: 1; padding: 2px 6px; }
 #card .sub { color: var(--dim); margin: 1px 0 4px; }
@@ -169,8 +186,8 @@ main { position: relative; }
 /* the legend: the colour key and the switch for each kind of thing */
 #legend { min-width: 224px; background: var(--surface); border-right: 1px solid var(--line); overflow: auto; min-height: 0; padding-bottom: 12px; z-index: 8; }
 #legend h4 { margin: 0; padding: 12px 12px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); font-weight: 650; }
-#legend .lgh { display: none; align-items: center; padding: 10px 12px 2px; font-weight: 650; }
-#legend .lgh button { margin-left: auto; border: 0; background: none; font-size: 20px; line-height: 1; color: var(--dim); }
+#legend .lgh { display: none; align-items: center; padding: 10px 12px 6px; font-weight: 650; position: sticky; top: 0; z-index: 3; background: var(--surface); }
+#legend .lgh button { margin-left: auto; border: 0; background: none; font-size: 24px; line-height: 1; color: var(--dim); padding: 2px 10px; }
 .lg { display: flex; align-items: center; gap: 8px; padding: 5px 12px; cursor: pointer; user-select: none; }
 .lg:hover { background: var(--hover); }
 .lg.off { opacity: 0.45; }
@@ -257,8 +274,16 @@ table.diff td.link { color: var(--mark); width: 14px; }
 .row.run .full { display: block; }
 a.srcl { color: var(--accent); font-family: var(--mono); font-size: 11.5px; cursor: pointer; }
 .fixslot:empty { display: none; }
-.kvl { display: grid; grid-template-columns: 5.5em 1fr; gap: 1px 8px; margin: 4px 0 0; }
-.kvl > span:nth-child(odd) { color: var(--dim); }
+.kvl { margin: 4px 0 0; }
+.kr { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 0 8px; position: relative; padding: 0.5px 0; }
+.kk { color: var(--dim); }
+.kvv { overflow-wrap: anywhere; }
+.sep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: pre; }      /* copied as "label: value", not seen */
+.val { font-weight: 600; } .val.bad { color: var(--bad); } .val.warn { color: var(--warn); } .val.good { color: var(--good); }
+.chip.prio-high { --c: var(--bad); background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
+.chip.prio-low { --c: var(--dim); }
+.chip.face-front, .chip.face-back { background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
+.chip.face-front { --c: var(--copper); } .chip.face-back { --c: var(--copperB); }
 #card .lrow { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; cursor: pointer; font-size: 12px; }
 #card .lrow .num { margin-left: auto; white-space: nowrap; }
 #card .chip.SHORT { background: var(--warn-soft); color: var(--warn); } #card .chip.PREFER { background: var(--accent-soft); color: var(--accent); }
@@ -291,8 +316,7 @@ svg text { user-select: none; font-family: var(--sans); }
 .lk { stroke-width: 0.1; }
 .lk.ok { stroke: var(--ok); } .lk.over { stroke: var(--over); stroke-width: 0.16; } .lk.free { stroke: var(--free); stroke-dasharray: 0.5 0.3; }
 .lkdot.ok { fill: var(--ok); } .lkdot.over { fill: var(--over); } .lkdot.free { fill: var(--free); }
-.lk, .lkdot, .lkend, .lklabel { pointer-events: none; }
-.lkend { fill: none; stroke-width: 0.1; } .lkend.ok { stroke: var(--ok); } .lkend.over { stroke: var(--over); } .lkend.free { stroke: var(--free); }
+.lk, .lkdot, .lklabel { pointer-events: none; }
 .lklabel { fill: var(--ink); stroke: var(--substrate); stroke-width: 0.2px; paint-order: stroke; stroke-linejoin: round; }
 .lkg[data-st="over"] .lk { stroke-width: 0.16; }
 .bd, .cy { pointer-events: all; }
@@ -340,6 +364,8 @@ svg text { user-select: none; font-family: var(--sans); }
   body { font-size: 15px; }
   header { padding: 8px 12px 6px; gap: 2px 10px; }
   .brand { flex: 1 1 0; }
+  .prog { flex: 1 1 100%; order: 9; } .prog .bar { flex: 1; width: auto; }
+  #progtext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #script, #script.full { left: 0; right: 0; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; border-width: 1px 0 0; }
   #script #scriptfull { display: none; }
   #stats { margin-left: 0; width: 100%; gap: 14px; font-size: 13px; }
@@ -385,6 +411,7 @@ svg text { user-select: none; font-family: var(--sans); }
 <header>
   <button class="brand" id="brandbtn" aria-haspopup="menu" aria-expanded="false" title="switch to another layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
+  <span class="prog" id="progress" hidden><i class="spin"></i><span id="progtext"></span><span class="bar" id="progbarbox"><b id="progbar"></b></span></span>
   <button class="tool" id="runbtn" title="a checked run: the design checks, KiCad's DRC and the score, recorded (no render)">Run</button>
   <button class="tool" id="srcbtn" title="the layout script, at the selected item's line">Source</button>
   <div id="stats"></div>
@@ -450,6 +477,7 @@ const S = {
   follow: true,                // shown follows the latest resolve
   sel: null, marked: new Set(), selLine: null,
   focus: null,                 // the finding being looked at: {refs, pads}, lit on the board
+  work: null,                  // the resolve in progress: {t0, total, cur, replayed}, from the engine's begin notices
   scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
   runs: [], run: null, lastRun: null, openRuns: new Set(),      // recorded runs of the script, the run in progress, the one that just ended
   replay: null,                // null: every placement step shown; k: the first k placement steps
@@ -537,7 +565,7 @@ on("run_started", d => { S.run = {id: d.id, lines: [], t0: d.at}; S.lastRun = nu
 on("run_line", d => { if (S.run) { S.run.lines.push(d.text); if (S.run.lines.length > 200) S.run.lines.shift(); schedule("compare"); } });
 on("run_done", d => { S.run = null; S.lastRun = d; S.runs = d.runs || S.runs; if (d.run) S.openRuns.add(d.run.id); schedule("status", "compare"); });
 on("switched", d => {                     // the studio now watches another layout script: nothing of the old one stays
-  stopPlay();
+  stopPlay(); S.work = null;
   S.docs.clear(); S.live = null; S.shownId = null; S.latestId = null; S.cmp = null; S.baseId = null; S.texts = {}; S.changed = [];
   S.sel = null; S.selRef = null; S.module = null; S.selRegion = null; S.marked = new Set(); S.replay = null; S.liveQ = [];
   S.file = null; S.cmpFile = null; S.stale = false; S.status = "waiting"; S.follow = true; S.view = null; lay = null;
@@ -560,8 +588,19 @@ on("started", d => {
             congestion: null, findings: [], unplaced: [], pocketed: [], counts: {placed: 0, findings: 0}, score: null, fromStart: true};
   S.shownId = null; S.cmp = null; S.replay = null; S.liveQ = [];
   S.marked = new Set();
+  S.work = {t0: Date.now(), total: null, cur: null, replayed: 0};
   schedule("all");
 });
+const ensureWork = () => { if (S.resolving && !S.work) S.work = {t0: Date.now(), total: null, cur: null, replayed: 0}; return S.work; };
+on("begin", d => {                         // the engine is starting an item, or says what a long step is doing
+  if (!S.live || d.id !== S.live.id || !ensureWork()) return;
+  const w = S.work;
+  if (d.kind === "total") { w.total = d; schedule("status"); return; }
+  if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: Date.now(), phase: "", hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
+  if (w.cur) { w.cur.phase = d.text; if (d.hint) w.cur.hint = d.hint; updatePending(); if (d.hint) drawWorkMark(); }
+});
+let liveTimer = null;
+const liveRender = () => { if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; schedule("board", "steps", "replay", "counts"); }, 300); };
 on("board", d => { if (!S.live || d.id !== S.live.id) return; S.live.board = d.board; S.live.keepouts = d.keepouts; S.live.reservations = d.reservations; if (!S.view) fit(); schedule("board"); });
 on("step", d => {                          // a step as it settles: it joins the timeline, the list and the drawing at once
   if (!S.live || d.id !== S.live.id) return;
@@ -573,7 +612,10 @@ on("step", d => {                          // a step as it settles: it joins the
   L.steps.push(entry);
   if (it.placed && isDrawn(it)) { if (at >= 0) L.items[at] = it; else L.items.push(it); }
   else if (!it.placed && (it.kind === "part" || it.kind === "cell" || it.kind === "block")) L.unplaced.push({item: it.key, why: it.note});
-  schedule("board", "steps", "replay", "counts");
+  const w = S.work, replaying = !!(w && w.cur && w.cur.replaying);
+  if (w) { if (replaying) w.replayed++; if (w.cur && (w.cur.item === it.key || it.kind === "copper")) w.cur = null; }
+  if (replaying) liveRender();                // a replay of unchanged steps is a quick run of them: drawn a few times a second
+  else schedule("board", "steps", "replay", "counts", "status");
 });
 on("copper", d => { if (S.live && d.id === S.live.id) { S.live.copper = d.copper; schedule("board"); } });
 on("links", d => { if (S.live && d.id === S.live.id) { S.live.links = d.links; schedule("board"); } });
@@ -588,6 +630,7 @@ on("items", d => {
 on("finished", d => {
   const L = S.live;
   if (!L || d.id !== L.id) return;
+  S.work = null;
   L.counts = d.counts; L.score = d.score;
   const rec = {id: d.id, doc: L, texts: S.texts, changed: S.changed, timing: d.timing, reused: d.reused, notes: d.notes};
   S.docs.set(d.id, rec);
@@ -598,11 +641,11 @@ on("finished", d => {
 on("compare", d => {
   if (S.follow && S.shownId === d.b) { setCompare(d); }
 });
-on("cancelled", d => { if (S.resolving === d.id) { S.resolving = null; S.status = "stale"; schedule("status", "board"); } });
-on("superseded", d => { if (S.resolving === d.id) { S.resolving = null; S.status = "stale"; schedule("status", "board"); } });
+on("cancelled", d => { if (S.resolving === d.id) { S.work = null; S.resolving = null; S.status = "stale"; schedule("status", "board"); } });
+on("superseded", d => { if (S.resolving === d.id) { S.work = null; S.resolving = null; S.status = "stale"; schedule("status", "board"); } });
 on("error", d => {
   stopPlay();
-  S.resolving = null; S.error = d; S.status = "error"; S.stale = true;
+  S.work = null; S.resolving = null; S.error = d; S.status = "error"; S.stale = true;
   const last = S.docs.get(S.latestId);
   if (last && S.follow) { S.shownId = last.id; S.texts = Object.assign({}, last.texts, S.texts); }
   schedule("all");
@@ -678,6 +721,52 @@ function renderStatus() {
     n.className = ""; n.style.display = "block"; n.textContent = rec.notes.join("; ") + (rec.reused ? "" : "");
   } else n.style.display = "none";
   $("#boardwrap").classList.toggle("stale", S.stale && !S.resolving);
+  renderProgress();
+}
+// ---------------------------------------------------------------- a resolve in progress
+const fmtDur = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+const WHAT_WORD = {searched: "searching", decided: "deciding", copper: "laying copper", cutout: "cutting", keepout: "keepout"};
+// The queue's size as far as the engine knows it up front: the items to place and the copper declared.
+const workTotal = w => w && w.total ? w.total.items + w.total.copper : 0;
+function renderProgress() {
+  const w = S.work, on = !!(S.resolving && w), el = $("#progress");
+  el.hidden = !on;
+  if (!on) return;
+  const p = plan(), n = p ? replaySteps(p).length : 0, T = workTotal(w), c = w.cur;
+  const bits = [fmtDur(Date.now() - w.t0), "step " + n + (T ? " of about " + T : " so far")];
+  if (w.replayed && (!c || c.replaying)) bits.push("replaying unchanged steps");
+  else if (c) bits.push((WHAT_WORD[c.what] || c.what) + " " + c.item);
+  $("#progtext").textContent = bits.join(" - ");
+  const box = $("#progbarbox"); box.classList.toggle("ind", !T);
+  $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
+}
+function pendingRow() {
+  const w = S.work; if (!S.resolving || !w) return "";
+  const c = w.cur, R = w.total ? w.total.replay : 0;
+  if (w.replayed && (!c || c.replaying)) {
+    return '<div class="row pending" id="pendrow"><span class="i"><i class="spin"></i></span><div class="sb"><div class="l1"><b>replaying unchanged steps</b><span class="chip decided">replay</span></div><div class="l2" id="pendtext">' + w.replayed + (R ? " of " + R : "") + " steps replayed from the last resolve</div>" +
+      (R ? '<div class="pbar"><b style="width:' + Math.min(100, Math.round(100 * w.replayed / R)) + '%"></b></div>' : "") + "</div></div>";
+  }
+  if (!c) return '<div class="row pending" id="pendrow"><span class="i"><i class="spin"></i></span><div class="sb"><div class="l1"><b>working</b></div><div class="l2" id="pendtext">waiting for the next step</div></div></div>';
+  const cls = c.what === "searched" ? "searched" : c.what === "decided" ? "decided" : c.what === "copper" ? "copper" : c.what === "cutout" ? "cutout" : "keepout";
+  return '<div class="row pending" id="pendrow"><span class="i"><i class="spin"></i></span><div class="sb"><div class="l1"><b>' + esc(c.item) + '</b><span class="chip ' + cls + '">' + esc(WHAT_WORD[c.what] || c.what) + '</span></div><div class="l2" id="pendtext">' + esc(pendingText(c)) + "</div></div></div>";
+}
+const pendingText = c => [c.rank ? "rank " + c.rank + " of " + c.of : "", c.phase, ((Date.now() - c.t) / 1000).toFixed(1) + " s"].filter(Boolean).join(", ");
+// The pending row's own text and the header's, refreshed without drawing the lists again.
+function updatePending() {
+  const w = S.work, c = w && w.cur, el = $("#pendtext");
+  if (c && el && !c.replaying) el.textContent = pendingText(c);
+  renderProgress();
+}
+setInterval(() => { if (S.resolving && S.work) updatePending(); }, 500);
+// The item being worked on is marked where it is being tried: a pulsing ring at its hint, once the engine has one.
+function drawWorkMark() {
+  if (!B.svg || !B.svg.querySelectorAll) return;
+  for (const e of B.svg.querySelectorAll(".workmark")) e.remove();
+  const c = S.work && S.resolving && S.work.cur;
+  if (!c || !c.hint) return;
+  const g = '<g class="workmark"><circle class="wm1" cx="' + num(c.hint[0]) + '" cy="' + num(c.hint[1]) + '" r="1.2"/><circle class="wm2" cx="' + num(c.hint[0]) + '" cy="' + num(c.hint[1]) + '" r="1.2"/></g>';
+  for (const panel of B.svg.querySelectorAll(".panel")) panel.insertAdjacentHTML("beforeend", g);
 }
 function renderCounts() {
   const p = plan(), c = {steps: replaySteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0};
@@ -769,6 +858,26 @@ function heatColour(u) {
   return "rgb(" + a.map((v, n) => Math.round(v + (b[n] - v) * k)).join(",") + ")";
 }
 const heatScale = () => '<div class="lgscale"><span>' + Math.round(HEAT_LO * 100) + '%</span><i style="background:linear-gradient(to right,' + HEAT_STOPS.map(([s, c]) => "rgb(" + c.join(",") + ") " + Math.round(s * 100) + "%").join(",") + '"></i><span>' + Math.round(HEAT_HI * 100) + "%+</span></div>";
+// Where each finding is on the board: where it says (x, y), else at the pad it names, else the centre of the part it
+// names or of its item; null for one that names no place. Kept while the plan's findings and items stay as they are.
+let fplaceCache = null;
+function findingPlaces(p) {
+  const fs = (p && p.findings) || [], its = (p && p.items) || [];
+  if (fplaceCache && fplaceCache.fs === fs && fplaceCache.n === fs.length && fplaceCache.its === its && fplaceCache.m === its.length) return fplaceCache.v;
+  const owner = new Map(), imap = itemMap(p);
+  for (const it of itemsOf(p)) for (const m of it.members) owner.set(m.ref, [it, m]);
+  const mid = b => b ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : null;
+  const padAt = (ref, n) => { const e = owner.get(ref), s = e && e[1].shapes.find(x => (x.kind === "pad" || x.kind === "through") && String(x.number) === String(n)); return s ? mid(bboxOf([s.poly])) : null; };
+  const v = fs.map(f => {
+    if (f.at) return f.at;
+    for (const [r, n] of f.pads || []) { const a = padAt(r, n); if (a) return a; }
+    for (const r of f.refs || []) { const e = owner.get(r), a = e && mid(itemBox(e[0], r)); if (a) return a; }
+    const it = f.item && imap.get(f.item);
+    return it ? mid(itemBox(it)) : null;
+  });
+  fplaceCache = {fs, n: fs.length, its, m: its.length, v};
+  return v;
+}
 function panelSVG(p, pn, first, order, diffLayer) {
   const f = pn.face, o = [];
   const tr = pn.mirror ? "translate(" + num(pn.dx + lay.L + lay.R) + " 0) scale(-1 1)" : "translate(" + num(pn.dx) + " 0)";
@@ -788,10 +897,11 @@ function panelSVG(p, pn, first, order, diffLayer) {
     o.push('<circle class="worst" cx="' + c.worst_at[0] + '" cy="' + c.worst_at[1] + '" r="' + num(cs * 1.6) + '"/>');
   }
   const selK = S.selRegion && S.selRegion.kind === "ko" ? S.selRegion.id : null, selR = S.selRegion && S.selRegion.kind === "res" ? S.selRegion.id : null;
-  for (const k of p.keepouts || []) o.push('<polygon class="ko' + (k.name === selK ? " sel" : "") + '" data-ko="' + esc(k.name) + '" points="' + polyPts(k.poly) + '"/>');
+  for (const k of p.keepouts || []) o.push('<polygon class="ko' + (k.name === selK ? " sel" : "") + '" data-ko="' + escRaw(k.name) + '" points="' + polyPts(k.poly) + '"/>');
   for (const r of p.reservations || []) {
     if (r.face && r.face !== f) continue;
-    o.push('<polygon class="res' + (r.why === selR ? " sel" : "") + '" data-res="' + esc(r.why) + '" points="' + polyPts(r.poly) + '"/>');
+    const ko = koOf(r.why);
+    o.push('<polygon class="res' + (r.why === selR ? " sel" : "") + '" data-res="' + escRaw(r.why) + '"' + (ko ? ' data-ko-of="' + escRaw(ko) + '"' : "") + ' points="' + polyPts(r.poly) + '"/>');
   }
   const mapped = S.opStep && S.opStep.size ? i => S.opStep.has(i) ? S.opStep.get(i) : S.lastStep : null;     // copper no step laid shows with the last
   o.push(copperSVG(p.copper || [], f, pn, "", mapped));
@@ -806,14 +916,15 @@ function panelSVG(p, pn, first, order, diffLayer) {
     const body = k > 0 ? '<line class="lk ok" x1="' + x1 + '" y1="' + y1 + '" x2="' + sx + '" y2="' + sy + '"/><line class="lk over" x1="' + sx + '" y1="' + sy + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-over)"/>'
       : '<line class="lk ' + l.state + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-' + l.state + ')"/>';
     // each end is marked with its pad's name, whichever face its part is on
-    const ends = '<circle class="lkend ' + (l.state === "over" ? "ok" : l.state) + '" cx="' + x1 + '" cy="' + y1 + '" r="0.45"/><circle class="lkend ' + l.state + '" cx="' + x2 + '" cy="' + y2 + '" r="0.45"/>' +
-      textAt(pn, x1, y1 - 1, l.a.join("."), 0.7, "lklabel") + textAt(pn, x2, y2 + 1, l.b.join("."), 0.7, "lklabel");
+    const ends = textAt(pn, x1, y1 - 1, l.a.join("."), 0.7, "lklabel") + textAt(pn, x2, y2 + 1, l.b.join("."), 0.7, "lklabel");     // each end named, whichever face its part is on
+    const startCls = k > 0 ? "ok" : l.state;                       // the dot is where the line starts: green while the line is within its limit
     o.push('<g class="lkg" data-st="' + l.state + '" data-i="' + i + '" data-a="' + esc(l.a[0]) + '" data-b="' + esc(l.b[0]) + '"><line class="lkhit" x1="' + num(x1 + (x2 - x1) * 0.3) + '" y1="' + num(y1 + (y2 - y1) * 0.3) + '" x2="' + num(x1 + (x2 - x1) * 0.7) + '" y2="' + num(y1 + (y2 - y1) * 0.7) + '"/>' +
-      body + '<circle class="lkdot ' + l.state + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/>' + ends + "</g>");
+      body + '<circle class="lkdot ' + startCls + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/>' + ends + "</g>");
   });
   o.push("</g>");
   o.push('<g class="fnds">');
-  for (const fd of p.findings || []) if (fd.at) o.push('<circle class="fmark ' + sevOf(fd) + '" cx="' + fd.at[0] + '" cy="' + fd.at[1] + '" r="0.9"/>');
+  const places = findingPlaces(p);
+  (p.findings || []).forEach((fd, i) => { const at = places[i]; if (at) o.push('<circle class="fmark ' + sevOf(fd) + '" cx="' + num(at[0]) + '" cy="' + num(at[1]) + '" r="0.9"/>'); });
   o.push("</g>");
   o.push(diffLayer(f, pn));
   o.push("</g>");
@@ -839,7 +950,7 @@ function copperSVG(ops, f, pn, mode, stepOf) {
     } else if (c.t === "via") {      // a ring with its drill hole, on every panel: a via goes through
       o.push('<g class="viag"' + ds + '><circle class="via' + cls + '" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.size / 2) + '"/><circle class="vhole" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.drill / 2) + '"/></g>');
     } else if ((c.t === "plane" || c.t === "pour") && (c.face === f || c.face === "inner") && !mode) {
-      o.push('<polygon class="plane ' + layerClass(c.layer) + '"' + ds + ' data-l="' + esc(c.layer) + '" points="' + polyPts(c.points) + '"/>');
+      o.push('<polygon class="plane ' + layerClass(c.layer) + '"' + ds + ' data-z="' + i + '" data-l="' + esc(c.layer) + '" points="' + polyPts(c.points) + '"/>');
     } else if (c.t === "text" && c.face === f && !mode) {
       o.push(ds ? silkText(c).replace("<text ", "<text" + ds + " ") : silkText(c));
     }
@@ -895,6 +1006,7 @@ function renderBoard() {
   const defs = "<defs>" + arrowMarker("arrow", "") + arrowMarker("ar-ok", "ok") + arrowMarker("ar-over", "over") + arrowMarker("ar-free", "free") + "</defs>";
   svg.innerHTML = defs + lay.panels.map((pn, k) => panelSVG(p, pn, k === 0, order, diffLayer)).join("");
   indexBoard(svg, order.length);
+  drawWorkMark();
   if (!S.view) fit(); else applyView();
 }
 const pushTo = (map, key, v) => { const l = map.get(key); if (l) l.push(v); else map.set(key, [v]); };
@@ -924,7 +1036,7 @@ function showSteps(k) {
 // A streamed step redraws the board and the lists: the timeline's positions index every step, copper and cutouts too.
 function flushLive() { renderBoard(); renderSteps(); schedule("status", "counts", "legend"); }
 
-// The marks on the drawing for what is selected: the item or its part, its module, a region, and the links it holds.
+// The marks on the drawing for what is selected: the item or its part, its cell, a region, and the links it holds.
 function selRefs(p) {
   const it = S.sel && p ? itemMap(p).get(S.sel) : null;
   return new Set(!it ? [] : S.selRef ? [S.selRef] : it.members.map(m => m.ref));
@@ -964,7 +1076,7 @@ function applyMarks() {
   if (B.svg) B.svg.classList.toggle("hassel", refs.size > 0);
   document.querySelectorAll("#tab-steps .row[data-item]").forEach(r => r.classList.toggle("sel", r.dataset.item === S.sel));
 }
-// A hovered item's module lights up with it.
+// A hovered item's cell lights up with it.
 function setHover(keys) {
   for (const k of B.hov || []) for (const g of B.groups.get(k) || []) g.classList.remove("modhov");
   B.hov = keys;
@@ -980,6 +1092,7 @@ const INFO = {
   other: "These put nothing of their own on the board, so they are not replayed. Keepouts and reserved areas are in the legend.",
 };
 const infoBtn = id => '<button class="info" data-info="' + id + '" aria-label="about this" draggable="false">i</button>';
+let infoHide = () => {};
 (function () {
   const pop = $("#infopop");
   let pinned = null;
@@ -998,7 +1111,7 @@ const infoBtn = id => '<button class="info" data-info="' + id + '" aria-label="a
   });
   document.addEventListener("pointerover", e => { const b = infoOf(e); if (b && e.pointerType === "mouse" && !pinned) show(b); });
   document.addEventListener("pointerout", e => { if (infoOf(e) && e.pointerType === "mouse" && !pinned) pop.hidden = true; });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") hide(); });
+  infoHide = hide;
   document.addEventListener("dragstart", e => e.preventDefault());       // a mouse drag never starts a native drag-and-drop
 })();
 
@@ -1010,20 +1123,24 @@ function visRules(off) {
   const out = [];
   for (const id of off) {
     const i = id.indexOf(":"), k = i < 0 ? id : id.slice(0, i), v = i < 0 ? "" : id.slice(i + 1);
-    let sel = null;
-    if (k === "ko" && v) sel = '[data-ko="' + q(v) + '"]';
-    else if (k === "res" && v) sel = '[data-res="' + q(v) + '"]';
-    else if (k === "cu") sel = '[data-l="' + q(v) + '"]';
-    else if (k === "link") sel = '.lkg[data-st="' + q(v) + '"]';
-    else if (OFFCSS[k]) sel = OFFCSS[k];
-    if (sel) out.push(sel.split(",").map(s => "#board " + s.trim()).join(", ") + " { display: none; }");
+    let sels = null;                       // one selector each: a name may hold a comma, so they are never split
+    if (k === "ko" && v) sels = ['[data-ko="' + q(v) + '"]', '[data-ko-of="' + q(v) + '"]'];       // a keepout, and the reservation made from it
+    else if (k === "res" && v) sels = ['[data-res="' + q(v) + '"]'];
+    else if (k === "z" && v) sels = ['[data-z="' + q(v) + '"]'];
+    else if (k === "cu") sels = ['[data-l="' + q(v) + '"]'];
+    else if (k === "link") sels = ['.lkg[data-st="' + q(v) + '"]'];
+    else if (OFFCSS[k]) sels = OFFCSS[k].split(",").map(s => s.trim());
+    if (sels) out.push(sels.map(s => "#board " + s).join(", ") + " { display: none; }");
   }
   return out.join("\n");
 }
 function applyVisibility() { $("#visrules").textContent = visRules(S.off); }
 // Keepouts and reserved areas start hidden: a region the page has not seen yet is switched off once, so the choice
 // to show one stays through later resolves.
-const REGION_GROUPS = {ko: p => ((p && p.keepouts) || []).map(k => k.name), res: p => [...new Set(((p && p.reservations) || []).map(r => r.why))]};
+// A keepout is drawn as a region and as the reservation it made ("keepout 'name' (why)"): the reservation follows the
+// keepout's own row, so only the reservations that are not a keepout's are listed under reserved areas.
+const koOf = why => { const m = /^keepout '([^']+)'/.exec(String(why)); return m ? m[1] : ""; };
+const REGION_GROUPS = {ko: p => ((p && p.keepouts) || []).map(k => k.name), res: p => [...new Set(((p && p.reservations) || []).filter(r => !koOf(r.why)).map(r => r.why))]};
 function seedRegions(p) {
   let changed = false;
   for (const g of Object.keys(REGION_GROUPS)) for (const n of REGION_GROUPS[g](p)) {
@@ -1039,7 +1156,32 @@ function toggleGroup(g) {
   for (const id of ids) { if (hide) S.off.add(id); else S.off.delete(id); }
   applyVisibility(); renderLegend();
 }
-function toggleOff(id) { if (S.off.has(id)) S.off.delete(id); else S.off.add(id); applyVisibility(); renderLegend(); }
+// The planes and pours of a copper layer, each named for its net: "GND plane", a second one "GND plane 2".
+function zonesOf(p, layer) {
+  const out = [], seen = {};
+  ((p && p.copper) || []).forEach((c, i) => {
+    if ((c.t !== "plane" && c.t !== "pour") || c.layer !== layer) return;
+    const base = (c.net || "no net") + " " + c.t, n = seen[base] = (seen[base] || 0) + 1;
+    out.push({i, t: c.t, name: n > 1 ? base + " " + n : base});
+  });
+  return out;
+}
+// A layer row switches its zones with it; showing one zone of a hidden layer brings the layer back with just that zone.
+function toggleOff(id) {
+  const p = plan();
+  if (id.startsWith("cu:")) {
+    const hide = !S.off.has(id);
+    for (const z of zonesOf(p, id.slice(3))) { if (hide) S.off.add("z:" + z.i); else S.off.delete("z:" + z.i); }
+  } else if (id.startsWith("z:")) {
+    const layer = ((p && p.copper) || [])[+id.slice(2)];
+    if (layer && S.off.has("cu:" + layer.layer) && S.off.has(id)) {
+      S.off.delete("cu:" + layer.layer);
+      for (const z of zonesOf(p, layer.layer)) if ("z:" + z.i !== id) S.off.add("z:" + z.i);
+    }
+  }
+  if (S.off.has(id)) S.off.delete(id); else S.off.add(id);
+  applyVisibility(); renderLegend();
+}
 
 const SW = {   // the legend's swatches draw with the board's own classes, so the key is the colours the board uses
   cy: '<rect x="3" y="2" width="20" height="10" class="cy" style="stroke-width:1.4;stroke-dasharray:3 2;fill-opacity:0.18"/>',
@@ -1054,6 +1196,7 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
   ko: '<rect x="3" y="2" width="20" height="10" class="ko" style="stroke-width:1.2;fill-opacity:0.3"/>',
   res: '<rect x="3" y="2" width="20" height="10" class="res" style="stroke-width:1.2;stroke-dasharray:3 2;fill-opacity:0.25"/>',
   findings: '<circle cx="13" cy="7" r="5.5" class="fmark" style="stroke-width:1.6"/>',
+  zone: cls => '<rect x="3" y="2" width="20" height="10" class="plane ' + cls + '" style="stroke-width:1.2"/>',
   heat: '<rect x="3" y="2" width="5" height="10" fill="rgb(59,76,192)"/><rect x="8" y="2" width="5" height="10" fill="rgb(53,176,171)"/><rect x="13" y="2" width="5" height="10" fill="rgb(253,231,37)"/><rect x="18" y="2" width="5" height="10" fill="rgb(249,142,9)"/>',
   changes: '<line x1="2" y1="11" x2="19" y2="3" style="stroke:var(--accent);stroke-width:1.8"/><path d="M 16 1 L 24 2 L 19 8 z" class="arrowhead" style="fill:var(--accent)"/>',
 };
@@ -1065,8 +1208,8 @@ function copperLayers(p) {
 function legendHTML(p) {
   const items = itemsOf(p), shapes = (kind, layer) => items.reduce((n, it) => n + it.members.reduce((m, x) => m + x.shapes.filter(s => kind.includes(s.kind) && (!layer || (s.layers || []).includes(layer))).length, 0), 0);
   const copper = (p && p.copper) || [], links = (p && p.links) || [], kos = (p && p.keepouts) || [], res = (p && p.reservations) || [];
-  const resNames = [...new Set(res.map(r => r.why))];
-  const row = (id, sw, name, n, o = {}) => '<div class="lg' + (S.off.has(id) ? " off" : "") + (o.sub ? " sub" : "") + (n === 0 ? " zero" : "") + '" data-id="' + esc(id) + '"' + (o.title ? ' title="' + esc(o.title) + '"' : "") + ">" +
+  const resNames = REGION_GROUPS.res(p);
+  const row = (id, sw, name, n, o = {}) => '<div class="lg' + (S.off.has(id) ? " off" : "") + (o.sub ? " sub" : "") + (n === 0 ? " zero" : "") + '" data-id="' + escRaw(id) + '"' + (o.title ? ' title="' + esc(o.title) + '"' : "") + ">" +
     (o.exp ? '<span class="car" data-exp="' + esc(o.exp) + '">' + (S.exp.has(o.exp) ? "&#9662;" : "&#9656;") + "</span>" : "") +
     (sw ? '<svg class="sw" viewBox="0 0 26 14">' + sw + "</svg>" : "") + '<span class="nm">' + esc(name) + "</span>" +
     (o.only ? '<button class="only" data-only="' + esc(id) + '">only</button>' : "") + (n != null ? "<em>" + n + "</em>" : "") + "</div>";
@@ -1076,6 +1219,7 @@ function legendHTML(p) {
   for (const l of copperLayers(p)) {
     const face = LAYER_FACE(l), n = copper.filter(c => c.layer === l && c.t !== "via" && c.t !== "text").length + shapes(["copper"], l), other = face !== "inner" && S.face !== "both" && S.face !== face;
     o.push(row("cu:" + l, SW.track(layerClass(l)), l + (other ? " (other face)" : ""), n, {only: true, title: other ? "drawn on the " + face + " face" : ""}));
+    for (const z of zonesOf(p, l)) o.push(row("z:" + z.i, SW.zone(layerClass(l)), z.name, null, {sub: true, title: z.t === "pour" ? "a fitted pour" : "a plane"}));
   }
   o.push(row("via", SW.via, "vias (ring, drill hole)", copper.filter(c => c.t === "via").length));
   o.push("<h4>Links" + infoBtn("links") + "</h4>");
@@ -1089,7 +1233,7 @@ function legendHTML(p) {
   if (S.exp.has("ko")) for (const k of kos) o.push(row("ko:" + k.name, SW.ko, k.name, null, {sub: true, title: k.why}));
   o.push(head("res", SW.res, "reserved areas", resNames.length));
   if (S.exp.has("res")) for (const w of resNames) o.push(row("res:" + w, SW.res, w, null, {sub: true}));
-  o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", ((p && p.findings) || []).filter(f => f.at).length), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
+  o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", findingPlaces(p).filter(Boolean).length, {title: findingPlaces(p).filter(Boolean).length + " of " + ((p && p.findings) || []).length + " findings are placed on the board: where they say, else at the pad or part they name. The rest name no place."}), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
   return o.join("");
 }
 function renderLegend() { seedRegions(plan()); $("#legend").innerHTML = legendHTML(plan()); }
@@ -1097,6 +1241,7 @@ function soloLayer(id) {
   const p = plan(), all = copperLayers(p).map(l => "cu:" + l), others = all.filter(x => x !== id);
   const alone = others.every(x => S.off.has(x)) && !S.off.has(id);
   for (const x of all) { if (alone || x === id) S.off.delete(x); else S.off.add(x); }
+  for (const x of all) for (const z of zonesOf(p, x.slice(3))) { if (S.off.has(x)) S.off.add("z:" + z.i); else S.off.delete("z:" + z.i); }
   applyVisibility(); renderLegend();
 }
 $("#legend").onclick = e => {
@@ -1263,7 +1408,7 @@ function zoomAbout(vb, r, cx, cy, k) {                // vb scaled by k (width),
 })();
 
 // ---------------------------------------------------------------- modules, and how an item was placed
-// A module is a cell: its parts are the members of the item, or the members of other items that name it as their cell.
+// What the page calls a cell is placemat's Cell: its parts are the members of the item, or the members of other items that name it as their cell.
 function moduleOf(it, ref) {
   const m = (it.members || []).find(x => x.ref === ref) || (it.members || [])[0];
   return (m && m.cell) || (it.members.length > 1 || it.kind === "cell" || it.kind === "block" ? it.key : "");
@@ -1289,7 +1434,7 @@ function howText(s, it) {
   return (fr === "edge" ? "decided along an edge" : "decided at a point") + (slid ? ", slid " + slid[1] : "");
 }
 // howText without the rank and seeds, which a card or a step row gives its own lines.
-const howWord = (s, it) => howText(s, it).replace(/^(searched): rank \d+ of \d+/, "$1").replace(/, seeded on .*?(?=, slid|$)/, "");
+const howWord = (s, it) => howText(s, it).replace(/^(searched): rank \d+ of \d+/, "$1").replace(/, seeded on .*?(?=, slid|$)/, "").replace(/, slid [\d.]+ \S+$/, "");
 const howClass = (s, it) => /^rides/.test(howText(s, it)) ? "rides" : /^pocket/.test(howText(s, it)) ? "pocket" : /^searched/.test(howText(s, it)) ? "searched" : "decided";
 // The findings that name an item.
 function findingsOf(p, key, it) {
@@ -1313,7 +1458,7 @@ function tipItem(g, e, p) {
   const mem = e.target.closest && e.target.closest(".mem"), ref = mem ? mem.dataset.ref : null, m = it.members.find(x => x.ref === ref) || it.members[0];
   const mod = moduleOf(it, ref), {links, refs} = describe(it, p, ref);
   const lines = [(ref || it.key) + (m && m.value ? "  " + m.value : "") + "   (" + it.kind + (it.key !== (ref || it.key) ? " " + it.key : "") + ")",
-    mod ? "module " + mod + (it.members.length > 1 ? ", " + it.members.length + " parts" : "") : "", it.face + ", rotated " + deg(it.rotation), howText(null, it)];
+    mod ? "cell " + mod + (it.members.length > 1 ? ", " + it.members.length + " parts" : "") : "", it.face + ", rotated " + deg(it.rotation), howText(null, it)];
   for (const f of findingsOf(p, it.key, it)) lines.push(sevOf(f) + ": " + f.text);
   if (links.length) { lines.push("links:"); links.slice(0, 6).forEach(l => lines.push("  " + linkLine(l, refs))); if (links.length > 6) lines.push("  ... " + (links.length - 6) + " more"); }
   if (it.file) lines.push(it.file + ":" + it.line);
@@ -1417,9 +1562,20 @@ function markItems(keys, zoom) {
 
 // The card on the board for what is selected: a part or item, a module, or a region.
 const cardKey = () => [S.sel, S.selRef, S.module, S.selRegion && S.selRegion.kind + S.selRegion.id].join("|");
-function kvl(rows) { return '<div class="kvl">' + rows.filter(r => r[1] != null && r[1] !== "").map(([k, v]) => "<span>" + esc(k) + "</span><span>" + v + "</span>").join("") + "</div>"; }
+// How the card, the step rows and the findings write things down. One set of rules; follow it for anything new.
+//  1. A pill is a categorical tag: a kind, face, how it was placed, a priority, a severity, a link's kind, a net, a
+//     layer. Measured values and sentences are plain text; a value that is bad or worth a look is coloured text (val),
+//     not a pill.
+//  2. Every length, position and size carries its unit: "16.5 x 22.0 mm", "(26.6, 36.4) mm", areas mm2 (esc shows
+//     mm\u00b2), angles in degrees (deg).
+//  3. A place in the queue is "rank k of n". A place by a measure is "kth largest of n" (area) or "kth most of n"
+//     (pins), always with the total.
+//  4. A note's known forms are parsed into labelled values (noteParts); only what is not known is shown as written.
+//  5. A labelled line copies as "label: value", one line to a row: kvl writes an invisible ": " between them.
+function kvl(rows) { return '<div class="kvl">' + rows.filter(r => r[1] != null && r[1] !== "").map(([k, v]) => '<div class="kr"><span class="kk">' + esc(k) + '</span><span class="sep">: </span><span class="kvv">' + v + "</span></div>").join("") + "</div>"; }
 function cardHead(title, chip, chipCls, extra) { return '<div class="h"><b>' + esc(title) + "</b>" + (chip ? '<span class="chip ' + esc(chipCls || "") + '">' + esc(chip) + "</span>" : "") + (extra || "") + '<button class="x" data-act="close" aria-label="close">&times;</button></div>'; }
 const pill = (text, cls) => '<span class="chip ' + (cls || "") + '">' + esc(text) + "</span>";
+const val = (text, cls) => '<span class="val ' + (cls || "") + '">' + esc(text) + "</span>";            // a measured value: plain text, coloured when it matters
 const sect = (title, body, aside) => body ? '<div class="cs"><div class="cst">' + esc(title) + (aside ? " " + aside : "") + "</div>" + body + "</div>" : "";
 const listOf = lines => lines.length ? '<div class="cl">' + lines.map(l => "<div>" + l + "</div>").join("") + "</div>" : "";
 // A step's note is "; "-separated, though a part can hold a "; " in brackets. Its known parts get their own lines; whatever else it says is kept as it is.
@@ -1434,16 +1590,20 @@ function splitTop(s, sep) {
   return out.map(x => x.trim()).filter(Boolean);
 }
 function noteParts(note) {
-  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], other: []};
+  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], pocket: null, slid: null, stopped: null, line: null, other: []};
   for (const part of splitTop(note || "", "; ")) {
     let m;
     if ((m = /^rank (\d+)\/(\d+)\b/.exec(part))) {
       let rest = part.slice(m[0].length).trim(), facts = "", tail = [];
       if (rest[0] === "(") { let d = 0, i = 0; for (; i < rest.length; i++) { if (rest[i] === "(") d++; else if (rest[i] === ")" && --d === 0) break; } facts = rest.slice(1, i); rest = rest.slice(i + 1).trim(); }
-      if (rest) tail = [rest.replace(/^\(|\)$/g, "")];
+      if (rest) tail = rest.replace(/^\(/, "").replace(/\)(?=,|$)/, "").split(/,\s*/).filter(Boolean);       // "(script: high), required"
       o.rank = {n: m[1], of: m[2], facts: facts ? splitTop(facts, "; ") : [], tail};
     }
     else if ((m = /^seeded on (.+)$/.exec(part))) o.seeded.push(...m[1].split(/,\s*/));
+    else if ((m = /^pocket ([\d.]+) x ([\d.]+) at \((-?[\d.]+), (-?[\d.]+)\)(?:: (.*))?$/.exec(part))) o.pocket = {w: m[1], h: m[2], x: m[3], y: m[4], why: m[5] || ""};
+    else if ((m = /^slid ([\d.]+) mm from its slot(?:: (.*))?$/.exec(part))) o.slid = {mm: m[1], why: m[2] || ""};
+    else if ((m = /^stopped ([\d.]+) mm short of the (\w+) end by: (.*)$/.exec(part))) o.stopped = {mm: m[1], side: m[2], why: m[3]};
+    else if ((m = /^on the line (x|y) = (-?[\d.]+)$/.exec(part))) o.line = {axis: m[1], at: m[2]};
     else if ((m = /^moved ([\d.]+) mm off the hint[:\s]*(.*)$/.exec(part))) o.moved = {mm: m[1], why: m[2]};
     else if ((m = /^vias: (.+)$/.exec(part))) o.vias.push(...m[1].split(/,\s+/));
     else if (o.vias.length && /^\d+ /.test(part)) o.vias.push(...part.split(/,\s+/));        // the vias' own "; "-separated entries
@@ -1453,38 +1613,48 @@ function noteParts(note) {
   return o;
 }
 const rankRows = r => {
-  const rows = [["rank", pill(r.n + " of " + r.of)]];
+  const rows = [["rank", esc(r.n + " of " + r.of)]];
   for (const f of r.facts) {
-    const m = /^([\d.]+) (mm2|pins?)(?:, (.+))?$/.exec(f);
-    if (m) rows.push([m[2] === "mm2" ? "area" : "pins", pill(m[1] + (m[2] === "mm2" ? " mm2" : "")) + (m[3] ? ' <span class="dim">' + esc(m[3]) + "</span>" : "")]);
+    const m = /^([\d.]+) (mm2|pins?)(?:, (\S+?)(?: of \d+)?)?$/.exec(f);
+    if (m) rows.push(m[2] === "mm2" ? ["area", esc(m[1] + " mm2") + (m[3] ? esc(", " + m[3] + " largest of " + r.of) : "")]
+                                   : ["pins", esc(m[1] + (m[2] === "pin" || m[1] === "1" ? " pin" : " pins")) + (m[3] ? esc(", " + m[3] + " most of " + r.of) : "")]);
     else rows.push(["", esc(f)]);
   }
-  for (const x of r.tail || []) rows.push(["", '<span class="dim">' + esc(x) + "</span>"]);
+  for (const x of r.tail || []) {
+    const pr = /^script: (\w+)$/.exec(x);
+    if (pr) rows.push(["priority", pill(pr[1], "prio-" + pr[1]) + ' <span class="dim">from the script</span>']);
+    else if (x === "required") rows.push(["required", pill("required", "bad")]);
+    else rows.push(["", '<span class="dim">' + esc(x) + "</span>"]);
+  }
   return rows;
 };
 // "N what ..." starts a via line; a fragment without a count continues the line before it (a list of owners).
 const joinVias = vs => vs.reduce((o, v) => { if (/^\d+ /.test(v) || !o.length) o.push(v); else o[o.length - 1] += ", " + v; return o; }, []);
-const viaLine = v => { const m = /^(\d+) (.*)$/.exec(v); return m ? pill(m[1], /drop|cannot|refus/.test(m[2]) ? "warn" : "") + " " + esc(m[2]) : esc(v); };
+const viaLine = v => { const m = /^(\d+) (.*)$/.exec(v); return m ? val(m[1], /drop|cannot|refus/.test(m[2]) ? "warn" : "") + " " + esc(m[2]) : esc(v); };
 const pushLine = s => {
   const m = /^push from (.+?): ([\d.e+-]+) at ([\d.]+) mm \(limit ([\d.e+-]+)\)$/.exec(s);
-  return m ? pill(m[1], "net") + " " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
+  return m ? "<b>" + esc(m[1]) + "</b> " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
 };
-const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text) + "</span>"; }));
+const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + (f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + "</span>"; }));
 function linkRows(p, refs, all) {
   const ls = (p.links || []).map((l, i) => [l, i]).filter(([l]) => refs.has(l.a[0]) || refs.has(l.b[0])).sort((a, b) => (b[0].state === "over") - (a[0].state === "over"));
   if (!ls.length) return "";
   const shown = all ? ls : ls.slice(0, 5), over = ls.filter(([l]) => l.state === "over").length;
-  return sect("Links", '<div class="facts">' + pill(ls.length + (ls.length === 1 ? " link" : " links")) + (over ? " " + pill(over + " over its limit", "bad") : "") + "</div>" +
+  return sect("Links", '<div class="facts">' + esc(ls.length + (ls.length === 1 ? " link" : " links")) + (over ? ", " + val(over + " over its limit", "bad") : "") + "</div>" +
     shown.map(([l, i]) => '<div class="lrow" data-act="link" data-i="' + i + '"><span class="chip ' + esc(l.kind || "") + '">' + esc(l.kind || "link") + "</span><span>" + esc(l.a.join(".") + (refs.has(l.a[0]) ? " -> " : " <- ") + l.b.join(".")) +
       '</span><span class="num ' + (l.state === "over" ? "del" : l.state === "ok" ? "ok" : "") + '">' + l.length + (l.limit != null ? " / " + l.limit : "") + " mm</span></div>").join("") +
     (ls.length > 5 ? '<a class="act" data-act="links">' + (all ? "fewer" : "all " + ls.length) + "</a>" : ""));
 }
 // What a placed item's note says, as card sections: its rank and seeds (rows of the Placement section), and why it
 // moved, the pushes on it, its vias and whatever else.
-const noteRows = np => [...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.seeded.length ? '<span class="pills">' + np.seeded.map(n => pill(n, "net")).join("") + "</span>" : ""]];
+const noteRows = np => [...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.seeded.length ? '<span class="pills">' + np.seeded.map(n => pill(n, "net")).join("") + "</span>" : ""],
+  ["on the line", np.line ? esc(np.line.axis + " = " + np.line.at + " mm") : ""],
+  ["slid", np.slid ? val(np.slid.mm + " mm", "warn") + " from its slot" + (np.slid.why ? ' <span class="dim">' + esc(np.slid.why) + "</span>" : "") : ""],
+  ["stopped short", np.stopped ? val(np.stopped.mm + " mm", "warn") + " before the " + esc(np.stopped.side) + " end" : ""], ["because", np.stopped ? esc(np.stopped.why) : ""]];
 function noteExtra(np, movedMm, why) {
   const moved = np.moved || (movedMm ? {mm: movedMm, why: ""} : null);
-  return sect("Why it moved", moved ? '<div class="facts">' + pill(moved.mm + " mm", "warn") + " off the hint</div>" + (moved.why ? '<div class="note">' + esc(moved.why) + "</div>" : "") : "") +
+  return sect("Why it moved", moved ? '<div class="facts">' + val(moved.mm + " mm", "warn") + " off the hint</div>" + (moved.why ? '<div class="note">' + esc(moved.why) + "</div>" : "") : "") +
+    sect("Pocket", np.pocket ? kvl([["size", esc(np.pocket.w + " x " + np.pocket.h + " mm")], ["at", esc("(" + np.pocket.x + ", " + np.pocket.y + ") mm")], ["because", esc(np.pocket.why)]]) : "") +
     sect("Pushes", listOf(np.push.map(pushLine))) + sect("Vias", listOf(joinVias(np.vias).map(viaLine))) +
     sect("Notes", listOf(np.other.map(esc).concat(why ? ['<span class="dim">' + esc(why) + "</span>"] : [])));
 }
@@ -1492,8 +1662,8 @@ function partCard(p, it) {
   const m = it.members.find(x => x.ref === S.selRef) || (it.members.length === 1 ? it.members[0] : null);
   const title = m ? m.ref : it.key, mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
   const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = noteParts(it.note);
-  const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select module</a>' : "";
-  const place = kvl([["module", mod && mod !== title ? esc(mod) : ""], ["face", esc(it.face + ", rotated " + deg(it.rotation))], ["placed", esc(howWord(s, it))], ["step", step != null ? (step + 1) + " of " + replaySteps(p).length : ""], ...noteRows(np)]);
+  const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select cell</a>' : "";
+  const place = kvl([["cell", mod && mod !== title ? esc(mod) : ""], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["placed", pill(howWord(s, it), howClass(s, it))], ["step", step != null ? esc((step + 1) + " of " + replaySteps(p).length) : ""], ...noteRows(np)]);
   return cardHead(title, it.kind, "", modPill) +
     (m && m.value ? '<div class="sub">' + esc(m.value) + (it.key !== m.ref ? "  (item " + esc(it.key) + ")" : "") + "</div>" : "") +
     sect("Placement", place) + noteExtra(np, it.moved_mm, it.why) +
@@ -1503,7 +1673,7 @@ function partCard(p, it) {
 function moduleCard(p) {
   const id = S.module, keys = moduleKeys(p, id), refs = moduleRefs(p, id);
   const fs = [...keys].flatMap(k => findingsOf(p, k, itemMap(p).get(k)));
-  return cardHead("module " + id, "module", "") + '<div class="sub">' + refs.length + (refs.length === 1 ? " part" : " parts") + "</div>" +
+  return cardHead("cell " + id, "cell", "") + '<div class="sub">' + refs.length + (refs.length === 1 ? " part" : " parts") + "</div>" +
     '<div class="mods">' + refs.map(r => '<button data-act="part" data-ref="' + esc(r) + '">' + esc(r) + "</button>").join("") + "</div>" +
     sect("Findings", sevPills(fs)) + linkRows(p, new Set(refs), S.cardLinks);
 }
@@ -1512,7 +1682,8 @@ function regionCard(p) {
   if (kind === "ko") {
     const k = (p.keepouts || []).find(x => x.name === id); if (!k) return "";
     return cardHead(k.name, "keepout", "pocket") + (k.why ? '<div class="sub">' + esc(k.why) + "</div>" : "") +
-      kvl([["layers", esc(k.layers ? k.layers.join(", ") : "every copper layer")], ["excludes", esc((k.excludes || []).join(", ") || "nothing")], ["allows", esc((k.allow || []).join(", ") || "nothing")], ["max height", k.max_height != null ? k.max_height + " mm" : ""]]);
+      kvl([["layers", k.layers ? '<span class="pills">' + k.layers.map(l => pill(l)).join("") + "</span>" : "every copper layer"], ["excludes", (k.excludes || []).length ? '<span class="pills">' + k.excludes.map(x => pill(x)).join("") + "</span>" : "nothing"],
+        ["allows", (k.allow || []).length ? '<span class="pills">' + k.allow.map(x => pill(x, "net")).join("") + "</span>" : "nothing"], ["max height", k.max_height != null ? esc(k.max_height + " mm") : ""]]);
   }
   const r = (p.reservations || []).find(x => x.why === id); if (!r) return "";
   return cardHead("reserved area", r.rule_area ? "rule area" : "reserved", "pocket") + '<div class="sub">' + esc(r.why) + "</div>" +
@@ -1627,7 +1798,7 @@ function stepSummary(s, it, np) {
 // A row opened: the same labelled sections as a part's card.
 function stepDetail(s, it, np, fs) {
   const placed = s.type === "place" && it;
-  const rows = placed ? kvl([["placed", esc(howWord(s, it))], ["face", esc(it.face + ", rotated " + deg(it.rotation))], ...noteRows(np)]) : "";
+  const rows = placed ? kvl([["placed", pill(howWord(s, it), howClass(s, it))], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ...noteRows(np)]) : "";
   return sect("Placement", rows) +
     noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why)) + sect("Findings", sevPills(fs)) + (it && it.file ? '<div class="src"><a data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
@@ -1646,7 +1817,7 @@ function renderSteps() {
   const order = replaySteps(p), other = otherSteps(p);
   const unplaced = p.unplaced || [];
   const head = (title, n, id, info) => "<h3>" + title + (info ? infoBtn(info) : "") + ' <span class="c"' + (id ? ' id="' + id + '"' : "") + ">" + n + "</span></h3>";
-  let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + "</div>";
+  let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + pendingRow() + "</div>";
   if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><span class="n wrap">' + esc(u.why) + "</span></div>").join("");
   if (other.length) {
     out += '<h3 class="fold" data-fold="other">' + (S.showOther ? "&#9662;" : "&#9656;") + " Keepouts and setup steps" + infoBtn("other") + ' <span class="c">' + other.length + "</span></h3>";
@@ -1689,7 +1860,7 @@ function renderFindings() {
   el.innerHTML = filters + order.map(kind => {
     const list = groups.get(kind), closed = S.closedKinds.has(kind), worst = hasSev ? kind : list.some(([f]) => sevOf(f) === "critical") ? "critical" : list.some(([f]) => sevOf(f) === "notice") && !list.some(([f]) => sevOf(f) === "warning") ? "notice" : "warning";
     return '<div class="gh" data-kind="' + esc(kind) + '"><span class="dim">' + (closed ? "&#9656;" : "&#9662;") + "</span>" + esc(kind) + '<span class="ct">' + list.length + "</span></div>" +
-      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? '<span class="dim">' + esc(f.kind) + "</span> " : "") + esc(f.text) + srcLink(f, p) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
+      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + srcLink(f, p) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
   }).join("");
   el.onclick = e => {
     const sv = e.target.closest("[data-sev]"); if (sv) { S.sevFilter = sv.dataset.sev; renderFindings(); return; }
@@ -1951,7 +2122,20 @@ function closeMenu() { const m = $("#menu"); m.hidden = true; $("#brandbtn").set
 $("#brandbtn").onclick = () => { if ($("#menu").hidden) openMenu(); else closeMenu(); };
 $("#menu").onclick = e => { const b = e.target.closest("[data-script]"); if (b) switchTo(b.dataset.script); };
 document.addEventListener("click", e => { if ($("#menu").hidden) return; if (!(e.target.closest && (e.target.closest("#menu") || e.target.closest("#brandbtn")))) closeMenu(); });
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closeMenu(); if (S.scriptOpen && $("#infopop").hidden) closeScript(); } });
+// Escape closes the topmost thing that is open, one at a time: a note, the menu, the legend sheet, the script, the card.
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!$("#infopop").hidden) infoHide();
+  else if (!$("#menu").hidden) closeMenu();
+  else if (narrow() && $("#legend").classList.contains("open")) $("#legend").classList.remove("open");
+  else if (S.scriptOpen) closeScript();
+  else if ($("#card").style.display === "block") { S.cardOff = cardKey(); renderCard(); }
+});
+// A tap outside the legend sheet closes it, and so does a swipe down on its header.
+document.addEventListener("click", e => { const lg = $("#legend"); if (narrow() && lg.classList.contains("open") && e.target.closest && !e.target.closest("#legend") && !e.target.closest("#keybtn")) lg.classList.remove("open"); });
+let lgSwipe = null;
+$("#legend").addEventListener("pointerdown", e => { lgSwipe = e.pointerType === "touch" && e.target.closest && e.target.closest(".lgh") ? e.clientY : null; });
+$("#legend").addEventListener("pointerup", e => { if (lgSwipe != null && e.clientY - lgSwipe > 50) $("#legend").classList.remove("open"); lgSwipe = null; });
 // With no script given, the page opens on this list and nothing resolves until one is chosen.
 function renderPicker() {
   const el = $("#picker"), pick = !!(S.hello && S.hello.picker);
@@ -1973,15 +2157,15 @@ const relName = f => { const k = Object.keys(S.texts || {}).find(n => f === n ||
 const ago = at => { const s = Math.max(0, Date.now() / 1000 - at); return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
 const cnt = v => v && typeof v === "object" ? Object.values(v).reduce((a, b) => a + (+b || 0), 0) : (+v || 0);
 // A DRC bucket: its total, then the kinds in it.
-const drcBucket = (name, v, bad) => v == null ? "" : pill(cnt(v) + " " + name, cnt(v) && bad ? "bad" : cnt(v) ? "warn" : "good") + (v && typeof v === "object" ? " " + Object.keys(v).map(k => '<span class="dim">' + esc(k.replace(/_/g, " ")) + " " + v[k] + "</span>").join(", ") : "");
+const drcBucket = (name, v, bad) => v == null ? "" : val(cnt(v) + " " + name, cnt(v) && bad ? "bad" : cnt(v) ? "warn" : "good") + (v && typeof v === "object" ? " " + Object.keys(v).map(k => '<span class="dim">' + esc(k.replace(/_/g, " ")) + " " + v[k] + "</span>").join(", ") : "");
 function runDetail(r) {
   const drc = r.drc || {};
-  const rows = [["DRC", [drcBucket("real", drc.drc_real, true), drcBucket("outstanding", drc.outstanding, true), drcBucket("other", drc.other, false), drcBucket("permitted", drc.permitted, false), drc.unconnected != null ? pill(cnt(drc.unconnected) + " unconnected", "warn") : ""].filter(Boolean).map(x => "<div>" + x + "</div>").join("")],
+  const rows = [["DRC", [drcBucket("real", drc.drc_real, true), drcBucket("outstanding", drc.outstanding, true), drcBucket("other", drc.other, false), drcBucket("permitted", drc.permitted, false), drc.unconnected != null ? val(cnt(drc.unconnected) + " unconnected", "warn") : ""].filter(Boolean).map(x => "<div>" + x + "</div>").join("")],
     ["findings", Object.keys(r.severities || {}).map(k => '<span class="sev ' + k + '">' + k + " " + r.severities[k] + "</span>").join(" ")],
-    ["airwire", r.airwire_mm != null ? pill(Math.round(r.airwire_mm) + " mm") + (r.open_nets ? " " + pill(cnt(r.open_nets) + " open nets", "warn") : "") : ""],
-    ["checks", r.checks && r.checks.checks_failed != null ? pill(r.checks.checks_failed + " failed", r.checks.checks_failed ? "bad" : "good") + (r.checks.checks_unjudged ? " " + pill(r.checks.checks_unjudged + " unjudged") : "") : ""],
-    ["time", Object.keys(r.timing || {}).map(k => pill(k + " " + r.timing[k] + " s")).join(" ")]];
-  const failing = (r.verdicts || []).map(v => '<div>' + pill(v.check, "bad") + " " + esc(v.subject || "") + ' <span class="dim">' + esc(v.note || "") + "</span></div>").join("");
+    ["airwire", r.airwire_mm != null ? esc(Math.round(r.airwire_mm) + " mm") + (r.open_nets ? ", " + val(cnt(r.open_nets) + " open nets", "warn") : "") : ""],
+    ["checks", r.checks && r.checks.checks_failed != null ? val(r.checks.checks_failed + " failed", r.checks.checks_failed ? "bad" : "good") + (r.checks.checks_unjudged ? esc(", " + r.checks.checks_unjudged + " unjudged") : "") : ""],
+    ["time", esc(Object.keys(r.timing || {}).map(k => k + " " + r.timing[k] + " s").join(", "))]];
+  const failing = (r.verdicts || []).map(v => '<div>' + pill(v.check) + " " + esc(v.subject || "") + ' <span class="dim">' + esc(v.note || "") + "</span></div>").join("");
   const f = r.failure;
   const rowsHtml = kvl(rows);
   return '<div class="full" style="display:block">' + sect("Result", rowsHtml === '<div class="kvl"></div>' ? "" : rowsHtml) + (failing ? sect("Failed checks", '<div class="cl">' + failing + "</div>") : "") +

@@ -3352,7 +3352,8 @@ The compare is also the server's: `/diff?a=ID&b=ID`, `/resolve/ID` and
 `/history` answer with JSON (token required), and `/events` is the stream
 (Server-Sent Events: `started` with the changed files and their diffs, a
 `step` per item, `copper`, `links`, `congestion`, `findings`, `items`,
-`finished`, `compare`; `changed`, `cancelled`, `superseded` and `error` as
+`finished`, `compare`; `begin` as the engine starts an item or a copper batch
+and says what a long step is doing; `changed`, `cancelled`, `superseded` and `error` as
 they happen).
 
 The script is read only in the page; edit it in an editor, or let an agent
