@@ -777,10 +777,10 @@ finish(1, ["a", "b", "c"]);
 out.done = [els["#runstrip"].hidden, ev("S.work"), els["#rs-steps"].textContent];
 """)
     assert out["start"][0] is False and "step 0" in out["start"][1] and "so far" in out["start"][1]
-    assert out["prog"][0] is False and "step 1 of about 30" in out["prog"][1] and 'title="psu">psu</b>' in out["prog"][1] and "scanning front/back" in out["prog"][1] and "3.2 s" in out["prog"][1] and out["prog"][2] == "3%" and out["prog"][3] == "0:03"
+    assert out["prog"][0] is False and "step 1 of about 30" in out["prog"][1] and 'title="psu">psu</b>' in out["prog"][1] and "scan front/back" in out["prog"][1] and "3.2 s" in out["prog"][1] and out["prog"][2] == "3%" and out["prog"][3] == "0:03"
     pr = out["pending"]
     assert 'id="pendrow"' in pr and 'class="f-item" title="psu">psu</b>' in pr and '<span class="chip searched">searching</span>' in pr
-    assert '<span class="f-rank">rank 7 of 18</span>' in pr and '<span class="chip phase">scanning front/back</span>' in pr and '<span class="f-time">3.2 s</span>' in pr
+    assert '<span class="f-rank"><span class="lbl">rank </span>7 of 18</span>' in pr and '<span class="chip phase">scan front/back</span>' in pr and '<span class="f-time">3.2 s</span>' in pr
     assert "scanning the front or back" not in pr                                         # the phase is a short pill
     assert out["stepnow_shown"] == "none"                                                   # the step display is for settled steps; the running strip has this one
     assert out["mark"]["hint"] == [6, 8] and out["mark"]["rank"] == 7
@@ -903,6 +903,49 @@ key("Escape"); flush(); out.after2 = els["#card"].style.display;
 def test_phase_notes_are_shortened_to_a_pill_and_no_field_can_run_off_its_box():
     import re as _re
     page = PAGE.read_text()
-    assert ".flds { display: flex; flex-wrap: wrap;" in page and ".flds .f-item { flex: 0 1 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }" in page
+    assert ".flds { display: flex; flex-wrap: wrap;" in page and ".flds .f-item { flex: 1 1 0; min-width: 2.2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }" in page
     assert _re.search(r"\.flds \.f-time \{ width: [\d.]+em; text-align: right;", page) and "#stepnow { display: none; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0;" in page
     assert "white-space: nowrap; }\n#stepnow" not in page
+
+
+@needs_node
+def test_while_a_resolve_runs_the_play_button_restarts_through_the_steps_so_far_then_follows_the_live_end(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+for (const [k, x] of [["a", 1], ["b", 5], ["c", 9]]) send("step", {id: 1, item: item(k, x)});
+out.label = [els["#play"].textContent, els["#play"].disabled];
+ev("togglePlay()"); flushOnce();
+out.started = [ev("S.replay"), els["#play"].textContent, !!ev("S.play")];
+clock += 400; flushOnce(); out.mid = [ev("S.replay"), !!ev("S.play")];
+send("step", {id: 1, item: item("d", 13)});                                   // a new step arrives while it plays
+clock += 3000; flushOnce(); flushOnce(); flushOnce();
+out.caught = [ev("S.replay"), !!ev("S.play"), els["#steplabel"].textContent];
+els["#slider"].handlers.input[0]({target: {value: "1"}}); flushOnce();
+send("step", {id: 1, item: item("e", 17)});
+out.moved = [ev("S.replay"), !!ev("S.play")];
+ev("stopPlay()");
+els["#slider"].handlers.input[0]({target: {value: "2"}}); out.hand = [ev("S.replay"), !!ev("S.play")];
+finish(1, ["a", "b", "c"]);
+out.end = [els["#play"].textContent, els["#play"].disabled];
+""")
+    assert out["label"] == ["Restart", False]
+    assert out["started"][0] == 0 and out["started"][1] == "Pause" and out["started"][2] is True       # from step 1, and the button says what it does next
+    assert out["mid"][0] >= 1 and out["mid"][1] is True
+    assert out["caught"][0] is None and out["caught"][1] is False                                      # caught up: following the live end
+    assert out["moved"] == [1, False]                                                                 # a hand on the slider leaves it where it was put
+    assert out["hand"] == [2, False] and out["end"] == ["Play", False]
+
+
+def test_the_strips_fixed_fields_fit_one_line_at_360_px_with_the_name_taking_what_is_left():
+    """The sum of what cannot shrink must fit a 360 px phone (the strip's content is about 318 px wide) in em of the
+    12.5 px the fields use, and the name must have no natural width to wrap on."""
+    import re as _re
+    page = PAGE.read_text()
+    em = lambda sel: float(_re.search(_re.escape(sel) + r" \{ width: ([\d.]+)em", page).group(1))
+    assert ".flds .f-item { flex: 1 1 0; min-width: 2.2em;" in page
+    narrow_rank = float(_re.search(r"\.flds \.f-rank \{ width: ([\d.]+)em; \} \.flds \.f-rank \.lbl \{ display: none; \}", page).group(1))
+    line = em(".flds .f-phase") + em(".flds .f-time") + narrow_rank + 2.2                 # phase, time, rank, the name's minimum
+    chip_px, gaps_px = 62, 4 * 6
+    assert line * 12.5 + chip_px + gaps_px <= 318, line
+    top = em("#runstrip .f-el") + em("#runstrip .f-steps")                                   # elapsed, steps; the bar shrinks to 1.5em
+    assert (top + 1.5) * 12.5 + 16 + 3 * 6 <= 318, top

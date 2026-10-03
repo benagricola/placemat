@@ -74,12 +74,12 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 .pill.error { background: var(--bad-soft); color: var(--bad); }
 /* a resolve is running: a spinner, the time, the steps so far, and the step being worked on */
 /* the running status is a strip above the timeline: the same fields as the step display, a bar, the time */
-#runstrip { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 5px 12px; color: var(--accent); font-weight: 600; }
+#runstrip { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 5px 10px; color: var(--accent); font-weight: 600; }
 #runstrip[hidden] { display: none; }
-#runstrip .f-el { width: 3em; font-variant-numeric: tabular-nums; }
-#runstrip .f-steps { width: 12.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#runstrip .f-el { width: 2.8em; font-variant-numeric: tabular-nums; }
+#runstrip .f-steps { width: 10.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #runstrip .flds + .flds { margin-top: 2px; font-weight: 400; color: var(--ink); }
-#runstrip .flds > .bar { flex: 1 1 4em; min-width: 3em; }
+#runstrip .flds > .bar { flex: 1 1 2em; min-width: 1.5em; }
 .spin { display: inline-block; flex: none; width: 13px; height: 13px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .bar { height: 5px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
@@ -142,20 +142,21 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 #card a { color: var(--accent); cursor: pointer; text-decoration: none; }
 #card .src a { font-family: var(--mono); font-size: 12px; }
 #replay { display: flex; gap: 10px; align-items: center; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px 12px 4px 4px; }
-#play { border: 0; background: var(--accent); color: #fff; border-radius: 7px; flex: none; width: 70px; padding: 6px 0; font-weight: 600; }
+#play { border: 0; background: var(--accent); color: #fff; border-radius: 7px; flex: none; min-width: 70px; padding-left: 8px; padding-right: 8px; padding: 6px 0; font-weight: 600; }
 #slider { flex: 1; min-width: 0; height: 30px; margin: 0; accent-color: var(--accent); touch-action: none; }
 /* the label and the button have fixed widths: the slider's own width never changes while it is dragged */
 #steplabel { flex: none; width: 6em; text-align: right; white-space: nowrap; overflow: hidden; }
-#stepnow { display: none; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 4px 12px; }
+#stepnow { display: none; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 4px 10px; }
 /* the current step as fields: each keeps its width where its value changes, the name takes the rest, and the line wraps rather than overflows */
-.flds { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; max-width: 100%; }
+.flds { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; max-width: 100%; font-size: 12.5px; }
 .flds > * { min-width: 0; flex: none; }
-.flds .f-n { width: 5.2em; color: var(--dim); }
-.flds .f-item { flex: 0 1 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flds .f-rank { width: 6.8em; color: var(--dim); white-space: nowrap; }
-.flds .f-phase { width: 11.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flds .f-time { width: 3.8em; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.flds .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flds .f-n { width: 4.6em; color: var(--dim); }
+.flds .f-item { flex: 1 1 0; min-width: 2.2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }       /* takes what is left, so only the others' minimum can make the line wrap */
+.flds .f-rank { width: 6.4em; color: var(--dim); white-space: nowrap; }
+.flds .f-phase { width: 8.6em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flds .f-time { width: 3.3em; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.flds .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 17px; padding: 0 6px; }
+@media (max-width: 420px) { .flds { gap: 2px 6px; } .flds .f-rank { width: 3.8em; } .flds .f-rank .lbl { display: none; } }
 .row.pending .flds { margin-top: 2px; }
 #tip { position: absolute; pointer-events: none; background: #20252b; color: #f2f4f6; padding: 6px 9px; border-radius: 6px; font-size: 12px; max-width: 360px; display: none; white-space: pre-wrap; z-index: 7; box-shadow: var(--shadow); }
 
@@ -739,7 +740,7 @@ function renderStatus() {
 }
 // ---------------------------------------------------------------- a resolve in progress
 const fmtDur = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
-const WHAT_WORD = {searched: "searching", decided: "deciding", copper: "laying copper", cutout: "cutting", keepout: "keepout"};
+const WHAT_WORD = {searched: "searching", decided: "deciding", copper: "copper", cutout: "cutting", keepout: "keepout"};
 // The queue's size as far as the engine knows it up front: the items to place and the copper declared.
 const workTotal = w => w && w.total ? w.total.items + w.total.copper : 0;
 function renderProgress() {
@@ -752,8 +753,8 @@ function renderProgress() {
   $("#progbarbox").classList.toggle("ind", !T);
   $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
   const R = w.total ? w.total.replay : 0;
-  $("#rs-work").innerHTML = w.replayed && (!c || c.replaying) ? itemField("replaying unchanged steps") + pill("replay", "decided") + '<span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span>"
-    : c ? itemField(c.item) + pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + workFields(c) : '<span class="f-phase dim">waiting for the next step</span>';
+  $("#rs-work").innerHTML = w.replayed && (!c || c.replaying) ? pill("replay", "decided") + itemField("replaying unchanged steps") + '<span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span>"
+    : c ? pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + workFields(c) : '<span class="f-phase dim">waiting for the next step</span>';
 }
 // After a resolve the strip says how long it took for a few seconds, then goes; the slider below does not move.
 function resolveDone() {
@@ -772,12 +773,13 @@ function phaseShort(text, what) {
   if (/^seeding/.test(s)) return "seeding";
   if (/^coarse pass/.test(s)) return "coarse pass";
   if (/^placing at/.test(s)) return "placing";
-  if ((m = /^scanning the (.*)$/.exec(s))) return "scanning " + m[1].replace(/ or /, "/");
+  if ((m = /^scanning the (.*)$/.exec(s))) return "scan " + m[1].replace(/ or /, "/");
   return s;
 }
 // The fields of the step being worked on: the rank in the queue (k of n), the phase as a pill, the time on this step.
 // A field keeps its width, so a changing value moves nothing (formatting rule 3: "rank k of n").
-const workFields = c => (c.rank ? '<span class="f-rank">' + esc("rank " + c.rank + " of " + c.of) + "</span>" : '<span class="f-rank"></span>') +
+const rankField = (n, of) => '<span class="f-rank">' + (n ? '<span class="lbl">rank </span>' + esc(n + " of " + of) : "") + "</span>";
+const workFields = c => rankField(c.rank, c.of) +
   '<span class="f-phase">' + (c.phase || c.what === "copper" ? pill(phaseShort(c.phase, c.what), "phase") : "") + "</span>" +
   '<span class="f-time">' + esc(((Date.now() - c.t) / 1000).toFixed(1) + " s") + "</span>";
 const whatClass = what => what === "searched" ? "searched" : what === "decided" ? "decided" : what === "copper" ? "copper" : what === "cutout" ? "cutout" : what === "replay" ? "decided" : "keepout";
@@ -786,11 +788,11 @@ function pendingRow() {
   const w = S.work; if (!S.resolving || !w) return "";
   const c = w.cur, R = w.total ? w.total.replay : 0, spin = '<span class="i"><i class="spin"></i></span>';
   if (w.replayed && (!c || c.replaying)) {
-    return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField("replaying unchanged steps") + pill("replay", "decided") + '</div><div class="flds" id="pendtext"><span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span></div>" +
+    return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill("replay", "decided") + itemField("replaying unchanged steps") + '</div><div class="flds" id="pendtext"><span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span></div>" +
       (R ? '<div class="pbar"><b style="width:' + Math.min(100, Math.round(100 * w.replayed / R)) + '%"></b></div>' : "") + "</div></div>";
   }
   if (!c) return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField("working") + '</div><div class="flds" id="pendtext"><span class="f-phase dim">waiting for the next step</span></div></div></div>';
-  return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField(c.item) + pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + '</div><div class="flds" id="pendtext">' + workFields(c) + "</div></div></div>";
+  return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + '</div><div class="flds" id="pendtext">' + workFields(c) + "</div></div></div>";
 }
 // The pending row's own text and the header's, refreshed without drawing the lists again.
 function updatePending() {
@@ -1777,8 +1779,9 @@ function renderReplay() {
   $("#steplabel").textContent = n ? k + " / " + n + (S.resolving ? " so far" : "") : S.resolving ? "..." : "0";
   const fb = $("#follow"); fb.hidden = !(S.resolving && S.replay != null);
   renderStepNow();
-  $("#play").textContent = S.play ? "Pause" : "Play";
-  $("#play").disabled = !n || !!S.resolving;
+  $("#play").textContent = S.play ? "Pause" : S.resolving ? "Restart" : "Play";
+  $("#play").title = S.resolving && !S.play ? "replay from step 1 through the steps so far, then follow the live end" : "replay the placement, one item at a time";
+  $("#play").disabled = !n;
 }
 // The display above the timeline for the step the slider is on: fields, not a sentence: step number, name, kind pill,
 // rank. (The step being worked on is in the running strip above it.)
@@ -1788,7 +1791,7 @@ function renderStepNow() {
   sn.style.display = settled ? "block" : "none";
   if (!settled) return;
   const it = S.itemAt && S.itemAt.get(settled.item), kind = stepKind(settled, it), np = noteParts(settled.note || (it && it.note) || "");
-  sn.innerHTML = '<div class="flds"><span class="f-n">' + esc("Step " + k) + "</span>" + itemField(kind.name) + pill(kind.word, kind.cls) + '<span class="f-rank">' + (np.rank ? esc("rank " + np.rank.n + " of " + np.rank.of) : "") + "</span></div>";
+  sn.innerHTML = '<div class="flds"><span class="f-n">' + esc("Step " + k) + "</span>" + pill(kind.word, kind.cls) + itemField(kind.name) + rankField(np.rank && np.rank.n, np.rank && np.rank.of) + "</div>";
 }
 const R = {rows: [], k: -1, n: 0};
 function collectRows() { R.rows = [...document.querySelectorAll("#steplist .row[data-n]")]; R.k = -1; }
@@ -1800,17 +1803,19 @@ function playPosition(play, now) {                              // the position 
 }
 function togglePlay() {
   if (S.play) { stopPlay(); schedule("replay"); return; }
-  const n = replayCount(); if (!n || S.resolving) return;
-  const k0 = S.replay == null ? 0 : S.replay;                   // from the end it starts again
+  const n = replayCount(); if (!n) return;
+  // While a resolve runs the button restarts: from step 1 through what has settled, then it follows the live end.
+  const k0 = S.resolving ? 0 : S.replay == null ? 0 : S.replay;                   // from the end it starts again
   S.play = {t0: Date.now(), k0, rate: playRate(n), n};
   setReplay(k0);
   requestAnimationFrame(playTick);
 }
 function playTick() {
   const play = S.play; if (!play) return;
-  const k = Math.max(playPosition(play, Date.now()), S.replay == null ? 0 : S.replay);
+  const total = S.resolving ? replayCount() : play.n;               // a live replay's end is the newest step so far, and it moves
+  const k = Math.max(playPosition(Object.assign({}, play, {n: total}), Date.now()), S.replay == null ? 0 : S.replay);
   setReplay(k);
-  if (k >= play.n) { S.play = null; schedule("replay"); return; }
+  if (k >= total) { S.play = null; schedule("replay"); return; }      // caught up: the slider is at the live end and follows it
   requestAnimationFrame(playTick);
 }
 function stopPlay() { S.play = null; }
