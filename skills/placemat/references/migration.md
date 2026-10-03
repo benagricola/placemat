@@ -96,6 +96,12 @@ section for each hand-written pattern a newer form replaces.
   a record appended to `.placemat/views/studio/notes.jsonl`, shown on the page as a pin that follows its item or pad, a line in a
   Notes list (dismissable per browser), and a toast. Settings `[studio] note_age_s` (3600; 0 keeps notes) and `notes_keep` (100),
   neither part of a run's id. A point is a place to look at, never a placement. Scripts change nothing.
+- **Studio board drawing.** A finding is a badge on a stem at one screen size (a triangle with ! for critical and warning, a circle with i
+  for notice) with a white halo, a dark rim and a slow pulse, larger when it is the one looked at; tapping it opens the finding.
+  Vias are drawn above the parts with their drill cut through (they were hidden under pads, and ringed white at high zoom), a
+  through pad shows both layers' colours and its drill, and an SMD pad is the colour of its copper layer and goes with that layer's row in
+  the legend. "Why it moved" in a card says what moved the part (the slide's stop, a refusal, a score gain) beside the distance, and
+  "no cause recorded" where the step's note has none. The plan JSON gives pads their `layers` and adds `hole` and `npth` shapes.
 - **Studio page.** On a wide layout the running status is one line in the header (the strip above the timeline stays on
   narrow ones), and between two steps the step that just settled stays, dimmed, with its time. Unplaced items are shown
   as sections in the steps list, the card and the findings list: why, the radius searched around a point, and what
