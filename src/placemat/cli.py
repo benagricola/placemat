@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 
+from . import stop
 from .console import console
 
 
@@ -35,7 +36,9 @@ def parser() -> argparse.ArgumentParser:
 
     run.add_argument("--explore", type=float, metavar="SECONDS",
                      help="first spend up to SECONDS trying variants of the focused items' spots and order, and "
-                          "report what the best would move")
+                          "report what the best would move. A long explore: run it detached (setsid nohup placemat "
+                          "run ... > explore.log 2>&1 &) and do not chain it with ';', which hides its exit status "
+                          "(128 + the signal when it was stopped)")
     run.add_argument("--focus", action="append", default=[], metavar="ITEM",
                      help="with --explore: vary this item (a part, cell or block key); repeatable")
     run.add_argument("--focus-after", type=int, metavar="LINE",
@@ -248,6 +251,9 @@ def parser() -> argparse.ArgumentParser:
     how = lk.add_mutually_exclusive_group()
     how.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
     how.add_argument("--release-all", action="store_true", help="drop every entry")
+    how.add_argument("--accept-seed", type=int, metavar="N",
+                     help="write the saved explore's best variant, seed N, to the lock (what a stopped "
+                          "explore's message offers); no search is run")
     how.add_argument("--current", action="store_true",
                     help="lock every searched item where the board stands (the last run's placement)")
     lk.add_argument("--partial", action="store_true",
@@ -370,6 +376,19 @@ def cmd_lock(args) -> int:
         return _lock_current(Path(args.script), None, partial=args.partial)
     if args.partial:
         raise SystemExit("--partial goes with --current")
+    if args.accept_seed is not None:
+        from .explore import accept_best
+        from .checkpoint import state_dir
+        from .project import find_board
+        from ._version import __version__
+        script = Path(args.script).resolve()
+        try:
+            console.say("lock", accept_best(script, state_dir(find_board(script).board_dir, script), __version__,
+                                            seed=args.accept_seed))
+        except ValueError as e:
+            console.say("lock", str(e), level="fail")
+            return 1
+        return 0
     if not args.release and not args.release_all:
         entries = lock.read(path)
         console.lines("lock", "\n".join("%s  %s %s  turn %d" % (e.key, "%s.%s" % e.anchor if e.anchor else "board",
@@ -502,7 +521,20 @@ def _runs_dirs(board) -> list:
 
 def _record(ref, board=None) -> Path:
     """A run.json from a path, or a run id / prefix / label looked up in the
-    runs directories under the cwd (or --board)."""
+    runs directories under the cwd (or --board). A run whose process is gone
+    while its record still says "running" is said to have died."""
+    path = _find_record(ref, board)
+    try:
+        from .report import RunRecord, dead_note
+        note = dead_note(RunRecord.load(path))
+        if note:
+            console.say("run", note, level="fail")
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return path
+
+
+def _find_record(ref, board=None) -> Path:
     from .report import resolve_run
     p = Path(ref)
     if p.exists():
@@ -1318,10 +1350,27 @@ def cmd_facts(args) -> int:
     return 1 if reasons else 0
 
 
+# The commands that can run for minutes: a stop (SIGTERM, SIGHUP, Ctrl-C) ends them with a line saying
+# so and the exit status 128 + the signal, keeping what they had done.
+STOPPABLE = ("run", "preview", "route")
+
+
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     if args.format == "json":
         args.json = True
+    previous = stop.install() if args.command in STOPPABLE else {}
+    try:
+        return _main(args)
+    except stop.Stopped as s:
+        if not s.said:
+            stop.say("%s stopped by %s%s" % (args.command, s.name, " during %s" % s.stage if s.stage else ""))
+        return s.exit_code
+    finally:
+        stop.restore(previous)
+
+
+def _main(args) -> int:
     if args.output is None:
         return _dispatch(args)
     with open(args.output, "w") as stream:

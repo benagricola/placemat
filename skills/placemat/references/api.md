@@ -3372,7 +3372,7 @@ the items it was left to place:
 placemat run <script> --explore SECONDS [--focus ITEM ...] [--focus-after LINE]
                       [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept]
 placemat preview <script> --explore SECONDS [the same]
-placemat lock <script> [--current [--partial] | --release ITEM ... | --release-all]
+placemat lock <script> [--current [--partial] | --release ITEM ... | --release-all | --accept-seed N]
 placemat freeze <script> ITEM ... | --all [--fixed]
 ```
 
@@ -3400,6 +3400,22 @@ comparison.
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
 Without `--accept` nothing persists.
+
+**Stopping.** `run`, `preview` and `route` stop on SIGTERM, SIGHUP or Ctrl-C
+(a second signal exits at once). A stopped explore prints `explore stopped by
+SIGTERM after N variants in T s; best seed S: a -> b mm; nothing accepted;
+accept it with: placemat lock <script> --accept-seed S`; the lock is never
+written on a stop, even with `--accept`, and `placemat lock <script>
+--accept-seed S` writes the best from `<board>/.placemat/explore/<script
+stem>/best.json` (refused when the lock or the script changed since). A
+stopped run's `run.json` has `status: "stopped"` and `failure: {kind:
+"stopped", signal, stage, elapsed_s, explore}`, the layout folder is as the
+last run left it, a final line names the stage and the signal, and the exit
+status is 128 + the signal. While a run works its `run.json` says `status:
+"running"` and its `pid`; a record whose pid is gone died without finishing.
+For a long explore run it detached (`setsid nohup placemat run ... >
+explore.log 2>&1 &`) and do not chain it with `;`, which hides its exit
+status.
 
 **The lock.** `--accept` writes the best variant's decisions for the
 focused items to `<script stem>.lock.json` beside the script, and the run

@@ -14,7 +14,7 @@ import traceback
 from .console import configure, console
 from .layout import Board
 from .context import run_script
-from . import checks, settings
+from . import checks, settings, stop
 from .project import BoardSource, fab_profile, find_board, generator_inputs, script_fingerprint
 from .report import (RunRecord, _drc_total, against_best, airwires_from_drc, best_for, comparable, congestion,
                      family_of, impact, is_better, latest_for, record_latest, run_id, score_line)
@@ -367,6 +367,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     say("run", "%s: %s" % (src.name, script.relative_to(src.board_dir)))
     generated = False
     plan = None
+    stage, began, stopped = "generate", time.time(), None
     # the layout folder as the last run left it: a run that fails before it
     # writes the board puts it back, rather than leave the unplaced generation
     before = staging / "before"
@@ -387,6 +388,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         run_dir = final_dir
         rec.run_id = rid
         rec.paths["run_dir"] = str(run_dir)
+        rec.pid = os.getpid()               # a record still "running" whose pid is gone is a run that died
+        rec.save(run_dir / "run.json")
         files = sorted({v for v in cfg.sources.values() if v not in ("default", "flag")})
         if files:
             rec.paths["settings_files"] = files
@@ -402,6 +405,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .kicad.write import apply_plan, finish_board, render_board
         from .kicad.drc import run_drc
 
+        stage = "read"
         from . import facts as facts_mod
         facts_geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
         facts_doc = facts_mod.facts_of(facts_geometry, fab, cfg.check_rise_c)
@@ -433,12 +437,14 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         # in the folder while it works shows none
         strip_stamped_notes(src.pcb, keep_loose_faces=not board._draw_outline)
         from . import explore as explore_mod, routes as routes_mod
+        stage = "explore" if explore is not None else "resolve"
         try:
             lock_entries, explored = explore_mod.before_resolve(
                 script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
                 explore, say, run_id=rid)
         except explore_mod.FocusError as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
+        stage = "resolve"
         try:
             plan = board.resolve(progress=progress, reuse=previous_reuse, lock=lock_entries,
                                  routes=routes_mod.read(routes_mod.path_for(script)))
@@ -487,6 +493,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("finding", "... %d more in %s" % (len(plan.findings) - 8, run_dir / "run.json"), level="finding")
 
         t0 = time.time()
+        stage = "write"
         apply_plan(src.pcb, plan)
         for cell, zones in _merged_by_cell(plan.merged_zones):
             say("zones", "%s: %s merged into the board's plane" % (cell, zones))
@@ -540,6 +547,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                                  "from": previous_id, "first_change": plan.reuse["first_change"]}
         if drc:
             t0 = time.time()
+            stage = "drc"
             # KiCad's rule area has no allow list: what a keepout lets in is set aside.
             allow = {"keepout %s" % k.name: (set(k.owners), set(k.allow)) for k in plan.keepouts.values()}
             report = run_drc(src.pcb, run_dir / "drc.json", allow=allow)
@@ -567,6 +575,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         # is in the run record rather than in a command nobody ran.
         rec.metrics = metrics                 # the checks count into this same dict
         t0 = time.time()
+        stage = "checks"
         verdicts, outcomes = checks.judge(checks.run_checks(read_board(src.pcb), **checks.kwargs_from(cfg)),
                                           plan.acceptances)
         for line in checks.record(rec, verdicts, outcomes):
@@ -579,6 +588,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         if route:
             from .kicad.route import route_board
             t0 = time.time()
+            stage = "route"
             say("route", "%s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
             report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
                                  quick=route_quick)
@@ -593,6 +603,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))
         if render:
             t0 = time.time()
+            stage = "render"
             render_board(src.pcb, run_dir / "render.log", both_faces=getattr(board, "both_faces", False))
             rec.timing_s["render"] = round(time.time() - t0, 1)
             say("render", "%s  (%.1fs)" % (", ".join(p.name for p in src.layout_dir.glob("layout*.png")), rec.timing_s["render"]))
@@ -633,6 +644,16 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             console.lines("fail", e.details["tail"])
         if verbose and e.details.get("traceback"):
             console.lines("fail", e.details["traceback"])
+    except stop.Stopped as s:
+        stopped = s
+        s.stage = s.stage or stage
+        rec.status = "stopped"
+        rec.failure = {"kind": "stopped", "signal": s.name, "stage": s.stage, "elapsed_s": round(time.time() - began, 1),
+                       "explore": s.explore}
+        kept = run_dir / "before"
+        if kept.exists():                  # whatever the stop left half written: the folder as the last run left it
+            shutil.rmtree(src.layout_dir, ignore_errors=True)
+            shutil.copytree(kept, src.layout_dir)
     if rec.status == "ok":
         shutil.rmtree(run_dir / "before", ignore_errors=True)    # only a failure needs it
     try:
@@ -650,6 +671,12 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     if rec.status == "ok":
         regressed = _against_best(rec, run_dir.parent / "best.json", say, cfg)
     rec.save(run_dir / "run.json")
+    if stopped is not None:
+        say("record", str(run_dir / "run.json"))
+        stop.say("run %s stopped by %s during %s after %.0f s; the layout folder is as the last run left it; %s" % (
+            rec.run_id, stopped.name, stopped.stage, rec.failure["elapsed_s"], run_dir / "run.json"))
+        stopped.said = True
+        raise stopped
     text = ""
     if rec.status == "ok":
         try:

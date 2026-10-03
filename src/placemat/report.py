@@ -26,6 +26,7 @@ class RunRecord:
     timing_s: dict = field(default_factory=dict)
     paths: dict = field(default_factory=dict)
     failure: dict | None = None
+    pid: int | None = None                           # the process that made the run, while it is "running"
     verdicts: list = field(default_factory=list)      # the design checks, as `Verdict` fields
     acceptances: list = field(default_factory=list)   # each board.accept and what it met (checks.Outcome.record)
 
@@ -400,6 +401,17 @@ def latest_for(runs, board: str) -> RunRecord | None:
             if rec.board == board:
                 return rec
     return None
+
+
+def dead_note(rec: RunRecord) -> str:
+    """A sentence when `rec` says "running" but the process that made it is
+    gone (it was killed, or the machine went down): the run died without a
+    word, and its record is the only trace. Else "" ."""
+    from . import stop
+    if rec.status != "running" or rec.pid is None or stop.pid_alive(rec.pid):
+        return ""
+    return "run %s is recorded as running but its process (pid %d) is gone: it died without finishing" % (
+        rec.run_id, rec.pid)
 
 
 def record_latest(runs, run_json, board: str) -> None:

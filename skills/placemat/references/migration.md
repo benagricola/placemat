@@ -5,6 +5,26 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A stopped command says so and keeps its work.** `placemat run`, `preview` and `route` handle SIGTERM, SIGHUP and
+  Ctrl-C: the explore workers are ended, the layout folder is put back as the last run left it, `run.json` is saved
+  with `status: "stopped"` and `failure: {kind: "stopped", signal, stage, elapsed_s, explore}`, a last line names the
+  stage and the signal on stdout and stderr (stderr only with `-q`/`--json`), and the exit status is 128 + the signal.
+  A second signal exits at once. A run's `run.json` is written as `status: "running"` with the `pid` as soon as its id
+  is taken, so a record whose process is gone is reported as having died (`placemat impact` and the commands that read
+  a run say so).
+- **A stopped explore keeps its best and offers it.** `explore stopped by SIGTERM after N variants in T s; best seed S:
+  a -> b mm; nothing accepted; accept it with: placemat lock <script> --accept-seed S`. Nothing is written to the lock
+  on a stop, even with `--accept`. `placemat lock <script> --accept-seed N` writes the saved best (kept in
+  `<board>/.placemat/explore/<script stem>/best.json`) to the lock without searching; it refuses when the lock or the
+  script changed since the explore began.
+- **An explore's workers are watched.** A worker that is killed from outside (the out-of-memory killer) or raises is
+  reported with its exit signal or traceback, and the explore carries on with the others instead of waiting for it. A
+  worker ends when its parent does.
+
 ## To 0.86.3
 
 ### New
