@@ -593,9 +593,10 @@ searched one stays listed. A searched suggestion's `figure` says what is varied 
 {"figure": {"name": "side", "kind": "set", "values": ["NORTH", "EAST", "WEST"]}}   # a small set
 ```
 
-The bounds come from the facts (the current value, the measured shortfall, the board's extent, a pad's size), not from a
-multiplier. `studio.suggest_factor`, which the core added, is removed: no suggestion's number is a guessed multiple.
-Every figure that was derived from it is either instant from facts or searched:
+The bounds come from the finding's own measurement (see "A suggested value comes from the finding's measurement"),
+never from the board's extent, a pad's size or a multiplier. `studio.suggest_factor`, which the core added, is removed: no suggestion's number is a guessed multiple.
+Every figure that was derived from it is either instant from facts or searched, and the table that follows gives the
+kind; the bounds and facts each needs are in the rule's table after it, which governs where they differ:
 
 | Figure | Kind | Bounds and how it is judged |
 |---|---|---|
@@ -613,6 +614,48 @@ Every figure that was derived from it is either instant from facts or searched:
 
 A figure whose search cannot be judged (the finding's clearing does not depend on it, or no bound can be given) is
 dropped, not guessed.
+
+### A suggested value comes from the finding's measurement
+
+This is a rule for every suggestion that writes or searches a figure (an instant value, a probe's range, a tuning limit).
+
+- **The measurement is in the finding.** A figure is derived from a number the finding's facts carry (the overlap depth, the
+  clearance shortfall, a measured length, an extent, a pitch tried, a gap). It may be a ratio or multiple of that number (a
+  probe range of up to 2x the measured shortfall, the shortfall itself, half of a measured overlap), and the suggestion says
+  that it is derived: the text names the figure and the constant's comment records the derivation ("Derived from the measured
+  shortfall of 0.07 mm of the clearance of 0.16 mm: range up to 2x it").
+- **Never from a bound unrelated to the finding**: not the board's extent, not a pad's size standing in, not a global factor,
+  not a setting's current value alone. `studio.suggest_factor` and the suggestions that used it are removed in phase 4.
+- **No measurement, no suggestion.** If the finding carries no number that bears on the figure, the lever is not offered at
+  all: not as a guess and not as a searched suggestion with a made-up range. A site that could measure one cheaply records it
+  (phase 4); one that cannot, or whose measurement would be a new search of its own, offers nothing.
+- A multiple used in a range is a constant of the derivation, written in the suggestion's `figure` (`"of": "gap_mm",
+  "times": 2`), so it is visible and tested, and is not a tunable that moves a placement.
+
+Each figure, and the facts it needs. A figure is offered only where its finding records them.
+
+| Figure | Needs in the finding | Derivation |
+|---|---|---|
+| a blocker's gap (`unplaced.search`, a rider) | the worst `gap_mm` and `need_mm` of the dominant refusal, the blocker's declared gap | the shortfall `need_mm - gap_mm`; range declared gap up to declared gap + 2x shortfall |
+| a blocker's side, a part's side (`Beside`) | the sides measured free (`free_sides`) | the set of sides measured |
+| a turn (`unplaced.bearing`, `slide`, `escape_crossed`) | the turns tried and each one's refusal | the right-angle turns not tried |
+| search radius (`unplaced.search`) | the distance to the nearest legal spot, measured by the site | that distance (range up to 2x); no suggestion until a site records it, and phase 4 does not add the measuring scan, so none |
+| fanout depth | the overlap depth of the fanout's reservation with the candidate | declared depth minus the overlap, range down to depth minus 2x overlap |
+| chamfer, arc radius (`copper.meets`, `not_drawn`, `corner`) | the shortfall of the clearance at the cut (`need_mm - gap_mm`) and the declared value | declared value reduced by the shortfall, range down by 2x it |
+| label size, label side | the overlap box of the label with what it sits on, the label's size | size reduced by the overlap along its height or length, range down by 2x it; sides measured free |
+| stitch pitch, via size | the gap measured between rows or vias against the pitch (the "row has a gap over its pitch" note), the rule's clearance | the measured gap as the pitch; none for "no via fits" (no measurement) |
+| `place.via_move` | the move a via needed, measured by the give-way search with its limit lifted and recorded as `needed_move_mm` | that figure; none until the give-way site records it |
+| `place.via_leave` | the distance the via would have to leave its pad, recorded as `needed_leave_mm` | likewise |
+| `place.block_gap_reach` | the satellite's measured conflict (`gap_mm`, `need_mm`) at the nearest gap tried | the shortfall; none until the block site records it |
+| `place.escape_via_reach` | the distance past the row's end to the first legal via spot, recorded as `via_spot_mm` | that figure; none until the lane site records it |
+| `place.bearing_step` | the angular margin of legality around the best bearing tried (`margin_deg`) | that margin; none until the bearing site records it |
+| `bend=` (`copper.corner`) | the shortfall at the corner and the end it is nearer | a set of the ends, judged by the probe; offered only where the shortfall is recorded |
+
+Where the table says "none until the site records it", phase 4 does not record it, and the suggestion is removed from the
+core's builders (`unplaced.search` radius, `place.via_move`, `via_leave`, `block_gap_reach`, `escape_via_reach`,
+`bearing_step`, the label size and chamfer and radius reductions, the pocket step): those were derived from a factor.
+They return when a site records the measurement, in the phase that adds it (phase 6, with the probe, which can measure by
+resolving).
 
 ## The probe
 
@@ -1035,13 +1078,8 @@ rest) as well as changing keywords. `board.rect` (renamed from `board.size` in
 
 ## Open questions
 
-1. **Bounds for the tuning limits.** `via_move`, `via_leave`, `block_gap_reach` and `escape_via_reach` have no upper bound
-   in the engine. The proposal bounds them by a pad's size or the board's extent. Still being clarified with the user; the
-   spec is unchanged on this until then.
-2. **Monotone figures.** Bisection assumes clearing is monotone in the figure. Placement is not always (a smaller chamfer
-   can meet something else). The proposal checks the end and a neighbour and reports a non-monotone result as such. Enough,
-   or should a probe also sample the interior?
-3. **Cost of the `Refusal` record on the scan hot path.** The proposal builds a record only on refusal, counts by an enum
-   bucket and keeps full records as samples (first and worst per bucket and owner). Measure against the bench first?
-4. **Enum layout.** One `FindingCause` enum of `(kind, string)` members, or one enum per kind nested under `FindingKind`.
-   The proposal is the single enum.
+None. Closed with the user: the tuning-limit values follow the rule above (derived from a measurement the finding carries,
+else no suggestion); bisection checks the end value and a neighbour and reports a non-monotone result as such; one
+`FindingCause` enum of `(kind, string)` members; the `Refusal` record is measured on the scan hot path in phase 4 (the bench's
+resolve times, with and without, on the same machine) and kept only if the cost is negligible, otherwise the scan counts by an
+enum bucket and builds the record only for the samples it keeps.
