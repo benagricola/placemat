@@ -98,7 +98,7 @@ narrowest section, used to size copper against its current. `web` is the fab
 term for what is left between two cut features and does not collide.
 
 ```python
-board.web = 1.5              # or board.size(..., web=1.5) / board.disc(..., web=1.5)
+board.web = 1.5              # or board.rect(..., web=1.5) / board.disc(..., web=1.5)
 ```
 
 The default is 0.0, which means unchecked: a board that never says `web` keeps
@@ -277,7 +277,7 @@ position in the first place.
 | `cutouts.py` | `Slot`, `Circle`, `Path` shapes; `path_at(centre, rotation)`; loop-to-loop minimum distance |
 | `outline.py` | `runs()` takes a loop selector and negates the sign for a hole loop |
 | `values.py` | `Cutout` value; `Disc` unchanged beyond already carrying `holes` |
-| `layout.py` | `CutoutIntent` in the firm queue; `board.cutout(name)` handle; `web` on `size()`/`disc()`/`outline()`; deferred `CutoutEdge` reference |
+| `layout.py` | `CutoutIntent` in the firm queue; `board.cutout(name)` handle; `web` on `rect()`/`disc()`/`outline()`; deferred `CutoutEdge` reference |
 | `occupancy.py` | shape replacement as cutouts land; rule 4 |
 | `checks.py` | the web verdict |
 | `kicad/write.py` | unchanged - it already draws whatever paths the shape carries |

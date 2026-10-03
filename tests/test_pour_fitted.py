@@ -201,7 +201,7 @@ def test_a_cutout_in_the_board_is_kept_clear_by_the_edge_clearance():
     """A window in the board pokes into the pads' hull from the north."""
     parts = _row()
     b = _board(parts, edge_margin=0.3)
-    b.size(width=60.0, height=60.0, holes=[[(12.0, 8.0), (13.0, 8.0), (13.0, 9.8), (12.0, 9.8)]])
+    b.rect(width=60.0, height=60.0, holes=[[(12.0, 8.0), (13.0, 8.0), (13.0, 9.8), (12.0, 9.8)]])
     b.pour(Net("A"), _a_pads(), layer=F, swallow_pads=True)
     p = _outline(b.resolve())
     gap = poly_distance(_copper(p), ((12.0, 8.0), (13.0, 8.0), (13.0, 9.8), (12.0, 9.8)))
@@ -343,7 +343,7 @@ def _written_board(tmp_path, pads, clearance=0.16, track=None):
 
 def _fitted(pcb, nets=("PROBE_A",), numbers=(1, 2, 3), **pour):
     b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     for net in nets:
         b.pour(Net(net), [PadRef(Part("U1"), n) for n in numbers], layer=F, swallow_pads=True, **pour)
     return b
@@ -440,7 +440,7 @@ def test_two_fitted_pours_of_different_nets_keep_clear_of_each_other(tmp_path):
             ("6", "PROBE_B", 11.5, 16.0, 0.5, 0.5)]
     pcb = _written_board(tmp_path, pads, clearance=0.2)
     b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.pour(Net("PROBE_A"), [PadRef(Part("U1"), n) for n in (1, 2, 3)], layer=F, swallow_pads=True)
     b.pour(Net("PROBE_B"), [PadRef(Part("U1"), n) for n in (4, 5, 6)], layer=F, swallow_pads=True)
     plan = b.resolve()
@@ -461,7 +461,7 @@ def test_a_pour_without_swallow_pads_is_written_exactly_as_declared(tmp_path):
     """Another net's pad inside it is a copper finding, and the pour is not cut."""
     pcb = _written_board(tmp_path, _THREE_AND_A_NEIGHBOUR)
     b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     pts = [Location(9.0, 9.4), Location(15.0, 9.4), Location(15.0, 10.6), Location(9.0, 10.6)]
     b.pour(Net("PROBE_A"), pts, layer=F, stroke=0.0)
     plan = b.resolve()

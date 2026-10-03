@@ -23,7 +23,7 @@ SLOT_AREA = 14.0 * 3.0 + math.pi * 1.5 ** 2
 
 # each way of saying "a 40 mm board", with the area it has before the slot
 DECLARE = [
-    ("a rectangle", lambda b, holes: b.size(width=40.0, height=40.0, holes=holes), 1600.0),
+    ("a rectangle", lambda b, holes: b.rect(width=40.0, height=40.0, holes=holes), 1600.0),
     ("a disc", lambda b, holes: b.disc(diameter=40.0, holes=holes), math.pi * 400.0),
     ("a shaped board", lambda b, holes: b.outline([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)], holes=holes), 1600.0),
 ]
@@ -126,7 +126,7 @@ def test_a_shape_knows_its_box_before_it_is_flattened():
 # --------------------------------------------------- a cutout declared
 def test_a_named_cutout_is_declared_with_a_shape_and_a_place():
     b = make_board()
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Slot(17.0, 3.0), "ffc", at=Location(20.0, 28.0),
                          why="the cable passes through here")])
     plan = b.resolve()
@@ -143,14 +143,14 @@ def test_a_cutout_needs_a_name_and_a_place():
 def test_two_cutouts_may_not_share_a_name():
     b = make_board()
     with pytest.raises(ValueError, match="already a cutout named"):
-        b.size(width=40.0, height=40.0,
+        b.rect(width=40.0, height=40.0,
                holes=[Cutout(Circle(3.0), "vent", at=Location(10.0, 10.0), why="a"),
                       Cutout(Circle(3.0), "vent", at=Location(30.0, 10.0), why="b")])
 
 
 def test_a_raw_path_and_a_named_cutout_live_side_by_side():
     b = make_board()
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[SLOT, Cutout(Circle(4.0), "vent", at=Location(10.0, 10.0), why="a")])
     plan = b.resolve()
     assert plan.cutouts.area == pytest.approx(SLOT_SHAPE.area + math.pi * 4.0, rel=0.01)
@@ -159,7 +159,7 @@ def test_a_raw_path_and_a_named_cutout_live_side_by_side():
 # ------------------------------------------------ a cutout with a freedom
 def test_a_cutout_with_one_freedom_slides_to_where_there_is_room():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0, web=1.0,
+    b.rect(width=40.0, height=40.0, web=1.0,
            holes=[Cutout(Circle(6.0), "vent", at=Centre(None, 20.0), why="airflow")])
     b.place(Part("u1"), at=Location(20.0, 20.0))
     plan = b.resolve()
@@ -172,7 +172,7 @@ def test_a_cutout_with_one_freedom_slides_to_where_there_is_room():
 
 def test_a_cutout_with_nowhere_legal_says_so():
     b = make_board()
-    b.size(width=10.0, height=10.0, web=2.0,
+    b.rect(width=10.0, height=10.0, web=2.0,
            holes=[Cutout(Circle(9.0), "vent", at=Centre(None, 5.0), why="airflow")])
     with pytest.raises(PlacementCollision, match="vent"):
         b.resolve()
@@ -207,7 +207,7 @@ def test_a_cutout_may_be_placed_near_a_hint():
     not a fixed point: it is documented (api.md, SKILL.md) but crashed."""
     from placemat.values import Near
     b = make_board("u1")
-    b.size(width=40.0, height=40.0, web=1.0,
+    b.rect(width=40.0, height=40.0, web=1.0,
            holes=[Cutout(Circle(4.0), "vent", at=Near(Location(20.0, 20.0), radius=6.0, step=0.5), why="airflow")])
     b.place(Part("u1"), at=Location(20.0, 20.0))
     plan = b.resolve()
@@ -220,7 +220,7 @@ def test_a_cutout_may_be_placed_near_a_hint():
 def test_a_cutout_near_a_hint_with_nowhere_legal_says_so():
     from placemat.values import Near
     b = make_board("u1")
-    b.size(width=40.0, height=40.0, web=1.0,
+    b.rect(width=40.0, height=40.0, web=1.0,
            holes=[Cutout(Circle(9.0), "vent", at=Near(Location(20.0, 20.0), radius=1.0, step=0.5), why="airflow")])
     b.place(Part("u1"), at=Location(20.0, 20.0))
     with pytest.raises(PlacementCollision, match="vent"):
@@ -233,7 +233,7 @@ def test_a_cutout_is_placed_relative_to_the_part_it_serves():
     the hole is for, not where it is."""
     for y in (12.0, 24.0):
         b = make_board("u1")
-        b.size(width=40.0, height=40.0,
+        b.rect(width=40.0, height=40.0,
                holes=[Cutout(Slot(17.0, 3.0), "ffc",
                              at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)), why="the cable")])
         b.place(Part("u1"), at=Location(20.0, y))
@@ -244,7 +244,7 @@ def test_a_cutout_is_placed_relative_to_the_part_it_serves():
 
 def test_a_part_placed_against_a_cutout_waits_for_it():
     b = make_board("u1", "d1")
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Slot(17.0, 3.0), "ffc",
                          at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)), why="the cable")])
     b.place(Part("u1"), at=Location(20.0, 12.0))
@@ -255,7 +255,7 @@ def test_a_part_placed_against_a_cutout_waits_for_it():
 
 def test_a_cutout_may_not_be_placed_against_a_searched_part():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(4.0), "vent", at=Centre(X(Part("u1")), Y(Part("u1"), 8.0)), why="a")])
     b.place(Part("u1"))                                      # searched: no position yet
     with pytest.raises(ValueError, match="only FIXED and EDGE"):
@@ -264,7 +264,7 @@ def test_a_cutout_may_not_be_placed_against_a_searched_part():
 
 def test_a_cutout_that_would_break_the_web_is_refused():
     b = make_board()
-    b.size(width=40.0, height=40.0, web=2.0,
+    b.rect(width=40.0, height=40.0, web=2.0,
            holes=[Cutout(Circle(4.0), "vent", at=Location(2.5, 20.0), why="a")])
     with pytest.raises(PlacementCollision, match="web"):
         b.resolve()
@@ -272,7 +272,7 @@ def test_a_cutout_that_would_break_the_web_is_refused():
 
 def test_a_cutout_may_not_be_milled_through_a_part():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(6.0), "vent", at=Location(20.0, 20.0), why="a")])
     b.place(Part("u1"), at=Location(20.0, 20.0))
     with pytest.raises(PlacementCollision, match="u1"):
@@ -281,7 +281,7 @@ def test_a_cutout_may_not_be_milled_through_a_part():
 
 def test_a_cutout_that_touches_the_outline_is_a_notch_not_a_hole():
     b = make_board()
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(6.0), "notch", at=Location(1.0, 20.0), why="a")])
     with pytest.raises(PlacementCollision, match="notch"):
         b.resolve()
@@ -290,7 +290,7 @@ def test_a_cutout_that_touches_the_outline_is_a_notch_not_a_hole():
 # ------------------------------------------------------ the web check
 def test_a_cutout_too_near_the_edge_is_a_finding():
     b = make_board(keep_going=True)
-    b.size(width=40.0, height=40.0, web=1.5,
+    b.rect(width=40.0, height=40.0, web=1.5,
            holes=[Cutout(Circle(4.0), "vent", at=Location(2.5, 20.0), why="a")])
     plan = b.resolve()
     assert any("web" in f and "vent" in f for f in plan.findings), plan.findings
@@ -298,14 +298,14 @@ def test_a_cutout_too_near_the_edge_is_a_finding():
 
 def test_a_cutout_with_room_round_it_is_not():
     b = make_board()
-    b.size(width=40.0, height=40.0, web=1.5,
+    b.rect(width=40.0, height=40.0, web=1.5,
            holes=[Cutout(Circle(4.0), "vent", at=Location(20.0, 20.0), why="a")])
     assert not b.resolve().findings
 
 
 def test_no_web_declared_is_no_web_check():
     b = make_board()
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(4.0), "vent", at=Location(2.1, 20.0), why="a")])
     assert not b.resolve().findings
     assert b.web == 0.0
@@ -313,7 +313,7 @@ def test_no_web_declared_is_no_web_check():
 
 def test_two_cutouts_too_near_each_other_is_a_finding():
     b = make_board(keep_going=True)
-    b.size(width=40.0, height=40.0, web=2.0,
+    b.rect(width=40.0, height=40.0, web=2.0,
            holes=[Cutout(Circle(4.0), "a", at=Location(18.0, 20.0), why="x"),
                   Cutout(Circle(4.0), "b", at=Location(23.0, 20.0), why="y")])
     plan = b.resolve()
@@ -323,7 +323,7 @@ def test_two_cutouts_too_near_each_other_is_a_finding():
 # ------------------------------------------ placing against a cutout
 def _with_slot():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Slot(17.0, 3.0), "ffc", at=Location(20.0, 28.0), why="the cable")])
     return b
 
@@ -376,14 +376,14 @@ def test_a_cutout_that_was_never_declared_says_which_there_are():
 
 def test_a_raw_path_board_says_only_a_named_cutout_can_be_referred_to():
     b = make_board()
-    b.size(width=40.0, height=40.0, holes=[SLOT])
+    b.rect(width=40.0, height=40.0, holes=[SLOT])
     with pytest.raises(ValueError, match="named Cutout"):
         b.cutout("ffc")
 
 
 def test_the_boards_own_edge_never_returns_a_cutouts():
     b = make_board()
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Slot(17.0, 3.0), "ffc", at=Location(20.0, 28.0), why="a"),
                   Cutout(Circle(4.0), "vent", at=Location(10.0, 10.0), why="b")])
     for facing in (Edge.NORTH, Edge.SOUTH, Edge.EAST, Edge.WEST):
@@ -393,7 +393,7 @@ def test_the_boards_own_edge_never_returns_a_cutouts():
 
 def test_each_cutout_offers_only_its_own_edges():
     b = make_board()
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Slot(17.0, 3.0), "ffc", at=Location(20.0, 28.0), why="a"),
                   Cutout(Circle(8.0), "vent", at=Location(10.0, 10.0), why="b")])
     assert b.cutout("vent").edge(side=Edge.NORTH).length < math.pi * 8.0
@@ -587,7 +587,7 @@ def test_a_free_item_shares_a_disc_with_a_cutout(name, place):
 
 def test_a_free_edge_item_shares_a_rectangle_with_a_cutout():
     b = make_board("u1", "d1")
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 20.0), why="airflow")])
     b.place(Part("u1"), at=OnEdge(Edge.NORTH))          # free along the edge
     b.place(Part("d1"), at=OnEdge(Edge.NORTH))          # and its fellow
@@ -606,7 +606,7 @@ def test_a_free_run_item_shares_a_shaped_board_with_a_cutout():
 
 def test_a_free_pinned_axis_shares_a_board_with_a_cutout():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0), why="airflow")])
     b.place(Part("u1"), at=Centre(20.0, None))          # x pinned, y free
     plan = b.resolve()
@@ -620,7 +620,7 @@ def test_a_cutout_named_after_a_part_does_not_stand_in_for_it():
     had been placed, and they would resolve against the position the
     generator left it in."""
     b = make_board("u1", "d1")
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(3.0), "U1", at=Centre(8.0, 8.0), why="named like the refdes")])
     b.place(Part("d1"), at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)))   # waits for the PART
     b.place(Part("u1"), at=Location(20.0, 25.0))                        # declared after it
@@ -632,7 +632,7 @@ def test_a_cutout_named_after_a_part_does_not_stand_in_for_it():
 
 def test_asking_the_plan_for_a_cutouts_box_says_where_to_look():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 30.0), why="airflow")])
     b.place(Part("u1"), at=Location(20.0, 10.0))
     plan = b.resolve()
@@ -646,7 +646,7 @@ def test_a_part_on_a_cutouts_edge_may_stand_level_with_a_pad():
     """along= a reference on a cutout's edge, as on the board's: the place on
     the edge nearest that point."""
     b = make_board("u1", "d1")
-    b.size(width=40.0, height=40.0,
+    b.rect(width=40.0, height=40.0,
            holes=[Cutout(Slot(17.0, 3.0), "ffc",
                          at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)), why="the cable")])
     b.place(Part("u1"), at=Location(20.0, 12.0))
@@ -664,7 +664,7 @@ def test_a_long_region_on_any_edge_stands_flush_with_it(edge):
     the east and west edges as with the north and south."""
     b = Board(board_geometry([footprint("U1", 5, 5, inst="u1")], width=60, height=40), edge_margin=1.0,
               keep_going=True)
-    b.size(width=60, height=40)
+    b.rect(width=60, height=40)
     b.keepout(Slot(10.0, 2.0), "band", at=OnEdge(edge, along=Along.MID), why="a band along the edge")
     box = Box.of_points(b.resolve().keepouts["band"].poly)
     want = {Edge.NORTH: box.top, Edge.SOUTH: 40.0 - box.bottom, Edge.WEST: box.left, Edge.EAST: 60.0 - box.right}[edge]

@@ -31,7 +31,7 @@ def _copy(breakout_pcb, dest):
 
 def _board(geometry):
     b = Board(geometry, edge_margin=0.0)
-    b.size(width=geometry.outline_box.width, height=geometry.outline_box.height, chamfer=2.0)
+    b.rect(width=geometry.outline_box.width, height=geometry.outline_box.height, chamfer=2.0)
     return b
 
 

@@ -25,7 +25,7 @@ def test_the_proxy_refuses_outside_a_run():
 def test_run_script_executes_a_file_against_a_board(tmp_path):
     script = tmp_path / "s.py"
     script.write_text("from placemat import board, Part, Location\n"
-                      "board.size(width=40, height=40)\n"
+                      "board.rect(width=40, height=40)\n"
                       "board.place(Part('r1'), at=Location(7, 7))\n")
     real = Board(board_geometry([footprint("R1", 10, 10, inst="r1")]), edge_margin=1.0)
     run_script(script, real)

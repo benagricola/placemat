@@ -38,7 +38,7 @@ def test_a_model_path_one_level_short_is_written_to_resolve(breakout_pcb, tmp_pa
     brd.Save(str(pcb))
     g = read_board(pcb)
     b = Board(g, edge_margin=0.0)
-    b.size(width=g.outline_box.width, height=g.outline_box.height, chamfer=2.0)
+    b.rect(width=g.outline_box.width, height=g.outline_box.height, chamfer=2.0)
     plan = b.resolve()
     apply_plan(pcb, plan)
     written = {f.GetReference(): [m.m_Filename for m in f.Models()] for f in pcbnew.LoadBoard(str(pcb)).GetFootprints()}

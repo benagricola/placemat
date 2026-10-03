@@ -38,7 +38,7 @@ def pad(part, key):
 
 FINE_CLEAR = 0.10                 # at the 0.4 mm-pitch balls: JLC's 0.09 mm six-layer minimum, rounded up
 
-board.size(fit=True)   # the frame is the content plus the keep-in
+board.rect(fit=True)   # the frame is the content plus the keep-in
 for _a, _b in (("USB_CC1", "GND"), ("USB_CC2", "TCPC_VBUS"), ("TCPC_VCONN", "USB_CC1"), ("TCPC_VCONN", "USB_CC2"),
                ("PD_IRQ", "GND"), ("SDA_PWR", "GND"), ("SCL_PWR", "V3V3"), ("SCL_PWR", "PD_IRQ"),
                ("SCL_PWR", "SDA_PWR")):

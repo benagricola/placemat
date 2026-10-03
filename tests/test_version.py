@@ -42,7 +42,7 @@ def test_the_version_is_what_names_a_run():
     """The reason any of this matters: change the tool, change the run id, so
     an impact report across an upgrade has two ids to compare."""
     from placemat.report import run_id
-    same = ("board.size(40, 40)", b"PCB")
+    same = ("board.rect(40, 40)", b"PCB")
     assert run_id(*same, placemat.__version__) != run_id(*same, "0.0.0")
 
 

@@ -80,7 +80,7 @@ def test_a_fragment_run_alone_keeps_the_faces_it_was_stamped_with_and_writes_its
     pcb = _cell_board(tmp_path, notes=False)
     write_faces(pcb, {"outward": "N"})
     b = Board(read_board(pcb), edge_margin=0.0, keep_going=True)
-    b.size(20, 20, draw=False)
+    b.rect(20, 20, draw=False)
     b.rule(clearance=0.1, between=(Net("cell.A"), Net("cell.B")), why="declared in the module")
     apply_plan(pcb, b.resolve())
     notes = _notes(pcb)
@@ -94,7 +94,7 @@ def test_a_fragment_that_declares_its_faces_writes_them_once(tmp_path):
     pcb = _cell_board(tmp_path, notes=False)
     write_faces(pcb, {"outward": "S"})
     b = Board(read_board(pcb), edge_margin=0.0, keep_going=True)
-    b.size(20, 20, draw=False)
+    b.rect(20, 20, draw=False)
     b.faces(outward=Edge.NORTH)
     apply_plan(pcb, b.resolve())
     assert _notes(pcb) == ["placemat faces outward=N"]
@@ -104,7 +104,7 @@ def test_a_fragment_that_declares_its_faces_writes_them_once(tmp_path):
 def test_a_fragment_that_stamps_a_cell_writes_the_cells_rule_once_as_its_own_and_not_the_cells_faces(tmp_path):
     pcb = _with_notes(tmp_path, grouped=True)
     b = Board(read_board(pcb), edge_margin=0.0, keep_going=True)
-    b.size(40, 40, draw=False)
+    b.rect(40, 40, draw=False)
     apply_plan(pcb, b.resolve())
     (note,) = _notes(pcb)                                      # the cell's rule, carried on as the fragment's own
     assert note.startswith(RULE_PREFIX) and " within=cell " in note

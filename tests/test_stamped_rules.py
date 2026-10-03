@@ -207,7 +207,7 @@ def test_a_fragments_run_writes_its_rules_into_the_board_and_a_board_run_does_no
     for draw, expected in ((False, 1), (True, 0)):
         pcb = _cell_board(tmp_path, notes=False)
         b = Board(read_board(pcb), edge_margin=0.0, keep_going=True)
-        b.size(20, 20, draw=draw)
+        b.rect(20, 20, draw=draw)
         b.rule(clearance=0.1, between=(Net("cell.A"), Net("cell.B")), why="declared in the module")
         apply_plan(pcb, b.resolve())
         notes = [d.GetText() for d in pcbnew.LoadBoard(str(pcb)).GetDrawings()

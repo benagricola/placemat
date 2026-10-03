@@ -202,7 +202,7 @@ def _holed_board(**kw):
     g = board_geometry(fps, cells=["m"], copper=copper, width=50, height=50, extra_nets=("GND", "Y"))
     centre = Occupancy(g)._geometry(g.cells["m"]).reference.location
     b = Board(g, edge_margin=0.1, keep_going=True, **kw)
-    b.size(width=50.0, height=50.0, holes=[Circle(0.6).path_at(Location(19.1, 21.0))])
+    b.rect(width=50.0, height=50.0, holes=[Circle(0.6).path_at(Location(19.1, 21.0))])
     b.place(Cell("m"), at=Near(Location(centre.x - 20, centre.y - 20), radius=0, rotations=(0,)))
     return b
 

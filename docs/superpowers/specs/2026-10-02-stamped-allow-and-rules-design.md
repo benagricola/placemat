@@ -70,7 +70,7 @@ Parts named in `allow=` are not carried.
 
 A fragment run writes its clearance rules as User.Comments texts, one per
 rule: `placemat rule clearance=0.1 between=A,B why=<escaped>`. Only a
-fragment writes them (`board.size(..., draw=False)`), and never the rules of a
+fragment writes them (`board.rect(..., draw=False)`), and never the rules of a
 part's `Pm.KeepOut` (`of=`), which the parent derives from the part. The
 parent drops the stamped notes when it writes its board, as it does the faces
 note.

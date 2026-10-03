@@ -226,7 +226,7 @@ def test_a_span_is_written_as_a_micro_or_blind_via_and_read_back(tmp_path):
     pcb = tmp_path / "layout.kicad_pcb"
     _six_layer_board(pcb)
     b = Board(read_board(pcb), edge_margin=0.5)
-    b.size(width=30, height=30)
+    b.rect(width=30, height=30)
     b.via(Net("GND"), Location(10, 10), layers=(B, IN4))
     b.via(Net("GND"), Location(20, 10), layers=(B, IN2))
     b.via(Net("GND"), Location(15, 20))

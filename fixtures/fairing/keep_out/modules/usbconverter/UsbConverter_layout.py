@@ -73,7 +73,7 @@ def turn(part, pad_key, edge):
 
 board.free_net(Net("GND"))
 board.free_net(Net("VSHUNT"))
-board.size(fit=True)   # the frame is the content plus the keep-in
+board.rect(fit=True)   # the frame is the content plus the keep-in
 
 # --- the controller and its settings -------------------------------------------
 board.place(CTL, at=Location(0, 0), rotation=CONTROLLER_ROTATION,

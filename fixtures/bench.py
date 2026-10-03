@@ -148,7 +148,7 @@ class ModuleBoard:
         from placemat.settings import Settings
         from placemat.values import CopperLayer, Net, Part
         b = Board(self.g, edge_margin=0.2, keep_going=True, settings=dataclasses.replace(Settings(), **self.overrides))
-        b.size(width=round(self.size[0], 2), height=round(self.size[1], 2))
+        b.rect(width=round(self.size[0], 2), height=round(self.size[1], 2))
         for net in sorted(self.planes):
             b.plane(Net(net), [CopperLayer.B], why="benchmark: a net most parts share")
         for fp in sorted(self.g.footprints, key=lambda f: f.inst):

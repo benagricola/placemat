@@ -485,7 +485,7 @@ def _riding_plan(path, rotation):
     from placemat.layout import Board
     from placemat.values import Along, Edge, PadRef, Part, Pin
     board = Board(read_board(str(path)), edge_margin=0.5, keep_going=True)
-    board.size(width=40.0, height=40.0)
+    board.rect(width=40.0, height=40.0)
     board.place(Part("C"))
     board.place(Part("NT"), at=Pin(1, PadRef(Part("C"), 1, edge=Edge.NORTH, along=Along.MID)), rotation=rotation)
     return board.resolve()

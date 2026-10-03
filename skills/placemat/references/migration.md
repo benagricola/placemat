@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **`board.size(...)` is `board.rect(...)`.** The rectangular board form is named for its shape, beside
+  `board.disc(...)` and `board.outline(...)`. The signature and behaviour are the same. `board.size(...)` still
+  works and raises one `setup` notice saying so; the old name will be removed.
+
+  ```python
+  board.size(width=60, height=40, chamfer=2.0)    # before
+  board.rect(width=60, height=40, chamfer=2.0)    # now
+  ```
+
 ## To 0.84.0
 
 ### Changed
@@ -2960,3 +2973,4 @@ that says what replaces it.
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
 | a searched cell or part pinned to `face=Face.BACK` (or `FRONT`) by hand only because one face was full | To 0.72.0 |
 | a cell or part turned by a hand-picked constant (45 or similar) to follow a circle, at a typed point | To 0.76.0 |
+| `board.size(...)`, the rectangular board form | Unreleased |

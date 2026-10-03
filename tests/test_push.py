@@ -271,7 +271,7 @@ def test_a_pushed_item_on_a_fit_board_does_not_crash():
     fps = [footprint("M1", 20, 20, w=4, h=4, inst="m1", nets=("A", "GND")),
            footprint("U2", 30, 30, w=2, h=2, inst="u2", nets=("SIG", "PWR"))]
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
-    b.size(fit=True, draw=False)
+    b.rect(fit=True, draw=False)
     b.place(Part("m1"), at=Location(0, 0))
     b.place(Part("u2"))
     b.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(2.0, 3.2), limit=0.3)

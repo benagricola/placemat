@@ -30,7 +30,7 @@ out south is an escape of the inductor's own pad, with the reset capacitor
 and the RF filter's inductor standing either side of it. A net that lands
 on several of the chip's pads (V3V3 at pins 20, 46, 55 and 56) is linked by
 the pin NUMBER it bypasses, never by net name alone. The frame is
-`board.size(fit=True)`, its content checked against the room the core
+`board.rect(fit=True)`, its content checked against the room the core
 actually has for this cell before the fit is taken
 (`docs/decisions/layout/mcu-module-routing-2026-09-27.md`).
 
@@ -404,9 +404,9 @@ if EXTERNAL_FLASH:
     board.place(Part("r_flash_hd"))
 
 # The room the core has for the cell is checked, not typed: `board.width`
-# is refused on a fit board (it is not resolved until board.size() below
+# is refused on a fit board (it is not resolved until board.rect() below
 # runs), so the content's own width is measured directly from every placed
-# part's real, drawn box - the same box `board.size(fit=True)` itself packs
+# part's real, drawn box - the same box `board.rect(fit=True)` itself packs
 # to - and checked against CELL_WIDTH before the fit is taken. A fit frame
 # wider than the tabs leave would not show until the core's own run, which
 # this module cannot run (electronics/CLAUDE.md).
@@ -414,7 +414,7 @@ _boxes = [board.part(p).courtyard_box for p in board.parts()]
 _content_width = max(b.right for b in _boxes) - min(b.left for b in _boxes)
 assert _content_width <= CELL_WIDTH, \
     f"the cell's content is {_content_width:.2f} mm wide; only {CELL_WIDTH} mm fits between the input tabs"
-board.size(fit=True)
+board.rect(fit=True)
 
 # Routing evidence: ../../../../docs/decisions/layout/mcu-module-routing-2026-09-27.md
 # Ground and 3V3 planes as the core has them (In1/In4, In3), and a ground

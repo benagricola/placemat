@@ -75,7 +75,7 @@ def test_row_of_accepts_a_fit_frame():
     fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B")),
            footprint("R1", 0, 0, w=2, h=1, inst="r1", nets=("A", "GND"))]
     b = Board(board_geometry(fps, width=80, height=80), edge_margin=1.0)
-    b.size(fit=True, draw=False)
+    b.rect(fit=True, draw=False)
     b.place(Part("u1"), at=Location(0, 0))
     b.row([Part("r1")], Edge.EAST, of=Part("u1"), align=Along.START, rotation=0)
     plan = b.resolve()

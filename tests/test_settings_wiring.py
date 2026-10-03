@@ -77,7 +77,7 @@ def _copper_board(**kw):
                         footprint("R1", 30, 10, w=2, h=1, inst="r1", nets=("GND", "C"))],
                        width=60, height=60)
     b = Board(g, edge_margin=1.0, settings=Settings(**kw))
-    b.size(width=60, height=60)
+    b.rect(width=60, height=60)
     return b
 
 

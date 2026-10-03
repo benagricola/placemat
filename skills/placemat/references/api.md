@@ -94,9 +94,10 @@ request (SKILL.md, "When no form says it").
 | **the board and its regions** | | |
 | a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
 | a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
+| a rectangular board | `board.rect(width, height, chamfer=, radius=, holes=)` | Setup |
 | a round board | `board.disc(diameter, hole=)` | Round boards |
-| a module frame sized to its own content | `board.size(fit=True)` | Setup |
-| a module frame fitted in one axis, the other a declared number | `board.size(fit=Axis.X, height=)` | Setup |
+| a module frame sized to its own content | `board.rect(fit=True)` | Setup |
+| a module frame fitted in one axis, the other a declared number | `board.rect(fit=Axis.X, height=)` | Setup |
 | a hole in the board | `Cutout(shape, name, at=)` in `holes=` | Cutouts |
 | a hole placed from the connector it serves | `at=Centre(X(Part(j)), Y(Part(j), d))` | Cutouts |
 | a region that forbids parts, fill, tracks, vias or pads | `board.keepout(shape, name, at=)` | Keepouts |
@@ -193,14 +194,14 @@ The same answers from the command line, for when no script is running, are
 
 ## Setup
 
-`board.size(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0, draw=None)` - the
+`board.rect(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0, draw=None)` - the
 outline, origin top-left, y down; `draw=False` gives a fragment a frame that
-is never drawn.
-`board.size(fit=True, margin=None, chamfer=0.0, radius=0.0)` - a fragment's
+is never drawn. The old name, `board.size(...)`, still works and raises a `setup` notice.
+`board.rect(fit=True, margin=None, chamfer=0.0, radius=0.0)` - a fragment's
 frame (never drawn) sized to its content: the box round everything placed (each
 part as the placer claims it, labels, tracks, vias, pours) plus `margin`
 (default the keep-in), set once everything is placed.
-`board.size(fit=Axis.X, height=, margin=None)` or `fit=Axis.Y, width=` - a frame
+`board.rect(fit=Axis.X, height=, margin=None)` or `fit=Axis.Y, width=` - a frame
 fitted in one axis only: the frame fits its content across x (or y) the same
 way `fit=True` does, and the other axis is the declared number, origin at 0
 the same as a sized board's - a mechanical fact the content must fit inside,
@@ -886,7 +887,7 @@ trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align=Along.MID, line=Line.OUT
 pair = board.row([RB, RA], Edge.NORTH, gap=1.5, behind=trunk, inboard=2.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
 board.row([JUMPER], Edge.NORTH, gap=1.5, rotation=180, before=pair)   # on the resistors' centre line
 legs = board.row(LEGS, Edge.SOUTH, gap=1.0, behind=aux_row, start=Y(PadRef(MH3, 1), 4.0))   # after the hole
-board.size(width=board.keep_in + power.depth + 4 + bus.depth + board.keep_in, height=max(power.end, bus.end) + TOP)
+board.rect(width=board.keep_in + power.depth + 4 + bus.depth + board.keep_in, height=max(power.end, bus.end) + TOP)
 ```
 `overhang=` stands the row's outward faces that far past the edge, as
 `OnEdge(edge, overhang=)` does. Where a row sits along its edge, one of: `start=` a number or a
@@ -958,11 +959,11 @@ beside it, generates the fragment and applies the script. A zen may
 declare one Layout per variant (an `if` on a `config()`), each with its
 own script named for it; the script's first line `# placemat generate:
 --config key=value` tells the generator which. A fragment has no outline
-to write, but its script may give it a frame, `board.size(w, h,
+to write, but its script may give it a frame, `board.rect(w, h,
 draw=False)`, sized from its own rows, so the controls that must meet
 a board edge are a `row` on the frame's edge; the board supplies the
 real outline. What is not on an edge is said in terms of parts and pads.
-A fragment with no edge to meet takes `board.size(fit=True)`:
+A fragment with no edge to meet takes `board.rect(fit=True)`:
 its main part at the origin, the rest from its pads, and the frame is what
 they fill plus the margin - no frame or anchor position computed by hand. A
 searched item on a fit board searches round what is placed so far, by
@@ -1526,7 +1527,7 @@ where it starts; each one after it is a point (a straight leg to it) or an
 Three points fix a circle and the way round it, so an arc needs no flag for
 which way it bulges. `holes=` are cutouts (above), each a path of its own.
 Use this when the board's EDGE is not a rectangle or a circle; a hole in an
-otherwise ordinary board is `holes=` on `size()` or `disc()`.
+otherwise ordinary board is `holes=` on `rect()` or `disc()`.
 
 ```python
 board.outline([(0, 40), (0, 20), Arc(to=(40, 20), via=(20, 0)), (40, 40)])   # a square with a rounded top

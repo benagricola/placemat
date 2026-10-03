@@ -2,7 +2,7 @@
 pad, which holds a via to the ground planes. The first cell stands where the script says, the others are searched in turn."""
 from placemat import board, Cell, CopperLayer, Face, Location, Net
 
-board.size(width=60, height=60)
+board.rect(width=60, height=60)
 board.plane(Net("GND"), layers=(CopperLayer.IN1, CopperLayer.IN4))
 board.plane(Net("V3V3"), layers=(CopperLayer.IN3,))
 board.place(Cell("usbpd.esd"), face=Face.FRONT, at=Location(20, 30), why="stands first, so the cells after it are searched")

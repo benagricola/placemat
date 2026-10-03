@@ -233,7 +233,7 @@ def test_kicads_drc_finds_no_clearance_violation_from_a_pour_on_an_inner_layer_j
     pcb = tmp_path / "vias.kicad_pcb"
     b.Save(str(pcb))
     board = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
-    board.size(width=40.0, height=40.0)
+    board.rect(width=40.0, height=40.0)
     drops = [board.via(Net("VOUT"), Location(x, y), size=0.6, drill=0.3)
              for x, y in ((10.0, 10.0), (18.0, 10.0), (14.0, 16.0))]
     board.pour(Net("VOUT"), drops, layer=IN2, swallow_pads=True)

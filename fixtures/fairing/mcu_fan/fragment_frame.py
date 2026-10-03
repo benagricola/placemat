@@ -1,7 +1,7 @@
 """Helpers shared by the core's module fragments.
 
 A fragment's frame is its content and the keep-in round it
-(`board.size(fit=True)`): the core stamps the frame as the cell's box. These
+(`board.rect(fit=True)`): the core stamps the frame as the cell's box. These
 helpers read which way a part's pads face for a rotation, and draw the core's
 planes over the frame.
 

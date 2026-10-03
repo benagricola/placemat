@@ -24,7 +24,7 @@ def test_a_plane_on_a_fit_frame_is_written_inside_it(breakout_pcb, tmp_path):
     before = run_drc(pcb, tmp_path / "before.json")
     a, c = g.footprint("term_near_ra"), g.footprint("term_near_rb")
     b = Board(g, edge_margin=0.0, keep_going=True)
-    b.size(fit=True, draw=False, margin=0.5)
+    b.rect(fit=True, draw=False, margin=0.5)
     b.place(Part(a.inst), at=a.location, rotation=a.rotation)
     b.place(Part(c.inst), at=c.location, rotation=c.rotation)
     b.plane(Net("GND"), layers=(CopperLayer.B,))

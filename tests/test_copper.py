@@ -299,7 +299,7 @@ def _two_parts():
 def test_copper_between_decided_parts_is_fixed():
     from placemat.values import Freedom
     b = Board(_two_parts(), edge_margin=1.0)
-    b.size(width=60, height=60)
+    b.rect(width=60, height=60)
     b.place(Part("u1"), at=Location(10, 10))
     b.place(Part("r1"), at=Location(30, 10))
     c = b.track(Net("GND"), [PadRef(Part("u1"), "GND"), PadRef(Part("r1"), "GND")], layer=CopperLayer.F)
@@ -310,7 +310,7 @@ def test_copper_between_decided_parts_is_fixed():
 def test_copper_naming_a_searched_part_is_searched():
     from placemat.values import Freedom
     b = Board(_two_parts(), edge_margin=1.0)
-    b.size(width=60, height=60)
+    b.rect(width=60, height=60)
     b.place(Part("u1"), at=Location(10, 10))
     b.place(Part("r1"))                                       # searched
     c = b.track(Net("GND"), [PadRef(Part("u1"), "GND"), PadRef(Part("r1"), "GND")], layer=CopperLayer.F)
@@ -323,7 +323,7 @@ def test_copper_declared_before_its_part_is_still_judged_correctly():
     declared later, so it judged against an incomplete list."""
     from placemat.values import Freedom
     b = Board(_two_parts(), edge_margin=1.0)
-    b.size(width=60, height=60)
+    b.rect(width=60, height=60)
     c = b.track(Net("GND"), [PadRef(Part("u1"), "GND"), PadRef(Part("r1"), "GND")], layer=CopperLayer.F)
     b.place(Part("u1"), at=Location(10, 10))
     b.place(Part("r1"))                                       # declared AFTER the copper
@@ -336,7 +336,7 @@ def test_copper_at_literal_coordinates_is_fixed_and_becomes_an_obstacle():
     remember: a searched part's pad must clear it."""
     from placemat.values import Freedom
     b = Board(_two_parts(), edge_margin=1.0)
-    b.size(width=60, height=60)
+    b.rect(width=60, height=60)
     v = b.via(Net("GND"), Location(30.0, 30.0))
     b.place(Part("u1"), at=Location(10, 10))
     b.place(Part("r1"))
@@ -347,7 +347,7 @@ def test_copper_at_literal_coordinates_is_fixed_and_becomes_an_obstacle():
 
 def test_naming_a_searched_part_no_longer_raises():
     b = Board(_two_parts(), edge_margin=1.0)
-    b.size(width=60, height=60)
+    b.rect(width=60, height=60)
     b.place(Part("r1"))
     b.track(Net("GND"), [PadRef(Part("r1"), "GND"), Location(40, 40)], layer=CopperLayer.F)
     b.resolve()          # no ValueError
