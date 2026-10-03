@@ -60,8 +60,11 @@ def _shapes(plan, fp) -> list:
                         "poly": _poly(s.poly)})
     for s in g.shapes:
         if s.kind in ("pad", "through"):
-            out.append({"kind": s.kind, "faces": sorted(f.value for f in s.faces), "poly": _poly(s.poly),
-                        "net": s.net, "number": s.label})
+            out.append({"kind": s.kind, "faces": sorted(f.value for f in s.faces), "layers": sorted(l.value for l in s.layers),
+                        "poly": _poly(s.poly), "net": s.net, "number": s.label})
+    for s in g.shapes:          # a through pad's drill (cut through its copper) and a mounting hole: the page draws them over the pads
+        if s.kind in ("hole", "npth"):
+            out.append({"kind": s.kind, "faces": sorted(f.value for f in s.faces), "poly": _poly(s.poly), "number": s.label})
     return out
 
 

@@ -364,12 +364,15 @@ svg text { user-select: none; font-family: var(--sans); }
 .cy { fill: var(--courtyard); fill-opacity: 0.05; stroke: var(--courtyard); stroke-width: 0.06; stroke-dasharray: 0.25 0.2; }
 .bd { fill: none; stroke: var(--body); stroke-width: 0.07; }
 .sk { fill: var(--silk); }
-.pad { fill: var(--pad); } .thru { fill: var(--thru); }
+/* a pad is the colour of the copper layer it is on (as KiCad draws it); a through pad has both: the front layer's fill, the back layer's rim, and its drill cut through */
+.pad { fill: var(--copper); } .pad.l-B { fill: var(--copperB); }
+.thru { fill: var(--copper); stroke: var(--copperB); stroke-width: 0.1; }
+.hole { fill: var(--substrate); stroke: var(--via); stroke-width: 0.03; pointer-events: none; }
 .trk { fill: none; stroke: var(--copper); stroke-linecap: round; }
 .trk.l-B { stroke: var(--copperB); } .trk.l-In { stroke: var(--copperIn); }
-.via { fill: var(--via); stroke: var(--substrate); }
+.via { fill: var(--via); stroke: var(--substrate); stroke-width: 0.05; }
 .vhole { fill: var(--substrate); stroke: var(--via); stroke-width: 0.04; }
-.copper, .heat, .fnds, .changes { pointer-events: none; }
+.copper, .heat, .changes { pointer-events: none; } .fnds { pointer-events: none; }
 .plane { fill: var(--plane); fill-opacity: 0.2; stroke: var(--plane); stroke-width: 0.12; }
 .fcu { fill: var(--copper); fill-opacity: 0.85; pointer-events: none; } .fcu.l-B { fill: var(--copperB); } .fcu.l-In { fill: var(--copperIn); fill-opacity: 0.45; }
 .plane.l-B { fill: var(--copperB); stroke: var(--copperB); } .plane.l-In { fill: var(--copperIn); stroke: var(--copperIn); }
@@ -403,8 +406,19 @@ svg text { user-select: none; font-family: var(--sans); }
 .row.note .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .row.note .l2 { overflow-wrap: anywhere; white-space: normal; }
 .row.note .nd { margin-left: auto; border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
-.fmark { fill: var(--sev-warning); fill-opacity: 0.18; stroke: var(--sev-warning); stroke-width: 0.2; }
-.fmark.critical { fill: var(--sev-critical); stroke: var(--sev-critical); } .fmark.notice { fill: var(--sev-notice); stroke: var(--sev-notice); }
+/* finding markers: signal colours with a white halo and a dark rim, so they read on copper, keepouts and the substrate alike */
+.fnd { --fc: #ffd400; pointer-events: auto; cursor: pointer; }
+.fnd.critical { --fc: #ff1744; } .fnd.notice { --fc: #00c2ff; }
+.fnd .halo { fill: none; stroke: #fff; stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+.fnd .stem { fill: none; stroke: #10151b; stroke-width: 2; }
+.fnd .badge { fill: var(--fc); stroke: #10151b; stroke-width: 2.2; stroke-linejoin: round; }
+.fnd .mk { fill: #10151b; stroke: #10151b; stroke-width: 2.6; stroke-linecap: round; }
+.fnd .pulse { fill: none; stroke: var(--fc); stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; animation: fpulse 2.6s ease-out infinite; }
+.fnd .inner { transform: scale(1.2); }
+.fnd.on .inner { transform: scale(1.65); filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 2px #10151b); }
+.fnd.on .badge { stroke-width: 3.2; }
+@keyframes fpulse { 0% { transform: scale(0.4); opacity: 0.9; } 70% { opacity: 0; } 100% { transform: scale(2.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .fnd .pulse { animation: none; } }
 .ko.sel, .res.sel { stroke-width: 0.35; fill-opacity: 0.35; }
 .item.modhl .cy, .item.modhov .cy { stroke: var(--accent); stroke-width: 0.25; stroke-dasharray: none; fill-opacity: 0.12; }
 .item:hover .cy { stroke: var(--accent); stroke-width: 0.2; }
@@ -977,15 +991,18 @@ function itemSVG(it, f, pn, p, n) {
   let any = false;
   o.push('<g class="' + cls + '" data-key="' + esc(it.key) + '" data-s="' + n + '">');
   for (const m of it.members) {
-    const ms = [];
+    const ms = [], holes = [];
     for (const s of m.shapes) {
       if (!s.faces.includes(f) && !(s.kind === "copper" && !s.faces.length)) continue;           // an inner layer's copper shows on both faces
       if (s.kind === "courtyard") ms.push('<polygon class="cy" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "body") ms.push('<polygon class="bd" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "silk") ms.push('<polygon class="sk" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "copper") { const l = (s.layers || [])[0] || ""; ms.push('<polygon class="fcu ' + layerClass(l) + '" data-l="' + esc(l) + '" points="' + polyPts(s.poly) + '"/>'); }
-      else if (s.kind === "pad" || s.kind === "through") ms.push('<polygon class="' + (s.kind === "pad" ? "pad" : "thru") + '" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>');
+      else if (s.kind === "pad") { const l = (s.layers || [])[0] || (s.faces[0] === "back" ? "B.Cu" : "F.Cu"); ms.push('<polygon class="pad ' + layerClass(l) + '" data-l="' + esc(l) + '" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>'); }
+      else if (s.kind === "through") ms.push('<polygon class="thru" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>');
+      else if (s.kind === "hole" || s.kind === "npth") holes.push('<polygon class="hole" points="' + polyPts(s.poly) + '"/>');
     }
+    ms.push(...holes);
     const c = m.shapes.filter(s => s.kind === "courtyard" && s.faces.includes(f));
     const b = bboxOf((c.length ? c : m.shapes.filter(s => s.faces.includes(f))).map(s => s.poly));
     if (b) { const size = labelSize(m.ref, b[2] - b[0]); if (size) ms.push(textAt(pn, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2, m.ref, size, "ref")); }
@@ -1033,6 +1050,18 @@ function findingPlaces(p) {
   fplaceCache = {fs, n: fs.length, its, m: its.length, v};
   return v;
 }
+// A finding's marker: a badge on a short stem, its tip at the point, at one size on the screen whatever the zoom (--u is the board units
+// to a pixel, set on the drawing when the view changes). Its shape (a triangle with !, a circle with i), its signal colour, its white
+// halo and its slow pulse are not the shape or colour of anything in the board; the focused finding's is larger and ringed.
+const FND_GLYPH = {
+  critical: '<path class="halo" d="M0 0V-9M0 -32L13 -9H-13Z"/><path class="stem" d="M0 0V-9"/><circle class="pulse" r="9"/><path class="badge" d="M0 -32L13 -9H-13Z"/><path class="mk" d="M0 -26V-19"/><circle class="mk" cy="-14.5" r="1.5"/>',
+  warning: '<path class="halo" d="M0 0V-9M0 -32L13 -9H-13Z"/><path class="stem" d="M0 0V-9"/><circle class="pulse" r="9"/><path class="badge" d="M0 -32L13 -9H-13Z"/><path class="mk" d="M0 -26V-19"/><circle class="mk" cy="-14.5" r="1.5"/>',
+  notice: '<path class="halo" d="M0 0V-9"/><circle class="halo" cy="-19" r="10"/><path class="stem" d="M0 0V-9"/><circle class="pulse" r="9"/><circle class="badge" cy="-19" r="10"/><path class="mk" d="M0 -20V-14"/><circle class="mk" cy="-25" r="1.5"/>',
+};
+function findingMarker(fd, i, at, pn) {
+  const sev = sevOf(fd), sx = pn.mirror ? "calc(var(--u) * -1)" : "var(--u)";
+  return '<g class="fnd ' + sev + (S.focusIdx === i ? " on" : "") + '" data-fi="' + i + '" style="transform: translate(' + num(at[0]) + "px, " + num(at[1]) + "px) scale(" + sx + ', var(--u))"><title>' + esc(fd.text) + '</title><g class="inner">' + FND_GLYPH[sev] + "</g></g>";
+}
 function panelSVG(p, pn, first, order, diffLayer) {
   const f = pn.face, o = [];
   const tr = pn.mirror ? "translate(" + num(pn.dx + lay.L + lay.R) + " 0) scale(-1 1)" : "translate(" + num(pn.dx) + " 0)";
@@ -1059,10 +1088,11 @@ function panelSVG(p, pn, first, order, diffLayer) {
     o.push('<polygon class="res' + (r.why === selR ? " sel" : "") + '" data-res="' + escRaw(r.why) + '"' + (ko ? ' data-ko-of="' + escRaw(ko) + '"' : "") + ' points="' + polyPts(r.poly) + '"/>');
   }
   const mapped = S.opStep && S.opStep.size ? i => S.opStep.has(i) ? S.opStep.get(i) : S.lastStep : null;     // copper no step laid shows with the last
-  o.push(copperSVG(p.copper || [], f, pn, "", mapped));
+  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "novia"));
   o.push('<g class="items">');
   for (const s of order) { const it = S.itemAt.get(s.item); if (it) o.push(itemSVG(it, f, pn, p, s.n)); }
   o.push("</g>");
+  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "via"));
   o.push('<g class="links">');
   (p.links || []).forEach((l, i) => {
     const x1 = l.pa[0], y1 = l.pa[1], x2 = l.pb[0], y2 = l.pb[1];
@@ -1079,7 +1109,7 @@ function panelSVG(p, pn, first, order, diffLayer) {
   o.push("</g>");
   o.push('<g class="fnds">');
   const places = findingPlaces(p);
-  (p.findings || []).forEach((fd, i) => { const at = places[i]; if (at) o.push('<circle class="fmark ' + sevOf(fd) + '" cx="' + num(at[0]) + '" cy="' + num(at[1]) + '" r="0.9"/>'); });
+  (p.findings || []).forEach((fd, i) => { const at = places[i]; if (at) o.push(findingMarker(fd, i, at, pn)); });
   o.push("</g>");
   o.push('<g class="npins">' + notePins(p) + "</g>");
   o.push(diffLayer(f, pn));
@@ -1094,11 +1124,12 @@ function silkText(c) {
   const tf = "translate(" + num(c.at[0]) + " " + num(c.at[1]) + ")" + (c.rotation ? " rotate(" + num(-c.rotation) + ")" : "") + (c.mirrored ? " scale(-1 1)" : "");
   return '<text class="silktxt" transform="' + tf + '" font-size="' + num(Math.max(c.size || 0.5, 0.3)) + '" text-anchor="' + anchor + '" dominant-baseline="' + base + '">' + esc(c.text) + "</text>";
 }
-function copperSVG(ops, f, pn, mode, stepOf) {
-  const o = ['<g class="copper">'];
+function copperSVG(ops, f, pn, mode, stepOf, part) {      // part: "novia" (before the parts) or "via" (above them: a via in a pad shows on it)
+  const o = ['<g class="copper' + (part === "via" ? " vias" : "") + '">'];
   const cls = mode === "added" ? " d-cadd" : mode === "removed" ? " d-cdel" : "";
   for (let i = 0; i < ops.length; i++) {
     const c = ops[i], sn = stepOf ? stepOf(i) : null, ds = sn != null && sn >= 0 ? ' data-s="' + sn + '"' : "";   // the replay step that laid it
+    if (part && (c.t === "via") !== (part === "via")) continue;
     if (c.t === "track" && (c.face === f || c.face === "inner")) {
       const op = c.face === "inner" ? "0.6" : "1", at = ds + ' data-l="' + esc(c.layer) + '" stroke-width="' + c.width + '" stroke-opacity="' + op + '"';
       if (c.arc) o.push('<path class="trk ' + layerClass(c.layer) + cls + '" d="M ' + c.a[0] + " " + c.a[1] + " A " + c.arc[0] + " " + c.arc[0] + " 0 " + c.arc[1] + " " + c.arc[2] + " " + c.b[0] + " " + c.b[1] + '" fill="none"' + at + "/>");
@@ -1349,7 +1380,7 @@ function setExp(key, on) { legendPref[key] = on; try { localStorage.setItem("pla
 const SW = {   // the legend's swatches draw with the board's own classes, so the key is the colours the board uses
   cy: '<rect x="3" y="2" width="20" height="10" class="cy" style="stroke-width:1.4;stroke-dasharray:3 2;fill-opacity:0.18"/>',
   bd: '<rect x="3" y="2" width="20" height="10" class="bd" style="stroke-width:1.4"/>',
-  pad: '<rect x="4" y="2" width="8" height="10" class="pad"/><rect x="14" y="2" width="8" height="10" class="pad"/>',
+  pad: '<rect x="4" y="2" width="8" height="10" class="pad l-F"/><rect x="14" y="2" width="8" height="10" class="pad l-B"/>',
   labels: '<text x="13" y="11" text-anchor="middle" class="ref" style="font-size:10px;stroke:none">R12</text>',
   silk: '<text x="13" y="11" text-anchor="middle" class="silktxt" style="font-size:10px">TXT</text>',
   track: cls => '<line x1="2" y1="7" x2="24" y2="7" class="trk ' + cls + '" style="stroke-width:3.5"/>',
@@ -1358,7 +1389,7 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
     '<circle cx="2.5" cy="7" r="2.2" class="lkdot ' + cls + '"/><path d="M 17 3 L 24 7 L 17 11 z" class="arrowhead ' + cls + '"/>',
   ko: '<rect x="3" y="2" width="20" height="10" class="ko" style="stroke-width:1.2;fill-opacity:0.3"/>',
   res: '<rect x="3" y="2" width="20" height="10" class="res" style="stroke-width:1.2;stroke-dasharray:3 2;fill-opacity:0.25"/>',
-  findings: '<circle cx="13" cy="7" r="5.5" class="fmark" style="stroke-width:1.6"/>',
+  findings: '<g class="fnd warning" style="transform: translate(13px, 13px) scale(0.4)"><g class="inner">' + FND_GLYPH.warning.replace('<circle class="pulse" r="9"/>', "") + "</g></g>",
   note: '<g class="npin" transform="translate(13 12) scale(4)"><path d="M0 0 L-0.8 -1.8 A1 1 0 1 1 0.8 -1.8 Z"/><circle cx="0" cy="-2.3" r="0.35"/></g>',
   zone: cls => '<rect x="3" y="2" width="20" height="10" class="plane ' + cls + '" style="stroke-width:1.2"/>',
   heat: '<rect x="3" y="2" width="5" height="10" fill="rgb(59,76,192)"/><rect x="8" y="2" width="5" height="10" fill="rgb(53,176,171)"/><rect x="13" y="2" width="5" height="10" fill="rgb(253,231,37)"/><rect x="18" y="2" width="5" height="10" fill="rgb(249,142,9)"/>',
@@ -1463,6 +1494,7 @@ function applyView() {
   S.vb = vb; S.px = r.width;
   const box = [vb.x, vb.y, vb.w, vb.h].map(num).join(" ");
   svg.setAttribute("viewBox", box);
+  if (svg.style && svg.style.setProperty) svg.style.setProperty("--u", num(vb.w / r.width));     // board units to a screen pixel: what a marker of fixed size is scaled by
   $("#grid").setAttribute("viewBox", box);
   svg.classList.toggle("lowzoom", r.width / vb.w < 10);
   drawGrid(vb, r.width);
@@ -1688,6 +1720,8 @@ function hideTip() { tipKey = null; $("#tip").style.display = "none"; setHover([
 function pickAt(x, y) {                      // a tap or a click on the board: a part, a region, a link, or nothing
   const t = document.elementFromPoint(x, y);
   const m = t && t.closest(".mem"), it = t && t.closest(".item");
+  const fm = t && t.closest(".fnd");
+  if (fm) { const f = (plan().findings || [])[+fm.dataset.fi]; if (f) { focusFinding(f); return; } }
   const pin = t && t.closest(".npin");
   if (pin) { const n = S.notes.find(x => x.id === pin.dataset.note); if (n) { focusNote(n); return; } }
   if (it) { selectItem(it.dataset.key, {ref: m ? m.dataset.ref : null}); return; }
