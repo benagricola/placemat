@@ -407,7 +407,8 @@ class Escapes:
                 near = list(self._bgrid.near(reach.inflate(self.depth + 1.0)))
                 if not own and path_out(occ, ref, number, self.depth, near=near):
                     continue                    # not even the foes' boxes wall it
-                if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True):
+                if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True,
+                            via_exit=occ.settings.place_escape_lane_via_exit):
                     continue
                 window = reach.inflate(self.depth)
                 by = sorted({sh.owner or occ.blame_owner(sh) for sh in near
@@ -441,7 +442,8 @@ class Escapes:
                     continue
                 reach = Box.union([box] + [s.box for s in own])
                 near = list(self._bgrid.near(reach.inflate(self.depth + 1.0)))
-                if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True):
+                if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True,
+                            via_exit=occ.settings.place_escape_lane_via_exit):
                     continue
                 window = reach.inflate(self.depth)
                 by = sorted({sh.owner or occ.blame_owner(sh) for sh in near
@@ -623,7 +625,7 @@ class Escapes:
 
 
 def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None, near=None, own=(),
-             exact: bool = False) -> bool:
+             exact: bool = False, via_exit: bool = True) -> bool:
     """Whether a track of the pad's net can get out of it: a path, at the
     net's track width and clearance from every other net's copper on the
     pad's layers, from the pad to the edge of a window `depth` round it or
@@ -634,7 +636,7 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     copper). Obstacles are taken as their boxes. `own` is copper of the pad's own net standing on it (a stub): the path
     starts anywhere on it. `exact` takes the obstacles as the shapes they are, not their boxes (a diagonal track's box is
     mostly empty): a cell is blocked by a track's own width and clearance, and the window is judged cell by cell as the
-    search reaches it."""
+    search reaches it. `via_exit` off: a spot a via fits at is no way out, only a track reaching the window's edge is."""
     depth = occ.settings.place_escape_depth if depth is None else depth
     g = occ.items[ref]
     mine = [s for s in g.shapes if s.kind in ("pad", "through") and s.owner == ref and s.label == number]
@@ -658,7 +660,7 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     delta = {id(h): occ.geometry.hole_clearance - nc.clearance for h in holes}
     delta.update({id(b): -nc.clearance for b in bans})
     if exact:
-        return _path_out_exact(occ, mine + list(own), foes + holes, layers, win, track, via, toward, bans, delta)
+        return _path_out_exact(occ, mine + list(own), foes + holes, layers, win, track, via, toward, bans, delta, via_exit)
     walls = [s.box.inflate(track) for s in foes if s.layers & layers] + [h.box.inflate(track + delta[id(h)]) for h in holes]
     vias = [s.box.inflate(via) for s in foes] + [s.box.inflate(via + delta[id(s)]) for s in holes + bans]
     cell = occ.settings.place_escape_cell
@@ -713,7 +715,7 @@ def extra_walls(occ, box: Box, net: str) -> tuple:
     return holes, bans
 
 
-def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via: float, toward, bans=(), delta=None) -> bool:
+def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via: float, toward, bans=(), delta=None, via_exit: bool = True) -> bool:
     """`path_out`'s search on the shapes themselves: from every cell on `start_shapes` (the pad and the pad's own copper) over
     the cells of `win` a track keeps `track` (half its width and the clearance) from every foe on its layers, to the window's
     edge or to a cell a via fits at, `via` from every foe. A gap short of that by under a nanometre is a tie, which holds, as
@@ -771,7 +773,7 @@ def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via
         if i in (0, nx - 1) or j in (0, ny - 1):
             if toward is None or toward[0] * (x - cx) + toward[1] * (y - cy) > 0:
                 return True
-        if not on_start(x, y) and not near(foes, x, y, via) and not near(bans, x, y, via):
+        if via_exit and not on_start(x, y) and not near(foes, x, y, via) and not near(bans, x, y, via):
             return True                     # a via fits here
         for a, b in ((i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)):
             if 0 <= a < nx and 0 <= b < ny and (a, b) not in seen and not walled(a, b):
@@ -784,7 +786,7 @@ def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via
         anchors += [tuple(p) for p in pts if tuple(p) not in anchors]
     for ax, ay in anchors:
         if _walk_lattice(ax, ay, win, cell, toward, (cx, cy), lambda x, y: near(walls, x, y, track), on_start,
-                         lambda x, y: not near(foes, x, y, via) and not near(bans, x, y, via)):
+                         lambda x, y: via_exit and not near(foes, x, y, via) and not near(bans, x, y, via)):
             return True
     return False
 

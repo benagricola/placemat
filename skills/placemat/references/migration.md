@@ -18,6 +18,12 @@ section for each hand-written pattern a newer form replaces.
   beside one whose envelope is its box, stays where it was. `Beside` of a keepout or an escape, a `Past` that turns a corner,
   and `row(of=)` still measure the box.
 
+- **A pad on an escape lane needs a track's way out, not a via's.** The way on from the end of a pad's own copper (an
+  escape lane, or a stub drawn from it) is looked for on the layer the copper is on; a spot a via fits at no longer counts, so
+  a pin whose stub ends in a pocket only a via could leave is now `escape_walled`. Pads with no copper of their own keep
+  the via rule. `place.escape_lane_via_exit = true` restores the earlier rule (a via spot at the end of the copper is a way
+  out). Runs of a script with fanned pins can gain `escape_walled` findings and score; nothing in a script changes.
+
 ## To 0.91.1
 
 ### Fixed
