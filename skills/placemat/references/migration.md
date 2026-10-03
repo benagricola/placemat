@@ -12,6 +12,14 @@ section for each hand-written pattern a newer form replaces.
 - **`check.neck_band` is gone.** It has not been read since 0.72.0 (`check.neck_end_share` and the neck length replaced it). A
   `placemat.toml` that still names it now fails as an unknown setting: delete the line.
 
+### Fixed
+
+- **A push on a member of a stamped cell fences that member alone.** An annotated pair (`Pm.Emits` / `Pm.Limit`) or a
+  `board.push` whose item is a cell member reserved its disc against every member of the cell, so the whole cell had to stand
+  outside it; and a source placed first looked ahead for room for the whole cell. Both now take the member the push measures,
+  as api.md, "Push", says: the cell's other members may stand inside the disc. A cell holding a sensitive part can now stand
+  with that part outermost; nothing a script says changes.
+
 ## To 0.96.0
 
 ### New

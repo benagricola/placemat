@@ -4620,9 +4620,13 @@ class Board:
                 if at is None:
                     continue
                 if a_source:
-                    # b is sensitive and placed second: its whole body is held outside each emission's disc
-                    # (the push's reservation), and its sense point has what the sources placed leave of its limit
-                    span = geom.body if occ.envelope == "courtyard" else occ._extent(geom)
+                    # b is sensitive and placed second: its body is held outside each emission's disc (the
+                    # push's reservation, which fences b alone: in a cell, that member's box, not the cell's),
+                    # and its sense point has what the sources placed leave of its limit
+                    if geom.part_refs and b in geom.part_refs:
+                        span = geom.parts[geom.part_refs.index(b)]
+                    else:
+                        span = geom.body if occ.envelope == "courtyard" else occ._extent(geom)
                     box = transform_box(span, occ._transform(geom, spot))
                     key = (round(at.x, 2), round(at.y, 2), round(box.left, 2), round(box.top, 2))
                     left = limit - others_at(at)
@@ -4711,15 +4715,17 @@ class Board:
     def _reserve_pushes(self, occ: Occupancy, plan: Plan, i: PlaceIntent) -> list:
         """Each push's source point, resolved now (it is placed by then,
         `needs` sees to that), and its hard-limit disc reserved against
-        this item alone: every OTHER part is named in owners, so nothing
-        else is fenced by it (Reservation.owners / let_in, occupancy.py)."""
+        the part the push measures alone: the cell member it names, or the
+        item. Every other part, the cell's other members too, is named in
+        owners, so nothing else is fenced by it (Reservation.owners /
+        let_in, occupancy.py)."""
         pushes = tuple(i.pushes) + tuple(self._annotated_pushes(occ, i))
         tag_prefix = "push:%s:" % i.key
         occ.reservations = [r for r in occ.reservations if not r.source.startswith(tag_prefix)]
         if not pushes:
             return []
         own = {fp.ref for fp in members_of(i.item)}
-        others = frozenset(fp.ref for fp in self.geometry.footprints) - own
+        refs = frozenset(fp.ref for fp in self.geometry.footprints)
         resolved = []
         for n, p in enumerate(pushes):
             point = self._push_source_point(occ, plan, p.source)
@@ -4734,7 +4740,8 @@ class Board:
             if not radius > 0:
                 continue
             why = ReservedBy("push", _push_source_label(p), p.why or "", limit=limit, radius_mm=radius)
-            occ.reserve(_circle(point, radius), why, owners=others, copper=False, source=tag_prefix + str(n))
+            fenced = {p.target_member_ref} if p.target_member_ref in own else own
+            occ.reserve(_circle(point, radius), why, owners=refs - fenced, copper=False, source=tag_prefix + str(n))
         return resolved
 
     def _report_centres(self, occ: Occupancy, plan: Plan) -> None:

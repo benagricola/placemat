@@ -1779,9 +1779,11 @@ Cell(...))`, for a member); `push()` adds to it, the same as
 
 **Hard limit.** Where `value(r)` would exceed `limit`, the item may not
 stand: a disc round the source of radius `r_ref * (v_ref / limit) ** (1 /
-falloff)`, reserved against the item alone (Reservation.owners /
-occupancy.let_in) - every other part is still let in, so nothing else is
-fenced by it. Refused like any reservation, naming the push: `sits in the
+falloff)`, reserved against the part the push measures alone - the
+member, when `item` is a member of a stamped cell (Reservation.owners /
+occupancy.let_in). Every other part, the cell's other members too, is
+still let in, so nothing else is fenced by it, and a source placed first
+looks ahead for room for that member's body alone. Refused like any reservation, naming the push: `sits in the
 reservation for push from m1 (limit 0.3 at 29.7 mm)`. `falloff`, `r_ref`,
 `v_ref` and `limit` are each more than 0; a `falloff` too small for its
 `reference` and `limit` (the disc that formula asks for has no finite
