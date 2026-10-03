@@ -198,28 +198,40 @@ which of each module's declared tracks are in `fixed_copper`:
 So acceptance item 3 is not met by this change alone for mcu's cross-axis collisions and for usb5v, unless the
 user chooses one of the options in the questions below. Say so in the plan rather than retune the scripts.
 
-## Open questions
+## Decisions
 
-1. A part aligned level with another along the cross axis (`Beside(x, side, align=pad of y)`) cannot move
-   along its own side to clear a neighbour that tightened on the cross axis (mcu: two collisions). Options:
-   (a) leave them as findings with the suggestion the 0.92 findings give; (b) let `Beside` try the other
-   side's order, placing the neighbour after it; (c) when a firm part is refused after its push, re-place the
-   part it is aligned with at its own first legal contact further out (a bounded backtrack). (c) changes more
-   placements; which do you want?
-2. Copper that depends on a searched item (usb5v's tracks, any track to a searched part) is planned after the
-   search and is not covered. Two ways to cover it: reserve, for such a track, a straight corridor between
-   its placed end and the searched item's search region (cheap, imprecise, a search cost), or run the search
-   with the copper dry-planned at each candidate (the riders mechanism does this for riders; it is a large
-   cost). Cover it now, later, or leave it to the 0.92 findings?
-3. Pours (fitted polygons): reserve their dry-planned polygon (keeps a part from entering a pour's room,
-   which is what makes a pour's "no way between pads" finding) or leave them? Reserving a pour's own polygon
-   also keeps parts out of room a pour only needs because the script said `swallow_pads=True`.
-4. Should a carried via (a stamped cell's) keep clear of a provisional via ring, or only of real copper?
-   Giving way to a provisional one moves a via for copper that may change.
-5. `place.copper_room` defaults true. It changes placements of scripts that declare tracks near firm parts
-   (parts stand where there is room for the copper, not where the box or shape standoff put them). Is that
-   a "breaking change" in the charter's sense, so asked first, or a bug fix? I treated it as a fix because
-   those scripts get a KiCad clearance violation today and none gets worse by it, but it moves parts.
-6. Passes: 3 and a tolerance of 0.001 mm are guesses. A script whose firm items and copper depend in a cycle
-   (a track's waypoint is `Past` of a part that is itself placed by the track's lane) may not settle; is a
-   finding the right outcome or should the pass count be a hard failure with `--keep-going`?
+The six questions of the first draft, as the user answered them.
+
+1. Parts aligned with another on the cross axis that cannot stand clear: Beside tries the other order. A Beside
+   part that no step within `place.beside_reach` lets stand, because a firm part placed before it is in its
+   way, is recorded with that blocker (`P` blocked by `Q`). The next firm pass places `P` before `Q` (`Q` is held
+   back until `P` is placed, unless `P` needs `Q`), so `Q`'s own Beside then moves out to clear `P`. Bounded: a
+   pair is tried once, never both ways, and every try is a pass of `place.firm_passes`. `P`'s step says "placed
+   before Q: Q stood in its way".
+2. Copper whose end is a searched part: after each searched item is placed, the declared copper whose endpoints
+   are now all placed is dry-planned and reserved as provisional obstacles for the items placed after it. It is
+   replaced by the real copper when that is planned. In scope.
+3. Pours are not reserved; they keep adapting.
+4. Carried vias keep clear of provisional via rings as of real copper: provisional shapes are obstacles like
+   any other where they apply (no give-way exemption).
+5. `place.copper_room` is on by default and treated as a fix, with a migration note under "Unreleased".
+6. A cycle that does not settle is a finding (`fixed.room_unsettled`), not a hard failure. The pass count and the
+   tolerance are set from measurement on the fixture scripts.
+
+## Built as
+
+Where the build differs from the draft above:
+
+- The passes run the firm phase of `_resolve` on the same Board with its state saved and restored between
+  passes (`firm_only`): the mutable parts of a Board are rebound or are intent fields (rotation, run, along), which
+  are restored. The last run is the ordinary resolve with the settled rooms present.
+- The rooms are a separate list on the Occupancy (`occ.rooms`), not in `occ.copper`: nothing that plans or checks
+  copper sees them. They reach the collision rule through `Occupancy.obstacles` only while `occ.rooms_apply` is
+  set, as label silk is left out while `labels_yield` is: set during the search and during `Beside`'s move out,
+  clear while a firm item is judged, so a firm item over a provisional track is the copper finding it is today and
+  not a new refusal.
+- Settings: `place.copper_room` (true), `place.firm_passes` (the most firm passes, one of them the settled run;
+  `place.copper_room_passes` of the draft became this), `place.copper_room_tolerance` (mm).
+- Findings: `fixed.room` (a Beside part that no place within reach clears of provisional copper, facts: item, copper key,
+  net, clearance, distance, side) and `fixed.room_unsettled` (facts: the copper keys still moving and by how much,
+  passes).
