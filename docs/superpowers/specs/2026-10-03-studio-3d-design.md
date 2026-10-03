@@ -483,3 +483,30 @@ user's own cache folder.
 - **Cost.** The extra resolve work (model resolution, hashing, matrices) is timed on the large fixture board against
   the same resolve before the change, and the figure reported in the commit; the converter runs one batch at a time, so
   it holds one core and a full test suite or bench is not run beside it.
+
+## As built, phase 1
+
+Built on `studio-3d`. The modules are `models.py` (`resolve_model`, `model_id`, `embedded_checksums`), `model_place.py` (the matrix),
+`model_mesh.py` (the `.pmm` file, simplification), `model_vrml.py`, `model_cache.py`, `model_convert.py` (the converter process),
+`model_plan.py` (the plan document's fields), `studio_3d.py` (the studio's manager and routes), `studio_3d.js` and `studio_3d_core.js`
+(served as `viewer.js` and `viewer_core.js`) and `vendor/three/`. Where it differs from the design above:
+
+- **Measured against KiCad.** `tests/test_model_e2e.py` lays out the `usbcells` fixture module, exports the written board with `kicad-cli pcb
+  export glb` and compares every vertex of every part's model with the plan's matrix applied to the cached mesh: all within 1 um, with parts the
+  plan flipped in the set. A second test puts a pad's position in the footprint's own frame through the same matrix and lands on the plan's pad.
+  The converter's start-up self-test converts the L-prism on a front and a back footprint (`src/placemat/data/prism_L.step`, a 22 KB STEP written
+  once with OpenCASCADE, kept in the package because the self-test needs it at run time) and checks its box in the model frame and the two planes.
+- **The library is served with the token in the path** (`/3d/lib/<token>/<file>`, from a fixed list), not as `/vendor/three/<file>?t=`: a module
+  the viewer imports by a relative name comes with the path, where a query token would be lost. A dynamic import map names `three` for
+  `OrbitControls.js`. three.js 0.186.1 ships no minified build, so `three.module.min.js` and `three.core.min.js` were made from its `build/`
+  files with esbuild (`--minify`, the import path rewritten, the licence comment kept); 376 KB and 390 KB.
+- **Conversion starts as soon as a resolve names a model**, at low priority (`os.nice(10)`), in the studio's own process tree and killed with it.
+- **One draw call for all plates.** The plates of parts with no model are one mesh in step order, shown by a draw range; the instanced models are
+  one `InstancedMesh` per (model, material), shown by a count. The 258-part core board draws in 46 calls (10 of its 62 models are on this machine).
+- **Drop-in without fade.** A part arriving live (or stepped to by Play) drops 4 mm over `studio_3d_appear_ms`; the fade is not done.
+- **Not in phase 1** (phase 2 and later, as above): copper, silk, the compare ghost, findings markers, explore variants as ghosts, solder mask.
+- **Cost of the plan document** on `usbcells` (236 parts): `plan_json` takes 18 ms without models, 47 ms with them on a cold start (hashing every
+  model file, reading the board's embedded checksums) and 25 ms warm; the document grows 3.3%.
+- **Frame rate** on the 258-part core board (258 parts, 42,320 triangles, 46 draw calls), headless Chrome on an Intel Iris Xe: 60 fps (the display's
+  rate) at 1600x1000 and at the 412x892 phone viewport, worst frame 17 ms; at four times the parts (1,032 parts, 159,716 triangles) the same. With
+  Chrome's software renderer (SwiftShader) 4 fps, which says nothing about a phone's GPU. A phone itself was not measured.

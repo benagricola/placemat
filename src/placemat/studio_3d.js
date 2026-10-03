@@ -59,6 +59,7 @@ export async function mount(host) {
   scene.add(state.root);
   const request = () => { state.dirty = true; if (!state.raf && state.visible) state.raf = requestAnimationFrame(frame); };
   controls.addEventListener("change", request);
+  controls.addEventListener("start", () => { state.userMoved = true; });             // the viewer took the camera: it is not refitted under them
 
   // ---- theme
   function theme() {
@@ -318,6 +319,7 @@ export async function mount(host) {
     camera.position.copy(target).add(dir.multiplyScalar(need * (name === "iso" ? 1.05 : 1)));
     camera.near = Math.max(0.2, need / 200); camera.far = need * 10 + 400; camera.updateProjectionMatrix();
     controls.update(); request();
+    state.userMoved = false; state.fitExtent = state.extent.join(",");
   }
   function fit() { setView(state.viewName || "iso"); }
 
@@ -417,7 +419,7 @@ export async function mount(host) {
         state.sig = sig;
         state.seen = new Set((plan.items || []).map(i => i.key));
         fresh = first || !opts.animate ? [] : [...state.seen].filter(k => !before.has(k));
-        if (first) { setView(state.viewName || "iso"); }
+        if (first || (!state.userMoved && state.fitExtent !== state.extent.join(","))) { setView(state.viewName || "iso"); }      // the board grows while a resolve fits it: the view follows until someone moves it
       }
       const prevK = state.k;
       showSteps(opts.k == null ? null : opts.k);

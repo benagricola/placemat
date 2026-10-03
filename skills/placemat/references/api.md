@@ -3509,6 +3509,40 @@ The script is read only in the page; edit it in an editor, or let an agent
 edit it, and the page follows. An agent may tell the user to run `placemat
 studio` to watch its work.
 
+### The 3D view
+
+A 2D | 3D switch in the board area replaces the drawing with the board built: its outline extruded to the stackup thickness with cutouts and
+drills, each part drawn from its real 3D model at the pose the plan gave it, the rest of the page (legend, steps, cards, replay bar,
+selection) shared. The replay slider shows the first k steps in 3D as it does in 2D, and a resolve under way adds its parts as their steps settle.
+Orbit with one finger or the left button, pan with two fingers or the right button, zoom with the wheel or a pinch, double tap or Fit to fit,
+Top, Bottom (mirrored, as the 2D back) and Iso; a click selects, as in 2D. A part with no usable model is a plate: its courtyard 0.1 mm
+off its face, hatched, flagged with the reason ("no model declared", "model not found: <path>", "conversion failed: ...", "loading"); the legend
+counts parts by state, lists the plates, retries failed conversions and can dim the parts that have a model.
+
+- **Plan document** (`version` 2, all additive): each member of an item has `models`, one entry per model of the footprint: `{id, state, name,
+  opacity, why, matrix}`. `state` is `ok`, `vrml` (a VRML model with no STEP beside it, read by placemat itself), `none`, `missing` (`why` says
+  `model not found: <path as written>`) or `hidden`; `id` names the model by its content (32 hex of SHA-256, or `e-` and KiCad's checksum for an
+  embedded model); `matrix` is the 16 numbers, column-major, millimetres, from the model's own frame (x right, y up the footprint's page, z up out
+  of the board) to the scene frame (x = board x, y up, z = board y), composed in Python from the footprint as generated, the plan's move and the
+  stackup (`model_place.py`, measured against `kicad-cli pcb export glb` to a micrometre). The plan has `stackup` (`thickness`, `copper`: layer ->
+  mm) and `models`, the table of distinct models seen. A plan from an older worker has none of it and still draws in 2D.
+- **Routes** (token required): `GET /3d/models` (the converter's status and every model's `{state, tris, message}`), `GET /3d/model/<id>.pmm` (the
+  converted mesh, immutable; the id is validated), `GET /3d/lib/<token>/<file>` (the viewer script and the vendored three.js, MIT, from a fixed
+  list; the token is in the path so the modules it imports come with it), `POST /3d/retry {id?}` (forget failed conversions and queue them
+  again). `hello` has `models3d` (status) and `models`.
+- **Events**: `model` `{id, state, tris, message}` as each conversion ends, `models` `{done, total, current}` while a batch runs, `models3d`
+  (the converter is ready, its self-test) as it starts or stops.
+- **Conversion** is a separate process (`python -m placemat.model_convert`, JSON lines) the studio keeps, at low priority: `kicad-cli pcb export
+  glb` on a scratch board per batch of `studio_3d_batch` models, a VRML reader of placemat's own for a `.wrl` with no STEP, simplification of a mesh over
+  `studio_3d_model_tris`, and a self-test at start that refuses a KiCad whose model planes are not where `model_place.py` says. A model is resolved
+  as `models.resolve_model` does (embedded, absolute, `${KIPRJMOD}` after the write step's re-anchoring, other variables, relative, a STEP beside a
+  `.wrl`). Meshes are cached by content in the user's cache folder, shared by every project: `~/.cache/placemat/models` (`studio_3d_cache_dir`),
+  `studio_3d_cache_mb` (512) bound with the least recently used removed first, a converter version in each file name.
+- **Settings** (`[studio]`): `3d_kicad_cli`, `3d_model_dirs`, `3d_cache_dir`, `3d_cache_mb`, `3d_batch`, `3d_batch_timeout_s`, `3d_model_tris`,
+  `3d_max_tris` (past it the parts are drawn as plates and the view says so), `3d_appear_ms`, `3d_plate_mm`.
+- Other commands' streamed `item` events carry the same `models` and an extra `model_jobs` (for the studio's converter, not the page), so a
+  command opened in the Runs view can be watched in 3D.
+
 ## Exploring a placement
 
 Once the declarations are right, the placer can search its own choices for

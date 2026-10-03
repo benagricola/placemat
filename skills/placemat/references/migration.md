@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **The studio has a 3D view.** A 2D | 3D switch draws the board built from the parts' real models (STEP converted with `kicad-cli`, VRML read
+  by placemat), with the replay and live resolves following. The plan JSON is `version` 2: each member has `models` with a placement matrix, and the
+  plan has `stackup` and `models`. A model entry now also carries its hide flag and opacity (`Footprint.models` has six fields where it had four;
+  `describe.model_check` reads either), and `models.resolve_model` is the one resolver of a model path. Converted models are cached in
+  `~/.cache/placemat/models` (shared by projects, 512 MB); the new `[studio] 3d_*` settings are in `placemat settings --example`. Needs `kicad-cli`
+  for STEP models; nothing a script says changes.
+
 ## To 0.94.0
 
 ### New
