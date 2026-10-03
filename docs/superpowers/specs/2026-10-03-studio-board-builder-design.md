@@ -186,12 +186,13 @@ above the board, else the board's folder). `project.fab_profile(start)` looks in
 each folder above it, and takes the first file it finds as the whole profile (no merging of values from several files).
 All its callers pass `src.board_dir`. So a file beside the board already takes precedence over one at the root, and
 the lookup needs no change.
-- If a profile is found, the facts panel loads its values and names the file they came from.
-- If the user edits any of those values for this board, the builder writes a `fab-profile.json` in the board's folder
-  (beside the `.zen`) and leaves the root file untouched. Because the lookup takes one file whole, the new file is a copy
-  of the loaded values with the edits, not just the edited keys. The panel says "this board gets its own
-  fab-profile.json" before the edit is applied.
-- If no profile is found, the builder creates one at the project root.
+- **No `fab-profile.json` at the project root:** the values the user chooses for this board are written to the project
+  root, so they become the project's default.
+- **A root file exists:** its values are the defaults shown in the facts panel, with the file named. Only if the user
+  edits any of them for this board does the builder write a board-specific `fab-profile.json` beside the board (beside
+  the `.zen`), a full copy of the loaded values plus the edits (the lookup takes one file whole, so a partial file would
+  drop the rest), and the root file is left untouched. The panel says "this board gets its own fab-profile.json"
+  before the edit is applied. Accepting the root values unchanged writes nothing.
 - If the project root is the board's folder, there is one file and it is edited in place.
 - If a profile already sits beside the board, it is the one edited.
 
@@ -299,6 +300,21 @@ figure before the outline is written.
   area and the resulting figures, and the user can type any of them over (a typed size replaces the suggestion; a
   typed area recomputes the size). Two faces assume the parts split evenly between them, which a placement need not
   do; the figure is a starting size, not a check.
+- **The fill field and the live suggestion.** The dialog has a fill field inline, defaulting to `builder_max_fill` (50%)
+  and editable in place. Each time the fill, the face switch, the aspect or the shape changes, the dialog recomputes the
+  suggested size live for the chosen shape, from the same total courtyard area:
+  - rectangle: width and height (from the aspect, which is also editable);
+  - disc: the diameter (and the bore stays as typed);
+  - slot: length and width, in the proportion of the slot's own aspect field;
+  - polygon template (L, notch, cut corners): the template's named dimensions, scaled together so the template keeps its
+    proportions and its area equals the suggested area. A free vertex list has no template to scale and is not
+    suggested.
+  Switching the shape recomputes from the same fill; the fill is not reset.
+- **Typing sizes directly.** The user may type any size instead. The fill field then shows the resulting fill (total
+  courtyard area over the faces times the typed area), read only, so the user sees what was chosen; editing the fill
+  field again returns to the suggestion.
+- **The comment.** A suggested size's constant comment records the fill and the area it came from (as in the example
+  below); a typed size's comment says it was chosen in the builder and carries no fill.
 - **Rounded.** Sizes are rounded up to `builder_grid_mm`.
 - **Default fill, from a measurement.** Of the fixture boards, one has a board outline and parts placed on it (the
   others are module fragments with a fit frame, or an unplaced generation, which have no outline to divide by). On
