@@ -187,7 +187,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
         return False
     if stale and not fresh:
         _say(quiet, "board   the cached generation is out of date: %s" % stale)
-    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+    env = generation_env()
     shutil.rmtree(src.layout_dir, ignore_errors=True)
     src.layout_dir.mkdir(parents=True, exist_ok=True)
     _say(quiet, "board   generating %s with pcb layout ..." % src.zen.name)
@@ -208,6 +208,13 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
     _inputs_record(src).write_text(json.dumps(inputs, indent=1, sort_keys=True))
     _say(quiet, "board   generated in %.0fs" % dt)
     return True
+
+
+def generation_env() -> dict[str, str]:
+    """The environment `pcb layout` runs in. KIPRJMOD is dropped: pcb takes the board's folder for it only when it is unset, and
+    pcbnew sets it (to an empty string) in a process that creates or saves a board, so a process that has done that, and the
+    children it starts, would resolve every footprint library against the wrong folder."""
+    return {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "KIPRJMOD")}
 
 
 def _inputs_record(src: BoardSource) -> Path:
