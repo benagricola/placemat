@@ -17,7 +17,7 @@ authors = [{ name = "Ben Agricola" }]
 placemat = "placemat.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pytest-xdist>=3"]
 # The Rust accelerator (native/): built on install by uv from this checkout,
 # which needs a Rust toolchain (cargo) on the installing machine; a tagged
 # release also carries prebuilt wheels. placemat runs without it.

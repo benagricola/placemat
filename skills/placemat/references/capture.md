@@ -157,8 +157,11 @@ a track's and a via tail's default width, its clearance is what placement
 and copper keep from other nets, its via diameter and drill are what
 `board.vias()` drills (a single `board.via()` takes the board's), and a
 differential pair's `diff_pair_width` and `diff_pair_gap` are what
-`board.pair()` and the router use. KiCad pairs nets by name (`_P`/`_N`,
-`P`/`N`, `+`/`-`). A class whose clearance does not fit a part's pad pitch
+`board.pair()` and the router use. Which nets pair is the net class's call: a
+class other than Default that sets `diff_pair_width` and `diff_pair_gap`
+pairs its nets, exactly two outright whatever they are called, more than two
+by the router's suffix convention (`_P`/`_N`, `P`/`N`, `+`/`-`); Default never
+makes pairs. A class whose clearance does not fit a part's pad pitch
 is a setup finding on every run, naming the part.
 
 ## What placemat checks

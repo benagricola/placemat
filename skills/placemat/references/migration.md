@@ -25,6 +25,33 @@ section for each hand-written pattern a newer form replaces.
 - Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), `apply` (true) and `suggest_factor` (2.0),
   none part of a run's id. Scripts change nothing.
 
+## To 0.86.4
+
+### Fixed
+
+- **The skill matches the code.** SKILL.md and the references were checked against every command, flag, script
+  form and setting: the studio's address, buttons and endpoints, `board.keepout`'s and `board.rule`'s required
+  `why=`, finding severities in the loop and the gate (no critical findings; every warning fixed or judged),
+  `place.drops_keep` as a share, net-class differential pairs, and the `impact` and `occupancy` options. Scripts
+  change nothing.
+- `placemat studio --host` says what its QR code is for and sets it off from the log lines.
+
+## To 0.86.3
+
+### New
+
+- **Open a studio view on another device.** The page keeps its view in the address's hash (script, face, visible box,
+  selection, finding, tab), so an address copied or scanned opens the same view. A "Share" button shows a QR code of the
+  current view's address on the studio's LAN address, with the address to copy and the system share sheet where the
+  browser has one; a studio listening on 127.0.0.1 says to start it with `--host 0.0.0.0` instead. With `--host`, the
+  terminal prints the same QR code under the address. The code is drawn by a small encoder inside placemat
+  (`placemat/qr.py`, checked against an independent encoder in the tests), so nothing is fetched and no dependency is
+  added; the server draws it at `GET /qr?u=ADDRESS` for the studio's own addresses only.
+- **The studio's times are the server's.** The time since a resolve began, and on the step in hand, come from the
+  server's clock, so they are right after a reload, a reconnect or in a second window (`hello` has `now` and the
+  resolve under way as `work`; `begin` events carry `at`). A port already in use ends `placemat studio` with a plain
+  message, naming another studio when it is one.
+
 ## To 0.86.2
 
 ### New

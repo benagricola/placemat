@@ -63,8 +63,14 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 #picker h2 { margin: 0 0 4px; font-size: 18px; } #picker p { margin: 0 0 14px; color: var(--dim); }
 #picker button.pick { border: 1px solid var(--line); background: var(--surface); margin-bottom: 8px; padding: 10px 12px; }
 #runbtn.busy { opacity: 0.7; }
+#morebtn { display: none; font-size: 18px; line-height: 1; padding-top: 4px; padding-bottom: 6px; }
 .brand b { font-weight: 650; letter-spacing: 0.01em; }
 #board-sub { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share { padding: 10px 12px; width: 268px; max-width: 100%; }
+.share .qr { display: block; width: 244px; max-width: 100%; height: auto; margin: 8px auto 6px; background: #fff; border-radius: 6px; }
+.share .sub { color: var(--dim); font-size: 12px; margin-bottom: 6px; } .share p { margin: 6px 0 0; }
+.share .shareurl { box-sizing: border-box; width: 100%; font: 11px var(--mono); padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface2); color: var(--ink); }
+.sharebtns { display: flex; gap: 6px; margin-top: 6px; } .sharebtns button { flex: 1; border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 4px 8px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; background: var(--surface2); color: var(--dim); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .pill.live { background: var(--good-soft); color: var(--good); }
@@ -381,6 +387,7 @@ svg text { user-select: none; font-family: var(--sans); }
   body { font-size: 15px; }
   header { padding: 8px 12px 6px; gap: 2px 10px; }
   .brand { flex: 1 1 0; }
+  #runbtn, #resolvebtn, #sharebtn, #srcbtn { display: none; } #morebtn { display: inline-block; }       /* a phone: one button for the four, so the board's name stays readable */
   #script, #script.full { left: 0; right: 0; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; border-width: 1px 0 0; }
   #script #scriptfull { display: none; }
   #stats { margin-left: 0; width: 100%; gap: 14px; font-size: 13px; }
@@ -428,6 +435,8 @@ svg text { user-select: none; font-family: var(--sans); }
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
   <button class="tool" id="runbtn" title="a checked run: the design checks, KiCad's DRC and the score, recorded (no render)">Run</button>
   <button class="tool" id="resolvebtn" title="cancel what is running and resolve again now: the menu offers a full resolve from scratch">Resolve</button>
+  <button class="tool" id="sharebtn" title="open this view on another device: a QR code of its address">Share</button>
+  <button class="tool" id="morebtn" aria-haspopup="menu" title="Run, Resolve, Share, Source">&#8943;</button>
   <button class="tool" id="srcbtn" title="the layout script, at the selected item's line">Source</button>
   <div id="stats"></div>
 </header>
@@ -557,6 +566,7 @@ function render(parts) {
   if (has("script")) renderScript();
   if (has("live")) flushLive();
   if (has("legend") || has("board") || all) renderLegend();
+  if (S.restore) applyRestore();
   if (has("marks")) applyMarks();
   if (has("replay") || has("steps") || has("board")) renderReplay();
   if (has("card") || has("marks") || has("board")) renderCard();
@@ -571,6 +581,13 @@ es.onerror = () => { S.status = "disconnected"; schedule("status"); };
 
 function applyHello(d) {
   S.hello = d; S.history = d.history; S.error = d.error; S.resolving = d.resolving; S.scripts = d.scripts || [];
+  if (d.now) S.skew = d.now * 1000 - Date.now();                 // the server's clock less this page's: times are the server's
+  if (d.resolving && d.work) {                                   // a resolve under way when this page joined: its time is since it began
+    const w = d.work, c = w.cur;
+    S.work = {id: d.resolving, fromHello: true, t0: serverMs(w.t0), total: w.total, replayed: w.replayed || 0,
+      cur: c ? {item: c.item, what: c.what, rank: c.rank, of: c.of, replaying: c.replaying, n: c.n, t: serverMs(c.at), phase: c.phase || "", hint: c.hint || null} : null};
+  }
+  if (S.restore && S.restore.s && !S.restore.switched && S.restore.s !== currentScriptId()) { S.restore.switched = true; switchTo(S.restore.s); }    // the address names another script
   S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0} : null; S.lastRun = null;
   $("#board-title").textContent = d.picker ? "placemat studio" : (d.title || d.script);
   $("#board-sub").textContent = d.picker ? (d.scripts || []).length + " found" : (d.subtitle || "");
@@ -605,15 +622,16 @@ on("started", d => {
             congestion: null, findings: [], unplaced: [], pocketed: [], counts: {placed: 0, findings: 0}, score: null, fromStart: true};
   S.shownId = null; S.cmp = null; S.replay = null; S.liveQ = [];
   S.marked = new Set();
-  S.work = {t0: Date.now(), total: null, cur: null, replayed: 0}; S.done = null;
+  S.work = S.work && S.work.fromHello && S.work.id === d.id ? S.work : {t0: d.at ? serverMs(d.at) : Date.now(), total: null, cur: null, replayed: 0}; S.done = null;
   schedule("all");
 });
+const serverMs = sec => sec * 1000 - (S.skew || 0);
 const ensureWork = () => { if (S.resolving && !S.work) S.work = {t0: Date.now(), total: null, cur: null, replayed: 0}; return S.work; };
 on("begin", d => {                         // the engine is starting an item, or says what a long step is doing
   if (!S.live || d.id !== S.live.id || !ensureWork()) return;
   const w = S.work;
   if (d.kind === "total") { w.total = d; schedule("status"); return; }
-  if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: Date.now(), phase: "", hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
+  if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: d.at ? serverMs(d.at) : Date.now(), phase: "", hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
   if (w.cur) { w.cur.phase = d.text; if (d.hint) w.cur.hint = d.hint; updatePending(); if (d.hint) drawWorkMark(); }
 });
 let liveTimer = null;
@@ -721,7 +739,7 @@ function renderStatus() {
   const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = typeof label === "string" ? label : label;
   const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
-  rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = !!(S.hello && S.hello.picker);
+  rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = $("#sharebtn").hidden = !!(S.hello && S.hello.picker);
   b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", disconnected: "error"}[S.status] || "");
   const rec = S.docs.get(S.shownId), p = plan();
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
@@ -1576,7 +1594,7 @@ function pickAt(x, y) {                      // a tap or a click on the board: a
   selectItem(null);
 }
 function selectRegion(kind, id) {
-  S.sel = null; S.selRef = null; S.module = null; S.selLine = null; S.cardOff = null; S.marked = new Set(); S.focus = null; S.selRegion = {kind, id};
+  S.sel = null; S.selRef = null; S.module = null; S.selLine = null; S.cardOff = null; S.marked = new Set(); S.focus = S.focusIdx = null; S.selRegion = {kind, id};
   schedule("marks", "script", "compare", "card");
 }
 // A finding looked at: the parts and pads it names light up on the board, and the board scrolls to them if they are not in view.
@@ -1590,6 +1608,7 @@ function focusFinding(f) {
   const first = refs.length ? owner(refs[0]) : it;
   if (first) selectItem(first.key, {ref: refs.length === 1 ? refs[0] : null});
   S.focus = refs.length || pads.length ? {refs, pads} : null;
+  S.focusIdx = S.focus ? ((p.findings || []).indexOf(f)) : null;
   const boxes = refs.map(r => { const o = owner(r); return o && itemBox(o, r); }).filter(Boolean);
   if (f.at) boxes.push([f.at[0] - 1, f.at[1] - 1, f.at[0] + 1, f.at[1] + 1]);
   if (boxes.length) {
@@ -1607,7 +1626,7 @@ function inView(box, face) {
   return x0 >= v.x && x1 <= v.x + v.w && y0 >= v.y && y1 <= v.y + v.h;
 }
 function selectItem(key, opt = {}) {
-  S.focus = null;
+  S.focus = S.focusIdx = null;
   S.sel = key; S.selRef = key ? opt.ref || null : null; S.module = null; S.selRegion = null; S.selLine = null; S.cardOff = null;
   if (key) {
     const p = plan(), it = itemMap(p).get(key);
@@ -1620,13 +1639,13 @@ function selectItem(key, opt = {}) {
 }
 function selectModule(id) {                 // the module the selected part belongs to: all its parts light up
   const p = plan(), keys = [...moduleKeys(p, id)];
-  S.focus = null; S.module = id; S.selRef = null; S.selRegion = null; S.cardOff = null;
+  S.focus = S.focusIdx = null; S.module = id; S.selRef = null; S.selRegion = null; S.cardOff = null;
   if (!keys.includes(S.sel)) S.sel = keys[0] || S.sel;
   zoomItems(keys);
   schedule("marks", "card");
 }
 function markItems(keys, zoom) {
-  S.focus = null; S.marked = new Set(keys); S.sel = keys[0] || null; S.selRef = null; S.module = null; S.selRegion = null; S.cardOff = null;
+  S.focus = S.focusIdx = null; S.marked = new Set(keys); S.sel = keys[0] || null; S.selRef = null; S.module = null; S.selRegion = null; S.cardOff = null;
   if (zoom) zoomItems(keys);
   schedule("marks", "script", "compare", "card");
 }
@@ -2086,7 +2105,7 @@ function switchTo(id) {
   if (id === currentScriptId() && !(S.hello && S.hello.picker)) return;
   fetch("/switch?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({script: id})})
     .then(r => { if (!r.ok) return r.text().then(m => { throw new Error(m); }); })
-    .catch(err => { const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not switch: " + err.message; });
+    .catch(err => { S.restore = null; const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not switch: " + err.message; });
 }
 function gotoLine(file, n) { openScript(file, n); }
 function stepChange(dir) {
@@ -2193,6 +2212,74 @@ function wireCompare(el) {
   };
 }
 
+// ---------------------------------------------------------------- the view in the address
+// The script, face, visible box, selection, finding and tab are kept in the address's hash, beside the token, so an
+// address copied or scanned to another device opens the same view. It is written as the view changes (replaceState).
+function viewHash() {
+  const q = new URLSearchParams();
+  const sid = currentScriptId(); if (sid) q.set("s", sid);
+  q.set("f", S.face);
+  if (S.view) q.set("v", [S.view.x, S.view.y, S.view.w, S.view.h].map(v => Math.round(v * 10) / 10).join(","));
+  if (S.sel) q.set("sel", S.sel);
+  if (S.sel && S.selRef) q.set("ref", S.selRef);
+  if (S.focusIdx != null && S.focusIdx >= 0) q.set("fi", S.focusIdx);
+  q.set("tab", S.tab);
+  if (narrow() && document.body.dataset.nv) q.set("nv", document.body.dataset.nv);
+  return q.toString();
+}
+let lastHash = null;
+function syncHash() {
+  if (S.restore) return;                                          // not before the address's own view has been opened
+  const h = viewHash();
+  if (h === lastHash) return;
+  lastHash = h;
+  try { history.replaceState(null, "", location.pathname + location.search + "#" + h); } catch (_) {}
+}
+setInterval(syncHash, 700);
+function readHash(text) {
+  const q = new URLSearchParams(String(text || "").replace(/^#/, "")), v = (q.get("v") || "").split(",").map(Number);
+  if (![...q.keys()].length) return null;
+  return {s: q.get("s") || "", f: q.get("f") || "", v: v.length === 4 && v.every(Number.isFinite) ? v : null, sel: q.get("sel") || "", ref: q.get("ref") || "",
+    fi: q.has("fi") ? +q.get("fi") : null, tab: q.get("tab") || "", nv: q.get("nv") || ""};
+}
+S.restore = readHash(typeof location !== "undefined" ? location.hash : "");
+// Once the plan of the right script is there: the face, the selection, the finding, the tab, then the box.
+function applyRestore() {
+  const r = S.restore, p = plan();
+  if (!r || !p || !p.board || (r.s && r.s !== currentScriptId())) return;
+  if (!r.shown) {                                                 // the face, the tab and the box can be opened while a resolve streams
+    r.shown = true;
+    if (r.f && ["front", "back", "both"].includes(r.f) && r.f !== S.face) setFace(r.f);
+    if (narrow()) { if (r.nv) showNarrow(r.nv); } else if (r.tab) goTab(r.tab);
+    if (r.v) { S.view = {x: r.v[0], y: r.v[1], w: r.v[2], h: r.v[3]}; S.pendingFrame = null; }
+    schedule("board", "marks", "card");
+  }
+  if (S.resolving) return;                                        // a resolve that ends clears the selection: it is opened once that has
+  S.restore = null;
+  if (r.fi != null && (p.findings || [])[r.fi]) focusFinding(p.findings[r.fi]);
+  else if (r.sel && itemMap(p).has(r.sel)) selectItem(r.sel, {ref: r.ref || null});
+  if (r.v) { S.view = {x: r.v[0], y: r.v[1], w: r.v[2], h: r.v[3]}; S.pendingFrame = null; }
+  schedule("board", "marks", "card");
+}
+
+// ---------------------------------------------------------------- sharing a view: a QR code of its address
+function shareUrl() { const o = S.hello && S.hello.origin; return o ? o + "/?t=" + encodeURIComponent(T) + "#" + viewHash() : ""; }
+function shareHTML() {
+  const url = shareUrl();
+  if (!url) return '<div class="share"><b>Open this on another device</b><p>This studio listens only on 127.0.0.1, so no other device can reach it. Start it with <code>--host 0.0.0.0</code> to open it on another device.</p></div>';
+  return '<div class="share"><b>Open this view on another device</b><img class="qr" alt="QR code of this view\'s address" src="/qr?t=' + encodeURIComponent(T) + "&u=" + encodeURIComponent(url) + '">' +
+    '<div class="sub">Scan it with the phone\'s camera. The address carries the token and this view.</div><input class="shareurl" id="shareurl" readonly value="' + escRaw(url) + '">' +
+    '<div class="sharebtns"><button data-copy="1">Copy address</button>' + (typeof navigator !== "undefined" && navigator.share ? '<button data-share="1">Share ...</button>' : "") + "</div></div>";
+}
+// On a phone the four header buttons are one: its menu has what they do.
+$("#morebtn").onclick = () => {
+  if (!$("#menu").hidden) { closeMenu(); return; }
+  const picker = !!(S.hello && S.hello.picker), item = (id, text, extra) => '<button role="menuitem" data-more="' + id + '"' + (extra || "") + "><b>" + text + "</b></button>";
+  openMenuAt($("#morebtn"), item("run", S.run ? "Running ..." : "Run a checked run", picker || S.run ? " disabled" : "") + item("again", "Resolve again", picker ? " disabled" : "") + item("fresh", "Resolve from scratch", picker ? " disabled" : "") +
+    item("share", "Share this view", picker ? " disabled" : "") + item("source", "Source", picker ? " disabled" : ""));
+};
+$("#sharebtn").onclick = () => { if (!$("#menu").hidden) { closeMenu(); return; } openMenuAt($("#sharebtn"), shareHTML()); };
+
 // ---------------------------------------------------------------- the script menu, the picker and the checked run
 const scriptEntry = (s, cls) => '<button role="menuitem" class="' + cls + '" data-script="' + esc(s.id) + '"><b>' + esc(s.title || s.id) + '</b>' + (s.subtitle ? '<span class="sub">' + esc(s.subtitle) + "</span>" : "") + "<code>" + esc(s.id) + "</code></button>";
 function openMenuAt(anchor, html) {
@@ -2222,8 +2309,20 @@ function resolveNow(fresh) {
 }
 $("#resolvebtn").onclick = () => resolveMenu($("#resolvebtn"));
 $("#rs-again").onclick = () => resolveMenu($("#rs-again"));
-$("#menu").onclick = e => { const b = e.target.closest("[data-script]"); if (b) { switchTo(b.dataset.script); return; } const r = e.target.closest("[data-resolve]"); if (r) resolveNow(r.dataset.resolve === "fresh"); };
-document.addEventListener("click", e => { if ($("#menu").hidden) return; if (!(e.target.closest && (e.target.closest("#menu") || e.target.closest("#brandbtn") || e.target.closest("#resolvebtn") || e.target.closest("#rs-again")))) closeMenu(); });
+$("#menu").onclick = e => {
+  const b = e.target.closest("[data-script]"); if (b) { switchTo(b.dataset.script); return; }
+  const r = e.target.closest("[data-resolve]"); if (r) { resolveNow(r.dataset.resolve === "fresh"); return; }
+  const mo = e.target.closest("[data-more]");
+  if (mo && !mo.disabled) {
+    const w = mo.dataset.more;
+    if (w === "share") openMenuAt($("#morebtn"), shareHTML());
+    else { closeMenu(); if (w === "run") startRun(); else if (w === "source") $("#srcbtn").onclick(); else resolveNow(w === "fresh"); }
+    return;
+  }
+  if (e.target.closest("[data-copy]")) { const url = shareUrl(), inp = $("#shareurl"); try { navigator.clipboard.writeText(url); } catch (_) { if (inp && inp.select) { inp.select(); try { document.execCommand("copy"); } catch (__) {} } } return; }
+  if (e.target.closest("[data-share]")) { try { navigator.share({title: document.title, url: shareUrl()}); } catch (_) {} }
+};
+document.addEventListener("click", e => { if ($("#menu").hidden) return; if (!(e.target.closest && (e.target.closest("#menu") || e.target.closest("#brandbtn") || e.target.closest("#resolvebtn") || e.target.closest("#rs-again") || e.target.closest("#sharebtn") || e.target.closest("#morebtn")))) closeMenu(); });
 // Escape closes the topmost thing that is open, one at a time: a note, the menu, the legend sheet, the script, the card.
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
