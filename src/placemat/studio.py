@@ -1099,6 +1099,8 @@ class Studio:
                 self.hub.emit("cmd", self._cmd_summary(c))
                 return
             if kind == "item":
+                if "model_jobs" in ev:                  # the models the item uses, for the converter (studio_3d.py): not for the page
+                    self.m3d.submit(ev.pop("model_jobs"))
                 it = ev.get("item") or {}
                 if it.get("file"):
                     it["file"] = self._rel(c, it["file"])

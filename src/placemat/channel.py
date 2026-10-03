@@ -432,7 +432,7 @@ class Beacon:
         from .preview_json import board_json, declared_sites, item_json, step_extras
         self._resolves += 1
         self.send({"ev": "resolve", "n": self._resolves})
-        state = {"sites": declared_sites(board), "board": False, "phase": 0.0}
+        state = {"sites": declared_sites(board), "board": False, "phase": 0.0, "models": None, "sent": set()}
 
         def step(plan, s):
             if on_step is not None:
@@ -440,7 +440,15 @@ class Beacon:
             if not state["board"]:
                 state["board"] = True
                 self.send({"ev": "board", **board_json(plan)})
-            self.send({"ev": "item", "item": item_json(plan, s, state["sites"]), **step_extras(plan, s)})
+            if state["models"] is None:
+                state["models"] = _model_context(plan) or False
+            ctx = state["models"] or None
+            ev = {"ev": "item", "item": item_json(plan, s, state["sites"], ctx), **step_extras(plan, s)}
+            if ctx is not None:                                       # the models this item uses that the studio has not been told of: for its converter
+                jobs = ctx.new_jobs(state["sent"])
+                if jobs:
+                    ev["model_jobs"] = jobs
+            self.send(ev)
 
         def begin(plan, info):
             if on_begin is not None:
@@ -458,9 +466,21 @@ class Beacon:
         """The finished plan of a resolve: copper, links, findings, the steps in order."""
         from .preview_json import declared_sites, plan_json
         try:
-            self.send({"ev": "plan", "doc": plan_json(plan, declared_sites(board))})
+            self.send({"ev": "plan", "doc": plan_json(plan, declared_sites(board), None, _model_context(plan))})
         except Exception as e:                                          # a courtesy: the command is not to fail for it
             print("channel: plan: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+
+
+def _model_context(plan):
+    """The 3D view's model context for the board `plan` was read from (model_plan.py), or None when it cannot be made."""
+    try:
+        from .model_convert import find_kicad_cli
+        from .model_plan import ModelContext
+        from .settings import active
+        s = active()
+        return ModelContext(plan.geometry.path, [d for d in (s.studio_3d_model_dirs or "").split(os.pathsep) if d], find_kicad_cli(s.studio_3d_kicad_cli))
+    except Exception:
+        return None
 
 
 def reporter(script=None):

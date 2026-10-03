@@ -483,3 +483,14 @@ def test_a_crashed_worker_is_a_lost_connection_and_the_last_step_it_reported(pro
     s._on_worker({"ev": "begin", "id": 3, "kind": "begin", "item": "psu2", "what": "searched"}, s.worker.serial)
     msg = s.worker_death(-11)["message"]
     assert "SIGSEGV" in msg and "while working on psu2" in msg and "the last step it settled was mcu" in msg
+
+
+def test_the_models_a_commands_item_uses_go_to_the_converter_and_not_to_the_page(project):
+    s = _fresh(project)
+    got = []
+    s.m3d.submit = lambda jobs: got.append(jobs)
+    _cmd(s, 8)
+    job = {"id": "a" * 32, "kind": "file", "path": "/x/m.step", "name": "m.step"}
+    s._on_channel(8, {"ev": "item", "item": {"key": "u1", "file": ""}, "model_jobs": [job]})
+    assert got == [[job]]
+    assert all("model_jobs" not in e for e in s.cmd_detail(8)["events"])

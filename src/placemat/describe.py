@@ -532,6 +532,7 @@ def step_box(path) -> tuple | None:
 
 def _model_path(text: str, project_dir) -> Path | None:
     """The STEP file a model entry names, or None (the one resolver, models.resolve_model)."""
+    from pathlib import Path
     from .models import STEP_SUFFIXES, resolve_model
     ref = resolve_model(text, project_dir)
     return Path(ref.path) if ref.state == "ok" and ref.path and Path(ref.path).suffix.lower() in STEP_SUFFIXES else None
