@@ -20,8 +20,13 @@ file. An item cites its source as "a board's session, <date>".
 
 Specced work first, then the loose ends.
 
-1. **Suggestions phase 6: searched suggestions** (spec above): the probe,
-   `placemat apply --search`, the studio's "Search options".
+1. **Searched suggestions in the studio** (phase 6's engine is built): the
+   "Search options" button starts a probe, shows its candidates live and the
+   found suggestion; after studio round 10.
+1a. **Measurements for the other searched levers**: blocker gap/side, search
+   radius, fanout depth, turns, label size, stitch pitch and the tuning limits
+   get a searched suggestion only once the sites that raise their findings
+   record the number that bounds them.
 2. **Studio round 10: routing progress and a whole-build replay** (studio
    spec, "Live channel"): per-net events from the router through hooks, the
    route record in laid order, the timeline running from first placement to
