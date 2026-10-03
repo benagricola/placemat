@@ -750,7 +750,7 @@ function applyHello(d) {
   if (d.resolving && d.work) {                                   // a resolve under way when this page joined: its time is since it began
     const w = d.work, c = w.cur;
     S.work = {id: d.resolving, fromHello: true, t0: serverMs(w.t0), total: w.total, replayed: w.replayed || 0,
-      cur: c ? {item: c.item, what: c.what, rank: c.rank, of: c.of, replaying: c.replaying, n: c.n, t: serverMs(c.at), phase: c.phase || "", within: c.within || null, hint: c.hint || null} : null};
+      cur: c ? {item: c.item, what: c.what, rank: c.rank, of: c.of, replaying: c.replaying, n: c.n, t: serverMs(c.at), stage: c.stage || "", face: c.face || null, within: c.within || null, hint: c.hint || null} : null};
   }
   if (S.restore && S.restore.s && !S.restore.switched && S.restore.s !== currentScriptId()) { S.restore.switched = true; switchTo(S.restore.s); }    // the address names another script
   S.cmds = new Map((d.commands || []).map(c => [c.id, c])); S.explores = d.explores || []; S.routes = d.routes || []; S.exploreFps = d.explore_fps || 2;
@@ -797,8 +797,8 @@ on("begin", d => {                         // the engine is starting an item, or
   if (!S.live || d.id !== S.live.id || !ensureWork()) return;
   const w = S.work;
   if (d.kind === "total") { w.total = d; schedule("status"); return; }
-  if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: d.at ? serverMs(d.at) : Date.now(), phase: "", within: null, hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
-  if (w.cur) { w.cur.phase = d.text; w.cur.within = d.within || null; if (d.hint) w.cur.hint = d.hint; updatePending(); if (d.hint) drawWorkMark(); }
+  if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: d.at ? serverMs(d.at) : Date.now(), stage: "", face: null, within: null, hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
+  if (w.cur) { w.cur.stage = d.stage || ""; w.cur.face = d.face || null; w.cur.within = d.within || null; if (d.hint) w.cur.hint = d.hint; updatePending(); if (d.hint) drawWorkMark(); }
 });
 let liveTimer = null;
 const liveRender = () => { if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; schedule("board", "steps", "replay", "counts"); }, 300); };
@@ -819,7 +819,7 @@ on("step", d => {                          // a step as it settles: it joins the
   if (!S.live || d.id !== S.live.id) return;
   const it = applyStepTo(S.live, d);
   const w = S.work, replaying = !!(w && w.cur && w.cur.replaying);
-  if (w) { if (replaying) w.replayed++; if (w.cur && (w.cur.item === it.key || it.kind === "copper")) { w.last = Object.assign({}, w.cur, {phase: "", took: Date.now() - w.cur.t}); w.cur = null; } }
+  if (w) { if (replaying) w.replayed++; if (w.cur && (w.cur.item === it.key || it.kind === "copper")) { w.last = Object.assign({}, w.cur, {stage: "", took: Date.now() - w.cur.t}); w.cur = null; } }
   if (replaying) liveRender();                // a replay of unchanged steps is a quick run of them: drawn a few times a second
   else schedule("board", "steps", "replay", "counts", "status");
 });
@@ -986,7 +986,7 @@ function renderProgress() {
   $("#rs-work").className = "flds" + (settled ? " settled" : "");
   $("#rs-work").innerHTML = work;
   if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-el" title="time since this resolve began">' + esc(el_) + '</span><span class="f-steps" title="' + esc(stepsTitle) + '">' + esc(steps) + "</span>" + work + infoBtn("running") + barHTML(n, T, withinOf(w.cur));
-    const c = w.cur; hd.title = c ? (WHAT_WORD[c.what] || c.what) + " " + c.item + (c.phase ? ": " + c.phase : "") : "";      // what the narrow header leaves out
+    const c = w.cur; hd.title = c ? (WHAT_WORD[c.what] || c.what) + " " + c.item + (phaseShort(c) ? ": " + phaseShort(c) : "") : "";      // what the narrow header leaves out
   }
 }
 // After a resolve the strip says how long it took for a few seconds, then goes; the slider below does not move.
@@ -997,24 +997,19 @@ function resolveDone() {
   S.done = "done in " + (secs >= 60 ? fmtDur(secs * 1000) : secs + " s");
   setTimeout(() => { S.done = null; schedule("status"); }, 4000);
 }
-// The engine's phase notes, shortened to a pill's width.
-// TEMPORARY: the phase text is the engine's progress note (a `begin` event's text), not a finding or a step's data; it is shortened by its words until the engine sends the phase as data.
-function phaseShort(text, what) {
-  const s = String(text || "");
-  if (what === "copper") return "copper batch";
-  let m;
-  if ((m = /^refining around the best spots: (\d+ of \d+)$/.exec(s))) return "refining " + m[1];
-  if (/^seeding/.test(s)) return "seeding";
-  if (/^coarse pass/.test(s)) return "coarse pass";
-  if (/^placing at/.test(s)) return "placing";
-  if ((m = /^scanning the (.*)$/.exec(s))) return "scan " + m[1].replace(/ or /, "/");
-  return s;
+// A phase (a `begin` event of kind phase: its stage and numbers) as a pill's words.
+const STAGE_WORD = {declared: "placing", seeding: "seeding", coarse: "coarse pass", coarse_half: "coarse pass", fine: "fine pass", give_way: "giving way"};
+function phaseShort(c) {
+  if (c.what === "copper") return "copper batch";
+  if (c.stage === "refine") return "refining" + (c.within ? " " + c.within[0] + " of " + c.within[1] : "");
+  if (c.stage === "scan") return "scan " + (c.face === "either" ? "front/back" : c.face || "");
+  return STAGE_WORD[c.stage] || c.stage || "";
 }
 // The fields of the step being worked on: the rank in the queue (k of n), the phase as a pill, the time on this step.
 // A field keeps its width, so a changing value moves nothing (formatting rule 3: "rank k of n").
 const rankField = (n, of) => '<span class="f-rank"' + (n ? ' title="' + esc("rank " + n + " of " + of + ": this item's place in the search order, among the " + of + " items the engine searches a spot for (the card's rank, k of n)") + '"' : "") + ">" + (n ? '<span class="lbl">rank </span>' + esc(n + " of " + of) : "") + "</span>";
 const workFields = c =>
-  '<span class="f-phase">' + (c.phase || c.what === "copper" ? pill(phaseShort(c.phase, c.what), "phase") : "") + "</span>" +
+  '<span class="f-phase">' + (c.stage || c.what === "copper" ? pill(phaseShort(c), "phase") : "") + "</span>" +
   '<span class="f-time">' + esc(((Date.now() - c.t) / 1000).toFixed(1) + " s") + "</span>";
 const whatClass = what => what === "searched" ? "searched" : what === "decided" ? "decided" : what === "copper" ? "copper" : what === "cutout" ? "cutout" : what === "replay" ? "decided" : "keepout";
 const itemField = name => '<b class="f-item" title="' + escRaw(name) + '">' + esc(name) + "</b>";
@@ -2657,6 +2652,11 @@ on("cmd", c => {
   if (c.probe) schedule("findings", "card", "steps");
   schedule("runs", "counts");
 });
+// A step a command found past its time (--step-warn, --step-limit): the item, its seconds and the pass it was in.
+const SLOW_PASS = {coarse: "coarse", coarse_half: "coarse", fine: "fine", refine: "refine", give_way: "give-way", scan: "scan", seeding: "seeding", declared: "declared"};
+const slowPass = d => d.firm_pass ? "firm pass " + d.firm_pass : (SLOW_PASS[d.stage] || "settle") + " pass" + (d.within ? " " + d.within[0] + " of " + d.within[1] : "");
+const slowText = d => d.item + (d.ev === "step_limit" ? ": gave up after " : ": still working after ") + Math.round(d.elapsed_s) + " s in the " + slowPass(d);
+on("slow", d => toast(slowText(d), () => { goTab("runs"); openCmd(d.id); }));
 on("cmdev", d => {
   if (d.ev.ev === "probe" || d.ev.ev === "candidate" || d.ev.ev === "probe_done") probeEvent(d.id, d.ev);
   if (S.cmdView && S.cmdView.id === d.id) cmdEvent(d.ev, d.n);

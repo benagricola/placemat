@@ -710,9 +710,10 @@ class Studio:
                 if info["kind"] == "total":
                     cur["total"] = info
                 elif info["kind"] == "begin":
-                    cur["now"] = dict(info, phase="")
+                    cur["now"] = dict(info, stage="")
                 elif cur["now"] is not None:
-                    cur["now"]["phase"] = info.get("text", "")
+                    cur["now"]["stage"] = info.get("stage", "")
+                    cur["now"]["face"] = info.get("face")
                     cur["now"]["within"] = info.get("within")
                     if info.get("hint"):
                         cur["now"]["hint"] = info["hint"]
@@ -1098,7 +1099,7 @@ class Studio:
     @staticmethod
     def _cmd_summary(c: dict) -> dict:
         return {k: c.get(k) for k in ("id", "pid", "command", "script", "args", "started", "state", "message", "record", "last", "items",
-                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe")} | \
+                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe", "slow")} | \
             {"route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results")}}
 
     def commands(self) -> list:
@@ -1150,6 +1151,10 @@ class Studio:
             elif kind == "resolve":
                 c["resolves"] = ev.get("n", c["resolves"] + 1)
                 c["plan"] = None
+                c["slow"] = []
+            elif kind in ("step_warn", "step_limit"):             # a step past its time (timecap.py): the page says which, and in what pass
+                c["slow"] = (c.get("slow") or [])[-49:] + [{k: v for k, v in ev.items() if k != "ev"} | {"kind": kind}]
+                self.hub.emit("slow", {"id": cid, "command": c.get("command"), **ev})
             elif kind == "plan":
                 doc = ev.get("doc") or {}
                 for it in doc.get("items", ()):

@@ -264,6 +264,24 @@ Between checkpoints, edit and preview, or let the user watch in
 `run.json` records each stage's seconds (`timing_s`), so you can see which
 stage costs what.
 
+**Bound a preview you cannot wait for.** A first preview of a big board can take 30 minutes and a replayed one two. Say how long you
+will wait, and decide from what it reports:
+- `placemat preview <script> --max-time 120` stops after 120 s of placing, says how many steps it finished, which step it was in
+  and which pass (coarse, fine, refine, give-way, firm pass k), and the findings so far, and exits 143. The steps it finished are kept: the
+  same command again replays them and goes on, so a few capped previews in a row finish the job while you look at each partial report. The
+  steps it did are placed as an uncapped run places them. `run` and `--explore` take it too (a capped explore keeps its variants and its
+  checkpoint).
+- `--step-warn 30` names a step that has run 30 s (`placemat watch` and the studio show it live; the finding says the item, its seconds and
+  the pass). Use it to find the step to fix in the script: give that item a smaller `radius=`, a `Near` hint, or a firm place.
+- `--step-limit 90` makes such a step give up instead: it is left unplaced (or at the best spot its search had found) with a finding
+  naming the pass, and the resolve goes on with the next item. That gives a whole board's picture in bounded time with the slow items
+  listed. It is not replayed, so the next run searches the item again. An item that other items are placed against stays unplaced for
+  them too, so a limit that cuts a cell's anchor leaves what depends on it unplaced as well.
+
+All three are wall-clock times, so they depend on machine load: on a busy machine a step is cut that a quiet one finishes. They are
+not a measure of how hard a step is (a candidate budget is, `place.step_budget`, where available). Set the same as defaults in
+`[run] max_time_s`, `step_warn_s`, `step_limit_s` of placemat.toml (`api.md`, "Bounding the time").
+
 1. **Before any placement on a board, establish the facts.** Run
    `placemat facts <script>`. For each fact it marks unconfirmed or
    flags, ask the user with AskUserQuestion: layer roles and copper
@@ -386,6 +404,10 @@ placemat watch                # every command running in this project, a line pe
 placemat watch <pid|label>    # one of them; --json prints the events as sent
 ```
 
+A line is the item and what it is doing, with the step's seconds so far: `ble: searching, rank 3 of 12`, `ble: refining around the
+best spots, 2 of 3, 12.4 s`, `ble part, 31.2 s: moved 0.4 mm`, and for a step past `--step-warn` `ble: still working after 30.4 s
+(--step-warn 30 s) in the refine pass 2 of 3`.
+
 `watch` can be started before, during or after the command's first steps (it is caught up on what has happened) and
 returns when the command ends: exit 0 done, 1 an error (the message and line are printed), 2 died or no such command.
 A command that dies leaves `progress.jsonl` (in `.placemat/runs/<id>/` for a run, else
@@ -453,7 +475,7 @@ shapes and files: `references/api.md`, "Live progress".
   safely on SIGTERM, SIGHUP or Ctrl-C and say so: the run is recorded as
   `stopped` (`status: "running"` with a `pid` while it works; a record whose
   pid is gone died), the layout folder is as it was, the exit status is
-  128 + the signal, and a stopped explore prints `explore stopped by SIGTERM
+  128 + the signal (`--max-time` stops the same way, exit 143, and says how far it got), and a stopped explore prints `explore stopped by SIGTERM
   after N variants ...; nothing accepted; accept it with: placemat lock
   <script> --accept-seed N`. The lock is never written on a stop. Run a long
   explore detached (`setsid nohup placemat run ... > explore.log 2>&1 &`) and

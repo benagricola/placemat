@@ -340,3 +340,43 @@ def test_the_project_root_is_the_outermost_placemat_toml_or_workspace_above_the_
     assert project_root(lone) == (tmp_path / "a").resolve()
     (tmp_path / "pcb.toml").write_text("[workspace]\n")
     assert project_root(lone) == tmp_path.resolve()
+
+
+def test_watch_lines_say_what_a_step_is_doing_and_how_long_it_has_taken():
+    d = channel.describe
+    assert d({"ev": "begin", "kind": "total", "items": 40, "searched": 12, "copper": 3, "replay": 0}) == "40 items to place (12 searched), 3 copper declared"
+    assert d({"ev": "begin", "kind": "begin", "item": "ble", "what": "searched", "rank": 3, "of": 12, "replaying": False, "n": 7}) == "ble: searching, rank 3 of 12"
+    assert d({"ev": "begin", "kind": "begin", "item": "ble", "what": "decided", "rank": None, "of": None, "replaying": True, "n": 1}) == "ble: replaying"
+    assert d({"ev": "begin", "kind": "phase", "stage": "refine", "within": [2, 3], "item": "ble", "elapsed_s": 12.4}) == \
+        "ble: refining around the best spots, 2 of 3, 12.4 s"
+    assert d({"ev": "begin", "kind": "phase", "stage": "scan", "face": "either", "radius": 12.0, "item": "ble", "elapsed_s": 0.1}) == \
+        "ble: scanning the front or back, radius 12 mm, 0.1 s"
+    assert d({"ev": "begin", "kind": "phase", "stage": "coarse", "item": "ble", "elapsed_s": 5.0, "firm_pass": 2}) == \
+        "ble: coarse pass over the radius (firm pass 2), 5.0 s"
+    assert d({"ev": "item", "item": {"key": "ble", "kind": "part", "note": "moved 0.4 mm", "seconds": 31.25}}) == "ble part, 31.2 s: moved 0.4 mm"
+    assert d({"ev": "step_warn", "item": "ble", "elapsed_s": 30.4, "bound_s": 30, "pass": "refine", "within": [2, 3]}) == \
+        "ble: still working after 30.4 s (--step-warn 30 s) in the refine pass 2 of 3"
+    assert d({"ev": "step_limit", "item": "ble", "elapsed_s": 60.1, "bound_s": 60, "pass": "firm pass 1"}) == \
+        "ble: gave up after 60.1 s (--step-limit 60 s) in the firm pass 1"
+    for line in (d({"ev": "begin", "kind": "begin", "item": "x", "what": "searched"}), d({"ev": "begin", "kind": "phase", "stage": "fine"})):
+        assert "begin" not in line and "phase" not in line
+
+
+def test_a_command_streams_phases_with_their_item_and_seconds_and_watch_reads_them(tmp_path, monkeypatch):
+    """The resolve's own events through a command's socket, described as `placemat watch` prints them."""
+    monkeypatch.delenv("PLACEMAT_CHANNEL", raising=False)
+    b = _board()
+    b._script = str(tmp_path / "x_layout.py")
+    (tmp_path / "x_layout.py").write_text("")
+    (tmp_path / "placemat.toml").write_text("")
+    rep = channel.reporter(b._script)
+    assert rep is not None
+    reader = Reader(channel.scan(channel.sockets_dir(tmp_path))[0][0])
+    time.sleep(0.2)
+    b.resolve()
+    time.sleep(0.5)
+    rep.finish()
+    lines = [channel.describe(e) for e in reader.events]
+    assert not [l for l in lines if "begin begin" in l or l == "begin phase"]
+    stepped = [e for e in reader.events if e.get("ev") == "begin" and e.get("kind") == "phase" and "item" in e]
+    assert stepped and all(e["elapsed_s"] >= 0 and "text" not in e for e in stepped)

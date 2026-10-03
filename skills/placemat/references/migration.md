@@ -5,6 +5,31 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A preview or run can be bounded in time.** `--max-time SECONDS` on `placemat preview` and `run` (and so on `--explore`) stops the
+  placement at the next point it can resume from, through the same stop path as SIGTERM (exit 143, `run.json` `stopped`, an explore keeps its
+  variants and checkpoint), says how many steps it finished, the step and pass it was in and the findings so far, and the rerun replays the
+  finished steps. A preview now keeps its finished steps in `.placemat/views/preview/reuse.partial.jsonl` for that, as a run always did.
+  `--step-warn SECONDS` sends a live `step_warn` event and adds a notice finding (`time.step_slow`: item, seconds, pass) to a step that runs
+  past it; `--step-limit SECONDS` makes the step give up (`time.step_limit`): unplaced, or at the best spot its scan had found, and the
+  resolve goes on; such a step is searched again by the next run. Settings `[run] max_time_s`, `step_warn_s`, `step_limit_s` (all 0, off); a
+  flag wins. The times are wall-clock and depend on machine load; the `[run]` settings are not part of a run's id. A new finding kind,
+  `time`. Nothing to change in a script.
+
+### Changed
+
+- **A phase event is data, not a sentence.** The channel's `begin` events of kind `phase` carried a `text` ("refining around the best
+  spots: 2 of 5"); they now carry `stage` (`declared`, `seeding`, `scan`, `coarse`, `coarse_half`, `fine`, `refine`, `give_way`) and its
+  numbers (`within`, `face`, `hint`, `radius`), with the `item` and `elapsed_s` of the step they belong to and `firm_pass`. The studio makes
+  its status pill from them, and `placemat watch` its line. A tool that read `text` reads `stage` and `within`. The scan also reports its fine
+  pass, the coarse pass at half the stride and the give-way pass as phases now.
+- **`placemat watch` lines read naturally.** `begin begin ble searched` and a bare `begin phase` are gone: `ble: searching, rank 3 of 12`,
+  `ble: refining around the best spots, 2 of 3, 12.4 s`, `ble part, 1.2 s: note`; the total reads `40 items to place (12 searched), 3
+  copper declared`.
+
 ## To 0.96.0
 
 ### New

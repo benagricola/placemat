@@ -56,6 +56,7 @@ SECTIONS = {
     "drc": "how KiCad's DRC violations are sorted into buckets and judged",
     "explore": "the time-boxed search of the placer's own choices (`--explore`): variation, workers, checkpoint, stopping rules",
     "route": "routing a copy of the board with KiCadRoutingTools",
+    "run": "how long `placemat run` and `preview` may take: a cap on the command and on one step (off by default; a flag of the same name wins). Not part of a run's id",
     "timeout": "how long each external tool may run before it is given up on",
     "noise": "KiCad stderr lines to suppress, added to the built-ins",
     "best": "judging a run against the best of its family: how much a measure may move before it counts",
@@ -299,6 +300,12 @@ class Settings:
         "mm, a pair's track width; 0 is the net class's diff pair width")
     route_adopt_tolerance: float = S(0.001, "mm",
         "mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped")
+    run_max_time_s: float = S(0.0, "seconds",
+        "stop a `run` or `preview` after this many seconds of placing, at the next point it can be resumed from (its finished steps are kept and replayed by the rerun); 0 is no cap. `--max-time`. Wall-clock, so it depends on machine load")
+    run_step_warn_s: float = S(0.0, "seconds",
+        "a step still working after this many seconds sends a live event and gets a finding naming the item, its seconds and the pass it was in; 0 is never. `--step-warn`")
+    run_step_limit_s: float = S(0.0, "seconds",
+        "a step still working after this many seconds gives up: it is left unplaced, or at the best legal spot its scan had found, with a finding, and the resolve goes on with the next item; checked between a scan's passes; 0 is never. `--step-limit`. Wall-clock, so which steps give up depends on machine load, unlike a candidate budget; such a step is searched again by the next run")
     timeout_generate: int = S(900, "seconds",
         "seconds for `pcb layout`")
     timeout_drc: int = S(600, "seconds",
@@ -486,10 +493,10 @@ class Settings:
         dict ordering. facts_confirmed and facts_boards are left out: it is placemat's own
         record of a user's confirmation, not a fact that changes a run, so
         confirming never gives a script a new run id. The studio's settings are
-        left out too: they say how a view is served, not what is placed."""
+        left out too: they say how a view is served, not what is placed; so are `[run]`'s, which say how long a command may take."""
         out = {}
         for name in self.keys():
-            if name in ("facts_confirmed", "facts_boards") or name.startswith("studio_"):
+            if name in ("facts_confirmed", "facts_boards") or name.startswith(("studio_", "run_")):
                 continue
             v = getattr(self, name)
             out[name] = sorted(v.items()) if isinstance(v, dict) else (
@@ -629,7 +636,7 @@ _ABOVE_ZERO = frozenset((
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
 _AT_LEAST_ZERO = frozenset((
     "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
-    "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
+    "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",

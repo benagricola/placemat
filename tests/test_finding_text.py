@@ -114,6 +114,12 @@ SAMPLES = [
     (C.SPLIT_GROUPS, {"cell": "k", "groups": [["R1", "R2"], ["C1", "C2"]], "unjoined": []},
      "k: its parts form 2 groups joined only by board-level nets: R1, R2; C1, C2. Parts with no close placement requirement in "
      "common may be split into cells of their own."),
+    (C.TIME_STEP_SLOW, {"item": "u1", "elapsed_s": 45.2, "warn_s": 30.0, "limit_s": None, "warned_at_s": 30.1, "pass": "refine",
+                        "within": [2, 3], "stage": "refine", "firm_pass": None},
+     "u1: took 45.2 s, past --step-warn 30 s; it was in the refine pass 2 of 3 when it crossed"),
+    (C.TIME_STEP_LIMIT, {"item": "u1", "elapsed_s": 60.4, "limit_s": 60.0, "pass": "coarse", "within": None, "stage": "coarse",
+                         "firm_pass": None, "kept": "unplaced"},
+     "u1: gave up after 60.4 s in the coarse pass (--step-limit 60 s) and is left unplaced; the next run searches it again"),
 ]
 
 

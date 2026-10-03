@@ -608,6 +608,26 @@ def _setup_lookahead(f):
                 f["item"], f["other"], f["own"], f["own"], f["own"], f["other"], f["short_mm"], f["asked_mm"]))
 
 
+def pass_text(f: dict) -> str:
+    """The pass a step was in, from a time finding's facts: "refine pass 2 of 3", "firm pass 1"."""
+    from .timecap import pass_phrase
+    return pass_phrase(f.get("pass") or "settle", f.get("within"))
+
+
+@renders(C.TIME_STEP_SLOW, "item", "elapsed_s", "pass")
+def _time_step_slow(f):
+    past = " and ".join(t % f[k] for k, t in (("warn_s", "--step-warn %g s"), ("limit_s", "--step-limit %g s")) if f.get(k))
+    return "%s: took %.1f s, past %s; it was in the %s when it crossed" % (f["item"], f["elapsed_s"], past, pass_text(f)) + (
+        "; no pass was left to stop at, so it finished" if f.get("limit_s") else "")
+
+
+@renders(C.TIME_STEP_LIMIT, "item", "elapsed_s", "limit_s", "pass", "kept")
+def _time_step_limit(f):
+    left = ("left unplaced" if f["kept"] == "unplaced" else "placed at the best legal spot its search had found by then")
+    return "%s: gave up after %.1f s in the %s (--step-limit %g s) and is %s; the next run searches it again" % (
+        f["item"], f["elapsed_s"], pass_text(f), f["limit_s"], left)
+
+
 def facts_reason_text(r: dict) -> str:
     """One reason the board's facts are unconfirmed (facts.unconfirmed_reasons)."""
     reason = r["reason"]
