@@ -299,6 +299,10 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Searched suggestions: the probe** (0.93.0; suggestions phase 6): `placemat
+  apply <id> --search`, bounded by the finding's measurement, resumable,
+  reported live; for chamfers, arc radii and bend so far.
+
 - **Finding suggestions, phases 1-5** (0.92.0; spec `2026-10-02-finding-suggestions-design.md`):
   structured findings, the splicing edit engine, `placemat apply`, the studio's
   Show/Try/Apply/Undo/Redo, the Centre coordinates flag; the escape-lane
