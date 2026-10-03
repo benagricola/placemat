@@ -390,6 +390,9 @@ false makes the studio show suggestions and diffs but refuse to write), and from
 
 ## Structured findings
 
+Terminology: the text above this section (including its Testing section), and the core as built, say `case` and `case=`; from here the field is `cause`
+(an enum, below), so read "case" as "cause" in the older text and in `finding_details[i].case`, which becomes `.cause`.
+
 Revision of 2026-10-03, after the core was built (branch `suggestions-core`) and its levers were checked against the
 code. The core could not build many levers because the engine measures the figure a suggestion needs and then keeps
 only a sentence: `Occupancy._conflict` returns text (occupancy.py:2024), `_reason_key` reduces it to a bucket name
@@ -397,10 +400,10 @@ only a sentence: `Occupancy._conflict` returns text (occupancy.py:2024), `_reaso
 `Finding(kind, text)` take a sentence (layout.py: 39 `ctx.note`/`notes.append` sites and 30 `Finding(` sites). A
 suggestion builder then has to parse text or do without. The fix is in the finding, not in the suggestions.
 
-**A finding is data; its sentence is rendered from it** (the rule below, applied to findings first). A finding has `kind`, `case`, `severity` and `facts`: typed
+**A finding is data; its sentence is rendered from it** (the rule below, applied to findings first). A finding has `kind`, `cause`, `severity` and `facts`: typed
 values naming the items, pads, nets, owners and keepouts involved and the figures the site measured (the overlap depth,
 the clearance shortfall and the clearance needed, the pitch tried, an extent, a side, a point). The sentence the console,
-the logs, `run.json`'s `text` and the studio show is `finding_text.render(case, facts)`. Nothing reads a sentence for
+the logs, `run.json`'s `text` and the studio show is `finding_text.render(cause, facts)`. Nothing reads a sentence for
 data: no builder, no studio code, no test.
 
 ### The rule
@@ -435,7 +438,7 @@ The producers return data; the consumers read it. Grouped by what they return no
 | `Occupancy.copper_conflicts` (821) | a list of sentences | a list of `Conflict` | `_plan_copper_batch` (layout.py:7516) builds the note from the sentence and adds text; `_through` (5519) returns the sentence of what a track runs through |
 | `Blocker`, `ScanResult.blockers/reasons` | owner as a formatted string (`blame_owner`, occupancy.py:890, "cell X's C4 GND", "pour NET"); a count | `Blocker` with `owner` (item key), `owner_cell`, `net`, `kind` fields and the sample `Conflict`; no formatted owner | `_blame_text` and `suggest_facts.owners_of` |
 | `_cutout_illegal` (layout.py:1451), `_check_settled_cutouts` (1655) | a sentence or None | a `CutoutRefusal` record (`outside`, `notch`, `web`; the web measured and the minimum; the loop) or None | `_cutout_illegal`'s callers put the sentence in a finding and in `Step.note` |
-| `ctx.note(text)` and the 39 note sites, `_check_pitch`, `_check_fit_content`, `_check_web`, `_report_*`, the pour, stitch and via notes | a `Finding(kind, text)` | `Finding(kind, case, facts)` | `preview_json._findings` finds the item by the sentence's first word (preview_json.py:93, 209) and the points and pads by regular expressions (`_AT`, preview.py:310; `finding_targets`, preview_json.py:183); the studio page's `focusFinding`; `suggestions.finding_key` (mine) takes the first word |
+| `ctx.note(text)` and the 39 note sites, `_check_pitch`, `_check_fit_content`, `_check_web`, `_report_*`, the pour, stitch and via notes | a `Finding(kind, text)` | `Finding(kind, cause, facts)` | `preview_json._findings` finds the item by the sentence's first word (preview_json.py:93, 209) and the points and pads by regular expressions (`_AT`, preview.py:310; `finding_targets`, preview_json.py:183); the studio page's `focusFinding`; `suggestions.finding_key` (mine) takes the first word |
 | `_riders_alone`, `_no_pocket_note` (8045), `_room_lost_text` (4212), the hopeless-pocket text | sentences | records (`item`, `turns tried`, per-rider refusal, per-turn refusal, the room lost: pair, shortfall, asked distance) | `_settle` concatenates them into the finding and into `Step.note` |
 | `Step.note` and `Step.why` | free text assembled from fragments | `Step.facts`: a list of typed notes (kind, fields); `note` is rendered for the console and the Steps view | the studio's step rows; `plan_json` |
 | `giveway.report(occ)` (giveway.py:1091), the vias findings | `(home, text, severity)` tuples | records (via, what it did, the owner whose room it needed, the limits it hit) | `_report_...` sites make `Finding("vias", "%s: %s" % (key, text))` |
@@ -446,35 +449,74 @@ The producers return data; the consumers read it. Grouped by what they return no
 
 Each row is a commit in phase 4, with its golden rows. A row is done when the search in the rule's test finds no parse of
 its text in `src/placemat` and the studio page. Where the studio page (`studio_page.html`) formats a finding, it renders
-from the finding's `facts` and `case` and falls back to the server's rendered text for a case it does not know, so the
+from the finding's `facts` and `cause` and falls back to the server's rendered text for a cause it does not know, so the
 client never parses the sentence either.
+
+### Kind and cause are enums
+
+A finding's category and its situation are enums, not strings. The field is `cause` (the core called it `case`; it read as
+"the instance" and is renamed with the rest of phase 4).
+
+```python
+class FindingKind(Enum):         # the categories now in findings.KINDS
+    UNPLACED = "unplaced"; LINK_OVER = "link_over"; FIXED = "fixed"; COPPER = "copper"; LABEL = "label"; ...
+
+class FindingCause(Enum):
+    UNPLACED_SEARCH = (FindingKind.UNPLACED, "unplaced.search")
+    UNPLACED_POCKET = (FindingKind.UNPLACED, "unplaced.pocket")
+    COPPER_MEETS    = (FindingKind.COPPER,   "copper.meets")
+    LINK_OVER       = (FindingKind.LINK_OVER, "link_over")
+    ...
+    kind  -> the member's FindingKind        # a property; there is no way to pair a cause with another kind
+    value -> the string form                  # "unplaced.search"
+```
+
+- **A member carries its kind**, so `Finding(cause, facts)` takes the cause alone and `finding.kind` is `cause.kind`. A
+  cause with a kind other than its own cannot be written. A kind with a single situation (`link_over`, `pair_crossed`,
+  `escape_walled`) has one cause of the same name.
+- **Everything is keyed by the member**: the facts schema and the renderer (`finding_text.SCHEMA[cause]`,
+  `RENDER[cause]`), the suggestion builder (`suggestions.BUILDERS[cause]`), the golden rows, the score and severity
+  tables (severity is a property of the kind, with a per-cause override where a kind mixes situations, as
+  `findings.SEVERITY` does now). A table missing a member fails a test that iterates the enum, which replaces the core's
+  source scan of `case="..."` strings.
+- **The string form exists only at the edge.** `cause.value` is what `run.json`, `preview --json`, the studio's plan JSON,
+  the reuse cache and the console show. A reader calls `FindingCause.parse(text)`, which returns the member or `None` for
+  a string this version does not have (a record from a later version): the finding then reads as a plain finding with its
+  rendered text and its kind, and its facts are ignored (`facts_v` as now). `FindingKind.parse` likewise. Nothing inside
+  compares a cause with a string or builds one from pieces.
+- **Facts fields that name a kind of thing are enums too** where the set is closed: the op kind (`track`, `via`, `pour`),
+  the refusal bucket (`courtyard`, `edge`, `reservation`, `copper`, `through`, `hole`, `via_give_way`, a rider), the side
+  (`Edge`), the face (`Face`), the layer. Their string forms follow the same rule.
+- **The existing `KINDS`, `SEVERITY`, `RANK` and `check_severity`** in `findings.py` are rebuilt on `FindingKind`; the
+  `Finding` class keeps `.kind` (now the enum) and `.severity`. A `Finding("setup", text)` call (a plain, not yet converted
+  finding) becomes `Finding.plain(FindingKind.SETUP, text)`, with `cause = None`, until its site is converted.
 
 ### The model
 
 ```python
-Finding(kind, case, facts, severity=None)      # a str: its value is render(case, facts)
-Finding("copper", "copper.meets", {"net": "SIG", "word": "via", "at": [152.68, 103.61], "other_net": "GND",
+Finding(kind, cause, facts, severity=None)      # a str: its value is render(cause, facts)
+Finding(FindingCause.COPPER_MEETS, {"net": "SIG", "word": "via", "at": [152.68, 103.61], "other_net": "GND",
                                    "other_layer": "In3.Cu", "gap_mm": 0.0, "need_mm": 0.16, ...})
 ```
 
-- `facts` is a dict of JSON values (no objects), one **schema per case** in `finding_text.py`: field name, type, unit
+- `facts` is a dict of JSON values (no objects), one **schema per cause** in `finding_text.py`: field name, type, unit
   and which fields the sentence uses. A figure is a number in millimetres or degrees, a side is an `Edge` name, an item is
   the key a `place` declaration has, a pad is `[item, number]`, a point is `[x, y]` in board millimetres. Facts are
   about the board and the declaration, never a project's names (the charter's rule holds: they are whatever the
   script and the netlist name).
 - **Facts are not suggestions' private input.** They go in `run.json` (`finding_details[i].facts`), `preview --json`, the
-  reuse cache and the studio's plan JSON, with `facts_v` (the case's schema version, an integer). A reader that does
+  reuse cache and the studio's plan JSON, with `facts_v` (the cause's schema version, an integer); the record's keys are `kind` and `cause`, both strings. A reader that does
   not know a `facts_v` ignores the facts and shows the text. A record without `facts` reads as before.
-- **Rendering keeps every sentence byte for byte.** `render` has one template function per case, written from the
+- **Rendering keeps every sentence byte for byte.** `render` has one template function per cause, written from the
   existing format strings. The existing tests pin sentences (the finding, severity and kind tests, the escape, copper and
   label tests); they stay unchanged and are the first check. Two more pins are added before any site is converted
   (phase 1, step 0): `tests/finding_text_golden.json`, the findings (kind, severity, text) of every fixture module under
   `fixtures/` and of the bench boards, written from main before the change; and a test that resolves them and compares.
-  A case converted without its golden rows matching is not converted.
-- **A case not yet converted** keeps `Finding(kind, text)` with `case=None` and `facts={}`; the plan accepts both for as
-  long as the migration takes. A converted case is listed in the case table below; a test fails when a converted case
+  A cause converted without its golden rows matching is not converted.
+- **A cause not yet converted** keeps `Finding(kind, text)` with `cause=None` and `facts={}`; the plan accepts both for as
+  long as the migration takes. A converted cause is listed in the cause table below; a test fails when a converted cause
   has a `Finding(` literal left.
-- **Reuse.** The cache stores `[kind, case, severity, facts_v, facts]` for a converted finding, and the suggestions are
+- **Reuse.** The cache stores `[kind, cause, severity, facts_v, facts]` (kind and cause in their string forms, parsed back on read) for a converted finding, and the suggestions are
   built from facts at the end of the resolve (`bind`), which is what the core already does for findings with facts. The
   reuse record's `VERSION` goes from 2 to 3 once (an older record replays nothing, one resolve). Suggestions are no longer
   stored in the cache at all: they are a function of facts and the script.
@@ -521,7 +563,7 @@ the site already computes.
 | project.py:223, runner.py:471 | `fab`, `facts` | the rule and the minimum; the unconfirmed reasons |
 
 About 70 sites in all (30 `Finding(` and 39 `ctx.note`/`notes.append` in layout.py, four elsewhere, and the occupancy
-and scan plumbing above). The conversion goes by case, each in its own commit with its golden rows.
+and scan plumbing above). The conversion goes by cause, each in its own commit with its golden rows.
 
 ## Instant and searched suggestions
 
@@ -618,7 +660,7 @@ the candidates on the figure's range. The command line prints a line per candida
 
 **The result.** The best candidate becomes a new suggestion of the same finding: `how: "instant"`, id `s3a.1` (the
 searched one's id and a counter), its value written under the constants rule (a named constant with a comment: "Found by
-a probe of <figure> for <case>: <value> clears it; <value + step> does not"). It is stored with the plan's suggestions
+a probe of <figure> for <cause>: <value> clears it; <value + step> does not"). It is stored with the plan's suggestions
 (`.placemat/suggestions.json`, so `placemat apply s3a.1` works) and shown in the studio under the searched one. It is
 applied the usual way, with the digest check, so a script that changed since the probe is refused.
 
@@ -759,9 +801,9 @@ the studio's slot, Try and endpoints are the studio branch's). The revision adds
 unlocks the next.
 
 **Phase 4: structured data (the rule, "The rule" above).** Step 0: the golden findings file and its test, written from main. Then the plumbing
-(`Finding(kind, case, facts)`, `finding_text.py` with a schema and a renderer per case, `Conflict`, `Blocker` and
+(`Finding(kind, cause, facts)`, `finding_text.py` with a schema and a renderer per cause, `Conflict`, `Blocker` and
 `ScanResult.samples`, the reuse record version, `facts` and `facts_v` in `run.json`, `preview --json` and the studio's
-plan JSON), then the sites in the table above, one case or area to a commit, each with its golden rows. Every producer in "Producers and consumers the rule changes" returns data, and every consumer in that table reads it; the
+plan JSON), then the sites in the table above, one cause or area to a commit, each with its golden rows. Every producer in "Producers and consumers the rule changes" returns data, and every consumer in that table reads it; the
 rule's source search is a test (`tests/test_no_sentence_parsing.py`). The core's
 builders switch from their ad hoc facts dicts to the schemas (the facts they use already are fields). The core's
 `suggestions` no longer enter the cache. Enables, as instant suggestions with ops that exist today: the clearance rule from
@@ -931,10 +973,10 @@ rest) as well as changing keywords. `board.rect` (renamed from `board.size` in
 4. **Monotone figures.** Bisection assumes clearing is monotone in the figure. Placement is not always (a smaller chamfer
    can meet something else). The proposal checks the end and a neighbour and reports a non-monotone result as such. Is that
    enough, or should a probe also sample the interior?
-5. **Where the sentence templates live.** One `finding_text.py` with a function per case keeps the sentences together and
+5. **Where the sentence templates live.** One `finding_text.py` with a function per cause keeps the sentences together and
    makes the golden test simple; the alternative is a template beside each site. The proposal is the single module.
-6. **Facts versioning.** `facts_v` per case, an unknown version ignored. Should a changed schema also invalidate the reuse
+6. **Facts versioning.** `facts_v` per cause, an unknown version ignored. Should a changed schema also invalidate the reuse
    record (it already holds facts), or only the bound suggestions, which are rebuilt every resolve?
-7. **Size of phase 4.** About 70 sites. The proposal converts by case, each in a commit with its golden rows, and keeps
-   unconverted cases working. Confirm that a long-running mixed state (some cases structured, some text) is acceptable
+7. **Size of phase 4.** About 70 sites. The proposal converts by cause, each in a commit with its golden rows, and keeps
+   unconverted cases working. Confirm that a long-running mixed state (some causes structured, some text) is acceptable
    between commits.
