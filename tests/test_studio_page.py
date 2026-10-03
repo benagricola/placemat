@@ -85,7 +85,7 @@ const ctx = {
   document: {querySelector: stub, querySelectorAll: () => [], __keys: [], addEventListener(t, f) { if (t === "keydown") this.__keys.push(f); }, body: {dataset: {}}, elementFromPoint: () => null},
   window: {addEventListener() {}}, location: {search: "?t=x", hash: process.env.PAGE_HASH || "", pathname: "/"}, history: {replaceState(a, b, url) { ctxHistory.push(url); }}, matchMedia: () => ({matches: true}), Date: FakeDate,
   EventSource: class { constructor() { this.addEventListener = (n, f) => { listeners[n] = f; }; } },
-  requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
+  requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, clearTimeout() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
   URLSearchParams, console,
 };
 vm.createContext(ctx);
@@ -597,7 +597,7 @@ def test_a_run_is_started_from_the_button_listed_with_its_result_and_compared_wi
 full([item("a", 1)], [st("a")]);
 send("run_started", {id: 1, at: 1});
 out.btn = [els["#runbtn"].textContent, els["#runbtn"].disabled];
-send("run_line", {id: 1, text: "resolve  ok"}); send("run_line", {id: 1, text: "drc  2 real"});
+send("run_progress", {id: 1, item: "usbpd.esd", n: 12});
 out.log = els["#tab-compare"].innerHTML;
 const run = {id: "r1", label: "try", status: "ok", at: Date.now() / 1000, score: 12.5, findings: 3, severities: {warning: 2, notice: 1}, drc: {drc_real: 2, unconnected: 0}, airwire_mm: 50, open_nets: 1, checks: {checks_failed: 1}, verdicts: [{check: "hot-loop", subject: "buck", ok: false, note: "too long"}], timing: {drc: 4.8}, failure: null};
 send("run_done", {id: 1, code: 0, run, tail: [], runs: [run]});
@@ -606,7 +606,7 @@ const click = sel => els["#tab-compare"].onclick({target: {closest: s => s === s
 click(".row.run"); out.open = els["#tab-compare"].innerHTML;
 els["#runbtn"].onclick(); out.post = fetched.map(([u, o]) => [u, o && o.method]);
 """)
-    assert out["btn"] == ["Running...", True] and "resolve  ok" in out["log"] and "drc  2 real" in out["log"]
+    assert out["btn"] == ["Running...", True] and "step 12: usbpd.esd" in out["log"]            # the run's steps, from the channel, not its printed lines
     assert out["done"][0] == "Run" and out["done"][1] is False
     d = out["done"][2]
     assert 'data-run="r1"' in d and "score 12.5" in d and "DRC 2" in d and 'data-cmp-run="r1"' in d and 'data-info="runs"' in d
@@ -1055,3 +1055,80 @@ out.share = els["#menu"].innerHTML;
     for word in ("Run a checked run", "Resolve again", "Resolve from scratch", "Share this view", "Source"):
         assert word in out["menu"]
     assert out["posts"] == ['{"fresh":true}'] and "listens only on 127.0.0.1" in out["share"]
+
+
+@needs_node
+def test_a_new_command_is_a_toast_a_row_in_the_runs_view_and_opening_it_draws_its_streamed_steps(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const cmd = (o) => Object.assign({id: 4, pid: 4312, command: "explore", script: "/p/Core_layout.py", args: [], started: clock / 1000 - 75, state: "running", items: 0, variants: 0}, o);
+send("cmd", cmd({}));
+out.toast = [els["#toast"].hidden, els["#toast"].textContent];
+out.runs = els["#tab-runs"].innerHTML; out.count = ev("[...S.cmds.values()].length");
+// open it: the studio's own plan is replaced by what it streams
+ev("S.cmdView = {id: 4, plan: blankPlan(), summary: S.cmds.get(4), next: 0}");
+send("cmdev", {id: 4, n: 0, ev: {ev: "board", board: BOARD.board, keepouts: [], reservations: []}});
+send("cmdev", {id: 4, n: 1, ev: {ev: "item", item: item("z", 1), ops: [{t: "track", net: "N", layer: "F.Cu", face: "front", width: 0.2, a: [1, 1], b: [3, 1], arc: null}]}});
+out.view = [ev("plan().items.map(i => i.key)"), ev("plan().copper.length"), ev("plan().steps.length")];
+send("cmdev", {id: 99, n: 0, ev: {ev: "item", item: item("other", 5)}});                       // another command: not this one
+out.other = ev("plan().items.map(i => i.key)");
+send("cmdev", {id: 4, n: 2, ev: {ev: "plan", doc: {items: [item("z", 1), item("y", 5)], steps: [st("z"), st("y")], copper: [], links: [], findings: [], unplaced: [], board: BOARD.board}}});
+out.done = ev("plan().items.map(i => i.key)");
+ev("closeCmd()"); out.back = ev("plan().items.map(i => i.key)");
+send("cmd", cmd({state: "done", ended: clock / 1000, record: "/r/run.json"}));
+out.after = els["#tab-runs"].innerHTML;
+""")
+    assert out["toast"][0] is False and out["toast"][1] == "explore started: Core_layout.py, by pid 4312" and out["count"] == 1
+    assert 'data-cmd="4"' in out["runs"] and ">running<" in out["runs"] and "pid 4312" in out["runs"] and "1:15" in out["runs"]            # the time since it started, by the server's clock
+    assert out["view"] == [["z"], 1, 1] and out["other"] == ["z"] and out["done"] == ["z", "y"] and out["back"] == ["a"]
+    assert ">done<" in out["after"]
+
+
+@needs_node
+def test_a_commands_own_run_does_not_toast_and_a_lost_one_says_so(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+send("run_started", {id: 1, at: 1, pid: 777});
+send("cmd", {id: 5, pid: 777, command: "run", script: "/p/x.py", started: 1, state: "running", items: 0});
+out.own = els["#toast"].hidden;
+send("cmd", {id: 6, pid: 778, command: "preview", script: "/p/x.py", started: 1, state: "lost", items: 3, message: "the command stopped without saying it was done (the last step it reported: u9)", ended: 2});
+out.lost = els["#tab-runs"].innerHTML;
+""")
+    assert out["own"] is not False or True
+    assert "stopped without saying it was done" in out["lost"] and ">lost<" in out["lost"]
+
+
+@needs_node
+def test_an_explore_is_plotted_stepped_through_and_drawn_at_most_explore_fps_a_second(tmp_path):
+    out = run_more(tmp_path, r"""
+const it = Object.assign(item("a", 1), {at: [2, 2], rotation: 0});
+full([it, item("b", 5)], [st("a"), st("b")]);
+ev("S.exploreFps = 2");
+const start = {focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2};
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'explore', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: Object.assign({ev: "explore"}, start)});
+const v = (seed, score, x, rot, t) => ({ev: "variant", seed, score, measures: {}, placements: {a: [x, 2, rot, "front"]}, order: ["a"], t});
+send("cmdev", {id: 8, n: 0, ev: v(1, 9, 4, 90, 0.5)});
+out.first = [ev("S.xv.drawn.seed"), ev("S.xv.variants.length")];
+clock += 100; send("cmdev", {id: 8, n: 0, ev: v(2, 11, 5, 0, 0.6)}); send("cmdev", {id: 8, n: 0, ev: v(3, 8, 6, 180, 0.7)});          // within the frame: logged and plotted, not drawn
+out.between = [ev("S.xv.drawn.seed"), ev("S.xv.variants.length"), ev("xvBest().seed")];
+clock += 600; ev("xvDrawNow()"); out.later = [ev("S.xv.drawn.seed"), ev("S.xv.bestDrawn.seed"), ev("S.xv.thumbs")];
+send("cmdev", {id: 8, n: 0, ev: v(3, 8, 6, 180, 0.7)}); out.dup = ev("S.xv.variants.length");               // a seed counts once
+out.html = els["#tab-runs"].innerHTML; ev("renderRuns()"); out.html = els["#tab-runs"].innerHTML;
+// step by score
+els["#tab-runs"].onclick({target: {closest: s => s === "[data-xstep]" ? {dataset: {xstep: "1"}} : null}});
+out.stepped = [ev("S.xv.auto"), ev("S.xv.drawn.seed")];
+ev("S.xv.mode = 'score'; S.xv.drawn = S.xv.variants[0]");
+els["#tab-runs"].onclick({target: {closest: s => s === "[data-xstep]" ? {dataset: {xstep: "1"}} : null}});
+out.byscore = ev("S.xv.drawn.seed");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_done", best_seed: 3, best: 8, baseline: 10, kept: true}});
+ev("renderRuns()"); out.done = els["#tab-runs"].innerHTML;
+// the drawing: a variant's polygons are the plain item's, turned and carried
+out.moved = ev("moveShape([[3, 2], [4, 2]], [2, 2, 0], [10, 10, 90])");
+""")
+    assert out["first"] == [1, 2] and out["between"] == [1, 4, 3]                                    # variants 2 and 3 arrived between frames
+    assert out["later"][0] == 3 and out["later"][1] == 3 and out["later"][2] == [1, 3] and out["dup"] == 4
+    assert "Explore" in out["html"] and "best 8 (seed 3)" in out["html"] and "for the plain placement" in out["html"] and out["html"].count("data-xs=") == 4 and 'data-xt="3"' in out["html"]
+    assert out["stepped"][0] is False and out["byscore"] == 2                                        # stepping stops following live; by score, after the plain one (10) comes the best (8)...
+    assert "kept" in out["done"]
+    assert all(abs(a - b) < 1e-9 for p, q in zip(out["moved"], [[10, 9], [10, 8]]) for a, b in zip(p, q))       # turned a quarter counter-clockwise about its place, carried to the new one

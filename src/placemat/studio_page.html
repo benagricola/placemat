@@ -71,6 +71,27 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 .share .sub { color: var(--dim); font-size: 12px; margin-bottom: 6px; } .share p { margin: 6px 0 0; }
 .share .shareurl { box-sizing: border-box; width: 100%; font: 11px var(--mono); padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface2); color: var(--ink); }
 .sharebtns { display: flex; gap: 6px; margin-top: 6px; } .sharebtns button { flex: 1; border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 4px 8px; }
+#cmdbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 5px 14px; background: var(--accent-soft); color: var(--accent); border-bottom: 1px solid var(--line); font-weight: 600; }
+#cmdbar[hidden] { display: none; }
+#cmdbar button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 6px; padding: 1px 10px; }
+#toast { position: fixed; z-index: 70; left: 50%; transform: translateX(-50%); top: 64px; max-width: calc(100vw - 24px); background: var(--surface); color: var(--ink); border: 1px solid var(--accent); border-radius: 999px; box-shadow: var(--shadow); padding: 6px 16px; cursor: pointer; font-weight: 600; }
+#toast[hidden] { display: none; }
+.row.cmd .chip.running { --c: var(--accent); } .row.cmd .chip.done { --c: var(--good); } .row.cmd .chip.error, .row.cmd .chip.lost { --c: var(--bad); }
+.row.cmd .chip.running, .row.cmd .chip.done, .row.cmd .chip.error, .row.cmd .chip.lost { background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
+.xv { padding: 6px 12px 12px; }
+.xv svg.plot { width: 100%; height: 130px; display: block; background: var(--surface2); border-radius: 8px; }
+.xv .xctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+.xv .xctl button, .xv .xctl select { border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 1px 9px; }
+.xthumbs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0; }
+.xthumbs button { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 2px; text-align: center; font-size: 10.5px; color: var(--dim); }
+.xthumbs button.on { border-color: var(--accent); } .xthumbs button.best { border-color: var(--good); }
+.xthumbs svg { width: 78px; height: 56px; display: block; }
+.xv .xrow { display: flex; gap: 8px; font-size: 12px; padding: 1px 0; }
+.xplain { fill: none; stroke: var(--dim); stroke-width: 0.12; stroke-dasharray: 0.4 0.3; pointer-events: none; }
+.xlatest { fill: var(--mark); fill-opacity: 0.18; stroke: var(--mark); stroke-width: 0.2; pointer-events: none; }
+.xbest { fill: var(--good); fill-opacity: 0.18; stroke: var(--good); stroke-width: 0.2; pointer-events: none; }
+.xarr { stroke: var(--mark); stroke-width: 0.12; fill: none; pointer-events: none; } .xarr.best { stroke: var(--good); }
+.xdens { fill: var(--accent); fill-opacity: 0.25; pointer-events: none; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; background: var(--surface2); color: var(--dim); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .pill.live { background: var(--good-soft); color: var(--good); }
@@ -401,7 +422,7 @@ svg text { user-select: none; font-family: var(--sans); }
   #side { border-left: 0; }
   body[data-nv="board"] #side, body:not([data-nv="board"]) #boardwrap { display: none; }
   body[data-nv] .tab { display: none; }
-  body[data-nv="steps"] #tab-steps, body[data-nv="findings"] #tab-findings, body[data-nv="compare"] #tab-compare { display: block; flex: 1 1 auto; }
+  body[data-nv="steps"] #tab-steps, body[data-nv="findings"] #tab-findings, body[data-nv="compare"] #tab-compare, body[data-nv="runs"] #tab-runs { display: block; flex: 1 1 auto; }
   #legend { position: absolute; left: 0; right: 0; bottom: 0; max-height: 70%; border-right: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: var(--shadow); transform: translateY(105%); transition: transform 0.2s ease; visibility: hidden; }
   #legend.open { transform: none; visibility: visible; }
   #legend .lgh { display: flex; }
@@ -441,7 +462,9 @@ svg text { user-select: none; font-family: var(--sans); }
   <div id="stats"></div>
 </header>
 <div id="menu" role="menu" hidden></div>
-<nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button></nav>
+<nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button><button data-nv="runs">Runs<em data-count="runs"></em></button></nav>
+<div id="cmdbar" hidden></div>
+<div id="toast" hidden></div>
 <div id="notice"></div>
 <main>
   <aside id="legend"></aside>
@@ -462,10 +485,11 @@ svg text { user-select: none; font-family: var(--sans); }
     <div id="tip"></div>
   </div>
   <div id="side">
-    <div class="tabs"><button data-tab="steps" class="on">Steps<em data-count="steps"></em></button><button data-tab="findings">Findings<em data-count="findings"></em></button><button data-tab="compare">Compare<em data-count="compare"></em></button></div>
+    <div class="tabs"><button data-tab="steps" class="on">Steps<em data-count="steps"></em></button><button data-tab="findings">Findings<em data-count="findings"></em></button><button data-tab="compare">Compare<em data-count="compare"></em></button><button data-tab="runs">Runs<em data-count="runs"></em></button></div>
     <div class="tab on" id="tab-steps"></div>
     <div class="tab" id="tab-findings"></div>
     <div class="tab" id="tab-compare"></div>
+    <div class="tab" id="tab-runs"></div>
   </div>
   <div id="picker" hidden></div>
   <div id="script" role="dialog" aria-label="the layout script">
@@ -503,6 +527,11 @@ const S = {
   sel: null, marked: new Set(), selLine: null,
   focus: null,                 // the finding being looked at: {refs, pads}, lit on the board
   done: null,                  // "done in 41 s", shown in the running strip for a moment after a resolve
+  cmds: new Map(),             // the commands of the project that report over the live channel, by id
+  explores: [],                // recorded explores (their result files)
+  cmdView: null,               // a command's streamed plan shown in place of the studio's own: {id, plan, next}
+  xv: null,                    // the explore being looked at: {source, id|file, start, variants, done, sel, mode, auto, drawn, thumbs, density, lastDraw}
+  exploreFps: 2,
   work: null,                  // the resolve in progress: {t0, total, cur, replayed}, from the engine's begin notices
   scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
   runs: [], run: null, lastRun: null, openRuns: new Set(),      // recorded runs of the script, the run in progress, the one that just ended
@@ -515,6 +544,7 @@ const S = {
 };
 
 function plan() {                      // the plan to draw
+  if (S.cmdView) return S.cmdView.plan;           // a command's streamed plan, while one is open
   if (S.resolving && S.live) return S.live;
   const d = S.docs.get(S.shownId);
   return d ? d.doc : S.live;
@@ -563,11 +593,13 @@ function render(parts) {
   if (has("steps")) renderSteps();
   if (has("findings")) renderFindings();
   if (has("compare")) renderCompare();
+  if (has("runs") || all) renderRuns();
   if (has("script")) renderScript();
   if (has("live")) flushLive();
   if (has("legend") || has("board") || all) renderLegend();
   if (S.restore) applyRestore();
   if (has("marks")) applyMarks();
+  if (has("board") || has("runs")) drawExplore();
   if (has("replay") || has("steps") || has("board")) renderReplay();
   if (has("card") || has("marks") || has("board")) renderCard();
   if (has("counts") || all || has("steps") || has("findings") || has("compare")) renderCounts();
@@ -588,6 +620,7 @@ function applyHello(d) {
       cur: c ? {item: c.item, what: c.what, rank: c.rank, of: c.of, replaying: c.replaying, n: c.n, t: serverMs(c.at), phase: c.phase || "", hint: c.hint || null} : null};
   }
   if (S.restore && S.restore.s && !S.restore.switched && S.restore.s !== currentScriptId()) { S.restore.switched = true; switchTo(S.restore.s); }    // the address names another script
+  S.cmds = new Map((d.commands || []).map(c => [c.id, c])); S.explores = d.explores || []; S.exploreFps = d.explore_fps || 2;
   S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0} : null; S.lastRun = null;
   $("#board-title").textContent = d.picker ? "placemat studio" : (d.title || d.script);
   $("#board-sub").textContent = d.picker ? (d.scripts || []).length + " found" : (d.subtitle || "");
@@ -596,7 +629,7 @@ function applyHello(d) {
 on("hello", d => { applyHello(d); schedule("all"); });
 on("scripts", d => { S.scripts = d.scripts; schedule("script", "scripts"); });
 on("run_started", d => { S.run = {id: d.id, lines: [], t0: d.at}; S.lastRun = null; schedule("status", "compare"); });
-on("run_line", d => { if (S.run) { S.run.lines.push(d.text); if (S.run.lines.length > 200) S.run.lines.shift(); schedule("compare"); } });
+
 on("run_done", d => { S.run = null; S.lastRun = d; S.runs = d.runs || S.runs; if (d.run) S.openRuns.add(d.run.id); schedule("status", "compare"); });
 on("switched", d => {                     // the studio now watches another layout script: nothing of the old one stays
   stopPlay(); S.work = null;
@@ -637,9 +670,9 @@ on("begin", d => {                         // the engine is starting an item, or
 let liveTimer = null;
 const liveRender = () => { if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; schedule("board", "steps", "replay", "counts"); }, 300); };
 on("board", d => { if (!S.live || d.id !== S.live.id) return; S.live.board = d.board; S.live.keepouts = d.keepouts; S.live.reservations = d.reservations; if (!S.view) fit(); schedule("board"); });
-on("step", d => {                          // a step as it settles: it joins the timeline, the list and the drawing at once
-  if (!S.live || d.id !== S.live.id) return;
-  const it = d.item, L = S.live;
+// A settled step joins a plan being built: its entry in the timeline, its item, the copper or the hole it made.
+function applyStepTo(L, d) {
+  const it = d.item;
   const at = L.items.findIndex(i => i.key === it.key);
   const entry = {i: L.steps.length, item: it.key, kind: it.kind, placed: it.placed, note: it.note, why: it.why, freedom: it.freedom, how: it.how, copper: [], loop: null};
   if (d.ops && d.ops.length) { entry.copper = d.ops.map((_, j) => L.copper.length + j); L.copper = L.copper.concat(d.ops); }
@@ -647,6 +680,11 @@ on("step", d => {                          // a step as it settles: it joins the
   L.steps.push(entry);
   if (it.placed && isDrawn(it)) { if (at >= 0) L.items[at] = it; else L.items.push(it); }
   else if (!it.placed && (it.kind === "part" || it.kind === "cell" || it.kind === "block")) L.unplaced.push({item: it.key, why: it.note});
+  return it;
+}
+on("step", d => {                          // a step as it settles: it joins the timeline, the list and the drawing at once
+  if (!S.live || d.id !== S.live.id) return;
+  const it = applyStepTo(S.live, d);
   const w = S.work, replaying = !!(w && w.cur && w.cur.replaying);
   if (w) { if (replaying) w.replayed++; if (w.cur && (w.cur.item === it.key || it.kind === "copper")) w.cur = null; }
   if (replaying) liveRender();                // a replay of unchanged steps is a quick run of them: drawn a few times a second
@@ -832,7 +870,7 @@ function drawWorkMark() {
   for (const panel of B.svg.querySelectorAll(".panel")) panel.insertAdjacentHTML("beforeend", g);
 }
 function renderCounts() {
-  const p = plan(), c = {steps: replaySteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0};
+  const p = plan(), c = {runs: [...S.cmds.values()].filter(x => x.state === "running").length, steps: replaySteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0};
   document.querySelectorAll("[data-count]").forEach(e => { const v = c[e.dataset.count]; e.textContent = v || ""; e.style.display = v ? "" : "none"; });
 }
 
@@ -1152,6 +1190,7 @@ const INFO = {
   steps: "Each row is one step of the layout, in the order it was made: items placed, copper laid, cutouts cut. A row says how the step was decided and why. Tap a row for the whole note. The slider on the board replays these steps.",
   marks: "Congestion is a routing-demand estimate made before any routing (RUDY), for the whole board: every routing layer together, not one face, so both faces show the same map. Each net's wire length (the half-perimeter of its pad centres) is spread evenly over the box of its pads, summed on a grid of 0.5 mm cells and set against what a cell can carry (the layers times tracks per mm). Plane and free nets are left out. The colour is the share of capacity, from blue (a few percent) through yellow (full) to red (over). A net whose pads line up (a feed to an antenna, a straight pair) has a box one cell wide, so it shows as a thin strip: that is its straight route, not copper. The red ring marks the single most congested cell. Changes marks what moved since the last resolve; finding marks are circles at a finding's place.",
   runs: "A run is placemat run without the render: the script is laid out and written, KiCad's DRC and the design checks are judged on the written board, the run score is worked out and a record is kept in .placemat/runs. It takes longer than a preview (the DRC is the slow part). Runs started elsewhere, by you or an agent, are listed the same way. Compare puts the newest resolve against a run: the items that moved, were added or removed, the findings gained and lost and the score. A run records no copper or links, so those are not compared.",
+  runsview: "Every placemat command that resolves a board in this project (run, preview, an explore, however it was started) reports to the studio over a local socket while it runs. Opening one shows its steps on the board in place of the studio's own plan until you go back; an explore shows its variants, the best so far and where it tried. Finished explores are listed from their result files.",
   other: "These put nothing of their own on the board, so they are not replayed. Keepouts and reserved areas are in the legend.",
 };
 const infoBtn = id => '<button class="info" data-info="' + id + '" aria-label="about this" draggable="false">i</button>';
@@ -2212,6 +2251,191 @@ function wireCompare(el) {
   };
 }
 
+// ---------------------------------------------------------------- commands from anywhere in the project, over the live channel
+const blankPlan = () => ({id: 0, board: null, keepouts: [], reservations: [], items: [], steps: [], copper: [], links: [], congestion: null, findings: [], unplaced: [], pocketed: [], counts: {placed: 0, findings: 0}, score: null});
+let toastTimer = null;
+function toast(text, onclick) {
+  const el = $("#toast");
+  el.textContent = text; el.hidden = false; el.onclick = () => { el.hidden = true; if (onclick) onclick(); };
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 9000);
+}
+const baseName = f => String(f || "").split("/").pop();
+on("cmd", c => {
+  const fresh = !S.cmds.has(c.id);
+  S.cmds.set(c.id, c);
+  if (fresh && c.state === "running" && !(S.run && S.run.pid && S.run.pid === c.pid))
+    toast(c.command + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { goTab("runs"); openCmd(c.id); });
+  schedule("runs", "counts");
+});
+on("cmdev", d => { if (S.cmdView && S.cmdView.id === d.id) cmdEvent(d.ev, d.n); });
+on("run_progress", d => { if (S.run && S.run.id === d.id) { S.run.step = d.item; S.run.n = d.n; schedule("compare"); } });
+// One event of the opened command: a resolve's steps build its plan, an explore's variants its explore view.
+function cmdEvent(ev, n) {
+  const V = S.cmdView; if (!V) return;
+  const P = V.plan;
+  if (ev.ev === "resolve") { Object.assign(P, blankPlan()); }
+  else if (ev.ev === "board") { P.board = ev.board; P.keepouts = ev.keepouts || []; P.reservations = ev.reservations || []; if (!V.fitted) { V.fitted = true; S.view = null; lay = null; } }
+  else if (ev.ev === "item") { applyStepTo(P, ev); }
+  else if (ev.ev === "plan") { const doc = ev.doc || {}; Object.assign(P, {items: doc.items || [], steps: doc.steps || [], copper: doc.copper || [], links: doc.links || [], congestion: doc.congestion, findings: doc.findings || [], unplaced: doc.unplaced || [],
+      pocketed: doc.pocketed || [], keepouts: doc.keepouts || P.keepouts, reservations: doc.reservations || P.reservations, board: doc.board || P.board, layers: doc.layers, counts: doc.counts || P.counts}); }
+  else if (ev.ev === "explore") { xvStart("cmd", V.id, ev); }
+  else if (ev.ev === "variant") { xvAdd(ev); }
+  else if (ev.ev === "explore_done") { if (S.xv) { S.xv.done = ev; schedule("runs"); } }
+  V.next = Math.max(V.next || 0, (n || 0) + 1);
+  schedule("board", "steps", "replay", "counts", "runs", "status");
+}
+async function openCmd(id) {
+  try {
+    const d = await getJSON("/cmd/" + id);
+    S.cmdView = {id, plan: blankPlan(), summary: d.summary, next: d.events.length, fitted: false};
+    S.xv = null;
+    for (const ev of d.events) cmdEvent(ev, 0);
+    if (d.plan) cmdEvent(d.plan, 0);
+    if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v); if (d.explore.done) S.xv.done = d.explore.done; }
+    S.cmdView.next = d.events.length;
+    S.view = null; lay = null;
+    renderCmdBar(); schedule("all");
+  } catch (e) { toast("could not open the command: " + e.message); }
+}
+async function openExploreRecord(file) {
+  try {
+    const doc = await getJSON("/explore?f=" + encodeURIComponent(file));
+    S.cmdView = null;
+    xvStart("record", file, {focus: doc.focus, plain: doc.plain, order: doc.order, baseline: doc.baseline, at: doc.at, jobs: doc.jobs, seconds: doc.seconds});
+    for (const v of doc.variants || []) if (v.seed !== 0) xvAdd(v, true);
+    S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline}; S.xv.script = doc.script;
+    S.xv.auto = false; S.xv.sel = S.xv.variants.findIndex(v => v.seed === doc.best_seed); xvDrawNow();
+    renderCmdBar(); schedule("all");
+  } catch (e) { toast("could not open the explore: " + e.message); }
+}
+function closeCmd() { S.cmdView = null; S.xv = null; S.view = null; lay = null; renderCmdBar(); schedule("all"); }
+function renderCmdBar() {
+  const el = $("#cmdbar"), V = S.cmdView, X = S.xv;
+  el.hidden = !(V || X);
+  if (!V && !X) return;
+  const c = V && (S.cmds.get(V.id) || V.summary);
+  el.innerHTML = '<span>' + esc(V ? "Viewing " + c.command + " of " + (baseName(c.script) || "a board") + ", pid " + c.pid : "Viewing a recorded explore") + '</span><button id="cmdclose">Back to the studio\'s own view</button>';
+  $("#cmdclose").onclick = closeCmd;
+}
+
+// ---------------------------------------------------------------- the runs view
+const sinceMs = at => Date.now() + (S.skew || 0) - at * 1000;
+function renderRuns() {
+  const el = $("#tab-runs"), cmds = [...S.cmds.values()].sort((a, b) => (b.state === "running") - (a.state === "running") || b.started - a.started);
+  const row = c => '<div class="row cmd step" data-cmd="' + c.id + '"><span class="chip ' + esc(c.state) + '">' + esc(c.state) + '</span><div class="sb"><div class="l1"><b>' + esc(c.command) + "</b> " + esc(baseName(c.script)) + '</div><div class="l2">pid ' + esc(c.pid) +
+    ", " + fmtDur((c.ended ? c.ended * 1000 : Date.now() + (S.skew || 0)) - c.started * 1000) + (c.variants ? ", " + c.variants + " variants" : c.items ? ", " + c.items + " steps" : "") + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
+  const ex = e => '<div class="row cmd step" data-explore="' + escRaw(e.file) + '"><span class="chip ' + (e.kept ? "done" : "") + '">' + (e.kept ? "kept" : "explore") + '</span><div class="sb"><div class="l1"><b>' + esc(baseName(e.script)) + '</b> ' + esc(baseName(e.file)) + '</div><div class="l2">' + e.tried + " variants, " + e.focus + " items" + (e.best != null ? ", best " + Math.round(e.best * 10) / 10 + " of " + Math.round(e.baseline * 10) / 10 : "") + "</div></div></div>";
+  el.innerHTML = '<h3>Commands in this project ' + infoBtn("runsview") + ' <span class="c">' + cmds.length + "</span></h3>" + (cmds.length ? cmds.map(row).join("") : '<div class="pad8 dim">No placemat command has reported to this studio yet. Run one in this project (run, preview, an explore) and it shows here.</div>') +
+    (S.explores.length ? "<h3>Recorded explores</h3>" + S.explores.map(ex).join("") : "") + exploreHTML();
+  el.onclick = e => {
+    if (e.target.closest(".info")) return;
+    const c = e.target.closest("[data-cmd]"); if (c) { openCmd(+c.dataset.cmd); return; }
+    const x = e.target.closest("[data-explore]"); if (x) { openExploreRecord(x.dataset.explore); return; }
+    exploreClick(e);
+  };
+}
+setInterval(() => { if ([...S.cmds.values()].some(c => c.state === "running") && $("#tab-runs") && $("#tab-runs").classList.contains("on")) renderRuns(); }, 1000);
+
+// ---------------------------------------------------------------- an explore: the variants, plotted, stepped through and drawn
+// The focused items' places move with a rigid change from the plain placement to a variant's: turned about the item's
+// plain position by the difference of rotations (counter-clockwise on screen, as placemat's are) and carried to the new one.
+function moveShape(poly, from, to) {
+  const d = (to[2] - from[2]) * Math.PI / 180, c = Math.cos(d), s = Math.sin(d);
+  return poly.map(([x, y]) => { const dx = x - from[0], dy = y - from[1]; return [to[0] + dx * c + dy * s, to[1] - dx * s + dy * c]; });
+}
+function xvStart(source, id, start) {
+  S.xv = {source, id, start: start || {}, variants: [], seeds: new Set(), done: null, sel: null, mode: "order", auto: true, drawn: null, bestDrawn: null, thumbs: [], density: true, lastDraw: 0, timer: null};
+  const plain = {seed: 0, score: start.baseline, measures: start.baseline_measures || {}, placements: start.plain || {}, order: start.order || [], t: 0};
+  S.xv.variants.push(plain); S.xv.seeds.add(0);
+  S.xv.drawn = plain;
+}
+function xvAdd(v, quiet) {
+  const X = S.xv; if (!X || X.seeds.has(v.seed)) return;
+  X.seeds.add(v.seed); X.variants.push(v);
+  if (!quiet) xvTouch();
+}
+// At most explore_fps redraws a second: the variants between frames are plotted, not drawn.
+function xvTouch() {
+  const X = S.xv, gap = 1000 / (S.exploreFps || 2), now = Date.now();
+  if (now - X.lastDraw >= gap) xvDrawNow();
+  else if (!X.timer) X.timer = setTimeout(() => { X.timer = null; xvDrawNow(); }, gap - (now - X.lastDraw));
+  schedule("runs");
+}
+function xvBest() { const X = S.xv; return X.variants.reduce((b, v) => (b == null || v.score < b.score || (v.score === b.score && v.seed < b.seed)) ? v : b, null); }
+function xvDrawNow() {
+  const X = S.xv; if (!X) return;
+  X.lastDraw = Date.now();
+  X.bestDrawn = xvBest();
+  if (X.auto) {
+    const latest = X.variants[X.variants.length - 1];
+    if (X.drawn !== latest) { X.drawn = latest; if (latest.seed !== 0) { X.thumbs = X.thumbs.filter(s => s !== latest.seed); X.thumbs.push(latest.seed); if (X.thumbs.length > 6) X.thumbs.shift(); } }
+  }
+  drawExplore(); schedule("runs");
+}
+const xvBySeed = seed => S.xv && S.xv.variants.find(v => v.seed === seed);
+// What the board shows for the explore: the plain spots (dashed), where the shown variant put each focused item
+// (and an arrow to it), the best so far in its own colour, and where every variant put each item.
+function drawExplore() {
+  const svg = typeof B !== "undefined" && B.svg; if (!svg || !svg.querySelectorAll) return;
+  for (const e of svg.querySelectorAll(".explore")) e.remove();
+  const X = S.xv, p = plan(); if (!X || !p) return;
+  const plain = X.start.plain || {}, imap = itemMap(p), shown = X.drawn, best = X.bestDrawn;
+  const polys = (key, pl) => { const it = imap.get(key), a = plain[key]; if (!it || !a || !pl || pl[3] !== a[3]) return []; return it.members.flatMap(m => m.shapes.filter(s => s.kind === "courtyard" || s.kind === "body").map(s => moveShape(s.poly, a, pl))); };
+  for (const panel of svg.querySelectorAll(".panel")) {
+    const face = panel.classList.contains("back") ? "back" : "front", o = ['<g class="explore">'];
+    if (X.density) for (const v of X.variants) for (const key of Object.keys(v.placements || {})) { const pl = v.placements[key]; if (pl && pl[3] === face) o.push('<circle class="xdens" cx="' + num(pl[0]) + '" cy="' + num(pl[1]) + '" r="0.45"/>'); }
+    for (const key of Object.keys(plain)) {
+      const a = plain[key]; if (!a || a[3] !== face) continue;
+      for (const poly of polys(key, a)) o.push('<polygon class="xplain" points="' + polyPts(poly) + '"/>');
+      for (const [v, cls] of [[best, "xbest"], [shown, "xlatest"]]) {
+        const pl = v && v.placements && v.placements[key]; if (!pl || pl[3] !== face) continue;
+        for (const poly of polys(key, pl)) o.push('<polygon class="' + cls + '" points="' + polyPts(poly) + '"/>');
+        if (pl[0] !== a[0] || pl[1] !== a[1]) o.push('<line class="xarr' + (cls === "xbest" ? " best" : "") + '" x1="' + num(a[0]) + '" y1="' + num(a[1]) + '" x2="' + num(pl[0]) + '" y2="' + num(pl[1]) + '"/>');
+      }
+    }
+    o.push("</g>");
+    panel.insertAdjacentHTML("beforeend", o.join(""));
+  }
+}
+function exploreHTML() {
+  const X = S.xv; if (!X) return "";
+  const vs = X.variants, best = xvBest(), base = X.start.baseline, shown = X.drawn;
+  const tmax = Math.max(1, ...vs.map(v => v.t || 0)), lo = Math.min(...vs.map(v => v.score)), hi = Math.max(...vs.map(v => v.score)), span = Math.max(hi - lo, 1e-9);
+  const px = v => 10 + 280 * (v.t || 0) / tmax, py = s => 112 - 100 * (s - lo) / span;
+  let run = Infinity; const stairs = [];
+  for (const v of vs.slice().sort((a, b) => (a.t || 0) - (b.t || 0))) { run = Math.min(run, v.score); stairs.push(px(v).toFixed(1) + "," + py(run).toFixed(1)); }
+  const dots = vs.map((v, i) => '<circle data-xs="' + i + '" cx="' + px(v).toFixed(1) + '" cy="' + py(v.score).toFixed(1) + '" r="' + (v === shown ? 4.5 : 3) + '" fill="' + (v === best ? "var(--good)" : v === shown ? "var(--mark)" : "var(--accent)") + '" fill-opacity="' + (v === shown || v === best ? 1 : 0.6) + '" style="cursor:pointer"/>').join("");
+  const plot = '<svg class="plot" viewBox="0 0 300 124" preserveAspectRatio="none"><line x1="10" x2="290" y1="' + py(base).toFixed(1) + '" y2="' + py(base).toFixed(1) + '" stroke="var(--dim)" stroke-dasharray="3 3" stroke-width="1"/>' +
+    '<polyline points="' + stairs.join(" ") + '" fill="none" stroke="var(--good)" stroke-width="1.5"/>' + dots + "</svg>";
+  const order = X.mode === "score" ? vs.map((v, i) => i).sort((a, b) => vs[a].score - vs[b].score || vs[a].seed - vs[b].seed) : vs.map((v, i) => i);
+  const at = Math.max(0, order.indexOf(vs.indexOf(shown)));
+  const thumb = v => { const p = plan(), e = p && p.board ? p.board.extent : [0, 0, 60, 40], polys = []; const plain = X.start.plain || {}, imap = p ? itemMap(p) : new Map();
+    for (const key of Object.keys(v.placements || {})) { const it = imap.get(key), a = plain[key], pl = v.placements[key]; if (!it || !a || !pl || pl[3] !== a[3]) continue;
+      for (const m of it.members) for (const s of m.shapes) if (s.kind === "courtyard") polys.push('<polygon points="' + polyPts(moveShape(s.poly, a, pl)) + '"/>'); }
+    return '<svg viewBox="' + [e[0], e[1], e[2] - e[0], e[3] - e[1]].map(num).join(" ") + '"><rect x="' + e[0] + '" y="' + e[1] + '" width="' + (e[2] - e[0]) + '" height="' + (e[3] - e[1]) + '" fill="none" stroke="var(--line)" stroke-width="0.6"/><g fill="var(--mark)" fill-opacity="0.35" stroke="var(--mark)" stroke-width="0.4">' + polys.join("") + "</g></svg>"; };
+  const thumbs = [...new Set([...(best ? [best.seed] : []), ...X.thumbs])].map(s => xvBySeed(s)).filter(Boolean).map(v => '<button data-xt="' + v.seed + '" class="' + (v === shown ? "on " : "") + (v === best ? "best" : "") + '">' + thumb(v) + "<div>#" + v.seed + " " + Math.round(v.score * 10) / 10 + "</div></button>").join("");
+  const plainP = X.start.plain || {}, moves = shown ? Object.keys(shown.placements || {}).map(k => { const a = plainP[k], b = shown.placements[k]; if (!a || !b) return ""; const mm = Math.hypot(a[0] - b[0], a[1] - b[1]), dr = ((b[2] - a[2]) % 360 + 360) % 360; return mm < 0.001 && dr === 0 ? "" : '<div class="xrow"><b>' + esc(k) + "</b>" + esc(Math.round(mm * 100) / 100 + " mm" + (dr ? ", turned " + dr + "°" : "") + (a[3] !== b[3] ? ", on the " + b[3] : "")) + "</div>"; }).join("") : "";
+  const done = X.done;
+  return '<div class="xv"><h3 style="padding:0 0 4px">Explore ' + (done ? "" : '<i class="spin"></i> ') + '<span class="c">' + vs.length + "</span></h3>" +
+    '<div class="dim">best ' + (best ? Math.round(best.score * 10) / 10 + " (seed " + best.seed + ")" : "") + " against " + (base != null ? Math.round(base * 10) / 10 : "") + " for the plain placement" + (done && done.kept ? ", " + pill("kept", "good") : "") + (done ? "" : ", still running") + "</div>" + plot +
+    '<div class="xctl"><button data-xstep="-1">&lt;</button><span>' + (shown ? "#" + shown.seed + " " + Math.round(shown.score * 10) / 10 : "") + " (" + (at + 1) + " of " + vs.length + ')</span><button data-xstep="1">&gt;</button>' +
+    '<select data-xmode><option value="order"' + (X.mode === "order" ? " selected" : "") + '>by order</option><option value="score"' + (X.mode === "score" ? " selected" : "") + ">by score</option></select>" +
+    '<button data-xauto="1">' + (X.auto ? "live" : "follow live") + '</button><label><input type="checkbox" data-xdens' + (X.density ? " checked" : "") + "> where it tried</label></div>" +
+    (thumbs ? '<div class="xthumbs">' + thumbs + "</div>" : "") + moves + "</div>";
+}
+function exploreClick(e) {
+  const X = S.xv; if (!X) return;
+  const vs = X.variants, show = i => { X.auto = false; X.drawn = vs[i]; X.bestDrawn = xvBest(); drawExplore(); schedule("runs"); };
+  const dot = e.target.closest("[data-xs]"); if (dot) { show(+dot.dataset.xs); return; }
+  const th = e.target.closest("[data-xt]"); if (th) { show(vs.findIndex(v => v.seed === +th.dataset.xt)); return; }
+  const st = e.target.closest("[data-xstep]");
+  if (st) { const order = X.mode === "score" ? vs.map((v, i) => i).sort((a, b) => vs[a].score - vs[b].score || vs[a].seed - vs[b].seed) : vs.map((v, i) => i);
+    const at = Math.max(0, order.indexOf(vs.indexOf(X.drawn))), next = Math.min(order.length - 1, Math.max(0, at + +st.dataset.xstep)); show(order[next]); return; }
+  if (e.target.closest("[data-xauto]")) { X.auto = true; X.drawn = vs[vs.length - 1]; drawExplore(); schedule("runs"); return; }
+  if (e.target.closest("[data-xdens]")) { X.density = !X.density; drawExplore(); schedule("runs"); }
+}
+document.addEventListener("change", e => { const m = e.target.closest && e.target.closest("[data-xmode]"); if (m && S.xv) { S.xv.mode = m.value; schedule("runs"); } });
+
 // ---------------------------------------------------------------- the view in the address
 // The script, face, visible box, selection, finding and tab are kept in the address's hash, beside the token, so an
 // address copied or scanned to another device opens the same view. It is written as the view changes (replaceState).
@@ -2382,7 +2606,7 @@ function runsHTML() {
   const run = S.run, last = S.lastRun;
   let o = '<div class="runbar"><button class="tool" id="runnow"' + (run ? " disabled" : "") + ">" + (run ? "Running..." : "Run") + "</button>" + infoBtn("runs") +
     '<span class="dim">' + (run ? "a checked run is in progress" : "design checks, DRC and the score, recorded") + "</span></div>";
-  if (run) o += '<pre class="runlog">' + esc(run.lines.slice(-14).join("\n") || "starting ...") + "</pre>";
+  if (run) o += '<div class="runlog">' + esc(run.n ? "step " + run.n + ": " + run.step : "starting ...") + "</div>";
   else if (last && !last.run) o += '<div class="notice-run">The run ended' + (last.code != null ? " (exit " + last.code + ")" : "") + " without a record.</div><pre class=\"runlog\">" + esc((last.tail || []).slice(-8).join("\n")) + "</pre>";
   o += '<h3>Runs <span class="c">' + S.runs.length + "</span></h3>";
   o += S.runs.length ? S.runs.map(runRow).join("") : '<div class="pad8 dim">No recorded run of this script yet. Run records the first.</div>';
