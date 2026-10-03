@@ -3333,8 +3333,29 @@ explore's record.
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. By default the server listens on 127.0.0.1 only. Every request
 needs the token in the address (and a `Host` header the studio listens on);
-GET serves the page and its data, and POST only `/switch`, `/run` and
-`/resolve`. Stop it with Ctrl-C.
+GET serves the page and its data, and POST only `/switch`, `/run`, `/resolve` and
+`/suggest/show`, `/suggest/try`, `/suggest/apply` and `/suggest/undo`. Stop it with Ctrl-C.
+Suggestions (`finding.suggestions` in the plan) are shown on each finding row, the card and the step rows: the best one,
+with "more (n)" for the other variants (up to `[studio] suggestions_per_lever` of one lever). Three buttons, each
+`POST {resolve, id}` with the token (the page never sends source text; the studio finds the suggestion in that
+resolve's findings):
+
+- Show, `POST /suggest/show`: the dry-run diff of every file the edit writes (unified diff, hunks, the lines changed, the
+  declarations the edit names), opened in the script dialog with Apply and Cancel. Nothing is written.
+- Try, `POST /suggest/try`: the edited text is resolved in the warm worker with the edited files read from an overlay
+  (`placemat.context.overlay`: the layout script, the modules it imports and `placemat.toml`), the last record replayed from
+  and none written. Only on a click, only when no resolve is running or pending, one at a time, at most
+  `[studio] try_timeout_s`; a change to a watched file cancels it. The answer is compared with the resolve the suggestion
+  was made on: `cleared` (the finding's `(kind, case, item)` is gone), findings `gained` and `lost`, items `moved`, the
+  `score` change, the file diff and the try's plan. The page shows it as a compare marked "try, not written" and does not
+  add it to the history; a try's own suggestions are never offered.
+- Apply, `POST /suggest/apply`, and Undo, `POST /suggest/undo` (the same call as `placemat apply --undo`): written
+  atomically under the project root to files the studio watches, logged in `.placemat/applied.jsonl`; the watcher
+  resolves again and the history row reads "applied from a suggestion: ...". A file that changed since the plan refuses
+  (409, nothing written), as does an undo when a file is not as the apply left it. Allowed over `--host` (the token guards
+  it); `[studio] apply = false` refuses writing (403) and hides the buttons. Refusals are `{"error": sentence}`: 404 no
+  such resolve or suggestion, 409 stale, busy or nothing to undo, 422 the edit cannot be made.
+
 One studio serves one script at a time. It needs the board's cached generation, as
 `preview` does: `placemat run` the script once first.
 

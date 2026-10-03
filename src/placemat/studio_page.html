@@ -73,6 +73,19 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 .sharebtns { display: flex; gap: 6px; margin-top: 6px; } .sharebtns button { flex: 1; border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 4px 8px; }
 #cmdbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 5px 14px; background: var(--accent-soft); color: var(--accent); border-bottom: 1px solid var(--line); font-weight: 600; }
 #cmdbar[hidden] { display: none; }
+/* the suggestions: the line of a finding that offers one, the bar that says what a try or an apply did, the diff dialog's bar */
+#sgbar, #sgdlg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 5px 14px; background: var(--surface); color: var(--ink); border-bottom: 1px solid var(--line); font-size: 12.5px; }
+#sgbar[hidden], #sgdlg[hidden] { display: none; }
+#sgbar b, #sgdlg b { overflow-wrap: anywhere; }
+#sgbar .sgx { margin-left: auto; }
+#sgbar button, #sgdlg button, .sgbtns button { border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
+#sgbar button:disabled, .sgbtns button:disabled { opacity: 0.5; }
+.sg { margin-top: 3px; font-weight: 400; }
+.sgrow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.sgrow + .sgrow { margin-top: 2px; }
+.sgtext { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+.sgbtns { display: inline-flex; gap: 4px; flex: none; }
+.sgmore { cursor: pointer; color: var(--accent); font-size: 12px; }
 #cmdbar button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 6px; padding: 1px 10px; }
 #toast { position: fixed; z-index: 70; left: 50%; transform: translateX(-50%); top: 64px; max-width: calc(100vw - 24px); background: var(--surface); color: var(--ink); border: 1px solid var(--accent); border-radius: 999px; box-shadow: var(--shadow); padding: 6px 16px; cursor: pointer; font-weight: 600; }
 #toast[hidden] { display: none; }
@@ -483,6 +496,7 @@ svg text { user-select: none; font-family: var(--sans); }
 <div id="menu" role="menu" hidden></div>
 <nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button><button data-nv="runs">Runs<em data-count="runs"></em></button></nav>
 <div id="cmdbar" hidden></div>
+<div id="sgbar" hidden></div>
 <div id="toast" hidden></div>
 <div id="notice"></div>
 <main>
@@ -513,6 +527,7 @@ svg text { user-select: none; font-family: var(--sans); }
   <div id="picker" hidden></div>
   <div id="script" role="dialog" aria-label="the layout script">
     <div id="scripthead"><select id="file"></select><span class="dim" id="scriptinfo"></span><span style="flex:1"></span><button id="prevchg" title="previous changed line">&uarr;</button><button id="nextchg" title="next changed line">&darr;</button><button id="scriptfull" title="over the legend and the board">Full screen</button><button id="scriptclose" aria-label="close">&times;</button></div>
+    <div id="sgdlg" hidden></div>
     <div id="linechips"></div>
     <div id="scriptbody"></div>
   </div>
@@ -551,6 +566,9 @@ const S = {
   cmdView: null,               // a command's streamed plan shown in place of the studio's own: {id, plan, next}
   xv: null,                    // the explore being looked at: {source, id|file, start, variants, done, sel, mode, auto, drawn, thumbs, density, lastDraw}
   exploreFps: 2,
+  sg: {more: new Set(), busy: null, show: null, note: null, src: false},   // suggestions: the finding slots opened, a try in flight, the diff shown, what the last apply said
+  try: null,                   // a try shown, not written: {id, base, suggestion, cleared, gained, lost, moved, score, applied}
+  applied: [], canApply: true, // the suggestions applied here (for Undo and the history rows); false: this studio does not write
   work: null,                  // the resolve in progress: {t0, total, cur, replayed}, from the engine's begin notices
   scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
   runs: [], run: null, lastRun: null, openRuns: new Set(),      // recorded runs of the script, the run in progress, the one that just ended
@@ -614,6 +632,7 @@ function render(parts) {
   if (has("compare")) renderCompare();
   if (has("runs") || all) renderRuns();
   if (has("script")) renderScript();
+  if (has("sgbar") || has("status") || all) renderSgBar();
   if (has("live")) flushLive();
   if (has("legend") || has("board") || all) renderLegend();
   if (S.restore) applyRestore();
@@ -631,6 +650,7 @@ es.onopen = () => { S.status = S.status === "connecting" ? "waiting" : S.status;
 es.onerror = () => { S.status = "disconnected"; schedule("status"); };
 
 function applyHello(d) {
+  S.applied = d.applied || []; S.canApply = d.can_apply !== false;
   S.hello = d; S.history = d.history; S.error = d.error; S.resolving = d.resolving; S.scripts = d.scripts || [];
   if (d.now) S.skew = d.now * 1000 - Date.now();                 // the server's clock less this page's: times are the server's
   if (d.resolving && d.work) {                                   // a resolve under way when this page joined: its time is since it began
@@ -730,6 +750,7 @@ on("finished", d => {
   trimDocs();
   if (S.follow) showResolve(d.id, null, true); else schedule("status", "compare");
 });
+on("applied", d => { S.applied = d.applied || []; schedule("compare", "sgbar"); });
 on("compare", d => {
   if (S.follow && S.shownId === d.b) { setCompare(d); }
 });
@@ -745,6 +766,7 @@ on("error", d => {
 
 function trimDocs() {
   const keep = new Set(S.history.map(h => h.id));
+  if (S.try) keep.add(S.try.id);
   for (const id of [...S.docs.keys()]) if (!keep.has(id)) S.docs.delete(id);
 }
 
@@ -752,6 +774,7 @@ function showResolve(id, cmp, keepReplay) {            // keepReplay: the slider
   const rec = S.docs.get(id);
   if (!rec) return;
   const was = keepReplay ? S.replay : null;
+  if (S.try) { S.docs.delete(S.try.id); S.try = null; }
   stopPlay();
   S.shownId = id; S.live = null; S.resolving = S.resolving === id ? null : S.resolving; S.liveQ = [];
   S.texts = rec.texts; S.changed = rec.changed;
@@ -793,11 +816,11 @@ function statNumbers(p, rec) {
 }
 function renderStatus() {
   const b = $("#status");
-  const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
+  const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = typeof label === "string" ? label : label;
   const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
   rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = $("#sharebtn").hidden = !!(S.hello && S.hello.picker);
-  b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", disconnected: "error"}[S.status] || "");
+  b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", try: "stale", disconnected: "error"}[S.status] || "");
   const rec = S.docs.get(S.shownId), p = plan();
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
   const n = $("#notice");
@@ -1854,7 +1877,7 @@ function unplacedRows(u) {
 const refusedList = u => u.refused.map(r => '<span class="refrow">' + pill(r.kind + (r.n != null ? " x" + r.n : ""), "refusal") +
   r.blockers.map(b => b.text ? '<span class="dim">' + esc(b.text) + "</span>" : '<span class="blk">' + ownerPill(b.owner) + '<span class="dim">' + esc((b.face ? b.face + " " : "") + "x" + b.n) + "</span></span>").join(" ") + "</span>");
 const unplacedInline = f => '<b>' + esc(f.item || String(f.text).split(":")[0]) + "</b>" + kvl(unplacedRows(unplacedParts([], f))) + sect("Refused by", listOf(refusedList(unplacedParts([], f)))) + sect("Notes", listOf(unplacedParts([], f).other.map(esc)));
-const unplacedBlock = u => kvl(unplacedRows(u)) + sect("Refused by", listOf(refusedList(u))) + sect("Notes", listOf(u.late.concat(u.other, u.examples).map(esc)));
+const unplacedBlock = u => kvl(unplacedRows(u)) + (u.fnd ? sgHTML(u.fnd) : "") + sect("Refused by", listOf(refusedList(u))) + sect("Notes", listOf(u.late.concat(u.other, u.examples).map(esc)));
 // The unplaced item's findings, the sentence of which the section above replaces, and every other one as it was.
 const isUnplacedFinding = f => f && f.kind === "unplaced";
 const unplacedFindingOf = (p, key) => ((p && p.findings) || []).find(f => isUnplacedFinding(f) && (f.item === key || String(f.text).startsWith(key + ": "))) || null;
@@ -1881,7 +1904,7 @@ const pushLine = s => {
   const m = /^push from (.+?): ([\d.e+-]+) at ([\d.]+) mm \(limit ([\d.e+-]+)\)$/.exec(s);
   return m ? "<b>" + esc(m[1]) + "</b> " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
 };
-const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + (f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + "</span>"; }));
+const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + (f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + "</span>" + sgHTML(f); }));
 function linkRows(p, refs, all) {
   const ls = (p.links || []).map((l, i) => [l, i]).filter(([l]) => refs.has(l.a[0]) || refs.has(l.b[0])).sort((a, b) => (b[0].state === "over") - (a[0].state === "over"));
   if (!ls.length) return "";
@@ -2134,7 +2157,7 @@ function renderFindings() {
   el.innerHTML = filters + order.map(kind => {
     const list = groups.get(kind), closed = S.closedKinds.has(kind), worst = hasSev ? kind : list.some(([f]) => sevOf(f) === "critical") ? "critical" : list.some(([f]) => sevOf(f) === "notice") && !list.some(([f]) => sevOf(f) === "warning") ? "notice" : "warning";
     return '<div class="gh" data-kind="' + esc(kind) + '"><span class="dim">' + (closed ? "&#9656;" : "&#9662;") + "</span>" + esc(kind) + '<span class="ct">' + list.length + "</span></div>" +
-      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + (isUnplacedFinding(f) ? unplacedInline(f) : esc(f.text)) + srcLink(f, p) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
+      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + (isUnplacedFinding(f) ? unplacedInline(f) : esc(f.text)) + srcLink(f, p) + sgHTML(f) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
   }).join("");
   el.onclick = e => {
     const sv = e.target.closest("[data-sev]"); if (sv) { S.sevFilter = sv.dataset.sev; renderFindings(); return; }
@@ -2200,8 +2223,20 @@ function renderScript() {
   dlg.classList.toggle("open", !!S.scriptOpen);
   dlg.classList.toggle("full", !!S.scriptOpen && !!S.scriptFull);
   $("#scriptfull").textContent = S.scriptFull ? "Restore" : "Full screen";
-  if (!S.scriptOpen) return;
+  if (!S.scriptOpen) { renderSgDialog(); return; }
   layoutScript();
+  const diffMode = renderSgDialog();
+  if (diffMode) {
+    const files = S.sg.show.files, sel = $("#file");
+    if (!files.some(f => f.file === S.file)) S.file = files[0] && files[0].file;
+    sel.innerHTML = files.map(f => '<option value="' + esc(f.file) + '">' + esc(f.file) + "</option>").join(""); sel.dataset.names = ""; sel.value = S.file || "";
+    const fd = files.find(f => f.file === S.file);
+    $("#scriptbody").innerHTML = fd ? diffTable({files: {[fd.file]: fd}, trace: {lines: {}}}, fd.file) : "";
+    $("#scriptinfo").textContent = fd ? "+" + fd.added + " -" + fd.removed : "";
+    $("#linechips").innerHTML = ""; $("#linechips").style.display = "none";
+    return;
+  }
+  $("#linechips").style.display = "";
   const names = scriptFiles(S.texts), own = S.hello && S.hello.script;
   const sel = $("#file");
   if (!names.includes(S.file)) S.file = (own && names.includes(own)) ? own : names[0];
@@ -2265,7 +2300,7 @@ function openScript(file, n) {
   schedule("script");
   setTimeout(() => { const l = $('#scriptbody .ln[data-n="' + n + '"]'); if (l && l.scrollIntoView) l.scrollIntoView({block: "center"}); }, 30);
 }
-function closeScript() { S.scriptOpen = false; S.scriptFull = false; schedule("script"); }
+function closeScript() { S.scriptOpen = false; S.scriptFull = false; S.sg.show = null; S.sg.src = false; schedule("script"); }
 $("#scriptclose").onclick = closeScript;
 $("#scriptfull").onclick = () => { S.scriptFull = !S.scriptFull; schedule("script"); };
 $("#srcbtn").onclick = () => { const it = S.sel ? itemMap(plan()).get(S.sel) : null; openScript(it && it.file ? it.file : (S.hello && S.hello.script), it && it.line); };
@@ -2294,16 +2329,18 @@ $("#prevchg").onclick = () => stepChange(-1);
 function renderCompare() {
   const el = $("#tab-compare");
   const hist = S.history.slice().sort((a, b) => a.id - b.id);
-  const opt = (sel, none) => (none ? '<option value="">none</option>' : "") + hist.map(h => '<option value="' + h.id + '"' + (h.id === sel ? " selected" : "") + ">#" + h.id + " " + new Date(h.at * 1000).toLocaleTimeString() + (h.changed.length ? " (" + h.changed.length + " file" + (h.changed.length > 1 ? "s" : "") + " changed)" : "") + "</option>").join("");
+  const opt = (sel, none) => (none ? '<option value="">none</option>' : "") + hist.map(h => '<option value="' + h.id + '"' + (h.id === sel ? " selected" : "") + ">#" + h.id + " " + new Date(h.at * 1000).toLocaleTimeString() + (h.changed.length ? " (" + h.changed.length + " file" + (h.changed.length > 1 ? "s" : "") + " changed)" : "") + (h.applied ? " - " + h.applied : "") + "</option>").join("");
   const head = '<div class="cmpbar"><span class="dim">compare</span><select id="cmpA">' + opt(S.baseId, true) + '</select><span class="dim">with</span><select id="cmpB">' + opt(S.shownId, false) + "</select></div>";
-  let out = runsHTML() + head;
+  let out = runsHTML() + (S.try ? '<div class="cmpbar"><span class="dim">the resolve this was made on (#' + S.try.base + ') and the try, not written</span></div>' : head);
+  const la = lastApplied();
+  if (la && S.canApply) out += '<div class="cmpbar"><span class="dim">applied from a suggestion:</span><span>' + esc(la.text) + '</span><button data-sg="undo">Undo</button></div>';
   if (S.changed && S.changed.length) {
     out += "<h3>Changed since the resolve before</h3>" + S.changed.map(c => '<div class="row" data-file="' + esc(c.file) + '"><span class="k">' + esc(c.file) + '</span><span class="n"><span class="add">+' + c.added + '</span> <span class="del">-' + c.removed + "</span> " + esc(c.status) + "</span></div>").join("");
   }
   const c = S.cmp;
   if (!c) { el.innerHTML = out + '<div class="empty">' + (hist.length < 2 ? "One resolve so far: nothing to compare yet" : "Pick two resolves") + "</div>"; wireCompare(el); return; }
   const d = c.diff;
-  out += '<div class="sum"><b>' + (typeof c.a === "number" ? "#" + c.a : esc(c.a)) + " to #" + c.b + "</b>" + (d.empty ? '<span class="dim">no change in the plan</span>' : "") +
+  out += '<div class="sum"><b>' + (typeof c.a === "number" ? "#" + c.a : esc(c.a)) + (S.try && c.b === S.try.id ? " to the try, not written" : " to #" + c.b) + "</b>" + (d.empty ? '<span class="dim">no change in the plan</span>' : "") +
     (d.moved.length ? "<span>" + d.moved.length + " moved</span>" : "") + (d.added.length ? '<span class="add">' + d.added.length + " added</span>" : "") + (d.removed.length ? '<span class="del">' + d.removed.length + " removed</span>" : "") +
     (d.copper.added.length || d.copper.removed.length ? '<span>copper <span class="add">+' + d.copper.added.length + '</span> <span class="del">-' + d.copper.removed.length + "</span></span>" : "") +
     (d.findings.gained.length || d.findings.lost.length ? '<span>findings <span class="del">+' + d.findings.gained.length + '</span> <span class="add">-' + d.findings.lost.length + "</span></span>" : "") +
@@ -2450,6 +2487,129 @@ function renderCmdBar() {
   el.innerHTML = '<span>' + esc(V ? "Viewing " + c.command + " of " + (baseName(c.script) || "a board") + ", pid " + c.pid : "Viewing a recorded explore") + '</span><button id="cmdclose">Back to the studio\'s own view</button>';
   $("#cmdclose").onclick = closeCmd;
 }
+
+// ---------------------------------------------------------------- suggestions
+// A finding's suggestions are in the plan (finding.suggestions, best first). Each has Show (the diff it would make, in the script
+// dialog), Try (the edited script resolved, shown as a compare "try, not written"), and Apply (written to the file; the watcher
+// resolves again). Undo puts the last apply back. The page sends {resolve, id}; the studio finds the suggestion and its edit.
+const sgList = f => (S.try || !f || !f.suggestions) ? [] : f.suggestions;
+const sgKey = f => ((plan() || {}).findings || []).indexOf(f);
+function sgRow(s, withLever) {
+  const b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(title) + '"' + (S.sg.busy ? " disabled" : "") + ">" + label + "</button>";
+  return '<div class="sgrow">' + (withLever && s.lever ? pill(s.lever.replace(/_/g, " ")) : "") + '<span class="sgtext">' + esc(s.text) + '</span><span class="sgbtns">' +
+    b("show", "Show", "the change it would make, as a diff; nothing is written") + b("try", "Try", "resolve the edited script and compare it; nothing is written") +
+    (S.canApply ? b("apply", "Apply", "write the change to the script; the studio resolves again") : "") + "</span></div>";
+}
+function sgHTML(f) {
+  const ss = sgList(f), k = sgKey(f);
+  if (!ss.length || k < 0) return "";
+  const more = ss.slice(1), open = S.sg.more.has(k);
+  return '<div class="sg">' + sgRow(ss[0], false) + (more.length ? '<a class="sgmore" data-sgmore="' + k + '">' + (open ? "fewer" : "more (" + more.length + ")") + "</a>" : "") +
+    (open ? more.map(s => sgRow(s, true)).join("") : "") + "</div>";
+}
+async function sgPost(path, body) {
+  const r = await fetch(path + "?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
+  let data; try { data = await r.json(); } catch (e) { data = {error: "the studio answered " + r.status}; }
+  return {ok: r.ok, status: r.status, data};
+}
+const sgFind = sid => { for (const f of (plan() || {}).findings || []) for (const s of f.suggestions || []) if (s.id === sid) return s; return null; };
+function sgNote(kind, text, extra) { S.sg.note = Object.assign({kind, text}, extra); schedule("sgbar"); }
+async function sgAct(kind, sid) {
+  const s = sgFind(sid), rid = S.shownId, g = S.sg;
+  if (g.busy) return;
+  g.note = null;
+  if (kind === "show") {
+    const r = await sgPost("/suggest/show", {resolve: rid, id: sid});
+    if (!r.ok) return sgNote("err", r.data.error);
+    sgShowDiff(r.data);
+  } else if (kind === "try") {
+    g.busy = {text: s ? s.text : sid}; renderSgBar(); schedule("findings", "card", "steps", "compare");
+    const r = await sgPost("/suggest/try", {resolve: rid, id: sid});
+    g.busy = null;
+    if (!r.ok) sgNote("err", r.data.error);
+    else if (r.data.state !== "done") sgNote("err", r.data.message);
+    else showTry(r.data);
+    schedule("findings", "card", "steps", "sgbar");
+  } else if (kind === "apply") {
+    const r = await sgPost("/suggest/apply", {resolve: S.try ? S.try.base : rid, id: sid || (S.try && S.try.suggestion.id)});
+    if (!r.ok) return sgNote("err", r.data.error);
+    g.show = null; g.src = false; S.scriptOpen = false;
+    if (S.try) leaveTry();
+    sgNote("applied", r.data.text);
+  } else if (kind === "undo") {
+    const r = await sgPost("/suggest/undo", {});
+    if (!r.ok) return sgNote("err", r.data.error);
+    sgNote("undone", r.data.text);
+  }
+}
+function sgShowDiff(d) {
+  S.sg.show = d; S.sg.src = false; S.scriptOpen = true; S.scriptWhole = false;
+  const first = (d.targets && d.targets[0] && d.targets[0].file) || (d.files[0] && d.files[0].file);
+  if (first) S.file = first;
+  schedule("script");
+}
+// The try's plan shown in place of the resolve it was made on, compared with it, marked "try, not written".
+function showTry(res) {
+  S.docs.set(res.id, {id: res.id, doc: res.doc, texts: res.texts, changed: [], timing: res.timing, reused: "", notes: []});
+  S.try = {id: res.id, base: res.base, suggestion: res.suggestion, cleared: res.cleared, gained: res.gained, lost: res.lost, moved: res.moved, score: res.score, applied: res.applied};
+  S.follow = false; stopPlay();
+  S.shownId = res.id; S.live = null; S.liveQ = []; S.texts = res.texts; S.changed = []; S.stale = false; S.error = null; S.status = "try";
+  S.replay = null; S.sel = null; S.marked = new Set();
+  setCompare(res.compare);
+  if (!narrow()) goTab("compare");
+  schedule("all");
+}
+function leaveTry() {
+  const id = S.try && S.try.id; S.try = null; S.follow = true;
+  if (id != null) S.docs.delete(id);
+  if (S.latestId != null && S.docs.has(S.latestId)) showResolve(S.latestId, null);
+  else schedule("all");
+}
+const lastApplied = () => { for (let i = S.applied.length - 1; i >= 0; i--) if (!S.applied[i].undone) return S.applied[i]; return null; };
+function renderSgBar() {
+  const el = $("#sgbar"), g = S.sg, r = S.try, n = g.note;
+  let h = "";
+  if (g.busy) h = '<i class="spin"></i><span>Trying: <b>' + esc(g.busy.text) + "</b> (the edited script is resolved; nothing is written)</span>";
+  else if (r) {
+    const sc = r.score;
+    h = pill("try, not written", "warn") + "<b>" + esc(r.suggestion.text) + "</b>" + pill(r.cleared ? "finding cleared" : "finding not cleared", r.cleared ? "good" : "bad") +
+      "<span>" + val(r.gained.length + " gained", r.gained.length ? "bad" : "") + ", " + val(r.lost.length + " lost", r.lost.length ? "good" : "") + " findings</span>" +
+      "<span>" + r.moved + (r.moved === 1 ? " item" : " items") + " moved</span>" + (sc ? "<span>score " + sc.a + " to " + sc.b + " (" + val((sc.delta > 0 ? "+" : "") + sc.delta, sc.delta < 0 ? "good" : sc.delta > 0 ? "bad" : "") + ", lower is better)</span>" : "") +
+      '<button data-sg="viewdiff">Show diff</button>' + (S.canApply ? '<button data-sg="apply" data-sid="' + esc(r.suggestion.id) + '">Apply</button>' : "") + '<button data-sg="back">Back to the plan</button>';
+  } else if (n) {
+    h = n.kind === "err" ? pill("not done", "bad") + "<span>" + esc(n.text) + "</span>" : pill(n.kind, "good") + "<b>" + esc(n.text) + "</b>" + (n.kind === "applied" && S.canApply ? '<button data-sg="undo">Undo</button>' : "");
+    h += '<button class="sgx" data-sg="dismiss" aria-label="dismiss">&times;</button>';
+  }
+  el.hidden = !h; el.innerHTML = h;
+}
+// The dialog's bar and body while a suggestion's diff is shown: what it changes, Apply and Cancel, the declarations it names.
+function renderSgDialog() {
+  const bar = $("#sgdlg"), sh = S.sg.show;
+  bar.hidden = !(S.scriptOpen && sh);
+  if (bar.hidden) return false;
+  const sid = sh.id;
+  bar.innerHTML = pill("dry run", "warn") + "<b>" + esc(sh.text) + '</b><span class="dim">nothing is written</span>' +
+    (S.canApply && !S.try ? '<button data-sg="apply" data-sid="' + esc(sid) + '">Apply</button>' : "") + (S.sg.src ? '<button data-sg="diffview">Diff</button>' : "") + '<button data-sg="cancel">Cancel</button>' +
+    (sh.targets || []).map(tg => '<button data-sgline="' + esc(tg.file + ":" + tg.line) + '" title="' + esc(tg.role) + '">' + esc(tg.key) + " " + esc(tg.file) + ":" + tg.line + "</button>").join("");
+  return !S.sg.src;
+}
+function sgClick(e) {
+  const m = e.target.closest && e.target.closest("[data-sgmore]");
+  if (m) { e.stopPropagation(); const k = +m.dataset.sgmore; if (S.sg.more.has(k)) S.sg.more.delete(k); else S.sg.more.add(k); schedule("findings", "card", "steps"); return; }
+  const l = e.target.closest && e.target.closest("[data-sgline]");
+  if (l) { e.stopPropagation(); const [file, n] = [l.dataset.sgline.replace(/:\d+$/, ""), +l.dataset.sgline.replace(/^.*:/, "")]; S.sg.src = true; openScript(file, n); return; }
+  const b = e.target.closest && e.target.closest("[data-sg]");
+  if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  const a = b.dataset.sg;
+  if (a === "dismiss") { S.sg.note = null; schedule("sgbar"); }
+  else if (a === "back") { leaveTry(); schedule("sgbar"); }
+  else if (a === "cancel") { S.sg.show = null; S.sg.src = false; closeScript(); }
+  else if (a === "diffview") { S.sg.src = false; schedule("script"); }
+  else if (a === "viewdiff") { if (S.try) sgShowDiff(S.try.applied); }
+  else sgAct(a, b.dataset.sid);
+}
+document.addEventListener("click", sgClick, true);
 
 // ---------------------------------------------------------------- the runs view
 const sinceMs = at => Date.now() + (S.skew || 0) - at * 1000;

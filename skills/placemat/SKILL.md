@@ -267,7 +267,10 @@ model into declarations.
    its diff, `placemat apply <id>` writes it, `placemat apply --undo` puts
    the last one back. A number a suggestion writes is a named constant with
    a comment saying where it came from: keep the comment. The run after it
-   says whether the finding cleared (`api.md`, "Findings and severities").
+   says whether the finding cleared (`api.md`, "Findings and severities"). In the studio each finding row
+   shows its best suggestion with Show (the diff), Try (the edited script resolved and compared, nothing written:
+   did the finding clear, what else moved) and Apply; to check a suggestion without writing it, ask the user to Try
+   it there, or `POST /suggest/try` (`api.md`, "Studio").
 3. **Between runs, look with `placemat preview`**: the same placement in
    seconds, drawn, without the write, DRC and render. A whole board
    answers layout questions (free space, a cluster, a red over-limit link,

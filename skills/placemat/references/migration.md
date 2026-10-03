@@ -31,6 +31,13 @@ section for each hand-written pattern a newer form replaces.
   as lost with its last state. An explore is shown with a plot of score against time and the best so far, the latest
   variant (at most `[studio] explore_fps` times a second, default 2) and the best drawn over the plain placement,
   thumbnails, a step through the variants by order or score, and where each item landed across them.
+- **The studio shows, tries, applies and undoes a finding's suggestions.** Each finding row, the card and the step rows show
+  the best suggestion with "more (n)"; Show opens its diff in the script dialog, Try resolves the edited script in the
+  worker (read from an overlay, nothing written) and shows it as a compare marked "try, not written" - whether the
+  finding cleared, findings gained and lost, items moved, the score change - Apply writes the file and the watcher
+  resolves again, and Undo puts the last apply back, refusing when the file moved on. `POST /suggest/show|try|apply|undo`
+  take `{resolve, id}`; apply and undo are allowed over `--host` and `[studio] apply = false` refuses writing. A
+  history row of a resolve that followed an apply reads "applied from a suggestion: ...".
 - **Studio page.** On a wide layout the running status is one line in the header (the strip above the timeline stays on
   narrow ones), and between two steps the step that just settled stays, dimmed, with its time. Unplaced items are shown
   as sections in the steps list, the card and the findings list: why, the radius searched around a point, and what

@@ -526,7 +526,9 @@ def load(start, overrides=None, script=None) -> Settings:
     values, sources, per_script = {}, {}, []
     for path in _files(start):
         try:
-            data = tomllib.loads(path.read_text())
+            from . import context
+            held = context.overlay_text(path)          # a try of a suggestion reads the edited text, nothing on disk
+            data = tomllib.loads(held if held is not None else path.read_text())
         except tomllib.TOMLDecodeError as e:
             raise SettingsError("%s is not valid TOML: %s" % (path, e))
         tables = _script_tables(data, path)

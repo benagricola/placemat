@@ -306,6 +306,9 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
                   fab_via_tiers=fab.via_tiers, fab_source=str(fab.path) if fab.path else "")
     board.script_file = str(Path(script).resolve())     # what a finding's suggestions edit
     board._script = script
+    from . import context as context_mod
+    if context_mod._overlay:                            # a try of a suggestion: declarations' digests are of the text it ran
+        board.source_reader = context_mod.read_source
     try:
         run_script(script, board)
     except Exception as e:

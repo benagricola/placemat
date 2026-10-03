@@ -1254,3 +1254,129 @@ out.pref = ev("JSON.stringify(legendPref)");
     assert 'data-id="ko:ko0"' in out["three"] and 'data-exp="ko" data-n="3">&#9662;' in out["three"]                     # three: expanded
     assert out["shown"] == "none" and out["after_toggle"][1] is False and out["after_toggle"][2] == "all"       # all five start hidden; the header, though collapsed, shows them all
     assert 'data-id="ko:ko0"' in out["opened"] and out["pref"] == '{"ko":true}'
+
+
+# ---------------------------------------------------------------- suggestions
+SUGGEST = r"""
+const SUG = [{id: "s1a", text: "Place c4 beside c1, on its north side", rank: 1, lever: "beside"}, {id: "s1b", text: "Place c4 beside c1, on its east side", rank: 2, lever: "beside"},
+             {id: "s1c", text: "Raise the limit to 1.82 mm", rank: 3, lever: "limit"}];
+const FND = [{text: "c4: no legal location within 3.0 mm of (3.00, 15.00) (courtyard x4: K1 front face x4)", kind: "unplaced", severity: "critical", item: "", case: "unplaced.search", suggestions: SUG, at: null, refs: [], pads: []},
+             {text: "a note", kind: "setup", severity: "notice", item: "", case: null, suggestions: [], at: null, refs: [], pads: []}];
+const click = el => listenersClick({target: {closest: s => el[s] ? el[s] : null}, stopPropagation() { this.stopped = true; }, preventDefault() {}});
+const listenersClick = e => ev("sgClick").call(null, e);
+const answer = (map) => { ctx.fetch = (u, o) => { const path = u.split("?")[0]; fetched.push([path, o && o.body]); const r = map[path]; return Promise.resolve({ok: r.status < 400, status: r.status, json: async () => r.body}); }; };
+const sgb = (a, extra) => ({"[data-sg]": Object.assign({dataset: Object.assign({sg: a}, extra || {})})});
+const DIFF = {id: "s1a", text: SUG[0].text, dry_run: true, resolve: 1, diff: "x", targets: [{role: "target", key: "c4", file: "x_layout.py", line: 2}],
+  files: [{file: "x_layout.py", path: "/p/x_layout.py", added: 1, removed: 1, old_lines: [2], new_lines: [2], hunks: [{old_start: 1, old_len: 2, new_start: 1, new_len: 2, lines: [{tag: " ", old: 1, new: 1, text: "a"}, {tag: "-", old: 2, new: null, text: "board.place(Part('c4'))"}, {tag: "+", old: null, new: 2, text: "board.place(Part('c4'), at=Beside(Part('c1')))"}]}]}]};
+"""
+
+
+@needs_node
+def test_a_finding_shows_its_top_suggestion_with_show_try_apply_and_more_for_the_rest(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+full([item("a", 1)], [st("a")], {findings: FND});
+ev("renderFindings()"); out.first = els["#tab-findings"].innerHTML;
+const more = {"[data-sgmore]": {dataset: {sgmore: "0"}}};
+click(more); flush(); ev("renderFindings()"); out.opened = els["#tab-findings"].innerHTML;
+click(more); flush(); ev("renderFindings()"); out.closed = els["#tab-findings"].innerHTML;
+ev("S.canApply = false"); ev("renderFindings()"); out.noapply = els["#tab-findings"].innerHTML;
+""")
+    f = out["first"]
+    assert f.count('class="sgrow"') == 1 and "Place c4 beside c1, on its north side" in f and "east side" not in f
+    assert 'data-sg="show" data-sid="s1a"' in f and 'data-sg="try" data-sid="s1a"' in f and 'data-sg="apply" data-sid="s1a"' in f
+    assert 'data-sgmore="0">more (2)</a>' in f
+    o = out["opened"]
+    assert o.count('class="sgrow"') == 3 and "east side" in o and '<span class="chip ">beside</span>' in o and '<span class="chip ">limit</span>' in o and "fewer</a>" in o
+    assert out["closed"].count('class="sgrow"') == 1
+    assert 'data-sg="apply"' not in out["noapply"] and 'data-sg="try"' in out["noapply"]
+
+
+@needs_node
+def test_show_opens_the_dry_run_diff_in_the_script_dialog_with_apply_and_cancel(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: FND});
+  answer({"/suggest/show": {status: 200, body: DIFF}});
+  await ev("sgAct")("show", "s1a"); flush();
+  out.state = [ev("S.scriptOpen"), ev("S.file"), ev("!!S.sg.show")];
+  out.bar = els["#sgdlg"].innerHTML; out.barHidden = els["#sgdlg"].hidden; out.body = els["#scriptbody"].innerHTML; out.info = els["#scriptinfo"].textContent;
+  out.sent = fetched.filter(f => f[0] === "/suggest/show").map(f => f[1]);
+  click(sgb("cancel")); flush();
+  out.after = [ev("S.scriptOpen"), ev("S.sg.show"), els["#sgdlg"].hidden];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["state"] == [True, "x_layout.py", True] and out["barHidden"] is False
+    assert 'data-sg="apply" data-sid="s1a"' in out["bar"] and 'data-sg="cancel"' in out["bar"] and "dry run" in out["bar"] and "nothing is written" in out["bar"]
+    assert 'data-sgline="x_layout.py:2"' in out["bar"]
+    assert "board.place(Part(&#39;c4&#39;), at=Beside" in out["body"].replace("&#039;", "&#39;") or "at=Beside" in out["body"]
+    assert out["info"] == "+1 -1" and out["sent"] == ['{"resolve":1,"id":"s1a"}']                       # the page sends the resolve and the id, never text
+    assert out["after"] == [False, None, True]
+
+
+@needs_node
+def test_try_shows_the_result_as_a_compare_marked_try_not_written_and_back_returns_to_the_plan(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: FND});
+  const doc = JSON.parse(JSON.stringify(ev("plan()"))); doc.findings = []; doc.counts = {placed: 1, findings: 0};
+  const diff = {moved: [], added: [], removed: [], copper: {added: [], removed: []}, findings: {gained: [], lost: [{text: "c4: no legal location", kind: "unplaced", item: ""}]}, score: {a: 12, b: 9, delta: -3}, congestion: null, empty: false};
+  const cmp = {a: 1, b: 77, diff, files: {"x_layout.py": {hunks: [], added: 1, removed: 1, changed_new: [2], changed_old: [2]}}, trace: {items: {}, lines: {}}};
+  answer({"/suggest/try": {status: 200, body: {state: "done", id: 77, base: 1, suggestion: {id: "s1a", text: SUG[0].text}, cleared: true, gained: [], lost: diff.findings.lost, moved: 2, score: diff.score, compare: cmp, doc, texts: {"x_layout.py": "a\nb\n"}, timing: {}, applied: DIFF}}});
+  const p = ev("sgAct")("try", "s1a");
+  out.busy = [ev("!!S.sg.busy"), els["#sgbar"].innerHTML];
+  await p; flush();
+  out.shown = [ev("S.shownId"), ev("S.status"), ev("!!S.try"), els["#statustext"].textContent];
+  out.bar = els["#sgbar"].innerHTML;
+  out.cmp = els["#tab-compare"].innerHTML;
+  out.slot = (ev("renderFindings()"), els["#tab-findings"].innerHTML);
+  click(sgb("back")); flush();
+  out.back = [ev("S.shownId"), ev("!!S.try"), els["#sgbar"].hidden, ev("S.docs.has(77)")];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["busy"][0] is True and "Trying" in out["busy"][1] and "nothing is written" in out["busy"][1]
+    assert out["shown"] == [77, "try", True, "try, not written"]
+    b = out["bar"]
+    assert "try, not written" in b and "finding cleared" in b and "0 gained" in b and "1 lost" in b and "2 items moved" in b and "score 12 to 9" in b
+    assert 'data-sg="apply" data-sid="s1a"' in b and 'data-sg="back"' in b and 'data-sg="viewdiff"' in b
+    assert "to the try, not written" in out["cmp"]
+    assert "sgrow" not in out["slot"]                                                      # the try's own findings offer nothing
+    assert out["back"] == [1, False, True, False]
+
+
+@needs_node
+def test_a_refused_apply_says_why_a_good_one_offers_undo_and_the_history_row_has_it_too(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: FND});
+  answer({"/suggest/apply": {status: 409, body: {error: "x_layout.py changed since this plan was made: nothing was written"}}});
+  await ev("sgAct")("apply", "s1a"); flush();
+  out.refused = els["#sgbar"].innerHTML;
+  answer({"/suggest/apply": {status: 200, body: Object.assign({}, DIFF, {dry_run: false, undo: true})}, "/suggest/undo": {status: 200, body: Object.assign({}, DIFF, {text: "Place c4 beside c1, on its north side"})}});
+  await ev("sgAct")("apply", "s1a"); flush();
+  out.applied = els["#sgbar"].innerHTML;
+  send("applied", {applied: [{seq: 1, id: "s1a", text: SUG[0].text, undone: false, files: ["x_layout.py"]}], text: SUG[0].text});
+  out.cmp = els["#tab-compare"].innerHTML;
+  await ev("sgAct")("undo"); flush();
+  out.undone = els["#sgbar"].innerHTML;
+  send("applied", {applied: [{seq: 1, id: "s1a", text: SUG[0].text, undone: true, files: ["x_layout.py"]}]});
+  out.cmp2 = els["#tab-compare"].innerHTML;
+  ev("S.history = [{id: 5, at: 0, changed: [], timing: {}, counts: {}, applied: 'applied from a suggestion: Place c4'}]"); ev("renderCompare()"); out.hist = els["#tab-compare"].innerHTML;
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert "not done" in out["refused"] and "changed since this plan was made" in out["refused"]
+    assert "applied" in out["applied"] and 'data-sg="undo"' in out["applied"] and "Place c4 beside c1" in out["applied"]
+    assert 'data-sg="undo"' in out["cmp"] and "applied from a suggestion:" in out["cmp"]
+    assert "undone" in out["undone"] and 'data-sg="undo"' not in out["cmp2"]
+    assert "applied from a suggestion: Place c4" in out["hist"]
+
+
+@needs_node
+def test_a_hello_of_a_studio_that_does_not_write_hides_apply_and_undo(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+hello(); send("hello", {script: "x_layout.py", keep: 5, history: [], resolving: null, error: null, can_apply: false, applied: [{seq: 1, id: "s1a", text: "t", undone: false, files: []}]});
+out.state = [ev("S.canApply"), ev("S.applied.length")];
+""")
+    assert out["state"] == [False, 1]
