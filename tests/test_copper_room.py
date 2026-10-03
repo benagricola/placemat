@@ -168,3 +168,22 @@ def test_a_copper_that_moved_between_passes_is_said_by_how_much():
     assert _rooms_moved({0: [a]}, {0: [a]}, 0.001) == []
     ((key, mm),) = _rooms_moved({0: [a]}, {0: [b]}, 0.001)
     assert key == "track A" and mm == pytest.approx(0.5)
+
+
+def test_a_part_refused_by_a_fixed_one_sends_the_part_it_is_aligned_with_back_to_the_box_without_keep_going():
+    """P stands level with R1, which stands nearer U1 than the box put it (clear of U1's corner mark); at that height P is
+    0.1 mm from the fixed F, which a move east does not clear. R1 goes back to the box's distance, P with it, and the run does
+    not stop on a collision."""
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"), excess=0.0, fab=(18.0, 19.0, 22.0, 21.0),
+                     silk_boxes=[(18.0, 17.9, 18.6, 18.9)]),
+           footprint("R1", 40, 40, w=2, h=1, inst="r1", nets=("C", "D"), excess=0.0, fab=(39, 39.5, 41, 40.5)),
+           footprint("R2", 45, 40, w=2, h=1, inst="r2", nets=("E", "G"), excess=0.0, fab=(44, 39.5, 46, 40.5)),
+           footprint("F1", 23.4, 19.9, w=2, h=2, inst="f1", nets=("H", "I"), excess=0.0, fab=(22.4, 18.9, 24.4, 20.9))]
+    b = _board(fps, True)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("f1"), at=Location(23.4, 19.9))
+    b.place(Part("r1"), at=Beside(Part("u1"), Edge.NORTH))
+    b.place(Part("r2"), at=Beside(Part("r1"), Edge.EAST))
+    plan = b.resolve()
+    assert not [f for f in plan.findings if f.cause.value == "fixed.part"], plan.findings
+    assert plan.box("r1").bottom == pytest.approx(17.9 - GAP, abs=1e-4)           # the box's distance, not the silk line's

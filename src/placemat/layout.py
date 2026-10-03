@@ -2617,8 +2617,9 @@ class Board:
             if relaxed or moved or (conflicted and not seed):
                 raise _Redo(rooms, swaps + fresh, notes, loose | relaxed)
             self._room_unsettled = moved
-        if fresh:
-            raise _Redo(seed, swaps + fresh, notes, loose)
+        if fresh or (fixed_copper is None and frozenset(self._beside_hint) - loose):
+            # before the firm collisions are judged: the parts a refused one is aligned with, nearer than the box, go back to it
+            raise _Redo(seed, swaps + fresh, notes, loose | frozenset(self._beside_hint))
 
     def _room_context(self, occ: Occupancy, plan: Plan, ctx) -> "_CopperContext":
         """A copper context to plan declared copper in without drawing it: what the real one knows, copied."""
