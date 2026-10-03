@@ -129,6 +129,6 @@ def test_measure_reads_each_model_with_its_transform(tmp_path):
     b.Save(str(path))
     got = read_board(path).footprint("U1").models
     assert got == (("${KICAD9_3DMODEL_DIR}/Package.3dshapes/Part.step", (0.5, 0.0, 0.0), (0.0, 0.0, 90.0),
-                    (1.0, 1.0, 1.0)),)
+                    (1.0, 1.0, 1.0), True, 1.0),)
     text = "\n".join(part_lines(read_board(path).footprint("U1")))
     assert "model Part.step  offset 0.50 0.00 0.00  rotate 0 0 90  scale 1 1 1" in text, text

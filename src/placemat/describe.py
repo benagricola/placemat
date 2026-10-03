@@ -80,7 +80,7 @@ def part_facts(fp, geometry=None) -> dict:
         out["envelope_items"] = envelope_items(fp)
     out["footprint_findings"] = courtyard_findings(fp)
     out["models"] = [{"file": path, "offset": list(off), "rotate": list(rot), "scale": list(scale)}
-                     for path, off, rot, scale in getattr(fp, "models", ())]
+                     for path, off, rot, scale, *_ in getattr(fp, "models", ())]
     if fp.fab:
         out["boxes"]["fab"] = _ltrb(Box.union([Box.of_points(p) for _, p in fp.fab]))
     court = nearest_edge(_box_poly(fp.courtyard_box), geometry) if geometry is not None else None
@@ -130,7 +130,7 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "", envelope
                 lines.append("    %-6s %s %s  box %.2f %.2f %.2f %.2f" % (
                     side, it["layer"], "pad %s" % it["pad"] if "pad" in it else "%d of %d" % (it["index"], it["of"]),
                     *it["box"]))
-    for path, off, rot, scale in getattr(fp, "models", ()):
+    for path, off, rot, scale, *_ in getattr(fp, "models", ()):
         lines.append("  model %s  offset %.2f %.2f %.2f  rotate %g %g %g  scale %g %g %g" % (
             path.replace("\\", "/").rsplit("/", 1)[-1], *off, *rot, *scale))
     for finding in f["footprint_findings"]:

@@ -4242,6 +4242,16 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.probe_budget_s` | `120` | seconds | a probe of a searched suggestion stops after this long in all, keeping the best candidate so far |
 | `studio.probe_candidates` | `12` | count | the most candidates (resolves of the edited script) a probe tries, the first and the last check included |
 | `studio.apply` | `true` | bool | false: the studio shows suggestions and diffs but refuses to write them |
+| `studio.3d_kicad_cli` | `""` | path | the kicad-cli the 3D view converts models with; empty finds it on the PATH |
+| `studio.3d_model_dirs` | `""` | path | more folders KiCad's own 3D model library may be in, separated by the platform's path separator, tried after the standard install places |
+| `studio.3d_cache_dir` | `""` | path | where converted 3D models are kept, shared by every project; empty is placemat/models in the user's cache folder |
+| `studio.3d_cache_mb` | `512` | count | megabytes the model cache may hold; over it the least recently used meshes are removed |
+| `studio.3d_batch` | `8` | count | models converted per kicad-cli run (the progress granularity: each run costs about 0.3 s more than its export) |
+| `studio.3d_batch_timeout_s` | `120` | seconds | a kicad-cli model conversion batch is stopped after this long, and its models are tried one by one |
+| `studio.3d_model_tris` | `30000` | count | a model mesh over this many triangles is simplified (vertex clustering) once, when it is converted |
+| `studio.3d_max_tris` | `4000000` | count | triangles the 3D view draws at most; past it the parts are drawn as plates and the view says so |
+| `studio.3d_appear_ms` | `200` | ms | a part arriving in the 3D view drops in and fades over this long; 0 shows it at once |
+| `studio.3d_plate_mm` | `0.1` | mm | how far the plate of a part with no 3D model stands off its face |
 | `studio.builder_grid_mm` | `0.5` | mm | the board builder: a dragged outline dimension or vertex snaps to this step, and a suggested size is rounded up to it |
 | `studio.builder_max_fill` | `0.5` | share | the board builder: the most of one face the parts' courtyards may fill in a suggested board size (above 0, at most 1); the outline dialog's fill field overrides it for one board. The one measured board is filled 0.33 per face on average |
 | `studio.builder_aspect` | `1.0` | ratio | the board builder: the width over the height a suggested rectangle takes before the user changes it |
