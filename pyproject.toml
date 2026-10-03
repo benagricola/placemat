@@ -4,7 +4,7 @@ dynamic = ["version"]
 description = "Deterministic PCB layout intent and position scanning"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["libcst>=1.0"]   # script_edit.py: the edits a finding's suggestion makes to a layout script
+dependencies = []
 authors = [{ name = "Ben Agricola" }]
 
 # pcbnew is NOT a dependency and cannot be one: it ships with system KiCad and

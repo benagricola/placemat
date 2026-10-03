@@ -62,8 +62,8 @@ Settings (`studio_` keys, outside a run's id): `suggestions_per_lever = 3`, `try
 
 Each task: write the test, see it fail, write the code, see it pass, commit (plain message).
 
-### 1. Dependency and settings
-- `pyproject.toml`: `dependencies = ["libcst>=1.0"]`.
+### 1. Settings
+- No new dependency: the script edits splice source text with the standard library.
 - `settings.py`: `studio_suggestions_per_lever`, `studio_try_timeout_s`, `studio_apply`; validation floors.
 - Tests: `tests/test_studio_settings.py` (defaults, floors, not in the run id).
 
@@ -74,7 +74,7 @@ Each task: write the test, see it fail, write the code, see it pass, commit (pla
 - Tests: `tests/test_finding_suggestions.py` (cache and pickle round trip; a three-field entry loads with none).
 
 ### 3. script_edit: locate, check, set_kwarg, remove_kwarg, set_arg
-- LibCST: parse with `PositionProvider`; find the one `Call` by function name, start line (or span), and kind-specific
+- `ast` positions and text splices: find the one `Call` by function name, start line (or span), and kind-specific
   name match; refuse not-exactly-once and shared targets.
 - `set_kwarg` (new keyword on its own line at the argument indent, trailing-comma style kept; replace in place),
   `remove_kwarg` (comment moves to the previous argument's line, the closing parenthesis keeps its indent), `set_arg`.
