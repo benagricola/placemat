@@ -305,6 +305,9 @@ stage costs what.
    Run button for a checked run (`api.md`, "Studio").
    The page's 2D | 3D switch draws the board built, from the parts' own 3D models (it needs `kicad-cli`; a part with no model is
    a hatched plate saying why); the replay slider and live resolves work in 3D (`api.md`, "Studio", "The 3D view").
+   For a board whose `.zen` has no layout script yet, the studio's Build mode (a "Boards with no layout" group in its start view) states
+   the board's facts in forms, draws the outline and writes the first script from the user's clicks, by intent and never a coordinate
+   (`api.md`, "Studio builder"): point the user at it instead of writing a first script by hand.
    While the studio is open you can leave a note where the user is looking: `placemat studio note "trying c_cpu further
    west" --item c_cpu` (or `--at X,Y`, `--pad U1.3`); it shows as a pin and a line in the page's Notes list (`api.md`, "Studio notes").
 4. **Before reading a board's numbers, run `placemat settings`**: a

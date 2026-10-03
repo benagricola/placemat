@@ -1592,10 +1592,16 @@ function zoomTo(box, face) {
   S.pendingFrame = {box, face, t: Date.now()};       // the card of what was zoomed to appears a moment later: framed again once
   applyView();
 }
+// Frame the items on their own face: with one face shown and the items all on the other, the view turns to theirs first;
+// with both shown, the frame is on the panel of the face they are on.
 function zoomItems(keys) {
-  const m = itemMap(plan()), bs = [];
-  for (const k of keys) { const it = m.get(k), b = it && itemBox(it); if (b) bs.push(b); }
-  if (bs.length) zoomTo([Math.min(...bs.map(b => b[0])), Math.min(...bs.map(b => b[1])), Math.max(...bs.map(b => b[2])), Math.max(...bs.map(b => b[3]))]);
+  const p = plan(), m = itemMap(p), bs = [], faces = new Set();
+  for (const k of keys) { const it = m.get(k), b = it && itemBox(it); if (b) { bs.push(b); faces.add(it.face); } }
+  if (!bs.length) return;
+  const face = faces.size === 1 ? [...faces][0] : null;
+  if (face && S.face !== "both" && S.face !== face) setFace(face);
+  if (!lay && p && p.board) lay = layout(p);
+  zoomTo([Math.min(...bs.map(b => b[0])), Math.min(...bs.map(b => b[1])), Math.max(...bs.map(b => b[2])), Math.max(...bs.map(b => b[3]))], face || S.face);
 }
 
 // The grid is its own svg under the board with the board's view box, so it spans whatever is visible at any pan and
@@ -3442,6 +3448,8 @@ showNarrow("board");
 window.addEventListener("resize", () => { applyView(); layoutScript(); renderProgress(); });
 if (window.ResizeObserver) new ResizeObserver(() => applyView()).observe($("#boardwrap"));   // the notice and the tab bar change its height
 schedule("all");
+// The board builder is a script of its own, served by the studio beside this page (studio_builder.js); it adds its own tab and panels.
+try { const b = document.createElement("script"); b.src = "/builder.js?t=" + encodeURIComponent(T); document.body.appendChild(b); } catch (e) { /* the studio without its builder */ }
 </script>
 </body>
 </html>

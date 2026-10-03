@@ -54,7 +54,7 @@ def free_sides(board, occ, plan, i, around: str, near, rotation=None, face=None)
             try:
                 spec = board._beside_spec(i.key, i.item, i.kind, Beside(Part(around), side))
                 cand = dataclasses.replace(i, beside=spec, rotation=rot, face=face or (Face.FRONT if i.either else i.face))
-                p = board._beside_placement(occ, plan, cand)
+                p = board._beside_placement(occ, plan, cand, push=False)    # the standoff itself: judged just below
                 if occ.legal_giving_way(i.item, p, board.clearance, past_edge=False, by_corners=True)[0] is None:
                     found.append((p.location.distance(near) if near is not None else 0.0, side.name))
             except (ValueError, TypeError, KeyError, AttributeError, IndexError):
