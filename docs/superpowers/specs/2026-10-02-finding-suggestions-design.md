@@ -513,12 +513,17 @@ Finding(FindingCause.COPPER_MEETS, {"net": "SIG", "word": "via", "at": [152.68, 
   (phase 1, step 0): `tests/finding_text_golden.json`, the findings (kind, severity, text) of every fixture module under
   `fixtures/` and of the bench boards, written from main before the change; and a test that resolves them and compares.
   A cause converted without its golden rows matching is not converted.
-- **A cause not yet converted** keeps `Finding(kind, text)` with `cause=None` and `facts={}`; the plan accepts both for as
-  long as the migration takes. A converted cause is listed in the cause table below; a test fails when a converted cause
-  has a `Finding(` literal left.
+- **Development converts cause by cause; a release converts them all.** On the branch a cause not yet converted keeps
+  `Finding.plain(kind, text)` with `cause=None` and `facts={}`, so each commit builds. A release has none: a test
+  (`tests/test_no_sentence_parsing.py`, with the rule's source search) fails if any `Finding` is built from text, if any
+  `ctx.note`-style producer or any producer in "Producers and consumers the rule changes" returns a sentence where data is
+  expected, or if a consumer parses one. No mixed state ships; `Finding.plain` is removed from the code before the release
+  and the test asserts it is gone.
 - **Reuse.** The cache stores `[kind, cause, severity, facts_v, facts]` (kind and cause in their string forms, parsed back on read) for a converted finding, and the suggestions are
   built from facts at the end of the resolve (`bind`), which is what the core already does for findings with facts. The
-  reuse record's `VERSION` goes from 2 to 3 once (an older record replays nothing, one resolve). Suggestions are no longer
+  reuse record's `VERSION` goes from 2 to 3 once (an older record replays nothing, one resolve). A changed facts schema also
+  invalidates the record: its context holds a digest of every cause's `facts_v`, so a record made under another schema replays
+  nothing, and stored facts are never read under a schema they were not made for. Suggestions are no longer
   stored in the cache at all: they are a function of facts and the script.
 - **Conflicts become typed.** `Occupancy._conflict` is split: `_conflict_facts(...) -> Conflict | None` and
   `_conflict(...) = text of that`, so `legal()` and the native path (which only decides which pair conflicts and still gets
@@ -639,7 +644,11 @@ replayed. How much that saves depends on the edit: a placement edit changes one 
 steps before it replay; an edit to board-wide declarations (copper, labels, rules, keepouts, the outline, a setting) changes
 `context_key` (reuse.py:108 `canonical([board._copper, board._labels, board._rules, ...])`), and nothing replays. So the
 probes over a chamfer, a label, a stitch pitch or a setting resolve in full (a few seconds to about 25 s on the fixture
-modules). Budgets are therefore in resolves and seconds, and the question of a finer reuse key is open (question 1).
+modules). A probe over a board-wide value is allowed. Before it starts it says so: "this resolves the whole board for each
+candidate, up to n candidates, about s seconds each (the last resolve took s): about t in all", the estimate taken from the
+last resolve's time (the run record's `timing_s["resolve"]`, the studio record's duration) times the candidate limit, and the
+command line asks to confirm unless `--yes` is given; the studio shows it on the button's confirmation. A finer reuse key is
+not part of this design.
 
 **Budget and limits (settings).** `[studio] probe_budget_s` (default 120) and `probe_candidates` (default 12, bisection
 steps included); one candidate is bounded by `try_timeout_s`. `jobs` is `[explore] jobs`, so a machine's CPU limit is one
@@ -666,14 +675,17 @@ applied the usual way, with the digest check, so a script that changed since the
 
 ## Edit operations added
 
+- **Never a coordinate.** No suggestion edits `Centre(...)`, `Location(...)` or a `Pin` with numbers, or writes a coordinate:
+  they are the escape-hatch forms, and a suggestion edits intent. "Slide C4 along its line" is dropped. A decided part that
+  is not legal gets "Let C4 be searched" (its `at=` removed), another face, or a relation (`Beside`, `OnEdge`).
 - **Nested edits.** The edit names the argument whose value is a call and the operation on that call: `into` is a path of
   a keyword or a positional index, repeated to go further, and any of `set_kwarg`, `set_arg`, `remove_kwarg` and
-  `edit_list` then act on the inner call (a `Beside(...)` inside `at=`: its `gap=`; a `Centre(x, y)`: its first argument;
+  `edit_list` then act on the inner call (a `Beside(...)` inside `at=`: its `gap=`; an intent relation inside a call;
   a `Past(...)` inside the points list: its `across=`; a `Cutout(...)` inside `holes=`: its `at=`). Located the same way
   (exactly one inner call of that function name at that place), replaced as a node, checked by masking the inner call. About
   100 lines in `script_edit.py` and its tests.
-- **Multi-edit suggestions.** `edits` is the full list; `edit` stays, equal to the first, for readers of the single-edit
-  record. They apply together or not at all: every file is computed first (the edits to one file applied last line to
+- **Multi-edit suggestions.** A suggestion has `edits`, a list (of one for most), and `how`; there is no `edit` field: the
+  core's single `edit` is dropped now and the studio branch follows. The edits apply together or not at all: every file is computed first (the edits to one file applied last line to
   first, so a line does not move under the next), each checked as now, then written atomically as now. One applied-log entry, so
   one undo. Needed for: a list removal plus an inserted statement (a satellite on its own), a layer change plus a via.
 - **Sites.** `rect`, `disc`, `outline` (key: the board; refused where a script declares two), `row` (key: its first
@@ -687,7 +699,7 @@ is phase 1; "ops" is phase 2; "search" is phase 3.
 | Lever | Needs |
 |---|---|
 | `board.rule` clearance from the shortfall (`copper.meets`, `setup.pitch`); the via at a free spot near the met pad; a `Past`/`Between` waypoint on the declared leg; a pad out of a pour; a rider let be searched; thin the drops of the owning cell; `swallow_pads=True`; `fixed.keepout` and `fixed.cutout` figures | facts (instant), with the ops that exist |
-| the frame's size (`setup.frame_reach`); the web from the measured gap; "Take R6 out of the row"; a satellite on its own; the back layer through a via; slide along its line (`Centre(None, y)`) | facts, plus a site or a nested or multi-edit op |
+| the frame's size (`setup.frame_reach`); the web from the measured gap; "Take R6 out of the row"; a satellite on its own; the back layer through a via | facts, plus a site or a nested or multi-edit op |
 | a blocker's gap or side; the search radius; a fanout depth; a turn; a chamfer or arc radius; a label size; a stitch pitch; `bend=`; the tuning limits | search |
 
 ## Charter fit, added
@@ -724,7 +736,7 @@ declaration, where X is a blocker or neighbour the finding names.
 
 | Case | Suggestions | Edit |
 |---|---|---|
-| `fixed.part`: a decided part not legal | "Let C4 be searched" (drop its `at=`), "Slide C4 along its line" (`Centre(None, y)` where it is pinned on both axes), "Move C1 above ...": on the other item named, "Take C4 on the back face" | `remove_kwarg at`, `set_kwarg`, on the other item |
+| `fixed.part`: a decided part not legal | "Let C4 be searched" (drop its `at=`), "Move C1 above ...": on the other item named, "Take C4 on the back face" | `remove_kwarg at`, `set_kwarg`, on the other item |
 | `fixed.cutout`: web under the minimum or touching the outline | "Place cutout `vent` against the connector's edge instead", "Make the web 1.0 mm" (the minimum, from the finding) | `set_kwarg at=` on `Cutout`, `set_kwarg web=` on the outline form |
 | `fixed.keepout` | as `fixed.part`, on the keepout's `at=` and `margin=` | `set_kwarg` |
 
@@ -812,7 +824,7 @@ leg, a pad out of a pour, a rider let be searched, thin the drops of the owning 
 (all are `instant` here; the searched ones are listed but have no probe yet).
 
 **Phase 5: edit operations.** Nested edits, multi-edit suggestions, the sites for `rect`, `disc`, `outline`, `row` and
-`block`. Enables: the frame size (`setup.frame_reach`), the web from the measured gap (`fixed.cutout`), slide along its line,
+`block`. Enables: the frame size (`setup.frame_reach`), the web from the measured gap (`fixed.cutout`),
 "Take R6 out of the row", a satellite on its own, the back layer through a via, and the nested figures the probe sets (a
 `Beside`'s gap, a `Past`'s `across=`).
 
@@ -956,27 +968,24 @@ application path. The ops therefore cover inserting statements (`board.rect`,
 rest) as well as changing keywords. `board.rect` (renamed from `board.size` in
 0.85.0) is the form the spec uses for a rectangular outline.
 
+## Decided with the user (later on 2026-10-03)
+
+- No suggestion edits `Centre(...)` or `Location(...)`, or writes any coordinate; nested edits are for intent forms
+  (`Beside`, `Past`, a `Cutout`'s relation).
+- A probe over a board-wide value is allowed, with an up-front warning and an estimate from the last resolve's time.
+- The suggestion record has `edits` and `how` and no `edit`.
+- Phase 4 converts every site before release; no mixed state ships, enforced by a test.
+- Sentence templates in one `finding_text.py`; a changed facts schema invalidates the reuse record.
+
 ## Open questions
 
-1. **Replay for edits to board-wide declarations.** `reuse.context_key` includes copper, labels, rules, keepouts and the
-   outline, so a probe over a chamfer, a label size or a stitch pitch replays nothing: each candidate is a full resolve (about
-   3 to 25 s on the fixture modules, measured in the core's real-module tests). A bisection of 5 steps is then 15 s to over 2
-   minutes. Options: accept it and size the budget in seconds; or split the context so that copper and labels (which are
-   planned after the placements) can replay the placement steps while their own stage re-runs. The second changes reuse's
-   correctness argument ("too cautious is the only way a key may be wrong") and is its own design.
-2. **Compatibility of the suggestion record.** The studio branch builds on `edit` (one edit per suggestion). The proposal
-   keeps `edit` and adds `edits` and `how`. Is that acceptable to the studio side, or is a clean change to `edits` only
-   wanted now, before the studio code is merged? Either way the hand-off note changes.
-3. **Bounds for the tuning limits.** `via_move`, `via_leave`, `block_gap_reach` and `escape_via_reach` have no upper bound
-   in the engine. The proposal bounds them by a pad's size or the board's extent, which is a choice. Are those right, or
-   should these four be dropped as suggestions (a search cannot judge them without a bound the board gives)?
-4. **Monotone figures.** Bisection assumes clearing is monotone in the figure. Placement is not always (a smaller chamfer
-   can meet something else). The proposal checks the end and a neighbour and reports a non-monotone result as such. Is that
-   enough, or should a probe also sample the interior?
-5. **Where the sentence templates live.** One `finding_text.py` with a function per cause keeps the sentences together and
-   makes the golden test simple; the alternative is a template beside each site. The proposal is the single module.
-6. **Facts versioning.** `facts_v` per cause, an unknown version ignored. Should a changed schema also invalidate the reuse
-   record (it already holds facts), or only the bound suggestions, which are rebuilt every resolve?
-7. **Size of phase 4.** About 70 sites. The proposal converts by cause, each in a commit with its golden rows, and keeps
-   unconverted cases working. Confirm that a long-running mixed state (some causes structured, some text) is acceptable
-   between commits.
+1. **Bounds for the tuning limits.** `via_move`, `via_leave`, `block_gap_reach` and `escape_via_reach` have no upper bound
+   in the engine. The proposal bounds them by a pad's size or the board's extent. Still being clarified with the user; the
+   spec is unchanged on this until then.
+2. **Monotone figures.** Bisection assumes clearing is monotone in the figure. Placement is not always (a smaller chamfer
+   can meet something else). The proposal checks the end and a neighbour and reports a non-monotone result as such. Enough,
+   or should a probe also sample the interior?
+3. **Cost of the `Refusal` record on the scan hot path.** The proposal builds a record only on refusal, counts by an enum
+   bucket and keeps full records as samples (first and worst per bucket and owner). Measure against the bench first?
+4. **Enum layout.** One `FindingCause` enum of `(kind, string)` members, or one enum per kind nested under `FindingKind`.
+   The proposal is the single enum.
