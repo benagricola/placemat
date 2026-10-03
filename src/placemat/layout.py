@@ -1676,7 +1676,7 @@ class Board:
                 if gap < self.web - 1e-9:
                     why = "would leave a %.2f mm web, under the %.2f mm minimum" % (gap, self.web)
             if why:
-                plan.findings.append(Finding("fixed", "%s (cutout): %s" % (name, why)))
+                plan.findings.append(Finding("fixed", "%s (cutout): %s" % (name, why), case="fixed.cutout"))
             plan.cutouts_placed[name] = settled
 
     def _check_keepouts(self, plan: Plan):
@@ -6191,7 +6191,7 @@ class Board:
             path = c.shape.path_at(centre, turn)
             step = Step(intent.key, "cutout", None, why=intent.why)
             if why:
-                plan.findings.append(Finding("fixed", "%s (cutout): %s" % (c.name, why)))
+                plan.findings.append(Finding("fixed", "%s (cutout): %s" % (c.name, why), case="fixed.cutout"))
                 step.note = why
             else:
                 self._add_cutout(occ, c.name, PlacedCutout(c.name, tuple(path), centre, turn))
@@ -6241,7 +6241,7 @@ class Board:
                 why = None
             step = Step(intent.key, "keepout", None, why=intent.why)
             if why:
-                plan.findings.append(Finding("fixed", "%s (keepout): %s" % (k.name, why)))
+                plan.findings.append(Finding("fixed", "%s (keepout): %s" % (k.name, why), case="fixed.keepout"))
                 step.note = why
             else:
                 path = (region_shape or k.shape).path_at(centre, turn)
@@ -6628,7 +6628,7 @@ class Board:
             with _recording_commits(occ) as commits:
                 alone = self._riders_alone(occ, plan, obj) if riders else None
                 if alone:
-                    plan.findings.append(Finding("unplaced", "%s: %s" % (obj.key, alone)))
+                    plan.findings.append(Finding("unplaced", "%s: %s" % (obj.key, alone), case="unplaced.rides"))
                     step = self._step(obj, None, 0.0, "UNPLACED: " + alone)
                 else:
                     step = self._settle(occ, obj, plan, placed)
@@ -6890,10 +6890,13 @@ class Board:
                         note += "; on the %s face, where the %s has no pocket it fits" % (face.value, i.face.value)
                     return self._step(i, result.chosen, 0.0, note)
                 tried.append(pocket)
-        plan.findings.append(Finding("unplaced", "%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
+        from . import suggest_facts
+        plan.findings.append(self._finding("unplaced", "unplaced.pocket",
+            "%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
-            self._face_text(i), len(tried)) + "".join("; %s" % why for why in riders.values())))
+            self._face_text(i), len(tried)) + "".join("; %s" % why for why in riders.values()),
+            suggest_facts.unplaced_pocket(self, i)))
         return self._step(i, None, 0.0, "UNPLACED: no pocket fits" + "".join("; %s" % why for why in riders.values()))
 
     def _seeded_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, hint: Placement, score,
@@ -7091,6 +7094,12 @@ class Board:
             done[key] = (op, own, face)
             if progress:
                 progress("%-28s copper  label    %s" % (key, note))
+
+    def _finding(self, kind: str, case: str, text: str, facts: dict) -> Finding:
+        """A finding with its case and the facts it was raised on, and the suggestions built from them. Raised inside
+        a step, so a replayed step keeps them (reuse.py)."""
+        from . import suggestions
+        return Finding(kind, text, case=case, facts=facts, suggestions=suggestions.suggest(case, facts, self.settings))
 
     def _label_finding(self, case: str, key: str, text: str) -> Finding:
         """A label finding with its case and what the label was declared as (its side and size), the facts the
@@ -7599,9 +7608,11 @@ class Board:
                 key = _reason_key(why)
                 rejected[key] += 1
                 reasons.setdefault(key, why)
-        plan.findings.append(Finding("unplaced", "%s: no room anywhere %s (%s)%s" % (
+        from . import suggest_facts
+        plan.findings.append(self._finding("unplaced", "unplaced.slide", "%s: no room anywhere %s (%s)%s" % (
             i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3)),
-            "".join("; %s" % why for k, why in reasons.items() if k.startswith("rider ")))))
+            "".join("; %s" % why for k, why in reasons.items() if k.startswith("rider "))),
+            suggest_facts.unplaced_slide(self, i)))
         return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()))
 
     def _slide_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec, ideal: float, lo: float, hi: float,
@@ -7628,8 +7639,10 @@ class Board:
             key = _reason_key(why)
             rejected[key] += 1
             reasons.setdefault(key, why)
-        plan.findings.append(Finding("unplaced", "%s: no room anywhere %s (%s)" % (
-            i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
+        from . import suggest_facts
+        plan.findings.append(self._finding("unplaced", "unplaced.slide", "%s: no room anywhere %s (%s)" % (
+            i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3))),
+            dict(suggest_facts.unplaced_slide(self, i), edge="")))
         return self._commit_block(occ, spec, {}, i, plan, "UNPLACED: " + "; ".join(reasons.values()))
 
     def _settle_block_along_edge(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
@@ -8139,7 +8152,9 @@ class Board:
                                         past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
                                         and i.clearance < self.keep_in)
             if members is None:
-                plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
+                from . import suggest_facts
+                plan.findings.append(self._finding("fixed", "fixed.part", "%s (%s): %s" % (i.key, i.freedom.value, why),
+                                                   suggest_facts.fixed_part(self, i)))
                 members = {spec.anchor.inst: anchor}
             return self._commit_block(occ, spec, members, i, plan, why or "")
         if i.run is not None:
@@ -8197,13 +8212,17 @@ class Board:
                 best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,),
                                                             clr, score, pick=self._pick(i))
             if best is None and alone is not None:
-                plan.findings.append(Finding("unplaced", "%s: cannot be laid out on its own at any rotation it may "
-                                             "take, whatever room the board has (%s)" % (i.key, alone)))
+                plan.findings.append(self._finding("unplaced", "unplaced.block",
+                                                   "%s: cannot be laid out on its own at any rotation it may "
+                                                   "take, whatever room the board has (%s)" % (i.key, alone),
+                                                   {"item": i.key, "gap_reach": self.settings.place_block_gap_reach}))
                 members = {}
                 note = "UNPLACED: " + alone
             elif best is None:
-                plan.findings.append(Finding("unplaced", "%s: no legal spot within %.1f mm of %s (%s)" % (
-                    i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
+                plan.findings.append(self._finding("unplaced", "unplaced.block",
+                                                   "%s: no legal spot within %.1f mm of %s (%s)" % (
+                    i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))),
+                    {"item": i.key, "gap_reach": self.settings.place_block_gap_reach}))
                 members = {}
                 note = "UNPLACED"
             else:
@@ -8530,7 +8549,7 @@ class Board:
         if step.placement is None:
             for r in self._ride_groups[i.key]:
                 why = "rides %s, which found no place" % self._rider_of[r.key]
-                plan.findings.append(Finding("unplaced", "%s: %s" % (r.key, why)))
+                plan.findings.append(Finding("unplaced", "%s: %s" % (r.key, why), case="unplaced.rides"))
                 plan.steps.append(self._step(r, None, 0.0, "UNPLACED: " + why))
             return
         laid = self._ride(occ, plan, i, step.placement, None, stop=False)
@@ -8539,7 +8558,9 @@ class Board:
         for r, p, chose, on_board, in_group in laid:
             why = on_board or in_group
             if why:
-                plan.findings.append(Finding("fixed", "%s (%s): %s" % (r.key, r.freedom.value, why)))
+                from . import suggest_facts
+                plan.findings.append(self._finding("fixed", "fixed.part", "%s (%s): %s" % (r.key, r.freedom.value, why),
+                                                   suggest_facts.fixed_part(self, r)))
             tags = ["rides %s" % self._rider_of[r.key]] + (["required"] if r.required else [])
             note = "; ".join(x for x in tags + [chose, why, r.faces_note] if x)
             plan.steps.append(self._step(r, p, 0.0, note))
@@ -8573,7 +8594,9 @@ class Board:
             # its commit does what this found
             why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
             if why:
-                plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
+                from . import suggest_facts
+                plan.findings.append(self._finding("fixed", "fixed.part", "%s (%s): %s" % (i.key, i.freedom.value, why),
+                                                   suggest_facts.fixed_part(self, i)))
             return self._step(i, p, 0.0, "; ".join(x for x in (chose, why) if x))
         if i.turns_on_point:
             return self._settle_turns_on_point(occ, i, plan, placed, clr, push_sources)
@@ -8658,7 +8681,9 @@ class Board:
             radius = max(i.radius, body.width, body.height)
         hopeless = "" if bt is not None or band is not None else self._no_pocket_note(occ, i)
         if hopeless:
-            plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, hopeless)))
+            from . import suggest_facts
+            plan.findings.append(self._finding("unplaced", "unplaced.pocket", "%s: %s" % (i.key, hopeless),
+                                               suggest_facts.unplaced_pocket(self, i)))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
         if self._on_begin is not None:
             self._phase("scanning the %s" % self._face_text(i), hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
@@ -8701,7 +8726,9 @@ class Board:
                     return step
                 blame += "; no pocket took it (%d tried)" % tried
             late = self._room_lost_text(plan, i)
-            plan.findings.append(Finding("unplaced", "%s: %s%s" % (i.key, blame, late)))
+            from . import suggest_facts
+            plan.findings.append(self._finding("unplaced", "unplaced.search", "%s: %s%s" % (i.key, blame, late),
+                                               suggest_facts.unplaced_search(self, occ, plan, i, placed, result, hint, radius)))
             return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()) + late)
         note = seeded
         if face_note:
@@ -8882,8 +8909,10 @@ class Board:
             away = abs((rot - declared + 180.0) % 360.0 - 180.0)
             found.append((cost, away, rot, p, chose))
         if not found:
-            plan.findings.append(Finding("unplaced", "%s: no bearing of %d tried leaves it legal on its point (%s)" % (
-                i.key, len(turns), ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
+            plan.findings.append(self._finding("unplaced", "unplaced.bearing",
+                                               "%s: no bearing of %d tried leaves it legal on its point (%s)" % (
+                i.key, len(turns), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))),
+                {"item": i.key, "bearing_step": self.settings.place_bearing_step}))
             return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()))
         cost, away, rot, p, chose = min(found, key=lambda f: f[:3])
         note = "turned %g of %d bearings tried about its point" % (rot, len(turns))

@@ -110,3 +110,77 @@ def reservation_source(owner: str) -> dict:
     if m:
         return {"fanout": m.group(1)}
     return {}
+
+
+def _item_facts(board, i) -> dict:
+    return {"item": i.key, "kind": i.kind, "face": "either" if i.either else i.face.value,
+            "priority": i.priority.value if i.priority_source == "script" else "",
+            "step": i.step, "radius": i.radius}
+
+
+def unplaced_search(board, occ, plan, i, placed, result, hint, radius) -> dict:
+    """The facts for a search that found no legal spot: what refused most candidates and who, the parts that pull the
+    item and the sides of each it may stand beside, and what the declaration leaves the search."""
+    from .layout import _BLOCKED_BY, _KNOWN_BUCKETS, VIA_BUCKET
+    top = dominant(result)
+    facts = _item_facts(board, i)
+    facts.update(dominant=top, radius=round(radius, 3), near=i.near is not None,
+                 turns=len(board._turns(i)) if i.rotation is not None else 0, rotation_given=bool(i.rotation_given),
+                 envelope=board.settings.place_envelope, via_move=board.settings.place_via_move,
+                 via_leave=board.settings.place_via_leave)
+    facts["drawn"] = bool(top) and top not in _KNOWN_BUCKETS and top != VIA_BUCKET and not top.startswith("rider ")
+    facts["via"] = top == VIA_BUCKET
+    owners = owners_of(result, top, _BLOCKED_BY) if top else []
+    facts["blockers"] = owners[:3]
+    if top == "reservation":
+        facts["reservations"] = [s for s in (reservation_source(o) for o in owners[:3]) if s]
+        for r in facts["reservations"]:
+            name = r.get("keepout")
+            k = board._keepouts.get(name) if name else None
+            if k is not None:
+                r["bars"] = bool(k.bars)
+    free = {}
+    for nb in partners(board, i, occ, placed, hint.location):
+        sides = free_sides(board, occ, plan, i, nb, hint.location, hint.rotation, hint.face)
+        if sides:
+            free[nb] = sides
+    facts["free_sides"] = free
+    return facts
+
+
+def link_candidates(board, i, limit: int = 2) -> list:
+    """Pairs of pads that could be linked to pull item `i` toward the part it shares a net with: [{"own": pad number,
+    "partner": instance name, "pad": pad number}], the partner being a declared item other than `i`."""
+    quiet = board._plane_nets() | board._free_nets
+    declared = {x.key for x in board._intents if hasattr(x, "item")}
+    out, seen = [], set()
+    for fp in members_of(i.item):
+        for p in fp.pads:
+            if not p.net or p.net in quiet:
+                continue
+            for other in board.geometry.pads_on_net(p.net):
+                partner = inst_of(board, other.owner)
+                if other.owner == fp.ref or partner not in declared or partner == i.key or partner in seen:
+                    continue
+                seen.add(partner)
+                out.append({"own": p.number, "partner": partner, "pad": other.number})
+                break
+    return out[:limit]
+
+
+def unplaced_pocket(board, i) -> dict:
+    facts = _item_facts(board, i)
+    facts["links"] = link_candidates(board, i)
+    return facts
+
+
+def unplaced_slide(board, i) -> dict:
+    facts = _item_facts(board, i)
+    facts["edge"] = i.edge.name if i.edge is not None else ""
+    return facts
+
+
+def fixed_part(board, i) -> dict:
+    facts = _item_facts(board, i)
+    facts["freedom"] = i.freedom.value
+    return facts

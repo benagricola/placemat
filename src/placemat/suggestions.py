@@ -546,6 +546,10 @@ def _item(key):
     return {"item": key}
 
 
+from .values import Edge as _Edge    # noqa: E402
+_EDGES = tuple(_Edge)
+
+
 def _enum(text):
     return {"enum": text}
 
@@ -564,6 +568,8 @@ def _refs_of(value, out=None):
     if isinstance(value, dict):
         if "item" in value:
             out[value["item"]] = Target("place", value["item"])
+        if "pad" in value:
+            out[value["pad"][0]] = Target("place", value["pad"][0])
         for v in value.values():
             _refs_of(v, out)
     elif isinstance(value, (list, tuple)):
@@ -698,3 +704,150 @@ def copper_cross(f, settings):
         out.append(_set("track", f["yielder"], "priority", _enum("Priority.HIGH"),
                         "Let %s yield to %s" % (other, me), "priority"))
     return out
+
+
+# ------------------------------------------------------------------ builders: unplaced
+def _face_other(face: str) -> str:
+    return "back" if face == "front" else "front"
+
+
+def _insert_after(kind, key, value, text, lever="") -> Pick:
+    return Pick(text, Edit("insert_statement", Target(kind, key), {}, value, _refs_of(value)), lever)
+
+
+def _widened(x, settings, digits=1):
+    return round(x * settings.studio_suggest_factor, digits)
+
+
+@case("unplaced.search")
+def unplaced_search(f, settings):
+    item = f["item"]
+    out = []
+    for nb, sides in f.get("free_sides", {}).items():
+        for side in sides:
+            out.append(_set("place", item, "at", _beside(nb, side),
+                            "Place %s beside %s, on its %s side" % (item, nb, _side_word(side)), "beside"))
+    if f.get("priority") != "high":
+        out.append(_set("place", item, "priority", _enum("Priority.HIGH"),
+                        "Place %s before the parts that crowd it" % item, "priority"))
+    if f.get("face") in ("front", "back"):
+        out.append(_set("place", item, "face", _enum("Face.EITHER"),
+                        "Let %s take the %s face too" % (item, _face_other(f["face"])), "face"))
+    if f.get("kind") == "part" and f.get("turns", 0) < 4:
+        out.append(_set("place", item, "rotations", {"list": [{"num": n} for n in (0, 90, 180, 270)]},
+                        "Let %s take all four turns" % item, "turns"))
+    if f.get("kind") == "part" and f.get("turns", 0) < 8:
+        out.append(_set("place", item, "rotations", _enum("Turns.ANY"),
+                        "Let %s turn to any bearing" % item, "turns"))
+    for r in f.get("reservations", ()):
+        if "keepout" in r and not r.get("bars"):
+            out.append(_add_to("keepout", r["keepout"], "allow", _item(item),
+                               "Let %s into keepout `%s`" % (item, r["keepout"]), "reservation"))
+        elif "label" in r:
+            ref = r["label"].split(" ", 2)[1]
+            out.append(_set("label", r["label"], "reserve", False,
+                            "Stop the label of %s reserving room" % ref, "reservation"))
+    if f.get("drawn") and f.get("envelope") != "courtyard":
+        out.append(_setting("place", "envelope", "courtyard", "Judge parts by their courtyards",
+                            "A run's finding (unplaced.search): %s was refused by what parts draw round themselves; "
+                            "courtyards are what the envelope reads." % item, "envelope"))
+    if f.get("via"):
+        if f.get("via_move", 0) > 0:
+            wide = _widened(f["via_move"], settings, 2)
+            out.append(_setting("place", "via_move", wide, "Let a via move further: place.via_move %g" % wide,
+                                "A run's finding (unplaced.search): %s was refused where a via could not give way; "
+                                "place.via_move was %g mm." % (item, f["via_move"]), "via"))
+        if f.get("via_leave", 0) > 0:
+            wide = _widened(f["via_leave"], settings, 2)
+            out.append(_setting("place", "via_leave", wide, "Let a via leave its pad further: place.via_leave %g" % wide,
+                                "A run's finding (unplaced.search): %s was refused where a via could not give way; "
+                                "place.via_leave was %g mm." % (item, f["via_leave"]), "via"))
+    if f.get("radius"):
+        wide = _widened(f["radius"], settings)
+        out.append(_set("place", item, "radius",
+                        _const(_name(item, "search", "radius", "mm"), wide,
+                               "A run's finding (unplaced.search): %s found no legal spot within %s mm of its hint; "
+                               "searched %g times as far." % (item, f["radius"], settings.studio_suggest_factor)),
+                        "Search %s within a larger radius" % item, "radius"))
+    return out
+
+
+@case("unplaced.pocket")
+def unplaced_pocket(f, settings):
+    item = f["item"]
+    out = []
+    for link in f.get("links", ()):
+        pads = [{"pad": [item, link["own"]]}, {"pad": [link["partner"], link["pad"]]}]
+        out.append(_insert_after("place", item, _form("board.link", *pads),
+                                 "Pull %s toward %s pad %s" % (item, link["partner"], link["pad"]), "link"))
+    if f.get("face") in ("front", "back"):
+        out.append(_set("place", item, "face", _enum("Face.EITHER"),
+                        "Let %s take the %s face too" % (item, _face_other(f["face"])), "face"))
+    if f.get("step"):
+        fine = round(f["step"] / settings.studio_suggest_factor, 3)
+        out.append(_set("place", item, "step",
+                        _const(_name(item, "search", "step", "mm"), fine,
+                               "A run's finding (unplaced.pocket): no pocket took %s at a %s mm step; searched %g times "
+                               "finer." % (item, f["step"], settings.studio_suggest_factor)),
+                        "Search %s on a finer step" % item, "step"))
+    return out
+
+
+@case("unplaced.slide")
+def unplaced_slide(f, settings):
+    item, here = f["item"], f.get("edge")
+    return [_set("place", item, "at", _form("OnEdge", _enum("Edge.%s" % e.name)),
+                 "Put %s on the %s edge" % (item, _side_word(e.name)), "edge")
+            for e in _EDGES if here and e.name != here]
+
+
+@case("unplaced.block")
+def unplaced_block(f, settings):
+    item = f["item"]
+    out = [_set("place", item, "rotations", _enum("Turns.ANY"), "Let the block turn to any of its turns", "turns")]
+    reach = f.get("gap_reach")
+    if reach:
+        wide = _widened(reach, settings)
+        out.append(_setting("place", "block_gap_reach", wide,
+                            "Let satellites stand further off: place.block_gap_reach %g" % wide,
+                            "A run's finding (unplaced.block): %s could not be laid out; place.block_gap_reach was "
+                            "%g mm." % (item, reach), "reach"))
+    return out
+
+
+@case("unplaced.bearing")
+def unplaced_bearing(f, settings):
+    step = f.get("bearing_step")
+    if not step:
+        return []
+    fine = round(step / settings.studio_suggest_factor, 3)
+    return [_setting("place", "bearing_step", fine, "Step bearings finer: place.bearing_step %g" % fine,
+                     "A run's finding (unplaced.bearing): no bearing of those tried left %s legal; place.bearing_step "
+                     "was %g degrees." % (f["item"], step))]
+
+
+@case("unplaced.rides")
+def unplaced_rides(f, settings):
+    return []
+
+
+# ------------------------------------------------------------------ builders: fixed
+@case("fixed.part")
+def fixed_part(f, settings):
+    item = f["item"]
+    out = [_unset("place", item, "at", "Let %s be searched" % item, "search")]
+    if f.get("face") == "front":
+        out.append(_set("place", item, "face", _enum("Face.BACK"), "Take %s on the back face" % item, "face"))
+    elif f.get("face") == "back":
+        out.append(_set("place", item, "face", _enum("Face.FRONT"), "Take %s on the front face" % item, "face"))
+    return out
+
+
+@case("fixed.cutout")
+def fixed_cutout(f, settings):
+    return []
+
+
+@case("fixed.keepout")
+def fixed_keepout(f, settings):
+    return []
