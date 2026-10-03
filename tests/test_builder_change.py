@@ -157,3 +157,24 @@ def test_a_turn_is_written_as_a_literal_with_its_reason_and_zero_takes_it_off(tm
     assert "rotation" not in text3
     with pytest.raises(BuilderRefused, match="quarter turn"):
         bt.turn_edits(s.ctx, "u1", 45)
+
+
+def test_unplace_takes_the_placing_statement_out_in_one_step_and_the_step_before_is_the_text_undo_restores(tmp_path):
+    s = Session(tmp_path)
+    s.act(["j1"], EDGE_N, "on_edge_mid")
+    s.act(["u1"], {"kind": "edge", "edge": "SOUTH"}, "on_edge_mid")
+    before = s.text
+    assert s.status("u1") == "decided"
+    sug = bi.remove_edits(s.ctx, "u1")
+    assert sug.text.startswith("Unplace")
+    s.apply(sug.edits)
+    assert s.status("u1") == "unplaced" and s.status("j1") == "decided"
+    assert 'Part("u1")' not in s.text and 'Part("j1")' in s.text
+    assert s.history[-2] == before
+
+
+def test_unplace_of_a_row_member_leaves_the_rest_of_the_row(tmp_path):
+    s = Session(tmp_path)
+    s.act(["r1", "c1", "c4"], {"kind": "edge", "edge": "EAST"}, "row_mid")
+    s.apply(bi.remove_edits(s.ctx, "c1").edits)
+    assert s.status("c1") == "unplaced" and s.status("r1") == "decided" and s.status("c4") == "decided"

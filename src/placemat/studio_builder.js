@@ -4,6 +4,28 @@
 // the parts list, the relation menu, the timeline. The page only draws what the server returns and sends back what the user chose:
 // records, never source text. It reaches the studio page through its globals (S, T, esc, $, es, render, renderPicker, goTab,
 // showNarrow, schedule) and adds its own elements.
+// The part of the selection logic that needs no page: what a click on a list row does to the subjects and the target. tests/test_studio_page.py
+// runs this block in node.
+const BuilderPure = {
+  // rows: [{key, ref, status}]; subj: the selected keys; chip: what a click picks (edge, part, pad, none); multi: shift, ctrl or the tick box.
+  // Returns {subj, target (a key or null), say (a sentence or "")}.
+  rowClick(rows, subj, chip, key, multi) {
+    const by = k => rows.find(r => r.key === k) || {};
+    const unplaced = k => (by(k).status || "unplaced") === "unplaced";
+    const picking = subj.length > 0 && (chip === "part" || chip === "pad") && !multi;
+    if (picking) {
+      if (unplaced(key) && !subj.includes(key)) return {subj, target: null, say: by(key).ref + " is not placed yet, so there is no place to be beside. Place it first."};
+      if (!unplaced(key)) {
+        const rest = subj.filter(k => k !== key && unplaced(k));       // the part just placed is still selected: it is the target, not a subject
+        if (rest.length) return {subj: rest, target: key, say: ""};
+      }
+    }
+    if (subj.includes(key)) return {subj: subj.filter(k => k !== key), target: null, say: ""};
+    if (multi) return {subj: unplaced(key) ? subj.filter(unplaced).concat(key) : [key], target: null, say: ""};
+    return {subj: [key], target: null, say: ""};
+  },
+};
+// ---- end of the part that needs no page
 (() => {
 const BS = {
   st: null, facts: null, parts: null, offers: null, subj: [], target: null, chip: "edge", form: null, ol: null, step: "board",
@@ -45,8 +67,8 @@ css.textContent = `
 .bld-btn[disabled] { opacity: .5; cursor: default; }
 .bld-btn.good { background: var(--good-soft); color: var(--good); border-color: var(--good); }
 #bld .bb { flex: 1; overflow: auto; padding: 16px; }
-.bld-wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 16px; }
-.bld-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.bld-wrap { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.bld-card { min-width: 0; overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
 .bld-card h3 { margin: 0 0 8px; font-size: 14px; }
 .bld-card h4 { margin: 10px 0 4px; font-size: 12.5px; color: var(--dim); font-weight: 600; }
 .bld-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 12px; }
@@ -71,7 +93,7 @@ css.textContent = `
 .bld-svg .hole { fill: var(--canvas); stroke: var(--outline); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .bld-svg .grd { stroke: var(--grid-minor); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .bld-svg text { font-size: 3px; fill: var(--dim); }
-@media (max-width: 900px) { .bld-two { grid-template-columns: 1fr; } #bld .bb { padding: 10px; } .bld-svg { height: 280px; } }
+@media (max-width: 900px) { .bld-two { grid-template-columns: minmax(0, 1fr); } #bld .bb { padding: 10px; } .bld-svg { height: 280px; } }
 /* the Build tab */
 #tab-build { padding: 0 0 24px; }
 #tab-build .bt-head { padding: 8px 12px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
@@ -82,6 +104,7 @@ css.textContent = `
 .bt-prow .sub { color: var(--dim); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bt-prow .sh { font-size: 11px; color: var(--warn); }
 .bt-prow.nowrap > * { min-width: 0; }
+.bt-un { border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 1px 8px; font-size: 11px; margin-left: 4px; }
 .bt-chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .bt-chips button, .bt-side button { border: 1px solid var(--line); background: var(--surface2); border-radius: 999px; padding: 3px 11px; min-height: 28px; font-size: 12px; }
 .bt-chips button.on, .bt-side button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -215,7 +238,7 @@ function boardStep(body) {
   }
   const b = st.board;
   body.innerHTML = '<div class="bld-card"><h3>The generated board</h3><div class="bld-grid">' +
-    [["parts", b.parts], ["cells", b.cells], ["copper layers", b.copper_layers], ["courtyard area", b.total_courtyard_area.toFixed(1) + " mm²"]]
+    [["parts", b.parts], ["cells", b.cells], ["copper layers", b.copper_layers], ["courtyard area", b.total_courtyard_area.toFixed(1) + " mm\u00b2"]]
       .map(x => '<div class="bld-f"><span>' + x[0] + "</span><b>" + h(x[1]) + "</b></div>").join("") + '</div><p class="bld-note">Every footprint is unplaced: nothing is declared yet. State the board\'s facts next; nothing proceeds on a default.</p>' +
     '<button class="bld-btn primary" id="bld-next">Facts</button></div>';
   q("#bld-next").onclick = () => { BS.step = "facts"; drawWizard(true); };
@@ -267,7 +290,7 @@ function stackCard() {
     '<table class="bld-tbl"><tr><th>Layer</th><th>Role / form</th><th>Weight or thickness</th><th></th></tr>' +
     F.rows.map((r, i) => r.kind === "copper" ? '<tr><td>' + h(layerName(i)) + '</td><td><select data-st="' + i + '" data-k="role"><option value="">choose</option>' + ["signal", "power", "mixed", "ground"].map(x => '<option' + (r.role === x ? " selected" : "") + ">" + x + "</option>").join("") + '</select></td><td><div class="bld-row tight"><input data-st="' + i + '" data-k="val" value="' + h(r.val) + '" style="max-width:90px"><select data-st="' + i + '" data-k="mode" style="max-width:80px">' + ["oz", "um", "mm"].map(x => '<option' + (r.mode === x ? " selected" : "") + ">" + x + "</option>").join("") + '</select><span class="bld-note" id="st-conv-' + i + '">' + h(convText(r)) + "</span></div></td><td></td></tr>" :
       '<tr><td class="bld-note">dielectric</td><td><select data-st="' + i + '" data-k="form"><option value="">any</option>' + ["core", "prepreg"].map(x => '<option' + (r.form === x ? " selected" : "") + ">" + x + "</option>").join("") + '</select></td><td><div class="bld-row tight"><input data-st="' + i + '" data-k="mm" value="' + h(r.mm) + '" style="max-width:90px"><span class="bld-note">mm</span><input data-st="' + i + '" data-k="material" value="' + h(r.material || "FR4") + '" style="max-width:90px" title="the material of the stackup\'s materials list"></div></td><td></td></tr>').join("") +
-    '</table><div class="bld-row" style="margin-top:8px"><button class="bld-btn primary" id="st-write">Write the stackup</button><span class="bld-note">1 oz/ft² = 0.035 mm; the file holds the thickness in mm with the oz as a comment.</span></div>';
+    '</table><div class="bld-row" style="margin-top:8px"><button class="bld-btn primary" id="st-write">Write the stackup</button><span class="bld-note">1 oz/ft\u00b2 = 0.035 mm; the file holds the thickness in mm with the oz as a comment.</span></div>';
   q("#st-n").onchange = e => resizeStack(parseInt(e.target.value, 10));
   qa("[data-st]", el).forEach(inp => inp.oninput = inp.onchange = e => { const r = F.rows[+inp.dataset.st]; r[inp.dataset.k] = inp.value; const c = q("#st-conv-" + inp.dataset.st); if (c) c.textContent = convText(r); });
   q("#st-write").onclick = () => writeFacts("stackup");
@@ -306,7 +329,7 @@ function viasCard() {
   const tier = k => '<label class="bld-f">' + k + ' vias<select data-vi="' + k + '"><option value="">choose</option>' + f.defaults.tiers.map(t => '<option' + (F.via[k] === t ? " selected" : "") + ">" + t + "</option>").join("") + "</select></label>";
   el.innerHTML = "<h3>Via types and fab minimums " + sectionState(r => r.fact === "via" || r.fact === "min") + '</h3><p class="bld-note">In <code>' + h(file) + "</code>. " + h(f.fab.says) + '</p><div class="bld-grid">' +
     f.defaults.via_kinds.map(tier).join("") +
-    '<label class="bld-f">default drill mm<input data-vi="drill" value="' + h(F.via.drill) + '"></label><label class="bld-f">default size mm<input data-vi="size" value="' + h(F.via.size) + '"></label></div><h4>Fab minimums (mm)</h4><div class="bld-grid">' +
+    '<label class="bld-f">default drill mm<input data-vi="drill" value="' + h(F.via.drill) + '"></label><label class="bld-f">default size mm<input data-vi="size" value="' + h(F.via.size) + '"></label></div><h4>Fab minimums in mm</h4><div class="bld-grid">' +
     f.defaults.min_keys.map(k => '<label class="bld-f">' + h(k.replace("_mm", "")) + '<input data-mn="' + k + '" value="' + h(F.min[k]) + '"></label>').join("") + '</div>' +
     '<div class="bld-row" style="margin-top:8px"><button class="bld-btn primary" id="vi-write">Write via types and minimums</button></div>';
   qa("[data-vi]", el).forEach(inp => inp.oninput = inp.onchange = () => { F.via[inp.dataset.vi] = inp.value; });
@@ -343,13 +366,13 @@ function factsRequest(which) {
     req.pairs = {classes: on.map(c => { const w = num(c.w), g = num(c.g); if (!c.name || w == null || g == null) throw new Error("give each pair a class name, a width and a gap in mm"); return {name: c.name, diff_pair_width: w, diff_pair_gap: g, nets: c.nets}; })};
   } else if (which === "via") {
     const v = {};
-    for (const k of ["micro", "blind", "buried"]) { if (!F.via[k]) throw new Error("choose a tier for " + k + " vias (no is a decision)"); v[k] = F.via[k]; }
+    for (const k of ["micro", "blind", "buried"]) { if (!F.via[k]) throw new Error("choose a tier for " + k + " vias: no is a decision too"); v[k] = F.via[k]; }
     if (num(F.via.drill) != null) v.default_drill_mm = num(F.via.drill);
     if (num(F.via.size) != null) v.default_size_mm = num(F.via.size);
     req.via = v;
     const mn = {};
     for (const [k, s] of Object.entries(F.min)) if (num(s) != null) mn[k] = num(s);
-    if (!Object.keys(mn).length) throw new Error("give the fab's minimums (at least one)");
+    if (!Object.keys(mn).length) throw new Error("give at least one of the fab's minimums");
     req.min = mn;
   } else if (which === "rise") {
     const v = num(F.rise); if (v == null || v <= 0) throw new Error("the rise is a number of degrees C above 0");
@@ -381,7 +404,7 @@ function drawFactsBottom() {
   const res = BS.form.result;
   el.innerHTML = '<div class="bld-card"><h3>Confirm</h3>' +
     (res && res.readback && res.readback.length ? '<div class="bld-msg bad">The generator did not take: ' + res.readback.map(r => h(r.name + " (asked " + JSON.stringify(r.asked) + ", got " + JSON.stringify(r.got) + ")")).join("; ") + '. <button class="bld-btn" id="fb-undo">Undo the batch</button></div>' : "") +
-    flagged.map(r => '<label class="bld-row"><input type="checkbox" data-ack="plane:' + h(r.label) + '"' + (BS.acks["plane:" + r.label] ? " checked" : "") + '> ' + h(r.flag) + ": the plane is declared in the layout script, not here (acknowledge it, or change the layer's role above)</label>").join("") +
+    flagged.map(r => '<label class="bld-row"><input type="checkbox" data-ack="plane:' + h(r.label) + '"' + (BS.acks["plane:" + r.label] ? " checked" : "") + '> ' + h(r.flag) + ": the plane is declared in the layout script, not here. Acknowledge it, or change the layer's role above.</label>").join("") +
     '<div class="bld-gate' + (m.gate.open ? " open" : "") + '">' + (m.gate.open ? "The facts are confirmed: placement is open." : "Placement and \"Search the rest\" wait for this confirmation. " + h(m.confirmable.join("; "))) + '</div>' +
     '<div class="bld-row" style="margin-top:8px"><button class="bld-btn primary" id="fb-confirm"' + (m.confirmable.length ? " disabled" : "") + ">Confirm the facts</button></div></div>";
   qa("[data-ack]", el).forEach(i => i.onchange = async () => { BS.acks[i.dataset.ack] = i.checked; await refreshFacts(); redrawFacts(); });
@@ -398,7 +421,7 @@ async function redo() { try { await post("/suggest/redo"); say("Redone.", "info"
 async function afterWrite() { await refreshState(); await refreshParts(); }
 
 // ---------------------------------------------------------------- the outline
-const SHAPE_LABEL = {rect: "Rectangle", rect_chamfer: "Rectangle, corners cut", rect_round: "Rectangle, corners rounded", disc: "Circle", disc_bore: "Circle with a bore", slot: "Slot (a stadium)", polygon: "Polygon"};
+const SHAPE_LABEL = {rect: "Rectangle", rect_chamfer: "Rectangle, corners cut", rect_round: "Rectangle, corners rounded", disc: "Circle", disc_bore: "Circle with a bore", slot: "Slot with round ends", polygon: "Polygon"};
 const TEMPLATES = {"": "Free vertex list", l_shape: "L shape", notch: "Notched edge", cut_corners: "Cut corners"};
 function newOutline(from) {
   const st = BS.st || {}, set = st.settings || {fill: 0.5};
@@ -477,15 +500,15 @@ function drawOutline(body, mode) {
     '<label class="bld-f">Shape<select data-ol="shape">' + Object.keys(SHAPE_LABEL).map(k => '<option value="' + k + '"' + (o.shape === k ? " selected" : "") + ">" + SHAPE_LABEL[k] + "</option>").join("") + "</select></label>" +
     (o.shape === "polygon" ? '<label class="bld-f">Template<select data-ol="template">' + Object.keys(TEMPLATES).map(k => '<option value="' + k + '"' + (o.template === k ? " selected" : "") + ">" + TEMPLATES[k] + "</option>").join("") + "</select></label>" : "") +
     '<h4>Suggested size</h4><div class="bld-grid"><label class="bld-f">Fill, % of a face<input data-ol="fill" value="' + h(o.fill) + '"></label><label class="bld-f">Faces<select data-ol="faces"><option value="1"' + (+o.faces === 1 ? " selected" : "") + '>one</option><option value="2"' + (+o.faces === 2 ? " selected" : "") + ">two</option></select></label>" +
-    (isRect(o.shape) || o.template ? f("Aspect (width / height)", "aspect") : "") + '</div><div class="bld-note" id="ol-sug"></div><h4>Size, mm</h4><div class="bld-grid">' +
+    (isRect(o.shape) || o.template ? f("Aspect, width over height", "aspect") : "") + '</div><div class="bld-note" id="ol-sug"></div><h4>Size, mm</h4><div class="bld-grid">' +
     (isRect(o.shape) ? f("Width", "w") + f("Height", "h") + (o.shape === "rect_chamfer" ? f("Chamfer", "ch") : "") + (o.shape === "rect_round" ? f("Corner radius", "ra") : "") : "") +
     (isDisc(o.shape) ? f("Diameter", "d") + (o.shape === "disc_bore" ? f("Bore", "bore") : "") : "") + (o.shape === "slot" ? f("Length", "len") + f("Width", "wid") : "") + '</div><div class="bld-note" id="ol-fill"></div>' +
     (o.shape === "polygon" ? '<h4>Vertices, mm from the top-left, y down</h4><div id="ol-pts"></div><button class="bld-btn" id="ol-addpt">Add a vertex</button> <button class="bld-btn" id="ol-delpt">Remove the selected</button>' : "") +
     '<h4>Holes</h4><div id="ol-holes"></div><button class="bld-btn" id="ol-addhole">Add a hole</button>' +
-    (mode === "create" ? '<h4>The script</h4><label class="bld-f">Description (the script\'s docstring, optional)<input data-ol="desc" value="' + h(o.desc) + '"></label>' : "") +
+    (mode === "create" ? '<h4>The script</h4><label class="bld-f">Description for the docstring<input data-ol="desc" value="' + h(o.desc) + '"></label>' : "") +
     '<div class="bld-row" style="margin-top:12px"><button class="bld-btn primary" id="ol-go">' + (mode === "create" ? "Make the layout script" : "Apply the change") + '</button><span class="bld-note" id="ol-err"></span></div><div id="ol-aff"></div></div>' +
     '<div class="bld-card"><svg class="bld-svg" id="ol-svg" xmlns="http://www.w3.org/2000/svg"></svg><p class="bld-note">Drag a handle to change a size (it snaps to ' + h(set.grid_mm) + ' mm); the origin is the top-left corner and does not move. A drag is a size, never a position.</p>' +
-    '<div class="bld-note">Parts: ' + h(b.total_courtyard_area.toFixed(1)) + " mm² of courtyard.</div></div></div>";
+    '<div class="bld-note">Parts: ' + h(b.total_courtyard_area.toFixed(1)) + " mm\u00b2 of courtyard.</div></div></div>";
   qa("[data-ol]", body).forEach(inp => inp.onchange = inp.oninput = e => olInput(inp, e.type === "change"));
   q("#ol-go").onclick = () => olGo(mode);
   const ap = q("#ol-addpt"); if (ap) { ap.onclick = () => { o.points.push([0, 0]); o.sel = o.points.length - 1; o.typed = true; drawOutline(body, mode); }; q("#ol-delpt").onclick = () => { if (o.sel >= 0 && o.points.length > 3) { o.points.splice(o.sel, 1); o.sel = -1; o.typed = true; drawOutline(body, mode); } }; }
@@ -504,8 +527,8 @@ function olInput(inp, committed) {
 function drawOutlineValues(full) {
   const o = BS.ol; if (!o) return;
   const sug = q("#ol-sug"), fl = q("#ol-fill");
-  if (sug) sug.textContent = o.typed ? "" : (o.sug ? "suggested from " + o.sug.total_area.toFixed(1) + " mm² of courtyard on " + (o.sug.faces === 2 ? "two faces" : "one face") + " at " + Math.round(o.sug.fill * 100) + "% fill: area " + o.sug.area.toFixed(1) + " mm²" : "");
-  if (fl) fl.textContent = o.typed && o.fillShown != null ? "A typed size: the parts fill " + (o.fillShown * 100).toFixed(1) + "% of each face (read only; edit the fill field to return to the suggestion)." : "";
+  if (sug) sug.textContent = o.typed ? "" : (o.sug ? "suggested from " + o.sug.total_area.toFixed(1) + " mm\u00b2 of courtyard on " + (o.sug.faces === 2 ? "two faces" : "one face") + " at " + Math.round(o.sug.fill * 100) + "% fill: area " + o.sug.area.toFixed(1) + " mm\u00b2" : "");
+  if (fl) fl.textContent = o.typed && o.fillShown != null ? "A typed size: the parts fill " + (o.fillShown * 100).toFixed(1) + "% of each face , read only. Edit the fill field to return to the suggestion." : "";
   if (!full) for (const k of ["w", "h", "d", "len", "wid"]) { const i = q('[data-ol="' + k + '"]'); if (i && document.activeElement !== i) i.value = o[k]; }
   const pts = q("#ol-pts");
   if (pts) pts.innerHTML = '<table class="bld-tbl">' + o.points.map((p, i) => '<tr class="' + (o.sel === i ? "sel" : "") + '"><td><input type="radio" name="olsel" data-sel="' + i + '"' + (o.sel === i ? " checked" : "") + '></td><td><input data-pt="' + i + '" data-c="0" value="' + p[0] + '"></td><td><input data-pt="' + i + '" data-c="1" value="' + p[1] + '"></td></tr>').join("") + "</table>";
@@ -516,7 +539,7 @@ function drawHoles() {
   const o = BS.ol, el = q("#ol-holes"); if (!el) return;
   const have = (o.existing && BS.parts && BS.parts.outline && BS.parts.outline.holes) || [];
   o.removeHoles = (o.removeHoles || []).filter(n => have.includes(n));
-  el.innerHTML = (have.length ? '<div class="bld-note">Holes the script has: tick one to take it out (its constants go with it).</div>' + have.map(n => '<label class="bld-row"><input type="checkbox" data-rmh="' + h(n) + '"' + (o.removeHoles.includes(n) ? " checked" : "") + "> " + h(n) + "</label>").join("") : "") + o.holes.map((x, i) => '<div class="bld-card" style="margin:4px 0"><div class="bld-grid"><label class="bld-f">Name<input data-ho="' + i + '" data-k="name" value="' + h(x.name) + '"></label><label class="bld-f">Kind<select data-ho="' + i + '" data-k="kind"><option value="circle"' + (x.kind === "circle" ? " selected" : "") + '>round</option><option value="slot"' + (x.kind === "slot" ? " selected" : "") + ">slot</option></select></label>" +
+  el.innerHTML = (have.length ? '<div class="bld-note">Holes the script has: tick one to take it out, with its constants.</div>' + have.map(n => '<label class="bld-row"><input type="checkbox" data-rmh="' + h(n) + '"' + (o.removeHoles.includes(n) ? " checked" : "") + "> " + h(n) + "</label>").join("") : "") + o.holes.map((x, i) => '<div class="bld-card" style="margin:4px 0"><div class="bld-grid"><label class="bld-f">Name<input data-ho="' + i + '" data-k="name" value="' + h(x.name) + '"></label><label class="bld-f">Kind<select data-ho="' + i + '" data-k="kind"><option value="circle"' + (x.kind === "circle" ? " selected" : "") + '>round</option><option value="slot"' + (x.kind === "slot" ? " selected" : "") + ">slot</option></select></label>" +
     (x.kind === "circle" ? '<label class="bld-f">Diameter<input data-ho="' + i + '" data-k="dia" value="' + h(x.dia) + '"></label>' : '<label class="bld-f">Length<input data-ho="' + i + '" data-k="hlen" value="' + h(x.hlen) + '"></label><label class="bld-f">Width<input data-ho="' + i + '" data-k="hwid" value="' + h(x.hwid) + '"></label>') +
     (isDisc(o.shape) ? '<label class="bld-f">Bearing<select data-ho="' + i + '" data-k="bearing">' + SIDES.map(s => '<option' + (x.bearing === s ? " selected" : "") + ">" + s + "</option>").join("") + '</select></label><label class="bld-f">Radius from the middle<input data-ho="' + i + '" data-k="rad" value="' + h(x.rad) + '"></label>' :
       '<label class="bld-f">Middle of the edge<select data-ho="' + i + '" data-k="edge">' + SIDES.map(s => '<option' + (x.edge === s ? " selected" : "") + ">" + s + "</option>").join("") + "</select></label>") +
@@ -604,7 +627,7 @@ async function olGo(mode) {
     err.textContent = e.message;
     if (e.data && e.data.affected) {
       o.affected = e.data.affected;
-      q("#ol-aff").innerHTML = '<div class="bld-msg bad">These placements stop being valid. Choose for each:</div>' + e.data.affected.map(a => '<div class="bld-row"><b>' + h(a.label) + '</b> <span class="bld-note">' + h(a.phrase) + "</span>" + (a.choices.length ? '<select data-aff="' + h(a.key) + '">' + a.choices.map(c => "<option>" + h(c === "rim" ? "on the rim" : c === "edge" ? "on the edge" : "search it") + "</option>").join("") + "</select>" : '<span class="bld-note">a row: take it apart first (take each item out of its row)</span>') + "</div>").join("");
+      q("#ol-aff").innerHTML = '<div class="bld-msg bad">These placements stop being valid. Choose for each:</div>' + e.data.affected.map(a => '<div class="bld-row"><b>' + h(a.label) + '</b> <span class="bld-note">' + h(a.phrase) + "</span>" + (a.choices.length ? '<select data-aff="' + h(a.key) + '">' + a.choices.map(c => "<option>" + h(c === "rim" ? "on the rim" : c === "edge" ? "on the edge" : "search it") + "</option>").join("") + "</select>" : '<span class="bld-note">a row: take each item out of its row first</span>') + "</div>").join("");
       const val = sel => ({"on the rim": "rim", "on the edge": "edge", "search it": "search"})[sel.value] || sel.value;
       qa("[data-aff]").forEach(s => { o.choices[s.dataset.aff] = val(s); s.onchange = () => { o.choices[s.dataset.aff] = val(s); }; });
     }
@@ -665,7 +688,7 @@ function drawTab() {
   q("#bt-search").onclick = searchRest;
   q("#bt-fs").onchange = e => { BS.filter.status = e.target.value; drawTab(); };
   q("#bt-ft").oninput = e => { BS.filter.text = e.target.value; clearTimeout(drawTab.t); drawTab.t = setTimeout(() => { drawTab(); const i = q("#bt-ft"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 200); };
-  q("#bt-list").onclick = e => { const r = e.target.closest("[data-key]"); if (r) clickRow(r.dataset.key, e); };
+  q("#bt-list").onclick = e => { const u = e.target.closest("[data-unplace]"); if (u) { unplace(u.dataset.unplace); return; } const r = e.target.closest("[data-key]"); if (r) clickRow(r.dataset.key, e); };
   q("#bt-tray").onclick = e => { const r = e.target.closest("[data-key]"); if (r) clickRow(r.dataset.key, e); };
 }
 function openFacts() { BS.closed = false; BS.step = "facts"; S.hello = S.hello; factsOverlay(); }
@@ -693,16 +716,16 @@ function shared(p, sel) {
 function rowHtml(r, sel, nets) {
   const chip = '<span class="chip ' + (r.status === "unplaced" ? "unplaced" : r.status === "decided" ? "decided" : r.status === "searched" ? "searched" : "warn") + '">' + h(r.status) + "</span>";
   const tg = BS.target && BS.target.key === r.key;
-  return '<div class="bt-prow' + (sel.has(r.key) ? " sel" : "") + (tg ? " tgt" : "") + '" data-key="' + h(r.key) + '"><input type="checkbox" tabindex="-1"' + (sel.has(r.key) ? " checked" : "") + '><div><b>' + h(r.ref) + '</b> <span class="sub">' + h(r.value) + '</span><div class="sub">' + (r.cell ? h(r.cell) + " · " : "") + h(r.w + " x " + r.h + " mm · " + r.pads + " pads") + (r.kind === "cell" ? " · cell" : "") + '</div></div><div class="sub">' + h(r.phrase || r.mark || "") + (r.source ? "<br><code>" + h(r.source) + "</code>" : "") + '</div><div>' + chip + (nets[r.key] ? '<div class="sh">' + nets[r.key] + " shared net" + (nets[r.key] > 1 ? "s" : "") + "</div>" : "") + "</div></div>";
+  return '<div class="bt-prow' + (sel.has(r.key) ? " sel" : "") + (tg ? " tgt" : "") + '" data-key="' + h(r.key) + '"><input type="checkbox" tabindex="-1"' + (sel.has(r.key) ? " checked" : "") + '><div><b>' + h(r.ref) + '</b> <span class="sub">' + h(r.value) + '</span><div class="sub">' + (r.cell ? h(r.cell) + " \u00b7 " : "") + h(r.w + " x " + r.h + " mm \u00b7 " + r.pads + " pads") + (r.kind === "cell" ? " \u00b7 cell" : "") + '</div></div><div class="sub">' + h(r.phrase || r.mark || "") + (r.source ? "<br><code>" + h(r.source) + "</code>" : "") + '</div><div>' + chip + (r.status !== "unplaced" ? ' <button class="bt-un" data-unplace="' + h(r.key) + '" title="Takes the statement that places it out of the script. One undo puts it back.">Unplace</button>' : "") + (nets[r.key] ? '<div class="sh">' + nets[r.key] + " shared net" + (nets[r.key] > 1 ? "s" : "") + "</div>" : "") + "</div></div>";
 }
 function clickRow(key, ev) {
   const row = BS.parts && BS.parts.rows.find(r => r.key === key);
   if (!row) return;
-  if (BS.subj.length && BS.chip !== "edge" && BS.chip !== "none" && !BS.subj.includes(key) && BS.target !== undefined && (BS.chip === "part" || BS.chip === "pad")) { setTarget({kind: BS.chip, key}); return; }
-  const i = BS.subj.indexOf(key);
-  if (i >= 0) BS.subj.splice(i, 1);
-  else if (ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.target.type === "checkbox")) BS.subj.push(key);
-  else BS.subj = [key];
+  const multi = !!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey || (ev.target && ev.target.type === "checkbox")));
+  const got = BuilderPure.rowClick(BS.parts.rows, BS.subj, BS.chip, key, multi);
+  if (got.say) { say(got.say, "bad"); return; }
+  BS.subj = got.subj;
+  if (got.target) { setTarget({kind: BS.chip, key: got.target}); return; }
   BS.target = null; BS.offers = null; BS.diff = null; BS.tried = null; BS.turns = null;
   if (BS.subj.length === 1 && S.itemAt && S.itemAt.has(key)) { try { selectItem(key, {zoom: true}); } catch (e) { /* the board draws what it has */ } }
   document.body.classList.toggle("bld-picking", BS.subj.length > 0);
@@ -717,8 +740,8 @@ function drawSelection() {
   const rect = BS.parts.outline && BS.parts.outline.kind === "rect", disc = BS.parts.outline && BS.parts.outline.kind === "disc";
   const pick = (BS.chip === "part" || BS.chip === "pad");
   el.innerHTML = '<h3>' + h(rows.map(r => r.ref).join(", ")) + (one && one.phrase ? ' <span class="bld-note">now ' + h(one.phrase) + "</span>" : "") + '</h3>' +
-    (rows.length > 1 ? '<div class="bld-note">Several selected: they go in a row along an edge or beside a part (a ring round a disc\'s rim), in this order:</div><div class="bt-chips" id="bt-order">' + orderKeys(rows).map((k, i) => '<button data-up="' + i + '" title="earlier">' + h((BS.parts.rows.find(r => r.key === k) || {}).ref || k) + " \u25c0</button>").join("") + "</div>" : "") +
-    '<div class="bld-note">A click picks:</div><div class="bt-chips" id="bt-chips">' + [["edge", "Edge"], ["part", "Part"], ["pad", "Pad"], ["none", "None (search)"]].map(c => '<button data-chip="' + c[0] + '" class="' + (BS.chip === c[0] ? "on" : "") + '">' + c[1] + "</button>").join("") + "</div>" +
+    (rows.length > 1 ? '<div class="bld-note">Several selected: they go in a row along an edge or beside a part, or in a ring round a disc\'s rim, in this order:</div><div class="bt-chips" id="bt-order">' + orderKeys(rows).map((k, i) => '<button data-up="' + i + '" title="earlier">' + h((BS.parts.rows.find(r => r.key === k) || {}).ref || k) + " \u25c0</button>").join("") + "</div>" : "") +
+    '<div class="bld-note">A click picks:</div><div class="bt-chips" id="bt-chips">' + [["edge", "Edge"], ["part", "Part"], ["pad", "Pad"], ["none", "Search"]].map(c => '<button data-chip="' + c[0] + '" class="' + (BS.chip === c[0] ? "on" : "") + '">' + c[1] + "</button>").join("") + "</div>" +
     '<div id="bt-tg" style="margin-top:6px"></div><div id="bt-menu"></div><div id="bt-turns"></div><div id="bt-edit"></div>';
   qa("[data-up]", el).forEach(b => b.onclick = () => { const i = +b.dataset.up; if (i > 0) { const o = BS.order; [o[i - 1], o[i]] = [o[i], o[i - 1]]; BS.offers = null; drawSelection(); if (BS.target) askOffers(); } });
   qa("[data-chip]", el).forEach(b => b.onclick = () => { BS.chip = b.dataset.chip; BS.target = BS.chip === "none" ? {kind: "none"} : null; BS.offers = null; if (BS.chip === "none") askOffers(); drawSelection(); });
@@ -731,7 +754,7 @@ function drawTarget(rect, disc) {
   const t = BS.target;
   if (BS.chip === "edge") {
     const o = BS.parts.outline;
-    if (!o || !(o.kind === "rect" || o.kind === "disc" || o.kind === "outline")) { el.innerHTML = '<div class="bld-note">This outline is not one the builder places on (a fit frame is derived from its content).</div>'; return; }
+    if (!o || !(o.kind === "rect" || o.kind === "disc" || o.kind === "outline")) { el.innerHTML = '<div class="bld-note">This outline is not one the builder places on: a fit frame is derived from its content.</div>'; return; }
     el.innerHTML = '<div class="bt-side">' + (o.kind !== "disc" ? (o.kind === "outline" ? '<span class="bld-note">the stretch of edge facing:</span> ' : "") + SIDES.map(s => '<button data-edge="' + s + '" class="' + (t && t.edge === s ? "on" : "") + '">' + SIDE_WORD[s] + "</button>").join(" ") :
       SIDES.map(s => '<button data-edge="' + s + '" class="' + (t && t.edge === s && !t.bore ? "on" : "") + '">rim ' + SIDE_WORD[s] + '</button>').join(" ") + ' <button data-rim="1" class="' + (t && t.rim ? "on" : "") + '">anywhere on the rim</button>') + '</div><div class="bld-note">or click the board near the edge.</div>';
     qa("[data-edge]", el).forEach(b => b.onclick = () => setTarget({kind: "edge", edge: b.dataset.edge}));
@@ -779,17 +802,17 @@ function drawMenu() {
   if (!BS.offers) { el.innerHTML = ""; return; }
   const P = BS.params;
   el.innerHTML = '<div class="bld-note" style="margin-top:6px">Choose the relation:</div>' + BS.offers.map(o => '<div class="bt-offer' + (o.needs && o.needs.length ? " need" : "") + '"><div class="bld-row"><b>' + h(o.text) + '</b><span style="flex:1"></span>' + (o.id ? '<button class="bld-btn" data-show="' + o.id + '">Show</button><button class="bld-btn" data-try="' + o.id + '">Try</button><button class="bld-btn primary" data-place="' + o.id + '"' + (BS.applying ? " disabled" : "") + ">Place</button>" : "") + "</div>" +
-    (o.needs && o.needs.length ? '<div class="bld-note">Needs: ' + h(o.needs.join(", ")) + " (below)</div>" : "") +
+    (o.needs && o.needs.length ? '<div class="bld-note">Needs: ' + h(o.needs.join(", ")) + ", in the details below</div>" : "") +
     (o.preview ? Object.values(o.preview).map(v => '<div class="bld-pre">' + v.removed.map(l => '<div class="del">- ' + h(l) + "</div>").join("") + v.added.map(l => '<div class="add">+ ' + h(l) + "</div>").join("") + "</div>").join("") : "") + (o.refused ? '<div class="bld-msg bad">' + h(o.refused) + "</div>" : "") + "</div>").join("") +
     '<details class="bld-card" ' + (BS.paramsOpen ? "open" : "") + ' id="bt-params"><summary>Gap, turn, face, priority, note</summary><div class="bld-grid" style="margin-top:6px">' +
-    '<label class="bld-f">Gap, mm<input id="bt-gap" inputmode="decimal" value="' + h(BS.pv.gap || "") + '"></label><label class="bld-f">Why the gap (required)<input id="bt-gapnote" value="' + h(BS.pv.gapnote || "") + '"></label>' +
-    '<label class="bld-f">Own pad (to link or level)<input id="bt-p-own_pad" value="' + h(BS.pv.own_pad || "") + '" placeholder="pad number"></label><label class="bld-f">Side (level with a pad)<select id="bt-p-side"><option value=""></option>' + SIDES.map(s => "<option" + (BS.pv.side === s ? " selected" : "") + ">" + s + "</option>").join("") + "</select></label>" +
+    '<label class="bld-f">Gap, mm<input id="bt-gap" inputmode="decimal" value="' + h(BS.pv.gap || "") + '"></label><label class="bld-f">Why the gap<input id="bt-gapnote" value="' + h(BS.pv.gapnote || "") + '"></label>' +
+    '<label class="bld-f">Own pad<input id="bt-p-own_pad" value="' + h(BS.pv.own_pad || "") + '" placeholder="pad number"></label><label class="bld-f">Side (level with a pad)<select id="bt-p-side"><option value=""></option>' + SIDES.map(s => "<option" + (BS.pv.side === s ? " selected" : "") + ">" + s + "</option>").join("") + "</select></label>" +
     '<label class="bld-f">Quarter turn<select id="bt-p-rotation"><option value=""></option>' + [0, 90, 180, 270].map(d => "<option" + (String(BS.pv.rotation) === String(d) ? " selected" : "") + ">" + d + "</option>").join("") + "</select></label>" +
     '<label class="bld-f">Pad facing an edge: pad<input id="bt-p-fpad" value="' + h(BS.pv.fpad || "") + '" placeholder="own pad"></label><label class="bld-f">...faces<select id="bt-p-fedge"><option value=""></option>' + SIDES.map(s => "<option" + (BS.pv.fedge === s ? " selected" : "") + ">" + s + "</option>").join("") + "</select></label>" +
     '<label class="bld-f">Turned with<select id="bt-p-tpart"><option value=""></option>' + (BS.parts ? BS.parts.rows.filter(r => r.status !== "unplaced" && !BS.subj.includes(r.key)).map(r => '<option value="' + h(r.key) + '"' + (BS.pv.tpart === r.key ? " selected" : "") + ">" + h(r.ref) + "</option>").join("") : "") + '</select></label><label class="bld-f">...plus<select id="bt-p-tdeg">' + [0, 90, 180, 270].map(d => "<option" + (String(BS.pv.tdeg) === String(d) ? " selected" : "") + ">" + d + "</option>").join("") + "</select></label>" +
     '<label class="bld-f">Face<select id="bt-p-face"><option value="">front</option><option' + (BS.pv.face === "BACK" ? " selected" : "") + '>BACK</option><option' + (BS.pv.face === "EITHER" ? " selected" : "") + ">EITHER</option></select></label>" +
-    '<label class="bld-f">Priority (needs a why)<select id="bt-p-priority"><option value=""></option><option' + (BS.pv.priority === "HIGH" ? " selected" : "") + '>HIGH</option><option' + (BS.pv.priority === "LOW" ? " selected" : "") + ">LOW</option></select></label>" +
-    '<label class="bld-f">Note (why=)<input id="bt-p-why" value="' + h(BS.pv.why || "") + '"></label><label class="bld-f">Link limit, mm<input id="bt-p-limit_mm" value="' + h(BS.pv.limit || "") + '"></label><label class="bld-f">Near radius, mm<input id="bt-p-radius" value="' + h(BS.pv.radius || "") + '"></label>' +
+    '<label class="bld-f">Priority<select id="bt-p-priority"><option value=""></option><option' + (BS.pv.priority === "HIGH" ? " selected" : "") + '>HIGH</option><option' + (BS.pv.priority === "LOW" ? " selected" : "") + ">LOW</option></select></label>" +
+    '<label class="bld-f">Note<input id="bt-p-why" value="' + h(BS.pv.why || "") + '"></label><label class="bld-f">Link limit, mm<input id="bt-p-limit_mm" value="' + h(BS.pv.limit || "") + '"></label><label class="bld-f">Near radius, mm<input id="bt-p-radius" value="' + h(BS.pv.radius || "") + '"></label>' +
     '<label class="bld-row"><input type="checkbox" id="bt-p-required"' + (BS.pv.required ? " checked" : "") + '> required</label></div></details><div id="bt-diff"></div>';
   qa("#bt-params input, #bt-params select", el).forEach(i => i.onchange = i.oninput = () => { BS.pv = readPv(); BS.paramsOpen = true; askOffers(); });
   qa("[data-show]", el).forEach(b => b.onclick = () => showOffer(b.dataset.show));
@@ -805,7 +828,7 @@ function readPv() {
 function drawDiff() {
   const el = q("#bt-diff"); if (!el) return;
   el.innerHTML = (BS.diff ? '<div class="bld-pre">' + BS.diff.diff.split("\n").map(l => '<div class="' + (l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "del" : "") + '">' + h(l) + "</div>").join("") + "</div>" : "") +
-    (BS.tried ? '<div class="bld-msg ' + (BS.tried.state === "done" ? "info" : "bad") + '">' + (BS.tried.state === "done" ? "Try (nothing written): " + h(BS.tried.gained.length + " findings gained, " + BS.tried.lost.length + " lost, " + BS.tried.moved + " items moved") : h(BS.tried.message || BS.tried.state)) + "</div>" : "");
+    (BS.tried ? '<div class="bld-msg ' + (BS.tried.state === "done" ? "info" : "bad") + '">' + (BS.tried.state === "done" ? "Try, nothing written: " + h(BS.tried.gained.length + " findings gained, " + BS.tried.lost.length + " lost, " + BS.tried.moved + " items moved") : h(BS.tried.message || BS.tried.state)) + "</div>" : "");
 }
 async function showOffer(id) { try { BS.diff = await post("/suggest/show", {resolve: BS.parts.resolve, id}); } catch (e) { say(e.message, "bad"); } drawDiff(); }
 async function tryOffer(id) {
@@ -833,11 +856,34 @@ async function searchRest() {
   } catch (e) { say(e.message, "bad"); }
   drawTab();
 }
-// a placed item: take it off, leave it to the search, change a modifier
+// Unplace: the statement that places the item goes (a row member leaves its row), as one step the page's Undo takes back
+async function unplace(key) {
+  if (!BS.parts || BS.applying) return;
+  BS.applying = true;
+  try {
+    const r = await post("/build/offer", {kind: "remove", resolve: BS.parts.resolve, subject: [key]});
+    await applyOffer(r.offers[0]);
+    say("Unplaced " + ((BS.parts.rows.find(x => x.key === key) || {}).ref || key) + ". Undo puts it back.", "info");
+    BS.subj = BS.subj.filter(k => k !== key); BS.target = null; BS.offers = null;
+  } catch (e) { say(e.message, "bad"); }
+  BS.applying = false; drawTab();
+}
+// the part card on the board gets the same action
+const _renderCard = renderCard;
+renderCard = function () {
+  _renderCard();
+  const el = $("#card");
+  if (!el || el.style.display === "none" || !BS.parts || !hasScript() || !S.sel) return;
+  const row = BS.parts.rows.find(r => r.key === S.sel);
+  if (!row || row.status === "unplaced" || q("#bld-cardun", el)) return;
+  el.insertAdjacentHTML("beforeend", '<div class="bld-row" style="padding:6px 12px"><button class="bld-btn" id="bld-cardun" title="Takes the statement that places it out of the script. One undo puts it back.">Unplace</button></div>');
+  q("#bld-cardun", el).onclick = () => unplace(row.key);
+};
+// a placed item: unplace it, leave it to the search, change a modifier
 function drawEdit(one) {
   const el = q("#bt-edit"); if (!el) return;
   if (!one || one.status === "unplaced") { el.innerHTML = ""; return; }
-  el.innerHTML = '<div class="bld-row" style="margin-top:8px"><button class="bld-btn" id="bt-remove">Take it off the board</button>' + (one.status === "decided" ? '<button class="bld-btn" id="bt-tosearch">Leave it to the search</button>' : "") + '<button class="bld-btn" id="bt-turnbtn">Suggest a turn</button></div>' +
+  el.innerHTML = '<div class="bld-row" style="margin-top:8px"><button class="bld-btn" id="bt-remove" title="Takes the statement that places it out of the script. One undo puts it back.">Unplace</button>' + (one.status === "decided" ? '<button class="bld-btn" id="bt-tosearch">Leave it to the search</button>' : "") + '<button class="bld-btn" id="bt-turnbtn">Suggest a turn</button></div>' +
     (one.status === "by hand" ? '<div class="bld-note">A declaration the builder cannot read as one of its intents: shown as written; it offers only "replace by a relation" (pick a target above).</div>' : "") +
     '<div class="bld-note">Modifiers now: ' + h(JSON.stringify(one.mods || {})) + "</div>";
   const mv = async (dir) => { try { const r = await post("/build/offer", {kind: "move", resolve: BS.parts.resolve, subject: [one.key], params: {direction: dir}}); await applyOffer(r.offers[0]); say("Moved " + dir + ".", "info"); } catch (e) { say(e.message, "bad"); } drawTab(); };
@@ -846,7 +892,7 @@ function drawEdit(one) {
   const bu = q("#bt-up", el), bd = q("#bt-down", el), orow = q("#bt-outrow", el);
   if (bu) { bu.onclick = () => mv("up"); bd.onclick = () => mv("down"); }
   if (orow) orow.onclick = async () => { try { const r = await post("/build/offer", {kind: "row", resolve: BS.parts.resolve, subject: [one.key], params: {action: "remove", member: one.key}}); await applyOffer(r.offers[0]); say("Taken out of its row.", "info"); BS.subj = []; } catch (e) { say(e.message, "bad"); } drawTab(); };
-  q("#bt-remove").onclick = async () => { try { const r = await post("/build/offer", {kind: "remove", resolve: BS.parts.resolve, subject: [one.key]}); await applyOffer(r.offers[0]); say("Taken off.", "info"); BS.subj = []; } catch (e) { say(e.message, "bad"); } drawTab(); };
+  q("#bt-remove").onclick = () => unplace(one.key);
   const ts = q("#bt-tosearch"); if (ts) ts.onclick = () => { BS.chip = "none"; setTarget({kind: "none"}); };
   q("#bt-turnbtn").onclick = () => loadTurns(one.key);
 }
@@ -857,7 +903,7 @@ async function loadTurns(key) {
 function drawTurns() {
   const el = q("#bt-turns"); if (!el) return;
   const t = BS.turns; if (!t) { el.innerHTML = ""; return; }
-  el.innerHTML = '<div class="bld-note" style="margin-top:8px">Ratsnest crossings of each quarter turn (an estimate; Try resolves it exactly). Marked: the fewest' + (t.tie ? " (a tie)" : "") + '.</div><div class="bt-turn">' + t.turns.map(x => '<button data-turn="' + x.rotation + '" class="' + (x.rotation === t.best ? "best" : "") + '">' + x.rotation + "°: " + x.crossings + " crossing" + (x.crossings === 1 ? "" : "s") + (x.rotation === t.current ? " (now)" : "") + "</button>").join("") + "</div>";
+  el.innerHTML = '<div class="bld-note" style="margin-top:8px">Ratsnest crossings of each quarter turn . It is an estimate and Try resolves it exactly. Marked: the fewest' + (t.tie ? ", a tie" : "") + '.</div><div class="bt-turn">' + t.turns.map(x => '<button data-turn="' + x.rotation + '" class="' + (x.rotation === t.best ? "best" : "") + '">' + x.rotation + "\u00b0: " + x.crossings + " crossing" + (x.crossings === 1 ? "" : "s") + (x.rotation === t.current ? ", now" : "") + "</button>").join("") + "</div>";
   qa("[data-turn]", el).forEach(b => b.onclick = async () => {
     try { const r = await post("/build/turn", {resolve: BS.parts.resolve, subject: t.subject, rotation: +b.dataset.turn}); BS.offers = r.offers; BS.turns = null; drawSelection(); drawMenu(); say("Check the statement, then Place.", "info"); } catch (e) { say(e.message, "bad"); }
   });
@@ -890,8 +936,11 @@ $("#board").addEventListener("click", ev => {
     if (o.kind === "disc") setTarget({kind: "edge", edge: near}); else setTarget({kind: "edge", edge: near});
     ev.stopPropagation(); return;
   }
-  if ((BS.chip === "part" || BS.chip === "pad") && key && !BS.subj.includes(key)) {
+  if ((BS.chip === "part" || BS.chip === "pad") && key) {
     const row = BS.parts.rows.find(r => r.key === key); if (!row || row.status === "unplaced") return;
+    const rest = BS.subj.filter(k => k !== key && (BS.parts.rows.find(r => r.key === k) || {}).status === "unplaced");
+    if (!rest.length) return;
+    BS.subj = rest;
     const rc = grp.getBoundingClientRect(), dx = (ev.clientX - (rc.left + rc.right) / 2) / Math.max(1, rc.width), dy = (ev.clientY - (rc.top + rc.bottom) / 2) / Math.max(1, rc.height);
     const side = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "EAST" : "WEST") : (dy > 0 ? "SOUTH" : "NORTH");
     const t = {kind: BS.chip, key, side: BS.chip === "part" ? side : undefined};
