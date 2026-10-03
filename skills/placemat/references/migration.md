@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A pin whose copper ends against another part is reported walled off.** A pad that copper of its own net left counted as
+  having its way out, so a pin on a net with other pads, fanned out on an escape lane or a track that ends in the air, was
+  never walled whatever stood at the end of that copper, a through-hole pad of another cell included. The way out is now looked
+  for from where the pad's own copper ends (a track or lane that reaches another pad of the net, a via or a pour still counts
+  as made), among what the clearance check refuses: other nets' pads on the layers they span, a through-hole pad on every layer,
+  unplated holes (the `hole_clearance`), copper, and for a via the rule areas that forbid vias. Unplated holes also close a
+  pad's corridors in the search now, as pads do. `escape_walled` appears where it did not, and the run score and the search move
+  with it. A script that drew a track to nowhere from a pad (a stub the core's router takes up) may now get the finding.
+
 ## To 0.90.1
 
 ### Changed
