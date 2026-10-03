@@ -102,7 +102,7 @@ def test_every_site_in_the_source_that_makes_a_finding_names_its_kind():
         text = path.read_text()
         # a run record's own notes (runner.py, "worse than the best run") are not a plan's findings
         for m in re.finditer(r"(?<!rec\.)findings\.append\(\s*([^\n]*)", text):
-            if not m.group(1).lstrip().startswith(("Finding(", "_finding(")):
+            if not m.group(1).lstrip().startswith(("Finding(", "_finding(", "self._finding(", "self._label_finding(")):
                 bare.append("%s:%d" % (path.name, text[:m.start()].count("\n") + 1))
     assert not bare, bare
 

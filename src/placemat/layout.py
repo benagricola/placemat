@@ -443,6 +443,7 @@ class CopperIntent:
     freedom: Freedom = Freedom.FIXED      # derived in resolve(), once every declaration is in
     members: tuple = field(default=(), metadata={"omit_default": True})    # a fitted pour's via intents
     reach: float | Reach | None = field(default=None, metadata={"omit_default": True})   # a fitted pour's reach=: mm, or Reach.CURRENT
+    declared: dict = field(default_factory=dict, metadata={"reuse": False})   # what the declaration gave, as a finding's suggestions read it
 
     @property
     def rank(self):
@@ -3620,8 +3621,11 @@ class Board:
                                                    lane=name)]
             occ.add_copper(shapes)
             for n, lane in laid.blocked():
-                plan.findings.append(Finding("escape_lane", "%s pin %s (%s): its lane is blocked by %s" % (
-                    decl.ref, n, lane.net, "; ".join(dict.fromkeys(lane.blocked)))))
+                from . import suggest_facts
+                plan.findings.append(self._finding("escape_lane", "escape_lane", "%s pin %s (%s): its lane is blocked by %s" % (
+                    decl.ref, n, lane.net, "; ".join(dict.fromkeys(lane.blocked))),
+                    {"part": suggest_facts.inst_of(self, decl.ref), "pin": n,
+                     "reach": self.settings.place_escape_via_reach}))
             note = "%d lane%s kept for pins %s" % (len(laid.order), "" if len(laid.order) == 1 else "s", ", ".join(decl.pins))
             if laid.blocked():
                 note += "; %d blocked" % len(laid.blocked())
@@ -3667,8 +3671,10 @@ class Board:
                 continue
             for n in decl.pins:
                 if n not in decl.drawn:
-                    plan.findings.append(Finding("setup", "%s pin %s: its lane is reserved and no track begins with "
-                                                 "it, so its room is kept for nothing" % (decl.ref, n)))
+                    from . import suggest_facts
+                    plan.findings.append(self._finding("setup", "setup.lane_unused", "%s pin %s: its lane is reserved and no track begins with "
+                                                       "it, so its room is kept for nothing" % (decl.ref, n),
+                                                       {"part": suggest_facts.inst_of(self, decl.ref), "pin": n}))
 
     def link(self, a, b, weight=LinkWeight.DEFAULT, limit_mm: float | None = None, why: str = "") -> Link:
         """Price one connection between two pads. `weight` is a LinkWeight or
@@ -4399,8 +4405,11 @@ class Board:
                 declared |= {fp.ref for fp in members_of(item)}
         for fp in sorted(self.geometry.footprints, key=lambda f: f.inst):
             if fp.ref not in declared:
-                plan.findings.append(Finding("setup", "%s (%s): no declaration places it, so it stays where the generator put it"
-                                     % (fp.inst, fp.ref)))
+                from . import suggest_facts
+                plan.findings.append(self._finding("setup", "setup.undeclared",
+                                                   "%s (%s): no declaration places it, so it stays where the generator put it"
+                                                   % (fp.inst, fp.ref),
+                                                   {"item": fp.inst, "anchor": suggest_facts.last_place(self)}))
 
     def _report_splits(self, plan: Plan) -> None:
         """A cell whose members form two or more groups of
@@ -4433,7 +4442,7 @@ class Board:
             pos, neg = (e.net, f.net) if (pair_key(e.net) or (0, True))[1] else (f.net, e.net)
             plan.findings.append(Finding("pair_crossed", "%s/%s cross between %s: swap two interchangeable parts on "
                                          "the pair, or turn a part whose pinout is mirrored 180 degrees"
-                                         % (pos, neg, ", ".join(parts))))
+                                         % (pos, neg, ", ".join(parts)), case="pair_crossed"))
         for n, e, f in rn.crossed_pair_list(esc.depth):
             ends = []
             for edge in (e, f):
@@ -4441,28 +4450,33 @@ class Board:
                 ends.append((mine.number, other.ref or "copper", edge.net))
             ends.sort(key=lambda t: (int(t[0]) if t[0].isdigit() else 1 << 30, t[0]))
             (pa, xa, na), (pb, xb, nb) = ends
-            plan.findings.append(Finding("escape_crossed", "%s pins %s/%s: %s %s crosses %s %s" % (n, pa, pb, xa, na, xb, nb)))
+            plan.findings.append(Finding("escape_crossed", "%s pins %s/%s: %s %s crosses %s %s" % (n, pa, pb, xa, na, xb, nb),
+                                         case="escape_crossed"))
         closed, walled = esc.confirmed()
+        from . import suggest_facts
         for ref, number, net, by, joins in closed:
-            plan.findings.append(Finding("escape_closed", "%s pin %s (%s): closed toward %s by %s" % (
-                ref, number, net, ", ".join(joins) or "what it joins", ", ".join(by) or "copper")))
+            plan.findings.append(self._finding("escape_closed", "escape_closed", "%s pin %s (%s): closed toward %s by %s" % (
+                ref, number, net, ", ".join(joins) or "what it joins", ", ".join(by) or "copper"),
+                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by)))
         for ref, number, net, by, _ in walled:
-            plan.findings.append(Finding("escape_walled", "%s pin %s (%s): walled off by %s" % (
-                ref, number, net, ", ".join(by) or "copper")))
+            plan.findings.append(self._finding("escape_walled", "escape_walled", "%s pin %s (%s): walled off by %s" % (
+                ref, number, net, ", ".join(by) or "copper"),
+                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by)))
         for ref, number, net, by in esc.handoffs_walled():
-            plan.findings.append(Finding("escape_walled", "%s pin %s (%s): no other pad is on the net, so it leaves the board "
-                                         "here, and it is walled off by %s" % (ref, number, net, ", ".join(by) or "copper")))
+            plan.findings.append(self._finding("escape_walled", "escape_walled",
+                                               "%s pin %s (%s): no other pad is on the net, so it leaves the board "
+                                               "here, and it is walled off by %s" % (ref, number, net, ", ".join(by) or "copper"),
+                                               suggest_facts.escape_facts(self, occ, plan, ref, number, net, by)))
 
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
         for l in self._links:
             if l.a[0] in placed and l.b[0] in placed:
                 l.achieved_mm = round(occ.pad_location(*l.a).distance(occ.pad_location(*l.b)), 3)
                 if not l.within_limit:
-                    found = Finding("link_over", "link %s.%s to %s.%s is %.2f mm, over its %.2f mm limit%s" % (
+                    plan.findings.append(Finding("link_over", "link %s.%s to %s.%s is %.2f mm, over its %.2f mm limit%s" % (
                         l.a[0], l.a[1], l.b[0], l.b[1], l.achieved_mm, l.limit_mm, (": " + l.why) if l.why else ""),
-                        case="link_over", facts=self._link_over_facts(l))
-                    plan.findings.append(found)
-                    self._late_suggestions.append((found, lambda f, l=l: self._measure_link_over(occ, plan, l, f)))
+                        case="link_over", facts=self._link_over_facts(l)))
+                    self._late_suggestions.append((plan.findings[-1], lambda f, l=l: self._measure_link_over(occ, plan, l, f)))
             plan.links.append(l)
 
     def _link_over_facts(self, l) -> dict:
@@ -4723,7 +4737,9 @@ class Board:
                         ctx.note("track %s: not drawn, an arc of radius %.2f mm does not fit: %s; a smaller radius=, "
                                  "points further apart%s" % (
                                      name, arc_r, m, ", or Bend.ARC_FREE where the octilinear legs made the short leg"
-                                     if bend is Bend.ARC else ""))
+                                     if bend is Bend.ARC else ""),
+                                 case="copper.not_drawn", facts={"key": intent.key, "cause": "arc", "radius": arc_r,
+                                                                  "layer": layer.name, "net": name})
                     return []
                 diagonals = []
             else:
@@ -4744,7 +4760,7 @@ class Board:
                         "copper", "track %s: the points either side of its 45 past the %s corner of %s allow "
                         "no 45 through it; the track passes that corner at %.3f mm, under the "
                         "%.3f mm clearance" % (name, p.edge.value, ", ".join(names), near - w / 2.0, off - w / 2.0),
-                        "critical"))
+                        "critical", case="copper.corner", facts={"key": intent.key, "net": name, "chamfer": chamfer}))
             if chamfer > 0 and not arc:
                 # the 45 a corner's own cut emits, not a straight leg that merely
                 # happens to run between two separate corners' cuts
@@ -4772,15 +4788,20 @@ class Board:
                 if all(op_clear(t) and clear_of_tracks(t) for t in direct) and (direct or not arc):
                     ctx.notes.append(Finding(
                         "copper", "track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
-                        "so drop the waypoint(s) unless the route must go there" % name, "notice"))
+                        "so drop the waypoint(s) unless the route must go there" % name, "notice", case="copper.note",
+                        facts={"key": intent.key, "net": name, "waypoints": len(points) - 2}))
             if begins is not None:
                 self._release_lane(ctx.occ, begins)     # what is judged from here is what this track draws
             met = self._through(ctx, ops, bridge)
             if met is not None:
-                ctx.note("track %s: not drawn, it would run through %s" % (name, met))
+                ctx.note("track %s: not drawn, it would run through %s" % (name, met), case="copper.not_drawn",
+                         facts={"key": intent.key, "cause": "through", "layer": layer.name, "net": name,
+                                "waypoints": max(0, len(points) - 2)})
                 return []
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
+        intent.declared = {"layer": layer.name, "chamfer": chamfer, "radius": arc_r, "arc": bool(arc),
+                           "waypoints": max(0, len(points) - 2) if begins is None else 0}
         if begins is None and len(points) >= 2 and all(isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points):
             self._pad_tracks.add(intent.index)
         return intent
@@ -6521,7 +6542,9 @@ class Board:
                 plan.findings.append(Finding("needs", "%s: no spot; one would clear with %s" % (key, said)))
         for home, text, severity in report(occ):
             key = step_of.get(home, home)
-            plan.findings.append(Finding("vias", "%s: %s" % (key, text), severity))
+            plan.findings.append(Finding("vias", "%s: %s" % (key, text), severity, case="vias.dropped",
+                                         facts={"item": key, "via_move": self.settings.place_via_move,
+                                                "via_leave": self.settings.place_via_leave}))
             step = next((s for s in plan.steps if s.item == key), None)
             if step is not None:
                 step.note = (step.note + "; " if step.note else "") + "vias: " + text
@@ -7498,7 +7521,14 @@ class Board:
                     elif isinstance(op, Track) and op.mid is not None:
                         note += "; the arc of its corner (radius %.2f mm) at (%.2f, %.2f); a smaller radius= there keeps clear" % (
                             arc_circle(op.start, op.mid, op.end)[2], op.mid.x, op.mid.y)
-                    plan.findings.append(Finding("copper", note))
+                    declared = next((c.declared for c in intents if c.key == key), {})
+                    layer = getattr(op, "layer", None)
+                    facts = {"key": key, "net": op.net, "word": type(op).__name__.lower(),
+                             "layer": layer.name if layer is not None else "", "waypoints": declared.get("waypoints", 0),
+                             "chamfer_hit": isinstance(op, Track) and bool(op.chamfer_cut),
+                             "arc_hit": isinstance(op, Track) and op.mid is not None,
+                             "chamfer": declared.get("chamfer"), "radius": declared.get("radius")}
+                    plan.findings.append(Finding("copper", note, case="copper.meets", facts=facts))
             batch.append((op, shape))
             shapes.append(shape)
             if isinstance(op, Via):
@@ -9408,9 +9438,10 @@ class _CopperContext:
         self.ops_at: dict = {}             # copper intent index -> the ops its plan gave, for a Past over it
         self.plan = None                   # the plan being built: its keepouts, for a FreeSpot
 
-    def note(self, text: str, kind: str = "copper", severity: str = "warning") -> None:
+    def note(self, text: str, kind: str = "copper", severity: str = "warning", case: str | None = None,
+             facts: dict | None = None) -> None:
         """A finding about a declaration that is not drawn as asked, a person's call."""
-        self.notes.append(Finding(kind, text, severity))
+        self.notes.append(Finding(kind, text, severity, case=case, facts=facts))
 
     def locate(self, ref) -> Location:
         if isinstance(ref, CopperIntent):

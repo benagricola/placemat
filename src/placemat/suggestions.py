@@ -851,3 +851,152 @@ def fixed_cutout(f, settings):
 @case("fixed.keepout")
 def fixed_keepout(f, settings):
     return []
+
+
+# ------------------------------------------------------------------ builders: copper that does not draw as asked
+def _smaller(kind, key, name, current, unit, case_id, what, settings, lever):
+    small = round(current / settings.studio_suggest_factor, 3)
+    return _set(kind, key, name,
+                _const(_name(key.split(" ", 1)[-1], name, "mm"), small,
+                       "A run's finding (%s): %s; %s was %s mm, %g times smaller is %s mm."
+                       % (case_id, what, name, _mm(current), settings.studio_suggest_factor, _mm(small))),
+                unit, lever)
+
+
+def _drop_waypoints(f, text):
+    n = f.get("waypoints", 0)
+    if n < 1:
+        return []
+    return [Pick(text, Edit("edit_list", Target("track", f["key"]),
+                            {"arg": "points", "action": "remove", "indices": list(range(1, n + 1))}), "waypoints")]
+
+
+@case("copper.meets")
+def copper_meets(f, settings):
+    net = f["net"]
+    out = []
+    if f.get("word") == "track":
+        out += _drop_waypoints(f, "Draw the %s track pad to pad" % net)
+        if f.get("chamfer_hit") and f.get("chamfer"):
+            out.append(_smaller("track", f["key"], "chamfer", f["chamfer"], "Cut the corner of the %s track smaller" % net,
+                                "copper.meets", "its 45 met another net's copper", settings, "corner"))
+        if f.get("arc_hit") and f.get("radius"):
+            out.append(_smaller("track", f["key"], "radius", f["radius"], "Cut the corner of the %s track smaller" % net,
+                                "copper.meets", "its arc met another net's copper", settings, "corner"))
+        if f.get("layer") in ("F", "B"):
+            other = "B" if f["layer"] == "F" else "F"
+            out.append(_set("track", f["key"], "layer", _enum("CopperLayer.%s" % other),
+                            "Put the %s track on the %s layer" % (net, "back" if other == "B" else "front"), "layer"))
+    return out
+
+
+@case("copper.not_drawn")
+def copper_not_drawn(f, settings):
+    net = f.get("net", "")
+    out = []
+    if f.get("cause") == "arc" and f.get("radius"):
+        out.append(_smaller("track", f["key"], "radius", f["radius"], "Use a smaller radius on the %s track" % net,
+                            "copper.not_drawn", "an arc of that radius did not fit", settings, "radius"))
+    if f.get("cause") == "through":
+        out += _drop_waypoints(f, "Draw the %s track pad to pad" % net)
+        if f.get("layer") in ("F", "B"):
+            other = "B" if f["layer"] == "F" else "F"
+            out.append(_set("track", f["key"], "layer", _enum("CopperLayer.%s" % other),
+                            "Put the %s track on the %s layer" % (net, "back" if other == "B" else "front"), "layer"))
+    return out
+
+
+@case("copper.corner")
+def copper_corner(f, settings):
+    if not f.get("chamfer"):
+        return []
+    return [_smaller("track", f["key"], "chamfer", f["chamfer"], "Cut the corner of the %s track smaller" % f["net"],
+                     "copper.corner", "no 45 fits past the corner", settings, "corner")]
+
+
+@case("copper.note")
+def copper_note(f, settings):
+    return _drop_waypoints(f, "Drop the waypoint%s" % ("" if f.get("waypoints") == 1 else "s"))
+
+
+# ------------------------------------------------------------------ builders: escapes and pairs
+def _clear_picks(f, case_id):
+    part, pin = f["part"], f["pin"]
+    out = []
+    if f.get("side"):
+        out.append(_insert_after("place", part,
+                                 _form("board.fanout", _item(part), sides={"list": [_enum("Edge.%s" % f["side"])]}),
+                                 "Keep %s's %s side clear" % (part, _side_word(f["side"])), "fanout"))
+    number = {"num": int(pin)} if pin.isdigit() else {"str": pin}
+    out.append(_insert_after("place", part,
+                             _form("board.escape", _item(part), {"list": [number]},
+                                   why={"str": "keeps the way out of %s pin %s clear (%s)" % (part, pin, case_id)}),
+                             "Keep the lane of %s pin %s clear" % (part, pin), "escape"))
+    return out
+
+
+@case("escape_walled")
+def escape_walled(f, settings):
+    return _clear_picks(f, "escape_walled")
+
+
+@case("escape_closed")
+def escape_closed(f, settings):
+    return _clear_picks(f, "escape_closed")
+
+
+@case("escape_crossed")
+def escape_crossed(f, settings):
+    return []
+
+
+@case("escape_lane")
+def escape_lane(f, settings):
+    reach = f.get("reach")
+    if not reach:
+        return []
+    wide = _widened(reach, settings)
+    return [_setting("place", "escape_via_reach", wide, "Allow the lane's via further: place.escape_via_reach %g" % wide,
+                     "A run's finding (escape_lane): the lane of %s pin %s was blocked; place.escape_via_reach was %g mm."
+                     % (f["part"], f["pin"], reach), "reach")]
+
+
+@case("pair_crossed")
+def pair_crossed(f, settings):
+    return []
+
+
+# ------------------------------------------------------------------ builders: setup and vias
+@case("setup.undeclared")
+def setup_undeclared(f, settings):
+    if not f.get("anchor"):
+        return []
+    item = f["item"]
+    return [_insert_after("place", f["anchor"], _form("board.place", _form("Part", {"str": item})),
+                          "Place %s searched from its links" % item, "place")]
+
+
+@case("setup.lane_unused")
+def setup_lane_unused(f, settings):
+    part, pin = f["part"], f["pin"]
+    number = {"num": int(pin)} if str(pin).isdigit() else {"str": str(pin)}
+    return [Pick("Take pin %s out of %s's escape" % (pin, part),
+                 Edit("edit_list", Target("escape", part), {"arg": "pins", "action": "remove"}, number), "pins")]
+
+
+@case("setup.accept")
+def setup_accept(f, settings):
+    return [Pick("Remove the accept for %s" % f["key"], Edit("remove_statement", Target("accept", f["key"])), "accept")]
+
+
+@case("vias.dropped")
+def vias_dropped(f, settings):
+    out = []
+    for key, text in (("via_move", "Let a via move further: place.via_move %g"),
+                      ("via_leave", "Let a via leave its pad further: place.via_leave %g")):
+        cur = f.get(key, 0)
+        if cur > 0:
+            wide = _widened(cur, settings, 2)
+            out.append(_setting("place", key, wide, text % wide,
+                                "A run's finding (vias.dropped): %s; place.%s was %g mm." % (f["item"], key, cur), key))
+    return out

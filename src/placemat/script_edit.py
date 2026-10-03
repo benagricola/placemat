@@ -807,8 +807,8 @@ def _edit_list(text, edit, ctx_for):
         raise EditRefused("the call has no %s" % (edit.args["arg"],))
     seq = _Seq(arg.value)
     sources = [module.code_for_node(it.value) for it in seq.items]
-    src = _render(edit.value, ctx)
     action = edit.args["action"]
+    src = _render(edit.value, ctx) if edit.value is not None else None
 
     def index_of(spec):
         s = _render(spec, ctx)
@@ -828,6 +828,12 @@ def _edit_list(text, edit, ctx_for):
         elif edit.args.get("after") is not None:
             k = index_of(edit.args["after"]) + 1
         slots, lead = _insert(seq, seq.slots, seq.lead, k, element(src))
+    elif action == "remove" and edit.args.get("indices") is not None:
+        slots, lead = seq.slots, seq.lead
+        for k in sorted(set(edit.args["indices"]), reverse=True):      # by position: a waypoint has no name to find it by
+            if not 0 <= k < len(slots):
+                raise EditRefused("the list has no element %d" % k)
+            slots, lead, _ = _remove(slots, lead, k)
     elif action == "remove":
         k = index_of(edit.value)
         slots, lead, _ = _remove(seq.slots, seq.lead, k)

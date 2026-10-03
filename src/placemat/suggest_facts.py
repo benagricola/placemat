@@ -184,3 +184,26 @@ def fixed_part(board, i) -> dict:
     facts = _item_facts(board, i)
     facts["freedom"] = i.freedom.value
     return facts
+
+
+def escape_facts(board, occ, plan, ref, number, net, by) -> dict:
+    """A pad closed or walled in: the part, the pin, what blocks it, and the side of the part its way out points at."""
+    facts = {"ref": ref, "part": inst_of(board, ref), "pin": str(number), "net": net, "by": list(by)}
+    try:
+        from .placer import pad_way_out, way_out_side
+        fp = board.geometry.footprint(ref)
+        step = next((s for s in plan.steps if s.item == fp.inst and s.placement is not None), None)
+        if step is not None:
+            way = pad_way_out(occ, fp, [str(number)], step.placement.face)
+            facts["side"] = way_out_side(way, step.placement.rotation).name
+    except (ValueError, KeyError, AttributeError, IndexError):
+        pass
+    return facts
+
+
+def last_place(board) -> str:
+    """The key of the last `place` the script made in its own file, where a declaration for an item it left out
+    goes after; "" when none stands alone on its line."""
+    own = [s for s in board._sites if s.kind == "place" and (not board.script_file or s.file == board.script_file)]
+    alone = [s for s in own if board.shared_by(s) == 1]
+    return max(alone, key=lambda s: s.line).key if alone else ""

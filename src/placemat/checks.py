@@ -235,10 +235,11 @@ def findings_of(outcomes) -> list:
     for o in outcomes:
         a = o.acceptance
         if o.outcome == "unmatched":
-            out.append(Finding("setup", "accept %s %s: no verdict by that check and subject on this board" % (a.check, a.subject)))
+            out.append(Finding("setup", "accept %s %s: no verdict by that check and subject on this board" % (a.check, a.subject),
+                               case="setup.accept", facts={"key": "%s %s" % (a.check, a.subject)}))
         elif o.outcome == "not needed":
             out.append(Finding("setup", "accept %s %s: not needed: the check %s" % (a.check, a.subject, o.why_not),
-                               "notice"))
+                               "notice", case="setup.accept", facts={"key": "%s %s" % (a.check, a.subject)}))
     return out
 
 
