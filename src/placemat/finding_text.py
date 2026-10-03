@@ -501,6 +501,20 @@ def _fixed_keepout(f):
     return "%s (keepout): %s" % (f["name"], _refusal(f["why"]))
 
 
+@renders(C.FIXED_ROOM, "item", "copper", "net", "side", "reach_mm")
+def _fixed_room(f):
+    return ("%s (beside): no place within %.2f mm of its standoff, on its %s side, keeps clear of the planned %s%s: "
+            "it stays at the standoff" % (f["item"], f["reach_mm"], f["side"], f["copper"],
+                                          " (net %s)" % f["net"] if f["net"] else ""))
+
+
+@renders(C.FIXED_ROOM_UNSETTLED, "copper", "moved_mm", "passes")
+def _fixed_room_unsettled(f):
+    return ("%s: the copper still moved %s between the last two of %d passes over the firm items, so what stands beside it "
+            "was placed against its last plan" % (f["copper"], "by %.3f mm" % f["moved_mm"] if f["moved_mm"] >= 0 else
+                                                  "(a different number of segments)", f["passes"]))
+
+
 # ------------------------------------------------------------------ split cells, setup notes, needs, vias, facts, routes
 def split_note(f: dict) -> str:
     """What a split cell's finding says, without the cell's name (the step's note says it as well)."""

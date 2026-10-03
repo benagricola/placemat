@@ -1667,3 +1667,22 @@ def test_redo_comes_beside_undo_after_an_undo_and_a_multi_file_suggestion_shows_
     assert out["body"].count('class="difffile"') == 2 and 'data-f="helpers.py"' in out["body"] and "C4_LIMIT_MM = 1.82" in out["body"] and "board.place" in out["body"] and out["info"] == "2 files"
     assert out["noredo"] is True and 'data-sg="redo"' in out["bar"] and 'data-sg="redo"' in out["cmp"] and "undone:" in out["cmp"]
     assert out["sent"] == 1 and 'data-sg="undo"' in out["after"]
+
+
+@needs_node
+def test_showing_a_part_on_the_hidden_face_turns_the_view_to_it_and_frames_it_on_its_face(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD); finish(1, ["a", "b"]);
+ev('itemMap(plan()).get("b").face = "back"');
+ev("setFace('front')"); flush();
+ev("selectItem('b', {zoom: true})");
+out.one = [ev("S.face"), ev("S.pendingFrame && S.pendingFrame.face"), !!ev("S.view")]; flush();
+ev("selectItem('a', {zoom: true})");
+out.back = [ev("S.face"), ev("S.pendingFrame && S.pendingFrame.face")]; flush();
+ev("setFace('both')"); flush();
+ev("selectItem('b', {zoom: true})");
+out.both = [ev("S.face"), ev("S.pendingFrame && S.pendingFrame.face")]; flush();
+""")
+    assert out["one"] == ["back", "back", True]          # one face shown, the part on the other: the view turns and frames it
+    assert out["back"] == ["front", "front"]             # and back again for a front part
+    assert out["both"] == ["both", "back"]               # both shown: stays on both, framed on the part's own panel

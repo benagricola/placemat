@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import copy
 import dataclasses
 import functools
 
@@ -1083,11 +1084,21 @@ class Board:
         copper-to-edge rule. Edge placement puts an item's reach here."""
         return self.edge_margin
 
-    def _bare_occupancy(self) -> Occupancy:
+    def _bare_occupancy(self, fresh: bool = False) -> Occupancy:
         """An occupancy with nothing placed, for measuring an item on its own:
-        with this board's settings, so it measures what the envelope claims."""
-        return Occupancy(self.geometry, self.edge_margin, board_box=None, settings=self.settings,
-                         component_spacing=self.component_spacing)
+        with this board's settings, so it measures what the envelope claims. One is kept for the settings it was made
+        with (building one registers every part's shapes); `fresh` for a caller that changes what it is given."""
+        if fresh:
+            return Occupancy(self.geometry, self.edge_margin, board_box=None, settings=self.settings,
+                             component_spacing=self.component_spacing)
+        key = (id(self.settings), id(self.geometry), self.edge_margin, self.component_spacing)
+        kept = self.__dict__.get("_bare_kept")
+        if kept is None or kept[0] != key or kept[1] is not self.settings or kept[2] is not self.geometry:
+            kept = (key, self.settings, self.geometry, Occupancy(self.geometry, self.edge_margin, board_box=None,
+                                                                  settings=self.settings,
+                                                                  component_spacing=self.component_spacing))
+            self.__dict__["_bare_kept"] = kept
+        return kept[3]
 
     def extent(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """The item's body box at `rotation`, placed at the origin: a size, not a place."""
@@ -2373,7 +2384,58 @@ class Board:
                                  i.key, self._item(b.item)[1], b.side.name))
         return round(stand * (u[0] or u[1]), 6)
 
-    def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent) -> Placement:
+    def _beside_shape_standoff(self, occ: Occupancy, i: PlaceIntent, ox: float, oy: float, gap: float):
+        """Where Beside stands the part along its side's axis against the shapes `item`'s envelope is made
+        of: the offset (x for an east or west side, y for a north or south one) at which no shape of the
+        part's own envelope is nearer than `gap` to a shape of `item`'s, `ox`, `oy` lining it up on the other
+        axis - the greatest of the shape pairs' last contacts (`sweep_standoff`, as `copper=True` takes the
+        pads'). A mark drawn outside the body at a corner holds the part off only where the part stands over
+        it; the envelope box, which every standoff here was, holds it off along the whole side. None when no
+        pair of shapes comes within `gap` across the side."""
+        b = i.beside
+        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[b.side]
+        cross = (0.0, oy) if u[0] else (ox, 0.0)
+        theirs = [s for s in occ._geometry(self._item(b.item)[0]).shapes if s.kind != "npth"]
+        _, moved = self._bare_occupancy().candidate_shapes(i.item, Placement(Location(0.0, 0.0), i.rotation, i.face))
+        mine = [s for s in moved if s.kind != "npth"]
+
+        def along(box, far):            # the box's side nearest (far=False) or furthest along `u`
+            xs, ys = (box.left, box.right), (box.top, box.bottom)
+            return max(x * u[0] + y * u[1] for x in xs for y in ys) if far else \
+                min(x * u[0] + y * u[1] for x in xs for y in ys)
+
+        pairs = []
+        for m in mine:
+            box_m = Box(m.box.left + cross[0], m.box.top + cross[1], m.box.right + cross[0], m.box.bottom + cross[1])
+            for f in theirs:
+                # the last contact is at most where the boxes' own separation is `gap` (a polygon's distance is
+                # never under its boxes'), and none at all when the boxes never come within `gap` across the side
+                if u[0]:
+                    over = max(box_m.top - f.box.bottom, f.box.top - box_m.bottom)
+                else:
+                    over = max(box_m.left - f.box.right, f.box.left - box_m.right)
+                if over < gap:
+                    pairs.append((along(f.box, True) + gap - along(box_m, False), m, f))
+        best = None
+        for bound, m, f in sorted(pairs, key=lambda p: -p[0]):
+            if best is not None and bound <= best + 1e-9:
+                break
+            poly = tuple((x + cross[0], y + cross[1]) for x, y in m.poly)
+            t = sweep_standoff(poly, f.poly, u, gap)
+            if t is not None and (best is None or t > best):
+                best = t
+        if best is None:
+            return None
+        # A last contact is a root and a placement is written to 6 places: where that leaves a pair under the
+        # gap by more than the collision check allows (1e-9), the part stands a micron further out.
+        t = round(best, 6)
+        near = [(m, f) for bound, m, f in pairs if bound >= best - 1e-6]
+        while any(poly_distance(tuple((x + cross[0] + t * u[0], y + cross[1] + t * u[1]) for x, y in m.poly), f.poly)
+                  < gap - 1e-9 for m, f in near):
+            t = round(t + 1e-6, 6)
+        return round(t * (u[0] or u[1]), 6)
+
+    def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent, push: bool = True) -> Placement:
         """Where `Beside(...)` puts the item: its own drawn envelope `gap`
         off `item`'s, on `side`, aligned across it."""
         b = i.beside
@@ -2392,6 +2454,10 @@ class Board:
             item_box = self._placed_envelope_box(occ, b.item)
         own_box = self.envelope(i.item, i.rotation, i.face)
         gap = self._beside_gap(b, i.item)
+        # Against the shapes the item's envelope is made of, where it is a part or a cell (a keepout's and an
+        # escape's are boxes, and a rider's is too: it is laid before the copper its host will carry is known); a Past that turns a corner takes the diagonal from the box standoff, so keeps it.
+        shaped = (not isinstance(b.item, KeepoutIntent) and self._escape_owner(b.item) is None and i.key not in self._rider_of
+                  and not (b.align[0] == "past" and isinstance(b.align[2].edge, Corner)))
         ox = oy = None
         if b.side is Edge.EAST:
             ox = item_box.right + gap - own_box.left
@@ -2478,13 +2544,274 @@ class Board:
                     oy = their_loc.y - own_pad.y
                 else:
                     ox = their_loc.x - own_pad.x
+        if shaped and i.key not in self._loose:
+            stand = self._beside_shape_standoff(occ, i, ox, oy, gap)
+            if stand is not None:
+                was = ox if b.side in (Edge.EAST, Edge.WEST) else oy
+                if abs(was - stand) > 1e-6:
+                    self._tight[i.key] = abs(was - stand)           # nearer than the box put it
+                if b.side in (Edge.EAST, Edge.WEST):
+                    ox = stand
+                else:
+                    oy = stand
         if b.copper:
             stand = self._beside_copper_standoff(occ, i, ox, oy)
             if b.side in (Edge.EAST, Edge.WEST):
                 ox = stand
             else:
                 oy = stand
-        return Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
+        placement = Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
+        if shaped and push and not b.copper:         # copper=True measures pad copper: a body over the item's is for the collision check to name
+            placement = self._beside_clear_of_others(occ, i, placement)
+        return placement
+
+    # ------------------------------------------------------------ room for declared copper
+    _ROOM_KINDS = ("track", "pair", "via")
+
+    def _snapshot(self) -> tuple:
+        """What a pass over the firm items changes on the board, to put back: its attributes (a container copied), and the
+        fields of every declaration (a turn, a run, an alignment, copper's freedom)."""
+        attrs = {k: (copy.copy(v) if isinstance(v, (dict, list, set)) else v) for k, v in self.__dict__.items()}
+        things = [(o, copy.copy(o.__dict__)) for o in list(self._intents) + list(self._copper) + list(self._links)
+                  if hasattr(o, "__dict__")]
+        return attrs, things
+
+    def _restore(self, saved: tuple) -> None:
+        attrs, things = saved
+        self.__dict__.clear()
+        self.__dict__.update({k: (copy.copy(v) if isinstance(v, (dict, list, set)) else v) for k, v in attrs.items()})
+        for o, d in things:
+            o.__dict__.clear()
+            o.__dict__.update(d)
+
+    def _redo_check(self, occ: Occupancy, plan: Plan, fixed_copper) -> None:
+        """Whether this run is the one. Before the collisions of the firm items are judged (`fixed_copper` None): a Beside
+        part that no step within reach let stand, because a firm Beside part placed before it was in its way, is placed
+        before that part in the next run, and said so in its step. After the firm items and their escapes: the copper
+        declared between firm items is planned as it would be drawn, and where it meets another declaration's copper or a
+        placed part's pad, the Beside parts standing nearer than the box put them that it names (or all of them, when it
+        names none) go back to the box's standoff; and where the copper is not where the last run planned it, the firm
+        items are placed against these plans. A run that has none of this to change
+        goes on; the last one that may be run says what did not settle (`fixed.room_unsettled`)."""
+        if not self._redo and fixed_copper is not None:
+            rooms = self._dry_rooms(occ, plan, fixed_copper) if self._room_seed else {}
+            self._room_unsettled = _rooms_moved(self._room_seed, rooms, self.settings.place_copper_room_tolerance) \
+                if self._room_seed else []
+            return
+        if not self._redo:
+            return
+        swaps, notes = self._swaps, self._swap_notes
+        fresh = []
+        for p, q in self._beside_blocked:
+            if not any(x in swaps + fresh for x in ((p, q), (q, p))):
+                fresh.append((p, q))
+                notes = dict(notes, **{p: "placed before %s: %s stood in its way, and now stands off it" % (q, q)})
+        seed, loose, moved = self._room_seed, self._loose, []
+        if fixed_copper is not None:
+            rooms = self._dry_rooms(occ, plan, fixed_copper)
+            squeezers, conflicted = self._squeezers(occ, rooms, fixed_copper)
+            relaxed = (squeezers | frozenset(self._beside_hint)) - loose
+            if not relaxed and conflicted:
+                relaxed = frozenset(self._tight) - loose        # a squeeze no part is named for: every part nearer than the box
+            moved = _rooms_moved(seed, rooms, self.settings.place_copper_room_tolerance) if seed else []
+            if relaxed or moved or (conflicted and not seed):
+                raise _Redo(rooms, swaps + fresh, notes, loose | relaxed)
+            self._room_unsettled = moved
+        if fresh:
+            raise _Redo(seed, swaps + fresh, notes, loose)
+
+    def _room_context(self, occ: Occupancy, plan: Plan, ctx) -> "_CopperContext":
+        """A copper context to plan declared copper in without drawing it: what the real one knows, copied."""
+        room = _CopperContext(self, occ)
+        room.plan = plan
+        room.ops_at, room.via_at, room.pour_at = dict(ctx.ops_at), dict(ctx.via_at), dict(ctx.pour_at)
+        room.planned_tracks, room.planned_vias = list(ctx.planned_tracks), list(ctx.planned_vias)
+        room.fixed_tracks = list(ctx.fixed_tracks)
+        self._roomed = set()
+        return room
+
+    def _dry_rooms(self, occ: Occupancy, plan: Plan, intents, ctx=None, done=None) -> dict:
+        """{copper index: [Shape]}: where each track and via of `intents` would be drawn, planned as the real plan plans
+        it but committed nowhere. A declaration the plan cannot read yet (an end not placed) has none."""
+        if ctx is None:
+            ctx = _CopperContext(self, occ)
+            ctx.plan = plan
+        out = {}
+        for c in sorted(intents, key=lambda c: c.index):
+            if c.key.split(" ")[0] not in self._ROOM_KINDS:
+                continue
+            try:
+                ops = c.plan(ctx)
+            except Exception:           # an end that is not placed, a form that needs what is not there yet
+                continue
+            ctx.ops_at[c.index] = ops
+            shapes = []
+            for op in ops:
+                if isinstance(op, Via) and any(
+                        x.net == op.net and x.kind in ("pad", "through") and point_in_polygon((op.at.x, op.at.y), x.poly)
+                        for g in occ.items.values() for x in g.shapes if x.box.contains_point(op.at)):
+                    continue            # a via in a pad of its net is carried by the part, and gives way with it
+                if isinstance(op, (Track, Via)):
+                    sh = _shape_of(op)
+                    if sh is not None:
+                        shapes.append(dataclasses.replace(sh, owner="room " + c.key, label=",".join(sorted(c.owners))))
+            out[c.index] = shapes
+        ctx.notes = Findings()
+        return out
+
+    def _squeezers(self, occ: Occupancy, rooms: dict, intents) -> tuple:
+        """The Beside parts that stand nearer than the box put them (the shape standoff) and are an end of declared copper
+        that meets other copper as planned - another declaration's, or a placed part's pad - or a placed part that the copper
+        meets: they go back to the box's standoff, which kept that room. And whether any such meeting was found."""
+        by_index = {c.index: c for c in intents}
+        shapes = [(k, sh) for k, v in rooms.items() for sh in v]
+        hits = set()
+        for n, (k, a) in enumerate(shapes):
+            for k2, b in shapes[n + 1:]:
+                if k2 != k and a.net != b.net and a.box.overlaps(b.box, gap=occ._copper_reach) \
+                        and occ._conflict(a, b, None, exact=True):
+                    hits |= {(k, None), (k2, None)}
+            for owner, g in occ.items.items():
+                if owner in occ.pending or owner in by_index[k].owners:
+                    continue                # a part the copper is planned from: it is planned round it
+                for o in g.shapes:
+                    if o.kind in ("pad", "through", "copper") and a.box.overlaps(o.box, gap=occ._copper_reach) \
+                            and occ._conflict(a, o, None, exact=True):
+                        hits.add((k, owner))
+        out = set()
+        for k, owner in hits:
+            refs = set(by_index[k].owners) | ({owner} if owner else set())
+            for it in self._intents:
+                if getattr(it, "beside", None) is not None and it.key in self._tight and \
+                        refs & {fp.ref for fp in members_of(it.item)}:
+                    out.add(it.key)
+        return frozenset(out), bool(hits)
+
+    def _rooms_after(self, occ: Occupancy, plan: Plan, room_ctx, placed: set, other_copper, step) -> None:
+        """After a searched item lands: the declared copper whose ends are all placed now is planned provisionally, and kept
+        clear of by what is placed next."""
+        todo = [c for c in other_copper if c.index not in self._roomed and c.owners and c.owners <= placed]
+        if not todo:
+            return
+        self._roomed |= {c.index for c in todo}
+        got = self._dry_rooms(occ, plan, todo, room_ctx)
+        shapes = [sh for v in got.values() for sh in v]
+        if shapes:
+            occ.set_rooms(occ.rooms + shapes)
+            step.note = (step.note + "; " if step.note else "") + "room kept for %s" % ", ".join(
+                c.key for c in todo if got.get(c.index))
+
+    def _rooms_digest(self) -> str:
+        """What the passes decided, for the reuse record: the planned copper and the orders turned."""
+        if not self._room_seed and not self._swaps:
+            return ""
+        import hashlib
+        text = repr(sorted((k, [(sh.owner, [tuple(round(c, 4) for c in p) for p in sh.poly]) for sh in v])
+                           for k, v in self._room_seed.items())) + repr(self._swaps)
+        return "|rooms:" + hashlib.sha256(text.encode()).hexdigest()[:16]
+
+    def _beside_clear_of_others(self, occ: Occupancy, i: PlaceIntent, placement: Placement) -> Placement:
+        """`_beside_clear` with a user's labels left out: they give way to a firm part, the part does not."""
+        real = getattr(occ, "_occ", occ)
+        was, real.labels_yield = real.labels_yield, True
+        try:
+            return self._beside_clear(occ, i, placement)
+        finally:
+            real.labels_yield = was
+
+    def _beside_clear(self, occ: Occupancy, i: PlaceIntent, placement: Placement) -> Placement:
+        """Beside's standoff from `item`, moved on out along its side's axis to the first place the collision
+        rule (`Occupancy.legal`: everything placed on the face, the reservations, the edge) lets the part stand,
+        when something else already placed lies in its way. Stepped out from the standoff, `place.beside_step` a
+        time up to `place.beside_reach`, then bisected back to the first spot that stands. The standoff itself
+        when it stands, and when nothing within reach does (the collision is then reported as any firm one is)."""
+        b = i.beside
+        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[b.side]
+        real = getattr(occ, "_occ", occ)        # a rider is laid in a view: the host and riders before it stand in it
+        others = real.obstacles(real._geometry(i.item))
+        group = [x for g in list(occ._moved.values()) + list(occ._cells.values()) for x in g.shapes if not x.carried] \
+            if isinstance(occ, _Riding) else []
+        mine = {fp.ref for fp in members_of(i.item)}
+        # what declared copper is planned to be, but for copper planned from this part (it is planned round it)
+        group += [x for x in real.rooms if not (set(x.label.split(",")) & mine)]
+        loc, clr = placement.location, self.clearance
+
+        def at(s: float) -> Placement:
+            return Placement(Location(round(loc.x + s * u[0], 6), round(loc.y + s * u[1], 6)), i.rotation, i.face)
+
+        past = self._firm_past_edge(i)
+
+        def fits(s: float) -> bool:
+            """Whether the part stands at `s` with nothing giving way: the cheap answer, all the move out asks."""
+            p = at(s)
+            if group and real.legal(i.item, p, clr, others=ShapeIndex(group), board=False) is not None:
+                return False
+            return real.legal(i.item, p, clr, others=others, past_edge=past, by_corners=True) is None
+
+        def stands_at_standoff() -> bool:
+            """As a firm item is judged: a via of its own or placed before it may give way."""
+            if fits(0.0):
+                return True
+            if group and real.legal(i.item, at(0.0), clr, others=ShapeIndex(group), board=False) is not None:
+                return False
+            return real.legal_giving_way(i.item, at(0.0), clr, others=others, past_edge=past, by_corners=True)[0] is None
+
+        stands = fits
+        if stands_at_standoff():
+            return placement
+        step, reach = self.settings.place_beside_step, self.settings.place_beside_reach
+        lo, hi = 0.0, None
+        for k in range(1, int(reach / step + 1e-9) + 1):
+            if stands(k * step):
+                hi = k * step
+                break
+            lo = k * step
+        if hi is None:
+            self._beside_refused(real, i, placement, others, group, clr)
+            return placement
+        while hi - lo > 1e-4:
+            mid = (lo + hi) / 2.0
+            lo, hi = (lo, mid) if stands(mid) else (mid, hi)
+        hi = math.ceil(hi * 1e6) / 1e6
+        while not stands(hi):
+            hi = round(hi + 1e-6, 6)
+        return at(hi)
+
+    def _beside_refused(self, real, i: PlaceIntent, placement: Placement, others, group, clr) -> None:
+        """A Beside part that no step within reach lets stand: said, by what stood in its way. Provisional copper is
+        `fixed.room`; a firm Beside part placed before it is noted, for the next pass to place the two the other way round."""
+        blame: list = []
+        if not (group and real.legal(i.item, placement, clr, others=ShapeIndex(group), board=False, blame=blame) is not None):
+            real.legal(i.item, placement, clr, others=others, past_edge=self._firm_past_edge(i), blame=blame, by_corners=True)
+        if not blame:
+            return
+        owner = blame[0].owner
+        name = getattr(owner, "name", str(owner))
+        if name.startswith("room "):
+            plan = self._begin_plan
+            if plan is not None:
+                plan.findings.append(self._finding(C.FIXED_ROOM, {
+                    "item": i.key, "copper": name[len("room "):], "net": getattr(owner, "net", ""),
+                    "side": i.beside.side.name.lower(), "reach_mm": self.settings.place_beside_reach}))
+            return
+        q = next((it for it in self._intents if getattr(it, "beside", None) is not None and it.key != i.key
+                  and it.kind in ("part", "cell") and name in {fp.ref for fp in members_of(it.item)}), None)
+        if q is not None and q.key in self._settled and not ({fp.ref for fp in members_of(q.item)} & set(i.needs)):
+            self._beside_blocked.append((i.key, q.key))
+            return
+        # refused by a part nothing can turn round: what it is aligned with, if that stands nearer than the box put it,
+        # goes back to the box (the part it carries along with it stands off it again)
+        it, seen = i, set()
+        while it is not None and getattr(it, "beside", None) is not None and it.key not in seen:
+            seen.add(it.key)
+            parent = it.beside.item
+            if isinstance(parent, KeepoutIntent) or self._escape_owner(parent) is not None:
+                break
+            key = self._item(parent)[1]
+            if key in self._tight:
+                self._beside_hint.add(key)
+                break
+            it = next((x for x in self._intents if x.key == key), None)
 
     def _row_of_placement(self, occ: Occupancy, i: PlaceIntent, along: float) -> Placement:
         """Where one item of a `row(..., of=)` lands: its own drawn envelope
@@ -6132,6 +6459,40 @@ class Board:
         return plan
 
     def _resolve(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial=None) -> Plan:
+        """The resolve, run again (from the board as it stood) while what the firm items were placed against is not what
+        the declared copper turns out to be, or a Beside part was refused by a firm part it can be placed before: each run
+        stops after its firm items when that is so, and the last one, or the first that finds everything in place, is the
+        resolve (see `_redo_check`)."""
+        self._room_seed, self._swaps, self._room_unsettled, self._swap_notes, self._loose = {}, [], [], {}, frozenset()
+        passes = self.settings.place_firm_passes
+        if not (self.settings.place_copper_room and passes > 1 and
+                (self._copper or any(getattr(i, "beside", None) is not None for i in self._intents))):
+            return self._resolve_run(progress, reuse, explore, lock, routes, on_step, on_begin, partial, False)
+        saved = self._snapshot()
+        for n in range(1, passes + 1):
+            try:
+                return self._resolve_run(progress, reuse, explore, lock, routes, on_step, on_begin, partial, n < passes)
+            except _Redo as r:
+                self._restore(saved)
+                self._room_seed, self._swaps, self._swap_notes, self._loose = r.seed, r.swaps, r.notes, r.loose
+
+    def _resolve_run(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial, redo: bool) -> Plan:
+        """One run of the resolve. With `redo`, what it reports while it goes is held until it is known that it will not be
+        run again."""
+        out = self._out = _Out(progress, on_step, on_begin, partial) if redo and (progress or on_step or on_begin or partial) \
+            else _Out.through(progress, on_step, on_begin, partial)
+        self._redo = redo
+        try:
+            plan = self._resolve_once(out.progress, reuse, explore, lock, routes, out.on_step, out.on_begin, out.partial)
+        except _Redo:
+            raise
+        except BaseException:
+            out.flush()
+            raise
+        out.flush()
+        return plan
+
+    def _resolve_once(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial=None):
         self._check_groups()                # what a declared group may hold, before the search
         self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
         self._part_keep_outs()              # the clearances the parts' Pm.KeepOut ask of other nets' copper; refuses one with no citation
@@ -6152,6 +6513,8 @@ class Board:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing, rules=self._rules)
+        occ.set_rooms([sh for shapes in self._room_seed.values() for sh in shapes])     # the copper the passes planned
+        self._beside_blocked, self._tight, self._beside_hint = [], {}, set()
         self._check_stamped_via_types()     # a fragment's vias the fab profile does not allow fail the run
         self._flip_said = self._flip_notes(occ)     # a flipped cell's via whose inner end changes role
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
@@ -6180,7 +6543,7 @@ class Board:
         ctx.plan = plan
         self._escape_ctx = ctx              # what a lane's via is judged by (_LaneEnv)
         from . import reuse as _reuse
-        context = _reuse.context_key(self, self.reuse_extra)
+        context = _reuse.context_key(self, self.reuse_extra + self._rooms_digest())
         record = {"version": _reuse.VERSION, "context": context, "steps": [], "reused": 0, "first_change": None}
         plan.reuse = record
         if partial is not None:             # each step's record, as it is made: a resolve that dies leaves them (reuse.PartialLog)
@@ -6435,6 +6798,8 @@ class Board:
             self._place_fanouts(occ, plan, placed, progress)
             self._place_escapes(occ, plan, placed, progress)
             self._place_labels(occ, plan, placed, progress)
+            if occ.rooms_apply and step.placement is not None:      # declared copper whose ends are all placed now
+                self._rooms_after(occ, plan, room_ctx, placed, other_copper, step)
 
         def place_ranked(lo, hi):
             """FIXED and EDGE go down in declaration order: nothing yields to
@@ -6444,19 +6809,23 @@ class Board:
                     and getattr(obj, "key", None) not in self._rider_of]      # a rider goes with its item
             while firm:                     # declaration order, except that a position said in terms of a pad waits for it
                 ready = [obj for obj in firm if obj.needs <= placed and self._lanes_ready(obj)]
+                held = {q for p, q in self._swaps if any(o.key == p for o in firm)}      # placed after the part it was in the way of
+                ready = [obj for obj in ready if obj.key not in held] or ready
                 if not ready and any(d.index not in self._escape_laid and d.ref in placed for d in self._escapes):
                     self._place_escapes(occ, plan, placed, progress, force=True)    # waits that wait on each other: as before
                     continue
                 if not ready:
                     raise ValueError("%s is placed relative to %s, which is not placed by then (only FIXED and EDGE "
                                      "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
-                place_one(ready[0])
+                place_one(ready[0], self._swap_notes.get(ready[0].key, ""))
                 firm.remove(ready[0])
             collisions = [f for f in plan.findings
                           if f.cause in (C.FIXED_CUTOUT, C.FIXED_KEEPOUT)
                           or (f.cause is C.FIXED_PART and f.facts["freedom"] in ("fixed", "edge"))]
             required_keys = {o.key for o in placements if getattr(o, "required", False)}
             demanded = [c for c in collisions if finding_text.subject(c.cause, c.facts) in required_keys]
+            if hi == RANK_EDGE:
+                self._redo_check(occ, plan, None)       # a part refused by one it can be placed before: the other way round
             if demanded or (collisions and not self.keep_going):
                 raise PlacementCollision(demanded or collisions)
             pending = [obj for obj in placements if lo <= obj.rank[0] <= hi and not obj.freedom.decided]
@@ -6481,9 +6850,18 @@ class Board:
 
         place_ranked(RANK_FIXED, RANK_EDGE)
         self._place_escapes(occ, plan, placed, progress, force=True)     # whatever the firm items did not release
+        self._redo_check(occ, plan, fixed_copper)       # where the declared copper goes, against where the firm items stand
+        self._out.flush()
         self._check_web(plan)
         self._check_pitch(plan)
+        occ.set_rooms([])       # the real copper replaces what the passes planned
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
+        for key, moved in self._room_unsettled:
+            plan.findings.append(self._finding(C.FIXED_ROOM_UNSETTLED, {
+                "copper": key, "moved_mm": moved, "passes": self.settings.place_firm_passes}))
+        if self.settings.place_copper_room:
+            occ.rooms_apply = True          # the search keeps clear of what declared copper will be
+            room_ctx = self._room_context(occ, plan, ctx)
         if self._fit:
             # the search's room: round what is decided, or round the origin when nothing is
             decided = self._placed_box(occ, plan)
@@ -6504,6 +6882,8 @@ class Board:
                 record["cleanup"] = self._recorded_cleanup(occ, plan)
                 record["cleanup"]["key"] = chain["key"]
         self._give_way_copper(occ, plan)
+        occ.set_rooms([])
+        occ.rooms_apply = False
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         if routes:
             self._draw_adopted(occ, ctx, plan, routes, progress)
@@ -8360,7 +8740,7 @@ class Board:
         key = (spec.key, tuple(rotations), face)
         cache = self.__dict__.setdefault("_block_alone_cache", {})
         if key not in cache:
-            bare = self._bare_occupancy()
+            bare = self._bare_occupancy(fresh=True)
             bare.board_box, bare.board_shape, bare.board_cutouts = None, None, None
             bare.copper, bare.reservations = [], []
             bare.pending = {fp.ref for fp in self.geometry.footprints}
@@ -9387,6 +9767,74 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = 
 _RIDE_PROBE = (1.37, -0.73)
 """How far _ride_turn moves an item to see whether its riders move with it:
 off any grid a search walks, on both axes."""
+
+
+class _Redo(Exception):
+    """A run of the resolve that stops after its firm items, for the next to place them against what it found."""
+
+    def __init__(self, seed: dict, swaps: list, notes: dict, loose: frozenset):
+        super().__init__("the firm items are placed again")
+        self.seed, self.swaps, self.notes, self.loose = seed, swaps, notes, loose
+
+
+class _Out:
+    """What a resolve reports while it goes (progress lines, steps, begins, the partial reuse log), held until the run is known
+    to stand, so a run that is placed again does not report its firm items twice."""
+
+    def __init__(self, progress, on_step, on_begin, partial):
+        self.queue = []
+        self.progress = self._later(progress)
+        self.on_step = self._later(on_step)
+        self.on_begin = self._later(on_begin)
+        self.partial = None if partial is None else _OutPartial(self, partial)
+
+    @classmethod
+    def through(cls, progress, on_step, on_begin, partial):
+        out = cls(progress, on_step, on_begin, partial)
+        out.queue = None
+        return out
+
+    def _later(self, f):
+        if f is None:
+            return None
+
+        def call(*a):
+            if self.queue is None:
+                return f(*a)
+            self.queue.append((f, a))
+        return call
+
+    def flush(self) -> None:
+        queue, self.queue = self.queue, None
+        for f, a in queue or ():
+            f(*a)
+
+
+class _OutPartial:
+    def __init__(self, out: _Out, real):
+        self._out, self._real = out, real
+
+    def begin(self, *a):
+        self._out._later(self._real.begin)(*a)
+
+    def append(self, *a):
+        self._out._later(self._real.append)(*a)
+
+
+def _rooms_moved(old: dict, new: dict, tol: float) -> list:
+    """[(copper key, mm)] for each declaration whose planned shapes differ from the last pass's by more than `tol`; a
+    different count of shapes counts as moved by the most any of them could."""
+    out = []
+    for k in sorted(set(old) | set(new)):
+        a, b = old.get(k, []), new.get(k, [])
+        if len(a) != len(b) or any(len(x.poly) != len(y.poly) for x, y in zip(a, b)):
+            gap = float("inf")
+        else:
+            gap = max([abs(p - q) for x, y in zip(a, b) for u, v in zip(x.poly, y.poly) for p, q in zip(u, v)] or [0.0])
+        if gap > tol:
+            key = (a or b)[0].owner[len("room "):] if (a or b) else str(k)
+            out.append((key, round(gap, 3) if gap != float("inf") else -1.0))
+    return out
 
 
 class _Riding:
