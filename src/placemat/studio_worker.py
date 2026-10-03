@@ -33,6 +33,25 @@ class Session:
         self.send = send or (lambda event: None)
         self.cache: dict = {}
         self._cancel: int | None = None
+        self.sent_models: set = set()           # model ids the studio has been given jobs for (studio_3d.py)
+
+    def _models(self, plan):
+        """The 3D view's model context for the board this plan was read from (model_plan.py), or None when it cannot be made."""
+        try:
+            from .model_plan import ModelContext
+            from .settings import active
+            s = active()
+            dirs = [d for d in (s.studio_3d_model_dirs or "").split(os.pathsep) if d]
+            from .model_convert import find_kicad_cli
+            return ModelContext(plan.geometry.path, dirs, find_kicad_cli(s.studio_3d_kicad_cli))
+        except Exception:
+            return None
+
+    def _send_jobs(self, ctx) -> None:
+        if ctx is not None:
+            jobs = ctx.new_jobs(self.sent_models)
+            if jobs:
+                self.send({"ev": "model_jobs", "jobs": jobs})
 
     def cancel(self, id) -> None:
         self._cancel = id
@@ -49,7 +68,7 @@ class Session:
         from .project import find_board
         from .runner import RunFailure
         send, t0 = self.send, time.monotonic()
-        state = {"sites": {}, "first": None, "board": False}
+        state = {"sites": {}, "first": None, "board": False, "models": None}
 
         def on_board(board):
             state["sites"] = declared_sites(board)
@@ -62,7 +81,11 @@ class Session:
             if not state["board"]:
                 state["board"] = True
                 send({"ev": "board", "id": id, **board_json(plan)})
-            send({"ev": "item", "id": id, "item": item_json(plan, step, state["sites"]), **step_extras(plan, step)})
+            if state["models"] is None:
+                state["models"] = self._models(plan) or False
+            ctx = state["models"] or None
+            send({"ev": "item", "id": id, "item": item_json(plan, step, state["sites"], ctx), **step_extras(plan, step)})
+            self._send_jobs(ctx)
 
         last_phase = [0.0]
 
@@ -85,7 +108,9 @@ class Session:
                 self._check(id)
                 send({"ev": "board", "id": id, **board_json(r.plan)})       # the frame a fit board settled on
                 score = _score(r)
-                doc = plan_json(r.plan, state["sites"], score)
+                ctx = state["models"] or self._models(r.plan)
+                doc = plan_json(r.plan, state["sites"], score, ctx)
+                self._send_jobs(ctx)
                 t2 = time.monotonic()
                 from . import reuse as reuse_mod
                 send({"ev": "done", "id": id, "doc": doc,
@@ -124,7 +149,9 @@ class Session:
             with resolved(script, out, quiet=True, progress=check, on_step=check, on_begin=check, cache=self.cache,
                           on_board=on_board, overlay=overlay) as r:
                 self._check(id)
-                doc = plan_json(r.plan, state["sites"], _score(r))
+                ctx = self._models(r.plan)
+                doc = plan_json(r.plan, state["sites"], _score(r), ctx)
+                self._send_jobs(ctx)
                 send({"ev": "try_done", "id": id, "doc": doc, "timing": {"total_s": round(time.monotonic() - t0, 3)}})
         except Cancelled:
             send({"ev": "try_cancelled", "id": id})

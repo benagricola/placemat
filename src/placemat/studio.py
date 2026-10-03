@@ -368,6 +368,12 @@ class Studio:
         self._run = None                        # the checked run in progress: {"id", "lines"}
         self._run_cache: dict = {}              # run.json path -> (mtime, summary)
         self.worker = WorkerProcess(self._on_worker, self._views() / "worker.log")
+        from . import studio_3d
+        self.m3d = studio_3d.Models3D(self.cfg, self._emit_3d, self._views() / "models3d.log")      # the 3D view's converter (studio_3d.py)
+
+    def _emit_3d(self, name: str, data: dict) -> None:
+        with self.lock:
+            self.hub.emit(name, data)
 
     def _views(self) -> Path:
         return (self.src.board_dir if self.src else self.root) / ".placemat" / "views" / "studio"
@@ -502,6 +508,7 @@ class Studio:
             self.server.shutdown()
             self.server.server_close()
         self.worker.stop()
+        self.m3d.stop()
         for t in self._threads:
             t.join(timeout=5)
 
@@ -654,6 +661,9 @@ class Studio:
                 return
             if kind in ("try_done", "try_cancelled", "try_error"):
                 self._on_try(ev)
+                return
+            if kind == "model_jobs":                    # the models a resolve's items use, for the converter (studio_3d.py)
+                self.m3d.submit(ev.get("jobs"))
                 return
             if cur is None or ev.get("id") != cur["id"]:
                 return
@@ -1481,6 +1491,7 @@ class Studio:
     def _hello_data(self) -> dict:
         common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
                   "explores": self.explores(), "routes": self.routes(), "explore_fps": self.cfg.studio_explore_fps,
+                  "models3d": self.m3d.status(), "models": self.m3d.table(),
                   "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),
                   "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s}
         if self.script is None:
@@ -1529,9 +1540,30 @@ def _handler(studio: Studio):
             given = (query.get("t") or [self.headers.get("X-Studio-Token") or ""])[0]
             return hmac.compare_digest(given.encode(), studio.token.encode())
 
+        def _lib(self, path: str):
+            """/3d/lib/<token>/<file>: the 3D view's script and the vendored three.js. The token is in the path so the modules the viewer
+            imports by a relative name come with it."""
+            from . import studio_3d
+            host = (self.headers.get("Host") or "").lower()
+            token, _, rest = path[len("/3d/lib/"):].partition("/")
+            if host not in studio.allowed_hosts() or not hmac.compare_digest(token.encode(), studio.token.encode()):
+                return self._refuse(403, "forbidden: open the address `placemat studio` printed")
+            found = studio_3d.lib_file(rest)
+            if found is None:
+                return self._refuse(404, "not found")
+            body = found[0].read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", found[1])
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store" if rest == "viewer.js" else "private, max-age=86400")
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
             url = urlparse(self.path)
             query = parse_qs(url.query)
+            if url.path.startswith("/3d/lib/"):
+                return self._lib(url.path)
             if not self._allowed(query):
                 return self._refuse(403, "forbidden: open the address `placemat studio` printed")
             path = url.path
@@ -1578,6 +1610,24 @@ def _handler(studio: Studio):
                     return self._refuse(e.status, str(e))
             if path == "/routes":
                 return self._json(studio.routes())
+            if path == "/3d/models":
+                return self._json({"status": studio.m3d.status(), "models": studio.m3d.table()})
+            if path.startswith("/3d/model/") and path.endswith(".pmm"):
+                f = studio.m3d.mesh_path(path[len("/3d/model/"):-len(".pmm")])
+                if f is None:
+                    return self._refuse(404, "no such model")
+                try:
+                    body = f.read_bytes()
+                except OSError:
+                    return self._refuse(404, "no such model")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "private, max-age=31536000, immutable")     # the id is the content
+                self.send_header("ETag", '"%s"' % f.stem.split("-", 1)[1])
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if path == "/explore":
                 doc = studio.explore_record(query.get("f", [""])[0])
                 return self._json(doc) if doc is not None else self._refuse(404, "no such explore record")
@@ -1596,7 +1646,7 @@ def _handler(studio: Studio):
         def do_POST(self):
             """/switch, with the token: it changes which layout script is watched; and /run, a checked run of it."""
             url = urlparse(self.path)
-            if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo", "/suggest/redo", "/suggest/probe", "/suggest/probe/stop"):
+            if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo", "/suggest/redo", "/suggest/probe", "/suggest/probe/stop", "/3d/retry"):
                 return self._no()
             if not self._allowed(parse_qs(url.query)):
                 return self._refuse(403, "forbidden: open the address `placemat studio` printed")
@@ -1618,6 +1668,14 @@ def _handler(studio: Studio):
                     return self._send(e.status, "application/json", json.dumps({"error": str(e), **e.extra}).encode())
                 except (ValueError, TypeError, AttributeError) as e:
                     return self._send(400, "application/json", json.dumps({"error": str(e)}).encode())
+            if url.path == "/3d/retry":
+                try:
+                    n = min(int(self.headers.get("Content-Length") or 0), 4096)
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    rid = body.get("id")
+                    return self._json({"queued": studio.m3d.retry(rid if isinstance(rid, str) else None)})
+                except (ValueError, TypeError) as e:
+                    return self._refuse(400, str(e))
             if url.path == "/run":
                 try:
                     return self._json(studio.start_run())

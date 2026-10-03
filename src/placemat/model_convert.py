@@ -425,6 +425,10 @@ def run_batch(jobs: list, cfg: Config, cli: str | None, cache: model_cache.Cache
 
 # ---------------------------------------------------------------- the process
 def main() -> int:
+    try:
+        os.nice(10)                     # conversion is the page's background work: it yields to everything else
+    except (OSError, AttributeError):
+        pass
     cfg = Config()
     cache = None
     cli = None

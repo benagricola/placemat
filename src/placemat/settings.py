@@ -424,6 +424,26 @@ class Settings:
         "the most candidates (resolves of the edited script) a probe tries, the first and the last check included")
     studio_apply: bool = S(True, "bool",
         "false: the studio shows suggestions and diffs but refuses to write them")
+    studio_3d_kicad_cli: str = S("", "path",
+        "the kicad-cli the 3D view converts models with; empty finds it on the PATH")
+    studio_3d_model_dirs: str = S("", "path",
+        "more folders KiCad's own 3D model library may be in, separated by the platform's path separator, tried after the standard install places")
+    studio_3d_cache_dir: str = S("", "path",
+        "where converted 3D models are kept, shared by every project; empty is placemat/models in the user's cache folder")
+    studio_3d_cache_mb: int = S(512, "count",
+        "megabytes the model cache may hold; over it the least recently used meshes are removed")
+    studio_3d_batch: int = S(8, "count",
+        "models converted per kicad-cli run (the progress granularity: each run costs about 0.3 s more than its export)")
+    studio_3d_batch_timeout_s: int = S(120, "seconds",
+        "a kicad-cli model conversion batch is stopped after this long, and its models are tried one by one")
+    studio_3d_model_tris: int = S(30000, "count",
+        "a model mesh over this many triangles is simplified (vertex clustering) once, when it is converted")
+    studio_3d_max_tris: int = S(4000000, "count",
+        "triangles the 3D view draws at most; past it the parts are drawn as plates and the view says so")
+    studio_3d_appear_ms: int = S(200, "ms",
+        "a part arriving in the 3D view drops in and fades over this long; 0 shows it at once")
+    studio_3d_plate_mm: float = S(0.1, "mm",
+        "how far the plate of a part with no 3D model stands off its face")
 
     facts_confirmed: str = S("", "text",
         "the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm`")
@@ -586,11 +606,11 @@ _ABOVE_ZERO = frozenset((
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
-    "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
+    "studio_3d_cache_mb", "studio_3d_batch", "studio_3d_batch_timeout_s", "studio_3d_model_tris", "studio_3d_max_tris", "studio_3d_plate_mm", "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
 _AT_LEAST_ZERO = frozenset((
-    "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
