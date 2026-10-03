@@ -674,7 +674,8 @@ def copper_keepout(f, settings):
     name, net, word = f["keepout"], f["net"], f["word"]
     out = []
     if not f.get("bars"):
-        out.append(_add_to("keepout", name, "allow", {"str": net}, "Let net %s into keepout `%s`" % (net, name), "allow"))
+        out.append(_add_to("keepout", name, "allow", _form("Net", {"str": net}),
+                           "Let net %s into keepout `%s`" % (net, name), "allow"))
     layer = f.get("layer")
     left = [l for l in f.get("keepout_layers", ()) if l != layer]
     if layer and word != "via" and left:

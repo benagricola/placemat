@@ -202,8 +202,12 @@ def read(path):
 
 def finding_to_json(f) -> list:
     """[kind, text, severity, case, suggestions]: the suggestions as the raising site made them, before
-    suggestions.bind gives them a file, a line and an id from the script as it is when they are shown."""
-    return [f.kind, str(f), f.severity, f.case, [s.to_json() for s in f.suggestions]]
+    suggestions.bind gives them a file, a line and an id from the script as it is when they are shown. A finding
+    whose suggestions are built when the resolve ends (bind) has none yet, so its facts go on the end of the entry."""
+    out = [f.kind, str(f), f.severity, f.case, [s.to_json() for s in f.suggestions]]
+    if f.facts and not f.suggestions:
+        out.append(f.facts)
+    return out
 
 
 def finding_from_json(v):
@@ -216,4 +220,4 @@ def finding_from_json(v):
         return Finding("setup", v)
     from .suggestions import Suggestion
     return Finding(v[0], v[1], v[2] if len(v) > 2 else None, v[3] if len(v) > 3 else None,
-                   suggestions=[Suggestion.from_json(s) for s in v[4]] if len(v) > 4 else ())
+                   v[5] if len(v) > 5 else None, [Suggestion.from_json(s) for s in v[4]] if len(v) > 4 else ())

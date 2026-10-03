@@ -1700,11 +1700,19 @@ class Board:
                 if not Box.of_points(k.poly).overlaps(op.box):
                     continue
                 if polys_overlap(k.poly, op.polygon):
+                    layer = getattr(op, "layer", None)
+                    have = self.geometry.layers
+                    facts = {"net": op.net, "keepout": k.name, "word": word, "excluded": excluded,
+                             "excludes": list(k.excludes), "bars": bool(k.barred),
+                             "keepout_layers": [l.name for l in (k.layers if k.layers is not None else have)]}
+                    if layer is not None:
+                        facts["layer"] = layer.name
+                        facts["layer_word"] = {"F": "front", "B": "back"}.get(layer.name, layer.value)
                     plan.findings.append(Finding(
                         "copper",
                         "%s %s crosses keepout %r (%s): a %s goes exactly where it is put, so move it, "
                         "reshape it, or name its net in the keepout's allow="
-                        % (word, op.net, k.name, k.why, word)))
+                        % (word, op.net, k.name, k.why, word), case="copper.keepout", facts=facts))
 
     def _check_web(self, plan: "Plan"):
         """How much board is left round every hole. A web under the declared
@@ -7029,7 +7037,7 @@ class Board:
             for key, (op, own, face) in done.items():
                 for h in _label_hits(occ, op.box, face, own):
                     if not any(f.startswith("%s: sits on" % key) and h in f for f in plan.findings):
-                        plan.findings.append(Finding("label", "%s: sits on %s" % (key, h)))
+                        plan.findings.append(self._label_finding("label.sits_on", key, "%s: sits on %s" % (key, h)))
         box_of = lambda item: self._label_item_box(occ, item)
         for entry in self._labels:
             key, item, text, side, gap, align, size, thick, knockout, rotation, why, reserve, group = entry
@@ -7042,7 +7050,7 @@ class Board:
                 if final:               # its item found no place: the label is not drawn, as the item is not
                     said = "%s: not drawn: %s found no place" % (key, occ.who(waiting[0]))
                     if said not in plan.findings:
-                        plan.findings.append(Finding("label", said, "notice"))      # its item's own finding is the fault
+                        plan.findings.append(Finding("label", said, "notice", case="label.not_drawn"))     # its item's own finding is the fault
                 continue
             box, face = box_of(item)
             line = Box.union([box_of(one)[0] for one in group]) if group else None
@@ -7063,12 +7071,12 @@ class Board:
                         side_.name.lower(), word, key.split(" ", 2)[1], side.name.lower(), off)
                     plan.__dict__.setdefault("_label_at", {})[key] = "%s %s" % (side_.name.lower(), word)
                 else:
-                    plan.findings.append(Finding("label", "%s: no spot on the board for it beside %s: it is %s" % (
+                    plan.findings.append(self._label_finding("label.no_spot", key, "%s: no spot on the board for it beside %s: it is %s" % (
                         key, key.split(" ", 2)[1], off)))
             plan.copper.append(op)
             hits = _label_hits(occ, op.box, face, own)
             if hits:
-                plan.findings.append(Finding("label", "%s: sits on %s" % (key, ", ".join(hits))))
+                plan.findings.append(self._label_finding("label.sits_on", key, "%s: sits on %s" % (key, ", ".join(hits))))
                 note += "; sits on " + ", ".join(hits)
             if reserve:
                 occ.reserve(op.box, "label %s" % key.split(" ", 1)[1], layer=face.copper, source=LABEL_SOURCE)     # the text's own box, no more
@@ -7083,6 +7091,15 @@ class Board:
             done[key] = (op, own, face)
             if progress:
                 progress("%-28s copper  label    %s" % (key, note))
+
+    def _label_finding(self, case: str, key: str, text: str) -> Finding:
+        """A label finding with its case and what the label was declared as (its side and size), the facts the
+        suggestions to move or shrink it are built from."""
+        entry = next((e for e in self._labels if e[0] == key), None)
+        facts = {"key": key} if entry is None else {"key": key, "side": entry[3].name, "size": entry[6]}
+        if entry is not None:
+            facts["sides"] = [s.name for s in Edge if s is not entry[3]]
+        return Finding("label", text, case=case, facts=facts)
 
     def _label_item_box(self, occ, item) -> tuple:
         """(the reach a label stands off, its face): a pad's copper, or the
@@ -7220,7 +7237,7 @@ class Board:
                 said = "%s: no clear spot beside %s for it to move to, and %s is in the way" % (
                     key, key.split(" ", 2)[1], ", ".join(mine))
             if said not in plan.findings:
-                plan.findings.append(Finding("label", said))
+                plan.findings.append(self._label_finding("label.no_spot", key, said))
         return moved
 
     def _unit_gives_way(self, occ, plan: Plan, unit: list, item, placement: Placement, committed: bool,
