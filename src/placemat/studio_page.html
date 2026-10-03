@@ -137,7 +137,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #runstrip { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 5px 10px; color: var(--accent); font-weight: 600; }
 #runstrip[hidden] { display: none; }
 /* wide layouts: the same fields on one line in the header (the strip above the timeline is for narrow ones) */
-#runhead { flex: 1 1 300px; min-width: 260px; flex-wrap: nowrap; overflow: hidden; color: var(--accent); font-weight: 600; container: rh / inline-size; }
+#runhead { flex: 1 1 300px; min-width: 120px; flex-wrap: nowrap; overflow: hidden; color: var(--accent); font-weight: 600; container: rh / inline-size; }
 #runhead[hidden] { display: none; }
 /* what gives way as the header narrows, in order: the phase, then the kind pill, then the item's name; the counters (the step's place in the
    resolve, the item's rank in the search) and the time never shrink */
@@ -177,7 +177,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 @keyframes wm { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(2.4); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .spin, .workmark .wm2, .bar.ind b { animation-duration: 3s; } }
 @keyframes pulse { 50% { opacity: 0.25; } }
-#stats { display: flex; gap: 4px 16px; margin-left: auto; min-width: 0; white-space: nowrap; overflow-x: auto; scrollbar-width: none; color: var(--dim); }
+#stats { display: flex; gap: 4px 16px; margin-left: auto; flex: none; min-width: 0; white-space: nowrap; overflow-x: auto; scrollbar-width: none; color: var(--dim); }
 #stats::-webkit-scrollbar { display: none; }
 .stat b { color: var(--ink); font-weight: 650; margin-right: 3px; }
 .stat.bad b { color: var(--bad); } .stat.warn b { color: var(--warn); }
@@ -258,6 +258,7 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 main { position: relative; }
 /* the legend and the right panel each fold away on a wide screen; a phone has its own sheet and tabs */
 .edge { display: none; }
+#scripthead .unfold[hidden] { display: none; }              /* the source dialog covers the panels' handles: while one is folded, its own unfold button is in the dialog's head */
 @media (min-width: 901px) {
   main.nolegend { grid-template-columns: minmax(0, 1fr) 440px; }
   main.noside { grid-template-columns: fit-content(300px) minmax(0, 1fr); }
@@ -575,7 +576,7 @@ svg text { user-select: none; font-family: var(--sans); }
     <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
     <div id="bar">
       <div class="seg" id="facebar"><button data-face="front">Front</button><button data-face="back">Back</button><button data-face="both">Both</button></div>
-      <button class="tool" id="fit" title="fit the board to the window (or double-tap the board)">Fit</button>
+      <button class="tool" id="fit" title="fit the board to the window; double-tap the board does the same">Fit</button>
       <button class="tool" id="keybtn">Key</button>
     </div>
     <div id="dock">
@@ -598,7 +599,7 @@ svg text { user-select: none; font-family: var(--sans); }
   </div>
   <div id="picker" hidden></div>
   <div id="script" role="dialog" aria-label="the layout script">
-    <div id="scripthead"><select id="file"></select><span class="dim" id="scriptinfo"></span><span style="flex:1"></span><button id="prevchg" title="previous changed line">&uarr;</button><button id="nextchg" title="next changed line">&darr;</button><button id="scriptfull" title="over the legend and the board">Full screen</button><button id="scriptclose" aria-label="close">&times;</button></div>
+    <div id="scripthead"><button class="unfold" id="srclegtoggle" title="show the legend panel">&rsaquo;</button><select id="file"></select><span class="dim" id="scriptinfo"></span><span style="flex:1"></span><button id="prevchg" title="previous changed line">&uarr;</button><button id="nextchg" title="next changed line">&darr;</button><button id="scriptfull" title="over the legend and the board">Full screen</button><button id="scriptclose" aria-label="close">&times;</button><button class="unfold" id="srcsidetoggle" title="show the side panel">&lsaquo;</button></div>
     <div id="sgdlg" hidden></div>
     <div id="linechips"></div>
     <div id="scriptbody"></div>
@@ -1507,7 +1508,7 @@ function legendHTML(p) {
     (sw ? '<svg class="sw" viewBox="0 0 26 14">' + sw + "</svg>" : "") + '<span class="nm">' + esc(name) + "</span>" +
     (o.only ? '<button class="only" data-only="' + esc(id) + '">only</button>' : "") + (n != null ? "<em>" + n + "</em>" : "") + "</div>";
   const o = ['<div class="lgh">Legend<button data-close="1" aria-label="close">&times;</button></div>'];
-  o.push("<h4>Parts</h4>", row("cy", SW.cy, "courtyards", shapes(["courtyard"])), row("bd", SW.bd, "body and silk", shapes(["body", "silk"])), row("pad", SW.pad, "pads", shapes(["pad", "through"])), row("labels", SW.labels, "designators (zoomed in)", null), row("silk", SW.silk, "silk text", (p && p.copper || []).filter(c => c.t === "text").length));
+  o.push("<h4>Parts</h4>", row("cy", SW.cy, "courtyards", shapes(["courtyard"])), row("bd", SW.bd, "body and silk", shapes(["body", "silk"])), row("pad", SW.pad, "pads", shapes(["pad", "through"])), row("labels", SW.labels, "designators", null, {title: "shown when the board is zoomed in"}), row("silk", SW.silk, "silk text", (p && p.copper || []).filter(c => c.t === "text").length));
   o.push("<h4>Copper</h4>");
   for (const l of copperLayers(p)) {
     const face = LAYER_FACE(l), n = copper.filter(c => c.layer === l && c.t !== "via" && c.t !== "text").length + shapes(["copper"], l), other = face !== "inner" && S.face !== "both" && S.face !== face;
@@ -1515,7 +1516,7 @@ function legendHTML(p) {
     o.push(row("cu:" + l, SW.track(layerClass(l)), l + (other ? " (other face)" : ""), n, Object.assign({only: true, title: other ? "drawn on the " + face + " face" : ""}, zs.length > LEGEND_FOLD_OVER ? {exp: "zl:" + l, n: zs.length} : {})));
     if (zs.length <= LEGEND_FOLD_OVER || isExp("zl:" + l, zs.length)) for (const z of zs) o.push(row("z:" + z.i, SW.zone(layerClass(l)), z.name, null, {sub: true, title: z.t === "pour" ? "a fitted pour" : "a plane"}));
   }
-  o.push(row("via", SW.via, "vias (ring, drill hole)", copper.filter(c => c.t === "via").length));
+  o.push(row("via", SW.via, "vias", copper.filter(c => c.t === "via").length, {title: "a via is drawn as its ring with its drill hole inside"}));
   o.push("<h4>Links" + infoBtn("links") + "</h4>");
   for (const [st, name] of [["ok", "within its limit"], ["over", "over its limit"], ["free", "no limit"]]) o.push(row("link:" + st, SW.link(st), name, links.filter(l => l.state === st).length));
   const head = (g, sw, name, n) => {
@@ -2474,6 +2475,7 @@ function applyPanels() {
   if (m && m.classList) { m.classList.toggle("nolegend", leg); m.classList.toggle("noside", sid); }
   const set = (id, folded, what) => { const b = $(id); b.textContent = folded ? (id === "#legtoggle" ? "\u203a" : "\u2039") : (id === "#legtoggle" ? "\u2039" : "\u203a"); b.title = (folded ? "show the " : "hide the ") + what + " panel"; b.setAttribute("aria-label", b.title); };
   set("#legtoggle", leg, "legend"); set("#sidetoggle", sid, "side");
+  $("#srclegtoggle").hidden = !leg; $("#srcsidetoggle").hidden = !sid;
   requestAnimationFrame(() => { layoutScript(); applyView(); });
 }
 function togglePanel(which) {
@@ -2483,6 +2485,8 @@ function togglePanel(which) {
 }
 $("#legtoggle").onclick = () => togglePanel("legend");
 $("#sidetoggle").onclick = () => togglePanel("side");
+$("#srclegtoggle").onclick = () => togglePanel("legend");
+$("#srcsidetoggle").onclick = () => togglePanel("side");
 // A source link was followed (from a card, a step, a finding, an error): the script opens on that line.
 function openScript(file, n) {
   S.scriptOpen = true; S.scriptWhole = false;

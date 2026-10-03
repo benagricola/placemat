@@ -1758,12 +1758,14 @@ ev("togglePanel('side')"); flush();
 out.both = [els["#sidetoggle"].title, JSON.stringify(ev("panelPref"))];
 ev("togglePanel('legend')"); flush();
 out.back = [els["#legtoggle"].title, JSON.stringify(ev("panelPref"))];
-out.saved = saved;
+out.saved = saved.slice();
+ev("togglePanel('legend')"); flush(); out.unfold = [els["#srclegtoggle"].hidden, els["#srcsidetoggle"].hidden];
 """)
     assert out["leg"] == ["show the legend panel", True]
     assert out["both"] == ["show the side panel", '{"legend":true,"side":true}']
     assert out["back"] == ["hide the legend panel", '{"legend":false,"side":true}']
     assert out["saved"][-1] == ["placemat.panels", '{"legend":false,"side":true}']
+    assert out["unfold"] == [False, False]                           # the source dialog's own buttons, while a panel is folded
 
 
 def test_the_full_screen_source_view_is_measured_against_the_page_not_a_fixed_header():
@@ -1771,3 +1773,10 @@ def test_the_full_screen_source_view_is_measured_against_the_page_not_a_fixed_he
     assert "#script { --hh:" not in css                              # a local --hh hid the measured one and left a sliver of canvas
     assert "#script.full { left: 0; right: var(--sidew, 440px); top: var(--hh, 56px); bottom: 0;" in css
     assert "main.nolegend.noside { grid-template-columns: minmax(0, 1fr); }" in css
+
+
+def test_no_label_carries_a_bracketed_explanation():
+    text = PAGE.read_text()
+    for label in ("designators", "vias"):
+        assert '"%s"' % label in text
+    assert "(zoomed in)" not in text and "(ring, drill hole)" not in text and "(or double-tap" not in text
