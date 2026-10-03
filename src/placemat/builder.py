@@ -23,7 +23,6 @@ WRAP = 110                      # a comment's text wraps here, so a line with it
 
 SHAPES = ("rect", "rect_chamfer", "rect_round", "disc", "disc_bore", "slot", "polygon")
 EDGES = ("NORTH", "EAST", "SOUTH", "WEST")
-ALONG = ("START", "MID", "END")
 
 
 class BuilderRefused(Exception):

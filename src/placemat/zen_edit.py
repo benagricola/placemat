@@ -266,10 +266,6 @@ STACKUP = (("config", "BoardConfig"), ("stackup", "Stackup"))
 DESIGN = (("config", "BoardConfig"), ("design_rules", "DesignRules"))
 
 
-def _indent_for(src: Src, node) -> str:
-    return src.indent_of(src.span(node)[0])
-
-
 def _rewrite_list(mod, lst, items: list, step: str = "    ") -> list:
     """The splice that gives the list `lst` exactly `items` ((source, trailing comment)), one to a line, indented a step in from
     the line the list opens on (or as its first element is where it has some)."""

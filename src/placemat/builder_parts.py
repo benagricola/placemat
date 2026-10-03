@@ -397,24 +397,6 @@ def parts_rows(board: dict, plan: dict | None, texts: dict, base, *, script_name
     return {"rows": rows, "counts": counts}
 
 
-def shared_nets(board: dict, keys) -> dict:
-    """{key: how many nets it shares with the items `keys`}: what the list marks when something is selected."""
-    sel = set()
-    for k in keys:
-        for src in (board["parts"], board["cells"]):
-            for r in src:
-                if r["key"] == k:
-                    sel |= set(r["nets"])
-    out = {}
-    for src in (board["parts"], board["cells"]):
-        for r in src:
-            if r["key"] not in keys:
-                n = len(sel & set(r["nets"]))
-                if n:
-                    out[r["key"]] = n
-    return out
-
-
 _NATURAL = re.compile(r"(\d+)")
 
 

@@ -19,7 +19,6 @@ import threading
 from . import builder, builder_facts as bf, builder_intents as bi, builder_parts as bp, script_edit, suggestions as sg, zen_edit
 from .suggestions import Edit
 
-PLACEMENT_KINDS = ("offer", "search", "remove", "item")
 
 
 class BuildRefused(Exception):
