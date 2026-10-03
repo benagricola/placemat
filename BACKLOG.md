@@ -246,6 +246,9 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Skill audit** (0.86.4): SKILL.md and references checked against the code
+  and corrected.
+
 - **Studio, round 8** (0.86.3): Share with a QR code of the current view, the
   view kept in the address, times from the server, a plain message for a
   port in use, a narrow header menu.
