@@ -3800,7 +3800,12 @@ The probe reports on the live channel as the command's events: `probe` (the sugg
 are not sent. The studio starts one with `POST /suggest/probe` `{"resolve", "id", "yes"}` (without `yes`, a probe that resolves the
 whole board answers `{"state": "confirm", "estimate", "line"}` and starts nothing; `estimate` is `{board_wide, candidates, resolve_s,
 budget_s, total_s}`, from the last run's resolve time) and stops it with `POST /suggest/probe/stop`; the command's summary has
-`probe: {start, candidates, done}`.
+`probe: {start, candidates, done}`. A found value is not in the plan: `GET /suggest/found?id=s3a.1` returns it (from the store `placemat apply`
+reads, as a suggestion with `how: "instant"`), and `/suggest/show`, `/try` and `/apply` accept its id for a resolve whose plan holds `s3a`. The page's
+"Search options" button posts `/suggest/probe`, asks to confirm with the estimate's `line` when it says so, draws each `candidate` on the figure's
+range (a strip chart and a list: the value, cleared or not, findings gained, score, seconds, `saved`), offers Stop (`/suggest/probe/stop`), and when
+`probe_done` arrives words the outcome from `state` and `best` and shows `s3a.1` with Show, Try and Apply. A stopped, budget-limited or
+candidate-limited probe offers Continue, which posts again with `yes` and resumes from the saved results.
 
 The same engine serves the board builder, which is not driven by findings. `suggestions.apply_edits(edits, digests,
 dry_run, root=, log=, label=, source=)` is the body of `apply_suggestion`: the digest check (`""` for a file that

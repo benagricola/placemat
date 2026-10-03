@@ -122,3 +122,20 @@ def test_the_endpoints_start_and_stop_a_probe_and_need_the_token(studio, monkeyp
     code, out = _post(studio, "/suggest/probe/stop")
     assert code == 200 and out["state"] == "stopping" and procs[0].stopped
     assert _post(studio, "/suggest/probe/stop")[0] == 409
+
+
+def test_what_a_probe_found_is_read_from_the_store_and_shown_like_any_suggestion(studio):
+    from dataclasses import replace
+    rec = _searched(studio)
+    inst = next(s for s in sg.from_json(rec.doc["findings"][0]["suggestions"]) if s.how != "searched")
+    with pytest.raises(SuggestRefused) as e:
+        studio.suggest_found("s9z.1")
+    assert e.value.status == 404
+    sg.add_found(studio.src.board_dir, studio.script, replace(inst, id="s9z.1", text="Set it to 1 (found by a probe)"))
+    assert studio.suggest_found("s9z.1")["text"] == "Set it to 1 (found by a probe)"
+    shown = studio.suggest_show(rec.id, "s9z.1")                 # the plan does not know it: the studio finds it in the store
+    assert shown["id"] == "s9z.1" and shown["files"]
+    for bad in ("s9z.2", "s0q.1"):
+        with pytest.raises(SuggestRefused) as e:
+            studio.suggest_show(rec.id, bad)
+        assert e.value.status == 404
