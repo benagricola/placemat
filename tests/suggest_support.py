@@ -38,7 +38,7 @@ def resolve(tmp_path: Path, body: str, parts=None, name="layout.py", imports=IMP
 
 
 def suggestions_of(plan, case=None):
-    return [s for f in plan.findings if case is None or f.case == case for s in f.suggestions]
+    return [s for f in plan.findings if case is None or f.cause == case for s in f.suggestions]
 
 
 def apply_and_resolve(tmp_path: Path, plan, id: str, path: Path, parts=None, **kw):

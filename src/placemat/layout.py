@@ -9079,6 +9079,11 @@ _SITED = {
     "plane": lambda b, out, a, k: _keyed(out),
     "fanout": lambda b, out, a, k: [b._item(_first(a, k, "item"))[1]],
     "escape": lambda b, out, a, k: [b._item(_first(a, k, "part"))[1]],
+    "rect": lambda b, out, a, k: ["board"],         # the outline: one declaration of it, so one key (two are refused at bind)
+    "disc": lambda b, out, a, k: ["board"],
+    "outline": lambda b, out, a, k: ["board"],
+    "row": lambda b, out, a, k: [b._item(list(_first(a, k, "items"))[0])[1]],      # its first member; the members list is the argument
+    "block": lambda b, out, a, k: [out.anchor.inst],
     "rule": lambda b, out, a, k: [out.why],
     "accept": lambda b, out, a, k: ["%s %s" % (out.check, out.subject)],
 }
