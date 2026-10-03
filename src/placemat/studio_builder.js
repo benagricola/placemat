@@ -605,8 +605,9 @@ async function olGo(mode) {
     err.textContent = e.message;
     if (e.data && e.data.affected) {
       o.affected = e.data.affected;
-      q("#ol-aff").innerHTML = '<div class="bld-msg bad">These placements stop being valid. Choose for each:</div>' + e.data.affected.map(a => '<div class="bld-row"><b>' + h(a.label) + '</b> <span class="bld-note">' + h(a.phrase) + '</span><select data-aff="' + h(a.key) + '">' + a.choices.map(c => "<option>" + h(c === "rim" ? "rim" : c === "edge" ? "edge" : c) + "</option>").join("") + "</select></div>").join("");
-      qa("[data-aff]").forEach(s => { o.choices[s.dataset.aff] = s.value; s.onchange = () => { o.choices[s.dataset.aff] = s.value; }; });
+      q("#ol-aff").innerHTML = '<div class="bld-msg bad">These placements stop being valid. Choose for each:</div>' + e.data.affected.map(a => '<div class="bld-row"><b>' + h(a.label) + '</b> <span class="bld-note">' + h(a.phrase) + "</span>" + (a.choices.length ? '<select data-aff="' + h(a.key) + '">' + a.choices.map(c => "<option>" + h(c === "rim" ? "on the rim" : c === "edge" ? "on the edge" : "search it") + "</option>").join("") + "</select>" : '<span class="bld-note">a row: take it apart first (take each item out of its row)</span>') + "</div>").join("");
+      const val = sel => ({"on the rim": "rim", "on the edge": "edge", "search it": "search"})[sel.value] || sel.value;
+      qa("[data-aff]").forEach(s => { o.choices[s.dataset.aff] = val(s); s.onchange = () => { o.choices[s.dataset.aff] = val(s); }; });
     }
   }
 }
@@ -647,6 +648,7 @@ function drawTab() {
   const nets = shared(p, sel);
   el.innerHTML = '<div class="bt-head"><div id="bt-msg"></div><div class="bld-row tight"><b>' + c.unplaced + ' unplaced, ' + c.searched + ' searched, ' + c.decided + ' decided' + (c["by hand"] ? ", " + c["by hand"] + " by hand" : "") + '</b><span style="flex:1"></span>' +
     '<button class="bld-btn" id="bt-undo"' + (S.applied.some(a => !a.undone) ? "" : " disabled") + ' title="undo the last builder action">Undo</button><button class="bld-btn" id="bt-redo"' + (S.redo ? "" : " disabled") + ">Redo</button></div>" +
+    (S.error ? '<div class="bld-msg bad">The script did not resolve after the last action: ' + h(S.error.message || "") + (S.error.line ? " (line " + S.error.line + ")" : "") + ". The board shows the last good plan. <button class=\"bld-btn\" id=\"bt-errundo\">Undo it</button></div>" : "") +
     (gate && !gate.open ? '<div class="bld-gate">Placement waits for the facts: ' + h((BS.facts.model.reasons.map(r => r.text).join("; ")) || "confirm them") + ' <button class="bld-btn" id="bt-facts">Facts</button></div>' : "") +
     '<div class="bld-row tight"><button class="bld-btn" id="bt-outline">Outline</button><button class="bld-btn" id="bt-factsb">Facts</button><button class="bld-btn primary" id="bt-search"' + (gate && gate.open && c.unplaced ? "" : " disabled") + ' title="one plain place() for each item left, in the searched block">Search the rest</button>' +
     '<label class="bld-note"><input type="checkbox" id="bt-either"> either face</label></div></div>' +
@@ -657,6 +659,7 @@ function drawTab() {
     '<div class="bt-sec"><h3>Timeline</h3><div id="bt-tl"></div><div id="bt-tld"></div></div>';
   drawMsg(); drawSelection(); drawTimeline(); foldUnplaced();
   q("#bt-undo").onclick = undo; q("#bt-redo").onclick = redo;
+  const eu = q("#bt-errundo"); if (eu) eu.onclick = undo;
   const fb = q("#bt-facts"); if (fb) fb.onclick = openFacts;
   q("#bt-factsb").onclick = openFacts;
   q("#bt-outline").onclick = openOutlineDialog;
@@ -934,6 +937,6 @@ function foldUnplaced() {
   if (em && n) { const v = Math.max(0, (parseInt(em.textContent, 10) || 0) - n); em.textContent = v || ""; em.style.display = v ? "" : "none"; }
 }
 const _render = render;
-render = function (parts) { _render(parts); if (parts.includes("all") || parts.includes("status")) { drawButtons(); drawTimeline(); } if (parts.includes("all") || parts.includes("findings") || parts.includes("counts")) foldUnplaced(); };
+render = function (parts) { _render(parts); if (parts.includes("all") || parts.includes("status")) { drawButtons(); drawTimeline(); const e = S.error ? S.error.id : null; if (e !== BS.lastErr) { BS.lastErr = e; drawTab(); } } if (parts.includes("all") || parts.includes("findings") || parts.includes("counts")) foldUnplaced(); };
 refreshState().then(refreshParts);
 })();
