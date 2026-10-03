@@ -403,6 +403,11 @@ shapes and files: `references/api.md`, "Live progress".
   why, then `--accept`. The lock beside the script keeps it; commit the
   lock with the script. `placemat freeze` moves an entry into the script
   once the spot is part of the design.
+- An explore reports its curve: `best found at variant 7 of 34, 5 min 12 s in
+  (of 43 min)`, and `metrics.explore.curve`/`found`/`ended` keep it. If the best
+  comes early, set `[explore] stall_variants` or `stall_seconds` (off by default)
+  to end an explore that has stopped improving; `ended.rule` says what ended it,
+  and an explore ended that way is complete (`--accept` applies).
 - Long commands (`run`, `preview`, `route`, above all `--explore`) stop
   safely on SIGTERM, SIGHUP or Ctrl-C and say so: the run is recorded as
   `stopped` (`status: "running"` with a `pid` while it works; a record whose

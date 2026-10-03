@@ -118,6 +118,75 @@ class ExploreResult:
     jobs: int = 0
     plain: dict = None
     plain_order: list = None
+    curve: list = None             # {i, seed, t, score, best} for every variant in the order it finished, over every session
+    ended: dict = None             # why it ended: {"rule": "budget" | "stall_count" | "stall_time" | "hard_clear" | "signal", ...}
+
+
+class StopRule:
+    """The rules that end an explore before its budget (the [explore] stall settings): `variants` finished without an
+    improvement, `seconds` since the last improvement, or - when the plain placement had hard terms - a variant that has
+    none. Fed each finished variant by `see` (and the clock by `tick`); returns the rule that fired, or None."""
+
+    def __init__(self, variants: int = 0, seconds: float = 0.0, hard: bool = False, baseline_hard_clear: bool = True):
+        self.variants, self.seconds = int(variants or 0), float(seconds or 0.0)
+        self.hard = bool(hard) and not baseline_hard_clear
+        self.since, self.best_t = 0, 0.0
+
+    @property
+    def active(self) -> bool:
+        return bool(self.variants or self.seconds or self.hard)
+
+    def see(self, t: float, improved: bool, hard_clear: bool):
+        if improved:
+            self.since, self.best_t = 0, t
+        else:
+            self.since += 1
+        if self.hard and hard_clear:
+            return "hard_clear"
+        if self.variants and self.since >= self.variants:
+            return "stall_count"
+        return self.tick(t)
+
+    def tick(self, t: float):
+        if self.seconds and t - self.best_t >= self.seconds:
+            return "stall_time"
+        return None
+
+    def detail(self, rule: str, t: float) -> dict:
+        if rule == "stall_count":
+            return {"rule": rule, "limit": self.variants, "after": self.since}
+        if rule == "stall_time":
+            return {"rule": rule, "limit": self.seconds, "after": round(t - self.best_t, 3)}
+        return {"rule": rule}
+
+
+def duration(s: float) -> str:
+    """Seconds as a person says them: 4 s, 5 min 12 s, 43 min, 1 h 02 min."""
+    s = int(round(s))
+    if s < 60:
+        return "%d s" % s
+    if s < 600 or (s < 3600 and s % 60):
+        m, r = divmod(s, 60)
+        return "%d min %d s" % (m, r) if r else "%d min" % m
+    if s < 3600:
+        return "%d min" % round(s / 60)
+    h, m = divmod(round(s / 60), 60)
+    return "%d h %02d min" % (h, m)
+
+
+def _found(curve, seconds: float):
+    """When the best was found: the last improving entry of the curve."""
+    best = [c for c in curve if c["best"]][-1]
+    return {"i": best["i"], "seed": best["seed"], "t": best["t"], "score": best["score"], "of_variants": len(curve),
+            "of_seconds": round(seconds, 3)}
+
+
+def _compact(curve, cap: int = 2000):
+    """The curve as kept in a report: all of it, or - past `cap` entries - every improvement and an even sample."""
+    if len(curve) <= cap:
+        return curve
+    step = -(-len(curve) // cap)
+    return [c for k, c in enumerate(curve) if c["best"] or k % step == 0]
 
 
 def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=None, lock=None,
@@ -178,11 +247,12 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     nothing_left = (not order) if order is not None else deadline <= time.time()
     ctx = mp.get_context("spawn")
     counter = ctx.Value("l", 0)
+    halt = ctx.Value("b", 0)                       # a stopping rule fired: the workers take no more seeds
     best_val = ctx.Value("d", min([baseline] + [r[1] for r in done_before.values()]))
     out = ctx.Queue()
     untried = _untried(done_before)
     procs = [ctx.Process(target=_work, args=(k, make_board, frozenset(focus), lock, plain.reuse, order, deadline,
-                                             counter, out, best_val, baseline, os.getpid(), untried), daemon=True)
+                                             counter, out, best_val, baseline, os.getpid(), untried, halt), daemon=True)
              for k in range(0 if nothing_left else max(1, jobs))]
     results = {0: (0, baseline, base_m)}
     results.update(done_before)
@@ -190,8 +260,27 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     from . import channel
     rep = channel.current()
     variants = [{"seed": 0, "score": baseline, "measures": base_m, "placements": _placements(plain, focus),
-                 "order": _order(plain, focus), "t": 0.0}]
-    partial = lambda: _result(results, baseline, base_m, spent + time.time() - t0, failures, variants, focus, len(procs))
+                 "order": _order(plain, focus), "t": 0.0, "i": 0, "best": True}]
+    from . import score as _score
+    rule = StopRule(base_board.settings.explore_stall_variants, base_board.settings.explore_stall_seconds,
+                    base_board.settings.explore_stop_hard_clear, _score.hard_clear(base_m))
+    curve = [{"i": 0, "seed": 0, "t": 0.0, "score": baseline, "best": True}]
+    best_so_far = [baseline]
+
+    def note(seed, total, t):
+        """A finished variant on the curve; whether it beat every one before it."""
+        better = total < best_so_far[0] - 1e-9
+        if better:
+            best_so_far[0] = total
+        curve.append({"i": len(curve), "seed": seed, "t": round(t, 3), "score": total, "best": better})
+        return better
+    for seed_, score_, t_ in (prior.curve if prior is not None else ()):
+        note(seed_, score_, t_)
+        rule.see(t_, curve[-1]["best"], False)
+    fired = []                                      # [{"rule": ...}] once a rule has ended it
+    ended_by = lambda: fired[0] if fired else {"rule": "budget"}
+    partial = lambda: _result(results, baseline, base_m, spent + time.time() - t0, failures, variants, focus, len(procs),
+                              curve, ended_by())
     try:
         for pr in procs:
             pr.start()
@@ -210,18 +299,30 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
             else:
                 _, seed, total, m, payload, dt, extra = msg
                 results[seed] = (seed, total, m)
-                v = {"seed": seed, "score": total, "measures": m, **extra, "t": round(time.time() - t0, 3)}
+                now = spent + time.time() - t0
+                better = note(seed, total, now)
+                v = {"seed": seed, "score": total, "measures": m, **extra, "t": round(now, 3), "i": curve[-1]["i"], "best": better}
                 variants.append(v)
                 if rep is not None:
                     rep.send({"ev": "variant", **v})
                 if checkpoint is not None:
-                    checkpoint.variant(seed, total, m, spent + time.time() - t0, payload)
+                    checkpoint.variant(seed, total, m, now, payload)
+                if rule.active and not fired:
+                    why = rule.see(now, better, _score.hard_clear(m))
+                    if why:
+                        fired.append(rule.detail(why, now))
+                        halt.value = 1
         while len(ended) < len(procs):
             try:
                 take(out.get(timeout=1.0))
                 continue
             except queue.Empty:
                 pass
+            if rule.active and not fired:
+                why = rule.tick(spent + time.time() - t0)
+                if why:
+                    fired.append(rule.detail(why, spent + time.time() - t0))
+                    halt.value = 1
             for k, pr in enumerate(procs):
                 if k in ended or pr.is_alive():
                     continue
@@ -242,6 +343,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     except stop.Stopped as s:
         s.partial = partial()
         s.partial.stopped = True
+        s.partial.ended = {"rule": "signal", "signal": s.name}
         if checkpoint is not None:
             checkpoint.stopped(s.name, s.partial.seconds)
         raise
@@ -251,7 +353,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         out.cancel_join_thread()
     result = partial()
     if checkpoint is not None:
-        checkpoint.done(result.seconds, result.best_seed)
+        checkpoint.done(result.seconds, result.best_seed, result.ended)
     return result
 
 
@@ -279,12 +381,14 @@ def _end(procs) -> None:
             pr.join(0.5)
 
 
-def _result(results: dict, baseline, base_m, seconds: float, failures, variants=None, focus=(), jobs=0) -> ExploreResult:
+def _result(results: dict, baseline, base_m, seconds: float, failures, variants=None, focus=(), jobs=0, curve=None,
+            ended=None) -> ExploreResult:
     rows = sorted(results.values(), key=lambda r: (r[1], r[0]))
     return ExploreResult(rows[0][0], rows[0][1], baseline, len(rows), rows, rows[0][2], base_m, round(seconds, 3),
                          list(failures), variants=variants, focus=sorted(focus), jobs=jobs,
                          plain=variants[0]["placements"] if variants else None,
-                         plain_order=variants[0]["order"] if variants else None)
+                         plain_order=variants[0]["order"] if variants else None, curve=list(curve) if curve else None,
+                         ended=ended)
 
 
 def _untried(done: dict):
@@ -324,7 +428,7 @@ def _order(plan, focus) -> list:
     return out
 
 
-def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, best_val, baseline, parent, untried):
+def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, best_val, baseline, parent, untried, halt):
     """A worker: take the next seed until the list or the deadline runs out,
     and say so: a variant's result, a traceback if one raises, and that it
     has ended. It does not outlive its parent, and leaves the stopping to it
@@ -342,6 +446,8 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, be
     gaps, top = untried
     try:
         while True:
+            if halt.value:
+                break
             with counter.get_lock():
                 k = counter.value
                 counter.value += 1
@@ -427,7 +533,8 @@ def _parts(script, base, make_board, entries, focus) -> dict:
     from . import __version__, checkpoint
     from . import reuse as _reuse
     settings = json.loads(_reuse.placement_settings(base.settings))
-    for k in [k for k in settings if k in ("explore_jobs", "explore_checkpoint_max_variants")]:
+    for k in [k for k in settings if k in ("explore_jobs", "explore_checkpoint_max_variants", "explore_stall_variants",
+                                                          "explore_stall_seconds", "explore_stop_hard_clear")]:
         del settings[k]                                 # how many workers, how long a checkpoint: not what a variant is
     fab = getattr(make_board, "fab", None)
     return {"script": _script_digest(script), "board": checkpoint.sha(_reuse._geometry_digest(base.geometry)),
@@ -502,14 +609,17 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report = {"tried": r.tried, "focus": sorted(focus), "baseline": r.baseline, "best": r.best,
                   "best_seed": r.best_seed, "moves": [], "accepted": False, "stopped": s.name,
                   "seconds": round(r.seconds, 1), "failures": r.failures}
+        if r.curve:
+            report.update(curve=_compact(r.curve), found=_found(r.curve, r.seconds), ended=r.ended)
         if r.best_seed and ck is not None and (_checkpoint.read_best(ck.dir) or {}).get("seed") == r.best_seed:
             report["accept"] = accept_command(script, r.best_seed)
         s.explore, s.stage = report, "explore"
         stop.say(stopped_line(report), both=False)
         raise
-    report = {"tried": result.tried, "focus": sorted(focus), "baseline": result.baseline,
+    report = {"tried": result.tried, "focus": sorted(focus), "baseline": result.baseline, "seconds": round(result.seconds, 1),
               "best": result.best, "best_seed": result.best_seed, "moves": [], "accepted": False,
               "terms": _moved_terms(base, result.baseline_measures, result.best_measures)}
+    report.update(curve=_compact(result.curve), found=_found(result.curve, result.seconds), ended=result.ended)
     if result.failures:
         report["failures"] = result.failures
     if ck is not None and result.best_seed and (_checkpoint.read_best(ck.dir) or {}).get("seed") == result.best_seed:
@@ -602,13 +712,14 @@ def _write_record(script, result, report) -> None:
         path = d / ("%s-%d.json" % (stamp, os.getpid()))
         doc = {"version": 1, "script": str(Path(script).resolve()), "at": time.time(), "pid": os.getpid(), "focus": result.focus,
                "seconds": result.seconds, "jobs": result.jobs, "baseline": result.baseline, "plain": result.plain, "order": result.plain_order,
-               "best_seed": result.best_seed, "best": result.best, "kept": bool(report.get("accepted")), "variants": result.variants}
+               "best_seed": result.best_seed, "best": result.best, "kept": bool(report.get("accepted")), "variants": result.variants,
+               "curve": result.curve, "found": report.get("found"), "ended": result.ended}
         path.write_text(json.dumps(doc, separators=(",", ":")))
         report["record"] = str(path)
         rep = channel.current()
         if rep is not None:
             rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline, "tried": result.tried,
-                      "kept": bool(report.get("accepted")), "record": str(path)})
+                      "kept": bool(report.get("accepted")), "record": str(path), "found": report.get("found"), "ended": result.ended})
     except (OSError, ValueError):
         pass
 
@@ -640,7 +751,6 @@ def before_resolve(script, board, make_board, options, say, run_id: str = "", ke
     report, entries = search(make_board, script, options.seconds, options.jobs, options.keys,
                              options.after_line, options.box, options.accept, release=__version__,
                              run_id=run_id, checkpoint_dir=state, resume=options.resume, keep_state=keep_state)
-    report["seconds"] = round(time.time() - t0, 1)
     for line in report_lines(report):
         say("explore", line)
     return entries, report
@@ -670,6 +780,18 @@ def report_lines(report) -> list:
     return lines
 
 
+def _ended_text(ended) -> str:
+    """Which rule ended an explore, from its record; nothing for the budget."""
+    rule = (ended or {}).get("rule")
+    if rule == "stall_count":
+        return "; ended by a stall: %d variants without improvement" % ended["limit"]
+    if rule == "stall_time":
+        return "; ended by a stall: %s without improvement" % duration(ended["limit"])
+    if rule == "hard_clear":
+        return "; ended: the hard terms are clear"
+    return ""
+
+
 def _report_lines(report) -> list:
     b, a = report["baseline"], report["best"]
     if report.get("empty"):
@@ -677,11 +799,15 @@ def _report_lines(report) -> list:
                 "names none)"]
     head = "%d variants in %.0f s over %d focused item%s" % (
         report["tried"], report.get("seconds", 0.0), len(report["focus"]), "" if len(report["focus"]) == 1 else "s")
+    ended = _ended_text(report.get("ended"))
     if not report["best_seed"]:
-        return [head + ": no variant scored better than the current placement"]
+        return [head + ": no variant scored better than the current placement" + ended]
     moved = ", ".join("%s %.1f -> %.1f" % (t, x, y) for t, (x, y) in (report.get("terms") or {}).items())
-    lines = [head + ": score %.1f -> %.1f mm%s; %d item%s would move" % (
-        b, a, " (%s)" % moved if moved else "", len(report["moves"]), "" if len(report["moves"]) == 1 else "s")]
+    found = report.get("found")
+    when = (", best found at variant %d of %d, %s in (of %s)" % (found["i"], found["of_variants"], duration(found["t"]),
+                                                              duration(found["of_seconds"]))) if found else ""
+    lines = [head + ": score %.1f -> %.1f mm%s; %d item%s would move%s%s" % (
+        b, a, " (%s)" % moved if moved else "", len(report["moves"]), "" if len(report["moves"]) == 1 else "s", when, ended)]
     for m in report["moves"]:
         turn = "" if m["rotation"][0] == m["rotation"][1] else ", rotation %s -> %s" % tuple(
             "-" if r is None else "%g" % r for r in m["rotation"])

@@ -3527,6 +3527,26 @@ takes the finished result without searching again. `best.json` stays until the
 lock is written from it or the explore starts over. `[explore]
 checkpoint_max_variants` bounds the lines.
 
+**The curve and the stopping rules.** Each finished variant is a point
+`{i, seed, t, score, best}` (`i` the order it finished in, plain placement 0;
+`t` seconds since the explore began, over every session of a resumed one;
+`best` true when it beat all before it). The report (`metrics.explore`, the
+record in `.placemat/views/explore/`, the channel's `variant` events) keeps
+`curve`, `found` (`{i, seed, t, score, of_variants, of_seconds}`, the last
+improvement: the time-to-best) and `ended` (`{rule: "budget" | "stall_count" |
+"stall_time" | "hard_clear" | "signal", ...}`). The console says `best found at
+variant 7 of 34, 5 min 12 s in (of 43 min)` and, when a rule ended it, `ended
+by a stall: 20 variants without improvement`. `[explore] stall_variants`,
+`stall_seconds` and `stop_hard_clear` end an explore early (all off; the
+workers finish the variant in hand); an explore so ended is complete, so
+`--accept` applies. Hard terms: parts unplaced and critical-by-default findings
+the plan measures (`fixed`, `copper`, `escape_walled`); the rule fires only when
+the plain placement had some and a variant has none. Measured on four small
+modules (one or two focused items), the last improvement came at variant 8, 8,
+35 and never in 150: a count of 40 would have kept every best and ended after
+about a third of those variants, but no large board was measured, so the
+defaults stay off.
+
 For a long explore run it detached (`setsid nohup placemat run ... >
 explore.log 2>&1 &`) and do not chain it with `;`, which hides its exit
 status.
@@ -3808,6 +3828,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.rank_power` | 1.0 | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
 | `explore.congestion_step` | 0.05 | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
 | `explore.jobs` | 0 | worker processes for `--explore`; 0 is the CPU count less one |
+| `explore.stall_variants` | 0 | end an explore after this many finished variants without an improvement; 0 is off |
+| `explore.stall_seconds` | 0 | end an explore this many seconds after its last improvement; 0 is off |
+| `explore.stop_hard_clear` | false | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | 100000 | finished variants an explore's checkpoint records; past it a resume tries those again |
 | `drc.severities` | none | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `drc.real_kinds` | `clearance`, `shorting_items`, `track_width`, `annular_width`, `hole_clearance`, `hole_to_hole`, `courtyards_overlap`, `copper_edge_clearance` | which violations mean the board is not done: the `real` buckets |
