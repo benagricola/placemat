@@ -246,6 +246,9 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Studio, round 7** (0.86.2): Fit frames the board in the area the controls
+  leave uncovered; Resolve again and Resolve from scratch.
+
 - **Studio, rounds 5 and 6** (0.86.1): the running status as one-line fields
   above the timeline; Restart during a resolve replays the steps so far, then
   follows.
