@@ -413,7 +413,7 @@ def _npth(fp):
 def _models(fp) -> tuple:
     def xyz(v):
         return (round(v.x, 6), round(v.y, 6), round(v.z, 6))
-    return tuple((m.m_Filename, xyz(m.m_Offset), xyz(m.m_Rotation), xyz(m.m_Scale)) for m in fp.Models())
+    return tuple((m.m_Filename, xyz(m.m_Offset), xyz(m.m_Rotation), xyz(m.m_Scale), bool(m.m_Show), round(float(m.m_Opacity), 4)) for m in fp.Models())
 
 
 def _net_tie_groups(fp) -> tuple:

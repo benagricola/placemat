@@ -82,7 +82,7 @@ class Footprint:
     board_only: bool = field(default=False, compare=False)      # on the board only, not the schematic (FOOTPRINT::IsBoardOnly)
     net_tie_pads: frozenset = field(default=frozenset(), compare=False)   # pad numbers in a net-tie group (FOOTPRINT::GetNetTiePads)
     net_tie_groups: tuple = field(default=(), compare=False)   # the groups, each its pad numbers (FOOTPRINT::MapPadNumbersToNetTieGroups); () reads net_tie_pads as one
-    models: tuple = field(default=(), compare=False)   # ((file, offset xyz, rotation xyz, scale xyz), ...): its 3D models
+    models: tuple = field(default=(), compare=False)   # ((file, offset xyz, rotation xyz, scale xyz, shown, opacity), ...): its 3D models
 
     @property
     def box(self) -> Box:

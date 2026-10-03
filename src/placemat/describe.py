@@ -531,24 +531,10 @@ def step_box(path) -> tuple | None:
 
 
 def _model_path(text: str, project_dir) -> Path | None:
-    import os
-    import re
-    from pathlib import Path
-
-    def var(m):
-        name = m.group(1)
-        if name == "KIPRJMOD":
-            return str(project_dir)
-        if name in os.environ:
-            return os.environ[name]
-        if re.fullmatch(r"KICAD\d*_3DMODEL_DIR", name):
-            return "/usr/share/kicad/3dmodels"
-        return m.group(0)
-    p = Path(re.sub(r"\$\{([^}]+)\}", var, text.replace("\\", "/")))
-    if not p.is_absolute():
-        p = Path(project_dir) / p
-    tries = [p] + ([p.with_suffix(s) for s in (".step", ".stp", ".STEP")] if p.suffix.lower() in (".wrl", ".wrz") else [])
-    return next((t for t in tries if t.exists() and t.suffix.lower() in (".step", ".stp")), None)
+    """The STEP file a model entry names, or None (the one resolver, models.resolve_model)."""
+    from .models import STEP_SUFFIXES, resolve_model
+    ref = resolve_model(text, project_dir)
+    return Path(ref.path) if ref.state == "ok" and ref.path and Path(ref.path).suffix.lower() in STEP_SUFFIXES else None
 
 
 def _local(fp, pts):
@@ -593,7 +579,7 @@ def model_check(fp, project_dir) -> list:
     notes = []
     pads = Box.of_points(_local(fp, [q for p in fp.pads for o in p.outlines for q in o])) if fp.pads else None
     body = Box.of_points(_local(fp, [q for _, poly in fp.fab for q in poly])) if fp.fab else None
-    for text, off, rot, scale in getattr(fp, "models", ()):
+    for text, off, rot, scale, *_ in getattr(fp, "models", ()):
         name = text.replace("\\", "/").rsplit("/", 1)[-1]
         if text.startswith("kicad-embed://"):
             continue                        # embedded in the board file, not a file to read
