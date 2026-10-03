@@ -37,8 +37,6 @@ section for each hand-written pattern a newer form replaces.
   `--undo` puts back the last apply that has not been undone, if the files are still as it left them. It refuses,
   and writes nothing, when the script changed since the run or preview that made the suggestion. `run` and `preview`
   keep the plan's suggestions in `.placemat/suggestions.json` for it.
-- **`libcst` is a runtime dependency** (`libcst>=1.0`), for the script edits. A board project's environment installs
-  it with placemat.
 - Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), `apply` (true) and `suggest_factor` (2.0),
   none part of a run's id. Scripts change nothing.
 - **A stopped command says so and keeps its work.** `placemat run`, `preview` and `route` handle SIGTERM, SIGHUP and

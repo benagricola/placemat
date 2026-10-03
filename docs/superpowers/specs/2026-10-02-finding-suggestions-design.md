@@ -168,42 +168,46 @@ exactly once the edit is refused.
 
 ### The shared edit function
 
-`script_edit.py`, pure: `apply(edit, text) -> new_text`, with LibCST
-(`libcst`) for Python and `tomllib` for the TOML check.
+`script_edit.py`, pure: `apply(edit, text) -> new_text`, by splicing source
+text with the standard library: `ast` for positions, `tokenize` for commas,
+brackets and comments, `tomllib` for the TOML check.
 
-**The dependency.** `libcst` is a new dependency, the first the package
-takes at runtime beyond the standard library. It goes in
-`pyproject.toml`'s `dependencies` (`libcst>=1.0`), a plain runtime
-dependency: board projects install placemat into their own environments,
-and an optional group would leave Apply missing there.
-This is an exception to the studio design's "no new Python dependency", made
-for this engine. The user's decision (2026-10-03): keep LibCST for the
-moment and see how it behaves.
+**The dependency.** None. The engine uses the standard library only, so the
+package keeps `dependencies = []` and the studio design's "no new Python
+dependency" holds. The user's decision (2026-10-03, correcting the earlier
+one to keep LibCST): splicing, as `freeze.py` already did.
 
-**Finding the target.** The module is parsed with `libcst` and wrapped with
-`PositionProvider`. The target call is the `Call` that `libcst.matchers`
-finds by function name (`board.place`, `board.keepout`), whose first argument
-matches the declaration, and whose start line is the declared line from
-`declared_sites`. A constant to change is found the same way, by a matcher on
-the assignment of its name. A target not found exactly once refuses the edit.
+**Finding the target.** The module is parsed with `ast`. The target call is the
+`ast.Call` whose function is `board.<kind>` (`board.place`, `board.keepout`),
+whose first argument matches the declaration, and whose start line is the
+declared line from `declared_sites`. A constant to change is found the same way,
+by its assignment at module level. A target not found exactly once refuses the
+edit.
 
-**Changing it.** A `Transformer` replaces only the target node (a call, a
-keyword, a list literal, an assignment). The result is the module's `code`.
-LibCST keeps comments and layout as part of the tree, so unchanged nodes print
-as they were; what needs care is the edited node's neighbourhood. A prototype
-(2026-10-03) showed two things the engine must handle, not leave to chance:
+**Changing it.** `ast` gives every node its start and end (line and UTF-8
+column), converted to character offsets into the text. An edit is a few
+`(start, end, new text)` splices on the spans of the nodes it changes (a
+keyword's value, an argument, a list element, a statement's lines), applied
+together from the end of the text backwards; two splices that overlap are an
+error. Everything outside the spans is the file's own bytes, so comments and
+layout need no preserving. What needs care is the layout of what is written
+next to what was there. `tokenize` gives the commas and comments between the
+items of a call or a list, and the engine handles them as follows:
 
-- Removing a keyword dropped the comment that sat after that argument's
-  comma (`face=Face.FRONT,  # keep it on top` lost its comment) and changed
-  the closing parenthesis's indentation. `remove_kwarg` and any removal from
-  an argument or list therefore moves the comment: it goes onto the previous
-  argument's line when there is one, else stays on the line the removed item
-  stood on, and the closing parenthesis keeps the indent and line it had.
-- A new keyword in a multi-line call has no layout of its own. It is written
-  explicitly: on its own line, at the indent of the call's other arguments,
-  after the last argument, in the call's trailing-comma style (a trailing
-  comma after it where the call had one, none where it had none); in a call on
-  one line it follows `, `.
+- Removing a keyword or an element keeps the comment on its line: it goes onto
+  the previous item's line (after a comment already there) when there is one,
+  else stays on a line of its own where the item stood. The closing bracket
+  keeps its line and indent; the previous item's comma goes where the removed
+  item had none, so the trailing-comma style stays.
+- A new keyword in a multi-line call is written on its own line, at the indent
+  of the line the last argument starts, after the last argument, in the call's
+  trailing-comma style (a trailing comma after it where the call had one, none
+  where it had none); in a call on one line it follows `, `.
+
+The operations work on a call's arguments or a list's elements wherever they
+are, not only on the target call, so an argument inside a nested call
+(`Beside(...)`) and several edits to one suggestion are more splices of the same
+kind, not a different engine.
 
 **The check.** After the edit the text must parse, and the `ast` of everything
 outside the target must equal the original's: the original and the edited
@@ -211,10 +215,8 @@ module with the target node replaced by a placeholder have equal `ast.dump`.
 Either failing refuses the edit and writes nothing. The tests below pin
 layout and comments byte for byte as well, which `ast` cannot see.
 
-**The other editor.** `freeze.py` already edits scripts by splicing source
-text and keeps doing so. There are then two script editors. If LibCST holds up,
-`freeze.py` may move onto `script_edit.py` in a later change; this design does
-not touch it.
+**One editor.** `freeze.py` edits a place() call's keywords through the same
+engine (`script_edit.edit_keywords`); there is one script editor.
 
 `toml_set` edits the one `key = value` line in the named table, or appends the
 key to it, or the table, at its end, as lines, with the rest of the file left
