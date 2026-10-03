@@ -65,24 +65,24 @@ def facts_of(geometry: BoardGeometry, fab: FabProfile, rise_c: float,
 
 
 def unconfirmed_reasons(doc: FactsDocument, confirmed_digest: str) -> list:
-    """Why `doc` is unconfirmed, or [] when it matches the last `placemat
-    facts --confirm`. A board with no confirmation record yet is
+    """Why `doc` is unconfirmed (a list of {"reason": ...} records, finding_text.facts_reason_text says each),
+    or [] when it matches the last `placemat facts --confirm`. A board with no confirmation record yet is
     unconfirmed outright (nothing else is worth checking); a via type
     fab-profile.json names no tier for, or no min, is unconfirmed even when
     the rest of the digest matches: its default was never decided by
     anyone. A type named "no" is a decision, and is confirmed."""
     if not confirmed_digest:
-        return ["no confirmation record yet"]
+        return [{"reason": "no_record"}]
     out = []
     missing = [k for k in _VIA_KINDS if k not in doc.via_named]
     if len(missing) == len(_VIA_KINDS):
-        out.append("fab-profile.json has no via section")
+        out.append({"reason": "no_via_section"})
     elif missing:
-        out.append("fab-profile.json's via names no tier for %s" % ", ".join(missing))
+        out.append({"reason": "no_via_tier", "kinds": list(missing)})
     if not doc.fab_min:
-        out.append("fab-profile.json has no min section")
+        out.append({"reason": "no_min_section"})
     if doc.digest() != confirmed_digest:
-        out.append("the facts have changed since they were last confirmed")
+        out.append({"reason": "changed"})
     return out
 
 
@@ -109,7 +109,8 @@ def render(doc: FactsDocument, reasons: list) -> list:
     for m in doc.plane_mismatches:
         lines.append("flagged    %s" % m)
     if reasons:
-        lines.append("unconfirmed: " + "; ".join(reasons))
+        from .finding_text import facts_reason_text
+        lines.append("unconfirmed: " + "; ".join(facts_reason_text(r) for r in reasons))
     else:
         lines.append("confirmed")
     return lines
@@ -154,8 +155,8 @@ def _section_bounds(text: str, header_re) -> tuple:
     return m.end(), (m.end() + nxt.start() if nxt else len(text))
 
 
-def write_confirmed(path, digest: str, key: str = None) -> None:
-    """Record a confirmed digest in a placemat.toml, touching only [facts].
+def confirmed_text(text: str, digest: str, key: str = None) -> str:
+    """The text of a placemat.toml with a confirmed digest recorded, touching only [facts].
     With `key` (a script's path relative to the file's folder) it is
     `[facts.boards] "<key>" = "<digest>"`, replacing that key's value or
     adding it; the old single `confirmed = "<digest>"` is dropped when it
@@ -163,8 +164,6 @@ def write_confirmed(path, digest: str, key: str = None) -> None:
     the other scripts it may belong to otherwise. Without `key`, the old
     single `confirmed` key. Never fed into a run's id: this is placemat's
     own record, not a board fact."""
-    p = Path(path)
-    text = p.read_text() if p.exists() else ""
     if key is not None:
         text = _drop_old_key(text, digest)
         line = "%s = %s" % (json.dumps(key), json.dumps(digest))
@@ -178,8 +177,7 @@ def write_confirmed(path, digest: str, key: str = None) -> None:
             entry = re.compile(r"^%s[ \t]*=.*$" % re.escape(json.dumps(key)), re.M)
             body = entry.sub(lambda _m: line, body, count=1) if entry.search(body) else "\n" + line + body
             text = text[:b[0]] + body + text[b[1]:]
-        p.write_text(text)
-        return
+        return text
     m = _FACTS_SECTION_RE.search(text)
     if m is None:
         if text and not text.endswith("\n"):
@@ -194,7 +192,7 @@ def write_confirmed(path, digest: str, key: str = None) -> None:
         else:
             section = "\n" + line.rstrip("\n") + section
         text = text[:b[0]] + section + text[b[1]:]
-    p.write_text(text)
+    return text
 
 
 def _drop_old_key(text: str, digest: str) -> str:
@@ -213,3 +211,9 @@ def _drop_old_key(text: str, digest: str) -> str:
     if not section.strip():
         return text[:head.start()] + text[b[1]:].lstrip("\n")
     return text[:b[0]] + section + text[b[1]:]
+
+
+def write_confirmed(path, digest: str, key: str = None) -> None:
+    """`confirmed_text` written to the file (made where there is none)."""
+    p = Path(path)
+    p.write_text(confirmed_text(p.read_text() if p.exists() else "", digest, key))

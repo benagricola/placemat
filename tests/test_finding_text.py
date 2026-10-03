@@ -1,0 +1,146 @@
+"""Each cause renders the sentence it has always had, from its facts; the facts survive JSON and the reuse record."""
+import json
+
+import pytest
+
+from placemat import finding_text as ft, reuse
+from placemat.findings import Finding, FindingCause as C
+from placemat.refusals import Code, Refusal, ReservedBy
+
+EDGE = Refusal(Code.EDGE, what="body", box=[1.0, 2.0, 3.0, 4.0], verdict="outside", margin_mm=0.0).to_json()
+NEAR = Refusal(Code.COPPER_NEAR, form="part", what="pad", who=["R1", ""], net="A", gap_mm=0.05, need_mm=0.2,
+               other={"net": "B", "who": ["R2", ""]}, layers=["F.Cu"]).to_json()
+SITE = Refusal(Code.SITE_KEEPOUT).to_json()
+OWNER = {"form": "who", "name": "R1"}
+LINK = {"link": "A.1>B.2", "a": {"key": "a", "ref": "A", "pad": "1"}, "b": {"key": "b", "ref": "B", "pad": "2"},
+        "achieved_mm": 3.0, "limit_mm": 2.0, "why": ""}
+BLAME = [{"form": "kind", "count": 3, "label": "courtyard", "owners": [{"owner": OWNER, "faces": "front", "count": 3}]}]
+
+SAMPLES = [
+    (C.UNPLACED_SEARCH, {"item": "c4", "radius_mm": 3.0, "at": [10.0, 20.0], "blame": BLAME, "pocket_tried": 2,
+                         "room_lost": {"gone": ["u1"], "kept": []}},
+     "c4: no legal location within 3.0 mm of (10.00, 20.00) (courtyard x3: R1 front face x3); no pocket took it (2 tried); "
+     "see: no room was left for it when u1 was placed"),
+    (C.UNPLACED_POCKET, {"item": "c4", "variant": "tried", "w_mm": 4.0, "h_mm": 2.0, "face": "front", "tried": 0, "riders": []},
+     "c4: no pocket fits its 4.0 x 2.0 envelope on the front face (0 pocket(s) tried)"),
+    (C.UNPLACED_POCKET, {"item": "c4", "variant": "any_rotation", "w_mm": 4.0, "h_mm": 2.0, "face": "front or back"},
+     "c4: no pocket fits its 4.0 x 2.0 envelope on the front or back face at any rotation asked for"),
+    (C.UNPLACED_SLIDE, {"item": "j1", "where": {"form": "edge", "edge": "north"}, "counts": [["edge", 4]], "riders": []},
+     "j1: no room anywhere along the north edge (edge x4)"),
+    (C.UNPLACED_SLIDE, {"item": "j1", "where": {"form": "line", "axis": "x", "at_mm": 5.0, "toward": "south"},
+                        "counts": [["body", 1]], "riders": []},
+     "j1: no room anywhere on the line x = 5.00; as far south as it is legal (body x1)"),
+    (C.UNPLACED_BLOCK, {"item": "ldo", "variant": "scan", "radius_mm": 3.0, "at": [1.0, 2.0], "counts": [["copper", 5]]},
+     "ldo: no legal spot within 3.0 mm of (1.00, 2.00) (copper x5)"),
+    (C.UNPLACED_BEARING, {"item": "j1", "turns": 72, "counts": [["edge", 72]]},
+     "j1: no bearing of 72 tried leaves it legal on its point (edge x72)"),
+    (C.UNPLACED_RIDES, {"item": "nt", "variant": "rode", "rider_of": "c"}, "nt: rides c, which found no place"),
+    (C.SETUP_CENTRE_COORDINATES, {"item": "u1", "axes": ["x"], "values": [30], "free": ["y"]},
+     "u1: Centre(30, None) places by coordinates: write coordinates=True, or place by a relation"),
+    (C.SETUP_CENTRE_FLAG_DEFAULT, {"item": "u1"}, "u1: coordinates=False is the default: leave it out"),
+    (C.LINK_OVER, LINK, "link A.1 to B.2 is 3.00 mm, over its 2.00 mm limit"),
+    (C.FIXED_PART, {"item": "u1", "freedom": "fixed", "why": EDGE}, "u1 (fixed): body box 1.00,2.00..3.00,4.00 is outside the board"),
+    (C.FIXED_CUTOUT, {"name": "slot", "why": Refusal(Code.CUTOUT_OUTSIDE).to_json()}, "slot (cutout): reaches outside the board"),
+    (C.FIXED_KEEPOUT, {"name": "ant", "why": Refusal(Code.CUTOUT_NOWHERE, nearest=None).to_json()},
+     "ant (keepout): has nowhere legal to go: nowhere on the board"),
+    (C.COPPER_KEEPOUT, {"word": "track", "net": "A", "keepout": "ant", "why": "an antenna"},
+     "track A crosses keepout 'ant' (an antenna): a track goes exactly where it is put, so move it, reshape it, or name its "
+     "net in the keepout's allow="),
+    (C.COPPER_CROSS, {"variant": "tracks", "net_a": "A", "net_b": "B", "layer": "F.Cu", "at": [1.0, 2.0], "left_out": "track A"},
+     "A and B cross on F.Cu at (1.00, 2.00) and neither may bridge; track A is not drawn"),
+    (C.COPPER_MEETS, {"net": "A", "hit": NEAR, "chamfer_at": [1.0, 2.0]},
+     "copper A: R1 pad A is 0.05 mm from B copper on F.Cu (needs 0.20); the 45 of its chamfer at (1.00, 2.00); "
+     "a smaller chamfer= there keeps clear"),
+    (C.COPPER_NOT_DRAWN, {"variant": "via_lost", "track": "A", "lost": ["via A"]},
+     "track A: its end on via A is not drawn, because that via found no spot"),
+    (C.COPPER_NOT_DRAWN, {"variant": "through", "net": "A", "met": {"form": "via", "net": "B"}},
+     "track A: not drawn, it would run through a B via"),
+    (C.COPPER_NOT_DRAWN, {"variant": "pour_close", "net": "A", "between": [["pad", "U1", "1"], ["via", 1.0, 2.0]], "noun": "member",
+                          "what": {"form": "unplated", "who": ["J1", ""]}},
+     "pour A: J1's unplated hole is within its clearance of member U1.1 and via at (1.00, 2.00), so no pour can hold the "
+     "member clear; the pour is not drawn"),
+    (C.COPPER_CORNER, {"net": "A", "edge": "NE", "names": ["R1", "R2"], "near_mm": 0.1, "need_mm": 0.2},
+     "track A: the points either side of its 45 past the NE corner of R1, R2 allow no 45 through it; the track passes that "
+     "corner at 0.100 mm, under the 0.200 mm clearance"),
+    (C.COPPER_NOTE, {"variant": "waypoint", "net": "A"},
+     "track A: a waypoint steers it into another net's pad; drawn pad to pad it clears, so drop the waypoint(s) unless the "
+     "route must go there"),
+    (C.COPPER_STITCH, {"variant": "left_out", "net": "GND", "left_out": [[1.0, 2.0, SITE]]},
+     "stitch GND: 1 via(s) outside the region left out: (1.00, 2.00) inside a keepout, which forbids vias"),
+    (C.LABEL_SITS_ON, {"item": "j1", "text": "IN", "hits": ["R1"]}, "label j1 IN: sits on R1"),
+    (C.LABEL_NO_SPOT, {"variant": "off_board", "key": "label j1 IN", "item": "j1", "edge": {"verdict": "outside", "margin_mm": 0.2}},
+     "label j1 IN: no spot on the board for it beside j1: it is outside the board"),
+    (C.LABEL_NO_SPOT, {"variant": "blocked", "key": "label j1 IN", "item": "j1", "mine": ["R1"]},
+     "label j1 IN: no clear spot beside j1 for it to move to, and R1 is in the way"),
+    (C.LABEL_NOT_DRAWN, {"item": "j1", "text": "IN", "waiting": "R1"}, "label j1 IN: not drawn: R1 found no place"),
+    (C.ESCAPE_CROSSED, {"ref": "U1", "pins": ["1", "2"], "targets": [["J1", "A"], ["J2", "B"]]}, "U1 pins 1/2: J1 A crosses J2 B"),
+    (C.ESCAPE_CLOSED, {"ref": "U1", "pin": "3", "net": "A", "joins": ["J1"], "by": [OWNER]},
+     "U1 pin 3 (A): closed toward J1 by R1"),
+    (C.ESCAPE_WALLED, {"variant": "walled", "ref": "U1", "pin": "3", "net": "A", "by": []}, "U1 pin 3 (A): walled off by copper"),
+    (C.ESCAPE_LANE, {"ref": "U1", "pin": "3", "net": "A", "blocked": [Refusal(Code.LANE_PAD, pin="4", gap_mm=0.1, need_mm=0.2).to_json()]},
+     "U1 pin 3 (A): its lane is blocked by pad 4 of its own part, 0.100 mm off (needs 0.200)"),
+    (C.PAIR_CROSSED, {"pos": "P", "neg": "N", "parts": ["R1", "R2"]},
+     "P/N cross between R1, R2: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"),
+    (C.SETUP_UNDECLARED, {"item": "c1", "ref": "C1"}, "c1 (C1): no declaration places it, so it stays where the generator put it"),
+    (C.SETUP_LANE_UNUSED, {"ref": "U1", "pin": "3"},
+     "U1 pin 3: its lane is reserved and no track begins with it, so its room is kept for nothing"),
+    (C.SETUP_ACCEPT, {"variant": "unmatched", "check": "keep-out", "subject": "A"},
+     "accept keep-out A: no verdict by that check and subject on this board"),
+    (C.SETUP_RULE_NOTE, {"variant": "net", "rule": "r", "cell": "k", "net": "N"},
+     "rule 'r' from the k cell is not carried: its net N is not on this board"),
+    (C.SETUP_SETTING_RENAMED, {"path": "placemat.toml", "old": "a.b", "new": "a.c"},
+     "placemat.toml: a.b is now a.c (the old name still works for one release)"),
+    (C.SETUP_LOOKAHEAD, {"item": "u1", "other": "u2", "own": "R1", "short_mm": 0.5, "asked_mm": 2.0},
+     "u1: no spot was left for u2 at its limit distance from R1, so the look-ahead was dropped and R1 is placed without it; the "
+     "best spot for R1 left u2 0.50 mm short of 2.0 mm"),
+    (C.SETUP_PCBNEW, {"variant": "current", "net": "A"},
+     "pour A: reach=Reach.CURRENT needs KiCad's pcbnew at plan time, for its polygon booleans; the pour is not drawn"),
+    (C.ROUTE_DROPPED, {"key": "X", "why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
+     "adopted route X dropped: its end at (1.00, 2.00) no longer meets the net's other copper; the router routes it again"),
+    (C.VIAS_GAVE_WAY, {"item": "m", "nets": [{"net": "SIG", "parts": [{"kind": "move", "n": 1, "moved_mm": 0.25}],
+                                              "under": ["R9"], "held": []}], "fields": []},
+     "m: 1 SIG via moved 0.25 mm under R9"),
+    (C.FAB_MINIMUM, {"net_class": "P", "what": "track width", "value_mm": 0.08, "minimum_mm": 0.1, "key": "track_mm"},
+     "net class P: track width 0.08 mm is below the fab's minimum 0.1 mm (fab-profile.json min.track_mm)"),
+    (C.FACTS_UNCONFIRMED, {"reasons": [{"reason": "no_record"}]}, "no confirmation record yet"),
+    (C.NEEDS_OPTION, {"item": "c1", "option": Refusal(Code.OPTION_VIA, via="blind", from_layer="F.Cu", to_layer="In2.Cu").to_json()},
+     "c1: no spot; one would clear with a blind via shortened to F-In2 (via.blind is if-needed in fab-profile.json)"),
+    (C.SPLIT_GROUPS, {"cell": "k", "groups": [["R1", "R2"], ["C1", "C2"]], "unjoined": []},
+     "k: its parts form 2 groups joined only by board-level nets: R1, R2; C1, C2. Parts with no close placement requirement in "
+     "common may be split into cells of their own."),
+]
+
+
+@pytest.mark.parametrize("cause, facts, text", SAMPLES, ids=[s[0].value for s in SAMPLES])
+def test_a_cause_renders_its_sentence_from_its_facts(cause, facts, text):
+    f = Finding(cause, facts)
+    assert str(f) == text
+    assert json.loads(json.dumps(f.facts)) == f.facts                      # the facts are JSON
+    g = reuse.finding_from_json(json.loads(json.dumps(reuse.finding_to_json(f))))
+    assert g == f and g.cause is cause and g.facts == f.facts
+
+
+def test_every_cause_has_a_sample():
+    """Four setup causes are pinned by the tests of the situations that raise them (pitch, web, frame reach, a lost layer)."""
+    missing = {c for c in C} - {s[0] for s in SAMPLES}
+    assert missing == {C.SETUP_PITCH, C.SETUP_WEB, C.SETUP_FRAME_REACH, C.SETUP_LAYER_LOST, C.VIAS_DROPPED}
+
+
+def test_a_changed_facts_version_changes_the_schemas_digest(monkeypatch):
+    before = ft.schemas_digest()
+    monkeypatch.setitem(ft.FACTS_V, C.LINK_OVER, 2)
+    assert ft.schemas_digest() != before
+
+
+def test_a_stored_finding_of_another_version_is_not_replayed():
+    stored = reuse.finding_to_json(Finding(C.SETUP_UNDECLARED, {"item": "c1", "ref": "C1"}))
+    stored[3] = 99
+    with pytest.raises(ValueError):
+        reuse.finding_from_json(stored)
+
+
+def test_a_reservation_is_named_by_what_made_it():
+    assert str(ReservedBy("keepout", "ant", "a note")) == "keepout 'ant' (a note)"
+    assert str(ReservedBy("label", "j1 IN", item="j1")) == "label j1 IN"
+    assert str(ReservedBy("fanout", "U1", side="north")) == "fanout of U1 (north side)"
+    assert str(ReservedBy("push", "M1", "why", limit=0.3, radius_mm=29.7)) == "push from M1 (limit 0.3 at 29.7 mm): why"

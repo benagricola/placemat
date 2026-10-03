@@ -306,7 +306,11 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
     board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
                   courtyard_excess=fab.courtyard_excess, settings=cfg, component_spacing=fab.component_spacing,
                   fab_via_tiers=fab.via_tiers, fab_source=str(fab.path) if fab.path else "")
+    board.script_file = str(Path(script).resolve())     # what a finding's suggestions edit
     board._script = script
+    from . import context as context_mod
+    if context_mod._overlay:                            # a try of a suggestion: declarations' digests are of the text it ran
+        board.source_reader = context_mod.read_source
     try:
         run_script(script, board)
     except Exception as e:
@@ -484,8 +488,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .project import fab_min_findings
         plan.findings += fab_min_findings(board.geometry.netclasses, fab)
         if facts_reasons:
-            from .findings import Finding
-            plan.findings.append(Finding("facts", "; ".join(facts_reasons)))
+            from .findings import Finding, FindingCause
+            plan.findings.append(Finding(FindingCause.FACTS_UNCONFIRMED, {"reasons": facts_reasons}))
         n_place = sum(1 for s in plan.steps if s.placement is not None)
         n_copper = sum(s.ops for s in plan.steps)
         from .findings import summary
@@ -594,6 +598,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("checks", line)
         stale = checks.findings_of(outcomes)            # after the finding lines printed above: said here, kept in run.json
         plan.findings.extend(stale)
+        from . import suggestions as suggestions_mod
+        suggestions_mod.bind(plan.findings, board)
         for f in stale:
             console.finding(f)
         rec.timing_s["checks"] = round(time.time() - t0, 1)
@@ -641,7 +647,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                       "rank": s.rank, "rank_of": s.rank_of, "note": s.note,
                       "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops} for s in plan.steps]
         rec.findings = list(plan.findings)
-        rec.finding_details = [{"kind": f.kind, "severity": f.severity, "text": str(f)} for f in plan.findings]
+        rec.finding_details = [f.detail() for f in plan.findings]
         rec.status = "ok"
     except RunFailure as e:
         rec.status = "failed"
@@ -713,6 +719,11 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         except (json.JSONDecodeError, TypeError):
             pass
         record_latest(run_dir.parent, run_dir / "run.json", rec.board)
+        try:                                        # `placemat apply <id>` finds this plan's suggestions here
+            from . import suggestions as suggestions_mod
+            suggestions_mod.remember(src.board_dir, script, "run %s" % rec.run_id, plan.findings)
+        except OSError:
+            pass
         if explored is not None:            # its result is in the record: the explore's checkpoint is not needed
             from . import checkpoint
             checkpoint.finish_dir(checkpoint.state_dir(src.board_dir, script))

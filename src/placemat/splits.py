@@ -75,11 +75,11 @@ def _groups(cell: CellGeom, local_nets: set) -> list:
     return list(groups.values())
 
 
-def cell_text(geometry: BoardGeometry, cell: CellGeom, plane_nets, min_group: int,
-              board_counts: dict | None = None) -> str | None:
-    """The `split` finding's text for `cell`, or None when it is not one:
-    two or more groups of `min_group` members or more, joined only by nets
-    that are not local to the cell."""
+def cell_facts(geometry: BoardGeometry, cell: CellGeom, plane_nets, min_group: int,
+               board_counts: dict | None = None) -> dict | None:
+    """The `split` finding's facts for `cell` (`groups`, the refs of each group of `min_group` members or more, and
+    `unjoined`, the refs of the parts no net inside the cell joins to the others), or None when it is not one: two or more
+    groups of `min_group` members or more, joined only by nets that are not local to the cell."""
     board_counts = _board_net_counts(geometry) if board_counts is None else board_counts
     groups = _groups(cell, _local_nets(cell, board_counts, plane_nets))
     counted = [g for g in groups if len(g) >= min_group]
@@ -88,27 +88,20 @@ def cell_text(geometry: BoardGeometry, cell: CellGeom, plane_nets, min_group: in
     # A member of a real group (two members or more) that only falls short
     # of `min_group` is not unjoined - a local net does join it to another
     # member, just not enough of them to count. Saying otherwise would be
-    # false, so such a group is left out of the message altogether rather
-    # than folded into the unjoined clause.
+    # false, so such a group is left out of the finding altogether rather
+    # than folded into the unjoined list.
     paired_refs = {fp.ref for g in groups if len(g) >= 2 for fp in g}
     unjoined = [fp for fp in cell.members if fp.ref not in paired_refs]
-    tail = ""
-    if unjoined:
-        tail = (" (and %d part%s no net inside the cell joins to the others: %s; judge each by what places "
-                "it: a bypass capacitor stays with the IC it serves, a sensing part at what it senses)" % (
-                    len(unjoined), "" if len(unjoined) == 1 else "s", ", ".join(fp.ref for fp in unjoined)))
-    return ("its parts form %d groups joined only by board-level nets: %s%s. Parts with no close placement "
-            "requirement in common may be split into cells of their own." % (
-                len(counted), "; ".join(", ".join(fp.ref for fp in g) for g in counted), tail))
+    return {"groups": [[fp.ref for fp in g] for g in counted], "unjoined": [fp.ref for fp in unjoined]}
 
 
 def report(geometry: BoardGeometry, cells, plane_nets, min_group: int) -> list:
-    """(cell name, text) for each cell in `cells` that is a `split`
+    """(cell name, facts) for each cell in `cells` that is a `split`
     finding."""
     board_counts = _board_net_counts(geometry)
     out = []
     for cell in cells:
-        text = cell_text(geometry, cell, plane_nets, min_group, board_counts)
-        if text is not None:
-            out.append((cell.name, text))
+        facts = cell_facts(geometry, cell, plane_nets, min_group, board_counts)
+        if facts is not None:
+            out.append((cell.name, facts))
     return out

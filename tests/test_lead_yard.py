@@ -31,7 +31,7 @@ def _occ(fps, envelope="physical", cells=()):
 def test_a_courtyard_is_kept_off_a_placed_parts_plated_lead():
     g, occ = _occ([footprint("J1", 10, 10, **LEADED), _small()])
     why = occ.legal(g.footprint("C1"), SPOT)
-    assert why == "C1 courtyard sits over the through-hole lead of J1 pad 2", why
+    assert str(why) == "C1 courtyard sits over the through-hole lead of J1 pad 2", why
 
 
 def test_a_plated_lead_is_kept_out_from_under_a_placed_parts_courtyard():
@@ -40,7 +40,7 @@ def test_a_plated_lead_is_kept_out_from_under_a_placed_parts_courtyard():
                                                                   excess=1.0, fab=(12.5, 9.5, 14.5, 10.5))])
     blame = []
     why = occ.legal(g.footprint("J1"), Placement(Location(10.0, 10.0), 0.0, Face.FRONT), blame=blame)
-    assert why == "C1 courtyard sits over the through-hole lead of J1 pad 2", why
+    assert str(why) == "C1 courtyard sits over the through-hole lead of J1 pad 2", why
     assert [b.kind for b in blame] == ["courtyard"]
 
 
@@ -65,14 +65,14 @@ def test_a_cell_member_keeps_its_courtyard_off_a_lead():
     g, occ = _occ(fps, cells=("k",))
     # the cell's box runs 29..34 round centre 31.5: C1 lands at 13.5 when the centre is at 15
     why = occ.legal(g.cells["k"], Placement(Location(15.0, 10.0), 0.0, Face.FRONT))
-    assert why is not None and "courtyard sits over the through-hole lead of J1 pad 2" in why, why
+    assert why is not None and "courtyard sits over the through-hole lead of J1 pad 2" in str(why), why
 
 
 def test_a_courtyard_envelope_refusal_names_the_pad_too():
     g, occ = _occ([footprint("U1", 10, 10, w=4, h=2, nets=("A", "B"), through=True),
                    footprint("R1", 30, 30, w=2, h=1, nets=("B", "C"), face=Face.BACK)], envelope="courtyard")
     why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
-    assert why is not None and re.search(r"R1 courtyard sits over the through-hole lead of U1 pad [12]", why), why
+    assert why is not None and re.search(r"R1 courtyard sits over the through-hole lead of U1 pad [12]", str(why)), why
 
 
 def test_the_native_index_and_the_python_scan_agree_round_a_lead():
@@ -93,7 +93,7 @@ def test_the_native_index_and_the_python_scan_agree_round_a_lead():
                 a = occ.legal(item, p, others=native)
                 b = occ.legal(item, p, others=plain)
                 assert (a is None) == (b is None), (searched, p, a, b)
-                refused += a is not None and "through-hole lead" in a
+                refused += a is not None and "through-hole lead" in str(a)
         assert refused, searched
 
 
@@ -108,7 +108,7 @@ def test_a_satellite_keeps_its_courtyard_off_its_anchors_lead():
     occ.pending |= {"J1", "C1"}
     at = Placement(Location(20, 20), 0.0, Face.FRONT)
     members, why = layout_block(occ, BlockSpec(g.footprint("j1"), ((g.footprint("c1"), "VIN"),), gap=0.3), at)
-    assert members is None and "no legal spot" in why, why          # too tight a gap for its courtyard
+    assert members is None and "no legal spot" in str(why), why          # too tight a gap for its courtyard
     members, why = layout_block(occ, BlockSpec(g.footprint("j1"), ((g.footprint("c1"), "VIN"),), gap=None), at)
     assert members is not None, why
     occ.commit(g.footprint("j1"), members["j1"])

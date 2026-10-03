@@ -844,3 +844,19 @@ Decided with the user, 2026-10-03 (the answers to the first version's questions)
 ## Open questions
 
 None.
+
+## As built in phase 5
+
+Built in the engine (`src/placemat/`, tests in `tests/test_builder_ops.py`):
+
+- `script_edit`: `ensure_import`, `remove_constant`, `move_statement`, `create_file`, `confirm_facts`; `insert_statement`
+  with `args={"after": {"region": ...}, "bind": ...}` and no target; `read_intent(text, target, name="at")`
+  with the closed vocabulary `INTENT_FORMS`; `skeleton(name, description, outline)`. A `from placemat import (...)` with a
+  comment inside is refused by `ensure_import`. `remove_constant` refuses a constant a statement reads.
+- `suggestions`: `apply_edits(edits, digests, dry_run, root=, log=, label=, source=)` is the body of `apply_suggestion`;
+  `redo_last`, `NothingToRedo`, `RedoRefused`; a log entry has `op` (`apply`, `undo`, `redo`), `source` and, for a
+  created file, `before: null`; `FileChange.before` is None for it.
+- `facts.confirmed_text(text, digest, key)`; `write_confirmed` calls it.
+
+Not built: the ratsnest count per turn, the `.zen` and JSON dialects of the editor, the read-back after regeneration. The
+command line has no `--redo`.

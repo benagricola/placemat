@@ -15,7 +15,21 @@ neither has to import the other.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 import math
+
+
+class EdgeWhy(str, Enum):
+    """What the board's edge says of a box: the answer of a shape's `why_not`, which says nothing of the margin it was
+    asked with (a refusal carries that)."""
+    OUTSIDE = "outside"
+    IN_CUTOUT = "in_cutout"
+    PAST_BOARD = "past_board"
+    PAST_CUTOUT = "past_cutout"
+    PAST_RIM = "past_rim"
+    INTO_BORE = "into_bore"
+    CROSSES = "crosses"                 # a rectangular board's box test
+
 
 NM = 1e-5           # ten KiCad units: the placement grid's own rounding, not an allowance
 SAG = 0.02          # how far a flattened arc may cut the corner off the real one; [geometry] arc_sag
@@ -453,19 +467,19 @@ class Cutouts:
             self._where = Where(self.loops)
         return self._where
 
-    def why_not(self, box, margin: float) -> str | None:
+    def why_not(self, box, margin: float) -> EdgeWhy | None:
         """None when `box` is clear of every cutout with `margin` to spare,
         else what it is in or too near."""
         if not self.loops:
             return None
         ix = self._index()
         if ix.loops_around((box.left + box.right) / 2.0, (box.top + box.bottom) / 2.0):
-            return "inside a cutout"
+            return EdgeWhy.IN_CUTOUT
         left, top = box.left - margin, box.top - margin
         right, bottom = box.right + margin, box.bottom + margin
         for x1, y1, x2, y2, _n, lo_x, lo_y, hi_x, hi_y in ix.near(left, top, right, bottom):
             if hi_x < left or lo_x > right or hi_y < top or lo_y > bottom:
                 continue                    # too far to matter
             if segment_box(x1, y1, x2, y2, box) < margin - NM:
-                return "past the cutout's keep-in (%.2f mm)" % margin
+                return EdgeWhy.PAST_CUTOUT
         return None

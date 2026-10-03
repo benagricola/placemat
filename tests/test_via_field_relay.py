@@ -276,7 +276,7 @@ def test_a_candidate_refused_for_another_via_leaves_the_field_as_it_was():
     centre = occ._geometry(cell).reference.location
     before = list(occ.copper)
     res = giveway.resolve(occ, cell, Placement(Location(centre.x - SHIFT, centre.y - SHIFT), 0.0, Face.FRONT))
-    assert res.why is not None and "cannot give way" in res.why
+    assert res.why is not None and "cannot give way" in str(res.why)
     assert any(a.kind == "relay-move" for a in res.actions)         # decided, then refused with the rest
     assert not occ.given_way and occ.copper == before
 

@@ -1166,70 +1166,81 @@ out.done = [els["#runhead"].hidden, els["#runhead"].innerHTML];
     assert out["done"][0] is False and "done in" in out["done"][1]
 
 
-# The unplaced forms the engine writes (layout.py and the scan's blame text), as its own tests produce them.
+# The unplaced causes the engine records (finding.cause, finding.facts: findings.py, finding_text.py), as the plan JSON carries them: the
+# facts, and the engine's own words for each refusal and owner as `text`.
 UNPLACED_FORMS = r"""
+const who = (name, faces, count) => ({owner: {form: "who", name, text: name}, faces, count});
 const F = {
-  loc: "u1: no legal location within 3.0 mm of (3.00, 15.00) (edge x1720; courtyard x1116: K1 front face x712, J1 front face x404)",
-  locPocket: "u1: no legal location within 6.0 mm of (5.00, 10.00) (courtyard x7758: K1 front face x4560, J1 front face x3198; edge x3526); no pocket took it (0 tried)",
-  drawn: "m: no legal location within 3.0 mm of (25.00, 25.00) (body, silk or mask x709: W1 front face x709)",
-  pocket: "b1: no pocket fits its 15.0 x 15.0 envelope on the front face at any rotation asked for",
-  pocketN: "r1: no pocket fits its 6.0 x 3.0 envelope on the front face (0 pocket(s) tried)",
-  room: "s1: no room anywhere along its row (courtyard x12, edge x3)",
-  bearing: "d1: no bearing of 4 tried leaves it legal on its point (courtyard x40, vias that could not give way x2)",
-  alone: "k1: cannot be laid out on its own at any rotation it may take, whatever room the board has (its pad 1 is 0.10 mm from its pad 2)",
-  rides: "r9: rides u1, which found no place",
-  late: "u1: no legal location within 6.0 mm of (5.00, 10.00) (courtyard x4: K1 front face x4); see: no room was left for it when j1 was placed",
+  loc: {cause: "unplaced.search", facts: {item: "u1", radius_mm: 3.0, at: [3, 15], blame: [
+    {form: "kind", label: "edge", count: 1720, owners: []},
+    {form: "kind", label: "courtyard", count: 1116, owners: [who("K1", "front", 712), who("J1", "front", 404)]}]}},
+  locPocket: {cause: "unplaced.search", facts: {item: "u1", radius_mm: 6.0, at: [5, 10], pocket_tried: 0, blame: [
+    {form: "kind", label: "courtyard", count: 7758, owners: [who("K1", "front", 4560)]}, {form: "vias", count: 2},
+    {form: "rider", count: 4, reason: {code: "x", text: "U2 is too far for its limit"}}]}},
+  reserved: {cause: "unplaced.search", facts: {item: "m", radius_mm: 3.0, at: [25, 25], blame: [
+    {form: "kind", label: "reservation", count: 9, owners: [{owner: {form: "reserved", text: "the reservation for keepout 'ring'"}, faces: "front", count: 9}]}]}},
+  drawn: {cause: "unplaced.search", facts: {item: "m", radius_mm: 3.0, at: [25, 25], blame: [{form: "kind", label: "body, silk or mask", count: 709, owners: [who("W1", "front", 709)]}]}},
+  pocket: {cause: "unplaced.pocket", facts: {item: "b1", variant: "any_rotation", w_mm: 15.0, h_mm: 15.0, face: "front", riders: []}},
+  pocketN: {cause: "unplaced.pocket", facts: {item: "r1", variant: "tried", w_mm: 6.0, h_mm: 3.0, face: "front", tried: 0, riders: [{code: "r", text: "rides u1, which found no place"}]}},
+  room: {cause: "unplaced.slide", facts: {item: "s1", where: {form: "edge", edge: "north", text: "along the north edge"}, counts: [["courtyard", 12], ["edge", 3]], riders: []}},
+  bearing: {cause: "unplaced.bearing", facts: {item: "d1", turns: 4, counts: [["courtyard", 40]]}},
+  alone: {cause: "unplaced.block", facts: {item: "k1", variant: "alone", turns: [], turns_text: "0: its pad 1 is 0.10 mm from its pad 2"}},
+  block: {cause: "unplaced.block", facts: {item: "k2", variant: "search", radius_mm: 4.0, at: [1, 2], counts: [["courtyard", 5]]}},
+  rides: {cause: "unplaced.rides", facts: {item: "r9", variant: "rides", rider_of: "u1"}},
+  late: {cause: "unplaced.search", facts: {item: "u1", radius_mm: 6.0, at: [5, 10], blame: [{form: "kind", label: "courtyard", count: 4, owners: [who("K1", "front", 4)]}],
+    room_lost: {gone: ["j1"], kept: [], text: "see: no room was left for it when j1 was placed"}}},
 };
-const fi = (text, severity) => ({text, severity: severity || "warning", kind: "unplaced", item: text.split(":")[0]});
+const fi = (key, severity) => Object.assign({text: F[key].facts.item + ": a sentence the page does not read", severity: severity || "warning", kind: "unplaced", item: "", at: null, refs: [], pads: []}, F[key]);
 """
 
 
 @needs_node
-def test_an_unplaced_items_reasons_are_parsed_into_why_where_it_was_looked_for_and_what_refused_it(tmp_path):
+def test_an_unplaced_items_reasons_are_read_from_the_findings_facts_not_its_sentence(tmp_path):
     out = run_more(tmp_path, UNPLACED_FORMS + r"""
-const P = (key, extra) => ev("unplacedParts(" + JSON.stringify(extra || []) + ", " + JSON.stringify(fi(F[key])) + ")");
-out.loc = P("loc"); out.locPocket = P("locPocket"); out.drawn = P("drawn"); out.pocket = P("pocket"); out.pocketN = P("pocketN");
-out.room = P("room"); out.bearing = P("bearing"); out.alone = P("alone"); out.rides = P("rides"); out.late = P("late");
+const P = (key, extra) => ev("unplacedParts(" + JSON.stringify(extra || []) + ", " + JSON.stringify(fi(key)) + ")");
+for (const k of Object.keys(F)) out[k] = P(k);
 out.note = ev('unplacedParts(["SMALL courtyard overlaps BIG courtyard", "body box -0.50,6.90..5.70,13.10 crosses the board edge"], null)');
-out.noteParts = ev('noteParts("rank 1/1 (38.4 mm2, 1st of 1; 2 pins, 1st); UNPLACED: U1 courtyard overlaps J1 courtyard; body box -0.50,6.90..5.70,13.10 crosses the board edge")');
+out.old = ev('unplacedParts([], {text: "u1: an older record with no facts", kind: "unplaced"})');
 """)
     loc = out["loc"]
-    assert (loc["why"], loc["radius"], loc["at"]) == ("no legal location", "3.0", ["3.00", "15.00"])
+    assert (loc["why"], loc["radius"], loc["at"]) == ("no legal location", 3.0, [3, 15])
     assert [(r["kind"], r["n"]) for r in loc["refused"]] == [("edge", 1720), ("courtyard", 1116)]
     assert loc["refused"][1]["blockers"] == [{"owner": "K1", "face": "front", "n": 712}, {"owner": "J1", "face": "front", "n": 404}]
-    assert out["locPocket"]["tried"] == 0 and out["locPocket"]["refused"][0]["n"] == 7758
+    lp = out["locPocket"]
+    assert lp["tried"] == 0 and [r["kind"] for r in lp["refused"]] == ["courtyard", "vias that could not give way", "U2 is too far for its limit"]
+    assert out["reserved"]["refused"][0]["blockers"] == [{"text": "the reservation for keepout 'ring' front face x9"}]            # an owner that is not a part: the engine's words
     assert out["drawn"]["refused"][0]["kind"] == "body, silk or mask" and out["drawn"]["refused"][0]["blockers"][0]["owner"] == "W1"
-    assert out["pocket"]["pocket"] == {"w": "15.0", "h": "15.0", "face": "front"} and out["pocket"]["why"] == "no pocket fits" and out["pocket"]["tried"] is None
-    assert out["pocketN"]["tried"] == 0 and out["pocketN"]["pocket"]["w"] == "6.0"
-    assert out["room"]["why"] == "no room" and out["room"]["what"] == "along its row" and [r["n"] for r in out["room"]["refused"]] == [12, 3]
-    assert out["bearing"]["bearings"] == 4 and [r["kind"] for r in out["bearing"]["refused"]] == ["courtyard", "vias that could not give way"]
+    assert out["pocket"]["pocket"] == {"w": 15.0, "h": 15.0, "face": "front"} and out["pocket"]["why"] == "no pocket fits" and out["pocket"]["tried"] is None
+    assert out["pocketN"]["tried"] == 0 and out["pocketN"]["other"] == ["rides u1, which found no place"]
+    assert out["room"]["why"] == "no room" and out["room"]["what"] == "along the north edge" and [r["n"] for r in out["room"]["refused"]] == [12, 3]
+    assert out["bearing"]["bearings"] == 4 and [r["kind"] for r in out["bearing"]["refused"]] == ["courtyard"]
     assert out["alone"]["why"] == "cannot be laid out" and "pad 1" in out["alone"]["alone"]
+    assert out["block"]["radius"] == 4.0 and out["block"]["refused"][0]["n"] == 5
     assert out["rides"]["why"] == "rides" and out["rides"]["rides"] == "u1"
-    assert out["late"]["late"] == ["no room was left for it when j1 was placed"]
+    assert out["late"]["late"] == ["see: no room was left for it when j1 was placed"]
     assert out["note"]["examples"] == ["SMALL courtyard overlaps BIG courtyard", "body box -0.50,6.90..5.70,13.10 crosses the board edge"] and out["note"]["why"] == "not placed"
-    assert out["noteParts"]["unplaced"][0].startswith("U1 courtyard overlaps") and out["noteParts"]["rank"]["n"] == "1" and out["noteParts"]["other"] == []
+    assert out["old"]["other"] == ["u1: an older record with no facts"]                                       # no facts: the sentence, as written
 
 
 @needs_node
 def test_the_not_placed_rows_the_card_and_the_findings_list_show_an_unplaced_item_as_sections_with_clickable_blockers(tmp_path):
     out = run_more(tmp_path, UNPLACED_FORMS + r"""
 full([item("K1", 1), item("J1", 5)], [st("K1"), st("J1")]);
-const pl = ev("plan()"); pl.unplaced = [{item: "u1", why: "U1 courtyard overlaps K1 courtyard"}]; pl.findings = [Object.assign(fi(F.loc, "critical"), {item: ""})];     // the engine leaves an unplaced finding's item empty: the sentence names it
+const pl = ev("plan()"); pl.unplaced = [{item: "u1", why: "U1 courtyard overlaps K1 courtyard"}]; pl.findings = [fi("loc", "critical")];
 ev("renderSteps()"); out.steps = els["#tab-steps"].innerHTML;
 ev("renderFindings()"); out.findings = els["#tab-findings"].innerHTML;
 ev("selectItem('u1')"); ev("renderCard()"); out.card = els["#card"].innerHTML;
 """)
     for html in (out["steps"], out["card"]):
         assert '<span class="kk">why</span>' in html and '<span class="chip bad">no legal location</span>' in html
-        assert '<span class="kk">radius</span>' in html and '3.0 mm' in html
-        assert "(3.00, 15.00) mm" in html and '<span class="chip refusal">courtyard x1116</span>' in html and '<span class="chip refusal">edge x1720</span>' in html
-        assert 'data-act="owner" data-owner="K1"' in html                                    # K1 is a part of the plan: a pill that selects it
-        assert 'data-act="owner" data-owner="J1"' in html
+        assert '<span class="kk">radius</span>' in html and '3 mm' in html
+        assert "(3, 15) mm" in html and '<span class="chip refusal">courtyard x1116</span>' in html and '<span class="chip refusal">edge x1720</span>' in html
+        assert 'data-act="owner" data-owner="K1"' in html and 'data-act="owner" data-owner="J1"' in html
         assert "U1 courtyard overlaps K1 courtyard" in html                                  # the placer's example, as written
-        assert "no legal location within" not in html
+        assert "a sentence the page does not read" not in html
     assert 'class="row unp"' in out["steps"]
     f = out["findings"]
-    assert '<span class="chip refusal">courtyard x1116</span>' in f and '<span class="sev critical">critical</span>' in f and "no legal location within" not in f
+    assert '<span class="chip refusal">courtyard x1116</span>' in f and '<span class="sev critical">critical</span>' in f and "a sentence the page does not read" not in f
     assert out["card"].count("chip refusal") == out["steps"].count("chip refusal")           # the finding is not said twice on the card
 
 
@@ -1257,6 +1268,20 @@ out.pref = ev("JSON.stringify(legendPref)");
     assert 'data-id="ko:ko0"' in out["opened"] and out["pref"] == '{"ko":true}'
 
 
+# ---------------------------------------------------------------- suggestions
+SUGGEST = r"""
+const SUG = [{id: "s1a", text: "Place c4 beside c1, on its north side", rank: 1, lever: "beside"}, {id: "s1b", text: "Place c4 beside c1, on its east side", rank: 2, lever: "beside"},
+             {id: "s1c", text: "Raise the limit to 1.82 mm", rank: 3, lever: "limit"}];
+const FND = [{text: "c4: no legal location within 3.0 mm of (3.00, 15.00) (courtyard x4: K1 front face x4)", kind: "unplaced", severity: "critical", item: "", case: "unplaced.search", suggestions: SUG, at: null, refs: [], pads: []},
+             {text: "a note", kind: "setup", severity: "notice", item: "", case: null, suggestions: [], at: null, refs: [], pads: []}];
+const click = el => listenersClick({target: {closest: s => el[s] ? el[s] : null}, stopPropagation() { this.stopped = true; }, preventDefault() {}});
+const listenersClick = e => ev("sgClick").call(null, e);
+const answer = (map) => { ctx.fetch = (u, o) => { const path = u.split("?")[0]; fetched.push([path, o && o.body]); const r = map[path]; return Promise.resolve({ok: r.status < 400, status: r.status, json: async () => r.body}); }; };
+const sgb = (a, extra) => ({"[data-sg]": Object.assign({dataset: Object.assign({sg: a}, extra || {})})});
+const DIFF = {id: "s1a", text: SUG[0].text, dry_run: true, resolve: 1, diff: "x", targets: [{role: "target", key: "c4", file: "x_layout.py", line: 2}],
+  files: [{file: "x_layout.py", path: "/p/x_layout.py", added: 1, removed: 1, old_lines: [2], new_lines: [2], hunks: [{old_start: 1, old_len: 2, new_start: 1, new_len: 2, lines: [{tag: " ", old: 1, new: 1, text: "a"}, {tag: "-", old: 2, new: null, text: "board.place(Part('c4'))"}, {tag: "+", old: null, new: 2, text: "board.place(Part('c4'), at=Beside(Part('c1')))"}]}]}]};
+"""
+
 # ---------------------------------------------------------------- notes
 NOTES = r"""
 const NT = {point: {id: "n1", at: 0.5, from: "agent-1", script: "x_layout.py", description: "look at this corner", target: {kind: "point", x: 5, y: 6}},
@@ -1268,6 +1293,127 @@ const withNotes = (list, age) => { send("hello", {script: "x_layout.py", keep: 5
 
 
 @needs_node
+def test_a_finding_shows_its_top_suggestion_with_show_try_apply_and_more_for_the_rest(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+full([item("a", 1)], [st("a")], {findings: FND});
+ev("renderFindings()"); out.first = els["#tab-findings"].innerHTML;
+const more = {"[data-sgmore]": {dataset: {sgmore: "0"}}};
+click(more); flush(); ev("renderFindings()"); out.opened = els["#tab-findings"].innerHTML;
+click(more); flush(); ev("renderFindings()"); out.closed = els["#tab-findings"].innerHTML;
+ev("S.canApply = false"); ev("renderFindings()"); out.noapply = els["#tab-findings"].innerHTML;
+""")
+    f = out["first"]
+    assert f.count('class="sgrow"') == 1 and "Place c4 beside c1, on its north side" in f and "east side" not in f
+    assert 'data-sg="show" data-sid="s1a"' in f and 'data-sg="try" data-sid="s1a"' in f and 'data-sg="apply" data-sid="s1a"' in f
+    assert 'data-sgmore="0">more (2)</a>' in f
+    o = out["opened"]
+    assert o.count('class="sgrow"') == 3 and "east side" in o and '<span class="chip ">beside</span>' in o and '<span class="chip ">limit</span>' in o and "fewer</a>" in o
+    assert out["closed"].count('class="sgrow"') == 1
+    assert 'data-sg="apply"' not in out["noapply"] and 'data-sg="try"' in out["noapply"]
+
+
+@needs_node
+def test_show_opens_the_dry_run_diff_in_the_script_dialog_with_apply_and_cancel(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: FND});
+  answer({"/suggest/show": {status: 200, body: DIFF}});
+  await ev("sgAct")("show", "s1a"); flush();
+  out.state = [ev("S.scriptOpen"), ev("S.file"), ev("!!S.sg.show")];
+  out.bar = els["#sgdlg"].innerHTML; out.barHidden = els["#sgdlg"].hidden; out.body = els["#scriptbody"].innerHTML; out.info = els["#scriptinfo"].textContent;
+  out.sent = fetched.filter(f => f[0] === "/suggest/show").map(f => f[1]);
+  click(sgb("cancel")); flush();
+  out.after = [ev("S.scriptOpen"), ev("S.sg.show"), els["#sgdlg"].hidden];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["state"] == [True, "x_layout.py", True] and out["barHidden"] is False
+    assert 'data-sg="apply" data-sid="s1a"' in out["bar"] and 'data-sg="cancel"' in out["bar"] and "dry run" in out["bar"] and "nothing is written" in out["bar"]
+    assert 'data-sgline="x_layout.py:2"' in out["bar"]
+    assert "board.place(Part(&#39;c4&#39;), at=Beside" in out["body"].replace("&#039;", "&#39;") or "at=Beside" in out["body"]
+    assert out["info"] == "+1 -1" and out["sent"] == ['{"resolve":1,"id":"s1a"}']                       # the page sends the resolve and the id, never text
+    assert out["after"] == [False, None, True]
+
+
+@needs_node
+def test_try_shows_the_result_as_a_compare_marked_try_not_written_and_back_returns_to_the_plan(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: FND});
+  const doc = JSON.parse(JSON.stringify(ev("plan()"))); doc.findings = []; doc.counts = {placed: 1, findings: 0};
+  const diff = {moved: [], added: [], removed: [], copper: {added: [], removed: []}, findings: {gained: [], lost: [{text: "c4: no legal location", kind: "unplaced", item: ""}]}, score: {a: 12, b: 9, delta: -3}, congestion: null, empty: false};
+  const cmp = {a: 1, b: 77, diff, files: {"x_layout.py": {hunks: [], added: 1, removed: 1, changed_new: [2], changed_old: [2]}}, trace: {items: {}, lines: {}}};
+  answer({"/suggest/try": {status: 200, body: {state: "done", id: 77, base: 1, suggestion: {id: "s1a", text: SUG[0].text}, cleared: true, gained: [], lost: diff.findings.lost, moved: 2, score: diff.score, compare: cmp, doc, texts: {"x_layout.py": "a\nb\n"}, timing: {}, applied: DIFF}}});
+  const p = ev("sgAct")("try", "s1a");
+  out.busy = [ev("!!S.sg.busy"), els["#sgbar"].innerHTML];
+  await p; flush();
+  out.shown = [ev("S.shownId"), ev("S.status"), ev("!!S.try"), els["#statustext"].textContent];
+  out.bar = els["#sgbar"].innerHTML;
+  out.cmp = els["#tab-compare"].innerHTML;
+  out.slot = (ev("renderFindings()"), els["#tab-findings"].innerHTML);
+  click(sgb("back")); flush();
+  out.back = [ev("S.shownId"), ev("!!S.try"), els["#sgbar"].hidden, ev("S.docs.has(77)")];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["busy"][0] is True and "Trying" in out["busy"][1] and "nothing is written" in out["busy"][1]
+    assert out["shown"] == [77, "try", True, "try, not written"]
+    b = out["bar"]
+    assert "try, not written" in b and "finding cleared" in b and "0 gained" in b and "1 lost" in b and "2 items moved" in b and "score 12 to 9" in b
+    assert 'data-sg="apply" data-sid="s1a"' in b and 'data-sg="back"' in b and 'data-sg="viewdiff"' in b
+    assert "to the try, not written" in out["cmp"]
+    assert "sgrow" not in out["slot"]                                                      # the try's own findings offer nothing
+    assert out["back"] == [1, False, True, False]
+
+
+@needs_node
+def test_a_refused_apply_says_why_a_good_one_offers_undo_and_the_history_row_has_it_too(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: FND});
+  answer({"/suggest/apply": {status: 409, body: {error: "x_layout.py changed since this plan was made: nothing was written"}}});
+  await ev("sgAct")("apply", "s1a"); flush();
+  out.refused = els["#sgbar"].innerHTML;
+  answer({"/suggest/apply": {status: 200, body: Object.assign({}, DIFF, {dry_run: false, undo: true})}, "/suggest/undo": {status: 200, body: Object.assign({}, DIFF, {text: "Place c4 beside c1, on its north side"})}});
+  await ev("sgAct")("apply", "s1a"); flush();
+  out.applied = els["#sgbar"].innerHTML;
+  send("applied", {applied: [{seq: 1, id: "s1a", text: SUG[0].text, undone: false, files: ["x_layout.py"]}], text: SUG[0].text});
+  out.cmp = els["#tab-compare"].innerHTML;
+  await ev("sgAct")("undo"); flush();
+  out.undone = els["#sgbar"].innerHTML;
+  send("applied", {applied: [{seq: 1, id: "s1a", text: SUG[0].text, undone: true, files: ["x_layout.py"]}]});
+  out.cmp2 = els["#tab-compare"].innerHTML;
+  ev("S.history = [{id: 5, at: 0, changed: [], timing: {}, counts: {}, applied: 'applied from a suggestion: Place c4'}]"); ev("renderCompare()"); out.hist = els["#tab-compare"].innerHTML;
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert "not done" in out["refused"] and "changed since this plan was made" in out["refused"]
+    assert "applied" in out["applied"] and 'data-sg="undo"' in out["applied"] and "Place c4 beside c1" in out["applied"]
+    assert 'data-sg="undo"' in out["cmp"] and "applied from a suggestion:" in out["cmp"]
+    assert "undone" in out["undone"] and 'data-sg="undo"' not in out["cmp2"]
+    assert "applied from a suggestion: Place c4" in out["hist"]
+
+
+@needs_node
+def test_a_hello_of_a_studio_that_does_not_write_hides_apply_and_undo(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+hello(); send("hello", {script: "x_layout.py", keep: 5, history: [], resolving: null, error: null, can_apply: false, applied: [{seq: 1, id: "s1a", text: "t", undone: false, files: []}]});
+out.state = [ev("S.canApply"), ev("S.applied.length")];
+""")
+    assert out["state"] == [False, 1]
+
+
+@needs_node
+def test_a_searched_suggestion_is_drawn_with_a_search_button_in_place_of_show_try_apply(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+const F2 = [Object.assign({}, FND[0], {suggestions: [{id: "q1", text: "Find the best limit", rank: 1, lever: "limit", how: "searched"}, SUG[0]]})];
+full([item("a", 1)], [st("a")], {findings: F2});
+ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
+""")
+    h = out["html"]
+    assert 'data-sg="search" data-sid="q1"' in h and 'data-sg="show" data-sid="q1"' not in h and "Search options" in h
+    assert 'data-sg="show"' not in h.split("more (")[0]                    # the instant one is behind "more"
+
 def test_a_note_is_a_pin_where_it_points_and_a_line_in_the_notes_list(tmp_path):
     out = run_more(tmp_path, NOTES + r"""
 full([item("a", 1)], [st("a")]);
@@ -1400,3 +1546,31 @@ def test_the_phase_pill_is_shortened_from_the_engines_own_sentences(tmp_path):
 out.short = ["refining around the best spots: 3 of 9", "scanning the front or back", "seeding", "coarse pass over the board", "placing at (1, 2)"].map(s => ev("phaseShort(" + JSON.stringify(s) + ", 'searched')"));
 """)
     assert out["short"] == ["refining 3 of 9", "scan front/back", "seeding", "coarse pass", "placing"]
+
+
+@needs_node
+def test_redo_comes_beside_undo_after_an_undo_and_a_multi_file_suggestion_shows_every_files_diff(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: FND});
+  const two = Object.assign({}, DIFF, {files: DIFF.files.concat([{file: "helpers.py", path: "/p/helpers.py", added: 2, removed: 0, old_lines: [], new_lines: [4, 5],
+    hunks: [{old_start: 3, old_len: 0, new_start: 4, new_len: 2, lines: [{tag: "+", old: null, new: 4, text: "C4_LIMIT_MM = 1.82"}, {tag: "+", old: null, new: 5, text: "# measured"}]}]}])});
+  answer({"/suggest/show": {status: 200, body: two}});
+  await ev("sgAct")("show", "s1a"); flush();
+  out.body = els["#scriptbody"].innerHTML; out.info = els["#scriptinfo"].textContent;
+  click(sgb("cancel")); flush();
+  answer({"/suggest/undo": {status: 200, body: Object.assign({}, DIFF, {text: "Place c4 beside c1, on its north side"})}, "/suggest/redo": {status: 200, body: Object.assign({}, DIFF, {dry_run: false})}});
+  ev("S.canApply = true");
+  send("applied", {applied: [{seq: 1, id: "s1a", text: SUG[0].text, undone: false, files: ["x_layout.py"]}], redo: ""});
+  out.noredo = els["#tab-compare"].innerHTML.indexOf('data-sg="redo"') < 0;
+  await ev("sgAct")("undo"); flush();
+  send("applied", {applied: [{seq: 1, id: "s1a", text: SUG[0].text, undone: true, files: ["x_layout.py"]}], redo: SUG[0].text});
+  out.bar = els["#sgbar"].innerHTML; out.cmp = els["#tab-compare"].innerHTML;
+  await ev("sgAct")("redo"); flush();
+  out.sent = fetched.filter(f => f[0] === "/suggest/redo").length; out.after = els["#sgbar"].innerHTML;
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["body"].count('class="difffile"') == 2 and 'data-f="helpers.py"' in out["body"] and "C4_LIMIT_MM = 1.82" in out["body"] and "board.place" in out["body"] and out["info"] == "2 files"
+    assert out["noredo"] is True and 'data-sg="redo"' in out["bar"] and 'data-sg="redo"' in out["cmp"] and "undone:" in out["cmp"]
+    assert out["sent"] == 1 and 'data-sg="undo"' in out["after"]

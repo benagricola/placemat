@@ -2,6 +2,7 @@
 each island that joins two of the net's pads, or a pad and a plane."""
 import dataclasses
 
+from placemat.refusals import Refusal
 from placemat import routes
 from placemat.board_geometry import CopperItem
 from placemat.values import Box, CopperLayer, Location
@@ -194,7 +195,7 @@ def test_an_end_on_a_zone_of_the_net_holds_on_the_next_run():
     routed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (11.4, 10.0), (16.0, 10.0)),))
     (e,) = routes.entries_from(placed, routed, ["X"])
     assert not any(p.get("meets") for t in e.tracks for p in (t["a"], t["b"]))
-    assert not isinstance(routes.resolve(e, _occupancy(), 0.001), str)
+    assert not isinstance(routes.resolve(e, _occupancy(), 0.001), Refusal)
 
 
 def test_the_entries_a_pass_replaces_are_named():

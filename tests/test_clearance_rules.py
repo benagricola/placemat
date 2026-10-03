@@ -198,8 +198,8 @@ def test_a_rule_within_a_cell_that_raises_the_figure_holds_between_its_members_o
     plain = _cell_occupancy()
     far = _pad_shape(plain, "X1", 1)
     assert plain._conflict(_pad_shape(plain, "U1", 2), far, None, exact=True) is not None   # 0.15 < 0.2 anyway
-    assert "rule: inside the cell" in occ._conflict(u1, r1, None, exact=True)
-    assert "rule" not in occ._conflict(u1, x1, None, exact=True)
+    assert "rule: inside the cell" in str(occ._conflict(u1, r1, None, exact=True))
+    assert "rule" not in str(occ._conflict(u1, x1, None, exact=True))
 
 
 def test_a_conflict_gap_is_a_floor_under_the_largest_clearance_a_rule_asks():

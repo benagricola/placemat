@@ -5,6 +5,8 @@ import dataclasses
 import pytest
 
 from placemat import score
+from placemat.findings import FindingCause as C
+from tests.finding_samples import finding
 from placemat.layout import Board
 from placemat.settings import Settings
 from placemat.values import Face, Location, Near, Part, PadRef
@@ -34,14 +36,14 @@ def test_the_new_terms_are_priced_at_the_searchs_weights_and_an_old_record_reads
 
 
 def test_a_finding_severity_does_not_move_the_measures():
-    from placemat.findings import Finding
+    from placemat.findings import FindingCause as C
     b = _either_board(Face.EITHER)
     plan = b.resolve()
     before = score.plan_measures(b, plan)
     for f in plan.findings:
         f.severity = "critical"
     assert score.plan_measures(b, plan) == before
-    assert Finding("copper", "x", "notice").kind == Finding("copper", "x", "critical").kind
+    assert finding(C.COPPER_STITCH, "notice").kind == finding(C.COPPER_STITCH, "critical").kind
 
 
 # ------------------------------------------------------------ give way
@@ -161,7 +163,7 @@ def test_a_copper_plans_notes_take_only_findings():
     ctx = _CopperContext(None, None)
     with pytest.raises(TypeError):
         ctx.notes.append("a bare sentence has no kind")
-    ctx.note("a declaration not drawn")
+    ctx.note(C.COPPER_NOT_DRAWN, {"variant": "plane_outside", "net": "GND"})
     assert [(f.kind, f.severity) for f in ctx.notes] == [("copper", "warning")]
 
 

@@ -209,6 +209,14 @@ def parser() -> argparse.ArgumentParser:
     fc.add_argument("fragment", help="the fragment's layout/layout.kicad_pcb")
     fc.add_argument("sides", nargs="+", metavar="SIDE=N|S|E|W", help="outward=, quiet=, handoff=")
 
+    ap = sub.add_parser("apply", help="apply a finding's suggestion to the layout script (`try s3a: ...` under a finding in a "
+                                      "run or preview), or undo the last one applied")
+    ap.add_argument("id", nargs="?", help="the suggestion's id, as the run or preview printed it (s3a)")
+    ap.add_argument("--script", help="the layout script the suggestion is for (default: the one whose latest plan has the id)")
+    ap.add_argument("--dry-run", action="store_true", help="print the diff the suggestion would make and write nothing")
+    ap.add_argument("--undo", action="store_true",
+                    help="put back what the last applied suggestion changed, if the files are still as it left them")
+    ap.add_argument("--json", action="store_true")
     pv = sub.add_parser("preview", help="place the board (reusing the previous run) and draw it - "
                                         "no board written, no DRC, no render: a picture in seconds")
     pv.add_argument("script", help="a layout script")
@@ -1077,12 +1085,17 @@ def cmd_preview(args) -> int:
     from .preview import note_lines
     plan = result.plan
     placed = sum(1 for s in plan.steps if s.placement is not None)
+    try:                                            # `placemat apply <id>` finds this plan's suggestions here
+        from . import suggestions as suggestions_mod
+        suggestions_mod.remember(_board_dir_of(args.script), args.script, "preview", plan.findings)
+    except OSError:
+        pass
     if args.json:
         console.data(json.dumps({
             "svg": str(result.svg), "png": str(result.png) if result.png else None,
             "png_problem": result.png_problem or None, "placed": placed,
             "findings": plan.findings,
-            "finding_details": [{"kind": f.kind, "severity": f.severity, "text": str(f)} for f in plan.findings],
+            "finding_details": [f.detail() for f in plan.findings],
             "reused": result.reused or None,
             "congestion": None if plan.rudy is None else {"worst": plan.rudy.worst,
                                                           "at": [plan.rudy.worst_at.x, plan.rudy.worst_at.y]},
@@ -1113,6 +1126,78 @@ def cmd_preview(args) -> int:
                             ": too coarse for small passives and their gaps - look closer with --around or --zoom"))
     elif not args.svg:
         console.say("preview", "no png: %s" % result.png_problem)
+    return 0
+
+
+def _board_dirs(script) -> list:
+    """The board folders whose `.placemat` may hold suggestions: the script's own, or those under the cwd."""
+    if script:
+        return [_board_dir_of(script)]
+    return [d.parent.parent for d in _runs_dirs(None)]
+
+
+def _board_dir_of(script) -> Path:
+    """The folder a script's board lives in (what `.placemat` is under): the script's own folder."""
+    p = Path(script).resolve()
+    return p if p.is_dir() else p.parent
+
+
+def cmd_apply(args) -> int:
+    from . import suggestions as sg
+    dirs = _board_dirs(args.script)
+    if args.undo:
+        logs = [d for d in dirs if sg.log_path(d).exists()]
+        if len(logs) != 1:
+            console.say("apply", "nothing applied here to undo" if not logs else
+                        "more than one board has applied suggestions (%s): name the script with --script" % ", ".join(
+                            str(d) for d in logs), level="fail")
+            return 1
+        try:
+            done = sg.undo_last(sg.log_path(logs[0]), root=sg.project_root(logs[0]), dry_run=args.dry_run)
+        except sg.SuggestionError as e:
+            console.say("apply", str(e), level="fail")
+            return 1
+        return _report_applied(args, done, "undone")
+    if not args.id:
+        console.say("apply", "name a suggestion (s3a, as `try s3a: ...` under a finding), or --undo", level="fail")
+        return 2
+    holders = []
+    for d in dirs:
+        for script, entry in sg.recall(d, args.script).items():
+            if any(s.id == args.id for s in entry["suggestions"]):
+                holders.append((d, script, entry))
+    if not holders:
+        console.say("apply", "no suggestion %s in the latest plan of %s: run or preview the script again for its "
+                    "suggestions" % (args.id, args.script or "the scripts here"), level="fail")
+        return 1
+    if len(holders) > 1:
+        console.say("apply", "%s is in the latest plan of more than one script (%s): name one with --script" % (
+            args.id, ", ".join(h[1] for h in holders)), level="fail")
+        return 1
+    board_dir, script, entry = holders[0]
+    try:
+        done = sg.apply_suggestion(entry["suggestions"], args.id, dry_run=args.dry_run, root=sg.project_root(board_dir),
+                                   log=sg.log_path(board_dir))
+    except sg.StaleSuggestion as e:
+        console.say("apply", "the script changed since %s made this suggestion (%s): nothing was written; run it again "
+                    "for suggestions that fit the script as it is" % (entry["source"], ", ".join(e.files)), level="fail")
+        return 1
+    except sg.SuggestionError as e:
+        console.say("apply", str(e), level="fail")
+        return 1
+    return _report_applied(args, done, "would write" if args.dry_run else "applied")
+
+
+def _report_applied(args, done, verb) -> int:
+    if args.json:
+        console.data(json.dumps({"id": done.id, "text": done.text, "dry_run": done.dry_run, "files": [
+            {"file": f, "diff": c.diff, "old_lines": c.old_lines, "new_lines": c.new_lines}
+            for f, c in done.files.items()]}, indent=2))
+        return 0
+    console.say("apply", "%s: %s%s" % (done.id, done.text, " (%s)" % verb if args.dry_run or verb == "undone" else ""))
+    for f in done.files:
+        console.say("apply", "%s %s" % (verb, f))
+    console.data(done.diff().rstrip("\n"))
     return 0
 
 
@@ -1267,7 +1352,7 @@ def cmd_occupancy(args) -> int:
                                            args.radius, args.step)
     if args.json:
         console.data(json.dumps({"spot": None if spot is None else {
-            "at": [spot.at.x, spot.at.y], "distance": spot.distance, "soft": list(spot.soft)},
+            "at": [spot.at.x, spot.at.y], "distance": spot.distance, "soft": [str(s) for s in spot.soft]},
             "tally": dict(tally), "tried": tried, "net": net, "size": size, "drill": drill,
             "layer": layer.value, "tail_width": width}, indent=2))
     else:
@@ -1419,6 +1504,7 @@ def cmd_facts(args) -> int:
     plane_layers = frozenset(l for l, _nets in board._plane_layers().items())
     doc = facts_mod.facts_of(geometry, fab, cfg.check_rise_c, plane_layers)
     reasons = facts_mod.unconfirmed_reasons(doc, facts_mod.confirmed_digest(cfg, script))
+    from .finding_text import facts_reason_text
     if args.confirm:
         # the placemat.toml the run uses: the nearest one up from the board, never a new one beside a
         # script when an ancestor has one (it would cut a module off from the board's shared helpers)
@@ -1431,7 +1517,8 @@ def cmd_facts(args) -> int:
     if args.json:
         console.data(json.dumps({"layers": doc.layers, "pairs": doc.pairs, "via_types": doc.via_types,
                                  "fab_min": doc.fab_min, "rise_c": doc.rise_c,
-                                 "plane_mismatches": list(doc.plane_mismatches), "unconfirmed": reasons}, indent=2))
+                                 "plane_mismatches": list(doc.plane_mismatches),
+                                 "unconfirmed": [facts_reason_text(r) for r in reasons]}, indent=2))
         return 0
     for line in facts_mod.render(doc, reasons):
         console.say("facts", line)
@@ -1479,7 +1566,7 @@ def _dispatch(args) -> int:
             "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "layer": cmd_layer, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets, "facts": cmd_facts,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview,
-            "studio": cmd_studio, "watch": cmd_watch}[args.command](args)
+            "studio": cmd_studio, "watch": cmd_watch, "apply": cmd_apply}[args.command](args)
 
 
 if __name__ == "__main__":

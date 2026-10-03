@@ -270,6 +270,15 @@ no close placement requirement in common may be split into cells of
 their own." It carries no run-score weight (score.py), and the same text
 is a note on the cell's step.
 
+**A number on a `Centre` is a coordinate, and a script says so.** `Centre(30, 12, coordinates=True)` places by coordinates;
+without the flag each axis is a reference (`X(pad)`, `Y(pad)`, a `Mid`) or `None`. `coordinates=False` is the default and
+is never written: a script that writes it gets a `setup` notice (`setup.centre_flag_default`) and a suggestion that removes
+it. In this release a number without the flag is still accepted and gives a `setup` warning (`setup.centre_coordinates`: "u1:
+Centre(30, 12) places by coordinates: write coordinates=True, or place by a relation"); the next release refuses it.
+`Location` is coordinates by its name and takes no flag. A suggestion never writes a number into a `Centre` or a `Location`,
+never sets `coordinates=True`, and never edits a `Location` or a `Centre` with the flag; it may turn a coordinate placement
+into a relation (`Beside`), and it may free one axis of an intent `Centre` (`Centre(X(pad), None)`).
+
 **Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`,
 `Centre(x, y)` and `Pin(key, x, y)` fix both coordinates (the origin, the
 body centre, or the item's own pad `key` (a number or a net), each axis a
@@ -2810,6 +2819,8 @@ placemat faces <fragment layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--limit CHECK=VALUE ...] [--json]
 placemat facts <script> [--confirm] [--json]
 placemat settings [<script-or-board-dir>] [--json]
+placemat apply <id> [--script PATH] [--dry-run] [--json]
+placemat apply --undo [--script PATH] [--dry-run] [--json]
 ```
 
 `facts` prints the board's own facts - each copper layer's role and
@@ -3357,8 +3368,30 @@ explore's record.
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. By default the server listens on 127.0.0.1 only. Every request
 needs the token in the address (and a `Host` header the studio listens on);
-GET serves the page and its data, and POST only `/switch`, `/run` and
-`/resolve`. Stop it with Ctrl-C.
+GET serves the page and its data, and POST only `/switch`, `/run`, `/resolve` and
+`/suggest/show`, `/suggest/try`, `/suggest/apply` and `/suggest/undo`. Stop it with Ctrl-C.
+Suggestions (`finding.suggestions` in the plan) are shown on each finding row, the card and the step rows: the best one,
+with "more (n)" for the other variants (up to `[studio] suggestions_per_lever` of one lever). Three buttons, each
+`POST {resolve, id}` with the token (the page never sends source text; the studio finds the suggestion in that
+resolve's findings):
+
+- Show, `POST /suggest/show`: the dry-run diff of every file the edit writes (unified diff, hunks, the lines changed, the
+  declarations the edit names), opened in the script dialog with Apply and Cancel. Nothing is written.
+- Try, `POST /suggest/try`: the edited text is resolved in the warm worker with the edited files read from an overlay
+  (`placemat.context.overlay`: the layout script, the modules it imports and `placemat.toml`), the last record replayed from
+  and none written. Only on a click, only when no resolve is running or pending, one at a time, at most
+  `[studio] try_timeout_s`; a change to a watched file cancels it. The answer is compared with the resolve the suggestion
+  was made on: `cleared` (the finding's `(kind, case, item)` is gone), findings `gained` and `lost`, items `moved`, the
+  `score` change, the file diff and the try's plan. The page shows it as a compare marked "try, not written" and does not
+  add it to the history; a try's own suggestions are never offered.
+- Apply, `POST /suggest/apply`, Undo, `POST /suggest/undo` (the same call as `placemat apply --undo`) and Redo, `POST /suggest/redo`
+  (makes again the apply the last undo took back; refused when a file has moved on since, or when nothing is left to redo): written
+  atomically under the project root to files the studio watches, logged in `.placemat/applied.jsonl`; the watcher
+  resolves again and the history row reads "applied from a suggestion: ...". A file that changed since the plan refuses
+  (409, nothing written), as does an undo when a file is not as the apply left it. Allowed over `--host` (the token guards
+  it); `[studio] apply = false` refuses writing (403) and hides the buttons. Refusals are `{"error": sentence}`: 404 no
+  such resolve or suggestion, 409 stale, busy or nothing to undo, 422 the edit cannot be made.
+
 One studio serves one script at a time. It needs the board's cached generation, as
 `preview` does: `placemat run` the script once first.
 
@@ -3663,6 +3696,96 @@ A failed design check is a verdict, not a finding, and has its own severity in t
 `run.json`'s `verdicts`: `critical` for `keep-out` and `current-path`, `warning` for `crossings-under`, `heat`,
 `exposure`, `hot-loop` and `switch-node`. A passing or accepted verdict has none.
 
+### Suggestions
+
+A finding is data: a `kind`, a `cause`, the `facts` its site measured and a `facts_v` naming the version of that cause's facts. Its sentence is rendered from the facts, in one place, so a record carries both and a reader that does not know a `facts_v` shows the sentence.
+
+A finding may carry suggestions: changes to the layout script, worded in the board's own terms, that may clear it.
+`run` and `preview` print the best one under each critical or warning finding and the ids of the rest:
+
+```
+[critical] j1: no legal location within 3.0 mm of (30.00, 30.00) (courtyard x41)
+    try s2a: Place j1 beside r1, on its west side
+    or s2b, s2c, s2d, s2e
+```
+
+`run.json`'s `finding_details[i]` and `preview --json` give a finding its `cause`, its `facts` (what the site measured; the sentence is
+rendered from them) and its `suggestions`:
+
+```
+{"id": "s2a", "text": "Place j1 beside r1, on its west side", "rank": 1, "lever": "beside",
+ "edit": {"op": "set_kwarg", "args": {"name": "at"},
+          "target": {"kind": "place", "key": "j1", "file": "/abs/path/layout.py", "line": 12, "shared": 1, "digest": "..."},
+          "value": {"form": "Beside", "args": [{"item": "r1"}, {"enum": "Edge.WEST"}]}},
+ "digests": {"/abs/path/layout.py": "..."}}
+```
+
+`id` is `s<finding number><letter>` and belongs to the plan that made it. `rank` 1 is the best; `lever` groups variants
+of one change (at most `[studio] suggestions_per_lever` of them). `edit` is data: the operation (`set_kwarg`,
+`remove_kwarg`, `set_arg`, `edit_list`, `insert_statement`, `remove_statement`, `set_constant`, `toml_set`; and for
+the studio's board builder `ensure_import`, `remove_constant`, `move_statement`, `create_file`, `confirm_facts`), the
+declaration it changes by kind, key, file and line, and an intent expression for the value, never source and never a
+coordinate. A number an edit writes is a named constant with a comment saying where it came from. A suggestion whose
+declaration is made in a loop or a helper that runs for several items is not offered, since the edit would change
+them all. `digests` is the digest of each file the edit writes, as the plan saw it.
+
+`placemat apply <id> [--script PATH] [--dry-run] [--undo]` makes the edit. `--dry-run` prints the diff and writes
+nothing. Without it the file is written (atomically, under the project root) and the apply is logged in
+`.placemat/applied.jsonl`. If the script changed since the run that made the suggestion, nothing is written and the
+command says so: run again for suggestions that fit. `--undo` puts back the last apply that has not been undone, if
+the files are still as that apply left them. A suggestion is a candidate: the next run says whether the finding
+cleared.
+
+The same engine serves the board builder, which is not driven by findings. `suggestions.apply_edits(edits, digests,
+dry_run, root=, log=, label=, source=)` is the body of `apply_suggestion`: the digest check (`""` for a file that
+must not exist yet), the edits made together, the atomic write, one log entry carrying `label` as its text and
+`source`. A file an edit creates (`create_file`, with the text `script_edit.skeleton(name, description, outline)`
+gives) has `before: null` in its entry, and undoing it removes the file. `redo_last(log, root=)` makes the last undone
+apply again when the files are as they were before it (`RedoRefused` otherwise); a new apply empties what could be
+redone (`NothingToRedo`). `insert_statement` with no target takes `args={"after": {"region": R}}`, R one of `header`,
+`constants`, `outline`, `decided`, `searched`, and an optional `args["bind"]` to write it as an assignment.
+`ensure_import` takes `args={"names": [...]}`; `remove_constant` `args={"name": ...}` and refuses a constant
+something reads; `move_statement` takes `args={"after" | "before": <target json>}`. `script_edit.read_intent(text,
+target, name="at")` reads an argument back as the intent expression that writes it, `{"absent": true}` where the call
+does not give it and None where it is not in the builder's vocabulary (a coordinate, arithmetic).
+
+| Cause | Suggestions |
+|---|---|
+| `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`) |
+| `unplaced.pocket` | place it beside a part that pulls it; a `board.link` toward a part it shares a net with; either face |
+| `unplaced.slide` | `at=OnEdge(...)` on each of the other edges |
+| `unplaced.block` | the block may turn to any of its turns; the satellite that did not fit placed on its own (out of the block's list, a bare `board.place` after it) |
+| `unplaced.bearing`, `unplaced.rides` | none |
+| `fixed.part` | drop its `at=` so it is searched; the other face; a row's member taken out of the row and left to the search; a block's satellite placed on its own; an item at an intent `Centre` freed along one axis |
+| `fixed.cutout` | for a web too thin: the board's `web=` lowered to the web it has, to the hundredth, as a named constant |
+| `fixed.keepout` | none |
+| `copper.keepout` | `Net(...)` added to the keepout's `allow=`; the keepout kept off the layer the copper is on (`layers=`); the keepout forbidding only what the copper is not (`excludes=`) |
+| `copper.cross` | `bridge=True` on the track that yields; `priority=Priority.HIGH` on it where the other track may bridge |
+| `copper.meets` | the track's waypoints dropped (pad to pad); the other layer |
+| `copper.not_drawn` | for an arc that did not fit, the radius that fits the leg (the radius times the leg's length over what its arcs take, a named constant saying so); for a track through an item, its waypoints dropped or the other layer |
+| `copper.corner`, `copper.stitch` | none |
+| `copper.note` | the waypoints dropped, for a waypoint that steers a track into a pad |
+| `link_over` | place it beside the far part, on a free side; a heavier `weight=`; `priority=Priority.HIGH`; the limit raised to the measured length, as a named constant |
+| `label.sits_on`, `label.no_spot` | the label on each of its other sides |
+| `label.not_drawn` | none |
+| `escape_walled`, `escape_closed` | a `board.fanout(part, sides=[...])` on the side the pad's way out points at; a `board.escape(...)` keeping the pin's lane clear |
+| `escape_lane`, `escape_crossed`, `pair_crossed` | none |
+| `setup.centre_coordinates` | place it beside the neighbour it stands next to, on the side it is on, where that is legal; never `coordinates=True` |
+| `setup.centre_flag_default` | the keyword removed |
+| `setup.frame_reach` | the fit frame's declared width or height made the size that holds the item (not where the item reaches the origin side) |
+| `setup.web` | the board's `web=` lowered to the web it has |
+| `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
+| `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
+| `setup.accept` | the `board.accept(...)` removed |
+| `vias.dropped` | none |
+
+A suggestion's number is a figure the finding measured, or one derived from such a figure and said so in the constant's
+comment; a lever with no measurement behind it (a wider radius, a finer step) is not offered.
+
+A setting is written into the script's own `[scripts."<path>".<section>]` table of the nearest `placemat.toml`,
+changing only that line.
+
+
 ## Report form and the files placemat writes
 
 Every command takes `--format text|json` (text by default; `--json` is the
@@ -3940,6 +4063,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.note_age_s` | `3600` | seconds | a note left in the studio is hidden after this long; 0 keeps it |
 | `studio.notes_keep` | `100` | count | notes kept in a board's notes file |
 | `studio.cancel_grace_ms` | `2000` | ms | a resolve asked to stop that has not stopped by then has its worker restarted |
+| `studio.suggestions_per_lever` | `3` | count | a finding's suggestions for one lever (which side to place beside): the best this many |
+| `studio.try_timeout_s` | `60` | seconds | a try of a suggestion (a resolve of the edited script) is stopped after this long |
+| `studio.apply` | `true` | bool | false: the studio shows suggestions and diffs but refuses to write them |
 | `facts.confirmed` | `""` | text | the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm` |
 | `facts.boards` | `{}` | table | `[facts.boards]`: a script's path relative to this placemat.toml -> the digest of its last `placemat facts --confirm`; placemat's own record, not part of a run's id |
 <!-- settings-table:end -->

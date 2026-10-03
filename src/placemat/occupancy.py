@@ -25,6 +25,8 @@ from .outline import Outline
 from .placement import Placement
 from .settings import Settings
 from .board_geometry import CellGeom, Footprint, BoardGeometry, stackup_order
+from .refusals import (Code, EDGE_OF_NATIVE, EdgeFault, EdgeWhy, FLAT_EDGE_MARGIN, Owner, Refusal, ReservedBy, first_word,
+                       reserved_by)
 from .rules import ClearanceRules
 from .values import Box, CopperLayer, Face, Location
 
@@ -88,11 +90,10 @@ def _to_native_shape(s: Shape, footprint_refs: frozenset, leads: frozenset, marg
 
 @dataclass(frozen=True)
 class Blocker:
-    """Why one candidate placement was refused, in parts rather than prose:
-    what kind of conflict, whose shape it was, and which faces it holds. The
-    sentence `legal` returns is for a human; this is for counting."""
+    """Why one candidate placement was refused, in parts: what kind of conflict, whose shape it was, and which faces it
+    holds. The refusal `legal` returns says it all; this is for counting."""
     kind: str                       # courtyard | pad | through | copper | npth | hole | edge | reservation
-    owner: str                      # as who() formats it: a cell member carries its cell
+    owner: Owner | str              # who it was: a cell member carries its cell; "" for the edge
     faces: frozenset
 
 
@@ -127,7 +128,7 @@ class Reservation:
     own matching network, and admitting a net's parts would admit every part
     that shares one."""
     poly: tuple
-    why: str
+    why: ReservedBy
     allow: frozenset[str]
     layer: CopperLayer | None       # None: both faces, any layer
     owners: frozenset[str] = frozenset()
@@ -818,7 +819,7 @@ class Occupancy:
         if self.__dict__.get("_escapes") is not None:
             self._escapes.remove_copper(shapes)
 
-    def copper_conflicts(self, shape: Shape) -> list[str]:
+    def copper_conflicts(self, shape: Shape) -> list[Refusal]:
         """Every pad or copper of another net within clearance of `shape`."""
         out = []
         for owner, g in self.items.items():
@@ -852,17 +853,17 @@ class Occupancy:
                     out.append(o)
         return out
 
-    def name_copper(self, o: Shape) -> str:
-        """Copper as a finding names it: a part's pad by its part and number, else what kind it is."""
+    def name_copper(self, o: Shape) -> dict:
+        """Copper as a finding names it (refusals.copper_name): a part's pad by its part and number, else what kind it is."""
         if o.kind in ("pad", "through") and o.label and self.geometry.has_footprint(o.owner):
-            return "%s pad %s (%s)" % (self.who(o.owner), o.label, o.net or "no net")
+            return {"form": "pad", "who": self._w(o.owner), "label": o.label, "net": o.net}
         if o.kind == "through":
-            return "a %s via" % (o.net or "unnetted")
+            return {"form": "via", "net": o.net}
         if o.wire:
-            return "a %s track" % (o.net or "unnetted")
-        return "%s copper" % (o.net or "unnetted")
+            return {"form": "track", "net": o.net}
+        return {"form": "copper", "net": o.net}
 
-    def hole_conflicts(self, hole: Shape) -> list[str]:
+    def hole_conflicts(self, hole: Shape) -> list[Refusal]:
         """Every pad or copper of another net within the hole clearance of
         `hole`, a candidate drill (`hole_shape`)."""
         out = []
@@ -887,18 +888,26 @@ class Occupancy:
         geom = self._geometry(item)
         return transform_box(geom.reach or geom.body, self._transform(geom, placement))
 
-    def blame_owner(self, o) -> str:
-        """What a refusal's tally names a blocking shape by: its owner, and for
-        copper its net too - "cell logic's U3 GND", or "via GND" for a via no
-        part owns - so a count of copper refusals says whose copper it was. An
-        escape's lane is "the escape lane of U1 pin 53", and a pour "pour NET"."""
+    def blame_owner(self, o) -> Owner:
+        """What a refusal's tally names a blocking shape by: its owner, and for copper its net too - "cell logic's U3
+        GND", or "via GND" for a via no part owns - so a count of copper refusals says whose copper it was. An escape's
+        lane is "the escape lane of U1 pin 53", and a pour "pour NET"."""
         if o.lane:
-            return o.lane
+            return Owner("lane", o.lane)
         if o.kind not in ("pad", "through", "copper"):
-            return self.who(o.owner)
-        base = self.who(o.owner) if o.owner else (
-            "via" if o.kind == "through" else "track" if o.ends else "pour")
-        return "%s %s" % (base, o.net) if o.net else base
+            name, cell = self._w(o.owner)
+            return Owner("who", name, cell)
+        if o.owner:
+            name, cell = self._w(o.owner)
+        else:
+            name, cell = ("via" if o.kind == "through" else "track" if o.ends else "pour"), ""
+        return Owner("who", name, cell, o.net)
+
+    def _w(self, owner: str) -> list:
+        """A refdes as a refusal names it: [name, its cell or ""]."""
+        if self.geometry.has_footprint(owner):
+            return [owner, self.geometry.footprint(owner).cell or ""]
+        return [owner, ""]
 
     def who(self, owner: str) -> str:
         """A refdes as a finding names it: with its cell when it has one."""
@@ -909,13 +918,13 @@ class Occupancy:
         return owner
 
     # ------------------------------------------------------------ mutation
-    def reserve(self, region, why: str, allow=(), layer: CopperLayer | None = None, owners=(),
+    def reserve(self, region, why, allow=(), layer: CopperLayer | None = None, owners=(),
                 source: str = "", admitted=None, copper: bool = True, barred=(), courtyard: bool = False):
         """Keep a region clear. `region` is a Box or a polygon. `source` names
         what put it there, so committing that thing again replaces its own
         regions instead of leaving the old ones behind."""
         poly = box_polygon(region) if isinstance(region, Box) else tuple(tuple(p) for p in region)
-        self.reservations.append(Reservation(poly, why, frozenset(str(n) for n in allow),
+        self.reservations.append(Reservation(poly, reserved_by(why), frozenset(str(n) for n in allow),
                                              layer, frozenset(str(o) for o in owners), source,
                                              None if admitted is None else frozenset(admitted), copper,
                                              frozenset(barred), courtyard))
@@ -954,41 +963,38 @@ class Occupancy:
         return out
 
     def reservation_hit(self, r: Reservation, geom, k: int | None) -> tuple:
-        """(the sentence, the blocker's owner) for a reservation refusing an
-        item: `k` the cell's part it refuses (a member, or past them its own
-        copper), None for an item with no parts. Each member is its own
-        blocker, so a scan counts which of them was in the way."""
+        """(the refusal, the blocker's owner) for a reservation refusing an item: `k` the cell's part it refuses (a
+        member, or past them its own copper), None for an item with no parts. Each member is its own blocker, so a scan
+        counts which of them was in the way."""
         if k is None:
-            return self.refusal(r, geom), r.why
+            return self.refusal(r, geom), Owner("reserved", by=r.why)
         if k >= len(geom.part_refs):
-            return "its own copper sits in the reservation for %s" % r.why, "its own copper in %s" % r.why
+            return Refusal(Code.RESERVATION, variant="own_copper", by=r.why), Owner("own_copper", by=r.why)
         member = geom.part_refs[k]
-        return self.refusal(r, geom, member), "%s in %s" % (member, r.why)
+        return self.refusal(r, geom, member), Owner("member_in", member, by=r.why)
 
-    def refusal(self, r: Reservation, geom, member: str | None = None) -> str:
-        """The sentence for an item a reservation keeps out; in a height-
-        limited region it names each part that is too tall or has no height.
-        `member`: the cell's member that is refused, named."""
+    def refusal(self, r: Reservation, geom, member: str | None = None) -> Refusal:
+        """The refusal for an item a reservation keeps out; in a height-limited region it names each part that is too
+        tall or has no height. `member`: the cell's member that is refused, named."""
         from .board_geometry import part_height
         if member is not None:
-            why = "its member %s sits in the reservation for %s" % (member, r.why)
             if member in r.barred:
-                return why + ": %s is barred" % member
-            if r.admitted is None or member in r.admitted:
-                return why
-            h = part_height(self.geometry.footprint(member))
-            return why + (": %s has no Pm.Height" % member if h is None else ": %s is %g mm" % (member, h))
-        why = "sits in the reservation for %s" % r.why
-        if r.admitted is None:
-            return why
-        said = []
-        for ref in sorted(self._parts_of(geom) - r.admitted):
-            if ref in r.barred:
-                said.append("%s is barred" % ref)
-                continue
-            h = part_height(self.geometry.footprint(ref))
-            said.append("%s has no Pm.Height" % ref if h is None else "%s is %g mm" % (ref, h))
-        return why + (": " + ", ".join(said) if said else "")
+                parts = [[member, "barred", None]]
+            elif r.admitted is None or member in r.admitted:
+                parts = []
+            else:
+                h = part_height(self.geometry.footprint(member))
+                parts = [[member, "no_height" if h is None else "tall", h]]
+            return Refusal(Code.RESERVATION, variant="member", member=member, by=r.why, parts=parts)
+        parts = []
+        if r.admitted is not None:
+            for ref in sorted(self._parts_of(geom) - r.admitted):
+                if ref in r.barred:
+                    parts.append([ref, "barred", None])
+                    continue
+                h = part_height(self.geometry.footprint(ref))
+                parts.append([ref, "no_height" if h is None else "tall", h])
+        return Refusal(Code.RESERVATION, variant="whole", by=r.why, parts=parts)
 
     def commit(self, item, placement: Placement):
         """Record that `item` now sits at `placement`; later checks see it there."""
@@ -1299,7 +1305,7 @@ class Occupancy:
         return cache
 
     def _edge_or_reservation_conflict(self, geom: ItemGeometry, body: Box, placement: Placement,
-                                      past_edge: bool, blame: list | None, by_corners: bool = False) -> str | None:
+                                      past_edge: bool, blame: list | None, by_corners: bool = False) -> Refusal | None:
         """The two checks `legal()` runs before it ever looks at an
         obstacle: the board edge (and cutouts) and the reservations. Both
         produce a ready sentence cheaply (a box test, or a polymorphic
@@ -1429,35 +1435,29 @@ class Occupancy:
                       for s in geom.shapes)
         return {face} | ({Face.FRONT, Face.BACK} if through else set())
 
-    def board_why(self, box: Box, margin: float) -> str | None:
-        """None when `box` lies on the board - inside its outline, outside
-        its cutouts - with `margin` to spare from every edge, else what it
-        crosses."""
+    def board_why(self, box: Box, margin: float) -> EdgeFault | None:
+        """None when `box` lies on the board - inside its outline, outside its cutouts - with `margin` to spare from
+        every edge, else what it crosses."""
         if self.board_shape is not None:
-            return self.board_shape.why_not(box, margin)
+            why = self.board_shape.why_not(box, margin)
+            return None if why is None else EdgeFault(why, margin)
         if self.board_box is not None:
             if not self.board_box.inflate(-margin).contains(box):
-                return "crosses the board edge margin (%.2f mm)" % margin
+                return EdgeFault(EdgeWhy.CROSSES, margin)
             if self.board_cutouts:
-                return self.board_cutouts.why_not(box, margin)
+                why = self.board_cutouts.why_not(box, margin)
+                return None if why is None else EdgeFault(why, margin)
         return None
 
-    def _edge_why(self, body: Box, margin: float | None = None, label: str = "body box") -> str | None:
-        """What the board's edge says of a box held `margin` (default the
-        keep-in) inside it, or None. `label` names the box in the sentence."""
+    def _edge_why(self, body: Box, margin: float | None = None, what: str = "body") -> Refusal | None:
+        """What the board's edge says of a box held `margin` (default the keep-in) inside it, or None. `what` names
+        the box: "body" (the courtyard and body) or "copper" (the pads and the copper it carries)."""
         margin = self.edge_margin if margin is None else margin
-        if self.board_shape is not None:
-            why = self.board_shape.why_not(body, margin)
-            return ("%s %s is %s" % (label, _fmt(body), _edge_named(why, margin))) if why else None
-        if self.board_box is not None:
-            inner = self.board_box.inflate(-margin)
-            if not inner.contains(body):
-                return "%s %s crosses the board edge%s" % (label, _fmt(body), _margin_of(margin))
-            if self.board_cutouts:
-                why = self.board_cutouts.why_not(body, margin)
-                if why:
-                    return "%s %s is %s" % (label, _fmt(body), _edge_named(why, margin))
-        return None
+        fault = self.board_why(body, margin)
+        if fault is None:
+            return None
+        return Refusal(Code.EDGE, what=what, box=[body.left, body.top, body.right, body.bottom],
+                       verdict=fault.verdict, margin_mm=margin)
 
     @property
     def flat_edge_margin(self) -> float:
@@ -1467,7 +1467,7 @@ class Occupancy:
         cannot see it), and no more than the keep-in."""
         return min(self.edge_margin, FLAT_EDGE_MARGIN)
 
-    def _item_edge_why(self, geom: ItemGeometry, placement: Placement) -> str | None:
+    def _item_edge_why(self, geom: ItemGeometry, placement: Placement) -> Refusal | None:
         """What the board's edge says of an item at a placement, by boxes.
         KiCad keeps copper `edge_margin` from the edge (copper_edge_clearance,
         drc_test_provider_edge_clearance.cpp) and has no such rule for a
@@ -1482,9 +1482,9 @@ class Occupancy:
             why = next((w for w in (self._edge_why(b, self.flat_edge_margin) for b in flat_parts) if w), None)
         if why or copper is None:
             return why
-        why = self._edge_why(copper, label=_COPPER_LABEL)
+        why = self._edge_why(copper, what="copper")
         if why and geom.parts:
-            why = next((w for w in (self._edge_why(b, label=_COPPER_LABEL) for b in copper_parts if b is not None)
+            why = next((w for w in (self._edge_why(b, what="copper") for b in copper_parts if b is not None)
                         if w), None)
         return why
 
@@ -1582,8 +1582,8 @@ class Occupancy:
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
               past_edge: bool = False, blame: list | None = None, by_corners: bool = False,
-              board: bool = True) -> str | None:
-        """None when `item` may sit at `placement`, else one sentence saying
+              board: bool = True) -> Refusal | None:
+        """None when `item` may sit at `placement`, else a Refusal saying
         what stops it. The first failure found is reported. `others` is a
         prefiltered obstacle list from `obstacles()`; without one every
         shape on the board is a candidate obstacle. `past_edge` allows a
@@ -1837,34 +1837,34 @@ class Occupancy:
         if s.kind == "yard" or o.kind == "yard":
             return "courtyard"
         if s.kind in _DRAWN or o.kind in _DRAWN:
-            return self.who(s.owner).split(" ")[0]
+            return first_word(self._w(s.owner))
         if s.kind in _HOLES and o.kind in _HOLES:
             return "hole-to-hole"
         if s.kind == "courtyard" or o.kind == "courtyard":
             return "courtyard"
         if (s.kind in _COPPERISH and o.kind in _COPPERISH) or "npth" in (s.kind, o.kind) or "hole" in (s.kind, o.kind):
             return "copper"
-        return self.who(s.owner).split(" ")[0]
+        return first_word(self._w(s.owner))
 
-    def _lead_sentence(self, court: Shape, lead: Shape) -> str:
-        return "%s courtyard sits over the through-hole lead of %s%s%s" % (
-            self.who(court.owner), self.who(lead.owner), " pad %s" % lead.label if lead.label else "",
-            "" if lead.net else " (a plated pad with no net: often a footprint defect)")
+    def _lead_refusal(self, court: Shape, lead: Shape) -> Refusal:
+        return Refusal(Code.LEAD_UNDER, court=self._w(court.owner), lead=self._w(lead.owner), pad=lead.label or "",
+                       netless=not lead.net)
 
-    def _hole_name(self, s: Shape, possessive: bool = False) -> str:
-        """A hole as a refusal names it: a part's, a cell's via, or a via.
-        `possessive` asks for the drill itself: "a via's hole"."""
+    def _hole_of(self, s: Shape) -> dict:
+        """A hole as a refusal names it: a part's, a cell's via, or a via."""
         if s.kind == "hole" and s.owner in self.geometry.cells:
-            name = "cell %s's via" % s.owner
-        elif s.owner.startswith("via at "):
-            name = "the via %s" % s.owner[len("via "):]
-        elif not s.owner:
-            name = "a via"
-        else:
-            return "%s's hole" % self.who(s.owner)
-        return name + "'s hole" if possessive else name
+            return {"form": "cell_via", "name": s.owner}
+        if s.owner.startswith("via at "):
+            return {"form": "via_at", "name": s.owner[len("via "):]}
+        if not s.owner:
+            return {"form": "via"}
+        return {"form": "part", "who": self._w(s.owner)}
 
-    def _drawn_conflict(self, s: Shape, o: Shape) -> str | None:
+    def _copper_of(self, o: Shape) -> dict:
+        """Copper as a refusal names it: by its net, else by its owner."""
+        return {"net": o.net, "who": self._w(o.owner)}
+
+    def _drawn_conflict(self, s: Shape, o: Shape) -> Refusal | None:
         """Silk, mask openings and bodies of two different parts, each gap
         the board's own: silk keeps the silk clearance from silk and from a
         mask opening, a body the component spacing from a body and from
@@ -1889,15 +1889,14 @@ class Occupancy:
             return None
         if gap <= 0.0:
             if polys_overlap(s.poly, o.poly):
-                return "%s %s overlaps %s %s" % (self.who(s.owner), _NAMES[s.kind], self.who(o.owner), _NAMES[o.kind])
+                return Refusal(Code.DRAWN_OVERLAP, a=self._w(s.owner), a_kind=s.kind, b=self._w(o.owner), b_kind=o.kind)
             return None
         if _box_gap(s.box, o.box) >= gap - 1e-9:
             return None
         d = poly_distance(s.poly, o.poly)
         if d < gap - 1e-9:
-            got, want = gap_texts(d, gap)
-            return "%s %s is %s mm from %s %s (needs %s)" % (
-                self.who(s.owner), _NAMES[s.kind], got, self.who(o.owner), _NAMES[o.kind], want)
+            return Refusal(Code.DRAWN_NEAR, a=self._w(s.owner), a_kind=s.kind, b=self._w(o.owner), b_kind=o.kind,
+                           gap_mm=d, need_mm=gap)
         return None
 
     def _origin_shapes(self, item, geom: ItemGeometry, placement: Placement) -> list:
@@ -2022,12 +2021,12 @@ class Occupancy:
         return self.geometry.default_clearance, None
 
     def _conflict(self, s: Shape, o: Shape, clearance: float | None, exact: bool = False,
-                  say: bool = True) -> str | None:
+                  say: bool = True) -> Refusal | None:
         """The DRC rules, in occupancy terms. A via under a body is legal to
         DRC and is only refused when `vias_block_courtyards` is set (a house
         rule for boards that pair through-feature cells with via-free parts).
         `say=False` answers a copper or hole conflict with its kind alone,
-        not the sentence: for a search that only asks whether."""
+        not the facts: a refusal with a code and nothing else, for a search that only asks whether."""
         ks, ko = s.kind, o.kind
         if ks == "viaban" or ko == "viaban":
             ban, other = (s, o) if ks == "viaban" else (o, s)
@@ -2036,13 +2035,12 @@ class Occupancy:
                     or not polys_overlap(ban.poly, other.poly):
                 return None
             c = other.box.center
-            return "%s forbids vias: the %s via at (%.2f, %.2f) is inside it" % (
-                ban.label or ban.owner, other.net or "unnetted", c.x, c.y)
+            return Refusal(Code.VIA_BAN, ban=ban.label or ban.owner, net=other.net, at=[c.x, c.y])
         if ks == "yard" or ko == "yard":
             yard, other = (s, o) if ks == "yard" else (o, s)
             if other.kind == "through" and other.owner != yard.owner and (other.owner, other.label) in self._leads \
                     and polys_overlap(yard.poly, other.poly):
-                return self._lead_sentence(yard, other)
+                return self._lead_refusal(yard, other)
             return None
         claim = s if (ks == "courtyard" and s.claims) else o if (ko == "courtyard" and o.claims) else None
         if claim is not None:
@@ -2051,8 +2049,8 @@ class Occupancy:
             if other.kind in ("body", "pad", "through"):
                 if other.owner != claim.owner and other.owner in self._body_refs \
                         and claim.faces & other.faces and polys_overlap(claim.poly, other.poly):
-                    return "%s %s sits in %s courtyard, which it claims as it draws nothing else" % (
-                        self.who(other.owner), _NAMES.get(other.kind, other.kind), self.who(claim.owner))
+                    return Refusal(Code.CLAIMED_COURTYARD, other=self._w(other.owner), other_kind=other.kind,
+                                   claim=self._w(claim.owner))
                 if other.kind != "through":
                     return None                 # a through pad clear of it still meets the lead and via rules
         if ks in _DRAWN or ko in _DRAWN:
@@ -2070,9 +2068,8 @@ class Occupancy:
             gap = math.dist(cs, co) - rs - ro
             if gap < need - 1e-9:
                 if not say:
-                    return "hole-to-hole"
-                got, want = gap_texts(gap, need)
-                return "%s %s mm from %s (hole-to-hole needs %s)" % (self._hole_name(s), got, self._hole_name(o), want)
+                    return Refusal(Code.HOLE_TO_HOLE)
+                return Refusal(Code.HOLE_TO_HOLE, a=self._hole_of(s), b=self._hole_of(o), gap_mm=gap, need_mm=need)
             return None
         if ks == "hole" or ko == "hole":
             hole, metal = (s, o) if ks == "hole" else (o, s)
@@ -2090,19 +2087,20 @@ class Occupancy:
             if depth <= allowed + 1e-9 and (s.box.width > 0 and o.box.width > 0):
                 return None
             if s.faces & o.faces and polys_overlap(s.poly, o.poly):
-                return "%s courtyard overlaps %s courtyard" % (self.who(s.owner), self.who(o.owner))
+                return Refusal(Code.COURTYARD_OVERLAP, a=self._w(s.owner), b=self._w(o.owner))
             return None
         if "courtyard" in (ks, ko):
             other = o if ks == "courtyard" else s
             court = s if ks == "courtyard" else o
             if other.kind == "through" and other.owner != court.owner and (other.owner, other.label) in self._leads:
                 if polys_overlap(court.poly, other.poly):
-                    return self._lead_sentence(court, other)
+                    return self._lead_refusal(court, other)
                 return None
             if other.kind == "npth" or (other.kind == "through" and self.vias_block_courtyards
                                         and (other.owner not in self.items or other.owner not in self._body_refs)):
                 if polys_overlap(court.poly, other.poly):
-                    return "%s courtyard sits over a %s (%s)" % (self.who(court.owner), other.kind, self.who(other.owner) if other.owner else "via")
+                    return Refusal(Code.COURTYARD_OVER, court=self._w(court.owner), hole_kind=other.kind,
+                                   owner=self._w(other.owner) if other.owner else None)
             return None
         if ks in ("pad", "through", "copper") and ko in ("pad", "through", "copper"):
             common = s.layers & o.layers
@@ -2112,7 +2110,6 @@ class Occupancy:
                 return None
             clr, rule = (clearance, None) if clearance is not None else self.pair_clearance(
                 s.net, o.net, s.owner, o.owner, s.wire, o.wire)
-            rule_note = ", rule: %s" % rule.why if rule is not None else ""
             # Two boxes this far apart hold two polygons at least as far
             # apart, so the walk round both outlines is only worth its cost
             # when the boxes themselves are close enough to fail.
@@ -2124,35 +2121,34 @@ class Occupancy:
             if gap < clr - 1e-9 and self._net_tie_exclusion(s, o, clr):
                 return None
             if gap < clr - 1e-9 and not say:
-                return "copper"
+                return Refusal(Code.COPPER_NEAR)
             if gap < clr - 1e-9:
-                got, want = gap_texts(gap, clr)
-                need = want + rule_note
+                facts = {"net": s.net, "other": self._copper_of(o), "layers": self._layers_of(common), "gap_mm": gap,
+                         "need_mm": clr}
+                if rule is not None:
+                    facts["rule"] = rule.why
                 if s.kind == "through" and not self.geometry.has_footprint(s.owner):
                     c = s.box.center            # a via: the script's, planned, or one a part carries at its pad
-                    return "via %s at (%.2f, %.2f)%s is %s mm from %s copper on %s (needs %s)" % (
-                        s.net or "-", c.x, c.y, " (%s)" % s.owner[len("via "):] if s.owner.startswith("via at ") else "",
-                        got, o.net or self.who(o.owner), self._layers_text(common), need)
-                if s.kind == "copper" and s.ends:      # a declared track: name the segment, not its owner
-                    who = "%s %s (%.2f, %.2f)-(%.2f, %.2f)" % (
-                        "arc track" if s.arc else "track", s.net or "-", s.ends[0][0], s.ends[0][1], s.ends[1][0], s.ends[1][1])
+                    facts.update(form="via", at=[c.x, c.y])
+                    if s.owner.startswith("via at "):
+                        facts["via_at"] = s.owner[len("via "):]
+                elif s.kind == "copper" and s.ends:      # a declared track: name the segment, not its owner
+                    facts.update(form="track", ends=[list(s.ends[0]), list(s.ends[1])], arc=bool(s.arc))
                 else:
-                    what = "pad" if s.kind in ("pad", "through") else "copper"
-                    who = "%s %s %s" % (self.who(s.owner), what, s.net or "-")
-                return "%s is %s mm from %s copper on %s (needs %s)" % (
-                    who, got, o.net or self.who(o.owner), self._layers_text(common), need)
+                    facts.update(form="part", what="pad" if s.kind in ("pad", "through") else "copper",
+                                 who=self._w(s.owner))
+                return Refusal(Code.COPPER_NEAR, **facts)
             return None
         if (ks == "npth" and ko in _COPPERISH) or (ko == "npth" and ks in _COPPERISH):
             hole, metal = (s, o) if ks == "npth" else (o, s)
             if polys_overlap(hole.poly, metal.poly):
-                return "%s hole cuts %s copper" % (self.who(hole.owner), metal.net or self.who(metal.owner))
+                return Refusal(Code.NPTH_CUTS, hole=self._w(hole.owner), metal=self._copper_of(metal))
             need = self.geometry.hole_clearance
             if need > 0 and _box_gap(hole.box, metal.box) < need + _HOLE_SLACK * hole.box.width - 1e-9:
                 gap = _circle_distance(hole, metal.poly)
                 if gap < need - 1e-9:
-                    got, want = gap_texts(gap, need)
-                    return "%s copper %s mm from %s's unplated hole (needs %s)" % (
-                        metal.net or self.who(metal.owner), got, self.who(hole.owner), want)
+                    return Refusal(Code.NPTH_NEAR, metal=self._copper_of(metal), hole=self._w(hole.owner), gap_mm=gap,
+                                   need_mm=need)
         return None
 
     def vias_matter(self, item) -> bool:
@@ -2177,7 +2173,7 @@ class Occupancy:
             hit = cache[id(geom)] = (geom, matters)       # the geometry is held so its id cannot be reused
         return hit[1]
 
-    def _hole_conflict(self, hole: Shape, metal: Shape, say: bool = True) -> str | None:
+    def _hole_conflict(self, hole: Shape, metal: Shape, say: bool = True) -> Refusal | None:
         """A plated hole against copper of another net: the board's hole
         clearance from the drill's edge to the copper, netless copper (a net
         tie's bar) included. DRC_TEST_PROVIDER_COPPER_CLEARANCE::
@@ -2201,10 +2197,8 @@ class Occupancy:
         if gap >= need - 1e-9 or self._hole_tie_exclusion(hole, metal):
             return None
         if not say:
-            return "copper"
-        got, want = gap_texts(gap, need)
-        return "%s copper %s mm from %s (needs %s)" % (
-            metal.net or self.who(metal.owner), got, self._hole_name(hole, True), want)
+            return Refusal(Code.HOLE_COPPER)
+        return Refusal(Code.HOLE_COPPER, metal=self._copper_of(metal), hole=self._hole_of(hole), gap_mm=gap, need_mm=need)
 
     def _hole_tie_exclusion(self, hole: Shape, metal: Shape) -> bool:
         """DRC_ENGINE::IsNetTieExclusion for a hole: the hole's net is not
@@ -2219,12 +2213,11 @@ class Occupancy:
         return any(point_in_polygon(at, poly) or _point_poly_distance(at, poly) <= _NET_TIE_EPSILON
                    for polys, _ in self._tie_pads(stand, metal) for poly in polys)
 
-    def _layers_text(self, layers) -> str:
-        """The layers two pieces of copper share, as the board has them, in
-        stackup order: a via is copper on every layer placemat knows, and a
-        board has only its own."""
+    def _layers_of(self, layers) -> list:
+        """The layers two pieces of copper share, as the board has them, in stackup order: a via is copper on every layer
+        placemat knows, and a board has only its own."""
         own = [l for l in self.geometry.layers if l in layers]
-        return "/".join(l.value for l in (own or sorted(layers, key=lambda l: l.value)))
+        return [l.value for l in (own or sorted(layers, key=lambda l: l.value))]
 
     def _read_of(self, sh, poly):
         """(move, shapes) for a pad or a footprint's copper graphic `sh`
@@ -2570,60 +2563,26 @@ def _box_gap(a: Box, b: Box) -> float:
     return dx if dy == 0.0 else (dy if dx == 0.0 else math.hypot(dx, dy))
 
 
-def _fmt(b: Box) -> str:
-    return "%.2f,%.2f..%.2f,%.2f" % (b.left, b.top, b.right, b.bottom)
-
-
-# The edge refusals, by the code the native keep-in gives them
-# (native/src/board.rs): what `_edge_or_reservation_conflict` says.
-_EDGE_WHY = {1: "outside the board", 2: "inside a cutout", 3: "past the board's keep-in (%.2f mm)",
-             4: "past the cutout's keep-in (%.2f mm)", 5: "past the rim's keep-in (%.2f mm)",
-             6: "into the bore's keep-in (%.2f mm)"}
-
-
-FLAT_EDGE_MARGIN = 2e-5
-"""How far inside the edge a courtyard or body is held, mm (native/src/board.rs
-`FLAT_EDGE_MARGIN`): twice the nanometre a placement is rounded to, which is
-the least a box test sees a box crossing a cutout or an outline's side by."""
 COPPER_EDGE = 16
-"""Added to a native edge code that refuses an item's copper (judged at the
-keep-in) rather than its courtyard and body (judged against the edge itself)."""
-_COPPER_LABEL = "copper to edge: box"
-
-
-def _is_flat(margin: float) -> bool:
-    """Whether a margin is the one a courtyard or body is held at: the edge itself."""
-    return margin <= FLAT_EDGE_MARGIN
-
-
-def _margin_of(margin: float) -> str:
-    return "" if _is_flat(margin) else " margin (%.2f mm)" % margin
-
-
-def _edge_named(why: str, margin: float) -> str:
-    """A refusal sentence from a box test, saying "edge" where the margin is the edge itself rather
-    than a keep-in: "past the board's keep-in (0.00 mm)" is "past the board edge"."""
-    if not _is_flat(margin):
-        return why
-    return re.sub(r"'s keep-in \(\d+\.\d+ mm\)", " edge", why)
+"""Added to a native edge code that refuses an item's copper (judged at the keep-in) rather than its courtyard and body
+(judged against the edge itself)."""
 
 
 def _ltrb(b: Box) -> tuple:
     return (b.left, b.top, b.right, b.bottom)
 
 
-def edge_sentence(code: int, body: Box, margin: float) -> str:
-    """The sentence `_item_edge_why` gives for a native edge code: `margin`
-    is the keep-in, which a copper code is judged at and any other code is not."""
-    label = _COPPER_LABEL if code >= COPPER_EDGE else "body box"
+def edge_refusal(code: int, body: Box, margin: float) -> Refusal:
+    """The refusal `_item_edge_why` gives for a native edge code: `margin` is the keep-in, which a copper code is judged
+    at and any other code is not."""
+    what = "body"
     if code >= COPPER_EDGE:
         code -= COPPER_EDGE
+        what = "copper"
     else:
         margin = min(margin, FLAT_EDGE_MARGIN)
-    if code == 7:
-        return "%s %s crosses the board edge%s" % (label, _fmt(body), _margin_of(margin))
-    why = _EDGE_WHY[code]
-    return "%s %s is %s" % (label, _fmt(body), _edge_named(why % margin if "%" in why else why, margin))
+    return Refusal(Code.EDGE, what=what, box=[body.left, body.top, body.right, body.bottom],
+                   verdict=EDGE_OF_NATIVE[code], margin_mm=margin)
 
 
 class NativeSweeper:
@@ -2765,14 +2724,13 @@ class NativeSweeper:
             key = ("edge", a)
             hit = self._decoded.get(key)
             if hit is None:
-                why = edge_sentence(a, box(), occ.edge_margin)
-                hit = (_reason_key(why), ("edge", "", ""))
+                hit = (edge_refusal(a, box(), occ.edge_margin).bucket, ("edge", "", ""))
                 self._decoded[key] = hit
-            return hit[0], hit[1], (lambda: edge_sentence(a, box(), occ.edge_margin))
+            return hit[0], hit[1], (lambda: edge_refusal(a, box(), occ.edge_margin))
         if kind == 1:
             r = occ.reservations[a]
             why, owner = occ.reservation_hit(r, self.geom, b - 1 if b else None)
-            return _reason_key(why), ("reservation", owner, ""), (lambda why=why: why)
+            return "reservation", ("reservation", owner, ""), (lambda why=why: why)
         turn_of, si = a >> 32, a & 0xffffffff
         s, o = self.origin[turn_of][si], self.shapes[b]
         # The bucket and blocker are decided from `s.kind`/`s.owner` alone
@@ -2852,14 +2810,6 @@ VIA_BUCKET = "via cannot give way"
 """The bucket a refusal caused by a carried via that could not give way counts under."""
 
 
-def _reason_key(why: str) -> str:
-    """Which bucket a refusal sentence counts under, for a scan's `rejected`
-    Counter and `reasons` dict (moved here from placer.py, which still
-    re-exports it, so legal_bucket's native path can derive the same key
-    without formatting the sentence first - see legal_bucket's own doc)."""
-    if "cannot give way" in why:
-        return VIA_BUCKET
-    for word in ("courtyard", "edge", "reservation", "copper", "through", "npth", "hole-to-hole"):
-        if word in why:
-            return word
-    return why.split(" ")[0]
+def _reason_key(why: Refusal) -> str:
+    """Which bucket a refusal counts under, for a scan's `rejected` Counter and `reasons` dict."""
+    return why.bucket

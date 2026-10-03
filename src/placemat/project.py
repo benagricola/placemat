@@ -204,7 +204,7 @@ def fab_min_findings(netclasses: dict, fab: FabProfile) -> list:
     width, clearance, via diameter, via drill or annular ring (diameter
     less drill, halved) below fab-profile.json's `min`. Each class checked
     once, by name, not once per net on it."""
-    from .findings import Finding
+    from .findings import Finding, FindingCause as C
     mn = fab.min
     if not mn:
         return []
@@ -220,8 +220,8 @@ def fab_min_findings(netclasses: dict, fab: FabProfile) -> list:
         for key, value, label in checks:
             floor = mn.get(key)
             if floor is not None and value < floor - 1e-9:
-                out.append(Finding("fab", "net class %s: %s %.3g mm is below the fab's minimum %.3g mm "
-                                   "(fab-profile.json min.%s)" % (nc.name, label, value, floor, key)))
+                out.append(Finding(C.FAB_MINIMUM, {"net_class": nc.name, "what": label, "value_mm": value,
+                                                   "minimum_mm": floor, "key": key}))
     return out
 
 

@@ -294,7 +294,7 @@ def test_a_satellite_with_no_spot_says_which_pad_it_was_aimed_at():
     occ.commit(b.geometry.footprint("wall"), Placement(Location(36.2, 30), 0.0, b.geometry.footprint("wall").face))
     members, why = layout_block(occ, spec, Placement(Location(30, 30), 0.0, b.geometry.footprint("ldo").face))
     assert members is None
-    assert "U1 pad 2 (GND" in why
+    assert "U1 pad 2 (GND" in str(why)
 
 
 def test_a_second_satellite_aimed_at_a_taken_pad_is_refused_and_told_why():
@@ -309,7 +309,7 @@ def test_a_second_satellite_aimed_at_a_taken_pad_is_refused_and_told_why():
     occ = Occupancy(b.geometry, 1.0)
     members, why = layout_block(occ, spec, Placement(Location(30, 40), 0.0, b.geometry.footprint("ldo").face))
     assert members is None
-    assert "cb: no legal spot on the axis of U1 pad 1 (VIN" in why and "ca already sits there" in why
+    assert "cb: no legal spot on the axis of U1 pad 1 (VIN" in str(why) and "ca already sits there" in str(why)
 
 
 def _quad(ref, inst, cx, cy, nets, per_side=8, pitch=0.5, body=5.0):

@@ -1,6 +1,7 @@
 from placemat.occupancy import Occupancy
 from placemat.placer import edge_placement, scan
 from placemat.placement import Placement
+from placemat.refusals import Code, Refusal
 from placemat.values import Box, Edge, Face, Location
 from tests.fixtures import board_geometry, footprint
 
@@ -114,7 +115,7 @@ def test_a_failed_scan_tallies_who_blocked_it():
     result = scan(occ, g.footprint("SMALL"),
                   Placement(Location(20.0, 20.0), 0.0, Face.FRONT), radius=1.0, step=0.5)
     assert result.chosen is None
-    assert any(owner == "BIG" for (_, owner, _) in result.blockers)
+    assert any(str(owner) == "BIG" for (_, owner, _) in result.blockers)
 
 
 def test_a_scored_scan_refines_round_the_best_coarse_spots_whether_or_not_the_item_s_riders_take_them():
@@ -132,6 +133,6 @@ def test_a_scored_scan_refines_round_the_best_coarse_spots_whether_or_not_the_it
         return abs(gx - round(gx)) < 1e-6 and abs(gy - round(gy)) < 1e-6
 
     def accept(p):
-        return "a rider does not fit" if on_coarse_lattice(p) and p.location.distance(target) < 1.2 else None
+        return Refusal(Code.LOOKAHEAD_SPOT) if on_coarse_lattice(p) and p.location.distance(target) < 1.2 else None
     result = scan(occ, r2, hint=hint, radius=3.0, step=0.2, score=score, accept=accept)
     assert result.chosen is not None and result.chosen.location.distance(target) < 0.15

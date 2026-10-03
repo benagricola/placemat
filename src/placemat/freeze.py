@@ -1,12 +1,14 @@
 """freeze: lock entries moved into the script. An item's place() call gets
-the arguments that put it where the lock does; the edit is made by the
-positions `ast` gives the call and its arguments, so every other byte of
-the script - comments, blank lines, the layout of other calls - is left as
-it was, and the result is accepted only when the edited script resolves to
-the locked placements."""
+the arguments that put it where the lock does; the edit is made by script_edit's
+splicing editor (the positions `ast` gives the call and its arguments), so every
+other byte of the script - comments, blank lines, the layout of other calls - is
+left as it was, and the result is accepted only when the edited script resolves
+to the locked placements."""
 from __future__ import annotations
 
 import ast
+
+from .script_edit import EditRefused, Src, edit_keywords
 
 
 class FreezeError(Exception):
@@ -15,20 +17,6 @@ class FreezeError(Exception):
 
 _ENCLOSING = (ast.For, ast.AsyncFor, ast.While, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda,
               ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
-
-
-def _offsets(source: str):
-    """(line, UTF-8 byte column) -> character offset into `source`."""
-    lines = source.splitlines(keepends=True)
-    starts, total = [], 0
-    for line in lines:
-        starts.append(total)
-        total += len(line)
-
-    def at(lineno: int, col: int) -> int:
-        text = lines[lineno - 1]
-        return starts[lineno - 1] + len(text.encode()[:col].decode(errors="replace"))
-    return at, lines
 
 
 def _parents(tree):
@@ -66,47 +54,10 @@ def edit_call(source: str, line: int, set_kwargs: dict, remove=()) -> str:
                               "item's declaration out of it by hand" % (line, type(node).__name__.lower()))
     if any(isinstance(a, ast.Starred) for a in call.args) or any(k.arg is None for k in call.keywords):
         raise FreezeError("line %d: the call passes * or ** arguments, which freeze cannot see into" % line)
-    at, lines = _offsets(source)
-
-    def span(n):
-        return at(n.lineno, n.col_offset), at(n.end_lineno, n.end_col_offset)
-    edits = []
-    everything = sorted(list(call.args) + list(call.keywords), key=lambda n: (n.lineno, n.col_offset))
-    present = {k.arg for k in call.keywords}
-    for k in call.keywords:
-        if k.arg in set_kwargs:
-            s, e = span(k.value)
-            edits.append((s, e, set_kwargs[k.arg]))
-        elif k.arg in remove:
-            i = everything.index(k)
-            if i + 1 < len(everything):
-                s, e = span(k)[0], span(everything[i + 1])[0]
-            elif i > 0:
-                s, e = span(everything[i - 1])[1], span(k)[1]
-            else:
-                s, e = span(k)
-            edits.append((s, e, ""))
-    missing = [(name, text) for name, text in set_kwargs.items() if name not in present]
-    if missing:
-        kept = [n for n in everything if not (isinstance(n, ast.keyword) and n.arg in remove)]
-        if kept:
-            last = kept[-1]
-            end = span(last)[1]
-            if last.lineno != call.lineno or last.end_lineno != call.lineno:
-                row = lines[last.lineno - 1]
-                indent = row[:len(row) - len(row.lstrip())]
-                text = "".join(",\n%s%s=%s" % (indent, name, value) for name, value in missing)
-            else:
-                text = "".join(", %s=%s" % (name, value) for name, value in missing)
-        else:
-            end = at(call.func.end_lineno, call.func.end_col_offset) + 1        # just inside the "("
-            text = ", ".join("%s=%s" % (name, value) for name, value in missing)
-        edits.append((end, end, text))
-    out = source
-    for s, e, text in sorted(edits, key=lambda x: x[0], reverse=True):
-        out = out[:s] + text + out[e:]
-    ast.parse(out)
-    return out
+    try:
+        return edit_keywords(source, line, "place", set_kwargs, remove)
+    except EditRefused as err:
+        raise FreezeError("line %d: %s" % (line, err.reason))
 
 
 def ensure_imports(source: str, names) -> str:
@@ -120,14 +71,14 @@ def ensure_imports(source: str, names) -> str:
     missing = [n for n in names if n not in have]
     if not missing:
         return source
-    at, lines = _offsets(source)
+    src = Src(source)
     if froms:
         last = froms[0].names[-1]
-        end = at(last.end_lineno, last.end_col_offset)
+        end = src.off(last.end_lineno, last.end_col_offset)
         return source[:end] + "".join(", " + n for n in missing) + source[end:]
     after = top[-1].end_lineno if top else (tree.body[0].end_lineno if tree.body and isinstance(tree.body[0], ast.Expr)
                                               and isinstance(tree.body[0].value, ast.Constant) else 0)
-    pos = sum(len(l) for l in lines[:after])
+    pos = src.starts[after] if after < len(src.starts) else len(source)
     return source[:pos] + "from placemat import %s\n" % ", ".join(missing) + source[pos:]
 
 

@@ -12,7 +12,8 @@ import re
 
 from .board_geometry import members_of, stackup_order
 from .copper import Pour, Text, Track, Via, Zone, arc_circle
-from .preview import HEAT_MIN, _AT, _board_loops, _drawn_at, _extent, _face_of, _placed
+from . import finding_text
+from .preview import HEAT_MIN, _board_loops, _drawn_at, _extent, _face_of, _placed
 
 VERSION = 1
 DIGITS = 3              # decimals kept: a micrometre, below any placement or copper tolerance
@@ -93,7 +94,8 @@ def item_json(plan, step, sites: dict | None = None) -> dict:
         "freedom": step.freedom.value if step.freedom is not None else None,
         "priority": step.priority.value if step.priority is not None else None,
         "how": _how(plan, step), "note": step.note, "why": step.why,
-        "findings": [str(f) for f in plan.findings if str(f).split(" ", 1)[0] == step.item],
+        "rank": step.rank, "rank_of": step.rank_of, "pocket": step.pocket, "lock": step.lock,
+        "findings": [str(f) for f in plan.findings if finding_text.subject(f.cause, f.facts) == step.item],
         "file": file, "line": line, "moved_mm": _r(step.moved_mm),
     }
 
@@ -180,39 +182,44 @@ def _congestion(plan) -> dict | None:
             "worst_at": _pt(r.worst_at), "cells": cells}
 
 
-_PIN_LIST = re.compile(r"(?:\.(?P<dot>[A-Za-z0-9_']+)|\s+(?:pins?|pads?)\s+(?P<list>[A-Za-z0-9_']+(?:\s*[/,]\s*[A-Za-z0-9_']+)*))")
-
-
-def finding_targets(text: str, refs) -> tuple:
-    """The parts and pads a finding's sentence names: ([ref, ...], [[ref, pad], ...]),
-    in the order named. A ref is one the plan placed; a pad follows it as `REF.PAD`
-    or `REF pin 4/5`, `REF pads 1, 2`."""
-    known = sorted(refs, key=len, reverse=True)
-    if not known:
-        return [], []
-    rx = re.compile(r"(?<![\w.!'])(" + "|".join(re.escape(r) for r in known) + r")(?![\w!])")
-    out_refs, out_pads = [], []
-    for m in rx.finditer(text):
-        ref = m.group(1)
-        if ref not in out_refs:
-            out_refs.append(ref)
-        pm = _PIN_LIST.match(text, m.end())
-        if pm:
-            for pad in ([pm.group("dot")] if pm.group("dot") else re.split(r"\s*[/,]\s*", pm.group("list"))):
-                if [ref, pad] not in out_pads:
-                    out_pads.append([ref, pad])
-    return out_refs, out_pads
+def _with_texts(facts):
+    """A finding's facts with each refusal and each owner of a refusal also in the words the console uses for it ("text"), so the page
+    shows them as written and parses nothing: a refusal is {"code", ...}, an owner is under "owner" in a blame."""
+    from .refusals import Owner, Refusal
+    if isinstance(facts, dict):
+        out = {k: _with_texts(v) for k, v in facts.items()}
+        if "code" in facts and isinstance(facts["code"], str):
+            try:
+                out["text"] = str(Refusal.from_json(facts))
+            except (KeyError, ValueError, TypeError):
+                pass
+        if isinstance(facts.get("where"), dict) and "form" in facts["where"]:        # where a one-freedom item slides
+            out["where"] = dict(out["where"], text=finding_text.where_text(facts["where"]))
+        if isinstance(facts.get("turns"), list):                                       # a refusal at each rotation tried
+            out["turns_text"] = finding_text.turns_text(facts["turns"])
+        if isinstance(facts.get("room_lost"), dict) and facts["room_lost"]:
+            out["room_lost"] = dict(out["room_lost"], text=finding_text.room_lost_text(facts["room_lost"]).lstrip("; "))
+        if isinstance(facts.get("owner"), dict) and "form" in facts["owner"]:
+            try:
+                out["owner"] = dict(out["owner"], text=str(Owner.from_json(facts["owner"])))
+            except (KeyError, ValueError, TypeError):
+                pass
+        return out
+    if isinstance(facts, (list, tuple)):
+        return [_with_texts(v) for v in facts]
+    return facts
 
 
 def _findings(plan, keys) -> list:
     out, refs = [], set(plan.occupancy.items)
     for f in plan.findings:
         text = str(f)
-        m = _AT.search(text)
-        first = text.split(" ", 1)[0]
-        named, pads = finding_targets(text, refs)
-        out.append({"text": text, "kind": getattr(f, "kind", ""), "severity": getattr(f, "severity", "warning"), "at": [float(m.group(1)), float(m.group(2))] if m else None,
-                    "item": first if first in keys else "", "refs": named, "pads": pads})
+        where = finding_text.locate(f.cause, f.facts, refs)
+        first = finding_text.subject(f.cause, f.facts)
+        out.append({"text": text, "kind": f.kind.value, "severity": f.severity, "at": where["at"],
+                    "item": first if first in keys else "", "refs": where["refs"], "pads": where["pads"],
+                    "cause": f.cause.value if f.cause else None, "facts_v": f.facts_v, "facts": _with_texts(f.facts),
+                    "suggestions": [s.to_json() for s in getattr(f, "suggestions", ()) if s.id]})
     return out
 
 
@@ -255,7 +262,7 @@ def board_json(plan) -> dict:
     reservations = []
     for r in plan.occupancy.reservations:
         face = _face_of(r.layer) if r.layer is not None else None
-        reservations.append({"poly": _poly(r.poly), "why": r.why, "face": face.value if face is not None else None,
+        reservations.append({"poly": _poly(r.poly), "why": str(r.why), "face": face.value if face is not None else None,
                              "source": r.source, "allow": sorted(r.allow), "rule_area": bool(r.courtyard)})
     ext = _extent(plan)
     return {"board": {"loops": [_poly(l) for l in _board_loops(plan)], "drawn": bool(plan.draw_outline),
@@ -283,8 +290,8 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dic
     for n, s in enumerate(plan.steps):
         steps.append({"i": n, "item": s.item, "kind": s.kind, "placed": s.placement is not None, "note": s.note,
                       "why": s.why, "freedom": s.freedom.value if s.freedom is not None else None,
-                      "rank": s.rank, "copper": [at[i] for i in s.laid if i in at], "loop": _cutout_loop(plan, s, loops)})
-    unplaced = [{"item": s.item, "why": s.note.split("UNPLACED", 1)[-1].lstrip(": ") if "UNPLACED" in s.note else s.note}
+                      "rank": s.rank, "rank_of": s.rank_of, "pocket": s.pocket, "lock": s.lock, "copper": [at[i] for i in s.laid if i in at], "loop": _cutout_loop(plan, s, loops)})
+    unplaced = [{"item": s.item, "why": s.unplaced if s.unplaced is not None else s.note}
                 for s in plan.steps if s.placement is None and s.kind in ("part", "cell", "block")]
     return {
         "version": VERSION, **board_json(plan),

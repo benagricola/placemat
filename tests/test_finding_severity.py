@@ -5,6 +5,8 @@ import pickle
 
 import pytest
 
+from tests.finding_samples import finding
+from placemat.findings import FindingCause as C
 from placemat.findings import DEFAULT_SEVERITY, KINDS, SEVERITIES, SEVERITY, Finding, Findings, summary
 from placemat.layout import Board
 from placemat.report import RunRecord
@@ -24,27 +26,25 @@ def test_every_kind_has_a_severity():
 
 
 def test_a_finding_has_its_kinds_severity_unless_it_says_its_own():
-    assert Finding("unplaced", "x").severity == "critical"
-    assert Finding("vias", "x").severity == "notice"
-    assert Finding("vias", "x", "warning").severity == "warning"
+    assert finding(C.UNPLACED_RIDES).severity == "critical"
+    assert finding(C.VIAS_GAVE_WAY).severity == "notice"
+    assert finding(C.VIAS_GAVE_WAY, "warning").severity == "warning"
     with pytest.raises(ValueError):
-        Finding("vias", "x", "fatal")
+        finding(C.VIAS_GAVE_WAY, "fatal")
 
 
 def test_a_finding_keeps_its_severity_through_a_pickle_and_the_reuse_cache():
-    f = Finding("setup", "x", "notice")
+    f = finding(C.SETUP_UNDECLARED, "notice")
     assert pickle.loads(pickle.dumps(f)).severity == "notice"
     assert finding_from_json(finding_to_json(f)).severity == "notice"
-    assert finding_from_json(["vias", "an older cache entry"]).severity == "notice"      # the kind's own
-    assert finding_from_json("a bare sentence").kind == "setup"
 
 
 def test_findings_count_by_severity_and_list_the_most_serious_first():
-    fs = Findings([Finding("vias", "a"), Finding("unplaced", "b"), Finding("link_over", "c"), Finding("vias", "d")])
+    fs = Findings([finding(C.VIAS_GAVE_WAY), finding(C.UNPLACED_RIDES), finding(C.LINK_OVER), finding(C.VIAS_GAVE_WAY)])
     assert fs.by_severity() == {"critical": 1, "warning": 1, "notice": 2}
-    assert [str(f) for f in fs.most_serious_first()] == ["b", "c", "a", "d"]
+    assert [f.cause for f in fs.most_serious_first()] == [C.UNPLACED_RIDES, C.LINK_OVER, C.VIAS_GAVE_WAY, C.VIAS_GAVE_WAY]
     assert summary(fs) == "1 critical, 1 warning, 2 notice" and summary([]) == ""
-    assert Finding("copper", "x").line() == "[critical] x"
+    assert finding(C.COPPER_STITCH).line() == "[critical] %s" % finding(C.COPPER_STITCH)
 
 
 def test_a_given_way_via_shared_or_moved_is_a_notice():
@@ -79,7 +79,7 @@ def test_a_part_with_no_room_is_critical_and_a_link_over_its_limit_a_warning():
     b.place(Part("r1"), at=Location(50, 20))
     plan = b.resolve()
     assert {f.severity for f in plan.findings if f.kind == "unplaced"} == {"critical"}
-    assert Finding("link_over", "x").severity == "warning"
+    assert finding(C.LINK_OVER).severity == "warning"
 
 
 def test_an_undeclared_part_is_a_warning_and_a_layer_the_board_lacks_a_notice():
@@ -131,7 +131,7 @@ def test_a_run_and_a_preview_print_the_severity(capsys):
     from placemat.console import Console
     import io
     out = io.StringIO()
-    Console(stream=out).finding(Finding("escape_walled", "U1 pin 8 (GND): walled off by R4, U1"))
+    Console(stream=out).finding(finding(C.ESCAPE_WALLED))
     assert "[critical] U1 pin 8 (GND): walled off by R4, U1" in out.getvalue()
 
 

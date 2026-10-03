@@ -17,6 +17,21 @@ section for each hand-written pattern a newer form replaces.
 
 ## To 0.91.1
 
+### New
+
+- **Suggestions can edit inside a call and in several places at once.** An edit may go into an argument that is a call (a
+  `Beside`'s `gap=` or side, a `Past`'s `across=`, a `Cutout`'s `at=`, one axis of an intent `Centre`) and a suggestion
+  carries `edits`, a list made together or not at all, with one applied-log entry and one undo; its `how` says how it was
+  found. `run.json`'s and `preview --json`'s suggestions have `edits` and `how` where they had `edit`; a record that has
+  `edit` still reads. The outline (`rect`, `disc`, `outline`), a `row` and a `block` are declarations a suggestion can edit.
+- **The editing engine has the operations a board builder needs.** `apply_edits` (the body of `apply_suggestion`, for
+  edits that come from a person), `redo_last`, and the ops `create_file`, `ensure_import`, `remove_constant`,
+  `move_statement`, `confirm_facts` and region inserts; `script_edit.read_intent` and `script_edit.skeleton`;
+  `facts.confirmed_text`. An applied-log entry may have `before: null` (a created file) and a `source`.
+- **`Centre(..., coordinates=True)` marks a coordinate.** `coordinates=False` is the default and is never written. A number on
+  a `Centre` axis without the flag is still accepted in this release and gives a `setup` warning
+  (`setup.centre_coordinates`); the next release refuses it. Writing `coordinates=False` is a `setup` notice.
+
 ### Fixed
 
 - **A pin whose copper ends against another part is reported walled off.** A pad that copper of its own net left counted as
@@ -60,6 +75,11 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- **The studio page reads findings' facts, not their sentences.** An unplaced item's card, row and finding show why, the radius searched,
+  what refused it (a count per kind and the parts that did most of it) from the finding's `cause` and `facts`; a step's rank and the pocket
+  it took come as data (`rank`, `rank_of`, `pocket`, `lock` on steps and items); the engine's own words for a refusal, an owner, a slide or
+  a turn come with the facts as `text`. What a step's note alone says (seeds, slides, vias, pushes, the rank's measures) is still read from
+  the note until the engine records it as data.
 - **Studio board drawing.** A finding is a badge on a stem at one screen size (a triangle with ! for critical and warning, a circle with i
   for notice) with a white halo, a dark rim and a slow pulse, larger when it is the one looked at; tapping it opens the finding.
   Vias are drawn above the parts with their drill cut through (they were hidden under pads, and ringed white at high zoom), a
@@ -155,6 +175,26 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- **Findings carry suggestions: changes to the layout script that may clear them.** `run` and `preview` print the
+  best one under each critical or warning finding (`try s3a: Place c4 beside c1, on its north side`) and the ids of
+  the others; `run.json`'s `finding_details[i]` and `preview --json` give each finding its `cause`, its `facts` and its `suggestions`
+  (`id`, `text`, `rank`, `lever`, the `edit` as data, and the `digests` of the files it writes). Every suggestion is a
+  relation, a keyword or a setting, never a coordinate; a number it writes is a named constant with a comment. A
+  record without the fields reads as none. `api.md`, "Findings and severities", has the shape and the causes.
+- **A finding is data and its sentence is rendered from it.** A finding has a `kind`, a `cause`, the `facts` its site
+  measured and `facts_v`, the version of that cause's facts; `run.json`'s `finding_details[i]` and `preview --json` carry
+  all of them beside the `text`, which reads the same as before. The reuse record stores findings as facts and is under
+  a digest of every cause's facts version, so a release that changes a cause's facts replays nothing. A refusal (why a
+  spot was refused) is data too: `refusals.Refusal`, with a code and facts. Suggestions that multiplied a limit by a
+  factor (a wider search radius, `place.via_move`, a finer step) are gone with `[studio] suggest_factor`: a number a
+  suggestion writes is a figure the finding measured.
+- **`placemat apply <id> [--script PATH] [--dry-run] [--undo]`** makes a suggestion's edit: `--dry-run` prints the
+  diff and writes nothing; otherwise the file is written atomically and logged in `.placemat/applied.jsonl`, and
+  `--undo` puts back the last apply that has not been undone, if the files are still as it left them. It refuses,
+  and writes nothing, when the script changed since the run or preview that made the suggestion. `run` and `preview`
+  keep the plan's suggestions in `.placemat/suggestions.json` for it.
+- Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), and `apply` (true),
+  none part of a run's id. Scripts change nothing.
 - **A stopped command says so and keeps its work.** `placemat run`, `preview` and `route` handle SIGTERM, SIGHUP and
   Ctrl-C: the explore workers are ended, the layout folder is put back as the last run left it, `run.json` is saved
   with `status: "stopped"` and `failure: {kind: "stopped", signal, stage, elapsed_s, explore}`, a last line names the
@@ -221,6 +261,17 @@ section for each hand-written pattern a newer form replaces.
   as lost with its last state. An explore is shown with a plot of score against time and the best so far, the latest
   variant (at most `[studio] explore_fps` times a second, default 2) and the best drawn over the plain placement,
   thumbnails, a step through the variants by order or score, and where each item landed across them.
+- **The studio redoes an undone apply, and Show lists every file a suggestion edits.** `POST /suggest/redo` (token-guarded, allowed over
+  `--host`, refused with `[studio] apply = false`) makes again the apply the last undo took back; the page offers Redo beside Undo. A
+  suggestion with several edits shows its diff across all its files, each under its name. The page reads a suggestion's `edits` and `how`
+  (instant, or searched: its "Search options" button is not built yet).
+- **The studio shows, tries, applies and undoes a finding's suggestions.** Each finding row, the card and the step rows show
+  the best suggestion with "more (n)"; Show opens its diff in the script dialog, Try resolves the edited script in the
+  worker (read from an overlay, nothing written) and shows it as a compare marked "try, not written" - whether the
+  finding cleared, findings gained and lost, items moved, the score change - Apply writes the file and the watcher
+  resolves again, and Undo puts the last apply back, refusing when the file moved on. `POST /suggest/show|try|apply|undo`
+  take `{resolve, id}`; apply and undo are allowed over `--host` and `[studio] apply = false` refuses writing. A
+  history row of a resolve that followed an apply reads "applied from a suggestion: ...".
 - **Studio page.** On a wide layout the running status is one line in the header (the strip above the timeline stays on
   narrow ones), and between two steps the step that just settled stays, dimmed, with its time. Unplaced items are shown
   as sections in the steps list, the card and the findings list: why, the radius searched around a point, and what
@@ -232,6 +283,22 @@ section for each hand-written pattern a newer form replaces.
 - **The studio's own Run is a command like the rest**: it reports over the channel and the page shows its live steps
   instead of its printed lines (the studio reads no printed text). A resolve worker that crashes is reported as a
   lost connection and the step it was on; the traceback is detail where there is one.
+- **Findings carry suggestions: changes to the layout script that may clear them.** `run` and `preview` print the
+  best one under each critical or warning finding (`try s3a: Place c4 beside c1, on its north side`) and the ids of
+  the others; `run.json`'s `finding_details[i]` and `preview --json` give each finding its `case` and its `suggestions`
+  (`id`, `text`, `rank`, `lever`, the `edit` as data, and the `digests` of the files it writes). Every suggestion is a
+  relation, a keyword or a setting, never a coordinate; a number it writes is a named constant with a comment. A
+  record without the fields reads as none. `api.md`, "Findings and severities", has the shape and the cases.
+- **`placemat apply <id> [--script PATH] [--dry-run] [--undo]`** makes a suggestion's edit: `--dry-run` prints the
+  diff and writes nothing; otherwise the file is written atomically and logged in `.placemat/applied.jsonl`, and
+  `--undo` puts back the last apply that has not been undone, if the files are still as it left them. It refuses,
+  and writes nothing, when the script changed since the run or preview that made the suggestion. `run` and `preview`
+  keep the plan's suggestions in `.placemat/suggestions.json` for it.
+- **`libcst` is a runtime dependency** (`libcst>=1.0`), for the script edits. A board project's environment installs
+  it with placemat.
+- Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), `apply` (true) and `suggest_factor` (2.0),
+  none part of a run's id. Scripts change nothing.
+
 
 ## To 0.86.4
 
@@ -3255,6 +3322,7 @@ that says what replaces it.
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
 | a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | To 0.67.0 |
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | To 0.67.0 |
+| a `Centre` with a number on an axis | Unreleased: write `coordinates=True`, or a relation |
 | ground vias outside a region typed as computed `Location` vias | To 0.68.0 |
 | points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | To 0.68.0 |
 | `board.plane(net, layers=(In2,), over=[parts])` standing in for an inner-layer area over vias | To 0.69.0 |

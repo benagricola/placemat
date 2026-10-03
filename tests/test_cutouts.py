@@ -8,7 +8,7 @@ import math
 
 import pytest
 
-from placemat.cutouts import Circle, Cutouts, Path, Slot
+from placemat.cutouts import Circle, Cutouts, EdgeWhy, Path, Slot
 from placemat.layout import Board, PlacementCollision
 from placemat.outline import Outline
 from placemat.values import (Along, Box, Centre, Cutout, Disc, Edge, Fraction, Location, OnBore,
@@ -558,7 +558,7 @@ def test_an_outline_still_carries_its_own_holes():
     know about them."""
     o = Outline.of(Circle(40.0).path_at(Location(20.0, 20.0)), holes=[SLOT])
     assert o.area == pytest.approx(math.pi * 400.0 - SLOT_AREA, rel=0.005)
-    assert o.why_not(Box(18.0, 26.0, 22.0, 30.0), 0.5) == "inside a cutout"
+    assert o.why_not(Box(18.0, 26.0, 22.0, 30.0), 0.5) == EdgeWhy.IN_CUTOUT
     assert o.why_not(Box(18.0, 8.0, 22.0, 12.0), 0.5) is None
 
 
@@ -608,7 +608,7 @@ def test_a_free_pinned_axis_shares_a_board_with_a_cutout():
     b = make_board("u1")
     b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0), why="airflow")])
-    b.place(Part("u1"), at=Centre(20.0, None))          # x pinned, y free
+    b.place(Part("u1"), at=Centre(20.0, None, coordinates=True))   # x pinned, y free
     plan = b.resolve()
     assert not plan.findings, plan.findings
 
