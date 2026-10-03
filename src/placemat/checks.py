@@ -170,7 +170,7 @@ class Outcome:
     acceptance: Acceptance
     outcome: str
     value: float | None = None
-    why_not: str = ""                   # for "not needed": "passes" or "is not judged"
+    why_not: str = ""                   # for "not needed": "passes" or "not_judged"
 
     def line(self) -> str:
         a = self.acceptance
@@ -217,7 +217,7 @@ def judge(verdicts: list, acceptances) -> tuple[list, list]:
         i = at[0]
         v = out[i]
         if v.ok is not False:
-            outcomes.append(Outcome(a, "not needed", v.value, "passes" if v.ok else "is not judged"))
+            outcomes.append(Outcome(a, "not needed", v.value, "passes" if v.ok else "not_judged"))
         elif a.holds(v.value):
             out[i] = dataclasses.replace(v, accepted="accepted (%s): %s" % (a.text(), a.why))
             outcomes.append(Outcome(a, "accepted", v.value))
@@ -230,16 +230,15 @@ def judge(verdicts: list, acceptances) -> tuple[list, list]:
 
 def findings_of(outcomes) -> list:
     """The `setup` findings for acceptances that matched nothing or were not needed."""
-    from .findings import Finding
+    from .findings import Finding, FindingCause as C
     out = []
     for o in outcomes:
         a = o.acceptance
+        facts = {"check": a.check, "subject": a.subject, "key": "%s %s" % (a.check, a.subject)}
         if o.outcome == "unmatched":
-            out.append(Finding("setup", "accept %s %s: no verdict by that check and subject on this board" % (a.check, a.subject),
-                               case="setup.accept", facts={"key": "%s %s" % (a.check, a.subject)}))
+            out.append(Finding(C.SETUP_ACCEPT, dict(facts, variant="unmatched")))
         elif o.outcome == "not needed":
-            out.append(Finding("setup", "accept %s %s: not needed: the check %s" % (a.check, a.subject, o.why_not),
-                               "notice", case="setup.accept", facts={"key": "%s %s" % (a.check, a.subject)}))
+            out.append(Finding(C.SETUP_ACCEPT, dict(facts, variant="not_needed", why_not=o.why_not), "notice"))
     return out
 
 

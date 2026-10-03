@@ -40,11 +40,11 @@ _FINDING_WEIGHTS = {"fixed": "score_fixed", "copper": "score_copper", "label": "
 
 def terms(m: dict, cfg) -> dict:
     """{term: mm} for measures `m` under the settings `cfg`."""
-    prio = {"high": cfg.score_priority_high, "default": cfg.score_priority_default, "low": cfg.score_priority_low}
+    prio = {"high": cfg.score_unplaced_high, "default": cfg.score_unplaced_default, "low": cfg.score_unplaced_low}
     found = m.get("findings") or {}
     cross = m.get("crossings") or {}
     out = {
-        "unplaced": cfg.score_unplaced * sum(prio.get(p, cfg.score_priority_default) * n
+        "unplaced": cfg.score_unplaced * sum(prio.get(p, cfg.score_unplaced_default) * n
                                              for p, n in (m.get("unplaced") or {}).items()),
         "drc": cfg.score_drc * (m.get("drc") or 0),
         "link_over": cfg.score_link_over * (m.get("link_excess") or 0.0),
@@ -60,6 +60,20 @@ def terms(m: dict, cfg) -> dict:
     out["back_face"] = cfg.score_back_face * (m.get("back_face") or 0)
     out["congestion"] = cfg.score_congestion * (m.get("rudy_steps") or 0)
     return out
+
+
+# The terms that say a layout is unusable, not merely worse: parts left unplaced, and the findings whose kind is
+# critical by default (findings.SEVERITY: the board cannot be built or fully routed as it is) that a plan's measures
+# count - a decided item illegal where it stands (fixed), planned copper that meets another net (copper), a pad with
+# no route out (escape_walled). DRC has no part in a plan's measures, and `fab` is the same for every variant.
+from .findings import SEVERITY as _SEVERITY
+HARD_FINDINGS = tuple(k for k in _FINDING_WEIGHTS if _SEVERITY.get(k) == "critical")
+
+
+def hard_clear(m: dict) -> bool:
+    """Whether measures `m` have none of the hard terms: nothing unplaced and no critical finding."""
+    found = m.get("findings") or {}
+    return not (m.get("unplaced") or {}) and not any(found.get(k, 0) for k in HARD_FINDINGS)
 
 
 def total(m: dict, cfg) -> float:

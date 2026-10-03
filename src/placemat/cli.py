@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 
+from . import stop
 from .console import console
 
 
@@ -35,7 +36,9 @@ def parser() -> argparse.ArgumentParser:
 
     run.add_argument("--explore", type=float, metavar="SECONDS",
                      help="first spend up to SECONDS trying variants of the focused items' spots and order, and "
-                          "report what the best would move")
+                          "report what the best would move. A long explore: run it detached (setsid nohup placemat "
+                          "run ... > explore.log 2>&1 &) and do not chain it with ';', which hides its exit status "
+                          "(128 + the signal when it was stopped)")
     run.add_argument("--focus", action="append", default=[], metavar="ITEM",
                      help="with --explore: vary this item (a part, cell or block key); repeatable")
     run.add_argument("--focus-after", type=int, metavar="LINE",
@@ -44,6 +47,12 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--jobs", type=int, help="with --explore: worker processes (default [explore] jobs)")
     run.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them")
+    run.add_argument("--resume", action="store_true",
+                     help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
+                          "its time) or refuse, saying what changed; without it a saved explore that is this one is "
+                          "continued anyway")
+    run.add_argument("--no-resume", action="store_true",
+                     help="start over: drop a saved explore (with --explore) and route every stage again (with --route)")
 
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
@@ -55,6 +64,9 @@ def parser() -> argparse.ArgumentParser:
     rt.add_argument("--full", action="store_true", help="the router's full run, not one round")
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
     rt.add_argument("--out", help="work directory (default: <board dir>/.placemat/route)")
+    rt.add_argument("--no-resume", action="store_true",
+                    help="route every stage again; by default the stages (pairs, islands, main) an earlier route of "
+                         "the same inputs finished in the work directory are taken, not routed again")
     rt.add_argument("--json", action="store_true")
     keep = rt.add_mutually_exclusive_group()
     keep.add_argument("--adopt", nargs="+", metavar="NET",
@@ -232,6 +244,11 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("--jobs", type=int, help="with --explore: worker processes (default [explore] jobs)")
     pv.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them")
+    pv.add_argument("--resume", action="store_true",
+                     help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
+                          "its time) or refuse, saying what changed; without it a saved explore that is this one is "
+                          "continued anyway")
+    pv.add_argument("--no-resume", action="store_true", help="with --explore: start over, dropping a saved explore")
 
     st = sub.add_parser("studio", help="a local page that shows the layout as it is made: the board re-resolved as the "
                                         "script, its modules or placemat.toml change, each step as it settles, and what "
@@ -243,6 +260,13 @@ def parser() -> argparse.ArgumentParser:
     st.add_argument("--host", default="127.0.0.1",
                     help="the address to listen on (default 127.0.0.1); 0.0.0.0 or a LAN address lets another device "
                          "on the network open the page, still only with the printed token")
+    st.add_argument("note_text", nargs="?", help="with `studio note`: the note's text")
+    st.add_argument("--at", help="with `studio note`: point at X,Y mm on the board (a place to look, never a placement)")
+    st.add_argument("--item", help="with `studio note`: point at an item")
+    st.add_argument("--pad", help="with `studio note`: point at a pad, REF.N")
+    st.add_argument("--from", dest="author", help="with `studio note`: who is leaving it (default $PLACEMAT_FROM, else the login name)")
+    st.add_argument("--script", dest="script_path", metavar="PATH", help="with `studio note`: the layout script the note is for "
+                    "(default: the project's only one)")
 
     wt = sub.add_parser("watch", help="follow a placemat command running in this project (run, preview, an explore) as it works: "
                                        "a line per step, per variant, until it ends; exit 0 done, 1 error, 2 died or not found")
@@ -261,6 +285,9 @@ def parser() -> argparse.ArgumentParser:
     how = lk.add_mutually_exclusive_group()
     how.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
     how.add_argument("--release-all", action="store_true", help="drop every entry")
+    how.add_argument("--accept-seed", type=int, metavar="N",
+                     help="write the saved explore's best variant, seed N, to the lock (what a stopped "
+                          "explore's message offers); no search is run")
     how.add_argument("--current", action="store_true",
                     help="lock every searched item where the board stands (the last run's placement)")
     lk.add_argument("--partial", action="store_true",
@@ -269,6 +296,10 @@ def parser() -> argparse.ArgumentParser:
     st = sub.add_parser("settings", help="every resolved setting, its value and the file it came from")
     st.add_argument("where", nargs="?", default=".", help="a layout script or a board directory (default: here)")
     st.add_argument("--json", action="store_true")
+    st.add_argument("--example", action="store_true",
+                    help="write a complete, commented placemat.toml (every setting, its unit, meaning and default) "
+                         "instead of the resolved values; with --output FILE, into FILE")
+    st.add_argument("--markdown", action="store_true", help="the settings table api.md carries, from the settings' own data")
 
     ck = sub.add_parser("check", help="design checks from the parts' Pm.* facts: hot loops, switch nodes, keep-out, "
                                       "crossings under sense tracks, current path widths, junction temperature")
@@ -342,6 +373,10 @@ def _script_of(p):
 
 def cmd_settings(args) -> int:
     from .settings import load, Settings, split_key
+    if getattr(args, "example", False) or getattr(args, "markdown", False):
+        from .settings import docs_table, example_toml
+        console.data((example_toml() if args.example else docs_table() + "\n").rstrip("\n"))
+        return 0
     from .project import find_board
     p = Path(args.where)
     start = p if p.is_dir() else find_board(p).board_dir
@@ -350,6 +385,8 @@ def cmd_settings(args) -> int:
         console.data(json.dumps({k: {"value": _plain(getattr(s, k)), "source": s.source_of(k)}
                                  for k in Settings.keys()}, indent=2, sort_keys=True))
         return 0
+    for note in s.notices:
+        console.say("settings", note, level="notice")
     for name in Settings.keys():
         section, key = split_key(name)
         console.say("settings", "%-28s %-24s %s" % (
@@ -360,8 +397,8 @@ def cmd_settings(args) -> int:
 def _explore_options(args):
     """The ExploreOptions --explore and its flags ask for, or None."""
     if getattr(args, "explore", None) is None:
-        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept")):
-            raise SystemExit("--focus, --focus-after, --focus-box and --accept go with --explore SECONDS")
+        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume")):
+            raise SystemExit("--focus, --focus-after, --focus-box, --accept and --resume go with --explore SECONDS")
         return None
     from .explore import ExploreOptions
     from .values import Box
@@ -372,7 +409,10 @@ def _explore_options(args):
         except ValueError:
             raise SystemExit("--focus-box is X0,Y0,X1,Y1 in board millimetres, not %r" % args.focus_box)
         box = Box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-    return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept)
+    if args.resume and args.no_resume:
+        raise SystemExit("--resume and --no-resume say opposite things")
+    return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept,
+                          "yes" if args.resume else "no" if args.no_resume else "auto")
 
 
 def cmd_lock(args) -> int:
@@ -383,6 +423,19 @@ def cmd_lock(args) -> int:
         return _lock_current(Path(args.script), None, partial=args.partial)
     if args.partial:
         raise SystemExit("--partial goes with --current")
+    if args.accept_seed is not None:
+        from .explore import accept_best
+        from .checkpoint import state_dir
+        from .project import find_board
+        from ._version import __version__
+        script = Path(args.script).resolve()
+        try:
+            console.say("lock", accept_best(script, state_dir(find_board(script).board_dir, script), __version__,
+                                            seed=args.accept_seed))
+        except ValueError as e:
+            console.say("lock", str(e), level="fail")
+            return 1
+        return 0
     if not args.release and not args.release_all:
         entries = lock.read(path)
         console.lines("lock", "\n".join("%s  %s %s  turn %d" % (e.key, "%s.%s" % e.anchor if e.anchor else "board",
@@ -484,7 +537,7 @@ def cmd_run(args) -> int:
                  drc=not args.no_drc, quiet=args.quiet or args.json, verbose=args.verbose,
                  route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude,
                  keep_going=args.keep_going, overrides=overrides_from(args), reuse=not args.no_reuse,
-                 explore=_explore_options(args))
+                 explore=_explore_options(args), resume=not args.no_resume)
     if args.json:
         console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
     # a run that placed but came out worse than the best of its parts is a
@@ -515,7 +568,20 @@ def _runs_dirs(board) -> list:
 
 def _record(ref, board=None) -> Path:
     """A run.json from a path, or a run id / prefix / label looked up in the
-    runs directories under the cwd (or --board)."""
+    runs directories under the cwd (or --board). A run whose process is gone
+    while its record still says "running" is said to have died."""
+    path = _find_record(ref, board)
+    try:
+        from .report import RunRecord, dead_note
+        note = dead_note(RunRecord.load(path))
+        if note:
+            console.say("run", note, level="fail")
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return path
+
+
+def _find_record(ref, board=None) -> Path:
     from .report import resolve_run
     p = Path(ref)
     if p.exists():
@@ -594,11 +660,15 @@ def cmd_route(args) -> int:
         islands = parse_islands(active().route_islands)
         islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
         report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
-                             quick=not args.full, iterations=args.iterations, islands=islands)
+                             quick=not args.full, iterations=args.iterations, islands=islands,
+                             resume=not args.no_resume)
     if args.json:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:
         console.say("route", report.summary())
+        if report.resumed:
+            console.say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
+                        ", ".join(report.resumed))
         for breach in report.keepout_breaches:
             console.say("route", breach)
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
@@ -1131,7 +1201,46 @@ def _report_applied(args, done, verb) -> int:
     return 0
 
 
+def cmd_note(args) -> int:
+    """`placemat studio note "text" [--at X,Y | --item NAME | --pad REF.N] [--script PATH]`: a note for the studio's page, appended
+    to the board's notes file (notes.py), which any studio watching the script shows as a pin and a line."""
+    from . import notes
+    from .project import find_board
+    from .settings import load
+    from .studio import layout_scripts, project_root
+    if not args.note_text:
+        console.say("note", "give the note's text: placemat studio note \"trying c_cpu further west\" [--at X,Y | --item NAME | --pad REF.N]")
+        return 2
+    try:
+        target = notes.target_of(args.at, args.item, args.pad)
+    except ValueError as e:
+        console.say("note", str(e))
+        return 2
+    if args.script_path:
+        script = Path(args.script_path).resolve()
+        if not script.is_file():
+            console.say("note", "%s is not a file" % args.script_path)
+            return 2
+        src = find_board(script)
+    else:
+        root = project_root(Path.cwd())
+        found = layout_scripts(Path.cwd())              # the one under the folder it is run in, else the project's only one
+        if len(found) != 1:
+            found = layout_scripts(root)
+        if len(found) != 1:
+            console.say("note", ("no layout script under %s" % root) if not found else
+                        "%d layout scripts under %s: say which with --script" % (len(found), root))
+            return 2
+        script, src = found[0]
+    cfg = load(src.board_dir, script=script)
+    record = notes.add(src.board_dir, script.name, args.note_text, target, notes.author(args.author), cfg.studio_notes_keep)
+    console.say("note", "%s for %s%s" % (record["id"], script.name, "" if target is None else " at " + json.dumps({k: v for k, v in target.items() if k != "kind"}, separators=(",", ":"))))
+    return 0
+
+
 def cmd_studio(args) -> int:
+    if args.script == "note":
+        return cmd_note(args)
     from .studio import run
     return run(args.script, port=args.port, open_browser=False if args.no_open else None, host=args.host)
 
@@ -1243,7 +1352,7 @@ def cmd_occupancy(args) -> int:
                                            args.radius, args.step)
     if args.json:
         console.data(json.dumps({"spot": None if spot is None else {
-            "at": [spot.at.x, spot.at.y], "distance": spot.distance, "soft": list(spot.soft)},
+            "at": [spot.at.x, spot.at.y], "distance": spot.distance, "soft": [str(s) for s in spot.soft]},
             "tally": dict(tally), "tried": tried, "net": net, "size": size, "drill": drill,
             "layer": layer.value, "tail_width": width}, indent=2))
     else:
@@ -1395,6 +1504,7 @@ def cmd_facts(args) -> int:
     plane_layers = frozenset(l for l, _nets in board._plane_layers().items())
     doc = facts_mod.facts_of(geometry, fab, cfg.check_rise_c, plane_layers)
     reasons = facts_mod.unconfirmed_reasons(doc, facts_mod.confirmed_digest(cfg, script))
+    from .finding_text import facts_reason_text
     if args.confirm:
         # the placemat.toml the run uses: the nearest one up from the board, never a new one beside a
         # script when an ancestor has one (it would cut a module off from the board's shared helpers)
@@ -1407,17 +1517,39 @@ def cmd_facts(args) -> int:
     if args.json:
         console.data(json.dumps({"layers": doc.layers, "pairs": doc.pairs, "via_types": doc.via_types,
                                  "fab_min": doc.fab_min, "rise_c": doc.rise_c,
-                                 "plane_mismatches": list(doc.plane_mismatches), "unconfirmed": reasons}, indent=2))
+                                 "plane_mismatches": list(doc.plane_mismatches),
+                                 "unconfirmed": [facts_reason_text(r) for r in reasons]}, indent=2))
         return 0
     for line in facts_mod.render(doc, reasons):
         console.say("facts", line)
     return 1 if reasons else 0
 
 
+# The commands that can run for minutes: a stop (SIGTERM, SIGHUP, Ctrl-C) ends them with a line saying
+# so and the exit status 128 + the signal, keeping what they had done.
+STOPPABLE = ("run", "preview", "route")
+
+
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     if args.format == "json":
         args.json = True
+    previous = stop.install() if args.command in STOPPABLE else {}
+    try:
+        return _main(args)
+    except stop.Stopped as s:
+        if not s.said:
+            info = stop.record(s, command=args.command)
+            stop.say(stop.line(info))
+            from . import channel
+            channel.stopped(info)
+            channel.finish()
+        return s.exit_code
+    finally:
+        stop.restore(previous)
+
+
+def _main(args) -> int:
     if args.output is None:
         return _dispatch(args)
     with open(args.output, "w") as stream:

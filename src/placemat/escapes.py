@@ -40,6 +40,12 @@ def is_no_connect(net: str) -> bool:
     return bool(_NO_CONNECT.search(net))
 
 
+def _by(occ, sh):
+    """Who a blocking shape is, as a finding names it: its owner as it is, else what blame_owner says (an Owner)."""
+    from .refusals import Owner
+    return Owner("who", sh.owner) if sh.owner else occ.blame_owner(sh)
+
+
 @dataclass(frozen=True)
 class Corridor:
     ref: str
@@ -84,7 +90,7 @@ def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> l
     """Corridors for one part's pads: `pads` maps a pad number to (net,
     layers, box) as the part stands (or would stand)."""
     from .placer import _pin_normal
-    if len(pads) < occ.settings.place_escape_pads:
+    if len(pads) < occ.settings.place_escape_min_pads:
         return []
     centres = {(ref, n): b.center for n, (_, _, b) in pads.items()}
     body = Box.union([b for _, _, b in pads.values()]).center
@@ -362,8 +368,8 @@ class Escapes:
                     continue
                 pad = Box.union([c.box for c in group])
                 near = list(self._bgrid.near(pad.inflate(self.depth + 1.0)))
-                by = sorted({sh.owner or occ.blame_owner(sh) for c in group for sh in self._bgrid.near(c.box)
-                             if self._closes_any(sh, c)})
+                by = sorted({_by(occ, sh) for c in group for sh in self._bgrid.near(c.box)
+                             if self._closes_any(sh, c)}, key=str)
                 if not open_ and not self._gets_out(ref, c0.number, near):
                     walled.append((ref, c0.number, c0.net, by, []))
                     continue
@@ -391,7 +397,7 @@ class Escapes:
             if ref in occ.pending or not occ.geometry.has_footprint(ref):
                 continue
             pads = _pads_of(g.shapes, ref)
-            if len(pads) < occ.settings.place_escape_pads:
+            if len(pads) < occ.settings.place_escape_min_pads:
                 continue
             for number, (net, layers, box) in sorted(pads.items()):
                 if not net or _net_sizes(occ).get(net, 0) >= 2 or is_no_connect(net):
@@ -406,10 +412,10 @@ class Escapes:
                 if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True):
                     continue
                 window = reach.inflate(self.depth)
-                by = sorted({sh.owner or occ.blame_owner(sh) for sh in near
+                by = sorted({_by(occ, sh) for sh in near
                              if (sh.net != net or not net) and not (sh.owner == ref and sh.label == number)
-                             and sh.layers & layers and sh.box.overlaps(window)})
-                out.append((ref, number, net, [b for b in by if b != ref] or by))
+                             and sh.layers & layers and sh.box.overlaps(window)}, key=str)
+                out.append((ref, number, net, [b for b in by if str(b) != ref] or by))
         return out
 
     def _own_copper(self, ref: str, number: str, net: str) -> list:

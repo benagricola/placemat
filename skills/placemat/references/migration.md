@@ -5,7 +5,171 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.90.0
+
+### New
+
+- **The studio page reads findings' facts, not their sentences.** An unplaced item's card, row and finding show why, the radius searched,
+  what refused it (a count per kind and the parts that did most of it) from the finding's `cause` and `facts`; a step's rank and the pocket
+  it took come as data (`rank`, `rank_of`, `pocket`, `lock` on steps and items); the engine's own words for a refusal, an owner, a slide or
+  a turn come with the facts as `text`. What a step's note alone says (seeds, slides, vias, pushes, the rank's measures) is still read from
+  the note until the engine records it as data.
+- **Studio board drawing.** A finding is a badge on a stem at one screen size (a triangle with ! for critical and warning, a circle with i
+  for notice) with a white halo, a dark rim and a slow pulse, larger when it is the one looked at; tapping it opens the finding.
+  Vias are drawn above the parts with their drill cut through (they were hidden under pads, and ringed white at high zoom), a
+  through pad shows both layers' colours and its drill, and an SMD pad is the colour of its copper layer and goes with that layer's row in
+  the legend. "Why it moved" in a card says what moved the part (the slide's stop, a refusal, a score gain) beside the distance, and
+  "no cause recorded" where the step's note has none. The plan JSON gives pads their `layers` and adds `hole` and `npth` shapes.
+- **Every setting is documented as data, and `placemat settings --example` writes a complete `placemat.toml`.** Each
+  setting carries its unit and its meaning in `settings.py` (`Settings` field metadata, `settings.meta`,
+  `settings.SECTIONS`); the api.md table is generated from them (`placemat settings --markdown`) and a test checks it.
+  `placemat settings --example [--output FILE]` writes every section and setting with its default, unit and meaning,
+  grouped by section, as valid TOML that loads to the defaults.
+
+### Changed
+
+- **Settings renamed to say what they are.** The old name still loads for one release, as the new setting, with a
+  `setup` notice on the plan (and in `placemat settings`) naming the new one. Using both names for one setting in a
+  table is an error. A run's id includes the settings by name, so the first run after upgrading is a new run.
+
+  | old | new |
+  |---|---|
+| `rank.area` | `rank.area_weight` |
+| `rank.pins` | `rank.pins_weight` |
+| `place.coarse_steps` | `place.coarse_stride` |
+| `place.coarse_from` | `place.coarse_min_radius_steps` |
+| `place.refine_around` | `place.refine_spots` |
+| `place.conflict_gap` | `place.conflict_reach` |
+| `place.via_share` | `place.via_share_distance` |
+| `place.via_move` | `place.via_move_distance` |
+| `place.via_leave` | `place.via_leave_distance` |
+| `place.via_route` | `place.via_route_distance` |
+| `place.drops_keep` | `place.drops_keep_share` |
+| `place.escape_pads` | `place.escape_min_pads` |
+| `copper.arc_radius_widths` | `copper.arc_radius_track_widths` |
+| `copper.bridge_half` | `copper.bridge_half_gap` |
+| `copper.pair_via_step` | `copper.pair_via_offset` |
+| `copper.pour_stroke` | `copper.pour_outline_width` |
+| `copper.plane_min_thickness` | `copper.plane_min_width` |
+| `write.keepout_line` | `write.keepout_line_width` |
+| `write.keepout_text` | `write.keepout_text_height` |
+| `label.size` | `label.text_height` |
+| `explore.slack` | `explore.spot_slack` |
+| `explore.swap` | `explore.swap_chance` |
+| `route.iterations` | `route.max_iterations` |
+| `solve.pull` | `solve.centre_pull` |
+| `cleanup.radius` | `cleanup.search_radius` |
+| `cleanup.step` | `cleanup.search_step` |
+| `preview.model_edge` | `preview.model_edge_px` |
+| `score.priority_high` | `score.unplaced_high` |
+| `score.priority_default` | `score.unplaced_default` |
+| `score.priority_low` | `score.unplaced_low` |
+
+## To 0.89.0
+
+### New
+
+- **An explore keeps its curve and says when the best was found.** Every finished variant is on the curve: its index
+  (the order it finished in, the plain placement 0), its seed, the seconds since the explore began (over every
+  session of a resumed one) and its score, with `best` set when it beat every variant before it. `metrics.explore`
+  in `run.json` and the explore record in `.placemat/views/explore/` have `curve`, `found` (`{i, seed, t, score,
+  of_variants, of_seconds}`: the last improvement) and `ended`; the channel's `variant` events carry `i`, `t`, `score`
+  and `best`, and `explore_done` carries `found` and `ended`. The checkpoint is deleted on completion, the record is
+  not. The console line says `best found at variant 7 of 34, 5 min 12 s in (of 43 min)`. A curve past 2000 variants is
+  kept as every improvement and an even sample.
+- **`[explore]` stopping rules**, all off by default: `stall_variants` (stop after that many variants without an
+  improvement), `stall_seconds` (or that many seconds since the last one), `stop_hard_clear` (or when a variant has
+  none of the hard terms the plain placement had). `ended.rule` says which ended it: `budget`, `stall_count`,
+  `stall_time`, `hard_clear` or `signal`. An explore ended by a rule is complete, not stopped: `--accept` applies and
+  its checkpoint is cleared as for a finished one. The hard terms are parts left unplaced and the findings whose kind
+  is critical by default that a plan's measures count (`fixed`, `copper`, `escape_walled`; `score.hard_clear`).
+  The three settings are not part of a checkpoint's digest.
+
+- **`placemat studio note "<text>" [--at X,Y | --item NAME | --pad REF.N]`** leaves a note where the user is looking at the studio:
+  a record appended to `.placemat/views/studio/notes.jsonl`, shown on the page as a pin that follows its item or pad, a line in a
+  Notes list (dismissable per browser), and a toast. Settings `[studio] note_age_s` (3600; 0 keeps notes) and `notes_keep` (100),
+  neither part of a run's id. A point is a place to look at, never a placement. Scripts change nothing.
+
+### Changed
+
+- **`board.size(...)` is refused.** It was renamed `board.rect(...)` in 0.85.0 and has given a `setup` notice since;
+  now it raises `AttributeError: board.size(...) is board.rect(...) since 0.85.0`. Rename the call, arguments
+  unchanged:
+
+  ```python
+  board.size(width=60, height=40, chamfer=2.0)    # before: refused
+  board.rect(width=60, height=40, chamfer=2.0)    # now
+  ```
+
+- **An arc corner's default radius is 3 track widths** (`copper.arc_radius_widths`, was 4): a `bend=Bend.ARC` corner
+  with no `radius=` and no stackup bend rule is tighter than before. A script that relied on the old default sets
+  `[copper] arc_radius_widths = 4.0` in `placemat.toml`, or `radius=` on the call.
+
+## To 0.88.0
+
+### New
+
+- **Findings carry suggestions: changes to the layout script that may clear them.** `run` and `preview` print the
+  best one under each critical or warning finding (`try s3a: Place c4 beside c1, on its north side`) and the ids of
+  the others; `run.json`'s `finding_details[i]` and `preview --json` give each finding its `cause`, its `facts` and its `suggestions`
+  (`id`, `text`, `rank`, `lever`, the `edit` as data, and the `digests` of the files it writes). Every suggestion is a
+  relation, a keyword or a setting, never a coordinate; a number it writes is a named constant with a comment. A
+  record without the fields reads as none. `api.md`, "Findings and severities", has the shape and the causes.
+- **A finding is data and its sentence is rendered from it.** A finding has a `kind`, a `cause`, the `facts` its site
+  measured and `facts_v`, the version of that cause's facts; `run.json`'s `finding_details[i]` and `preview --json` carry
+  all of them beside the `text`, which reads the same as before. The reuse record stores findings as facts and is under
+  a digest of every cause's facts version, so a release that changes a cause's facts replays nothing. A refusal (why a
+  spot was refused) is data too: `refusals.Refusal`, with a code and facts. Suggestions that multiplied a limit by a
+  factor (a wider search radius, `place.via_move`, a finer step) are gone with `[studio] suggest_factor`: a number a
+  suggestion writes is a figure the finding measured.
+- **`placemat apply <id> [--script PATH] [--dry-run] [--undo]`** makes a suggestion's edit: `--dry-run` prints the
+  diff and writes nothing; otherwise the file is written atomically and logged in `.placemat/applied.jsonl`, and
+  `--undo` puts back the last apply that has not been undone, if the files are still as it left them. It refuses,
+  and writes nothing, when the script changed since the run or preview that made the suggestion. `run` and `preview`
+  keep the plan's suggestions in `.placemat/suggestions.json` for it.
+- Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), and `apply` (true),
+  none part of a run's id. Scripts change nothing.
+- **A stopped command says so and keeps its work.** `placemat run`, `preview` and `route` handle SIGTERM, SIGHUP and
+  Ctrl-C: the explore workers are ended, the layout folder is put back as the last run left it, `run.json` is saved
+  with `status: "stopped"` and `failure: {kind: "stopped", signal, stage, elapsed_s, explore}`, a last line names the
+  stage and the signal on stdout and stderr (stderr only with `-q`/`--json`), and the exit status is 128 + the signal.
+  A second signal exits at once. A run's `run.json` is written as `status: "running"` with the `pid` as soon as its id
+  is taken, so a record whose process is gone is reported as having died (`placemat impact` and the commands that read
+  a run say so).
+- **A stopped explore keeps its best and offers it.** `explore stopped by SIGTERM after N variants in T s; best seed S:
+  a -> b mm; nothing accepted; accept it with: placemat lock <script> --accept-seed S`. Nothing is written to the lock
+  on a stop, even with `--accept`. `placemat lock <script> --accept-seed N` writes the saved best (kept in
+  `<board>/.placemat/explore/<script stem>/best.json`) to the lock without searching; it refuses when the lock or the
+  script changed since the explore began.
+- **An explore resumes.** The parent appends a line per finished variant to
+  `<board>/.placemat/explore/<script stem>/checkpoint.jsonl` as it goes (the header holds the baseline, the budget and a
+  digest of the script, generated board, settings, fab profile, placemat version, lock and focus). A rerun of the same
+  explore (`placemat run|preview <script> --explore SECONDS ...`) finds it, says `resuming a saved explore: N variants
+  in T s so far`, reuses the baseline, tries only the untried seeds and spends SECONDS less the time already spent.
+  `--resume` insists on it and refuses, naming what changed ("the script and the lock changed since it began"), when the
+  saved explore is not this one; without `--resume` such a checkpoint is dropped with a note and the explore starts
+  over; `--no-resume` starts over regardless. The checkpoint is removed when the run that explored is recorded;
+  `best.json` stays, so `placemat lock <script> --accept-seed N` works after a finished explore too (the explore's
+  report ends with the command). `[explore] checkpoint_max_variants` (default 100000) bounds the file.
+- **A resolve that died is replayed as far as it got.** Each completed step's record is appended to
+  `<run dir>/reuse.partial.jsonl` as the resolve goes, and removed once `reuse.json` is written. A rerun of the same
+  inputs replays those steps by their chained keys (a step that changed since is not replayed, nor any after it) and
+  says `reused N of M steps from run <id> (interrupted)`.
+- **A route keeps the stages it finished.** `run --route` and `placemat route` no longer empty the route work
+  folder: `state.json` there names each finished stage (pairs, islands, main) with a digest of its inputs (the board
+  and its project files, the nets left out, the islands, the layers, the router and its version, the `[route]`
+  settings, chained from the stage before). A route that is stopped or fails leaves them; a rerun of the same inputs
+  takes them (`took islands, main from an earlier route of the same inputs`, `report.resumed`) and only routes what is
+  left. A stage that does not match is routed again with every one after it. `--no-resume` routes every stage again.
+  A rerun of a run with the same id (same inputs) therefore no longer routes again unless `--no-resume` is given. The
+  router's own pass is not resumable inside (its `KICAD_STOP_AFTER` / `KICAD_STOP_FILE` checkpoint stop could be
+  used for that later). The raw router output is kept as `router_out.kicad_pcb`; `routed.kicad_pcb` is made from it
+  each time.
+- **An explore's workers are watched.** A worker that is killed from outside (the out-of-memory killer) or raises is
+  reported with its exit signal or traceback, and the explore carries on with the others instead of waiting for it. A
+  worker ends when its parent does.
+
+## To 0.87.0
 
 ### New
 

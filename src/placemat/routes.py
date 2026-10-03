@@ -15,6 +15,7 @@ from pathlib import Path
 from .board_geometry import added_copper
 from .copper import Track, Via
 from .geometry import point_in_polygon, polys_overlap
+from .refusals import Code, Refusal
 from .values import Box, CopperLayer, Face, Location
 
 FORMAT = 1
@@ -309,7 +310,7 @@ def _pad_net(occ, ref, number):
 
 
 def resolve(entry: RouteEntry, occ, tolerance: float, also=()):
-    """(tracks, vias) where the entry's copper now lies, or why it cannot be
+    """(tracks, vias) where the entry's copper now lies, or a Refusal saying why it cannot be
     drawn: a part it joins is gone or on the other face, a pad it binds to is
     gone or on another net, the parts have moved or turned relative to each
     other since it was adopted (by more than `tolerance`, mm at any of their
@@ -320,20 +321,19 @@ def resolve(entry: RouteEntry, occ, tolerance: float, also=()):
         return insts.get(name, name)
 
     def label(name):                          # the instance a script names, and the refdes KiCad shows
-        ref = ref_of(occ.geometry, name)
-        return name if ref == name else "%s (%s)" % (name, ref)
+        return {"name": name, "ref": ref_of(occ.geometry, name)}
     src, dst, whose = [], [], []
     for name in sorted(entry.parts):          # an instance path, or a refdes as 0.43-0.46 wrote it
         kept, ref = entry.parts[name], ref_of(occ.geometry, name)
         if ref not in occ.items:
-            return "%s is no longer on the board" % label(name)
+            return Refusal(Code.ROUTE_GONE, part=label(name))
         if occ.items[ref].reference.face.value != kept["face"]:
-            return "%s is on the other face now" % label(name)
+            return Refusal(Code.ROUTE_FACE, part=label(name))
         for number, at in sorted(kept["pads"].items()):
             try:
                 now = occ.pad_location(ref, number)
             except KeyError:
-                return "%s has no pad %s now" % (label(name), number)
+                return Refusal(Code.ROUTE_NO_PAD, part=label(name), number=number)
             src.append(tuple(at))
             dst.append((now.x, now.y))
             whose.append(name)
@@ -343,7 +343,7 @@ def resolve(entry: RouteEntry, occ, tolerance: float, also=()):
             name, number = pt["pad"]
             net = _pad_net(occ, ref_of(occ.geometry, name), number)
             if net != entry.net:
-                return "%s pad %s is on %s now" % (label(name), number, net or "no net")
+                return Refusal(Code.ROUTE_NET, part=label(name), number=number, net=net)
     (c, s), (sx, sy), (dx, dy) = _fit(src, dst)
 
     def moved(p):
@@ -352,8 +352,7 @@ def resolve(entry: RouteEntry, occ, tolerance: float, also=()):
     worst = max(range(len(src)), key=lambda i: math.dist(moved(src[i]), dst[i]))
     if math.dist(moved(src[worst]), dst[worst]) > tolerance:
         others = sorted(set(whose) - {whose[worst]})
-        return "%s has moved or turned relative to %s since it was adopted" % (
-            label(whose[worst]), ", ".join(map(label, others)) if others else "its own pads")
+        return Refusal(Code.ROUTE_MOVED, part=label(whose[worst]), others=[label(o) for o in others])
 
     def locate(pt):
         name, number = pt["pad"] if "pad" in pt else pt["anchor"]
@@ -365,7 +364,7 @@ def resolve(entry: RouteEntry, occ, tolerance: float, also=()):
         if pt.get("meets"):
             at = locate(pt)
             if not any(point_in_polygon((at.x, at.y), o.poly) for o in copper):
-                return "its end at (%.2f, %.2f) no longer meets the net's other copper" % (at.x, at.y)
+                return Refusal(Code.ROUTE_END, at=[at.x, at.y])
     tracks = [Track(entry.net, CopperLayer.of(t["layer"]), t["width"], locate(t["a"]), locate(t["b"]))
               for t in entry.tracks]
     vias = [Via(entry.net, locate(v["at"]), v["drill"], v["size"]) for v in entry.vias]
@@ -399,7 +398,7 @@ def drawn_now(entries, geometry, tolerance: float) -> list:
     while left:
         also = [_kept_shape(op) for op in drawn]
         now = {i: resolve(entries[i], occ, tolerance, also) for i in left}
-        held = [i for i in left if not isinstance(now[i], str)]
+        held = [i for i in left if not isinstance(now[i], Refusal)]
         if not held:
             break
         for i in held:
@@ -551,7 +550,7 @@ def summary(plan) -> str:
     if not plan.adopted:
         return ""
     held = [n for n, s in plan.adopted.items() if s == "held"]
-    dropped = {n: s[len("dropped: "):] for n, s in plan.adopted.items() if s != "held"}
+    dropped = {n: str(Refusal.from_json(s["dropped"])) for n, s in plan.adopted.items() if s != "held"}
     line = "%d held, %d dropped" % (len(held), len(dropped))
     if dropped:
         line += " (%s)" % "; ".join("%s: %s" % kv for kv in sorted(dropped.items()))

@@ -488,8 +488,8 @@ def _draw_keepout_drawings(board, plan):
     mode = plan.occupancy.settings.write_keepout_drawings
     if mode == "none":
         return
-    line = plan.occupancy.settings.write_keepout_line
-    size = plan.occupancy.settings.write_keepout_text
+    line = plan.occupancy.settings.write_keepout_line_width
+    size = plan.occupancy.settings.write_keepout_text_height
     drawn = []
     for k in plan.keepouts.values():
         if mode == "admitting" and not _keepout_admits(k):

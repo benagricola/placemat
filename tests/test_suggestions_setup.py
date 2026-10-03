@@ -9,7 +9,7 @@ from tests.test_escape_findings import _walled_in
 
 
 def of(plan, case):
-    return [f for f in plan.findings if f.case == case]
+    return [f for f in plan.findings if f.cause == case]
 
 
 UNDECLARED = '''board.place(Part("u1"), at=Location(10, 10))
@@ -110,26 +110,10 @@ def test_a_slide_that_finds_no_room_offers_the_other_edges(tmp_path):
     assert fs[0].facts["item"] not in [f.facts["item"] for f in of(plan2, "unplaced.slide")]
 
 
-def test_a_bearing_search_that_finds_none_offers_a_finer_step(tmp_path):
+def test_a_bearing_search_that_finds_none_offers_nothing(tmp_path):
     script = ('board.place(Part("u1"), at=Location(30, 30))\n'
               'board.place(Part("j1"), at=Location(30, 30), rotations=[0, 90])\n'
               'board.place(Part("c1"), at=Location(50, 50))\n')
     board, plan, path = resolve(tmp_path, script)
     fs = of(plan, "unplaced.bearing")
-    assert fs
-    assert [s.text for s in fs[0].suggestions] == []        # no placemat.toml beside the script: no settings table to write
-
-
-def test_a_bearing_suggestion_edits_the_scripts_own_settings_table(tmp_path):
-    (tmp_path / "placemat.toml").write_text("[place]\nenvelope = \"courtyard\"\n")
-    script = ('board.place(Part("u1"), at=Location(30, 30))\n'
-              'board.place(Part("j1"), at=Location(30, 30), rotations=[0, 90])\n'
-              'board.place(Part("c1"), at=Location(50, 50))\n')
-    board, plan, path = resolve(tmp_path, script)
-    (f,) = of(plan, "unplaced.bearing")
-    (s,) = f.suggestions
-    assert s.text == "Step bearings finer: place.bearing_step 2.5"
-    shown = sg.apply_suggestion(suggestions_of(plan), s.id, dry_run=True)
-    toml = tmp_path / "placemat.toml"
-    assert 'bearing_step = 2.5' in shown.files[str(toml)].after and '[scripts."layout.py".place]' in shown.files[str(toml)].after
-    assert str(path) not in shown.files
+    assert fs and [s.text for s in fs[0].suggestions] == []

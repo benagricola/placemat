@@ -36,7 +36,7 @@ def test_the_route_command_passes_the_setting_and_the_flag(tmp_path, monkeypatch
     seen = {}
 
     class Report:
-        valid, keepout_breaches, open_nets, routed_pcb = True, [], {}, pcb
+        valid, keepout_breaches, open_nets, routed_pcb, resumed = True, [], {}, pcb, []
 
         def summary(self):
             return "stand-in"
@@ -116,7 +116,7 @@ def test_a_bare_flag_keeps_the_width_the_setting_gives(tmp_path, monkeypatch):
     seen = {}
 
     class Report:
-        valid, keepout_breaches, open_nets, routed_pcb = True, [], {}, pcb
+        valid, keepout_breaches, open_nets, routed_pcb, resumed = True, [], {}, pcb, []
 
         def summary(self):
             return "stand-in"

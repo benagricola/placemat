@@ -91,7 +91,7 @@ def test_an_escape_lane_that_walls_a_pad_is_named_by_its_pin():
     b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], why="north row")
     plan = b.resolve()
     lanes = {plan.occupancy.blame_owner(s) for s in plan.occupancy.copper if s.lane}
-    assert lanes == {"the escape lane of U1 pin 32", "the escape lane of U1 pin 31", "the escape lane of U1 pin 30"}
+    assert {str(l) for l in lanes} == {"the escape lane of U1 pin 32", "the escape lane of U1 pin 31", "the escape lane of U1 pin 30"}
 
 
 # A pad's own lane may run between two other nets' 45 lines laid at the least pitch the clearance allows (an escape's

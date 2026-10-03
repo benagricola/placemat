@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from .copper import Track, Via, chamfer_cuts, polyline_tracks
 from .geometry import gap_texts, point_in_polygon, point_segment_distance, poly_distance
+from .refusals import Code, Refusal
 from .values import Box, Edge, Location, Part
 
 _DIR = {Edge.NORTH: (0.0, -1.0), Edge.SOUTH: (0.0, 1.0), Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0)}
@@ -135,7 +136,7 @@ class LaneGeom:
     tracks: tuple           # the Track ops, chamfered as a track() draws them
     via: Via | None
     line: tuple | None      # ("x" | "y", coordinate): the line a part may stand its pad on; None for a 45
-    blocked: list = field(default_factory=list)     # what stands in its way: a sentence each
+    blocked: list = field(default_factory=list)     # what stands in its way: a Refusal each
 
     @property
     def end(self) -> Location:
@@ -543,7 +544,7 @@ class Layouter:
 
     def _via_fails(self, lane: _Lane, q: Location, others: bool):
         """What is wrong with a via of `lane` at `q`, in the order it is judged: (the clearance it falls short of,
-        mm; infinite for a site the board refuses, a sentence)."""
+        mm; infinite for a site the board refuses, a Refusal)."""
         size, drill = lane.via
         qp = (q.x, q.y)
         yield from self._pads_fails(lane, q)
@@ -558,21 +559,21 @@ class Layouter:
                 else:
                     gap = min(point_segment_distance(qp, a, b) for a, b in segs) - other.width / 2.0 - size / 2.0
                 if gap < need - _TOL:
-                    yield need - gap, "the lane of pin %s, %s mm off (needs %s)" % ((other.number,) + gap_texts(gap, need, 3))
+                    yield need - gap, Refusal(Code.LANE_LANE, pin=other.number, gap_mm=gap, need_mm=need)
             if other.via_at is not None:
                 ov = other.via_at
                 dist = math.hypot(q.x - ov.x, q.y - ov.y)
                 if dist - (size + other.via[0]) / 2.0 < need - _TOL:
-                    yield need - (dist - (size + other.via[0]) / 2.0), "the via of pin %s, %s mm off (needs %s)" % (
-                        (other.number,) + gap_texts(dist - (size + other.via[0]) / 2.0, need, 3))
+                    yield need - (dist - (size + other.via[0]) / 2.0), Refusal(
+                        Code.LANE_VIA, pin=other.number, gap_mm=dist - (size + other.via[0]) / 2.0, need_mm=need)
         for other in self.lanes.values():
             if other is lane or other.via_at is None:
                 continue
             ov = other.via_at
             hole = math.hypot(q.x - ov.x, q.y - ov.y) - (drill + other.via[1]) / 2.0
             if hole < self.env.hole_to_hole - _TOL:
-                yield self.env.hole_to_hole - hole, "the hole of pin %s's via, %s mm off (hole to hole needs %s)" % (
-                    (other.number,) + gap_texts(hole, self.env.hole_to_hole, 3))
+                yield self.env.hole_to_hole - hole, Refusal(Code.LANE_HOLE, pin=other.number, gap_mm=hole,
+                                                            need_mm=self.env.hole_to_hole)
         if self.decl.turn is None:
             yield from self._path_fails(lane, q, others)
         if others:
@@ -580,7 +581,7 @@ class Layouter:
             if why is not None:
                 yield math.inf, why
 
-    def _via_why(self, lane: _Lane, q: Location, others: bool) -> str | None:
+    def _via_why(self, lane: _Lane, q: Location, others: bool) -> Refusal | None:
         return next((text for _, text in self._via_fails(lane, q, others)), None)
 
     def _path_fails(self, lane: _Lane, q: Location, others: bool):
@@ -598,8 +599,7 @@ class Layouter:
                 ov = other.via_at
                 gap = min(_point_poly_distance((ov.x, ov.y), t.polygon) for t in mine) - other.via[0] / 2.0
                 if gap < need - _TOL:
-                    yield need - gap, "the via of pin %s, passed by the lane %s mm off (needs %s)" % (
-                        (other.number,) + gap_texts(gap, need, 3))
+                    yield need - gap, Refusal(Code.LANE_PASSED_VIA, pin=other.number, gap_mm=gap, need_mm=need)
         if lane.jog is None:
             return
         tracks = mine
@@ -611,8 +611,7 @@ class Layouter:
             theirs = self._seg_tracks(other, segs)
             gap = min(poly_distance(t.polygon, u.polygon) for t in tracks for u in theirs)
             if gap < need - _TOL:
-                yield need - gap, "the lane of pin %s, passed by the jog %s mm off (needs %s)" % (
-                    (other.number,) + gap_texts(gap, need, 3))
+                yield need - gap, Refusal(Code.LANE_PASSED_JOG, pin=other.number, gap_mm=gap, need_mm=need)
         for number, shapes in self.pads.items():
             for sh in shapes:
                 if sh.net == lane.net:
@@ -622,8 +621,7 @@ class Layouter:
                     continue
                 gap = min(poly_distance(t.polygon, sh.poly) for t in tracks)
                 if gap < need - _TOL:
-                    yield need - gap, "pad %s of its own part, passed by the jog %s mm off (needs %s)" % (
-                        (number,) + gap_texts(gap, need, 3))
+                    yield need - gap, Refusal(Code.LANE_PAD_JOG, pin=number, gap_mm=gap, need_mm=need)
         if others:
             for t in tracks:
                 for why in self.env.hits(t):
@@ -636,9 +634,9 @@ class Layouter:
                 need = self.env.clearance(lane.net, sh.net, sh.owner)
                 gap = _point_poly_distance((q.x, q.y), sh.poly) - size / 2.0
                 if gap < need - _TOL:
-                    yield need - gap, "pad %s of its own part, %s mm off (needs %s)" % ((number,) + gap_texts(gap, need, 3))
+                    yield need - gap, Refusal(Code.LANE_PAD, pin=number, gap_mm=gap, need_mm=need)
 
-    def _pads_why(self, lane: _Lane, q: Location) -> str | None:
+    def _pads_why(self, lane: _Lane, q: Location) -> Refusal | None:
         return next((text for _, text in self._pads_fails(lane, q)), None)
 
     def _first(self, lane: _Lane, why, a_from: float) -> float | None:
@@ -752,7 +750,7 @@ class Layouter:
                         best = worst
                 a += self.env.step
         lane.jog, lane.corner, lane.ca = was
-        return best[1] if best else "nothing stands in its way"
+        return str(best[1]) if best else "nothing stands in its way"
 
     def _place_vias(self) -> None:
         d = self.decl
@@ -772,8 +770,8 @@ class Layouter:
                 if jogged is not None:
                     _, lane.jog, lane.corner, lane.ca, a = jogged
                 lane.a = a
-                lane.blocked_why = "its via has no legal spot within %.1f mm: %s" % (
-                    self.env.reach, self._via_why(lane, self._end_at(lane, a), True))
+                lane.blocked_why = Refusal(Code.LANE_NO_SPOT, reach_mm=self.env.reach,
+                                           why=self._via_why(lane, self._end_at(lane, a), True))
             elif jogged is not None:
                 _, lane.jog, lane.corner, lane.ca, a = jogged
             lane.a = a

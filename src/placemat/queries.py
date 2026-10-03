@@ -16,6 +16,7 @@ import re
 from .geometry import (circle_polygon, gap_texts, via_ring, distance_to_boundary, point_in_polygon, point_segment_distance,
                        poly_distance, polys_overlap)
 from .copper import _segment_polygon
+from .refusals import Code, Refusal
 from .values import Box, Location
 
 _HARD = ("pad", "track", "via", "poly")
@@ -32,16 +33,16 @@ class ViaVerdict:
 
 
 def _holes(geometry):
-    """Every drilled hole on the board as (centre, diameter, what)."""
+    """Every drilled hole on the board as (centre, diameter, what): a hole as refusals.Q_HOLE names it."""
     for fp in geometry.footprints:
         for p in fp.pads:
             if p.through and p.drill_mm:
-                yield p.box.center, p.drill_mm, "%s pad %s" % (fp.ref, p.number)
+                yield p.box.center, p.drill_mm, {"form": "pad", "ref": fp.ref, "number": p.number}
         for at, dia in fp.npth:
-            yield at, dia, "%s hole" % fp.ref
+            yield at, dia, {"form": "npth", "ref": fp.ref}
     for c in geometry.copper:
         if c.kind == "via" and c.drill_mm:
-            yield c.box.center, c.drill_mm, "via %s" % c.net
+            yield c.box.center, c.drill_mm, {"form": "via", "net": c.net}
 
 
 def _edge_rings(geometry):
@@ -54,11 +55,11 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
     hard, soft = [], []
     rings = _edge_rings(geometry)
     if rings and not point_in_polygon((at.x, at.y), rings[0]):
-        hard.append("off the board")
+        hard.append(Refusal(Code.Q_OFF_BOARD))
     elif rings:
         gap = min(distance_to_boundary(poly, r) for r in rings)
         if gap < geometry.edge_clearance - 1e-9:
-            hard.append("%s mm from the board edge (needs %s)" % gap_texts(gap, geometry.edge_clearance))
+            hard.append(Refusal(Code.Q_EDGE, gap_mm=gap, need_mm=geometry.edge_clearance))
     for c in geometry.copper:
         if c.net == net or not c.outlines:
             continue
@@ -69,34 +70,31 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
         gap = min(poly_distance(poly, o) for o in c.outlines)
         if gap >= reach - 1e-9:
             continue
-        where = "/".join(sorted(l.value for l in c.layers))
         if c.kind == "zone":
-            soft.append("the %s pour on %s would give way" % (c.net, where))
+            soft.append(Refusal(Code.Q_POUR, net=c.net, layers=sorted(l.value for l in c.layers)))
         elif c.kind in _HARD:
-            got, want = gap_texts(gap, reach)
-            hard.append("%s mm from %s %s on %s (needs %s)" % (got, c.net or "-", c.kind, where, want))
+            hard.append(Refusal(Code.Q_COPPER, net=c.net, kind=c.kind, layers=sorted(l.value for l in c.layers),
+                                gap_mm=gap, need_mm=reach))
     for fp in geometry.footprints:                   # a footprint's own copper graphics: copper of no net
         for layer, art in fp.copper:
             if not box.overlaps(Box.of_points(art), gap=geometry.default_clearance):
                 continue
             gap = poly_distance(poly, art)
             if gap < geometry.default_clearance - 1e-9:
-                got, want = gap_texts(gap, geometry.default_clearance)
-                hard.append("%s mm from %s's own copper on %s (needs %s)" % (got, fp.ref, layer.value, want))
+                hard.append(Refusal(Code.Q_OWN_COPPER, ref=fp.ref, layer=layer.value, gap_mm=gap,
+                                    need_mm=geometry.default_clearance))
     for centre, dia, what in _holes(geometry):
         gap = at.distance(centre) - (drill + dia) / 2.0
         if gap < geometry.hole_to_hole - 1e-9:
-            got, want = gap_texts(gap, geometry.hole_to_hole)
-            hard.append("hole %s mm from the %s hole (needs %s)" % (got, what, want))
+            hard.append(Refusal(Code.Q_HOLE, hole=what, gap_mm=gap, need_mm=geometry.hole_to_hole))
     for fp in geometry.footprints:                   # an unplated hole has no copper: the via's copper keeps off its edge
         for centre, dia in fp.npth:
             edge = at.distance(centre) - (size + dia) / 2.0
             if edge < geometry.hole_clearance - 1e-9:
-                got, want = gap_texts(edge, geometry.hole_clearance)
-                hard.append("copper %s mm from %s's unplated hole (needs %s)" % (got, fp.ref, want))
+                hard.append(Refusal(Code.Q_NPTH, ref=fp.ref, gap_mm=edge, need_mm=geometry.hole_clearance))
     for ra in geometry.rule_areas:
         if "vias" in ra.excludes and ra.layers and net not in ra.allow and polys_overlap(poly, ra.polygon):
-            hard.append("inside %s, which forbids vias" % ra.base)
+            hard.append(Refusal(Code.Q_KEEPOUT, base=ra.base))
     return ViaVerdict(tuple(hard), tuple(dict.fromkeys(soft)))
 
 
@@ -144,8 +142,7 @@ def judge_tail(geometry, start: Location, end: Location, net: str, width: float,
             continue
         gap = min(poly_distance(poly, o) for o in c.outlines)
         if gap < reach - 1e-9:
-            got, want = gap_texts(gap, reach)
-            out.append("tail %s mm from %s %s on %s (needs %s)" % (got, c.net or "-", c.kind, layer.value, want))
+            out.append(Refusal(Code.Q_TAIL, net=c.net, kind=c.kind, layer=layer.value, gap_mm=gap, need_mm=reach))
     return tuple(out)
 
 
@@ -154,27 +151,6 @@ class Spot:
     at: Location
     distance: float
     soft: tuple = ()
-
-
-_COPPER_REASON = re.compile(r"mm from \S+ (pad|track|via|poly) on ")
-
-
-def _kind(reason: str) -> str:
-    """A reason's tally bucket, read from its shape. Matching the first word
-    that looks like a kind put a track of a net called /mcu/edge_led under
-    "edge"."""
-    if reason.startswith("tail "):
-        return "tail"
-    if reason.startswith("hole "):
-        return "hole"
-    if reason.startswith("off the board") or " from the board edge" in reason:
-        return "edge"
-    if reason.startswith("inside ") and "forbids" in reason:
-        return "keepout"
-    if reason == "in the source pad":
-        return "pad"
-    m = _COPPER_REASON.search(reason)
-    return m.group(1) if m else reason.split()[0]
 
 
 def free_spot(start: Location, judge, radius: float = 2.0, step: float = 0.05) -> tuple:
@@ -193,7 +169,7 @@ def free_spot(start: Location, judge, radius: float = 2.0, step: float = 0.05) -
             why, soft = judge(c)
             if why is None:
                 return Spot(c, round(r, 4), tuple(soft)), tally, tried
-            tally[_kind(why)] += 1
+            tally[why.tally] += 1
     return None, tally, tried
 
 
@@ -215,7 +191,7 @@ def via_judge(geometry, start: Location, net: str, size: float, drill: float, wi
         if source:
             ring = via_ring(c, size)
             if any(polys_overlap(ring, o) for o in source):
-                return "in the source pad", ()
+                return Refusal(Code.SOURCE_PAD), ()
         v = judge_via(geometry, c, net, size, drill)
         if not v.clear:
             return v.hard[0], v.soft

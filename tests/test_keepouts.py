@@ -85,7 +85,7 @@ def test_a_part_in_a_reservation_is_refused_by_its_why():
     g, occ = _occ("u1")
     occ.reserve(Box(6.0, 6.0, 14.0, 14.0), "the clearance")
     why = occ.legal(g.footprints[0], Placement(Location(10.0, 10.0), 0.0, Face.FRONT))
-    assert why is not None and "the clearance" in why
+    assert why is not None and "the clearance" in str(why)
 
 
 def test_a_named_part_may_sit_in_a_reservation():
@@ -413,7 +413,7 @@ def test_a_region_partly_off_the_board_is_still_enforced():
     b.keepout(Circle(10.0), "seal", at=Location(38.0, 20.0), why="the gland")
     plan = b.resolve()
     assert "seal" in plan.keepouts
-    assert any("seal" in r.why for r in plan.occupancy.reservations)
+    assert any("seal" in str(r.why) for r in plan.occupancy.reservations)
 
 
 def test_that_region_s_step_counts_the_points_that_fell_outside():
@@ -490,7 +490,7 @@ def _with_rule_area(cell, poly):
 def test_a_board_level_rule_area_is_reserved_from_the_start():
     poly = ((25.0, 25.0), (35.0, 25.0), (35.0, 35.0), (25.0, 35.0))
     occ = Occupancy(_with_rule_area(None, poly), edge_margin=0.0)
-    assert any("antenna_1" in r.why for r in occ.reservations)
+    assert any("antenna_1" in str(r.why) for r in occ.reservations)
 
 
 def test_a_cell_owned_rule_area_waits_for_its_cell():
@@ -502,7 +502,7 @@ def test_a_cell_owned_rule_area_waits_for_its_cell():
     assert not occ.reservations
     occ.commit(g.cell("ant_rf"), Placement(Location(40.0, 40.0), 0.0, Face.FRONT))
     (r,) = occ.reservations
-    assert "antenna_1" in r.why
+    assert "antenna_1" in str(r.why)
     # the region travelled with the cell: its box centre moved with the cell's
     assert r.box.center.x > 20.0 and r.box.center.y > 20.0
 
@@ -513,7 +513,7 @@ def test_a_part_is_refused_for_sitting_in_a_cell_s_stamped_region():
     occ = Occupancy(g, edge_margin=0.0)
     occ.commit(g.cell("ant_rf"), Placement(g.cell("ant_rf").box.center, 0.0, Face.FRONT))
     why = occ.legal(g.footprint("R1"), Placement(Location(11.0, 11.0), 0.0, Face.FRONT))
-    assert why is not None and "antenna_1" in why
+    assert why is not None and "antenna_1" in str(why)
 
 
 def test_a_rule_area_that_does_not_forbid_parts_reserves_nothing():
@@ -547,7 +547,7 @@ def test_a_free_region_is_not_judged_by_a_hole_s_rules():
     b.keepout(Circle(38.0), "band", at=Centre(None, 20.0), why="the seal band")
     plan = b.resolve()
     assert "band" in plan.keepouts, plan.findings
-    assert any("band" in r.why for r in plan.occupancy.reservations)
+    assert any("band" in str(r.why) for r in plan.occupancy.reservations)
 
 
 def test_a_free_region_may_sit_over_a_part_that_is_already_placed():
@@ -598,7 +598,7 @@ def test_a_front_only_rule_area_leaves_the_back_free():
     g = _with_rule_area(None, poly)                                  # F.Cu only
     occ = Occupancy(g, edge_margin=0.0)
     r1 = g.footprint("R1")
-    assert "antenna_1" in (occ.legal(r1, Placement(Location(30.0, 30.0), 0.0, Face.FRONT)) or "")
+    assert "antenna_1" in str(occ.legal(r1, Placement(Location(30.0, 30.0), 0.0, Face.FRONT)) or "")
     assert occ.legal(r1, Placement(Location(30.0, 30.0), 0.0, Face.BACK)) is None
 
 
@@ -612,7 +612,7 @@ def test_a_cell_s_front_only_rule_area_goes_to_the_back_with_the_cell():
     probe = Placement(Location(r.box.center.x, r.box.center.y), 0.0, Face.FRONT)
     assert "antenna_1" not in (occ.legal(g.footprint("R1"), probe) or "")
     probe = Placement(probe.location, 0.0, Face.BACK)
-    assert "antenna_1" in (occ.legal(g.footprint("R1"), probe) or "")
+    assert "antenna_1" in str(occ.legal(g.footprint("R1"), probe) or "")
 
 
 def test_a_strip_across_the_board_with_its_corners_off_it_still_covers_it():
@@ -623,7 +623,7 @@ def test_a_strip_across_the_board_with_its_corners_off_it_still_covers_it():
               excludes=("parts",), why="a band across")
     b.place(Part("u1"), at=Location(20.0, 30.0))
     plan = b.resolve()
-    assert any("band" in r.why for r in plan.occupancy.reservations)
+    assert any("band" in str(r.why) for r in plan.occupancy.reservations)
 
 
 def test_a_region_wholly_past_the_edge_is_still_an_error():
@@ -657,7 +657,7 @@ def test_a_stamped_cell_s_label_keeps_parts_off_it_once_the_cell_lands():
     cell = g.cell("panel")
     occ.commit(cell, Placement(cell.box.center, 0.0, Face.FRONT))
     why = occ.legal(g.footprint("R1"), Placement(Location(10.0, 12.5), 0.0, Face.FRONT)) or ""
-    assert "label 'BOOT' from the panel cell" in why
+    assert "label 'BOOT' from the panel cell" in str(why)
     assert occ.legal(g.footprint("R1"), Placement(Location(10.0, 12.5), 0.0, Face.BACK)) is None
 
 

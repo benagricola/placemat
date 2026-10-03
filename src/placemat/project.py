@@ -204,7 +204,7 @@ def fab_min_findings(netclasses: dict, fab: FabProfile) -> list:
     width, clearance, via diameter, via drill or annular ring (diameter
     less drill, halved) below fab-profile.json's `min`. Each class checked
     once, by name, not once per net on it."""
-    from .findings import Finding
+    from .findings import Finding, FindingCause as C
     mn = fab.min
     if not mn:
         return []
@@ -220,8 +220,8 @@ def fab_min_findings(netclasses: dict, fab: FabProfile) -> list:
         for key, value, label in checks:
             floor = mn.get(key)
             if floor is not None and value < floor - 1e-9:
-                out.append(Finding("fab", "net class %s: %s %.3g mm is below the fab's minimum %.3g mm "
-                                   "(fab-profile.json min.%s)" % (nc.name, label, value, floor, key)))
+                out.append(Finding(C.FAB_MINIMUM, {"net_class": nc.name, "what": label, "value_mm": value,
+                                                   "minimum_mm": floor, "key": key}))
     return out
 
 
@@ -328,12 +328,13 @@ def script_files(script, missing: bool = False) -> list:
     return found
 
 
-def script_fingerprint(script) -> str:
+def script_fingerprint(script, with_lock: bool = True) -> str:
     """The script's text, that of every module it imports from beside it or
     from the folders above it that run_script adds (followed through their
     own imports) and its lock file: what the run id
     hashes, so a change to shared geometry in a sibling module, or an
-    accepted explore result, is a different run."""
+    accepted explore result, is a different run. `with_lock=False` leaves
+    the lock and the kept routes out: the script alone."""
     script = Path(script).resolve()
     here = script.parent
     parts, lock, kept = [], None, None
@@ -345,8 +346,8 @@ def script_fingerprint(script) -> str:
             kept = text
         else:
             parts.append("%s\0%s" % (os.path.relpath(path, here) if path != script else "", text))
-    if lock is not None:
+    if lock is not None and with_lock:
         parts.append("lock\0%s" % lock)
-    if kept is not None:
+    if kept is not None and with_lock:
         parts.append("routes\0%s" % kept)
     return "\0\0".join(parts)

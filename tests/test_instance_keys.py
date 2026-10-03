@@ -3,6 +3,7 @@ renumbering elsewhere on the board (a capacitor removed, the rest
 renumbered) moves nothing and drops nothing."""
 import dataclasses
 
+from placemat.refusals import Refusal
 from placemat import lock, routes
 from placemat.explore import Explore
 from placemat.layout import Board
@@ -85,7 +86,7 @@ def test_adopted_routes_written_with_refdes_still_resolve():
                               tracks=tuple({**t, "a": point(t["a"]), "b": point(t["b"])} for t in e.tracks),
                               vias=tuple({**v, "at": point(v["at"])} for v in e.vias))
     from tests.test_routes import _occupancy
-    assert not isinstance(routes.resolve(old, _occupancy(), 0.001), str)
+    assert not isinstance(routes.resolve(old, _occupancy(), 0.001), Refusal)
 
 
 def test_a_cells_digest_does_not_follow_the_order_its_members_are_read_in():

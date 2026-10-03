@@ -218,8 +218,8 @@ def test_the_watcher_follows_a_live_command_and_shows_a_dead_one_from_its_progre
         gone.write_text(json.dumps({"ev": "hello", "pid": 999999999}) + "\n" + json.dumps({"ev": "item", "key": "u7"}) + "\n")
         (d / "999999999.json").write_text(json.dumps({"pid": 999999999, "started": 1.0, "socket": str(d / "x.sock"), "progress": str(gone)}))
         deadline = time.monotonic() + 10
-        while not dead and time.monotonic() < deadline:
-            time.sleep(0.05)
+        while (not dead or (d / "999999999.json").exists()) and time.monotonic() < deadline:
+            time.sleep(0.05)              # the watcher reports the dead command, then cleans its entry
         assert dead and [e["ev"] for e in dead[0][1]] == ["hello", "item"] and not (d / "999999999.json").exists()
     finally:
         w.stop()

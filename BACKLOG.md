@@ -246,6 +246,28 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Settings documented as data, renamed where unclear** (0.90.0): every
+  setting's unit and meaning in settings.py, the api.md table generated from
+  it, `placemat settings --example`, 31 renames (old names accepted for one
+  release); studio finding badges, vias above pads, pads in layer colours,
+  why it moved.
+
+- **Explore curve, stopping rules, studio notes** (0.89.0): an explore keeps
+  its score curve and says when the best was found, with stall and hard-clear
+  stopping rules (off by default); `placemat studio note`; board.size refused;
+  arc corners default to 3 track widths.
+
+- **Stopping and resuming long commands** (0.88.0): a stop by signal writes
+  the best so far and run.json "stopped" and tells live readers; explore
+  checkpoints and resumes untried seeds; a resolve replays the steps a dead
+  run finished; a route keeps finished stages; `placemat lock --accept-seed`.
+
+- **Live progress for long commands** (0.87.0): each command that resolves a
+  board owns a socket under .placemat/sockets with a catch-up for late
+  readers, a progress trail for a command that dies, `placemat watch`, and the
+  studio's Runs view and explore view; the test suite's slow tests run only
+  with --full.
+
 - **Skill audit** (0.86.4): SKILL.md and references checked against the code
   and corrected.
 

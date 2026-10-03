@@ -15,6 +15,7 @@ from . import geometry as _geometry_module
 from . import giveway
 from .geometry import Transform, _rect_of, point_in_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, ShapeIndex, _reason_key
+from .refusals import Code, Refusal
 from .placement import Placement
 from .values import Box, Edge, Face, Location, Mid, bearing, bearing_vector, box_support
 
@@ -227,7 +228,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             why = accept(cand)
             asked[key] = why is not None
             if why is not None:
-                bucket = why.split(":")[0]
+                bucket = why.bucket
                 rejected[bucket] += 1
                 reasons.setdefault(bucket, why)
         return asked[key]
@@ -434,10 +435,10 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
 
     cfg = occ.settings
     phase = getattr(occ, "on_phase", None)             # a viewer's note of which pass a long scan is in
-    if score is None or radius / step < cfg.place_coarse_from:
+    if score is None or radius / step < cfg.place_coarse_min_radius_steps:
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), stop_at_first=score is None)
     else:
-        coarse = step * cfg.place_coarse_steps
+        coarse = step * cfg.place_coarse_stride
         if phase:
             phase("coarse pass over the radius")
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse)), False)
@@ -453,9 +454,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             # The best coarse spots by score seed the refinement, and so do the best `accept` takes: a coarse spot
             # that `accept` (the riders) refuses can have a neighbour a fine step away that it takes, and a score
             # better than any spot near the ones it does take.
-            seeds = [cand for _, _, _, cand in legal[:cfg.place_refine_around]]
+            seeds = [cand for _, _, _, cand in legal[:cfg.place_refine_spots]]
             if accept is not None:
-                seeds += [cand for _, _, _, cand in counted(legal, cfg.place_refine_around)
+                seeds += [cand for _, _, _, cand in counted(legal, cfg.place_refine_spots)
                           if not any(cand is seed for seed in seeds)]
             for k, cand in enumerate(seeds):
                 if phase:
@@ -1088,7 +1089,7 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
     others = others or {}
     why = occ.legal(spec.anchor, anchor, clearance, others=others.get(spec.anchor.inst), past_edge=past_edge)
     if why:
-        return None, "anchor: " + why
+        return None, Refusal(Code.BLOCK_ANCHOR, why=why)
     pads = occ.candidate_pad_locations(spec.anchor, anchor)
     centre = occ.body_box(spec.anchor, anchor).center
     out = {spec.anchor.inst: anchor}
@@ -1191,10 +1192,8 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
                     break
         if best is None:
             if there:
-                return None, "%s: no legal spot on the axis of %s; %s already sits there: aim at another pad, " \
-                    "or link it instead" % (sat.inst, _aim_text(spec, k, pin, net), ", ".join(there))
-            return None, "%s: no legal spot on the axis of %s, nor slid up to %g mm along its row" % (
-                sat.inst, _aim_text(spec, k, pin, net), reach)
+                return None, Refusal(Code.BLOCK_TAKEN, sat=sat.inst, aim=_aim_facts(spec, k, pin, net), there=there)
+            return None, Refusal(Code.BLOCK_NO_SPOT, sat=sat.inst, aim=_aim_facts(spec, k, pin, net), reach_mm=reach)
         out[sat.inst] = best[1]
         taken += best[2]
         if drawn:
@@ -1272,14 +1271,12 @@ def _aimed_at(spec: BlockSpec, k: int, net: str):
     return spec.anchor.pad(net)
 
 
-def _aim_text(spec: BlockSpec, k: int, pin, net: str) -> str:
-    """Which anchor pad a satellite was aimed at, and why that one."""
-    text = "%s pad %s (%s" % (spec.anchor.ref, pin.number, net)
+def _aim_facts(spec: BlockSpec, k: int, pin, net: str) -> dict:
+    """Which anchor pad a satellite was aimed at, and what the script left to chance: `carrying` is the number of the
+    anchor's pads on the net when the script named none, else 0."""
     by_number = k < len(spec.named) and spec.named[k]
     carrying = sum(1 for p in spec.anchor.pads if p.net == net)
-    if not by_number and carrying > 1:
-        text += ", the first of its %d pads on it: name a pad number to aim at another" % carrying
-    return text + ")"
+    return {"ref": spec.anchor.ref, "pad": pin.number, "net": net, "carrying": 0 if by_number else carrying}
 
 
 def _pin_normal(pads: dict, ref: str, p: Location, rotation: float, pin_box: Box):
@@ -1355,10 +1352,10 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
         return fits
 
     cfg = occ.settings
-    if score is None or radius / step < cfg.place_coarse_from:
+    if score is None or radius / step < cfg.place_coarse_min_radius_steps:
         fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), score is None)
     else:
-        coarse = step * cfg.place_coarse_steps
+        coarse = step * cfg.place_coarse_stride
         fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse)), False)
         if not fits:
             fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
@@ -1366,7 +1363,7 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
             fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), False)
         if fits:
             fits.sort(key=lambda f: f[0])
-            for _, cand, _ in fits[:cfg.place_refine_around]:
+            for _, cand, _ in fits[:cfg.place_refine_spots]:
                 # The fine grid is centred on a coarse candidate, which can sit
                 # at the edge of the radius: keep only what is still inside it.
                 fits += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)

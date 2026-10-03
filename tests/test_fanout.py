@@ -17,7 +17,7 @@ def _board():
 
 
 def _band_edges(plan):
-    return [r for r in plan.occupancy.reservations if r.why.startswith("fanout")]
+    return [r for r in plan.occupancy.reservations if str(r.why).startswith("fanout")]
 
 
 def test_a_part_linked_to_a_pin_lands_across_the_band():
@@ -27,7 +27,7 @@ def test_a_part_linked_to_a_pin_lands_across_the_band():
     b.link(PadRef(Part("pull"), 1), PadRef(Part("mcu"), 1))
     b.place(Part("pull"))
     plan = b.resolve()
-    (west,) = [r for r in _band_edges(plan) if "west" in r.why]
+    (west,) = [r for r in _band_edges(plan) if "west" in str(r.why)]
     assert not plan.box("pull").overlaps(west.box)
     assert "fanout of mcu (west side)" in plan.step("pull").note     # it was turned away from its seed
 
@@ -73,8 +73,8 @@ def test_a_fanout_on_a_stamped_cell_s_member_is_banded_when_the_cell_lands():
     b.place(Part("pull"))
     plan = b.resolve()
     bands = _band_edges(plan)
-    assert {("west" in r.why, "east" in r.why) for r in bands} == {(True, False), (False, True)}
+    assert {("west" in str(r.why), "east" in str(r.why)) for r in bands} == {(True, False), (False, True)}
     pad = plan.occupancy.pad_location("U1", "1")
-    (west,) = [r for r in bands if "west" in r.why]
+    (west,) = [r for r in bands if "west" in str(r.why)]
     assert west.box.top >= pad.y - 0.5 - 1e-6 and west.box.bottom <= pad.y + 0.5 + 1e-6   # the row's span only
     assert not plan.box("pull").overlaps(west.box)

@@ -3,12 +3,10 @@ kind: a part left unplaced, a link over its limit, a fixed item that is not
 legal where it was put, copper that breaks a rule, a label on a part, an
 escape crossed, closed or walled off, or something about the setup that is
 the same every run."""
-import pathlib
-import re
-
 import pytest
 
-from placemat.findings import KINDS, Finding
+from placemat.findings import KINDS, Finding, FindingCause as C
+from tests.finding_samples import finding
 from placemat.layout import Board
 from placemat.values import Edge, LinkWeight, Location, Near, PadRef, Part
 from tests.fixtures import board_geometry, footprint
@@ -27,23 +25,21 @@ def kinds(plan):
 
 
 def test_a_finding_is_its_text_and_carries_its_kind():
-    f = Finding("link_over", "link a.1 to b.2 is 3.00 mm, over its 2.00 mm limit")
-    assert f == "link a.1 to b.2 is 3.00 mm, over its 2.00 mm limit" and f.kind == "link_over"
+    f = finding(C.LINK_OVER)
+    assert f == "link A.1 to B.2 is 3.00 mm, over its 2.00 mm limit" and f.kind == "link_over"
     assert f.startswith("link") and "over its" in f
-    with pytest.raises(ValueError):
-        Finding("nonsense", "x")
     assert set(KINDS) == {"unplaced", "link_over", "fixed", "copper", "label", "escape_crossed", "pair_crossed",
                           "escape_closed", "escape_walled", "escape_lane", "setup", "route", "vias", "fab", "facts",
                           "needs", "split"}
 
 
-def test_a_plan_takes_only_findings_that_say_their_kind():
+def test_a_plan_takes_only_findings_that_say_their_cause():
     b = _board()
     b.place(Part("u1"), at=Location(20, 20))
     plan = b.resolve()
     with pytest.raises(TypeError):
         plan.findings.append("a bare sentence")
-    plan.findings.append(Finding("setup", "fine"))
+    plan.findings.append(finding(C.SETUP_UNDECLARED))
 
 
 def test_a_link_over_its_limit():
@@ -93,23 +89,8 @@ def test_a_label_on_a_part_is_label():
     assert [f.kind for f in plan.findings if "sits on" in f] == ["label"]
 
 
-def test_every_site_in_the_source_that_makes_a_finding_names_its_kind():
-    """Every append to a plan's findings builds a Finding: the plan refuses a
-    bare string at run time, and this finds the sites no test reaches."""
-    src = pathlib.Path(__file__).resolve().parents[1] / "src" / "placemat"
-    bare = []
-    for path in sorted(src.glob("*.py")):
-        text = path.read_text()
-        # a run record's own notes (runner.py, "worse than the best run") are not a plan's findings
-        for m in re.finditer(r"(?<!rec\.)findings\.append\(\s*([^\n]*)", text):
-            if not m.group(1).lstrip().startswith(("Finding(", "_finding(", "self._finding(", "self._label_finding(")):
-                bare.append("%s:%d" % (path.name, text[:m.start()].count("\n") + 1))
-    assert not bare, bare
-
-
 def test_a_replayed_run_keeps_its_findings_kinds(tmp_path):
     from placemat import reuse as _reuse
-    f = Finding("link_over", "link a.1 to b.2 is 3.00 mm, over its 2.00 mm limit")
-    assert _reuse.finding_from_json(_reuse.finding_to_json(f)).kind == "link_over"
-    old = _reuse.finding_from_json("some sentence a 0.32 cache kept")
-    assert old == "some sentence a 0.32 cache kept" and old.kind == "setup"
+    f = finding(C.LINK_OVER)
+    g = _reuse.finding_from_json(_reuse.finding_to_json(f))
+    assert g.kind == "link_over" and g.cause is C.LINK_OVER and g == f

@@ -80,7 +80,7 @@ def test_a_joining_tail_that_would_meet_another_net_is_not_drawn():
 
 def test_via_share_zero_shares_nothing():
     from placemat.settings import Settings
-    plan = _cell_board(other=(19.1, 22.85), settings=Settings(place_via_share=0.0)).resolve()
+    plan = _cell_board(other=(19.1, 22.85), settings=Settings(place_via_share_distance=0.0)).resolve()
     assert plan.step("m").placement is None
 
 
@@ -253,14 +253,14 @@ def test_a_via_inside_its_pad_moves_only_within_the_pad():
 def test_a_via_inside_its_pad_with_room_only_outside_it_is_refused_where_it_may_not_leave():
     """R9's pad S on the back covers the right of U1's pad: clear spots are
     to the left, 0.35 mm off, where the via would leave its pad."""
-    plan = _moving_board((39.1, 40.0), False, (20.1, 20.0), settings=_settings(place_via_leave=0.0)).resolve()
+    plan = _moving_board((39.1, 40.0), False, (20.1, 20.0), settings=_settings(place_via_leave_distance=0.0)).resolve()
     step = plan.step("m")
     assert step.placement is None
     assert "no spot within 0.50 mm inside its pad is clear" in step.note, step.note
 
 
 def test_a_via_with_no_clear_spot_within_via_move_is_refused_and_named():
-    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=_settings(place_via_move=0.1)).resolve()
+    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=_settings(place_via_move_distance=0.1)).resolve()
     step = plan.step("m")
     assert step.placement is None
     assert "via SIG at (19.10, 22.20)" in step.note and "no spot within 0.10 mm is clear" in step.note, step.note
@@ -294,7 +294,7 @@ def test_a_via_that_could_share_or_move_shares():
 
 
 # ------------------------------------------------------------------ dropping
-_DROP_ONLY = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0, place_via_route=0.0)
+_DROP_ONLY = dict(place_via_share_distance=0.0, place_via_move_distance=0.0, place_via_leave_distance=0.0, place_via_route_distance=0.0)
 _THREE = [(38.85, 39.75), (38.85, 40.25), (39.35, 40.0)]    # in U1's GND pad; R9's pad S meets the right one
 
 
@@ -320,7 +320,7 @@ def test_a_pad_at_its_keep_share_refuses_the_candidate():
 
 def test_a_pads_last_drop_is_never_dropped_whatever_drops_keep_says():
     plan = _moving_board((39.35, 40.0), False, (20.3, 20.0), net="GND", planes=("GND",),
-                         settings=_settings(place_drops_keep=0.0, **_DROP_ONLY)).resolve()
+                         settings=_settings(place_drops_keep_share=0.0, **_DROP_ONLY)).resolve()
     step = plan.step("m")
     assert step.placement is None
     assert "keeps 1 of its 1 drops, and must keep 1" in step.note, step.note
@@ -347,7 +347,7 @@ def test_dropping_costs_score_via_drop_in_the_search():
 
 # ---------------------------------------------------------------- shortening
 IN1 = CopperLayer.IN1
-_SHORTEN_ONLY = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0, place_via_route=0.0, place_via_relay=False)
+_SHORTEN_ONLY = dict(place_via_share_distance=0.0, place_via_move_distance=0.0, place_via_leave_distance=0.0, place_via_route_distance=0.0, place_via_relay=False)
 
 
 def _shorten_board(via_at, r9_at, plane_layer=IN1, tiers=None, settings=None, extra=()):
@@ -421,28 +421,31 @@ def test_a_yes_tier_still_shortens_with_a_no_tier_hint_in_place():
 # ------------------------------------------------------------------ the tally of vias that could not give way
 def test_a_refusal_by_a_via_that_cannot_give_way_is_tallied_as_that():
     from placemat.occupancy import VIA_BUCKET, _reason_key
+    from placemat.refusals import Code, Refusal
     assert VIA_BUCKET == "via cannot give way"
-    assert _reason_key("copper: pad Y is 0.0 mm from GND copper; the via GND at (1.00, 2.00) (U1) cannot give way: "
-                       "no spot") == VIA_BUCKET
-    assert _reason_key("through via X at (1.00, 2.00) is too near; it cannot give way: no spot") == VIA_BUCKET
-    assert _reason_key("copper pad Y is 0.0 mm from GND copper") == "copper"
+    near = Refusal(Code.COPPER_NEAR)
+    via = {"net": "GND", "at": [1.0, 2.0], "of": ["part", "U1"]}
+    assert _reason_key(Refusal(Code.CANNOT_GIVE_WAY, base=near, via=via, why_not=[Refusal(Code.NO_SPOT, reach_mm=0.5,
+                                                                                        inside=False)])) == VIA_BUCKET
+    assert _reason_key(Refusal(Code.CANNOT_GIVE_WAY, base=near, via=None, why_not=[])) == VIA_BUCKET
+    assert _reason_key(near) == "copper"
 
 
 def test_a_scan_counts_the_vias_that_could_not_give_way_apart_from_copper():
     from placemat.placement import Placement
     from placemat.placer import scan
-    b = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=_settings(place_via_move=0.1))
+    b = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=_settings(place_via_move_distance=0.1))
     occ = Occupancy(b.geometry, 0.5, settings=b.settings)
     centre = occ._geometry(b.geometry.cells["m"]).reference.location
     hint = Placement(Location(centre.x - 20, centre.y - 20), 0.0, Face.FRONT)
     r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=None)
     assert r.chosen is None
     assert r.rejected["via cannot give way"] == 1 and "copper" not in r.rejected, r.rejected
-    assert "cannot give way" in r.reasons["via cannot give way"]
+    assert "cannot give way" in str(r.reasons["via cannot give way"])
 
 
 def test_the_unplaced_finding_says_how_many_vias_could_not_give_way():
-    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=_settings(place_via_move=0.1)).resolve()
+    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=_settings(place_via_move_distance=0.1)).resolve()
     [f] = [f for f in plan.findings if f.kind == "unplaced"]
     assert "vias that could not give way x1" in f, f
     assert "copper x" not in f, f
@@ -549,10 +552,10 @@ _MOVES = {
     "a tail redrawn": lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0)),
     "inside its pad": lambda: _moving_board((39.1, 40.0), False, (17.45, 20.0), r9_w=3.0),
     "refused inside its pad": lambda: _moving_board((39.1, 40.0), False, (20.1, 20.0),
-                                                    settings=_settings(place_via_leave=0.0)),
+                                                    settings=_settings(place_via_leave_distance=0.0)),
     "leaves its pad": lambda: _moving_board((39.1, 40.0), False, (20.1, 20.0)),
     "refused within via_move": lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0),
-                                                     settings=_settings(place_via_move=0.1)),
+                                                     settings=_settings(place_via_move_distance=0.1)),
     "a placed via": lambda: _later_board([_via("SIG", 39.1, 42.2, owner="m"),
                                           track("SIG", 39.1, 40.0, 39.1, 42.2, w=0.2, owner="m")],
                                          (19.5, 23.0), net="SIG"),
@@ -750,7 +753,7 @@ def test_a_via_does_not_share_another_via_of_its_own_item():
 def _anchored_board():
     """Cell n (N1, with a GND via of its own at (19.1, 23.5)) and R9 on the
     back placed firmly; then cell m, whose GND via lands on R9's pad S and
-    shares n's via (`place.via_share` 2 mm); then R2, searched on the back
+    shares n's via (`place.via_share_distance` 2 mm); then R2, searched on the back
     with no room to move, its pad S2 on n's via."""
     from placemat.settings import Settings
     fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=("GND", "X"), cell="m"),
@@ -763,7 +766,7 @@ def _anchored_board():
     occ = Occupancy(g)
     m_centre = occ._geometry(g.cells["m"]).reference.location
     n_centre = occ._geometry(g.cells["n"]).reference.location
-    b = Board(g, edge_margin=0.5, keep_going=True, settings=Settings(place_via_share=2.0))
+    b = Board(g, edge_margin=0.5, keep_going=True, settings=Settings(place_via_share_distance=2.0))
     b.place(Cell("n"), at=n_centre)
     b.place(Part("r9"), at=Location(19.5, 21.9), face=Face.BACK)
     b.place(Cell("m"), at=Location(m_centre.x - 20, m_centre.y - 20))

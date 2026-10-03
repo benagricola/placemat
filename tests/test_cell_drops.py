@@ -68,20 +68,20 @@ def test_half_keeps_a_checkerboard_of_each_field():
 
 
 def test_min_keeps_the_keep_share_of_each_field_rounded_up():
-    _, plan = _plan(Drops.MIN, place_drops_keep=0.3)
+    _, plan = _plan(Drops.MIN, place_drops_keep_share=0.3)
     assert len(_in(_vias(plan))) == 3                  # ceil(0.3 * 9)
     assert (2.9, 0.0) in _vias(plan)
     assert len(_vias(plan)) == 3 + 3
 
 
 def test_min_never_leaves_a_field_empty():
-    _, plan = _plan(Drops.MIN, place_drops_keep=0.0)
+    _, plan = _plan(Drops.MIN, place_drops_keep_share=0.0)
     assert len(_in(_vias(plan))) == 1
     assert len(_vias(plan)) == 1 + 3
 
 
 def test_a_signal_via_and_a_drop_outside_every_pad_are_kept():
-    _, plan = _plan(Drops.MIN, place_drops_keep=0.0)
+    _, plan = _plan(Drops.MIN, place_drops_keep_share=0.0)
     assert (-2.9, 0.0) in _vias(plan) and (0.0, 3.5) in _vias(plan)
 
 

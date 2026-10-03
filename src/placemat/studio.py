@@ -360,6 +360,8 @@ class Studio:
         self._fresh_next = False                # the next resolve replays nothing from an earlier one
         self._try = None                        # the try of a suggestion in flight: {"id", "rid", "event", "result", ...}
         self._applied_text = ""                 # what the next resolve is said to follow: an applied (or undone) suggestion
+        self._notes: list = []                  # this script's notes (notes.py), oldest first
+        self._notes_stamp = None                # (mtime_ns, size) of the notes file when it was last read
         self.cmds: dict = {}                    # the commands of the project that report over the channel, by connection id
         self.watcher = None
         self._run = None                        # the checked run in progress: {"id", "lines"}
@@ -415,6 +417,7 @@ class Studio:
             self.cfg = settings_mod.load(self.src.board_dir, script=self.script)
             self.worker.log_path = self._views() / "worker.log"
             self.history.clear()
+            self._notes, self._notes_stamp = [], None
             self._run_cache.clear()
             self._cur, self._cancel_at, self._error, self._dirty = None, None, None, False
             self.debounce.stopped()
@@ -515,9 +518,37 @@ class Studio:
             if self._stopping.wait(self.poll_s):
                 return
 
+    def _check_notes(self) -> None:
+        """Read the notes file when it has changed and tell the pages of the notes they have not been told of."""
+        from . import notes as notes_mod
+        if self.src is None:
+            return
+        try:
+            st = notes_mod.path_for(self.src.board_dir).stat()
+            stamp = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            stamp = None
+        if stamp == self._notes_stamp:
+            return
+        self._notes_stamp = stamp
+        fresh = notes_mod.read(self.src.board_dir, self.script.name)
+        with self.lock:
+            seen = {n["id"] for n in self._notes}
+            new = [n for n in fresh if n["id"] not in seen]
+            self._notes = fresh
+            for n in new:
+                self.hub.emit("note", n)
+
+    def notes_list(self) -> list:
+        """The notes for this script that have not expired, oldest first, as a page that joins is given them."""
+        from . import notes as notes_mod
+        with self.lock:
+            return notes_mod.live(self._notes, self.cfg.studio_note_age_s)
+
     def _tick(self, now: float) -> None:
         if self.script is None:
             return                              # a picker: nothing is watched until a script is chosen
+        self._check_notes()
         changed = self._poller.scan()
         if changed:
             self._files = self.watched()        # an import added or dropped changes what is watched
@@ -790,8 +821,11 @@ class Studio:
             raise self._sg_refusal(e)
         out = self._applied_json(done)
         s = next(x for x in pool if x.id == sid)
-        targets = [("target", s.edit.target)] if s.edit.target is not None else []
-        targets += [("refers to", r) for r in (s.edit.refs or {}).values()]
+        targets = []
+        for e in list(getattr(s, "edits", None) or [s.edit]):         # a suggestion may make several edits; each names its declaration
+            if e.target is not None:
+                targets.append(("target", e.target))
+            targets += [("refers to", r) for r in (e.refs or {}).values()]
         out["targets"] = [{"role": role, "key": tg.key, "file": self.name_of(tg.file), "line": tg.line} for role, tg in targets if tg.file]
         out["resolve"] = rec.id
         return out
@@ -1258,7 +1292,8 @@ class Studio:
     def _hello_data(self) -> dict:
         common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
                   "explores": self.explores(), "explore_fps": self.cfg.studio_explore_fps,
-                  "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply)}
+                  "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply),
+                  "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s}
         if self.script is None:
             return {**common, "script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
                     "scripts": self.script_list(), "history": [], "resolving": None, "error": None, "runs": [], "run": None}

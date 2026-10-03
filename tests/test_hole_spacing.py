@@ -41,7 +41,7 @@ def test_two_cells_vias_of_one_net_keep_the_hole_to_hole_rule():
     occ = _cells()
     b, at = _b_with_its_via_at(occ, 12.5 + 0.55, 10)          # centres 0.55 apart: holes 0.25
     why = occ.legal(b, at)
-    assert why is not None and "hole" in why and "0.25" in why and "0.30" in why
+    assert why is not None and "hole" in str(why) and "0.25" in str(why) and "0.30" in str(why)
 
 
 def test_two_cells_vias_the_rule_apart_may_stand():
@@ -55,7 +55,7 @@ def test_a_through_pad_keeps_the_rule_from_a_via_of_its_own_net():
     occ = _occ([part], copper=[_via("GND", 20, 20)])
     # pad 1 sits 1.4 west of the part's centre: its hole 0.1 mm from the via's
     why = occ.legal(part, Placement(Location(20 + 1.4 + 0.5, 20), 0, Face.FRONT))
-    assert why is not None and "hole" in why and "0.10" in why
+    assert why is not None and "hole" in str(why) and "0.10" in str(why)
 
 
 def test_copper_keeps_the_hole_clearance_from_an_unplated_hole():
@@ -63,7 +63,7 @@ def test_copper_keeps_the_hole_clearance_from_an_unplated_hole():
     # a track of net A along y = 19.25 (edges 19.1..19.4): 0.1 mm from the hole when J1's centre is at y 20
     occ = _occ([peg], copper=[track("A", 19, 19.25, 21, 19.25)])
     why = occ.legal(peg, Placement(Location(20, 20), 0, Face.FRONT))
-    assert why is not None and "hole" in why
+    assert why is not None and "hole" in str(why)
     assert occ.legal(peg, Placement(Location(20, 20.2), 0, Face.FRONT)) is None     # 0.3 mm
 
 
@@ -162,18 +162,21 @@ def test_the_native_scan_measures_holes_as_circles_too():
 
 
 def test_a_scan_refused_by_holes_names_whose_holes():
-    from placemat.layout import _blame_text
+    from placemat.blame import blame_of
+    from placemat.finding_text import blame_text
     from collections import Counter
     from types import SimpleNamespace
-    result = SimpleNamespace(rejected=Counter({"hole-to-hole": 3}), blockers=Counter({("hole", "cell a", ""): 3}))
-    assert "cell a x3" in _blame_text(result)
+    from placemat.refusals import Owner
+    result = SimpleNamespace(rejected=Counter({"hole-to-hole": 3}), reasons={},
+                             blockers=Counter({("hole", Owner("who", "cell a"), ""): 3}))
+    assert "cell a x3" in blame_text(blame_of(result))
 
 
 def test_a_cells_via_is_named_as_the_cells_via():
     occ = _cells()
     b, at = _b_with_its_via_at(occ, 12.5 + 0.55, 10)
     why = occ.legal(b, at)
-    assert "cell b's via" in why and "cell a's via" in why
+    assert "cell b's via" in str(why) and "cell a's via" in str(why)
 
 
 def test_the_via_planner_keeps_clear_of_a_placed_cells_via():

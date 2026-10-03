@@ -103,8 +103,8 @@ def test_two_vias_whose_spans_share_no_layer_have_no_hole_rule_between_them():
     deep = hole_shape("", Location(10.35, 10), 0.3, "A", layers=frozenset((B, IN4, IN3, IN2)))
     through = hole_shape("", Location(10.35, 10), 0.3, "A")
     assert occ._conflict(back, front, None) is None
-    assert "hole-to-hole" in occ._conflict(back, deep, None)
-    assert "hole-to-hole" in occ._conflict(back, through, None)
+    assert "hole-to-hole" in str(occ._conflict(back, deep, None))
+    assert "hole-to-hole" in str(occ._conflict(back, through, None))
 
 
 @needs_native

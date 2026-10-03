@@ -14,7 +14,8 @@ import traceback
 from .console import configure, console
 from .layout import Board
 from .context import run_script
-from . import checks, settings
+from . import checks, settings, stop
+from .checkpoint import ResumeRefused
 from .project import BoardSource, fab_profile, find_board, generator_inputs, script_fingerprint
 from .report import (RunRecord, _drc_total, against_best, airwires_from_drc, best_for, comparable, congestion,
                      family_of, impact, is_better, latest_for, record_latest, run_id, score_line)
@@ -249,7 +250,8 @@ def keep_route(final_dir: Path, staging: Path) -> None:
 
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
         quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
-        route_exclude=(), keep_going: bool = False, overrides=None, reuse: bool = True, explore=None) -> RunResult:
+        route_exclude=(), keep_going: bool = False, overrides=None, reuse: bool = True, explore=None,
+        resume: bool = True) -> RunResult:
     """One layout attempt, with this board's settings resolved and bound for
     the whole of it: the deep geometry helpers read the binding, and the run
     id carries the settings so a changed one cannot collide with a previous
@@ -260,7 +262,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
     with settings.bind(cfg):
         return _run(script, src, cfg, label=label, fresh=fresh, render=render, drc=drc,
                     quiet=quiet, verbose=verbose, route=route, route_quick=route_quick,
-                    route_exclude=route_exclude, keep_going=keep_going, reuse=reuse, explore=explore)
+                    route_exclude=route_exclude, keep_going=keep_going, reuse=reuse, explore=explore, resume=resume)
 
 
 def drc_metrics(report, aw: dict, free: float) -> dict:
@@ -339,7 +341,8 @@ def reuse_parts(src, cfg, fab, pcb=None, board_digest: str | None = None) -> dic
 
 def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render: bool = True,
          drc: bool = True, quiet: bool = False, verbose: bool = False, route: bool = False,
-         route_quick: bool = True, route_exclude=(), keep_going: bool = False, reuse: bool = True, explore=None) -> RunResult:
+         route_quick: bool = True, route_exclude=(), keep_going: bool = False, reuse: bool = True, explore=None,
+         resume: bool = True) -> RunResult:
     configure(quiet=quiet)
     say = console.say
     runs = src.board_dir / ".placemat" / "runs"
@@ -372,6 +375,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     say("run", "%s: %s" % (src.name, script.relative_to(src.board_dir)))
     generated = False
     plan = None
+    stage, began, stopped, explored = "generate", time.time(), None, None
     # the layout folder as the last run left it: a run that fails before it
     # writes the board puts it back, rather than leave the unplaced generation
     before = staging / "before"
@@ -386,12 +390,16 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         fab = fab_profile(src.board_dir)
         rid = run_id(script_fingerprint(script), src.pcb.read_bytes(), __version__, cfg.json(), fab.json())
         final_dir = runs / rid
+        # a run of these very inputs that died while resolving left its steps: read before its folder is replaced
+        died = reuse_mod.read_partial(final_dir / "reuse.partial.jsonl") if reuse else None
         keep_route(final_dir, staging)
         shutil.rmtree(final_dir, ignore_errors=True)
         staging.rename(final_dir)
         run_dir = final_dir
         rec.run_id = rid
         rec.paths["run_dir"] = str(run_dir)
+        rec.pid = os.getpid()               # a record still "running" whose pid is gone is a run that died
+        rec.save(run_dir / "run.json")
         files = sorted({v for v in cfg.sources.values() if v not in ("default", "flag")})
         if files:
             rec.paths["settings_files"] = files
@@ -407,6 +415,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .kicad.write import apply_plan, finish_board, render_board
         from .kicad.drc import run_drc
 
+        stage = "read"
         from . import facts as facts_mod
         facts_geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
         facts_doc = facts_mod.facts_of(facts_geometry, fab, cfg.check_rise_c)
@@ -440,15 +449,20 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         # in the folder while it works shows none
         strip_stamped_notes(src.pcb, keep_loose_faces=not board._draw_outline)
         from . import explore as explore_mod, routes as routes_mod
+        stage = "explore" if explore is not None else "resolve"
         try:
             lock_entries, explored = explore_mod.before_resolve(
                 script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
-                explore, say, run_id=rid)
-        except explore_mod.FocusError as e:
+                explore, say, run_id=rid, keep_state=True)
+        except (explore_mod.FocusError, ResumeRefused) as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
+        stage = "resolve"
+        if died is not None and reuse_mod.better_of(previous_reuse, died) is died:
+            previous_reuse, previous_id = died, "%s (interrupted)" % rid
+        partial = reuse_mod.PartialLog(run_dir / "reuse.partial.jsonl")
         try:
             plan = board.resolve(progress=progress, reuse=previous_reuse, lock=lock_entries,
-                                 routes=routes_mod.read(routes_mod.path_for(script)))
+                                 routes=routes_mod.read(routes_mod.path_for(script)), partial=partial)
         except PlacementCollision as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             raise RunFailure("placement", "Firm placements collide; fix the script (or --keep-going to see the rest)",
@@ -474,8 +488,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .project import fab_min_findings
         plan.findings += fab_min_findings(board.geometry.netclasses, fab)
         if facts_reasons:
-            from .findings import Finding
-            plan.findings.append(Finding("facts", "; ".join(facts_reasons)))
+            from .findings import Finding, FindingCause
+            plan.findings.append(Finding(FindingCause.FACTS_UNCONFIRMED, {"reasons": facts_reasons}))
         n_place = sum(1 for s in plan.steps if s.placement is not None)
         n_copper = sum(s.ops for s in plan.steps)
         from .findings import summary
@@ -494,6 +508,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("finding", "... %d more in %s" % (len(plan.findings) - 8, run_dir / "run.json"), level="finding")
 
         t0 = time.time()
+        stage = "write"
         apply_plan(src.pcb, plan)
         for cell, zones in _merged_by_cell(plan.merged_zones):
             say("zones", "%s: %s merged into the board's plane" % (cell, zones))
@@ -526,6 +541,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 len(plan.pocketed), ", ".join(plan.pocketed[:8]) + (", ..." if len(plan.pocketed) > 8 else "")))
         plan.reuse["parts"] = parts
         reuse_mod.write(run_dir / "reuse.json", plan.reuse)
+        partial.remove()                    # the whole record is written: the partial one is not needed
         line = reuse_mod.summary(plan.reuse, previous_reuse, "run %s" % previous_id)
         if line:
             say("reused", line[len("reused "):])
@@ -547,6 +563,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                                  "from": previous_id, "first_change": plan.reuse["first_change"]}
         if drc:
             t0 = time.time()
+            stage = "drc"
             # KiCad's rule area has no allow list: what a keepout lets in is set aside.
             allow = {"keepout %s" % k.name: (set(k.owners), set(k.allow)) for k in plan.keepouts.values()}
             report = run_drc(src.pcb, run_dir / "drc.json", allow=allow)
@@ -574,6 +591,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         # is in the run record rather than in a command nobody ran.
         rec.metrics = metrics                 # the checks count into this same dict
         t0 = time.time()
+        stage = "checks"
         verdicts, outcomes = checks.judge(checks.run_checks(read_board(src.pcb), **checks.kwargs_from(cfg)),
                                           plan.acceptances)
         for line in checks.record(rec, verdicts, outcomes):
@@ -588,9 +606,13 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         if route:
             from .kicad.route import route_board
             t0 = time.time()
+            stage = "route"
             say("route", "%s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
             report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
-                                 quick=route_quick)
+                                 quick=route_quick, resume=resume)
+            if report.resumed:
+                say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
+                    ", ".join(report.resumed))
             metrics["route"] = report.as_dict()
             metrics["closure_clean"] = report.closure_clean
             rec.timing_s["route"] = round(time.time() - t0, 1)
@@ -602,6 +624,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))
         if render:
             t0 = time.time()
+            stage = "render"
             render_board(src.pcb, run_dir / "render.log", both_faces=getattr(board, "both_faces", False))
             rec.timing_s["render"] = round(time.time() - t0, 1)
             say("render", "%s  (%.1fs)" % (", ".join(p.name for p in src.layout_dir.glob("layout*.png")), rec.timing_s["render"]))
@@ -644,6 +667,16 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             console.lines("fail", e.details["tail"])
         if verbose and e.details.get("traceback"):
             console.lines("fail", e.details["traceback"])
+    except stop.Stopped as s:
+        stopped = s
+        s.stage = s.stage or stage
+        rec.status = "stopped"
+        rec.failure = {"kind": "stopped", "signal": s.name, "stage": s.stage, "elapsed_s": round(time.time() - began, 1),
+                       "explore": s.explore}
+        kept = run_dir / "before"
+        if kept.exists():                  # whatever the stop left half written: the folder as the last run left it
+            shutil.rmtree(src.layout_dir, ignore_errors=True)
+            shutil.copytree(kept, src.layout_dir)
     if rec.status == "ok":
         shutil.rmtree(run_dir / "before", ignore_errors=True)    # only a failure needs it
     try:
@@ -662,6 +695,15 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         regressed = _against_best(rec, run_dir.parent / "best.json", say, cfg)
     rec.save(run_dir / "run.json")
     from . import channel
+    if stopped is not None:
+        say("record", str(run_dir / "run.json"))
+        info = stop.record(stopped, run_id=rec.run_id, elapsed_s=rec.failure["elapsed_s"], record=str(run_dir / "run.json"),
+                           explore=stopped.explore)
+        stop.say(stop.line(info))
+        stopped.said = True
+        channel.stopped(info)               # the studios and `placemat watch` are told it was stopped, not that it died
+        channel.finish(run_dir / "run.json")
+        raise stopped
     channel.finish(run_dir / "run.json")                  # the studios are told where the record is
     text = ""
     if rec.status == "ok":
@@ -682,6 +724,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             suggestions_mod.remember(src.board_dir, script, "run %s" % rec.run_id, plan.findings)
         except OSError:
             pass
+        if explored is not None:            # its result is in the record: the explore's checkpoint is not needed
+            from . import checkpoint
+            checkpoint.finish_dir(checkpoint.state_dir(src.board_dir, script))
     say("record", str(run_dir / "run.json"))
     return RunResult(rec, run_dir, generated, text, plan, regressed)
 

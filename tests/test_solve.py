@@ -77,7 +77,7 @@ def test_a_bigger_item_gets_a_bigger_cell():
     got = solve.bisect_spread({"big": 3.0, "small": 1.0}, pos, (0.0, 0.0, 40.0, 10.0))
     assert got["big"][0] == pytest.approx(15.0) and got["small"][0] == pytest.approx(35.0)
 
-PULLS = (Settings().solve_pull, Settings().solve_spread_pull, Settings().solve_spread_growth)
+PULLS = (Settings().solve_centre_pull, Settings().solve_spread_pull, Settings().solve_spread_growth)
 
 
 def _board_nets():

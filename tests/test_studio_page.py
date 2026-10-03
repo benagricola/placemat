@@ -876,7 +876,7 @@ def test_every_finding_that_names_a_pad_a_part_or_an_item_is_marked_and_counted(
 const fnd = (text, extra) => Object.assign({text, kind: "k", at: null, item: "", refs: [], pads: [], severity: "warning"}, extra);
 const it = item("a", 1); it.members[0].shapes.push({kind: "pad", faces: ["front"], number: "7", poly: [[1, 1], [1.4, 1], [1.4, 1.4]]});
 full([it, item("b", 5)], [st("a"), st("b")], {findings: [fnd("with a place", {at: [20, 20]}), fnd("at a pad", {refs: ["Ra"], pads: [["Ra", "7"]]}), fnd("at a part", {refs: ["Rb"]}), fnd("an item", {item: "a"}), fnd("nothing")]});
-out.places = ev("findingPlaces(plan())"); out.board = (board().innerHTML.match(/class="fmark /g) || []).length;
+out.places = ev("findingPlaces(plan())"); out.board = (board().innerHTML.match(/class="fnd /g) || []).length;
 out.legend = els["#legend"].innerHTML;
 """)
     assert out["places"][0] == [20, 20] and out["places"][4] is None
@@ -1165,70 +1165,81 @@ out.done = [els["#runhead"].hidden, els["#runhead"].innerHTML];
     assert out["done"][0] is False and "done in" in out["done"][1]
 
 
-# The unplaced forms the engine writes (layout.py and the scan's blame text), as its own tests produce them.
+# The unplaced causes the engine records (finding.cause, finding.facts: findings.py, finding_text.py), as the plan JSON carries them: the
+# facts, and the engine's own words for each refusal and owner as `text`.
 UNPLACED_FORMS = r"""
+const who = (name, faces, count) => ({owner: {form: "who", name, text: name}, faces, count});
 const F = {
-  loc: "u1: no legal location within 3.0 mm of (3.00, 15.00) (edge x1720; courtyard x1116: K1 front face x712, J1 front face x404)",
-  locPocket: "u1: no legal location within 6.0 mm of (5.00, 10.00) (courtyard x7758: K1 front face x4560, J1 front face x3198; edge x3526); no pocket took it (0 tried)",
-  drawn: "m: no legal location within 3.0 mm of (25.00, 25.00) (body, silk or mask x709: W1 front face x709)",
-  pocket: "b1: no pocket fits its 15.0 x 15.0 envelope on the front face at any rotation asked for",
-  pocketN: "r1: no pocket fits its 6.0 x 3.0 envelope on the front face (0 pocket(s) tried)",
-  room: "s1: no room anywhere along its row (courtyard x12, edge x3)",
-  bearing: "d1: no bearing of 4 tried leaves it legal on its point (courtyard x40, vias that could not give way x2)",
-  alone: "k1: cannot be laid out on its own at any rotation it may take, whatever room the board has (its pad 1 is 0.10 mm from its pad 2)",
-  rides: "r9: rides u1, which found no place",
-  late: "u1: no legal location within 6.0 mm of (5.00, 10.00) (courtyard x4: K1 front face x4); see: no room was left for it when j1 was placed",
+  loc: {cause: "unplaced.search", facts: {item: "u1", radius_mm: 3.0, at: [3, 15], blame: [
+    {form: "kind", label: "edge", count: 1720, owners: []},
+    {form: "kind", label: "courtyard", count: 1116, owners: [who("K1", "front", 712), who("J1", "front", 404)]}]}},
+  locPocket: {cause: "unplaced.search", facts: {item: "u1", radius_mm: 6.0, at: [5, 10], pocket_tried: 0, blame: [
+    {form: "kind", label: "courtyard", count: 7758, owners: [who("K1", "front", 4560)]}, {form: "vias", count: 2},
+    {form: "rider", count: 4, reason: {code: "x", text: "U2 is too far for its limit"}}]}},
+  reserved: {cause: "unplaced.search", facts: {item: "m", radius_mm: 3.0, at: [25, 25], blame: [
+    {form: "kind", label: "reservation", count: 9, owners: [{owner: {form: "reserved", text: "the reservation for keepout 'ring'"}, faces: "front", count: 9}]}]}},
+  drawn: {cause: "unplaced.search", facts: {item: "m", radius_mm: 3.0, at: [25, 25], blame: [{form: "kind", label: "body, silk or mask", count: 709, owners: [who("W1", "front", 709)]}]}},
+  pocket: {cause: "unplaced.pocket", facts: {item: "b1", variant: "any_rotation", w_mm: 15.0, h_mm: 15.0, face: "front", riders: []}},
+  pocketN: {cause: "unplaced.pocket", facts: {item: "r1", variant: "tried", w_mm: 6.0, h_mm: 3.0, face: "front", tried: 0, riders: [{code: "r", text: "rides u1, which found no place"}]}},
+  room: {cause: "unplaced.slide", facts: {item: "s1", where: {form: "edge", edge: "north", text: "along the north edge"}, counts: [["courtyard", 12], ["edge", 3]], riders: []}},
+  bearing: {cause: "unplaced.bearing", facts: {item: "d1", turns: 4, counts: [["courtyard", 40]]}},
+  alone: {cause: "unplaced.block", facts: {item: "k1", variant: "alone", turns: [], turns_text: "0: its pad 1 is 0.10 mm from its pad 2"}},
+  block: {cause: "unplaced.block", facts: {item: "k2", variant: "search", radius_mm: 4.0, at: [1, 2], counts: [["courtyard", 5]]}},
+  rides: {cause: "unplaced.rides", facts: {item: "r9", variant: "rides", rider_of: "u1"}},
+  late: {cause: "unplaced.search", facts: {item: "u1", radius_mm: 6.0, at: [5, 10], blame: [{form: "kind", label: "courtyard", count: 4, owners: [who("K1", "front", 4)]}],
+    room_lost: {gone: ["j1"], kept: [], text: "see: no room was left for it when j1 was placed"}}},
 };
-const fi = (text, severity) => ({text, severity: severity || "warning", kind: "unplaced", item: text.split(":")[0]});
+const fi = (key, severity) => Object.assign({text: F[key].facts.item + ": a sentence the page does not read", severity: severity || "warning", kind: "unplaced", item: "", at: null, refs: [], pads: []}, F[key]);
 """
 
 
 @needs_node
-def test_an_unplaced_items_reasons_are_parsed_into_why_where_it_was_looked_for_and_what_refused_it(tmp_path):
+def test_an_unplaced_items_reasons_are_read_from_the_findings_facts_not_its_sentence(tmp_path):
     out = run_more(tmp_path, UNPLACED_FORMS + r"""
-const P = (key, extra) => ev("unplacedParts(" + JSON.stringify(extra || []) + ", " + JSON.stringify(fi(F[key])) + ")");
-out.loc = P("loc"); out.locPocket = P("locPocket"); out.drawn = P("drawn"); out.pocket = P("pocket"); out.pocketN = P("pocketN");
-out.room = P("room"); out.bearing = P("bearing"); out.alone = P("alone"); out.rides = P("rides"); out.late = P("late");
+const P = (key, extra) => ev("unplacedParts(" + JSON.stringify(extra || []) + ", " + JSON.stringify(fi(key)) + ")");
+for (const k of Object.keys(F)) out[k] = P(k);
 out.note = ev('unplacedParts(["SMALL courtyard overlaps BIG courtyard", "body box -0.50,6.90..5.70,13.10 crosses the board edge"], null)');
-out.noteParts = ev('noteParts("rank 1/1 (38.4 mm2, 1st of 1; 2 pins, 1st); UNPLACED: U1 courtyard overlaps J1 courtyard; body box -0.50,6.90..5.70,13.10 crosses the board edge")');
+out.old = ev('unplacedParts([], {text: "u1: an older record with no facts", kind: "unplaced"})');
 """)
     loc = out["loc"]
-    assert (loc["why"], loc["radius"], loc["at"]) == ("no legal location", "3.0", ["3.00", "15.00"])
+    assert (loc["why"], loc["radius"], loc["at"]) == ("no legal location", 3.0, [3, 15])
     assert [(r["kind"], r["n"]) for r in loc["refused"]] == [("edge", 1720), ("courtyard", 1116)]
     assert loc["refused"][1]["blockers"] == [{"owner": "K1", "face": "front", "n": 712}, {"owner": "J1", "face": "front", "n": 404}]
-    assert out["locPocket"]["tried"] == 0 and out["locPocket"]["refused"][0]["n"] == 7758
+    lp = out["locPocket"]
+    assert lp["tried"] == 0 and [r["kind"] for r in lp["refused"]] == ["courtyard", "vias that could not give way", "U2 is too far for its limit"]
+    assert out["reserved"]["refused"][0]["blockers"] == [{"text": "the reservation for keepout 'ring' front face x9"}]            # an owner that is not a part: the engine's words
     assert out["drawn"]["refused"][0]["kind"] == "body, silk or mask" and out["drawn"]["refused"][0]["blockers"][0]["owner"] == "W1"
-    assert out["pocket"]["pocket"] == {"w": "15.0", "h": "15.0", "face": "front"} and out["pocket"]["why"] == "no pocket fits" and out["pocket"]["tried"] is None
-    assert out["pocketN"]["tried"] == 0 and out["pocketN"]["pocket"]["w"] == "6.0"
-    assert out["room"]["why"] == "no room" and out["room"]["what"] == "along its row" and [r["n"] for r in out["room"]["refused"]] == [12, 3]
-    assert out["bearing"]["bearings"] == 4 and [r["kind"] for r in out["bearing"]["refused"]] == ["courtyard", "vias that could not give way"]
+    assert out["pocket"]["pocket"] == {"w": 15.0, "h": 15.0, "face": "front"} and out["pocket"]["why"] == "no pocket fits" and out["pocket"]["tried"] is None
+    assert out["pocketN"]["tried"] == 0 and out["pocketN"]["other"] == ["rides u1, which found no place"]
+    assert out["room"]["why"] == "no room" and out["room"]["what"] == "along the north edge" and [r["n"] for r in out["room"]["refused"]] == [12, 3]
+    assert out["bearing"]["bearings"] == 4 and [r["kind"] for r in out["bearing"]["refused"]] == ["courtyard"]
     assert out["alone"]["why"] == "cannot be laid out" and "pad 1" in out["alone"]["alone"]
+    assert out["block"]["radius"] == 4.0 and out["block"]["refused"][0]["n"] == 5
     assert out["rides"]["why"] == "rides" and out["rides"]["rides"] == "u1"
-    assert out["late"]["late"] == ["no room was left for it when j1 was placed"]
+    assert out["late"]["late"] == ["see: no room was left for it when j1 was placed"]
     assert out["note"]["examples"] == ["SMALL courtyard overlaps BIG courtyard", "body box -0.50,6.90..5.70,13.10 crosses the board edge"] and out["note"]["why"] == "not placed"
-    assert out["noteParts"]["unplaced"][0].startswith("U1 courtyard overlaps") and out["noteParts"]["rank"]["n"] == "1" and out["noteParts"]["other"] == []
+    assert out["old"]["other"] == ["u1: an older record with no facts"]                                       # no facts: the sentence, as written
 
 
 @needs_node
 def test_the_not_placed_rows_the_card_and_the_findings_list_show_an_unplaced_item_as_sections_with_clickable_blockers(tmp_path):
     out = run_more(tmp_path, UNPLACED_FORMS + r"""
 full([item("K1", 1), item("J1", 5)], [st("K1"), st("J1")]);
-const pl = ev("plan()"); pl.unplaced = [{item: "u1", why: "U1 courtyard overlaps K1 courtyard"}]; pl.findings = [Object.assign(fi(F.loc, "critical"), {item: ""})];     // the engine leaves an unplaced finding's item empty: the sentence names it
+const pl = ev("plan()"); pl.unplaced = [{item: "u1", why: "U1 courtyard overlaps K1 courtyard"}]; pl.findings = [fi("loc", "critical")];
 ev("renderSteps()"); out.steps = els["#tab-steps"].innerHTML;
 ev("renderFindings()"); out.findings = els["#tab-findings"].innerHTML;
 ev("selectItem('u1')"); ev("renderCard()"); out.card = els["#card"].innerHTML;
 """)
     for html in (out["steps"], out["card"]):
         assert '<span class="kk">why</span>' in html and '<span class="chip bad">no legal location</span>' in html
-        assert '<span class="kk">radius</span>' in html and '3.0 mm' in html
-        assert "(3.00, 15.00) mm" in html and '<span class="chip refusal">courtyard x1116</span>' in html and '<span class="chip refusal">edge x1720</span>' in html
-        assert 'data-act="owner" data-owner="K1"' in html                                    # K1 is a part of the plan: a pill that selects it
-        assert 'data-act="owner" data-owner="J1"' in html
+        assert '<span class="kk">radius</span>' in html and '3 mm' in html
+        assert "(3, 15) mm" in html and '<span class="chip refusal">courtyard x1116</span>' in html and '<span class="chip refusal">edge x1720</span>' in html
+        assert 'data-act="owner" data-owner="K1"' in html and 'data-act="owner" data-owner="J1"' in html
         assert "U1 courtyard overlaps K1 courtyard" in html                                  # the placer's example, as written
-        assert "no legal location within" not in html
+        assert "a sentence the page does not read" not in html
     assert 'class="row unp"' in out["steps"]
     f = out["findings"]
-    assert '<span class="chip refusal">courtyard x1116</span>' in f and '<span class="sev critical">critical</span>' in f and "no legal location within" not in f
+    assert '<span class="chip refusal">courtyard x1116</span>' in f and '<span class="sev critical">critical</span>' in f and "a sentence the page does not read" not in f
     assert out["card"].count("chip refusal") == out["steps"].count("chip refusal")           # the finding is not said twice on the card
 
 
@@ -1268,6 +1279,15 @@ const answer = (map) => { ctx.fetch = (u, o) => { const path = u.split("?")[0]; 
 const sgb = (a, extra) => ({"[data-sg]": Object.assign({dataset: Object.assign({sg: a}, extra || {})})});
 const DIFF = {id: "s1a", text: SUG[0].text, dry_run: true, resolve: 1, diff: "x", targets: [{role: "target", key: "c4", file: "x_layout.py", line: 2}],
   files: [{file: "x_layout.py", path: "/p/x_layout.py", added: 1, removed: 1, old_lines: [2], new_lines: [2], hunks: [{old_start: 1, old_len: 2, new_start: 1, new_len: 2, lines: [{tag: " ", old: 1, new: 1, text: "a"}, {tag: "-", old: 2, new: null, text: "board.place(Part('c4'))"}, {tag: "+", old: null, new: 2, text: "board.place(Part('c4'), at=Beside(Part('c1')))"}]}]}]};
+"""
+
+# ---------------------------------------------------------------- notes
+NOTES = r"""
+const NT = {point: {id: "n1", at: 0.5, from: "agent-1", script: "x_layout.py", description: "look at this corner", target: {kind: "point", x: 5, y: 6}},
+            item: {id: "n2", at: 0.6, from: "agent-2", script: "x_layout.py", description: "trying a further west", target: {kind: "item", name: "a"}},
+            pad: {id: "n3", at: 0.7, from: "", script: "x_layout.py", description: "pad one is tight", target: {kind: "pad", ref: "Ra", pad: "1"}},
+            none: {id: "n4", at: 0.8, from: "agent-1", script: "x_layout.py", description: "no place", target: null}};
+const withNotes = (list, age) => { send("hello", {script: "x_layout.py", keep: 5, history: [], resolving: null, error: null, notes: list, note_age_s: age == null ? 3600 : age}); };
 """
 
 
@@ -1392,3 +1412,128 @@ ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
     h = out["html"]
     assert 'data-sg="search" data-sid="q1"' in h and 'data-sg="show" data-sid="q1"' not in h and "Search options" in h
     assert 'data-sg="show"' not in h.split("more (")[0]                    # the instant one is behind "more"
+
+def test_a_note_is_a_pin_where_it_points_and_a_line_in_the_notes_list(tmp_path):
+    out = run_more(tmp_path, NOTES + r"""
+full([item("a", 1)], [st("a")]);
+ev("plan().items[0].members[0].shapes[1].number = '1'");
+withNotes([NT.point, NT.item, NT.pad, NT.none]);
+ev("renderNotes()"); out.list = els["#tab-notes"].innerHTML;
+out.pins = ev("notePins(plan())");
+out.where = [ev("notePlace(plan(), NT_)".replace("NT_", JSON.stringify(NT.point))), ev("notePlace(plan(), NT_)".replace("NT_", JSON.stringify(NT.item))), ev("notePlace(plan(), NT_)".replace("NT_", JSON.stringify(NT.pad))), ev("notePlace(plan(), NT_)".replace("NT_", JSON.stringify(NT.none)))];
+ev("renderCounts()"); out.count = els["#ntabs"] && 1;
+out.legend = (ev("renderLegend()"), els["#legend"].innerHTML);
+""")
+    lst = out["list"]
+    assert lst.count('class="row note') == 4 and "agent-1" in lst and "look at this corner" in lst and "at (5, 6) mm" in lst
+    assert '<span class="chip ">item</span> a' in lst and '<span class="chip ">pad</span> Ra.1' in lst and "no place named" in lst
+    assert 'data-notedismiss="n1"' in out["list"] and 'data-notedismiss="*"' in lst
+    pins = out["pins"]
+    assert pins.count('class="npin') == 3 and 'data-note="n4"' not in pins and 'translate(5 6)' in pins                 # a pin for each note that points somewhere
+    assert out["where"][0] == [5, 6] and out["where"][3] is None and len(out["where"][1]) == 2 and len(out["where"][2]) == 2
+    assert 'data-id="notes"' in out["legend"]
+
+
+@needs_node
+def test_an_items_pin_follows_it_when_it_moves(tmp_path):
+    out = run_more(tmp_path, NOTES + r"""
+full([item("a", 1)], [st("a")]);
+ev("plan().items[0].members[0].shapes[1].number = '1'");
+const moved = {items: [item("a", 9)]}; moved.items[0].members[0].shapes[1].number = "1";
+const before = ev("notePlace")(ev("plan()"), NT.item), padBefore = ev("notePlace")(ev("plan()"), NT.pad);
+out.moved = [before, ev("notePlace")(moved, NT.item), padBefore, ev("notePlace")(moved, NT.pad)];
+""")
+    a, b, c, d = out["moved"]
+    assert b[0] - a[0] == pytest.approx(8) and d[0] - c[0] == pytest.approx(8)
+
+
+@needs_node
+def test_a_new_note_raises_a_toast_dismissing_hides_it_for_this_viewer_and_old_ones_expire(tmp_path):
+    out = run_more(tmp_path, NOTES + r"""
+full([item("a", 1)], [st("a")]);
+withNotes([]);
+const store = {}; ctx.localStorage = {getItem: k => store[k] || null, setItem: (k, v) => { store[k] = v; }};
+send("note", NT.point);
+out.toast = [els["#toast"].textContent, els["#toast"].hidden];
+send("note", NT.point);                                                    // told twice: one note
+out.count = ev("S.notes.length");
+ev("dismissNote('n1')"); out.after = [ev("liveNotes().length"), store["placemat.notesDismissed"]];
+withNotes([NT.item, NT.pad], 10);                                          // the clock is at 1 s: both are under a second old
+out.live = ev("liveNotes().map(n => n.id)");
+clock += 12000;                                                            // 12 s on: neither is within 10 s any more
+out.expired = ev("liveNotes().map(n => n.id)");
+out.pins = ev("notePins(plan())");
+""")
+    assert out["toast"] == ["agent-1: look at this corner", False] and out["count"] == 1
+    assert out["after"] == [0, '["n1"]']
+    assert out["live"] == ["n2", "n3"] and out["expired"] == []
+    assert out["pins"] == ""
+
+
+@needs_node
+def test_why_it_moved_puts_the_cause_beside_the_distance_and_says_when_none_was_recorded(tmp_path):
+    out = run_more(tmp_path, r"""
+const rows = (note, mm) => ev("(r => sect('Why it moved', r.length ? kvl(r) : ''))(movedRows(noteParts(" + JSON.stringify(note) + "), " + mm + "))");
+out.stopped = rows("on the line x = 26.50; stopped 19.40 mm short of the south end by: its member U8 sits in the reservation for keepout 'under_ring_1' (no copper)", 19.4);
+out.slid = rows("slid 0.50 mm from its slot: R3 courtyard overlaps R4 courtyard", 0.5);
+out.hint = rows("moved 3.20 mm off the hint: C1 courtyard overlaps U1 courtyard", 3.2);
+out.score = rows("moved 1.10 mm off the hint for a better link score", 1.1);
+out.bare = rows("rank 1/3", 19.4);
+out.slidbare = rows("block of 3 laid out from the anchor's pads; slid 2.00 mm from its slot", 2);
+out.still = rows("rank 1/3", 0);
+out.place = ev("kvl(noteRows(noteParts('on the line x = 26.50; stopped 19.40 mm short of the south end by: why')))");
+""")
+    s = out["stopped"]
+    assert "Why it moved" in s and "19.40 mm</span> before the south end" in s and "reservation for keepout 'under_ring_1'" in s
+    assert '<span class="kk">because</span>' in s and "no cause recorded" not in s
+    assert "0.50 mm</span> from its slot" in out["slid"] and "R3 courtyard overlaps R4 courtyard" in out["slid"]
+    assert "3.20 mm</span> off the hint" in out["hint"] and "C1 courtyard overlaps U1 courtyard" in out["hint"]
+    assert "for a better link score" in out["score"] and "no cause recorded" not in out["score"]
+    assert "19.4 mm</span> off the hint" in out["bare"] and "no cause recorded" in out["bare"]               # a distance with no cause says so
+    assert "2.00 mm</span> from its slot" in out["slidbare"] and "no cause recorded" in out["slidbare"]
+    assert out["still"] == ""                                                                                 # nothing moved: no section
+    assert "x = 26.50 mm" in out["place"] and "stopped short" not in out["place"] and "because" not in out["place"]    # the cause is not repeated under Placement
+
+
+@needs_node
+def test_vias_are_drawn_above_the_pads_and_pads_take_their_layers_colour_with_through_pads_drilled(tmp_path):
+    out = run_more(tmp_path, r"""
+const padB = {kind: "pad", poly: [[3, 1], [4, 1], [4, 2]], faces: ["back"], layers: ["B.Cu"], number: "2"};
+const thru = {kind: "through", poly: [[6, 1], [7, 1], [7, 2]], faces: ["back", "front"], layers: ["F.Cu", "B.Cu"], number: "3"};
+const hole = {kind: "hole", poly: [[6.2, 1.2], [6.6, 1.2], [6.6, 1.6]], faces: ["back", "front"], number: "3"};
+const it = item("a", 1); it.members[0].shapes[1].layers = ["F.Cu"]; it.members[0].shapes.push(padB, thru, hole);
+full([it], [st("a")]);
+ev("plan().copper = [{t: 'via', at: [1.2, 1.2], size: 0.6, drill: 0.3, net: 'N', layers: []}, {t: 'track', layer: 'F.Cu', face: 'front', width: 0.2, a: [0, 0], b: [1, 1], net: 'N'}]");
+ev("schedule('board')"); flush();
+const h = board().innerHTML;
+out.order = [h.indexOf('class="items"'), h.indexOf('class="viag"'), h.indexOf('class="trk')];
+out.front = h.slice(h.indexOf('data-key="a"'), h.indexOf('class="links"'));
+ev("setFace('back')"); flush(); out.back = board().innerHTML;
+""")
+    items, via, trk = out["order"]
+    assert trk != -1 and trk < items < via                                                    # tracks under the parts, vias over them
+    f = out["front"]
+    assert '<polygon class="pad l-F" data-l="F.Cu"' in f and '<polygon class="thru"' in f and '<polygon class="hole"' in f
+    assert f.index('class="thru"') < f.index('class="hole"')                                  # the drill is cut through the copper
+    assert '<polygon class="pad l-B" data-l="B.Cu"' not in f                                  # a back pad is not on the front panel
+    assert '<polygon class="pad l-B" data-l="B.Cu"' in out["back"]
+
+
+@needs_node
+def test_a_finding_marker_is_a_fixed_size_badge_with_a_halo_per_severity_and_the_focused_one_is_larger(tmp_path):
+    out = run_more(tmp_path, r"""
+const mkF = (sev, at) => ({text: "a " + sev + " finding", kind: "link_over", severity: sev, item: "", at, refs: [], pads: []});
+full([item("a", 1)], [st("a")], {findings: [mkF("critical", [3, 3]), mkF("warning", [5, 5]), mkF("notice", [7, 7])]});
+const h = board().innerHTML;
+out.marks = (h.match(/<g class="fnd [^"]*"/g) || []);
+out.styles = (h.match(/style="transform: translate\([^"]*"/g) || []).slice(0, 3);
+out.glyph = [h.indexOf('class="halo"') > 0, h.indexOf('class="badge"') > 0, h.indexOf('class="pulse"') > 0];
+ev("S.focusIdx = 1; schedule('board')"); flush(); out.focus = (board().innerHTML.match(/<g class="fnd [^"]*"/g) || []);
+ev("setFace('back')"); flush(); out.mirrored = (board().innerHTML.match(/scale\(calc\(var\(--u\) \* -1\), var\(--u\)\)/g) || []).length;
+out.legend = els["#legend"].innerHTML.indexOf('class="fnd warning"') > 0;
+""")
+    assert out["marks"][:3] == ['<g class="fnd critical"', '<g class="fnd warning"', '<g class="fnd notice"'] and "translate(3px, 3px) scale(var(--u), var(--u))" in out["styles"][0]
+    assert out["glyph"] == [True, True, True]
+    assert '<g class="fnd warning on"' in out["focus"]
+    assert out["mirrored"] >= 3                                                                # on the mirrored back panel the badge is turned back
+    assert out["legend"]

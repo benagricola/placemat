@@ -171,7 +171,7 @@ def parse_rule_note(text: str):
 
 def stamped_rules(geometry) -> tuple:
     """(rules, notes): the clearance rules the cells of `geometry` carry from their fragments, as this board
-    names things, and a sentence for each that could not be carried. Each is held to its cell
+    names things, and the facts of a setup.rule_note for each that could not be carried (`variant` "net" or "cell"). Each is held to its cell
     (`within=`, by group name) and takes the nets as pcb named them in the cell (`stamped_net`); a
     rule `within=` a cell of the fragment takes that cell's stamped group. Cells in name order, each
     fragment's rules in the order it declared them: a rule the board declares itself stands after
@@ -185,15 +185,13 @@ def stamped_rules(geometry) -> tuple:
             nets = [r.on] if r.on is not None else list(r.between or ())
             mapped = [stamped_net(n, name, geometry.nets) for n in nets]
             if any(m is None for m in mapped):
-                notes.append("rule '%s' from the %s cell is not carried: its net %s is not on this board"
-                             % (r.why, name, nets[mapped.index(None)]))
+                notes.append({"variant": "net", "rule": r.why, "cell": name, "net": nets[mapped.index(None)]})
                 continue
             within = name
             if r.within is not None:
                 within = "%s.%s" % (name, r.within)
                 if within not in geometry.cells:
-                    notes.append("rule '%s' from the %s cell is not carried: its cell %s is not on this board"
-                                 % (r.why, name, r.within))
+                    notes.append({"variant": "cell", "rule": r.why, "cell": name, "within": r.within})
                     continue
             rules.append(replace(r, why=why, within=within,
                                  on=mapped[0] if r.on is not None else None,

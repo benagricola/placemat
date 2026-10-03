@@ -158,8 +158,8 @@ Check it against the current API before touching it:
 Any hit, or `AttributeError: type object 'Priority' has no attribute
 'FIXED'` at import, means it was written for an earlier placemat: fix those
 lines first. A monkeypatch of `Occupancy._transform` comes out, and
-`board.size(` becomes `board.rect(` (same arguments; the old name still works
-and raises a `setup` notice). Read
+`board.size(` becomes `board.rect(` (same arguments; the old name is refused
+with an error naming `board.rect`). Read
 `references/migration.md` from the script's version up; its last section,
 "Patterns in older scripts", names the section for each hand-written pattern
 a newer form replaces. A script with no hits still re-places on a newer
@@ -282,9 +282,14 @@ model into declarations.
    them to run `placemat studio <script>` (or `placemat studio` alone, to pick
    a layout script in the page); it re-resolves as the script changes and has a
    Run button for a checked run (`api.md`, "Studio").
+   While the studio is open you can leave a note where the user is looking: `placemat studio note "trying c_cpu further
+   west" --item c_cpu` (or `--at X,Y`, `--pad U1.3`); it shows as a pin and a line in the page's Notes list (`api.md`, "Studio notes").
 4. **Before reading a board's numbers, run `placemat settings`**: a
    `placemat.toml` anywhere from the board's directory up can change any
    value, and the command says which file each came from.
+   `placemat settings --example` writes a complete commented `placemat.toml`
+   (every setting, its unit, meaning and default) to start one from; an old
+   setting name still loads for one release, with a notice naming the new one.
 5. **Read the numbers before the picture.** `real` DRC buckets and
    `unconnected` are the gate; `outstanding` is copper not yet drawn;
    `footprint issues` are defects in the fetched footprints (they do not
@@ -413,6 +418,24 @@ shapes and files: `references/api.md`, "Live progress".
   why, then `--accept`. The lock beside the script keeps it; commit the
   lock with the script. `placemat freeze` moves an entry into the script
   once the spot is part of the design.
+- An explore reports its curve: `best found at variant 7 of 34, 5 min 12 s in
+  (of 43 min)`, and `metrics.explore.curve`/`found`/`ended` keep it. If the best
+  comes early, set `[explore] stall_variants` or `stall_seconds` (off by default)
+  to end an explore that has stopped improving; `ended.rule` says what ended it,
+  and an explore ended that way is complete (`--accept` applies).
+- Long commands (`run`, `preview`, `route`, above all `--explore`) stop
+  safely on SIGTERM, SIGHUP or Ctrl-C and say so: the run is recorded as
+  `stopped` (`status: "running"` with a `pid` while it works; a record whose
+  pid is gone died), the layout folder is as it was, the exit status is
+  128 + the signal, and a stopped explore prints `explore stopped by SIGTERM
+  after N variants ...; nothing accepted; accept it with: placemat lock
+  <script> --accept-seed N`. The lock is never written on a stop. Run a long
+  explore detached (`setsid nohup placemat run ... > explore.log 2>&1 &`) and
+  never chain it with `;`, which hides its exit status. Rerun the same
+  command to continue: an explore resumes from its checkpoint (`--resume` to
+  insist, `--no-resume` to start over), a resolve replays the steps it had
+  done, a route takes the stages it had finished. Nothing is repeated that a
+  stop kept (api.md, "Exploring a placement" and "Stages and resume").
 - A board of any shape is `board.outline(path, holes=)`, its sides chosen
   by `board.edge(facing=)`; a round one is `board.disc()` placed in
   bearings (`OnRim`, `OnBore`, `Polar`, `ring()`). A hole is a `Cutout` in
@@ -558,10 +581,10 @@ shapes and files: `references/api.md`, "Live progress".
   its pad, joined by a new tail), shorten (a plane drop) and drop. A via that two or more of a
   cell's tracks end on has one step: it moves with its tracks rebuilt
   from their far ends ("no spot within 0.50 mm is clear with its 2 tracks
-  rebuilt"; `place.via_route` sets the reach, 0 leaves it as drawn). The
-  sentence names each step and why it failed. `place.via_move` and
-  `place.via_share` set the reaches,
-  `place.via_leave` how far a via may leave its pad, `place.drops_keep` what
+  rebuilt"; `place.via_route_distance` sets the reach, 0 leaves it as drawn). The
+  sentence names each step and why it failed. `place.via_move_distance` and
+  `place.via_share_distance` set the reaches,
+  `place.via_leave_distance` how far a via may leave its pad, `place.drops_keep_share` what
   share of a pad's drops must stay, `place.via_relay` turns the re-lay off, and `drops=` on a cell thins its drops
   before the search. Shorten runs only when the fab profile's micro, blind
   or buried tier for the shorter via is "yes"; the refusal says when one

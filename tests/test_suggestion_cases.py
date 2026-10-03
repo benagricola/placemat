@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 import placemat
+from placemat.findings import FindingCause, FindingCause as C
 from placemat import suggestions as sg
 from placemat.layout import Board
 from placemat.settings import Settings
@@ -13,21 +14,23 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "placemat"
 API = Path(__file__).resolve().parents[1] / "skills" / "placemat" / "references" / "api.md"
 
 
-def raised_cases() -> set:
-    """Every case id the source raises: `case="..."` on a Finding, or the case argument of `self._finding(kind, case, ...)`."""
-    found = set()
+def test_every_builder_is_of_a_cause_a_finding_can_have():
+    assert set(sg.CASES) <= set(FindingCause)
+    assert all(isinstance(c, FindingCause) for c in sg.CASES)
+
+
+def test_every_cause_a_finding_is_made_with_in_the_source_is_a_FindingCause_member():
+    """`Finding(...)`, `_finding(...)` and `ctx.note(...)` take a `C.X` or `FindingCause.X`, never a string."""
     for path in SRC.glob("*.py"):
-        text = path.read_text()
-        found |= set(re.findall(r'case="([a-z_]+(?:\.[a-z_]+)?)"', text))
-        found |= set(re.findall(r'_finding\(\s*"[a-z_]+",\s*"([a-z_]+(?:\.[a-z_]+)?)"', text))
-        found |= set(re.findall(r'_label_finding\(\s*"([a-z_]+\.[a-z_]+)"', text))
-    return found - {"unplaced.search"} | {"unplaced.search"}
-
-
-def test_every_case_raised_in_the_source_has_a_builder_and_every_builder_is_raised():
-    raised = raised_cases()
-    assert raised, "the scan found no case"
-    assert raised == set(sg.CASES), {"raised, no builder": raised - set(sg.CASES), "builder, never raised": set(sg.CASES) - raised}
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+            if name in ("Finding", "_finding", "note") and node.args and path.name not in ("findings.py", "finding_text.py"):
+                first = node.args[0]
+                if isinstance(first, ast.Constant) or isinstance(first, ast.JoinedStr):
+                    raise AssertionError("%s:%d makes a finding from %r" % (path.name, node.lineno, getattr(first, "value", "text")))
 
 
 def test_every_case_is_in_the_api_table_and_the_table_names_no_other():
@@ -38,10 +41,9 @@ def test_every_case_is_in_the_api_table_and_the_table_names_no_other():
     assert named == set(sg.CASES), {"in api.md only": named - set(sg.CASES), "built, not in api.md": set(sg.CASES) - named}
 
 
-def test_a_finding_s_case_is_its_kind_and_a_case_of_that_kind():
-    from placemat.findings import KINDS
-    for case in sg.CASES:
-        assert case.split(".")[0] in KINDS, case
+def test_a_cause_carries_its_kind():
+    for cause in FindingCause:
+        assert cause.value.split(".")[0] == cause.kind.value, cause
 
 
 def _strings(tree):
@@ -62,28 +64,31 @@ def test_no_builder_writes_a_coordinate_a_figure_or_a_plane():
             assert not (isinstance(node.args[2], ast.Constant) and node.args[2].value == "reach")
 
 
-SEARCH = {"item": "c4", "kind": "part", "face": "front", "priority": "", "step": 0.2, "radius": 3.0, "dominant": "reservation",
+SEARCH = {"item": "c4", "kind": "part", "face": "front", "priority": "", "step": 0.2, "dominant": "reservation",
           "turns": 1, "free_sides": {"c1": ["NORTH", "EAST"]}, "drawn": True, "envelope": "physical", "via": True,
-          "via_move": 0.5, "via_leave": 1.0, "reservations": [{"keepout": "ant"}, {"label": "label j1 IN"}],
+          "reservations": [{"keepout": "ant"}, {"label": "label j1 IN", "item": "j1"}],
           "links": [{"own": "1", "partner": "u1", "pad": "2"}]}
-LINK = {"a": {"key": "c1", "pad": "1"}, "b": {"key": "u1", "pad": "2"}, "link": "C1.1>U1.2", "achieved": 5.1, "limit": 4.0,
-        "weight": 1, "a_searched": True, "free_sides": ["NORTH", "EAST"]}
-LABEL = {"key": "label j1 IN", "side": "NORTH", "sides": ["SOUTH", "EAST"], "size": 1.0}
-TRACK = {"key": "track SIG", "net": "SIG", "word": "track", "layer": "F", "waypoints": 2, "chamfer_hit": True, "chamfer": 0.3,
-         "arc_hit": True, "radius": 0.5, "cause": "arc"}
+LINK = {"a": {"key": "c1", "pad": "1"}, "b": {"key": "u1", "pad": "2"}, "link": "C1.1>U1.2", "achieved_mm": 5.1,
+        "limit_mm": 4.0, "weight": 1, "a_searched": True, "free_sides": ["NORTH", "EAST"]}
+LABEL = {"key": "label j1 IN", "item": "j1", "side": "NORTH", "sides": ["SOUTH", "EAST"], "size": 1.0}
+TRACK = {"key": "track SIG", "net": "SIG", "word": "track", "layer": "F", "waypoints": 2, "chamfer_hit": True, "chamfer_mm": 0.3,
+         "arc_hit": True, "radius_mm": 0.5, "variant": "arc",
+         "misfit": {"code": "arc_leg", "leg": [[0, 0], [1, 0]], "length_mm": 1.0,
+                    "arcs": [{"radius_mm": 0.5, "at": [0, 0], "turn_deg": "90", "takes_mm": 0.5},
+                             {"radius_mm": 0.5, "at": [1, 0], "turn_deg": "90", "takes_mm": 0.5}]}}
 ESCAPE = {"part": "u1", "pin": "3", "side": "NORTH", "reach": 5.0}
 FACTS = {
-    "unplaced.search": SEARCH, "unplaced.pocket": SEARCH, "unplaced.slide": dict(SEARCH, edge="NORTH"),
-    "unplaced.block": dict(SEARCH, gap_reach=2.0), "unplaced.bearing": dict(SEARCH, bearing_step=5.0), "unplaced.rides": SEARCH,
-    "fixed.part": SEARCH, "fixed.cutout": {}, "fixed.keepout": {},
-    "link_over": LINK, "label.sits_on": LABEL, "label.no_spot": LABEL, "label.not_drawn": LABEL,
-    "copper.keepout": {"net": "SIG", "keepout": "ant", "word": "track", "layer": "F", "layer_word": "front",
+    C.UNPLACED_SEARCH: SEARCH, C.UNPLACED_POCKET: SEARCH, C.UNPLACED_SLIDE: dict(SEARCH, edge="NORTH"),
+    C.UNPLACED_BLOCK: SEARCH, C.UNPLACED_BEARING: SEARCH, C.UNPLACED_RIDES: SEARCH,
+    C.FIXED_PART: SEARCH, C.FIXED_CUTOUT: {}, C.FIXED_KEEPOUT: {},
+    C.LINK_OVER: LINK, C.LABEL_SITS_ON: LABEL, C.LABEL_NO_SPOT: LABEL, C.LABEL_NOT_DRAWN: LABEL,
+    C.COPPER_KEEPOUT: {"net": "SIG", "keepout": "ant", "word": "track", "layer": "F", "layer_word": "front",
                        "excluded": "tracks", "excludes": ["parts", "tracks"], "keepout_layers": ["F", "B"]},
-    "copper.cross": {"yielder": "track SIG", "yielder_net": "SIG", "other_net": "GND", "other_bridge": True},
-    "copper.meets": TRACK, "copper.not_drawn": TRACK, "copper.corner": TRACK, "copper.note": TRACK,
-    "escape_walled": ESCAPE, "escape_closed": ESCAPE, "escape_crossed": ESCAPE, "escape_lane": ESCAPE, "pair_crossed": {},
-    "setup.undeclared": {"item": "c9", "anchor": "c1"}, "setup.lane_unused": ESCAPE, "setup.accept": {"key": "keep-out SIG"},
-    "vias.dropped": {"item": "c4", "via_move": 0.5, "via_leave": 1.0},
+    C.COPPER_STITCH: {}, C.COPPER_CROSS: {"yielder": "track SIG", "yielder_net": "SIG", "other_net": "GND", "other_bridge": True},
+    C.COPPER_MEETS: TRACK, C.COPPER_NOT_DRAWN: TRACK, C.COPPER_CORNER: TRACK, C.COPPER_NOTE: dict(TRACK, variant="waypoint"),
+    C.ESCAPE_WALLED: ESCAPE, C.ESCAPE_CLOSED: ESCAPE, C.ESCAPE_CROSSED: ESCAPE, C.ESCAPE_LANE: ESCAPE, C.PAIR_CROSSED: {},
+    C.SETUP_UNDECLARED: {"item": "c9", "anchor": "c1"}, C.SETUP_LANE_UNUSED: ESCAPE, C.SETUP_ACCEPT: {"key": "keep-out SIG"},
+    C.VIAS_DROPPED: {"item": "c4"},
 }
 
 
@@ -95,7 +100,7 @@ def test_every_keyword_a_builder_sets_is_a_parameter_of_the_board_method_it_edit
     settings = Settings()
     seen = 0
     for case, builder in sg.CASES.items():
-        for pick in builder(dict(FACTS[case], case=case), settings) or ():
+        for pick in builder(FACTS[case], settings) or ():
             e = pick.edit
             if e.op in ("set_kwarg", "edit_list", "remove_kwarg") and e.target is not None:
                 method = getattr(Board, e.target.kind)
@@ -129,7 +134,7 @@ def test_a_number_a_builder_writes_into_a_call_is_a_named_constant():
     """A set_kwarg value is a form, an enum, an item, a string, a bool, a list of angles or a constant: a bare number
     never stands alone as a keyword's value."""
     for case, builder in sg.CASES.items():
-        for pick in builder(dict(FACTS[case], case=case), Settings()) or ():
+        for pick in builder(FACTS[case], Settings()) or ():
             e = pick.edit
             if e.op != "set_kwarg":
                 continue
@@ -140,8 +145,8 @@ def test_a_number_a_builder_writes_into_a_call_is_a_named_constant():
 def test_the_suggestions_per_lever_setting_caps_a_lever():
     from dataclasses import replace
     one = replace(Settings(), studio_suggestions_per_lever=1)
-    many = sg.suggest("unplaced.search", dict(SEARCH, free_sides={"c1": ["NORTH", "EAST", "SOUTH", "WEST"]}), Settings())
-    capped = sg.suggest("unplaced.search", dict(SEARCH, free_sides={"c1": ["NORTH", "EAST", "SOUTH", "WEST"]}), one)
+    many = sg.suggest(C.UNPLACED_SEARCH, dict(SEARCH, free_sides={"c1": ["NORTH", "EAST", "SOUTH", "WEST"]}), Settings())
+    capped = sg.suggest(C.UNPLACED_SEARCH, dict(SEARCH, free_sides={"c1": ["NORTH", "EAST", "SOUTH", "WEST"]}), one)
     assert len([s for s in many if s.lever == "beside"]) == 3
     assert len([s for s in capped if s.lever == "beside"]) == 1
     assert [s.rank for s in many] == list(range(1, len(many) + 1))

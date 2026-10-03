@@ -126,7 +126,7 @@ def test_a_label_reserves_its_space_so_nothing_is_placed_over_it():
     (t,) = labels(plan)
     assert declared_findings(plan) == []
     assert not plan.box("r1").overlaps(t.box)
-    assert any("label j1 MOTOR" in r.why for r in plan.occupancy.reservations)
+    assert any("label j1 MOTOR" in str(r.why) for r in plan.occupancy.reservations)
 
 
 def test_a_label_may_decline_to_reserve_and_then_only_reports_what_lands_on_it():

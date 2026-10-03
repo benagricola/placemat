@@ -16,7 +16,7 @@ board.place(Part("j1"), at=Location(50, 10))
 
 
 def raise_limit(plan):
-    return [s for f in plan.findings if f.case == "link_over" for s in f.suggestions if s.lever == "limit"]
+    return [s for f in plan.findings if f.cause == "link_over" for s in f.suggestions if s.lever == "limit"]
 
 
 def test_a_call_that_already_reads_a_constant_gets_both_variants(tmp_path):
@@ -82,33 +82,42 @@ def test_a_module_imported_by_the_most_scripts_is_the_shared_one(tmp_path):
     assert se.shared_module(main) == str(tmp_path / "two.py")
 
 
+def _envelope_finding(board, plan):
+    """An unplaced.search finding that the drawn envelope refused, so it offers the one settings suggestion."""
+    from placemat.findings import Finding, FindingCause as C
+    real = next(f for f in plan.findings if f.cause is C.UNPLACED_SEARCH)
+    f = Finding(C.UNPLACED_SEARCH, dict(real.facts, drawn=True, envelope="physical"))
+    sg.bind([f], board)
+    return f, next(s for s in f.suggestions if s.lever == "envelope")
+
+
 def test_a_settings_suggestion_writes_the_scripts_own_table_and_nothing_else(tmp_path):
-    original = '[place]\nenvelope = "courtyard"  # as the board is drawn\n\n[cleanup]\nenabled = false\n'
+    original = '[place]\nenvelope = "physical"  # as the board is drawn\n\n[cleanup]\nenabled = false\n'
     (tmp_path / "placemat.toml").write_text(original)
-    script = ('board.place(Part("u1"), at=Location(30, 30))\nboard.place(Part("j1"), at=Location(30, 30), rotations=[0, 90])\n'
+    script = ('board.place(Part("u1"), at=Location(30, 30))\nboard.place(Part("j1"), at=Near(Location(30, 30), radius=0.5))\n'
               'board.place(Part("c1"), at=Location(50, 50))\n')
     board, plan, path = resolve(tmp_path, script)
-    (f,) = [f for f in plan.findings if f.case == "unplaced.bearing"]
-    shown = sg.apply_suggestion(suggestions_of(plan), f.suggestions[0].id, dry_run=True)
+    f, s = _envelope_finding(board, plan)
+    shown = sg.apply_suggestion([s], s.id, dry_run=True)
     toml = str(tmp_path / "placemat.toml")
     after = shown.files[toml].after
     assert after.startswith(original)                                  # the rest of the file byte for byte
-    assert after[len(original):].startswith('\n[scripts."layout.py".place]\nbearing_step = 2.5  # A run\'s finding')
-    assert f.suggestions[0].digests[toml] == se.digest(original)
-    sg.apply_suggestion(suggestions_of(plan), f.suggestions[0].id, root=tmp_path, log=tmp_path / "applied.jsonl")
+    assert after[len(original):].startswith('\n[scripts."layout.py".place]\nenvelope = "courtyard"  # A run\'s finding')
+    assert s.digests[toml] == se.digest(original)
+    sg.apply_suggestion([s], s.id, root=tmp_path, log=tmp_path / "applied.jsonl")
     from placemat.settings import load
-    assert load(tmp_path, script=path).place_bearing_step == 2.5
+    assert load(tmp_path, script=path).place_envelope == "courtyard"
 
 
 def test_a_settings_suggestion_is_refused_as_stale_when_the_toml_changed(tmp_path):
-    (tmp_path / "placemat.toml").write_text('[place]\nenvelope = "courtyard"\n')
-    script = ('board.place(Part("u1"), at=Location(30, 30))\nboard.place(Part("j1"), at=Location(30, 30), rotations=[0, 90])\n'
+    (tmp_path / "placemat.toml").write_text('[place]\nenvelope = "physical"\n')
+    script = ('board.place(Part("u1"), at=Location(30, 30))\nboard.place(Part("j1"), at=Near(Location(30, 30), radius=0.5))\n'
               'board.place(Part("c1"), at=Location(50, 50))\n')
     board, plan, path = resolve(tmp_path, script)
-    (f,) = [f for f in plan.findings if f.case == "unplaced.bearing"]
+    f, s = _envelope_finding(board, plan)
     (tmp_path / "placemat.toml").write_text('[place]\nenvelope = "union"\n')
     try:
-        sg.apply_suggestion(suggestions_of(plan), f.suggestions[0].id, dry_run=True)
+        sg.apply_suggestion([s], s.id, dry_run=True)
     except sg.StaleSuggestion as e:
         assert e.files == [str(tmp_path / "placemat.toml")]
     else:

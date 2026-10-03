@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 import math
 
-from .cutouts import Cutouts
+from .cutouts import Cutouts, EdgeWhy
 
 
 class _CopperLayerNames(str, Enum):
@@ -165,7 +165,7 @@ class Bend(str, Enum):
     shortest, then its own tie-break (the 45 at the pad end).
 
     ARC and ARC_FREE are not about a 45: every corner of the track is a
-    circular arc tangent to both legs, of `radius=` or `copper.arc_radius_widths`
+    circular arc tangent to both legs, of `radius=` or `copper.arc_radius_track_widths`
     times the track's width. ARC plans the legs as an unset `bend` does
     (octilinear); ARC_FREE draws the straight line between each pair of points,
     at any angle."""
@@ -188,7 +188,7 @@ class Drops(str, Enum):
     drops (vias of a net the board declares a `plane()` for) inside one of
     its members' pads. ALL keeps them as stamped; HALF every other via of
     each field, a checkerboard over its grid; MIN each field at the
-    `place.drops_keep` share, rounded up and never fewer than one."""
+    `place.drops_keep_share` share, rounded up and never fewer than one."""
     ALL = "all"
     HALF = "half"
     MIN = "min"
@@ -1025,18 +1025,18 @@ class Disc:
         """The point `radius` from the centre on that bearing."""
         return polar_point(self.centre, angle, radius)
 
-    def why_not(self, box: Box, margin: float) -> str | None:
+    def why_not(self, box: Box, margin: float):
         """None when `box` sits inside the board with `margin` to spare
         everywhere, else which side of the board it crosses."""
         far = max(math.hypot(x - self.centre.x, y - self.centre.y)
                   for x in (box.left, box.right) for y in (box.top, box.bottom))
         if far > self.radius - margin + _NM:
-            return "past the rim's keep-in (%.2f mm)" % margin
+            return EdgeWhy.PAST_RIM
         if self.bore:
             dx = max(box.left - self.centre.x, 0.0, self.centre.x - box.right)
             dy = max(box.top - self.centre.y, 0.0, self.centre.y - box.bottom)
             if math.hypot(dx, dy) < self.bore + margin - _NM:
-                return "into the bore's keep-in (%.2f mm)" % margin
+                return EdgeWhy.INTO_BORE
         return self.cutouts.why_not(box, margin)
 
     def polygon(self, inset: float = 0.0, segments: int = 72) -> tuple:

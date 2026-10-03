@@ -633,8 +633,9 @@ def undo_field(occ, field_id: str, undo) -> None:
 
 
 def report(occ) -> dict:
-    """{home: [(sentence, severity), ...]} for each field a relay re-laid, from what is in
-    `occ.given_way`: a warning where fewer vias were drawn than the field was declared with."""
+    """{home: [(facts, severity), ...]} for each field a relay re-laid, from what is in
+    `occ.given_way`: a warning where fewer vias were drawn than the field was declared with. The facts
+    are the net, the pad, the way, the vias before and after, the vias wanted, and what it went under."""
     by: dict = {}
     for a in occ.given_way.values():
         if getattr(a, "field", ""):
@@ -643,41 +644,39 @@ def report(occ) -> dict:
     for (home, fid), steps in sorted(by.items()):
         a = steps[0]
         under = sorted({x.under for x in steps if x.under})
-        text = "%s field in %s pad %s re-laid by %s, %d vias before, %d after" % (
-            a.net, a.pad[0], a.pad[1], a.way, a.before, a.after)
-        if a.after < a.want:
-            text += " (%d drawn)" % a.want
-        out.setdefault(home, []).append((text + (" under %s" % ", ".join(under) if under else ""),
+        out.setdefault(home, []).append(({"net": a.net, "pad": [a.pad[0], a.pad[1]], "way": a.way, "before": a.before,
+                                          "after": a.after, "want": a.want, "under": under},
                                          "warning" if a.after < a.want else "notice"))
     return out
 
 
-def held_note(occ, home: str, acts: list) -> str:
-    """" (U1 pad 1 holds 6 of 9)" for the pads of a field - two or more drops drawn - that `acts` (one
-    net's actions of one item) dropped vias from; "" where there is none."""
+def held_pads(occ, home: str, acts: list) -> list:
+    """[[ref, pad number, vias held, vias drawn], ...] for the pads of a field - two or more drops drawn - that `acts` (one
+    net's actions of one item) dropped vias from; empty where there is none."""
     from .giveway import _home_owner
     pads = sorted({a.pad for a in acts if a.kind == "drop" and a.pad is not None})
     if not pads:
-        return ""
+        return []
     who = _home_owner(occ, home)
-    said = []
+    held = []
     for pad in pads:
         n = who.counts.get(pad, 0)
         if n >= 2:
-            said.append("%s pad %s holds %d of %d" % (pad[0], pad[1], n - who.dropped.get(pad, 0), n))
-    return " (%s)" % ", ".join(said) if said else ""
+            held.append([pad[0], pad[1], n - who.dropped.get(pad, 0), n])
+    return held
 
 
 def merged(out: list, occ) -> list:
-    """`out` ((home, sentence, severity), as `giveway.report` builds it) with each home's field
-    sentences joined to its own: one finding per item, as serious as its most serious part."""
+    """`out` ((home, facts, severity), as `giveway.report` builds it) with each home's field
+    facts joined to its own: one finding per item, as serious as its most serious part."""
     from .findings import RANK
-    by = {home: (text, sev) for home, text, sev in out}
+    by = {home: (facts, sev) for home, facts, sev in out}
     for home, found in report(occ).items():
-        texts = [t for t, _ in found]
+        fields = [f for f, _ in found]
         sev = max([s for _, s in found] + ([by[home][1]] if home in by else []), key=RANK.__getitem__)
-        by[home] = ("; ".join(([by[home][0]] if home in by else []) + texts), sev)
-    return [(home, text, sev) for home, (text, sev) in sorted(by.items())]
+        nets = by[home][0]["nets"] if home in by else []
+        by[home] = ({"nets": nets, "fields": fields}, sev)
+    return [(home, facts, sev) for home, (facts, sev) in sorted(by.items())]
 
 
 def write(board, steps: list, groups: dict) -> None:
