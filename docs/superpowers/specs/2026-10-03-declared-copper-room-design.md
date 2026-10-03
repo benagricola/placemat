@@ -240,6 +240,8 @@ Where the build differs from the draft above:
   with the part that was refused; where no part is named, all of them go back.
 - `Occupancy`-free helpers: the measuring occupancy the placer builds for an item's envelope is kept per settings
   (`_bare_occupancy`), which it was rebuilt for at every call.
+- `Beside`'s move out asks plain legality at each step (no give-way search), and the give-way-aware question once, at the
+  standoff, as a firm item is judged; the finding suggestions' free-sides measure takes the standoff only (`push=False`).
 - Settings: `place.copper_room` (true), `place.firm_passes` (8: the most runs, the last one the resolve),
   `place.copper_room_tolerance` (0.001 mm). The pass count is from measurement: the slowest of the fixture scripts
   settles in four runs.
