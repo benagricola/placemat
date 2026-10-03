@@ -15,7 +15,7 @@ from .copper import Pour, Text, Track, Via, Zone, arc_circle
 from . import finding_text
 from .preview import HEAT_MIN, _board_loops, _drawn_at, _extent, _face_of, _placed
 
-VERSION = 1
+VERSION = 2             # 2: members carry `models` and the plan `stackup` and `models` when a model context is given (model_plan.py); all additive
 DIGITS = 3              # decimals kept: a micrometre, below any placement or copper tolerance
 
 
@@ -75,7 +75,7 @@ def _how(plan, step) -> str:
     return "decided" if step.freedom is not None and step.freedom.decided else "searched"
 
 
-def item_json(plan, step, sites: dict | None = None) -> dict:
+def item_json(plan, step, sites: dict | None = None, models=None) -> dict:
     """One step's item as the page shows it: where it stands, how it was
     placed, its note and findings, the line that declared it and, when
     placed, its members' shapes."""
@@ -85,8 +85,10 @@ def item_json(plan, step, sites: dict | None = None) -> dict:
     if p is not None and step.item in plan._items:
         for fp in members_of(plan._items[step.item]):
             if fp.ref in plan.occupancy.items:
-                members.append({"ref": fp.ref, "inst": fp.inst, "value": fp.value, "cell": fp.cell or "",
-                                "shapes": _shapes(plan, fp)})
+                m = {"ref": fp.ref, "inst": fp.inst, "value": fp.value, "cell": fp.cell or "", "shapes": _shapes(plan, fp)}
+                if models is not None:                  # the 3D view's: each model entry resolved, with its placement matrix (model_plan.py)
+                    m["models"] = models.members(plan, fp)
+                members.append(m)
     return {
         "key": step.item, "kind": step.kind, "placed": p is not None, "members": members,
         "at": None if p is None else _pt(p.location), "rotation": None if p is None else _r(p.rotation),
@@ -270,7 +272,7 @@ def board_json(plan) -> dict:
             "keepouts": keepouts, "reservations": reservations}
 
 
-def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dict:
+def plan_json(plan, sites: dict | None = None, score: dict | None = None, models=None) -> dict:
     """The whole plan: the board (outline, keepouts, reservations), every placed
     item with its shapes, copper, links, congestion, findings and the steps in
     order. `sites` is declared_sites(board); `score` the run score the caller
@@ -279,7 +281,7 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dic
     for step, _ in _placed(plan):
         if step.item not in seen:
             seen.add(step.item)
-            items.append(item_json(plan, step, sites))
+            items.append(item_json(plan, step, sites, models))
     copper = [c for c in (_copper(op) for op in plan.copper) if c is not None]
     at, k = {}, 0
     for n, op in enumerate(plan.copper):                  # a step's ops by where they are in the document's copper
@@ -293,8 +295,9 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dic
                       "rank": s.rank, "rank_of": s.rank_of, "pocket": s.pocket, "lock": s.lock, "copper": [at[i] for i in s.laid if i in at], "loop": _cutout_loop(plan, s, loops)})
     unplaced = [{"item": s.item, "why": s.unplaced if s.unplaced is not None else s.note}
                 for s in plan.steps if s.placement is None and s.kind in ("part", "cell", "block")]
+    extra = {} if models is None else {"stackup": models.stackup(plan.geometry), "models": models.table()}
     return {
-        "version": VERSION, **board_json(plan),
+        "version": VERSION, **extra, **board_json(plan),
         "items": items, "copper": copper, "links": _links(plan),
         "congestion": _congestion(plan), "findings": _findings(plan, seen), "steps": steps, "unplaced": unplaced,
         "layers": [l.value for l in sorted(plan.geometry.layers, key=stackup_order)],

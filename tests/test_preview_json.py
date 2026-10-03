@@ -44,7 +44,7 @@ def test_it_is_plain_json_and_the_same_every_time():
     text = json.dumps(plan_json(plan, declared_sites(b)), sort_keys=True)
     b2, plan2 = _plan()
     assert json.dumps(plan_json(plan2, declared_sites(b2)), sort_keys=True) == text
-    assert json.loads(text)["version"] == 1
+    assert json.loads(text)["version"] == 2
 
 
 def test_the_shapes_are_those_the_drawing_has():
