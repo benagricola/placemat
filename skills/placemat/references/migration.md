@@ -31,6 +31,11 @@ section for each hand-written pattern a newer form replaces.
   as lost with its last state. An explore is shown with a plot of score against time and the best so far, the latest
   variant (at most `[studio] explore_fps` times a second, default 2) and the best drawn over the plain placement,
   thumbnails, a step through the variants by order or score, and where each item landed across them.
+- **Studio page.** On a wide layout the running status is one line in the header (the strip above the timeline stays on
+  narrow ones), and between two steps the step that just settled stays, dimmed, with its time. Unplaced items are shown
+  as sections in the steps list, the card and the findings list: why, the radius searched around a point, and what
+  refused it as counts per kind with the parts that did most of it as pills that select them. The legend's keepouts,
+  reserved areas and a layer's zones start collapsed when there are more than three; the choice is kept in the browser.
 - **An explore keeps its variants.** `.placemat/views/explore/<time>-<pid>.json` holds every variant (seed, score,
   measures, the focused items' placements and the order they were placed in) and which was kept; the studio lists and
   replays finished explores from it. `run.json`'s `metrics.explore` names it as `record`.
