@@ -5,6 +5,13 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Removed
+
+- **`check.neck_band` is gone.** It has not been read since 0.72.0 (`check.neck_end_share` and the neck length replaced it). A
+  `placemat.toml` that still names it now fails as an unknown setting: delete the line.
+
 ## To 0.96.0
 
 ### New
