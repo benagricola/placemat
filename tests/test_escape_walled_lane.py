@@ -85,9 +85,31 @@ def test_an_unplated_hole_across_the_lanes_end_walls_it_like_a_pad():
     assert _walled(_board(pocket, plug=_plug(2.0)).resolve()) == ["U1 pin 50 (N50): walled off by J1, J2"]
 
 
-def test_a_cavity_a_via_fits_in_is_a_way_out_unless_the_via_is_banned_there():
+def _with_via_exit(b):
+    b.settings = dataclasses.replace(b.settings, place_escape_lane_via_exit=True)
+    return b
+
+
+def test_a_lane_whose_only_way_on_is_a_via_spot_is_walled_off_unless_the_setting_counts_the_via():
     cavity = _pocket(side=0.8, end_gap=1.3)
-    assert _walled(_board(cavity).resolve()) == []
+    (found,) = _walled(_board(cavity).resolve())
+    assert found == "U1 pin 50 (N50): walled off by J1"
+    assert _walled(_with_via_exit(_board(cavity)).resolve()) == []
+
+
+def test_a_pad_with_no_lane_keeps_the_via_rule():
+    far = one_pad("X1", "x1", "N50", 50.0, 50.0)
+    g = one_pad("G1", "g1", "GND", 10.0, 10.0)
+    b = fan_board([far, g, _pocket(side=0.8, end_gap=1.3)], exposed=True, keep_going=True,
+                  settings=dataclasses.replace(Settings(), cleanup_enabled=False))
+    b.place(Part("g1"), at=Location(10.0, 10.0))
+    b.place(Part("x1"), at=Location(50.0, 50.0))
+    b.place(Part("j1"), at=_pocket().location)
+    assert _walled(b.resolve()) == []
+
+
+def test_a_via_ban_over_the_cavity_walls_the_lane_with_the_setting_on_too():
+    cavity = _pocket(side=0.8, end_gap=1.3)
     ban = _ban(Box(24.6, 29.0, 26.0, 31.4))
-    (found,) = _walled(_board(cavity, areas=[ban]).resolve())
+    (found,) = _walled(_with_via_exit(_board(cavity, areas=[ban])).resolve())
     assert found.startswith("U1 pin 50 (N50): walled off by J1")
