@@ -246,6 +246,10 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **`board.rect`** (0.85.0): the rectangular board form, named alongside
+  `board.disc` and `board.outline`; `board.size` still works and raises a
+  setup notice.
+
 - **The run score prices what the search prices** (0.84.0): give-way
   actions, pushes and back-face spots are run measures at the search's
   weights; a track left out because it may not bridge is one finding, not
