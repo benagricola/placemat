@@ -199,6 +199,8 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 #viewbar { display: none; }
 body[data-mode="3d"] #board, body[data-mode="3d"] #grid, body[data-mode="3d"] #facebar { display: none; }
 body[data-mode="3d"] #viewbar { display: inline-flex; }
+body[data-mode="3d"] #bar { flex-wrap: wrap; }                 /* 2D | 3D, the views, Fit and Key: more than a phone is wide */
+body[data-mode="3d"] #viewbar button { padding-left: 9px; padding-right: 9px; }
 .m3 { margin: 4px 0 8px; padding: 0 12px; font-size: 12px; }
 .m3 .row3 { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; padding: 1px 0; }
 .m3 .row3 a { cursor: pointer; color: var(--accent); }
