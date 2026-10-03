@@ -25,16 +25,17 @@ ID_RE = re.compile(r"^(?:[0-9a-f]{32}|e-[0-9a-f]{1,32})$")
 STEP_EXT = (".step", ".stp")
 VRML_EXT = (".wrl", ".wrz")
 LIB_FILES = {"three.module.min.js": "text/javascript", "three.core.min.js": "text/javascript", "OrbitControls.js": "text/javascript",
-             "viewer.js": "text/javascript", "LICENSE": "text/plain; charset=utf-8"}
+             "viewer.js": "text/javascript", "viewer_core.js": "text/javascript", "LICENSE": "text/plain; charset=utf-8"}
 LIB_DIR = Path(__file__).with_name("vendor") / "three"
 VIEWER = Path(__file__).with_name("studio_3d.js")
+VIEWER_CORE = Path(__file__).with_name("studio_3d_core.js")      # the viewer's pure parts, served as viewer_core.js
 
 
 def lib_file(name: str):
     """(path, content type) of a file the 3D view loads, from the fixed list; None for any other name."""
     if name not in LIB_FILES:
         return None
-    p = VIEWER if name == "viewer.js" else LIB_DIR / name
+    p = VIEWER if name == "viewer.js" else VIEWER_CORE if name == "viewer_core.js" else LIB_DIR / name
     return (p, LIB_FILES[name]) if p.is_file() else None
 
 

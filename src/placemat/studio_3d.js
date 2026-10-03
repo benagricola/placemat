@@ -11,25 +11,8 @@ import { OrbitControls } from "./OrbitControls.js";
 const css = (n, d) => (getComputedStyle(document.documentElement).getPropertyValue(n) || "").trim() || d;
 const dark = () => matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
 
-// ---------------------------------------------------------------- the mesh file
-export function parsePmm(buf) {
-  const dv = new DataView(buf);
-  if (buf.byteLength < 12 || String.fromCharCode(...new Uint8Array(buf, 0, 6)) !== "PMMESH") throw new Error("not a placemat mesh");
-  const hl = dv.getUint32(8, true);
-  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 12, hl)));
-  let at = 12 + hl;
-  const mats = [];
-  for (const m of header.materials) {
-    const pos = new Float32Array(buf, at, 3 * m.nv); at += 12 * m.nv;
-    const nor = new Float32Array(buf, at, 3 * m.nv); at += 12 * m.nv;
-    const idx = m.index_bytes === 2 ? new Uint16Array(buf, at, m.ni) : new Uint32Array(buf, at, m.ni);
-    at += m.index_bytes * m.ni; at += (4 - at % 4) % 4;
-    mats.push({colour: m.colour, opacity: m.opacity, pos, nor, idx});
-  }
-  return {header, mats};
-}
-
-const upper = (arr, k) => { let lo = 0, hi = arr.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < k) lo = mid + 1; else hi = mid; } return lo; };   // how many of a sorted array are below k
+import { parsePmm, upper, partSteps } from "./viewer_core.js";
+export { parsePmm };
 
 function hatch(color) {
   const c = document.createElement("canvas"); c.width = c.height = 64;
@@ -190,8 +173,7 @@ export async function mount(host) {
   function rebuild(plan, order) {
     clearParts();
     const T = state.T;
-    const nOf = new Map();
-    for (const s of order) if (s.type === "place") nOf.set(s.item, s.n);
+    const nOf = partSteps(order);
     state.keyN = nOf;
     const byGroup = new Map();
     let dueLoading = false;
