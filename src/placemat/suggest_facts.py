@@ -223,7 +223,7 @@ def fixed_part(board, i) -> dict:
 
 def escape_facts(board, occ, plan, ref, number, net, by) -> dict:
     """A pad closed or walled in: the part, the pin, what blocks it, and the side of the part its way out points at."""
-    facts = {"ref": ref, "part": inst_of(board, ref), "pin": str(number), "net": net, "by": list(by)}
+    facts = {"ref": ref, "part": inst_of(board, ref), "pin": str(number), "net": net, "by": [o.to_json() for o in by]}
     try:
         from .placer import pad_way_out, way_out_side
         fp = board.geometry.footprint(ref)

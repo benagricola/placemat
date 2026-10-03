@@ -76,6 +76,36 @@ class Code(str, Enum):
     TAIL_CROSSES = "tail_crosses"
     TAIL_COPPER = "tail_copper"
     SOURCE_PAD = "source_pad"
+    # what stands in the way of an escape's lane or its via (lanes.py)
+    LANE_LANE = "lane_lane"
+    LANE_VIA = "lane_via"
+    LANE_HOLE = "lane_hole"
+    LANE_PASSED_VIA = "lane_passed_via"
+    LANE_PASSED_JOG = "lane_passed_jog"
+    LANE_PAD_JOG = "lane_pad_jog"
+    LANE_PAD = "lane_pad"
+    LANE_NO_SPOT = "lane_no_spot"
+    # why an adopted route cannot be drawn where the parts now stand
+    ROUTE_GONE = "route_gone"
+    ROUTE_FACE = "route_face"
+    ROUTE_NO_PAD = "route_no_pad"
+    ROUTE_NET = "route_net"
+    ROUTE_MOVED = "route_moved"
+    ROUTE_END = "route_end"
+    # why a hole or a region may not go where it is put
+    CUTOUT_OUTSIDE = "cutout_outside"
+    CUTOUT_NOTCH = "cutout_notch"
+    CUTOUT_WEB = "cutout_web"
+    CUTOUT_MILLED = "cutout_milled"
+    KEEPOUT_OFF_BOARD = "keepout_off_board"
+    CUTOUT_NOWHERE = "cutout_nowhere"
+    # why a track's arc does not fit, and why a Past has nothing to stand off
+    ARC_TURNS_BACK = "arc_turns_back"
+    ARC_LEG = "arc_leg"
+    PAST_AFTER = "past_after"
+    PAST_NOT_PLANNED = "past_not_planned"
+    PAST_NO_VIA = "past_no_via"
+    PAST_NO_TRACK = "past_no_track"
     # where a via may stand, asked of the board as it was read (queries.py)
     Q_OFF_BOARD = "q_off_board"
     Q_EDGE = "q_edge"
@@ -300,7 +330,7 @@ def _json(v):
     return v
 
 
-_SUBREFUSALS = frozenset(("base", "why_not", "edge", "note", "why"))
+_SUBREFUSALS = frozenset(("base", "why_not", "edge", "note", "why", "nearest"))
 
 
 def _unjson(key: str, v):
@@ -811,3 +841,162 @@ def _q_pour(f):
 def _q_tail(f):
     got, want = _got_want(f)
     return "tail %s mm from %s %s on %s (needs %s)" % (got, f["net"] or "-", f["kind"], f["layer"], want)
+
+
+# ------------------------------------------------------------------ copper that cannot be drawn as asked
+@renders(Code.ARC_TURNS_BACK, "copper")
+def _arc_turns_back(f):
+    return "the track turns back on itself at (%.2f, %.2f)" % (f["at"][0], f["at"][1])
+
+
+@renders(Code.ARC_LEG, "copper")
+def _arc_leg(f):
+    """`leg`: the two ends; `length_mm`; `arcs`: each {"radius_mm", "at", "turn_deg" (as written), "takes_mm"}."""
+    (ax, ay), (bx, by) = f["leg"]
+    first = f["arcs"][0]
+    text = ("the leg (%.2f, %.2f)-(%.2f, %.2f) is %.2f mm, and the arc of radius %.2f mm at its corner (%.2f, %.2f), a turn "
+            "of %s degrees, takes %.2f mm of it" % (ax, ay, bx, by, f["length_mm"], first["radius_mm"], first["at"][0],
+                                                    first["at"][1], first["turn_deg"], first["takes_mm"]))
+    return text + "".join(" and the one at (%.2f, %.2f), a turn of %s degrees, %.2f mm" % (
+        a["at"][0], a["at"][1], a["turn_deg"], a["takes_mm"]) for a in f["arcs"][1:])
+
+
+@renders(Code.PAST_AFTER, "copper")
+def _past_after(f):
+    return "%s is declared after %s; declare it first" % (f["key"], f["what"])
+
+
+@renders(Code.PAST_NOT_PLANNED, "copper")
+def _past_not_planned(f):
+    return "%s is not planned by then" % f["key"]
+
+
+@renders(Code.PAST_NO_VIA, "copper")
+def _past_no_via(f):
+    return "that via found no spot"
+
+
+@renders(Code.PAST_NO_TRACK, "copper")
+def _past_no_track(f):
+    return "that track is not drawn"
+
+
+# ------------------------------------------------------------------ a hole or a region put where it may not go
+@renders(Code.CUTOUT_OUTSIDE, "edge")
+def _cutout_outside(f):
+    return "reaches outside the board"
+
+
+@renders(Code.CUTOUT_NOTCH, "edge")
+def _cutout_notch(f):
+    return "touches the board outline: that is a notch, not a hole, and it belongs in the board's own outline path"
+
+
+@renders(Code.CUTOUT_WEB, "edge")
+def _cutout_web(f):
+    return "would leave a %.2f mm web, under the %.2f mm minimum" % (f["gap_mm"], f["web_mm"])
+
+
+@renders(Code.CUTOUT_MILLED, "edge")
+def _cutout_milled(f):
+    return "would be milled through %s" % f["owner"]
+
+
+@renders(Code.KEEPOUT_OFF_BOARD, "edge")
+def _keepout_off_board(f):
+    return "is wholly off the board"
+
+
+@renders(Code.CUTOUT_NOWHERE, "edge")
+def _cutout_nowhere(f):
+    """`nearest`: the refusal nearest the place the region wanted to be, or None where there was no place at all."""
+    return "has nowhere legal to go: %s" % (f["nearest"] or "nowhere on the board")
+
+
+# ------------------------------------------------------------------ an adopted route that cannot be drawn
+def _inst(i: dict) -> str:
+    """A part as an adopted route names it: `name` (the instance a script names) and `ref` (the refdes KiCad shows)."""
+    return i["name"] if i["ref"] == i["name"] else "%s (%s)" % (i["name"], i["ref"])
+
+
+@renders(Code.ROUTE_GONE, "route")
+def _route_gone(f):
+    return "%s is no longer on the board" % _inst(f["part"])
+
+
+@renders(Code.ROUTE_FACE, "route")
+def _route_face(f):
+    return "%s is on the other face now" % _inst(f["part"])
+
+
+@renders(Code.ROUTE_NO_PAD, "route")
+def _route_no_pad(f):
+    return "%s has no pad %s now" % (_inst(f["part"]), f["number"])
+
+
+@renders(Code.ROUTE_NET, "route")
+def _route_net(f):
+    return "%s pad %s is on %s now" % (_inst(f["part"]), f["number"], f["net"] or "no net")
+
+
+@renders(Code.ROUTE_MOVED, "route")
+def _route_moved(f):
+    return "%s has moved or turned relative to %s since it was adopted" % (
+        _inst(f["part"]), ", ".join(_inst(o) for o in f["others"]) if f["others"] else "its own pads")
+
+
+@renders(Code.ROUTE_END, "route")
+def _route_end(f):
+    return "its end at (%.2f, %.2f) no longer meets the net's other copper" % (f["at"][0], f["at"][1])
+
+
+# ------------------------------------------------------------------ what stands in the way of an escape's lane or via
+def _got_want3(f: dict) -> tuple:
+    return gap_texts(f["gap_mm"], f["need_mm"], 3)
+
+
+@renders(Code.LANE_LANE, "lane")
+def _lane_lane(f):
+    got, want = _got_want3(f)
+    return "the lane of pin %s, %s mm off (needs %s)" % (f["pin"], got, want)
+
+
+@renders(Code.LANE_VIA, "lane")
+def _lane_via(f):
+    got, want = _got_want3(f)
+    return "the via of pin %s, %s mm off (needs %s)" % (f["pin"], got, want)
+
+
+@renders(Code.LANE_HOLE, "lane")
+def _lane_hole(f):
+    got, want = _got_want3(f)
+    return "the hole of pin %s's via, %s mm off (hole to hole needs %s)" % (f["pin"], got, want)
+
+
+@renders(Code.LANE_PASSED_VIA, "lane")
+def _lane_passed_via(f):
+    got, want = _got_want3(f)
+    return "the via of pin %s, passed by the lane %s mm off (needs %s)" % (f["pin"], got, want)
+
+
+@renders(Code.LANE_PASSED_JOG, "lane")
+def _lane_passed_jog(f):
+    got, want = _got_want3(f)
+    return "the lane of pin %s, passed by the jog %s mm off (needs %s)" % (f["pin"], got, want)
+
+
+@renders(Code.LANE_PAD_JOG, "lane")
+def _lane_pad_jog(f):
+    got, want = _got_want3(f)
+    return "pad %s of its own part, passed by the jog %s mm off (needs %s)" % (f["pin"], got, want)
+
+
+@renders(Code.LANE_PAD, "lane")
+def _lane_pad(f):
+    got, want = _got_want3(f)
+    return "pad %s of its own part, %s mm off (needs %s)" % (f["pin"], got, want)
+
+
+@renders(Code.LANE_NO_SPOT, "lane")
+def _lane_no_spot(f):
+    return "its via has no legal spot within %.1f mm: %s" % (f["reach_mm"], f["why"] or "nothing stands in its way")

@@ -10,6 +10,7 @@ import math
 
 from .findings import Finding, FindingCause as C
 from .geometry import Polygon
+from .refusals import Code, Refusal
 from .settings import active
 from .values import Box, CopperLayer, Face, Location
 
@@ -275,7 +276,7 @@ def round_corners(pts, radius: float):
     both legs: ([(start, mid, end), ...], misfits). A piece with a `mid` is an
     arc, one without is a straight; points in a line are not corners. An arc
     takes `radius * tan(turn / 2)` of each leg at its corner, so a leg
-    shorter than what its two ends take is a misfit, a sentence naming the
+    shorter than what its two ends take is a misfit, a Refusal naming the
     leg and what its arcs take; with any misfit the pieces are not to be
     drawn. Every point is whole nanometres, so an arc's end is its leg's."""
     path = []
@@ -293,7 +294,7 @@ def round_corners(pts, radius: float):
         if turn < 1e-6:
             continue
         if turn > math.pi - 1e-6:
-            misfits.append("the track turns back on itself at (%.2f, %.2f)" % (v.x, v.y))
+            misfits.append(Refusal(Code.ARC_TURNS_BACK, at=[v.x, v.y]))
             continue
         corners[i] = (turn, radius * math.tan(turn / 2.0), cross > 0)
     for i in range(len(path) - 1):
@@ -301,12 +302,9 @@ def round_corners(pts, radius: float):
         ends = [(j, a if j == i else b) for j in (i, i + 1) if j in corners]
         take = sum(corners[j][1] for j, _ in ends)
         if take > a.distance(b) + 1e-9:
-            first = ("the arc of radius %.2f mm at its corner (%.2f, %.2f), a turn of %s degrees, takes %.2f mm of it"
-                     % (radius, ends[0][1].x, ends[0][1].y, _degrees(corners[ends[0][0]][0]), corners[ends[0][0]][1]))
-            rest = "".join(" and the one at (%.2f, %.2f), a turn of %s degrees, %.2f mm" % (
-                q.x, q.y, _degrees(corners[j][0]), corners[j][1]) for j, q in ends[1:])
-            misfits.append("the leg (%.2f, %.2f)-(%.2f, %.2f) is %.2f mm, and %s%s" % (
-                a.x, a.y, b.x, b.y, a.distance(b), first, rest))
+            misfits.append(Refusal(Code.ARC_LEG, leg=[[a.x, a.y], [b.x, b.y]], length_mm=a.distance(b), arcs=[
+                {"radius_mm": radius, "at": [q.x, q.y], "turn_deg": _degrees(corners[j][0]), "takes_mm": corners[j][1]}
+                for j, q in ends]))
     if misfits:
         return [], misfits
     nm = lambda x, y: Location(round(x, 6), round(y, 6))

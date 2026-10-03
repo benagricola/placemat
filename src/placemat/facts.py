@@ -65,24 +65,24 @@ def facts_of(geometry: BoardGeometry, fab: FabProfile, rise_c: float,
 
 
 def unconfirmed_reasons(doc: FactsDocument, confirmed_digest: str) -> list:
-    """Why `doc` is unconfirmed, or [] when it matches the last `placemat
-    facts --confirm`. A board with no confirmation record yet is
+    """Why `doc` is unconfirmed (a list of {"reason": ...} records, finding_text.facts_reason_text says each),
+    or [] when it matches the last `placemat facts --confirm`. A board with no confirmation record yet is
     unconfirmed outright (nothing else is worth checking); a via type
     fab-profile.json names no tier for, or no min, is unconfirmed even when
     the rest of the digest matches: its default was never decided by
     anyone. A type named "no" is a decision, and is confirmed."""
     if not confirmed_digest:
-        return ["no confirmation record yet"]
+        return [{"reason": "no_record"}]
     out = []
     missing = [k for k in _VIA_KINDS if k not in doc.via_named]
     if len(missing) == len(_VIA_KINDS):
-        out.append("fab-profile.json has no via section")
+        out.append({"reason": "no_via_section"})
     elif missing:
-        out.append("fab-profile.json's via names no tier for %s" % ", ".join(missing))
+        out.append({"reason": "no_via_tier", "kinds": list(missing)})
     if not doc.fab_min:
-        out.append("fab-profile.json has no min section")
+        out.append({"reason": "no_min_section"})
     if doc.digest() != confirmed_digest:
-        out.append("the facts have changed since they were last confirmed")
+        out.append({"reason": "changed"})
     return out
 
 
@@ -109,7 +109,8 @@ def render(doc: FactsDocument, reasons: list) -> list:
     for m in doc.plane_mismatches:
         lines.append("flagged    %s" % m)
     if reasons:
-        lines.append("unconfirmed: " + "; ".join(reasons))
+        from .finding_text import facts_reason_text
+        lines.append("unconfirmed: " + "; ".join(facts_reason_text(r) for r in reasons))
     else:
         lines.append("confirmed")
     return lines

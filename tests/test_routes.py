@@ -10,6 +10,7 @@ from placemat.board_geometry import CopperItem
 from placemat.copper import Track, Via
 from placemat.geometry import circle_polygon
 from placemat.layout import Board
+from placemat.refusals import Refusal
 from placemat.values import Box, CopperLayer, Location, Part
 from tests.fixtures import board_geometry, footprint, rect
 
@@ -94,7 +95,7 @@ def test_a_part_moved_alone_drops_the_net_naming_it():
     placed, routed = _routed()
     (e,) = routes.entries_from(placed, routed, ["X"])
     why = routes.resolve(e, _occupancy(r1_at=(21, 16)), 0.001)
-    assert isinstance(why, str) and "R1" in why
+    assert isinstance(why, Refusal) and "R1" in str(why)
 
 
 def test_a_point_over_another_nets_pad_binds_to_its_own_net():
@@ -125,7 +126,7 @@ def test_a_run_draws_an_adopted_route_where_its_parts_stand():
 
 def test_a_run_drops_an_adopted_route_whose_part_moved():
     plan = _resolved((21, 16))
-    assert "R1" in plan.adopted["X"]
+    assert plan.adopted["X"]["dropped"]["code"] == "route_moved" and "R1" in str(Refusal.from_json(plan.adopted["X"]["dropped"]))
     assert not [c for c in plan.copper if getattr(c, "net", None) == "X"]
     assert any("adopted route X dropped" in f and "R1" in f for f in plan.findings)
 
@@ -184,7 +185,7 @@ def test_a_pad_number_the_part_no_longer_has_drops_the_net():
     t = dict(e.tracks[0], a={**e.tracks[0]["a"], "pad": ["U1", "9"]}) if "pad" in e.tracks[0]["a"] else \
         dict(e.tracks[0], b={**e.tracks[0]["b"], "pad": ["U1", "9"]})
     why = routes.resolve(dataclasses.replace(e, tracks=(t,) + e.tracks[1:]), _occupancy(), 0.001)
-    assert isinstance(why, str) and "U1" in why and "9" in why
+    assert isinstance(why, Refusal) and "U1" in str(why) and "9" in str(why)
 
 
 def test_a_pad_moved_to_another_net_drops_the_route():
@@ -195,7 +196,7 @@ def test_a_pad_moved_to_another_net_drops_the_route():
     b.place(Part("u1"), at=Location(10, 10))
     b.place(Part("r1"), at=Location(20, 16))
     why = routes.resolve(e, b.resolve().occupancy, 0.001)
-    assert isinstance(why, str) and "R1" in why and "B" in why
+    assert isinstance(why, Refusal) and "R1" in str(why) and "B" in str(why)
 
 
 def test_pads_sharing_a_number_resolve_where_the_track_ended():
@@ -227,13 +228,13 @@ def test_a_route_whose_end_met_other_copper_holds_while_that_copper_is_there():
     b = Board(placed, edge_margin=0.5)
     b.place(Part("u1"), at=Location(10, 10))
     b.place(Part("r1"), at=Location(20, 16))
-    assert not isinstance(routes.resolve(e, b.resolve().occupancy, 0.001), str)
+    assert not isinstance(routes.resolve(e, b.resolve().occupancy, 0.001), Refusal)
 
 
 def test_a_route_whose_end_met_other_copper_drops_when_that_copper_is_gone():
     placed, e = _meeting()
     why = routes.resolve(e, _occupancy(), 0.001)
-    assert isinstance(why, str) and "15.00" in why
+    assert isinstance(why, Refusal) and "15.00" in str(why)
 
 
 def test_adopting_says_why_a_net_was_not_kept(tmp_path):

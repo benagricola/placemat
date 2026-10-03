@@ -1091,10 +1091,11 @@ def undo(occ, via: str) -> None:
 
 
 def report(occ) -> list:
-    """(home, sentence, severity) per item whose carried vias gave way, a clause per
-    net: "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under U3". The
-    severity is a notice (placemat did it by design) unless a via was dropped,
-    which leaves fewer vias than were declared: a warning."""
+    """(home, facts, severity) per item whose carried vias gave way: `nets`, an entry per net with its `parts` (how many of
+    each kind of giving way, and how far the moves went), the items it went `under` and the pads that `held` fewer vias
+    (finding_text.vias_note says "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under U3"), and the `fields` a
+    relay re-laid. The severity is a notice (placemat did it by design) unless a via was dropped, which leaves fewer vias
+    than were declared: a warning."""
     from . import giveway_field
     by: dict = {}
     for a in occ.given_way.values():
@@ -1103,25 +1104,22 @@ def report(occ) -> list:
         by.setdefault(a.home, {}).setdefault(a.net, []).append(a)
     out = []
     for home in sorted(by):
-        said = []
+        nets = []
         severity = "warning" if any(a.kind == "drop" for acts in by[home].values() for a in acts) else "notice"
         for net in sorted(by[home]):
             acts = by[home][net]
             parts = []
-            for kind, verb in (("share", "shared"), ("move", "moved"), ("route", "re-routed"), ("leave", "left its pad"), ("shorten", "shortened"), ("drop", "dropped")):
+            for kind in ("share", "move", "route", "leave", "shorten", "drop"):
                 done = [a for a in acts if a.kind == kind]
                 if not done:
                     continue
+                part = {"kind": kind, "n": len(done)}
                 if kind in ("move", "route"):
-                    far = max(a.moved_mm for a in done)
-                    verb += (" %.2f mm" if len(done) == 1 else " up to %.2f mm") % far
-                n = len(done)
-                parts.append(("%d %s via%s %s" % (n, net, "" if n == 1 else "s", verb)) if not parts else
-                             "%d %s" % (n, verb))
-            under = sorted({a.under for a in acts if a.under})
-            said.append(", ".join(parts) + (" under %s" % ", ".join(under) if under else "")
-                        + giveway_field.held_note(occ, home, acts))
-        out.append((home, "; ".join(said), severity))
+                    part["moved_mm"] = max(a.moved_mm for a in done)
+                parts.append(part)
+            nets.append({"net": net, "parts": parts, "under": sorted({a.under for a in acts if a.under}),
+                         "held": giveway_field.held_pads(occ, home, acts)})
+        out.append((home, {"nets": nets, "fields": []}, severity))
     return giveway_field.merged(out, occ)
 
 

@@ -1494,6 +1494,7 @@ def cmd_facts(args) -> int:
     plane_layers = frozenset(l for l, _nets in board._plane_layers().items())
     doc = facts_mod.facts_of(geometry, fab, cfg.check_rise_c, plane_layers)
     reasons = facts_mod.unconfirmed_reasons(doc, facts_mod.confirmed_digest(cfg, script))
+    from .finding_text import facts_reason_text
     if args.confirm:
         # the placemat.toml the run uses: the nearest one up from the board, never a new one beside a
         # script when an ancestor has one (it would cut a module off from the board's shared helpers)
@@ -1506,7 +1507,8 @@ def cmd_facts(args) -> int:
     if args.json:
         console.data(json.dumps({"layers": doc.layers, "pairs": doc.pairs, "via_types": doc.via_types,
                                  "fab_min": doc.fab_min, "rise_c": doc.rise_c,
-                                 "plane_mismatches": list(doc.plane_mismatches), "unconfirmed": reasons}, indent=2))
+                                 "plane_mismatches": list(doc.plane_mismatches),
+                                 "unconfirmed": [facts_reason_text(r) for r in reasons]}, indent=2))
         return 0
     for line in facts_mod.render(doc, reasons):
         console.say("facts", line)

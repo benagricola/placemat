@@ -485,8 +485,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .project import fab_min_findings
         plan.findings += fab_min_findings(board.geometry.netclasses, fab)
         if facts_reasons:
-            from .findings import Finding
-            plan.findings.append(Finding.plain("facts", "; ".join(facts_reasons)))
+            from .findings import Finding, FindingCause
+            plan.findings.append(Finding(FindingCause.FACTS_UNCONFIRMED, {"reasons": facts_reasons}))
         n_place = sum(1 for s in plan.steps if s.placement is not None)
         n_copper = sum(s.ops for s in plan.steps)
         from .findings import summary

@@ -203,12 +203,8 @@ def read(path):
 
 def finding_to_json(f) -> list:
     """[kind, cause, severity, facts_v, facts], the kind and the cause in their string forms. The suggestions are not kept:
-    they are a function of the facts and the script, and are built again at the end of every resolve (suggestions.bind).
-    A finding made from a sentence (a step on the way to structured findings) keeps it as `{"text": ...}`."""
-    cause = f.cause.value if f.cause else None
-    if f.facts_v == 0:
-        return [f.kind.value, cause, f.severity, 0, {"text": str(f), "facts": f.facts}]
-    return [f.kind.value, cause, f.severity, f.facts_v, f.facts]
+    they are a function of the facts and the script, and are built again at the end of every resolve (suggestions.bind)."""
+    return [f.kind.value, f.cause.value, f.severity, f.facts_v, f.facts]
 
 
 def finding_from_json(v):
@@ -218,9 +214,7 @@ def finding_from_json(v):
     from . import finding_text
     from .findings import Finding, FindingCause
     kind, cause_text, severity, facts_v, facts = v
-    cause = FindingCause.parse(cause_text) if cause_text else None
-    if facts_v == 0:
-        return Finding.plain(kind, facts["text"], severity, cause=cause, facts=facts.get("facts"))
+    cause = FindingCause.parse(cause_text)
     if cause is None or facts_v != finding_text.facts_version(cause):
         raise ValueError("a finding of %r under schema %r cannot be rendered by this release" % (cause_text, facts_v))
     return Finding(cause, facts, severity)

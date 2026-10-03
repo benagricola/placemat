@@ -89,7 +89,8 @@ def test_a_via_with_no_spot_in_its_pad_leaves_it_joined_by_a_tail():
 def test_the_report_names_a_via_that_left_its_pad():
     from placemat import giveway
     plan = _board().resolve()
-    assert giveway.report(plan.occupancy) == [("P", "1 GND via left its pad under Q", "notice")]
+    from placemat.finding_text import vias_note
+    assert [(h, vias_note(f), s) for h, f, s in giveway.report(plan.occupancy)] == [("P", "1 GND via left its pad under Q", "notice")]
 
 
 def test_a_pad_with_room_inside_still_moves_inside():

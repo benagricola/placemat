@@ -55,6 +55,12 @@ def _list(names, empty: str = "") -> str:
     return ", ".join(names) or empty
 
 
+def _by_list(by: list) -> str:
+    """Who blocks a pad: each an Owner as JSON, as a finding names them ("copper" for none)."""
+    from .refusals import Owner
+    return ", ".join(str(Owner.from_json(o)) for o in by) or "copper"
+
+
 # ------------------------------------------------------------------ link
 @renders(C.LINK_OVER, "a", "b", "achieved_mm", "limit_mm", "why")
 def _link_over(f):
@@ -101,20 +107,20 @@ def _escape_crossed(f):
 @renders(C.ESCAPE_CLOSED, "ref", "pin", "net", "joins", "by")
 def _escape_closed(f):
     return "%s pin %s (%s): closed toward %s by %s" % (
-        f["ref"], f["pin"], f["net"], _list(f["joins"], "what it joins"), _list(f["by"], "copper"))
+        f["ref"], f["pin"], f["net"], _list(f["joins"], "what it joins"), _by_list(f["by"]))
 
 
 @renders(C.ESCAPE_WALLED, "variant", "ref", "pin", "net", "by")
 def _escape_walled(f):
     if f["variant"] == "handoff":
         return ("%s pin %s (%s): no other pad is on the net, so it leaves the board here, and it is walled off by %s"
-                % (f["ref"], f["pin"], f["net"], _list(f["by"], "copper")))
-    return "%s pin %s (%s): walled off by %s" % (f["ref"], f["pin"], f["net"], _list(f["by"], "copper"))
+                % (f["ref"], f["pin"], f["net"], _by_list(f["by"])))
+    return "%s pin %s (%s): walled off by %s" % (f["ref"], f["pin"], f["net"], _by_list(f["by"]))
 
 
 @renders(C.ESCAPE_LANE, "ref", "pin", "net", "blocked")
 def _escape_lane(f):
-    return "%s pin %s (%s): its lane is blocked by %s" % (f["ref"], f["pin"], f["net"], "; ".join(f["blocked"]))
+    return "%s pin %s (%s): its lane is blocked by %s" % (f["ref"], f["pin"], f["net"], "; ".join(_refusal(b) for b in f["blocked"]))
 
 
 @renders(C.PAIR_CROSSED, "pos", "neg", "parts")
@@ -312,3 +318,296 @@ def _unplaced_rides(f):
 @renders(C.FIXED_PART, "item", "freedom", "why")
 def _fixed_part(f):
     return "%s (%s): %s" % (f["item"], f["freedom"], _refusal(f["why"]))
+
+
+# ------------------------------------------------------------------ copper that is not drawn as asked
+def _span(span) -> str:
+    return "%s-%s" % (span[0], span[1])
+
+
+def _copper_name(c: dict) -> str:
+    from .refusals import copper_name
+    return copper_name(c)
+
+
+def _unplanned(f: dict) -> str:
+    return _refusal(f["why"])
+
+
+def _not_drawn_arc(f):
+    return ("track %s: not drawn, an arc of radius %.2f mm does not fit: %s; a smaller radius=, points further apart%s"
+            % (f["net"], f["radius_mm"], _refusal(f["misfit"]),
+               ", or Bend.ARC_FREE where the octilinear legs made the short leg" if f["free_hint"] else ""))
+
+
+_NOT_DRAWN = {
+    "via_lost": lambda f: "track %s: its end on %s is not drawn, because that via found no spot" % (
+        f["track"], ", ".join(f["lost"])),
+    "past": lambda f: "%s: its point past %s is not drawn, because %s" % (f["item"], ", ".join(f["names"]), _refusal(f["why"])),
+    "arc": _not_drawn_arc,
+    "through": lambda f: "track %s: not drawn, it would run through %s" % (f["net"], _copper_name(f["met"])),
+    "pair_close": lambda f: "pair %s/%s: its pad pairs are too close for a centreline of its own; give the centreline's "
+                            "points" % (f["p"], f["n"]),
+    "vias_span": lambda f: "vias %s: a span of %s does not reach %s.%s on %s" % (
+        f["net"], _span(f["span"]), f["owner"], f["number"], f["layer"]),
+    "vias_row": lambda f: "vias %s: %d of %d along %s.%s's axis, the next stands %s" % (
+        f["net"], f["placed"], f["of"], f["owner"], f["number"], _refusal(f["why"])),
+    "field_span": lambda f: "vias %s: a span of %s does not reach %s.%s on %s" % (
+        f["net"], _span(f["span"]), f["owner"], f["number"], "/".join(f["layers"])),
+    "field_none": lambda f: "vias %s: no via fits in %s.%s, or clears the copper and holes round it (%.2f mm via, %.2f mm "
+                            "drill, %.2f mm inset)" % (f["net"], f["owner"], f["number"], f["size_mm"], f["drill_mm"], f["inset_mm"]),
+    "via_stand": lambda f: "via %s at (%.2f, %.2f): not drawn, it would stand on %s" % (
+        f["net"], f["at"][0], f["at"][1], _copper_name(f["met"])),
+    "tail_join": lambda f: "via %s: its tail on %s would not join %s.%s, which is not on that layer" % (
+        f["net"], f["layer"], f["owner"], f["number"]),
+    "tail_span": lambda f: "via %s: a span of %s does not reach its tail on %s" % (f["net"], _span(f["span"]), f["layer"]),
+    "via_nowhere": lambda f: "via %s: nowhere within %.2f mm of %s.%s, %d spot(s) tried: %s" % (
+        f["net"], f["radius_mm"], f["owner"], f["number"], f["tried"], counts_text(f["counts"])),
+    "pour_unplanned": lambda f: "pour %s: %s" % (f["net"], _unplanned(f)),
+    "pour_via_net": lambda f: "pour %s: %s is on net %s, and a fitted pour holds only its own net's copper" % (
+        f["net"], _member(f["member"]), f["on_net"]),
+    "pour_pad_net": lambda f: "pour %s: pad %s is on net %s, and a fitted pour holds only its own net's pads" % (
+        f["net"], _member(f["member"]), f["on_net"] or "-"),
+    "pour_via_span": lambda f: "pour %s: %s does not span %s (it spans %s)" % (
+        f["net"], _member(f["member"]), f["layer"], _span(f["span"])),
+    "pour_pad_layer": lambda f: "pour %s: pad %s has no copper on %s" % (f["net"], _member(f["member"]), f["layer"]),
+    "pour_close": lambda f: "pour %s: %s is within its clearance of %s %s, so no pour can hold the %s clear; the pour is not "
+                            "drawn" % (f["net"], _blocker(f), f["noun"], _between(f), f["noun"]),
+    "pour_enclosed": lambda f: "pour %s: %s stands between %ss %s with no way round it; the pour is not drawn" % (
+        f["net"], _blocker(f), f["noun"], _between(f)),
+    "pour_no_way": lambda f: "pour %s: %s leaves no way between %ss %s; the pour is not drawn" % (
+        f["net"], _blocker(f), f["noun"], _between(f)),
+    "pour_no_area": lambda f: "pour %s: its pads leave no area to fit; the pour is not drawn" % f["net"],
+    "pour_no_reach": lambda f: "pour %s: reach= leaves no copper joined to its pads; the pour is not drawn" % f["net"],
+    "pour_carriers": lambda f: "pour %s: reach=Reach.CURRENT sizes the pour for the current between two of its parts, and %s "
+                               "of its pads' parts carries current on %s (Pm.I); the pour is not drawn" % (
+                                   f["net"], "none" if not f["carriers"] else "only %s" % f["carriers"][0], f["net"]),
+    "plane_outside": lambda f: "plane %s: its items lie outside the frame, so it is not drawn" % f["net"],
+}
+
+
+def _member(m) -> str:
+    """A fitted pour's member: a pad `[owner, number]` as "OWNER.NUMBER", a via `[x, y]` as "via at (x, y)"."""
+    if m[0] == "pad":
+        return "%s.%s" % (m[1], m[2])
+    return "via at (%.2f, %.2f)" % (m[1], m[2])
+
+
+def _between(f) -> str:
+    return " and ".join(_member(m) for m in f["between"])
+
+
+def _blocker(f) -> str:
+    """What stands in a fitted pour's way: copper as a finding names it, or "other copper"."""
+    what = f.get("what")
+    if what is None:
+        return "other copper"
+    form = what["form"]
+    if form == "unplated":
+        return "%s's unplated hole" % _who(what["who"])
+    if form == "via":
+        return "via %s at (%.2f, %.2f)" % (what["net"] or "-", what["at"][0], what["at"][1])
+    if form == "track":
+        (ax, ay), (bx, by) = what["ends"]
+        return "%s %s (%.2f, %.2f)-(%.2f, %.2f)" % ("arc track" if what["arc"] else "track", what["net"] or "-", ax, ay, bx, by)
+    if form == "pad":
+        return "%s pad %s (%s)" % (_who(what["who"]), what["label"], what["net"] or "no net")
+    if form == "owned":
+        return "%s copper %s" % (_who(what["who"]), what["net"] or "-")
+    return ("pour %s" % what["net"]) if what["net"] else "copper"
+
+
+def _who(w) -> str:
+    from .refusals import who_text
+    return who_text(w)
+
+
+@renders(C.COPPER_NOT_DRAWN, "variant")
+def _copper_not_drawn(f):
+    return _NOT_DRAWN[f["variant"]](f)
+
+
+_NOTE = {
+    "waypoint": lambda f: "track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, so drop the "
+                          "waypoint(s) unless the route must go there" % f["net"],
+    "between_gap": lambda f: "track %s: the gap between %s.%s and %s.%s is %.3f mm, not enough for a %.2f mm track with "
+                             "clearance to each (%.3f mm needed)" % (
+                                 f["net"], f["a"][0], f["a"][1], f["b"][0], f["b"][1], f["gap_mm"], f["width_mm"], f["need_mm"]),
+    "pour_narrow": lambda f: "pour %s: narrows to %.2f mm at (%.2f, %.2f), under its net's %.2f mm track" % (
+        f["net"], f["width_mm"], f["at"][0], f["at"][1], f["need_mm"]),
+    "pour_neck": lambda f: ("pour %s: the room runs out at %.2f mm of reach (up to %.2f mm tried): it narrows to %.2f mm at "
+                            "(%.2f, %.2f), where %g A between %s and %s needs %.2f mm at a %g C rise%s; drawn at that width" % (
+                                f["net"], f["reach_mm"], f["reach_max_mm"], f["width_mm"], f["at"][0], f["at"][1], f["amps"],
+                                f["start"], f["to"], f["need_mm"], f["rise_c"],
+                                "; %s stands there" % _blocker(f) if f.get("what") is not None else "")),
+}
+
+
+@renders(C.COPPER_NOTE, "variant")
+def _copper_note(f):
+    return _NOTE[f["variant"]](f)
+
+
+@renders(C.COPPER_CORNER, "net", "edge", "names", "near_mm", "need_mm")
+def _copper_corner(f):
+    return ("track %s: the points either side of its 45 past the %s corner of %s allow no 45 through it; the track passes "
+            "that corner at %.3f mm, under the %.3f mm clearance" % (f["net"], f["edge"], ", ".join(f["names"]),
+                                                                       f["near_mm"], f["need_mm"]))
+
+
+_STITCH = {
+    "no_region": lambda f: "stitch %s: its region is not drawn, so there is nothing to stitch over" % f["net"],
+    "none": lambda f: "stitch %s: no via fits in the region at a %.2f mm pitch" % (f["net"], f["pitch_mm"]),
+    "gap": lambda f: "stitch %s: the %s side's row has a %.2f mm gap, over its %.2f mm pitch" % (
+        f["net"], f["side"], f["gap_mm"], f["pitch_mm"]),
+    "no_edge": lambda f: "stitch %s: no edge of the region faces the sides asked for" % f["net"],
+    "none_outside": lambda f: "stitch %s: no via fits outside the region at a %.2f mm pitch" % (f["net"], f["pitch_mm"]),
+    "left_out": lambda f: "stitch %s: %d via(s) outside the region left out: %s" % (
+        f["net"], len(f["left_out"]), "; ".join("(%.2f, %.2f) %s" % (x, y, _refusal(why)) for x, y, why in f["left_out"])),
+    "rows": lambda f: "stitch %s: rows by the region's side as turned -> the board's side: %s" % (
+        f["net"], ", ".join("%s side -> board %s" % (a, b) for a, b in f["rows"])),
+}
+
+
+@renders(C.COPPER_STITCH, "variant")
+def _copper_stitch(f):
+    return _STITCH[f["variant"]](f)
+
+
+@renders(C.COPPER_MEETS, "net", "hit")
+def _copper_meets(f):
+    text = "copper %s: %s" % (f["net"], _refusal(f["hit"]))
+    if f.get("chamfer_at"):
+        text += "; the 45 of its chamfer at (%.2f, %.2f); a smaller chamfer= there keeps clear" % tuple(f["chamfer_at"])
+    elif f.get("arc_at"):
+        text += "; the arc of its corner (radius %.2f mm) at (%.2f, %.2f); a smaller radius= there keeps clear" % (
+            f["arc_radius_mm"], f["arc_at"][0], f["arc_at"][1])
+    return text
+
+
+@renders(C.SETUP_PCBNEW, "net", "variant")
+def _setup_pcbnew(f):
+    return "pour %s: reach%s needs KiCad's pcbnew at plan time, for its polygon booleans; the pour is not drawn" % (
+        f["net"], "=Reach.CURRENT" if f["variant"] == "current" else "=")
+
+
+@renders(C.FIXED_CUTOUT, "name", "why")
+def _fixed_cutout(f):
+    return "%s (cutout): %s" % (f["name"], _refusal(f["why"]))
+
+
+@renders(C.FIXED_KEEPOUT, "name", "why")
+def _fixed_keepout(f):
+    return "%s (keepout): %s" % (f["name"], _refusal(f["why"]))
+
+
+# ------------------------------------------------------------------ split cells, setup notes, needs, vias, facts, routes
+def split_note(f: dict) -> str:
+    """What a split cell's finding says, without the cell's name (the step's note says it as well)."""
+    tail = ""
+    if f["unjoined"]:
+        n = len(f["unjoined"])
+        tail = (" (and %d part%s no net inside the cell joins to the others: %s; judge each by what places it: a bypass "
+                "capacitor stays with the IC it serves, a sensing part at what it senses)" % (
+                    n, "" if n == 1 else "s", ", ".join(f["unjoined"])))
+    return ("its parts form %d groups joined only by board-level nets: %s%s. Parts with no close placement requirement in "
+            "common may be split into cells of their own." % (
+                len(f["groups"]), "; ".join(", ".join(g) for g in f["groups"]), tail))
+
+
+@renders(C.SPLIT_GROUPS, "cell", "groups", "unjoined")
+def _split_groups(f):
+    return "%s: %s" % (f["cell"], split_note(f))
+
+
+@renders(C.SETUP_RULE_NOTE, "variant", "rule", "cell")
+def _setup_rule_note(f):
+    if f["variant"] == "net":
+        return "rule '%s' from the %s cell is not carried: its net %s is not on this board" % (f["rule"], f["cell"], f["net"])
+    return "rule '%s' from the %s cell is not carried: its cell %s is not on this board" % (f["rule"], f["cell"], f["within"])
+
+
+_VIA_VERBS = {"share": "shared", "move": "moved", "route": "re-routed", "leave": "left its pad", "shorten": "shortened",
+              "drop": "dropped"}
+
+
+def vias_note(f: dict) -> str:
+    """What carried vias did to give way, without the item's key: "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under
+    U3", a clause per net, then each field a relay re-laid."""
+    said = []
+    for net in f["nets"]:
+        parts = []
+        for part in net["parts"]:
+            verb = _VIA_VERBS[part["kind"]]
+            n = part["n"]
+            if part["kind"] in ("move", "route"):
+                verb += (" %.2f mm" if n == 1 else " up to %.2f mm") % part["moved_mm"]
+            parts.append(("%d %s via%s %s" % (n, net["net"], "" if n == 1 else "s", verb)) if not parts else "%d %s" % (n, verb))
+        held = ", ".join("%s pad %s holds %d of %d" % tuple(h) for h in net["held"])
+        said.append(", ".join(parts) + (" under %s" % ", ".join(net["under"]) if net["under"] else "")
+                    + (" (%s)" % held if held else ""))
+    for fld in f["fields"]:
+        text = "%s field in %s pad %s re-laid by %s, %d vias before, %d after" % (
+            fld["net"], fld["pad"][0], fld["pad"][1], fld["way"], fld["before"], fld["after"])
+        if fld["after"] < fld["want"]:
+            text += " (%d drawn)" % fld["want"]
+        said.append(text + (" under %s" % ", ".join(fld["under"]) if fld["under"] else ""))
+    return "; ".join(said)
+
+
+@renders(C.VIAS_GAVE_WAY, "item", "nets", "fields")
+def _vias_gave_way(f):
+    return "%s: %s" % (f["item"], vias_note(f))
+
+
+@renders(C.VIAS_DROPPED, "item", "nets", "fields")
+def _vias_dropped(f):
+    return "%s: %s" % (f["item"], vias_note(f))
+
+
+@renders(C.NEEDS_OPTION, "item", "option")
+def _needs_option(f):
+    return "%s: no spot; one would clear with %s" % (f["item"], _refusal(f["option"]))
+
+
+@renders(C.LABEL_NO_SPOT, "variant", "key", "item")
+def _label_no_spot(f):
+    from .refusals import EdgeFault
+    if f["variant"] == "off_board":
+        return "%s: no spot on the board for it beside %s: it is %s" % (
+            f["key"], f["item"], EdgeFault(f["edge"]["verdict"], f["edge"]["margin_mm"]))
+    if f["variant"] == "line_blocked":
+        return "%s: no clear spot beside %s for it and the rest of its line to move to, and %s is in the way" % (
+            f["key"], f["item"], ", ".join(f["mine"]))
+    return "%s: no clear spot beside %s for it to move to, and %s is in the way" % (f["key"], f["item"], ", ".join(f["mine"]))
+
+
+@renders(C.ROUTE_DROPPED, "key", "why")
+def _route_dropped(f):
+    return "adopted route %s dropped: %s; the router routes it again" % (f["key"], _refusal(f["why"]))
+
+
+@renders(C.SETUP_LOOKAHEAD, "item", "other", "own", "short_mm", "asked_mm")
+def _setup_lookahead(f):
+    return ("%s: no spot was left for %s at its limit distance from %s, so the look-ahead was dropped and %s is placed "
+            "without it; the best spot for %s left %s %.2f mm short of %.1f mm" % (
+                f["item"], f["other"], f["own"], f["own"], f["own"], f["other"], f["short_mm"], f["asked_mm"]))
+
+
+def facts_reason_text(r: dict) -> str:
+    """One reason the board's facts are unconfirmed (facts.unconfirmed_reasons)."""
+    reason = r["reason"]
+    if reason == "no_record":
+        return "no confirmation record yet"
+    if reason == "no_via_section":
+        return "fab-profile.json has no via section"
+    if reason == "no_via_tier":
+        return "fab-profile.json's via names no tier for %s" % ", ".join(r["kinds"])
+    if reason == "no_min_section":
+        return "fab-profile.json has no min section"
+    return "the facts have changed since they were last confirmed"
+
+
+@renders(C.FACTS_UNCONFIRMED, "reasons")
+def _facts_unconfirmed(f):
+    return "; ".join(facts_reason_text(r) for r in f["reasons"])

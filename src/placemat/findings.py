@@ -175,23 +175,7 @@ class Finding(str):
         self.suggestions = tuple(suggestions)       # changes to the script that may clear it (suggestions.Suggestion)
         return self
 
-    @classmethod
-    def plain(cls, kind, text: str, severity: str | None = None, suggestions=(), case=None, facts=None, cause=None):
-        """A finding made from a sentence, with no cause and no facts. A step on the way to structured findings: the
-        branch converts cause by cause and a release has none (a test fails while this exists)."""
-        kind = FindingKind(kind)
-        self = str.__new__(cls, text)
-        self.cause = cause if cause is not None else (FindingCause.parse(case) if case else None)
-        self.kind = kind
-        self.severity = SEVERITY[kind] if severity is None else check_severity(severity)
-        self.facts = dict(facts or {})
-        self.facts_v = 0
-        self.suggestions = tuple(suggestions)
-        return self
-
     def __reduce__(self):
-        if self.facts_v == 0:
-            return _unpickle_plain, (self.kind, str(self), self.severity, self.suggestions, self.cause, self.facts)
         return _unpickle, (self.cause, self.facts, self.severity, self.suggestions)
 
     def line(self) -> str:
@@ -221,10 +205,6 @@ class Finding(str):
 
 def _unpickle(cause, facts, severity, suggestions):
     return Finding(cause, facts, severity, suggestions)
-
-
-def _unpickle_plain(kind, text, severity, suggestions, cause=None, facts=None):
-    return Finding.plain(kind, text, severity, suggestions, cause=cause, facts=facts)
 
 
 class Findings(list):
