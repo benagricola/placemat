@@ -158,8 +158,8 @@ Check it against the current API before touching it:
 Any hit, or `AttributeError: type object 'Priority' has no attribute
 'FIXED'` at import, means it was written for an earlier placemat: fix those
 lines first. A monkeypatch of `Occupancy._transform` comes out, and
-`board.size(` becomes `board.rect(` (same arguments; the old name still works
-and raises a `setup` notice). Read
+`board.size(` becomes `board.rect(` (same arguments; the old name is refused
+with an error naming `board.rect`). Read
 `references/migration.md` from the script's version up; its last section,
 "Patterns in older scripts", names the section for each hand-written pattern
 a newer form replaces. A script with no hits still re-places on a newer
@@ -272,6 +272,8 @@ model into declarations.
    them to run `placemat studio <script>` (or `placemat studio` alone, to pick
    a layout script in the page); it re-resolves as the script changes and has a
    Run button for a checked run (`api.md`, "Studio").
+   While the studio is open you can leave a note where the user is looking: `placemat studio note "trying c_cpu further
+   west" --item c_cpu` (or `--at X,Y`, `--pad U1.3`); it shows as a pin and a line in the page's Notes list (`api.md`, "Studio notes").
 4. **Before reading a board's numbers, run `placemat settings`**: a
    `placemat.toml` anywhere from the board's directory up can change any
    value, and the command says which file each came from.

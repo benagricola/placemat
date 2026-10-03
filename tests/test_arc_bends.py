@@ -16,7 +16,7 @@ from tests.fixtures import board_geometry, footprint, pad
 
 F = CopperLayer.F
 W = 0.3
-R = 4 * W                                   # the default radius: 4 widths
+R = 3 * W                                   # the default radius: 3 widths
 
 
 def L(x, y):
@@ -202,7 +202,7 @@ def test_two_corners_are_two_arcs():
 
 
 def test_the_radius_is_the_setting_times_the_width_and_radius_overrides_it():
-    for kw, settings, want in (({}, {}, 4 * W), ({}, {"copper_arc_radius_widths": 6.0}, 6 * W),
+    for kw, settings, want in (({}, {}, 3 * W), ({}, {"copper_arc_radius_widths": 6.0}, 6 * W),
                                ({"radius": 2.0}, {}, 2.0)):
         b = _scene(**settings)
         _corner_track(b, **kw)
@@ -214,7 +214,7 @@ def test_the_width_in_the_rule_is_the_tracks_own():
     b = _scene()
     b.track(Net("A"), [PadRef(Part("u1"), 1), (20.0, 10.0), (20.0, 20.0)], layer=F, width=0.5, bend=Bend.ARC)
     (arc,) = [t for t in _tracks(b.resolve()) if t.mid is not None]
-    assert arc_circle(arc.start, arc.mid, arc.end)[2] == pytest.approx(2.0, abs=1e-5)
+    assert arc_circle(arc.start, arc.mid, arc.end)[2] == pytest.approx(3 * 0.5, abs=1e-5)       # the default widths times its own width
 
 
 def test_a_radius_not_above_half_the_width_is_refused_when_declared():
@@ -234,7 +234,7 @@ def test_chamfer_bridge_and_a_radius_without_an_arc_are_refused():
 
 def test_a_corner_the_arc_does_not_fit_is_a_finding_and_the_track_is_not_drawn():
     b = _scene()
-    b.track(Net("A"), [PadRef(Part("u1"), 1), (9.5, 10.0), (9.5, 20.0)], layer=F, width=W, bend=Bend.ARC)
+    b.track(Net("A"), [PadRef(Part("u1"), 1), (9.5, 10.0), (9.5, 20.0)], layer=F, width=W, bend=Bend.ARC, radius=1.2)
     plan = b.resolve()
     assert _tracks(plan) == []
     hits = [str(f) for f in plan.findings if f.kind == "copper" and "arc" in str(f)]
@@ -307,7 +307,7 @@ def test_a_pad_on_the_outside_of_the_corner_clears_the_chamfer_but_not_the_arc()
     assert _conflicts(plain.resolve()) == []                          # the 1.0 mm chamfer's 45 stands 0.4 mm off it
 
     b = _scene([near], clearance=0.3)
-    _corner_track(b)
+    _corner_track(b, radius=1.2)                                       # the 1.2 mm arc hugs the pad
     plan = b.resolve()
     hits = _conflicts(plan)
     assert len(hits) == 1 and hits[0].startswith("copper A: arc track A (18.80, 10.00)-(20.00, 11.20) is ") and "the arc of its corner" in hits[0] and "a smaller radius= there keeps clear" in hits[0]
@@ -394,7 +394,7 @@ def test_the_preview_draws_an_arc_as_an_svg_arc_of_its_radius():
     import xml.etree.ElementTree as ET
     from placemat.preview import draw
     b = _scene()
-    _corner_track(b)
+    _corner_track(b, radius=1.2)
     root = ET.fromstring(draw(b.resolve()))
     paths = [e for e in root.iter() if (e.get("class") or "") == "track" and e.tag.endswith("path")]
     assert len(paths) == 1

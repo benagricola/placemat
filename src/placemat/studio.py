@@ -348,6 +348,8 @@ class Studio:
         self._initial = self.script is not None
         self._error = None
         self._fresh_next = False                # the next resolve replays nothing from an earlier one
+        self._notes: list = []                  # this script's notes (notes.py), oldest first
+        self._notes_stamp = None                # (mtime_ns, size) of the notes file when it was last read
         self.cmds: dict = {}                    # the commands of the project that report over the channel, by connection id
         self.watcher = None
         self._run = None                        # the checked run in progress: {"id", "lines"}
@@ -403,6 +405,7 @@ class Studio:
             self.cfg = settings_mod.load(self.src.board_dir, script=self.script)
             self.worker.log_path = self._views() / "worker.log"
             self.history.clear()
+            self._notes, self._notes_stamp = [], None
             self._run_cache.clear()
             self._cur, self._cancel_at, self._error, self._dirty = None, None, None, False
             self.debounce.stopped()
@@ -503,9 +506,37 @@ class Studio:
             if self._stopping.wait(self.poll_s):
                 return
 
+    def _check_notes(self) -> None:
+        """Read the notes file when it has changed and tell the pages of the notes they have not been told of."""
+        from . import notes as notes_mod
+        if self.src is None:
+            return
+        try:
+            st = notes_mod.path_for(self.src.board_dir).stat()
+            stamp = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            stamp = None
+        if stamp == self._notes_stamp:
+            return
+        self._notes_stamp = stamp
+        fresh = notes_mod.read(self.src.board_dir, self.script.name)
+        with self.lock:
+            seen = {n["id"] for n in self._notes}
+            new = [n for n in fresh if n["id"] not in seen]
+            self._notes = fresh
+            for n in new:
+                self.hub.emit("note", n)
+
+    def notes_list(self) -> list:
+        """The notes for this script that have not expired, oldest first, as a page that joins is given them."""
+        from . import notes as notes_mod
+        with self.lock:
+            return notes_mod.live(self._notes, self.cfg.studio_note_age_s)
+
     def _tick(self, now: float) -> None:
         if self.script is None:
             return                              # a picker: nothing is watched until a script is chosen
+        self._check_notes()
         changed = self._poller.scan()
         if changed:
             self._files = self.watched()        # an import added or dropped changes what is watched
@@ -1062,7 +1093,8 @@ class Studio:
 
     def _hello_data(self) -> dict:
         common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
-                  "explores": self.explores(), "explore_fps": self.cfg.studio_explore_fps}
+                  "explores": self.explores(), "explore_fps": self.cfg.studio_explore_fps,
+                  "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s}
         if self.script is None:
             return {**common, "script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
                     "scripts": self.script_list(), "history": [], "resolving": None, "error": None, "runs": [], "run": None}

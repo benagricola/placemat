@@ -115,7 +115,7 @@ def test_the_arcs_are_the_planned_circles_and_join_the_legs_at_one_point(tmp_pat
     arcs = [t for t in board.GetTracks() if isinstance(t, pcbnew.PCB_ARC)]
     assert len(arcs) == 2
     for t in arcs:
-        assert t.GetRadius() / 1e6 == pytest.approx(4 * W, abs=2e-4)
+        assert t.GetRadius() / 1e6 == pytest.approx(3 * W, abs=2e-4)
     ts = sorted(board.GetTracks(), key=lambda t: (t.GetStart().x, t.GetStart().y))
     ends = {(t.GetStart().x, t.GetStart().y) for t in ts} | {(t.GetEnd().x, t.GetEnd().y) for t in ts}
     starts = [(t.GetStart().x, t.GetStart().y) for t in ts]

@@ -198,7 +198,7 @@ The same answers from the command line, for when no script is running, are
 
 `board.rect(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0, draw=None)` - the
 outline, origin top-left, y down; `draw=False` gives a fragment a frame that
-is never drawn. The old name, `board.size(...)`, still works and raises a `setup` notice.
+is never drawn. The old name, `board.size(...)`, is refused with an error naming `board.rect(...)`.
 `board.rect(fit=True, margin=None, chamfer=0.0, radius=0.0)` - a fragment's
 frame (never drawn) sized to its content: the box round everything placed (each
 part as the placer claims it, labels, tracks, vias, pours) plus `margin`
@@ -2091,7 +2091,7 @@ chamfer, so `chamfer=` is refused with either, as is `bridge=True` (a bridge
 cuts a straight leg) and a `Lane` as first point.
 
 The arcs' radius is `radius=` mm on the call, a stated design fact such as a
-stackup's bend rule, or else `copper.arc_radius_widths` (default 4) times the
+stackup's bend rule, or else `copper.arc_radius_widths` (default 3) times the
 track's width, so it scales with the trace. A radius not above half the
 width is refused. An arc at a corner of turn `d` takes `radius * tan(d / 2)`
 of each leg. A leg shorter than what the arcs at its two ends take is a corner
@@ -3570,6 +3570,27 @@ exactly as the lock did; otherwise freeze says what would have moved (an
 entry that drifted is refused: accept it again where it now stands). A call inside a loop or a helper function
 declares more than one item and is refused with its line.
 
+## Studio notes
+
+```
+placemat studio note "<text>" [--at X,Y | --item NAME | --pad REF.N] [--from NAME] [--script PATH]
+```
+
+A note is a short remark left where the user is looking at the studio: "trying c_cpu further west". The command appends one record to
+`<board>/.placemat/views/studio/notes.jsonl` and returns; any studio watching that script reads the file as it changes (so a note
+reaches an open page within `[studio] poll_ms`, and a studio or page started later is given the ones that have not expired).
+`--script` names the layout script; without it the one under the current folder, else the project's only one.
+
+A record is `{"v": 1, "id", "at" (epoch s), "from", "script" (the script's file name), "description", "target"}` with `target` null or
+`{"kind": "point", "x", "y"}` (mm on the board: a place to look at, never a placement), `{"kind": "item", "name"}` or
+`{"kind": "pad", "ref", "pad"}`. `from` is `--from`, else `$PLACEMAT_FROM`, else the login name. The description is one line of at most
+1000 characters. The file is bounded to the last `[studio] notes_keep` records.
+
+The page draws each note as a pin at its target (an item or a pad is found in the plan every time, so the pin follows it when it
+moves), a line in the Notes list (who, how long ago, where; it opens when there is a note, and a tap on the line or the pin goes to the
+place), and a toast when one arrives. Dismiss hides a note in that browser only; a note is hidden after `[studio] note_age_s` seconds
+(0 keeps it). Nothing here changes the layout: a note is read by the user, and the script stays the only way a position is set.
+
 ## Findings and severities
 
 A finding is one sentence saying what a resolve could not do as declared, with a `kind` (what sort of thing
@@ -3765,7 +3786,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
 | `place.split_min_group` | 2 | the least members a group needs to count as one, in a cell's `split` finding |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
-| `copper.arc_radius_widths` | 4.0 | the radius of a track's arc corners (`bend=Bend.ARC`), as a multiple of the track's width; `radius=` on the call is in mm and takes precedence |
+| `copper.arc_radius_widths` | 3.0 | the radius of a track's arc corners (`bend=Bend.ARC`), as a multiple of the track's width; `radius=` on the call is in mm and takes precedence |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
 | `copper.bridge_half` | 1.1 | half the gap a bridge leaves round a crossed track |
@@ -3881,6 +3902,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.poll_ms` | 200 | how often the watched files' modification times are read |
 | `studio.cancel_grace_ms` | 2000 | a resolve asked to stop that has not stopped by then has its worker restarted |
 | `studio.explore_fps` | 2.0 | how many times a second the Runs view redraws the latest variant of a live explore (above 0) |
+| `studio.note_age_s` | 3600 | a note left with `placemat studio note` is hidden by the page after this many seconds; 0 keeps it |
+| `studio.notes_keep` | 100 | notes kept in a board's `.placemat/views/studio/notes.jsonl` (above 0) |
 | `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
 | `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |

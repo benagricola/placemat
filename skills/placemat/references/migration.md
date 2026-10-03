@@ -5,6 +5,23 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **`board.size(...)` is refused.** It was renamed `board.rect(...)` in 0.85.0 and has given a `setup` notice since;
+  now it raises `AttributeError: board.size(...) is board.rect(...) since 0.85.0`. Rename the call, arguments
+  unchanged:
+
+  ```python
+  board.size(width=60, height=40, chamfer=2.0)    # before: refused
+  board.rect(width=60, height=40, chamfer=2.0)    # now
+  ```
+
+- **An arc corner's default radius is 3 track widths** (`copper.arc_radius_widths`, was 4): a `bend=Bend.ARC` corner
+  with no `radius=` and no stackup bend rule is tighter than before. A script that relied on the old default sets
+  `[copper] arc_radius_widths = 4.0` in `placemat.toml`, or `radius=` on the call.
+
 ## To 0.88.0
 
 ### New
@@ -75,6 +92,10 @@ section for each hand-written pattern a newer form replaces.
   as lost with its last state. An explore is shown with a plot of score against time and the best so far, the latest
   variant (at most `[studio] explore_fps` times a second, default 2) and the best drawn over the plain placement,
   thumbnails, a step through the variants by order or score, and where each item landed across them.
+- **`placemat studio note "<text>" [--at X,Y | --item NAME | --pad REF.N]`** leaves a note where the user is looking at the studio:
+  a record appended to `.placemat/views/studio/notes.jsonl`, shown on the page as a pin that follows its item or pad, a line in a
+  Notes list (dismissable per browser), and a toast. Settings `[studio] note_age_s` (3600; 0 keeps notes) and `notes_keep` (100),
+  neither part of a run's id. A point is a place to look at, never a placement. Scripts change nothing.
 - **Studio page.** On a wide layout the running status is one line in the header (the strip above the timeline stays on
   narrow ones), and between two steps the step that just settled stays, dimmed, with its time. Unplaced items are shown
   as sections in the steps list, the card and the findings list: why, the radius searched around a point, and what
