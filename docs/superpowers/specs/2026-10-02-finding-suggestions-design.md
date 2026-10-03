@@ -171,10 +171,9 @@ exactly once the edit is refused.
 
 **The dependency.** `libcst` is a new dependency, the first the package
 takes at runtime beyond the standard library. It goes in
-`pyproject.toml` as an optional group, `[project.optional-dependencies]
-studio = ["libcst>=1.0"]`, installed with `placemat[studio]`, and
-`script_edit.py` imports it lazily. `placemat studio` and `placemat apply`
-say so, and refuse, when it is missing; every other command is unaffected.
+`pyproject.toml`'s `dependencies` (`libcst>=1.0`), a plain runtime
+dependency: board projects install placemat into their own environments,
+and an optional group would leave Apply missing there.
 This is an exception to the studio design's "no new Python dependency", made
 for this engine. The user's decision (2026-10-03): keep LibCST for the
 moment and see how it behaves.
@@ -547,9 +546,7 @@ fixture.
     imported; a cell's value goes to the cell's script; a value from a
     constant gives both variants, and changing the constant changes every use
     in the diff; a geometric derivation is inline and adds no constant; no
-    edit writes a bare figure into a call;
-  - without `libcst` installed, `apply` and the studio's suggest endpoints
-    refuse with a message naming `placemat[studio]`, and nothing else changes.
+    edit writes a bare figure into a call.
 - `tests/test_finding_suggestions.py`:
   - every `case=` raised in `src/placemat` has a builder in `suggestions.py`
     and every builder is raised somewhere (by scanning the source);
