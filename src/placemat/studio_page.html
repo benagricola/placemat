@@ -1568,8 +1568,8 @@ const cardKey = () => [S.sel, S.selRef, S.module, S.selRegion && S.selRegion.kin
 //     not a pill.
 //  2. Every length, position and size carries its unit: "16.5 x 22.0 mm", "(26.6, 36.4) mm", areas mm2 (esc shows
 //     mm\u00b2), angles in degrees (deg).
-//  3. A place in the queue is "rank k of n". A place by a measure is "kth largest of n" (area) or "kth most of n"
-//     (pins), always with the total.
+//  3. A place in the queue is "rank k of n", with the total. A place by a measure is a bare ordinal: "kth largest"
+//     (area), "kth by pin count" (pins).
 //  4. A note's known forms are parsed into labelled values (noteParts); only what is not known is shown as written.
 //  5. A labelled line copies as "label: value", one line to a row: kvl writes an invisible ": " between them.
 function kvl(rows) { return '<div class="kvl">' + rows.filter(r => r[1] != null && r[1] !== "").map(([k, v]) => '<div class="kr"><span class="kk">' + esc(k) + '</span><span class="sep">: </span><span class="kvv">' + v + "</span></div>").join("") + "</div>"; }
@@ -1616,8 +1616,8 @@ const rankRows = r => {
   const rows = [["rank", esc(r.n + " of " + r.of)]];
   for (const f of r.facts) {
     const m = /^([\d.]+) (mm2|pins?)(?:, (\S+?)(?: of \d+)?)?$/.exec(f);
-    if (m) rows.push(m[2] === "mm2" ? ["area", esc(m[1] + " mm2") + (m[3] ? esc(", " + m[3] + " largest of " + r.of) : "")]
-                                   : ["pins", esc(m[1] + (m[2] === "pin" || m[1] === "1" ? " pin" : " pins")) + (m[3] ? esc(", " + m[3] + " most of " + r.of) : "")]);
+    if (m) rows.push(m[2] === "mm2" ? ["area", esc(m[1] + " mm2") + (m[3] ? esc(", " + m[3] + " largest") : "")]
+                                   : ["pins", esc(m[1] + (m[2] === "pin" || m[1] === "1" ? " pin" : " pins")) + (m[3] ? esc(", " + m[3] + " by pin count") : "")]);
     else rows.push(["", esc(f)]);
   }
   for (const x of r.tail || []) {
