@@ -9,7 +9,12 @@ file. An item cites its source as "a board's session, <date>".
 - **Beside stops at the first legal contact** (a board's session, 2026-10-03):
   Beside fits against the neighbour's envelope shapes (a pin-1 dot no longer
   holds a part off a whole side) and stops at the first contact with anything
-  already placed in its path, so nothing nearby is met.
+  already placed in its path (branch beside-shapes, built). Held until
+  declared-copper room lands: tighter placement squeezed tracks the scripts
+  declare after placement (KiCad clearance on two fixture cells).
+- **Placement allows for declared copper** (the user, 2026-10-03; spec being
+  written, `2026-10-03-declared-copper-room-design.md`): room is kept for the
+  tracks a script declares, so placement never squeezes them.
 
 ## Next, in order
 
