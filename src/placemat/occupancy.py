@@ -380,6 +380,46 @@ def _is_lead(fp, pad) -> bool:
                    for q in fp.pads)
 
 
+
+def _shift_box(b, dx: float, dy: float):
+    return None if b is None else Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
+
+
+class _ShiftedBoxes:
+    """The boxes of `origin` (None allowed) moved by (dx, dy), each moved when first read: a big cell has hundreds of
+    member boxes and a search asks for a few of them at most candidates."""
+    __slots__ = ("origin", "dx", "dy", "_done")
+
+    def __init__(self, origin, dx: float, dy: float):
+        self.origin, self.dx, self.dy = origin, dx, dy
+        self._done = {}
+
+    def __len__(self) -> int:
+        return len(self.origin)
+
+    def __getitem__(self, k: int):
+        if k < 0:
+            k += len(self.origin)
+        try:
+            return self._done[k]
+        except KeyError:
+            if not 0 <= k < len(self.origin):
+                raise IndexError(k) from None
+            hit = self._done[k] = _shift_box(self.origin[k], self.dx, self.dy)
+            return hit
+
+    def __iter__(self):
+        return (self[k] for k in range(len(self.origin)))
+
+    def could_overlap(self, k: int, region: Box) -> bool:
+        """False when box k, moved, is clear of `region` by more than the rounding of a moved box (1e-9): a
+        reject that costs no rounding, so only the boxes near a region are moved and judged."""
+        b = self.origin[k]
+        dx, dy = self.dx, self.dy
+        return (b.left + dx < region.right + 1e-6 and region.left < b.right + dx + 1e-6
+                and b.top + dy < region.bottom + 1e-6 and region.top < b.bottom + dy + 1e-6)
+
+
 class Occupancy:
     def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, board_box: Box | None = None,
                  vias_block_courtyards: bool = False, board_shape=None, board_cutouts=None,
@@ -954,12 +994,18 @@ class Occupancy:
         has no height (a height-limited region leaves it be), is let
         through by its own net, and is not judged by a region that keeps
         out parts only."""
+        cache = self.__dict__.setdefault("_judged_cache", {})
+        key = (id(r), id(geom))
+        hit = cache.get(key)
+        if hit is not None and hit[0] is r and hit[1] is geom:
+            return hit[2]
         n = len(geom.part_refs)
         own = [s for s in geom.shapes if s.owner in geom.owners and s.owner not in geom.part_refs
                and s.kind != "viaban"]
         out = [k for k in range(n) if not self._member_let_in(r, geom.part_refs[k])]
         if r.admitted is None and r.copper:
             out += [n + j for j, s in enumerate(own[:len(geom.parts) - n]) if not (s.net and s.net in r.allow)]
+        cache[key] = (r, geom, out)         # read only: callers iterate it
         return out
 
     def reservation_hit(self, r: Reservation, geom, k: int | None) -> tuple:
@@ -1348,7 +1394,9 @@ class Occupancy:
                 hit = None
                 if geom.parts:
                     parts = self._shifted_parts(geom, placement) if parts is None else parts
-                    hit = next((k for k in self.judged(r, geom) if r.overlaps(parts[k])), None)
+                    rb = r.box
+                    hit = next((k for k in self.judged(r, geom)
+                                if parts.could_overlap(k, rb) and r.overlaps(parts[k])), None)
                     if hit is None:
                         continue
                 why, owner = self.reservation_hit(r, geom, hit)
@@ -1422,7 +1470,7 @@ class Occupancy:
                     return True, k
             else:
                 parts = self._shifted_parts(geom, placement) if parts is None else parts
-                if r.overlaps(parts[k]):
+                if parts.could_overlap(k, rb) and r.overlaps(parts[k]):
                     return True, k
         return False, None
 
@@ -1535,13 +1583,12 @@ class Occupancy:
         return hit[1]
 
     def _shifted_edge_boxes(self, geom: ItemGeometry, placement: Placement) -> tuple:
+        """`edge_boxes` turned, faced and moved to the placement: the whole boxes at once, a cell's member boxes
+        (hundreds, for a big cell) each when it is asked for, which most candidates never do."""
         dx, dy = placement.location.x, placement.location.y
-
-        def shifted(b):
-            return None if b is None else Box(_clean(b.left + dx), _clean(b.top + dy),
-                                              _clean(b.right + dx), _clean(b.bottom + dy))
         flat, flat_parts, copper, copper_parts = self.origin_edge_boxes(geom, placement.rotation, placement.face)
-        return shifted(flat), [shifted(b) for b in flat_parts], shifted(copper), [shifted(b) for b in copper_parts]
+        return (_shift_box(flat, dx, dy), _ShiftedBoxes(flat_parts, dx, dy),
+                _shift_box(copper, dx, dy), _ShiftedBoxes(copper_parts, dx, dy))
 
     def origin_parts(self, geom: ItemGeometry, rotation: float, face) -> list:
         """A cell's member boxes (`parts`) turned and faced at the origin."""
@@ -1575,10 +1622,9 @@ class Occupancy:
         return bool(corners) and all(self.board_shape.why_not(Box(x, y, x, y), margin) is None
                                      for (x, y), margin in corners)
 
-    def _shifted_parts(self, geom: ItemGeometry, placement: Placement) -> list:
+    def _shifted_parts(self, geom: ItemGeometry, placement: Placement) -> "_ShiftedBoxes":
         dx, dy = placement.location.x, placement.location.y
-        return [Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
-                for b in self.origin_parts(geom, placement.rotation, placement.face)]
+        return _ShiftedBoxes(self.origin_parts(geom, placement.rotation, placement.face), dx, dy)
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
               past_edge: bool = False, blame: list | None = None, by_corners: bool = False,
@@ -1650,11 +1696,18 @@ class Occupancy:
             return None
         # Each shape is turned and faced once per rotation and face, then
         # shifted; only a shape whose box reaches an obstacle is moved as a polygon.
+        # (the test is Box.overlaps on the moved box, written out on the floats: a big cell has thousands of shapes
+        # and this runs for each, for every candidate)
+        drawn_gap, wide_gap = self._drawn_gap, self._gap
+        edges = [(o, o.box.left, o.box.top, o.box.right, o.box.bottom) for o in near]
         for s in shapes:
-            sb = s.box.moved(dx, dy)
-            close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
+            b = s.box
+            sl, st, sr, sbm = b.left + dx, b.top + dy, b.right + dx, b.bottom + dy
+            g = drawn_gap if s.kind in _DRAWN else wide_gap
+            close = [o for o, ol, ot, orr, ob in edges if sl < orr + g and ol < sr + g and st < ob + g and ot < sbm + g]
             if not close:
                 continue
+            sb = Box(sl, st, sr, sbm)
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
                           tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label, claims=s.claims, wire=s.wire)
             for o in close:

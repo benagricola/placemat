@@ -1083,11 +1083,22 @@ class Board:
         copper-to-edge rule. Edge placement puts an item's reach here."""
         return self.edge_margin
 
-    def _bare_occupancy(self) -> Occupancy:
+    def _bare_occupancy(self, fresh: bool = False) -> Occupancy:
         """An occupancy with nothing placed, for measuring an item on its own:
-        with this board's settings, so it measures what the envelope claims."""
-        return Occupancy(self.geometry, self.edge_margin, board_box=None, settings=self.settings,
-                         component_spacing=self.component_spacing)
+        with this board's settings, so it measures what the envelope claims.
+        Building one registers every footprint of the board, and a scan asks
+        for one per candidate, so the same one is handed back while the board,
+        its margin, its settings and its spacing are the same objects. A caller
+        that changes what it is given asks for a `fresh` one."""
+        make = lambda: Occupancy(self.geometry, self.edge_margin, board_box=None, settings=self.settings,
+                                 component_spacing=self.component_spacing)
+        if fresh:
+            return make()
+        key = (self.geometry, self.edge_margin, self.settings, self.component_spacing)
+        hit = self.__dict__.get("_bare_occ")
+        if hit is None or hit[0][0] is not key[0] or hit[0][2] is not key[2] or hit[0][1] != key[1] or hit[0][3] != key[3]:
+            hit = self.__dict__["_bare_occ"] = (key, make())
+        return hit[1]
 
     def extent(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """The item's body box at `rotation`, placed at the origin: a size, not a place."""
@@ -8360,7 +8371,7 @@ class Board:
         key = (spec.key, tuple(rotations), face)
         cache = self.__dict__.setdefault("_block_alone_cache", {})
         if key not in cache:
-            bare = self._bare_occupancy()
+            bare = self._bare_occupancy(fresh=True)
             bare.board_box, bare.board_shape, bare.board_cutouts = None, None, None
             bare.copper, bare.reservations = [], []
             bare.pending = {fp.ref for fp in self.geometry.footprints}
