@@ -756,7 +756,7 @@ function renderProgress() {
   $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
   const R = w.total ? w.total.replay : 0;
   $("#rs-work").innerHTML = w.replayed && (!c || c.replaying) ? pill("replay", "decided") + itemField("replaying unchanged steps") + '<span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span>"
-    : c ? pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + workFields(c) : '<span class="f-phase dim">waiting for the next step</span>';
+    : c ? pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + workFields(c) : '<span class="dim" style="flex: 1 1 auto">waiting for the next step</span>';
 }
 // After a resolve the strip says how long it took for a few seconds, then goes; the slider below does not move.
 function resolveDone() {
