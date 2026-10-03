@@ -152,6 +152,7 @@ a `.kicad_mod` or loading pcbnew.
 | you want to know | run | section |
 |---|---|---|
 | what the parts are called, where they are, the totals | `placemat parts <board>` | Commands |
+| how a long command is going (or how one that died ended) | `placemat watch [PID\|LABEL]` | Live progress |
 | a pad's copper box, net, centre and pin name | `placemat measure <board> <part> --pads` | Commands |
 | a footprint's pads before it is on a board | `placemat measure <path>.kicad_mod --pads` | Commands |
 | which item sets each side of a part's drawn envelope | `placemat measure <board> <part> --envelope` | Commands |
@@ -3267,6 +3268,40 @@ and which dropped. Kept copper is locked input copper on the written board,
 so a route leaves it alone and counts its net closed. `placemat routes
 <script>` lists what is kept (net, tracks, vias, the parts it joins, when)
 and `--release NET ...` stops keeping a net.
+
+## Live progress
+
+A command that resolves a board (`run`, `preview`, an explore inside them, `check`, whoever started it; `route` does not stream yet) owns a Unix
+socket for as long as it runs (Linux and macOS):
+
+- `<project root>/.placemat/sockets/<pid>.sock`, with `<pid>.json` beside it: `pid`, `command`, `script`, `args`,
+  `started`, `label` (from `--label`), `progress` (the trail's path) and `socket`. Both go when the command exits; a reader
+  that finds an entry whose pid is gone removes it. A path too long for a socket address puts the socket under the
+  temporary directory, named in the entry's `socket`.
+- A reader connects and is sent a catch-up first, then live events: newline-delimited JSON, one object each, `ev` naming it.
+  `hello` (the entry's fields), `resolve` (`n`: a new resolve; the board and steps before it are forgotten), `board`,
+  `begin` (`kind` `total` with the counts, `begin` for the item now being worked on with its `what` and `rank`/`of`, or
+  `phase` with the engine's note), `item` (a settled step: the item, its copper or cutout ops), `plan` (`doc`: the whole
+  plan as the studio draws it), for an explore `explore` (focus, the plain placement and order, the baseline score, jobs),
+  `variant` (`seed`, `score`, the focused items' `placements` and `order`) and `explore_done` (`best`, `baseline`, `tried`,
+  `kept`, `record`), then `done` (`record`: the run's `run.json` or the explore's record) or `error` (`message`, `file`,
+  `line`). A command that dies sends neither: the connection closes.
+- The command never waits on a reader: each has a bounded queue and events that do not fit are dropped, a reader that goes
+  away is dropped. A board resolved with no script (a bench, a test) listens on nothing, and `PLACEMAT_CHANNEL=off` turns
+  it off.
+- The trail: the events are also written, in short form (no drawings), to an append-only `progress.jsonl`, flushed as it goes:
+  `.placemat/runs/<id>/progress.jsonl` for a run, else `.placemat/views/<command>/progress-<pid>.jsonl`. When a command starts it
+  deletes the trail files of its script that earlier commands left and that are no longer running. A trail is read for a
+  command that ended or died, never as the live feed.
+- An explore's record (`.placemat/views/explore/<time>-<pid>.json`) and a run's `run.json` are read after `done`.
+
+```
+placemat watch [<pid|label>] [--json]
+```
+
+follows one command or all of them in the project, a line per event (`--json`: the events as sent), and exits when they
+end: 0 done, 1 error, 2 died (its last state is printed from its trail) or not found. Written for an agent that starts a long
+job detached and then follows it; the studio's Runs view reads the same sockets.
 
 ## Studio
 

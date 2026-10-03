@@ -322,6 +322,25 @@ tail, not the whole file. Never edit `layout.kicad_pcb` by hand as the fix:
 the script is the layout, and a hand edit is a measurement to fold back into
 the script.
 
+### Watching a long command
+
+`run`, `preview` (an `--explore` especially) and `check` can take minutes. Each listens, while it works, on a
+socket in the project (`.placemat/sockets/<pid>.sock`) and streams what it is doing: the step it is on, the plan so
+far, each explore variant's score. To run one without blocking yourself, start it detached (a background shell with
+its output to a file) and follow it:
+
+```
+placemat watch                # every command running in this project, a line per step or variant
+placemat watch <pid|label>    # one of them; --json prints the events as sent
+```
+
+`watch` can be started before, during or after the command's first steps (it is caught up on what has happened) and
+returns when the command ends: exit 0 done, 1 an error (the message and line are printed), 2 died or no such command.
+A command that dies leaves `progress.jsonl` (in `.placemat/runs/<id>/` for a run, else
+`.placemat/views/<command>/progress-<pid>.jsonl`) with its last steps; `watch <pid>` prints them. Do not tail a
+command's printed output to learn where it is. The studio's Runs view shows the same commands for the user. Event
+shapes and files: `references/api.md`, "Live progress".
+
 ## Script standard
 
 - The script is the only intent document. Its docstring says what the
