@@ -29,7 +29,7 @@ def _kinds(events):
 
 def test_a_resolve_streams_board_items_and_a_finished_plan(staged):
     events = _run(Session(), staged)
-    kinds = _kinds(events)
+    kinds = [k for k in _kinds(events) if k != "begin"]     # begin events (the queue, each step starting) may come first
     assert kinds[0] == "board" and kinds[-1] == "done"
     assert kinds.count("item") >= 10
     done = events[-1]
