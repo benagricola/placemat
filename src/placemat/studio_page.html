@@ -601,6 +601,7 @@ const S = {
   cmdView: null,               // a command's streamed plan shown in place of the studio's own: {id, plan, next}
   xv: null,                    // the explore being looked at: {source, id|file, start, variants, done, sel, mode, auto, drawn, thumbs, density, lastDraw}
   exploreFps: 2,
+  routes: [],                  // recorded routes of this script's board (their summaries): replayed from their records
   sg: {more: new Set(), busy: null, show: null, note: null, src: false},   // suggestions: the finding slots opened, a try in flight, the diff shown, what the last apply said
   try: null,                   // a try shown, not written: {id, base, suggestion, cleared, gained, lost, moved, score, applied}
   applied: [], canApply: true, // the suggestions applied here (for Undo and the history rows); false: this studio does not write
@@ -698,7 +699,7 @@ function applyHello(d) {
       cur: c ? {item: c.item, what: c.what, rank: c.rank, of: c.of, replaying: c.replaying, n: c.n, t: serverMs(c.at), phase: c.phase || "", hint: c.hint || null} : null};
   }
   if (S.restore && S.restore.s && !S.restore.switched && S.restore.s !== currentScriptId()) { S.restore.switched = true; switchTo(S.restore.s); }    // the address names another script
-  S.cmds = new Map((d.commands || []).map(c => [c.id, c])); S.explores = d.explores || []; S.exploreFps = d.explore_fps || 2;
+  S.cmds = new Map((d.commands || []).map(c => [c.id, c])); S.explores = d.explores || []; S.routes = d.routes || []; S.exploreFps = d.explore_fps || 2;
   S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0} : null; S.lastRun = null;
   $("#board-title").textContent = d.picker ? "placemat studio" : (d.title || d.script);
   $("#board-sub").textContent = d.picker ? (d.scripts || []).length + " found" : (d.subtitle || "");
@@ -1168,6 +1169,7 @@ function copperSVG(ops, f, pn, mode, stepOf, part) {      // part: "novia" (befo
   for (let i = 0; i < ops.length; i++) {
     const c = ops[i], sn = stepOf ? stepOf(i) : null, ds = sn != null && sn >= 0 ? ' data-s="' + sn + '"' : "";   // the replay step that laid it
     if (part && (c.t === "via") !== (part === "via")) continue;
+    if (c.gone) continue;                                              // copper a live route ripped up again
     if (c.t === "track" && (c.face === f || c.face === "inner")) {
       const op = c.face === "inner" ? "0.6" : "1", at = ds + ' data-l="' + esc(c.layer) + '" stroke-width="' + c.width + '" stroke-opacity="' + op + '"';
       if (c.arc) o.push('<path class="trk ' + layerClass(c.layer) + cls + '" d="M ' + c.a[0] + " " + c.a[1] + " A " + c.arc[0] + " " + c.arc[0] + " 0 " + c.arc[1] + " " + c.arc[2] + " " + c.b[0] + " " + c.b[1] + '" fill="none"' + at + "/>");
@@ -2529,6 +2531,7 @@ const baseName = f => String(f || "").split("/").pop();
 on("cmd", c => {
   const fresh = !S.cmds.has(c.id);
   S.cmds.set(c.id, c);
+  if (c.route && c.state !== "running" && fresh === false) getJSON("/routes").then(r => { S.routes = r; schedule("runs"); }).catch(() => {});
   if (fresh && c.state === "running" && !(S.run && S.run.pid && S.run.pid === c.pid))
     toast(c.command + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { goTab("runs"); openCmd(c.id); });
   schedule("runs", "counts");
@@ -2544,16 +2547,78 @@ function cmdEvent(ev, n) {
   else if (ev.ev === "item") { applyStepTo(P, ev); }
   else if (ev.ev === "plan") { const doc = ev.doc || {}; Object.assign(P, {items: doc.items || [], steps: doc.steps || [], copper: doc.copper || [], links: doc.links || [], congestion: doc.congestion, findings: doc.findings || [], unplaced: doc.unplaced || [],
       pocketed: doc.pocketed || [], keepouts: doc.keepouts || P.keepouts, reservations: doc.reservations || P.reservations, board: doc.board || P.board, layers: doc.layers, counts: doc.counts || P.counts}); }
+  else if (ev.ev && ev.ev.startsWith("route_")) routeEvent(V, P, ev);
   else if (ev.ev === "explore") { xvStart("cmd", V.id, ev); }
   else if (ev.ev === "variant") { xvAdd(ev); }
   else if (ev.ev === "explore_done") { if (S.xv) { S.xv.done = ev; schedule("runs"); } }
   V.next = Math.max(V.next || 0, (n || 0) + 1);
+  if (ev.ev === "route_commit" || ev.ev === "route_rip") {            // a route commits copper many times a second: the drawing follows at a few frames a second
+    if (!V.redraw) V.redraw = setTimeout(() => { V.redraw = null; schedule("board", "steps", "replay", "counts", "runs", "status"); renderCmdBar(); }, 250);
+    return;
+  }
   schedule("board", "steps", "replay", "counts", "runs", "status");
+  if (V.route) renderCmdBar();
+}
+// ---------------------------------------------------------------- a route, net by net
+// The events of a route (route_progress.py): the board it is drawn on, the nets in the order the router takes them, and for each net its copper as
+// it is committed (a ripped net's removed again) and whether it was routed. A net is a step of kind `copper`: the timeline plays the route as it
+// plays a placement. V.route holds the counts the status line says.
+const routeOps = ev => (ev.seg || []).map(s => ({t: "track", layer: s[4], face: s[4] === "F.Cu" ? "front" : s[4] === "B.Cu" ? "back" : "inner", width: s[5], a: [s[0], s[1]], b: [s[2], s[3]], net: String(ev.net)}))
+  .concat((ev.via || []).map(v => ({t: "via", at: [v[0], v[1]], size: v[2], drill: v[3], net: String(ev.net), layers: []})));
+function routeStep(P, V, net) {
+  let i = V.route.step[net];
+  if (i == null) { i = P.steps.length; V.route.step[net] = i; P.steps.push({i, item: "track " + net, kind: "copper", placed: false, freedom: null, rank: null, rank_of: null, pocket: null, lock: "", note: "", why: "", copper: [], loop: null}); }
+  return P.steps[i];
+}
+function routeEvent(V, P, ev) {
+  const R = V.route || (V.route = {total: 0, done: 0, failed: 0, current: "", stage: "", off: "", results: {}, step: {}, finished: false, truncated: false});
+  const net = Array.isArray(ev.net) ? ev.net[0] : ev.net;
+  if (ev.ev === "route_board") {
+    const d = ev.doc || {};
+    if (!P.items.length) {
+      Object.assign(P, {board: d.board, keepouts: d.keepouts || [], reservations: d.reservations || [], items: d.items || [], layers: d.layers || P.layers});
+      P.steps = (d.items || []).map((it, i) => ({i, item: it.key, kind: "part", placed: true, freedom: "fixed", rank: null, rank_of: null, pocket: null, lock: "", note: "", why: "", copper: [], loop: null}));
+      if (!V.fitted) { V.fitted = true; S.view = null; lay = null; }
+    }
+  }
+  else if (ev.ev === "route_stage") R.stage = ev.stage;
+  else if (ev.ev === "route_queue") R.total += (ev.nets || []).length;
+  else if (ev.ev === "route_net_begin") R.current = net;
+  else if (ev.ev === "route_commit") {
+    const st = routeStep(P, V, net), ops = routeOps(ev);
+    for (const op of ops) { st.copper.push(P.copper.length); P.copper.push(op); }
+  }
+  else if (ev.ev === "route_rip") {
+    for (const op of P.copper) {
+      if (op.gone || op.net !== String(net)) continue;
+      if ((ev.seg || []).some(s => op.t === "track" && op.a[0] === s[0] && op.a[1] === s[1] && op.b[0] === s[2] && op.b[1] === s[3] && op.layer === s[4])
+        || (ev.via || []).some(v => op.t === "via" && op.at[0] === v[0] && op.at[1] === v[1])) op.gone = true;
+    }
+  }
+  else if (ev.ev === "route_net_end") {
+    R.results[net] = !!ev.ok; R.done = Object.values(R.results).filter(x => x).length; R.failed = Object.values(R.results).filter(x => !x).length;
+    const st = routeStep(P, V, net), n = st.copper.length;
+    st.note = ev.ok ? "routed: " + P.copper.filter(o => o.net === String(net) && !o.gone && o.t === "track").length + " tracks, " + P.copper.filter(o => o.net === String(net) && !o.gone && o.t === "via").length + " vias" : "no route found";
+  }
+  else if (ev.ev === "route_queue_end") { R.finished = true; R.current = ""; }
+  else if (ev.ev === "route_off") R.off = ev.why || "";
+  else if (ev.ev === "route_truncated") R.truncated = true;
+}
+const routeLine = R => !R ? "" : R.off ? "no progress for this route: " + R.off : R.finished ? "route finished: " + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") :
+  "net " + Math.min(R.total || 1, R.done + R.failed + 1) + " of " + (R.total || "?") + (R.current ? ": " + R.current : "") + ", " + R.done + " routed, " + R.failed + " failed";
+async function openRoute(file, run) {
+  try {
+    const d = await getJSON(run ? "/build?run=" + encodeURIComponent(run) : "/route?f=" + encodeURIComponent(file));
+    S.cmdView = {id: "route:" + (run || file), plan: d.doc, summary: {command: run ? "build replay" : "route replay", script: (d.board && d.board.script) || "", pid: ""}, next: 0, fitted: false, replay: true, route: {total: d.doc.route.nets, done: d.doc.route.routed, failed: d.doc.route.failed, finished: true, results: {}, step: {}}};
+    S.xv = null; S.replay = null;
+    S.view = null; lay = null;
+    renderCmdBar(); schedule("all");
+  } catch (e) { toast("could not open the route: " + e.message); }
 }
 async function openCmd(id) {
   try {
     const d = await getJSON("/cmd/" + id);
-    S.cmdView = {id, plan: blankPlan(), summary: d.summary, next: d.events.length, fitted: false};
+    S.cmdView = {id, plan: blankPlan(), summary: d.summary, next: d.events.length, fitted: false, route: null};
     S.xv = null;
     for (const ev of d.events) cmdEvent(ev, 0);
     if (d.plan) cmdEvent(d.plan, 0);
@@ -2580,7 +2645,8 @@ function renderCmdBar() {
   el.hidden = !(V || X);
   if (!V && !X) return;
   const c = V && (S.cmds.get(V.id) || V.summary);
-  el.innerHTML = '<span>' + esc(V ? "Viewing " + c.command + " of " + (baseName(c.script) || "a board") + ", pid " + c.pid : "Viewing a recorded explore") + '</span><button id="cmdclose">Back to the studio\'s own view</button>';
+  el.innerHTML = '<span>' + esc(V ? "Viewing " + c.command + " of " + (baseName(c.script) || "a board") + (c.pid ? ", pid " + c.pid : "") : "Viewing a recorded explore") + '</span>' +
+    (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route)) + "</span>" : "") + '<button id="cmdclose">Back to the studio\'s own view</button>';
   $("#cmdclose").onclick = closeCmd;
 }
 
@@ -2805,14 +2871,16 @@ const sinceMs = at => Date.now() + (S.skew || 0) - at * 1000;
 function renderRuns() {
   const el = $("#tab-runs"), cmds = [...S.cmds.values()].sort((a, b) => (b.state === "running") - (a.state === "running") || b.started - a.started);
   const row = c => '<div class="row cmd step" data-cmd="' + c.id + '"><span class="chip ' + esc(c.state) + '">' + esc(c.state) + '</span><div class="sb"><div class="l1"><b>' + esc(c.command) + "</b> " + esc(baseName(c.script)) + '</div><div class="l2">pid ' + esc(c.pid) +
-    ", " + fmtDur((c.ended ? c.ended * 1000 : Date.now() + (S.skew || 0)) - c.started * 1000) + (c.variants ? ", " + c.variants + " variants" : c.items ? ", " + c.items + " steps" : "") + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
+    ", " + fmtDur((c.ended ? c.ended * 1000 : Date.now() + (S.skew || 0)) - c.started * 1000) + (c.route && c.route.total ? ", net " + Math.min(c.route.total, c.route.done + c.route.failed + (c.route.finished ? 0 : 1)) + " of " + c.route.total + " (" + c.route.done + " routed, " + c.route.failed + " failed)" + (c.route.current ? ", now " + esc(c.route.current) : "") : c.variants ? ", " + c.variants + " variants" : c.items ? ", " + c.items + " steps" : "") + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
   const ex = e => '<div class="row cmd step" data-explore="' + escRaw(e.file) + '"><span class="chip ' + (e.kept ? "done" : "") + '">' + (e.kept ? "kept" : "explore") + '</span><div class="sb"><div class="l1"><b>' + esc(baseName(e.script)) + '</b> ' + esc(baseName(e.file)) + '</div><div class="l2">' + e.tried + " variants, " + e.focus + " items" + (e.best != null ? ", best " + Math.round(e.best * 10) / 10 + " of " + Math.round(e.baseline * 10) / 10 : "") + "</div></div></div>";
+  const rt = r => '<div class="row cmd step" data-route="' + escRaw(r.file) + '"' + (r.build ? ' data-build="' + esc(r.run) + '"' : "") + '><span class="chip ' + (r.failed ? "error" : "done") + '">' + (r.build ? "build" : "route") + '</span><div class="sb"><div class="l1"><b>' + esc(baseName(r.script) || "a board") + "</b> " + (r.run ? "run " + esc(r.run) : "") + '</div><div class="l2">' + r.nets + " nets, " + r.routed + " routed" + (r.failed ? ", " + r.failed + " failed" : "") + (r.closure != null ? ", closure " + Math.round(r.closure * 1000) / 10 + "%" : "") + (r.seconds ? ", " + r.seconds + " s" : "") + "</div></div></div>";
   el.innerHTML = '<h3>Commands in this project ' + infoBtn("runsview") + ' <span class="c">' + cmds.length + "</span></h3>" + (cmds.length ? cmds.map(row).join("") : '<div class="pad8 dim">No placemat command has reported to this studio yet. Run one in this project (run, preview, an explore) and it shows here.</div>') +
-    (S.explores.length ? "<h3>Recorded explores</h3>" + S.explores.map(ex).join("") : "") + exploreHTML();
+    (S.explores.length ? "<h3>Recorded explores</h3>" + S.explores.map(ex).join("") : "") + (S.routes.length ? "<h3>Recorded routes</h3>" + S.routes.map(rt).join("") : "") + exploreHTML();
   el.onclick = e => {
     if (e.target.closest(".info")) return;
     const c = e.target.closest("[data-cmd]"); if (c) { openCmd(+c.dataset.cmd); return; }
     const x = e.target.closest("[data-explore]"); if (x) { openExploreRecord(x.dataset.explore); return; }
+    const rr = e.target.closest("[data-route]"); if (rr) { openRoute(rr.dataset.route, rr.dataset.build || ""); return; }
     exploreClick(e);
   };
 }

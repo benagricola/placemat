@@ -17,6 +17,7 @@ import time
 STAGES = ("pairs", "islands", "main")
 RECORD = "route_record.json"
 BOARD = "route_board.json"
+SUMMARY = "route_summary.json"
 POLL_S = 0.05
 
 
@@ -157,6 +158,13 @@ def write_record(work, board: dict, stages: list, report: dict) -> Path:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(doc, separators=(",", ":"), default=str))
     os.replace(tmp, path)
+    from .route_view import lay
+    laid = lay([ev for st in stages for ev in st.get("events", ())])
+    summary = {"nets": len(laid["order"]), "routed": sum(1 for n in laid["order"] if laid["result"][n] == "routed"),
+               "failed": sum(1 for n in laid["order"] if laid["result"][n] != "routed"), "closure": doc["report"].get("closure_clean", doc["report"].get("closure")),
+               "seconds": doc["report"].get("seconds"), "run": board.get("run", ""), "script": board.get("script", ""), "pcb": board.get("pcb", ""),
+               "at": round(time.time(), 1)}
+    (Path(work) / SUMMARY).write_text(json.dumps(summary, separators=(",", ":")))
     return path
 
 

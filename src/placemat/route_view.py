@@ -109,16 +109,19 @@ def lay(events: list) -> dict:
 
 
 def route_doc(record: dict, board: dict) -> dict:
-    """The plan document of a finished route: `board` is the board_doc (or a run's plan), the steps its parts then each net, the copper
-    what stood at the end. A record with no board gives an empty drawing."""
+    """The plan document of a finished route. `board` is the board_doc (parts only: a step for each part, then each net) or a run's plan.json
+    (its own steps and copper first: the whole build, the placement and then the route). Each net is a step of kind `copper` in the order
+    the router first committed copper for it, its result as the note and the copper that stood at the end as its ops."""
     events = [ev for st in record.get("stages", ()) for ev in st.get("events", ())]
     laid = lay(events)
-    doc = {"version": PLAN_VERSION, "board": board.get("board", {"loops": [], "drawn": True, "extent": [0, 0, 100, 60]}), "keepouts": board.get("keepouts", []),
-           "reservations": board.get("reservations", []), "items": list(board.get("items", ())), "layers": board.get("layers", []),
+    base = dict(board)
+    doc = {"version": PLAN_VERSION, "board": {"loops": [], "drawn": True, "extent": [0, 0, 100, 60]}, "keepouts": [], "reservations": [], "items": [], "layers": [],
            "links": [], "congestion": None, "findings": [], "unplaced": [], "pocketed": []}
-    steps = [{"i": n, "item": it["key"], "kind": "part", "placed": True, "note": "", "why": "", "freedom": "fixed", "rank": None, "rank_of": None, "pocket": None,
-              "lock": "", "copper": [], "loop": None} for n, it in enumerate(doc["items"])]
-    copper = []
+    doc.update(base)
+    steps = [dict(s) for s in base["steps"]] if base.get("steps") else [
+        {"i": n, "item": it["key"], "kind": "part", "placed": True, "note": "", "why": "", "freedom": "fixed", "rank": None, "rank_of": None, "pocket": None,
+         "lock": "", "copper": [], "loop": None} for n, it in enumerate(doc["items"])]
+    copper = list(base.get("copper") or [])
     for net in laid["order"]:
         at = []
         for op in laid["ops"][net]:
@@ -130,7 +133,7 @@ def route_doc(record: dict, board: dict) -> dict:
         steps.append({"i": len(steps), "item": "track " + str(net), "kind": "copper", "placed": False, "freedom": None, "rank": None, "rank_of": None, "pocket": None, "lock": "",
                       "note": "%s: %d track%s, %d via%s" % (result, tracks, "" if tracks == 1 else "s", vias, "" if vias == 1 else "s") if result == "routed" else result,
                       "why": "", "copper": at, "loop": None})
-    doc.update(copper=copper, steps=steps, counts={"placed": len(doc["items"]), "findings": 0}, score=None,
+    doc.update(copper=copper, steps=steps, counts=base.get("counts") or {"placed": len(doc["items"]), "findings": len(doc["findings"])}, score=base.get("score"),
                route={"nets": len(laid["order"]), "routed": sum(1 for n in laid["order"] if laid["result"][n] == "routed"),
                       "failed": sum(1 for n in laid["order"] if laid["result"][n] != "routed")})
     return doc
