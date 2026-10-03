@@ -2435,7 +2435,7 @@ class Board:
             t = round(t + 1e-6, 6)
         return round(t * (u[0] or u[1]), 6)
 
-    def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent) -> Placement:
+    def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent, push: bool = True) -> Placement:
         """Where `Beside(...)` puts the item: its own drawn envelope `gap`
         off `item`'s, on `side`, aligned across it."""
         b = i.beside
@@ -2561,7 +2561,7 @@ class Board:
             else:
                 oy = stand
         placement = Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
-        if shaped and not b.copper:         # copper=True measures pad copper: a body over the item's is for the collision check to name
+        if shaped and push and not b.copper:         # copper=True measures pad copper: a body over the item's is for the collision check to name
             placement = self._beside_clear_of_others(occ, i, placement)
         return placement
 
@@ -2739,14 +2739,25 @@ class Board:
         def at(s: float) -> Placement:
             return Placement(Location(round(loc.x + s * u[0], 6), round(loc.y + s * u[1], 6)), i.rotation, i.face)
 
-        def stands(s: float) -> bool:
+        past = self._firm_past_edge(i)
+
+        def fits(s: float) -> bool:
+            """Whether the part stands at `s` with nothing giving way: the cheap answer, all the move out asks."""
             p = at(s)
             if group and real.legal(i.item, p, clr, others=ShapeIndex(group), board=False) is not None:
                 return False
-            return real.legal_giving_way(i.item, p, clr, others=others, past_edge=self._firm_past_edge(i),
-                                         by_corners=True)[0] is None
+            return real.legal(i.item, p, clr, others=others, past_edge=past, by_corners=True) is None
 
-        if stands(0.0):
+        def stands_at_standoff() -> bool:
+            """As a firm item is judged: a via of its own or placed before it may give way."""
+            if fits(0.0):
+                return True
+            if group and real.legal(i.item, at(0.0), clr, others=ShapeIndex(group), board=False) is not None:
+                return False
+            return real.legal_giving_way(i.item, at(0.0), clr, others=others, past_edge=past, by_corners=True)[0] is None
+
+        stands = fits
+        if stands_at_standoff():
             return placement
         step, reach = self.settings.place_beside_step, self.settings.place_beside_reach
         lo, hi = 0.0, None
