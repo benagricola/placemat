@@ -36,6 +36,16 @@ def router_dir(cfg=None) -> str:
     cfg = active() if cfg is None else cfg
     return cfg.route_router_dir or os.environ.get("KRT_DIR") or BUILTIN_ROUTER
 ONE_ROUND = Path(__file__).with_name("route_one_round.py")
+HOOKED = Path(__file__).with_name("route_hooked.py")     # runs a router entry script with the progress hooks (route_events.py)
+_HOOK = False                                             # set by route_board while it routes with progress events
+
+
+def _launch(python, script) -> list:
+    """The start of a router command: the interpreter and the script, behind the hooking wrapper when this route reports progress (the quick
+    route's own wrapper is hooked already)."""
+    if _HOOK and Path(script).name != ONE_ROUND.name:
+        return [str(python), str(HOOKED), str(script)]
+    return [str(python), str(script)]
 
 
 @dataclass
@@ -95,6 +105,9 @@ class RouteReport:
     islands_missing: list = field(default_factory=list)
     # The stages taken from an earlier route of the same inputs rather than run (route_state.py).
     resumed: list = field(default_factory=list)
+    # The route record (route_progress.py): the events of every stage in laid order, what the studio replays the route from; "" when
+    # events are off.
+    record: str = ""
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -130,7 +143,7 @@ class RouteReport:
                 "pairs": self.pairs, "plane_layers": self.plane_layers,
                 "pours_kept": list(self.pours_kept),
                 "islands": {n: list(v) for n, v in self.islands.items()}, "islands_missing": list(self.islands_missing),
-                "resumed": list(self.resumed)}
+                "resumed": list(self.resumed), "record": self.record}
 
 
 def plane_nets_of(pcb) -> set:
@@ -473,7 +486,7 @@ def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float =
                  iterations: int | None = None, probe: int | None = None) -> list:
     """The pair router's command line. Width and gap are the net class's
     unless set (route_diff.py reads them from the board's project)."""
-    cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets"] + list(patterns) + \
+    cmd = _launch(python, script) + [str(pcb_in), str(pcb_out), "--nets"] + list(patterns) + \
           ["--layers"] + list(layers) + ["--escalation", "off", "--keep-input-copper"] + _tuning()
     if gap:
         cmd += ["--diff-pair-gap", str(gap)]
@@ -538,7 +551,7 @@ def rename_nets(pcb_path: str, names: dict) -> None:
 
 
 def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, cfg, iterations, probe,
-                timeout, env) -> tuple:
+                timeout, env, events=None) -> tuple:
     """Route the differential pairs `pairs` ([(p_net, n_net), ...], from
     pairs.board_pair_list): returns (the board to route the rest on,
     Pairs). No pairs comes back as it went in.
@@ -567,6 +580,8 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
     rename_nets(str(router_in), renames)
     back = {new: old for old, new in renames.items()}
     back.update({base: "%s/%s" % (p, n) for base, p, n in aliases})
+    if events is not None:
+        events.names = back                      # the router routes under the aliases: its events name the board's nets
     pcb_out = work / "pairs.kicad_pcb"
     cmd = pair_command(rpy, script, router_in, pcb_out, tuple(a[0] for a in aliases), layers,
                        cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe)
@@ -645,7 +660,7 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
     alone rather than every net but the excluded; `widths` ({net: mm}) sets
     their track widths over the netclass's."""
     chosen = sorted(nets) if nets is not None else ["*"] + ["!" + n for n in sorted(excluded)]
-    cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets"] + chosen + \
+    cmd = _launch(python, script) + [str(pcb_in), str(pcb_out), "--nets"] + chosen + \
           ["--layers"] + list(layers) + ["--escalation", "off"] + \
           ["--keep-input-copper"] + _tuning()      # the script's copper is its intent: no cleanup pass removes it
     if widths:
@@ -699,9 +714,9 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
     return final, breaches
 
 
-def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: str | None = None,
+def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: str | None = None,
                 quick: bool = False, iterations: int | None = None, probe: int | None = None,
-                timeout: int | None = None, islands: dict | None = None, resume: bool = True) -> RouteReport:
+                timeout: int | None = None, islands: dict | None = None, resume: bool = True, board_info: dict | None = None) -> RouteReport:
     """Route a copy of `pcb`. `islands` ({net: width or None}; None: the
     `[route] islands` setting) are routed first and alone, then left to their
     pours with the excluded nets.
@@ -719,13 +734,18 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     router_dir_path = router_dir_override or router_dir(cfg)
     timeout = cfg.timeout_route if timeout is None else timeout
     iterations = cfg.route_max_iterations if iterations is None else iterations
-    pcb, work = Path(pcb), Path(work)
+    pcb, work = Path(pcb).resolve(), Path(work).resolve()          # the router runs in its own folder: paths it is given are absolute
     rpy = Path(router_dir_path) / ".venv/bin/python"
     route_py = Path(router_dir_path) / "py_router/route.py"
     if not (rpy.exists() and route_py.exists()):
         raise FileNotFoundError("router not found at %s (expected .venv/bin/python and py_router/route.py); "
                                 "set KRT_DIR or [route] router_dir" % router_dir_path)
     state = RouteState(work, resume)
+    from .. import channel, route_progress, route_view
+    global _HOOK
+    rep = channel.current()
+    rev = route_progress.RouteEvents(work, rep.send if rep is not None else None)
+    _HOOK = route_progress.enabled()
     pcb_in = work / "in.kicad_pcb"
     shutil.copy(pcb, pcb_in)
     for ext in (".kicad_pro", ".kicad_dru"):
@@ -769,19 +789,31 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     # the differential pairs first, as pairs; the rest route around them
     from .read import read_board
     from ..pairs import board_pair_list
-    pair_list = board_pair_list(read_board(str(pcb_in)).netclasses)
+    geometry = read_board(str(pcb_in))
+    pair_list = board_pair_list(geometry.netclasses)
+    board_doc = route_view.board_doc(geometry)
+    (work / route_progress.BOARD).write_text(json.dumps(board_doc, separators=(",", ":")))
+    if rep is not None:                                  # the board the copper is drawn on, for a route with no placement in front of it
+        rep.send({"ev": "route_board", "doc": board_doc})
     d_pairs = digest(base, "pairs", pair_list)
     saved = state.result("pairs", d_pairs) if pair_list else None
     if saved is not None and (work / saved["board"]).exists():
         board, pairs = work / saved["board"], Pairs.from_dict(saved["pairs"])
         resumed.append("pairs")
         spent += saved["seconds"]
+        rev.resumed("pairs", saved["seconds"])
     else:
         if pair_list:                            # with none, there is no stage to drop: the later ones stand
             state.drop_from("pairs")
         t1 = time.time()
-        board, pairs = route_pairs(rpy, router_dir_path, pcb_in, work, pair_list, layers, cfg,
-                                   iterations, probe, timeout, env)
+        if pair_list:
+            rev.begin("pairs")
+        try:
+            board, pairs = route_pairs(rpy, router_dir_path, pcb_in, work, pair_list, layers, cfg,
+                                       iterations, probe, timeout, dict(env, **rev.env("pairs")), events=rev)
+        finally:
+            if pair_list:
+                rev.end("pairs")
         spent += time.time() - t1
         if board != pcb_in:                      # the pair router ran: its board is a finished stage
             state.record("pairs", d_pairs, {"board": board.name, "pairs": pairs.to_dict(),
@@ -795,11 +827,16 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
             pours += saved["pours"]
             resumed.append("islands")
             spent += saved["seconds"]
+            rev.resumed("islands", saved["seconds"])
         else:
             state.drop_from("islands")
             t1 = time.time()
-            board, island_breaches = route_islands(rpy, script, router_dir_path, board, work, islands, layers, iterations,
-                                                   probe, quick, timeout, env, cfg.route_plane_share)
+            rev.begin("islands")
+            try:
+                board, island_breaches = route_islands(rpy, script, router_dir_path, board, work, islands, layers, iterations,
+                                                       probe, quick, timeout, dict(env, **rev.env("islands")), cfg.route_plane_share)
+            finally:
+                rev.end("islands")
             kept = guard_partial_pours(str(board), set(islands), layers, cfg.route_plane_share)
             pours += kept
             spent += time.time() - t1
@@ -811,16 +848,21 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     if saved is not None and raw_out.exists():
         resumed.append("main")
         spent += saved["seconds"]
+        rev.resumed("main", saved["seconds"])
     else:
         state.drop_from("main")
         t1 = time.time()
         cmd = router_command(rpy, script, board, raw_out, excluded | pairs.routed_nets, layers, summary,
                              iterations, probe, quick)
-        with open(log, "w") as f:
-            f.write("$ %s\n\n" % " ".join(cmd))
-            f.flush()
-            rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
-                                timeout=timeout).returncode
+        rev.begin("main")
+        try:
+            with open(log, "w") as f:
+                f.write("$ %s\n\n" % " ".join(cmd))
+                f.flush()
+                rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=dict(env, **rev.env("main")),
+                                    timeout=timeout).returncode
+        finally:
+            rev.end("main")
         if rc != 0 or not raw_out.exists():
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
             raise RuntimeError("router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
@@ -848,8 +890,21 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
                          breaches, pairs.as_dict(), plane_dropped, pours,
                          {n: (before.open_nets.get(n, 0), after.open_nets.get(n, 0)) for n in sorted(islands)},
                          islands_missing, resumed)
+    if route_progress.enabled():
+        info = dict(board_info or {}, pcb=str(pcb), doc=route_progress.BOARD)
+        report.record = str(route_progress.write_record(work, info, rev.stages, report.as_dict()))
+    _HOOK = False
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report
+
+
+def route_board(*args, **kwargs) -> RouteReport:
+    """Route a copy of a board (`_route_board`), reporting progress to the command's socket and writing the route record."""
+    global _HOOK
+    try:
+        return _route_board(*args, **kwargs)
+    finally:
+        _HOOK = False
 
 
 def router_breaches(pcb_in, pcb_out) -> list:

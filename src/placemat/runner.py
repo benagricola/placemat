@@ -608,8 +608,13 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             t0 = time.time()
             stage = "route"
             say("route", "%s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
+            try:                                    # the placement as the studio draws it: the build replay's first half (the route's record is its second)
+                from .preview_json import declared_sites, plan_json
+                (run_dir / "plan.json").write_text(json.dumps(plan_json(plan, declared_sites(board)), separators=(",", ":")))
+            except Exception as e:                  # a courtesy: the run goes on without it
+                say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
             report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
-                                 quick=route_quick, resume=resume)
+                                 quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)})
             if report.resumed:
                 say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
                     ", ".join(report.resumed))

@@ -659,9 +659,16 @@ def cmd_route(args) -> int:
             return 2
         islands = parse_islands(active().route_islands)
         islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
-        report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
-                             quick=not args.full, iterations=args.iterations, islands=islands,
-                             resume=not args.no_resume)
+        from . import channel
+        channel.reporter(p)                 # the route's own socket: readers follow it net by net
+        try:
+            report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
+                                 quick=not args.full, iterations=args.iterations, islands=islands,
+                                 resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {})
+        except Exception as e:
+            channel.error("%s: %s" % (type(e).__name__, e))
+            raise
+        channel.finish(report.record or None)
     if args.json:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:
