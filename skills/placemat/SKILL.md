@@ -373,6 +373,19 @@ the script.
   why, then `--accept`. The lock beside the script keeps it; commit the
   lock with the script. `placemat freeze` moves an entry into the script
   once the spot is part of the design.
+- Long commands (`run`, `preview`, `route`, above all `--explore`) stop
+  safely on SIGTERM, SIGHUP or Ctrl-C and say so: the run is recorded as
+  `stopped` (`status: "running"` with a `pid` while it works; a record whose
+  pid is gone died), the layout folder is as it was, the exit status is
+  128 + the signal, and a stopped explore prints `explore stopped by SIGTERM
+  after N variants ...; nothing accepted; accept it with: placemat lock
+  <script> --accept-seed N`. The lock is never written on a stop. Run a long
+  explore detached (`setsid nohup placemat run ... > explore.log 2>&1 &`) and
+  never chain it with `;`, which hides its exit status. Rerun the same
+  command to continue: an explore resumes from its checkpoint (`--resume` to
+  insist, `--no-resume` to start over), a resolve replays the steps it had
+  done, a route takes the stages it had finished. Nothing is repeated that a
+  stop kept (api.md, "Exploring a placement" and "Stages and resume").
 - A board of any shape is `board.outline(path, holes=)`, its sides chosen
   by `board.edge(facing=)`; a round one is `board.disc()` placed in
   bearings (`OnRim`, `OnBore`, `Polar`, `ring()`). A hole is a `Cutout` in
