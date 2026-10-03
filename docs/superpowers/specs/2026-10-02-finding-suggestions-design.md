@@ -397,11 +397,57 @@ only a sentence: `Occupancy._conflict` returns text (occupancy.py:2024), `_reaso
 `Finding(kind, text)` take a sentence (layout.py: 39 `ctx.note`/`notes.append` sites and 30 `Finding(` sites). A
 suggestion builder then has to parse text or do without. The fix is in the finding, not in the suggestions.
 
-**A finding is data; its sentence is rendered from it.** A finding has `kind`, `case`, `severity` and `facts`: typed
+**A finding is data; its sentence is rendered from it** (the rule below, applied to findings first). A finding has `kind`, `case`, `severity` and `facts`: typed
 values naming the items, pads, nets, owners and keepouts involved and the figures the site measured (the overlap depth,
 the clearance shortfall and the clearance needed, the pitch tried, an extent, a side, a point). The sentence the console,
 the logs, `run.json`'s `text` and the studio show is `finding_text.render(case, facts)`. Nothing reads a sentence for
 data: no builder, no studio code, no test.
+
+### The rule
+
+This is a rule for all of placemat's code, and the structured-findings phase is its first application.
+
+- **A function returns data**: a scalar (a number with its unit in the name or the schema, an enum, a name), a record
+  (a dataclass or a dict of JSON values), or a list of them. Text is returned only where the data is itself a description
+  (a `why=` the script wrote, a part's value, a note the user typed).
+- **Data becomes a sentence, a view or a graph only at the outer edge**: the console printer (`console.finding`), the log
+  and progress writers, the studio page and `placemat watch`, the report and `impact` text. Each edge has a renderer; the
+  renderers are the only code that formats a figure into words.
+- **Nothing inside parses a sentence** to recover a number, a name, a side, an item or a point. A regular expression or
+  `split` over text that a placemat function made is a bug in the producer: it returns the data instead, and the consumer
+  reads the field. An identifier that has structure (a link, a track, a label, a keepout) is a record or an opaque key plus
+  typed fields, never a string that is cut apart.
+- A string that crosses a boundary and is read by a person (the finding sentence, a refusal's text) is made by a renderer
+  from the record, and the record travels with it (the finding's `facts`, a run's `finding_details`).
+
+The test of the rule is a search of the source: a `re.`, `.split(`, `startswith`, `in <sentence>` or slice applied to a
+finding's text, a refusal's text, a note or a key built from several fields is a violation, and each one found is
+listed below and removed in phase 4. A new one fails review.
+
+### Producers and consumers the rule changes
+
+The producers return data; the consumers read it. Grouped by what they return now.
+
+| Now | Returns | Becomes | Consumers that parse it today |
+|---|---|---|---|
+| `Occupancy._conflict` (occupancy.py:2024), `_drawn_conflict` (1867), `refusal`, `reservation_hit` (956) | a sentence | a `Conflict` record (kind, owner, net, layer, faces, `gap_mm`, `need_mm`, point, pads, the reservation's source: keepout name, label key, fanout item); `.text()` is the renderer | `legal()` and `legal_giving_way()` pass the sentence up; `_reason_key` (2833) searches it for words; `_blame_text` (layout.py:10052) formats counts and owners; `suggest_facts.reservation_source` (mine) matches `keepout '...'`, `label ...`, `fanout of ...` in a blocker's owner text |
+| `Occupancy.legal(...) -> str \| None`, `legal_giving_way -> (str, resolution)`, `legal_bucket` (1697) | the sentence, or a bucket word | a `Refusal \| None` record (a `Conflict` plus the bucket as an enum field); the sentence is `Refusal.text()` and is computed only by the printer or a test | placer scans count by `_reason_key(why)`; `ScanResult.reasons` keeps first sentences; `_slide` and `scan` key `rejected` by words; riders' `accept(...)` returns `"rider R3: why"` strings and callers split on `":"` (layout.py ~7615, 8565) |
+| `Occupancy.copper_conflicts` (821) | a list of sentences | a list of `Conflict` | `_plan_copper_batch` (layout.py:7516) builds the note from the sentence and adds text; `_through` (5519) returns the sentence of what a track runs through |
+| `Blocker`, `ScanResult.blockers/reasons` | owner as a formatted string (`blame_owner`, occupancy.py:890, "cell X's C4 GND", "pour NET"); a count | `Blocker` with `owner` (item key), `owner_cell`, `net`, `kind` fields and the sample `Conflict`; no formatted owner | `_blame_text` and `suggest_facts.owners_of` |
+| `_cutout_illegal` (layout.py:1451), `_check_settled_cutouts` (1655) | a sentence or None | a `CutoutRefusal` record (`outside`, `notch`, `web`; the web measured and the minimum; the loop) or None | `_cutout_illegal`'s callers put the sentence in a finding and in `Step.note` |
+| `ctx.note(text)` and the 39 note sites, `_check_pitch`, `_check_fit_content`, `_check_web`, `_report_*`, the pour, stitch and via notes | a `Finding(kind, text)` | `Finding(kind, case, facts)` | `preview_json._findings` finds the item by the sentence's first word (preview_json.py:93, 209) and the points and pads by regular expressions (`_AT`, preview.py:310; `finding_targets`, preview_json.py:183); the studio page's `focusFinding`; `suggestions.finding_key` (mine) takes the first word |
+| `_riders_alone`, `_no_pocket_note` (8045), `_room_lost_text` (4212), the hopeless-pocket text | sentences | records (`item`, `turns tried`, per-rider refusal, per-turn refusal, the room lost: pair, shortfall, asked distance) | `_settle` concatenates them into the finding and into `Step.note` |
+| `Step.note` and `Step.why` | free text assembled from fragments | `Step.facts`: a list of typed notes (kind, fields); `note` is rendered for the console and the Steps view | the studio's step rows; `plan_json` |
+| `giveway.report(occ)` (giveway.py:1091), the vias findings | `(home, text, severity)` tuples | records (via, what it did, the owner whose room it needed, the limits it hit) | `_report_...` sites make `Finding("vias", "%s: %s" % (key, text))` |
+| `checks.Verdict.note`, `accepted`, `Outcome.why_not` (checks.py:95-110, 233) | strings assembled with figures | `Verdict` already has `value`, `unit`, `limit`: add `facts` (the loop, the net, the part and the distances) and render `note` at the edge; `findings_of` makes `setup.accept` findings from the outcome record | `checks.record`, the console's check lines, `RunRecord.verdicts` |
+| `placer.py`'s placement notes (`chose`, `moved ...`, `seeded on ...`), `_label_hits` (layout.py:9027) | strings, a list of owner strings | records | label findings and notes |
+| item and declaration keys that encode structure: a link `C1.1>U1.3`, a copper declaration `track SIG#12`, a label `label J1 text`, `"cell X's ..."`, `"%s (%s)"` | a string cut apart with `split(" ", 2)` (layout.py:7109, 7118, 7122, 7288, 7291; suggestions.py:652, 752) | a record: `LinkId(a, b)`, `CopperId(kind, net, index)`, `LabelId(item, index)`, each with an opaque `key` for lookup and typed fields for reading | the label, copper and link sites, `Board.sites_of`, the builders |
+| my own core code: `suggest_facts.reservation_source`, `suggestions.finding_key`, `suggestions._label_picks`, `preview_json` additions | read a sentence or a key | read the record's fields | (removed with the producers above) |
+
+Each row is a commit in phase 4, with its golden rows. A row is done when the search in the rule's test finds no parse of
+its text in `src/placemat` and the studio page. Where the studio page (`studio_page.html`) formats a finding, it renders
+from the finding's `facts` and `case` and falls back to the server's rendered text for a case it does not know, so the
+client never parses the sentence either.
 
 ### The model
 
@@ -712,10 +758,11 @@ The original phases 1 to 3 are built on branch `suggestions-core` (the engine, t
 the studio's slot, Try and endpoints are the studio branch's). The revision adds three, in this order, because each
 unlocks the next.
 
-**Phase 4: structured facts.** Step 0: the golden findings file and its test, written from main. Then the plumbing
+**Phase 4: structured data (the rule, "The rule" above).** Step 0: the golden findings file and its test, written from main. Then the plumbing
 (`Finding(kind, case, facts)`, `finding_text.py` with a schema and a renderer per case, `Conflict`, `Blocker` and
 `ScanResult.samples`, the reuse record version, `facts` and `facts_v` in `run.json`, `preview --json` and the studio's
-plan JSON), then the sites in the table above, one case or area to a commit, each with its golden rows. The core's
+plan JSON), then the sites in the table above, one case or area to a commit, each with its golden rows. Every producer in "Producers and consumers the rule changes" returns data, and every consumer in that table reads it; the
+rule's source search is a test (`tests/test_no_sentence_parsing.py`). The core's
 builders switch from their ad hoc facts dicts to the schemas (the facts they use already are fields). The core's
 `suggestions` no longer enter the cache. Enables, as instant suggestions with ops that exist today: the clearance rule from
 a measured shortfall (`copper.meets`, `setup.pitch`), the via at a free spot near the met pad, a waypoint on the declared
