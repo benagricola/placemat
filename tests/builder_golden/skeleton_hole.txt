@@ -1,0 +1,14 @@
+"""Demo: layout."""
+from placemat import board, Along, Circle, Cutout, Edge, OnEdge
+
+# The board's width, chosen in the studio's board builder.
+BOARD_WIDTH_MM = 60.0
+# The board's height, chosen in the studio's board builder.
+BOARD_HEIGHT_MM = 40.0
+# The diameter of the mount hole, chosen in the studio's board builder.
+MOUNT_DIAMETER_MM = 3.2
+# The material kept round a hole, chosen in the studio's board builder.
+BOARD_WEB_MM = 1.0
+
+MOUNT = Cutout(Circle(MOUNT_DIAMETER_MM), "mount", at=OnEdge(Edge.NORTH, along=Along.MID))
+board.rect(width=BOARD_WIDTH_MM, height=BOARD_HEIGHT_MM, web=BOARD_WEB_MM, holes=[MOUNT])

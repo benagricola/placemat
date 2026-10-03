@@ -1,0 +1,7 @@
+"""Demo: layout."""
+from placemat import board
+
+# The outline's vertices, chosen in the studio's board builder: mm from the board's top-left, y down.
+BOARD_OUTLINE_MM = [(0.0, 0.0), (60.0, 0.0), (60.0, 25.0), (35.0, 25.0), (35.0, 40.0), (0.0, 40.0)]
+
+board.outline(BOARD_OUTLINE_MM)

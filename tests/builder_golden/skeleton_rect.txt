@@ -1,0 +1,9 @@
+"""Demo: layout."""
+from placemat import board
+
+# The board's width, chosen in the studio's board builder.
+BOARD_WIDTH_MM = 60.0
+# The board's height, chosen in the studio's board builder.
+BOARD_HEIGHT_MM = 40.0
+
+board.rect(width=BOARD_WIDTH_MM, height=BOARD_HEIGHT_MM)

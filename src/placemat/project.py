@@ -78,14 +78,16 @@ def generate_args_of(script: Path) -> tuple:
     return tuple(m.group(1).split()) if m else ()
 
 
-def find_board(script_or_dir) -> BoardSource:
+def find_board(script_or_dir, wanted: str | None = None) -> BoardSource:
     """The board a script is for: the .zen beside it declaring Board(),
     Project() or Layout(). A declaration with `layout = False` has no layout
     and is not a candidate. When several remain, the script's name says which
-    (`Main_layout.py` means the one named Main)."""
+    (`Main_layout.py` means the one named Main); `wanted` names it for a script
+    that does not exist yet (the studio's board builder)."""
     p = Path(script_or_dir).resolve()
     board_dir = p if p.is_dir() else p.parent
-    wanted = p.stem[:-len("_layout")] if p.is_file() and p.stem.endswith("_layout") else None
+    if wanted is None:
+        wanted = p.stem[:-len("_layout")] if p.is_file() and p.stem.endswith("_layout") else None
     candidates = sorted(board_dir.glob("*.zen"))
     found, off = [], []
     for zen in candidates:
