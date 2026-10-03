@@ -1,0 +1,7 @@
+"""Demo: layout."""
+from placemat import board
+
+# The board's diameter, chosen in the studio's board builder.
+BOARD_DIAMETER_MM = 50.0
+
+board.disc(diameter=BOARD_DIAMETER_MM)

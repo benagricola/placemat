@@ -18,6 +18,40 @@ section for each hand-written pattern a newer form replaces.
   a phase with no count does not move the bar). The legend and the right panel each fold away (a handle on each edge, kept per
   viewer), and the source dialog's full-screen view fills the page below the header with no canvas showing under it.
 
+## To 0.95.0
+
+### New
+
+- **The studio has a board builder.** In the page: pick a `.zen` that has no layout script (a second group in the start view), state its
+  facts in forms (stackup roles and weights, pair net classes, via types and fab minimums, the rise), draw its outline from a size
+  suggested from the parts, and click parts into place by intent; the script is written as it goes and every step is an undo. See `api.md`,
+  "Studio builder". Settings `[studio] builder_grid_mm`, `builder_max_fill`, `builder_aspect`. Nothing to change in a script.
+- Engine: `script_edit` gains the ops `zen_stackup`, `zen_netclasses` and `json_set` (a `.zen` dialect and a JSON dialect of the splicing
+  editor), a `{"block": [...]}` value and a `comment` for inserted statements, `set_constant` of a list of (x, y) pairs and with
+  `replace_comment`, and `read_call`; `remove_statement` and `remove_constant` no longer leave a doubled blank line, and an edit's later
+  targets and references follow lines an earlier edit inserted directly above them.
+
+### Changed
+
+- **A part stands tighter beside a part that draws a mark outside its body, and keeps room for declared copper.**
+  `Beside(item, side)` took the distance from the box round everything `item`'s envelope is made of, so a pin 1 dot or any
+  silk mark outside the body held the part off the whole side by the mark's reach. It now measures against the envelope's own
+  shapes (pads, mask, silk and body under a physical envelope, the courtyard under a courtyard one): the part stands the gap
+  off the nearest shape it faces, and a mark holds it off only where it stands over the mark. Where the nearer standoff would
+  put the part in the way of something else already placed (another part's silk, a reservation, the edge), the part is moved
+  on out along its side to the first place the collision rule allows (`place.beside_step`, up to `place.beside_reach`); with
+  none within reach it stays at the standoff and the collision is reported as before. A rider and `copper=True` are laid as
+  before, and so are a keepout or an escape item, a `Past` that turns a corner, and `row(of=)`.
+  Placement also allows for the copper a script declares (`place.copper_room`, on): the firm items are placed again, as many
+  times as it takes (`place.firm_passes`), against where the tracks and vias declared between them are planned to go, so a
+  `Beside` part stands where there is room for them; a track or via whose end is a searched part is planned as soon as that
+  part is placed, for the parts placed after it. A part that stands nearer than the box put it and is an end of copper that
+  then meets other copper goes back to the box's distance. A `Beside` part that a firm `Beside` part placed before it kept
+  from standing is placed before that part (its step says so). A track still moving at the last pass is `fixed.room_unsettled`;
+  a part for which no place within reach keeps the copper's room is `fixed.room`. `place.copper_room = false` places as before.
+  A script placing a part `Beside` one with a corner mark gets that part nearer; a later part aligned level with it follows. A
+  searched part can land elsewhere than it did, with what it is linked to at another distance.
+
 ## To 0.94.1
 
 ### New

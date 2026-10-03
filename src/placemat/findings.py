@@ -69,6 +69,8 @@ class FindingCause(str, Enum):
     FIXED_PART = (FindingKind.FIXED, "fixed.part")
     FIXED_CUTOUT = (FindingKind.FIXED, "fixed.cutout")
     FIXED_KEEPOUT = (FindingKind.FIXED, "fixed.keepout")
+    FIXED_ROOM = (FindingKind.FIXED, "fixed.room")
+    FIXED_ROOM_UNSETTLED = (FindingKind.FIXED, "fixed.room_unsettled")
     COPPER_KEEPOUT = (FindingKind.COPPER, "copper.keepout")
     COPPER_CROSS = (FindingKind.COPPER, "copper.cross")
     COPPER_MEETS = (FindingKind.COPPER, "copper.meets")

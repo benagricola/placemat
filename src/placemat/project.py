@@ -78,39 +78,53 @@ def generate_args_of(script: Path) -> tuple:
     return tuple(m.group(1).split()) if m else ()
 
 
-def find_board(script_or_dir) -> BoardSource:
+def declared_boards(zen: Path, board_dir: Path | None = None, generate_args: tuple = ()) -> tuple:
+    """(boards, off): the boards a `.zen` declares - every Board(), Project() or Layout() with a `name=`, a module may declare one
+    per variant - as BoardSources, and the names of those declared `layout = False` (a sub-circuit with no layout of its own)."""
+    zen = Path(zen)
+    board_dir = Path(board_dir) if board_dir is not None else zen.parent
+    text = zen.read_text(errors="replace")
+    found, off = [], []
+    for m in _BOARD_RE.finditer(text):
+        block = text[m.end():]
+        depth, end = 1, 0
+        for i, ch in enumerate(block):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        block = block[:end]
+        name_m, layout_m = _NAME_RE.search(block), _LAYOUT_RE.search(block)
+        if not name_m:
+            continue
+        name = name_m.group(1)
+        if _NO_LAYOUT_RE.search(block):
+            off.append(name)
+            continue
+        layout_dir = board_dir / (layout_m.group(1) if layout_m else "layout/%s" % name)
+        found.append(BoardSource(name, zen, layout_dir, board_dir, generate_args))
+    return found, off
+
+
+def find_board(script_or_dir, wanted: str | None = None) -> BoardSource:
     """The board a script is for: the .zen beside it declaring Board(),
     Project() or Layout(). A declaration with `layout = False` has no layout
     and is not a candidate. When several remain, the script's name says which
-    (`Main_layout.py` means the one named Main)."""
+    (`Main_layout.py` means the one named Main); `wanted` names it for a script
+    that does not exist yet (the studio's board builder)."""
     p = Path(script_or_dir).resolve()
     board_dir = p if p.is_dir() else p.parent
-    wanted = p.stem[:-len("_layout")] if p.is_file() and p.stem.endswith("_layout") else None
+    if wanted is None:
+        wanted = p.stem[:-len("_layout")] if p.is_file() and p.stem.endswith("_layout") else None
     candidates = sorted(board_dir.glob("*.zen"))
     found, off = [], []
     for zen in candidates:
-        text = zen.read_text(errors="replace")
-        for m in _BOARD_RE.finditer(text):           # every Board()/Project()/Layout(): a module may declare one per variant
-            block = text[m.end():]
-            depth, end = 1, 0
-            for i, ch in enumerate(block):
-                if ch == "(":
-                    depth += 1
-                elif ch == ")":
-                    depth -= 1
-                    if depth == 0:
-                        end = i
-                        break
-            block = block[:end]
-            name_m, layout_m = _NAME_RE.search(block), _LAYOUT_RE.search(block)
-            if not name_m:
-                continue
-            name = name_m.group(1)
-            if _NO_LAYOUT_RE.search(block):         # a sub-circuit with no layout of its own
-                off.append(name)
-                continue
-            layout_dir = board_dir / (layout_m.group(1) if layout_m else "layout/%s" % name)
-            found.append(BoardSource(name, zen, layout_dir, board_dir, generate_args_of(p) if p.is_file() else ()))
+        f, o = declared_boards(zen, board_dir, generate_args_of(p) if p.is_file() else ())
+        found += f
+        off += o
     if not found:
         raise FileNotFoundError("no .zen declaring Board(name=...), Project(name=...) or Layout(name=...) in %s (looked at %s)%s" % (
             board_dir, ", ".join(c.name for c in candidates) or "nothing",

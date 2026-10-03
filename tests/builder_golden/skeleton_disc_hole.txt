@@ -1,0 +1,14 @@
+"""Demo: layout."""
+from placemat import board, Cutout, Edge, Polar, Slot
+
+# The board's diameter, chosen in the studio's board builder.
+BOARD_DIAMETER_MM = 50.0
+# The length of the vent slot, chosen in the studio's board builder.
+VENT_LENGTH_MM = 8.0
+# The width of the vent slot, chosen in the studio's board builder.
+VENT_WIDTH_MM = 2.0
+# The distance of the vent hole's centre from the middle of the board, chosen in the studio's board builder.
+VENT_RADIUS_MM = 15.0
+
+VENT = Cutout(Slot(VENT_LENGTH_MM, VENT_WIDTH_MM), "vent", at=Polar(VENT_RADIUS_MM, Edge.EAST))
+board.disc(diameter=BOARD_DIAMETER_MM, holes=[VENT])

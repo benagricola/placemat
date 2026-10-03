@@ -860,3 +860,30 @@ Built in the engine (`src/placemat/`, tests in `tests/test_builder_ops.py`):
 
 Not built: the ratsnest count per turn, the `.zen` and JSON dialects of the editor, the read-back after regeneration. The
 command line has no `--redo`.
+
+## As built (phases B0 to B3)
+
+Built on branch `board-builder` (plan: `docs/superpowers/plans/2026-10-03-board-builder.md`). Where it differs from the spec:
+
+- **Modules.** `zen_edit.py` (the `.zen` dialect: ops `zen_stackup`, `zen_netclasses`), `json_edit.py` (op `json_set`), `builder.py` (outline, size
+  suggestion, the first write), `builder_facts.py`, `builder_parts.py` (the outline and a placement read back, the parts list),
+  `builder_intents.py` (the menu, rows and rings, search, edit, move), `builder_outline.py` (changing an outline), `builder_runs.py` (a shaped
+  board's stretches), `builder_turns.py` (the suggested turn), `builder_worker.py` (generate and read, one process per request),
+  `studio_builder.py` (the endpoints) and `studio_builder.js` (the page, loaded by one line of `studio_page.html`).
+- **Progress** reaches the page as `build` events on the studio's own event stream, not as a command on the live channel.
+- **Holes on an edge are in the middle of it.** `OnEdge(edge, along=Along.START)` or `END` on a cutout puts the hole past the corner (the engine
+  measures `along` from the keep-in): a finding, "reaches outside the board". The builder offers `MID` only, and requires a web (`web=` a
+  constant): a hole that touches the outline is refused as a notch. The spec's golden hole example used `START` and no web.
+- **A ring** is written `board.ring([...], start=Edge.X)`: `radius=None` is the default and is not written.
+- **"Changed" facts.** Which fact moved since the confirmation is read from the document recorded at the confirmation
+  (`.placemat/views/builder/facts_<digest>.json`, a view output); where that is missing every changed fact is reported as one row.
+- **Engine fixes made on the way**, each with a test: a line carried through earlier edits did not move for a statement inserted directly above
+  it (and so neither for a declaration an expression names); `remove_statement` and `remove_constant` left a doubled or dangling blank line;
+  the first decided statement and the outline start a region with a blank line; `insert_statement` takes a block; `set_constant` takes a list of
+  (x, y) pairs and may replace the comment above it; the applied log's source for a builder suggestion is `builder`.
+- **Hand-written scripts (B3).** A script that is not of the builder's shape (a loop, a function, anything but header, constants, bindings and board
+  calls) gets a statement after the one it names (else after the last top-level placement, else after the outline, else at the end of the module),
+  written by the names it binds (`U1 = Part("u1")`) where it writes by names and has no literal, else as a literal, with no comment of the builder's.
+- **Not built.** B4 (keepouts, `behind=`, `overhang=`, `Pin`, a two-axis `Centre`, between two pads), as the spec says. A polygon's vertices are not
+  dragged on the board itself (only in the outline dialog's preview); a row's members are added by the API (`kind: row`) but the page offers
+  taking one out only.

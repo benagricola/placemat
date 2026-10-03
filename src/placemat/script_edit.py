@@ -30,7 +30,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 OPS = ("set_kwarg", "remove_kwarg", "set_arg", "edit_list", "insert_statement", "remove_statement", "set_constant",
-       "toml_set", "ensure_import", "remove_constant", "move_statement", "create_file", "confirm_facts")
+       "toml_set", "ensure_import", "remove_constant", "move_statement", "create_file", "confirm_facts", "zen_stackup",
+       "zen_netclasses", "json_set")
 
 
 class EditRefused(Exception):
@@ -971,22 +972,32 @@ def _edit_list(text, edit, ctx_for):
 
 
 def _insert_statement(text, edit, ctx_for):
+    """The statement(s) of `edit.value` (a call, or `{"block": [calls]}`) written on the lines after the target statement, at its indent."""
     mod, hit = _locate_stmt(text, edit.target)
-    if not isinstance(edit.value, dict) or "form" not in edit.value:
+    value = edit.value
+    forms = value.get("block") if isinstance(value, dict) and "block" in value else [value]
+    if not forms or not all(isinstance(f, dict) and "form" in f for f in forms):
         raise EditRefused("an inserted statement is a call")
-    new = _render(edit.value, ctx_for(mod, hit))
-    _check_expr(new)
+    ctx = ctx_for(mod, hit)
+    news = []
+    for f in forms:
+        new = _render(f, ctx)
+        _check_expr(new)
+        news.append(new)
     src = mod.src
     s, e = src.span(hit.stmt)
     le = src.line_end(e)
     nl = src.newline_at(le)
-    line = src.indent_of(s) + new
-    out = text + nl + line if le >= len(text) else _splice(text, [(le + len(nl), le + len(nl), line + nl)])
+    body = nl.join(src.indent_of(s) + n for n in news)
+    out = text + nl + body if le >= len(text) else _splice(text, [(le + len(nl), le + len(nl), body + nl)])
     try:
-        ast.parse(out)
+        tree = ast.parse(out)
     except SyntaxError as e:
         raise EditRefused("the edited file would not parse: %s" % e)
-    if _dump_without(out, hit.stmt.end_lineno + 1) != ast.dump(ast.parse(text)):
+    new_lines = {hit.stmt.end_lineno + 1 + k for k in range(len(news))}
+    for seq in _stmt_lists(tree):
+        seq[:] = [st for st in seq if st.lineno not in new_lines]
+    if ast.dump(tree) != ast.dump(ast.parse(text)):
         raise EditRefused("the edit would change more than the inserted statement")
     return out
 
@@ -996,8 +1007,20 @@ def _locate_stmt(text, target):
     return mod, _locate(mod, target, want_stmt=True)
 
 
+def _tidy_start(text: str, a: int, b: int) -> int:
+    """Where a removal of the lines `a`..`b` starts so that no blank line is left doubled or dangling: `a`, or the start of the
+    blank line above it where the removed lines were alone between that blank line and another (or the end of the file)."""
+    if a > 0:
+        pa = text.rfind("\n", 0, a - 1) + 1
+        rest = text[b:].split("\n", 1)[0]
+        if text[pa:a].strip() == "" and (b >= len(text) or rest.strip() == ""):
+            return pa
+    return a
+
+
 def _remove_statement(text, edit, ctx_for):
-    """The statement's lines go; comments and blank lines above it stay, for whatever follows."""
+    """The statement's lines go; comments above it stay, for whatever follows, and so do blank lines, except one that would be left
+    doubled: a statement alone between two blank lines (or one and the end of the file) takes the blank line above it."""
     mod, hit = _locate_stmt(text, edit.target)
     if isinstance(hit.stmt, ast.Assign):
         raise EditRefused("%s at line %d is assigned to a name the script may use: it is not removed" % (
@@ -1005,7 +1028,8 @@ def _remove_statement(text, edit, ctx_for):
     src = mod.src
     s, e = src.span(hit.stmt)
     le = src.line_end(e)
-    out = _splice(text, [(src.line_start(s), le + (len(src.newline_at(le)) if le < len(text) else 0), "")])
+    a, b = src.line_start(s), le + (len(src.newline_at(le)) if le < len(text) else 0)
+    out = _splice(text, [(_tidy_start(text, a, b), b, "")])
     try:
         ast.parse(out)
     except SyntaxError as err:
@@ -1156,8 +1180,12 @@ def _comment_block(comment, nl):
 
 
 def _constant_text(value):
+    if isinstance(value, (list, tuple)) and value and all(
+            isinstance(p, (list, tuple)) and len(p) == 2 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in p)
+            for p in value):
+        return repr([tuple(p) for p in value])                  # a polygon's vertices: a list of (x, y) pairs
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        raise EditRefused("a constant holds a number or a string, not %r" % (value,))
+        raise EditRefused("a constant holds a number, a string or a list of (x, y) pairs, not %r" % (value,))
     return repr(value)
 
 
@@ -1205,8 +1233,9 @@ def _assigns(stmt, name):
             and stmt.targets[0].id == name)
 
 
-def _change_constant(text, name, value, comment):
-    """The assignment of `name` given `value`, with the comment above it."""
+def _change_constant(text, name, value, comment, replace_comment=False):
+    """The assignment of `name` given `value`, with the comment above it: written above the one that is there, or, with
+    `replace_comment`, in place of the comment lines directly above the assignment (where the number came from has changed)."""
     mod = _parse(text)
     hits = [s for s in mod.tree.body if _assigns(s, name)]
     if len(hits) != 1:
@@ -1214,7 +1243,16 @@ def _change_constant(text, name, value, comment):
     s = hits[0]
     vs, ve = mod.src.span(s.value)
     ls = mod.src.line_start(mod.src.span(s)[0])
-    out = _splice(text, [(ls, ls, _comment_block(comment, _nl_of(text))), (vs, ve, _constant_text(value))])
+    splices = [(vs, ve, _constant_text(value))]
+    if replace_comment and comment:
+        lines = text.splitlines(keepends=True)
+        k = s.lineno - 1
+        while k > 0 and lines[k - 1].lstrip().startswith("#"):
+            k -= 1
+        splices.append((mod.src.starts[k], ls, _comment_block(comment, _nl_of(text))))
+    else:
+        splices.append((ls, ls, _comment_block(comment, _nl_of(text))))
+    out = _splice(text, splices)
     _check_constant(text, out, name, added=False)
     return out
 
@@ -1428,7 +1466,7 @@ def _remove_constant(text, name):
     start = src.starts[k]
     le = src.line_end(src.span(s)[1])
     end = le + (len(src.newline_at(le)) if le < len(text) else 0)
-    out = _splice(text, [(start, end, "")])
+    out = _splice(text, [(_tidy_start(text, start, end), end, "")])
     if _dump_without(text, s.lineno) != ast.dump(ast.parse(out)):
         raise EditRefused("the edit would change more than the removed constant")
     return out
@@ -1438,6 +1476,12 @@ def _remove_constant(text, name):
 def _is_place(stmt) -> bool:
     return (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call) and isinstance(stmt.value.func, ast.Attribute)
             and stmt.value.func.attr == "place")
+
+
+def _is_group(stmt) -> bool:
+    """A `board.row(...)` or `board.ring(...)` statement (bare or bound to a name): it says where its items go."""
+    v = stmt.value if isinstance(stmt, (ast.Expr, ast.Assign)) else None
+    return isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr in ("row", "ring")
 
 
 def _place_at(stmt):
@@ -1451,6 +1495,8 @@ def _place_at(stmt):
 
 
 def _decided(stmt) -> bool:
+    if _is_group(stmt):
+        return True
     at = _place_at(stmt)
     return at is not None and not (isinstance(at, ast.Call) and _func_name(at) == "Near")
 
@@ -1469,7 +1515,8 @@ def _header_end(mod) -> int:
 
 
 def _region_after(mod, region):
-    """(the index in the module body after which a statement of `region` goes, whether the region is new)."""
+    """(the index in the module body after which a statement of `region` goes, whether the region is new: a blank line
+    then goes before the statement)."""
     body = mod.tree.body
     header = _header_end(mod)
     consts, has = _block_end(mod)
@@ -1478,19 +1525,21 @@ def _region_after(mod, region):
     if outline is not None:
         out_end = outline + 1
         while out_end < len(body) and isinstance(body[out_end], ast.Assign) and isinstance(body[out_end].value, ast.Call) \
-                and isinstance(body[out_end].value.func, ast.Attribute):
+                and isinstance(body[out_end].value.func, ast.Attribute) and not _is_group(body[out_end]):
             out_end += 1
     base = out_end if out_end is not None else consts
-    decided = [k for k, s in enumerate(body) if _is_place(s) and _decided(s)]
+    decided = [k for k, s in enumerate(body) if (_is_place(s) or _is_group(s)) and _decided(s)]
     searched = [k for k, s in enumerate(body) if _is_place(s) and not _decided(s)]
+    if region == "end":
+        return len(body), False
     if region == "header":
         return header, False
     if region == "constants":
         return consts, False
     if region == "outline":
-        return base, False
+        return base, outline is None and base > 0
     if region == "decided":
-        return (decided[-1] + 1 if decided else base), False
+        return (decided[-1] + 1 if decided else base), not decided and base > 0
     if region == "searched":
         if searched:
             return searched[-1] + 1, False
@@ -1500,28 +1549,43 @@ def _region_after(mod, region):
 
 def _insert_region(text, edit, texts_of):
     mod = _parse(text)
-    if not isinstance(edit.value, dict) or "form" not in edit.value:
+    value = edit.value
+    block = value.get("block") if isinstance(value, dict) else None
+    forms = block if block is not None else [value]
+    if not forms or not all(isinstance(f, dict) and "form" in f for f in forms):
         raise EditRefused("an inserted statement is a call")
     idx, new_region = _region_after(mod, edit.args["after"]["region"])
     ctx = _Ctx(_names_of(mod), _spell_for(texts_of, edit.refs, edit.file, ()), _bound_names(mod), {})
-    new = _render(edit.value, ctx)
-    _check_expr(new)
-    bind = edit.args.get("bind")
-    if bind:
-        if not bind.isidentifier() or bind in ctx.bound:
-            raise EditRefused("%s is a name the script already binds, or not a name" % bind)
-        new = "%s = %s" % (bind, new)
+    lines, bound = [], set(ctx.bound)
+    binds = [f.get("bind") for f in forms]
+    if edit.args.get("bind"):
+        if block is not None or len(forms) != 1:
+            raise EditRefused("a block of statements is bound by name in each statement, not as a whole")
+        binds = [edit.args["bind"]]
+    for f, bind in zip(forms, binds):
+        ctx.bound = set(bound)
+        new = _render(f, ctx)
+        _check_expr(new)
+        if bind:
+            if not bind.isidentifier() or bind in bound:
+                raise EditRefused("%s is a name the script already binds, or not a name" % bind)
+            new = "%s = %s" % (bind, new)
+            bound.add(bind)
+        lines.append(new)
     nl = _nl_of(text)
+    note = edit.args.get("comment")
+    head = _comment_block(note, nl) if note and new_region else ""
     at, needs_nl = _line_after(mod, idx)
     lead = nl if new_region and idx > 0 else ""
-    out = text + nl + lead + new + nl if needs_nl else _splice(text, [(at, at, lead + new + nl)])
+    body = nl.join(lines)
+    out = text + nl + lead + head + body + nl if needs_nl else _splice(text, [(at, at, lead + head + body + nl)])
     try:
         tree = ast.parse(out)
     except SyntaxError as e:
         raise EditRefused("the edited file would not parse: %s" % e)
-    body = list(tree.body)
-    del body[idx]
-    if ast.dump(ast.Module(body, [])) != ast.dump(ast.Module(mod.tree.body, [])):
+    body_nodes = list(tree.body)
+    del body_nodes[idx:idx + len(forms)]
+    if ast.dump(ast.Module(body_nodes, [])) != ast.dump(ast.Module(mod.tree.body, [])):
         raise EditRefused("the edit would change more than the inserted statement")
     return out
 
@@ -1650,10 +1714,38 @@ def read_intent(text: str, target, name: str = "at"):
         return None
 
 
+def read_call(text: str, target) -> dict:
+    """Every argument of the target call as `read_intent` reads one: `{"args": [...], "kwargs": {name: ...}, "line": n}`, each
+    value an intent expression or None where that argument is not readable as one (a coordinate, arithmetic, a form outside the
+    vocabulary). A call that spreads `*` or `**` arguments is `{"spread": True}`."""
+    mod, hit = _call_of(text, target)
+    call = hit.call
+    if any(isinstance(a, ast.Starred) for a in call.args) or _has_star_kwargs(call):
+        return {"spread": True, "line": hit.line, "args": [], "kwargs": {}}
+
+    def read(node):
+        try:
+            return _intent_of(node)
+        except _ByHand:
+            return None
+    return {"args": [read(a) for a in call.args], "kwargs": {k.arg: read(k.value) for k in call.keywords}, "line": hit.line,
+            "end": hit.end}
+
+
+def site_calls(text: str, line: int) -> list:
+    """The `board.<method>` calls that start on `line` of the script (as `["place"]`): what a declared site is a call of."""
+    mod = _parse(text)
+    return [n.func.attr for n in ast.walk(mod.tree) if isinstance(n, ast.Call) and n.lineno == line and isinstance(n.func, ast.Attribute)
+            and isinstance(n.func.value, ast.Name) and n.func.value.id == "board"]
+
+
 def skeleton(name: str, description: str, outline=None) -> str:
-    """The text of a new layout script: its docstring, the import, and the outline statement, `outline` an intent
-    expression (`{"form": "board.rect", "args": [...]}`) or None. The only generator of whole-file text."""
-    head = '"""%s: %s"""\nfrom placemat import board\n' % (name, description.replace('"', "'"))
+    """The text of a new layout script: its docstring (`name: description`, or `name layout.` with no description), the
+    import, and the outline statement, `outline` an intent expression (`{"form": "board.rect", "args": [...]}`) or None.
+    The only generator of whole-file text."""
+    description = description.strip().replace('"', "'")
+    doc = "%s: %s" % (name, description) if description else "%s layout." % name
+    head = '"""%s"""\nfrom placemat import board\n' % doc
     if outline is None:
         return head
     mod = _parse(head)
@@ -1683,6 +1775,19 @@ def apply_all(edit, read=_read_default) -> dict:
         except OSError:
             return {edit.file: (None, edit.args["text"])}
         raise EditRefused("%s exists: a new file is not written over it" % edit.file)
+    if edit.op in ("zen_stackup", "zen_netclasses"):
+        from . import zen_edit
+        text = texts_of(edit.file)
+        a = edit.args
+        if edit.op == "zen_stackup":
+            new = zen_edit.stackup_edit(text, a["board"], a["layers"], a.get("copper_layers"))
+        else:
+            new = zen_edit.netclasses_edit(text, a["board"], a["classes"])
+        return {edit.file: (text, new)}
+    if edit.op == "json_set":
+        from . import json_edit
+        text = texts_of(edit.file)
+        return {edit.file: (text, json_edit.set_values(text, [(s["path"], s["value"]) for s in edit.args["sets"]]))}
     if edit.op == "confirm_facts":
         from .facts import confirmed_text
         try:
@@ -1709,7 +1814,7 @@ def apply_all(edit, read=_read_default) -> dict:
         a = edit.args
         text = texts_of(edit.file)
         if a.get("existing"):
-            return {edit.file: (text, _change_constant(text, a["name"], edit.value, a.get("comment", "")))}
+            return {edit.file: (text, _change_constant(text, a["name"], edit.value, a.get("comment", ""), a.get("replace_comment", False)))}
         module = _parse(text)
         name = _unique(a["name"], _bound_names(module) | _local_module_names(texts_of, edit.file, module))
         return {edit.file: (text, _add_constant(text, name, edit.value, a.get("comment", "")))}
@@ -1756,7 +1861,7 @@ def _remap(before: str, after: str, line: int) -> int:
     import difflib
     a, b = before.splitlines(), after.splitlines()
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
-        if i1 < line <= i2 or (i1 == i2 == line - 1 and tag == "insert"):
+        if i1 < line <= i2:
             if tag == "equal":
                 return j1 + (line - i1)
             return j1 + 1
@@ -1807,8 +1912,14 @@ def apply_edits(edits, read=_read_default) -> dict:
             current[path] = after
             for j in range(k + 1, len(todo)):
                 n = todo[j]
-                if n.target is not None and n.target.file == path and n.target.line and before is not None:
-                    todo[j] = replace(n, target=replace(n.target, line=_remap(before, after, n.target.line)))
+                if before is None:
+                    continue
+                if n.target is not None and n.target.file == path and n.target.line:
+                    n = replace(n, target=replace(n.target, line=_remap(before, after, n.target.line)))
+                if n.refs:                  # the declarations an expression names move with the text too
+                    n = replace(n, refs={k: replace(t, line=_remap(before, after, t.line)) if t.file == path and t.line else t
+                                         for k, t in n.refs.items()})
+                todo[j] = n
     return {path: (originals[path], text) for path, text in current.items() if text != originals[path]}
 
 

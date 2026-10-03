@@ -1,0 +1,9 @@
+"""Demo: layout."""
+from placemat import board
+
+# The board's diameter, chosen in the studio's board builder.
+BOARD_DIAMETER_MM = 50.0
+# The diameter of the hole through the middle of the board, chosen in the studio's board builder.
+BOARD_BORE_MM = 6.0
+
+board.disc(diameter=BOARD_DIAMETER_MM, hole=BOARD_BORE_MM)

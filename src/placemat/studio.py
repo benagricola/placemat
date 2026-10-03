@@ -44,6 +44,7 @@ from .studio_watch import Debounce, Poller
 
 KEEPALIVE_S = 15.0         # a comment on an idle stream, so a proxy or a browser does not drop it
 PAGE = Path(__file__).with_name("studio_page.html")
+BUILDER_JS = Path(__file__).with_name("studio_builder.js")
 
 
 @dataclass
@@ -319,12 +320,15 @@ class Studio:
         if script is None:
             self.root = project_root(Path(root) if root else Path.cwd())
             found = layout_scripts(self.root)
-            if not found:
-                raise ValueError("no layout scripts found under %s (a layout script is a Python file that calls board.<...> "
-                                 "as it loads, beside its board's .zen)" % self.root)
             self.script, self.src = None, None
             self._scripts = self._entries(found)
             cfg = settings_mod.load(self.root)
+            from .studio_builder import BuilderService
+            self.builder = BuilderService(self)
+            self.cfg = cfg
+            if not found and not self.builder.unbuilt():
+                raise ValueError("no layout scripts found under %s (a layout script is a Python file that calls board.<...> "
+                                 "as it loads, beside its board's .zen), and no .zen declares a board without one" % self.root)
         else:
             self.script = Path(script).resolve()
             if not self.script.is_file():
@@ -333,6 +337,9 @@ class Studio:
             self.root = project_root(self.src.board_dir)
             cfg = settings_mod.load(self.src.board_dir, script=self.script)
         self.cfg = cfg
+        if script is not None:
+            from .studio_builder import BuilderService
+            self.builder = BuilderService(self)
         get = lambda name, given: given if given is not None else settings.get(name, getattr(cfg, "studio_" + name))
         self.port = get("port", port)
         self.open_browser = get("open", open_browser)
@@ -426,6 +433,22 @@ class Studio:
             self._files = self.watched()
             self._poller = Poller(lambda: self._files)
             self._initial = True                # the next tick resolves it
+            self.hub.emit("switched", self._hello_data())
+
+    def leave_script(self) -> None:
+        """Watch no script: the one being watched is gone (the builder's first write was undone), so the studio is a picker again."""
+        with self.lock:
+            self.worker.kill()
+            self.script, self.src = None, None
+            self.history.clear()
+            self._notes, self._notes_stamp = [], None
+            self._cur, self._cancel_at, self._error, self._dirty = None, None, None, False
+            self.debounce.stopped()
+            self.hub.log.clear()
+            self._files = []
+            self._poller = Poller(lambda: self._files)
+            self._initial = False
+            self._scripts = self._entries(layout_scripts(self.root))
             self.hub.emit("switched", self._hello_data())
 
     # ------------------------------------------------------------ files
@@ -777,6 +800,9 @@ class Studio:
     # resolve's findings and call suggestions.apply_suggestion. The page never sends source text.
     def _suggestion(self, rid, sid):
         from . import suggestions as sg
+        built = self.builder.suggestion(rid, sid)
+        if built is not None:
+            return built
         rec = self.record(_int(str(rid)))
         if rec is None:
             raise SuggestRefused(404, "no such resolve (the last %d are kept)" % self.keep)
@@ -821,29 +847,37 @@ class Studio:
         files = []
         for path, ch in done.files.items():
             files.append({"file": self.name_of(path), "path": str(path), "diff": ch.diff, "old_lines": list(ch.old_lines),
-                          "new_lines": list(ch.new_lines), "hunks": line_diff(ch.before, ch.after)["hunks"],
+                          "new_lines": list(ch.new_lines), "hunks": line_diff(ch.before or "", ch.after or "")["hunks"],     # a created or removed file has no text on one side
                           "added": len(ch.new_lines), "removed": len(ch.old_lines)})
         return {"id": done.id, "text": done.text, "dry_run": done.dry_run, "files": files, "diff": done.diff()}
 
     def applied_list(self, limit: int = 12) -> list:
         """The suggestions applied here (oldest first), as the page lists them: its Undo and its history rows."""
-        if self.src is None:
+        if self._log_dir() is None:
             return []
         from . import suggestions as sg
         try:
-            entries = sg.applied_entries(sg.log_path(self.src.board_dir))
+            entries = sg.applied_entries(sg.log_path(self._log_dir()))
         except (OSError, ValueError):
             return []
         return [{"seq": e["seq"], "id": e.get("id"), "text": e.get("text", ""), "at": e.get("at"), "undone": bool(e.get("undone")),
                  "op": e.get("op"), "files": [self.name_of(f["file"]) for f in e.get("files", ())]} for e in entries[-limit:]]
 
+    def _log_dir(self):
+        """The board folder whose applied log the page's undo and redo use: the script's, or before there is one the board the
+        builder is making."""
+        if self.src is not None:
+            return self.src.board_dir
+        sess = self.builder.session
+        return sess["board_dir"] if sess else None
+
     def redo_text(self) -> str:
         """What a redo would make again (the apply the last undo took back), or "" when there is nothing to redo."""
-        if self.src is None or not self.cfg.studio_apply:
+        if self._log_dir() is None or not self.cfg.studio_apply:
             return ""
         from . import suggestions as sg
         try:
-            return sg.redo_last(sg.log_path(self.src.board_dir), dry_run=True).text
+            return sg.redo_last(sg.log_path(self._log_dir()), dry_run=True).text
         except sg.NothingToRedo:
             return ""
         except (sg.SuggestionError, OSError, ValueError):
@@ -895,11 +929,12 @@ class Studio:
         if not self.cfg.studio_apply:
             raise SuggestRefused(403, "this studio does not write ([studio] apply is false)")
         try:
-            done = sg.undo_last(sg.log_path(self.src.board_dir), root=sg.project_root(self.src.board_dir))
+            done = sg.undo_last(sg.log_path(self._log_dir()), root=self.root)
         except sg.SuggestionError as e:
             raise self._sg_refusal(e)
         with self.lock:
             self._applied_text = "undid: " + done.text
+        self.builder.after_undo(done)
         out = self._applied_json(done)
         self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "undone": True, "redo": self.redo_text()})
         return out
@@ -910,11 +945,12 @@ class Studio:
         if not self.cfg.studio_apply:
             raise SuggestRefused(403, "this studio does not write ([studio] apply is false)")
         try:
-            done = sg.redo_last(sg.log_path(self.src.board_dir), root=sg.project_root(self.src.board_dir))
+            done = sg.redo_last(sg.log_path(self._log_dir()), root=self.root)
         except sg.SuggestionError as e:
             raise self._sg_refusal(e)
         with self.lock:
             self._applied_text = "redid: " + done.text
+        self.builder.after_undo(done)
         out = self._applied_json(done)
         out["undo"] = True
         self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "redone": True, "redo": self.redo_text()})
@@ -1483,7 +1519,7 @@ class Studio:
         common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
                   "explores": self.explores(), "routes": self.routes(), "explore_fps": self.cfg.studio_explore_fps,
                   "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),
-                  "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s}
+                  "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s, "builder": self.builder.hello()}
         if self.script is None:
             return {**common, "script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
                     "scripts": self.script_list(), "history": [], "resolving": None, "error": None, "runs": [], "run": None}
@@ -1582,6 +1618,10 @@ def _handler(studio: Studio):
             if path == "/explore":
                 doc = studio.explore_record(query.get("f", [""])[0])
                 return self._json(doc) if doc is not None else self._refuse(404, "no such explore record")
+            if path == "/builder.js":
+                return self._send(200, "text/javascript; charset=utf-8", BUILDER_JS.read_bytes())
+            if path.startswith("/build/"):
+                return self._build(path, query, None)
             if path == "/runs":
                 return self._json(studio.runs())
             if path == "/runcompare":
@@ -1597,6 +1637,15 @@ def _handler(studio: Studio):
         def do_POST(self):
             """/switch, with the token: it changes which layout script is watched; and /run, a checked run of it."""
             url = urlparse(self.path)
+            if url.path.startswith("/build/"):
+                if not self._allowed(parse_qs(url.query)):
+                    return self._refuse(403, "forbidden: open the address `placemat studio` printed")
+                try:
+                    n = min(int(self.headers.get("Content-Length") or 0), 65536)
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                except (ValueError, TypeError) as e:
+                    return self._send(400, "application/json", json.dumps({"error": str(e)}).encode())
+                return self._build(url.path, parse_qs(url.query), body)
             if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo", "/suggest/redo", "/suggest/probe", "/suggest/probe/stop"):
                 return self._no()
             if not self._allowed(parse_qs(url.query)):
@@ -1638,6 +1687,18 @@ def _handler(studio: Studio):
             except (ValueError, FileNotFoundError, TypeError) as e:
                 return self._refuse(400, str(e))
             return self._json({"ok": True})
+
+        def _build(self, path, query, body):
+            """The board builder's endpoints (studio_builder.BuilderService): GET reads, POST acts; a refusal is JSON with the rule."""
+            from .studio_builder import BuildRefused
+            if not self._allowed(query):
+                return self._refuse(403, "forbidden: open the address `placemat studio` printed")
+            try:
+                return self._json(studio.builder.handle(path, query, body))
+            except BuildRefused as e:
+                return self._send(e.status, "application/json", json.dumps({"error": str(e), **e.extra}).encode())
+            except (ValueError, TypeError, KeyError, AttributeError) as e:
+                return self._send(400, "application/json", json.dumps({"error": "%s: %s" % (type(e).__name__, e)}).encode())
 
         do_PUT = do_DELETE = do_PATCH = _no
 

@@ -124,14 +124,16 @@ def test_a_walled_pad_on_a_real_module_offers_a_fanout_and_a_lane(tmp_path):
         'board.place(Part("c_vcc"), at=Beside(Part("buck"), Edge.WEST, align=pin(VCC_PIN)), rotation=LYING_FLIPPED,',
         'board.place(Part("c_vcc"), at=Location(20, 20), rotation=LYING_FLIPPED,', 1)
     result, drc, pcb = rm.run(tmp_path, MODULE, keep_going=True, edit=edit)
-    f = next(f for f in cases(result, "escape_walled") if f.startswith("C1 pin 1"))
-    assert [s.text for s in f.suggestions] == ["Keep c_boot's south side clear", "Keep the lane of c_boot pin 1 clear"]
+    # With the Beside parts standing against their neighbours' shapes (nearer than the boxes put them), C1's pin 1 keeps a way
+    # out; the net tie NT1's pin 2 is the pad the neighbours still wall off.
+    f = next(f for f in cases(result, "escape_walled") if f.startswith("NT1 pin 2"))
+    assert [s.text for s in f.suggestions] == ["Keep nt_fb_gnd's west side clear", "Keep the lane of nt_fb_gnd pin 2 clear"]
     s = next(s for s in f.suggestions if s.text.startswith("Keep the lane"))
     shown = sg.apply_suggestion(suggestions_of(result.plan), s.id, dry_run=True).files[str(layout_of(tmp_path))].after
-    assert 'board.escape(Part("c_boot"), [1], why="keeps the way out of c_boot pin 1 clear (escape_walled)")\n' in shown
+    assert 'board.escape(Part("nt_fb_gnd"), [2], why="keeps the way out of nt_fb_gnd pin 2 clear (escape_walled)")\n' in shown
     fan = next(s for s in f.suggestions if s.lever == "fanout")
     shown = sg.apply_suggestion(suggestions_of(result.plan), fan.id, dry_run=True).files[str(layout_of(tmp_path))].after
-    assert 'board.fanout(Part("c_boot"), sides=[Edge.SOUTH])\n' in shown
+    assert 'board.fanout(Part("nt_fb_gnd"), sides=[Edge.WEST])\n' in shown
 
 
 def test_a_run_record_carries_the_suggestions_and_placemat_apply_finds_them_by_id(tmp_path, capsys):

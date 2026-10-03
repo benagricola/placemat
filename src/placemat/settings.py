@@ -109,6 +109,18 @@ class Settings:
         "how finely a block's tightest gap is searched")
     place_block_gap_reach: float = S(2.0, "mm",
         "how far a satellite may stand off its pin")
+    place_copper_room: bool = S(True, "bool",
+        "whether placement keeps room for the copper the script declares: a track or via declared between parts is planned "
+        "provisionally, and a part standing Beside another moves out of its way. False places as before")
+    place_firm_passes: int = S(8, "count",
+        "the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was "
+        "refused by a firm part placed before it, with the two taken in the other order), the last one the settled run")
+    place_copper_room_tolerance: float = S(0.001, "mm",
+        "how far a declared track or via may move between two passes and count as settled")
+    place_beside_step: float = S(0.01, "mm",
+        "the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands")
+    place_beside_reach: float = S(2.0, "mm",
+        "how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported")
     place_escape_depth: float = S(1.0, "mm",
         "how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth`")
     place_escape_min_pads: int = S(1, "count",
@@ -424,6 +436,12 @@ class Settings:
         "the most candidates (resolves of the edited script) a probe tries, the first and the last check included")
     studio_apply: bool = S(True, "bool",
         "false: the studio shows suggestions and diffs but refuses to write them")
+    studio_builder_grid_mm: float = S(0.5, "mm",
+        "the board builder: a dragged outline dimension or vertex snaps to this step, and a suggested size is rounded up to it")
+    studio_builder_max_fill: float = S(0.5, "share",
+        "the board builder: the most of one face the parts' courtyards may fill in a suggested board size (above 0, at most 1); the outline dialog's fill field overrides it for one board. The one measured board is filled 0.33 per face on average")
+    studio_builder_aspect: float = S(1.0, "ratio",
+        "the board builder: the width over the height a suggested rectangle takes before the user changes it")
 
     facts_confirmed: str = S("", "text",
         "the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm`")
@@ -581,12 +599,12 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_coarse_min_radius_steps", "place_coarse_stride",
-    "place_refine_spots", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
+    "place_refine_spots", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
-    "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
+    "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "studio_builder_grid_mm", "studio_builder_max_fill", "studio_builder_aspect", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
 _AT_LEAST_ZERO = frozenset((
@@ -602,7 +620,7 @@ _AT_LEAST_ZERO = frozenset((
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
 _AT_LEAST_TWO = frozenset(("place_split_min_group",))
-_UNIT_INTERVAL = frozenset(("check_neck_end_share",))      # a share: 0 to 1
+_UNIT_INTERVAL = frozenset(("check_neck_end_share", "studio_builder_max_fill"))      # a share: 0 to 1
 
 
 def _declared(name: str) -> str:

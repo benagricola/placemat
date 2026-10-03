@@ -506,8 +506,8 @@ def apply_suggestion(suggestions, id: str, dry_run: bool = False, *, root=None, 
     if s.how == "searched":
         raise EditRefused("%s is a searched suggestion: it has no value yet. `placemat apply %s --search` finds one (a new "
                           "suggestion, %s.1) and that is the one to apply" % (s.id, s.id, s.id))
-    return apply_edits(s.edits, s.digests, dry_run, root=root, log=log, now=now, label=s.text, source="suggestion",
-                       id=s.id)
+    return apply_edits(s.edits, s.digests, dry_run, root=root, log=log, now=now, label=s.text,
+                       source="builder" if s.lever == "builder" else "suggestion", id=s.id)
 
 
 def apply_edits(edits, digests=None, dry_run: bool = False, *, root=None, log=None, now=None, label: str = "",
@@ -993,6 +993,16 @@ def fixed_cutout(f, settings):
 
 @case(C.FIXED_KEEPOUT)
 def fixed_keepout(f, settings):
+    return []
+
+
+@case(C.FIXED_ROOM)
+def fixed_room(f, settings):
+    return []
+
+
+@case(C.FIXED_ROOM_UNSETTLED)
+def fixed_room_unsettled(f, settings):
     return []
 
 
