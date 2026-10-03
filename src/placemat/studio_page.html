@@ -1913,13 +1913,25 @@ function linkRows(p, refs, all) {
 // What a placed item's note says, as card sections: its rank and seeds (rows of the Placement section), and why it
 // moved, the pushes on it, its vias and whatever else.
 const noteRows = np => [...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.seeded.length ? '<span class="pills">' + np.seeded.map(n => pill(n, "net")).join("") + "</span>" : ""],
-  ["on the line", np.line ? esc(np.line.axis + " = " + np.line.at + " mm") : ""],
-  ["slid", np.slid ? val(np.slid.mm + " mm", "warn") + " from its slot" + (np.slid.why ? ' <span class="dim">' + esc(np.slid.why) + "</span>" : "") : ""],
-  ["stopped short", np.stopped ? val(np.stopped.mm + " mm", "warn") + " before the " + esc(np.stopped.side) + " end" : ""], ["because", np.stopped ? esc(np.stopped.why) : ""]];
+  ["on the line", np.line ? esc(np.line.axis + " = " + np.line.at + " mm") : ""]];
+// "Why it moved": the move and what caused it, together. A searched part that did not sit at its hint was slid along its row, stopped short
+// of an end, or moved off the hint by a refusal; the engine writes the cause in the step's note. A move with no cause in the note says so.
+// TEMPORARY: the cause is read out of the note's sentences (noteParts); the structured facts on a step replace it.
+const NO_CAUSE = '<span class="dim">no cause recorded</span>';
+function movedRows(np, movedMm) {
+  if (np.stopped || np.slid) {
+    const why = (np.stopped && np.stopped.why) || (np.slid && np.slid.why);
+    return [...(np.slid ? [["slid", val(np.slid.mm + " mm", "warn") + " from its slot"]] : []),
+      ...(np.stopped ? [["stopped short", val(np.stopped.mm + " mm", "warn") + " before the " + esc(np.stopped.side) + " end"]] : []), ["because", why ? esc(why) : NO_CAUSE]];
+  }
+  const mm = np.moved ? np.moved.mm : movedMm;
+  if (!mm) return [];
+  return [["moved", val(mm + " mm", "warn") + " off the hint"], ["because", np.moved && np.moved.why ? esc(np.moved.why) : NO_CAUSE]];
+}
 function noteExtra(np, movedMm, why, key) {
   if (np.unplaced) return unplacedBlock(unplacedParts(np.unplaced, unplacedFindingOf(plan(), key)));
-  const moved = np.moved || (movedMm ? {mm: movedMm, why: ""} : null);
-  return sect("Why it moved", moved ? '<div class="facts">' + val(moved.mm + " mm", "warn") + " off the hint</div>" + (moved.why ? '<div class="note">' + esc(moved.why) + "</div>" : "") : "") +
+  const mr = movedRows(np, movedMm);
+  return sect("Why it moved", mr.length ? kvl(mr) : "") +
     sect("Pocket", np.pocket ? kvl([["size", esc(np.pocket.w + " x " + np.pocket.h + " mm")], ["at", esc("(" + np.pocket.x + ", " + np.pocket.y + ") mm")], ["because", esc(np.pocket.why)]]) : "") +
     sect("Pushes", listOf(np.push.map(pushLine))) + sect("Vias", listOf(joinVias(np.vias).map(viaLine))) +
     sect("Notes", listOf(np.other.map(esc).concat(why ? ['<span class="dim">' + esc(why) + "</span>"] : [])));

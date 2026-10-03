@@ -1322,3 +1322,28 @@ out.pins = ev("notePins(plan())");
     assert out["after"] == [0, '["n1"]']
     assert out["live"] == ["n2", "n3"] and out["expired"] == []
     assert out["pins"] == ""
+
+
+@needs_node
+def test_why_it_moved_puts_the_cause_beside_the_distance_and_says_when_none_was_recorded(tmp_path):
+    out = run_more(tmp_path, r"""
+const rows = (note, mm) => ev("(r => sect('Why it moved', r.length ? kvl(r) : ''))(movedRows(noteParts(" + JSON.stringify(note) + "), " + mm + "))");
+out.stopped = rows("on the line x = 26.50; stopped 19.40 mm short of the south end by: its member U8 sits in the reservation for keepout 'under_ring_1' (no copper)", 19.4);
+out.slid = rows("slid 0.50 mm from its slot: R3 courtyard overlaps R4 courtyard", 0.5);
+out.hint = rows("moved 3.20 mm off the hint: C1 courtyard overlaps U1 courtyard", 3.2);
+out.score = rows("moved 1.10 mm off the hint for a better link score", 1.1);
+out.bare = rows("rank 1/3", 19.4);
+out.slidbare = rows("block of 3 laid out from the anchor's pads; slid 2.00 mm from its slot", 2);
+out.still = rows("rank 1/3", 0);
+out.place = ev("kvl(noteRows(noteParts('on the line x = 26.50; stopped 19.40 mm short of the south end by: why')))");
+""")
+    s = out["stopped"]
+    assert "Why it moved" in s and "19.40 mm</span> before the south end" in s and "reservation for keepout 'under_ring_1'" in s
+    assert '<span class="kk">because</span>' in s and "no cause recorded" not in s
+    assert "0.50 mm</span> from its slot" in out["slid"] and "R3 courtyard overlaps R4 courtyard" in out["slid"]
+    assert "3.20 mm</span> off the hint" in out["hint"] and "C1 courtyard overlaps U1 courtyard" in out["hint"]
+    assert "for a better link score" in out["score"] and "no cause recorded" not in out["score"]
+    assert "19.4 mm</span> off the hint" in out["bare"] and "no cause recorded" in out["bare"]               # a distance with no cause says so
+    assert "2.00 mm</span> from its slot" in out["slidbare"] and "no cause recorded" in out["slidbare"]
+    assert out["still"] == ""                                                                                 # nothing moved: no section
+    assert "x = 26.50 mm" in out["place"] and "stopped short" not in out["place"] and "because" not in out["place"]    # the cause is not repeated under Placement
