@@ -359,6 +359,7 @@ class Studio:
         self._error = None
         self._fresh_next = False                # the next resolve replays nothing from an earlier one
         self._try = None                        # the try of a suggestion in flight: {"id", "rid", "event", "result", ...}
+        self._probe = None                      # the probe of a searched suggestion in flight: {"sid", "proc", "started"}
         self._applied_text = ""                 # what the next resolve is said to follow: an applied (or undone) suggestion
         self._notes: list = []                  # this script's notes (notes.py), oldest first
         self._notes_stamp = None                # (mtime_ns, size) of the notes file when it was last read
@@ -941,6 +942,46 @@ class Studio:
                     self._end_try({"state": "timeout", "message": "the try took longer than [studio] try_timeout_s (%g s) and was stopped" % limit})
         return tr["result"]
 
+    # ------------------------------------------------------------ the probe of a searched suggestion
+    # A probe is `placemat apply <id> --search --yes` run as a command of its own: it resolves the edited script in its own
+    # process, so the studio's worker stays free, and reports over the live channel like any command (`probe`, `candidate`,
+    # `probe_done` reach the page as the command's events, and the command's summary has `probe`). The studio starts it
+    # (after a confirmation where every candidate resolves the whole board) and stops it (SIGTERM: the probe keeps what it
+    # found and says "stopped by you").
+    def probe_start(self, rid, sid, yes: bool = False) -> dict:
+        from . import probe, suggestions as sg
+        rec, pool, finding = self._suggestion(rid, sid)
+        s = sg.find(pool, sid)
+        if s.how != "searched":
+            raise SuggestRefused(422, "%s is not a searched suggestion: it has a value to apply or try" % sid)
+        with self.lock:
+            if self.script is None:
+                raise SuggestRefused(409, "choose a layout script first")
+            if self._probe is not None and self._probe["proc"].poll() is None:
+                raise SuggestRefused(409, "a probe is already running (%s): stop it first" % self._probe["sid"])
+            script, board_dir = self.script, self.src.board_dir
+        est = probe.estimate(s, board_dir, script, self.cfg.studio_probe_candidates, self.cfg.studio_probe_budget_s)
+        if est["board_wide"] and not yes:
+            return {"state": "confirm", "estimate": est, "line": probe.estimate_line(est)}
+        sg.keep(board_dir, script, "studio resolve #%d" % rec.id, pool)       # the store the command reads: the plan the page was shown
+        cmd = [sys.executable, "-m", "placemat", "apply", sid, "--search", "--yes", "--script", str(script)]
+        try:
+            proc = subprocess.Popen(cmd, cwd=str(board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            raise SuggestRefused(409, "could not start the probe: %s" % e)
+        with self.lock:
+            self._probe = {"sid": sid, "proc": proc, "started": time.time()}
+        return {"state": "started", "pid": proc.pid, "estimate": est, "line": probe.estimate_line(est)}
+
+    def probe_stop(self) -> dict:
+        """Ask the running probe to stop (SIGTERM); it keeps its results and says what it found."""
+        with self.lock:
+            p = self._probe
+        if p is None or p["proc"].poll() is not None:
+            raise SuggestRefused(409, "no probe is running")
+        p["proc"].terminate()
+        return {"state": "stopping", "pid": p["proc"].pid}
+
     def _on_try(self, ev: dict) -> None:
         tr = self._try
         if tr is None or ev.get("id") != tr["id"]:
@@ -982,7 +1023,8 @@ class Studio:
     @staticmethod
     def _cmd_summary(c: dict) -> dict:
         return {k: c.get(k) for k in ("id", "pid", "command", "script", "args", "started", "state", "message", "record", "last", "items",
-                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated")}
+                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe")} | \
+            {"route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results")}}
 
     def commands(self) -> list:
         with self.lock:
@@ -1014,6 +1056,8 @@ class Studio:
                 return
             if c is None:
                 return
+            if kind and kind.startswith("route_"):
+                return self._on_route(cid, c, ev)
             if kind == "lost":
                 if c["state"] == "running":
                     c.update(state="lost", ended=time.time(), message="the command stopped without saying it was done" +
@@ -1048,6 +1092,14 @@ class Studio:
                 c["best"], c["baseline"], c["kept"] = ev.get("best"), ev.get("baseline"), ev.get("kept")
                 if ev.get("record"):
                     c["record"] = ev["record"]
+            elif kind == "probe":
+                c["probe"] = {"start": ev, "candidates": [], "done": None}
+            elif kind == "candidate":
+                if c.get("probe") is not None:
+                    c["probe"]["candidates"].append(ev)
+            elif kind == "probe_done":
+                if c.get("probe") is not None:
+                    c["probe"]["done"] = ev
             elif kind == "done":
                 c.update(state="done", ended=time.time(), record=ev.get("record") or c.get("record"))
             elif kind == "error":
@@ -1088,13 +1140,41 @@ class Studio:
             self.cmds[cid] = c
         self.hub.emit("cmd", self._cmd_summary(c))
 
+    MAX_ROUTE_EVENTS = 60000                    # a route's events kept for a page that opens it late (the copper, net by net)
+
+    def _on_route(self, cid: int, c: dict, ev: dict) -> None:
+        """A route's event (route_progress.py: the router's hooks): the counts and the current net are kept here, the events themselves for a late
+        page and sent to the open ones. Called with the lock held."""
+        kind, r = ev["ev"], c.setdefault("route", {"total": 0, "done": 0, "failed": 0, "current": "", "stage": "", "off": "", "truncated": False, "finished": False, "log": [], "results": {}})
+        if kind == "route_stage":
+            r["stage"] = ev.get("stage", "")
+        elif kind == "route_queue":
+            r["total"] += len(ev.get("nets", ()))
+        elif kind == "route_net_begin":
+            r["current"] = ev.get("net", "")
+        elif kind == "route_net_end":
+            r["results"][ev.get("net", "")] = bool(ev.get("ok"))
+            r["done"] = sum(1 for v in r["results"].values() if v)
+            r["failed"] = sum(1 for v in r["results"].values() if not v)
+        elif kind == "route_queue_end":
+            r["current"] = ""                        # one stage's queue: the route is over when its command is
+        elif kind == "route_off":
+            r["off"] = ev.get("why", "")
+        if len(r["log"]) < self.MAX_ROUTE_EVENTS:
+            r["log"].append(ev)
+        elif not r["truncated"]:
+            r["truncated"] = True
+        self.hub.emit("cmdev", {"id": cid, "n": len(r["log"]), "ev": ev})
+        if kind != "route_commit" and kind != "route_rip":
+            self.hub.emit("cmd", self._cmd_summary(c))
+
     def cmd_detail(self, cid: int):
         """A command's events so far, its latest plan and, for an explore, its variants: what a page that opens it is given."""
         with self.lock:
             c = self.cmds.get(cid)
             if c is None:
                 return None
-            return {"summary": self._cmd_summary(c), "events": list(c["log"]), "plan": c["plan"], "explore": c["explore"]}
+            return {"summary": self._cmd_summary(c), "events": list(c["log"]) + list((c.get("route") or {}).get("log", ())), "plan": c["plan"], "explore": c["explore"]}
 
     def explores(self, limit: int = 20) -> list:
         """The recorded explores of the project's boards (their result files), newest first, as the page lists them."""
@@ -1122,6 +1202,63 @@ class Studio:
                             "best": doc.get("best"), "baseline": doc.get("baseline"), "kept": doc.get("kept"), "focus": len(doc.get("focus", ()))})
         out.sort(key=lambda e: -(e["at"] or 0))
         return out[:limit]
+
+    def routes(self, limit: int = 20) -> list:
+        """The recorded routes of this script's board (`.placemat/route/` and each run's `route/`), newest first: each from its small summary file."""
+        if self.src is None:
+            return []
+        from . import route_progress
+        base = self.src.board_dir / ".placemat"
+        out = []
+        for rec in [base / "route" / route_progress.RECORD] + sorted(base.glob("runs/*/route/" + route_progress.RECORD)):
+            summ = rec.with_name(route_progress.SUMMARY)
+            try:
+                doc = json.loads(summ.read_text())
+                at = doc.get("at") or rec.stat().st_mtime
+            except (OSError, ValueError):
+                continue
+            run = doc.get("run") or ""
+            out.append({"file": str(rec), "run": run, "at": at, "nets": doc.get("nets"), "routed": doc.get("routed"), "failed": doc.get("failed"),
+                        "closure": doc.get("closure"), "seconds": doc.get("seconds"), "script": doc.get("script") or doc.get("pcb", ""),
+                        "build": bool(run) and (rec.parent.parent / "plan.json").is_file()})
+        out.sort(key=lambda e: -(e["at"] or 0))
+        return out[:limit]
+
+    def _route_doc(self, record_path: Path, plan_path: Path | None = None):
+        from . import route_progress, route_view
+        record = route_progress.read_record(record_path)
+        if record is None:
+            return None
+        board = None
+        if plan_path is not None:
+            try:
+                board = json.loads(plan_path.read_text())
+            except (OSError, ValueError):
+                board = None
+        if board is None:
+            try:
+                board = json.loads((record_path.parent / route_progress.BOARD).read_text())
+            except (OSError, ValueError):
+                board = {}
+        return {"doc": route_view.route_doc(record, board), "summary": record.get("report", {}), "board": record.get("board", {})}
+
+    def route_record(self, path: str):
+        """One route's replay document from its record, if it is one of this project's."""
+        from . import route_progress
+        p = Path(path).resolve()
+        if p.name != route_progress.RECORD or self.root.resolve() not in p.parents:
+            return None
+        return self._route_doc(p)
+
+    def build_record(self, run: str):
+        """A run's whole build: its placement (plan.json) and then its route, from the run folder's records."""
+        from . import route_progress
+        if self.src is None or not run or "/" in run or run.startswith("."):
+            return None
+        d = (self.src.board_dir / ".placemat" / "runs" / run).resolve()
+        if self.root.resolve() not in d.parents:
+            return None
+        return self._route_doc(d / "route" / route_progress.RECORD, d / "plan.json" if (d / "plan.json").is_file() else None)
 
     def explore_record(self, path: str):
         """One explore's result file, if it is one of this project's."""
@@ -1319,7 +1456,7 @@ class Studio:
 
     def _hello_data(self) -> dict:
         common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
-                  "explores": self.explores(), "explore_fps": self.cfg.studio_explore_fps,
+                  "explores": self.explores(), "routes": self.routes(), "explore_fps": self.cfg.studio_explore_fps,
                   "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),
                   "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s}
         if self.script is None:
@@ -1404,6 +1541,14 @@ def _handler(studio: Studio):
             if path.startswith("/cmd/"):
                 d = studio.cmd_detail(_int(path[len("/cmd/"):]))
                 return self._json(d) if d is not None else self._refuse(404, "no such command")
+            if path == "/route":
+                doc = studio.route_record(query.get("f", [""])[0])
+                return self._json(doc) if doc is not None else self._refuse(404, "no such route record")
+            if path == "/build":
+                doc = studio.build_record(query.get("run", [""])[0])
+                return self._json(doc) if doc is not None else self._refuse(404, "no such run, or it did not route")
+            if path == "/routes":
+                return self._json(studio.routes())
             if path == "/explore":
                 doc = studio.explore_record(query.get("f", [""])[0])
                 return self._json(doc) if doc is not None else self._refuse(404, "no such explore record")
@@ -1422,7 +1567,7 @@ def _handler(studio: Studio):
         def do_POST(self):
             """/switch, with the token: it changes which layout script is watched; and /run, a checked run of it."""
             url = urlparse(self.path)
-            if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo", "/suggest/redo"):
+            if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo", "/suggest/redo", "/suggest/probe", "/suggest/probe/stop"):
                 return self._no()
             if not self._allowed(parse_qs(url.query)):
                 return self._refuse(403, "forbidden: open the address `placemat studio` printed")
@@ -1435,6 +1580,10 @@ def _handler(studio: Studio):
                         return self._json(studio.suggest_undo())
                     if url.path == "/suggest/redo":
                         return self._json(studio.suggest_redo())
+                    if url.path == "/suggest/probe/stop":
+                        return self._json(studio.probe_stop())
+                    if url.path == "/suggest/probe":
+                        return self._json(studio.probe_start(body.get("resolve"), str(body.get("id", "")), bool(body.get("yes"))))
                     return self._json(call[url.path](body.get("resolve"), str(body.get("id", ""))))
                 except SuggestRefused as e:
                     return self._send(e.status, "application/json", json.dumps({"error": str(e), **e.extra}).encode())

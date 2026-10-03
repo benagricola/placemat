@@ -5,7 +5,7 @@ for as long as it runs, on `<project root>/.placemat/sockets/<pid>.sock`, with `
 command, script, arguments, started, label, the path of its progress file). Readers - the studio, `placemat watch`, an
 agent - look in that folder and connect to whichever they want. One that connects mid-run is sent a catch-up first
 (`hello`, the board, the steps and the plan so far) and then the live events, newline-delimited JSON: `hello`, `resolve`,
-`board`, `item`, `begin`, `plan`, for an explore `explore`, `variant` and `explore_done`, and at the end `done` (the
+`board`, `item`, `begin`, `plan`, for an explore `explore`, `variant` and `explore_done`, for a probe of a searched suggestion `probe`, `candidate` and `probe_done`, and at the end `done` (the
 record's path) or `error`.
 
 The command never waits on a reader: each has a bounded queue that drops what does not fit, and a reader that goes
@@ -30,6 +30,7 @@ import time
 SOCKETS = (".placemat", "sockets")
 QUEUE_SIZE = 256                    # a reader's events beyond its catch-up
 MAX_LOG = 6000                      # events kept for a catch-up
+MAX_ROUTE_LOG = 60000               # a route's events (its copper, net by net) kept for a catch-up: far more of them, each small
 _state = {"checked": False, "reporter": None, "off": False, "hint": None}
 
 
@@ -37,6 +38,29 @@ def disable() -> None:
     """This process never reports (an explore's worker processes, the studio's own resolve worker)."""
     _state["off"] = True
     _state["reporter"] = None
+
+
+class paused:
+    """With it, this process reports nothing: the resolves a probe makes of each candidate are not the command's own plan, so they
+    are not sent to the readers (the probe's own events are, after it)."""
+
+    def __enter__(self):
+        self.held = _state["reporter"]
+        _state["reporter"] = None
+        _state["was_checked"] = _state["checked"]
+        _state["checked"] = True
+        return self
+
+    def __exit__(self, *exc):
+        _state["reporter"] = self.held
+        _state["checked"] = _state.pop("was_checked", _state["checked"])
+
+
+def send(event: dict) -> None:
+    """Tell the readers an event of this command's own (a probe's), if it has a beacon."""
+    rep = _state["reporter"]
+    if rep is not None:
+        rep.send(event)
 
 
 def hint_progress(path) -> None:
@@ -196,8 +220,14 @@ def compact(ev: dict):
         return {"ev": "plan", "items": len(doc.get("items", ())), "findings": len(doc.get("findings", ())), "copper": len(doc.get("copper", ()))}
     if kind == "explore":
         return {"ev": "explore", "focus": len(ev.get("focus", ())), "baseline": ev.get("baseline"), "jobs": ev.get("jobs")}
+    if kind == "route_queue":
+        return {"ev": "route_queue", "nets": len(ev.get("nets", ())), "stage": ev.get("stage")}
+    if kind in ("route_stage", "route_net_end", "route_queue_end", "route_off"):
+        return {k: v for k, v in ev.items() if k != "doc"}
     if kind == "variant":
         return {k: ev[k] for k in ("ev", "seed", "score", "t") if k in ev}
+    if kind in ("probe", "candidate", "probe_done"):
+        return {k: v for k, v in ev.items() if k not in ("candidates",) or kind == "probe"}
     return None
 
 
@@ -245,6 +275,8 @@ class Beacon:
         self.pid = os.getpid()
         self.lock = threading.Lock()
         self.log: list = []
+        self.route_log: list = []                                       # a route's events, apart from `log`: there are many and each is small
+        self.route_truncated = False
         self.readers: list = []
         self.record = None
         self.error_sent = False
@@ -312,7 +344,7 @@ class Beacon:
             except OSError:
                 return
             with self.lock:                                             # the catch-up and the join to live events are one step
-                backlog = [self.hello] + list(self.log)
+                backlog = [self.hello] + list(self.log) + list(self.route_log)
                 self.readers.append(_Reader(conn, self, backlog))
 
     def _drop(self, reader) -> None:
@@ -328,7 +360,13 @@ class Beacon:
         with self.lock:
             if kind == "resolve":
                 self.log = [e for e in self.log if e.get("ev") not in ("board", "item", "plan", "begin")]
-            if keep and len(self.log) < MAX_LOG:
+            if kind and kind.startswith("route_"):
+                if len(self.route_log) < MAX_ROUTE_LOG:
+                    self.route_log.append(event)
+                elif not self.route_truncated:
+                    self.route_truncated = True
+                    self.route_log.append({"ev": "route_truncated", "at": len(self.route_log)})
+            elif keep and len(self.log) < MAX_LOG:
                 self.log.append(event)
             for r in self.readers:
                 r.put(event)
@@ -512,6 +550,23 @@ def describe(ev: dict) -> str:
         return "variant seed %s score %s" % (ev.get("seed"), ev.get("score"))
     if kind == "explore_done":
         return "explore done: best %s of baseline %s, kept %s" % (ev.get("best"), ev.get("baseline"), ev.get("kept"))
+    if kind in ("route_commit", "route_rip", "route_net_begin", "route_board"):
+        return ""                                          # the copper itself: the studio draws it, `watch` says each net's result
+    if kind == "route_stage":
+        return "route %s%s" % (ev.get("stage", ""), " (taken from an earlier route)" if ev.get("resumed") else "")
+    if kind == "route_queue":
+        return "route: %d nets to route" % len(ev.get("nets", ()))
+    if kind == "route_net_end":
+        return "net %s: %s" % (ev.get("net"), "routed" if ev.get("ok") else "no route found")
+    if kind == "route_queue_end":
+        return "route: %s routed, %s failed" % (ev.get("routed"), ev.get("failed"))
+    if kind == "route_off":
+        return "no progress for this route: %s" % ev.get("why", "")
+    if kind == "route_truncated":
+        return "route: more events than are kept for a late reader"
+    if kind in ("probe", "candidate", "probe_done"):
+        from . import probe
+        return probe.line(ev)
     if kind == "done":
         return "done%s" % ((" " + ev["record"]) if ev.get("record") else "")
     if kind == "error" and ev.get("kind") == "stopped":
@@ -541,7 +596,7 @@ def watch(root, selector=None, as_json: bool = False, out=None) -> int:
         with lock:
             if as_json:
                 print(json.dumps(ev, default=str), file=out, flush=True)
-            else:
+            elif describe(ev):
                 print("%s%s" % (("[%s] " % e.get("pid")) if selector is None else "", describe(ev)), file=out, flush=True)
 
     def follow_one(e) -> None:

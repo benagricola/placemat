@@ -216,6 +216,11 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--dry-run", action="store_true", help="print the diff the suggestion would make and write nothing")
     ap.add_argument("--undo", action="store_true",
                     help="put back what the last applied suggestion changed, if the files are still as it left them")
+    ap.add_argument("--search", action="store_true",
+                    help="run the probe of a searched suggestion (resolves the script with each candidate value, in memory) and "
+                         "keep the best as a new suggestion, <id>.1, to apply")
+    ap.add_argument("--yes", action="store_true", help="with --search: do not ask before a probe that resolves the whole board "
+                                                       "for each candidate")
     ap.add_argument("--json", action="store_true")
     pv = sub.add_parser("preview", help="place the board (reusing the previous run) and draw it - "
                                         "no board written, no DRC, no render: a picture in seconds")
@@ -659,9 +664,16 @@ def cmd_route(args) -> int:
             return 2
         islands = parse_islands(active().route_islands)
         islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
-        report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
-                             quick=not args.full, iterations=args.iterations, islands=islands,
-                             resume=not args.no_resume)
+        from . import channel
+        channel.reporter(p)                 # the route's own socket: readers follow it net by net
+        try:
+            report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
+                                 quick=not args.full, iterations=args.iterations, islands=islands,
+                                 resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {})
+        except Exception as e:
+            channel.error("%s: %s" % (type(e).__name__, e))
+            raise
+        channel.finish(getattr(report, "record", None) or None)
     if args.json:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:
@@ -1175,6 +1187,8 @@ def cmd_apply(args) -> int:
             args.id, ", ".join(h[1] for h in holders)), level="fail")
         return 1
     board_dir, script, entry = holders[0]
+    if args.search:
+        return _search(args, board_dir, script, entry)
     try:
         done = sg.apply_suggestion(entry["suggestions"], args.id, dry_run=args.dry_run, root=sg.project_root(board_dir),
                                    log=sg.log_path(board_dir))
@@ -1186,6 +1200,62 @@ def cmd_apply(args) -> int:
         console.say("apply", str(e), level="fail")
         return 1
     return _report_applied(args, done, "would write" if args.dry_run else "applied")
+
+
+def _search(args, board_dir, script, entry) -> int:
+    """`placemat apply <id> --search`: the probe of a searched suggestion (probe.py). It says what it will cost first and asks unless
+    `--yes`; prints a line per candidate and a last line with how it ended; keeps the best as an instant suggestion `<id>.1`."""
+    from . import channel, probe, suggestions as sg
+    from .settings import load
+    s = next(x for x in entry["suggestions"] if x.id == args.id)
+    if s.how != "searched":
+        console.say("apply", "%s is not a searched suggestion: apply it without --search" % s.id, level="fail")
+        return 2
+    cfg = load(board_dir, script=script)
+    est = probe.estimate(s, board_dir, script, cfg.studio_probe_candidates, cfg.studio_probe_budget_s)
+    console.say("probe", probe.estimate_line(est))
+    if est["board_wide"] and not args.yes:
+        if not sys.stdin.isatty():
+            console.say("probe", "not started: it would ask to confirm, and there is no terminal; pass --yes", level="fail")
+            return 2
+        if input("go on? [y/N] ").strip().lower() not in ("y", "yes"):
+            console.say("probe", "not started")
+            return 1
+    channel.reporter(script)                    # this command is announced to the studios and `placemat watch` from here
+    def emit(ev):
+        channel.send(ev)
+        if ev["ev"] != "probe_done":
+            console.say("probe", probe.line(ev))
+    try:
+        result, found = probe.search(s, board_dir, script, cfg, emit=emit, say=lambda t: console.say("probe", t))
+    except probe.ProbeRefused as e:
+        console.say("probe", str(e), level="fail")
+        channel.error(str(e))
+        channel.finish()
+        return 1
+    except sg.SuggestionError as e:
+        console.say("probe", str(e), level="fail")
+        channel.error(str(e))
+        channel.finish()
+        return 1
+    except stop.Stopped as stopped:
+        result, found = getattr(stopped, "probe", (None, None))
+        if result is not None:
+            stop.say(probe.line(dict(result.to_json(), ev="probe_done")))
+            if found is not None:
+                stop.say("%s: %s" % (found.id, found.text))
+            stopped.said = True
+        channel.finish()
+        return stopped.exit_code
+    if args.json:
+        console.data(json.dumps({"id": s.id, "result": result.to_json(),
+                                 "found": found.to_json() if found is not None else None}, indent=2))
+    else:
+        console.say("probe", probe.line(dict(result.to_json(), ev="probe_done")))
+        if found is not None:
+            console.say("probe", "%s: %s (placemat apply %s)" % (found.id, found.text, found.id))
+    channel.finish()
+    return 0 if result.state in ("found", "limit", "budget", "none") else 1
 
 
 def _report_applied(args, done, verb) -> int:
@@ -1534,7 +1604,7 @@ def main(argv=None) -> int:
     args = parser().parse_args(argv)
     if args.format == "json":
         args.json = True
-    previous = stop.install() if args.command in STOPPABLE else {}
+    previous = stop.install() if args.command in STOPPABLE or (args.command == "apply" and args.search) else {}
     try:
         return _main(args)
     except stop.Stopped as s:

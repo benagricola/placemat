@@ -409,6 +409,41 @@ def test_an_explore_streamed_over_the_channel_keeps_its_variants_and_a_record_li
     assert s.explore_record("/etc/passwd") is None and s.explore_record(str(folder / "other.json")) is None
 
 
+def test_a_routes_events_are_counted_kept_for_a_late_page_and_summarised_without_the_copper(project):
+    s = _fresh(project)
+    drain = _events(s)
+    _cmd(s, 6)
+    for ev in ({"ev": "route_stage", "stage": "main"}, {"ev": "route_queue", "nets": ["A", "B"]}, {"ev": "route_net_begin", "net": "A"},
+               {"ev": "route_commit", "net": "A", "how": "route", "seg": [[0, 0, 1, 0, "F.Cu", 0.2]], "via": []}, {"ev": "route_net_end", "net": "A", "ok": True},
+               {"ev": "route_net_begin", "net": "B"}, {"ev": "route_net_end", "net": "B", "ok": False}, {"ev": "route_queue_end"}):
+        s._on_channel(6, ev)
+    c = {c["id"]: c for c in s.commands()}[6]
+    assert {k: c["route"][k] for k in ("total", "done", "failed", "current", "stage")} == {"total": 2, "done": 1, "failed": 1, "current": "", "stage": "main"}
+    assert "log" not in c["route"] and "results" not in c["route"] and c["route"]["finished"] is False          # the command ends the route, not a queue
+    assert [e["ev"] for e in s.cmd_detail(6)["events"]].count("route_commit") == 1
+    names = [n for n, _ in drain()]
+    assert names.count("cmdev") == 8 and names.count("cmd") >= 7 + 1                                          # a commit is not a summary of its own
+
+
+def test_recorded_routes_are_listed_and_served_only_from_this_projects_folders(project):
+    from placemat import route_progress
+    s = _fresh(project)
+    base = s.src.board_dir / ".placemat"
+    stages = [{"stage": "main", "resumed": False, "seconds": 1.0, "events": [{"ev": "net_end", "net": "A", "ok": True}, {"ev": "commit", "net": "A", "how": "route", "seg": [[0, 0, 1, 0, "F.Cu", 0.2]], "via": []}]}]
+    (base / "route").mkdir(parents=True)
+    (base / "runs" / "ab12" / "route").mkdir(parents=True)
+    own = route_progress.write_record(base / "route", {"pcb": "x.kicad_pcb", "run": "", "script": "x_layout.py"}, stages, {"closure": 1.0})
+    ran = route_progress.write_record(base / "runs" / "ab12" / "route", {"pcb": "x.kicad_pcb", "run": "ab12", "script": "x_layout.py"}, stages, {"closure": 1.0})
+    (base / "route" / route_progress.BOARD).write_text(json.dumps({"board": {"loops": [], "drawn": False, "extent": [0, 0, 1, 1]}, "items": [], "layers": ["F.Cu"]}))
+    (base / "runs" / "ab12" / "plan.json").write_text(json.dumps({"board": {"loops": [], "drawn": False, "extent": [0, 0, 1, 1]}, "items": [], "layers": ["F.Cu"], "steps": [], "copper": []}))
+    listed = s.routes()
+    assert {e["file"]: (e["run"], e["build"], e["nets"], e["routed"]) for e in listed} == {str(own): ("", False, 1, 1), str(ran): ("ab12", True, 1, 1)}
+    assert s.route_record(str(own))["doc"]["route"] == {"nets": 1, "routed": 1, "failed": 0}
+    assert s.build_record("ab12")["doc"]["steps"][0]["item"] == "track A" and s.build_record("nope") is None and s.build_record("../x") is None and s.build_record("") is None
+    assert s.route_record("/etc/passwd") is None and s.route_record(str(own.with_name("route_summary.json"))) is None
+    assert json.loads(s.hello()[0][1])["routes"] == listed
+
+
 def test_the_studio_finds_the_sockets_of_commands_in_its_project_and_a_dead_one_is_shown_from_its_progress_file(project):
     from placemat import channel
     s = Studio(project, port=0, open_browser=False)

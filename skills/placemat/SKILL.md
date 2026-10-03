@@ -249,6 +249,21 @@ model into declarations.
 
 ## The loop
 
+**Iterate with `placemat preview`; `placemat run` only at checkpoints.** A
+preview resolves the placement and copper and reports the findings, with no
+write, no DRC, no checks and no render. A run does all of those. On a large
+board a run costs several times a preview: on one 30-cell board a run took
+about 5.5 minutes (resolve 266 s, render 27 s, checks 22 s, DRC 5 s, write 5 s).
+The preview there was the 266 s resolve alone, and less again when unchanged
+steps replay. Run at a checkpoint only:
+- the first look at a board;
+- a change you mean to keep;
+- before committing.
+Between checkpoints, edit and preview, or let the user watch in
+`placemat studio`, which re-resolves as the script changes. A run's
+`run.json` records each stage's seconds (`timing_s`), so you can see which
+stage costs what.
+
 1. **Before any placement on a board, establish the facts.** Run
    `placemat facts <script>`. For each fact it marks unconfirmed or
    flags, ask the user with AskUserQuestion: layer roles and copper
@@ -258,7 +273,7 @@ model into declarations.
    the rise in placemat.toml. Regenerate, then run `placemat facts
    --confirm`. Never proceed on a default, and never write a fact the
    user did not give.
-2. **Run** `placemat run boards/<x>/<X>_layout.py`. Read the stream:
+2. **Run** (at a checkpoint) `placemat run boards/<x>/<X>_layout.py`. Read the stream:
    placed/copper/findings, one DRC line, the impact, a `score` line and a
    `best` line (`-v` prints every step). **A run that exits 1 having placed
    everything came out worse than the best earlier run of the same parts**:
@@ -270,13 +285,15 @@ model into declarations.
    them all, with the edit as data). `placemat apply <id> --dry-run` prints
    its diff, `placemat apply <id>` writes it, `placemat apply --undo` puts
    the last one back. A number a suggestion writes is a named constant with
-   a comment saying where it came from: keep the comment. The run after it
+   a comment saying where it came from: keep the comment. A suggestion worded "...might fix this: search options?" has no
+   value yet: `placemat apply s3a --search` (`--yes` to skip the question before a probe that resolves the whole board
+   for each candidate) resolves the script with each candidate in memory and keeps the best as `s3a.1`; apply that. The run after it
    says whether the finding cleared (`api.md`, "Findings and severities"). In the studio each finding row
    shows its best suggestion with Show (the diff), Try (the edited script resolved and compared, nothing written:
    did the finding clear, what else moved) and Apply; to check a suggestion without writing it, ask the user to Try
    it there, or `POST /suggest/try` (`api.md`, "Studio").
-3. **Between runs, look with `placemat preview`**: the same placement in
-   seconds, drawn, without the write, DRC and render. A whole board
+3. **Between runs, iterate with `placemat preview`**: the same placement,
+   drawn, without the write, checks, DRC and render. A whole board
    answers layout questions (free space, a cluster, a red over-limit link,
    the congestion hot spot, what did not place) but comes through at a few
    pixels a millimetre; for small passives draw `--around <part>` or
@@ -356,7 +373,7 @@ the script.
 
 `run`, `preview` (an `--explore` especially) and `check` can take minutes. Each listens, while it works, on a
 socket in the project (`.placemat/sockets/<pid>.sock`) and streams what it is doing: the step it is on, the plan so
-far, each explore variant's score. To run one without blocking yourself, start it detached (a background shell with
+far, each explore variant's score, and for a route each net as it is routed. To run one without blocking yourself, start it detached (a background shell with
 its output to a file) and follow it:
 
 ```
