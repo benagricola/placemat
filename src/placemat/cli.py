@@ -668,7 +668,7 @@ def cmd_route(args) -> int:
         except Exception as e:
             channel.error("%s: %s" % (type(e).__name__, e))
             raise
-        channel.finish(report.record or None)
+        channel.finish(getattr(report, "record", None) or None)
     if args.json:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:
