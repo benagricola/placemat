@@ -246,6 +246,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **The run score prices what the search prices** (0.84.0): give-way
+  actions, pushes and back-face spots are run measures at the search's
+  weights; a track left out because it may not bridge is one finding, not
+  two; copper notes are findings of their own kind. Severity stays display
+  only.
+
 - **A stamped cell's copper seen by the escape check** (0.83.0; a board's
   session, 2026-10-02): a pad joined by a cell's drawn track to a plane via
   is no longer reported walled off; a pad is walled only when the shapes,
