@@ -322,7 +322,7 @@ def parts_rows(board: dict, plan: dict | None, texts: dict, base, *, script_name
     for p in board["parts"]:
         if not p["cell"]:
             rows.append(dict(key=p["key"], kind="part", ref=p["ref"], value=p["value"], cell=None, w=p["w"], h=p["h"], area=p["area"],
-                             pads=p["pads"], nets=p["nets"], members=[], faces={}))
+                             pads=p["pads"], nets=p["nets"], members=[], faces={}, pad_list=p.get("pad_list", [])))
     name = script_name
     for r in rows:
         key = r["key"]

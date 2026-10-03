@@ -112,6 +112,8 @@ def facts_model(record: dict, *, zen: dict, fab: dict, rise: dict, confirmed_dig
     if confirmed_digest and confirmed_digest != record["digest"] and not changed_known:
         counts["changed"] = 1       # the digest differs and the confirmed record is not known: which fact moved is not recorded
         holds.append("changed")
+    if reasons and not holds:
+        holds.append("confirmation")        # everything is decided but the digest is not recorded yet
     return {"rows": rows, "counts": counts, "digest": record["digest"], "confirmed": bool(confirmed_digest) and not reasons,
             "reasons": [dict(r, text=facts_reason_text(r)) for r in reasons], "changed_known": changed_known,
             "gate": {"open": not reasons, "holds": holds}, "pairs": pairs}

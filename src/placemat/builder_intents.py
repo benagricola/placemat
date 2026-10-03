@@ -543,6 +543,34 @@ def search_rest(ctx: Ctx, keys: list | None = None, either_face: bool = False) -
     return {"suggestion": s, "count": len(stmts), "keys": [r["key"] for r in cells + parts]}
 
 
+# ------------------------------------------------------------------ the modifiers of a placed item
+def item_mods(ctx: Ctx, key: str, params: dict) -> Suggestion:
+    """Rotation, face, priority, required and why of an item the script places, set where `params` gives a value and taken out where
+    it gives "" (or false for `required`): `set_kwarg` and `remove_kwarg` on its call, so the rest of the call is as it was."""
+    row = ctx.rows.get(key)
+    if row is None or row["status"] == "unplaced":
+        raise BuilderRefused("%s is not placed by a statement of the script yet" % ctx.label(key))
+    target = _target_of(ctx, row)
+    have = row.get("mods") or {}
+    file = str(ctx.script)
+    edits = []
+    want = modifier_kwargs({k: v for k, v in params.items() if v not in ("", None, False)})
+    for name in ("rotation", "face", "priority", "required", "why"):
+        given = params.get(name, None)
+        if name in want:
+            edits.append(Edit("set_kwarg", target, {"name": name}, want[name], {}, file))
+        elif name in params and given in ("", False) and name in have:
+            edits.append(Edit("remove_kwarg", target, {"name": name}, None, {}, file))
+    if params.get("rotation") == 0 and "rotation" in have and not any(e.args.get("name") == "rotation" for e in edits):
+        edits.append(Edit("remove_kwarg", target, {"name": "rotation"}, None, {}, file))
+    if not edits:
+        raise BuilderRefused("nothing to change: the call is as asked")
+    imp = imports_for(ctx, *[e.value for e in edits if isinstance(e.value, dict)])
+    if imp is not None:
+        edits.insert(0, imp)
+    return _suggestion(ctx, "Change how %s is placed" % ctx.label(key), edits)
+
+
 # ------------------------------------------------------------------ taking an item off the board
 def remove_edits(ctx: Ctx, key: str) -> Suggestion:
     """The statement that places `key` taken out, with a link the builder wrote for it and a constant only it used; the item is

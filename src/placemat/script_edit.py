@@ -997,8 +997,20 @@ def _locate_stmt(text, target):
     return mod, _locate(mod, target, want_stmt=True)
 
 
+def _tidy_start(text: str, a: int, b: int) -> int:
+    """Where a removal of the lines `a`..`b` starts so that no blank line is left doubled or dangling: `a`, or the start of the
+    blank line above it where the removed lines were alone between that blank line and another (or the end of the file)."""
+    if a > 0:
+        pa = text.rfind("\n", 0, a - 1) + 1
+        rest = text[b:].split("\n", 1)[0]
+        if text[pa:a].strip() == "" and (b >= len(text) or rest.strip() == ""):
+            return pa
+    return a
+
+
 def _remove_statement(text, edit, ctx_for):
-    """The statement's lines go; comments and blank lines above it stay, for whatever follows."""
+    """The statement's lines go; comments above it stay, for whatever follows, and so do blank lines, except one that would be left
+    doubled: a statement alone between two blank lines (or one and the end of the file) takes the blank line above it."""
     mod, hit = _locate_stmt(text, edit.target)
     if isinstance(hit.stmt, ast.Assign):
         raise EditRefused("%s at line %d is assigned to a name the script may use: it is not removed" % (
@@ -1006,7 +1018,8 @@ def _remove_statement(text, edit, ctx_for):
     src = mod.src
     s, e = src.span(hit.stmt)
     le = src.line_end(e)
-    out = _splice(text, [(src.line_start(s), le + (len(src.newline_at(le)) if le < len(text) else 0), "")])
+    a, b = src.line_start(s), le + (len(src.newline_at(le)) if le < len(text) else 0)
+    out = _splice(text, [(_tidy_start(text, a, b), b, "")])
     try:
         ast.parse(out)
     except SyntaxError as err:
@@ -1443,7 +1456,7 @@ def _remove_constant(text, name):
     start = src.starts[k]
     le = src.line_end(src.span(s)[1])
     end = le + (len(src.newline_at(le)) if le < len(text) else 0)
-    out = _splice(text, [(start, end, "")])
+    out = _splice(text, [(_tidy_start(text, start, end), end, "")])
     if _dump_without(text, s.lineno) != ast.dump(ast.parse(out)):
         raise EditRefused("the edit would change more than the removed constant")
     return out

@@ -183,7 +183,18 @@ def _ensure_loads(text: str, names) -> str:
         if at == len(text) and not text.endswith("\n"):
             return text + nl + line
         return _splice(text, [(at, at, line)])
-    return _splice(text, [(0, 0, line + nl)])
+    # none yet: after a header comment that is set off by a blank line (it describes the file), else at the top
+    lines = text.splitlines(keepends=True)
+    k = 0
+    while k < len(lines) and lines[k].lstrip().startswith("#"):
+        k += 1
+    at = 0
+    if 0 < k < len(lines) and lines[k].strip() == "":
+        while k < len(lines) and lines[k].strip() == "":
+            k += 1
+        at = sum(len(l) for l in lines[:k])
+        return _splice(text, [(at, at, line + nl)])
+    return _splice(text, [(at, at, line + nl)])
 
 
 # ------------------------------------------------------------------ the check

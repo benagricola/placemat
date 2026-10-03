@@ -3134,5 +3134,6 @@ window.addEventListener("resize", () => { applyView(); layoutScript(); renderPro
 if (window.ResizeObserver) new ResizeObserver(() => applyView()).observe($("#boardwrap"));   // the notice and the tab bar change its height
 schedule("all");
 </script>
+<script>{ const b = document.createElement("script"); b.src = "/builder.js?t=" + encodeURIComponent(T); document.body.appendChild(b); }</script>
 </body>
 </html>

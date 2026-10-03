@@ -32,9 +32,9 @@ ALONG = ("START", "MID", "END")
 class BuilderRefused(Exception):
     """A request the builder does not make, with the rule it breaks. Nothing is written."""
 
-    def __init__(self, reason: str, rule: str = ""):
+    def __init__(self, reason: str, rule: str = "", **extra):
         super().__init__(reason)
-        self.reason, self.rule = reason, rule
+        self.reason, self.rule, self.extra = reason, rule, extra
 
 
 # ------------------------------------------------------------------ small helpers
