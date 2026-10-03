@@ -79,6 +79,21 @@ def test_point_segment_distance_agrees_on_randomised_inputs():
         assert abs(nd - pd) < EPS
 
 
+def test_point_segment_distance_is_the_python_one_to_the_last_bit():
+    """math.hypot's own rounding, not libm's: a refusal's gap_mm is the same float native on and off."""
+    rnd = random.Random(2)
+    for _ in range(20000):
+        p = (rnd.uniform(-10, 10), rnd.uniform(-10, 10))
+        a = (rnd.uniform(-10, 10), rnd.uniform(-10, 10))
+        b = (rnd.uniform(-10, 10), rnd.uniform(-10, 10))
+        assert placemat_native.point_segment_distance(p, a, b) == g._point_segment_distance_py(p, a, b)
+
+
+def test_poly_distance_is_the_python_one_to_the_last_bit():
+    for a, b in PAIRS:
+        assert placemat_native.poly_distance(a, b) == _reference_distance(a, b), (a, b)
+
+
 class _FakeNative:
     """A stand-in for placemat_native that counts calls, to prove the
     dispatch actually reaches it rather than merely existing unused."""

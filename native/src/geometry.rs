@@ -54,16 +54,30 @@ fn edges(poly: &Polygon) -> impl Iterator<Item = (Point, Point)> + '_ {
 }
 
 pub fn point_segment_distance(p: Point, a: Point, b: Point) -> f64 {
+    point_segment_distance_below(p, a, b, f64::INFINITY)
+}
+
+/// `point_segment_distance` (CPython's `math.hypot`, bit for bit), or something larger than `best` when
+/// the distance is clearly past it: the libm hypot, within a unit or two in the last place of the exact
+/// one, rules out most pairs of a `min` over many without the exact hypot's cost.
+#[inline]
+fn point_segment_distance_below(p: Point, a: Point, b: Point, best: f64) -> f64 {
     let (ax, ay) = a;
     let (bx, by) = b;
     let (px, py) = p;
     let (dx, dy) = (bx - ax, by - ay);
-    if dx == 0.0 && dy == 0.0 {
-        return (px - ax).hypot(py - ay);
+    let (ex, ey) = if dx == 0.0 && dy == 0.0 {
+        (px - ax, py - ay)
+    } else {
+        let t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+        let t = t.max(0.0).min(1.0);
+        (px - (ax + t * dx), py - (ay + t * dy))
+    };
+    // 1e-14 relative is many units in the last place (2.2e-16): a pair this far over cannot be the minimum
+    if ex.hypot(ey) > best * (1.0 + 1e-14) {
+        return f64::INFINITY;
     }
-    let t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
-    let t = t.max(0.0).min(1.0);
-    (px - (ax + t * dx)).hypot(py - (ay + t * dy))
+    crate::exact::hypot(ex, ey)
 }
 
 fn within(p: Point, x0: f64, y0: f64, x1: f64, y1: f64) -> bool {
@@ -207,12 +221,12 @@ pub fn poly_distance(a: &Polygon, b: &Polygon) -> f64 {
     let mut best = f64::INFINITY;
     for &p in a {
         for (q1, q2) in edges(b) {
-            best = best.min(point_segment_distance(p, q1, q2));
+            best = best.min(point_segment_distance_below(p, q1, q2, best));
         }
     }
     for &p in b {
         for (q1, q2) in edges(a) {
-            best = best.min(point_segment_distance(p, q1, q2));
+            best = best.min(point_segment_distance_below(p, q1, q2, best));
         }
     }
     best
