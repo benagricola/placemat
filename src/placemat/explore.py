@@ -4,6 +4,7 @@ docs/superpowers/specs/2026-09-25-explore-design.md."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .values import Freedom
 
@@ -108,6 +109,12 @@ class ExploreResult:
     results: list          # (seed, score, measures), best first
     best_measures: dict = None
     baseline_measures: dict = None
+    variants: list = None          # {seed, score, measures, placements, order, t} for each, in the order they finished
+    focus: list = None
+    seconds: float = 0.0
+    jobs: int = 0
+    plain: dict = None
+    plain_order: list = None
 
 
 def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=None, lock=None) -> ExploreResult:
@@ -147,16 +154,28 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     for pr in procs:
         pr.start()
     results, done = [(0, baseline, base_m)], 0
+    from . import channel
+    rep = channel.current()
+    t0 = time.time()
+    if rep is not None:
+        rep.send({"ev": "explore", "focus": sorted(focus), "seconds": seconds, "jobs": len(procs), "seeds": None if order is None else len(order),
+                  "baseline": baseline, "baseline_measures": base_m, "plain": _placements(plain, focus), "order": _order(plain, focus), "at": t0})
+    variants = [{"seed": 0, "score": baseline, "measures": base_m, "placements": _placements(plain, focus), "order": _order(plain, focus), "t": 0.0}]
     while done < len(procs):
         item = out.get()
         if item is None:
             done += 1
         else:
-            results.append(item)
+            results.append(item[:3])
+            v = {"seed": item[0], "score": item[1], "measures": item[2], **item[3], "t": round(time.time() - t0, 3)}
+            variants.append(v)
+            if rep is not None:
+                rep.send({"ev": "variant", **v})
     for pr in procs:
         pr.join()
     results.sort(key=lambda r: (r[1], r[0]))
-    return ExploreResult(results[0][0], results[0][1], baseline, len(results), results, results[0][2], base_m)
+    return ExploreResult(results[0][0], results[0][1], baseline, len(results), results, results[0][2], base_m, variants=variants,
+                         focus=sorted(focus), seconds=seconds, jobs=len(procs), plain=variants[0]["placements"], plain_order=variants[0]["order"])
 
 
 def _total(board, m) -> float:
@@ -170,9 +189,29 @@ def _context_of(make_board):
     return ctx() if ctx is not None else nullcontext()
 
 
+def _placements(plan, focus) -> dict:
+    """{key: [x, y, rotation, face] or None} for the focused items: where a variant put them."""
+    out = {}
+    for key in sorted(focus):
+        p = plan.placement(key)
+        out[key] = None if p is None else [round(p.location.x, 3), round(p.location.y, 3), round(p.rotation, 3), p.face.value]
+    return out
+
+
+def _order(plan, focus) -> list:
+    seen, out = set(), []
+    for s in plan.steps:
+        if s.item in focus and s.placement is not None and s.item not in seen:
+            seen.add(s.item)
+            out.append(s.item)
+    return out
+
+
 def _work(make_board, focus, lock, reuse, order, deadline, counter, out):
     """A worker: take the next seed until the list or the deadline runs out."""
     import time
+    from . import channel
+    channel.disable()                                   # the parent reports for the explore, not each variant's resolve
     try:
         while True:
             with counter.get_lock():
@@ -190,7 +229,7 @@ def _work(make_board, focus, lock, reuse, order, deadline, counter, out):
                 b = make_board()
                 p = b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
                 m = measure(b, p)
-                out.put((seed, _total(b, m), m))
+                out.put((seed, _total(b, m), m, {"placements": _placements(p, focus), "order": _order(p, focus)}))
     finally:
         out.put(None)
 
@@ -240,6 +279,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
               "best": result.best, "best_seed": result.best_seed, "moves": [], "accepted": False,
               "terms": _moved_terms(base, result.baseline_measures, result.best_measures)}
     if result.best_seed == 0:
+        _write_record(script, result, report)
         return report, entries
     with _context_of(make_board):
         board = make_board()
@@ -261,7 +301,35 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         entries = _lock.renumber(kept + new, best)
         _lock.write(path, entries)
         report["accepted"] = True
+    _write_record(script, result, report)
     return report, entries
+
+
+def _write_record(script, result, report) -> None:
+    """The explore's result, kept: every variant's seed, score, measures, the focused items' placements and the order they
+    were placed in, and which was kept. Read after the command ends (the studio lists and replays it); `report["record"]`
+    names it. A courtesy: a record that cannot be written does not fail the explore."""
+    import json
+    import os
+    import time
+    from . import channel
+    try:
+        from .project import find_board
+        d = find_board(Path(script).resolve()).board_dir / ".placemat" / "views" / "explore"
+        d.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = d / ("%s-%d.json" % (stamp, os.getpid()))
+        doc = {"version": 1, "script": str(Path(script).resolve()), "at": time.time(), "pid": os.getpid(), "focus": result.focus,
+               "seconds": result.seconds, "jobs": result.jobs, "baseline": result.baseline, "plain": result.plain, "order": result.plain_order,
+               "best_seed": result.best_seed, "best": result.best, "kept": bool(report.get("accepted")), "variants": result.variants}
+        path.write_text(json.dumps(doc, separators=(",", ":")))
+        report["record"] = str(path)
+        rep = channel.current()
+        if rep is not None:
+            rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline, "tried": result.tried,
+                      "kept": bool(report.get("accepted")), "record": str(path)})
+    except (OSError, ValueError):
+        pass
 
 
 # ------------------------------------------------------------ the runner's side

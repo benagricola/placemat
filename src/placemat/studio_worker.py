@@ -136,6 +136,8 @@ def _score(r):
 def main() -> int:
     """JSON lines in: {"cmd": "resolve", "id", "script"}, {"cmd": "cancel", "id"}, {"cmd": "quit"}.
     JSON lines out: the Session's events, and {"ev": "ready"} once placemat is loaded."""
+    from . import channel
+    channel.disable()                           # the studio's own resolve is not a command to report to the studios
     import faulthandler
     faulthandler.enable()                       # a crash that kills the process leaves a Python traceback in the log
     out = os.fdopen(os.dup(1), "w", buffering=1)

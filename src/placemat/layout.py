@@ -6017,6 +6017,18 @@ class Board:
     _begin_plan = None
 
     def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None, on_step=None, on_begin=None) -> Plan:
+        """Place everything and plan the copper. When a studio listens in the project (channel.py), the steps and the
+        finished plan are also sent to it; with none, that costs one lookup, made once per process."""
+        from . import channel
+        rep = channel.reporter(getattr(self, "_script", None))
+        if rep is None:
+            return self._resolve(progress, reuse, explore, lock, routes, on_step, on_begin)
+        on_step, on_begin = rep.hooks(self, on_step, on_begin)
+        plan = self._resolve(progress, reuse, explore, lock, routes, on_step, on_begin)
+        rep.plan(self, plan)
+        return plan
+
+    def _resolve(self, progress, reuse, explore, lock, routes, on_step, on_begin) -> Plan:
         self._check_groups()                # what a declared group may hold, before the search
         self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
         self._part_keep_outs()              # the clearances the parts' Pm.KeepOut ask of other nets' copper; refuses one with no citation
