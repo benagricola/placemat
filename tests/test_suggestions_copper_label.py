@@ -107,3 +107,18 @@ def test_moving_the_label_to_another_side_clears_its_finding(tmp_path):
     s = next(s for s in f.suggestions if s.text.startswith("Move the label"))
     board2, plan2 = apply_and_resolve(tmp_path, plan, s.id, path)
     assert not [f for f in plan2.findings if f.case == "label.sits_on"]
+
+
+def test_a_replayed_step_keeps_the_facts_of_a_finding_whose_suggestions_are_built_at_the_end(tmp_path):
+    from placemat.context import run_script
+    from tests.suggest_support import make_board
+    board, plan, path = resolve(tmp_path, LABEL, imports=IMPORTS)
+    first = [f for f in plan.findings if f.case == "label.sits_on"]
+    assert first and first[0].suggestions
+    again = make_board()
+    again.script_file = str(path)
+    run_script(path, again)
+    plan2 = again.resolve(reuse=plan.reuse)
+    assert plan2.reuse["reused"] > 0
+    second = [f for f in plan2.findings if f.case == "label.sits_on"]
+    assert [s.text for s in second[0].suggestions] == [s.text for s in first[0].suggestions]
