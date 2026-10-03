@@ -134,6 +134,31 @@ def test_a_walled_pad_on_a_real_module_offers_a_fanout_and_a_lane(tmp_path):
     assert 'board.fanout(Part("c_boot"), sides=[Edge.SOUTH])\n' in shown
 
 
+def test_a_run_record_carries_the_suggestions_and_placemat_apply_finds_them_by_id(tmp_path, capsys):
+    import json
+    from placemat import cli
+    edit = lambda t: t + '\nboard.link(PadRef(Part("c_hf1"), "VSHUNT"), PadRef(Part("buck"), VIN_N), limit_mm=0.01)\n'
+    result, drc, pcb = rm.run(tmp_path, MODULE, keep_going=True, edit=edit)
+    record = json.loads((result.run_dir / "run.json").read_text())
+    (detail,) = [d for d in record["finding_details"] if d.get("case") == "link_over"]
+    ids = [s["id"] for s in detail["suggestions"]]
+    assert ids and detail["suggestions"][0]["edit"]["target"]["file"] == str(layout_of(tmp_path))
+    assert all(s["digests"] for s in detail["suggestions"])
+    assert [d for d in record["finding_details"] if d["kind"] == "facts"][0].get("suggestions") is None
+    from placemat.report import RunRecord
+    assert RunRecord.load(result.run_dir / "run.json").finding_details[0]["kind"]            # a record still loads
+    layout = layout_of(tmp_path)
+    before = layout.read_text()
+    code = cli.main(["apply", ids[0], "--script", str(layout), "--dry-run"])
+    out = capsys.readouterr().out
+    assert code == 0 and "--- a/" in out and layout.read_text() == before
+    assert (tmp_path / "board" / "modules" / MODULE / ".placemat" / "suggestions.json").exists()
+    code = cli.main(["apply", ids[0], "--script", str(layout)])
+    assert code == 0 and layout.read_text() != before
+    code = cli.main(["apply", "--undo", "--script", str(layout)])
+    assert code == 0 and layout.read_text() == before
+
+
 def test_the_fixture_itself_is_untouched():
     folder = rm.FIXTURES / "modules" / MODULE
     assert "board.link" not in (folder / "Usb5v_layout.py").read_text()
