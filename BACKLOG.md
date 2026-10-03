@@ -10,10 +10,6 @@ file. An item cites its source as "a board's session, <date>".
   Beside fits against the neighbour's envelope shapes (a pin-1 dot no longer
   holds a part off a whole side) and stops at the first contact with anything
   already placed in its path, so nothing nearby is met.
-- **Release of finding suggestions** (spec `2026-10-02-finding-suggestions-design.md`,
-  phases 1-5): structured findings, the edit engine (splicing), `placemat
-  apply`, the studio's Show/Try/Apply/Undo/Redo, the Centre coordinates flag,
-  the escape-lane own-layer rule.
 
 ## Next, in order
 
@@ -292,6 +288,11 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Finding suggestions, phases 1-5** (0.92.0; spec `2026-10-02-finding-suggestions-design.md`):
+  structured findings, the splicing edit engine, `placemat apply`, the studio's
+  Show/Try/Apply/Undo/Redo, the Centre coordinates flag; the escape-lane
+  own-layer rule.
 
 - **Walled lanes and pockets over vias** (0.91.1; a board's session,
   2026-10-03): a pin whose own copper ends against another part is reported
