@@ -5,7 +5,7 @@ for as long as it runs, on `<project root>/.placemat/sockets/<pid>.sock`, with `
 command, script, arguments, started, label, the path of its progress file). Readers - the studio, `placemat watch`, an
 agent - look in that folder and connect to whichever they want. One that connects mid-run is sent a catch-up first
 (`hello`, the board, the steps and the plan so far) and then the live events, newline-delimited JSON: `hello`, `resolve`,
-`board`, `item`, `begin`, `plan`, for an explore `explore`, `variant` and `explore_done`, and at the end `done` (the
+`board`, `item`, `begin`, `plan`, for an explore `explore`, `variant` and `explore_done`, for a probe of a searched suggestion `probe`, `candidate` and `probe_done`, and at the end `done` (the
 record's path) or `error`.
 
 The command never waits on a reader: each has a bounded queue that drops what does not fit, and a reader that goes
@@ -37,6 +37,29 @@ def disable() -> None:
     """This process never reports (an explore's worker processes, the studio's own resolve worker)."""
     _state["off"] = True
     _state["reporter"] = None
+
+
+class paused:
+    """With it, this process reports nothing: the resolves a probe makes of each candidate are not the command's own plan, so they
+    are not sent to the readers (the probe's own events are, after it)."""
+
+    def __enter__(self):
+        self.held = _state["reporter"]
+        _state["reporter"] = None
+        _state["was_checked"] = _state["checked"]
+        _state["checked"] = True
+        return self
+
+    def __exit__(self, *exc):
+        _state["reporter"] = self.held
+        _state["checked"] = _state.pop("was_checked", _state["checked"])
+
+
+def send(event: dict) -> None:
+    """Tell the readers an event of this command's own (a probe's), if it has a beacon."""
+    rep = _state["reporter"]
+    if rep is not None:
+        rep.send(event)
 
 
 def hint_progress(path) -> None:
@@ -198,6 +221,8 @@ def compact(ev: dict):
         return {"ev": "explore", "focus": len(ev.get("focus", ())), "baseline": ev.get("baseline"), "jobs": ev.get("jobs")}
     if kind == "variant":
         return {k: ev[k] for k in ("ev", "seed", "score", "t") if k in ev}
+    if kind in ("probe", "candidate", "probe_done"):
+        return {k: v for k, v in ev.items() if k not in ("candidates",) or kind == "probe"}
     return None
 
 
@@ -512,6 +537,9 @@ def describe(ev: dict) -> str:
         return "variant seed %s score %s" % (ev.get("seed"), ev.get("score"))
     if kind == "explore_done":
         return "explore done: best %s of baseline %s, kept %s" % (ev.get("best"), ev.get("baseline"), ev.get("kept"))
+    if kind in ("probe", "candidate", "probe_done"):
+        from . import probe
+        return probe.line(ev)
     if kind == "done":
         return "done%s" % ((" " + ev["record"]) if ev.get("record") else "")
     if kind == "error" and ev.get("kind") == "stopped":
