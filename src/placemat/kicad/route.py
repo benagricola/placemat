@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import time
 
+from .. import route_progress
 from .drc import REAL_KINDS, run_drc
 
 BUILTIN_ROUTER = os.path.expanduser("~/work/KRT-upstream")
@@ -590,7 +591,7 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
         f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
         f.flush()
         rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
-                            timeout=timeout).returncode
+                            timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
     text = log.read_text(errors="replace")
     result_pairs = read_pairs(text).renamed(back)
     if rc != 0 or not pcb_out.exists():
@@ -698,7 +699,7 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
             f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
             f.flush()
             rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
-                                timeout=timeout).returncode
+                                timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
         if rc != 0 or not out.exists():
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
             raise RuntimeError("the router exited %d routing island net %s; log %s\n%s" % (rc, net, log, tail))
@@ -744,7 +745,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from .. import channel, route_progress, route_view
     global _HOOK
     rep = channel.current()
-    rev = route_progress.RouteEvents(work, rep.send if rep is not None else None)
+    rev = route_progress.RouteEvents(work, rep.send if rep is not None else None, dict(board_info or {}, pcb=str(pcb), doc=route_progress.BOARD))
     _HOOK = route_progress.enabled()
     pcb_in = work / "in.kicad_pcb"
     shutil.copy(pcb, pcb_in)
@@ -860,7 +861,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                 f.write("$ %s\n\n" % " ".join(cmd))
                 f.flush()
                 rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=dict(env, **rev.env("main")),
-                                    timeout=timeout).returncode
+                                    timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
         finally:
             rev.end("main")
         if rc != 0 or not raw_out.exists():
@@ -891,8 +892,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                          {n: (before.open_nets.get(n, 0), after.open_nets.get(n, 0)) for n in sorted(islands)},
                          islands_missing, resumed)
     if route_progress.enabled():
-        info = dict(board_info or {}, pcb=str(pcb), doc=route_progress.BOARD)
-        report.record = str(route_progress.write_record(work, info, rev.stages, report.as_dict()))
+        report.record = str(route_progress.write_record(work, rev.info, rev.stages, report.as_dict()))
     _HOOK = False
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report

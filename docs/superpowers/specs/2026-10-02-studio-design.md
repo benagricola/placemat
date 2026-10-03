@@ -247,11 +247,13 @@ The wrapper checks its anchors (the modules and functions exist, the signatures 
 says so once, on stderr and as a `route_off` event with the reason, so the studio and `placemat watch` show "no progress for this route:
 <why>" rather than a silent empty view.
 
-**How they reach the command.** The wrapper appends each event, one JSON line, to `events-<stage>.jsonl` in the route's work folder
-(stage: `pairs`, `islands`, `main`) and flushes it; the router never waits on a reader and never drops an event, because the file is also
-what the record is made from. The `placemat` process that runs the router tails that file while the router runs and sends each event on
-its own socket with the channel's sender (`Beacon.send`: bounded per-reader queues, drops for a slow reader, never blocks), before the
-stage's result is taken. A late reader is caught up from the beacon's log as for any command (the route's events are kept like a
+**How they reach the command.** Live state goes over a pipe, never a file. For each stage (`pairs`, `islands`, `main`) the `placemat` process
+opens an `os.pipe()` and gives the write end to the router's process (`pass_fds`; the descriptor's number in `PLACEMAT_ROUTE_EVENTS_FD`).
+The hooks queue each event (a bounded queue, `QUEUE_MAX`; an event that does not fit is dropped) and a writer thread in the router's process
+writes it to the pipe as one JSON line, so the router never waits on the reader; a pipe that closes ends the events silently, and the writer
+is flushed at the router's exit. A thread in the `placemat` process reads the other end, keeps each event for the record and sends it on its
+own socket with the channel's sender (`Beacon.send`: bounded per-reader queues, drops for a slow reader, never blocks). The record is the only
+file. A late reader is caught up from the beacon's log as for any command (the route's events are kept like a
 resolve's, up to `MAX_ROUTE_LOG` events kept apart from the resolve's own log, with `route_truncated` said). `route_board` also sends `route_board` first: the board as the page draws it under the
 copper (outline, each part's courtyard and pads, built from the board file read, `route_view.py`; a board with no outline is framed on its
 parts), for a route with no placement of its own in front of it.
@@ -266,8 +268,8 @@ name, the stage taken from an earlier route if it was), `route_board`, `route_qu
 **The route record** (`route_record.json` in the work folder, `.placemat/route/` or the run's `route/`, named in the report and in
 `run.json` `metrics.route.record`): the board it routed (the board file, its name, the script and, for a run's route, the run id), and
 for each stage its events in laid order: per net its `commit`s and `rip`s (tracks and vias) and its `net_end` result, plus the report's
-closure and open nets. A resumed stage takes its saved `events-<stage>.jsonl` instead of routing, so a resumed route has a complete
-record. A record is read after the command ends, never as the live feed.
+closure and open nets. The record is written as each stage ends and again at the end, so a stopped route leaves what it made; a resumed stage takes its
+events from that earlier record instead of routing, so a resumed route has a complete record. A record is read after the command ends, never as the live feed.
 
 **In the studio.** The Runs view lists a route like any command, with nets done and failed of the total and the current net. Opening
 one draws the board (`route_board`) and then each net's tracks and vias as they are committed, a ripped net's copper removed again; the
@@ -280,9 +282,9 @@ the last routed net. A live `run --route` already streams both on one socket, so
 
 **Cost.** A route with no reader pays the event lines (a few thousand short JSON lines in a route that takes minutes) and the beacon's
 log. Measured on a fixture, route time with no reader, with a studio reading, and with the hooks off (`PLACEMAT_ROUTE_EVENTS=off`),
-within noise: on the unrouted copy of the usbconverter fixture (17 nets, about 5 s), three alternating rounds gave 4.75 s with the hooks off,
-4.86 s with them on and no reader, 5.09 s with a `placemat watch` reader attached a second in (wall time to the reader's exit); single runs ranged 4.5 to 5.5 s, so the
-three are within the spread.
+on the unrouted copy of the usbconverter fixture (17 nets), three alternating rounds over the pipe gave 5.23 s with the hooks off (5.09 to 5.35),
+5.44 s with them on and no reader (5.30 to 5.57) and 5.47 s with a `placemat watch` reader attached a second in (5.36 to 5.54): about 0.2 s (4%)
+more with the hooks on, a reader or none making no difference; the ranges overlap and the machine was shared, so it is at the edge of noise.
 
 **Not in this round.** The pair router's events carry commits and rips only (it has no per-net loop of the same shape); a rip's copper
 vanishes from the replay at the end of the route rather than at the step that ripped it (the record keeps every event, a later replay can

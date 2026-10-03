@@ -13,8 +13,10 @@ as a `route_off` event and on stderr):
   (found a route or not; the outermost call only);
 - `single_ended_loop.route_single_ended_nets`, the loop over the nets: `queue` (the nets, in the order the loop was given) and `queue_end`.
 
-Each event is one JSON line appended to the file named by $PLACEMAT_ROUTE_EVENTS (nothing happens when it is unset or "off") and flushed; the
-router never waits on anyone. A failure in this module never reaches the router: it stops writing events and says so once.
+Each event is one JSON line written to the pipe whose write end is the file descriptor named by $PLACEMAT_ROUTE_EVENTS_FD (nothing happens
+when it is unset, or when $PLACEMAT_ROUTE_EVENTS is "off"). A writer thread with a bounded queue does the writing: the router never waits on
+the reader, an event that does not fit the queue is dropped, and a pipe that closes ends the events silently. A failure in this module never
+reaches the router: it stops writing events and says so once.
 
 This file imports nothing of placemat's: it runs in the router's environment."""
 from __future__ import annotations
@@ -22,28 +24,68 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+import atexit
 import os
+import queue
 import sys
 import threading
 import time
 
 VERSION = 1
-_state = {"out": None, "lock": threading.Lock(), "t0": time.monotonic(), "dead": False}
+QUEUE_MAX = 20000                       # events waiting for the pipe; more are dropped, never waited for
+FLUSH_S = 3.0                           # at exit: how long the writer may take to pass on what is queued
+_state = {"fd": None, "q": None, "t0": time.monotonic(), "dead": False, "thread": None}
+
+
+def _writer() -> None:
+    q, fd = _state["q"], _state["fd"]
+    while True:
+        line = q.get()
+        if line is None:
+            return
+        try:
+            data = line.encode("utf-8")
+            while data:
+                data = data[os.write(fd, data):]
+        except OSError:                                                # the reader has gone: no more events, silently
+            _state["dead"] = True
+            return
 
 
 def _emit(event: dict) -> None:
-    """Append `event` to the events file, flushed; any failure turns the events off for the rest of the run."""
-    if _state["dead"] or _state["out"] is None:
+    """Queue `event` for the pipe; a full queue drops it, a failure turns the events off for the rest of the run."""
+    if _state["dead"] or _state["q"] is None:
         return
     try:
         event["t"] = round(time.monotonic() - _state["t0"], 3)
-        line = json.dumps(event, separators=(",", ":"), default=str) + "\n"
-        with _state["lock"]:
-            _state["out"].write(line)
-            _state["out"].flush()
+        _state["q"].put_nowait(json.dumps(event, separators=(",", ":"), default=str) + "\n")
+    except queue.Full:
+        pass
     except Exception as e:                                             # progress is a courtesy: the route goes on without it
         _state["dead"] = True
         print("route progress stopped: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+
+
+def _flush() -> None:
+    """At exit: let the writer pass on what is queued (the router may be about to exit with events still waiting)."""
+    th = _state["thread"]
+    if th is None or _state["dead"]:
+        return
+    try:
+        _state["q"].put(None, timeout=FLUSH_S)
+        th.join(FLUSH_S)
+    except Exception:
+        pass
+
+
+def pipe_fd() -> int | None:
+    """The events pipe's descriptor, from $PLACEMAT_ROUTE_EVENTS_FD (None: events are not asked for)."""
+    if os.environ.get("PLACEMAT_ROUTE_EVENTS") == "off":
+        return None
+    try:
+        return int(os.environ.get("PLACEMAT_ROUTE_EVENTS_FD", ""))
+    except ValueError:
+        return None
 
 
 def _params(fn) -> list:
@@ -82,10 +124,10 @@ def _copper(pcb_data, result) -> tuple:
     return (sorted(ids)[0] if len(ids) == 1 else None), segs, vias, sorted(ids)
 
 
-def install(out_path: str | None = None) -> str:
-    """Hook the router for this process. Returns "" when the hooks are in (or events are not asked for: no path), else why they are not."""
-    path = out_path or os.environ.get("PLACEMAT_ROUTE_EVENTS", "")
-    if not path or path == "off":
+def install(fd: int | None = None) -> str:
+    """Hook the router for this process. Returns "" when the hooks are in (or events are not asked for: no pipe), else why they are not."""
+    fd = pipe_fd() if fd is None else fd
+    if fd is None:
         return ""
     try:
         import importlib
@@ -108,10 +150,14 @@ def install(out_path: str | None = None) -> str:
     if why:
         return why
     try:
-        _state["out"] = open(path, "a", encoding="utf-8")
+        os.fstat(fd)
     except OSError as e:
-        return "the events file cannot be written (%s)" % e
-    _state["t0"] = time.monotonic()
+        return "the events pipe is not open (%s)" % e
+    _state.update(fd=fd, q=queue.Queue(QUEUE_MAX), dead=False, t0=time.monotonic())
+    th = threading.Thread(target=_writer, daemon=True, name="placemat-route-events")
+    th.start()
+    _state["thread"] = th
+    atexit.register(_flush)
     originals = {"add": pm.add_route_to_pcb_data, "remove": pm.remove_route_from_pcb_data,
                  "net": ser.route_net_with_obstacles, "multi": ser.route_multipoint_main, "oracle": ser.route_oracle_links,
                  "loop": loop.route_single_ended_nets}
@@ -191,13 +237,12 @@ def install(out_path: str | None = None) -> str:
     return ""
 
 
-def report_off(why: str, out_path: str | None = None) -> None:
-    """Say why the route has no progress: one `route_off` event in the events file and one line on stderr."""
-    path = out_path or os.environ.get("PLACEMAT_ROUTE_EVENTS", "")
+def report_off(why: str, fd: int | None = None) -> None:
+    """Say why the route has no progress: one `route_off` event on the pipe and one line on stderr."""
+    fd = pipe_fd() if fd is None else fd
     print("route progress is off for this route: %s" % why, file=sys.stderr)
-    if path and path != "off":
+    if fd is not None:
         try:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"ev": "route_off", "why": why, "t": 0.0}) + "\n")
+            os.write(fd, (json.dumps({"ev": "route_off", "why": why, "t": 0.0}) + "\n").encode("utf-8"))
         except OSError:
             pass

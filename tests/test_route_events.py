@@ -3,6 +3,7 @@ tail that sends them on the command's socket, the route record, and the replay d
 import dataclasses
 import importlib.util
 import json
+import os
 import sys
 import threading
 import time
@@ -77,10 +78,29 @@ def router(monkeypatch):
     return mods
 
 
-def test_the_hooks_write_a_net_per_line_a_commit_a_rip_and_the_queue(router, tmp_path):
-    out = tmp_path / "events.jsonl"
+class Pipe:
+    """An events pipe as placemat gives one to the router: the hooks write to `w`, the test reads what arrived."""
+
+    def __init__(self):
+        self.r, self.w = os.pipe()
+
+    def events(self, hooks):
+        hooks._flush()                                        # the writer passes on what is queued (the router does this at exit)
+        os.close(self.w)
+        data = b""
+        while True:
+            chunk = os.read(self.r, 65536)
+            if not chunk:
+                break
+            data += chunk
+        os.close(self.r)
+        return [json.loads(l) for l in data.decode().splitlines()]
+
+
+def test_the_hooks_write_a_net_per_line_a_commit_a_rip_and_the_queue(router):
+    pipe = Pipe()
     hooks = _hooks()
-    assert hooks.install(str(out)) == ""
+    assert hooks.install(pipe.w) == ""
     pm, ser, loop = router["pcb_modification"], router["single_ended_routing"], router["single_ended_loop"]
     pcb = PCB()
     loop.route_single_ended_nets(None, [("A", 1), ("B", 2)])
@@ -89,7 +109,7 @@ def test_the_hooks_write_a_net_per_line_a_commit_a_rip_and_the_queue(router, tmp
     pm.add_route_to_pcb_data(pcb, result, trace_event="restore")
     pm.remove_route_from_pcb_data(pcb, result)
     ser.route_net_with_obstacles(pcb, 2)
-    events = [json.loads(l) for l in out.read_text().splitlines()]
+    events = pipe.events(hooks)
     assert [e["ev"] for e in events] == ["queue", "queue_end", "net_begin", "net_end", "commit", "commit", "rip", "net_begin", "net_end"]
     assert events[0]["nets"] == ["A", "B"] and events[1] == dict(events[1], routed=1, failed=1)
     assert events[4]["net"] == "A" and events[4]["how"] == "route" and events[5]["how"] == "restore"
@@ -98,42 +118,69 @@ def test_the_hooks_write_a_net_per_line_a_commit_a_rip_and_the_queue(router, tmp
     assert pm.log == [("add", "route"), ("add", "restore"), ("remove", "rip")]       # the router's own functions still ran
 
 
-def test_a_net_search_inside_another_is_one_net_begin_and_one_net_end(router, tmp_path):
-    out = tmp_path / "events.jsonl"
+def test_a_net_search_inside_another_is_one_net_begin_and_one_net_end(router):
+    pipe, hooks = Pipe(), _hooks()
     ser = router["single_ended_routing"]
     inner = ser.route_net_with_obstacles
     ser.route_multipoint_main = lambda pcb_data, net_id, config=None, obstacles=None: (ser.route_net_with_obstacles(pcb_data, net_id), inner(pcb_data, net_id))[0]
-    assert _hooks().install(str(out)) == ""
+    assert hooks.install(pipe.w) == ""
     ser.route_multipoint_main(PCB(), 1)
-    assert [json.loads(l)["ev"] for l in out.read_text().splitlines()] == ["net_begin", "net_end"]
+    assert [e["ev"] for e in pipe.events(hooks)] == ["net_begin", "net_end"]
 
 
 @pytest.mark.parametrize("what", ["add_route_to_pcb_data", "route_oracle_links", "route_single_ended_nets"])
-def test_a_missing_hook_target_patches_nothing_and_says_why(router, tmp_path, what):
+def test_a_missing_hook_target_patches_nothing_and_says_why(router, what):
     for mod in router.values():
         if hasattr(mod, what):
             delattr(mod, what)
     originals = {n: getattr(m, a) for n, m, a in (("add", router["pcb_modification"], "add_route_to_pcb_data"), ("net", router["single_ended_routing"], "route_net_with_obstacles")) if hasattr(m, a)}
-    why = _hooks().install(str(tmp_path / "events.jsonl"))
-    assert what in why and not (tmp_path / "events.jsonl").exists()
+    pipe = Pipe()
+    why = _hooks().install(pipe.w)
+    assert what in why
+    os.close(pipe.w)
+    assert os.read(pipe.r, 10) == b""                                        # nothing was written
     if "net" in originals:
         assert router["single_ended_routing"].route_net_with_obstacles is originals["net"]
 
 
-def test_a_changed_signature_or_field_patches_nothing(router, tmp_path):
+def test_a_changed_signature_or_field_patches_nothing(router):
     router["single_ended_routing"].route_net_with_obstacles = lambda pcb, net: None            # no pcb_data parameter
-    assert "pcb_data" in _hooks().install(str(tmp_path / "e.jsonl"))
+    pipe = Pipe()
+    assert "pcb_data" in _hooks().install(pipe.w)
     router["single_ended_routing"].route_net_with_obstacles = lambda pcb_data, net_id: None
     router["kicad_parser"].Segment = dataclasses.make_dataclass("Segment", [("start_x", float)])
-    assert "Segment has no field" in _hooks().install(str(tmp_path / "e2.jsonl"))
+    assert "Segment has no field" in _hooks().install(pipe.w)
 
 
-def test_without_a_path_or_with_events_off_the_hooks_do_nothing(router, tmp_path, monkeypatch):
+def test_without_a_pipe_or_with_events_off_the_hooks_do_nothing(router, monkeypatch):
     monkeypatch.delenv("PLACEMAT_ROUTE_EVENTS", raising=False)
+    monkeypatch.delenv("PLACEMAT_ROUTE_EVENTS_FD", raising=False)
     assert _hooks().install() == ""
+    pipe = Pipe()
+    monkeypatch.setenv("PLACEMAT_ROUTE_EVENTS_FD", str(pipe.w))
     monkeypatch.setenv("PLACEMAT_ROUTE_EVENTS", "off")
-    assert _hooks().install() == "" and router["pcb_modification"].add_route_to_pcb_data.__name__ == "<lambda>"
-    assert "cannot be written" in _hooks().install(str(tmp_path / "no" / "such" / "events.jsonl"))
+    original = router["pcb_modification"].add_route_to_pcb_data
+    assert _hooks().install() == "" and router["pcb_modification"].add_route_to_pcb_data is original
+    monkeypatch.delenv("PLACEMAT_ROUTE_EVENTS")
+    hooks = _hooks()
+    assert hooks.install() == "" and router["pcb_modification"].add_route_to_pcb_data is not original         # the descriptor from the environment
+    pipe.events(hooks)
+    assert "is not open" in _hooks().install(987654)
+
+
+def test_a_router_that_outruns_its_reader_drops_events_and_one_that_lost_its_reader_goes_on_silently(router):
+    hooks = _hooks()
+    pipe = Pipe()
+    assert hooks.install(pipe.w) == ""
+    pm = router["pcb_modification"]
+    hooks.QUEUE_MAX = 5
+    os.close(pipe.r)                                                         # the reader has gone: writes fail, the route goes on
+    for _ in range(50):
+        pm.add_route_to_pcb_data(PCB(), {"new_segments": [Segment(0, 0, 1, 0, 0.2, "F.Cu", 1)], "new_vias": []})
+    assert len(pm.log) == 50
+    hooks._flush()
+    assert hooks._state["dead"] is True
+    os.close(pipe.w)
 
 
 def test_the_wrapper_scripts_load_the_hooks_by_path_and_report_the_reason_when_off(tmp_path):
@@ -148,34 +195,49 @@ def _commit(net, x, how="route", via=None):
     return {"ev": "commit", "net": net, "how": how, "seg": [[x, 0, x + 1, 0, "F.Cu", 0.2]], "via": via or []}
 
 
-def test_the_tail_sends_each_event_as_it_is_written_and_keeps_them_in_order(tmp_path):
+def _send_lines(rev, *lines):
+    """What the router's process does: write to the descriptor it was given."""
+    fd = int(rev.env("x")["PLACEMAT_ROUTE_EVENTS_FD"])
+    for line in lines:
+        os.write(fd, line.encode())
+
+
+def test_the_reader_sends_each_event_as_it_arrives_and_keeps_them_in_order(tmp_path):
     sent = []
     rev = route_progress.RouteEvents(tmp_path, sent.append)
     rev.begin("main")
-    path = rev.path("main")
-    with open(path, "a") as f:
-        f.write(json.dumps({"ev": "queue", "nets": ["A", "B"]}) + "\n")
-        f.write(json.dumps(_commit("A", 0))[:30])                                 # a line cut short by the writer: not an event yet
-        f.flush()
-        deadline = time.monotonic() + 5
-        while len(sent) < 2 and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert [e["ev"] for e in sent] == ["route_stage", "route_queue"]
-        f.write(json.dumps(_commit("A", 0))[30:] + "\n")
-        f.write(json.dumps({"ev": "net_end", "net": "A", "ok": True}) + "\n")
+    assert route_progress.pass_fds() == (int(rev.env("main")["PLACEMAT_ROUTE_EVENTS_FD"]),)
+    whole = json.dumps(_commit("A", 0))
+    _send_lines(rev, json.dumps({"ev": "queue", "nets": ["A", "B"]}) + "\n", whole[:30])               # a write cut short: not an event yet
+    deadline = time.monotonic() + 5
+    while len(sent) < 2 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert [e["ev"] for e in sent] == ["route_stage", "route_queue"]
+    _send_lines(rev, whole[30:] + "\n", json.dumps({"ev": "net_end", "net": "A", "ok": True}) + "\n")
     events = rev.end("main")
-    assert [e["ev"] for e in events] == ["queue", "commit", "net_end"]
+    assert [e["ev"] for e in events] == ["queue", "commit", "net_end"] and route_progress.pass_fds() == ()
     assert [e["ev"] for e in sent] == ["route_stage", "route_queue", "route_commit", "route_net_end"] and sent[2]["stage"] == "main"
     assert rev.stages[0]["stage"] == "main" and not rev.stages[0]["resumed"]
+    assert [p.name for p in tmp_path.iterdir()] == []                         # no events file: the record is the only file (written once the route has a board)
 
 
-def test_a_resumed_stage_sends_and_keeps_the_events_its_earlier_route_saved(tmp_path):
+def test_a_stage_taken_from_an_earlier_route_sends_and_keeps_what_that_routes_record_held(tmp_path):
+    info = {"pcb": "x.kicad_pcb", "run": "", "script": ""}
+    route_progress.write_record(tmp_path, info, [{"stage": "islands", "resumed": False, "seconds": 1.0, "events": [{"ev": "queue", "nets": ["G"]}, _commit("G", 0)]}], {})
     sent = []
-    rev = route_progress.RouteEvents(tmp_path, sent.append)
-    rev.path("islands").write_text(json.dumps({"ev": "queue", "nets": ["G"]}) + "\n" + json.dumps(_commit("G", 0)) + "\n")
+    rev = route_progress.RouteEvents(tmp_path, sent.append, info)
     rev.resumed("islands", 2.5)
     assert [e["ev"] for e in sent] == ["route_stage", "route_queue", "route_commit"] and sent[0]["resumed"] is True
     assert rev.stages == [{"stage": "islands", "resumed": True, "seconds": 2.5, "events": [{"ev": "queue", "nets": ["G"]}, _commit("G", 0)]}]
+
+
+def test_each_stage_that_ends_leaves_the_record_as_it_stands_for_a_stopped_route(tmp_path):
+    info = {"pcb": "x.kicad_pcb", "run": "", "script": ""}
+    rev = route_progress.RouteEvents(tmp_path, None, info)
+    rev.begin("islands")
+    _send_lines(rev, json.dumps({"ev": "queue", "nets": ["G"]}) + "\n")
+    rev.end("islands")
+    assert [s["stage"] for s in route_progress.read_record(tmp_path / route_progress.RECORD)["stages"]] == ["islands"]
 
 
 def test_the_pair_routers_aliases_are_turned_back_to_the_boards_nets(tmp_path):
@@ -183,17 +245,16 @@ def test_the_pair_routers_aliases_are_turned_back_to_the_boards_nets(tmp_path):
     rev = route_progress.RouteEvents(tmp_path, sent.append)
     rev.names = {"PAIR0_P": "USB_DP", "PAIR0_N": "USB_DN"}
     rev.begin("pairs")
-    with open(rev.path("pairs"), "a") as f:
-        f.write(json.dumps(_commit(["PAIR0_P", "PAIR0_N"], 0)) + "\n" + json.dumps({"ev": "net_end", "net": "PAIR0_P", "ok": True}) + "\n")
+    _send_lines(rev, json.dumps(_commit(["PAIR0_P", "PAIR0_N"], 0)) + "\n" + json.dumps({"ev": "net_end", "net": "PAIR0_P", "ok": True}) + "\n")
     events = rev.end("pairs")
     assert events[0]["net"] == ["USB_DP", "USB_DN"] and events[1]["net"] == "USB_DP" and sent[-1]["net"] == "USB_DP"
 
 
-def test_events_off_gives_the_router_nothing_to_write(tmp_path, monkeypatch):
+def test_events_off_gives_the_router_no_pipe(tmp_path, monkeypatch):
     monkeypatch.setenv("PLACEMAT_ROUTE_EVENTS", "off")
     rev = route_progress.RouteEvents(tmp_path, None)
-    assert rev.env("main") == {} and not route_progress.enabled()
     rev.begin("main")
+    assert rev.env("main") == {} and not route_progress.enabled() and route_progress.pass_fds() == ()
     assert rev.end("main") == []
 
 

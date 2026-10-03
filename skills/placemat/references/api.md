@@ -3340,8 +3340,9 @@ socket for as long as it runs (Linux and macOS):
   copper taken up again), `route_queue_end`, and `route_off` (`why`) when the hooks could not be installed - the route then runs with no
   progress and says why. They come from a wrapper around the router's per-net functions (`kicad/route_events.py`, installed by
   `kicad/route_hooked.py` and `route_one_round.py`; each hook is anchored on the router's own function names, signatures and
-  field names and installs nothing when one is missing), written to `events-<stage>.jsonl` in the route's work folder and sent by
-  a tail of that file, so no router output is parsed. `PLACEMAT_ROUTE_EVENTS=off` leaves the router unhooked. A pair stage names
+  field names and installs nothing when one is missing), sent over a pipe the route opens for each stage
+  (`PLACEMAT_ROUTE_EVENTS_FD` names its write end in the router's process; a full queue drops events, a closed pipe ends them), so no file
+  and no router output is involved. `PLACEMAT_ROUTE_EVENTS=off` leaves the router unhooked. A pair stage names
   its nets by the board's names. A reader that attaches late is caught up on up to 60000 route events (a `route_truncated` event says
   when more were made).
 - The route record, `route/route_record.json` (with `route_summary.json` beside it, a few counts, and `route_board.json`, the
