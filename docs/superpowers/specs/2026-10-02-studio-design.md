@@ -155,41 +155,61 @@ the run with the last one as it compares resolves. Runs started elsewhere
 (an agent's `placemat run`) are picked up from `.placemat/runs` and shown
 the same way.
 
-### Watching an explore (phase 2)
+### Live channel (phase 2)
 
-The user (2026-10-02): "I wonder if it's possible to view an explore session
-as well to see what the agent is actually trying". An explore resolves
-seeded variants of the focused items' spots and order in worker processes
-(explore.py `explore`, `_work`): each variant comes back as (seed, score,
-measures) on a queue, and only the best is reported or kept today.
+Decided by the user, 2026-10-03, replacing the progress log file this section first had:
 
-- **A progress log.** Every explore (from `placemat run --explore`, `preview
-  --explore`, by an agent or the user) appends one line per finished variant
-  to `.placemat/views/explore/<id>.jsonl`: the seed, its score and measures,
-  and the focused items' placements (key, position, turn, face) and the
-  order they were placed in; the first line holds the plain placement (seed
-  0), the focus, the time budget and the job count. Regenerable output,
-  under `.placemat/views/` like the other views.
-- **The page tails the log**, live while the explore runs and afterwards:
-  - the variants as they finish, with a plot of score against time and the
-    best so far marked;
-  - each variant as a diagram diff against the plain placement (the focused
-    items' ghosts at their plain spots, arrows to where the variant put
-    them), and a step through the variants in order or by score;
-  - the variant the explore kept (`--accept`) marked, and what it moved.
-  - **live, while it runs** (the user: "show a diagram of explore placements
-    as it goes ... obviously not all of them"): the board shows the latest
-    variant's focused items over the plain placement, replaced as new ones
-    arrive, at most a few a second (a setting, `[studio] explore_fps`,
-    default 2), so the drawing is watchable; variants that arrive between
-    frames are logged and plotted, not drawn. The best so far stays drawn
-    in its own colour beside the latest. A small strip of thumbnails keeps
-    the last few drawn variants and the best, each clickable.
-  - **where it tried**: a density layer over the board marking where each
-    focused item landed across all variants so far, so the spread of what
-    was tried is seen at a glance even when most variants are never drawn.
-- Seeing what was tried and rejected needs nothing from the agent beyond
-  running explore; the log is written whoever runs it.
+**The studio reads only structured data, never log text.** Anything it shows about a command comes from a record
+(`run.json`, an explore's result file) or from the live channel's JSON events. It does not parse a command's printed
+lines or `worker.log`.
+
+**Records stay records; live state is ephemeral.** `run.json`, and an explore's result (which keeps a summary of every
+variant: seed, score, measures, the focused items' placements and the order they were placed in, and which variant was
+kept), are written when a command ends and read afterwards, so what was tried can be browsed later. Nothing live goes
+through a file.
+
+**Live state goes over a local socket** (Linux and macOS):
+
+- Each studio listens on a Unix socket in its project, `<project root>/.placemat/studio/<pid>.sock` (the project root
+  as `studio.project_root` finds it; where that path is too long for a socket address, a short path under the
+  temporary directory, named in the registry), and writes a small registry entry beside it, `<pid>.json`: pid, socket,
+  started, address, the script it watches. Both are removed when it exits; an entry whose pid is dead is removed by
+  whoever finds it.
+- Every placemat command that resolves a board (`run`, `preview`, an explore inside them, `route`, `check`, anything
+  that calls `Board.resolve`) looks for studios of its project the first time it resolves and, if there are any,
+  connects to all of them and sends newline-delimited JSON: `hello` (command, pid, script, arguments, started); the
+  events the studio's own worker sends (`board`, `item` per settled step with its copper or cutout, `begin` and its
+  phases); a `plan` event with the finished plan; for an explore, `explore` (the plain placement, the focus, the
+  budget, the jobs), one `variant` per finished variant and `explore_done`; then `done` (the record's path) or
+  `error` (message, file, line). Not restricted to the script a studio watches: any command in the project reports.
+- A command is never in the way. With no studio there is one directory check, once. With one, a sender thread with a
+  small bounded queue takes the events: a full queue drops the event, and a socket that goes away is dropped
+  silently. Measured: the bench at `--jobs 2` unchanged with no studio, a resolve with one listening within noise.
+- A command that dies without `done` is a closed connection; the studio shows it as lost, with the last step it
+  reported. The internal resolve worker is the studio's own process and does not use the channel; the channel would let
+  it move to an external `placemat preview` process later (not in this round). A worker crash is its lost pipe and
+  the last step it reported; the faulthandler traceback is optional detail only.
+
+**The page's Runs view** lists the live commands from anywhere in the project (and the recent finished ones, from their
+records): command, script, pid, elapsed by the server's clock, state. A toast says when one starts ("explore started:
+Core_layout.py, by pid 4312"); it opens that command. Opening a live resolve or run shows its streamed steps on the
+board, in place of the studio's own plan until closed, without disturbing the studio's own watch. Opening an explore
+shows the explore view:
+
+- the variants as they finish, with a plot of score against time and the best so far marked;
+- each variant as a diagram over the plain placement (the focused items at their plain spots, drawn again where the
+  variant put them), and a step through the variants in order or by score;
+- the variant the explore kept (`--accept`) marked;
+- **live** (the user: "show a diagram of explore placements as it goes ... obviously not all of them"): the latest
+  variant over the plain placement, replaced as new ones arrive at most `[studio] explore_fps` times a second
+  (default 2); variants that arrive between frames are plotted, not drawn. The best so far stays drawn in its own
+  colour beside the latest, with a strip of thumbnails of the last few drawn variants and the best, each clickable;
+- **where it tried**: a density layer marking where each focused item landed across all variants so far.
+
+Finished explores are browsed the same way from their result file.
+
+**The studio's own Run button** is a command like any other: it starts `placemat run`, which reports over the channel,
+and the page shows its live steps; the studio does not read its printed lines.
 
 ### 3D (phase 3)
 
