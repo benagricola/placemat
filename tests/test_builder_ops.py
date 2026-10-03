@@ -125,7 +125,7 @@ def test_a_statement_may_be_bound_to_a_name_the_script_does_not_have():
 
 
 def test_a_region_a_script_does_not_have_falls_back_to_the_one_before_it():
-    assert ins("decided", HEAD + "board.rect(60, 40)\n").endswith("board.rect(60, 40)\nboard.place(Part(\"c9\"))\n")
+    assert ins("decided", HEAD + "board.rect(60, 40)\n").endswith("board.rect(60, 40)\n\nboard.place(Part(\"c9\"))\n")   # the first one starts the region
 
 
 # ------------------------------------------------------------------ read_intent

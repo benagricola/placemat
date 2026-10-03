@@ -3404,7 +3404,7 @@ replays from its record.
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. By default the server listens on 127.0.0.1 only. Every request
 needs the token in the address (and a `Host` header the studio listens on);
-GET serves the page and its data, and POST only `/switch`, `/run`, `/resolve` and
+GET serves the page and its data, and POST only `/switch`, `/run`, `/resolve`, the builder's `/build/...` ("Studio builder") and
 `/suggest/show`, `/suggest/try`, `/suggest/apply` and `/suggest/undo`. Stop it with Ctrl-C.
 Suggestions (`finding.suggestions` in the plan) are shown on each finding row, the card and the step rows: the best one,
 with "more (n)" for the other variants (up to `[studio] suggestions_per_lever` of one lever). Three buttons, each
@@ -3657,6 +3657,55 @@ script and lock are written only when the edited script places every item
 exactly as the lock did; otherwise freeze says what would have moved (an
 entry that drifted is refused: accept it again where it now stands). A call inside a loop or a helper function
 declares more than one item and is refused with its line.
+
+## Studio builder
+
+The studio's Build mode writes a layout script from clicks, as structured edits to the script and its facts, and never a
+coordinate. It is for a board with a `.zen` and no layout script yet, and, afterwards, for a script that exists. A user can be pointed at
+it: `placemat studio` with no script lists the project's layout scripts and, as a second group, "Boards with no layout" (each `.zen`
+declaring a `Board`, `Project` or `Layout` with no `<Board>_layout.py` beside it and no listed script laid out for it). There is no command for
+it: the flow is in the page.
+
+1. **The board.** The page generates it (`pcb layout`, as a first `placemat run`; a cached generation is used where its inputs are
+   unchanged) and reads it in a process of its own (`builder_worker`), with progress as `build` events. A failure shows the generator's log tail.
+2. **Facts.** One form per fact, each written to its home: layer roles and copper weights and the pair net classes in the `.zen`
+   (`Board(config=BoardConfig(stackup=Stackup(layers=[...])))`, `design_rules.netclasses`; minimal splices, a `load("@stdlib/board_config.zen", ...)`
+   made or widened), via types and fab minimums in `fab-profile.json`, the rise in `placemat.toml` `[check] rise_c`. A weight is entered as oz or
+   as a thickness and stored as a thickness in mm with the oz as a comment (1 oz/ft2 = 0.035 mm). `fab-profile.json` goes to the project root
+   when there is none; a profile found above the board is left alone and a changed value writes a full copy beside the board; one beside the
+   board is edited in place. A batch is one apply to the three files, then a regeneration and a read-back: a fact the generator did not take is
+   reported. A row is decided, undecided (a default nobody wrote down), flagged (a plane mismatch: acknowledge it, or change the role) or
+   changed (a fact edit after the confirmation). The confirmation is `facts.confirmed_text`'s, keyed to the script's path, so it needs the script.
+   Placement and "Search the rest" wait for it. A `.zen` that `ast` cannot read, or declares its config through a name, is read only.
+3. **The outline.** Rectangle (corners cut or rounded), circle (with a bore), slot, polygon (templates or a vertex list), holes. A size is a
+   named constant with a comment saying where it came from: suggested from the parts' courtyard area (`area / (faces * fill)`, then the width
+   from `[studio] builder_aspect`, rounded up to `builder_grid_mm`) or chosen in the builder. A typed size shows the fill it gives. A polygon's
+   vertices are the one list of positions the builder writes: the board's own shape, a named constant. A hole on an edge is in its middle and
+   needs a web (the engine refuses one that touches the outline). The script is created in one write (`create_file`, undoable: undo removes it).
+4. **Placing.** Select what to place (the list, the tray of unplaced items, the board), say what a click picks (edge, part, pad, none), and
+   choose among the relations the server offers. Each offer is a suggestion without a finding (id `b1`, ...): `POST /build/offer` returns it,
+   `/suggest/show`, `/suggest/try` and `/suggest/apply` take it. Offers: on an edge (anywhere, start, middle, end; on a shaped board
+   by `board.edge(facing=)`, bound once, `outermost=True` where several stretches face one way and one lies furthest out), on a disc's rim or
+   bore, beside a part (a side, flush to an end), beside by a pad (its side, level with it), close to a pad (`board.link(...,
+   weight=LinkWeight.SHORT)` and a bare `place`), near a pad (where no net joins them), in line with a pad (`Centre(X(pad), None)`), a row
+   or ring of several, searched from its links. Modifiers: a quarter turn, a pad facing an edge, turned with another part, face, priority
+   (with its reason), required, why. A gap (and a link's limit, a `Near`'s radius) is a typed number: a named constant
+   (`C1_GAP_MM`) whose comment carries the user's reason. The suggested turn counts the ratsnest crossings of the four turns of a placed part
+   (an estimate; Try is exact). Decided statements go in the decided part of the script in the order made (a move up or down reorders
+   them); a bare `place` goes in the searched block under `# Searched from their links.`; changing a searched item to decided (or back) moves its
+   statement. A hand-written script gets a statement after the one it names, in its own spelling of parts.
+5. **Editing.** The parts list reads each placement back as a relation (`script_edit.read_intent`). A declaration it cannot read (a loop, a
+   helper, a `Location`, a numeric `Centre`) is `by hand`: shown as written, and only replaced by a relation. Changing the outline's shape
+   lists the placements it invalidates (an edge on a disc, a rim on a rectangle) and needs a choice for each.
+6. **Undo and redo.** Every write is an entry of `.placemat/applied.jsonl` with source `builder`; the page's Undo and Redo are
+   `/suggest/undo` and `/suggest/redo`.
+
+Endpoints (the token as for the others; the body is a JSON record, never source; a refusal is `{"error": sentence, "rule"?}` with 404, 409,
+422 or, while the facts are not confirmed, 423): `GET /build/state`, `/build/facts`, `/build/parts`; `POST /build/start`
+`{id | current}`, `/build/reload`, `/build/close`, `/build/facts/apply` `{request}`, `/build/facts/confirm` `{acks}`, `/build/outline/suggest`,
+`/build/outline/create` `{spec, description}`, `/build/offer` `{resolve, subject, target, params | kind: search|remove|move|row|item|outline}`,
+`/build/turns`, `/build/turn`. Settings: `[studio] builder_grid_mm` (0.5), `builder_max_fill` (0.5; the one measured board is filled 0.33
+per face), `builder_aspect` (1.0); none is part of a run's id.
 
 ## Studio notes
 
@@ -4159,6 +4208,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.probe_budget_s` | `120` | seconds | a probe of a searched suggestion stops after this long in all, keeping the best candidate so far |
 | `studio.probe_candidates` | `12` | count | the most candidates (resolves of the edited script) a probe tries, the first and the last check included |
 | `studio.apply` | `true` | bool | false: the studio shows suggestions and diffs but refuses to write them |
+| `studio.builder_grid_mm` | `0.5` | mm | the board builder: a dragged outline dimension or vertex snaps to this step, and a suggested size is rounded up to it |
+| `studio.builder_max_fill` | `0.5` | share | the board builder: the most of one face the parts' courtyards may fill in a suggested board size (above 0, at most 1); the outline dialog's fill field overrides it for one board. The one measured board is filled 0.33 per face on average |
+| `studio.builder_aspect` | `1.0` | ratio | the board builder: the width over the height a suggested rectangle takes before the user changes it |
 | `facts.confirmed` | `""` | text | the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm` |
 | `facts.boards` | `{}` | table | `[facts.boards]`: a script's path relative to this placemat.toml -> the digest of its last `placemat facts --confirm`; placemat's own record, not part of a run's id |
 <!-- settings-table:end -->

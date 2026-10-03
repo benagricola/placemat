@@ -7,6 +7,17 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **The studio has a board builder.** In the page: pick a `.zen` that has no layout script (a second group in the start view), state its
+  facts in forms (stackup roles and weights, pair net classes, via types and fab minimums, the rise), draw its outline from a size
+  suggested from the parts, and click parts into place by intent; the script is written as it goes and every step is an undo. See `api.md`,
+  "Studio builder". Settings `[studio] builder_grid_mm`, `builder_max_fill`, `builder_aspect`. Nothing to change in a script.
+- Engine: `script_edit` gains the ops `zen_stackup`, `zen_netclasses` and `json_set` (a `.zen` dialect and a JSON dialect of the splicing
+  editor), a `{"block": [...]}` value and a `comment` for inserted statements, `set_constant` of a list of (x, y) pairs and with
+  `replace_comment`, and `read_call`; `remove_statement` and `remove_constant` no longer leave a doubled blank line, and an edit's later
+  targets and references follow lines an earlier edit inserted directly above them.
+
 ### Changed
 
 - **A part stands tighter beside a part that draws a mark outside its body, and keeps room for declared copper.**

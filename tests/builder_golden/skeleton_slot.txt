@@ -1,0 +1,9 @@
+"""Demo: layout."""
+from placemat import board, Slot
+
+# The board's length, chosen in the studio's board builder.
+BOARD_LENGTH_MM = 60.0
+# The board's width, chosen in the studio's board builder.
+BOARD_WIDTH_MM = 30.0
+
+board.outline(Slot(BOARD_LENGTH_MM, BOARD_WIDTH_MM))
