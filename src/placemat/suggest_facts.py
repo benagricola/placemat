@@ -168,9 +168,22 @@ def link_candidates(board, i, limit: int = 2) -> list:
     return out[:limit]
 
 
-def unplaced_pocket(board, i) -> dict:
+def unplaced_pocket(board, occ, plan, i) -> dict:
+    """The facts for an item no pocket took: the pads it could be linked to a part by, and, for each such part that is
+    already placed, the sides of it the item may stand beside."""
     facts = _item_facts(board, i)
     facts["links"] = link_candidates(board, i)
+    free = {}
+    for link in facts["links"]:
+        try:
+            ref = board.geometry.footprint(link["partner"]).ref
+        except (KeyError, ValueError):
+            continue
+        if ref in occ.items and ref not in occ.pending:
+            sides = free_sides(board, occ, plan, i, link["partner"], occ.items[ref].body.center)
+            if sides:
+                free[link["partner"]] = sides
+    facts["free_sides"] = free
     return facts
 
 

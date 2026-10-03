@@ -6919,7 +6919,7 @@ class Board:
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
             self._face_text(i), len(tried)) + "".join("; %s" % why for why in riders.values()),
-            suggest_facts.unplaced_pocket(self, i)))
+            suggest_facts.unplaced_pocket(self, occ, plan, i)))
         return self._step(i, None, 0.0, "UNPLACED: no pocket fits" + "".join("; %s" % why for why in riders.values()))
 
     def _seeded_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, hint: Placement, score,
@@ -8718,7 +8718,7 @@ class Board:
         if hopeless:
             from . import suggest_facts
             plan.findings.append(self._finding("unplaced", "unplaced.pocket", "%s: %s" % (i.key, hopeless),
-                                               suggest_facts.unplaced_pocket(self, i)))
+                                               suggest_facts.unplaced_pocket(self, occ, plan, i)))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
         if self._on_begin is not None:
             self._phase("scanning the %s" % self._face_text(i), hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))

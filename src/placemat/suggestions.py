@@ -772,6 +772,10 @@ def unplaced_search(f, settings):
 def unplaced_pocket(f, settings):
     item = f["item"]
     out = []
+    for nb, sides in f.get("free_sides", {}).items():
+        for side in sides:
+            out.append(_set("place", item, "at", _beside(nb, side),
+                            "Place %s beside %s, on its %s side" % (item, nb, _side_word(side)), "beside"))
     for link in f.get("links", ()):
         pads = [{"pad": [item, link["own"]]}, {"pad": [link["partner"], link["pad"]]}]
         out.append(_insert_after("place", item, _form("board.link", *pads),

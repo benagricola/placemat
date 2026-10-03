@@ -137,3 +137,23 @@ written. A case whose facts the site cannot yet supply is listed in the final re
   `SKILL.md` text; `migration.md` "## Unreleased" / "### New".
 - Studio hand-off note.
 - Full suite once; bench once at `--jobs 2`.
+
+## As built: where it differs from the spec
+
+- A copper declaration's site key is `<key>#<index>` (two tracks of one net share `track NET`); a copper finding's facts
+  carry it. A finding about copper made of several declarations of one net (`copper.meets` on a merged track) carries no
+  key and gets no suggestion.
+- The spec's `[studio] suggestions_per_lever` is joined by `studio.suggest_factor` (2.0): suggestions that widen a limit
+  multiply it by this and ones that narrow a step divide by it, so no figure is invented in the builder.
+- One `Edit` per suggestion; a `{"const": ...}` value brings its own `set_constant` (the constant's file is bound by
+  `bind`), so one edit can write two files. A call that already reads a constant gets two suggestions: change the
+  constant (`set_constant`, `existing`), or a constant of its own.
+- A keyword that the board method takes by position (`at=`, `weight=`) is edited where the script gave it, by position.
+- `edit_list` `remove` also takes `indices` (a track's waypoints have no name to find them by) and `add` takes `create`
+  (add the keyword with a one-element list where the call has none).
+- The applied log has one line per apply with all its files: `{"op", "id", "text", "at", "files": [{file, before, after}]}`.
+- `placemat apply` finds a plan's suggestions in `<board>/.placemat/suggestions.json`, written by `run` and by
+  `preview`, so a `preview`'s ids work too; `run.json` carries them as well.
+- The `try` console line shows the best suggestion; a second line lists the ids of the rest.
+- Cases built without a suggestion for some levers, and the levers not built, are listed in the final report of the
+  work, not stubbed.
