@@ -3809,6 +3809,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.freedom_min_step` | `0.2` | mm | the least step a part's one-freedom search (along an edge, round a ring) walks at; an item's own step is used when coarser |
 | `place.cutout_step` | `0.2` | mm | the step a cutout is slid along a free axis at |
 | `place.cutout_angle_step` | `0.5` | degrees | the step a cutout is turned round its centre at |
+| `place.escape_lane_via_exit` | `false` | bool | whether a via that fits at the end of a pad's own copper (an escape lane or a stub drawn from it) counts as that pad's way out. Off: a pad on a lane needs a track to get on, on the layer the lane is on, and is walled off when only a via would; on: a via spot is enough, as for a pad with no lane, which keeps the via rule either way |
 | `place.escape_cell` | `0.05` | mm | the grid a pad's path out is searched on |
 | `place.split_min_group` | `2` | count | the least members a group needs to count as one, in a cell's `split` finding |
 | `copper.chamfer` | `1.0` | mm | how far a right angle is cut back into two 45s |

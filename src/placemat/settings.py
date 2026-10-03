@@ -151,6 +151,8 @@ class Settings:
         "the step a cutout is slid along a free axis at")
     place_cutout_angle_step: float = S(0.5, "degrees",
         "the step a cutout is turned round its centre at")
+    place_escape_lane_via_exit: bool = S(False, "bool",
+        "whether a via that fits at the end of a pad's own copper (an escape lane or a stub drawn from it) counts as that pad's way out. Off: a pad on a lane needs a track to get on, on the layer the lane is on, and is walled off when only a via would; on: a via spot is enough, as for a pad with no lane, which keeps the via rule either way")
     place_escape_cell: float = S(0.05, "mm",
         "the grid a pad's path out is searched on")
     place_split_min_group: int = S(2, "count",
