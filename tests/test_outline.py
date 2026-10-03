@@ -87,16 +87,16 @@ def walk_every_segment(o, box, margin):
     """What the keep-in test means, written out: the box centre inside the
     board and outside every cutout, and no segment of any loop nearer than
     the margin. The reference the fast path must agree with."""
-    from placemat.cutouts import inside as _inside, segment_box as _segment_box
+    from placemat.cutouts import EdgeWhy, inside as _inside, segment_box as _segment_box
     if not _inside(o.loops[0], box.center):
-        return "outside the board"
+        return EdgeWhy.OUTSIDE
     for hole in o.loops[1:]:
         if _inside(hole, box.center):
-            return "inside a cutout"
+            return EdgeWhy.IN_CUTOUT
     for n, loop in enumerate(o.loops):
         for (x1, y1), (x2, y2) in zip(loop, loop[1:] + loop[:1]):
             if _segment_box(x1, y1, x2, y2, box) < margin - 1e-5:
-                return "past the %s keep-in (%.2f mm)" % ("board's" if n == 0 else "cutout's", margin)
+                return EdgeWhy.PAST_BOARD if n == 0 else EdgeWhy.PAST_CUTOUT
     return None
 
 
