@@ -1,0 +1,2 @@
+# The board whose cached generation is in generated/: only its name is read, to find the layout script's board.
+Board(name = "UsbCells", layout_path = "layout/UsbCells")

@@ -25,6 +25,20 @@ section for each hand-written pattern a newer form replaces.
   resolve and the slider can be used; a footprint's own copper graphics (a printed winding) are drawn, planes are
   visible and congestion is a colour ramp with a scale.
 
+### Fixed
+
+- **A stamped cell's drawn track or via no longer leaves a pad reported
+  walled off.** The escape check kept a stamped cell's copper where the
+  cell stood before it was placed, so a pad joined by a track (to a pad
+  holding a plane via, for one) read as unjoined and was reported
+  `escape_walled`, a finding the module alone did not give. The check now
+  holds the cell's copper where the cell stands. A pad is also no longer
+  reported walled off or closed when only the boxes of a diagonal track or
+  pour leave it no room: the path search falls back to their shapes before a
+  finding is made. Findings that went away
+  with it need no script change; a board whose cells were placed with these
+  findings in the score may place them differently.
+
 ## To 0.82.0
 
 ### New
