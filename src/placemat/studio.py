@@ -1297,7 +1297,9 @@ def run(script=None, port: int | None = None, open_browser: bool | None = None, 
     if studio.origin() is not None:                 # listening for another device: the first open there is a scan
         from . import qr
         try:
-            console.data(qr.to_terminal(qr.encode(url)))
+            code = qr.to_terminal(qr.encode(url))
+            console.say("studio", "share link: scan this code to open the studio on another device on this network")
+            console.data("\n" + "\n".join("  " + line for line in code.splitlines()) + "\n")     # set off from the log lines
         except ValueError:
             pass
     if studio.open_browser:

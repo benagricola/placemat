@@ -43,6 +43,17 @@ section for each hand-written pattern a newer form replaces.
   instead of its printed lines (the studio reads no printed text). A resolve worker that crashes is reported as a
   lost connection and the step it was on; the traceback is detail where there is one.
 
+## To 0.86.4
+
+### Fixed
+
+- **The skill matches the code.** SKILL.md and the references were checked against every command, flag, script
+  form and setting: the studio's address, buttons and endpoints, `board.keepout`'s and `board.rule`'s required
+  `why=`, finding severities in the loop and the gate (no critical findings; every warning fixed or judged),
+  `place.drops_keep` as a share, net-class differential pairs, and the `impact` and `occupancy` options. Scripts
+  change nothing.
+- `placemat studio --host` says what its QR code is for and sets it off from the log lines.
+
 ## To 0.86.3
 
 ### New

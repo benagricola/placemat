@@ -23,7 +23,7 @@ jobs:
         run: |
           uv venv --python 3.12
           uv pip install -e ".[dev]"
-          PLACEMAT_NATIVE=0 .venv/bin/python -m pytest -q
+          PLACEMAT_NATIVE=0 .venv/bin/python -m pytest --full -n 2
       - name: The version is the tag, and the plugin manifests say so too
         run: |
           want="${GITHUB_REF_NAME#v}"
@@ -36,7 +36,7 @@ jobs:
         run: |
           uv pip install -e ".[dev,native]"
           .venv/bin/python -c "import placemat.geometry as g; assert g._native is not None"
-          .venv/bin/python -m pytest -q
+          .venv/bin/python -m pytest --full -n 2
 
   native-wheels:
     needs: test
