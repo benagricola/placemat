@@ -119,15 +119,15 @@ tabBtn.onclick = () => { goTab("build"); drawTab(); };
 nBtn.onclick = () => { showNarrow("build"); drawTab(); };
 
 // ---------------------------------------------------------------- state from the server
-async function refreshState() {
+async function refreshState(reinit) {
   try { BS.st = await get("/build/state"); } catch (e) { return fail(e); }
-  if (BS.st.phase === "ready" && BS.st.session) await refreshFacts();
+  if (BS.st.phase === "ready" && BS.st.session) await refreshFacts(reinit);
   drawAll();
 }
-async function refreshFacts() {
+async function refreshFacts(reinit) {
   try { BS.facts = await get("/build/facts" + Object.keys(BS.acks).filter(k => BS.acks[k]).map((k, i) => (i ? "&" : "?") + "ack_" + encodeURIComponent(k) + "=1").join("")); }
   catch (e) { BS.facts = null; }
-  initForm();
+  if (reinit || !BS.form) initForm();             // what the user is typing is kept; a write reads the forms from the files again
 }
 async function refreshParts() {
   if (!BS.st || BS.st.phase !== "ready" || !BS.st.session || !BS.st.session.exists || !hasScript()) { BS.parts = null; return; }
@@ -175,12 +175,17 @@ async function openSession() {
 }
 function drawMsg() { const m = q("#bld-msg"); if (m) m.innerHTML = BS.msg ? '<div class="bld-msg ' + BS.msg.kind + '">' + h(BS.msg.text) + "</div>" : ""; const t = q("#bt-msg"); if (t) t.innerHTML = BS.msg ? '<div class="bld-msg ' + BS.msg.kind + '">' + h(BS.msg.text) + "</div>" : ""; }
 
-function drawWizard() {
+let wizKey = "";
+function drawWizard(force) {
   const st = BS.st;
   const sess = st && st.session;
   const show = !!(sess && !sess.exists && !BS.closed && S.hello && S.hello.picker);
-  wiz.hidden = !show;
-  if (!show) return;
+  if (!show) { if (!BS.overlayFacts) wiz.hidden = true; wizKey = ""; return; }
+  wiz.hidden = false; BS.overlayFacts = false;
+  // what the user is typing in is not redrawn under them: only a change of step, phase or the log, or a request, draws it again
+  const key = [BS.step, st.phase, sess.name, S.applied.length, !!S.redo, st.phase === "working" ? st.text : ""].join("|");
+  if (!force && key === wizKey) return;
+  wizKey = key;
   const steps = [["board", "1 Board"], ["facts", "2 Facts"], ["outline", "3 Outline"]];
   const gate = BS.facts ? BS.facts.model : null;
   wiz.innerHTML = '<div class="bh"><b>New layout: ' + h(sess.name) + '</b><span class="bld-note">' + h(sess.zen) + '</span><div class="steps">' +
@@ -189,7 +194,7 @@ function drawWizard() {
     '<button class="bld-btn" id="bld-close">Close</button></div><div class="bb"><div class="bld-wrap"><div id="bld-msg"></div><div id="bld-body"></div></div></div>';
   q("#bld-close").onclick = () => { BS.closed = true; drawAll(); };
   q("#bld-undo").onclick = undo; q("#bld-redo").onclick = redo;
-  qa("[data-step]", wiz).forEach(b => b.onclick = () => { BS.step = b.dataset.step; drawWizard(); });
+  qa("[data-step]", wiz).forEach(b => b.onclick = () => { BS.step = b.dataset.step; drawWizard(true); });
   drawMsg();
   const body = q("#bld-body");
   if (BS.step === "board") boardStep(body);
@@ -214,7 +219,7 @@ function boardStep(body) {
     [["parts", b.parts], ["cells", b.cells], ["copper layers", b.copper_layers], ["courtyard area", b.total_courtyard_area.toFixed(1) + " mm²"]]
       .map(x => '<div class="bld-f"><span>' + x[0] + "</span><b>" + h(x[1]) + "</b></div>").join("") + '</div><p class="bld-note">Every footprint is unplaced: nothing is declared yet. State the board\'s facts next; nothing proceeds on a default.</p>' +
     '<button class="bld-btn primary" id="bld-next">Facts</button></div>';
-  q("#bld-next").onclick = () => { BS.step = "facts"; drawWizard(); };
+  q("#bld-next").onclick = () => { BS.step = "facts"; drawWizard(true); };
 }
 
 // ---------------------------------------------------------------- facts
@@ -241,7 +246,7 @@ const num = v => { const x = parseFloat(v); return isFinite(x) ? x : null; };
 const stateChip = s => '<span class="chip ' + (s === "decided" ? "good" : s === "undecided" ? "bad" : "warn") + '">' + h(s) + "</span>";
 
 function factsStep(body) {
-  if (!BS.facts || !BS.form) { body.innerHTML = '<div class="bld-card">Reading the facts ...</div>'; if (BS.st && BS.st.phase === "ready") refreshFacts().then(drawWizard); return; }
+  if (!BS.facts || !BS.form) { body.innerHTML = '<div class="bld-card">Reading the facts ...</div>'; if (BS.st && BS.st.phase === "ready") refreshFacts().then(() => drawWizard(true)); return; }
   body.innerHTML = '<div id="bld-facts-top"></div><div class="bld-card" id="bld-stack"></div><div class="bld-card" id="bld-pairs"></div><div class="bld-card" id="bld-vias"></div><div class="bld-card" id="bld-rise"></div><div id="bld-facts-bot"></div>';
   drawFactsTop(); stackCard(); pairsCard(); viasCard(); riseCard(); drawFactsBottom();
 }
@@ -363,8 +368,13 @@ async function writeFacts(which) {
     BS.form.result = out;
     say(out.readback && out.readback.length ? "Written, but the generated board did not take " + out.readback.map(r => r.name).join(", ") + ". Undo is offered." : "Written to " + out.files.join(", ") + (out.says && out.says.length ? ". " + out.says.join(" ") : "") + ".", out.readback && out.readback.length ? "bad" : "good");
   } catch (e) { return fail(e); }
-  await refreshState();
-  if (BS.step === "facts") drawWizard();
+  await refreshState(true);
+  redrawFacts();
+}
+// the facts are drawn in the new-board flow, or, for a script that exists, in an overlay over the page: draw whichever is showing
+function redrawFacts() {
+  if (!BS.st || !BS.st.session) return;
+  if (BS.st.session.exists) { if (BS.overlayFacts) factsOverlay(); } else drawWizard(true);
 }
 function drawFactsBottom() {
   const f = BS.facts, m = f.model, el = q("#bld-facts-bot");
@@ -375,11 +385,11 @@ function drawFactsBottom() {
     flagged.map(r => '<label class="bld-row"><input type="checkbox" data-ack="plane:' + h(r.label) + '"' + (BS.acks["plane:" + r.label] ? " checked" : "") + '> ' + h(r.flag) + ": the plane is declared in the layout script, not here (acknowledge it, or change the layer's role above)</label>").join("") +
     '<div class="bld-gate' + (m.gate.open ? " open" : "") + '">' + (m.gate.open ? "The facts are confirmed: placement is open." : "Placement and \"Search the rest\" wait for this confirmation. " + h(m.confirmable.join("; "))) + '</div>' +
     '<div class="bld-row" style="margin-top:8px"><button class="bld-btn primary" id="fb-confirm"' + (m.confirmable.length ? " disabled" : "") + ">Confirm the facts</button></div></div>";
-  qa("[data-ack]", el).forEach(i => i.onchange = async () => { BS.acks[i.dataset.ack] = i.checked; await refreshFacts(); drawWizard(); });
+  qa("[data-ack]", el).forEach(i => i.onchange = async () => { BS.acks[i.dataset.ack] = i.checked; await refreshFacts(); redrawFacts(); });
   const ub = q("#fb-undo"); if (ub) ub.onclick = undo;
   q("#fb-confirm").onclick = async () => {
     try { const out = await post("/build/facts/confirm", {acks: BS.acks}); say("Confirmed in " + out.file + ".", "good"); } catch (e) { return fail(e); }
-    await refreshState(); await refreshParts();
+    await refreshState(); await refreshParts(); redrawFacts();
   };
 }
 
@@ -637,7 +647,7 @@ function drawTab() {
     '<div id="bt-list">' + (p ? rows.map(r => rowHtml(r, sel, nets)).join("") : '<div class="bt-sec bld-note">Reading ...</div>') + '</div>' +
     '<div class="bt-sec"><h3>Tray: unplaced items, drawn to size</h3><div class="bt-tray" id="bt-tray">' + (p ? p.rows.filter(r => r.status === "unplaced").map(r => '<div data-key="' + h(r.key) + '" class="' + (sel.has(r.key) ? "sel" : "") + '" style="width:' + Math.max(18, r.w * 3) + "px;height:" + Math.max(12, r.h * 3) + 'px" title="' + h(r.ref + " " + r.w + " x " + r.h + " mm") + '">' + h(r.ref.length < 8 ? r.ref : "") + "</div>").join("") : "") + '</div></div>' +
     '<div class="bt-sec"><h3>Timeline</h3><div id="bt-tl"></div><div id="bt-tld"></div></div>';
-  drawMsg(); drawSelection(); drawTimeline();
+  drawMsg(); drawSelection(); drawTimeline(); foldUnplaced();
   q("#bt-undo").onclick = undo; q("#bt-redo").onclick = redo;
   const fb = q("#bt-facts"); if (fb) fb.onclick = openFacts;
   q("#bt-factsb").onclick = openFacts;
@@ -652,10 +662,10 @@ function openFacts() { BS.closed = false; BS.step = "facts"; S.hello = S.hello; 
 function factsOverlay() {
   // the facts of a script that exists: the same flow, in the overlay, over the page
   const sess = BS.st && BS.st.session;
-  wiz.hidden = false;
+  wiz.hidden = false; BS.overlayFacts = true;
   const steps = '<div class="steps"><button class="on">Facts</button></div>';
   wiz.innerHTML = '<div class="bh"><b>Facts: ' + h(sess.name) + "</b>" + steps + '<span style="flex:1"></span><button class="bld-btn" id="bld-undo"' + (S.applied.some(a => !a.undone) ? "" : " disabled") + '>Undo</button><button class="bld-btn" id="bld-close">Close</button></div><div class="bb"><div class="bld-wrap"><div id="bld-msg"></div><div id="bld-body"></div></div></div>';
-  q("#bld-close").onclick = () => { wiz.hidden = true; refreshParts(); };
+  q("#bld-close").onclick = () => { wiz.hidden = true; BS.overlayFacts = false; refreshParts(); };
   q("#bld-undo").onclick = undo;
   const body = q("#bld-body");
   factsStep(body);
@@ -886,7 +896,22 @@ ev("finished", () => { if (BS.st && hasScript()) refreshParts().then(() => { if 
 ev("switched", () => { BS.parts = null; BS.subj = []; BS.target = null; BS.offers = null; setTimeout(async () => { await refreshState(); drawAll(); if (hasScript()) { try { goTab("build"); } catch (e) { /* narrow screens use the bar */ } } }, 50); });
 
 // a Build button in the header opens the tab (and the flow for a new board is the start view's)
+// In Build, the findings "no declaration places it" are the unplaced items of a half-built board: they are counted in the parts list and
+// folded out of the findings view (they stay in the run record), so a board being built is not a wall of warnings.
+const UNDECLARED = /no declaration places it/;
+function foldUnplaced() {
+  const el = q("#tab-findings");
+  if (!el || !BS.parts || !hasScript()) return;
+  let n = 0;
+  qa(".row", el).forEach(r => { if (UNDECLARED.test(r.textContent)) { r.style.display = "none"; n++; } });
+  qa(".gh", el).forEach(g => { let next = g.nextElementSibling, shown = 0; while (next && !next.classList.contains("gh")) { if (next.style.display !== "none") shown++; next = next.nextElementSibling; } g.style.display = shown ? "" : "none"; });
+  let note = q("#bld-fold", el);
+  if (n && !note) { note = document.createElement("div"); note.id = "bld-fold"; note.className = "bld-note"; note.style.padding = "6px 12px"; el.insertBefore(note, el.firstChild); }
+  if (note) { note.textContent = n ? n + " finding(s) \"no declaration places it\" are counted as unplaced in the Build tab" : ""; note.style.display = n ? "" : "none"; }
+  const em = q('[data-count="findings"]');
+  if (em && n) { const v = Math.max(0, (parseInt(em.textContent, 10) || 0) - n); em.textContent = v || ""; em.style.display = v ? "" : "none"; }
+}
 const _render = render;
-render = function (parts) { _render(parts); if (parts.includes("all") || parts.includes("status")) { drawButtons(); drawTimeline(); } };
+render = function (parts) { _render(parts); if (parts.includes("all") || parts.includes("status")) { drawButtons(); drawTimeline(); } if (parts.includes("all") || parts.includes("findings") || parts.includes("counts")) foldUnplaced(); };
 refreshState().then(refreshParts);
 })();
