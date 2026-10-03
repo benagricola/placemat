@@ -103,6 +103,15 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 /* the running status is a strip above the timeline: the same fields as the step display, a bar, the time */
 #runstrip { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 5px 10px; color: var(--accent); font-weight: 600; }
 #runstrip[hidden] { display: none; }
+/* wide layouts: the same fields on one line in the header (the strip above the timeline is for narrow ones) */
+#runhead { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; overflow: hidden; color: var(--accent); font-weight: 600; }
+#runhead[hidden] { display: none; }
+#runhead .f-steps { width: 10.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#runhead .f-item { color: var(--ink); font-weight: 600; }
+#runhead .f-el { width: 2.8em; text-align: right; font-variant-numeric: tabular-nums; }
+/* between one step settling and the next beginning, the step that settled stays, dimmed, with the time it took */
+.flds.settled > :not(.spin):not(.f-steps):not(.f-el) { opacity: 0.55; }
+.row.pending.settled .sb { opacity: 0.55; }
 #runstrip .f-el { width: 2.8em; font-variant-numeric: tabular-nums; }
 #runstrip .f-steps { width: 10.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #runstrip .flds + .flds { margin-top: 2px; font-weight: 400; color: var(--ink); }
@@ -454,6 +463,7 @@ svg text { user-select: none; font-family: var(--sans); }
 <header>
   <button class="brand" id="brandbtn" aria-haspopup="menu" aria-expanded="false" title="switch to another layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
+  <div class="flds" id="runhead" hidden></div>
   <button class="tool" id="runbtn" title="a checked run: the design checks, KiCad's DRC and the score, recorded (no render)">Run</button>
   <button class="tool" id="resolvebtn" title="cancel what is running and resolve again now: the menu offers a full resolve from scratch">Resolve</button>
   <button class="tool" id="sharebtn" title="open this view on another device: a QR code of its address">Share</button>
@@ -686,7 +696,7 @@ on("step", d => {                          // a step as it settles: it joins the
   if (!S.live || d.id !== S.live.id) return;
   const it = applyStepTo(S.live, d);
   const w = S.work, replaying = !!(w && w.cur && w.cur.replaying);
-  if (w) { if (replaying) w.replayed++; if (w.cur && (w.cur.item === it.key || it.kind === "copper")) w.cur = null; }
+  if (w) { if (replaying) w.replayed++; if (w.cur && (w.cur.item === it.key || it.kind === "copper")) { w.last = Object.assign({}, w.cur, {phase: "", took: Date.now() - w.cur.t}); w.cur = null; } }
   if (replaying) liveRender();                // a replay of unchanged steps is a quick run of them: drawn a few times a second
   else schedule("board", "steps", "replay", "counts", "status");
 });
@@ -801,18 +811,37 @@ const fmtDur = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return Math
 const WHAT_WORD = {searched: "searching", decided: "deciding", copper: "copper", cutout: "cutting", keepout: "keepout"};
 // The queue's size as far as the engine knows it up front: the items to place and the copper declared.
 const workTotal = w => w && w.total ? w.total.items + w.total.copper : 0;
+// What the step being worked on shows as fields: its kind and name, rank, phase and time; when none is under way the step that
+// last settled, dimmed, with the time it took (never a "waiting" line); a replay of unchanged steps says so.
+function workHTML(w) {
+  const c = w.cur, R = w.total ? w.total.replay : 0;
+  if (w.replayed && (c ? c.replaying : w.last && w.last.replaying)) return pill("replay", "decided") + itemField("replaying unchanged steps") + '<span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span>";
+  if (c) return pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + workFields(c);
+  const l = w.last;
+  if (l) return pill(WHAT_WORD[l.what] || l.what, whatClass(l.what)) + itemField(l.item) + rankField(l.rank, l.of) + '<span class="f-phase"></span><span class="f-time">' + esc((l.took / 1000).toFixed(1) + " s") + "</span>";
+  return itemField("working");
+}
+const isSettled = w => !w.cur && !!w.last && !w.last.replaying;
 function renderProgress() {
-  const w = S.work, on = !!(S.resolving && w), el = $("#runstrip");
-  el.hidden = !(on || S.done);
-  if (!on) { if (S.done) { $("#rs-el").textContent = ""; $("#rs-steps").textContent = S.done; $("#rs-work").innerHTML = ""; $("#progbarbox").classList.remove("ind"); $("#progbar").style.width = "100%"; } return; }
-  const p = plan(), n = p ? replaySteps(p).length : 0, T = workTotal(w), c = w.cur;
-  $("#rs-el").textContent = fmtDur(Date.now() - w.t0);
-  $("#rs-steps").textContent = "step " + n + (T ? " of about " + T : " so far");
+  const w = S.work, on = !!(S.resolving && w), wide = !narrow(), el = $("#runstrip"), hd = $("#runhead");
+  el.hidden = wide || !(on || S.done);
+  hd.hidden = !wide || !(on || S.done);
+  if (!on) {
+    if (S.done) {
+      $("#rs-el").textContent = ""; $("#rs-steps").textContent = S.done; $("#rs-work").innerHTML = ""; $("#progbarbox").classList.remove("ind"); $("#progbar").style.width = "100%";
+      hd.className = "flds"; hd.innerHTML = '<span class="f-steps" style="width:auto">' + esc(S.done) + "</span>";
+    }
+    return;
+  }
+  const p = plan(), n = p ? replaySteps(p).length : 0, T = workTotal(w);
+  const el_ = fmtDur(Date.now() - w.t0), steps = "step " + n + (T ? " of about " + T : " so far"), settled = isSettled(w), work = workHTML(w);
+  $("#rs-el").textContent = el_;
+  $("#rs-steps").textContent = steps;
   $("#progbarbox").classList.toggle("ind", !T);
   $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
-  const R = w.total ? w.total.replay : 0;
-  $("#rs-work").innerHTML = w.replayed && (!c || c.replaying) ? pill("replay", "decided") + itemField("replaying unchanged steps") + '<span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span>"
-    : c ? pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + workFields(c) : '<span class="dim" style="flex: 1 1 auto">waiting for the next step</span>';
+  $("#rs-work").className = "flds" + (settled ? " settled" : "");
+  $("#rs-work").innerHTML = work;
+  if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-steps">' + esc(steps) + "</span>" + work + '<span class="f-el">' + esc(el_) + "</span>"; }
 }
 // After a resolve the strip says how long it took for a few seconds, then goes; the slider below does not move.
 function resolveDone() {
@@ -845,11 +874,12 @@ const itemField = name => '<b class="f-item" title="' + escRaw(name) + '">' + es
 function pendingRow() {
   const w = S.work; if (!S.resolving || !w) return "";
   const c = w.cur, R = w.total ? w.total.replay : 0, spin = '<span class="i"><i class="spin"></i></span>';
-  if (w.replayed && (!c || c.replaying)) {
+  if (w.replayed && (c ? c.replaying : w.last && w.last.replaying)) {
     return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill("replay", "decided") + itemField("replaying unchanged steps") + '</div><div class="flds" id="pendtext"><span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span></div>" +
       (R ? '<div class="pbar"><b style="width:' + Math.min(100, Math.round(100 * w.replayed / R)) + '%"></b></div>' : "") + "</div></div>";
   }
-  if (!c) return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField("working") + '</div><div class="flds" id="pendtext"><span class="f-phase dim">waiting for the next step</span></div></div></div>';
+  if (!c && w.last) { const l = w.last; return '<div class="row pending settled" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill(WHAT_WORD[l.what] || l.what, whatClass(l.what)) + itemField(l.item) + '</div><div class="flds" id="pendtext">' + rankField(l.rank, l.of) + '<span class="f-phase"></span><span class="f-time">' + esc((l.took / 1000).toFixed(1) + " s") + "</span></div></div></div>"; }
+  if (!c) return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField("working") + '</div><div class="flds" id="pendtext"></div></div></div>';
   return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + '</div><div class="flds" id="pendtext">' + workFields(c) + "</div></div></div>";
 }
 // The pending row's own text and the header's, refreshed without drawing the lists again.
@@ -2648,7 +2678,7 @@ document.querySelectorAll("#ntabs button").forEach(b => b.onclick = () => showNa
 applyVisibility();
 setFace(narrow() ? "front" : "both");            // one face fills a narrow screen
 showNarrow("board");
-window.addEventListener("resize", () => { applyView(); layoutScript(); });
+window.addEventListener("resize", () => { applyView(); layoutScript(); renderProgress(); });
 if (window.ResizeObserver) new ResizeObserver(() => applyView()).observe($("#boardwrap"));   // the notice and the tab bar change its height
 schedule("all");
 </script>

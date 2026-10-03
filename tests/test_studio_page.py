@@ -58,7 +58,7 @@ def test_a_script_with_no_board_beside_it_is_refused(tmp_path, capsys):
 PRELUDE = r"""
 const vm = require("vm"), fs = require("fs");
 const els = {}; const ctxHistory = [];
-let clock = 1000;
+let clock = 1000, WIDE = false;
 class FakeDate extends Date { static now() { return clock; } }
 const fakeGroup = (key, s) => { const g = {dataset: {key, s: String(s)}, style: {}, cls: new Set(["item"])};
   g.classList = {toggle(c, on) { g.cls[on ? "add" : "delete"](c); }, add(c) { g.cls.add(c); }, remove(c) { g.cls.delete(c); }}; return g; };
@@ -83,7 +83,7 @@ const flush = () => { while (frames.length) frames.shift()(); };
 const flushOnce = () => { frames.splice(0).forEach(f => f()); };
 const ctx = {
   document: {querySelector: stub, querySelectorAll: () => [], __keys: [], addEventListener(t, f) { if (t === "keydown") this.__keys.push(f); }, body: {dataset: {}}, elementFromPoint: () => null},
-  window: {addEventListener() {}}, location: {search: "?t=x", hash: process.env.PAGE_HASH || "", pathname: "/"}, history: {replaceState(a, b, url) { ctxHistory.push(url); }}, matchMedia: () => ({matches: true}), Date: FakeDate,
+  window: {addEventListener() {}}, location: {search: "?t=x", hash: process.env.PAGE_HASH || "", pathname: "/"}, history: {replaceState(a, b, url) { ctxHistory.push(url); }}, matchMedia: q => ({matches: /max-width: 900px/.test(q) ? !WIDE : true}), Date: FakeDate,
   EventSource: class { constructor() { this.addEventListener = (n, f) => { listeners[n] = f; }; } },
   requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, clearTimeout() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
   URLSearchParams, console,
@@ -773,7 +773,7 @@ out.prog = [els["#runstrip"].hidden, els["#rs-steps"].textContent + " | " + els[
 ev("renderSteps()"); out.pending = els["#tab-steps"].innerHTML; ev("renderStepNow()"); out.stepnow = els["#stepnow"].innerHTML; out.stepnow_shown = els["#stepnow"].style.display;
 out.mark = ev("S.work.cur");
 send("step", {id: 1, item: Object.assign(item("psu", 5), {key: "psu"})});
-out.after = [ev("S.work.cur"), els["#tab-steps"].innerHTML.indexOf("pendrow") < 0 || els["#tab-steps"].innerHTML.indexOf("waiting for the next step") > 0];
+out.after = [ev("S.work.cur"), els["#tab-steps"].innerHTML, els["#rs-work"].innerHTML, els["#rs-work"].className];
 finish(1, ["a", "b", "c"]);
 out.done = [els["#runstrip"].hidden, ev("S.work"), els["#rs-steps"].textContent];
 """)
@@ -785,7 +785,10 @@ out.done = [els["#runstrip"].hidden, ev("S.work"), els["#rs-steps"].textContent]
     assert "scanning the front or back" not in pr                                         # the phase is a short pill
     assert out["stepnow_shown"] == "none"                                                   # the step display is for settled steps; the running strip has this one
     assert out["mark"]["hint"] == [6, 8] and out["mark"]["rank"] == 7
-    assert out["after"][0] is None and out["done"][1] is None and out["done"][0] is False and out["done"][2].startswith("done in ")
+    assert out["after"][0] is None and "waiting" not in out["after"][1] + out["after"][2]
+    assert out["after"][3] == "flds settled" and 'title="psu">psu</b>' in out["after"][2] and '<span class="f-time">3.2 s</span>' in out["after"][2]     # the settled step stays, dimmed, with its time
+    assert 'class="row pending settled"' in out["after"][1]
+    assert out["done"][1] is None and out["done"][0] is False and out["done"][2].startswith("done in ")
 
 
 @needs_node
@@ -1132,3 +1135,31 @@ out.moved = ev("moveShape([[3, 2], [4, 2]], [2, 2, 0], [10, 10, 90])");
     assert out["stepped"][0] is False and out["byscore"] == 2                                        # stepping stops following live; by score, after the plain one (10) comes the best (8)...
     assert "kept" in out["done"]
     assert all(abs(a - b) < 1e-9 for p, q in zip(out["moved"], [[10, 9], [10, 8]]) for a, b in zip(p, q))       # turned a quarter counter-clockwise about its place, carried to the new one
+
+
+@needs_node
+def test_on_a_wide_layout_the_running_status_is_one_line_in_the_header_and_the_strip_is_for_narrow_ones(tmp_path):
+    out = run_page(tmp_path, r"""
+WIDE = true;
+hello(); started(1); send("board", BOARD);
+send("begin", {id: 1, kind: "total", items: 24, searched: 18, copper: 6, replay: 0});
+send("step", {id: 1, item: item("a", 1)});
+send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3});
+send("begin", {id: 1, kind: "phase", text: "scanning the front or back", hint: [6, 8], radius: 12});
+clock += 3200; ev("renderProgress()");
+out.wide = [els["#runhead"].hidden, els["#runstrip"].hidden, els["#runhead"].innerHTML, els["#runhead"].className];
+send("step", {id: 1, item: Object.assign(item("psu", 5), {key: "psu"})});
+clock += 1000; ev("renderProgress()");
+out.settled = [els["#runhead"].innerHTML, els["#runhead"].className];
+WIDE = false; ev("renderProgress()");
+out.narrow = [els["#runhead"].hidden, els["#runstrip"].hidden];
+finish(1, ["a", "b", "c"]);
+WIDE = true; ev("renderProgress()");
+out.done = [els["#runhead"].hidden, els["#runhead"].innerHTML];
+""")
+    assert out["wide"][0] is False and out["wide"][1] is True
+    h = out["wide"][2]
+    assert h.startswith('<i class="spin"></i>') and "step 1 of about 30" in h and 'title="psu">psu</b>' in h and "searching" in h and "scan front/back" in h and '<span class="f-el">0:03</span>' in h
+    assert out["settled"][1] == "flds settled" and 'title="psu">psu</b>' in out["settled"][0] and "waiting" not in out["settled"][0]
+    assert out["narrow"] == [True, False]
+    assert out["done"][0] is False and "done in" in out["done"][1]
