@@ -22,6 +22,12 @@ board late. The user wants to watch parts arrive in 3D as the layout resolves, s
 - 3D uses the parts' real models, loaded by placemat, placed from the plan at every resolve. Not a GLB exported after a
   run.
 - The replay timeline works in 3D: parts appear step by step, then copper, and later the whole build including routing.
+- Answered 2026-10-03: the converter is `kicad-cli` only, with no new Python dependency (OCP possibly later as an
+  optional extra); three.js is vendored with its MIT licence beside it; the cache is the shared user cache
+  `~/.cache/placemat/models`, 512 MB bound, least recently used removed first; a part with no model is a thin courtyard
+  plate with a hatched top, flagged "no model" with the reason, and no invented height; VRML models are read in phase 1
+  (the unit is 0.1 inch); 3D is a 2D | 3D switch replacing the board area, one state with a shared legend and replay
+  bar (side by side maybe later).
 - No box-only view. A part with no model is shown as what it is: no model. How is set out in "Parts without a model".
 
 ## What exists today
@@ -102,7 +108,7 @@ of its data or of its compressed data (checked), so it is used as a name for the
 cache key adds the converter's version and KiCad's major version.
 
 Per model entry the plan carries a **state**: `ok`, `none` (the footprint declares no model), `missing` (not found; the
-text as written is kept), `vrml` (VRML with no STEP beside it; read in phase 2),
+text as written is kept), `vrml` (VRML with no STEP beside it: read by placemat's own parser, below, so this state shows only while it is converting),
 `failed` (conversion failed, including an embedded model that did not export; the message is kept), `hidden` (the entry's hide flag), `loading` (not converted yet). The
 hide flag and opacity are added to the model tuple read by `_models` (two more fields; `describe.model_check` unpacks four
 today and is updated with it).
@@ -200,6 +206,12 @@ Input: a list of `{id, kind, file | (board, ref)}`. The converter:
    and their difference 1.68 mm. When not, the converter refuses and says which KiCad it found. This catches a KiCad
    release that moves the plane, which would shift every part in z.
 
+VRML models with no STEP beside them are read by the converter itself, in Python (standard library and a regular
+expression; prototype timings above): `Shape` blocks with `diffuseColor`, `coord` points and `coordIndex` faces,
+triangulated as fans, coordinates multiplied by 2.54 (the unit is 0.1 inch), written to the same `.pmm` format in the
+same model frame (VRML models use KiCad's model axes; the same placement matrix applies, and the placement
+test covers one). The `kicad-cli` batch is skipped for them.
+
 Decimation: a mesh over `studio_3d_model_tris` (default 30000) triangles is simplified by vertex clustering at
 conversion, with the grid grown until it fits. The STEP models measured are under that (34,526 is the largest; the
 cap is what VRML models and unknown future models need). It is applied once, so the cache holds the drawn mesh.
@@ -210,7 +222,7 @@ cap is what VRML models and unknown future models need). It is applied once, so 
 `~/.cache/placemat/models`; `~/Library/Caches/placemat/models` on macOS; the local app-data folder on Windows;
 overridable by `studio_3d_cache_dir`. The key is a content digest, so a part library's models are converted once for
 every board that uses them, and the cache survives `.placemat/` being deleted. This is the first place placemat writes
-outside a project; it is open question 3.
+outside a project; the user agreed to it.
 
 **File.** `<id>.pmm`: a small binary format of our own, not GLB, because the converter has to read GLB to split a
 batch anyway and a custom reader in the page is about 40 lines against three.js's 118 KB GLTFLoader. Layout: an 8-byte
@@ -309,10 +321,10 @@ From the plan document:
 ### Parts without a model
 
 A part whose model state is not `ok` is drawn from its **courtyard polygon** (the plan's `courtyard` shape, already in
-the part's placed spot), extruded 0.1 mm off its face, faint, with a dashed outline in the 2D view's courtyard colour,
+the part's placed spot), extruded 0.1 mm off its face, faint, with a hatched top and a dashed outline in the 2D view's courtyard colour,
 and flagged. It is not given a height: nothing in the plan says how tall the part is, and a guessed height is a fake
 model. The state is shown as text on the plate and in the card ("no model declared", "model not found:
-<path as written>", "VRML only, not read yet", "conversion failed: <message>", "loading").
+<path as written>", "conversion failed: <message>", "loading").
 `loading` plates pulse faintly and become the part when its mesh arrives. The legend counts parts by state, lists the
 ones without a model, and has a toggle that dims every part with a model so the plates stand out. A part with a
 courtyard missing too is a point marker with its reference.
@@ -325,8 +337,7 @@ be MIT with its licence beside it. Version 0.186.1 (npm metadata: MIT). Files: `
 gzipped), `three.core.min.js` (416 KB, 104 KB), `OrbitControls.js` (41 KB, 8 KB): about 850 KB in the package, under
 `src/placemat/vendor/three/` with `LICENSE`, served at `/vendor/three/<file>`, token required. It is loaded with a
 dynamic `import()` when the 3D tab is first opened, with an import map for the bare `three` specifier, so a user who
-never opens 3D loads none of it. `GLTFLoader` (118 KB) is not needed. A CDN is the alternative if the repository size
-matters more (open question 2).
+never opens 3D loads none of it. `GLTFLoader` (118 KB) is not needed. A CDN was considered and declined.
 
 **Scene.** One `WebGLRenderer` on a canvas that replaces the SVG in the board area (a 2D | 3D switch beside the face
 selector; the legend, step list, cards and replay bar are shared). Scene frame as above. Lights: a hemisphere light and
@@ -417,13 +428,13 @@ user's own cache folder.
 
 ## Phases
 
-1. **Placed models, live.** Resolution, the converter and the cache, the vendored viewer, the board body with outline,
+1. **Placed models, live.** Resolution, the VRML reader (own parser, 0.1 inch unit, decimation), the converter and the cache, the vendored viewer, the board body with outline,
    cutouts, drills and thickness, parts at their matrices, plates for parts without a model, the controls, selection
    and cards shared with 2D, light and dark, touch, the replay position, live arrival of parts, and the models
    legend (counts by state, retry). Useful alone: it answers "what does this board look like built" and shows the build
    live, with parts appearing step by step. The 2D view is unchanged without it.
 2. **Copper and the rest of the build.** Tracks, vias, pours, pads and silk as copper layers appear in the replay;
-   VRML models (parser, decimation); the compare ghost; findings markers; explore variants as ghosts; the
+   the compare ghost; findings markers; explore variants as ghosts; the
    `measure --models` checks (model off its pads, turned 90) on the part card.
 3. **Routing replay and finish.** Route steps in the replay, solder mask from a checked run, the OCP accelerator if
    conversion speed asks for it, runs from finished records opened in 3D.
@@ -472,21 +483,3 @@ user's own cache folder.
 - **Cost.** The extra resolve work (model resolution, hashing, matrices) is timed on the large fixture board against
   the same resolve before the change, and the figure reported in the commit; the converter runs one batch at a time, so
   it holds one core and a full test suite or bench is not run beside it.
-
-## Open questions
-
-1. **Dependency.** Convert with `kicad-cli` only, as recommended: no new Python dependency, 1.3 to 2.5 times slower than
-   OCP and 0.3 s per batch, once per model per machine. Is that the right trade, with OCP (about 67 MB to download, 254
-   MB installed, an optional extra) kept for later if conversion speed bothers you?
-2. **three.js: vendored or CDN.** Vendored is about 850 KB in the repository (MIT, licence beside it) and works offline
-   and on a phone over the LAN; a CDN costs nothing in the repository and needs the internet. Vendored is
-   recommended. OK?
-3. **Cache location.** A shared user cache (`~/.cache/placemat/models`, 512 MB bound) is the first place placemat writes
-   outside a project, chosen so models are converted once for every board. The alternative is `<project>/.placemat/`,
-   per project, converting again for each. OK to write to the user cache?
-4. **Parts without a model.** A 0.1 mm courtyard plate, faint, flagged "no model" with its reason, and no invented
-   height. Is a plate right, or do you want a visibly different treatment (outline only, hatching)?
-5. **VRML-only models in phase 1.** In the fixtures 39 of 1403 entries are VRML and some have no STEP beside them. Phase
-   1 marks them "VRML only, not read yet" and phase 2 reads them. Do you want them in phase 1?
-6. **Where 3D sits.** A 2D | 3D switch that replaces the board area (one state, shared legend and replay bar), as
-   specced, or a side-by-side split on wide screens showing both at the same replay position?
