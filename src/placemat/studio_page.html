@@ -2259,7 +2259,6 @@ $("#follow").addEventListener("click", () => setReplay(replayCount()));
 // ---------------------------------------------------------------- steps
 // A row says plainly: the step's number, the item, how it was placed, the reason in one line (the whole note on
 // opening the row), and a marker when findings name the item.
-const oneLine = (text, n = 140) => { const s = String(text || "").split(/;\s+/)[0].trim(); return s.length > n ? s.slice(0, n - 3) + "..." : s; };
 const COPPER_WORDS = {track: "track", via: "via", plane: "plane", pour: "plane", fill: "plane", zone: "plane", label: "label", faces: "label", fanout: "escape", escape: "escape", bridge: "track"};
 // What kind of step a row is: its colour class, the word on its pill and the name it is listed under.
 function stepKind(s, it) {
@@ -3201,7 +3200,6 @@ on("note", n => {
 setInterval(() => { if (S.notes.length) schedule("notes", "board", "counts"); }, 30000);
 
 // ---------------------------------------------------------------- the runs view
-const sinceMs = at => Date.now() + (S.skew || 0) - at * 1000;
 function renderRuns() {
   const el = $("#tab-runs"), cmds = [...S.cmds.values()].sort((a, b) => (b.state === "running") - (a.state === "running") || b.started - a.started);
   const row = c => '<div class="row cmd step" data-cmd="' + c.id + '"><span class="chip ' + esc(c.state) + '">' + esc(c.state) + '</span><div class="sb"><div class="l1"><b>' + esc(c.command) + "</b> " + esc(baseName(c.script)) + '</div><div class="l2">pid ' + esc(c.pid) +

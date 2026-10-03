@@ -1,7 +1,6 @@
 """Runner behaviour that needs no KiCad: what a rerun keeps, and what the
 DRC wrapper refuses to measure."""
 import json
-from pathlib import Path
 
 import pytest
 

@@ -1,11 +1,10 @@
 """The builder's facts: the state of each row, the gate, the batch of edits to the three homes (one apply, one undo), the
 root-versus-board rule for fab-profile.json, the confirmation and the read-back."""
 import json
-from pathlib import Path
 
 import pytest
 
-from placemat import builder_facts as bf, facts, script_edit as se, suggestions as sg, zen_edit as ze
+from placemat import builder_facts as bf, facts, suggestions as sg, zen_edit as ze
 from placemat.builder import BuilderRefused
 
 LAYERS = {"F.Cu": {"role": "signal", "copper_mm": None}, "B.Cu": {"role": "signal", "copper_mm": None}}

@@ -9,10 +9,8 @@ import pytest
 from placemat import FreeSpot
 from placemat.board_geometry import NetClass
 from placemat.copper import Track, Via
-from placemat.layout import Board
-from placemat.settings import Settings
-from placemat.values import (Beside, Box, Corner, CopperLayer, Edge, LinkWeight, Location, Near, Net, PadRef, Part,
-                             Past, Pin, X, Y)
+from placemat.values import (Corner, CopperLayer, Edge, LinkWeight, Location, Near, Net, PadRef, Part,
+                             Pin, X, Y)
 from tests.escape_fixtures import CLEAR, DRILL, PD_NETS, TRACK, VIA, board_with, pd_board, qfn, small_part
 from tests.fixtures import footprint
 

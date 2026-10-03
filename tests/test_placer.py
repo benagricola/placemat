@@ -2,7 +2,7 @@ from placemat.occupancy import Occupancy
 from placemat.placer import edge_placement, scan
 from placemat.placement import Placement
 from placemat.refusals import Code, Refusal
-from placemat.values import Box, Edge, Face, Location
+from placemat.values import Edge, Face, Location
 from tests.fixtures import board_geometry, footprint
 
 

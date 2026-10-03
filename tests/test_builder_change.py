@@ -1,7 +1,7 @@
 """Changing the outline of a built script, the suggested turn, and moving a decided statement: each a structured edit, byte for byte."""
 import pytest
 
-from placemat import builder_outline as bo, builder_intents as bi, builder_turns as bt
+from placemat import builder_outline as bo, builder_turns as bt
 from placemat.builder import BuilderRefused
 from tests.builder_support import Session, coordinates_in
 

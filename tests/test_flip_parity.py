@@ -16,8 +16,6 @@ import pytest
 from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
 from placemat.layout import Board
-from placemat.occupancy import Occupancy
-from placemat.placement import Placement
 from placemat.values import Cell, Centre, Face, Location, Part
 from tests.conftest import needs_breakout, needs_kicad
 

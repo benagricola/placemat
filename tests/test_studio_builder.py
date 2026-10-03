@@ -5,7 +5,6 @@ builder's reader runs in this process, and the studio's own resolve worker is a 
 import http.client
 import json
 import time
-from pathlib import Path
 
 import pytest
 
@@ -106,7 +105,6 @@ def test_a_board_with_a_layout_script_is_not_offered_and_an_unknown_id_is_refuse
 
 def test_starting_reads_the_generated_board_and_the_page_is_told_as_it_goes(built):
     events = []
-    import threading
     q = built.studio.hub.subscribe(lambda: [])
     st, out = built.api.post("/build/start", {"id": "modules/usbcells/UsbCells.zen#UsbCells"})
     assert st == 200 and out["session"]["exists"] is False and out["session"]["name"] == "UsbCells"

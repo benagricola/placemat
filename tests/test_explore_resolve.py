@@ -3,7 +3,7 @@ repeatable; only focused items vary; the steps before the first focused one
 are replayed."""
 from placemat.explore import Explore
 from placemat.layout import Board
-from placemat.values import LinkWeight, Location, PadRef, Part
+from placemat.values import Location, Part
 from tests.fixtures import board_geometry, footprint
 
 

@@ -9,7 +9,6 @@ from tests.builder_support import Session, coordinates_in
 from tests.fixtures import footprint
 
 EDGE = lambda e: {"kind": "edge", "edge": e}
-TAIL = lambda text, n=1: "".join(text.splitlines(keepends=True)[-n:])
 
 
 def parts6():

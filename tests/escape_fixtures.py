@@ -8,7 +8,7 @@ import math
 from placemat.board_geometry import Footprint, NetClass
 from placemat.layout import Board
 from placemat.values import Box, CopperLayer, Face, Location, Part
-from tests.fixtures import board_geometry, footprint, pad
+from tests.fixtures import board_geometry, pad
 
 PITCH, PAD_W, PAD_L, RING = 0.5, 0.25, 0.7, 2.45
 TRACK, CLEAR, VIA, DRILL = 0.2, 0.2, 0.45, 0.2

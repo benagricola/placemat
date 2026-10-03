@@ -3,7 +3,6 @@ net is P, the second N. The router pairs nets only by their suffix, so the
 route step renames the two in its own copy to a suffix pair, passes that
 name to the pair router, and renames them back in the routed copy."""
 import json
-import shutil
 import subprocess
 
 import pytest

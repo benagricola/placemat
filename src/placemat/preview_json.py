@@ -8,7 +8,6 @@ Faces are named, never mirrored: the page mirrors the back."""
 from __future__ import annotations
 
 import math
-import re
 
 from .board_geometry import members_of, stackup_order
 from .copper import Pour, Text, Track, Via, Zone, arc_circle

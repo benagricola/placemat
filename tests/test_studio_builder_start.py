@@ -1,6 +1,5 @@
 """The builder's start: which boards the start view lists, that the named board of a `.zen` that declares several is the one started, and
 that a generation failure shows the generator's log tail and writes nothing. The reader is a stand-in: these tests do not generate."""
-import json
 import time
 
 import pytest

@@ -171,11 +171,6 @@ class Zone:
         return Box.of_points(self.points)
 
 
-CopperOp = Track | Via | Pour | Zone
-
-
-
-
 def _segment_polygon(a: Location, b: Location, width: float) -> Polygon:
     """A track as KiCad draws it: its two sides and a round end at each end.
     Each end's vertices stand just outside the arc (every edge on or outside

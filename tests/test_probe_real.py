@@ -11,7 +11,6 @@ import pytest
 from placemat import cli, probe, suggestions as sg
 from tests import real_modules as rm
 from tests.conftest import needs_kicad
-from tests.suggest_support import suggestions_of
 
 pytestmark = needs_kicad
 

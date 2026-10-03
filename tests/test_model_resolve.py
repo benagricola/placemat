@@ -2,13 +2,11 @@
 content."""
 import hashlib
 import os
-import shutil
 from pathlib import Path
 
-import pytest
 
 from placemat import models
-from placemat.models import ModelRef, embedded_checksums, model_id, resolve_model
+from placemat.models import embedded_checksums, model_id, resolve_model
 
 
 def _touch(p: Path, data: bytes = b"x") -> Path:

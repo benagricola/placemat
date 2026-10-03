@@ -6,7 +6,7 @@ import pytest
 
 from placemat.copper import Text
 from placemat.layout import Board
-from placemat.values import Near, Cell, Edge, Face, Location, Net, PadRef, Part
+from placemat.values import Near, Edge, Face, Location, PadRef, Part
 from tests.fixtures import board_geometry, footprint, declared_findings
 
 

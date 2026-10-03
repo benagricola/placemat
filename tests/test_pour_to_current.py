@@ -19,7 +19,7 @@ from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
 from placemat.layout import Board
 from placemat.settings import Settings
-from placemat.values import Box, CopperLayer, Net, PadRef, Part, Reach
+from placemat.values import Box, CopperLayer, Net, Reach
 from tests.conftest import needs_kicad
 from tests.fixtures import board_geometry, declared_findings
 from tests.test_pour_fitted import CLEARANCE, _part, _pours, _refs

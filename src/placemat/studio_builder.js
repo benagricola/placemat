@@ -135,7 +135,6 @@ async function refreshParts() {
   drawTab();
 }
 const hasScript = () => !!(S.hello && !S.hello.picker && S.hello.script);
-const gateOpen = () => !!(BS.facts && BS.facts.model.gate.open);
 
 // ---------------------------------------------------------------- the start view
 const _renderPicker = renderPicker;

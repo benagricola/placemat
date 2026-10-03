@@ -5,7 +5,7 @@ from placemat import reuse
 from placemat.cutouts import Circle
 from placemat.layout import Board
 from placemat.settings import Settings
-from placemat.values import LinkWeight, Location, Near, PadRef, Part
+from placemat.values import LinkWeight, Location, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 

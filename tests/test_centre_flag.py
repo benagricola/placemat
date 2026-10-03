@@ -6,7 +6,7 @@ import pytest
 from placemat import reuse
 from placemat.findings import FindingCause as C
 from placemat.layout import Board
-from placemat.values import Centre, Edge, Location, PadRef, Part, X, Y
+from placemat.values import Centre, Location, PadRef, Part, X, Y
 from tests.fixtures import board_geometry, footprint
 
 

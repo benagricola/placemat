@@ -2,7 +2,6 @@
 both legs (docs/superpowers/specs/2026-10-02-arc-bends-design.md). Pure: synthetic boards."""
 import math
 import re
-from dataclasses import replace
 
 import pytest
 

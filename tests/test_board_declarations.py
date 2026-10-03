@@ -3,7 +3,7 @@ they are declared, and resolves them in priority order, never file order."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Freedom, Near, OnEdge, Centre, Box, Cell, Edge, Face, Location, Part, Priority
+from placemat.values import Freedom, Near, OnEdge, Centre, Box, Cell, Edge, Location, Part
 from tests.fixtures import board_geometry, footprint
 
 

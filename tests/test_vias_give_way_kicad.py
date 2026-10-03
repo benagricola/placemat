@@ -45,7 +45,6 @@ def _board():
 
 
 def _copper(board):
-    import pcbnew
     return sorted((type(t).__name__, round(t.GetStart().x / 1e6, 3), round(t.GetStart().y / 1e6, 3))
                   for t in board.GetTracks())
 

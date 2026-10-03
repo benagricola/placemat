@@ -32,8 +32,6 @@ function labelTexture(text, color) {
   return t;
 }
 
-const planeOf = T => [T - 0.005, -0.085];
-
 export async function mount(host) {
   const parent = host.parent;
   const canvas = document.createElement("canvas");

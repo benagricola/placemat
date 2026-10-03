@@ -1192,8 +1192,6 @@ class Studio:
             self.hub.emit("cmdev", {"id": cid, "n": n, "ev": ev})
             if kind in ("done", "error"):
                 self.hub.emit("cmd", self._cmd_summary(c))
-                if c.get("own_run") is not None and kind == "error":
-                    self._run_note = ev.get("message", "")
             elif c.get("own_run") is not None and kind in ("item", "begin"):
                 self.hub.emit("run_progress", {"id": c["own_run"], "item": c.get("last") or "", "n": c["items"]})
 
@@ -1438,7 +1436,6 @@ class Studio:
             # the run is a command like any other: it reports over the channel (its steps reach the page as the command's
             # events), and what it leaves is its record. Its printed text is not read.
             proc = subprocess.Popen(cmd, cwd=str(self.src.board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self._run_proc = proc
             with self.lock:
                 if self._run is not None:
                     self._run["pid"] = proc.pid
@@ -1478,7 +1475,6 @@ class Studio:
         """The newest resolve against a recorded run: what moved, was added or removed among the items the run placed,
         the findings gained and lost and the score. A run records no copper or links, so those are not compared."""
         from .studio_diff import _findings, _texts
-        from collections import Counter
         with self.lock:
             b = self.history[-1] if self.history else None
         a = self.run_doc(run_id)

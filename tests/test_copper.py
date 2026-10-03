@@ -6,7 +6,7 @@ import pytest
 
 from placemat.layout import Board
 from placemat.copper import Track, Via, Pour
-from placemat.values import (Freedom, Near, Centre, Box, CopperLayer, Location, Net, Part, PadRef, Priority)
+from placemat.values import (Near, Centre, Box, CopperLayer, Location, Net, Part, PadRef)
 from tests.fixtures import board_geometry, footprint
 
 

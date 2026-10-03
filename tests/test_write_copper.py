@@ -15,7 +15,7 @@ from placemat.layout import Board
 from placemat.kicad.drc import run_drc
 from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
-from placemat.values import CopperLayer, Edge, Location, Net, Part, PadRef
+from placemat.values import CopperLayer, Location, Net, Part, PadRef
 from tests.conftest import needs_breakout, needs_kicad
 
 pytestmark = [needs_kicad, needs_breakout]

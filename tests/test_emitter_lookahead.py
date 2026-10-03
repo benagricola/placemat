@@ -3,7 +3,6 @@ other way round): the search looks ahead to the unplaced counterpart's legal spo
 import dataclasses
 import re
 
-import pytest
 
 from placemat.layout import Board
 from placemat.settings import Settings

@@ -8,7 +8,7 @@ import pytest
 
 from placemat.copper import Track, Via
 from placemat.geometry import point_segment_distance, poly_distance
-from placemat.values import CopperLayer, Location, Net, Part
+from placemat.values import CopperLayer, Net, Part
 from tests.conftest import needs_kicad
 from tests.escape_fixtures import CLEAR56, TRACK56, fan_board
 

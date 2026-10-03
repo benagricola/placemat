@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-import re
 from types import SimpleNamespace
 
 from . import finding_text

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import math
 import re
-from pathlib import Path
 
 FRONT_BELOW = 0.005          # the front plane is this far under the board's top face (KiCad 10.0.6's glb export: T - 0.005)
 BACK_PLANE = -0.085          # the back plane (the same export), for any thickness

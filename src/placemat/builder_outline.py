@@ -4,7 +4,7 @@ replaced as one multi-edit). A shape change that makes placements by edge invali
 for each: search it, or place it on the rim or the edge that replaces the one it was on."""
 from __future__ import annotations
 
-from . import builder, builder_intents as bi, builder_parts as bp, script_edit as se
+from . import builder, builder_intents as bi, script_edit as se
 from .builder import BUILDER, BuilderRefused, EDGES, SHAPES, _comment_for, _Names, _constant, wrap
 from .suggestions import Edit, Target
 

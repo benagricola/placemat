@@ -1,7 +1,6 @@
 """placemat route: [route] layers is retired (route layers are a board
 fact, from each layer's role); `placemat route --layers` still overrides
 for one run."""
-from pathlib import Path
 
 import pytest
 
@@ -47,7 +46,6 @@ def test_the_route_command_leaves_the_boards_plane_nets_to_their_pours(breakout_
     and the router laid thin tracks on a net with a pour, and on GND."""
     import shutil
     import pcbnew
-    import pytest
     from placemat import cli
     import placemat.kicad.route as route_mod
     for ext in (".kicad_pcb", ".kicad_pro"):

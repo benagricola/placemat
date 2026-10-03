@@ -4149,7 +4149,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.ambient_c` | `100.0` | deg C | board temperature the junction estimate starts from (`--ambient`) |
 | `check.keep_out_mm` | `2.0` | mm | how far sense copper stays from a switch node (`--keep-out`) |
 | `check.rise_c` | `10.0` | deg C | the rise a current path is sized for (`--rise`) |
-| `check.neck_band` | `0.1` | mm | no longer read: a neck is the stretch narrower than the width its current needs; a config naming it still loads |
 | `check.neck_end_share` | `0.6` | share | the share of `check.rise_c` the copper at a short neck's two ends is taken to have used (Brooks and Adam's simulated trace ends sit at 57.9 C of a 94.7 C peak); the neck is credited as short when its own conduction rise stays inside the rest. 1 turns the credit off |
 | `check.neck_resistivity` | `2.2e-08` | ohm m | copper's resistivity at the working temperature, ohm m (1.68e-8 at 20 C, 4.04e-3 per K, at 100 C) |
 | `check.neck_conductivity` | `384.0` | W/(m K) | copper's thermal conductivity, W/(m K) |

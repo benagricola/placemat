@@ -9,7 +9,7 @@ import pytest
 
 from placemat.board_geometry import Footprint, NetClass
 from placemat.layout import Board
-from placemat.values import Beside, Box, CopperLayer, Edge, Face, Location, Net, PadRef, Part, Past
+from placemat.values import Beside, Box, Edge, Face, Location, Net, PadRef, Part, Past
 from tests.fixtures import board_geometry, footprint, pad
 
 # net classes: the lane's track width and each net's clearance, all different so each term shows
