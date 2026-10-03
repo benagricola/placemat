@@ -30,10 +30,6 @@ Specced work first, then the loose ends.
    radius, fanout depth, turns, label size, stitch pitch and the tuning limits
    get a searched suggestion only once the sites that raise their findings
    record the number that bounds them.
-2. **Studio round 10: routing progress and a whole-build replay** (studio
-   spec, "Live channel"): per-net events from the router through hooks, the
-   route record in laid order, the timeline running from first placement to
-   last routed net.
 4. **Studio 3D with live models** (spec `2026-10-03-studio-3d-design.md`).
 5. **Suggestions phase 7: the improve loop** (recommended in the suggestions
    work; needs a short design): instant suggestions tried on an overlay,
@@ -307,6 +303,10 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Routing progress and a whole-build replay** (0.94.0; studio round 10):
+  per-net router events over a pipe, the route record in laid order, routes
+  in the studio's Runs view and replayed; the skill's preview-first loop.
 
 - **Searched suggestions: the probe** (0.93.0; suggestions phase 6): `placemat
   apply <id> --search`, bounded by the finding's measurement, resumable,

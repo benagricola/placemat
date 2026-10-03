@@ -5,9 +5,12 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.94.0
 
 ### New
+
+- **The skill's loop starts with: iterate with `placemat preview`, run only at checkpoints** (the first look at a
+  board, a change to keep, before committing), with what each stage of a run costs. Scripts change nothing.
 
 - **A route streams per-net progress and keeps a record that replays.** `placemat route` owns a socket like the other commands, and
   `placemat watch` prints a line per net as the router finishes it. The events come from hooks on the router's per-net functions
