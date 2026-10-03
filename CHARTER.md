@@ -87,14 +87,18 @@ laid later. Zones are for planes and ground fills only.
 
 Functions return values and records, and every event or document sent over
 a socket or pipe (the live channel, the studio worker, router events, plan
-JSON) carries fields: enums, numbers, names, ids, facts. A sentence is
-rendered only where it is shown to a person: the console, `placemat watch`,
-the studio page.
+JSON) carries fields: enums, numbers, names, ids, facts. A free-text field
+is fine where the data really is free text (a user's note, an external
+tool's message), but never as the whole content, and never a sentence that
+carries values a reader would want on their own. A sentence built from
+values is rendered only where it is shown to a person: the console,
+`placemat watch`, the studio page.
 
 - **Why:** a sentence can't be filtered, counted, compared or rendered
   another way, and a reader that parses one breaks when the wording changes.
-- **Breaking it looks like:** an event field holding prose (a phase "text",
-  a step "note" sentence, a refusal's "text"); a function returning a
+- **Breaking it looks like:** an event whose content is a sentence holding
+  several values (a phase "text" with its counts, a step "note" with rank,
+  area and distance, a refusal's "text"); a function returning a
   formatted line its caller splits or matches; a reader that regexes a
   message to recover a number or a name.
 
