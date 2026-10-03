@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **Studio board drawing.** A finding is a badge on a stem at one screen size (a triangle with ! for critical and warning, a circle with i
+  for notice) with a white halo, a dark rim and a slow pulse, larger when it is the one looked at; tapping it opens the finding.
+  Vias are drawn above the parts with their drill cut through (they were hidden under pads, and ringed white at high zoom), a
+  through pad shows both layers' colours and its drill, and an SMD pad is the colour of its copper layer and goes with that layer's row in
+  the legend. "Why it moved" in a card says what moved the part (the slide's stop, a refusal, a score gain) beside the distance, and
+  "no cause recorded" where the step's note has none. The plan JSON gives pads their `layers` and adds `hole` and `npth` shapes.
+
 ## To 0.89.0
 
 ### New
