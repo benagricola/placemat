@@ -158,3 +158,45 @@ def test_room_for_a_via_beside_the_pad_is_a_way_out():
     # 1.2 mm ring pads 0.45 mm apart: no track between them; but 0.8 mm clear round the
     # pad fits a 0.6 mm via 0.2 mm from the ring, to take the route to another layer
     assert path_out(_ringed(0.8, size=1.2), "U9", "1", depth=2.0) is True
+
+
+def _probe(through, face=Face.FRONT):
+    """U1's pin 3 (C) ahead of a probe C1 whose two 1 mm pads, over pin 3's corridor and its via spot, are `through` pads or
+    pads on `face`; the search asks what C1 at (30, 31.6) would close."""
+    from placemat.escapes import Escapes
+    fps = [_row_part("U1", "u1", 30, 30, ("A", "B", "C", "D", "E")),
+           footprint("C1", 5, 5, w=2.0, h=1.0, inst="c1", nets=("B", "D"), through=through, face=face),
+           footprint("TA", 30, 45, inst="ta", nets=("C", "Q"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(30, 30))
+    b.place(Part("ta"), at=Location(30, 45))
+    occ = b.resolve().occupancy
+    c1 = occ.geometry.footprint("C1")
+    where = Placement(Location(30.0, 31.6), 0.0, face)
+    return Escapes(occ).closed(c1, where), Escapes(occ, mirror=False).closed(c1, where)
+
+
+def test_a_through_hole_pad_closes_a_corridor_on_every_layer_it_spans_in_the_search():
+    native, plain = _probe(through=True)
+    assert native == plain
+    assert native[2] == 1                       # pin 3, whose corridor and via spot the pads cover
+
+
+def test_a_pad_on_the_far_face_closes_nothing_in_the_search():
+    native, plain = _probe(through=False, face=Face.BACK)
+    assert native == plain == (0, 0, 0)
+
+
+def test_an_unplated_hole_over_a_corridor_and_its_via_spot_walls_the_pad_in_the_search():
+    from placemat.escapes import Escapes
+    hole = Footprint("H1", "h1", None, "H1", Location(5, 5), 0.0, Face.FRONT, Box(4, 4, 6, 6), Box(4, 4, 6, 6),
+                     Box(4, 4, 6, 6), (), npth=((Location(5, 5), 1.6),))
+    fps = [_row_part("U1", "u1", 30, 30, ("A", "B", "C", "D", "E")), hole, footprint("TA", 30, 45, inst="ta", nets=("C", "Q"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(30, 30))
+    b.place(Part("ta"), at=Location(30, 45))
+    occ = b.resolve().occupancy
+    h1 = occ.geometry.footprint("H1")
+    assert Escapes(occ).closed(h1, Placement(Location(30.0, 31.6), 0.0, Face.FRONT)) == (0, 0, 1)
+    assert Escapes(occ, mirror=False).closed(h1, Placement(Location(30.0, 31.6), 0.0, Face.FRONT)) == (0, 0, 1)
+    assert Escapes(occ).closed(h1, Placement(Location(30.0, 36.0), 0.0, Face.FRONT)) == (0, 0, 0)
