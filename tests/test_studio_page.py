@@ -119,7 +119,7 @@ def run_page(tmp_path, tail):
     text = PAGE.read_text()
     (tmp_path / "page.js").write_text(text[text.index("<script>") + 8:text.index("</script>")])
     (tmp_path / "run.js").write_text(PRELUDE + tail + "\nconsole.log(JSON.stringify(out));\n")
-    done = subprocess.run(["node", str(tmp_path / "run.js"), str(tmp_path / "page.js")], capture_output=True, text=True)
+    done = subprocess.run(["node", str(tmp_path / "run.js"), str(tmp_path / "page.js")], capture_output=True, text=True, timeout=60)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout.strip().splitlines()[-1])
 
@@ -917,7 +917,7 @@ out.label = [els["#play"].textContent, els["#play"].disabled];
 ev("togglePlay()"); flushOnce();
 out.started = [ev("S.replay"), els["#play"].textContent, !!ev("S.play")];
 clock += 400; flushOnce(); out.mid = [ev("S.replay"), !!ev("S.play")];
-send("step", {id: 1, item: item("d", 13)});                                   // a new step arrives while it plays
+listeners.step({data: JSON.stringify({id: 1, item: item("d", 13)})}); flushOnce();   // a new step arrives while it plays (one frame: play re-asks a frame each tick, and the clock only moves by hand here)
 clock += 3000; flushOnce(); flushOnce(); flushOnce();
 out.caught = [ev("S.replay"), !!ev("S.play"), els["#steplabel"].textContent];
 els["#slider"].handlers.input[0]({target: {value: "1"}}); flushOnce();
