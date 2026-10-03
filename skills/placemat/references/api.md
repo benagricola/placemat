@@ -198,7 +198,7 @@ The same answers from the command line, for when no script is running, are
 
 `board.rect(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0, draw=None)` - the
 outline, origin top-left, y down; `draw=False` gives a fragment a frame that
-is never drawn. The old name, `board.size(...)`, still works and raises a `setup` notice.
+is never drawn. The old name, `board.size(...)`, is refused with an error naming `board.rect(...)`.
 `board.rect(fit=True, margin=None, chamfer=0.0, radius=0.0)` - a fragment's
 frame (never drawn) sized to its content: the box round everything placed (each
 part as the placer claims it, labels, tracks, vias, pours) plus `margin`
@@ -2091,7 +2091,7 @@ chamfer, so `chamfer=` is refused with either, as is `bridge=True` (a bridge
 cuts a straight leg) and a `Lane` as first point.
 
 The arcs' radius is `radius=` mm on the call, a stated design fact such as a
-stackup's bend rule, or else `copper.arc_radius_widths` (default 4) times the
+stackup's bend rule, or else `copper.arc_radius_widths` (default 3) times the
 track's width, so it scales with the trace. A radius not above half the
 width is refused. An arc at a corner of turn `d` takes `radius * tan(d / 2)`
 of each leg. A leg shorter than what the arcs at its two ends take is a corner
@@ -3765,7 +3765,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
 | `place.split_min_group` | 2 | the least members a group needs to count as one, in a cell's `split` finding |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
-| `copper.arc_radius_widths` | 4.0 | the radius of a track's arc corners (`bend=Bend.ARC`), as a multiple of the track's width; `radius=` on the call is in mm and takes precedence |
+| `copper.arc_radius_widths` | 3.0 | the radius of a track's arc corners (`bend=Bend.ARC`), as a multiple of the track's width; `radius=` on the call is in mm and takes precedence |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
 | `copper.bridge_half` | 1.1 | half the gap a bridge leaves round a crossed track |

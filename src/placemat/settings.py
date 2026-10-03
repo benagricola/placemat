@@ -83,7 +83,7 @@ class Settings:
     place_split_min_group: int = 2      # the least members a group needs to count, in a cell's split finding (splits.py)
     # [copper]
     copper_chamfer: float = 1.0
-    copper_arc_radius_widths: float = 4.0   # the radius of a track's arc corners (bend=Bend.ARC), as a multiple of the track's width; radius= on the call is in mm
+    copper_arc_radius_widths: float = 3.0   # the radius of a track's arc corners (bend=Bend.ARC), as a multiple of the track's width; radius= on the call is in mm
     copper_pair_chamfer: float = 0.5
     copper_pair_via_step: float = 0.4
     copper_bridge_half: float = 1.1
