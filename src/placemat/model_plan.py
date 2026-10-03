@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from . import model_place
-from .models import EMBED, embedded_checksums, model_id, resolve_model, workspace_root
+from .models import embedded_checksums, model_id, resolve_model, workspace_root
 from .placement import Placement
 
 
