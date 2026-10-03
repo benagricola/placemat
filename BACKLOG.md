@@ -246,6 +246,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Live progress for long commands** (0.87.0): each command that resolves a
+  board owns a socket under .placemat/sockets with a catch-up for late
+  readers, a progress trail for a command that dies, `placemat watch`, and the
+  studio's Runs view and explore view; the test suite's slow tests run only
+  with --full.
+
 - **Skill audit** (0.86.4): SKILL.md and references checked against the code
   and corrected.
 

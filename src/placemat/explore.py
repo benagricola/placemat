@@ -4,6 +4,7 @@ docs/superpowers/specs/2026-09-25-explore-design.md."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from . import lock as _lock
 from .values import Freedom
@@ -112,6 +113,11 @@ class ExploreResult:
     seconds: float = 0.0   # spent, over every session of a resumed explore
     failures: list = field(default_factory=list)    # a worker that died or raised, as a sentence (a traceback for a raise)
     stopped: bool = False
+    variants: list = None          # {seed, score, measures, placements, order, t} for each of this session, in the order they finished
+    focus: list = None
+    jobs: int = 0
+    plain: dict = None
+    plain_order: list = None
 
 
 def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=None, lock=None,
@@ -181,10 +187,19 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     results = {0: (0, baseline, base_m)}
     results.update(done_before)
     failures, ended = [], set()
-    partial = lambda: _result(results, baseline, base_m, spent + time.time() - t0, failures)
+    from . import channel
+    rep = channel.current()
+    variants = [{"seed": 0, "score": baseline, "measures": base_m, "placements": _placements(plain, focus),
+                 "order": _order(plain, focus), "t": 0.0}]
+    partial = lambda: _result(results, baseline, base_m, spent + time.time() - t0, failures, variants, focus, len(procs))
     try:
         for pr in procs:
             pr.start()
+        if rep is not None:
+            rep.send({"ev": "explore", "focus": sorted(focus), "seconds": seconds, "jobs": len(procs),
+                      "seeds": None if order is None else len(order), "baseline": baseline,
+                      "baseline_measures": base_m, "plain": variants[0]["placements"], "order": variants[0]["order"],
+                      "at": t0})
 
         def take(msg):
             if msg[0] == "end":
@@ -193,8 +208,12 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                 failures.append("worker %d raised:\n%s" % (msg[1], msg[2].rstrip()))
                 console.say("explore", "worker %d raised: %s" % (msg[1], failures[-1].splitlines()[-1]), level="fail")
             else:
-                _, seed, total, m, payload, dt = msg
+                _, seed, total, m, payload, dt, extra = msg
                 results[seed] = (seed, total, m)
+                v = {"seed": seed, "score": total, "measures": m, **extra, "t": round(time.time() - t0, 3)}
+                variants.append(v)
+                if rep is not None:
+                    rep.send({"ev": "variant", **v})
                 if checkpoint is not None:
                     checkpoint.variant(seed, total, m, spent + time.time() - t0, payload)
         while len(ended) < len(procs):
@@ -260,10 +279,12 @@ def _end(procs) -> None:
             pr.join(0.5)
 
 
-def _result(results: dict, baseline, base_m, seconds: float, failures) -> ExploreResult:
+def _result(results: dict, baseline, base_m, seconds: float, failures, variants=None, focus=(), jobs=0) -> ExploreResult:
     rows = sorted(results.values(), key=lambda r: (r[1], r[0]))
     return ExploreResult(rows[0][0], rows[0][1], baseline, len(rows), rows, rows[0][2], base_m, round(seconds, 3),
-                         list(failures))
+                         list(failures), variants=variants, focus=sorted(focus), jobs=jobs,
+                         plain=variants[0]["placements"] if variants else None,
+                         plain_order=variants[0]["order"] if variants else None)
 
 
 def _untried(done: dict):
@@ -285,6 +306,24 @@ def _context_of(make_board):
     return ctx() if ctx is not None else nullcontext()
 
 
+def _placements(plan, focus) -> dict:
+    """{key: [x, y, rotation, face] or None} for the focused items: where a variant put them."""
+    out = {}
+    for key in sorted(focus):
+        p = plan.placement(key)
+        out[key] = None if p is None else [round(p.location.x, 3), round(p.location.y, 3), round(p.rotation, 3), p.face.value]
+    return out
+
+
+def _order(plan, focus) -> list:
+    seen, out = set(), []
+    for s in plan.steps:
+        if s.item in focus and s.placement is not None and s.item not in seen:
+            seen.add(s.item)
+            out.append(s.item)
+    return out
+
+
 def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, best_val, baseline, parent, untried):
     """A worker: take the next seed until the list or the deadline runs out,
     and say so: a variant's result, a traceback if one raises, and that it
@@ -293,7 +332,8 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, be
     import signal
     import time
     import traceback
-    from . import stop
+    from . import channel, stop
+    channel.disable()                                   # the parent reports for the explore, not each variant's resolve
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     stop.parent_death_signal()
     import os
@@ -326,7 +366,8 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, be
                         best_val.value = total
                 if better:
                     payload = _payload(b, p, focus)
-            out.put(("v", seed, total, m, payload, round(time.time() - t0, 3)))
+            out.put(("v", seed, total, m, payload, round(time.time() - t0, 3),
+                     {"placements": _placements(p, focus), "order": _order(p, focus)}))
     except BaseException:
         out.put(("err", idx, traceback.format_exc()))
     finally:
@@ -474,6 +515,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if ck is not None and result.best_seed and (_checkpoint.read_best(ck.dir) or {}).get("seed") == result.best_seed:
         report["accept"] = accept_command(script, result.best_seed)
     if result.best_seed == 0:
+        _write_record(script, result, report)
         if ck is not None and not keep_state:
             ck.finish()
         return report, entries
@@ -497,6 +539,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["accepted"] = True
         if ck is not None:
             ck.best_path.unlink(missing_ok=True)         # taken: it would not match the lock now
+    _write_record(script, result, report)
     if ck is not None and not keep_state:
         ck.finish()
     return report, entries
@@ -541,6 +584,33 @@ def accept_best(script, directory, release: str = "", run_id: str = "", seed: in
     _write_lock(path, entries, set(doc["focus"]), new, plan)
     return "wrote seed %d (score %.1f -> %.1f mm) for %d item%s to %s" % (
         doc["seed"], doc["baseline"], doc["score"], len(new), "" if len(new) == 1 else "s", path.name)
+
+
+def _write_record(script, result, report) -> None:
+    """The explore's result, kept: every variant's seed, score, measures, the focused items' placements and the order they
+    were placed in, and which was kept. Read after the command ends (the studio lists and replays it); `report["record"]`
+    names it. A courtesy: a record that cannot be written does not fail the explore."""
+    import json
+    import os
+    import time
+    from . import channel
+    try:
+        from .project import find_board
+        d = find_board(Path(script).resolve()).board_dir / ".placemat" / "views" / "explore"
+        d.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = d / ("%s-%d.json" % (stamp, os.getpid()))
+        doc = {"version": 1, "script": str(Path(script).resolve()), "at": time.time(), "pid": os.getpid(), "focus": result.focus,
+               "seconds": result.seconds, "jobs": result.jobs, "baseline": result.baseline, "plain": result.plain, "order": result.plain_order,
+               "best_seed": result.best_seed, "best": result.best, "kept": bool(report.get("accepted")), "variants": result.variants}
+        path.write_text(json.dumps(doc, separators=(",", ":")))
+        report["record"] = str(path)
+        rep = channel.current()
+        if rep is not None:
+            rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline, "tried": result.tried,
+                      "kept": bool(report.get("accepted")), "record": str(path)})
+    except (OSError, ValueError):
+        pass
 
 
 # ------------------------------------------------------------ the runner's side

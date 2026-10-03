@@ -131,7 +131,7 @@ def test_a_rerun_with_the_same_inputs_skips_every_stage_the_first_finished(rig):
     assert rig.calls() == ["island", "main"]                          # no router ran
     assert again.resumed == ["islands", "main"]
     assert (again.closure, again.open_after, again.islands) == (first.closure, first.open_after, first.islands)
-    assert Path(again.routed_pcb).exists() and again.seconds >= first.seconds
+    assert Path(again.routed_pcb).exists() and abs(again.seconds - first.seconds) < 0.5
 
 
 def test_a_main_pass_that_fails_leaves_the_islands_done_and_the_rerun_does_only_the_main(rig, monkeypatch):

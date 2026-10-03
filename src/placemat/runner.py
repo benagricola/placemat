@@ -306,6 +306,7 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
     board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
                   courtyard_excess=fab.courtyard_excess, settings=cfg, component_spacing=fab.component_spacing,
                   fab_via_tiers=fab.via_tiers, fab_source=str(fab.path) if fab.path else "")
+    board._script = script
     try:
         run_script(script, board)
     except Exception as e:
@@ -419,6 +420,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("facts", facts_mod.unconfirmed_line(facts_reasons))
 
         t0 = time.time()
+        from . import channel
+        channel.hint_progress(run_dir / "progress.jsonl")      # the run's crash trail sits in its folder
         board = scripted_board(script, src, cfg, fab, keep_going)
         for note in rule_notes(board.geometry):
             say("note", note)
@@ -643,6 +646,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     except RunFailure as e:
         rec.status = "failed"
         rec.failure = {"kind": e.kind, "message": str(e), **e.details}
+        from . import channel
+        channel.error("%s%s" % (e, (": " + str(e.details["error"])) if e.details.get("error") else ""), str(e.details.get("script") or ""), e.details.get("line"))
         say("fail", str(e), level="fail")
         kept = run_dir / "before"
         if kept.exists() and "item" not in e.details:     # a critical item's failure writes the board as it stood
@@ -683,12 +688,17 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     if rec.status == "ok":
         regressed = _against_best(rec, run_dir.parent / "best.json", say, cfg)
     rec.save(run_dir / "run.json")
+    from . import channel
     if stopped is not None:
         say("record", str(run_dir / "run.json"))
-        stop.say("run %s stopped by %s during %s after %.0f s; the layout folder is as the last run left it; %s" % (
-            rec.run_id, stopped.name, stopped.stage, rec.failure["elapsed_s"], run_dir / "run.json"))
+        line = "run %s stopped by %s during %s after %.0f s; the layout folder is as the last run left it; %s" % (
+            rec.run_id, stopped.name, stopped.stage, rec.failure["elapsed_s"], run_dir / "run.json")
+        stop.say(line)
         stopped.said = True
+        channel.error(line)                 # the studios and `placemat watch` are told it was stopped, not that it died
+        channel.finish(run_dir / "run.json")
         raise stopped
+    channel.finish(run_dir / "run.json")                  # the studios are told where the record is
     text = ""
     if rec.status == "ok":
         try:
