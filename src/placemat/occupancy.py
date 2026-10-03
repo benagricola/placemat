@@ -2721,25 +2721,24 @@ class NativeSweeper:
         a candidate that also passes with the ties in (`full`) is legal as it
         stands, since KiCad's net-tie exclusion only excuses a conflict, and
         the rest are judged here and kept or refused. Its scores are None
-        (the caller scores each candidate) unless every candidate it keeps
-        passed with the ties in and `scoring` is given, when they are scored
-        natively."""
+        (the caller scores each candidate) unless `scoring` is given and every
+        candidate the native pass accepted passed with the ties in, when they
+        are scored natively."""
         if self.recheck is None:
             return self._native_run(triples, stop_at_first, scoring)
-        legal, refused, start, judged = [], {}, 0, False
+        legal, refused, start, scores = [], {}, 0, None
         while start < len(triples):
             found, _, refusals = self._native_run(triples[start:], stop_at_first, None)
             for bucket, count, first, reason, blocker in refusals:
                 self._merge(refused, bucket, count, start + first, reason, blocker)
             if not found:
                 break
-            sure = self._with_ties([triples[start + j] for j in found])
+            sure, scores = self._with_ties([triples[start + j] for j in found], None if stop_at_first else scoring)
             for at, j in enumerate(found):
                 i = start + j
                 if at in sure:
                     legal.append(i)
                     continue
-                judged = True
                 hit, blame = self._judge(triples[i])
                 if hit is None:
                     legal.append(i)
@@ -2749,22 +2748,22 @@ class NativeSweeper:
                 break
             start = start + found[-1] + 1       # the one accepted was refused: on to the next
         out = sorted(((b, c, f, r, k) for (b, k), (c, f, r) in refused.items()), key=lambda e: e[2])
-        scores = None
-        if scoring is not None and legal and not judged and not stop_at_first:
-            floor = scoring.floor
-            sweep = self._sweep(self.full[0], [triples[i] for i in legal], False, scoring)
-            if len(sweep[0]) == len(legal):
-                scores = sweep[1]
-            else:
-                scoring.floor = floor
-        return legal, scores, out
+        return legal, scores if len(legal) == len(scores or ()) else None, out
 
-    def _with_ties(self, triples) -> frozenset:
-        """Which of `triples`, accepted without the net ties, the native pass accepts with them: the
-        positions in `triples`. None when the item owns a tie (`full` is None)."""
+    def _with_ties(self, triples, scoring) -> tuple:
+        """(positions in `triples` that the native pass accepts with the net ties in, their scores): the
+        scores only when `scoring` is given and every one of `triples` is accepted - else None, and
+        `scoring` is left as it was."""
         if self.full is None:
-            return frozenset()
-        return frozenset(self._sweep(self.full[0], triples, False, None)[0])
+            return frozenset(), None
+        floor = None if scoring is None else scoring.floor
+        found, scores, _ = self._sweep(self.full[0], triples, False, scoring)
+        if scoring is None:
+            return frozenset(found), None
+        if len(found) == len(triples):
+            return frozenset(found), scores
+        scoring.floor = floor
+        return frozenset(found), None
 
     def _sweep(self, index, triples, stop_at_first: bool, scoring):
         from . import geometry as _g
