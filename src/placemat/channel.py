@@ -350,6 +350,11 @@ class Beacon:
         self.error_sent = True
         self.send({"ev": "error", "message": message, "file": file, "line": line})
 
+    def stopped(self, record: dict) -> None:
+        """The command was stopped (stop.record): an error event carrying the record, not a sentence; `describe` renders it."""
+        self.error_sent = True
+        self.send({"ev": "error", **record})
+
     def finish(self, record=None) -> None:
         if self._finished:
             return
@@ -461,6 +466,12 @@ def error(message: str, file: str = "", line=None) -> None:
         rep.error(message, file, line)
 
 
+def stopped(record: dict) -> None:
+    rep = _state["reporter"]
+    if rep is not None:
+        rep.stopped(record)
+
+
 def finish(record=None) -> None:
     rep = _state["reporter"]
     if rep is not None:
@@ -503,6 +514,9 @@ def describe(ev: dict) -> str:
         return "explore done: best %s of baseline %s, kept %s" % (ev.get("best"), ev.get("baseline"), ev.get("kept"))
     if kind == "done":
         return "done%s" % ((" " + ev["record"]) if ev.get("record") else "")
+    if kind == "error" and ev.get("kind") == "stopped":
+        from . import stop
+        return stop.line(ev)
     if kind == "error":
         return "error: %s%s" % (ev.get("message", ""), (" (%s:%s)" % (ev.get("file"), ev.get("line"))) if ev.get("file") else "")
     return str(kind)

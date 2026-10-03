@@ -137,6 +137,7 @@ class Settings:
     explore_rank_power: float = 1.0    # a drawn spot at rank r is weighted 1 / r ** this: higher keeps nearer the best
     explore_congestion_step: float = 0.05   # the worst RUDY cell ranks variants in steps of this; 0 leaves it out
     explore_jobs: int = 0              # worker processes; 0: the CPU count less one
+    explore_checkpoint_max_variants: int = 100000   # finished variants a checkpoint records; past it a resume tries those again
     drc_severities: dict = field(default_factory=dict)   # KiCad rule -> error|warning|ignore, written into the board's project
     # [route]
     route_router_dir: str = ""          # "": fall back to $KRT_DIR, then the built-in
@@ -350,11 +351,7 @@ _ABOVE_ZERO = frozenset((
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_size",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
-<<<<<<< HEAD
-    "studio_keep", "studio_poll_ms", "studio_suggestions_per_lever", "studio_try_timeout_s", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
-=======
-    "studio_keep", "studio_poll_ms", "studio_explore_fps", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
->>>>>>> main
+    "studio_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text"))
 _AT_LEAST_ZERO = frozenset((

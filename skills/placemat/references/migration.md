@@ -24,6 +24,46 @@ section for each hand-written pattern a newer form replaces.
   it with placemat.
 - Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), `apply` (true) and `suggest_factor` (2.0),
   none part of a run's id. Scripts change nothing.
+- **A stopped command says so and keeps its work.** `placemat run`, `preview` and `route` handle SIGTERM, SIGHUP and
+  Ctrl-C: the explore workers are ended, the layout folder is put back as the last run left it, `run.json` is saved
+  with `status: "stopped"` and `failure: {kind: "stopped", signal, stage, elapsed_s, explore}`, a last line names the
+  stage and the signal on stdout and stderr (stderr only with `-q`/`--json`), and the exit status is 128 + the signal.
+  A second signal exits at once. A run's `run.json` is written as `status: "running"` with the `pid` as soon as its id
+  is taken, so a record whose process is gone is reported as having died (`placemat impact` and the commands that read
+  a run say so).
+- **A stopped explore keeps its best and offers it.** `explore stopped by SIGTERM after N variants in T s; best seed S:
+  a -> b mm; nothing accepted; accept it with: placemat lock <script> --accept-seed S`. Nothing is written to the lock
+  on a stop, even with `--accept`. `placemat lock <script> --accept-seed N` writes the saved best (kept in
+  `<board>/.placemat/explore/<script stem>/best.json`) to the lock without searching; it refuses when the lock or the
+  script changed since the explore began.
+- **An explore resumes.** The parent appends a line per finished variant to
+  `<board>/.placemat/explore/<script stem>/checkpoint.jsonl` as it goes (the header holds the baseline, the budget and a
+  digest of the script, generated board, settings, fab profile, placemat version, lock and focus). A rerun of the same
+  explore (`placemat run|preview <script> --explore SECONDS ...`) finds it, says `resuming a saved explore: N variants
+  in T s so far`, reuses the baseline, tries only the untried seeds and spends SECONDS less the time already spent.
+  `--resume` insists on it and refuses, naming what changed ("the script and the lock changed since it began"), when the
+  saved explore is not this one; without `--resume` such a checkpoint is dropped with a note and the explore starts
+  over; `--no-resume` starts over regardless. The checkpoint is removed when the run that explored is recorded;
+  `best.json` stays, so `placemat lock <script> --accept-seed N` works after a finished explore too (the explore's
+  report ends with the command). `[explore] checkpoint_max_variants` (default 100000) bounds the file.
+- **A resolve that died is replayed as far as it got.** Each completed step's record is appended to
+  `<run dir>/reuse.partial.jsonl` as the resolve goes, and removed once `reuse.json` is written. A rerun of the same
+  inputs replays those steps by their chained keys (a step that changed since is not replayed, nor any after it) and
+  says `reused N of M steps from run <id> (interrupted)`.
+- **A route keeps the stages it finished.** `run --route` and `placemat route` no longer empty the route work
+  folder: `state.json` there names each finished stage (pairs, islands, main) with a digest of its inputs (the board
+  and its project files, the nets left out, the islands, the layers, the router and its version, the `[route]`
+  settings, chained from the stage before). A route that is stopped or fails leaves them; a rerun of the same inputs
+  takes them (`took islands, main from an earlier route of the same inputs`, `report.resumed`) and only routes what is
+  left. A stage that does not match is routed again with every one after it. `--no-resume` routes every stage again.
+  A rerun of a run with the same id (same inputs) therefore no longer routes again unless `--no-resume` is given. The
+  router's own pass is not resumable inside (its `KICAD_STOP_AFTER` / `KICAD_STOP_FILE` checkpoint stop could be
+  used for that later). The raw router output is kept as `router_out.kicad_pcb`; `routed.kicad_pcb` is made from it
+  each time.
+- **An explore's workers are watched.** A worker that is killed from outside (the out-of-memory killer) or raises is
+  reported with its exit signal or traceback, and the explore carries on with the others instead of waiting for it. A
+  worker ends when its parent does.
+
 ## To 0.87.0
 
 ### New

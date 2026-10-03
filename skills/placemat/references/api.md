@@ -1124,6 +1124,15 @@ unchanged rerun went from 125 s to 7 s, and a change to a part late in the
 order from 118 s to 24 s. A change early in the order - most of the
 fixed tier, the large parts - still re-resolves nearly everything.
 
+A run appends each completed step's record to `<run dir>/reuse.partial.jsonl`
+as it resolves (the context first), and removes the file when `reuse.json` is
+written. A run that died while resolving (killed, stopped, out of memory)
+leaves it; a rerun of the same inputs - the same run id, so the same folder -
+replays those steps, by the same chained keys, so a step that changed since
+is not replayed, nor any after it. It prints `reused N of M steps from run
+<id> (interrupted)`. When an earlier finished run's `reuse.json` holds every
+step the partial one does, and goes on, that one is used instead.
+
 **The global solve.** With `[solve] enabled = true`, at the first searched
 item placemat works out where every unplaced searched part and cell would
 sit if the whole netlist pulled at once - placed items as anchors, each pad
@@ -2781,8 +2790,8 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 ## Commands
 
 ```
-placemat run <script | its directory> [--label L] [--fresh] [--no-reuse] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
-placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
+placemat run <script | its directory> [--label L] [--fresh] [--no-reuse] [--no-resume] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
+placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--no-resume] [--json]
                [--adopt NET ... | --adopt-all] [--partial] [--no-lock]
 placemat routes <script> [--release NET ... | --release-all]
 placemat impact <run> <run> [--board DIR]      # each a run id, a unique id prefix, a --label, or a run directory or run.json path
@@ -3243,6 +3252,24 @@ a keepout breach naming its footprint), and the routed copy gets every
 footprint's graphics back as they were before its DRC is run; the report's
 `restored_graphics` counts them.
 
+**Stages and resume.** A route works in three stages - the differential
+pairs, the islands, the main pass - and keeps each in its work folder
+(`<run dir>/route/`, or `.placemat/route/`, or `--out`) as it finishes:
+`state.json` has the stage, the digest of its inputs (the board and its
+project files, the nets left out, the islands, the layers, `quick`, the
+iteration caps, the router and its version, the `[route]` settings), chained
+from the stage before, and the stage's result (its board, the pair outcome,
+the breaches, the time). A rerun whose digests match takes those stages
+(`took islands, main from an earlier route of the same inputs`;
+`metrics.route.resumed`) and routes the rest; the first stage that does not
+match is dropped with its files and every later stage, and routed. A stop
+(`SIGTERM`, Ctrl-C) or a router failure leaves the finished stages and the
+partial stage's log. `--no-resume` routes every stage again. The main pass is
+one stage: nothing inside it is kept (the router's own `KICAD_STOP_AFTER` /
+`KICAD_STOP_FILE` checkpoint stop, which writes the partial board, could be
+used for that later). The router's raw output is `router_out.kicad_pcb`;
+`routed.kicad_pcb` is made from it, then post-processed, every time.
+
 **Keeping routed copper.** `placemat route <script> --adopt NET ...` routes
 as above, then keeps the router's new copper on the named nets in
 `<script stem>.routes.json` beside the script (commit it with the script);
@@ -3437,9 +3464,9 @@ the items it was left to place:
 
 ```
 placemat run <script> --explore SECONDS [--focus ITEM ...] [--focus-after LINE]
-                      [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept]
+                      [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept] [--resume | --no-resume]
 placemat preview <script> --explore SECONDS [the same]
-placemat lock <script> [--current [--partial] | --release ITEM ... | --release-all]
+placemat lock <script> [--current [--partial] | --release ITEM ... | --release-all | --accept-seed N]
 placemat freeze <script> ITEM ... | --all [--fixed]
 ```
 
@@ -3467,6 +3494,44 @@ comparison.
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
 Without `--accept` nothing persists.
+
+**Stopping.** `run`, `preview` and `route` stop on SIGTERM, SIGHUP or Ctrl-C
+(a second signal exits at once). A stopped explore prints `explore stopped by
+SIGTERM after N variants in T s; best seed S: a -> b mm; nothing accepted;
+accept it with: placemat lock <script> --accept-seed S`; the lock is never
+written on a stop, even with `--accept`, and `placemat lock <script>
+--accept-seed S` writes the best from `<board>/.placemat/explore/<script
+stem>/best.json` (refused when the lock or the script changed since). A
+stopped run's `run.json` has `status: "stopped"` and `failure: {kind:
+"stopped", signal, stage, elapsed_s, explore}`, the layout folder is as the
+last run left it, a final line names the stage and the signal, and the exit
+status is 128 + the signal. While a run works its `run.json` says `status:
+"running"` and its `pid`; a record whose pid is gone died without finishing.
+**Checkpoint and resume.** An explore keeps its state in
+`<board>/.placemat/explore/<script stem>/`. `checkpoint.jsonl` is a header (the
+digest and the parts it is made of - script, generated board, settings, fab
+profile, placemat version, lock, focus - the baseline's score and measures, the
+budget), a line per finished variant `{"v": seed, "s": score, "t": seconds
+spent in all}` (a variant better than every one before it also has `"m"`, its
+measures), flushed as it goes, a `{"stop": signal}` line when it was stopped
+and `{"done": true}` when it finished; a line cut short by a kill is ignored.
+`best.json` holds the best variant's lock entries (replaced atomically at each
+new best) and what `placemat lock <script> --accept-seed N` writes. A rerun
+with the same digest continues: `resuming a saved explore: N variants in T s
+so far`, the baseline from the header, the untried seeds only, `SECONDS` less
+the time already spent (a fixed list of seeds: those not tried). `--resume`
+refuses a checkpoint with another digest, naming what changed; with no flag it
+is dropped with a note and the explore starts over; `--no-resume` starts over
+always. The checkpoint is removed when the run that explored is recorded (a
+`preview`, which records nothing, removes it when it has the result); a run
+that fails or is stopped after a complete explore leaves it, and the rerun
+takes the finished result without searching again. `best.json` stays until the
+lock is written from it or the explore starts over. `[explore]
+checkpoint_max_variants` bounds the lines.
+
+For a long explore run it detached (`setsid nohup placemat run ... >
+explore.log 2>&1 &`) and do not chain it with `;`, which hides its exit
+status.
 
 **The lock.** `--accept` writes the best variant's decisions for the
 focused items to `<script stem>.lock.json` beside the script, and the run
@@ -3642,7 +3707,7 @@ in a place of its own:
 | `run` | the placed board: `layout.kicad_pcb`, the project's presets and a `.kicad_dru` of the script's rules | the board's layout directory |
 | `run` | the generation, cached so a rerun skips `pcb layout` | `.placemat/generated/<board>/` |
 | `run` | what that generation was made from, to know when it is out of date | `.placemat/generated/<board>.inputs.json` |
-| `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays) | `.placemat/runs/<id>/` |
+| `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays; `reuse.partial.jsonl` while resolving, left by a run that died), `run.json` with `status` `ok`, `failed`, `stopped`, or `running` with its `pid` while it works | `.placemat/runs/<id>/` |
 | `run` | `latest.json` (the last run of any board), `latest-<board>.json` (the last of each board: what a run compares with and reuses), `best.json`, and with `--label` an alias | `.placemat/runs/` |
 | `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/views/preview/`, or `--out DIR` |
 | `studio` | `reuse.json` (what the next resolve replays) and `worker.log` | `.placemat/views/studio/` |
@@ -3812,6 +3877,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.rank_power` | 1.0 | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
 | `explore.congestion_step` | 0.05 | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
 | `explore.jobs` | 0 | worker processes for `--explore`; 0 is the CPU count less one |
+| `explore.checkpoint_max_variants` | 100000 | finished variants an explore's checkpoint records; past it a resume tries those again |
 | `drc.severities` | none | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `drc.real_kinds` | `clearance`, `shorting_items`, `track_width`, `annular_width`, `hole_clearance`, `hole_to_hole`, `courtyards_overlap`, `copper_edge_clearance` | which violations mean the board is not done: the `real` buckets |
 | `drc.outstanding_kinds` | `via_dangling`, `track_dangling`, `isolated_copper` | which violations are copper not yet joined: `outstanding` |

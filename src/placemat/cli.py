@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 
+from . import stop
 from .console import console
 
 
@@ -35,7 +36,9 @@ def parser() -> argparse.ArgumentParser:
 
     run.add_argument("--explore", type=float, metavar="SECONDS",
                      help="first spend up to SECONDS trying variants of the focused items' spots and order, and "
-                          "report what the best would move")
+                          "report what the best would move. A long explore: run it detached (setsid nohup placemat "
+                          "run ... > explore.log 2>&1 &) and do not chain it with ';', which hides its exit status "
+                          "(128 + the signal when it was stopped)")
     run.add_argument("--focus", action="append", default=[], metavar="ITEM",
                      help="with --explore: vary this item (a part, cell or block key); repeatable")
     run.add_argument("--focus-after", type=int, metavar="LINE",
@@ -44,6 +47,12 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--jobs", type=int, help="with --explore: worker processes (default [explore] jobs)")
     run.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them")
+    run.add_argument("--resume", action="store_true",
+                     help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
+                          "its time) or refuse, saying what changed; without it a saved explore that is this one is "
+                          "continued anyway")
+    run.add_argument("--no-resume", action="store_true",
+                     help="start over: drop a saved explore (with --explore) and route every stage again (with --route)")
 
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
@@ -55,6 +64,9 @@ def parser() -> argparse.ArgumentParser:
     rt.add_argument("--full", action="store_true", help="the router's full run, not one round")
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
     rt.add_argument("--out", help="work directory (default: <board dir>/.placemat/route)")
+    rt.add_argument("--no-resume", action="store_true",
+                    help="route every stage again; by default the stages (pairs, islands, main) an earlier route of "
+                         "the same inputs finished in the work directory are taken, not routed again")
     rt.add_argument("--json", action="store_true")
     keep = rt.add_mutually_exclusive_group()
     keep.add_argument("--adopt", nargs="+", metavar="NET",
@@ -232,6 +244,11 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("--jobs", type=int, help="with --explore: worker processes (default [explore] jobs)")
     pv.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them")
+    pv.add_argument("--resume", action="store_true",
+                     help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
+                          "its time) or refuse, saying what changed; without it a saved explore that is this one is "
+                          "continued anyway")
+    pv.add_argument("--no-resume", action="store_true", help="with --explore: start over, dropping a saved explore")
 
     st = sub.add_parser("studio", help="a local page that shows the layout as it is made: the board re-resolved as the "
                                         "script, its modules or placemat.toml change, each step as it settles, and what "
@@ -261,6 +278,9 @@ def parser() -> argparse.ArgumentParser:
     how = lk.add_mutually_exclusive_group()
     how.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
     how.add_argument("--release-all", action="store_true", help="drop every entry")
+    how.add_argument("--accept-seed", type=int, metavar="N",
+                     help="write the saved explore's best variant, seed N, to the lock (what a stopped "
+                          "explore's message offers); no search is run")
     how.add_argument("--current", action="store_true",
                     help="lock every searched item where the board stands (the last run's placement)")
     lk.add_argument("--partial", action="store_true",
@@ -360,8 +380,8 @@ def cmd_settings(args) -> int:
 def _explore_options(args):
     """The ExploreOptions --explore and its flags ask for, or None."""
     if getattr(args, "explore", None) is None:
-        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept")):
-            raise SystemExit("--focus, --focus-after, --focus-box and --accept go with --explore SECONDS")
+        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume")):
+            raise SystemExit("--focus, --focus-after, --focus-box, --accept and --resume go with --explore SECONDS")
         return None
     from .explore import ExploreOptions
     from .values import Box
@@ -372,7 +392,10 @@ def _explore_options(args):
         except ValueError:
             raise SystemExit("--focus-box is X0,Y0,X1,Y1 in board millimetres, not %r" % args.focus_box)
         box = Box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-    return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept)
+    if args.resume and args.no_resume:
+        raise SystemExit("--resume and --no-resume say opposite things")
+    return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept,
+                          "yes" if args.resume else "no" if args.no_resume else "auto")
 
 
 def cmd_lock(args) -> int:
@@ -383,6 +406,19 @@ def cmd_lock(args) -> int:
         return _lock_current(Path(args.script), None, partial=args.partial)
     if args.partial:
         raise SystemExit("--partial goes with --current")
+    if args.accept_seed is not None:
+        from .explore import accept_best
+        from .checkpoint import state_dir
+        from .project import find_board
+        from ._version import __version__
+        script = Path(args.script).resolve()
+        try:
+            console.say("lock", accept_best(script, state_dir(find_board(script).board_dir, script), __version__,
+                                            seed=args.accept_seed))
+        except ValueError as e:
+            console.say("lock", str(e), level="fail")
+            return 1
+        return 0
     if not args.release and not args.release_all:
         entries = lock.read(path)
         console.lines("lock", "\n".join("%s  %s %s  turn %d" % (e.key, "%s.%s" % e.anchor if e.anchor else "board",
@@ -484,7 +520,7 @@ def cmd_run(args) -> int:
                  drc=not args.no_drc, quiet=args.quiet or args.json, verbose=args.verbose,
                  route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude,
                  keep_going=args.keep_going, overrides=overrides_from(args), reuse=not args.no_reuse,
-                 explore=_explore_options(args))
+                 explore=_explore_options(args), resume=not args.no_resume)
     if args.json:
         console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
     # a run that placed but came out worse than the best of its parts is a
@@ -515,7 +551,20 @@ def _runs_dirs(board) -> list:
 
 def _record(ref, board=None) -> Path:
     """A run.json from a path, or a run id / prefix / label looked up in the
-    runs directories under the cwd (or --board)."""
+    runs directories under the cwd (or --board). A run whose process is gone
+    while its record still says "running" is said to have died."""
+    path = _find_record(ref, board)
+    try:
+        from .report import RunRecord, dead_note
+        note = dead_note(RunRecord.load(path))
+        if note:
+            console.say("run", note, level="fail")
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return path
+
+
+def _find_record(ref, board=None) -> Path:
     from .report import resolve_run
     p = Path(ref)
     if p.exists():
@@ -594,11 +643,15 @@ def cmd_route(args) -> int:
         islands = parse_islands(active().route_islands)
         islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
         report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
-                             quick=not args.full, iterations=args.iterations, islands=islands)
+                             quick=not args.full, iterations=args.iterations, islands=islands,
+                             resume=not args.no_resume)
     if args.json:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:
         console.say("route", report.summary())
+        if report.resumed:
+            console.say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
+                        ", ".join(report.resumed))
         for breach in report.keepout_breaches:
             console.say("route", breach)
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
@@ -1414,10 +1467,31 @@ def cmd_facts(args) -> int:
     return 1 if reasons else 0
 
 
+# The commands that can run for minutes: a stop (SIGTERM, SIGHUP, Ctrl-C) ends them with a line saying
+# so and the exit status 128 + the signal, keeping what they had done.
+STOPPABLE = ("run", "preview", "route")
+
+
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     if args.format == "json":
         args.json = True
+    previous = stop.install() if args.command in STOPPABLE else {}
+    try:
+        return _main(args)
+    except stop.Stopped as s:
+        if not s.said:
+            info = stop.record(s, command=args.command)
+            stop.say(stop.line(info))
+            from . import channel
+            channel.stopped(info)
+            channel.finish()
+        return s.exit_code
+    finally:
+        stop.restore(previous)
+
+
+def _main(args) -> int:
     if args.output is None:
         return _dispatch(args)
     with open(args.output, "w") as stream:
