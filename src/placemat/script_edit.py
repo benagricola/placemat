@@ -1163,7 +1163,7 @@ def toml_set(text: str, table, key: str, value, comment: str = "") -> str:
         if _header_path(line) == table:
             start = i
             break
-    tail = ("  # " + comment) if comment and any(l.lstrip().startswith("#") for l in lines) else ""
+    tail = ("  # " + comment) if comment and any(re.search(r"(^|\s)#", l) for l in lines) else ""
     new_line = "%s = %s%s%s" % (key, _toml_value(value), tail, nl)
     if start is None:
         out = text

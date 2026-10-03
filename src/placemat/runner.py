@@ -304,6 +304,7 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
     board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
                   courtyard_excess=fab.courtyard_excess, settings=cfg, component_spacing=fab.component_spacing,
                   fab_via_tiers=fab.via_tiers, fab_source=str(fab.path) if fab.path else "")
+    board.script_file = str(Path(script).resolve())     # what a finding's suggestions edit
     try:
         run_script(script, board)
     except Exception as e:

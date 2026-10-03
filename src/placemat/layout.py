@@ -4738,7 +4738,7 @@ class Board:
                                  "points further apart%s" % (
                                      name, arc_r, m, ", or Bend.ARC_FREE where the octilinear legs made the short leg"
                                      if bend is Bend.ARC else ""),
-                                 case="copper.not_drawn", facts={"key": intent.key, "cause": "arc", "radius": arc_r,
+                                 case="copper.not_drawn", facts={"key": copper_id(intent), "cause": "arc", "radius": arc_r,
                                                                   "layer": layer.name, "net": name})
                     return []
                 diagonals = []
@@ -4760,7 +4760,7 @@ class Board:
                         "copper", "track %s: the points either side of its 45 past the %s corner of %s allow "
                         "no 45 through it; the track passes that corner at %.3f mm, under the "
                         "%.3f mm clearance" % (name, p.edge.value, ", ".join(names), near - w / 2.0, off - w / 2.0),
-                        "critical", case="copper.corner", facts={"key": intent.key, "net": name, "chamfer": chamfer}))
+                        "critical", case="copper.corner", facts={"key": copper_id(intent), "net": name, "chamfer": chamfer}))
             if chamfer > 0 and not arc:
                 # the 45 a corner's own cut emits, not a straight leg that merely
                 # happens to run between two separate corners' cuts
@@ -4789,13 +4789,13 @@ class Board:
                     ctx.notes.append(Finding(
                         "copper", "track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
                         "so drop the waypoint(s) unless the route must go there" % name, "notice", case="copper.note",
-                        facts={"key": intent.key, "net": name, "waypoints": len(points) - 2}))
+                        facts={"key": copper_id(intent), "net": name, "waypoints": len(points) - 2}))
             if begins is not None:
                 self._release_lane(ctx.occ, begins)     # what is judged from here is what this track draws
             met = self._through(ctx, ops, bridge)
             if met is not None:
                 ctx.note("track %s: not drawn, it would run through %s" % (name, met), case="copper.not_drawn",
-                         facts={"key": intent.key, "cause": "through", "layer": layer.name, "net": name,
+                         facts={"key": copper_id(intent), "cause": "through", "layer": layer.name, "net": name,
                                 "waypoints": max(0, len(points) - 2)})
                 return []
             return ops
@@ -7447,7 +7447,7 @@ class Board:
             refused = []
             ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size,
                                                    self.settings.copper_bridge_half, drop=refused,
-                                                   labels=[c.key for c, _ in live])
+                                                   labels=[c.key for c, _ in live], ids=[copper_id(c) for c, _ in live])
             fresh = {live[i][0].index for i in refused} - dropped
             if not fresh:
                 break
@@ -7486,9 +7486,13 @@ class Board:
             by_key[c.key][1] += 1
         shapes, batch = [], []
         owner = {id(op): c.key for c, op in others}
+        owner_id = {id(op): copper_id(c) for c, op in others}
         net_key = {}
         for c, _ in tracks:
             net_key.setdefault(c.net, c.key)               # a track's pieces after bridging are told by their net
+        track_ids = {}
+        for c, _ in tracks:
+            track_ids.setdefault(c.net, set()).add(copper_id(c))
         laid = {}
         for op in all_ops:
             key = owner.get(id(op)) or net_key.get(getattr(op, "net", None)) or next(iter(by_key), "")
@@ -7521,9 +7525,10 @@ class Board:
                     elif isinstance(op, Track) and op.mid is not None:
                         note += "; the arc of its corner (radius %.2f mm) at (%.2f, %.2f); a smaller radius= there keeps clear" % (
                             arc_circle(op.start, op.mid, op.end)[2], op.mid.x, op.mid.y)
-                    declared = next((c.declared for c in intents if c.key == key), {})
+                    which = owner_id.get(id(op)) or (next(iter(track_ids[op.net])) if len(track_ids.get(op.net, ())) == 1 else None)
+                    declared = next((c.declared for c in intents if which and copper_id(c) == which), {})
                     layer = getattr(op, "layer", None)
-                    facts = {"key": key, "net": op.net, "word": type(op).__name__.lower(),
+                    facts = {"key": which or "", "net": op.net, "word": type(op).__name__.lower(),
                              "layer": layer.name if layer is not None else "", "waypoints": declared.get("waypoints", 0),
                              "chamfer_hit": isinstance(op, Track) and bool(op.chamfer_cut),
                              "arc_hit": isinstance(op, Track) and op.mid is not None,
@@ -9065,9 +9070,17 @@ def _link_key(l) -> str:
     return "%s.%s>%s.%s" % (l.a[0], l.a[1], l.b[0], l.b[1])
 
 
+def copper_id(c) -> str:
+    """What names one copper declaration for a suggestion: its key and its place in the declaration order (two
+    tracks of one net have the same key)."""
+    return "%s#%d" % (c.key, c.index)
+
+
 def _keyed(out) -> list:
     key = getattr(out, "key", None)
-    return [key] if key else []
+    if key is None:
+        return []
+    return [copper_id(out)] if hasattr(out, "index") and hasattr(out, "net") else [key]
 
 
 def _first(args, kwargs, name):

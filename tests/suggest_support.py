@@ -50,3 +50,23 @@ def apply_and_resolve(tmp_path: Path, plan, id: str, path: Path, parts=None, **k
     board.script_file = str(path)
     run_script(path, board)
     return board, board.resolve()
+
+
+def rerun(layout: Path, keep_going: bool = True):
+    """Run a layout script already staged by tests/real_modules.stage again, as `placemat run` does (the cached
+    generation put in the layout folder, no renders): the RunResult."""
+    import shutil
+    from placemat import console, runner
+    src = runner.find_board(layout)
+
+    def restore(src, run_dir, fresh, quiet, timeout=900, keep_renders=False):
+        shutil.rmtree(src.layout_dir, ignore_errors=True)
+        shutil.copytree(runner.cached_generation(src), src.layout_dir)
+        return False
+    was = runner.generate
+    runner.generate = restore
+    try:
+        return runner.run(layout, render=False, quiet=True, reuse=False, overrides={}, keep_going=keep_going)
+    finally:
+        runner.generate = was
+        console.configure(quiet=False)

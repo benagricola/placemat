@@ -78,6 +78,9 @@ def partners(board, i, occ, placed, near=None, limit: int = 2) -> list:
         except (KeyError, AttributeError):
             return 0.0
     order = sorted(weight, key=lambda r: (-weight[r], far(r), r))
+    if not order and near is not None:         # nothing pulls it: the placed parts nearest where it was wanted
+        order = sorted((r for r in placed if r not in own and board.geometry.has_footprint(r) and r in occ.items),
+                       key=lambda r: (far(r), r))
     return [inst_of(board, r) for r in order if board.geometry.has_footprint(r)][:limit]
 
 

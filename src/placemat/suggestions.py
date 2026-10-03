@@ -875,7 +875,7 @@ def _drop_waypoints(f, text):
 def copper_meets(f, settings):
     net = f["net"]
     out = []
-    if f.get("word") == "track":
+    if f.get("word") == "track" and f.get("key"):
         out += _drop_waypoints(f, "Draw the %s track pad to pad" % net)
         if f.get("chamfer_hit") and f.get("chamfer"):
             out.append(_smaller("track", f["key"], "chamfer", f["chamfer"], "Cut the corner of the %s track smaller" % net,

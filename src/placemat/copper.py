@@ -384,7 +384,7 @@ def bridge_track(track: Track, points, via_drill: float, via_size: float, half: 
 _PRIORITY_OF_RANK = {2: "high", 1: "default", 0: "low"}
 
 
-def _cross_facts(entries, labels, yielder: int, other, fixed=None) -> dict:
+def _cross_facts(entries, ids, yielder: int, other, fixed=None) -> dict:
     """What a crossing's suggestions are built from: the track that yields (and which declaration drew it, where the
     caller named them), and the one it crosses."""
     track, rank, _ = entries[yielder]
@@ -392,15 +392,16 @@ def _cross_facts(entries, labels, yielder: int, other, fixed=None) -> dict:
              "fixed": fixed is not None, "arc": track.mid is not None,
              "yielder_priority": _PRIORITY_OF_RANK.get(rank, ""),
              "other_bridge": bool(entries[other][2]) if other is not None else False}
-    if labels is not None:
-        facts["yielder"] = labels[yielder]
+    if ids is not None:
+        facts["yielder"] = ids[yielder]
         if other is not None:
-            facts["other"] = labels[other]
+            facts["other"] = ids[other]
     return facts
 
 
 def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
-                    bridge_half: float = BRIDGE_HALF, drop: list | None = None, labels: list | None = None):
+                    bridge_half: float = BRIDGE_HALF, drop: list | None = None, labels: list | None = None,
+                    ids: list | None = None):
     """Decide every same-layer crossing between tracks of different nets.
 
     `entries` are (Track, priority_rank, may_bridge) for the copper being
@@ -444,7 +445,7 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
             else:
                 findings.append(Finding("copper", "%s and %s cross on %s at (%.2f, %.2f) and neither may bridge%s" % (
                     entries[i][0].net, entries[j][0].net, entries[i][0].layer.value, pt[0], pt[1], left_out(k)),
-                    case="copper.cross", facts=_cross_facts(entries, labels, k, other)))
+                    case="copper.cross", facts=_cross_facts(entries, ids, k, other)))
                 if drop is not None:
                     drop.append(k)
         for ft in fixed_tracks:
@@ -456,7 +457,7 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
             else:
                 findings.append(Finding("copper", "%s crosses FIXED %s on %s at (%.2f, %.2f) and may not bridge%s" % (
                     entries[i][0].net, ft.net, ft.layer.value, pt[0], pt[1], left_out(i)),
-                    case="copper.cross", facts=_cross_facts(entries, labels, i, None, fixed=ft)))
+                    case="copper.cross", facts=_cross_facts(entries, ids, i, None, fixed=ft)))
                 if drop is not None:
                     drop.append(i)
     ops = []
