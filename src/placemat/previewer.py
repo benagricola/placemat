@@ -183,7 +183,7 @@ class Resolved:
 
 @contextmanager
 def resolved(script, out=None, explore=None, quiet: bool = False, progress=None, on_step=None, on_begin=None, cache=None,
-             on_board=None):
+             on_board=None, fresh: bool = False):
     """Place the board as a run does - the cached generation, the settings,
     the fab profile, the script, the newest of the last view's record and the
     last run's replayed - and write nothing but this view's own record. The
@@ -235,6 +235,8 @@ def resolved(script, out=None, explore=None, quiet: bool = False, progress=None,
         except (ValueError, TypeError, KeyError, OSError):
             pass
         previous, source = newest_record(candidates, memo=None if cache is None else cache.setdefault("records", {}))
+        if fresh:                               # a full resolve: nothing is replayed from an earlier record
+            previous, source = None, ""
         from . import explore as explore_mod
         say = (lambda stage, text: None) if quiet else (lambda stage, text: console.say(stage, text))
         lock_entries, explored = explore_mod.before_resolve(

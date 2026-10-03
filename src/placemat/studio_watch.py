@@ -60,6 +60,10 @@ class Debounce:
         self._last = now
         return self.running
 
+    def expedite(self) -> None:
+        """Whatever is pending is due now, without a quiet period."""
+        self._last = float("-inf")
+
     def started(self) -> None:
         self.running = True
 

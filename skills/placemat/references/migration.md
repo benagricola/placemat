@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **`POST /resolve` on the studio**: cancels a resolve in progress and starts another now, without a file having
+  changed. `{"fresh": true}` resolves every step again instead of replaying the steps an earlier resolve did the same.
+  Token required, like `/switch` and `/run`. The page has it as "Resolve" (a menu: again, or from scratch) beside Run and
+  as "Again" in the strip shown while a resolve runs. `previewer.resolved` takes `fresh=` for it.
+- Fit, and zooming to an item or a finding, frame the board in the part of the view the buttons, the card, the status
+  strip and the slider do not cover.
+
 ## To 0.86.1
 
 ### Changed

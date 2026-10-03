@@ -80,6 +80,7 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 #runstrip .f-steps { width: 10.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #runstrip .flds + .flds { margin-top: 2px; font-weight: 400; color: var(--ink); }
 #runstrip .flds > .bar { flex: 1 1 2em; min-width: 1.5em; }
+#runstrip .mini { border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 8px; font-size: 11.5px; line-height: 18px; flex: none; }
 .spin { display: inline-block; flex: none; width: 13px; height: 13px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .bar { height: 5px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
@@ -426,6 +427,7 @@ svg text { user-select: none; font-family: var(--sans); }
   <button class="brand" id="brandbtn" aria-haspopup="menu" aria-expanded="false" title="switch to another layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
   <button class="tool" id="runbtn" title="a checked run: the design checks, KiCad's DRC and the score, recorded (no render)">Run</button>
+  <button class="tool" id="resolvebtn" title="cancel what is running and resolve again now: the menu offers a full resolve from scratch">Resolve</button>
   <button class="tool" id="srcbtn" title="the layout script, at the selected item's line">Source</button>
   <div id="stats"></div>
 </header>
@@ -444,7 +446,7 @@ svg text { user-select: none; font-family: var(--sans); }
     </div>
     <div id="dock">
       <div id="card"></div>
-      <div id="runstrip" hidden><div class="flds"><i class="spin"></i><span class="f-el" id="rs-el"></span><span class="f-steps" id="rs-steps"></span><span class="bar" id="progbarbox"><b id="progbar"></b></span></div><div class="flds" id="rs-work"></div></div>
+      <div id="runstrip" hidden><div class="flds"><i class="spin"></i><span class="f-el" id="rs-el"></span><span class="f-steps" id="rs-steps"></span><span class="bar" id="progbarbox"><b id="progbar"></b></span><button class="mini" id="rs-again" title="cancel this resolve and start another">Again</button></div><div class="flds" id="rs-work"></div></div>
       <div id="stepnow"></div>
       <div id="replay"><button id="play" title="replay the placement, one item at a time">Play</button><input type="range" id="slider" min="0" max="0" value="0"><span id="steplabel" class="dim"></span><button id="follow" hidden title="back to the newest step">Follow</button></div>
     </div>
@@ -719,7 +721,7 @@ function renderStatus() {
   const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = typeof label === "string" ? label : label;
   const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
-  rb.hidden = $("#srcbtn").hidden = !!(S.hello && S.hello.picker);
+  rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = !!(S.hello && S.hello.picker);
   b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", disconnected: "error"}[S.status] || "");
   const rec = S.docs.get(S.shownId), p = plan();
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
@@ -1296,11 +1298,37 @@ $("#legend").onclick = e => {
 };
 
 // ---------------------------------------------------------------- the view: fit, zoom, pan, grid
+// A view that frames the box (x0, y0, x1, y1, svg units) inside the part of the board the controls do not cover:
+// `r` is the drawing's size in pixels and `ins` what floats over it (top, bottom, left, right in pixels). The result is
+// a view with the drawing's own shape, the box centred in the uncovered rectangle at the largest scale that fits it.
+function frameBox(x0, y0, x1, y1, r, ins) {
+  const w = Math.max(x1 - x0, 1e-6), h = Math.max(y1 - y0, 1e-6);
+  if (!r || !r.width || !r.height) return {x: x0, y: y0, w, h};
+  let i = Object.assign({t: 0, b: 0, l: 0, r: 0}, ins || {});
+  let fw = r.width - i.l - i.r, fh = r.height - i.t - i.b;
+  if (fw < r.width * 0.4 || fh < r.height * 0.4) { i = {t: 0, b: 0, l: 0, r: 0}; fw = r.width; fh = r.height; }       // covered nearly all of it: frame the whole
+  const s = Math.min(fw / w, fh / h), vw = r.width / s, vh = r.height / s;
+  return {x: (x0 + x1) / 2 - (i.l + fw / 2) / s, y: (y0 + y1) / 2 - (i.t + fh / 2) / s, w: vw, h: vh};
+}
+// What covers the drawing right now, measured: the buttons at the top left and the dock at the bottom (the card, the
+// running strip, the step display and the slider, whichever are showing), in pixels from the drawing's edges.
+function overlayInsets() {
+  const svg = $("#board"), r = svg.getBoundingClientRect(), out = {t: 0, b: 0, l: 0, r: 0};
+  const edge = q => ({top: q.top, bottom: q.bottom != null ? q.bottom : q.top + q.height});
+  const bar = $("#bar"), dock = $("#dock");
+  if (bar && bar.getBoundingClientRect) { const q = edge(bar.getBoundingClientRect()); if (q.bottom > q.top) out.t = Math.max(0, q.bottom - r.top + 6); }
+  if (dock && dock.getBoundingClientRect) {
+    const kids = [...(dock.children || [])].filter(k => !k.hidden && k.style.display !== "none" && k.getBoundingClientRect().height);
+    if (kids.length) out.b = Math.max(0, r.top + r.height - Math.min(...kids.map(k => edge(k.getBoundingClientRect()).top)) + 6);
+  }
+  return out;
+}
+const frameNow = (x0, y0, x1, y1) => frameBox(x0, y0, x1, y1, $("#board").getBoundingClientRect(), overlayInsets());
 function fit() {
   if (!lay) { const p = plan(); if (!p || !p.board) return; lay = layout(p); }
   const last = lay.panels[lay.panels.length - 1], first = lay.panels[0];
   const x0 = Math.min(first.dx, last.dx) + lay.L, x1 = Math.max(first.dx, last.dx) + lay.R;
-  S.view = {x: x0, y: lay.T, w: x1 - x0, h: lay.H};
+  S.view = frameNow(x0, lay.T, x1, lay.T + lay.H);
   applyView();
 }
 function applyView() {
@@ -1331,8 +1359,8 @@ function zoomTo(box, face) {
   const a = panelPt(pn, box[0], box[1]), b = panelPt(pn, box[2], box[3]);
   const pad = Math.max(5, 0.5 * Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])));
   const x0 = Math.min(a[0], b[0]) - pad, y0 = Math.min(a[1], b[1]) - pad, x1 = Math.max(a[0], b[0]) + pad, y1 = Math.max(a[1], b[1]) + pad;
-  const low = narrow() ? 0.8 * (y1 - y0) : 0;       // a phone's card and slider cover the bottom of the board: leave room for them
-  S.view = {x: x0, y: y0, w: x1 - x0, h: y1 - y0 + low};
+  S.view = frameNow(x0, y0, x1, y1);              // into what the buttons, the card, the strip and the slider leave free
+  S.pendingFrame = {box, face, t: Date.now()};       // the card of what was zoomed to appears a moment later: framed again once
   applyView();
 }
 function zoomItems(keys) {
@@ -1734,6 +1762,8 @@ function regionCard(p) {
 }
 function renderCard() {
   const el = $("#card"), p = plan();
+  const pf = S.pendingFrame; S.pendingFrame = null;
+  if (pf && Date.now() - pf.t < 1500) setTimeout(() => { if (S.pendingFrame == null) { zoomTo(pf.box, pf.face); S.pendingFrame = null; } }, 0);
   const it = S.sel && p ? itemMap(p).get(S.sel) : null;
   const html = !p || S.cardOff === cardKey() ? "" : S.selRegion ? regionCard(p) : S.module ? moduleCard(p) : it ? partCard(p, it) : "";
   el.style.display = html ? "block" : "none";
@@ -2165,17 +2195,35 @@ function wireCompare(el) {
 
 // ---------------------------------------------------------------- the script menu, the picker and the checked run
 const scriptEntry = (s, cls) => '<button role="menuitem" class="' + cls + '" data-script="' + esc(s.id) + '"><b>' + esc(s.title || s.id) + '</b>' + (s.subtitle ? '<span class="sub">' + esc(s.subtitle) + "</span>" : "") + "<code>" + esc(s.id) + "</code></button>";
+function openMenuAt(anchor, html) {
+  const m = $("#menu");
+  m.innerHTML = html; m.hidden = false; $("#brandbtn").setAttribute("aria-expanded", anchor === $("#brandbtn") ? "true" : "false");
+  const r = anchor.getBoundingClientRect(), mh = m.offsetHeight || 120, vh = window.innerHeight || 800;
+  m.style.left = Math.max(8, Math.min(r.left, (window.innerWidth || 800) - 300)) + "px";
+  m.style.top = (r.bottom + 4 + mh > vh ? Math.max(8, r.top - mh - 4) : r.bottom + 4) + "px";            // under the button, or over it where there is no room below
+}
 function openMenu() {
-  const m = $("#menu"), b = $("#brandbtn"), list = S.scripts || [];
-  m.innerHTML = list.length ? list.map(s => scriptEntry(s, s.current ? "cur" : "")).join("") : '<div class="pad8 dim">The layout scripts are being listed ...</div>';
-  m.hidden = false; b.setAttribute("aria-expanded", "true");
-  const r = b.getBoundingClientRect();
-  m.style.left = Math.max(8, Math.min(r.left, (window.innerWidth || 800) - 300)) + "px"; m.style.top = (r.bottom + 4) + "px";
+  const list = S.scripts || [];
+  openMenuAt($("#brandbtn"), list.length ? list.map(s => scriptEntry(s, s.current ? "cur" : "")).join("") : '<div class="pad8 dim">The layout scripts are being listed ...</div>');
 }
 function closeMenu() { const m = $("#menu"); m.hidden = true; $("#brandbtn").setAttribute("aria-expanded", "false"); }
 $("#brandbtn").onclick = () => { if ($("#menu").hidden) openMenu(); else closeMenu(); };
-$("#menu").onclick = e => { const b = e.target.closest("[data-script]"); if (b) switchTo(b.dataset.script); };
-document.addEventListener("click", e => { if ($("#menu").hidden) return; if (!(e.target.closest && (e.target.closest("#menu") || e.target.closest("#brandbtn")))) closeMenu(); });
+// Resolve again: now, without a file changing; or from scratch, with no replay of the steps an earlier resolve did the same.
+function resolveMenu(anchor) {
+  if (!$("#menu").hidden) { closeMenu(); return; }
+  openMenuAt(anchor, '<button role="menuitem" data-resolve="again"><b>Resolve again</b><span class="sub">Cancel what is running and resolve now. Steps an earlier resolve did the same are replayed.</span></button>' +
+    '<button role="menuitem" data-resolve="fresh"><b>Resolve from scratch</b><span class="sub">Cancel and resolve every step again, with no replay of unchanged steps.</span></button>');
+}
+function resolveNow(fresh) {
+  closeMenu();
+  fetch("/resolve?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({fresh: !!fresh})})
+    .then(r => { if (!r.ok) return r.text().then(m => { throw new Error(m); }); })
+    .catch(err => { const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not resolve again: " + err.message; });
+}
+$("#resolvebtn").onclick = () => resolveMenu($("#resolvebtn"));
+$("#rs-again").onclick = () => resolveMenu($("#rs-again"));
+$("#menu").onclick = e => { const b = e.target.closest("[data-script]"); if (b) { switchTo(b.dataset.script); return; } const r = e.target.closest("[data-resolve]"); if (r) resolveNow(r.dataset.resolve === "fresh"); };
+document.addEventListener("click", e => { if ($("#menu").hidden) return; if (!(e.target.closest && (e.target.closest("#menu") || e.target.closest("#brandbtn") || e.target.closest("#resolvebtn") || e.target.closest("#rs-again")))) closeMenu(); });
 // Escape closes the topmost thing that is open, one at a time: a note, the menu, the legend sheet, the script, the card.
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;

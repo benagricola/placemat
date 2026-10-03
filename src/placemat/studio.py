@@ -346,6 +346,7 @@ class Studio:
         self._cancel_at = None
         self._initial = self.script is not None
         self._error = None
+        self._fresh_next = False                # the next resolve replays nothing from an earlier one
         self._run = None                        # the checked run in progress: {"id", "lines"}
         self._run_cache: dict = {}              # run.json path -> (mtime, summary)
         self.worker = WorkerProcess(self._on_worker, self._views() / "worker.log")
@@ -548,8 +549,25 @@ class Studio:
             self.hub.emit("started", {"id": rid, "script": self.script.name, "at": time.time(), "texts": texts,
                                       "changed": changed, "stale_files": sorted(self.name_of(p) for p in changed_paths)},
                           keep=True)
-            if not self.worker.send({"cmd": "resolve", "id": rid, "script": str(self.script)}):
+            fresh, self._fresh_next = self._fresh_next, False
+            if not self.worker.send({"cmd": "resolve", "id": rid, "script": str(self.script), "fresh": fresh}):
                 self._fail(rid, "the resolve worker could not be started")
+
+    def resolve_now(self, fresh: bool = False) -> dict:
+        """Cancel a resolve in progress and start a new one now, without a file having changed. `fresh` resolves every step
+        again instead of replaying those an earlier resolve did the same."""
+        with self.lock:
+            if self.script is None:
+                raise ValueError("choose a layout script first")
+            now = time.monotonic()
+            self._fresh_next = bool(fresh)
+            self.debounce.changed(now, {self.script})
+            self.debounce.expedite()
+            self._dirty = True                  # what finishes while this is asked for is not shown as current
+            if self._cur is not None and self._cancel_at is None:
+                self._cancel_at = now
+                self.worker.send({"cmd": "cancel", "id": self._cur["id"]})
+        return {"fresh": bool(fresh)}
 
     def _finish_cancel(self) -> None:
         cur = self._cur
@@ -918,7 +936,7 @@ def _handler(studio: Studio):
         def do_POST(self):
             """/switch, with the token: it changes which layout script is watched; and /run, a checked run of it."""
             url = urlparse(self.path)
-            if url.path not in ("/switch", "/run"):
+            if url.path not in ("/switch", "/run", "/resolve"):
                 return self._no()
             if not self._allowed(parse_qs(url.query)):
                 return self._refuse(403, "forbidden: open the address `placemat studio` printed")
@@ -926,6 +944,13 @@ def _handler(studio: Studio):
                 try:
                     return self._json(studio.start_run())
                 except ValueError as e:
+                    return self._refuse(409, str(e))
+            if url.path == "/resolve":
+                try:
+                    n = min(int(self.headers.get("Content-Length") or 0), 4096)
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    return self._json(studio.resolve_now(bool(body.get("fresh"))))
+                except (ValueError, TypeError) as e:
                     return self._refuse(409, str(e))
             try:
                 n = min(int(self.headers.get("Content-Length") or 0), 4096)

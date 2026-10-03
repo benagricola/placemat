@@ -110,3 +110,15 @@ def test_switching_needs_the_token_and_a_listed_layout_script_and_changes_only_w
     assert name == "switched" and data["title"] == "Usb5v" and [s["current"] for s in data["scripts"]].count(True) == 1
     assert studio.history == type(studio.history)(maxlen=studio.history.maxlen)             # nothing of the old script is kept
     assert any(f.name == "Usb5v_layout.py" for f in studio._files)                           # and the new one is what is watched
+
+
+def test_resolve_again_is_a_token_guarded_post_with_an_optional_fresh(studio):
+    _wait_scripts(studio)
+    assert _post(studio, "/resolve", {"fresh": True}, token=False)[0] == 403
+    before = len(studio.sent)
+    status, body = _post(studio, "/resolve", {"fresh": True})
+    assert status == 200 and json.loads(body) == {"fresh": True}
+    deadline = time.monotonic() + 5
+    while len(studio.sent) == before and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert studio.sent[-1]["cmd"] == "resolve" and studio.sent[-1]["fresh"] is True

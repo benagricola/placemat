@@ -41,7 +41,7 @@ class Session:
         if self._cancel == id:
             raise Cancelled()
 
-    def resolve(self, id, script) -> None:
+    def resolve(self, id, script, fresh=False) -> None:
         from .layout import CriticalUnplaced, PlacementCollision
         from .lanes import EscapeError
         from .previewer import resolved
@@ -80,7 +80,7 @@ class Session:
         try:
             out = _views(find_board(Path(script).resolve()))
             with resolved(script, out, quiet=True, progress=lambda text: self._check(id), on_step=on_step, on_begin=on_begin,
-                          cache=self.cache, on_board=on_board) as r:
+                          cache=self.cache, on_board=on_board, fresh=fresh) as r:
                 t1 = time.monotonic()
                 self._check(id)
                 send({"ev": "board", "id": id, **board_json(r.plan)})       # the frame a fit board settled on
@@ -172,7 +172,7 @@ def main() -> int:
         if cmd.get("cmd") == "quit":
             return 0
         if cmd.get("cmd") == "resolve":
-            session.resolve(cmd["id"], cmd["script"])
+            session.resolve(cmd["id"], cmd["script"], bool(cmd.get("fresh")))
 
 
 if __name__ == "__main__":

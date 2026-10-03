@@ -275,3 +275,22 @@ def test_a_resolve_streams_the_queue_and_each_item_it_begins_before_it_settles(t
     finally:
         st.close()
         s.stop()
+
+
+@needs_kicad
+def test_a_fresh_resolve_replays_nothing_where_a_plain_one_replays_the_unchanged_steps(tmp_path):
+    script = real_modules.stage(tmp_path, "mcu")
+    s = Studio(script, port=0, open_browser=False, debounce_ms=50, poll_ms=50)
+    s.start()
+    st = Stream(s)
+    try:
+        first = st.until("finished")
+        s.resolve_now(False)
+        again = st.until("finished", where=lambda d: d["id"] != first["id"])
+        assert "reused" in again["reused"]
+        s.resolve_now(True)
+        fresh = st.until("finished", where=lambda d: d["id"] != again["id"])
+        assert "reused" not in fresh["reused"] and fresh["counts"]["placed"] == first["counts"]["placed"]
+    finally:
+        st.close()
+        s.stop()

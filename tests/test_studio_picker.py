@@ -256,3 +256,29 @@ def test_the_size_of_the_queue_is_kept_for_a_page_that_joins_part_way(project):
     s._on_worker({"ev": "begin", "id": 3, "kind": "total", "items": 9, "searched": 4, "copper": 2, "replay": 0}, s.worker.serial)
     s._on_worker({"ev": "begin", "id": 3, "kind": "begin", "item": "u1", "what": "decided"}, s.worker.serial)
     assert [json.loads(x)["kind"] for n, x in s.hub.log if n == "begin"] == ["total"]
+
+
+def test_resolve_now_cancels_what_runs_and_starts_another_at_once_fresh_when_asked(project):
+    s = _fresh(project)
+    sent = []
+    s.worker.send = lambda cmd: sent.append(cmd) or True
+    s._initial = False
+    s._poller = type("Quiet", (), {"scan": lambda self: set()})()
+    s._tick(time.monotonic())
+    assert sent == []                                                  # nothing is due: no file changed
+    assert s.resolve_now(False) == {"fresh": False}
+    s._tick(time.monotonic())
+    assert [c["cmd"] for c in sent] == ["resolve"] and sent[0]["fresh"] is False
+    rid = sent[0]["id"]
+    assert s.resolve_now(True) == {"fresh": True}                      # while it runs: it is told to cancel
+    assert sent[-1] == {"cmd": "cancel", "id": rid}
+    s._on_worker({"ev": "cancelled", "id": rid}, s.worker.serial)
+    s._tick(time.monotonic())
+    assert sent[-1]["cmd"] == "resolve" and sent[-1]["fresh"] is True and sent[-1]["id"] == rid + 1
+    s._cur, s._cancel_at = None, None
+    s.debounce.stopped()
+    s.resolve_now(False)
+    s._tick(time.monotonic())
+    assert sent[-1]["fresh"] is False                                  # asked for once, not kept
+    with pytest.raises(ValueError):
+        Studio(None, root=project.parents[2]).resolve_now()

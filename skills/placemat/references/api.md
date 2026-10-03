@@ -3339,7 +3339,7 @@ script, from here or elsewhere, each with its score, DRC by kind, failed checks
 and findings by severity, and compares the newest resolve with one: items moved,
 added and removed, findings gained and lost, the score. A run records no copper
 or links, so those are not compared. `GET /runs`, `GET /runcompare?run=ID` and
-`POST /run` (token required) serve it; `run_started`, `run_line` and `run_done`
+`POST /run` and `POST /resolve` (`{"fresh": bool}`: cancel and resolve again now, with no replay of unchanged steps when fresh; token required) serve them; `run_started`, `run_line` and `run_done`
 are its events.
 
 **When the worker dies.** A worker stopped by a signal is reported by name; a

@@ -949,3 +949,35 @@ def test_the_strips_fixed_fields_fit_one_line_at_360_px_with_the_name_taking_wha
     assert line * 12.5 + chip_px + gaps_px <= 318, line
     top = em("#runstrip .f-el") + em("#runstrip .f-steps")                                   # elapsed, steps; the bar shrinks to 1.5em
     assert (top + 1.5) * 12.5 + 16 + 3 * 6 <= 318, top
+
+
+@needs_node
+def test_a_view_is_framed_into_what_the_controls_leave_free(tmp_path):
+    out = run_more(tmp_path, r"""
+const r = {width: 400, height: 600};
+out.none = ev("frameBox(0, 0, 100, 50, {width: 400, height: 600}, null)");
+out.covered = ev("frameBox(0, 0, 100, 50, {width: 400, height: 600}, {t: 100, b: 200})");
+out.sides = ev("frameBox(0, 0, 100, 100, {width: 400, height: 600}, {t: 0, b: 0, l: 100, r: 0})");
+out.all = ev("frameBox(0, 0, 100, 100, {width: 400, height: 600}, {t: 0, b: 590, l: 0, r: 0})");
+""")
+    assert out["none"]["w"] == 100 and out["none"]["h"] == 150 and out["none"]["x"] == 0 and out["none"]["y"] == -50        # centred, the usual fit
+    c = out["covered"]                                                           # free: 400 x 300 px, so 4 px per mm; the view is the whole drawing, 100 x 150 mm
+    assert c["w"] == 100 and c["h"] == 150 and c["x"] == 0 and c["y"] == 25 - 250 / 4 and True
+    s = out["sides"]                                                             # 300 px free across, 3 px per mm: the box sits right of the 100 px covered at the left
+    assert s["w"] == 400 / 3 and abs(s["x"] - (50 - (100 + 150) / 3)) < 1e-9
+    assert out["all"]["w"] == 100 or out["all"]["w"] == 400 / 4                  # nearly all covered: the insets are ignored
+
+
+@needs_node
+def test_resolve_again_is_a_menu_with_a_from_scratch_choice_and_posts_to_the_server(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+els["#menu"].hidden = true;
+els["#resolvebtn"].onclick(); out.menu = els["#menu"].innerHTML;
+els["#menu"].onclick({target: {closest: s => s === "[data-resolve]" ? {dataset: {resolve: "fresh"}} : null}});
+els["#resolvebtn"].onclick();
+els["#menu"].onclick({target: {closest: s => s === "[data-resolve]" ? {dataset: {resolve: "again"}} : null}});
+out.posts = fetched.filter(([u]) => u.startsWith("/resolve")).map(([u, o]) => [o.method, o.body]);
+""")
+    assert "Resolve again" in out["menu"] and "Resolve from scratch" in out["menu"] and "no replay of unchanged steps" in out["menu"]
+    assert out["posts"] == [["POST", '{"fresh":true}'], ["POST", '{"fresh":false}']]
