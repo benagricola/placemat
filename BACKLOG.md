@@ -9,6 +9,13 @@ file. An item cites its source as "a board's session, <date>".
 - **Board builder B4** (spec `2026-10-03-studio-board-builder-design.md`):
   B0-B3 released in 0.95.0; B4 (editing an existing script) next.
 
+- **Performance push** (the user, 2026-10-03; target an order of magnitude on
+  previews and explores): fail-fast scan for items with no room and a per-step
+  candidate budget (`place.step_budget`); `--max-time`, `--step-warn`,
+  `--step-limit` on preview/run/explore and watch's line fixes; native ports
+  (net-tie cells' legal check first); the give-way leave search at large
+  reach; dead code removal. Board runs watched for slow steps.
+
 ## Next, in order
 
 Specced work first, then the loose ends.
