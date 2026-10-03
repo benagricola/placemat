@@ -21,6 +21,7 @@ from .script_edit import (EditRefused, Src, _call_seq, _list_seq, _nl_of, _parse
 
 STDLIB_CONFIG = "@stdlib/board_config.zen"
 BUILDER_NOTE = "chosen in the studio's board builder"
+DEFAULT_MATERIAL = "FR4"      # a dielectric names a material of the stackup's `materials` list: the generator refuses one that is not there
 OZ_MM = 0.035                  # one ounce per square foot of copper is 35 um, the figure fabs quote
 
 
@@ -116,7 +117,8 @@ def _layer_source(row: dict, sep: str, extra: str = "") -> str:
     if kind == "copper":
         return "CopperLayer(thickness%s%s, role%s%s)" % (sep, _num(row["thickness_mm"]), sep, '"%s"' % row["role"])
     form = ", form%s%s" % (sep, '"%s"' % row["form"]) if row.get("form") else ""
-    return "DielectricLayer(thickness%s%s%s%s)" % (sep, _num(row["thickness_mm"]), form, extra)
+    mat = ", material%s%s" % (sep, '"%s"' % row["material"]) if row.get("material") else extra
+    return "DielectricLayer(thickness%s%s%s%s)" % (sep, _num(row["thickness_mm"]), mat, form)
 
 
 def _note_of(row: dict) -> str:
@@ -138,6 +140,8 @@ def _validate_rows(rows) -> None:
             raise EditRefused("a copper layer's role is signal, power, mixed or ground, not %r" % (r.get("role"),))
         if r["kind"] == "dielectric" and r.get("form") not in (None, "core", "prepreg"):
             raise EditRefused("a dielectric is core or prepreg, not %r" % (r.get("form"),))
+        if r["kind"] == "dielectric" and not r.get("material"):
+            r["material"] = DEFAULT_MATERIAL
 
 
 # ------------------------------------------------------------------ loads
@@ -303,7 +307,7 @@ def _row_of(call) -> dict | None:
     if f == "CopperLayer":
         role = _string(kws.get("role"))
         return {"kind": "copper", "thickness_mm": t, "role": role} if role else None
-    return {"kind": "dielectric", "thickness_mm": t, "form": _string(kws.get("form"))}
+    return {"kind": "dielectric", "thickness_mm": t, "form": _string(kws.get("form")), "material": _string(kws.get("material"))}
 
 
 def read_stackup(text: str, name: str):
@@ -383,7 +387,7 @@ def stackup_edit(text: str, name: str, rows: list, copper_layers: int | None = N
         splices = []
         for i, (el, h, r) in enumerate(zip(lst.elts, have, rows)):
             same = abs(h["thickness_mm"] - r["thickness_mm"]) < 1e-9 and (h.get("role") == r.get("role") if r["kind"] == "copper"
-                                                                          else (h.get("form") == r.get("form")))
+                                                                          else (h.get("form") == r.get("form") and h.get("material") == r.get("material")))
             if same:
                 continue
             extra = ""
@@ -404,8 +408,41 @@ def stackup_edit(text: str, name: str, rows: list, copper_layers: int | None = N
         out = _splice(text, _rewrite_list(mod, lst, items))
     if copper_layers is not None:
         out = _set_copper_layers(out, name, copper_layers)
+    mats = {r["material"]: r.get("permittivity") for r in rows if r["kind"] == "dielectric"}
+    if mats:
+        out = _ensure_materials(out, name, mats)
+        need.append("Material")
     out = _ensure_loads(out, need)
     _check(original, out, name, "stackup")
+    return out
+
+
+def _ensure_materials(text: str, name: str, wanted: dict) -> str:
+    """The Stackup's `materials=` list naming each material a dielectric uses (the generator refuses one that is not listed): the list made,
+    or the missing ones added, each `Material(name = ...)` with the relative permittivity where the user gave it."""
+    mod, call, _lst = _find_list(text, name, STACKUP, "layers")
+    sep = _style(mod.src, board_call(mod, name))
+
+    def element(n, perm):
+        return "Material(name%s%s%s)" % (sep, '"%s"' % n, (", relative_permittivity%s%s" % (sep, _num(perm))) if perm else "")
+    k = _kw(call, "materials")
+    if k is None:
+        return _splice(text, _call_seq(mod.src, call).append("materials%s[%s]" % (sep, ", ".join(element(n, p) for n, p in wanted.items()))))
+    if not isinstance(k.value, ast.List):
+        raise EditRefused("materials= is %s, not a literal list: it is not edited there" % mod.src.code(k.value))
+    have = set()
+    for e in k.value.elts:
+        if isinstance(e, ast.Call) and _func_name(e) == "Material":
+            n = _literal_name(e)
+            if n:
+                have.add(n)
+    out = text
+    for n, p in wanted.items():
+        if n in have:
+            continue
+        mod, call, _l = _find_list(out, name, STACKUP, "layers")
+        k = _kw(call, "materials")
+        out = _splice(out, _list_seq(mod.src, k.value).append(element(n, p)))
     return out
 
 

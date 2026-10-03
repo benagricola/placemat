@@ -27,7 +27,7 @@ ROWS = [
 
 def test_a_board_with_no_config_gets_its_stackup_in_place_and_the_load_names_it_needs():
     out = ze.stackup_edit(PLAIN, "Demo", ROWS)
-    assert out == HEADER.replace('"BoardConfig")', '"BoardConfig", "Stackup", "CopperLayer", "DielectricLayer")') + '''gnd = io("GND", Net)
+    assert out == HEADER.replace('"BoardConfig")', '"BoardConfig", "Stackup", "CopperLayer", "DielectricLayer", "Material")') + '''gnd = io("GND", Net)
 
 Board(
     name = "Demo",
@@ -35,13 +35,13 @@ Board(
     layers = 4,
     config = BoardConfig(stackup = Stackup(layers = [
         CopperLayer(thickness = 0.035, role = "signal"),  # 1 oz
-        DielectricLayer(thickness = 0.2, form = "prepreg"),  # chosen in the studio's board builder
+        DielectricLayer(thickness = 0.2, material = "FR4", form = "prepreg"),  # chosen in the studio's board builder
         CopperLayer(thickness = 0.0175, role = "power"),  # 0.5 oz
-        DielectricLayer(thickness = 1.065, form = "core"),  # chosen in the studio's board builder
+        DielectricLayer(thickness = 1.065, material = "FR4", form = "core"),  # chosen in the studio's board builder
         CopperLayer(thickness = 0.0175, role = "power"),  # 0.5 oz
-        DielectricLayer(thickness = 0.2, form = "prepreg"),  # chosen in the studio's board builder
+        DielectricLayer(thickness = 0.2, material = "FR4", form = "prepreg"),  # chosen in the studio's board builder
         CopperLayer(thickness = 0.035, role = "signal"),  # 1 oz
-    ])),
+    ], materials = [Material(name = "FR4")])),
 )
 '''
     assert ze.read_stackup(out, "Demo")[2] == {"kind": "copper", "thickness_mm": 0.0175, "role": "power", "oz": 0.5}
@@ -75,14 +75,14 @@ def test_a_layer_keeps_its_material_and_its_comment_when_it_is_not_changed():
     rows = [ROWS[0], {"kind": "dielectric", "thickness_mm": 1.4, "form": "core"}, ROWS[6]]
     out = ze.stackup_edit(text, "Demo", rows)
     assert 'CopperLayer(thickness = 0.035, role = "signal"),  # outer, mine' in out
-    assert 'DielectricLayer(thickness = 1.4, form = "core", material = "FR4"),  # chosen in the studio' in out
+    assert 'DielectricLayer(thickness = 1.4, material = "FR4", form = "core"),  # chosen in the studio' in out
     assert "Stackup(thickness = 1.6, layers" in out
 
 
 def test_a_different_number_of_layers_rewrites_the_list():
     text = ze.stackup_edit(PLAIN, "Demo", ROWS)
     out = ze.stackup_edit(text, "Demo", [ROWS[0], ROWS[1], ROWS[6]])
-    assert out.count("CopperLayer(") == 2 and "1.065" not in out and out.count("\n    ])),") == 1
+    assert out.count("CopperLayer(") == 2 and "1.065" not in out and out.count("\n    ], materials = [Material(name = \"FR4\")])),") == 1
 
 
 def test_a_config_that_is_not_a_literal_call_is_refused_naming_it():
@@ -208,3 +208,11 @@ def test_the_stackup_state_says_how_the_zen_declares_it():
                             "Demo") == {"state": "none"}
     assert ze.stackup_state("Board(name = \n", "Demo")["state"] == "unreadable"
     assert ze.stackup_state(PLAIN, "Other")["state"] == "unreadable"
+
+
+def test_a_material_the_stackup_does_not_list_is_added_to_its_materials_and_a_listed_one_is_not_repeated():
+    text = PLAIN.replace("    layers = 4,\n", '    layers = 4,\n    config = BoardConfig(stackup = Stackup(materials = [Material(name = "S1000", relative_permittivity = 4.6)], layers = [])),\n')
+    rows = [ROWS[0], dict(ROWS[1], material="S1000"), dict(ROWS[1], material="FR4", permittivity=4.3), ROWS[6]]
+    out = ze.stackup_edit(text, "Demo", rows)
+    assert 'materials = [Material(name = "S1000", relative_permittivity = 4.6), Material(name = "FR4", relative_permittivity = 4.3)]' in out
+    assert out.count("Material(name") == 2

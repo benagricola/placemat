@@ -230,8 +230,8 @@ function initForm() {
   const n = f.zen.copper_layers || layers.length || f.copper_layers;
   let rows = [];
   if (zr && zr.length) rows = zr.map(r => r.kind === "copper" ? {kind: "copper", role: r.role, mode: r.oz ? "oz" : "um", val: r.oz ? String(r.oz) : String(Math.round(r.thickness_mm * 1000 * 100) / 100)} :
-    {kind: "dielectric", mm: String(r.thickness_mm), form: r.form || ""});
-  else for (let i = 0; i < n; i++) { rows.push({kind: "copper", role: "", mode: "oz", val: ""}); if (i < n - 1) rows.push({kind: "dielectric", mm: "", form: ""}); }
+    {kind: "dielectric", mm: String(r.thickness_mm), form: r.form || "", material: r.material || "FR4"});
+  else for (let i = 0; i < n; i++) { rows.push({kind: "copper", role: "", mode: "oz", val: ""}); if (i < n - 1) rows.push({kind: "dielectric", mm: "", form: "", material: "FR4"}); }
   const cls = (f.zen.classes || []).map(c => ({on: true, name: c.name, w: String(c.diff_pair_width), g: String(c.diff_pair_gap), nets: c.nets || []}));
   for (const c of f.candidates) if (!cls.some(x => x.nets.includes(c.positive))) cls.push({on: false, name: c.base, w: "", g: "", nets: [c.positive, c.negative]});
   const prof = f.fab.profile || {}, via = prof.via || {}, mn = prof.min || {};
@@ -267,7 +267,7 @@ function stackCard() {
     '<div class="bld-row"><label class="bld-f" style="width:160px">Copper layers<input type="number" min="1" max="32" step="1" id="st-n" value="' + cu + '"></label></div>' +
     '<table class="bld-tbl"><tr><th>Layer</th><th>Role / form</th><th>Weight or thickness</th><th></th></tr>' +
     F.rows.map((r, i) => r.kind === "copper" ? '<tr><td>' + h(layerName(i)) + '</td><td><select data-st="' + i + '" data-k="role"><option value="">choose</option>' + ["signal", "power", "mixed", "ground"].map(x => '<option' + (r.role === x ? " selected" : "") + ">" + x + "</option>").join("") + '</select></td><td><div class="bld-row tight"><input data-st="' + i + '" data-k="val" value="' + h(r.val) + '" style="max-width:90px"><select data-st="' + i + '" data-k="mode" style="max-width:80px">' + ["oz", "um", "mm"].map(x => '<option' + (r.mode === x ? " selected" : "") + ">" + x + "</option>").join("") + '</select><span class="bld-note" id="st-conv-' + i + '">' + h(convText(r)) + "</span></div></td><td></td></tr>" :
-      '<tr><td class="bld-note">dielectric</td><td><select data-st="' + i + '" data-k="form"><option value="">any</option>' + ["core", "prepreg"].map(x => '<option' + (r.form === x ? " selected" : "") + ">" + x + "</option>").join("") + '</select></td><td><div class="bld-row tight"><input data-st="' + i + '" data-k="mm" value="' + h(r.mm) + '" style="max-width:90px"><span class="bld-note">mm</span></div></td><td></td></tr>').join("") +
+      '<tr><td class="bld-note">dielectric</td><td><select data-st="' + i + '" data-k="form"><option value="">any</option>' + ["core", "prepreg"].map(x => '<option' + (r.form === x ? " selected" : "") + ">" + x + "</option>").join("") + '</select></td><td><div class="bld-row tight"><input data-st="' + i + '" data-k="mm" value="' + h(r.mm) + '" style="max-width:90px"><span class="bld-note">mm</span><input data-st="' + i + '" data-k="material" value="' + h(r.material || "FR4") + '" style="max-width:90px" title="the material of the stackup\'s materials list"></div></td><td></td></tr>').join("") +
     '</table><div class="bld-row" style="margin-top:8px"><button class="bld-btn primary" id="st-write">Write the stackup</button><span class="bld-note">1 oz/ft² = 0.035 mm; the file holds the thickness in mm with the oz as a comment.</span></div>';
   q("#st-n").onchange = e => resizeStack(parseInt(e.target.value, 10));
   qa("[data-st]", el).forEach(inp => inp.oninput = inp.onchange = e => { const r = F.rows[+inp.dataset.st]; r[inp.dataset.k] = inp.value; const c = q("#st-conv-" + inp.dataset.st); if (c) c.textContent = convText(r); });
@@ -284,7 +284,7 @@ function resizeStack(n) {
   if (!(n >= 1)) return;
   const F = BS.form, cu = F.rows.filter(r => r.kind === "copper");
   const rows = [];
-  for (let i = 0; i < n; i++) { rows.push(cu[i] || {kind: "copper", role: "", mode: "oz", val: ""}); if (i < n - 1) rows.push({kind: "dielectric", mm: "", form: ""}); }
+  for (let i = 0; i < n; i++) { rows.push(cu[i] || {kind: "copper", role: "", mode: "oz", val: ""}); if (i < n - 1) rows.push({kind: "dielectric", mm: "", form: "", material: "FR4"}); }
   F.rows = rows; stackCard();
 }
 function pairsCard() {
@@ -334,7 +334,7 @@ function factsRequest(which) {
         rows.push(r.mode === "oz" ? {kind: "copper", role: r.role, oz: v} : r.mode === "um" ? {kind: "copper", role: r.role, thickness_um: v} : {kind: "copper", role: r.role, thickness_mm: v});
       } else {
         const v = num(r.mm); if (v == null || v <= 0) throw new Error("give each dielectric its thickness in mm");
-        rows.push({kind: "dielectric", thickness_mm: v, form: r.form || null});
+        rows.push({kind: "dielectric", thickness_mm: v, form: r.form || null, material: (r.material || "FR4").trim()});
       }
     }
     req.stackup = {copper_layers: F.rows.filter(r => r.kind === "copper").length, rows};
