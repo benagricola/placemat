@@ -1037,3 +1037,21 @@ out.el = els["#rs-el"].textContent; out.work = els["#rs-work"].innerHTML; out.to
 """)
     assert out["el"] == "1:23"                                          # 83 s after the resolve began, though the page has just opened
     assert "3.2 s" in out["work"] and "seeding" in out["work"] and out["total"] == 24
+
+
+@needs_node
+def test_on_a_phone_the_four_header_buttons_are_one_menu(tmp_path):
+    page = PAGE.read_text()
+    assert "#runbtn, #resolvebtn, #sharebtn, #srcbtn { display: none; } #morebtn { display: inline-block; }" in page
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+els["#menu"].hidden = true; els["#morebtn"].onclick(); out.menu = els["#menu"].innerHTML;
+els["#menu"].onclick({target: {closest: s => s === "[data-more]" ? {dataset: {more: "fresh"}, disabled: false} : null}});
+out.posts = fetched.filter(([u]) => u.startsWith("/resolve")).map(([u, o]) => o.body);
+els["#menu"].hidden = true; els["#morebtn"].onclick();
+els["#menu"].onclick({target: {closest: s => s === "[data-more]" ? {dataset: {more: "share"}, disabled: false} : null}});
+out.share = els["#menu"].innerHTML;
+""")
+    for word in ("Run a checked run", "Resolve again", "Resolve from scratch", "Share this view", "Source"):
+        assert word in out["menu"]
+    assert out["posts"] == ['{"fresh":true}'] and "listens only on 127.0.0.1" in out["share"]

@@ -63,6 +63,7 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 #picker h2 { margin: 0 0 4px; font-size: 18px; } #picker p { margin: 0 0 14px; color: var(--dim); }
 #picker button.pick { border: 1px solid var(--line); background: var(--surface); margin-bottom: 8px; padding: 10px 12px; }
 #runbtn.busy { opacity: 0.7; }
+#morebtn { display: none; font-size: 18px; line-height: 1; padding-top: 4px; padding-bottom: 6px; }
 .brand b { font-weight: 650; letter-spacing: 0.01em; }
 #board-sub { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .share { padding: 10px 12px; width: 268px; max-width: 100%; }
@@ -386,6 +387,7 @@ svg text { user-select: none; font-family: var(--sans); }
   body { font-size: 15px; }
   header { padding: 8px 12px 6px; gap: 2px 10px; }
   .brand { flex: 1 1 0; }
+  #runbtn, #resolvebtn, #sharebtn, #srcbtn { display: none; } #morebtn { display: inline-block; }       /* a phone: one button for the four, so the board's name stays readable */
   #script, #script.full { left: 0; right: 0; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; border-width: 1px 0 0; }
   #script #scriptfull { display: none; }
   #stats { margin-left: 0; width: 100%; gap: 14px; font-size: 13px; }
@@ -434,6 +436,7 @@ svg text { user-select: none; font-family: var(--sans); }
   <button class="tool" id="runbtn" title="a checked run: the design checks, KiCad's DRC and the score, recorded (no render)">Run</button>
   <button class="tool" id="resolvebtn" title="cancel what is running and resolve again now: the menu offers a full resolve from scratch">Resolve</button>
   <button class="tool" id="sharebtn" title="open this view on another device: a QR code of its address">Share</button>
+  <button class="tool" id="morebtn" aria-haspopup="menu" title="Run, Resolve, Share, Source">&#8943;</button>
   <button class="tool" id="srcbtn" title="the layout script, at the selected item's line">Source</button>
   <div id="stats"></div>
 </header>
@@ -2268,6 +2271,13 @@ function shareHTML() {
     '<div class="sub">Scan it with the phone\'s camera. The address carries the token and this view.</div><input class="shareurl" id="shareurl" readonly value="' + escRaw(url) + '">' +
     '<div class="sharebtns"><button data-copy="1">Copy address</button>' + (typeof navigator !== "undefined" && navigator.share ? '<button data-share="1">Share ...</button>' : "") + "</div></div>";
 }
+// On a phone the four header buttons are one: its menu has what they do.
+$("#morebtn").onclick = () => {
+  if (!$("#menu").hidden) { closeMenu(); return; }
+  const picker = !!(S.hello && S.hello.picker), item = (id, text, extra) => '<button role="menuitem" data-more="' + id + '"' + (extra || "") + "><b>" + text + "</b></button>";
+  openMenuAt($("#morebtn"), item("run", S.run ? "Running ..." : "Run a checked run", picker || S.run ? " disabled" : "") + item("again", "Resolve again", picker ? " disabled" : "") + item("fresh", "Resolve from scratch", picker ? " disabled" : "") +
+    item("share", "Share this view", picker ? " disabled" : "") + item("source", "Source", picker ? " disabled" : ""));
+};
 $("#sharebtn").onclick = () => { if (!$("#menu").hidden) { closeMenu(); return; } openMenuAt($("#sharebtn"), shareHTML()); };
 
 // ---------------------------------------------------------------- the script menu, the picker and the checked run
@@ -2302,10 +2312,17 @@ $("#rs-again").onclick = () => resolveMenu($("#rs-again"));
 $("#menu").onclick = e => {
   const b = e.target.closest("[data-script]"); if (b) { switchTo(b.dataset.script); return; }
   const r = e.target.closest("[data-resolve]"); if (r) { resolveNow(r.dataset.resolve === "fresh"); return; }
+  const mo = e.target.closest("[data-more]");
+  if (mo && !mo.disabled) {
+    const w = mo.dataset.more;
+    if (w === "share") openMenuAt($("#morebtn"), shareHTML());
+    else { closeMenu(); if (w === "run") startRun(); else if (w === "source") $("#srcbtn").onclick(); else resolveNow(w === "fresh"); }
+    return;
+  }
   if (e.target.closest("[data-copy]")) { const url = shareUrl(), inp = $("#shareurl"); try { navigator.clipboard.writeText(url); } catch (_) { if (inp && inp.select) { inp.select(); try { document.execCommand("copy"); } catch (__) {} } } return; }
   if (e.target.closest("[data-share]")) { try { navigator.share({title: document.title, url: shareUrl()}); } catch (_) {} }
 };
-document.addEventListener("click", e => { if ($("#menu").hidden) return; if (!(e.target.closest && (e.target.closest("#menu") || e.target.closest("#brandbtn") || e.target.closest("#resolvebtn") || e.target.closest("#rs-again") || e.target.closest("#sharebtn")))) closeMenu(); });
+document.addEventListener("click", e => { if ($("#menu").hidden) return; if (!(e.target.closest && (e.target.closest("#menu") || e.target.closest("#brandbtn") || e.target.closest("#resolvebtn") || e.target.closest("#rs-again") || e.target.closest("#sharebtn") || e.target.closest("#morebtn")))) closeMenu(); });
 // Escape closes the topmost thing that is open, one at a time: a note, the menu, the legend sheet, the script, the card.
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
