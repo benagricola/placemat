@@ -50,5 +50,5 @@ packages = ["src/placemat"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --dist loadgroup"
+addopts = "-q --dist loadfile"
 filterwarnings = ["ignore:The SWIG-based Python interface:DeprecationWarning"]
