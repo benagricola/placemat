@@ -89,7 +89,8 @@ def _edits_of(edits) -> tuple:
 @dataclass(frozen=True)
 class Suggestion:
     """A change to the script, worded: `edits` are made together or not at all (one for most), `how` says how it was
-    found ("instant": from the finding's facts alone)."""
+    found ("instant": from the finding's facts alone; "searched": the figure is where a condition flips, so the edits
+    have no value for it yet and `figure` says what is varied and over what; `probe.py` finds the value)."""
     text: str
     edits: tuple
     rank: int = 1
@@ -97,6 +98,8 @@ class Suggestion:
     id: str = ""                    # "s3a": finding 3, suggestion a; given by bind
     digests: dict = field(default_factory=dict)     # {file: digest} of each file the edits write, at the plan
     how: str = "instant"
+    figure: dict | None = None      # a searched suggestion: {"name", "unit", "kind": "bisect" | "set", "edit": the index of the edit
+                                    # that takes the value, and the bounds or members, each derived from the finding's facts}
 
     def __post_init__(self):
         object.__setattr__(self, "edits", _edits_of(self.edits))
@@ -106,13 +109,15 @@ class Suggestion:
                "edits": [e.to_json() for e in self.edits], "how": self.how}
         if self.digests:
             out["digests"] = dict(self.digests)
+        if self.figure is not None:
+            out["figure"] = self.figure
         return out
 
     @staticmethod
     def from_json(d: dict) -> "Suggestion":
         edits = d["edits"] if "edits" in d else [d["edit"]]          # a record from before suggestions had several
         return Suggestion(d["text"], tuple(Edit.from_json(e) for e in edits), d.get("rank", 1), d.get("lever", ""),
-                          d.get("id", ""), dict(d.get("digests", {})), d.get("how", "instant"))
+                          d.get("id", ""), dict(d.get("digests", {})), d.get("how", "instant"), d.get("figure"))
 
 
 def to_json(suggestions) -> list:
@@ -176,6 +181,8 @@ class Pick:
     text: str
     edits: tuple
     lever: str = ""
+    how: str = "instant"
+    figure: dict | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "edits", _edits_of(self.edits))
@@ -209,7 +216,7 @@ def suggest(case_id, facts: dict, settings=None) -> list:
         if pick.lever and n >= cap:
             continue
         seen[pick.lever] = n + 1
-        out.append(Suggestion(pick.text, pick.edits, len(out) + 1, pick.lever))
+        out.append(Suggestion(pick.text, pick.edits, len(out) + 1, pick.lever, how=pick.how, figure=pick.figure))
     return out
 
 
@@ -283,6 +290,8 @@ class _Binder:
                 return None
             file = found[0]
             args["table"] = ["scripts", found[1], args.pop("section")]
+        if edit.op == "ensure_import" and not file:
+            file = self.script
         home = target.file if target else file
         value = _bind_consts(edit.value, lambda c: self.constants_file(c.get("scope", "cell"), home))
         return Edit(edit.op, target, args, value, refs, file)
@@ -291,6 +300,9 @@ class _Binder:
         edits = [self.bind_edit(e) for e in s.edits]
         if any(e is None for e in edits):
             return []
+        if s.how == "searched":
+            made = self.check(s, fill(edits, s.figure, sample_value(s.figure)))
+            return [] if made is None else [replace(made, edits=tuple(edits))]
         out = []
         for variant in self.variants(s, edits):
             made = self.check(*variant)
@@ -335,6 +347,21 @@ class _Binder:
         return replace(s, edits=tuple(edits), digests=digests)
 
 
+def sample_value(figure: dict):
+    """An intent value a searched suggestion's edit can be tried with, to see that it can be made: the figure's first candidate."""
+    if figure["kind"] == "set":
+        return {"enum": "%s.%s" % (figure["enum"], figure["values"][0])}
+    return {"num": figure["far"]}
+
+
+def fill(edits, figure: dict, value) -> list:
+    """`edits` with `value` (an intent expression) given to the one the figure says takes it."""
+    out = list(edits)
+    i = figure["edit"]
+    out[i] = replace(out[i], value=value)
+    return out
+
+
 def _bind_consts(value, file_of):
     if isinstance(value, dict):
         if isinstance(value.get("const"), dict):
@@ -366,7 +393,16 @@ def bind(findings, board) -> None:
                 kept += binder.bind(s)
             except Exception:           # one that cannot be bound is left out; the resolve goes on
                 continue
+        kept = [_with_finding(s, f) for s in kept]
         f.suggestions = tuple(replace(s, rank=i + 1, id="s%d%s" % (n, _letters(i))) for i, s in enumerate(kept))
+
+
+def _with_finding(s: Suggestion, f) -> Suggestion:
+    """A searched suggestion knows which finding it is for (its key and severity), so a probe can judge a candidate by
+    whether that finding is gone and what worse came."""
+    if s.how != "searched" or s.figure is None:
+        return s
+    return replace(s, figure=dict(s.figure, finding=list(finding_key(f)), severity=f.severity))
 
 
 def flatten(findings) -> list:
@@ -467,6 +503,9 @@ def apply_suggestion(suggestions, id: str, dry_run: bool = False, *, root=None, 
     write and write nothing: `apply_edits` on its edits and digests. Errors are SuggestionErrors: UnknownSuggestion,
     StaleSuggestion, EditRefused."""
     s = find(suggestions, id)
+    if s.how == "searched":
+        raise EditRefused("%s is a searched suggestion: it has no value yet. `placemat apply %s --search` finds one (a new "
+                          "suggestion, %s.1) and that is the one to apply" % (s.id, s.id, s.id))
     return apply_edits(s.edits, s.digests, dry_run, root=root, log=log, now=now, label=s.text, source="suggestion",
                        id=s.id)
 
@@ -999,6 +1038,12 @@ def copper_meets(f, settings):
             other = "B" if f["layer"] == "F" else "F"
             out.append(_set("track", f["key"], "layer", _enum("CopperLayer.%s" % other),
                             "Put the %s track on the %s layer" % (net, "back" if other == "B" else "front"), "layer"))
+        hit = f.get("hit") or {}
+        short = hit["need_mm"] - hit["gap_mm"] if "need_mm" in hit and "gap_mm" in hit else None
+        if f.get("chamfer_hit"):
+            out += _reduced(f, short, "chamfer", "chamfer", f.get("chamfer_mm"), "the chamfer of the %s track" % net)
+        elif f.get("arc_hit"):
+            out += _reduced(f, short, "radius", "radius", f.get("radius_mm"), "the arc radius of the %s track" % net)
     return out
 
 
@@ -1017,9 +1062,54 @@ def copper_not_drawn(f, settings):
     return out
 
 
+# ------------------------------------------------------------------ builders: searched figures
+def _searched_bisect(target, kwarg, name, unit, declared, far, of, times, what, const, lever, resolution=0.01) -> Pick:
+    """A figure that clears the finding somewhere between `declared` (it does not) and `far` (checked first, the end the
+    finding's own measurement says should): the value is left out and `probe.py` finds the largest change that is not needed.
+    `of` and `times` say what `far` was derived from, so the range is visible."""
+    figure = {"name": name, "unit": unit, "kind": "bisect", "edit": 0, "declared": declared, "far": far,
+              "lo": min(declared, far), "hi": max(declared, far),
+              "direction": "lower clears" if far < declared else "higher clears",
+              "of": of, "times": times, "resolution": resolution, "what": what, "const": const}
+    return Pick("Changing %s might fix this: search options?" % what, Edit("set_kwarg", target, {"name": kwarg}), lever,
+                "searched", figure)
+
+
+def _searched_set(edits, index, name, enum, values, what, lever) -> Pick:
+    """A small set of values (an enum's members) tried in order; the one that clears the finding best is offered."""
+    figure = {"name": name, "kind": "set", "edit": index, "enum": enum, "values": list(values), "what": what}
+    return Pick("Changing %s might fix this: search options?" % what, edits, lever, "searched", figure)
+
+
+def _reduced(f, short, kwarg, name, declared, what) -> list:
+    """A searched figure that is the track's declared `kwarg` taken down by up to twice the clearance shortfall measured at its
+    cut: `declared` is where it does not clear, the far end (checked first) is the value that should."""
+    key = f.get("key")
+    if not key or not declared or declared <= 0 or short is None or short <= 0:
+        return []
+    far = math.floor(max(0.0, declared - 2 * short) * 100 + 1e-9) / 100
+    if far >= declared or (name == "radius" and far < 0.01):
+        return []
+    return [_searched_bisect(Target("track", key), kwarg, name, "mm", declared, far, "need_mm - gap_mm", 2, what,
+                             _name(key.split("#")[0].split(" ", 1)[-1], name, "mm"), name)]
+
+
 @case(C.COPPER_CORNER)
 def copper_corner(f, settings):
-    return []
+    """The corner's chamfer, from its declared size down by up to twice the measured shortfall of the clearance; which end of
+    the leg takes the 45. Both need the shortfall (`need_mm - near_mm`) the corner finding records."""
+    near, need, key = f.get("near_mm"), f.get("need_mm"), f.get("key")
+    if near is None or need is None or need <= near or not key:
+        return []
+    short = need - near
+    net, target = f.get("net", ""), Target("track", key)
+    out = []
+    out += [replace(p, figure=dict(p.figure, of="need_mm - near_mm"))
+            for p in _reduced(f, short, "chamfer", "chamfer", f.get("chamfer_mm") or 0.0, "the chamfer of the %s track" % net)]
+    out.append(_searched_set((Edit("ensure_import", None, {"names": ["Bend"]}), Edit("set_kwarg", target, {"name": "bend"})),
+                             1, "bend", "Bend", ("START", "END", "BOTH"), "which end of the %s track's leg takes its 45" % net,
+                             "bend"))
+    return out
 
 
 @case(C.SETUP_CENTRE_COORDINATES)
@@ -1182,6 +1272,11 @@ def log_path(board_dir) -> Path:
 def remember(board_dir, script, source: str, findings, now=None) -> None:
     """Keep the suggestions of the plan a `run` or a `preview` just made, per script, for `placemat apply` to find by
     id. `source` says which: "run 1a2b3c4d" or "preview"."""
+    keep(board_dir, script, source, flatten(findings), now)
+
+
+def keep(board_dir, script, source: str, suggestions, now=None) -> None:
+    """Keep these suggestions as the script's plan in the store (what the studio does for the resolve a probe is asked on)."""
     path = store_path(board_dir)
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
@@ -1189,10 +1284,26 @@ def remember(board_dir, script, source: str, findings, now=None) -> None:
         doc = {}
     scripts = doc.get("scripts", {})
     scripts[str(Path(script).resolve())] = {"source": source, "at": _stamp(now),
-                                            "suggestions": to_json(flatten(findings))}
+                                            "suggestions": to_json(suggestions)}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"version": 1, "scripts": scripts}, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def add_found(board_dir, script, found: "Suggestion") -> None:
+    """Keep a suggestion a probe found (`s3a.1`) with the plan's own in the store, so `placemat apply s3a.1` finds it; one with the
+    same id is replaced. The plan it joins is the script's last kept one: a later run or preview makes a new plan, and its ids."""
+    path = store_path(board_dir)
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        doc = {"version": 1, "scripts": {}}
+    entry = doc.setdefault("scripts", {}).setdefault(str(Path(script).resolve()), {"source": "probe", "at": _stamp(None), "suggestions": []})
+    entry["suggestions"] = [s for s in entry.get("suggestions", ()) if s.get("id") != found.id] + [found.to_json()]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(doc, indent=1), encoding="utf-8")
     os.replace(tmp, path)
 
 

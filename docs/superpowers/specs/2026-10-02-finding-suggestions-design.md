@@ -957,6 +957,28 @@ the note. Not converted, because they are not findings and no consumer reads the
 the same data where a finding shares them), the plane-mismatch lines of `placemat facts`, and exception messages for script
 errors.
 
+### As built in phase 6
+
+`probe.py`; `Suggestion.figure` and `Pick.how`/`figure`; the builders; `placemat apply <id> --search [--yes]`; the channel events
+`probe`, `candidate`, `probe_done` (`channel.paused` keeps the candidates' own resolves off the channel); `[studio] probe_budget_s`
+and `probe_candidates`; the results file `.placemat/probes/<id>.<key>.jsonl`; `suggestions.add_found`/`keep`; the studio's
+`POST /suggest/probe` and `/suggest/probe/stop` (`Studio.probe_start`, `probe_stop`, the command summary's `probe`). Details are in
+`api.md`, "Findings and severities". Where it differs from the design above:
+
+- The probe runs as its own command (`placemat apply <id> --search --yes`, started by the studio as it starts a run) and resolves in
+  its own process through `previewer.resolved(..., overlay=)`, the same overlay as the worker's try, rather than inside the warm
+  worker. The worker stays free and the events are the command's, read through the channel like an explore's.
+- Searched rows with a measurement behind them today: the chamfer of a corner (`copper.corner`: `near_mm`, `need_mm`, the declared
+  `chamfer_mm`) and of a cut (`copper.meets` with `chamfer_hit`: the refusal's `gap_mm` and `need_mm`), the arc radius of a cut,
+  and `bend` (`copper.corner`). The range is the declared value down by twice the shortfall. The other rows of the table (a
+  blocker's gap, search radius, fanout depth, turns, label size, stitch pitch, `bearing_step`, the five tuning limits) are not offered:
+  their findings do not record the number that would bound them, and "no measurement, no suggestion" governs. They return with a site
+  that records it.
+- The judge compares findings by `finding_key`; the run score breaks ties. A set (`bend`) is every member in order.
+- A probe is "board-wide" (it asks to confirm) when any edit is not to a `place` declaration.
+- A bisection's resolution is the figure's `resolution` (0.01 mm) and its steps are bounded by `probe_candidates`, which is
+  `probe_steps` plus the far end and the neighbour check.
+
 ### The original phases
 
 1. `Finding.case` and `suggestions`; `script_edit.py` with `set_kwarg`,

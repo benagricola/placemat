@@ -9,19 +9,31 @@ file. An item cites its source as "a board's session, <date>".
 - **Beside stops at the first legal contact** (a board's session, 2026-10-03):
   Beside fits against the neighbour's envelope shapes (a pin-1 dot no longer
   holds a part off a whole side) and stops at the first contact with anything
-  already placed in its path, so nothing nearby is met.
+  already placed in its path (branch beside-shapes, built). Held until
+  declared-copper room lands: tighter placement squeezed tracks the scripts
+  declare after placement (KiCad clearance on two fixture cells).
+- **Placement allows for declared copper** (the user, 2026-10-03; spec being
+  written, `2026-10-03-declared-copper-room-design.md`): room is kept for the
+  tracks a script declares, so placement never squeezes them.
+
+- **Board builder** (spec `2026-10-03-studio-board-builder-design.md`): being
+  built, phases B0-B4, alongside studio round 10.
 
 ## Next, in order
 
 Specced work first, then the loose ends.
 
-1. **Suggestions phase 6: searched suggestions** (spec above): the probe,
-   `placemat apply --search`, the studio's "Search options".
+1. **Searched suggestions in the studio** (phase 6's engine is built): the
+   "Search options" button starts a probe, shows its candidates live and the
+   found suggestion; after studio round 10.
+1a. **Measurements for the other searched levers**: blocker gap/side, search
+   radius, fanout depth, turns, label size, stitch pitch and the tuning limits
+   get a searched suggestion only once the sites that raise their findings
+   record the number that bounds them.
 2. **Studio round 10: routing progress and a whole-build replay** (studio
    spec, "Live channel"): per-net events from the router through hooks, the
    route record in laid order, the timeline running from first placement to
    last routed net.
-3. **Board builder** (spec `2026-10-03-studio-board-builder-design.md`).
 4. **Studio 3D with live models** (spec `2026-10-03-studio-3d-design.md`).
 5. **Suggestions phase 7: the improve loop** (recommended in the suggestions
    work; needs a short design): instant suggestions tried on an overlay,
@@ -48,6 +60,13 @@ Specced work first, then the loose ends.
 15. **U21 pin 14 (SCL)**: the walled check finds a channel south of its stub;
     the user is checking it by eye. If the channel is not usable, find what
     the check does not model.
+
+16. **Routing replay gaps** (studio round 10): the pair router reports
+    commits only (no per-net begin/end, so pair nets get no routed/failed
+    counts); a ripped net's copper is removed for the whole replay instead of
+    at the rip step; the "of N" total grows as each router launch's queue
+    arrives; events dropped on a full queue are missing from the record too;
+    a stopped route leaves a partial record listed with the finished ones.
 
 ## Open
 
@@ -288,6 +307,10 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Searched suggestions: the probe** (0.93.0; suggestions phase 6): `placemat
+  apply <id> --search`, bounded by the finding's measurement, resumable,
+  reported live; for chamfers, arc radii and bend so far.
 
 - **Finding suggestions, phases 1-5** (0.92.0; spec `2026-10-02-finding-suggestions-design.md`):
   structured findings, the splicing edit engine, `placemat apply`, the studio's

@@ -359,6 +359,7 @@ class Studio:
         self._error = None
         self._fresh_next = False                # the next resolve replays nothing from an earlier one
         self._try = None                        # the try of a suggestion in flight: {"id", "rid", "event", "result", ...}
+        self._probe = None                      # the probe of a searched suggestion in flight: {"sid", "proc", "started"}
         self._applied_text = ""                 # what the next resolve is said to follow: an applied (or undone) suggestion
         self._notes: list = []                  # this script's notes (notes.py), oldest first
         self._notes_stamp = None                # (mtime_ns, size) of the notes file when it was last read
@@ -941,6 +942,46 @@ class Studio:
                     self._end_try({"state": "timeout", "message": "the try took longer than [studio] try_timeout_s (%g s) and was stopped" % limit})
         return tr["result"]
 
+    # ------------------------------------------------------------ the probe of a searched suggestion
+    # A probe is `placemat apply <id> --search --yes` run as a command of its own: it resolves the edited script in its own
+    # process, so the studio's worker stays free, and reports over the live channel like any command (`probe`, `candidate`,
+    # `probe_done` reach the page as the command's events, and the command's summary has `probe`). The studio starts it
+    # (after a confirmation where every candidate resolves the whole board) and stops it (SIGTERM: the probe keeps what it
+    # found and says "stopped by you").
+    def probe_start(self, rid, sid, yes: bool = False) -> dict:
+        from . import probe, suggestions as sg
+        rec, pool, finding = self._suggestion(rid, sid)
+        s = sg.find(pool, sid)
+        if s.how != "searched":
+            raise SuggestRefused(422, "%s is not a searched suggestion: it has a value to apply or try" % sid)
+        with self.lock:
+            if self.script is None:
+                raise SuggestRefused(409, "choose a layout script first")
+            if self._probe is not None and self._probe["proc"].poll() is None:
+                raise SuggestRefused(409, "a probe is already running (%s): stop it first" % self._probe["sid"])
+            script, board_dir = self.script, self.src.board_dir
+        est = probe.estimate(s, board_dir, script, self.cfg.studio_probe_candidates, self.cfg.studio_probe_budget_s)
+        if est["board_wide"] and not yes:
+            return {"state": "confirm", "estimate": est, "line": probe.estimate_line(est)}
+        sg.keep(board_dir, script, "studio resolve #%d" % rec.id, pool)       # the store the command reads: the plan the page was shown
+        cmd = [sys.executable, "-m", "placemat", "apply", sid, "--search", "--yes", "--script", str(script)]
+        try:
+            proc = subprocess.Popen(cmd, cwd=str(board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            raise SuggestRefused(409, "could not start the probe: %s" % e)
+        with self.lock:
+            self._probe = {"sid": sid, "proc": proc, "started": time.time()}
+        return {"state": "started", "pid": proc.pid, "estimate": est, "line": probe.estimate_line(est)}
+
+    def probe_stop(self) -> dict:
+        """Ask the running probe to stop (SIGTERM); it keeps its results and says what it found."""
+        with self.lock:
+            p = self._probe
+        if p is None or p["proc"].poll() is not None:
+            raise SuggestRefused(409, "no probe is running")
+        p["proc"].terminate()
+        return {"state": "stopping", "pid": p["proc"].pid}
+
     def _on_try(self, ev: dict) -> None:
         tr = self._try
         if tr is None or ev.get("id") != tr["id"]:
@@ -982,7 +1023,7 @@ class Studio:
     @staticmethod
     def _cmd_summary(c: dict) -> dict:
         return {k: c.get(k) for k in ("id", "pid", "command", "script", "args", "started", "state", "message", "record", "last", "items",
-                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated")} | \
+                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe")} | \
             {"route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results")}}
 
     def commands(self) -> list:
@@ -1051,6 +1092,14 @@ class Studio:
                 c["best"], c["baseline"], c["kept"] = ev.get("best"), ev.get("baseline"), ev.get("kept")
                 if ev.get("record"):
                     c["record"] = ev["record"]
+            elif kind == "probe":
+                c["probe"] = {"start": ev, "candidates": [], "done": None}
+            elif kind == "candidate":
+                if c.get("probe") is not None:
+                    c["probe"]["candidates"].append(ev)
+            elif kind == "probe_done":
+                if c.get("probe") is not None:
+                    c["probe"]["done"] = ev
             elif kind == "done":
                 c.update(state="done", ended=time.time(), record=ev.get("record") or c.get("record"))
             elif kind == "error":
@@ -1518,7 +1567,7 @@ def _handler(studio: Studio):
         def do_POST(self):
             """/switch, with the token: it changes which layout script is watched; and /run, a checked run of it."""
             url = urlparse(self.path)
-            if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo", "/suggest/redo"):
+            if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo", "/suggest/redo", "/suggest/probe", "/suggest/probe/stop"):
                 return self._no()
             if not self._allowed(parse_qs(url.query)):
                 return self._refuse(403, "forbidden: open the address `placemat studio` printed")
@@ -1531,6 +1580,10 @@ def _handler(studio: Studio):
                         return self._json(studio.suggest_undo())
                     if url.path == "/suggest/redo":
                         return self._json(studio.suggest_redo())
+                    if url.path == "/suggest/probe/stop":
+                        return self._json(studio.probe_stop())
+                    if url.path == "/suggest/probe":
+                        return self._json(studio.probe_start(body.get("resolve"), str(body.get("id", "")), bool(body.get("yes"))))
                     return self._json(call[url.path](body.get("resolve"), str(body.get("id", ""))))
                 except SuggestRefused as e:
                     return self._send(e.status, "application/json", json.dumps({"error": str(e), **e.extra}).encode())

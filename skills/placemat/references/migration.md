@@ -19,6 +19,21 @@ section for each hand-written pattern a newer form replaces.
   routes of the board; one opens as a replay, and a run that placed and then routed replays from the first placement to the last
   routed net. `GET /routes`, `/route?f=` and `/build?run=` serve them.
 
+## To 0.93.0
+
+### New
+
+- **Some suggestions are searched: the value is found by trying.** A suggestion with `how: "searched"` has a `figure` (what is
+  varied and between which bounds, derived from the finding's own measurement) and no value, and is worded as a question
+  ("Changing the chamfer of the A track might fix this: search options?"). `placemat apply <id> --search` resolves the
+  edited script with each candidate value, in memory, and keeps the best as a new suggestion `<id>.1` with its value as a named
+  constant; apply that. `--yes` skips the question asked before a probe that resolves the whole board for each candidate. A probe
+  that is stopped keeps its results (`.placemat/probes/`) and the next `--search` continues from them. Settings
+  `[studio] probe_budget_s` (120) and `probe_candidates` (12). This release offers it for the chamfer of a corner or cut
+  (`copper.corner`, `copper.meets`), the arc radius of a cut (`copper.meets`) and which end of a leg takes its 45 (`bend=`, `copper.corner`).
+  Apply refuses a searched suggestion. `POST /suggest/probe` and `/suggest/probe/stop` start and stop one from the studio; its
+  events are `probe`, `candidate` and `probe_done` on the live channel.
+
 ## To 0.92.0
 
 ### New

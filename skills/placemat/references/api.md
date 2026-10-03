@@ -2820,6 +2820,7 @@ placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise
 placemat facts <script> [--confirm] [--json]
 placemat settings [<script-or-board-dir>] [--json]
 placemat apply <id> [--script PATH] [--dry-run] [--json]
+placemat apply <id> --search [--yes] [--script PATH] [--json]
 placemat apply --undo [--script PATH] [--dry-run] [--json]
 ```
 
@@ -3757,6 +3758,50 @@ command says so: run again for suggestions that fit. `--undo` puts back the last
 the files are still as that apply left them. A suggestion is a candidate: the next run says whether the finding
 cleared.
 
+**Searched suggestions and the probe.** A suggestion's `how` is `"instant"` (its value is a number from a measurement, a name, an
+enum or a relation: shown, tried, applied) or `"searched"`. A searched one is where a condition flips, so its edit has no value
+and it has a `figure`:
+
+```
+{"name": "chamfer", "unit": "mm", "kind": "bisect", "edit": 0, "declared": 1.0, "far": 0.6, "lo": 0.6, "hi": 1.0,
+ "direction": "lower clears", "of": "need_mm - near_mm", "times": 2, "resolution": 0.01, "what": "the chamfer of the A track",
+ "const": "A_CHAMFER_MM", "finding": ["copper", "copper.corner", "A"], "severity": "critical"}
+{"name": "bend", "kind": "set", "edit": 1, "enum": "Bend", "values": ["START", "END", "BOTH"], "what": "...", "finding": [...]}
+```
+
+`declared` is the value that does not clear (the finding says so); `far` is the end checked first, derived from a number the
+finding records (`of`, `times`: here up to twice the shortfall), never from the board's extent, a pad's size or a factor. A lever
+whose finding records no such number gets no searched suggestion. This release has the chamfer of a corner (`copper.corner`) and of
+a cut that meets another net's copper (`copper.meets`), the arc radius of that cut, and `bend` (`copper.corner`). `edit` is the index
+of the edit that takes the value (a bend's first edit is the `ensure_import` of `Bend`). Apply and Try refuse a searched suggestion;
+it is worded as a question ("Changing ... might fix this: search options?").
+
+`placemat apply <id> --search` runs the probe (`probe.py`). It prints what it will cost, and, where each candidate resolves the
+whole board (every edit but a placement's), asks to go on unless `--yes` (without a terminal it refuses without `--yes`). The unedited
+script is resolved once; then each candidate is the suggestion's edits with the value filled in, made as a dry run, and the script
+resolved with those texts read in place of the files (as the studio's Try does), nothing written. A candidate is judged by the
+finding cleared (`suggestions.cleared`) and the findings gained: it is acceptable when the finding cleared and nothing of a higher
+severity than it was gained. Of the acceptable ones the best departs least from the declared value, ties by the run score; a set
+is every member in order. A bisection checks `far` first (if it does not clear: "no value in the range clears it"), halves between
+the last value that cleared and the last that did not until they are `resolution` apart, then reports the neighbour toward the
+declared value; a figure that clears on both sides is reported as not monotone. At most `[studio] probe_candidates` (12) candidates and
+`[studio] probe_budget_s` (120) seconds; one candidate is bounded by `try_timeout_s`. It ends with "found X", "no value in the range
+clears it", "candidate limit reached"/"budget spent after n candidates: best so far X" or "stopped by you after n of m candidates:
+best so far X" (Ctrl-C or SIGTERM; exit status 128 + the signal), each said at once. The best candidate is kept as an instant
+suggestion `<id>.1`, in `.placemat/suggestions.json` beside the plan's own, so `placemat apply <id>.1` finds it; its value is a
+named constant with a comment ("Found by a probe of the chamfer for copper.corner: 0.8 mm clears it; 0.81 mm does not."), and it is
+applied the usual way, refused if the script changed since. Every candidate is appended to `.placemat/probes/<id>.<key>.jsonl` (the
+key: the suggestion's edits, figure and the files' digests); a second `--search` of the same suggestion uses those results and
+resolves no value again; a changed script or edit says so and starts fresh. `--json` prints `{"id", "result", "found"}`.
+
+The probe reports on the live channel as the command's events: `probe` (the suggestion, the figure, the budget), `candidate` per resolve
+(`value`, `cleared`, `gained`, `score`, `seconds`, `n`, `of`, `saved` for a result taken from the file) and `probe_done` (`state`:
+`found`, `none`, `limit`, `budget`, `stopped`, `error`; `best`, `neighbour`, `monotone`, `candidates`). The candidates' own resolves
+are not sent. The studio starts one with `POST /suggest/probe` `{"resolve", "id", "yes"}` (without `yes`, a probe that resolves the
+whole board answers `{"state": "confirm", "estimate", "line"}` and starts nothing; `estimate` is `{board_wide, candidates, resolve_s,
+budget_s, total_s}`, from the last run's resolve time) and stops it with `POST /suggest/probe/stop`; the command's summary has
+`probe: {start, candidates, done}`.
+
 The same engine serves the board builder, which is not driven by findings. `suggestions.apply_edits(edits, digests,
 dry_run, root=, log=, label=, source=)` is the body of `apply_suggestion`: the digest check (`""` for a file that
 must not exist yet), the edits made together, the atomic write, one log entry carrying `label` as its text and
@@ -4086,6 +4131,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.cancel_grace_ms` | `2000` | ms | a resolve asked to stop that has not stopped by then has its worker restarted |
 | `studio.suggestions_per_lever` | `3` | count | a finding's suggestions for one lever (which side to place beside): the best this many |
 | `studio.try_timeout_s` | `60` | seconds | a try of a suggestion (a resolve of the edited script) is stopped after this long |
+| `studio.probe_budget_s` | `120` | seconds | a probe of a searched suggestion stops after this long in all, keeping the best candidate so far |
+| `studio.probe_candidates` | `12` | count | the most candidates (resolves of the edited script) a probe tries, the first and the last check included |
 | `studio.apply` | `true` | bool | false: the studio shows suggestions and diffs but refuses to write them |
 | `facts.confirmed` | `""` | text | the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm` |
 | `facts.boards` | `{}` | table | `[facts.boards]`: a script's path relative to this placemat.toml -> the digest of its last `placemat facts --confirm`; placemat's own record, not part of a run's id |
