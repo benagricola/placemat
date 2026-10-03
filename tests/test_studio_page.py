@@ -1163,3 +1163,70 @@ out.done = [els["#runhead"].hidden, els["#runhead"].innerHTML];
     assert out["settled"][1] == "flds settled" and 'title="psu">psu</b>' in out["settled"][0] and "waiting" not in out["settled"][0]
     assert out["narrow"] == [True, False]
     assert out["done"][0] is False and "done in" in out["done"][1]
+
+
+# The unplaced forms the engine writes (layout.py and the scan's blame text), as its own tests produce them.
+UNPLACED_FORMS = r"""
+const F = {
+  loc: "u1: no legal location within 3.0 mm of (3.00, 15.00) (edge x1720; courtyard x1116: K1 front face x712, J1 front face x404)",
+  locPocket: "u1: no legal location within 6.0 mm of (5.00, 10.00) (courtyard x7758: K1 front face x4560, J1 front face x3198; edge x3526); no pocket took it (0 tried)",
+  drawn: "m: no legal location within 3.0 mm of (25.00, 25.00) (body, silk or mask x709: W1 front face x709)",
+  pocket: "b1: no pocket fits its 15.0 x 15.0 envelope on the front face at any rotation asked for",
+  pocketN: "r1: no pocket fits its 6.0 x 3.0 envelope on the front face (0 pocket(s) tried)",
+  room: "s1: no room anywhere along its row (courtyard x12, edge x3)",
+  bearing: "d1: no bearing of 4 tried leaves it legal on its point (courtyard x40, vias that could not give way x2)",
+  alone: "k1: cannot be laid out on its own at any rotation it may take, whatever room the board has (its pad 1 is 0.10 mm from its pad 2)",
+  rides: "r9: rides u1, which found no place",
+  late: "u1: no legal location within 6.0 mm of (5.00, 10.00) (courtyard x4: K1 front face x4); see: no room was left for it when j1 was placed",
+};
+const fi = (text, severity) => ({text, severity: severity || "warning", kind: "unplaced", item: text.split(":")[0]});
+"""
+
+
+@needs_node
+def test_an_unplaced_items_reasons_are_parsed_into_why_where_it_was_looked_for_and_what_refused_it(tmp_path):
+    out = run_more(tmp_path, UNPLACED_FORMS + r"""
+const P = (key, extra) => ev("unplacedParts(" + JSON.stringify(extra || []) + ", " + JSON.stringify(fi(F[key])) + ")");
+out.loc = P("loc"); out.locPocket = P("locPocket"); out.drawn = P("drawn"); out.pocket = P("pocket"); out.pocketN = P("pocketN");
+out.room = P("room"); out.bearing = P("bearing"); out.alone = P("alone"); out.rides = P("rides"); out.late = P("late");
+out.note = ev('unplacedParts(["SMALL courtyard overlaps BIG courtyard", "body box -0.50,6.90..5.70,13.10 crosses the board edge"], null)');
+out.noteParts = ev('noteParts("rank 1/1 (38.4 mm2, 1st of 1; 2 pins, 1st); UNPLACED: U1 courtyard overlaps J1 courtyard; body box -0.50,6.90..5.70,13.10 crosses the board edge")');
+""")
+    loc = out["loc"]
+    assert (loc["why"], loc["radius"], loc["at"]) == ("no legal location", "3.0", ["3.00", "15.00"])
+    assert [(r["kind"], r["n"]) for r in loc["refused"]] == [("edge", 1720), ("courtyard", 1116)]
+    assert loc["refused"][1]["blockers"] == [{"owner": "K1", "face": "front", "n": 712}, {"owner": "J1", "face": "front", "n": 404}]
+    assert out["locPocket"]["tried"] == 0 and out["locPocket"]["refused"][0]["n"] == 7758
+    assert out["drawn"]["refused"][0]["kind"] == "body, silk or mask" and out["drawn"]["refused"][0]["blockers"][0]["owner"] == "W1"
+    assert out["pocket"]["pocket"] == {"w": "15.0", "h": "15.0", "face": "front"} and out["pocket"]["why"] == "no pocket fits" and out["pocket"]["tried"] is None
+    assert out["pocketN"]["tried"] == 0 and out["pocketN"]["pocket"]["w"] == "6.0"
+    assert out["room"]["why"] == "no room" and out["room"]["what"] == "along its row" and [r["n"] for r in out["room"]["refused"]] == [12, 3]
+    assert out["bearing"]["bearings"] == 4 and [r["kind"] for r in out["bearing"]["refused"]] == ["courtyard", "vias that could not give way"]
+    assert out["alone"]["why"] == "cannot be laid out" and "pad 1" in out["alone"]["alone"]
+    assert out["rides"]["why"] == "rides" and out["rides"]["rides"] == "u1"
+    assert out["late"]["late"] == ["no room was left for it when j1 was placed"]
+    assert out["note"]["examples"] == ["SMALL courtyard overlaps BIG courtyard", "body box -0.50,6.90..5.70,13.10 crosses the board edge"] and out["note"]["why"] == "not placed"
+    assert out["noteParts"]["unplaced"][0].startswith("U1 courtyard overlaps") and out["noteParts"]["rank"]["n"] == "1" and out["noteParts"]["other"] == []
+
+
+@needs_node
+def test_the_not_placed_rows_the_card_and_the_findings_list_show_an_unplaced_item_as_sections_with_clickable_blockers(tmp_path):
+    out = run_more(tmp_path, UNPLACED_FORMS + r"""
+full([item("K1", 1), item("J1", 5)], [st("K1"), st("J1")]);
+const pl = ev("plan()"); pl.unplaced = [{item: "u1", why: "U1 courtyard overlaps K1 courtyard"}]; pl.findings = [Object.assign(fi(F.loc, "critical"), {item: ""})];     // the engine leaves an unplaced finding's item empty: the sentence names it
+ev("renderSteps()"); out.steps = els["#tab-steps"].innerHTML;
+ev("renderFindings()"); out.findings = els["#tab-findings"].innerHTML;
+ev("selectItem('u1')"); ev("renderCard()"); out.card = els["#card"].innerHTML;
+""")
+    for html in (out["steps"], out["card"]):
+        assert '<span class="kk">why</span>' in html and '<span class="chip bad">no legal location</span>' in html
+        assert '<span class="kk">radius</span>' in html and '3.0 mm' in html
+        assert "(3.00, 15.00) mm" in html and '<span class="chip refusal">courtyard x1116</span>' in html and '<span class="chip refusal">edge x1720</span>' in html
+        assert 'data-act="owner" data-owner="K1"' in html                                    # K1 is a part of the plan: a pill that selects it
+        assert 'data-act="owner" data-owner="J1"' in html
+        assert "U1 courtyard overlaps K1 courtyard" in html                                  # the placer's example, as written
+        assert "no legal location within" not in html
+    assert 'class="row unp"' in out["steps"]
+    f = out["findings"]
+    assert '<span class="chip refusal">courtyard x1116</span>' in f and '<span class="sev critical">critical</span>' in f and "no legal location within" not in f
+    assert out["card"].count("chip refusal") == out["steps"].count("chip refusal")           # the finding is not said twice on the card

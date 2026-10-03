@@ -109,6 +109,8 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 #runhead .f-steps { width: 10.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #runhead .f-item { color: var(--ink); font-weight: 600; }
 #runhead .f-el { width: 2.8em; text-align: right; font-variant-numeric: tabular-nums; }
+#runhead .f-rank { width: 4.2em; } #runhead .f-rank .lbl { display: none; } #runhead .f-phase { width: 7em; }
+#runhead:not(.settled) .f-time { display: none; }       /* the time on the step is the elapsed field's neighbour: shown only for the settled step */
 /* between one step settling and the next beginning, the step that settled stays, dimmed, with the time it took */
 .flds.settled > :not(.spin):not(.f-steps):not(.f-el) { opacity: 0.55; }
 .row.pending.settled .sb { opacity: 0.55; }
@@ -269,6 +271,13 @@ main { position: relative; }
 .row.now { box-shadow: inset 3px 0 0 var(--accent); }
 .row .i { width: 26px; text-align: right; flex: none; color: var(--dim); }
 .row .k { font-weight: 600; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.unp { align-items: flex-start; }
+.row .unpbody { white-space: normal; overflow: visible; color: var(--ink); }
+.unpbody .cs { margin-top: 4px; } .unpbody .cs:first-child { margin-top: 0; }
+.refrow { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 5px; }
+.blk { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.chip.refusal { background: var(--surface2); color: var(--ink); }
+a.chip.act { cursor: pointer; }
 .row .n { color: var(--dim); min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.open .n, .row .n.wrap { white-space: normal; }
 .row .go { display: none; border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 1px 8px; flex: none; }
@@ -841,7 +850,7 @@ function renderProgress() {
   $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
   $("#rs-work").className = "flds" + (settled ? " settled" : "");
   $("#rs-work").innerHTML = work;
-  if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-steps">' + esc(steps) + "</span>" + work + '<span class="f-el">' + esc(el_) + "</span>"; }
+  if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-el">' + esc(el_) + '</span><span class="f-steps">' + esc(steps) + "</span>" + work; }
 }
 // After a resolve the strip says how long it took for a few seconds, then goes; the slider below does not move.
 function resolveDone() {
@@ -1749,10 +1758,12 @@ function splitTop(s, sep) {
   return out.map(x => x.trim()).filter(Boolean);
 }
 function noteParts(note) {
-  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], pocket: null, slid: null, stopped: null, line: null, other: []};
+  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], pocket: null, slid: null, stopped: null, line: null, other: [], unplaced: null};
   for (const part of splitTop(note || "", "; ")) {
     let m;
-    if ((m = /^rank (\d+)\/(\d+)\b/.exec(part))) {
+    if (o.unplaced) o.unplaced.push(part);                                 // what an unplaced item's note says follows its marker
+    else if ((m = /^UNPLACED\b:?\s*(.*)$/.exec(part))) o.unplaced = m[1] ? [m[1]] : [];
+    else if ((m = /^rank (\d+)\/(\d+)\b/.exec(part))) {
       let rest = part.slice(m[0].length).trim(), facts = "", tail = [];
       if (rest[0] === "(") { let d = 0, i = 0; for (; i < rest.length; i++) { if (rest[i] === "(") d++; else if (rest[i] === ")" && --d === 0) break; } facts = rest.slice(1, i); rest = rest.slice(i + 1).trim(); }
       if (rest) tail = rest.replace(/^\(/, "").replace(/\)(?=,|$)/, "").split(/,\s*/).filter(Boolean);       // "(script: high), required"
@@ -1771,6 +1782,75 @@ function noteParts(note) {
   }
   return o;
 }
+// An unplaced item's reasons, from its note (the placer's example refusal for each kind, "; "-separated) and the finding that says
+// the counts: why it was left out, where it was looked for, what refused it (a count for each kind of refusal and the parts that did
+// most of it) and whatever else is said, as written.
+//   no legal location within R mm of (x, y) (courtyard x41: U1 front face x30, J1 front face x11; edge x3)    [; no pocket took it (N tried)]
+//   no pocket fits its W x H envelope on the F face at any rotation asked for | (N pocket(s) tried)
+//   no room anywhere WHAT (kind xN, kind xM)       no bearing of N tried leaves it legal on its point (kind xN)
+//   cannot be laid out on its own at any rotation it may take, whatever room the board has (WHY)       rides X, which found no place
+//   see: no room was left for it when X was placed | the look-ahead left it room ...
+function parseBlame(text, sep) {
+  return splitTop(text, sep || "; ").map(part => {
+    let m;
+    if ((m = /^vias that could not give way x(\d+)$/.exec(part))) return {kind: "vias that could not give way", n: +m[1], blockers: []};
+    if ((m = /^(.+?) x(\d+)(?:: (.*))?$/.exec(part))) {
+      const blockers = [];
+      for (const b of (m[3] || "").split(/,\s*/).filter(Boolean)) {
+        const q = /^(\S+?)(?: (front|back) face)? x(\d+)$/.exec(b);
+        if (q) blockers.push({owner: q[1], face: q[2] || "", n: +q[3]}); else blockers.push({text: b});
+      }
+      return {kind: m[1], n: +m[2], blockers};
+    }
+    return {kind: part, n: null, blockers: []};
+  });
+}
+function unplacedParts(texts, fnd) {
+  const o = {why: "", radius: null, at: null, what: "", pocket: null, tried: null, bearings: null, refused: [], rides: "", alone: "", late: [], examples: [], other: [], fnd: fnd || null};
+  const feed = (part, fromFinding) => {
+    let m;
+    if ((m = /^no legal (?:location|spot) within ([\d.]+) mm(?: of \((-?[\d.]+), (-?[\d.]+)\))? \((.*)\)$/.exec(part))) { o.why = "no legal location"; o.radius = m[1]; if (m[2] != null) o.at = [m[2], m[3]]; o.refused.push(...parseBlame(m[4])); }
+    else if ((m = /^no pocket took it \((\d+) tried\)$/.exec(part))) o.tried = +m[1];
+    else if ((m = /^no pocket fits its ([\d.]+) x ([\d.]+) envelope on the (\w+) face(?: at any rotation asked for| \((\d+) pocket\(s\) tried\))$/.exec(part))) { o.why = "no pocket fits"; o.pocket = {w: m[1], h: m[2], face: m[3]}; if (m[4]) o.tried = +m[4]; }
+    else if ((m = /^no room anywhere (.+?) \((.*)\)$/.exec(part))) { o.why = "no room"; o.what = m[1]; o.refused.push(...parseBlame(m[2], ", ")); }
+    else if ((m = /^no bearing of (\d+) tried leaves it legal on its point \((.*)\)$/.exec(part))) { o.why = "no bearing fits"; o.bearings = +m[1]; o.refused.push(...parseBlame(m[2], ", ")); }
+    else if ((m = /^cannot be laid out on its own at any rotation it may take, whatever room the board has \((.*)\)$/.exec(part))) { o.why = "cannot be laid out"; o.alone = m[1]; }
+    else if ((m = /^rides (.+?), which found no place$/.exec(part))) { o.why = "rides"; o.rides = m[1]; }
+    else if ((m = /^see: (.*)$/.exec(part))) o.late.push(m[1]);
+    else if (/^no pocket fits\b/.test(part)) { if (!o.why) o.why = "no pocket fits"; }
+    else if (fromFinding) o.other.push(part);
+    else o.examples.push(part);                                              // the placer's example refusals, as it wrote them
+  };
+  if (fnd && fnd.text) { const s = String(fnd.text), pre = fnd.item ? fnd.item + ": " : ""; for (const part of splitTop(pre && s.startsWith(pre) ? s.slice(pre.length) : s.replace(/^[^:\s]+: /, ""), "; ")) feed(part, true); }
+  for (const part of texts || []) feed(part, false);
+  if (!o.why) o.why = "not placed";
+  return o;
+}
+const SEV_CHIP = {critical: "bad", warning: "warn", notice: ""};
+// An owner of refusals as a pill that selects it: a part's designator or an item's name, where the plan has one.
+function ownerPill(name) {
+  const p = plan(), its = p ? (p.items || []) : [];
+  const hit = its.find(i => i.key === name) || its.find(i => (i.members || []).some(m => m.ref === name));
+  return hit ? '<a class="chip act" data-act="owner" data-owner="' + esc(name) + '" title="select ' + escRaw(name) + '">' + esc(name) + "</a>" : pill(name, "");
+}
+function unplacedRows(u) {
+  const rows = [["why", pill(u.why + (u.rides ? " " + u.rides : ""), SEV_CHIP[u.fnd ? sevOf(u.fnd) : "warning"] || "")]];
+  if (u.radius != null) rows.push(["radius", val(u.radius + " mm")]);
+  if (u.at) rows.push(["around", esc("(" + u.at[0] + ", " + u.at[1] + ") mm")]);
+  if (u.what) rows.push(["looked", esc(u.what)]);
+  if (u.pocket) rows.push(["envelope", esc(u.pocket.w + " x " + u.pocket.h + " mm") + " on the " + pill(u.pocket.face, "face-" + u.pocket.face) + " face"]);
+  if (u.bearings != null) rows.push(["bearings", esc(u.bearings + " tried")]);
+  if (u.tried != null) rows.push(["pockets", esc(u.tried + " tried")]);
+  if (u.alone) rows.push(["on its own", esc(u.alone)]);
+  return rows;
+}
+const refusedList = u => u.refused.map(r => '<span class="refrow">' + pill(r.kind + (r.n != null ? " x" + r.n : ""), "refusal") +
+  r.blockers.map(b => b.text ? '<span class="dim">' + esc(b.text) + "</span>" : '<span class="blk">' + ownerPill(b.owner) + '<span class="dim">' + esc((b.face ? b.face + " " : "") + "x" + b.n) + "</span></span>").join(" ") + "</span>");
+const unplacedInline = f => '<b>' + esc(f.item || String(f.text).split(":")[0]) + "</b>" + kvl(unplacedRows(unplacedParts([], f))) + sect("Refused by", listOf(refusedList(unplacedParts([], f)))) + sect("Notes", listOf(unplacedParts([], f).other.map(esc)));
+const unplacedBlock = u => kvl(unplacedRows(u)) + sect("Refused by", listOf(refusedList(u))) + sect("Notes", listOf(u.late.concat(u.other, u.examples).map(esc)));
+// The unplaced item's findings, the sentence of which the section above replaces, and every other one as it was.
+const isUnplacedFinding = f => f && f.kind === "unplaced";
+const unplacedFindingOf = (p, key) => ((p && p.findings) || []).find(f => isUnplacedFinding(f) && (f.item === key || String(f.text).startsWith(key + ": "))) || null;
 const rankRows = r => {
   const rows = [["rank", esc(r.n + " of " + r.of)]];
   for (const f of r.facts) {
@@ -1810,7 +1890,8 @@ const noteRows = np => [...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.
   ["on the line", np.line ? esc(np.line.axis + " = " + np.line.at + " mm") : ""],
   ["slid", np.slid ? val(np.slid.mm + " mm", "warn") + " from its slot" + (np.slid.why ? ' <span class="dim">' + esc(np.slid.why) + "</span>" : "") : ""],
   ["stopped short", np.stopped ? val(np.stopped.mm + " mm", "warn") + " before the " + esc(np.stopped.side) + " end" : ""], ["because", np.stopped ? esc(np.stopped.why) : ""]];
-function noteExtra(np, movedMm, why) {
+function noteExtra(np, movedMm, why, key) {
+  if (np.unplaced) return unplacedBlock(unplacedParts(np.unplaced, unplacedFindingOf(plan(), key)));
   const moved = np.moved || (movedMm ? {mm: movedMm, why: ""} : null);
   return sect("Why it moved", moved ? '<div class="facts">' + val(moved.mm + " mm", "warn") + " off the hint</div>" + (moved.why ? '<div class="note">' + esc(moved.why) + "</div>" : "") : "") +
     sect("Pocket", np.pocket ? kvl([["size", esc(np.pocket.w + " x " + np.pocket.h + " mm")], ["at", esc("(" + np.pocket.x + ", " + np.pocket.y + ") mm")], ["because", esc(np.pocket.why)]]) : "") +
@@ -1825,8 +1906,8 @@ function partCard(p, it) {
   const place = kvl([["cell", mod && mod !== title ? esc(mod) : ""], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["placed", pill(howWord(s, it), howClass(s, it))], ["step", step != null ? esc((step + 1) + " of " + replaySteps(p).length) : ""], ...noteRows(np)]);
   return cardHead(title, it.kind, "", modPill) +
     (m && m.value ? '<div class="sub">' + esc(m.value) + (it.key !== m.ref ? "  (item " + esc(it.key) + ")" : "") + "</div>" : "") +
-    sect("Placement", place) + noteExtra(np, it.moved_mm, it.why) +
-    sect("Findings", sevPills(fs)) + linkRows(p, refs, S.cardLinks) +
+    sect("Placement", place) + noteExtra(np, it.moved_mm, it.why, it.key) +
+    sect("Findings", sevPills(np.unplaced ? fs.filter(f => !isUnplacedFinding(f)) : fs)) + linkRows(p, refs, S.cardLinks) +
     (it.file ? '<div class="src"><a data-act="src">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
 function moduleCard(p) {
@@ -1835,6 +1916,9 @@ function moduleCard(p) {
   return cardHead("cell " + id, "cell", "") + '<div class="sub">' + refs.length + (refs.length === 1 ? " part" : " parts") + "</div>" +
     '<div class="mods">' + refs.map(r => '<button data-act="part" data-ref="' + esc(r) + '">' + esc(r) + "</button>").join("") + "</div>" +
     sect("Findings", sevPills(fs)) + linkRows(p, new Set(refs), S.cardLinks);
+}
+function unplacedCard(p, u) {
+  return cardHead(u.item, "unplaced", "unplaced") + unplacedBlock(unplacedParts(splitTop(u.why, "; "), unplacedFindingOf(p, u.item)));
 }
 function regionCard(p) {
   const {kind, id} = S.selRegion;
@@ -1853,7 +1937,8 @@ function renderCard() {
   const pf = S.pendingFrame; S.pendingFrame = null;
   if (pf && Date.now() - pf.t < 1500) setTimeout(() => { if (S.pendingFrame == null) { zoomTo(pf.box, pf.face); S.pendingFrame = null; } }, 0);
   const it = S.sel && p ? itemMap(p).get(S.sel) : null;
-  const html = !p || S.cardOff === cardKey() ? "" : S.selRegion ? regionCard(p) : S.module ? moduleCard(p) : it ? partCard(p, it) : "";
+  const un = S.sel && p && !it ? (p.unplaced || []).find(u => u.item === S.sel) : null;        // an item left off the board has no drawing: its card says why
+  const html = !p || S.cardOff === cardKey() ? "" : S.selRegion ? regionCard(p) : S.module ? moduleCard(p) : it ? partCard(p, it) : un ? unplacedCard(p, un) : "";
   el.style.display = html ? "block" : "none";
   if (html) el.innerHTML = html;
 }
@@ -1867,7 +1952,15 @@ $("#card").onclick = e => {
   else if (act === "links") { S.cardLinks = !S.cardLinks; renderCard(); }
   else if (act === "link") { const l = (p.links || [])[+a.dataset.i]; if (l) zoomTo([Math.min(l.pa[0], l.pb[0]) - 1, Math.min(l.pa[1], l.pb[1]) - 1, Math.max(l.pa[0], l.pb[0]) + 1, Math.max(l.pa[1], l.pb[1]) + 1]); }
   else if (act === "src") { const it = itemMap(p).get(S.sel); if (it) openScript(it.file, it.line); }
+  else if (act === "owner") selectOwner(a.dataset.owner);
 };
+// An item or a part's designator, selected where it is on the board.
+function selectOwner(name) {
+  const p = plan(), its = itemsOf(p), it = its.find(i => i.key === name), owner = it || its.find(i => (i.members || []).some(m => m.ref === name));
+  if (!owner) return;
+  S.module = null;
+  selectItem(owner.key, it ? {zoom: true} : {ref: name, zoom: true});
+}
 
 // ---------------------------------------------------------------- the replay
 // One position per placement step. Dragging the slider moves the position; the frame it lands in shows or hides
@@ -1972,7 +2065,7 @@ function stepDetail(s, it, np, fs) {
   const placed = s.type === "place" && it;
   const rows = placed ? kvl([["placed", pill(howWord(s, it), howClass(s, it))], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ...noteRows(np)]) : "";
   return sect("Placement", rows) +
-    noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why)) + sect("Findings", sevPills(fs)) + (it && it.file ? '<div class="src"><a data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
+    noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why), s.item) + sect("Findings", sevPills(np.unplaced ? fs.filter(f => !isUnplacedFinding(f)) : fs)) + (it && it.file ? '<div class="src"><a data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
 function stepRow(s, p) {
   const it = S.itemAt && S.itemAt.get(s.item), kind = stepKind(s, it), np = noteParts(s.note || (it && it.note) || "");
@@ -1990,7 +2083,7 @@ function renderSteps() {
   const unplaced = p.unplaced || [];
   const head = (title, n, id, info) => "<h3>" + title + (info ? infoBtn(info) : "") + ' <span class="c"' + (id ? ' id="' + id + '"' : "") + ">" + n + "</span></h3>";
   let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + pendingRow() + "</div>";
-  if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><span class="n wrap">' + esc(u.why) + "</span></div>").join("");
+  if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row unp" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><div class="n wrap unpbody">' + unplacedBlock(unplacedParts(splitTop(u.why, "; "), unplacedFindingOf(p, u.item))) + "</div></div>").join("");
   if (other.length) {
     out += '<h3 class="fold" data-fold="other">' + (S.showOther ? "&#9662;" : "&#9656;") + " Keepouts and setup steps" + infoBtn("other") + ' <span class="c">' + other.length + "</span></h3>";
     if (S.showOther) out += other.map(s => '<div class="row" data-at="' + s.at + '"><span class="k">' + esc(s.item) + '</span><span class="chip ' + esc(s.kind) + '">' + esc(s.kind) + '</span><span class="n wrap">' + esc(s.note) + "</span></div>").join("");
@@ -2002,12 +2095,14 @@ function renderSteps() {
   el.onclick = e => {
     if (e.target.closest(".info")) return;
     const sl = e.target.closest("[data-act=src]"); if (sl) { openScript(sl.dataset.file, +sl.dataset.line); return; }
+    const ow = e.target.closest("[data-act=owner]"); if (ow) { selectOwner(ow.dataset.owner); return; }
     const fr = e.target.closest("[data-act=finding]"); if (fr) { const f = (plan().findings || [])[+fr.dataset.fi]; if (f) focusFinding(f); return; }
     if (e.target.closest("[data-fold]")) { S.showOther = !S.showOther; renderSteps(); return; }
     const r = e.target.closest(".row"); if (!r) return;
     const key = r.dataset.item;
     if (r.dataset.at != null && r.dataset.n != null) { const at = +r.dataset.at; if (S.openRows.has(at)) S.openRows.delete(at); else S.openRows.add(at); r.classList.toggle("open"); }
     if (key && itemMap(plan()).has(key)) selectItem(key, {zoom: true});
+    else if (key && r.classList.contains("unp")) selectItem(key);
     if (e.target.closest(".go")) goTab("board");
   };
 }
@@ -2032,7 +2127,7 @@ function renderFindings() {
   el.innerHTML = filters + order.map(kind => {
     const list = groups.get(kind), closed = S.closedKinds.has(kind), worst = hasSev ? kind : list.some(([f]) => sevOf(f) === "critical") ? "critical" : list.some(([f]) => sevOf(f) === "notice") && !list.some(([f]) => sevOf(f) === "warning") ? "notice" : "warning";
     return '<div class="gh" data-kind="' + esc(kind) + '"><span class="dim">' + (closed ? "&#9656;" : "&#9662;") + "</span>" + esc(kind) + '<span class="ct">' + list.length + "</span></div>" +
-      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + srcLink(f, p) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
+      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + (isUnplacedFinding(f) ? unplacedInline(f) : esc(f.text)) + srcLink(f, p) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
   }).join("");
   el.onclick = e => {
     const sv = e.target.closest("[data-sev]"); if (sv) { S.sevFilter = sv.dataset.sev; renderFindings(); return; }
@@ -2040,6 +2135,7 @@ function renderFindings() {
     if (gh) { const k = gh.dataset.kind; if (S.closedKinds.has(k)) S.closedKinds.delete(k); else S.closedKinds.add(k); renderFindings(); return; }
     if (e.target.closest(".fixslot")) return;
     const sl = e.target.closest("[data-act=src]"); if (sl) { openScript(sl.dataset.file, +sl.dataset.line); return; }
+    const ow = e.target.closest("[data-act=owner]"); if (ow) { selectOwner(ow.dataset.owner); goTab("board"); return; }
     const r = e.target.closest(".row"); if (!r) return;
     const f = all[+r.dataset.i];
     if (f.at || f.item || (f.refs || []).length) { focusFinding(f); goTab("board"); }
