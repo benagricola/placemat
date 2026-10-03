@@ -673,22 +673,28 @@ class _Mask(ast.NodeTransformer):
         return super().generic_visit(node)
 
 
-def _masked_call_dump(text, line, func_dump):
+def _masked_call_dump(text, line, func_dump, into=()):
     tree = ast.parse(text)
     hits = _calls_at(tree, line, func_dump)
     if not hits:
         raise EditRefused("the target call is not where the edit left it")
-    return ast.dump(_Mask(hits[0]).visit(tree))
+    node = _resolve_into(hits[0], into) if into else hits[0]
+    return ast.dump(_Mask(node).visit(tree))
 
 
-def _check_call_edit(before, after, hit_line, func_dump):
-    """The edited text parses and everything outside the target call is the tree it was."""
+def _check_call_edit(before, after, hit_line, func_dump, into=()):
+    """The edited text parses and everything outside the target call (or, with `into`, outside the inner call it names)
+    is the tree it was."""
     try:
         ast.parse(after)
     except SyntaxError as e:
         raise EditRefused("the edited file would not parse: %s" % e)
-    if _masked_call_dump(before, hit_line, func_dump) != _masked_call_dump(after, hit_line, func_dump):
-        raise EditRefused("the edit would change more than the target call")
+    try:
+        same = _masked_call_dump(before, hit_line, func_dump, into) == _masked_call_dump(after, hit_line, func_dump, into)
+    except EditRefused:
+        raise EditRefused("the edit would change more than the %s" % ("inner call" if into else "target call"))
+    if not same:
+        raise EditRefused("the edit would change more than the %s" % ("inner call" if into else "target call"))
 
 
 def _stmt_lists(tree):
@@ -711,9 +717,66 @@ def _dump_without(text, line):
 
 
 # ------------------------------------------------------------------ call edits
-def _call_of(text, target):
+def _func_name(call) -> str:
+    f = call.func
+    return f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+
+
+def _step_into(node, step):
+    """The node a step of `into` reaches from `node`: {"kw": name} or {"pos": index} an argument of a call,
+    {"elem": index} an element of a list or tuple, {"find": "Name"} the one call of that name among a list's elements."""
+    if "kw" in step or "pos" in step:
+        if not isinstance(node, ast.Call):
+            raise EditRefused("there is no call to take the argument %r of" % (step,))
+        if "kw" in step:
+            hit = [k.value for k in node.keywords if k.arg == step["kw"]]
+            if not hit:
+                raise EditRefused("the call has no %s=" % step["kw"])
+            return hit[0]
+        pos = _positional(node)
+        if step["pos"] >= len(pos):
+            raise EditRefused("the call has no positional argument %d" % step["pos"])
+        return pos[step["pos"]]
+    if not isinstance(node, (ast.List, ast.Tuple)):
+        raise EditRefused("there is no list to take the element %r of" % (step,))
+    if "elem" in step:
+        if not 0 <= step["elem"] < len(node.elts):
+            raise EditRefused("the list has no element %d" % step["elem"])
+        return node.elts[step["elem"]]
+    if "find" in step:
+        hits = [e for e in node.elts if isinstance(e, ast.Call) and _func_name(e) == step["find"]]
+        if len(hits) != 1:
+            raise EditRefused("the list has %d calls of %s, not one" % (len(hits), step["find"]))
+        return hits[0]
+    raise EditRefused("unknown step %r" % (step,))
+
+
+def _resolve_into(call, into):
+    """The call that `into` (a path of steps) names inside `call`."""
+    node = call
+    for step in into:
+        node = _step_into(node, step)
+    if not isinstance(node, ast.Call):
+        raise EditRefused("the place %r is not a call" % (list(into),))
+    return node
+
+
+def _call_of(text, target, into=()):
+    """(the module, the target call's hit): with `into`, the hit's `call` is the inner call the path names."""
     mod = _parse(text)
-    return mod, _locate(mod, target)
+    hit = _locate(mod, target)
+    if into:
+        hit = replace(hit, call=_resolve_into(hit.call, into))
+    return mod, hit
+
+
+def _into(edit):
+    return tuple(edit.args.get("into", ()))
+
+
+def _kind_of(edit, hit):
+    """What the call being edited is called, for reading its parameters: the board method, or the inner call's name."""
+    return _func_name(hit.call) if _into(edit) else edit.target.kind
 
 
 @functools.lru_cache(maxsize=None)
@@ -723,10 +786,15 @@ def _positional_index(kind, name):
     import inspect
     from .layout import Board
     fn = getattr(Board, kind, None)
-    if fn is None:
-        return None
+    skip = 1
+    if fn is None:                      # an inner call: a form the script imports from placemat (Beside, Past, Centre, ...)
+        import placemat
+        fn = getattr(placemat, kind, None) if kind[:1].isupper() else None
+        skip = 0
+        if fn is None:
+            return None
     index = 0
-    for p in list(inspect.signature(fn).parameters.values())[1:]:
+    for p in list(inspect.signature(fn).parameters.values())[skip:]:
         if p.kind not in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
             return None
         if p.name == name:
@@ -753,8 +821,10 @@ def _has_star_kwargs(call):
     return any(k.arg is None for k in call.keywords)
 
 
-def _finish_call(text, out, hit):
-    _check_call_edit(text, out, hit.line, ast.dump(hit.call.func))
+def _finish_call(text, out, hit, into=(), outer_func=None):
+    """The edited text, once it is checked: with `into`, `hit.call` is the inner call and `outer_func` the dump of the
+    target call's function."""
+    _check_call_edit(text, out, hit.line, outer_func if into else ast.dump(hit.call.func), into)
     return out
 
 
@@ -764,45 +834,55 @@ def _replace_value(mod, arg, src):
     return [(s, e, src)]
 
 
+def _outer_func(text, edit):
+    """The dump of the target call's function, for the check of a nested edit."""
+    return ast.dump(_locate(_parse(text), edit.target).call.func)
+
+
 def _set_kwarg(text, edit, ctx_for):
-    mod, hit = _call_of(text, edit.target)
+    into = _into(edit)
+    mod, hit = _call_of(text, edit.target, into)
     name = edit.args["name"]
     src = _render(edit.value, ctx_for(mod, hit))
     _check_expr(src)
     call = hit.call
-    arg = _given(call, edit.target.kind, name)
+    outer = _outer_func(text, edit) if into else None
+    arg = _given(call, _kind_of(edit, hit), name)
     if arg is not None:
         if _same(src, mod.src.code(_value_node(arg))):
             raise EditRefused("%s= is already %s" % (name, src))
-        return _finish_call(text, _splice(text, _replace_value(mod, arg, src)), hit)
+        return _finish_call(text, _splice(text, _replace_value(mod, arg, src)), hit, into, outer)
     if _has_star_kwargs(call):
         raise EditRefused("the call takes **kwargs: %s= may already be given there" % name)
-    return _finish_call(text, _splice(text, _call_seq(mod.src, call).append("%s=%s" % (name, src))), hit)
+    return _finish_call(text, _splice(text, _call_seq(mod.src, call).append("%s=%s" % (name, src))), hit, into, outer)
 
 
 def _remove_kwarg(text, edit, ctx_for):
-    mod, hit = _call_of(text, edit.target)
+    into = _into(edit)
+    mod, hit = _call_of(text, edit.target, into)
     name = edit.args["name"]
     seq = _call_seq(mod.src, hit.call)
-    arg = _given(hit.call, edit.target.kind, name)
+    arg = _given(hit.call, _kind_of(edit, hit), name)
     if arg is None:
         raise EditRefused("the call has no %s=" % name)
     k = next(i for i, n in enumerate(seq.nodes) if n is arg)
     if not isinstance(arg, ast.keyword) and any(
             not isinstance(n, (ast.keyword, ast.Starred)) for n in seq.nodes[k + 1:]):
         raise EditRefused("%s is given by position, and the arguments after it would move up" % name)
-    return _finish_call(text, _splice(text, seq.remove(k)[0]), hit)
+    return _finish_call(text, _splice(text, seq.remove(k)[0]), hit, into, _outer_func(text, edit) if into else None)
 
 
 def _set_arg(text, edit, ctx_for):
-    mod, hit = _call_of(text, edit.target)
+    into = _into(edit)
+    mod, hit = _call_of(text, edit.target, into)
     index = edit.args["index"]
     src = _render(edit.value, ctx_for(mod, hit))
     _check_expr(src)
     positional = _positional(hit.call)
     if index >= len(positional):
         raise EditRefused("the call has no positional argument %d" % index)
-    return _finish_call(text, _splice(text, _replace_value(mod, positional[index], src)), hit)
+    return _finish_call(text, _splice(text, _replace_value(mod, positional[index], src)), hit, into,
+                        _outer_func(text, edit) if into else None)
 
 
 def _list_arg(call, which, kind):
@@ -825,12 +905,13 @@ def _reseq(text, ob, tuple_=False):
 
 
 def _edit_list(text, edit, ctx_for):
-    mod, hit = _call_of(text, edit.target)
+    into = _into(edit)
+    mod, hit = _call_of(text, edit.target, into)
     ctx = ctx_for(mod, hit)
-    arg = _list_arg(hit.call, edit.args["arg"], edit.target.kind)
+    arg = _list_arg(hit.call, edit.args["arg"], _kind_of(edit, hit))
     if arg is None:
         if edit.args.get("create") and edit.args.get("action") == "add" and isinstance(edit.args["arg"], str):
-            return _set_kwarg(text, replace(edit, op="set_kwarg", args={"name": edit.args["arg"]},
+            return _set_kwarg(text, replace(edit, op="set_kwarg", args={"name": edit.args["arg"], "into": list(into)},
                                             value={"list": [edit.value]}), ctx_for)
         raise EditRefused("the call has no %s" % (edit.args["arg"],))
     seq = _list_seq(mod.src, _value_node(arg))
@@ -883,7 +964,7 @@ def _edit_list(text, edit, ctx_for):
             out = _splice(out, _reseq(out, ob, tuple_).insert(dest, item, comment))
     else:
         raise EditRefused("unknown list action %r" % (action,))
-    return _finish_call(text, out, hit)
+    return _finish_call(text, out, hit, into, _outer_func(text, edit) if into else None)
 
 
 def _insert_statement(text, edit, ctx_for):
@@ -1334,6 +1415,60 @@ def apply_all(edit, read=_read_default) -> dict:
             out[cfile] = (ctext, _add_constant(ctext, name, c["value"], c.get("comment", "")))
             out[home] = (text, _import_name(new, Path(cfile).stem, name))
     return out
+
+
+def _remap(before: str, after: str, line: int) -> int:
+    """Where line `line` of `before` is in `after`: through the lines the two share; a line the edit changed goes to where
+    its change starts."""
+    import difflib
+    a, b = before.splitlines(), after.splitlines()
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if i1 < line <= i2 or (i1 == i2 == line - 1 and tag == "insert"):
+            if tag == "equal":
+                return j1 + (line - i1)
+            return j1 + 1
+    return line
+
+
+def apply_edits(edits, read=_read_default) -> dict:
+    """{file: (before, after)} for every file the edits write, made together or not at all. Each edit's digest is checked
+    against the file as it stood at the plan (one stale file refuses all); the edits are then made one after another on
+    the evolving text, each target's line carried through what the edits before it changed, so their order does not
+    matter and a constant one adds above does not move the next off its call."""
+    edits = list(edits)
+    if not edits:
+        raise EditRefused("there is nothing to edit")
+    originals: dict = {}
+    current: dict = {}
+
+    def original(path):
+        if path not in originals:
+            originals[path] = read(path)
+            current[path] = originals[path]
+        return originals[path]
+    stale = []
+    for e in edits:
+        t = e.target
+        if t is not None and t.file and t.digest and digest(original(t.file)) != t.digest:
+            stale.append(t.file)
+        for r in e.refs.values():
+            pass
+    if stale:
+        raise StaleEdit(sorted(set(stale)))
+    todo = [replace(e, target=replace(e.target, digest="")) if e.target is not None else e for e in edits]
+    for k, e in enumerate(todo):
+        t = e.target
+        if t is not None and t.file:
+            original(t.file)
+        changed = apply_all(e, lambda path: current[path] if path in current else original(path))
+        for path, (before, after) in changed.items():
+            original(path)
+            current[path] = after
+            for j in range(k + 1, len(todo)):
+                n = todo[j]
+                if n.target is not None and n.target.file == path and n.target.line:
+                    todo[j] = replace(n, target=replace(n.target, line=_remap(before, after, n.target.line)))
+    return {path: (originals[path], text) for path, text in current.items() if text != originals[path]}
 
 
 def _context(texts_of, edit, names):

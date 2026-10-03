@@ -101,7 +101,7 @@ def test_every_keyword_a_builder_sets_is_a_parameter_of_the_board_method_it_edit
     seen = 0
     for case, builder in sg.CASES.items():
         for pick in builder(FACTS[case], settings) or ():
-            e = pick.edit
+            e = pick.edits[0]
             if e.op in ("set_kwarg", "edit_list", "remove_kwarg") and e.target is not None:
                 method = getattr(Board, e.target.kind)
                 params = inspect.signature(method).parameters
@@ -135,7 +135,7 @@ def test_a_number_a_builder_writes_into_a_call_is_a_named_constant():
     never stands alone as a keyword's value."""
     for case, builder in sg.CASES.items():
         for pick in builder(FACTS[case], Settings()) or ():
-            e = pick.edit
+            e = pick.edits[0]
             if e.op != "set_kwarg":
                 continue
             assert isinstance(e.value, (bool, dict)), (case, pick.text)

@@ -13,7 +13,7 @@ FACTS = {"net_class": "Power", "what": "track width", "value_mm": 0.08, "minimum
 def _suggestion(rank=1, text="Let C4 take the back face too"):
     edit = Edit(op="set_kwarg", target=Target(kind="place", key="C4"), args={"name": "face"},
                 value={"enum": "Face.EITHER"})
-    return Suggestion(text=text, edit=edit, rank=rank, lever="face")
+    return Suggestion(text=text, edits=(edit,), rank=rank, lever="face")
 
 
 def test_a_finding_is_its_sentence_rendered_from_its_facts():

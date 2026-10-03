@@ -28,7 +28,7 @@ def test_a_link_over_its_limit_has_ranked_suggestions_bound_to_the_script(tmp_pa
     assert "Place c1 before the parts that crowd it" in texts
     assert any(t.startswith("Raise the limit to ") for t in texts)
     for s in got:
-        assert s.edit.target.file == str(path) and s.edit.target.line and s.edit.target.digest
+        assert s.edits[0].target.file == str(path) and s.edits[0].target.line and s.edits[0].target.digest
         assert s.digests and str(path) in s.digests
 
 
@@ -64,7 +64,7 @@ board.place(Part("c4"), at=Location(10, 50))
 '''
     board, plan, path = resolve(tmp_path, script)
     for f in over(plan):
-        assert not [s for s in f.suggestions if s.edit.target.kind == "link"]
+        assert not [s for s in f.suggestions if s.edits[0].target.kind == "link"]
 
 
 def test_a_finding_is_cleared_when_its_kind_case_and_item_are_gone_from_the_next_resolve(tmp_path):

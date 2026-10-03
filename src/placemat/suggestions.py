@@ -82,25 +82,37 @@ def _const_of(value):
     return value.get("const") if isinstance(value, dict) and isinstance(value.get("const"), dict) else None
 
 
+def _edits_of(edits) -> tuple:
+    return (edits,) if isinstance(edits, Edit) else tuple(edits)
+
+
 @dataclass(frozen=True)
 class Suggestion:
+    """A change to the script, worded: `edits` are made together or not at all (one for most), `how` says how it was
+    found ("instant": from the finding's facts alone)."""
     text: str
-    edit: Edit
+    edits: tuple
     rank: int = 1
     lever: str = ""                 # suggestions of one lever are variants; the cap per lever is a setting
     id: str = ""                    # "s3a": finding 3, suggestion a; given by bind
-    digests: dict = field(default_factory=dict)     # {file: digest} of each file the edit writes, at the plan
+    digests: dict = field(default_factory=dict)     # {file: digest} of each file the edits write, at the plan
+    how: str = "instant"
+
+    def __post_init__(self):
+        object.__setattr__(self, "edits", _edits_of(self.edits))
 
     def to_json(self) -> dict:
-        out = {"id": self.id, "text": self.text, "rank": self.rank, "lever": self.lever, "edit": self.edit.to_json()}
+        out = {"id": self.id, "text": self.text, "rank": self.rank, "lever": self.lever,
+               "edits": [e.to_json() for e in self.edits], "how": self.how}
         if self.digests:
             out["digests"] = dict(self.digests)
         return out
 
     @staticmethod
     def from_json(d: dict) -> "Suggestion":
-        return Suggestion(d["text"], Edit.from_json(d["edit"]), d.get("rank", 1), d.get("lever", ""), d.get("id", ""),
-                          dict(d.get("digests", {})))
+        edits = d["edits"] if "edits" in d else [d["edit"]]          # a record from before suggestions had several
+        return Suggestion(d["text"], tuple(Edit.from_json(e) for e in edits), d.get("rank", 1), d.get("lever", ""),
+                          d.get("id", ""), dict(d.get("digests", {})), d.get("how", "instant"))
 
 
 def to_json(suggestions) -> list:
@@ -152,10 +164,13 @@ each a `Pick`."""
 
 @dataclass(frozen=True)
 class Pick:
-    """What a builder offers before the engine has bound it: the wording, the edit and the lever it belongs to."""
+    """What a builder offers before the engine has bound it: the wording, the edits and the lever it belongs to."""
     text: str
-    edit: Edit
+    edits: tuple
     lever: str = ""
+
+    def __post_init__(self):
+        object.__setattr__(self, "edits", _edits_of(self.edits))
 
 
 def case(name):
@@ -186,7 +201,7 @@ def suggest(case_id, facts: dict, settings=None) -> list:
         if pick.lever and n >= cap:
             continue
         seen[pick.lever] = n + 1
-        out.append(Suggestion(pick.text, pick.edit, len(out) + 1, pick.lever))
+        out.append(Suggestion(pick.text, pick.edits, len(out) + 1, pick.lever))
     return out
 
 
@@ -240,60 +255,66 @@ class _Binder:
             return script_edit.shared_module(self.script) or call_file
         return call_file
 
-    def bind(self, s: Suggestion) -> list:
-        edit = s.edit
+    def bind_edit(self, edit: Edit):
+        """The edit bound to the script's declarations, or None where one cannot be."""
         refs = {}
         for k, t in edit.refs.items():
             bound = self.target(t)
             if bound is None:
-                return []
+                return None
             refs[k] = bound
         target = None
         if edit.target is not None:
             target = self.target(edit.target)
             if target is None:
-                return []
+                return None
         file, args = edit.file, dict(edit.args)
         if edit.op == "toml_set":
             found = self.settings_file()
             if found is None:
-                return []
+                return None
             file = found[0]
             args["table"] = ["scripts", found[1], args.pop("section")]
         home = target.file if target else file
         value = _bind_consts(edit.value, lambda c: self.constants_file(c.get("scope", "cell"), home))
-        bound = Edit(edit.op, target, args, value, refs, file)
+        return Edit(edit.op, target, args, value, refs, file)
+
+    def bind(self, s: Suggestion) -> list:
+        edits = [self.bind_edit(e) for e in s.edits]
+        if any(e is None for e in edits):
+            return []
         out = []
-        for variant in self.variants(s, bound):
+        for variant in self.variants(s, edits):
             made = self.check(*variant)
             if made is not None:
                 out.append(made)
         return out
 
-    def variants(self, s: Suggestion, edit: Edit) -> list:
-        """The suggestion as it stands; or, where the keyword it sets already reads a constant of the script's,
+    def variants(self, s: Suggestion, edits: list) -> list:
+        """The suggestion as it stands; or, where the one keyword it sets already reads a constant of the script's,
         two: change that constant, or give this one use a constant of its own."""
         from . import script_edit
+        edit = edits[0]
         const = _const_of(edit.value)
-        if edit.op != "set_kwarg" or const is None or edit.target is None:
-            return [(s, edit)]
+        if len(edits) != 1 or edit.op != "set_kwarg" or const is None or edit.target is None or edit.args.get("into"):
+            return [(s, edits)]
         try:
             existing = script_edit.keyword_constant(self.board._source_text(edit.target.file), edit.target,
                                                     edit.args["name"])
         except (script_edit.EditRefused, OSError):
             existing = None
         if existing is None:
-            return [(s, edit)]
+            return [(s, edits)]
         change = Edit("set_constant", None, {"name": existing, "existing": True, "comment": const.get("comment", "")},
                       const["value"], {}, edit.target.file)
-        return [(replace(s, text="%s, by changing %s (every use of it changes)" % (s.text, existing)), change),
-                (replace(s, text="%s, with a constant of its own" % s.text), edit)]
+        return [(replace(s, text="%s, by changing %s (every use of it changes)" % (s.text, existing)), [change]),
+                (replace(s, text="%s, with a constant of its own" % s.text), edits)]
 
-    def check(self, s: Suggestion, edit: Edit):
-        """The suggestion with its edit bound and its digests, if the edit can be made on the script as it stands."""
+    def check(self, s: Suggestion, edits: list):
+        """The suggestion with its edits bound and its digests, if they can be made on the script as it stands."""
         from . import script_edit
         try:
-            changed = script_edit.apply_all(edit, self.board._source_text)
+            changed = script_edit.apply_edits(edits, self.board._source_text)
         except (script_edit.EditRefused, OSError, UnicodeDecodeError, KeyError):
             return None
         digests = {}
@@ -303,7 +324,7 @@ class _Binder:
             if seen and seen != now:
                 return None             # the file was edited while the resolve ran: its lines are not these
             digests[path] = now
-        return replace(s, edit=edit, digests=digests)
+        return replace(s, edits=tuple(edits), digests=digests)
 
 
 def _bind_consts(value, file_of):
@@ -441,7 +462,7 @@ def apply_suggestion(suggestions, id: str, dry_run: bool = False, *, root=None, 
     if stale:
         raise StaleSuggestion(stale)
     try:
-        changed = script_edit.apply_all(s.edit, _read)
+        changed = script_edit.apply_edits(s.edits, _read)
     except script_edit.StaleEdit as e:
         raise StaleSuggestion(e.files) from None
     except script_edit.EditRefused as e:
