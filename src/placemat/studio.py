@@ -1108,7 +1108,7 @@ class Studio:
             r["done"] = sum(1 for v in r["results"].values() if v)
             r["failed"] = sum(1 for v in r["results"].values() if not v)
         elif kind == "route_queue_end":
-            r["current"], r["finished"] = "", True
+            r["current"] = ""                        # one stage's queue: the route is over when its command is
         elif kind == "route_off":
             r["off"] = ev.get("why", "")
         if len(r["log"]) < self.MAX_ROUTE_EVENTS:
@@ -1170,7 +1170,7 @@ class Studio:
                 continue
             run = doc.get("run") or ""
             out.append({"file": str(rec), "run": run, "at": at, "nets": doc.get("nets"), "routed": doc.get("routed"), "failed": doc.get("failed"),
-                        "closure": doc.get("closure"), "seconds": doc.get("seconds"), "script": doc.get("script", ""),
+                        "closure": doc.get("closure"), "seconds": doc.get("seconds"), "script": doc.get("script") or doc.get("pcb", ""),
                         "build": bool(run) and (rec.parent.parent / "plan.json").is_file()})
         out.sort(key=lambda e: -(e["at"] or 0))
         return out[:limit]

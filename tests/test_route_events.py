@@ -11,6 +11,7 @@ import types
 import pytest
 
 from placemat import route_progress, route_view
+from tests.conftest import needs_breakout, needs_kicad
 
 HOOKS = importlib.util.spec_from_file_location("route_events", str(__import__("pathlib").Path(__import__("placemat").__file__).parent / "kicad" / "route_events.py"))
 
@@ -231,3 +232,70 @@ def test_a_record_that_is_not_one_is_not_read(tmp_path):
     assert route_progress.read_record(tmp_path / "bad.json") is None
     (tmp_path / "old.json").write_text(json.dumps({"version": 9, "stages": []}))
     assert route_progress.read_record(tmp_path / "old.json") is None
+
+
+def test_a_board_with_no_outline_is_framed_on_its_parts():
+    from types import SimpleNamespace as NS
+    box = NS(left=-1, top=-1, right=1, bottom=1)
+    fp = NS(face=NS(value="front"), courtyard_poly=[(-1, -1), (1, -1), (1, 1), (-1, 1)], courtyard_box=box, pads=[], inst="u1", ref="U1", value="x", cell="", location=NS(x=0, y=0), rotation=0)
+    doc = route_view.board_doc(NS(board_polygon=None, outline=[], footprints=[fp], layers=[NS(value="F.Cu")]))
+    assert doc["board"] == {"loops": [], "drawn": False, "extent": [-3, -3, 3, 3]}
+
+
+def _breakout_with_a_partial_pour(breakout_pcb, tmp_path, net):
+    import pcbnew
+    import shutil
+    dest = tmp_path / "in"
+    dest.mkdir()
+    for ext in (".kicad_pcb", ".kicad_pro"):
+        if breakout_pcb.with_suffix(ext).exists():
+            shutil.copy(breakout_pcb.with_suffix(ext), dest / ("layout" + ext))
+    pcb = dest / "layout.kicad_pcb"
+    brd = pcbnew.LoadBoard(str(pcb))
+    brd.SetCopperLayerCount(4)
+    for t in list(brd.GetTracks()):
+        brd.Delete(t)
+    pads = sorted((p for f in brd.GetFootprints() for p in f.Pads() if p.GetNetname() == net and p.GetAttribute() == pcbnew.PAD_ATTRIB_PTH),
+                  key=lambda p: p.GetPosition().y)
+    near = pads[:len(pads) // 2]
+    box = near[0].GetBoundingBox()
+    for p in near[1:]:
+        box.Merge(p.GetBoundingBox())
+    box.Inflate(pcbnew.FromMM(1.5))
+    z = pcbnew.ZONE(brd)
+    z.SetLayer(brd.GetLayerID("In2.Cu"))
+    z.SetNetCode(brd.GetNetcodeFromNetname(net))
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in ((box.GetLeft(), box.GetTop()), (box.GetRight(), box.GetTop()), (box.GetRight(), box.GetBottom()), (box.GetLeft(), box.GetBottom())):
+        o.Append(x, y)
+    brd.Add(z)
+    brd.Save(str(pcb))
+    return pcb
+
+
+@needs_kicad
+@needs_breakout
+def test_the_real_router_sends_its_nets_as_it_routes_them_and_the_record_replays(breakout_pcb, tmp_path, monkeypatch):
+    from pathlib import Path
+    from placemat import channel
+    from placemat.kicad.route import ROUTER_DEFAULT, route_board
+    if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
+        pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT)
+    net = "PERMIT_A"
+    pcb = _breakout_with_a_partial_pour(breakout_pcb, tmp_path, net)
+    sent = []
+    monkeypatch.setattr(channel, "current", lambda: types.SimpleNamespace(send=sent.append))
+    report = route_board(pcb, tmp_path / "route", exclude_nets={net, "GND", "V48P"}, layers=["F.Cu", "In2.Cu", "B.Cu"], quick=True, islands={net: None},
+                         board_info={"run": "r1", "script": "x_layout.py"})
+    kinds = [e["ev"] for e in sent]
+    assert kinds[0] == "route_board" and "route_stage" in kinds and kinds.index("route_queue") < kinds.index("route_net_begin") < kinds.index("route_net_end")
+    assert [e for e in sent if e["ev"] == "route_commit" and e["net"] == net]            # a net's copper is committed after its search ends; the pair stage sends commits only
+    assert [e for e in sent if e["ev"] == "route_net_end" and e["net"] == net][0]["ok"] is True
+    commit = [e for e in sent if e["ev"] == "route_commit" and e["net"] == net][0]
+    assert commit["seg"] and all(len(s) == 6 for s in commit["seg"])
+    assert report.record and Path(report.record).is_file()
+    record = route_progress.read_record(Path(report.record))
+    assert record["board"]["run"] == "r1" and [s["stage"] for s in record["stages"]][0] in ("pairs", "islands")
+    doc = route_view.route_doc(record, json.loads((tmp_path / "route" / route_progress.BOARD).read_text()))
+    assert doc["route"]["routed"] >= 1 and doc["copper"] and [s for s in doc["steps"] if s["kind"] == "copper"][0]["copper"]

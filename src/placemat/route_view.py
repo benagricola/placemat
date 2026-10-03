@@ -47,7 +47,15 @@ def board_doc(geometry) -> dict:
         items.append({"key": fp.inst, "kind": "part", "placed": True, "members": [{"ref": fp.ref, "inst": fp.inst, "value": fp.value, "cell": fp.cell or "", "shapes": shapes}],
                       "at": [round(fp.location.x, 3), round(fp.location.y, 3)], "rotation": round(fp.rotation, 3), "face": face, "freedom": "fixed", "priority": None,
                       "how": "decided", "note": "", "why": "", "rank": None, "rank_of": None, "pocket": None, "lock": "", "findings": [], "file": "", "line": 0, "moved_mm": 0.0})
-    return {"board": {"loops": loops, "drawn": True, "extent": _extent(loops)}, "keepouts": [], "reservations": [], "items": items,
+    drawn = bool(loops)
+    if not drawn:                                    # a board with no outline yet: the extent is where its parts are
+        loops = [[p for it in items for m in it["members"] for s in m["shapes"] for p in s["poly"]]]
+        ext = _extent(loops)
+        ext = [ext[0] - 2, ext[1] - 2, ext[2] + 2, ext[3] + 2]
+        loops = []
+    else:
+        ext = _extent(loops)
+    return {"board": {"loops": loops, "drawn": drawn, "extent": ext}, "keepouts": [], "reservations": [], "items": items,
             "layers": [l.value for l in geometry.layers]}
 
 

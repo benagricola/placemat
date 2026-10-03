@@ -462,6 +462,7 @@ svg text { user-select: none; font-family: var(--sans); }
 .d-fgain { fill: none; stroke: var(--bad); stroke-width: 0.2; } .d-flost { fill: none; stroke: var(--good); stroke-width: 0.2; }
 .arrowhead { fill: var(--accent); }
 #board.replaying .copper, #board.replaying .links, #board.replaying .heat, #board.replaying .changes, #board.replaying .fnds { display: none; }
+#board.replaying.laid .copper { display: inline; }                     /* a route's replay draws its copper as each net lays it: every op has its step */
 #board.lowzoom .ref, #board.lowzoom .silktxt { display: none; }
 #board.lowzoom .lkdot, #board.lowzoom .lklabel { display: none; }
 #grid .minor { stroke: var(--grid-minor); fill: none; }
@@ -1259,6 +1260,7 @@ function showSteps(k) {
   for (let n = lo; n < hi; n++) for (const g of B.byStep[n] || []) g.style.display = on ? "" : "none";
   B.k = k;
   if (B.svg) B.svg.classList.toggle("replaying", k < B.n);
+  if (B.svg) B.svg.classList.toggle("laid", !!(S.cmdView && S.cmdView.route));
 }
 // A streamed step redraws the board and the lists: the timeline's positions index every step, copper and cutouts too.
 function flushLive() { renderBoard(); renderSteps(); schedule("status", "counts", "legend"); }
@@ -2534,6 +2536,7 @@ on("cmd", c => {
   if (c.route && c.state !== "running" && fresh === false) getJSON("/routes").then(r => { S.routes = r; schedule("runs"); }).catch(() => {});
   if (fresh && c.state === "running" && !(S.run && S.run.pid && S.run.pid === c.pid))
     toast(c.command + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { goTab("runs"); openCmd(c.id); });
+  if (S.cmdView && S.cmdView.id === c.id && S.cmdView.route) renderCmdBar();
   schedule("runs", "counts");
 });
 on("cmdev", d => { if (S.cmdView && S.cmdView.id === d.id) cmdEvent(d.ev, d.n); });
@@ -2570,6 +2573,10 @@ function routeStep(P, V, net) {
   if (i == null) { i = P.steps.length; V.route.step[net] = i; P.steps.push({i, item: "track " + net, kind: "copper", placed: false, freedom: null, rank: null, rank_of: null, pocket: null, lock: "", note: "", why: "", copper: [], loop: null}); }
   return P.steps[i];
 }
+function routeNote(P, R, net, st) {
+  const ok = R.results[net], mine = st.copper.map(i => P.copper[i]).filter(o => !o.gone), tr = mine.filter(o => o.t === "track").length, vi = mine.length - tr;
+  st.note = ok ? "routed: " + tr + " tracks, " + vi + " vias" : "no route found";
+}
 function routeEvent(V, P, ev) {
   const R = V.route || (V.route = {total: 0, done: 0, failed: 0, current: "", stage: "", off: "", results: {}, step: {}, finished: false, truncated: false});
   const net = Array.isArray(ev.net) ? ev.net[0] : ev.net;
@@ -2587,6 +2594,7 @@ function routeEvent(V, P, ev) {
   else if (ev.ev === "route_commit") {
     const st = routeStep(P, V, net), ops = routeOps(ev);
     for (const op of ops) { st.copper.push(P.copper.length); P.copper.push(op); }
+    if (net in R.results) routeNote(P, R, net, st);           // a net's copper is committed after its search ends
   }
   else if (ev.ev === "route_rip") {
     for (const op of P.copper) {
@@ -2597,14 +2605,13 @@ function routeEvent(V, P, ev) {
   }
   else if (ev.ev === "route_net_end") {
     R.results[net] = !!ev.ok; R.done = Object.values(R.results).filter(x => x).length; R.failed = Object.values(R.results).filter(x => !x).length;
-    const st = routeStep(P, V, net), n = st.copper.length;
-    st.note = ev.ok ? "routed: " + P.copper.filter(o => o.net === String(net) && !o.gone && o.t === "track").length + " tracks, " + P.copper.filter(o => o.net === String(net) && !o.gone && o.t === "via").length + " vias" : "no route found";
+    routeNote(P, R, net, routeStep(P, V, net));
   }
-  else if (ev.ev === "route_queue_end") { R.finished = true; R.current = ""; }
+  else if (ev.ev === "route_queue_end") R.current = "";                   // one stage's queue: the route is finished when its command is
   else if (ev.ev === "route_off") R.off = ev.why || "";
   else if (ev.ev === "route_truncated") R.truncated = true;
 }
-const routeLine = R => !R ? "" : R.off ? "no progress for this route: " + R.off : R.finished ? "route finished: " + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") :
+const routeLine = (R, V) => !R ? "" : R.off ? "no progress for this route: " + R.off : (R.finished || (V && S.cmds.has(V.id) && S.cmds.get(V.id).state !== "running")) ? "route finished: " + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") :
   "net " + Math.min(R.total || 1, R.done + R.failed + 1) + " of " + (R.total || "?") + (R.current ? ": " + R.current : "") + ", " + R.done + " routed, " + R.failed + " failed";
 async function openRoute(file, run) {
   try {
@@ -2646,7 +2653,7 @@ function renderCmdBar() {
   if (!V && !X) return;
   const c = V && (S.cmds.get(V.id) || V.summary);
   el.innerHTML = '<span>' + esc(V ? "Viewing " + c.command + " of " + (baseName(c.script) || "a board") + (c.pid ? ", pid " + c.pid : "") : "Viewing a recorded explore") + '</span>' +
-    (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route)) + "</span>" : "") + '<button id="cmdclose">Back to the studio\'s own view</button>';
+    (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route, V)) + "</span>" : "") + '<button id="cmdclose">Back to the studio\'s own view</button>';
   $("#cmdclose").onclick = closeCmd;
 }
 
@@ -2871,7 +2878,7 @@ const sinceMs = at => Date.now() + (S.skew || 0) - at * 1000;
 function renderRuns() {
   const el = $("#tab-runs"), cmds = [...S.cmds.values()].sort((a, b) => (b.state === "running") - (a.state === "running") || b.started - a.started);
   const row = c => '<div class="row cmd step" data-cmd="' + c.id + '"><span class="chip ' + esc(c.state) + '">' + esc(c.state) + '</span><div class="sb"><div class="l1"><b>' + esc(c.command) + "</b> " + esc(baseName(c.script)) + '</div><div class="l2">pid ' + esc(c.pid) +
-    ", " + fmtDur((c.ended ? c.ended * 1000 : Date.now() + (S.skew || 0)) - c.started * 1000) + (c.route && c.route.total ? ", net " + Math.min(c.route.total, c.route.done + c.route.failed + (c.route.finished ? 0 : 1)) + " of " + c.route.total + " (" + c.route.done + " routed, " + c.route.failed + " failed)" + (c.route.current ? ", now " + esc(c.route.current) : "") : c.variants ? ", " + c.variants + " variants" : c.items ? ", " + c.items + " steps" : "") + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
+    ", " + fmtDur((c.ended ? c.ended * 1000 : Date.now() + (S.skew || 0)) - c.started * 1000) + (c.route && c.route.total ? ", net " + Math.min(c.route.total, c.route.done + c.route.failed + (c.state === "running" ? 1 : 0)) + " of " + c.route.total + " (" + c.route.done + " routed, " + c.route.failed + " failed)" + (c.route.current ? ", now " + esc(c.route.current) : "") : c.variants ? ", " + c.variants + " variants" : c.items ? ", " + c.items + " steps" : "") + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
   const ex = e => '<div class="row cmd step" data-explore="' + escRaw(e.file) + '"><span class="chip ' + (e.kept ? "done" : "") + '">' + (e.kept ? "kept" : "explore") + '</span><div class="sb"><div class="l1"><b>' + esc(baseName(e.script)) + '</b> ' + esc(baseName(e.file)) + '</div><div class="l2">' + e.tried + " variants, " + e.focus + " items" + (e.best != null ? ", best " + Math.round(e.best * 10) / 10 + " of " + Math.round(e.baseline * 10) / 10 : "") + "</div></div></div>";
   const rt = r => '<div class="row cmd step" data-route="' + escRaw(r.file) + '"' + (r.build ? ' data-build="' + esc(r.run) + '"' : "") + '><span class="chip ' + (r.failed ? "error" : "done") + '">' + (r.build ? "build" : "route") + '</span><div class="sb"><div class="l1"><b>' + esc(baseName(r.script) || "a board") + "</b> " + (r.run ? "run " + esc(r.run) : "") + '</div><div class="l2">' + r.nets + " nets, " + r.routed + " routed" + (r.failed ? ", " + r.failed + " failed" : "") + (r.closure != null ? ", closure " + Math.round(r.closure * 1000) / 10 + "%" : "") + (r.seconds ? ", " + r.seconds + " s" : "") + "</div></div></div>";
   el.innerHTML = '<h3>Commands in this project ' + infoBtn("runsview") + ' <span class="c">' + cmds.length + "</span></h3>" + (cmds.length ? cmds.map(row).join("") : '<div class="pad8 dim">No placemat command has reported to this studio yet. Run one in this project (run, preview, an explore) and it shows here.</div>') +

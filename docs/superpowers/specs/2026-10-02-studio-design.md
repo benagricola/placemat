@@ -236,7 +236,9 @@ one call of it: nothing in the checkout is modified, and no printed router outpu
 - the copper choke points, `pcb_modification.add_route_to_pcb_data` (a net's copper is committed, or restored after a rip) and
   `remove_route_from_pcb_data` (a net's copper is ripped), give `commit` and `rip` events with the segments (layer, width, ends) and vias
   (centre, size, drill, layers) as the router holds them;
-- `single_ended_routing.route_net_with_obstacles` (one net's search) gives `net_begin` and `net_end` (found a route or not);
+- `single_ended_routing.route_net_with_obstacles`, `route_multipoint_main` and `route_oracle_links` (one net's search: two-pad nets, nets
+  with more pads, the oracle's links) give `net_begin` and `net_end` (found a route or not); a depth counter makes only the outermost of
+  nested calls count, so a net is one begin and one end;
 - `single_ended_loop.route_single_ended_nets` (the loop over the nets) gives `queue` (the nets in the order the router will take them,
   so a total) and `queue_end` (routed, failed).
 
@@ -250,13 +252,16 @@ says so once, on stderr and as a `route_off` event with the reason, so the studi
 what the record is made from. The `placemat` process that runs the router tails that file while the router runs and sends each event on
 its own socket with the channel's sender (`Beacon.send`: bounded per-reader queues, drops for a slow reader, never blocks), before the
 stage's result is taken. A late reader is caught up from the beacon's log as for any command (the route's events are kept like a
-resolve's, up to a cap, with `truncated` said). `route_board` also sends `route_board` first: the board as the page draws it under the
-copper (outline, each part's courtyard and pads, built from the board file read, `route_view.py`), for a route with no placement of its
-own in front of it.
+resolve's, up to `MAX_ROUTE_LOG` events kept apart from the resolve's own log, with `route_truncated` said). `route_board` also sends `route_board` first: the board as the page draws it under the
+copper (outline, each part's courtyard and pads, built from the board file read, `route_view.py`; a board with no outline is framed on its
+parts), for a route with no placement of its own in front of it.
 
-**Events** (on the beacon, in this order, per stage): `route_stage` (stage name, the stage taken from an earlier route if it was),
-`route_board`, `queue` (net names), then per net `net_begin`, any `commit`/`rip`, `net_end`; `queue_end`; then the command's `done` with
-the route record's path, or `route_off`/`error`. The compact progress trail keeps `queue`, `net_end` and `queue_end` only.
+**Events** (on the beacon, in this order, per stage; the beacon's names carry a `route_` prefix, the record's do not): `route_stage` (stage
+name, the stage taken from an earlier route if it was), `route_board`, `route_queue` (net names), then per net `route_net_begin`, any
+`route_commit`/`route_rip`, `route_net_end`; `route_queue_end`; then the command's `done` with the route record's path, or
+`route_off`/`error`. A route has one queue per router launch (the islands stage launches the router once per island group), so the page's
+"of N" grows as stages begin, and the route is finished when its command is, not at a queue's end. The compact progress trail keeps
+`route_queue`, `route_stage`, `route_net_end`, `route_queue_end` and `route_off` only.
 
 **The route record** (`route_record.json` in the work folder, `.placemat/route/` or the run's `route/`, named in the report and in
 `run.json` `metrics.route.record`): the board it routed (the board file, its name, the script and, for a run's route, the run id), and
@@ -267,7 +272,7 @@ record. A record is read after the command ends, never as the live feed.
 **In the studio.** The Runs view lists a route like any command, with nets done and failed of the total and the current net. Opening
 one draws the board (`route_board`) and then each net's tracks and vias as they are committed, a ripped net's copper removed again; the
 status line says "net 12 of 40: VBUS, 11 routed, 1 failed". A finished route is opened from its record (`GET /route?f=`), and
-replays like a placement does: each net is a step on the timeline (kind `copper`, its result in the note), the slider and Play go
+replays like a placement does (the page lets a route's copper show while the slider is back, each net's tracks at its own step): each net is a step on the timeline (kind `copper`, its result in the note), the slider and Play go
 net by net, and the copper that survived the whole route is what stays. **The whole build:** `run.json` names the run's route record and
 the run keeps `plan.json` (the placement's steps and items, as the studio's own worker sends them); a run that placed and routed opens
 in the Runs view as one timeline, the placement's steps first and the route's nets after, so one slider goes from the first placement to
@@ -275,7 +280,9 @@ the last routed net. A live `run --route` already streams both on one socket, so
 
 **Cost.** A route with no reader pays the event lines (a few thousand short JSON lines in a route that takes minutes) and the beacon's
 log. Measured on a fixture, route time with no reader, with a studio reading, and with the hooks off (`PLACEMAT_ROUTE_EVENTS=off`),
-within noise (the figures are in the round's report and the migration note).
+within noise: on the unrouted copy of the usbconverter fixture (17 nets, about 5 s), three alternating rounds gave 4.75 s with the hooks off,
+4.86 s with them on and no reader, 5.09 s with a `placemat watch` reader attached a second in (wall time to the reader's exit); single runs ranged 4.5 to 5.5 s, so the
+three are within the spread.
 
 **Not in this round.** The pair router's events carry commits and rips only (it has no per-net loop of the same shape); a rip's copper
 vanishes from the replay at the end of the route rather than at the step that ripped it (the record keeps every event, a later replay can
