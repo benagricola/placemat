@@ -3318,7 +3318,7 @@ and `--release NET ...` stops keeping a net.
 
 ## Live progress
 
-A command that resolves a board (`run`, `preview`, an explore inside them, `check`, whoever started it; `route` does not stream yet) owns a Unix
+A command that resolves a board (`run`, `preview`, an explore inside them, `check`, `route`, whoever started it) owns a Unix
 socket for as long as it runs (Linux and macOS):
 
 - `<project root>/.placemat/sockets/<pid>.sock`, with `<pid>.json` beside it: `pid`, `command`, `script`, `args`,
@@ -3331,8 +3331,25 @@ socket for as long as it runs (Linux and macOS):
   `phase` with the engine's note), `item` (a settled step: the item, its copper or cutout ops), `plan` (`doc`: the whole
   plan as the studio draws it), for an explore `explore` (focus, the plain placement and order, the baseline score, jobs),
   `variant` (`seed`, `score`, the focused items' `placements` and `order`) and `explore_done` (`best`, `baseline`, `tried`,
-  `kept`, `record`), then `done` (`record`: the run's `run.json` or the explore's record) or `error` (`message`, `file`,
+  `kept`, `record`), for a route the `route_*` events below, then `done` (`record`: the run's `run.json` or the explore's record) or `error` (`message`, `file`,
   `line`). A command that dies sends neither: the connection closes.
+- A route (`placemat route`, or `run --route`) streams per-net events from the router's own process: `route_board` (`doc`: the
+  board and its parts as the studio draws them; with a run's plan the run's plan is used instead), `route_stage` (`stage`: `pairs`,
+  `islands` or `main`, `resumed` when the stage was kept from an earlier route), `route_queue` (`nets`: the nets the stage will take, in
+  order), `route_net_begin` / `route_net_end` (`net`, `ok`), `route_commit` (`net`, `how` `route` or `restore`, `seg` as
+  `[x1, y1, x2, y2, layer, width]`, `via` as `[x, y, size, drill, layers]`: copper as it is laid), `route_rip` (the same shapes:
+  copper taken up again), `route_queue_end`, and `route_off` (`why`) when the hooks could not be installed - the route then runs with no
+  progress and says why. They come from a wrapper around the router's per-net functions (`kicad/route_events.py`, installed by
+  `kicad/route_hooked.py` and `route_one_round.py`; each hook is anchored on the router's own function names, signatures and
+  field names and installs nothing when one is missing), sent over a pipe the route opens for each stage
+  (`PLACEMAT_ROUTE_EVENTS_FD` names its write end in the router's process; a full queue drops events, a closed pipe ends them), so no file
+  and no router output is involved. `PLACEMAT_ROUTE_EVENTS=off` leaves the router unhooked. A pair stage names
+  its nets by the board's names. A reader that attaches late is caught up on up to 60000 route events (a `route_truncated` event says
+  when more were made).
+- The route record, `route/route_record.json` (with `route_summary.json` beside it, a few counts, and `route_board.json`, the
+  board the copper was laid on): `board` (`pcb`, `run`, `script`), `stages` (each with `stage`, `resumed`, `seconds` and its
+  `events` in laid order: the same events without the `route_` prefix) and `report`. It is `report.record` in a run's route metrics
+  and `run.json`. A run that routes also writes `plan.json` in its run folder, so the studio can replay placement and routing as one.
 - The command never waits on a reader: each has a bounded queue and events that do not fit are dropped, a reader that goes
   away is dropped. A board resolved with no script (a bench, a test) listens on nothing, and `PLACEMAT_CHANNEL=off` turns
   it off.
@@ -3364,7 +3381,11 @@ Each command that resolves a board listens on a Unix socket of its own (`<projec
 with `<pid>.json` beside it) that the studio, `placemat watch [pid|label] [--json]` or an agent can read - see "The
 live channel" in the studio spec; an explore's variants are kept in
 `.placemat/views/explore/*.json`, and `GET /cmd/ID` and `GET /explore?f=PATH` serve a command's events and an
-explore's record.
+explore's record. `GET /routes` lists the recorded routes of the
+script's board (`.placemat/route/` and each run's `route/`), `GET /route?f=PATH` serves a route's replay document (a step per
+part, then a `copper` step per net in laid order) and `GET /build?run=ID` a run's placement and route as one document. A route in the
+Runs view draws its tracks net by net as they are laid, with the net it is on and the routed and failed counts; a finished one
+replays from its record.
 
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. By default the server listens on 127.0.0.1 only. Every request

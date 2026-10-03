@@ -1023,7 +1023,8 @@ class Studio:
     @staticmethod
     def _cmd_summary(c: dict) -> dict:
         return {k: c.get(k) for k in ("id", "pid", "command", "script", "args", "started", "state", "message", "record", "last", "items",
-                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe")}
+                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe")} | \
+            {"route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results")}}
 
     def commands(self) -> list:
         with self.lock:
@@ -1055,6 +1056,8 @@ class Studio:
                 return
             if c is None:
                 return
+            if kind and kind.startswith("route_"):
+                return self._on_route(cid, c, ev)
             if kind == "lost":
                 if c["state"] == "running":
                     c.update(state="lost", ended=time.time(), message="the command stopped without saying it was done" +
@@ -1137,13 +1140,41 @@ class Studio:
             self.cmds[cid] = c
         self.hub.emit("cmd", self._cmd_summary(c))
 
+    MAX_ROUTE_EVENTS = 60000                    # a route's events kept for a page that opens it late (the copper, net by net)
+
+    def _on_route(self, cid: int, c: dict, ev: dict) -> None:
+        """A route's event (route_progress.py: the router's hooks): the counts and the current net are kept here, the events themselves for a late
+        page and sent to the open ones. Called with the lock held."""
+        kind, r = ev["ev"], c.setdefault("route", {"total": 0, "done": 0, "failed": 0, "current": "", "stage": "", "off": "", "truncated": False, "finished": False, "log": [], "results": {}})
+        if kind == "route_stage":
+            r["stage"] = ev.get("stage", "")
+        elif kind == "route_queue":
+            r["total"] += len(ev.get("nets", ()))
+        elif kind == "route_net_begin":
+            r["current"] = ev.get("net", "")
+        elif kind == "route_net_end":
+            r["results"][ev.get("net", "")] = bool(ev.get("ok"))
+            r["done"] = sum(1 for v in r["results"].values() if v)
+            r["failed"] = sum(1 for v in r["results"].values() if not v)
+        elif kind == "route_queue_end":
+            r["current"] = ""                        # one stage's queue: the route is over when its command is
+        elif kind == "route_off":
+            r["off"] = ev.get("why", "")
+        if len(r["log"]) < self.MAX_ROUTE_EVENTS:
+            r["log"].append(ev)
+        elif not r["truncated"]:
+            r["truncated"] = True
+        self.hub.emit("cmdev", {"id": cid, "n": len(r["log"]), "ev": ev})
+        if kind != "route_commit" and kind != "route_rip":
+            self.hub.emit("cmd", self._cmd_summary(c))
+
     def cmd_detail(self, cid: int):
         """A command's events so far, its latest plan and, for an explore, its variants: what a page that opens it is given."""
         with self.lock:
             c = self.cmds.get(cid)
             if c is None:
                 return None
-            return {"summary": self._cmd_summary(c), "events": list(c["log"]), "plan": c["plan"], "explore": c["explore"]}
+            return {"summary": self._cmd_summary(c), "events": list(c["log"]) + list((c.get("route") or {}).get("log", ())), "plan": c["plan"], "explore": c["explore"]}
 
     def explores(self, limit: int = 20) -> list:
         """The recorded explores of the project's boards (their result files), newest first, as the page lists them."""
@@ -1171,6 +1202,63 @@ class Studio:
                             "best": doc.get("best"), "baseline": doc.get("baseline"), "kept": doc.get("kept"), "focus": len(doc.get("focus", ()))})
         out.sort(key=lambda e: -(e["at"] or 0))
         return out[:limit]
+
+    def routes(self, limit: int = 20) -> list:
+        """The recorded routes of this script's board (`.placemat/route/` and each run's `route/`), newest first: each from its small summary file."""
+        if self.src is None:
+            return []
+        from . import route_progress
+        base = self.src.board_dir / ".placemat"
+        out = []
+        for rec in [base / "route" / route_progress.RECORD] + sorted(base.glob("runs/*/route/" + route_progress.RECORD)):
+            summ = rec.with_name(route_progress.SUMMARY)
+            try:
+                doc = json.loads(summ.read_text())
+                at = doc.get("at") or rec.stat().st_mtime
+            except (OSError, ValueError):
+                continue
+            run = doc.get("run") or ""
+            out.append({"file": str(rec), "run": run, "at": at, "nets": doc.get("nets"), "routed": doc.get("routed"), "failed": doc.get("failed"),
+                        "closure": doc.get("closure"), "seconds": doc.get("seconds"), "script": doc.get("script") or doc.get("pcb", ""),
+                        "build": bool(run) and (rec.parent.parent / "plan.json").is_file()})
+        out.sort(key=lambda e: -(e["at"] or 0))
+        return out[:limit]
+
+    def _route_doc(self, record_path: Path, plan_path: Path | None = None):
+        from . import route_progress, route_view
+        record = route_progress.read_record(record_path)
+        if record is None:
+            return None
+        board = None
+        if plan_path is not None:
+            try:
+                board = json.loads(plan_path.read_text())
+            except (OSError, ValueError):
+                board = None
+        if board is None:
+            try:
+                board = json.loads((record_path.parent / route_progress.BOARD).read_text())
+            except (OSError, ValueError):
+                board = {}
+        return {"doc": route_view.route_doc(record, board), "summary": record.get("report", {}), "board": record.get("board", {})}
+
+    def route_record(self, path: str):
+        """One route's replay document from its record, if it is one of this project's."""
+        from . import route_progress
+        p = Path(path).resolve()
+        if p.name != route_progress.RECORD or self.root.resolve() not in p.parents:
+            return None
+        return self._route_doc(p)
+
+    def build_record(self, run: str):
+        """A run's whole build: its placement (plan.json) and then its route, from the run folder's records."""
+        from . import route_progress
+        if self.src is None or not run or "/" in run or run.startswith("."):
+            return None
+        d = (self.src.board_dir / ".placemat" / "runs" / run).resolve()
+        if self.root.resolve() not in d.parents:
+            return None
+        return self._route_doc(d / "route" / route_progress.RECORD, d / "plan.json" if (d / "plan.json").is_file() else None)
 
     def explore_record(self, path: str):
         """One explore's result file, if it is one of this project's."""
@@ -1368,7 +1456,7 @@ class Studio:
 
     def _hello_data(self) -> dict:
         common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
-                  "explores": self.explores(), "explore_fps": self.cfg.studio_explore_fps,
+                  "explores": self.explores(), "routes": self.routes(), "explore_fps": self.cfg.studio_explore_fps,
                   "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),
                   "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s}
         if self.script is None:
@@ -1453,6 +1541,14 @@ def _handler(studio: Studio):
             if path.startswith("/cmd/"):
                 d = studio.cmd_detail(_int(path[len("/cmd/"):]))
                 return self._json(d) if d is not None else self._refuse(404, "no such command")
+            if path == "/route":
+                doc = studio.route_record(query.get("f", [""])[0])
+                return self._json(doc) if doc is not None else self._refuse(404, "no such route record")
+            if path == "/build":
+                doc = studio.build_record(query.get("run", [""])[0])
+                return self._json(doc) if doc is not None else self._refuse(404, "no such run, or it did not route")
+            if path == "/routes":
+                return self._json(studio.routes())
             if path == "/explore":
                 doc = studio.explore_record(query.get("f", [""])[0])
                 return self._json(doc) if doc is not None else self._refuse(404, "no such explore record")

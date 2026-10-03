@@ -286,3 +286,23 @@ def test_an_explore_tells_a_reader_the_plain_placement_each_variant_and_the_end(
     assert sorted(v["seed"] for v in variants) == [1, 2, 3, 4, 5, 6] and all(set(v["placements"]) == set(ex.FOCUS) and v["order"] for v in variants)
     assert min(v["score"] for v in variants + [{"score": start["baseline"]}]) == r.best
     assert [v["seed"] for v in r.variants][0] == 0 and len(r.variants) == r.tried
+
+
+def test_a_routes_events_reach_a_late_reader_in_order_and_describe_one_line_per_net(tmp_path, monkeypatch):
+    script, rep, entry = _start(tmp_path)
+    rep.send({"ev": "route_board", "doc": {"items": []}})
+    rep.send({"ev": "route_stage", "stage": "main"})
+    rep.send({"ev": "route_queue", "nets": ["A", "B"]})
+    rep.send({"ev": "route_net_begin", "net": "A"})
+    rep.send({"ev": "route_commit", "net": "A", "how": "route", "seg": [[0, 0, 1, 0, "F.Cu", 0.2]], "via": []})
+    rep.send({"ev": "route_net_end", "net": "A", "ok": True})
+    reader = Reader(entry)                                                    # attaches after all of it
+    reader.wait("route_net_end")
+    names = reader.names()
+    assert names[0] == "hello" and names[1:] == ["route_board", "route_stage", "route_queue", "route_net_begin", "route_commit", "route_net_end"]
+    assert [channel.describe(e) for e in reader.events[1:]] == ["", "route main", "route: 2 nets to route", "", "", "net A: routed"]
+    monkeypatch.setattr(channel, "MAX_ROUTE_LOG", 3)
+    for i in range(5):
+        rep.send({"ev": "route_commit", "net": "B", "how": "route", "seg": [], "via": []})
+    assert rep.route_truncated and len(rep.route_log) == 7 and rep.route_log[-1]["ev"] == "route_truncated"
+    channel.finish()

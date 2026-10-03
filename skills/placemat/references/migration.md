@@ -5,6 +5,20 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A route streams per-net progress and keeps a record that replays.** `placemat route` owns a socket like the other commands, and
+  `placemat watch` prints a line per net as the router finishes it. The events come from hooks on the router's per-net functions
+  (`route_*` events, `api.md`, "Live progress"); if the router's functions are not as the hooks expect, the route runs with no
+  progress and says why (`route_off`), and `PLACEMAT_ROUTE_EVENTS=off` leaves it unhooked. `route/route_record.json` keeps the copper
+  in the order it was laid, per net; `RouteReport.record` and `run.json`'s `metrics.route.record` name it. A run that routes also
+  writes `plan.json` in its run folder. Nothing a script says changes.
+- **The studio replays a route and a whole build.** The Runs view draws a route net by net while it runs and lists the recorded
+  routes of the board; one opens as a replay, and a run that placed and then routed replays from the first placement to the last
+  routed net. `GET /routes`, `/route?f=` and `/build?run=` serve them.
+
 ## To 0.93.0
 
 ### New

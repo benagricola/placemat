@@ -1,0 +1,248 @@
+"""Progress events from inside the router's own process.
+
+Run by the wrappers (`route_one_round.py`, `route_hooked.py`) under the router's interpreter before the router's entry script: it hooks the
+router's own functions, from its own source, so a placemat that is watching can draw the copper net by net. Nothing in the router's checkout
+is modified and no printed router output is read.
+
+What is hooked (each checked first; if any anchor is missing nothing is patched, the router runs as it would have, and the reason is written
+as a `route_off` event and on stderr):
+
+- `pcb_modification.add_route_to_pcb_data` and `remove_route_from_pcb_data`, the router's copper choke points: a net's copper committed (or
+  restored after a rip) and ripped: events `commit` and `rip` with the segments and vias;
+- `single_ended_routing.route_net_with_obstacles`, `route_multipoint_main` and `route_oracle_links`, one net's search: `net_begin`, `net_end`
+  (found a route or not; the outermost call only);
+- `single_ended_loop.route_single_ended_nets`, the loop over the nets: `queue` (the nets, in the order the loop was given) and `queue_end`.
+
+Each event is one JSON line written to the pipe whose write end is the file descriptor named by $PLACEMAT_ROUTE_EVENTS_FD (nothing happens
+when it is unset, or when $PLACEMAT_ROUTE_EVENTS is "off"). A writer thread with a bounded queue does the writing: the router never waits on
+the reader, an event that does not fit the queue is dropped, and a pipe that closes ends the events silently. A failure in this module never
+reaches the router: it stops writing events and says so once.
+
+This file imports nothing of placemat's: it runs in the router's environment."""
+from __future__ import annotations
+
+import functools
+import inspect
+import json
+import atexit
+import os
+import queue
+import sys
+import threading
+import time
+
+VERSION = 1
+QUEUE_MAX = 20000                       # events waiting for the pipe; more are dropped, never waited for
+FLUSH_S = 3.0                           # at exit: how long the writer may take to pass on what is queued
+_state = {"fd": None, "q": None, "t0": time.monotonic(), "dead": False, "thread": None}
+
+
+def _writer() -> None:
+    q, fd = _state["q"], _state["fd"]
+    while True:
+        line = q.get()
+        if line is None:
+            return
+        try:
+            data = line.encode("utf-8")
+            while data:
+                data = data[os.write(fd, data):]
+        except OSError:                                                # the reader has gone: no more events, silently
+            _state["dead"] = True
+            return
+
+
+def _emit(event: dict) -> None:
+    """Queue `event` for the pipe; a full queue drops it, a failure turns the events off for the rest of the run."""
+    if _state["dead"] or _state["q"] is None:
+        return
+    try:
+        event["t"] = round(time.monotonic() - _state["t0"], 3)
+        _state["q"].put_nowait(json.dumps(event, separators=(",", ":"), default=str) + "\n")
+    except queue.Full:
+        pass
+    except Exception as e:                                             # progress is a courtesy: the route goes on without it
+        _state["dead"] = True
+        print("route progress stopped: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+
+
+def _flush() -> None:
+    """At exit: let the writer pass on what is queued (the router may be about to exit with events still waiting)."""
+    th = _state["thread"]
+    if th is None or _state["dead"]:
+        return
+    try:
+        _state["q"].put(None, timeout=FLUSH_S)
+        th.join(FLUSH_S)
+    except Exception:
+        pass
+
+
+def pipe_fd() -> int | None:
+    """The events pipe's descriptor, from $PLACEMAT_ROUTE_EVENTS_FD (None: events are not asked for)."""
+    if os.environ.get("PLACEMAT_ROUTE_EVENTS") == "off":
+        return None
+    try:
+        return int(os.environ.get("PLACEMAT_ROUTE_EVENTS_FD", ""))
+    except ValueError:
+        return None
+
+
+def _params(fn) -> list:
+    try:
+        return list(inspect.signature(fn).parameters)
+    except (TypeError, ValueError):
+        return []
+
+
+def _missing(module, name: str, wanted: tuple) -> str:
+    """Why `module.name` is not what the hooks read (empty when it is)."""
+    fn = getattr(module, name, None)
+    if not callable(fn):
+        return "%s has no %s" % (module.__name__, name)
+    have = _params(fn)
+    gone = [p for p in wanted if p not in have]
+    return ("%s.%s has no parameter %s" % (module.__name__, name, ", ".join(gone))) if gone else ""
+
+
+def _net_name(pcb_data, net_id) -> str:
+    try:
+        return str(pcb_data.nets[net_id].name)
+    except Exception:
+        return str(net_id)
+
+
+def _r(v) -> float:
+    return round(float(v), 3)
+
+
+def _copper(pcb_data, result) -> tuple:
+    """(net_id, segments, vias) of a result as the events carry them: [x1, y1, x2, y2, layer, width] and [x, y, size, drill, layers]."""
+    segs = [[_r(s.start_x), _r(s.start_y), _r(s.end_x), _r(s.end_y), s.layer, _r(s.width)] for s in (result.get("new_segments") or ())]
+    vias = [[_r(v.x), _r(v.y), _r(v.size), _r(v.drill), list(v.layers)] for v in (result.get("new_vias") or ())]
+    ids = {s.net_id for s in (result.get("new_segments") or ())} | {v.net_id for v in (result.get("new_vias") or ())}
+    return (sorted(ids)[0] if len(ids) == 1 else None), segs, vias, sorted(ids)
+
+
+def install(fd: int | None = None) -> str:
+    """Hook the router for this process. Returns "" when the hooks are in (or events are not asked for: no pipe), else why they are not."""
+    fd = pipe_fd() if fd is None else fd
+    if fd is None:
+        return ""
+    try:
+        import importlib
+        pm = importlib.import_module("pcb_modification")
+        ser = importlib.import_module("single_ended_routing")
+        loop = importlib.import_module("single_ended_loop")
+        parser = importlib.import_module("kicad_parser")
+    except Exception as e:
+        return "the router's modules are not where the hooks expect them (%s: %s)" % (type(e).__name__, e)
+    why = (_missing(pm, "add_route_to_pcb_data", ("pcb_data", "result")) or _missing(pm, "remove_route_from_pcb_data", ("pcb_data", "result")) or
+           _missing(ser, "route_net_with_obstacles", ("pcb_data", "net_id")) or _missing(ser, "route_multipoint_main", ("pcb_data", "net_id")) or
+           _missing(ser, "route_oracle_links", ("pcb_data", "net_id")) or _missing(loop, "route_single_ended_nets", ("state", "single_ended_nets")))
+    if not why:
+        for cls, fields in (("Segment", ("start_x", "start_y", "end_x", "end_y", "width", "layer", "net_id")), ("Via", ("x", "y", "size", "drill", "layers", "net_id"))):
+            have = set(getattr(getattr(parser, cls, None), "__dataclass_fields__", {}) or ())
+            gone = [f for f in fields if f not in have]
+            if gone:
+                why = "kicad_parser.%s has no field %s" % (cls, ", ".join(gone))
+                break
+    if why:
+        return why
+    try:
+        os.fstat(fd)
+    except OSError as e:
+        return "the events pipe is not open (%s)" % e
+    _state.update(fd=fd, q=queue.Queue(QUEUE_MAX), dead=False, t0=time.monotonic())
+    th = threading.Thread(target=_writer, daemon=True, name="placemat-route-events")
+    th.start()
+    _state["thread"] = th
+    atexit.register(_flush)
+    originals = {"add": pm.add_route_to_pcb_data, "remove": pm.remove_route_from_pcb_data,
+                 "net": ser.route_net_with_obstacles, "multi": ser.route_multipoint_main, "oracle": ser.route_oracle_links,
+                 "loop": loop.route_single_ended_nets}
+    depth = {"n": 0}
+
+    @functools.wraps(originals["add"])
+    def add_route_to_pcb_data(pcb_data, result, *a, **k):
+        out = originals["add"](pcb_data, result, *a, **k)
+        try:
+            how = k.get("trace_event") or (a[1] if len(a) > 1 else "route")
+            net, segs, vias, ids = _copper(pcb_data, result)
+            if segs or vias:
+                _emit({"ev": "commit", "net": _net_name(pcb_data, net) if net is not None else [_net_name(pcb_data, i) for i in ids],
+                       "how": how, "seg": segs, "via": vias})
+        except Exception as e:
+            _state["dead"] = True
+            print("route progress stopped: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+        return out
+
+    @functools.wraps(originals["remove"])
+    def remove_route_from_pcb_data(pcb_data, result, *a, **k):
+        try:                                                               # before it goes: the call may empty the result
+            net, segs, vias, ids = _copper(pcb_data, result)
+        except Exception:
+            net, segs, vias, ids = None, [], [], []
+        out = originals["remove"](pcb_data, result, *a, **k)
+        if segs or vias:
+            _emit({"ev": "rip", "net": _net_name(pcb_data, net) if net is not None else [_net_name(pcb_data, i) for i in ids], "seg": segs, "via": vias})
+        return out
+
+    def attempt(original):
+        """One net's search (a two-pad net, a multipoint net, an oracle link set): begin and end, the outermost call only."""
+        @functools.wraps(original)
+        def route_attempt(pcb_data, net_id, *a, **k):
+            outer = depth["n"] == 0
+            depth["n"] += 1
+            if outer:
+                _emit({"ev": "net_begin", "net": _net_name(pcb_data, net_id)})
+            try:
+                result = original(pcb_data, net_id, *a, **k)
+            finally:
+                depth["n"] -= 1
+            if outer:
+                try:
+                    _emit({"ev": "net_end", "net": _net_name(pcb_data, net_id), "ok": bool(result) and bool(result.get("new_segments") or result.get("new_vias"))})
+                except Exception:
+                    pass
+            return result
+        return route_attempt
+
+    @functools.wraps(originals["loop"])
+    def route_single_ended_nets(state, single_ended_nets, *a, **k):
+        try:
+            _emit({"ev": "queue", "nets": [str(n[0]) for n in single_ended_nets]})
+        except Exception:
+            pass
+        out = originals["loop"](state, single_ended_nets, *a, **k)
+        try:
+            _emit({"ev": "queue_end", "routed": out[0], "failed": out[1]})
+        except Exception:
+            pass
+        return out
+
+    patched = {"add": add_route_to_pcb_data, "remove": remove_route_from_pcb_data, "net": attempt(originals["net"]), "multi": attempt(originals["multi"]),
+               "oracle": attempt(originals["oracle"]), "loop": route_single_ended_nets}
+    pm.add_route_to_pcb_data, pm.remove_route_from_pcb_data = patched["add"], patched["remove"]
+    ser.route_net_with_obstacles, ser.route_multipoint_main, ser.route_oracle_links = patched["net"], patched["multi"], patched["oracle"]
+    loop.route_single_ended_nets = patched["loop"]
+    for module in list(sys.modules.values()):                              # a module that bound the originals before this ran
+        for key, name in (("add", "add_route_to_pcb_data"), ("remove", "remove_route_from_pcb_data"), ("net", "route_net_with_obstacles"),
+                          ("multi", "route_multipoint_main"), ("oracle", "route_oracle_links"), ("loop", "route_single_ended_nets")):
+            try:
+                if getattr(module, name, None) is originals[key]:
+                    setattr(module, name, patched[key])
+            except Exception:
+                continue
+    return ""
+
+
+def report_off(why: str, fd: int | None = None) -> None:
+    """Say why the route has no progress: one `route_off` event on the pipe and one line on stderr."""
+    fd = pipe_fd() if fd is None else fd
+    print("route progress is off for this route: %s" % why, file=sys.stderr)
+    if fd is not None:
+        try:
+            os.write(fd, (json.dumps({"ev": "route_off", "why": why, "t": 0.0}) + "\n").encode("utf-8"))
+        except OSError:
+            pass

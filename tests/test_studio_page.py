@@ -1089,6 +1089,48 @@ out.after = els["#tab-runs"].innerHTML;
 
 
 @needs_node
+def test_a_route_is_drawn_net_by_net_with_its_counts_and_a_recorded_route_is_listed(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const cmd = (o) => Object.assign({id: 4, pid: 4312, command: "route", script: "/p/x.pcb", args: [], started: clock / 1000 - 5, state: "running", items: 0, variants: 0, route: null}, o);
+send("cmd", cmd({}));
+ev("S.cmdView = {id: 4, plan: blankPlan(), summary: S.cmds.get(4), next: 0, route: null}");
+const rev = (n, o) => send("cmdev", {id: 4, n, ev: o});
+const seg = (x) => [[x, 0, x + 1, 0, "F.Cu", 0.2]];
+rev(0, {ev: "route_board", doc: {board: BOARD.board, keepouts: [], reservations: [], items: [item("u1", 1)], layers: ["F.Cu"]}});
+rev(1, {ev: "route_stage", stage: "main"});
+rev(2, {ev: "route_queue", nets: ["A", "B", "C"]});
+rev(3, {ev: "route_net_begin", net: "A"});
+out.begin = ev("routeLine(S.cmdView.route, S.cmdView)");
+rev(4, {ev: "route_net_end", net: "A", ok: true});
+rev(5, {ev: "route_commit", net: "A", how: "route", seg: seg(0), via: [[1, 0, 0.6, 0.3, ["F.Cu", "B.Cu"]]]});    // committed after the search ends
+out.noteA = ev("plan().steps.find(s => s.item === 'track A').note");
+rev(6, {ev: "route_net_begin", net: "B"}); rev(7, {ev: "route_net_end", net: "B", ok: false});
+out.mid = ev("routeLine(S.cmdView.route, S.cmdView)");
+rev(8, {ev: "route_commit", net: "C", how: "route", seg: seg(5), via: []});
+rev(9, {ev: "route_rip", net: "C", seg: seg(5), via: []});
+out.gone = ev("plan().copper.filter(c => c.gone).length");
+out.stepsKinds = ev("plan().steps.map(s => s.kind).join(',')");
+rev(10, {ev: "route_queue_end"});
+out.beforeEnd = ev("routeLine(S.cmdView.route, S.cmdView)");
+send("cmd", cmd({state: "done", ended: clock / 1000, route: {total: 3, done: 1, failed: 1, current: "", finished: false}}));
+out.end = ev("routeLine(S.cmdView.route, S.cmdView)");
+out.row = els["#tab-runs"].innerHTML;
+rev(11, {ev: "route_off", why: "the router has no route_multipoint_main"});
+out.off = ev("routeLine(S.cmdView.route, S.cmdView)");
+ev("S.routes = [{file: '/p/.placemat/route/route_record.json', run: '', at: 1, nets: 17, routed: 15, failed: 2, closure: 0.889, seconds: 10.7, script: '/p/x.pcb', build: false}, {file: '/p/.placemat/runs/ab/route/route_record.json', run: 'ab', at: 2, nets: 5, routed: 5, failed: 0, closure: 1, seconds: 3, script: '/p/x_layout.py', build: true}]");
+ev("renderRuns()"); out.list = els["#tab-runs"].innerHTML;
+""")
+    assert out["begin"] == "net 1 of 3: A, 0 routed, 0 failed" and out["mid"] == "net 3 of 3: B, 1 routed, 1 failed"
+    assert out["noteA"] == "routed: 1 tracks, 1 vias" and out["gone"] == 1 and out["stepsKinds"] == "part,copper,copper,copper"
+    assert out["beforeEnd"].startswith("net ") and out["end"] == "route finished: 1 routed, 1 failed"          # a queue's end is not the route's
+    assert "net 2 of 3" in out["row"] or "net 3 of 3" in out["row"]
+    assert out["off"] == "no progress for this route: the router has no route_multipoint_main"
+    assert 'data-route="/p/.placemat/route/route_record.json"' in out["list"] and 'data-build="ab"' in out["list"]
+    assert "17 nets, 15 routed, 2 failed, closure 88.9%, 10.7 s" in out["list"] and "Recorded routes" in out["list"]
+
+
+@needs_node
 def test_a_commands_own_run_does_not_toast_and_a_lost_one_says_so(tmp_path):
     out = run_more(tmp_path, r"""
 full([item("a", 1)], [st("a")]);

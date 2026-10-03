@@ -222,6 +222,74 @@ Finished explores are browsed the same way from their result file.
 **The studio's own Run button** is a command like any other: it starts `placemat run`, which reports over the channel,
 and the page shows its live steps; the studio does not read its printed lines.
 
+### Routing on the live channel, and the whole-build replay (round 10)
+
+`placemat route` (and the route of `placemat run --route`) shows its progress on the command's own socket like any other command,
+draws the copper net by net in the studio, keeps what it routed as a record, and a run that placed and then routed replays as one
+timeline.
+
+**Where the events come from.** The router is KiCadRoutingTools, run from its own source under its own interpreter. Placemat's wrappers
+(`kicad/route_one_round.py` for the quick route, `kicad/route_hooked.py` for the full route and the pair router) load
+`kicad/route_events.py` before the router's entry script runs and hook the router's own functions, as `route_one_round.py` already adapts
+one call of it: nothing in the checkout is modified, and no printed router output is read.
+
+- the copper choke points, `pcb_modification.add_route_to_pcb_data` (a net's copper is committed, or restored after a rip) and
+  `remove_route_from_pcb_data` (a net's copper is ripped), give `commit` and `rip` events with the segments (layer, width, ends) and vias
+  (centre, size, drill, layers) as the router holds them;
+- `single_ended_routing.route_net_with_obstacles`, `route_multipoint_main` and `route_oracle_links` (one net's search: two-pad nets, nets
+  with more pads, the oracle's links) give `net_begin` and `net_end` (found a route or not); a depth counter makes only the outermost of
+  nested calls count, so a net is one begin and one end;
+- `single_ended_loop.route_single_ended_nets` (the loop over the nets) gives `queue` (the nets in the order the router will take them,
+  so a total) and `queue_end` (routed, failed).
+
+The wrapper checks its anchors (the modules and functions exist, the signatures have the parameters it reads, a result has
+`new_segments`, a segment has its fields) before it patches anything. If one is missing it patches nothing, runs the router unhooked, and
+says so once, on stderr and as a `route_off` event with the reason, so the studio and `placemat watch` show "no progress for this route:
+<why>" rather than a silent empty view.
+
+**How they reach the command.** Live state goes over a pipe, never a file. For each stage (`pairs`, `islands`, `main`) the `placemat` process
+opens an `os.pipe()` and gives the write end to the router's process (`pass_fds`; the descriptor's number in `PLACEMAT_ROUTE_EVENTS_FD`).
+The hooks queue each event (a bounded queue, `QUEUE_MAX`; an event that does not fit is dropped) and a writer thread in the router's process
+writes it to the pipe as one JSON line, so the router never waits on the reader; a pipe that closes ends the events silently, and the writer
+is flushed at the router's exit. A thread in the `placemat` process reads the other end, keeps each event for the record and sends it on its
+own socket with the channel's sender (`Beacon.send`: bounded per-reader queues, drops for a slow reader, never blocks). The record is the only
+file. A late reader is caught up from the beacon's log as for any command (the route's events are kept like a
+resolve's, up to `MAX_ROUTE_LOG` events kept apart from the resolve's own log, with `route_truncated` said). `route_board` also sends `route_board` first: the board as the page draws it under the
+copper (outline, each part's courtyard and pads, built from the board file read, `route_view.py`; a board with no outline is framed on its
+parts), for a route with no placement of its own in front of it.
+
+**Events** (on the beacon, in this order, per stage; the beacon's names carry a `route_` prefix, the record's do not): `route_stage` (stage
+name, the stage taken from an earlier route if it was), `route_board`, `route_queue` (net names), then per net `route_net_begin`, any
+`route_commit`/`route_rip`, `route_net_end`; `route_queue_end`; then the command's `done` with the route record's path, or
+`route_off`/`error`. A route has one queue per router launch (the islands stage launches the router once per island group), so the page's
+"of N" grows as stages begin, and the route is finished when its command is, not at a queue's end. The compact progress trail keeps
+`route_queue`, `route_stage`, `route_net_end`, `route_queue_end` and `route_off` only.
+
+**The route record** (`route_record.json` in the work folder, `.placemat/route/` or the run's `route/`, named in the report and in
+`run.json` `metrics.route.record`): the board it routed (the board file, its name, the script and, for a run's route, the run id), and
+for each stage its events in laid order: per net its `commit`s and `rip`s (tracks and vias) and its `net_end` result, plus the report's
+closure and open nets. The record is written as each stage ends and again at the end, so a stopped route leaves what it made; a resumed stage takes its
+events from that earlier record instead of routing, so a resumed route has a complete record. A record is read after the command ends, never as the live feed.
+
+**In the studio.** The Runs view lists a route like any command, with nets done and failed of the total and the current net. Opening
+one draws the board (`route_board`) and then each net's tracks and vias as they are committed, a ripped net's copper removed again; the
+status line says "net 12 of 40: VBUS, 11 routed, 1 failed". A finished route is opened from its record (`GET /route?f=`), and
+replays like a placement does (the page lets a route's copper show while the slider is back, each net's tracks at its own step): each net is a step on the timeline (kind `copper`, its result in the note), the slider and Play go
+net by net, and the copper that survived the whole route is what stays. **The whole build:** `run.json` names the run's route record and
+the run keeps `plan.json` (the placement's steps and items, as the studio's own worker sends them); a run that placed and routed opens
+in the Runs view as one timeline, the placement's steps first and the route's nets after, so one slider goes from the first placement to
+the last routed net. A live `run --route` already streams both on one socket, so its timeline is the same without a record.
+
+**Cost.** A route with no reader pays the event lines (a few thousand short JSON lines in a route that takes minutes) and the beacon's
+log. Measured on a fixture, route time with no reader, with a studio reading, and with the hooks off (`PLACEMAT_ROUTE_EVENTS=off`),
+on the unrouted copy of the usbconverter fixture (17 nets), three alternating rounds over the pipe gave 5.23 s with the hooks off (5.09 to 5.35),
+5.44 s with them on and no reader (5.30 to 5.57) and 5.47 s with a `placemat watch` reader attached a second in (5.36 to 5.54): about 0.2 s (4%)
+more with the hooks on, a reader or none making no difference; the ranges overlap and the machine was shared, so it is at the edge of noise.
+
+**Not in this round.** The pair router's events carry commits and rips only (it has no per-net loop of the same shape); a rip's copper
+vanishes from the replay at the end of the route rather than at the step that ripped it (the record keeps every event, a later replay can
+use them); routing is not started or stopped from the page.
+
 ### 3D (phase 3)
 
 3D only with the parts' real 3D models (the user: it "only really makes

@@ -373,7 +373,7 @@ the script.
 
 `run`, `preview` (an `--explore` especially) and `check` can take minutes. Each listens, while it works, on a
 socket in the project (`.placemat/sockets/<pid>.sock`) and streams what it is doing: the step it is on, the plan so
-far, each explore variant's score. To run one without blocking yourself, start it detached (a background shell with
+far, each explore variant's score, and for a route each net as it is routed. To run one without blocking yourself, start it detached (a background shell with
 its output to a file) and follow it:
 
 ```
