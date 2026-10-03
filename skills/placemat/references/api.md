@@ -3278,6 +3278,9 @@ agent.
 placemat studio [<script>] [--port N] [--no-open] [--host ADDR]
 ```
 
+With `--host` the studio prints a QR code of its address in the terminal, for a phone to scan; the page's "Share"
+button shows the same for the current view (the view is kept in the address's hash).
+
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. The server listens on 127.0.0.1 only, answers only GET, and
 refuses any request without the token in the address; stop it with Ctrl-C.

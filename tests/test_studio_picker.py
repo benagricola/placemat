@@ -246,6 +246,7 @@ def test_a_begin_notice_from_the_worker_reaches_the_pages_without_being_kept(pro
     s._on_worker({"ev": "begin", "id": 3, "kind": "begin", "item": "u1", "what": "searched", "rank": 2, "of": 9}, s.worker.serial)
     s._on_worker({"ev": "begin", "id": 99, "kind": "begin", "item": "stale"}, s.worker.serial)            # not the resolve in flight
     got = [(n, json.loads(t)) for n, t in drain()]
+    assert len(got) == 1 and got[0][0] == "begin" and isinstance(got[0][1].pop("at"), float)                   # stamped with the server's clock
     assert got == [("begin", {"id": 3, "kind": "begin", "item": "u1", "what": "searched", "rank": 2, "of": 9})]
     assert s.hub.log == []
 
@@ -282,3 +283,72 @@ def test_resolve_now_cancels_what_runs_and_starts_another_at_once_fresh_when_ask
     assert sent[-1]["fresh"] is False                                  # asked for once, not kept
     with pytest.raises(ValueError):
         Studio(None, root=project.parents[2]).resolve_now()
+
+
+def test_a_page_that_joins_late_is_told_when_the_resolve_began_and_what_is_under_way_by_the_servers_clock(project):
+    s = _fresh(project)
+    s._cur = {"id": 4, "texts": {}, "changed": [], "t0": 0, "at": time.time() - 83.0}
+    s._on_worker({"ev": "begin", "id": 4, "kind": "total", "items": 24, "searched": 18, "copper": 6, "replay": 0}, s.worker.serial)
+    s._on_worker({"ev": "begin", "id": 4, "kind": "begin", "item": "psu", "what": "searched", "rank": 7, "of": 18, "replaying": False, "n": 3}, s.worker.serial)
+    s._on_worker({"ev": "begin", "id": 4, "kind": "phase", "text": "scanning the front", "hint": [1.0, 2.0]}, s.worker.serial)
+    hello = json.loads(s.hello()[0][1])
+    assert abs(hello["now"] - time.time()) < 2 and hello["resolving"] == 4
+    w = hello["work"]
+    assert 82.0 < hello["now"] - w["t0"] < 86.0                                       # since the resolve began, not since the page joined
+    assert w["total"]["items"] == 24 and w["cur"]["item"] == "psu" and w["cur"]["phase"] == "scanning the front" and w["cur"]["hint"] == [1.0, 2.0]
+    assert 0 <= hello["now"] - w["cur"]["at"] < 2
+    s._on_worker({"ev": "item", "id": 4, "item": {"key": "psu", "file": ""}}, s.worker.serial)
+    assert json.loads(s.hello()[0][1])["work"]["cur"] is None
+
+
+def test_a_port_in_use_is_a_plain_message_naming_another_studio_when_it_is_one(project, capsys):
+    import socket
+    from placemat.cli import main
+    other = Studio(project, port=0, open_browser=False)
+    other.start()
+    try:
+        assert main(["studio", str(project), "--port", str(other.port), "--no-open"]) == 2
+        out = capsys.readouterr().out
+        assert "port %d is in use: another studio is running at http://127.0.0.1:%d/" % (other.port, other.port) in out and "--port" in out
+    finally:
+        other.stop()
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    try:
+        port = blocker.getsockname()[1]
+        assert main(["studio", str(project), "--port", str(port), "--no-open"]) == 2
+        assert "port %d is in use" % port in capsys.readouterr().out
+    finally:
+        blocker.close()
+
+
+def test_the_hello_gives_the_address_another_device_reaches_and_qr_draws_only_the_studios_own(project):
+    import http.client
+    local = Studio(project, port=0, open_browser=False)
+    local.start()
+    try:
+        assert json.loads(local.hello()[0][1])["origin"] is None
+        conn = http.client.HTTPConnection("127.0.0.1", local.port, timeout=10)
+        own = "http://127.0.0.1:%d/?t=%s" % (local.port, local.token)
+        conn.request("GET", "/qr?t=%s&u=%s" % (local.token, own.replace("?", "%3F").replace("=", "%3D").replace("&", "%26")))
+        r = conn.getresponse()
+        body = r.read()
+        assert r.status == 200 and r.getheader("Content-Type") == "image/svg+xml" and body.startswith(b"<svg")
+        conn.request("GET", "/qr?t=%s&u=http%%3A%%2F%%2Fevil.example%%2F" % local.token)
+        r = conn.getresponse()
+        r.read()
+        assert r.status == 400
+        conn.request("GET", "/qr?u=x")
+        r = conn.getresponse()
+        r.read()
+        assert r.status == 403
+    finally:
+        local.stop()
+    wide = Studio(project, port=0, open_browser=False, host="0.0.0.0")
+    wide.start()
+    try:
+        hello = json.loads(wide.hello()[0][1])
+        assert hello["origin"] == "http://%s:%d" % (hello["origin"].split("//")[1].split(":")[0], wide.port) and hello["port"] == wide.port and wide.url.startswith(hello["origin"])
+    finally:
+        wide.stop()

@@ -542,7 +542,8 @@ class Studio:
                     ld = line_diff(old or "", new or "")
                     changed.append({"file": name, "status": "added" if old is None else "removed" if new is None else "modified",
                                     "unified": unified_diff(old or "", new or "", name), "added": ld["added"], "removed": ld["removed"]})
-            self._cur = {"id": rid, "texts": texts, "changed": changed, "t0": time.monotonic()}
+            self._cur = {"id": rid, "texts": texts, "changed": changed, "t0": time.monotonic(), "at": time.time(),
+                         "total": None, "now": None, "replayed": 0}
             self._dirty, self._cancel_at = False, None
             self.debounce.started()
             self.hub.log.clear()
@@ -597,14 +598,28 @@ class Studio:
                 return
             if cur is None or ev.get("id") != cur["id"]:
                 return
+            for key, value in (("now", None), ("total", None), ("replayed", 0)):
+                cur.setdefault(key, value)
             rid = cur["id"]
             if kind == "board":
                 self.hub.emit("board", {k: v for k, v in ev.items() if k not in ("ev", "id")} | {"id": rid}, keep=True)
             elif kind == "item":
+                if cur["now"] is not None and cur["now"].get("replaying"):
+                    cur["replayed"] += 1
+                cur["now"] = None
                 self.hub.emit("step", {"id": rid, "item": self._named(ev["item"]), **{k: ev[k] for k in ("ops", "cutout") if k in ev}}, keep=True)
             elif kind == "begin":
+                info = {k: v for k, v in ev.items() if k != "ev"} | {"at": time.time()}        # when, by the server's clock
+                if info["kind"] == "total":
+                    cur["total"] = info
+                elif info["kind"] == "begin":
+                    cur["now"] = dict(info, phase="")
+                elif cur["now"] is not None:
+                    cur["now"]["phase"] = info.get("text", "")
+                    if info.get("hint"):
+                        cur["now"]["hint"] = info["hint"]
                 # the queue's size is kept for a page that joins part-way; what an item is doing is transient
-                self.hub.emit("begin", {k: v for k, v in ev.items() if k != "ev"}, keep=ev.get("kind") == "total")
+                self.hub.emit("begin", info, keep=info["kind"] == "total")
             elif kind == "cancelled":
                 self._finish_cancel()
             elif kind == "error":
@@ -851,12 +866,27 @@ class Studio:
         with self.lock:
             return next((r for r in self.history if r.id == rid), None)
 
+    def origin(self) -> str | None:
+        """The address another device reaches this studio at, without the token: None while it listens on 127.0.0.1 only."""
+        if self.host in ("127.0.0.1", "localhost"):
+            return None
+        return "http://%s:%d" % (_url_host(self.host), self.port)
+
+    def _work_state(self):
+        """The resolve in progress as a page that joins late needs it: when it began, the queue, the item under way, by
+        the server's clock, so the time shown is the time since the resolve began and not since the page did."""
+        c = self._cur
+        if c is None:
+            return None
+        return {"t0": c.get("at", time.time()), "total": c.get("total"), "cur": c.get("now"), "replayed": c.get("replayed", 0)}
+
     def _hello_data(self) -> dict:
+        common = {"now": time.time(), "origin": self.origin(), "port": self.port}
         if self.script is None:
-            return {"script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
+            return {**common, "script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
                     "scripts": self.script_list(), "history": [], "resolving": None, "error": None, "runs": [], "run": None}
         title, sub = script_titles(self.script, self.src)
-        return {"script": self.script.name, "keep": self.keep, "title": title, "subtitle": sub,
+        return {**common, "work": self._work_state(), "script": self.script.name, "keep": self.keep, "title": title, "subtitle": sub,
                 "scripts": self.script_list(), "history": [r.summary() for r in self.history],
                 "resolving": self._cur["id"] if self._cur else None, "error": self._error,
                 "runs": self.runs(), "run": self._run_state()}
@@ -921,6 +951,16 @@ def _handler(studio: Studio):
                 return self._json(studio.compare(a, b))
             if path == "/history":
                 return self._json([r.summary() for r in studio.history])
+            if path == "/qr":
+                u = query.get("u", [""])[0]
+                own = [o for o in (studio.origin(), "http://127.0.0.1:%d" % studio.port) if o]
+                if len(u) > 1000 or not any(u.startswith(o + "/") for o in own):
+                    return self._refuse(400, "only an address of this studio can be drawn")
+                try:
+                    from . import qr
+                    return self._send(200, "image/svg+xml", qr.to_svg(qr.encode(u)).encode())
+                except ValueError as e:
+                    return self._refuse(400, str(e))
             if path == "/runs":
                 return self._json(studio.runs())
             if path == "/runcompare":
@@ -1035,16 +1075,44 @@ def _url_host(host: str) -> str:
     return host
 
 
+def _in_use(port: int, host: str) -> str:
+    """What to say when the port is taken: by another studio, when it answers as one."""
+    import http.client
+    who = ""
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+        conn.request("GET", "/")
+        r = conn.getresponse()
+        if "placemat-studio" in (r.getheader("Server") or ""):
+            who = ": another studio is running at http://%s:%d/ (its address with the token was printed when it started)" % (_url_host(host), port)
+        conn.close()
+    except OSError:
+        pass
+    return "port %d is in use%s; use --port to choose another" % (port, who or ": another program, or another studio, may be using it")
+
+
 def run(script=None, port: int | None = None, open_browser: bool | None = None, host: str = "127.0.0.1") -> int:
     try:
         studio = Studio(script, port=port, open_browser=open_browser, host=host)
     except (ValueError, FileNotFoundError) as e:
         console.say("studio", str(e), level="fail")
         return 2
-    url = studio.start()
+    try:
+        url = studio.start()
+    except OSError as e:
+        if e.errno not in (98, 48, 10048):          # address already in use, on Linux, macOS and Windows
+            raise
+        console.say("studio", _in_use(studio.port, host), level="fail")
+        return 2
     console.say("studio", "watching %s" % studio.script.name if studio.script else
                 "%d layout scripts under %s: choose one in the page" % (len(studio.scripts()), studio.root))
     console.say("studio", url)
+    if studio.origin() is not None:                 # listening for another device: the first open there is a scan
+        from . import qr
+        try:
+            console.data(qr.to_terminal(qr.encode(url)))
+        except ValueError:
+            pass
     if studio.open_browser:
         import webbrowser
         webbrowser.open(url)
