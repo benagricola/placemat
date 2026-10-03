@@ -18,6 +18,32 @@ section for each hand-written pattern a newer form replaces.
   `replace_comment`, and `read_call`; `remove_statement` and `remove_constant` no longer leave a doubled blank line, and an edit's later
   targets and references follow lines an earlier edit inserted directly above them.
 
+## To 0.94.1
+
+### New
+
+- **The studio's "Search options" runs a searched suggestion.** The button under a searched suggestion (finding rows, the card and the step
+  rows) starts the probe, asks first where every candidate resolves the whole board, draws each candidate on the figure's range as it
+  arrives, can Stop it and Continue it, and shows the outcome and what it found (`<id>.1`) with Show, Try and Apply. `GET /suggest/found?id=`
+  returns a found suggestion; `/suggest/show`, `/try` and `/apply` accept its id.
+
+## To 0.94.0
+
+### New
+
+- **The skill's loop starts with: iterate with `placemat preview`, run only at checkpoints** (the first look at a
+  board, a change to keep, before committing), with what each stage of a run costs. Scripts change nothing.
+
+- **A route streams per-net progress and keeps a record that replays.** `placemat route` owns a socket like the other commands, and
+  `placemat watch` prints a line per net as the router finishes it. The events come from hooks on the router's per-net functions
+  (`route_*` events, `api.md`, "Live progress"); if the router's functions are not as the hooks expect, the route runs with no
+  progress and says why (`route_off`), and `PLACEMAT_ROUTE_EVENTS=off` leaves it unhooked. `route/route_record.json` keeps the copper
+  in the order it was laid, per net; `RouteReport.record` and `run.json`'s `metrics.route.record` name it. A run that routes also
+  writes `plan.json` in its run folder. Nothing a script says changes.
+- **The studio replays a route and a whole build.** The Runs view draws a route net by net while it runs and lists the recorded
+  routes of the board; one opens as a replay, and a run that placed and then routed replays from the first placement to the last
+  routed net. `GET /routes`, `/route?f=` and `/build?run=` serve them.
+
 ## To 0.93.0
 
 ### New

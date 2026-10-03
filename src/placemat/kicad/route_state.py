@@ -22,7 +22,7 @@ STAGES = ("pairs", "islands", "main")
 # What each stage leaves in the work folder (the folder's other files are
 # made again every time, from the board and the settings).
 FILES = {"pairs": ("pairs*",), "islands": ("islands*",),
-         "main": ("router*", "routed*", "drc_after.json", "route.json")}
+         "main": ("router*", "routed*", "drc_after.json", "route.json", "route_record.json", "route_summary.json")}
 
 
 def digest(*parts) -> str:

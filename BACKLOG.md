@@ -16,22 +16,22 @@ file. An item cites its source as "a board's session, <date>".
   written, `2026-10-03-declared-copper-room-design.md`): room is kept for the
   tracks a script declares, so placement never squeezes them.
 
+- **Board builder** (spec `2026-10-03-studio-board-builder-design.md`): being
+  built, phases B0-B4, alongside studio round 10.
+
 ## Next, in order
 
 Specced work first, then the loose ends.
 
-1. **Searched suggestions in the studio** (phase 6's engine is built): the
-   "Search options" button starts a probe, shows its candidates live and the
-   found suggestion; after studio round 10.
+0. **A hard limit on a link** (a board's session, 2026-10-03): `board.link(...,
+   limit_mm=6, hard=True)` refuses a candidate where the link would exceed its
+   limit (as a push's hard limit reserves a disc), so the search finds the best
+   spot that meets it, or leaves the item unplaced with a finding naming the
+   link. After the preview slowdown fix, which touches the same search code.
 1a. **Measurements for the other searched levers**: blocker gap/side, search
    radius, fanout depth, turns, label size, stitch pitch and the tuning limits
    get a searched suggestion only once the sites that raise their findings
    record the number that bounds them.
-2. **Studio round 10: routing progress and a whole-build replay** (studio
-   spec, "Live channel"): per-net events from the router through hooks, the
-   route record in laid order, the timeline running from first placement to
-   last routed net.
-3. **Board builder** (spec `2026-10-03-studio-board-builder-design.md`).
 4. **Studio 3D with live models** (spec `2026-10-03-studio-3d-design.md`).
 5. **Suggestions phase 7: the improve loop** (recommended in the suggestions
    work; needs a short design): instant suggestions tried on an overlay,
@@ -45,9 +45,9 @@ Specced work first, then the loose ends.
 8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
    lazily on the pure-Python path.
-10. **A possibly flaky native parity test**
-    (`test_native_legal` SlotControl-physical failed once): find the cause or
-    show it cannot recur.
+10. **A flaky native parity test**: `test_native_legal` failed under the
+    two-process release suite twice (SlotControl-physical; MCU_RP2350B-union),
+    passing on rerun each time: find the cause.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
 12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
@@ -58,6 +58,13 @@ Specced work first, then the loose ends.
 15. **U21 pin 14 (SCL)**: the walled check finds a channel south of its stub;
     the user is checking it by eye. If the channel is not usable, find what
     the check does not model.
+
+16. **Routing replay gaps** (studio round 10): the pair router reports
+    commits only (no per-net begin/end, so pair nets get no routed/failed
+    counts); a ripped net's copper is removed for the whole replay instead of
+    at the rip step; the "of N" total grows as each router launch's queue
+    arrives; events dropped on a full queue are missing from the record too;
+    a stopped route leaves a partial record listed with the finished ones.
 
 ## Open
 
@@ -298,6 +305,13 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **The studio's Search options** (0.94.1): a probe started from a searched
+  suggestion, its candidates live, Stop and Continue, the found suggestion.
+
+- **Routing progress and a whole-build replay** (0.94.0; studio round 10):
+  per-net router events over a pipe, the route record in laid order, routes
+  in the studio's Runs view and replayed; the skill's preview-first loop.
 
 - **Searched suggestions: the probe** (0.93.0; suggestions phase 6): `placemat
   apply <id> --search`, bounded by the finding's measurement, resumable,

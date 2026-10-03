@@ -1089,6 +1089,48 @@ out.after = els["#tab-runs"].innerHTML;
 
 
 @needs_node
+def test_a_route_is_drawn_net_by_net_with_its_counts_and_a_recorded_route_is_listed(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const cmd = (o) => Object.assign({id: 4, pid: 4312, command: "route", script: "/p/x.pcb", args: [], started: clock / 1000 - 5, state: "running", items: 0, variants: 0, route: null}, o);
+send("cmd", cmd({}));
+ev("S.cmdView = {id: 4, plan: blankPlan(), summary: S.cmds.get(4), next: 0, route: null}");
+const rev = (n, o) => send("cmdev", {id: 4, n, ev: o});
+const seg = (x) => [[x, 0, x + 1, 0, "F.Cu", 0.2]];
+rev(0, {ev: "route_board", doc: {board: BOARD.board, keepouts: [], reservations: [], items: [item("u1", 1)], layers: ["F.Cu"]}});
+rev(1, {ev: "route_stage", stage: "main"});
+rev(2, {ev: "route_queue", nets: ["A", "B", "C"]});
+rev(3, {ev: "route_net_begin", net: "A"});
+out.begin = ev("routeLine(S.cmdView.route, S.cmdView)");
+rev(4, {ev: "route_net_end", net: "A", ok: true});
+rev(5, {ev: "route_commit", net: "A", how: "route", seg: seg(0), via: [[1, 0, 0.6, 0.3, ["F.Cu", "B.Cu"]]]});    // committed after the search ends
+out.noteA = ev("plan().steps.find(s => s.item === 'track A').note");
+rev(6, {ev: "route_net_begin", net: "B"}); rev(7, {ev: "route_net_end", net: "B", ok: false});
+out.mid = ev("routeLine(S.cmdView.route, S.cmdView)");
+rev(8, {ev: "route_commit", net: "C", how: "route", seg: seg(5), via: []});
+rev(9, {ev: "route_rip", net: "C", seg: seg(5), via: []});
+out.gone = ev("plan().copper.filter(c => c.gone).length");
+out.stepsKinds = ev("plan().steps.map(s => s.kind).join(',')");
+rev(10, {ev: "route_queue_end"});
+out.beforeEnd = ev("routeLine(S.cmdView.route, S.cmdView)");
+send("cmd", cmd({state: "done", ended: clock / 1000, route: {total: 3, done: 1, failed: 1, current: "", finished: false}}));
+out.end = ev("routeLine(S.cmdView.route, S.cmdView)");
+out.row = els["#tab-runs"].innerHTML;
+rev(11, {ev: "route_off", why: "the router has no route_multipoint_main"});
+out.off = ev("routeLine(S.cmdView.route, S.cmdView)");
+ev("S.routes = [{file: '/p/.placemat/route/route_record.json', run: '', at: 1, nets: 17, routed: 15, failed: 2, closure: 0.889, seconds: 10.7, script: '/p/x.pcb', build: false}, {file: '/p/.placemat/runs/ab/route/route_record.json', run: 'ab', at: 2, nets: 5, routed: 5, failed: 0, closure: 1, seconds: 3, script: '/p/x_layout.py', build: true}]");
+ev("renderRuns()"); out.list = els["#tab-runs"].innerHTML;
+""")
+    assert out["begin"] == "net 1 of 3: A, 0 routed, 0 failed" and out["mid"] == "net 3 of 3: B, 1 routed, 1 failed"
+    assert out["noteA"] == "routed: 1 tracks, 1 vias" and out["gone"] == 1 and out["stepsKinds"] == "part,copper,copper,copper"
+    assert out["beforeEnd"].startswith("net ") and out["end"] == "route finished: 1 routed, 1 failed"          # a queue's end is not the route's
+    assert "net 2 of 3" in out["row"] or "net 3 of 3" in out["row"]
+    assert out["off"] == "no progress for this route: the router has no route_multipoint_main"
+    assert 'data-route="/p/.placemat/route/route_record.json"' in out["list"] and 'data-build="ab"' in out["list"]
+    assert "17 nets, 15 routed, 2 failed, closure 88.9%, 10.7 s" in out["list"] and "Recorded routes" in out["list"]
+
+
+@needs_node
 def test_a_commands_own_run_does_not_toast_and_a_lost_one_says_so(tmp_path):
     out = run_more(tmp_path, r"""
 full([item("a", 1)], [st("a")]);
@@ -1281,6 +1323,57 @@ const sgb = (a, extra) => ({"[data-sg]": Object.assign({dataset: Object.assign({
 const DIFF = {id: "s1a", text: SUG[0].text, dry_run: true, resolve: 1, diff: "x", targets: [{role: "target", key: "c4", file: "x_layout.py", line: 2}],
   files: [{file: "x_layout.py", path: "/p/x_layout.py", added: 1, removed: 1, old_lines: [2], new_lines: [2], hunks: [{old_start: 1, old_len: 2, new_start: 1, new_len: 2, lines: [{tag: " ", old: 1, new: 1, text: "a"}, {tag: "-", old: 2, new: null, text: "board.place(Part('c4'))"}, {tag: "+", old: null, new: 2, text: "board.place(Part('c4'), at=Beside(Part('c1')))"}]}]}]};
 """
+
+@needs_node
+def test_search_options_confirms_shows_the_probe_live_stops_and_offers_what_it_found(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  const FIG = {kind: "bisect", name: "chamfer", what: "the chamfer of the A track", unit: "mm", declared: 0.5, far: 0.1, lo: 0.1, hi: 0.5};
+  const SRCH = {id: "s9z", text: "Changing the chamfer of the A track might fix this: search options?", rank: 9, lever: "chamfer", how: "searched", figure: FIG};
+  full([item("a", 1)], [st("a")], {findings: [Object.assign({}, FND[0], {suggestions: [SRCH]})]});
+  const html = () => { ev("renderFindings()"); return els["#tab-findings"].innerHTML; };
+  out.offered = html();
+  answer({"/suggest/probe": {status: 200, body: {state: "confirm", line: "this probe resolves the whole board for each candidate, up to 12 candidates, about 20 s each: about 120 s in all"}}});
+  await ev("sgAct")("search", "s9z");
+  out.confirm = html(); out.askedBody = fetched.filter(f => f[0] === "/suggest/probe").map(f => f[1]);
+  answer({"/suggest/probe": {status: 200, body: {state: "started", pid: 77, line: "x"}}});
+  click(sgb("probeyes", {sid: "s9z"})); await new Promise(r => setImmediate(r));
+  out.yesBody = fetched.filter(f => f[0] === "/suggest/probe").map(f => f[1]).pop(); out.afterYes = ev("S.sg.confirm");
+  send("cmd", {id: 5, pid: 77, command: "apply", script: "/p/x_layout.py", args: [], started: clock / 1000, state: "running", items: 0, variants: 0, probe: null, route: null});
+  const pev = (n, o) => send("cmdev", {id: 5, n, ev: o});
+  pev(0, {ev: "probe", id: "s9z", text: SRCH.text, figure: FIG, budget_s: 120, candidates: 12});
+  pev(1, {ev: "candidate", id: "s9z", value: 0.1, cleared: true, gained: [], score: 10.5, seconds: 3.2, acceptable: true, n: 1, of: 12, saved: false});
+  pev(2, {ev: "candidate", id: "s9z", value: 0.3, cleared: false, gained: [{kind: "copper", cause: "c", subject: "B", severity: "warning"}], score: 12.25, seconds: 2.5, acceptable: false, n: 2, of: 12, saved: true});
+  out.live = html();
+  answer({"/suggest/probe/stop": {status: 200, body: {state: "stopping"}}});
+  click(sgb("probestop", {sid: "s9z"})); await new Promise(r => setImmediate(r));
+  out.stopPosted = fetched.filter(f => f[0] === "/suggest/probe/stop").length;
+  const FOUND = {id: "s9z.1", text: "Set the chamfer of the A track to 0.2 mm (found by a probe)", rank: 1, lever: "chamfer", how: "instant", edits: []};
+  answer({"/suggest/found": {status: 200, body: FOUND}});
+  pev(3, {ev: "probe_done", id: "s9z", state: "stopped", n: 2, of: 12, best: {value: 0.1, cleared: true, gained: [], score: 10.5, seconds: 3.2, acceptable: true}, neighbour: null, monotone: true, message: "", resumed: 0, candidates: []});
+  out.done1 = html();
+  await new Promise(r => setImmediate(r)); await new Promise(r => setImmediate(r));
+  out.done2 = html();
+  answer({"/suggest/probe": {status: 200, body: {state: "started", pid: 78, line: "x"}}});
+  click(sgb("probego", {sid: "s9z"})); await new Promise(r => setImmediate(r));
+  out.goBody = fetched.filter(f => f[0] === "/suggest/probe").map(f => f[1]).pop();
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert 'data-sg="search" data-sid="s9z"' in out["offered"] and "sgprobe" not in out["offered"]
+    assert out["askedBody"] == ['{"resolve":1,"id":"s9z","yes":false}'] and 'data-sg="probeyes"' in out["confirm"] and 'data-sg="probeno"' in out["confirm"]
+    assert "This probe resolves the whole board for each candidate, up to 12 candidates" in out["confirm"]
+    assert out["yesBody"] == '{"resolve":1,"id":"s9z","yes":true}' and out["afterYes"] is None
+    lv = out["live"]
+    assert "Searching the chamfer of the A track: 2 of up to 12 candidates" in lv and 'data-sg="probestop"' in lv and lv.count("<circle") == 2
+    assert '<b>0.1 mm</b>' in lv and ">cleared<" in lv and ">not cleared<" in lv and "1 gained" in lv and "score <span" in lv and "2.5 s, saved" in lv
+    assert out["stopPosted"] == 1
+    assert "stopped" in out["done2"] and "after 2 of 12 candidates; best so far 0.1 mm" in out["done2"] and 'data-sg="probego"' in out["done2"] and 'data-sg="probestop"' not in out["done2"]
+    assert "reading what it found" in out["done1"]
+    for a in ("show", "try", "apply"):
+        assert 'data-sg="%s" data-sid="s9z.1"' % a in out["done2"]
+    assert out["goBody"] == '{"resolve":1,"id":"s9z","yes":true}'
+
 
 # ---------------------------------------------------------------- notes
 NOTES = r"""
