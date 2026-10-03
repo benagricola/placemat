@@ -8,6 +8,45 @@
 
 use crate::exact::hypot;
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
+
+/// A fast hasher for the small integer keys of the lookups a candidate's leaf costs make by the thousand
+/// (the grid's cells, a net's weight): none of these maps is walked in key order, so the hash does not
+/// show in an answer.
+#[derive(Default, Clone, Copy)]
+pub struct Fx(u64);
+
+impl Fx {
+    #[inline]
+    fn add(&mut self, v: u64) {
+        self.0 = (self.0.rotate_left(5) ^ v).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
+impl Hasher for Fx {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.add(b as u64);
+        }
+    }
+    fn write_u32(&mut self, i: u32) {
+        self.add(i as u64);
+    }
+    fn write_u64(&mut self, i: u64) {
+        self.add(i);
+    }
+    fn write_i64(&mut self, i: i64) {
+        self.add(i as u64);
+    }
+    fn write_usize(&mut self, i: usize) {
+        self.add(i as u64);
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<Fx>>;
 
 const CELL: f64 = 2.0; // ratsnest._CELL
 
@@ -139,15 +178,15 @@ fn cells(p: (f64, f64), q: (f64, f64)) -> impl Iterator<Item = (i64, i64)> {
 #[derive(Default)]
 pub struct Ratsnest {
     names: HashMap<String, u32>,
-    weights: HashMap<u32, f64>,
+    weights: FxMap<u32, f64>,
     // a differential pair's halves: their crossing counts pair_weight
-    partners: HashMap<u32, u32>,
+    partners: FxMap<u32, u32>,
     pair_weight: f64,
-    anchors: HashMap<u32, Vec<Anchor>>,
+    anchors: FxMap<u32, Vec<Anchor>>,
     edges: Vec<Option<Edge>>,
     free: Vec<usize>,
-    by_net: HashMap<u32, Vec<usize>>,
-    grid: HashMap<(i64, i64), Vec<usize>>,
+    by_net: FxMap<u32, Vec<usize>>,
+    grid: FxMap<(i64, i64), Vec<usize>>,
 }
 
 impl Ratsnest {
@@ -318,19 +357,21 @@ impl Ratsnest {
         }
         let mut total = 0.0f64;
         let mut crossed = 0i64;
-        let mut seen: Vec<usize> = Vec::new();
+        // `seen` per leaf: the leaf's number is the stamp an edge carries once the leaf has met it (an edge
+        // sits in every cell its box covers, so a long leaf meets it many times)
+        let mut seen: Vec<u32> = vec![0; self.edges.len()];
         for k in 0..leaves.len() {
             let (net, w, p, q, joined) = leaves[k];
             let pn = (nm(p.0), nm(p.1), nm(q.0), nm(q.1));
-            seen.clear();
+            let stamp = k as u32 + 1;
             for c in cells(p, q) {
                 let Some(bucket) = self.grid.get(&c) else { continue };
                 for &id in bucket {
                     let e = self.edges[id].as_ref().unwrap();
-                    if e.net == net || seen.contains(&id) || own.contains(&e.a.part) || own.contains(&e.b.part) {
+                    if e.net == net || seen[id] == stamp || own.contains(&e.a.part) || own.contains(&e.b.part) {
                         continue;
                     }
-                    seen.push(id);
+                    seen[id] = stamp;
                     if !cross_nm(pn.0, pn.1, pn.2, pn.3, e.nm.0, e.nm.1, e.nm.2, e.nm.3) {
                         continue;
                     }
