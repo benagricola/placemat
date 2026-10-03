@@ -839,3 +839,51 @@ def test_a_placed_vias_clear_moves_are_searched_once_per_scan():
     judge.hidden = {"m via 0", "n via 1"}                 # another via set aside: a different board
     giveway._native_move_offsets(judge, ring, None, offsets)
     assert len(calls) == 2
+
+
+def _given(make):
+    plan = make().resolve()
+    return ([(a.kind, a.via, a.at, a.to, a.tail, a.old_tail, a.cost) for a in plan.occupancy.given_way.values()],
+            [(st.item, st.placement, st.note) for st in plan.steps])
+
+
+def _with_search_chunk(monkeypatch, chunk):
+    import dataclasses
+    real = Occupancy.__init__
+
+    def init(self, *a, **k):
+        real(self, *a, **k)
+        self.settings = dataclasses.replace(self.settings, place_via_search_chunk=chunk)
+    monkeypatch.setattr(Occupancy, "__init__", init)
+
+
+@pytest.mark.parametrize("chunk", (1, 3, 40))
+@pytest.mark.parametrize("name", sorted(_MOVES))
+def test_a_via_move_is_the_same_whatever_window_its_offsets_are_judged_in(monkeypatch, name, chunk):
+    """`place.via_search_chunk` is a speed setting: the windows the nearest-first offsets are judged in
+    change what is judged, never which spot is taken."""
+    from placemat import geometry
+    if geometry._native is None:
+        pytest.skip("no native module")
+    make = _MOVES[name]
+    whole = _given(make)
+    _with_search_chunk(monkeypatch, chunk)
+    assert _given(make) == whole
+
+
+def test_a_via_with_a_spot_near_it_does_not_have_its_whole_reach_judged(monkeypatch):
+    from placemat import geometry, giveway
+    if geometry._native is None:
+        pytest.skip("no native module")
+    asked = []
+    real = giveway._native_clear_indices
+
+    def spy(judge, ring, hole, offsets, upto):
+        asked.append((upto, len(offsets)))
+        return real(judge, ring, hole, offsets, upto)
+    monkeypatch.setattr(giveway, "_native_clear_indices", spy)
+    _with_search_chunk(monkeypatch, 8)
+    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0),
+                         settings=_settings(place_via_move_distance=3.0)).resolve()
+    assert any(a.kind == "move" for a in plan.occupancy.given_way.values())
+    assert asked and max(upto for upto, _ in asked) < asked[0][1]

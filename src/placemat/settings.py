@@ -149,6 +149,8 @@ class Settings:
         "whether a via field a conflict meets is re-laid in its pad, as a whole, before its vias leave the pad or are dropped; false leaves each via to its own steps")
     place_via_route_distance: float = S(0.5, "mm",
         "how far a via that two or more of a cell's tracks end on may move, its tracks rebuilt from their far ends; 0 leaves it as drawn")
+    place_via_search_chunk: int = S(64, "count",
+        "how many of the nearest offsets a via's move or leave search judges first; each later window is twice the last, and the search ends at the first window that holds a spot; a speed setting, results are the same")
     place_via_clear_cache: int = S(4096, "count",
         "how many placed vias' clear moves a scan keeps, each searched once for every candidate that meets it; a speed setting, results are the same")
     place_drops_keep_share: float = S(0.5, "share",
@@ -619,7 +621,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_coarse_min_radius_steps", "place_coarse_stride",
-    "place_refine_spots", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
+    "place_refine_spots", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",

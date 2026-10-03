@@ -4107,6 +4107,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.via_leave_distance` | `1.0` | mm | how far a via inside its pad, with no spot clear inside it, may leave it, joined by a new tail; 0 never leaves |
 | `place.via_relay` | `true` | bool | whether a via field a conflict meets is re-laid in its pad, as a whole, before its vias leave the pad or are dropped; false leaves each via to its own steps |
 | `place.via_route_distance` | `0.5` | mm | how far a via that two or more of a cell's tracks end on may move, its tracks rebuilt from their far ends; 0 leaves it as drawn |
+| `place.via_search_chunk` | `64` | count | how many of the nearest offsets a via's move or leave search judges first; each later window is twice the last, and the search ends at the first window that holds a spot; a speed setting, results are the same |
 | `place.via_clear_cache` | `4096` | count | how many placed vias' clear moves a scan keeps, each searched once for every candidate that meets it; a speed setting, results are the same |
 | `place.drops_keep_share` | `0.5` | share | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
 | `place.edge_step` | `0.05` | mm | the step a part on a curved board edge is stepped in from the edge at until the keep-in holds it, before it is bisected back |

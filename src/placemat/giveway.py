@@ -47,6 +47,7 @@ a replayed commit, or a part the cleanup pass moves, gives way the same."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import bisect
 import functools
 import math
 
@@ -282,6 +283,15 @@ def _native_move_offsets(judge: "_Judge", ring, hole, offsets: tuple) -> list | 
     read as a hole-to-hole conflict with itself). The native call is given
     the same exclusion, by obstacle index into `judge.others`'s own
     backing shape list."""
+    indices = _native_clear_indices(judge, ring, hole, offsets, len(offsets))
+    return None if indices is None else [offsets[i] for i in indices]
+
+
+def _native_clear_indices(judge: "_Judge", ring, hole, offsets: tuple, upto: int) -> list | None:
+    """The indices, ascending, of the `offsets[:upto]` that `_native_move_offsets` finds clear, or
+    None where it cannot judge them. The offsets are judged nearest first and only as far as asked:
+    what was judged for a via is kept, so a later call for the same via goes on from there, and a via
+    that finds its spot among the nearest offsets never has the rest of its reach judged."""
     if not _NATIVE_MOVE_SEARCH or not offsets:
         return None
     entry = getattr(judge.others, "_native", None)
@@ -291,21 +301,27 @@ def _native_move_offsets(judge: "_Judge", ring, hole, offsets: tuple) -> list | 
     # The same via against the same scan's board, with the same vias set aside, has the same clear
     # offsets: a via already placed meets many candidates in one scan, so the search runs once for it.
     # A via that moves with the candidate is at a new spot each time, so its key never repeats.
-    key = (ring.poly, None if hole is None else hole.poly, frozenset(judge.hidden), judge.clearance, offsets)
+    key = (ring.poly, None if hole is None else hole.poly, frozenset(judge.hidden), judge.clearance,
+           len(offsets), offsets[-1])
     cache = judge.others.__dict__.setdefault("_clear_offsets", {})
-    hit = cache.get(key)
-    if hit is not None:
-        return list(hit)
-    from .occupancy import _to_native_shape
+    kept = cache.get(key)
+    if kept is not None and kept[0] is not offsets and kept[0] != offsets:
+        kept = None
     occ = judge.occ
-    py_shapes = [_to_native_shape(x, occ._body_refs, occ._leads, occ._margins)
-                for x in ((ring,) if hole is None else (ring, hole))]
-    skip = _hidden_skip(judge, shapes)
-    clear = index.first_clear_offset(py_shapes, list(offsets), judge.clearance, False, skip)
-    found = tuple(offsets[i] for i in clear)
-    if len(cache) < occ.settings.place_via_clear_cache:
-        cache[key] = found
-    return list(found)
+    if kept is None:
+        kept = [offsets, 0, []]
+        if len(cache) < occ.settings.place_via_clear_cache:
+            cache[key] = kept
+    done, clear = kept[1], kept[2]
+    if done < upto:
+        from .occupancy import _to_native_shape
+        py_shapes = [_to_native_shape(x, occ._body_refs, occ._leads, occ._margins)
+                     for x in ((ring,) if hole is None else (ring, hole))]
+        found = index.first_clear_offset(py_shapes, list(offsets[done:upto]), judge.clearance, False,
+                                         _hidden_skip(judge, shapes))
+        clear.extend(done + i for i in found)
+        kept[1] = done = upto
+    return clear[:bisect.bisect_left(clear, upto)]
 
 
 def _hidden_skip(judge: "_Judge", shapes: list) -> list:
@@ -698,48 +714,76 @@ def _find_move(occ, g: Group, judge: "_Judge", own, first, limit: float, pad, ta
     # same resolve() call already left behind) - both candidate-scoped,
     # not board state. The first is given to it as the vias to set
     # aside, the second as shapes beside `mine`. It finds the
-    # board-clear offsets once per scan (`_native_move_offsets`) and
+    # board-clear offsets once per scan (`_native_clear_indices`) and
     # judges each candidate's move whole (`_native_first_move`). Where
     # either is not available the loop below judges each offset in
     # Python, as the reference.
-    native_clear = _native_move_offsets(judge, g.ring, g.hole, all_offsets)
-    candidates = native_clear if native_clear is not None else all_offsets
     narrow = None if tail is None else (tail[0], tail[1], widths[-1])
-    used = False
-    while native_clear is not None:
-        used, at = _native_first_move(judge, g, mine, span, candidates, first, pad, r, narrow)
-        if not used:
-            break
-        if at is None:
-            return None
-        width = _widest(judge, g, mine, at, tail)
-        if width is not None:
-            return at[0], at[1], width
-        # a spot native accepted that no width of the tail clears here (the board's edge is judged in Python
-        # only): on to the next offset, and not the narrowest tail at a spot where it is not clear either
-        candidates = candidates[candidates.index(at) + 1:]
-    pool = judge.near(span, occ._gap)
-    still = _still_meets(occ, g, first, judge.clearance, r)
-    for dx, dy in candidates:
-        to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
-        if pad is not None and not _disc_inside(pad.poly, to, r - 1e-5):
-            continue
-        if still is not None and still(to):
-            continue
-        ring = _shift(g.ring, dx, dy)
-        if native_clear is None and first is not None and first.box.overlaps(ring.box, gap=occ._gap) \
-                and occ._conflict(ring, first, judge.clearance, say=False):
-            continue                    # still on what it met: most spots near it are (no-native path only)
-        moved = [replace(ring, given=g.id)]
-        if g.hole is not None:
-            moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
-        if judge.hit(moved, pool, mine, say=False):
-            continue
-        if tail is None:
-            return dx, dy, 0.0
-        width = _widest(judge, g, mine, (dx, dy), tail, pool)
-        if width is not None:
-            return dx, dy, width
+    chunk = s.place_via_search_chunk
+    ahead: dict = {}                # what the loop below judges against, made when the first window needs it
+
+    def python_loop(candidates, native_clear):
+        """The first of `candidates`, in order, that this move passes, judged in Python (the reference), else None."""
+        if not ahead:
+            ahead["pool"] = judge.near(span, occ._gap)
+            ahead["still"] = _still_meets(occ, g, first, judge.clearance, r)
+        pool, still = ahead["pool"], ahead["still"]
+        for dx, dy in candidates:
+            to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
+            if pad is not None and not _disc_inside(pad.poly, to, r - 1e-5):
+                continue
+            if still is not None and still(to):
+                continue
+            ring = _shift(g.ring, dx, dy)
+            if native_clear is None and first is not None and first.box.overlaps(ring.box, gap=occ._gap) \
+                    and occ._conflict(ring, first, judge.clearance, say=False):
+                continue                    # still on what it met: most spots near it are (no-native path only)
+            moved = [replace(ring, given=g.id)]
+            if g.hole is not None:
+                moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
+            if judge.hit(moved, pool, mine, say=False):
+                continue
+            if tail is None:
+                return dx, dy, 0.0
+            width = _widest(judge, g, mine, (dx, dy), tail, pool)
+            if width is not None:
+                return dx, dy, width
+        return None
+
+    # The offsets are judged nearest first in windows that double in size, from `place.via_search_chunk`
+    # offsets: the first window that holds a spot ends the search, so a via with a spot near it never has
+    # the rest of its reach judged. Each window is judged as the whole list once was.
+    lo, size = 0, chunk
+    while lo < len(all_offsets):
+        hi = min(len(all_offsets), lo + size)
+        indices = _native_clear_indices(judge, g.ring, g.hole, all_offsets, hi)
+        if indices is None:
+            native_clear, candidates = None, all_offsets[lo:]
+            hi = len(all_offsets)
+        else:
+            native_clear, candidates = True, [all_offsets[i] for i in indices[bisect.bisect_left(indices, lo):]]
+        # what this window's spots can reach: a net tie further off than that does not take the window from native
+        reach_w = math.hypot(*all_offsets[hi - 1])
+        window = g.ring.box.inflate(reach_w) if g.tail is None else \
+            Box.union([g.ring.box.inflate(reach_w), g.tail.box.inflate(reach_w)])
+        lo, size = hi, size * 2
+        while native_clear is not None and candidates:
+            used, at = _native_first_move(judge, g, mine, window, candidates, first, pad, r, narrow)
+            if not used:
+                break
+            if at is None:
+                candidates = []
+                break
+            width = _widest(judge, g, mine, at, tail)
+            if width is not None:
+                return at[0], at[1], width
+            # a spot native accepted that no width of the tail clears here (the board's edge is judged in Python
+            # only): on to the next offset, and not the narrowest tail at a spot where it is not clear either
+            candidates = candidates[candidates.index(at) + 1:]
+        if native_clear is None or (candidates and not used):
+            found = python_loop(candidates, native_clear)
+            if found is not None:
+                return found
     return None
 
 
