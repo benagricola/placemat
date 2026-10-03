@@ -177,7 +177,11 @@ def suggest(case_id: str, facts: dict, settings=None) -> list:
     cap = settings.studio_suggestions_per_lever
     seen: dict = {}
     out = []
-    for pick in builder(facts, settings) or ():
+    try:
+        picks = list(builder(facts, settings) or ())
+    except Exception:                   # a suggestion is best-effort: facts a builder cannot read give none
+        picks = []
+    for pick in picks:
         n = seen.get(pick.lever, 0)
         if pick.lever and n >= cap:
             continue
@@ -328,7 +332,12 @@ def bind(findings, board) -> None:
         pending = [s for s in f.suggestions if not s.id]
         if not pending:
             continue
-        kept = [b for s in pending for b in binder.bind(s)]
+        kept = []
+        for s in pending:
+            try:
+                kept += binder.bind(s)
+            except Exception:           # one that cannot be bound is left out; the resolve goes on
+                continue
         f.suggestions = tuple(replace(s, rank=i + 1, id="s%d%s" % (n, _letters(i))) for i, s in enumerate(kept))
 
 

@@ -4480,6 +4480,12 @@ class Board:
             plan.links.append(l)
 
     def _link_over_facts(self, l) -> dict:
+        try:
+            return self._link_over_facts_of(l)
+        except Exception:                           # a suggestion is best-effort: no facts, no suggestion
+            return {}
+
+    def _link_over_facts_of(self, l) -> dict:
         from .suggest_facts import inst_of
         a, b = inst_of(self, l.a[0]), inst_of(self, l.b[0])
         facts = {"link": _link_key(l), "a": {"key": a, "ref": l.a[0], "pad": l.a[1]},
@@ -6509,7 +6515,10 @@ class Board:
                                    laid=(len(plan.copper) - 1,)))
         from . import suggestions
         for found, measure in self._late_suggestions:     # what needs the finished board's occupancy
-            measure(found)
+            try:
+                measure(found)
+            except Exception:                       # a suggestion is best-effort: no sides measured, the rest still offered
+                pass
         self._late_suggestions = []
         suggestions.bind(plan.findings, self)       # each suggestion to the lines of the script it edits
         return plan

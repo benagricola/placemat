@@ -4,11 +4,26 @@ numbers, lists), so a finding carries them and suggestions.py builds the wording
 from __future__ import annotations
 
 import dataclasses
+import functools
 import re
 from collections import Counter
 
 from .board_geometry import members_of
 from .values import Beside, Edge, Face, Part
+
+
+def safe(default):
+    """A suggestion is best-effort: a measurement that fails for any reason gives `default` (no facts, so no
+    suggestion), and the resolve it was made in goes on."""
+    def wrap(fn):
+        @functools.wraps(fn)
+        def guarded(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except Exception:
+                return default() if callable(default) else default
+        return guarded
+    return wrap
 
 
 def inst_of(board, ref: str) -> str:
@@ -24,6 +39,7 @@ def intent_of(board, key: str):
     return next((i for i in board._intents if getattr(i, "key", None) == key and hasattr(i, "item")), None)
 
 
+@safe(list)
 def free_sides(board, occ, plan, i, around: str, near, rotation=None, face=None) -> list:
     """The sides of the part `around` (an instance name) where item `i` may stand `Beside` it, nearest to `near` (a
     Location) first, as Edge names ("NORTH"). Each side is judged as a firm placement is, with the item itself lifted
@@ -50,6 +66,7 @@ def free_sides(board, occ, plan, i, around: str, near, rotation=None, face=None)
     return [s for _, s in sorted(found)]
 
 
+@safe(list)
 def partners(board, i, occ, placed, near=None, limit: int = 2) -> list:
     """The instance names of the placed parts that pull item `i` (a pad of theirs on a net one of its own pads is on,
     or a declared link), the strongest pull first, then the nearest to `near`."""
@@ -118,6 +135,7 @@ def _item_facts(board, i) -> dict:
             "step": i.step, "radius": i.radius}
 
 
+@safe(dict)
 def unplaced_search(board, occ, plan, i, placed, result, hint, radius) -> dict:
     """The facts for a search that found no legal spot: what refused most candidates and who, the parts that pull the
     item and the sides of each it may stand beside, and what the declaration leaves the search."""
@@ -148,6 +166,7 @@ def unplaced_search(board, occ, plan, i, placed, result, hint, radius) -> dict:
     return facts
 
 
+@safe(list)
 def link_candidates(board, i, limit: int = 2) -> list:
     """Pairs of pads that could be linked to pull item `i` toward the part it shares a net with: [{"own": pad number,
     "partner": instance name, "pad": pad number}], the partner being a declared item other than `i`."""
@@ -168,6 +187,7 @@ def link_candidates(board, i, limit: int = 2) -> list:
     return out[:limit]
 
 
+@safe(dict)
 def unplaced_pocket(board, occ, plan, i) -> dict:
     """The facts for an item no pocket took: the pads it could be linked to a part by, and, for each such part that is
     already placed, the sides of it the item may stand beside."""
@@ -187,18 +207,21 @@ def unplaced_pocket(board, occ, plan, i) -> dict:
     return facts
 
 
+@safe(dict)
 def unplaced_slide(board, i) -> dict:
     facts = _item_facts(board, i)
     facts["edge"] = i.edge.name if i.edge is not None else ""
     return facts
 
 
+@safe(dict)
 def fixed_part(board, i) -> dict:
     facts = _item_facts(board, i)
     facts["freedom"] = i.freedom.value
     return facts
 
 
+@safe(dict)
 def escape_facts(board, occ, plan, ref, number, net, by) -> dict:
     """A pad closed or walled in: the part, the pin, what blocks it, and the side of the part its way out points at."""
     facts = {"ref": ref, "part": inst_of(board, ref), "pin": str(number), "net": net, "by": list(by)}
@@ -214,6 +237,7 @@ def escape_facts(board, occ, plan, ref, number, net, by) -> dict:
     return facts
 
 
+@safe(str)
 def last_place(board) -> str:
     """The key of the last `place` the script made in its own file, where a declaration for an item it left out
     goes after; "" when none stands alone on its line."""

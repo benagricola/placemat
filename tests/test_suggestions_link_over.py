@@ -75,3 +75,20 @@ def test_a_finding_is_cleared_when_its_kind_case_and_item_are_gone_from_the_next
     raise_limit = next(s for s in f.suggestions if s.text.startswith("Raise the limit"))
     board2, plan2 = apply_and_resolve(tmp_path, plan, raise_limit.id, path)
     assert sg.cleared(f, plan2.findings)
+
+
+def test_a_builder_or_a_measurement_that_fails_does_not_fail_the_resolve(tmp_path, monkeypatch):
+    from placemat import suggest_facts
+
+    def boom(*a, **k):
+        raise RuntimeError("a measurement that cannot be taken")
+    monkeypatch.setitem(sg.CASES, "link_over", boom)
+    board, plan, path = resolve(tmp_path, SCRIPT)
+    (f,) = over(plan)
+    assert f.suggestions == () and f.startswith("link C1.1")
+    monkeypatch.undo()
+    monkeypatch.setattr(suggest_facts, "free_sides", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no")))
+    (tmp_path / "again").mkdir()
+    board, plan, path = resolve(tmp_path / "again", SCRIPT)
+    (f,) = over(plan)
+    assert not [s for s in f.suggestions if s.lever == "beside"] and f.suggestions
