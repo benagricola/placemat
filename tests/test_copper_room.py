@@ -113,3 +113,58 @@ def test_a_part_searched_after_declared_copper_keeps_clear_of_it():
     assert _distance_to_track(with_room, "T1") >= GAP - 1e-4
     assert not with_room.findings, with_room.findings
     assert any("not drawn" in str(f) for f in run(False).findings)         # as before: the track met the part placed over it
+
+
+def test_a_run_that_is_placed_again_reports_its_firm_items_once():
+    lines = []
+    fps = [footprint("Y1", 20, 20, w=2, h=2, inst="y1", nets=("N1", "N2"), excess=0.0, fab=(19, 19, 21, 21)),
+           footprint("Z1", 18.9, 13.25, w=4, h=2, inst="z1", nets=("N3", "N4"), excess=0.0, fab=(16.9, 12.25, 20.9, 14.25)),
+           footprint("Q1", 22.1, 13.25, w=2, h=10.5, inst="q1", nets=("N5", "N6"), excess=0.0, fab=(21.1, 8.0, 23.1, 18.5)),
+           footprint("P1", 40, 40, w=2, h=1, inst="p1", nets=("N7", "N8"), excess=0.0, fab=(39, 39.5, 41, 40.5))]
+    b = _board(fps, True)
+    b.place(Part("y1"), at=Location(20, 20))
+    b.place(Part("z1"), at=Location(18.9, 13.25))
+    b.place(Part("q1"), at=Beside(Part("z1"), Edge.EAST))
+    b.place(Part("p1"), at=Beside(Part("y1"), Edge.NORTH))
+    b.resolve(progress=lines.append)
+    assert len([l for l in lines if l.startswith("q1 ")]) == 1, lines
+    assert len([l for l in lines if l.startswith("p1 ")]) == 1, lines
+
+
+def test_a_beside_part_that_no_place_within_reach_clears_of_the_copper_is_said_with_its_facts():
+    """The track runs on north beyond the reach: R1 stays at its standoff, and the finding names the copper."""
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"), excess=0.0, fab=(18.0, 19.0, 22.0, 21.0)),
+           footprint("R1", 40, 40, w=2.6, h=1, inst="r1", nets=("C", "D"), excess=0.0, fab=(38.7, 39.5, 41.3, 40.5))]
+    b = _board(fps, True, keep_going=True)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("r1"), at=Beside(Part("u1"), Edge.NORTH))
+    b.track(Net("A"), [PadRef(Part("u1"), 1), Location(18.6, 8.0)], layer=F, why="a long track north of the pad")
+    plan = b.resolve()
+    room = [f for f in plan.findings if f.cause.value == "fixed.room"]
+    assert len(room) == 1 and room[0].facts["item"] == "r1" and room[0].facts["copper"] == "track A"
+    assert room[0].facts["side"] == "north" and room[0].facts["net"] == "A"
+    assert plan.box("r1").bottom == pytest.approx(18.8, abs=1e-4)           # at the standoff
+
+
+def test_provisional_copper_is_an_obstacle_only_where_it_applies():
+    from placemat.copper import Track
+    from placemat.layout import _shape_of
+    from placemat.occupancy import Occupancy
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"))]
+    occ = Occupancy(board_geometry(fps, width=60, height=60), 1.0)
+    geom = occ._geometry(fps[0])
+    room = _shape_of(Track("A", F, 0.2, Location(1, 1), Location(5, 1)))
+    occ.set_rooms([room])
+    assert room not in list(occ.obstacles(geom))
+    occ.rooms_apply = True
+    assert room in list(occ.obstacles(geom))
+
+
+def test_a_copper_that_moved_between_passes_is_said_by_how_much():
+    from placemat.copper import Track
+    from placemat.layout import _rooms_moved, _shape_of
+    a = dataclasses.replace(_shape_of(Track("A", F, 0.2, Location(1, 1), Location(5, 1))), owner="room track A")
+    b = dataclasses.replace(_shape_of(Track("A", F, 0.2, Location(1, 1.5), Location(5, 1.5))), owner="room track A")
+    assert _rooms_moved({0: [a]}, {0: [a]}, 0.001) == []
+    ((key, mm),) = _rooms_moved({0: [a]}, {0: [b]}, 0.001)
+    assert key == "track A" and mm == pytest.approx(0.5)

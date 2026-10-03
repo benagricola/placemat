@@ -112,7 +112,7 @@ class Settings:
     place_copper_room: bool = S(True, "bool",
         "whether placement keeps room for the copper the script declares: a track or via declared between parts is planned "
         "provisionally, and a part standing Beside another moves out of its way. False places as before")
-    place_firm_passes: int = S(4, "count",
+    place_firm_passes: int = S(8, "count",
         "the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was "
         "refused by a firm part placed before it, with the two taken in the other order), the last one the settled run")
     place_copper_room_tolerance: float = S(0.001, "mm",
