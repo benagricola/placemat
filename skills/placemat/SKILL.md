@@ -270,7 +270,9 @@ model into declarations.
    them all, with the edit as data). `placemat apply <id> --dry-run` prints
    its diff, `placemat apply <id>` writes it, `placemat apply --undo` puts
    the last one back. A number a suggestion writes is a named constant with
-   a comment saying where it came from: keep the comment. The run after it
+   a comment saying where it came from: keep the comment. A suggestion worded "...might fix this: search options?" has no
+   value yet: `placemat apply s3a --search` (`--yes` to skip the question before a probe that resolves the whole board
+   for each candidate) resolves the script with each candidate in memory and keeps the best as `s3a.1`; apply that. The run after it
    says whether the finding cleared (`api.md`, "Findings and severities"). In the studio each finding row
    shows its best suggestion with Show (the diff), Try (the edited script resolved and compared, nothing written:
    did the finding clear, what else moved) and Apply; to check a suggestion without writing it, ask the user to Try
