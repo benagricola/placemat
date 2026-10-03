@@ -3278,6 +3278,11 @@ agent.
 placemat studio [<script>] [--port N] [--no-open] [--host ADDR]
 ```
 
+Commands in the project report to the studios running there over a Unix socket (`.placemat/studio/<pid>.sock`, with
+`<pid>.json` as the registry entry) - see "The live channel" in the studio spec; an explore's variants are kept in
+`.placemat/views/explore/*.json`, and `GET /cmd/ID` and `GET /explore?f=PATH` serve a command's events and an
+explore's record.
+
 With `--host` the studio prints a QR code of its address in the terminal, for a phone to scan; the page's "Share"
 button shows the same for the current view (the view is kept in the address's hash).
 

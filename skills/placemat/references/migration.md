@@ -5,6 +5,29 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **The studio shows every placemat command of its project, live.** A studio listens on a Unix socket in the project
+  (`<project root>/.placemat/studio/<pid>.sock`, with `<pid>.json` beside it); any command that resolves a board
+  (`run`, `preview`, an explore, whoever started it) finds the studio the first time it resolves and sends it newline
+  JSON: the steps and phases the studio's own worker sends, the finished plan, and for an explore the plain placement,
+  each variant (seed, score, measures, the focused items' placements and order) and the end; then `done` with the
+  record's path, or `error`. A command is never slowed: with no studio there is one directory check, with one a
+  sender thread with a bounded queue drops what does not fit, and a studio that goes away is dropped silently.
+  The page's new Runs view lists the live commands (command, script, pid, elapsed, state), a toast announces a new one,
+  and opening one draws its steps on the board in place of the studio's own plan. An explore is shown with a plot of
+  score against time and the best so far, the latest variant (at most `[studio] explore_fps` times a second, default 2)
+  and the best drawn over the plain placement, thumbnails, a step through the variants by order or score, and where
+  each item landed across them. Linux and macOS only.
+- **An explore keeps its variants.** `.placemat/views/explore/<time>-<pid>.json` holds every variant (seed, score,
+  measures, the focused items' placements and the order they were placed in) and which was kept; the studio lists and
+  replays finished explores from it. `run.json`'s `metrics.explore` names it as `record`.
+- **The studio's own Run is a command like the rest**: it reports over the channel and the page shows its live steps
+  instead of its printed lines (the studio reads no printed text). A resolve worker that crashes is reported as a
+  lost connection and the step it was on; the traceback is detail where there is one.
+
 ## To 0.86.3
 
 ### New
