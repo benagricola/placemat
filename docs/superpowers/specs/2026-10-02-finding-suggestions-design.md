@@ -763,6 +763,16 @@ scripts use none). A refusal at once would break board scripts without notice, s
   skill's placement text say the flag and the rule. The tests that use numeric `Centre` axes (21 files) take
   `coordinates=True` in the same commit as the refusal, and one test per behaviour covers the warning in release n.
 
+**What a script writes.** `coordinates=False` is the default and is never written. An intent `Centre` is written with its
+two axes, or one axis and `None`, and nothing else; `coordinates=True` appears only on a deliberate coordinate escape hatch.
+`SKILL.md` and `api.md` say this plainly, in the placement text and at the `Centre` entry, and the migration text gives the
+before and after of a declaration. Suggestions, and any code that writes scripts (`freeze.py`, the studio's edits, the
+probe), never emit `coordinates=False`; removing the flag, when a placement moves to intent, removes the keyword entirely.
+I would add a small notice: a script that writes `coordinates=False` explicitly gets a `setup` notice, cause
+`setup.centre_flag_default`, facts `{item}`, rendered "c4: coordinates=False is the default: leave it out", with an instant
+suggestion that removes the keyword (`remove_kwarg coordinates`). It costs one cause and a renderer, and it keeps scripts
+and the skill's example from carrying a keyword that says nothing. It ships with the flag (phase 4b).
+
 **What suggestions may do.**
 
 - A suggestion edits a `Centre` only when it has no `coordinates=True`, that is, when every axis is already intent. It never
