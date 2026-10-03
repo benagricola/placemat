@@ -1380,3 +1380,15 @@ hello(); send("hello", {script: "x_layout.py", keep: 5, history: [], resolving: 
 out.state = [ev("S.canApply"), ev("S.applied.length")];
 """)
     assert out["state"] == [False, 1]
+
+
+@needs_node
+def test_a_searched_suggestion_is_drawn_with_a_search_button_in_place_of_show_try_apply(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+const F2 = [Object.assign({}, FND[0], {suggestions: [{id: "q1", text: "Find the best limit", rank: 1, lever: "limit", kind: "search"}, SUG[0]]})];
+full([item("a", 1)], [st("a")], {findings: F2});
+ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
+""")
+    h = out["html"]
+    assert 'data-sg="search" data-sid="q1"' in h and 'data-sg="show" data-sid="q1"' not in h and "Search options" in h
+    assert 'data-sg="show"' not in h.split("more (")[0]                    # the instant one is behind "more"
