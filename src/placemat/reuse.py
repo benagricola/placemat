@@ -201,15 +201,19 @@ def read(path):
 
 
 def finding_to_json(f) -> list:
-    return [f.kind, str(f), f.severity]
+    """[kind, text, severity, case, suggestions]: the suggestions as the raising site made them, before
+    suggestions.bind gives them a file, a line and an id from the script as it is when they are shown."""
+    return [f.kind, str(f), f.severity, f.case, [s.to_json() for s in f.suggestions]]
 
 
 def finding_from_json(v):
-    """A stored finding: [kind, text, severity]; without the severity, as a
-    cache from before findings had one kept it, it is the kind's own; a bare
-    sentence, as a cache from before findings had kinds kept it, reads as a
-    setup finding."""
+    """A stored finding: [kind, text, severity, case, suggestions]; without the case and the suggestions, as
+    a cache from before findings had them kept it, it has none; without the severity, as a cache from before
+    findings had one kept it, it is the kind's own; a bare sentence, as a cache from before findings had kinds
+    kept it, reads as a setup finding."""
     from .findings import Finding
     if isinstance(v, str):
         return Finding("setup", v)
-    return Finding(v[0], v[1], v[2] if len(v) > 2 else None)
+    from .suggestions import Suggestion
+    return Finding(v[0], v[1], v[2] if len(v) > 2 else None, v[3] if len(v) > 3 else None,
+                   suggestions=[Suggestion.from_json(s) for s in v[4]] if len(v) > 4 else ())

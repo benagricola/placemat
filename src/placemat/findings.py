@@ -75,16 +75,24 @@ class Finding(str):
     """The sentence, with `.kind` one of KINDS and `.severity` one of
     SEVERITIES (the kind's own unless the finding says otherwise)."""
 
-    def __new__(cls, kind: str, text: str, severity: str | None = None):
+    def __new__(cls, kind: str, text: str, severity: str | None = None, case: str | None = None,
+                facts: dict | None = None, suggestions=()):
         if kind not in KINDS:
             raise ValueError("a finding's kind is one of %s, not %r" % (", ".join(KINDS), kind))
         self = str.__new__(cls, text)
         self.kind = kind
         self.severity = SEVERITY[kind] if severity is None else check_severity(severity)
+        self.case = case                    # "kind.case": which of a kind's situations this is (suggestions.py)
+        self.facts = dict(facts or {})      # what the raising site measured, for building its suggestions
+        self.suggestions = tuple(suggestions)   # changes to the script that may clear it (suggestions.Suggestion)
         return self
 
     def __reduce__(self):
-        return Finding, (self.kind, str(self), self.severity)
+        return Finding, (self.kind, str(self), self.severity, self.case, self.facts, self.suggestions)
+
+    def with_suggestions(self, suggestions) -> "Finding":
+        """The same finding with these suggestions."""
+        return Finding(self.kind, str(self), self.severity, self.case, self.facts, suggestions)
 
     def line(self) -> str:
         """The sentence as a run prints it: `[critical] ...`."""
