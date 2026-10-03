@@ -1,7 +1,7 @@
 # Studio board builder
 
 Date: 2026-10-03
-Status: design, for the user's review
+Status: design, revised with the user's answers (2026-10-03)
 Source: the user, 2026-10-03, condensed: a studio feature to build a layout for a new board from its `.zen` file. The
 outline comes from simple shapes (circles, polygons, rectangles; anything more complex is a pain). A list of the
 modules and components to click and place: fixed by intent (the middle of the top edge, say), or searched, or
@@ -24,7 +24,7 @@ that pin, the rest can be searched.
 What exists to build on:
 
 - The studio's watch, warm resolve and streamed steps, the linked script view, the resolve history and compare.
-- The suggestions engine (`script_edit.py`, branch `suggestions-core`): pure `apply(edit, text)` on a LibCST tree,
+- The suggestions engine (`script_edit.py`, branch `suggestions-core`): pure `apply(edit, text)` in the shared splicing editor,
   with `set_kwarg`, `remove_kwarg`, `set_arg`, `edit_list`, `insert_statement`, `remove_statement`, `set_constant` and
   `toml_set`; a digest check; an atomic write; the applied log with undo (`.placemat/applied.jsonl`); Show (diff, no
   write) and Try (a resolve of the edited text, no write). The studio endpoints for them are the studio branch's.
@@ -79,10 +79,12 @@ client never sends source.
 
 ### Starting
 
-`placemat studio <board>.zen` (or a folder holding one `.zen`) starts the builder when no layout script exists for
-the board. The project list on the page's start view gains a second group, "Boards with no layout", for each `.zen`
-that declares a `Board`, `Project` or `Layout` and has no `<Board>_layout.py` beside it, with a Start button.
-`[studio]` gains no setting for this; the studio already finds the project's `.zen` files for the script list.
+The whole flow is in the web page; there is no command and no command-line entry for building. `placemat studio`
+only starts the server (on a host, as it does today). With no script argument the page's start view lists the
+project's layout scripts and, as a second group, "Boards with no layout": each `.zen` in the project that declares a
+`Board`, `Project` or `Layout` and has no `<Board>_layout.py` beside it. Picking one starts the builder: the page
+runs the steps below. `placemat studio <script>` for an existing script is unchanged. `[studio]` gains no setting
+for this; the studio already finds the project's `.zen` files for the script list.
 
 1. **Find the board.** `find_board` on the `.zen`'s folder, with the board's name passed as `wanted` when the file
    declares several (the same rule a script's `<Board>_layout.py` name follows).
@@ -92,10 +94,16 @@ that declares a `Board`, `Project` or `Layout` and has no `<Board>_layout.py` be
    write.
 3. **Read the board.** The generated board gives the parts, cells and nets (the data `placemat parts` and `board.parts()`
    read). Nothing is placed yet: every footprint is an undeclared item.
-4. **The outline dialog** (below) collects the shape and its size.
-5. **Create the script**, in one write, from the skeleton with the outline in it. Until this write there is no script
+4. **Facts** (below): the panel lists every fact `placemat facts` reports and which are undecided. The user decides
+   each in a structured form; the edits go to the `.zen`, `fab-profile.json` and `placemat.toml`, and the board is
+   regenerated after each batch. This is before any placement, as the skill's loop requires.
+5. **The outline dialog** (below) collects the shape and its size, and offers a size suggested from the parts.
+6. **Create the script**, in one write, from the skeleton with the outline in it. Until this write there is no script
    and nothing to resolve; after it, the script resolves as any script does. The file is never in a state that does
    not resolve (a skeleton with no outline would raise "the board has no size yet").
+7. **Confirm the facts** for the new script. The confirmation is keyed to the script's path and its digest reads the
+   script's own `plane()` calls, so it can only be recorded once the script exists. Until it is recorded, the part
+   list's placement actions and "Search the rest" are disabled, with the reason shown.
 
 ### The file
 
@@ -125,11 +133,102 @@ board.rect(width=BOARD_WIDTH_MM, height=BOARD_HEIGHT_MM)
   constants"). The decided placements follow the outline, then the searched block (below).
 - Where a name is already bound, `set_constant` takes a counter, never overwrites.
 
-### Facts
+## Facts
 
-The skill's loop starts with `placemat facts`. The builder shows its state as a banner ("facts unconfirmed: 3") and
-does not confirm anything: confirming is the user's decision, made as the skill describes. The banner links to the
-facts view the studio already has, or tells the user to run `placemat facts`. See the open questions.
+The skill's loop says to establish the board's facts before any placement and never to proceed on a default. The
+builder does that in the page: the user states each fact in a form, the builder writes it to its home, regenerates,
+and records the confirmation that `placemat facts --confirm` records. The state is read from the same function the
+command uses (`facts.facts_of`, `facts.unconfirmed_reasons`), so the page and the command cannot disagree.
+
+### The panel
+
+A "Facts" view in Build, first in the new-board flow and always available after. Each fact is a row with a state:
+
+| State | Meaning |
+|---|---|
+| decided | the value is written in the file that is its home; the row names the file |
+| undecided | the value is a default nobody wrote down (a layer with no declared weight, a via type `fab-profile.json` names no tier for, no `min` section, a rise not set in `placemat.toml`) |
+| flagged | `facts_of` raises a plane mismatch: a signal layer that carries a `plane()`, or a power layer with none |
+| changed | decided, but different from the last confirmed digest |
+
+The header counts them ("4 undecided, 1 flagged") and shows the reasons from `unconfirmed_reasons` as structured
+rows. Nothing proceeds on a default: the confirm button is enabled only when no row is undecided and each flag has
+been acknowledged. Leaving a default unwritten is not a decision; accepting a default is one, by clicking it, and it
+is then written. "Changed" appears after a hand edit or a later builder edit moves the digest, and reopens the gate
+below.
+
+### The forms
+
+Each fact is edited in a structured form with typed fields (a number in mm, a choice from a list, a net picker over
+the generated board's nets). No fact is edited as free text.
+
+| Fact | Form | Home | What is written |
+|---|---|---|---|
+| Layer roles and copper weights | a stackup table, one row per layer in order: copper rows (role `signal`, `power` or `mixed`; weight 0.5, 1 or 2 oz) and dielectric rows (thickness in mm; `core` or `prepreg`); the copper count follows `Board(layers=)`, a field in the form | the `.zen`: `Board(config=BoardConfig(stackup=Stackup(layers=[...])))` | the layer records with `thickness=` (the weight converted to mm by the mapping placemat already uses) and `role=`; a trailing comment on each value, "chosen in the studio's board builder" |
+| Differential pair nets | a list of candidate pairs found from the net names (the `_P`/`_N`, `+`/`-` families) that the user ticks, plus a net picker to make any other pair; per pair: width and gap in mm. A tick box says "this board has no differential pairs" | the `.zen`: a `NetClass(name=, diff_pair_width=, diff_pair_gap=, nets=[...])` in `design_rules.netclasses` | one class per pair with exactly its two nets |
+| Via types and their tier | micro, blind, buried: each `yes`, `no` or `if-needed`; the default drill and size | `fab-profile.json`, `via` | all three types named, `"no"` included, since a type with no tier is undecided |
+| Fab minimums | track, clearance, drill, annular ring, via size, in mm | `fab-profile.json`, `min` | the `min` section |
+| The rise | a number in degrees C | `placemat.toml`, `[check] rise_c` | the key, by the existing line-level toml edit |
+
+The values are the user's. The forms start empty where the fact is undecided and prefilled from the file where it is
+decided; the builder never prefills a number it invented. A candidate pair is a suggestion from a net name, shown as
+such. Candidate nets and the layer count come from the generated board, as structured data.
+
+Where a file does not exist the builder creates it: `fab-profile.json` beside the nearest `placemat.toml` above the
+board, else beside the `.zen` (open question), and `placemat.toml` by the command's own rule (the nearest one above the
+board, a new one beside it only when none exists).
+
+### Editing a `.zen`
+
+A `.zen` is Zener source, which uses Python's call and list syntax (`Board(...)`, `BoardConfig(...)`, `NetClass(...)`,
+`load(...)`). The editor is the same shared splicing editor as for layout scripts, with a `.zen` dialect:
+
+- **Parse.** Python's `ast` reads the file for node positions. A `.zen` that `ast.parse` cannot read (syntax only
+  Starlark has) is shown read only with the reason; the facts it holds are listed from the generated board, and the
+  other homes stay editable.
+- **Locate.** The `Board(...)` call whose `name=` is the board, and inside it the path `config` -> `BoardConfig` ->
+  `stackup` -> `Stackup` -> `layers`, or `design_rules` -> `DesignRules` -> `netclasses`. Each step must be a literal
+  call or list; a `config=` that is a name, a merge or a function result is not found exactly once and the edit is
+  refused, naming the expression. A missing branch is created in place (a `stackup=Stackup(...)` keyword added to the
+  `BoardConfig` call), and the names it needs are added to the file's `load(...)` of `board_config.zen`.
+- **Edit.** The same operations as for scripts: nested `set_kwarg`, `edit_list`, `insert` of a keyword or an element,
+  as minimal span splices that leave every other byte of the file, comments included, as it was. A new keyword or
+  element takes the layout of its neighbours.
+- **Verify.** The edited text must parse; the `ast` outside the target node must equal the original's (the engine's
+  masked check); the digest of the file at the plan must equal its digest on disk. After the file is written and the
+  board regenerated, the page reads the fact back from the generated board (`facts_of`) and compares it with what was
+  asked. A fact that did not take effect (the generator ignored a field) is reported, and an undo is offered.
+- **Undo.** The write is an applied-log entry with the file's before and after text, one entry for the batch, as for
+  scripts. Undo restores the text if the file still equals the entry's `after`, regenerates, and the gate reopens.
+- Literals in a `.zen` follow the file's own convention (the netclasses there carry literal numbers); the comment on
+  the value says where it came from. This is a deliberate difference from the layout script's named constants.
+
+`fab-profile.json` is edited the same way with a JSON dialect: the value spans are found by a small scanner over
+`json.JSONDecoder.raw_decode`, the target key's value replaced or the key inserted in the file's own indentation, the
+rest of the file left byte for byte, and `json.loads` before and after must differ only in the target. A file that
+does not parse is refused. `placemat.toml` uses `toml_set` as built.
+
+A batch of facts is one multi-edit across the three files (and the digests of all of them are checked), then one
+regeneration (`runner.generate`, which already regenerates when its inputs changed), shown on the live channel.
+Regeneration before placement costs a generation; after placement it re-resolves the placements, and the page says so
+before applying a fact edit on a board with decided items.
+
+### The gate and the confirmation
+
+- **The gate.** While any row is undecided, flagged and unacknowledged, or changed, the part list's placement actions
+  and "Search the rest" are disabled, with the list of rows that hold it. The outline editor and the facts forms stay
+  usable.
+- **Flags.** A plane mismatch is not fixed by a fact (a plane is copper, declared in the layout script, which the
+  builder does not write). The row says what is mismatched; the user either changes the layer role in the stackup
+  table, or acknowledges that the plane will be declared in the script. An acknowledgement is a click in the page and
+  is not recorded; the digest does not include mismatches, so a later `plane()` does not unconfirm.
+- **Confirm.** The Confirm button records the digest of the facts for this script in the nearest `placemat.toml`,
+  `[facts.boards] "<script path>" = "<digest>"`, through the same function `placemat facts --confirm` calls
+  (`facts.write_confirmed`, refactored so its text edit is a pure function the apply path can log). It is an
+  applied-log entry like any edit: undoing it removes the record and the gate closes.
+- **After confirmation.** An edit to any fact, from the page, an editor or an agent, changes the digest. The page shows
+  "changed" rows (the difference between the confirmed document and the current one, per fact) and closes the gate until
+  the user confirms again. The run's own `facts` finding is unchanged.
 
 ## The outline editor
 
@@ -165,7 +264,40 @@ BOARD_OUTLINE_MM = [(0.0, 0.0), (60.0, 0.0), (60.0, 25.0), (35.0, 25.0), (35.0, 
 
 Vertices are typed or dragged (snapped to the grid), added by clicking a leg and removed by selecting one. The page
 refuses a polygon with fewer than three vertices, a repeated vertex, a self-intersection or no area, before any
-edit is made. See the open questions: this is the point where the "no coordinates" rule meets an outline.
+edit is made. Decided with the user: vertex numbers are fine, because the outline is the board's own shape.
+
+**A suggested size.** The dialog offers a board area and size computed from the parts, and the user may change any
+figure before the outline is written.
+
+- **Inputs.** The total courtyard area of the generated board's footprints (a cell's members count; the footprint's
+  box where it has no courtyard, as the placer's claim does); whether components go on one face or both (a switch in
+  the dialog, default one); the maximum fill, a `[studio] builder_max_fill` setting; and an aspect ratio (width over
+  height) for a rectangle, a field defaulting to `[studio] builder_aspect`.
+- **Formula.** `area = total_courtyard_area / (faces * max_fill)`, with `faces` 1 or 2. The unfilled share, `1 -
+  max_fill` on each face, is what is left for routing. For a rectangle `width = sqrt(area * aspect)` and `height =
+  area / width`; for a disc `diameter = sqrt(4 * area / pi)`. The page shows the total, the face count, the fill, the
+  area and the resulting figures, and the user can type any of them over (a typed size replaces the suggestion; a
+  typed area recomputes the size). Two faces assume the parts split evenly between them, which a placement need not
+  do; the figure is a starting size, not a check.
+- **Rounded.** Sizes are rounded up to `builder_grid_mm`.
+- **Default fill, from a measurement.** Of the fixture boards, one has a board outline and parts placed on it (the
+  others are module fragments with a fit frame, or an unplaced generation, which have no outline to divide by). On
+  that board the 258 footprints have 1690.7 mm2 of courtyard (1046.4 on the front face, 644.3 on the back) on a
+  2551.7 mm2 outline: 0.66 of the board area over both faces, 0.33 per face averaged, 0.41 on the busier face. The
+  default is `builder_max_fill = 0.33`, the per-face mean, so a two-sided suggestion reproduces that board and a
+  one-sided one leaves more room than that board's front face had. This is one board; the setting exists so it can
+  be tuned as more boards are measured, and the measurement should be repeated on the bench boards when the feature
+  is built.
+- **What is written.** The suggested size goes in as the same named constants as a typed one, with a comment that says
+  how it was derived:
+
+```python
+# The board's width, suggested by the studio's board builder from the parts' courtyard area: 1690.7 mm2 on two
+# faces, at most 33% filled per face, aspect 1.5.
+BOARD_WIDTH_MM = 62.0
+```
+
+  A size the user typed over the suggestion says "chosen in the studio's board builder" as before.
 
 **Holes and cutouts.** `holes=[Cutout(...)]` on the outline statement. The editor offers a round hole or a slot with
 a name, sized by constants, and a place the cutout forms allow without a coordinate: on an edge
@@ -209,7 +341,7 @@ and the generated board's netlist, never from text.
   count) by default, since that is the order a person reasons about big parts first.
 - **Counts.** `12 unplaced, 3 searched, 5 decided`. In Build the `setup` findings "no declaration places it" are
   folded into the unplaced count in the findings view, so a half-built board is not a wall of warnings; they remain in
-  the run record (open question).
+  the run record.
 - **Highlights.** Selecting a part marks, in the list and on the board, the parts it shares a net with, with the
   count of shared nets: the information a person uses to choose a target.
 
@@ -241,8 +373,8 @@ and the generated board's netlist, never from text.
 
 A subject is a `Part("ref")` or a `Cell("name")`, written inline in the script's own spelling (a new script has no
 spelling yet, so inline `Part("j1")`, as `api.md`'s examples write it; an existing script's spelling is found by
-`script_edit.spelling`). Rotation is left out unless the user sets it (a searched part tries all four; edge and row
-placements turn the item by its outward side). Every statement below is a `board.place(...)` unless it says another
+`script_edit.spelling`). Rotation is left out unless the user sets it or accepts the suggested turn (below); a
+searched part tries all four, and edge and row placements turn the item by its outward side. Every statement below is a `board.place(...)` unless it says another
 form; `item` is the subject.
 
 | Intent | Subject, target | Statement |
@@ -264,6 +396,7 @@ form; `item` is the subject.
 | Close to a pad, searched | part, pad | `board.link(PadRef(own, ...), PadRef(Part("u1"), "VDD"), weight=LinkWeight.SHORT)` then `board.place(Part("c1"))` |
 | Near a pad the netlist does not join | part, pad | `at=Near(PadRef(Part("u1"), "VDD"))` |
 | In line with a pad, sliding along it | part, pad | `at=Centre(X(PadRef(Part("u1"), "VDD")), None)` |
+| A quarter turn, suggested or picked | any placement with a decided spot | adds `rotation=90` (0, 90, 180 or 270) |
 | Turned so a pad faces a side | any placement | adds `rotation=Facing(PadRef(Part("u1"), 3), Edge.NORTH)` |
 | Turned with another part | any placement | adds `rotation=Turned(Part("u1"), 0)` |
 | On the back, or either face | any placement | adds `face=Face.BACK` or `face=Face.EITHER` |
@@ -292,10 +425,21 @@ Notes on the table.
 - **Rotation, face, priority, required and why** are modifiers on a placement, edited by `set_kwarg` and
   `remove_kwarg` on its call. A priority is offered with a prompt for the reason, and the reason is written as
   `why=`.
-- **A cell** takes the same intents as a part. Its sides come from its own `faces(outward=)`, which the edge and row
-  forms already read; the builder does not rotate a cell by a number. See the open question on what "frame" means.
+- **Suggested turn.** For a placement that decides a spot without deciding the turn (`Beside`, an in-line `Centre`),
+  the panel offers the four quarter turns, each with a measured figure, the number of ratsnest crossings the part's
+  connections make with the connections among the components already placed, and marks the turn with the fewest.
+  The user can pick another; with a tie the turn that is no `rotation=` at all wins. The count is taken on the plan:
+  the part is held at its resolved place with its pads turned about its origin, and the ratsnest (`ratsnest.py`)
+  is counted for each turn. That is a quick estimate that ignores the legality of the turned part at that spot; Try
+  on a turn resolves it exactly and shows its own figure beside the estimate. The chosen turn is written as a literal
+  quarter turn, as scripts write them, with the reason: `rotation=90, why="fewest ratsnest crossings of the four
+  turns"`. The suggestion needs the part's place, so it is offered after the placement has been applied and resolved,
+  as a second step (an edit of the same call, `set_kwarg(rotation, ...)`). Edge and row placements are already
+  turned by their outward side and get no suggestion; a searched part tries every turn itself.
+- **A cell** takes the same intents as a part. Its declared sides (`faces(outward=)`) are what the edge and row forms
+  already use to turn it; there is no separate cell feature, and a cell's turn is suggested as a part's is.
 - **Not offered**: `Location`, a numeric `Centre`, `Pin` on a point, `Polar` with a typed radius or bearing for a
-  part, `Near(Location)`, a typed `along=` distance or `pitch=` (open question), `board.figure`, `overhang=` (a
+  part, `Near(Location)`, a typed `along=` distance or `pitch=` (decided: intent only), a board-middle target (no form earns it), `board.figure`, `overhang=` (a
   distance past an edge, which needs a reason; a later increment writes it as a constant with a required `why=`).
 
 ### Numbers in intents
@@ -328,8 +472,8 @@ Each region of the script has a rule, so the file reads the way a hand-written o
    beyond the links it wrote for a "close to" intent, which sit directly above their `place`.
 
 Changing a searched item into a decided one is one multi-edit: remove its bare statement and insert the decided one
-at the end of the decided region. (The alternative, a `set_kwarg(at=...)` where it stands, keeps the item in the
-searched block with an `at=`. Open question; the choice here is the move, so each region keeps its meaning.)
+at the end of the decided region (decided with the user), so each region keeps its meaning. A decided statement can
+be moved within its region later (`move_statement`, a new op below), since firm items go down as declared.
 
 ## Searching the rest
 
@@ -394,8 +538,8 @@ editable.
   the file still equals its `after`, otherwise it refuses and says so. The builder's actions are log entries of
   source `builder` with the intent's phrase as their label. Undo and redo are buttons in the Build header and keys.
 - **Redo** is new. An undone entry stays in the log marked undone; Redo re-applies its `after` text if the file now
-  equals its `before`. A new apply drops the redo entries. Both are in `apply_suggestion`'s module, and
-  `placemat apply --undo/--redo` share them.
+  equals its `before`. A new apply drops the redo entries. Redo lives in the apply module beside undo and is used by
+  the page; the command line's `placemat apply --undo` is unchanged.
 - **The first write is undoable** the same way: the file's creation is a log entry with `before: null`, and undoing it
   removes the file if it still has the text the creation wrote. Undo past it returns the board to "no layout".
 - A multi-edit (a shape change, a search of the rest, a searched-to-decided move) is one entry, so one undo.
@@ -502,6 +646,17 @@ New to the engine for this spec, each small and pure:
 - **`read_intent`**: `script_edit.read_intent(text, target) -> intent value | None`, the inverse of `_render` for the
   builder's closed vocabulary (the forms in the table above). `None` means "by hand".
 - **Redo** in the apply module (above).
+- **`move_statement`**: moves a statement within its region, for reordering decided placements.
+- **Ratsnest count per turn**: a function returning the crossings for a part held at a place with each quarter turn,
+  from the plan's ratsnest (`ratsnest.py`); a number per turn, no text.
+- **`.zen` dialect** of the splicing editor: `ast`-located nested keywords and list elements in `Board(...)`,
+  `BoardConfig(...)`, `Stackup(...)`, `NetClass(...)`, edits to the `load(...)` names, the masked check, and the digest
+  and undo as for scripts. This needs the nested-edit pieces of suggestions phase 5, which the facts forms use from the
+  first builder phase; they are therefore needed in B0, not later.
+- **JSON dialect**: value-span splicing for `fab-profile.json` and the structural check by `json.loads`.
+- **Confirm edit**: `facts.write_confirmed` split into a pure text function `confirmed_text(text, digest, key)` and the
+  write, so the apply path logs the confirmation and undo can remove it.
+- **Read-back**: after regeneration, `facts_of` compared with the requested facts; a mismatch is a refusal's report.
 - **`skeleton(name, description, outline) -> text`**, the only generator of whole-file text, used by `create_file`.
 
 `apply_suggestion` is split so the builder and the findings share its body: `apply_edits(edits, digests, dry_run,
@@ -511,17 +666,19 @@ the suggestions branch, not a second path.
 ## Settings
 
 `[studio]` gains one setting, documented in `api.md`: `builder_grid_mm` (0.5), the snap of a dragged outline
-dimension or vertex. It is not part of a run's id. A new board's size has no default: it is entered, or suggested
-(open question). Nothing else in the builder is a literal tunable; the offered gaps are what the user types.
+dimension or vertex; `builder_max_fill` (0.33, measured as above), the most of a face the parts' courtyards may
+fill in a suggested size; and `builder_aspect` (1.0), the width over height a suggested rectangle takes before the
+user changes it. None is part of a run's id. Nothing else in the builder is a literal tunable; the offered gaps and
+every fact are what the user types.
 
 ## Charter fit
 
 - *Intent, not coordinates*: the builder writes relations, edges and references; the only positions it writes are
-  the outline's own vertices for a polygon, named, commented and chosen by the user in the builder (open question
-  1). A drag never becomes a position.
+  the outline's own vertices for a polygon, named, commented and chosen by the user in the builder (decided). A drag never becomes a position.
 - *A project-agnostic tool*: the builder, its tests and its golden scripts use generic names (`U1`, `J1`, `C1`,
   `SIG`). The comments it writes say "chosen in the studio's board builder", never a project's words.
-- *Tunables are settings*: the grid is a setting; no gap, radius or size is defaulted in code.
+- *Tunables are settings*: the grid, the maximum fill and the aspect are settings; no gap, radius, size or fact is
+  defaulted in code.
 - *Judged as KiCad judges*: the builder judges nothing; the resolve it triggers does. A Try shows what an intent does
   before it is written.
 - *A new form must earn its place*: the builder adds no script form; it writes the existing ones.
@@ -530,13 +687,13 @@ dimension or vertex. It is not part of a run's id. A new board's size has no def
 
 - **B0, engine prerequisites**: suggestions phase 5's multi-edit and sites, and the new engine pieces above
   (`create_file`, region anchors with `bind`, `ensure_import`, `remove_constant`, `read_intent`, redo,
-  `apply_edits`). Independent of any UI; unit-tested on text.
-- **B1, a new board, the first loop**: start from a `.zen`, generate, the outline editor for rectangle and circle,
-  the parts list, the intents for edge, beside, searched and "search the rest", Show and Apply, undo and redo, the
+  `apply_edits`, `move_statement`, the `.zen` and JSON dialects, the confirm edit). Independent of any UI; unit-tested on text.
+- **B1, a new board, the first loop**: start from a `.zen` in the page, generate, the facts panel and the confirmation gate, the outline
+  editor for rectangle and circle with the size suggestion, the parts list, the intents for edge, beside, searched and "search the rest", Show and Apply, undo and redo, the
   timeline.
 - **B2, the rest of the vocabulary**: polygon and slot outlines, holes, rows and rings, links ("close to"), `Near`,
-  in-line `Centre`, rotation, face, priority, required, why, editing a placed item (whole `at=` first, nested edits
-  once they exist), the facts banner.
+  in-line `Centre`, rotation with the suggested turn, `move_statement` to reorder decided items, face, priority, required, why, editing a placed item (whole `at=` first, nested edits
+  once they exist).
 - **B3, existing scripts**: reading a script written elsewhere, `by hand` items, inserting after the right statement,
   following the script's spelling and layout, the outline of an existing board.
 - **B4, later**: keepouts (a region round a part, a clearance band on an edge), a row `behind=` another, `overhang=`
@@ -563,7 +720,22 @@ follow the suggestions tests' style (`tests/suggest_support.py`).
 - **No coordinates.** A property test over every golden script and every action the offer function can return,
   scanning the statements' `ast`: no `Location`, no numeric `Centre` axis, no `coordinates` keyword, no `.local`,
   `.offset`, `X`/`Y` with a second argument, `board.figure`, `Near(Location...)`. The only number literals allowed
-  are inside constant assignments in the constants block, plus quarter-turn literals if the open question allows.
+  are inside constant assignments in the constants block, plus the quarter-turn literal of a chosen turn.
+- **Size suggestion.** For a synthetic board with known footprint courtyards, the area, rectangle and disc sizes for 1
+  and 2 faces, aspect ratios and fills equal the formula; sizes round up to the grid; a typed size replaces the
+  suggestion; the written comment names the derivation.
+- **Suggested turn.** On a synthetic board where one turn clearly cuts crossings, the four counts are as computed by
+  hand and the lowest is marked; a tie offers no `rotation=`; the written call has `rotation=` and the `why=`.
+- **Reorder.** `move_statement` within the decided region keeps every other byte; undo restores it.
+- **Facts.** On a synthetic `.zen` (with a `Board`, a `BoardConfig`, netclasses and comments), each fact form's edit
+  gives the expected text byte for byte, comments and layout outside the target untouched; a `.zen` with no `config=`
+  gets the branch created and the `load` names added; a `config=` that is a name is refused; a `.zen` that does not
+  parse is read only; after regeneration the read-back equals the request and a fact the generator ignores is reported.
+  `fab-profile.json` edits keep the rest of the file byte for byte and refuse a file that does not parse; the rise goes
+  through `toml_set`. The states (decided, undecided, flagged, changed) for each reason `unconfirmed_reasons` can
+  give; the gate keeps placement and search disabled until nothing is undecided and each flag is acknowledged;
+  confirm writes the digest `placemat facts --confirm` would write (the same function); a later fact edit makes rows
+  "changed" and closes the gate; undo of the batch and of the confirmation restores the files and the gate.
 - **Undo and redo.** Every action sequence, undone step by step, restores each earlier text byte for byte, the first
   undo removes the file; redo reapplies each; an edit made outside the builder between actions makes undo refuse and
   leave the file alone.
@@ -590,7 +762,8 @@ follow the suggestions tests' style (`tests/suggest_support.py`).
 - Dragging a part to a position, in any form.
 - Arcs in the outline, and outlines from DXF or other files.
 - Copper: tracks, vias, pours and planes. The builder places parts and the board; copper stays in the script.
-- Choosing a stackup or other board facts; those live in the `.zen` and `fab-profile.json`.
+- Net classes other than differential pairs (track widths, clearances), and `plane()` declarations; the builder edits
+  only the facts `placemat facts` reports.
 - A "fix all" or a generated whole layout. The search places the rest; the user decides the anchors.
 - Several users at once. Digest conflicts are refused, not merged.
 
@@ -607,41 +780,35 @@ follow the suggestions tests' style (`tests/suggest_support.py`).
   the user in the UI).
 - Structured data inside, text only at the edge.
 
+Decided with the user, 2026-10-03 (the answers to the first version's questions):
+
+- Polygon vertices are numbers and are fine (the board's own shape), as a named constant list with the builder comment.
+- No typed distances: intent only (`Along.START/MID/END` and relations).
+- Quarter-turn rotations are offered, and the builder suggests the turn with the fewest ratsnest crossings against the
+  components already placed, showing the counts; the user can pick another.
+- Searched to decided moves the statement into the decided region; decided items can be reordered later.
+- "No declaration places it" findings fold into the unplaced count.
+- No board-middle target.
+- A suggested board size from the total courtyard area, one or two faces and a maximum fill (a setting, default from a
+  measurement; overridable in the dialog), written as a named constant whose comment says how it was derived.
+- A cell's frame means its declared sides, used to turn it on an edge or row; no separate feature.
+- No separate command and no command-line entry: the whole flow is in the web UI; `placemat studio` only starts the
+  server, and a new board is started in the page from the project's `.zen` files.
+- A declaration the builder cannot read is `by hand`, and the rest of the builder works.
+- The builder lets the user state the board's facts in the page (layer roles and copper weights, pair nets, via types
+  and tiers, fab minimums, the rise), writes each to its home, regenerates and confirms; nothing proceeds on a default.
+- The edit engine is the shared splicing editor (`script_edit.py`), not LibCST.
+
 ## Open questions
 
-1. Outline vertices are numbers in `board.outline([...])`. Is a polygon from typed or dragged-and-snapped vertices,
-   written as a named constant list with a "chosen in the studio's board builder" comment, acceptable as the one place
-   the builder writes positions (they are the board's own shape, not a placement)? The alternative is rectangle, circle
-   and slot only in the first version, with polygons added as templates (L, notch, cut corners) whose points are built
-   from named dimensions.
-2. `OnEdge(edge, along=8.0)` is a distance along an edge, which `api.md` calls a mechanical fact. The first version
-   offers only `Along.START`, `MID` and `END`. Should a typed distance ever be offered, as a named constant with a
-   required reason, or is a distance something the user always writes by hand?
-3. Rotation literals (`rotation=90`) are in every existing script. The first version offers `Facing(...)`, `Turned(...)`
-   and edge or row turns only. Should a quarter-turn choice (0, 90, 180, 270) be offered, written as a literal or as
-   a commented constant?
-4. Changing a searched item into a decided one moves its statement into the decided region (a remove plus an insert,
-   one undo). The alternative is `set_kwarg(at=...)` where it stands, which keeps the diff to one line and leaves
-   decided items inside the searched block. Which do you want?
-5. In Build, the `setup` findings "no declaration places it" are folded into an unplaced count and not listed as
-   warnings. Is that right, or should the findings view show them as usual?
-6. The builder shows the facts banner and does not confirm. Should it offer a button for `placemat facts --confirm`
-   once the user has answered the questions in the page, or stay with the skill's rule that the user confirms in the
-   conversation?
-7. I found no form that places a part "at the middle of the board" on a rectangle (the middle of an edge is
-   `OnEdge(edge, along=Along.MID)`; a disc has `Polar` about `board.centre`, which takes a number). The first version
-   leaves a board-middle target out. Do you want it, which would be a request for a form (charter: a new form must earn
-   its place)?
-8. Should the new-board dialog offer a size suggested from the parts' total courtyard area (with a fill ratio as a
-   setting)? Such a size would be a measurement, and its constant's comment would say so; the default is no
-   suggestion, a size typed by the user.
-9. By "a cell's frame" I took the cell's declared sides (`faces(outward=)`), which the edge and row forms already
-   use to turn it, and nothing more. Did you mean something else (for instance placing a cell by one of its member's
-   pads, `Pin(CellPadRef(...), ...)`, or the frame a fragment's own script sizes)?
-10. Where should the start live: `placemat studio <board>.zen` and a start-view group, as written here, or a separate
-    command such as `placemat new <board>.zen` that creates the script and then opens the studio on it?
-11. When the script has a declaration the builder cannot read (a loop, a helper), the item is `by hand` and refuses
-    edits but the rest of the builder works. Is that right, or should the builder refuse everything on a script it
-    cannot read in full?
-12. Firm placements go down in declaration order, so the order of the decided region matters. Should the page let the
-    user reorder decided statements (a new `move_statement` op), or is order set only by when each was made?
+1. The size suggestion's default fill (0.33 per face) comes from one fixture board, the only one with an outline and
+   placed parts. Is that enough to start from, or should it be measured on more boards first?
+2. A chosen turn is written as a literal (`rotation=90`) with a `why=`, as scripts write turns, though the number is
+   a measured choice. Should it be a named constant with a comment like other numbers?
+3. A new `fab-profile.json` goes beside the nearest `placemat.toml` above the board, else beside the `.zen`. Is that
+   the right home, or should it always be at the project root?
+4. In a `.zen` the builder writes literals with a trailing comment saying where they came from, following the file's own
+   convention (its netclass numbers are literals), not the layout script's named constants. Is that the right
+   reading of the numbers rule for a `.zen`?
+5. Copper weight is entered in oz and written as a thickness in mm. Should the `.zen` also carry the oz as a comment, or
+   is the placemat mapping to mm enough?
