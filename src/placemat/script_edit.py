@@ -652,16 +652,6 @@ def _spell_for(texts_of, refs, home_file, home_scope):
     return spell
 
 
-def spelling(text: str, target) -> str:
-    """How the script at `text` writes the item a call declares: its first argument, as written."""
-    mod = _parse(text)
-    hit = _locate(mod, target)
-    positional = _positional(hit.call)
-    if not positional:
-        raise EditRefused("%s has no first argument" % target.key)
-    return mod.src.code(positional[0])
-
-
 # ------------------------------------------------------------------ the check
 def _calls_at(tree, line, func_dump):
     return [n for n in ast.walk(tree) if isinstance(n, ast.Call) and n.lineno == line and ast.dump(n.func) == func_dump]
