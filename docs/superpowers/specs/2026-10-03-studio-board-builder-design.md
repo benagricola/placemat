@@ -164,19 +164,39 @@ the generated board's nets). No fact is edited as free text.
 
 | Fact | Form | Home | What is written |
 |---|---|---|---|
-| Layer roles and copper weights | a stackup table, one row per layer in order: copper rows (role `signal`, `power` or `mixed`; weight 0.5, 1 or 2 oz) and dielectric rows (thickness in mm; `core` or `prepreg`); the copper count follows `Board(layers=)`, a field in the form | the `.zen`: `Board(config=BoardConfig(stackup=Stackup(layers=[...])))` | the layer records with `thickness=` (the weight converted to mm by the mapping placemat already uses) and `role=`; a trailing comment on each value, "chosen in the studio's board builder" |
+| Layer roles and copper weights | a stackup table, one row per layer in order: copper rows (role `signal`, `power` or `mixed`; the weight entered as oz or as a thickness in um or mm) and dielectric rows (thickness in mm; `core` or `prepreg`); the copper count follows `Board(layers=)`, a field in the form | the `.zen`: `Board(config=BoardConfig(stackup=Stackup(layers=[...])))` | the layer records with `thickness=` in mm (the unit the stackup record takes: "Thickness in mm") and `role=`; a trailing comment on each value: the oz where one was entered (`# 1 oz`) or "chosen in the studio's board builder" for a thickness |
 | Differential pair nets | a list of candidate pairs found from the net names (the `_P`/`_N`, `+`/`-` families) that the user ticks, plus a net picker to make any other pair; per pair: width and gap in mm. A tick box says "this board has no differential pairs" | the `.zen`: a `NetClass(name=, diff_pair_width=, diff_pair_gap=, nets=[...])` in `design_rules.netclasses` | one class per pair with exactly its two nets |
 | Via types and their tier | micro, blind, buried: each `yes`, `no` or `if-needed`; the default drill and size | `fab-profile.json`, `via` | all three types named, `"no"` included, since a type with no tier is undecided |
 | Fab minimums | track, clearance, drill, annular ring, via size, in mm | `fab-profile.json`, `min` | the `min` section |
 | The rise | a number in degrees C | `placemat.toml`, `[check] rise_c` | the key, by the existing line-level toml edit |
 
+**Copper weight.** The form accepts either oz or a thickness (um or mm) and shows the other. The conversion is 1 oz/ft2 =
+0.035 mm (35 um), so 0.5 oz is 0.0175 mm and 2 oz is 0.070 mm; the stored value is the thickness in mm, and the
+`.zen` carries the oz as a comment (`thickness = 0.035,  # 1 oz`). I use the rounded 35 um because it is the figure
+fabs quote and the one I recall KiCad's stackup presets using; I did not verify KiCad's own value in this session,
+and the exact 34.79 um would only matter at the fourth decimal. A thickness that equals a standard weight is shown as
+that weight when read back.
+
 The values are the user's. The forms start empty where the fact is undecided and prefilled from the file where it is
 decided; the builder never prefills a number it invented. A candidate pair is a suggestion from a net name, shown as
 such. Candidate nets and the layer count come from the generated board, as structured data.
 
-Where a file does not exist the builder creates it: `fab-profile.json` beside the nearest `placemat.toml` above the
-board, else beside the `.zen` (open question), and `placemat.toml` by the command's own rule (the nearest one above the
-board, a new one beside it only when none exists).
+**Where `fab-profile.json` goes.** The default home is the project root (the folder of the outermost `placemat.toml`
+above the board, else the board's folder). `project.fab_profile(start)` looks in the board's folder first and then in
+each folder above it, and takes the first file it finds as the whole profile (no merging of values from several files).
+All its callers pass `src.board_dir`. So a file beside the board already takes precedence over one at the root, and
+the lookup needs no change.
+- If a profile is found, the facts panel loads its values and names the file they came from.
+- If the user edits any of those values for this board, the builder writes a `fab-profile.json` in the board's folder
+  (beside the `.zen`) and leaves the root file untouched. Because the lookup takes one file whole, the new file is a copy
+  of the loaded values with the edits, not just the edited keys. The panel says "this board gets its own
+  fab-profile.json" before the edit is applied.
+- If no profile is found, the builder creates one at the project root.
+- If the project root is the board's folder, there is one file and it is edited in place.
+- If a profile already sits beside the board, it is the one edited.
+
+`placemat.toml` follows the command's own rule: the nearest one above the board, a new one beside the board only when
+none exists.
 
 ### Editing a `.zen`
 
@@ -284,17 +304,16 @@ figure before the outline is written.
   others are module fragments with a fit frame, or an unplaced generation, which have no outline to divide by). On
   that board the 258 footprints have 1690.7 mm2 of courtyard (1046.4 on the front face, 644.3 on the back) on a
   2551.7 mm2 outline: 0.66 of the board area over both faces, 0.33 per face averaged, 0.41 on the busier face. The
-  default is `builder_max_fill = 0.33`, the per-face mean, so a two-sided suggestion reproduces that board and a
-  one-sided one leaves more room than that board's front face had. This is one board; the setting exists so it can
-  be tuned as more boards are measured, and the measurement should be repeated on the bench boards when the feature
-  is built.
+  default is `builder_max_fill = 0.5`, the user's choice. The measurement is context, from one board: that board is
+  filled 0.33 per face on average, so a suggestion at 0.5 is tighter than it. The dialog's fill field overrides the
+  setting for one board, and the setting can be changed as more boards are measured.
 - **What is written.** The suggested size goes in as the same named constants as a typed one, with a comment that says
   how it was derived:
 
 ```python
 # The board's width, suggested by the studio's board builder from the parts' courtyard area: 1690.7 mm2 on two
-# faces, at most 33% filled per face, aspect 1.5.
-BOARD_WIDTH_MM = 62.0
+# faces, at most 50% filled per face, aspect 1.5.
+BOARD_WIDTH_MM = 50.5
 ```
 
   A size the user typed over the suggestion says "chosen in the studio's board builder" as before.
@@ -432,7 +451,7 @@ Notes on the table.
   the part is held at its resolved place with its pads turned about its origin, and the ratsnest (`ratsnest.py`)
   is counted for each turn. That is a quick estimate that ignores the legality of the turned part at that spot; Try
   on a turn resolves it exactly and shows its own figure beside the estimate. The chosen turn is written as a literal
-  quarter turn, as scripts write them, with the reason: `rotation=90, why="fewest ratsnest crossings of the four
+  quarter turn in the line with its `why=` (decided), as scripts write them, with the reason: `rotation=90, why="fewest ratsnest crossings of the four
   turns"`. The suggestion needs the part's place, so it is offered after the placement has been applied and resolved,
   as a second step (an edit of the same call, `set_kwarg(rotation, ...)`). Edge and row placements are already
   turned by their outward side and get no suggestion; a searched part tries every turn itself.
@@ -666,7 +685,7 @@ the suggestions branch, not a second path.
 ## Settings
 
 `[studio]` gains one setting, documented in `api.md`: `builder_grid_mm` (0.5), the snap of a dragged outline
-dimension or vertex; `builder_max_fill` (0.33, measured as above), the most of a face the parts' courtyards may
+dimension or vertex; `builder_max_fill` (0.5, the user's choice; the one measured board is 0.33 per face), the most of a face the parts' courtyards may
 fill in a suggested size; and `builder_aspect` (1.0), the width over height a suggested rectangle takes before the
 user changes it. None is part of a run's id. Nothing else in the builder is a literal tunable; the offered gaps and
 every fact are what the user types.
@@ -798,17 +817,14 @@ Decided with the user, 2026-10-03 (the answers to the first version's questions)
 - The builder lets the user state the board's facts in the page (layer roles and copper weights, pair nets, via types
   and tiers, fab minimums, the rise), writes each to its home, regenerates and confirms; nothing proceeds on a default.
 - The edit engine is the shared splicing editor (`script_edit.py`), not LibCST.
+- `builder_max_fill` defaults to 0.5, overridable in the dialog.
+- A chosen turn stays a literal `rotation=90` in the line with its `why=`.
+- `fab-profile.json`: the default home is the project root; a found profile is loaded into the panel; an edit for this
+  board writes a board-specific file beside the board and leaves the root one alone (a file beside the board already
+  takes precedence in `fab_profile`).
+- In a `.zen` the builder writes literals with a source comment.
+- Copper weight is entered as oz or a thickness, stored as a thickness in mm with the oz as a comment.
 
 ## Open questions
 
-1. The size suggestion's default fill (0.33 per face) comes from one fixture board, the only one with an outline and
-   placed parts. Is that enough to start from, or should it be measured on more boards first?
-2. A chosen turn is written as a literal (`rotation=90`) with a `why=`, as scripts write turns, though the number is
-   a measured choice. Should it be a named constant with a comment like other numbers?
-3. A new `fab-profile.json` goes beside the nearest `placemat.toml` above the board, else beside the `.zen`. Is that
-   the right home, or should it always be at the project root?
-4. In a `.zen` the builder writes literals with a trailing comment saying where they came from, following the file's own
-   convention (its netclass numbers are literals), not the layout script's named constants. Is that the right
-   reading of the numbers rule for a `.zen`?
-5. Copper weight is entered in oz and written as a thickness in mm. Should the `.zen` also carry the oz as a comment, or
-   is the placemat mapping to mm enough?
+None.
