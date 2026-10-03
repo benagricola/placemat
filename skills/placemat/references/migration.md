@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A part stands tighter beside a part that draws a mark outside its body.** `Beside(item, side)` took the distance from
+  the box round everything `item`'s envelope is made of, so a pin 1 dot or any silk mark outside the body held the part off
+  the whole side by the mark's reach. It now measures against the envelope's own shapes (pads, mask, silk and body under a
+  physical envelope, the courtyard under a courtyard one): the part stands the gap off the nearest shape it faces, and a mark
+  holds it off only where it stands over the mark. A script placing a part `Beside` one with a corner mark gets that part
+  nearer (by the mark's reach beyond the silk line, for a pin 1 dot); a part over the mark, or
+  beside one whose envelope is its box, stays where it was. `Beside` of a keepout or an escape, a `Past` that turns a corner,
+  and `row(of=)` still measure the box.
+
 ## To 0.91.1
 
 ### Fixed

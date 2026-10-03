@@ -2327,6 +2327,57 @@ class Board:
                                  i.key, self._item(b.item)[1], b.side.name))
         return round(stand * (u[0] or u[1]), 6)
 
+    def _beside_shape_standoff(self, occ: Occupancy, i: PlaceIntent, ox: float, oy: float, gap: float):
+        """Where Beside stands the part along its side's axis against the shapes `item`'s envelope is made
+        of: the offset (x for an east or west side, y for a north or south one) at which no shape of the
+        part's own envelope is nearer than `gap` to a shape of `item`'s, `ox`, `oy` lining it up on the other
+        axis - the greatest of the shape pairs' last contacts (`sweep_standoff`, as `copper=True` takes the
+        pads'). A mark drawn outside the body at a corner holds the part off only where the part stands over
+        it; the envelope box, which every standoff here was, holds it off along the whole side. None when no
+        pair of shapes comes within `gap` across the side."""
+        b = i.beside
+        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[b.side]
+        cross = (0.0, oy) if u[0] else (ox, 0.0)
+        theirs = [s for s in occ._geometry(self._item(b.item)[0]).shapes if s.kind != "npth"]
+        _, moved = self._bare_occupancy().candidate_shapes(i.item, Placement(Location(0.0, 0.0), i.rotation, i.face))
+        mine = [s for s in moved if s.kind != "npth"]
+
+        def along(box, far):            # the box's side nearest (far=False) or furthest along `u`
+            xs, ys = (box.left, box.right), (box.top, box.bottom)
+            return max(x * u[0] + y * u[1] for x in xs for y in ys) if far else \
+                min(x * u[0] + y * u[1] for x in xs for y in ys)
+
+        pairs = []
+        for m in mine:
+            box_m = Box(m.box.left + cross[0], m.box.top + cross[1], m.box.right + cross[0], m.box.bottom + cross[1])
+            for f in theirs:
+                # the last contact is at most where the boxes' own separation is `gap` (a polygon's distance is
+                # never under its boxes'), and none at all when the boxes never come within `gap` across the side
+                if u[0]:
+                    over = max(box_m.top - f.box.bottom, f.box.top - box_m.bottom)
+                else:
+                    over = max(box_m.left - f.box.right, f.box.left - box_m.right)
+                if over < gap:
+                    pairs.append((along(f.box, True) + gap - along(box_m, False), m, f))
+        best = None
+        for bound, m, f in sorted(pairs, key=lambda p: -p[0]):
+            if best is not None and bound <= best + 1e-9:
+                break
+            poly = tuple((x + cross[0], y + cross[1]) for x, y in m.poly)
+            t = sweep_standoff(poly, f.poly, u, gap)
+            if t is not None and (best is None or t > best):
+                best = t
+        if best is None:
+            return None
+        # A last contact is a root and a placement is written to 6 places: where that leaves a pair under the
+        # gap by more than the collision check allows (1e-9), the part stands a micron further out.
+        t = round(best, 6)
+        near = [(m, f) for bound, m, f in pairs if bound >= best - 1e-6]
+        while any(poly_distance(tuple((x + cross[0] + t * u[0], y + cross[1] + t * u[1]) for x, y in m.poly), f.poly)
+                  < gap - 1e-9 for m, f in near):
+            t = round(t + 1e-6, 6)
+        return round(t * (u[0] or u[1]), 6)
+
     def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent) -> Placement:
         """Where `Beside(...)` puts the item: its own drawn envelope `gap`
         off `item`'s, on `side`, aligned across it."""
@@ -2346,6 +2397,10 @@ class Board:
             item_box = self._placed_envelope_box(occ, b.item)
         own_box = self.envelope(i.item, i.rotation, i.face)
         gap = self._beside_gap(b, i.item)
+        # Against the shapes the item's envelope is made of, where it is a part or a cell (a keepout's and an
+        # escape's are boxes); a Past that turns a corner takes the diagonal from the box standoff, so keeps it.
+        shaped = (not isinstance(b.item, KeepoutIntent) and self._escape_owner(b.item) is None
+                  and not (b.align[0] == "past" and isinstance(b.align[2].edge, Corner)))
         ox = oy = None
         if b.side is Edge.EAST:
             ox = item_box.right + gap - own_box.left
@@ -2432,6 +2487,13 @@ class Board:
                     oy = their_loc.y - own_pad.y
                 else:
                     ox = their_loc.x - own_pad.x
+        if shaped:
+            stand = self._beside_shape_standoff(occ, i, ox, oy, gap)
+            if stand is not None:
+                if b.side in (Edge.EAST, Edge.WEST):
+                    ox = stand
+                else:
+                    oy = stand
         if b.copper:
             stand = self._beside_copper_standoff(occ, i, ox, oy)
             if b.side in (Edge.EAST, Edge.WEST):

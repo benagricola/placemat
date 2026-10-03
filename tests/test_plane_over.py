@@ -127,7 +127,9 @@ def test_a_plane_over_a_cell_and_a_part_beside_it_covers_both():
     b.place(Part("c1"), at=Beside(Cell("k"), Edge.SOUTH))
     plan = b.resolve()
     want = Box.union([plan.box("k"), plan.box("c1")])
-    assert plan.box("c1").top > plan.box("k").bottom
+    # south of the cell's own shapes: it stands under U1, where the cell's box is lower for R1 further east
+    u1 = Box.union([sh.box for sh in plan.occupancy.items["U1"].shapes])
+    assert plan.box("c1").top > u1.bottom
     got = _zone_box(plan)
     assert (got.left, got.top, got.right, got.bottom) == pytest.approx(
         (want.left, want.top, want.right, want.bottom))
