@@ -251,6 +251,10 @@ section for each hand-written pattern a newer form replaces.
   as lost with its last state. An explore is shown with a plot of score against time and the best so far, the latest
   variant (at most `[studio] explore_fps` times a second, default 2) and the best drawn over the plain placement,
   thumbnails, a step through the variants by order or score, and where each item landed across them.
+- **The studio redoes an undone apply, and Show lists every file a suggestion edits.** `POST /suggest/redo` (token-guarded, allowed over
+  `--host`, refused with `[studio] apply = false`) makes again the apply the last undo took back; the page offers Redo beside Undo. A
+  suggestion with several edits shows its diff across all its files, each under its name. The page reads a suggestion's `edits` and `how`
+  (instant, or searched: its "Search options" button is not built yet).
 - **The studio shows, tries, applies and undoes a finding's suggestions.** Each finding row, the card and the step rows show
   the best suggestion with "more (n)"; Show opens its diff in the script dialog, Try resolves the edited script in the
   worker (read from an overlay, nothing written) and shows it as a compare marked "try, not written" - whether the

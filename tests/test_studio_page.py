@@ -1406,7 +1406,7 @@ out.state = [ev("S.canApply"), ev("S.applied.length")];
 @needs_node
 def test_a_searched_suggestion_is_drawn_with_a_search_button_in_place_of_show_try_apply(tmp_path):
     out = run_more(tmp_path, SUGGEST + r"""
-const F2 = [Object.assign({}, FND[0], {suggestions: [{id: "q1", text: "Find the best limit", rank: 1, lever: "limit", kind: "search"}, SUG[0]]})];
+const F2 = [Object.assign({}, FND[0], {suggestions: [{id: "q1", text: "Find the best limit", rank: 1, lever: "limit", how: "searched"}, SUG[0]]})];
 full([item("a", 1)], [st("a")], {findings: F2});
 ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
 """)
@@ -1546,3 +1546,31 @@ def test_the_phase_pill_is_shortened_from_the_engines_own_sentences(tmp_path):
 out.short = ["refining around the best spots: 3 of 9", "scanning the front or back", "seeding", "coarse pass over the board", "placing at (1, 2)"].map(s => ev("phaseShort(" + JSON.stringify(s) + ", 'searched')"));
 """)
     assert out["short"] == ["refining 3 of 9", "scan front/back", "seeding", "coarse pass", "placing"]
+
+
+@needs_node
+def test_redo_comes_beside_undo_after_an_undo_and_a_multi_file_suggestion_shows_every_files_diff(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: FND});
+  const two = Object.assign({}, DIFF, {files: DIFF.files.concat([{file: "helpers.py", path: "/p/helpers.py", added: 2, removed: 0, old_lines: [], new_lines: [4, 5],
+    hunks: [{old_start: 3, old_len: 0, new_start: 4, new_len: 2, lines: [{tag: "+", old: null, new: 4, text: "C4_LIMIT_MM = 1.82"}, {tag: "+", old: null, new: 5, text: "# measured"}]}]}])});
+  answer({"/suggest/show": {status: 200, body: two}});
+  await ev("sgAct")("show", "s1a"); flush();
+  out.body = els["#scriptbody"].innerHTML; out.info = els["#scriptinfo"].textContent;
+  click(sgb("cancel")); flush();
+  answer({"/suggest/undo": {status: 200, body: Object.assign({}, DIFF, {text: "Place c4 beside c1, on its north side"})}, "/suggest/redo": {status: 200, body: Object.assign({}, DIFF, {dry_run: false})}});
+  ev("S.canApply = true");
+  send("applied", {applied: [{seq: 1, id: "s1a", text: SUG[0].text, undone: false, files: ["x_layout.py"]}], redo: ""});
+  out.noredo = els["#tab-compare"].innerHTML.indexOf('data-sg="redo"') < 0;
+  await ev("sgAct")("undo"); flush();
+  send("applied", {applied: [{seq: 1, id: "s1a", text: SUG[0].text, undone: true, files: ["x_layout.py"]}], redo: SUG[0].text});
+  out.bar = els["#sgbar"].innerHTML; out.cmp = els["#tab-compare"].innerHTML;
+  await ev("sgAct")("redo"); flush();
+  out.sent = fetched.filter(f => f[0] === "/suggest/redo").length; out.after = els["#sgbar"].innerHTML;
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["body"].count('class="difffile"') == 2 and 'data-f="helpers.py"' in out["body"] and "C4_LIMIT_MM = 1.82" in out["body"] and "board.place" in out["body"] and out["info"] == "2 files"
+    assert out["noredo"] is True and 'data-sg="redo"' in out["bar"] and 'data-sg="redo"' in out["cmp"] and "undone:" in out["cmp"]
+    assert out["sent"] == 1 and 'data-sg="undo"' in out["after"]

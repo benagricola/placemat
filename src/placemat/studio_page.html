@@ -84,6 +84,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #sgbar button, #sgdlg button, .sgbtns button { border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
 #sgbar button:disabled, .sgbtns button:disabled { opacity: 0.5; }
 .sg { margin-top: 3px; font-weight: 400; }
+.difffile { position: sticky; top: 0; z-index: 1; padding: 4px 10px; background: var(--surface2); border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .sgrow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
 .sgrow + .sgrow { margin-top: 2px; }
 .sgtext { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
@@ -603,6 +604,7 @@ const S = {
   sg: {more: new Set(), busy: null, show: null, note: null, src: false},   // suggestions: the finding slots opened, a try in flight, the diff shown, what the last apply said
   try: null,                   // a try shown, not written: {id, base, suggestion, cleared, gained, lost, moved, score, applied}
   applied: [], canApply: true, // the suggestions applied here (for Undo and the history rows); false: this studio does not write
+  redo: "",                    // the text of the apply a Redo would make again ("" when there is none)
   notes: [], noteAge: 0, noteFocus: null,    // notes left in the studio (notes.py records), their age limit in seconds, the one looked at
   work: null,                  // the resolve in progress: {t0, total, cur, replayed}, from the engine's begin notices
   scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
@@ -686,7 +688,7 @@ es.onopen = () => { S.status = S.status === "connecting" ? "waiting" : S.status;
 es.onerror = () => { S.status = "disconnected"; schedule("status"); };
 
 function applyHello(d) {
-  S.applied = d.applied || []; S.canApply = d.can_apply !== false;
+  S.applied = d.applied || []; S.canApply = d.can_apply !== false; S.redo = d.redo || "";
   S.notes = d.notes || []; S.noteAge = d.note_age_s || 0;
   S.hello = d; S.history = d.history; S.error = d.error; S.resolving = d.resolving; S.scripts = d.scripts || [];
   if (d.now) S.skew = d.now * 1000 - Date.now();                 // the server's clock less this page's: times are the server's
@@ -787,7 +789,7 @@ on("finished", d => {
   trimDocs();
   if (S.follow) showResolve(d.id, null, true); else schedule("status", "compare");
 });
-on("applied", d => { S.applied = d.applied || []; schedule("compare", "sgbar"); });
+on("applied", d => { S.applied = d.applied || []; S.redo = d.redo || ""; schedule("compare", "sgbar"); });
 on("compare", d => {
   if (S.follow && S.shownId === d.b) { setCompare(d); }
 });
@@ -2319,9 +2321,10 @@ function renderScript() {
     const files = S.sg.show.files, sel = $("#file");
     if (!files.some(f => f.file === S.file)) S.file = files[0] && files[0].file;
     sel.innerHTML = files.map(f => '<option value="' + esc(f.file) + '">' + esc(f.file) + "</option>").join(""); sel.dataset.names = ""; sel.value = S.file || "";
-    const fd = files.find(f => f.file === S.file);
-    $("#scriptbody").innerHTML = fd ? diffTable({files: {[fd.file]: fd}, trace: {lines: {}}}, fd.file) : "";
-    $("#scriptinfo").textContent = fd ? "+" + fd.added + " -" + fd.removed : "";
+    // a suggestion may edit several files (a constant in a shared module, the toml, a created file): all of them are shown, each under its name
+    $("#scriptbody").innerHTML = files.map((fd, n) => '<div class="difffile" id="df-' + n + '" data-f="' + esc(fd.file) + '"><b>' + esc(fd.file) + '</b> <span class="add">+' + fd.added + '</span> <span class="del">-' + fd.removed + "</span></div>" +
+      diffTable({files: {[fd.file]: fd}, trace: {lines: {}}}, fd.file)).join("");
+    $("#scriptinfo").textContent = files.length > 1 ? files.length + " files" : "+" + (files[0] ? files[0].added : 0) + " -" + (files[0] ? files[0].removed : 0);
     $("#linechips").innerHTML = ""; $("#linechips").style.display = "none";
     return;
   }
@@ -2394,7 +2397,10 @@ $("#scriptclose").onclick = closeScript;
 $("#scriptfull").onclick = () => { S.scriptFull = !S.scriptFull; schedule("script"); };
 $("#srcbtn").onclick = () => { const it = S.sel ? itemMap(plan()).get(S.sel) : null; openScript(it && it.file ? it.file : (S.hello && S.hello.script), it && it.line); };
 const currentScriptId = () => ((S.scripts || []).find(s => s.current) || {id: S.hello && S.hello.script}).id;
-$("#file").addEventListener("change", e => { S.file = e.target.value; S.scriptWhole = false; schedule("script"); });
+$("#file").addEventListener("change", e => {
+  S.file = e.target.value; S.scriptWhole = false; schedule("script");
+  if (S.sg.show && !S.sg.src) setTimeout(() => { const el = [...document.querySelectorAll("#scriptbody .difffile")].find(x => x.dataset.f === S.file); if (el && el.scrollIntoView) el.scrollIntoView({block: "start"}); }, 30);     // a suggestion's diff shows every file: the select goes to one
+});
 // Switching to another layout script: the same request from the header menu and from the picker.
 function switchTo(id) {
   closeMenu();
@@ -2423,6 +2429,7 @@ function renderCompare() {
   let out = runsHTML() + (S.try ? '<div class="cmpbar"><span class="dim">the resolve this was made on (#' + S.try.base + ') and the try, not written</span></div>' : head);
   const la = lastApplied();
   if (la && S.canApply) out += '<div class="cmpbar"><span class="dim">applied from a suggestion:</span><span>' + esc(la.text) + '</span><button data-sg="undo">Undo</button></div>';
+  if (S.redo && S.canApply) out += '<div class="cmpbar"><span class="dim">undone:</span><span>' + esc(S.redo) + '</span><button data-sg="redo">Redo</button></div>';
   if (S.changed && S.changed.length) {
     out += "<h3>Changed since the resolve before</h3>" + S.changed.map(c => '<div class="row" data-file="' + esc(c.file) + '"><span class="k">' + esc(c.file) + '</span><span class="n"><span class="add">+' + c.added + '</span> <span class="del">-' + c.removed + "</span> " + esc(c.status) + "</span></div>").join("");
   }
@@ -2594,7 +2601,7 @@ const SG_KINDS = {
 function sgRow(s, withLever) {
   const b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(title) + '"' + (S.sg.busy ? " disabled" : "") + ">" + label + "</button>";
   return '<div class="sgrow">' + (withLever && s.lever ? pill(s.lever.replace(/_/g, " ")) : "") + '<span class="sgtext">' + esc(s.text) + '</span><span class="sgbtns">' +
-    (SG_KINDS[s.how === "searched" || s.kind === "search" ? "search" : "instant"])(b) + "</span></div>";
+    (SG_KINDS[s.how === "searched" ? "search" : "instant"])(b) + "</span></div>";
 }
 function sgHTML(f) {
   const ss = sgList(f), k = sgKey(f);
@@ -2638,6 +2645,10 @@ async function sgAct(kind, sid) {
     const r = await sgPost("/suggest/undo", {});
     if (!r.ok) return sgNote("err", r.data.error);
     sgNote("undone", r.data.text);
+  } else if (kind === "redo") {
+    const r = await sgPost("/suggest/redo", {});
+    if (!r.ok) return sgNote("err", r.data.error);
+    sgNote("applied", r.data.text);
   }
 }
 function sgShowDiff(d) {
@@ -2675,7 +2686,7 @@ function renderSgBar() {
       "<span>" + r.moved + (r.moved === 1 ? " item" : " items") + " moved</span>" + (sc ? "<span>score " + sc.a + " to " + sc.b + " (" + val((sc.delta > 0 ? "+" : "") + sc.delta, sc.delta < 0 ? "good" : sc.delta > 0 ? "bad" : "") + ", lower is better)</span>" : "") +
       '<button data-sg="viewdiff">Show diff</button>' + (S.canApply ? '<button data-sg="apply" data-sid="' + esc(r.suggestion.id) + '">Apply</button>' : "") + '<button data-sg="back">Back to the plan</button>';
   } else if (n) {
-    h = n.kind === "err" ? pill("not done", "bad") + "<span>" + esc(n.text) + "</span>" : pill(n.kind, "good") + "<b>" + esc(n.text) + "</b>" + (n.kind === "applied" && S.canApply ? '<button data-sg="undo">Undo</button>' : "");
+    h = n.kind === "err" ? pill("not done", "bad") + "<span>" + esc(n.text) + "</span>" : pill(n.kind, "good") + "<b>" + esc(n.text) + "</b>" + (n.kind === "applied" && S.canApply ? '<button data-sg="undo">Undo</button>' : "") + (n.kind === "undone" && S.canApply && S.redo ? '<button data-sg="redo">Redo</button>' : "");
     h += '<button class="sgx" data-sg="dismiss" aria-label="dismiss">&times;</button>';
   }
   el.hidden = !h; el.innerHTML = h;

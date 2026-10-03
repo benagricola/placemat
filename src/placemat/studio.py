@@ -811,6 +811,18 @@ class Studio:
         return [{"seq": e["seq"], "id": e.get("id"), "text": e.get("text", ""), "at": e.get("at"), "undone": bool(e.get("undone")),
                  "op": e.get("op"), "files": [self.name_of(f["file"]) for f in e.get("files", ())]} for e in entries[-limit:]]
 
+    def redo_text(self) -> str:
+        """What a redo would make again (the apply the last undo took back), or "" when there is nothing to redo."""
+        if self.src is None or not self.cfg.studio_apply:
+            return ""
+        from . import suggestions as sg
+        try:
+            return sg.redo_last(sg.log_path(self.src.board_dir), dry_run=True).text
+        except sg.NothingToRedo:
+            return ""
+        except (sg.SuggestionError, OSError, ValueError):
+            return ""
+
     def suggest_show(self, rid, sid) -> dict:
         """The dry run: the unified diff and the lines it changes; nothing is written."""
         from . import suggestions as sg
@@ -822,7 +834,7 @@ class Studio:
         out = self._applied_json(done)
         s = next(x for x in pool if x.id == sid)
         targets = []
-        for e in list(getattr(s, "edits", None) or [s.edit]):         # a suggestion may make several edits; each names its declaration
+        for e in s.edits:                                              # a suggestion may make several edits; each names its declaration
             if e.target is not None:
                 targets.append(("target", e.target))
             targets += [("refers to", r) for r in (e.refs or {}).values()]
@@ -849,7 +861,7 @@ class Studio:
             self._applied_text = "applied from a suggestion: " + done.text
         out = self._applied_json(done)
         out["undo"] = True
-        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "id": sid})
+        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "id": sid, "redo": ""})
         return out
 
     def suggest_undo(self) -> dict:
@@ -863,7 +875,23 @@ class Studio:
         with self.lock:
             self._applied_text = "undid: " + done.text
         out = self._applied_json(done)
-        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "undone": True})
+        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "undone": True, "redo": self.redo_text()})
+        return out
+
+    def suggest_redo(self) -> dict:
+        """Make again the apply the last undo took back (refused when a file has moved on since)."""
+        from . import suggestions as sg
+        if not self.cfg.studio_apply:
+            raise SuggestRefused(403, "this studio does not write ([studio] apply is false)")
+        try:
+            done = sg.redo_last(sg.log_path(self.src.board_dir), root=sg.project_root(self.src.board_dir))
+        except sg.SuggestionError as e:
+            raise self._sg_refusal(e)
+        with self.lock:
+            self._applied_text = "redid: " + done.text
+        out = self._applied_json(done)
+        out["undo"] = True
+        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "redone": True, "redo": self.redo_text()})
         return out
 
     def _cancel_try(self, why: str) -> None:
@@ -1292,7 +1320,7 @@ class Studio:
     def _hello_data(self) -> dict:
         common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
                   "explores": self.explores(), "explore_fps": self.cfg.studio_explore_fps,
-                  "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply),
+                  "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),
                   "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s}
         if self.script is None:
             return {**common, "script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
@@ -1394,7 +1422,7 @@ def _handler(studio: Studio):
         def do_POST(self):
             """/switch, with the token: it changes which layout script is watched; and /run, a checked run of it."""
             url = urlparse(self.path)
-            if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo"):
+            if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo", "/suggest/redo"):
                 return self._no()
             if not self._allowed(parse_qs(url.query)):
                 return self._refuse(403, "forbidden: open the address `placemat studio` printed")
@@ -1405,6 +1433,8 @@ def _handler(studio: Studio):
                     call = {"/suggest/show": studio.suggest_show, "/suggest/try": studio.suggest_try, "/suggest/apply": studio.suggest_apply}
                     if url.path == "/suggest/undo":
                         return self._json(studio.suggest_undo())
+                    if url.path == "/suggest/redo":
+                        return self._json(studio.suggest_redo())
                     return self._json(call[url.path](body.get("resolve"), str(body.get("id", ""))))
                 except SuggestRefused as e:
                     return self._send(e.status, "application/json", json.dumps({"error": str(e), **e.extra}).encode())

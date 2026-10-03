@@ -3384,7 +3384,8 @@ resolve's findings):
   was made on: `cleared` (the finding's `(kind, case, item)` is gone), findings `gained` and `lost`, items `moved`, the
   `score` change, the file diff and the try's plan. The page shows it as a compare marked "try, not written" and does not
   add it to the history; a try's own suggestions are never offered.
-- Apply, `POST /suggest/apply`, and Undo, `POST /suggest/undo` (the same call as `placemat apply --undo`): written
+- Apply, `POST /suggest/apply`, Undo, `POST /suggest/undo` (the same call as `placemat apply --undo`) and Redo, `POST /suggest/redo`
+  (makes again the apply the last undo took back; refused when a file has moved on since, or when nothing is left to redo): written
   atomically under the project root to files the studio watches, logged in `.placemat/applied.jsonl`; the watcher
   resolves again and the history row reads "applied from a suggestion: ...". A file that changed since the plan refuses
   (409, nothing written), as does an undo when a file is not as the apply left it. Allowed over `--host` (the token guards

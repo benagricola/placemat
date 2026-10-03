@@ -171,3 +171,26 @@ def test_the_endpoints_need_the_token_and_are_allowed_over_another_address(studi
     name = ("%s:%d" % (socket.gethostname(), studio.port)).lower()
     code, out = _post(studio, "/suggest/show", {"resolve": rec.id, "id": s["id"]}, host=name)
     assert code == 200
+
+
+@needs_kicad
+def test_redo_makes_the_undone_apply_again_and_refuses_when_there_is_nothing_or_the_file_moved(studio):
+    rec, f, s = _first(studio)
+    before = studio.script.read_text()
+    assert _post(studio, "/suggest/redo")[0] == 409 and studio.redo_text() == ""                 # nothing undone yet
+    assert _post(studio, "/suggest/apply", {"resolve": rec.id, "id": s["id"]})[0] == 200
+    after = studio.script.read_text()
+    assert _post(studio, "/suggest/undo")[0] == 200 and studio.script.read_text() == before
+    assert studio.redo_text() == s["text"] and json.loads(studio.hello()[0][1])["redo"] == s["text"]
+    code, out = _post(studio, "/suggest/redo")
+    assert code == 200 and studio.script.read_text() == after and out["files"][0]["file"] == studio.script.name
+    end = time.monotonic() + 120
+    while time.monotonic() < end and not (studio.history and studio.history[-1].applied == "redid: " + s["text"]):       # undo and redo may share one resolve
+        time.sleep(0.1)
+    _settled(studio, len(studio.history))
+    assert studio.history[-1].applied == "redid: " + s["text"] and studio.redo_text() == ""
+    # undo again, then a change by someone else: the redo does not write over it
+    assert _post(studio, "/suggest/undo")[0] == 200
+    studio.script.write_text(studio.script.read_text() + "\n# someone else\n")
+    code, out = _post(studio, "/suggest/redo")
+    assert code == 409 and "changed" in out["error"] and "# someone else" in studio.script.read_text() and "C_HF1_LINK_LIMIT_MM" not in studio.script.read_text()
