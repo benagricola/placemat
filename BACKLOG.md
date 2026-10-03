@@ -61,6 +61,12 @@ Specced work first, then the loose ends.
     the user is checking it by eye. If the channel is not usable, find what
     the check does not model.
 
+16. **Routing replay gaps** (studio round 10): the pair router reports
+    commits only (no per-net begin/end, so pair nets get no routed/failed
+    counts); a ripped net's copper is removed for the whole replay instead of
+    at the rip step; the "of N" total grows as each router launch's queue
+    arrives.
+
 ## Open
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
