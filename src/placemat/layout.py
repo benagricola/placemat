@@ -968,6 +968,9 @@ class Board:
         self.width = self._outline.width if self._outline else None
         self.height = self._outline.height if self._outline else None
         self._late_suggestions: list = []   # (finding, measure) pairs: facts measured once the board is finished
+        self._row_members: dict = {}        # item key -> (the key of its row's first member, its place in the row's items)
+        self._outline_decl: str = ""        # which of rect, disc, outline the script declared the board with
+        self._centres: list = []            # (item key, the Centre it was placed at): what a Centre's flag is judged by
         self._sites: list = []              # the Site of each declaration: where the script made it (suggestions.bind)
         self._file_digests: dict = {}       # file -> digest of its text when the first declaration in it was made
         self.script_file = ""               # the layout script this board runs, set by the runner
@@ -1681,7 +1684,8 @@ class Board:
                 if gap < self.web - 1e-9:
                     why = Refusal(Code.CUTOUT_WEB, gap_mm=gap, web_mm=self.web)
             if why:
-                plan.findings.append(self._finding(C.FIXED_CUTOUT, {"name": name, "why": why.to_json()}))
+                plan.findings.append(self._finding(C.FIXED_CUTOUT, {"name": name, "why": why.to_json(),
+                                                                    "outline_kind": self._outline_decl}))
             plan.cutouts_placed[name] = settled
 
     def _check_keepouts(self, plan: Plan):
@@ -1727,7 +1731,7 @@ class Board:
         gap, which = holes.web_against([shape.loops[0]])
         if gap < self.web - 1e-9:
             order = list(self._named_cutouts)
-            plan.findings.append(self._finding(C.SETUP_WEB, {
+            plan.findings.append(self._finding(C.SETUP_WEB, {"outline_kind": self._outline_decl,
                 "cutout": order[which] if 0 <= which < len(order) else None, "gap_mm": gap, "web_mm": self.web}, "critical"))
 
     def _check_pitch(self, plan: "Plan"):
@@ -2696,6 +2700,8 @@ class Board:
             at = None
         elif isinstance(at, (Location, Centre, tuple)):
             _centre_toward = at if isinstance(at, Centre) else None
+            if isinstance(at, Centre):
+                self._centres.append((key, at))
             free = _free_axis(at)
             if free is not None:
                 pinned = "center" if isinstance(at, Centre) else "at"
@@ -3062,6 +3068,8 @@ class Board:
         if pitch is not None:
             self._check_row_pitch(items, keys, rots, along_axis, float(pitch), gap)
         row = Row(edge, clr, gap, None, keys, alongs, max(depths), pitch=pitch)
+        for n, k in enumerate(keys):
+            self._row_members[k] = (keys[0], n)
         if over is not None:
             row.over, row.declared, row.position = over, list(alongs), list(range(len(items)))
         if of is not None:
@@ -4379,6 +4387,19 @@ class Board:
             occ.reserve(_circle(point, radius), why, owners=others, copper=False, source=tag_prefix + str(n))
         return resolved
 
+    def _report_centres(self, occ: Occupancy, plan: Plan) -> None:
+        """A Centre with a number on an axis and no `coordinates=True` is a `setup` warning in this release (the next
+        refuses it); a Centre that writes `coordinates=False` is a notice, since that is the default."""
+        for key, c in self._centres:
+            numeric = c.numeric_axes
+            if numeric and not c.by_coordinates:
+                plan.findings.append(self._finding(C.SETUP_CENTRE_COORDINATES, {
+                    "item": key, "axes": list(numeric), "values": [getattr(c, a) for a in numeric],
+                    "free": [a for a, v in (("x", c.x), ("y", c.y)) if v is None]}))
+                self._late_suggestions.append((plan.findings[-1], lambda f, k=key: self._measure_relation(occ, plan, k, f)))
+            if c.coordinates is False:
+                plan.findings.append(self._finding(C.SETUP_CENTRE_FLAG_DEFAULT, {"item": key}, "notice"))
+
     def _report_undeclared(self, plan: Plan):
         """A footprint no declaration places - itself, or as a cell's or a
         block's member - stays where the generator put it: say which."""
@@ -4463,6 +4484,38 @@ class Board:
             facts["a_searched"] = not intent.freedom.decided
             facts["a_priority"] = intent.priority.value if intent.priority_source == "script" else ""
         return facts
+
+    def _measure_relation(self, occ: Occupancy, plan: Plan, key: str, finding) -> None:
+        """The relation a placed item stands in to its nearest placed neighbour - the neighbour and the side it is on -
+        where placing it `Beside` that neighbour on that side is legal: what a coordinate placement may be turned into."""
+        from .suggest_facts import free_sides, intent_of
+        intent = intent_of(self, key)
+        step = next((s for s in plan.steps if s.item == key and s.placement is not None), None)
+        if intent is None or step is None or intent.kind == "block":
+            return
+        mine = occ.items[next(iter(occ._geometry(intent.item).owners))].body
+        best = None
+        for s in plan.steps:
+            if s.item == key or s.placement is None or s.kind != "part":
+                continue
+            other = intent_of(self, s.item)
+            if other is None or not hasattr(other.item, "ref") or other.item.ref not in occ.items:
+                continue
+            body = occ.items[other.item.ref].body
+            gap = math.hypot(max(body.left - mine.right, mine.left - body.right, 0.0),
+                             max(body.top - mine.bottom, mine.top - body.bottom, 0.0))
+            if best is None or gap < best[0]:
+                best = (gap, s.item, body)
+        if best is None:
+            return
+        _, neighbour, body = best
+        dx, dy = mine.center.x - body.center.x, mine.center.y - body.center.y
+        side = (Edge.EAST if dx > 0 else Edge.WEST) if abs(dx) / max(body.width + mine.width, 1e-9) >= \
+            abs(dy) / max(body.height + mine.height, 1e-9) else (Edge.SOUTH if dy > 0 else Edge.NORTH)
+        legal = free_sides(self, occ, plan, intent, neighbour, step.placement.location, step.placement.rotation,
+                           step.placement.face)
+        if side.name in legal:
+            finding.facts["relation"] = {"item": neighbour, "side": side.name}
 
     def _measure_link_over(self, occ: Occupancy, plan: Plan, l, finding) -> None:
         """The sides of the link's far part its near end may stand beside, measured on the finished board."""
@@ -6179,7 +6232,8 @@ class Board:
             path = c.shape.path_at(centre, turn)
             step = Step(intent.key, "cutout", None, why=intent.why)
             if why:
-                plan.findings.append(self._finding(C.FIXED_CUTOUT, {"name": c.name, "why": why.to_json()}))
+                plan.findings.append(self._finding(C.FIXED_CUTOUT, {"name": c.name, "why": why.to_json(),
+                                                                    "outline_kind": self._outline_decl}))
                 step.note = str(why)
             else:
                 self._add_cutout(occ, c.name, PlacedCutout(c.name, tuple(path), centre, turn))
@@ -6467,6 +6521,7 @@ class Board:
         self._report_escapes(occ, plan)
         self._report_lanes(plan)
         self._report_undeclared(plan)
+        self._report_centres(occ, plan)
         self._report_splits(plan)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
@@ -8226,8 +8281,9 @@ class Board:
                 best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,),
                                                             clr, score, pick=self._pick(i))
             if best is None and alone is not None:
-                facts = {"item": i.key, "variant": "alone", "turns": [[r, w.to_json()] for r, w in alone],
-                         }
+                from . import suggest_facts
+                facts = dict({"item": i.key, "variant": "alone", "turns": [[r, w.to_json()] for r, w in alone]},
+                             **suggest_facts.structure_facts(self, i))
                 plan.findings.append(self._finding(C.UNPLACED_BLOCK, facts))
                 members = {}
                 note, unplaced = "", finding_text.turns_text(facts["turns"])
@@ -9079,6 +9135,11 @@ _SITED = {
     "plane": lambda b, out, a, k: _keyed(out),
     "fanout": lambda b, out, a, k: [b._item(_first(a, k, "item"))[1]],
     "escape": lambda b, out, a, k: [b._item(_first(a, k, "part"))[1]],
+    "rect": lambda b, out, a, k: ["board"],         # the outline: one declaration of it, so one key (two are refused at bind)
+    "disc": lambda b, out, a, k: ["board"],
+    "outline": lambda b, out, a, k: ["board"],
+    "row": lambda b, out, a, k: [b._item(list(_first(a, k, "items"))[0])[1]],      # its first member; the members list is the argument
+    "block": lambda b, out, a, k: [out.anchor.inst],
     "rule": lambda b, out, a, k: [out.why],
     "accept": lambda b, out, a, k: ["%s %s" % (out.check, out.subject)],
 }
@@ -9090,6 +9151,8 @@ def _sited(method: str, keys):
         def declared(self, *args, **kwargs):
             site = _script_site()
             out = fn(self, *args, **kwargs)
+            if method in ("rect", "disc", "outline"):
+                self._outline_decl = method
             for key in keys(self, out, args, kwargs):
                 self._record_site(method, key, site)
             return out

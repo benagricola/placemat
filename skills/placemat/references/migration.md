@@ -5,6 +5,57 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **Suggestions can edit inside a call and in several places at once.** An edit may go into an argument that is a call (a
+  `Beside`'s `gap=` or side, a `Past`'s `across=`, a `Cutout`'s `at=`, one axis of an intent `Centre`) and a suggestion
+  carries `edits`, a list made together or not at all, with one applied-log entry and one undo; its `how` says how it was
+  found. `run.json`'s and `preview --json`'s suggestions have `edits` and `how` where they had `edit`; a record that has
+  `edit` still reads. The outline (`rect`, `disc`, `outline`), a `row` and a `block` are declarations a suggestion can edit.
+- **The editing engine has the operations a board builder needs.** `apply_edits` (the body of `apply_suggestion`, for
+  edits that come from a person), `redo_last`, and the ops `create_file`, `ensure_import`, `remove_constant`,
+  `move_statement`, `confirm_facts` and region inserts; `script_edit.read_intent` and `script_edit.skeleton`;
+  `facts.confirmed_text`. An applied-log entry may have `before: null` (a created file) and a `source`.
+- **`Centre(..., coordinates=True)` marks a coordinate.** `coordinates=False` is the default and is never written. A number on
+  a `Centre` axis without the flag is still accepted in this release and gives a `setup` warning
+  (`setup.centre_coordinates`); the next release refuses it. Writing `coordinates=False` is a `setup` notice.
+
+### Fixed
+
+- **A pin whose copper ends against another part is reported walled off.** A pad that copper of its own net left counted as
+  having its way out, so a pin on a net with other pads, fanned out on an escape lane or a track that ends in the air, was
+  never walled whatever stood at the end of that copper, a through-hole pad of another cell included. The way out is now looked
+  for from where the pad's own copper ends (a track or lane that reaches another pad of the net, a via or a pour still counts
+  as made), among what the clearance check refuses: other nets' pads on the layers they span, a through-hole pad on every layer,
+  unplated holes (the `hole_clearance`), copper, and for a via the rule areas that forbid vias. Unplated holes also close a
+  pad's corridors in the search now, as pads do. `escape_walled` appears where it did not, and the run score and the search move
+  with it. A script that drew a track to nowhere from a pad (a stub the core's router takes up) may now get the finding.
+
+## To 0.91.0
+
+### Changed
+
+- **The router moves to a new checkout.** The built-in router is `~/work/KRT-upstream` (the router brought up to its
+  current upstream, with filled copper graphics and pad-corner guards), where it was `~/work/KiCadRoutingTools`. `$KRT_DIR` and
+  `[route] router_dir` still override it. A machine with `KRT_DIR` or `router_dir` set keeps the router it names:
+  to move, point it at the new checkout (its `.venv` and `rust_router/grid_router.so` must be built there), or unset it. Routes
+  differ from the old router's: pad corners are guarded exactly instead of by a half-cell buffer, so fine-pitch rows escape
+  where they sealed, and a filled copper graphic (footprint ones too) is copper over its whole area.
+- **A route no longer puts footprint copper graphics back.** The new router keeps a footprint's copper graphics on every
+  layer, so the step that restored them is gone, and `restored_graphics` is no longer in the route report or its JSON. The rule
+  areas that keep tracks off a footprint's copper (a net tie's winding, a coil) stay in the router's input copy and are deleted
+  from the routed copy. Scripts change nothing.
+
+## To 0.90.1
+
+### Changed
+
+- **The studio's running status shows one counter**, "step n of ~N", with the kind and phase pills and an info tooltip; the
+  search rank stays on the card. On desktop the status gives way (subtitle, phase, kind, name) before it can reach the buttons.
+  Scripts change nothing.
+
 ## To 0.90.0
 
 ### New
@@ -3252,6 +3303,7 @@ that says what replaces it.
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
 | a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | To 0.67.0 |
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | To 0.67.0 |
+| a `Centre` with a number on an axis | Unreleased: write `coordinates=True`, or a relation |
 | ground vias outside a region typed as computed `Location` vias | To 0.68.0 |
 | points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | To 0.68.0 |
 | `board.plane(net, layers=(In2,), over=[parts])` standing in for an inner-layer area over vias | To 0.69.0 |

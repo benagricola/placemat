@@ -82,25 +82,37 @@ def _const_of(value):
     return value.get("const") if isinstance(value, dict) and isinstance(value.get("const"), dict) else None
 
 
+def _edits_of(edits) -> tuple:
+    return (edits,) if isinstance(edits, Edit) else tuple(edits)
+
+
 @dataclass(frozen=True)
 class Suggestion:
+    """A change to the script, worded: `edits` are made together or not at all (one for most), `how` says how it was
+    found ("instant": from the finding's facts alone)."""
     text: str
-    edit: Edit
+    edits: tuple
     rank: int = 1
     lever: str = ""                 # suggestions of one lever are variants; the cap per lever is a setting
     id: str = ""                    # "s3a": finding 3, suggestion a; given by bind
-    digests: dict = field(default_factory=dict)     # {file: digest} of each file the edit writes, at the plan
+    digests: dict = field(default_factory=dict)     # {file: digest} of each file the edits write, at the plan
+    how: str = "instant"
+
+    def __post_init__(self):
+        object.__setattr__(self, "edits", _edits_of(self.edits))
 
     def to_json(self) -> dict:
-        out = {"id": self.id, "text": self.text, "rank": self.rank, "lever": self.lever, "edit": self.edit.to_json()}
+        out = {"id": self.id, "text": self.text, "rank": self.rank, "lever": self.lever,
+               "edits": [e.to_json() for e in self.edits], "how": self.how}
         if self.digests:
             out["digests"] = dict(self.digests)
         return out
 
     @staticmethod
     def from_json(d: dict) -> "Suggestion":
-        return Suggestion(d["text"], Edit.from_json(d["edit"]), d.get("rank", 1), d.get("lever", ""), d.get("id", ""),
-                          dict(d.get("digests", {})))
+        edits = d["edits"] if "edits" in d else [d["edit"]]          # a record from before suggestions had several
+        return Suggestion(d["text"], tuple(Edit.from_json(e) for e in edits), d.get("rank", 1), d.get("lever", ""),
+                          d.get("id", ""), dict(d.get("digests", {})), d.get("how", "instant"))
 
 
 def to_json(suggestions) -> list:
@@ -144,6 +156,14 @@ class UndoRefused(SuggestionError):
     """The file is not as the apply left it, so putting it back would undo someone else's change as well."""
 
 
+class NothingToRedo(SuggestionError):
+    """The last thing in the log is not an undo: there is nothing undone to make again."""
+
+
+class RedoRefused(SuggestionError):
+    """A file is not as it was before the undone apply, so making that apply again would write over someone else's change."""
+
+
 # ------------------------------------------------------------------ the cases
 CASES: dict = {}
 """{FindingCause: builder}: a builder takes the facts the raising site measured and returns the suggestions, best first,
@@ -152,10 +172,13 @@ each a `Pick`."""
 
 @dataclass(frozen=True)
 class Pick:
-    """What a builder offers before the engine has bound it: the wording, the edit and the lever it belongs to."""
+    """What a builder offers before the engine has bound it: the wording, the edits and the lever it belongs to."""
     text: str
-    edit: Edit
+    edits: tuple
     lever: str = ""
+
+    def __post_init__(self):
+        object.__setattr__(self, "edits", _edits_of(self.edits))
 
 
 def case(name):
@@ -186,7 +209,7 @@ def suggest(case_id, facts: dict, settings=None) -> list:
         if pick.lever and n >= cap:
             continue
         seen[pick.lever] = n + 1
-        out.append(Suggestion(pick.text, pick.edit, len(out) + 1, pick.lever))
+        out.append(Suggestion(pick.text, pick.edits, len(out) + 1, pick.lever))
     return out
 
 
@@ -240,60 +263,66 @@ class _Binder:
             return script_edit.shared_module(self.script) or call_file
         return call_file
 
-    def bind(self, s: Suggestion) -> list:
-        edit = s.edit
+    def bind_edit(self, edit: Edit):
+        """The edit bound to the script's declarations, or None where one cannot be."""
         refs = {}
         for k, t in edit.refs.items():
             bound = self.target(t)
             if bound is None:
-                return []
+                return None
             refs[k] = bound
         target = None
         if edit.target is not None:
             target = self.target(edit.target)
             if target is None:
-                return []
+                return None
         file, args = edit.file, dict(edit.args)
         if edit.op == "toml_set":
             found = self.settings_file()
             if found is None:
-                return []
+                return None
             file = found[0]
             args["table"] = ["scripts", found[1], args.pop("section")]
         home = target.file if target else file
         value = _bind_consts(edit.value, lambda c: self.constants_file(c.get("scope", "cell"), home))
-        bound = Edit(edit.op, target, args, value, refs, file)
+        return Edit(edit.op, target, args, value, refs, file)
+
+    def bind(self, s: Suggestion) -> list:
+        edits = [self.bind_edit(e) for e in s.edits]
+        if any(e is None for e in edits):
+            return []
         out = []
-        for variant in self.variants(s, bound):
+        for variant in self.variants(s, edits):
             made = self.check(*variant)
             if made is not None:
                 out.append(made)
         return out
 
-    def variants(self, s: Suggestion, edit: Edit) -> list:
-        """The suggestion as it stands; or, where the keyword it sets already reads a constant of the script's,
+    def variants(self, s: Suggestion, edits: list) -> list:
+        """The suggestion as it stands; or, where the one keyword it sets already reads a constant of the script's,
         two: change that constant, or give this one use a constant of its own."""
         from . import script_edit
+        edit = edits[0]
         const = _const_of(edit.value)
-        if edit.op != "set_kwarg" or const is None or edit.target is None:
-            return [(s, edit)]
+        if len(edits) != 1 or edit.op != "set_kwarg" or const is None or edit.target is None or edit.args.get("into"):
+            return [(s, edits)]
         try:
             existing = script_edit.keyword_constant(self.board._source_text(edit.target.file), edit.target,
                                                     edit.args["name"])
         except (script_edit.EditRefused, OSError):
             existing = None
         if existing is None:
-            return [(s, edit)]
+            return [(s, edits)]
         change = Edit("set_constant", None, {"name": existing, "existing": True, "comment": const.get("comment", "")},
                       const["value"], {}, edit.target.file)
-        return [(replace(s, text="%s, by changing %s (every use of it changes)" % (s.text, existing)), change),
-                (replace(s, text="%s, with a constant of its own" % s.text), edit)]
+        return [(replace(s, text="%s, by changing %s (every use of it changes)" % (s.text, existing)), [change]),
+                (replace(s, text="%s, with a constant of its own" % s.text), edits)]
 
-    def check(self, s: Suggestion, edit: Edit):
-        """The suggestion with its edit bound and its digests, if the edit can be made on the script as it stands."""
+    def check(self, s: Suggestion, edits: list):
+        """The suggestion with its edits bound and its digests, if they can be made on the script as it stands."""
         from . import script_edit
         try:
-            changed = script_edit.apply_all(edit, self.board._source_text)
+            changed = script_edit.apply_edits(edits, self.board._source_text)
         except (script_edit.EditRefused, OSError, UnicodeDecodeError, KeyError):
             return None
         digests = {}
@@ -303,7 +332,7 @@ class _Binder:
             if seen and seen != now:
                 return None             # the file was edited while the resolve ran: its lines are not these
             digests[path] = now
-        return replace(s, edit=edit, digests=digests)
+        return replace(s, edits=tuple(edits), digests=digests)
 
 
 def _bind_consts(value, file_of):
@@ -348,17 +377,21 @@ def flatten(findings) -> list:
 # ------------------------------------------------------------------ applying
 @dataclass
 class FileChange:
+    """One file's text before and after; None for a side where the file does not exist (a created file has no `before`,
+    a removed one no `after`)."""
     file: str
-    before: str
-    after: str
+    before: str | None
+    after: str | None
 
     @property
     def diff(self) -> str:
-        return "".join(difflib.unified_diff(self.before.splitlines(keepends=True), self.after.splitlines(keepends=True),
-                                            "a/" + self.file, "b/" + self.file))
+        return "".join(difflib.unified_diff((self.before or "").splitlines(keepends=True),
+                                            (self.after or "").splitlines(keepends=True),
+                                            "a/" + self.file if self.before is not None else "/dev/null",
+                                            "b/" + self.file if self.after is not None else "/dev/null"))
 
     def _ops(self):
-        a, b = self.before.splitlines(), self.after.splitlines()
+        a, b = (self.before or "").splitlines(), (self.after or "").splitlines()
         return [op for op in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if op[0] != "equal"]
 
     @property
@@ -398,6 +431,7 @@ def _read(path: str) -> str:
 def _write_atomic(path: str, text: str) -> None:
     """The file's new text, written to a temporary file beside it and moved over it, keeping its mode."""
     p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=p.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
@@ -421,27 +455,42 @@ def _inside(root, path) -> bool:
         return False
 
 
+def _read_or_none(path):
+    try:
+        return _read(path)
+    except OSError:
+        return None
+
+
 def apply_suggestion(suggestions, id: str, dry_run: bool = False, *, root=None, log=None, now=None) -> Applied:
     """Apply the suggestion `id` of `suggestions` to the files it edits, or, with `dry_run`, work out what that would
-    write and write nothing. Every file the edit writes must be as the plan saw it (its digest): if one has changed
-    nothing is written (StaleSuggestion). The files are written atomically; the apply is appended to `log`
-    (`.placemat/applied.jsonl`), and may be undone by `undo_last`. A write needs `root` (only files under it are
-    written) and `log`. Errors are SuggestionErrors: UnknownSuggestion, StaleSuggestion, EditRefused."""
-    from . import script_edit
+    write and write nothing: `apply_edits` on its edits and digests. Errors are SuggestionErrors: UnknownSuggestion,
+    StaleSuggestion, EditRefused."""
     s = find(suggestions, id)
+    return apply_edits(s.edits, s.digests, dry_run, root=root, log=log, now=now, label=s.text, source="suggestion",
+                       id=s.id)
+
+
+def apply_edits(edits, digests=None, dry_run: bool = False, *, root=None, log=None, now=None, label: str = "",
+                source: str = "", id: str = "edits") -> Applied:
+    """Make `edits` together (one atomic write of every file, one entry in the log, one undo), or, with `dry_run`, work
+    out what that would write and write nothing. Every file in `digests` ({path: digest of its text at the plan, "" for a
+    file that is not there}) must be as the plan saw it: if one has changed nothing is written (StaleSuggestion). The
+    files are written atomically; the apply is appended to `log` (`.placemat/applied.jsonl`) with `label` as its text and
+    `source` (who asked), and may be undone by `undo_last`. A write needs `root` (only files under it are written) and
+    `log`. A file the edits create has no `before`."""
+    from . import script_edit
     if not dry_run and (root is None or log is None):
-        raise ValueError("applying a suggestion needs the project root it may write under and the log to record it in")
+        raise ValueError("applying edits needs the project root they may write under and the log to record them in")
     stale = []
-    for path, want in s.digests.items():
-        try:
-            if script_edit.digest(_read(path)) != want:
-                stale.append(path)
-        except OSError:
+    for path, want in (digests or {}).items():
+        now_text = _read_or_none(path)
+        if (now_text is None) != (not want) or (now_text is not None and script_edit.digest(now_text) != want):
             stale.append(path)
     if stale:
         raise StaleSuggestion(stale)
     try:
-        changed = script_edit.apply_all(s.edit, _read)
+        changed = script_edit.apply_edits(edits, _read)
     except script_edit.StaleEdit as e:
         raise StaleSuggestion(e.files) from None
     except script_edit.EditRefused as e:
@@ -449,28 +498,46 @@ def apply_suggestion(suggestions, id: str, dry_run: bool = False, *, root=None, 
     except OSError as e:
         raise EditRefused("cannot read %s" % (e.filename or e)) from None
     files = {p: FileChange(p, before, after) for p, (before, after) in changed.items()}
-    result = Applied(s.id, s.text, files, dry_run)
+    result = Applied(id, label, files, dry_run)
     if dry_run:
         return result
     outside = [p for p in files if not _inside(root, p)]
     if outside:
-        raise EditRefused("%s is outside the project, which a suggestion does not write" % ", ".join(outside))
+        raise EditRefused("%s is outside the project, which an edit does not write" % ", ".join(outside))
     _write_all(files)
-    _append(log, {"op": "apply", "id": s.id, "text": s.text, "at": _stamp(now),
-                  "files": [{"file": p, "before": c.before, "after": c.after} for p, c in files.items()]})
+    _append(log, _entry("apply", id, label, source, files, now))
     return result
+
+
+def _entry(op: str, id, text, source, files: dict, now, **more) -> dict:
+    out = {"op": op, "id": id, "text": text, "at": _stamp(now)}
+    if source:
+        out["source"] = source
+    out.update(more)
+    out["files"] = [{"file": p, "before": c.before, "after": c.after} for p, c in files.items()]
+    return out
+
+
+def _put(path: str, text) -> None:
+    if text is None:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+    else:
+        _write_atomic(path, text)
 
 
 def _write_all(files: dict) -> None:
     done = []
     try:
         for p, c in files.items():
-            _write_atomic(p, c.after)
+            _put(p, c.after)
             done.append(p)
     except BaseException:
         for p in done:                  # a later file failed: the earlier ones go back
             try:
-                _write_atomic(p, files[p].before)
+                _put(p, files[p].before)
             except OSError:
                 pass
         raise
@@ -487,20 +554,28 @@ def _append(log, entry: dict) -> None:
         f.write(json.dumps(entry) + "\n")
 
 
-def applied_entries(log) -> list:
-    """The applied log as [{"seq", "id", "text", "at", "files", "undone"}], oldest first: what the studio's history
-    lists as applied from a suggestion."""
+def _log_lines(log) -> list:
+    """[(seq, entry)] of the log, oldest first; the line number is the seq, a line that is not JSON is skipped."""
     path = Path(log)
     if not path.exists():
         return []
-    entries, undone = [], set()
+    out = []
     for seq, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
         if not line.strip():
             continue
         try:
-            e = json.loads(line)
+            out.append((seq, json.loads(line)))
         except ValueError:
             continue
+    return out
+
+
+def applied_entries(log) -> list:
+    """The applied log as [{"seq", "op", "id", "text", "at", "source", "files", "undone"}], oldest first: what the
+    studio's history lists. An entry is an apply, or a redo that made an undone apply again; "undone" says an undo took
+    it back."""
+    entries, undone = [], set()
+    for seq, e in _log_lines(log):
         e["seq"] = seq
         if e.get("op") == "undo":
             undone.add(e.get("of"))
@@ -511,21 +586,22 @@ def applied_entries(log) -> list:
     return entries
 
 
+def _outside_root(root, files):
+    if root is not None:
+        outside = [p for p in files if not _inside(root, p)]
+        if outside:
+            raise EditRefused("%s is outside the project, which an edit does not write" % ", ".join(outside))
+
+
 def undo_last(log, *, root=None, dry_run: bool = False, now=None) -> Applied:
-    """Put back what the last apply that has not been undone changed, if each file is still as that apply wrote it
-    (nothing else has touched it since); otherwise refuse (UndoRefused) and write nothing. The undo is logged, so
-    undoing again reverts the apply before it."""
+    """Put back what the last apply that has not been undone changed (a created file is removed), if each file is still
+    as that apply wrote it (nothing else has touched it since); otherwise refuse (UndoRefused) and write nothing. The
+    undo is logged, so undoing again reverts the apply before it, and `redo_last` makes it again."""
     pending = [e for e in applied_entries(log) if not e["undone"]]
     if not pending:
         raise NothingToUndo("nothing applied is left to undo")
     e = pending[-1]
-    moved = []
-    for f in e["files"]:
-        try:
-            if _read(f["file"]) != f["after"]:
-                moved.append(f["file"])
-        except OSError:
-            moved.append(f["file"])
+    moved = [f["file"] for f in e["files"] if _read_or_none(f["file"]) != f["after"]]
     if moved:
         raise UndoRefused("%s changed since %s was applied, so it is not put back: undo would take someone else's "
                           "change with it" % (", ".join(moved), e["id"]))
@@ -533,13 +609,48 @@ def undo_last(log, *, root=None, dry_run: bool = False, now=None) -> Applied:
     result = Applied(e["id"], e["text"], files, dry_run)
     if dry_run:
         return result
-    if root is not None:
-        outside = [p for p in files if not _inside(root, p)]
-        if outside:
-            raise EditRefused("%s is outside the project, which a suggestion does not write" % ", ".join(outside))
+    _outside_root(root, files)
     _write_all(files)
-    _append(log, {"op": "undo", "of": e["seq"], "id": e["id"], "text": e["text"], "at": _stamp(now),
-                  "files": [{"file": p, "before": c.before, "after": c.after} for p, c in files.items()]})
+    _append(log, _entry("undo", e["id"], e["text"], e.get("source", ""), files, now, of=e["seq"]))
+    return result
+
+
+def _redoable(log):
+    """The entry the next redo makes again, or None: undone applies are a stack, an undo pushes the entry it took back, a
+    redo pops it, and a new apply empties it."""
+    stack, entries = [], {}
+    for seq, e in _log_lines(log):
+        op = e.get("op")
+        if op == "undo":
+            stack.append(e.get("of"))
+        elif op == "redo":
+            if stack:
+                stack.pop()
+            entries[seq] = e
+        else:
+            stack.clear()
+            entries[seq] = e
+    return entries.get(stack[-1]) if stack else None
+
+
+def redo_last(log, *, root=None, dry_run: bool = False, now=None) -> Applied:
+    """Make again the apply the last undo took back, if each file is as it was before that apply (a file it created is
+    not there); otherwise refuse (RedoRefused) and write nothing. A run of undos is redone last first; a new apply drops
+    what could be redone (NothingToRedo)."""
+    e = _redoable(log)
+    if e is None:
+        raise NothingToRedo("nothing undone is left to redo")
+    moved = [f["file"] for f in e["files"] if _read_or_none(f["file"]) != f["before"]]
+    if moved:
+        raise RedoRefused("%s changed since %s was undone, so it is not made again: that would write over someone else's "
+                          "change" % (", ".join(moved), e["id"]))
+    files = {f["file"]: FileChange(f["file"], f["before"], f["after"]) for f in e["files"]}
+    result = Applied(e["id"], e["text"], files, dry_run)
+    if dry_run:
+        return result
+    _outside_root(root, files)
+    _write_all(files)
+    _append(log, _entry("redo", e["id"], e["text"], e.get("source", ""), files, now))
     return result
 
 
@@ -776,6 +887,10 @@ def unplaced_slide(f, settings):
 def unplaced_block(f, settings):
     item = f["item"]
     out = [_set("place", item, "rotations", _enum("Turns.ANY"), "Let the block turn to any of its turns", "turns")]
+    block, sat = f.get("block"), _block_satellite(f)
+    if block and sat in block["satellites"]:
+        out.append(_out_of_a_list("Place %s on its own, not as a satellite of %s" % (sat, block["anchor"]),
+                                  Target("block", block["anchor"]), "satellites", block["satellites"].index(sat), sat, "satellite"))
     return out
 
 
@@ -790,10 +905,38 @@ def unplaced_rides(f, settings):
 
 
 # ------------------------------------------------------------------ builders: fixed
+def _block_satellite(f):
+    """The satellite a block could not lay out, from the refusal a finding carries, or None."""
+    turns = f.get("turns")
+    whys = [f["why"]] if isinstance(f.get("why"), dict) else [t[1] for t in turns] if isinstance(turns, list) else []
+    return next((w["sat"] for w in whys if w.get("code") in ("block_no_spot", "block_taken")), None)
+
+
+def _out_of_a_list(text, list_target, arg, index, then_place, lever) -> Pick:
+    """Take element `index` out of a list argument and put a bare `board.place(Part(...))` after the declaration: a
+    row's member, a block's satellite, left to the search."""
+    return Pick(text, (Edit("edit_list", list_target, {"arg": arg, "action": "remove", "indices": [index]}),
+                       Edit("insert_statement", list_target, {}, _form("board.place", _form("Part", {"str": then_place})))),
+                lever)
+
+
 @case(C.FIXED_PART)
 def fixed_part(f, settings):
     item = f["item"]
-    out = [_unset("place", item, "at", "Let %s be searched" % item, "search")]
+    out = []
+    row = f.get("row")
+    if row:
+        out.append(_out_of_a_list("Take %s out of the row and let it be searched" % item, Target("row", row["first"]), "items",
+                                  row["index"], item, "row"))
+    block, sat = f.get("block"), _block_satellite(f)
+    if block and sat in block["satellites"]:
+        out.append(_out_of_a_list("Place %s on its own, not as a satellite of %s" % (sat, block["anchor"]),
+                                  Target("block", block["anchor"]), "satellites", block["satellites"].index(sat), sat, "satellite"))
+    out += [_unset("place", item, "at", "Let %s be searched" % item, "search")]
+    if f.get("centre"):
+        for free, axis, line in ((1, "y", "x"), (0, "x", "y")):
+            out.append(Pick("Let %s slide along its %s line" % (item, line),
+                            Edit("set_arg", Target("place", item), {"index": free, "into": [{"kw": "at"}]}, None), "slide"))
     if f.get("face") == "front":
         out.append(_set("place", item, "face", _enum("Face.BACK"), "Take %s on the back face" % item, "face"))
     elif f.get("face") == "back":
@@ -803,7 +946,10 @@ def fixed_part(f, settings):
 
 @case(C.FIXED_CUTOUT)
 def fixed_cutout(f, settings):
-    return []
+    why = f.get("why") or {}
+    if why.get("code") != "cutout_web":
+        return []
+    return _web_pick(f, why["gap_mm"], why["web_mm"], ("fixed.cutout", "%s would leave a %s mm web" % (f["name"], _mm(why["gap_mm"]))))
 
 
 @case(C.FIXED_KEEPOUT)
@@ -874,6 +1020,60 @@ def copper_not_drawn(f, settings):
 @case(C.COPPER_CORNER)
 def copper_corner(f, settings):
     return []
+
+
+@case(C.SETUP_CENTRE_COORDINATES)
+def setup_centre_coordinates(f, settings):
+    """A coordinate placement turned toward intent: beside the neighbour it stands next to, on the side it is on. Never
+    `coordinates=True`, never a number."""
+    rel = f.get("relation")
+    if not rel:
+        return []
+    item = f["item"]
+    return [_set("place", item, "at", _beside(rel["item"], rel["side"]),
+                 "Place %s beside %s, on its %s side" % (item, rel["item"], _side_word(rel["side"])), "beside")]
+
+
+@case(C.SETUP_CENTRE_FLAG_DEFAULT)
+def setup_centre_flag_default(f, settings):
+    item = f["item"]
+    return [Pick("Leave coordinates=False out of the Centre of %s" % item,
+                 Edit("remove_kwarg", Target("place", item), {"name": "coordinates", "into": [{"kw": "at"}]}), "flag")]
+
+
+@case(C.SETUP_FRAME_REACH)
+def setup_frame_reach(f, settings):
+    """The declared width or height of a fit frame, made the size that holds the item: the item's far reach, rounded up to
+    the hundredth. Not offered where the item reaches the frame's origin side, which a size cannot fix."""
+    if f["from_mm"] < f["frame_from_mm"] - 1e-6:
+        return []
+    need = math.ceil(f["to_mm"] * 100 - 1e-9) / 100
+    which = f["axis"]
+    return [_set("rect", "board", which,
+                 _const(_name("board", which, "mm"), need,
+                        "A run's finding (setup.frame_reach): %s reaches to %s mm, past the frame's declared %s of %s mm."
+                        % (f["item"], _mm(f["to_mm"]), which, _mm(f["frame_to_mm"]))),
+                 "Make the board's %s %s mm" % (which, _mm(need)), "frame")]
+
+
+def _web_pick(f, gap, web, what):
+    kind = f.get("outline_kind")
+    if not kind:
+        return []
+    least = math.floor(gap * 100 + 1e-9) / 100
+    if not 0 < least < web:
+        return []
+    return [_set(kind, "board", "web",
+                 _const(_name("board", "web", "mm"), least,
+                        "A run's finding (%s): %s; the web was %s mm, and %s mm is what the board has, to the hundredth."
+                        % (what[0], what[1], _mm(web), _mm(least))),
+                 "Lower the web minimum to %s mm" % _mm(least), "web")]
+
+
+@case(C.SETUP_WEB)
+def setup_web(f, settings):
+    return _web_pick(f, f["gap_mm"], f["web_mm"], ("setup.web", "a web round %s was %s mm" % (
+        "cutout %r" % f["cutout"] if f["cutout"] is not None else "an unnamed cutout", _mm(f["gap_mm"]))))
 
 
 @case(C.COPPER_STITCH)

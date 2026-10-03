@@ -20,8 +20,8 @@ route cannot judge a placement or a router change. Two perturbations:
 
 Each run is a fresh process with the router `placemat route` drives. Reported:
 failed nets per run (min, median, max) and how often each net failed; with
-`--connectivity`, the same for the nets the router's `check_connected.py`
-finds unrouted or broken in the output.
+`--connectivity`, the same for the nets KiCad's DRC finds unconnected in the
+output (placemat's DRC reader).
 
     route_spread.py BOARD.kicad_pcb OUT [--runs N] [--perturb order|jitter|offset]
                     [--swaps K] [--grid G] [--jobs J] [--router DIR] [--connectivity]
@@ -38,10 +38,10 @@ import argparse
 import concurrent.futures
 import json
 import os
-import re
 import shutil
 import statistics
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -110,15 +110,17 @@ ids = {v: k for k, v in names.items()}
 nets = json.loads(sys.argv[3])
 order = compute_mps_net_ordering(pcb, [ids[n] for n in nets if n in ids])
 order = order if isinstance(order, list) else order.ordered_ids
-print(json.dumps([names[n] for n in order]))
+json.dump([names[n] for n in order], open(sys.argv[4], "w"))
 """
 
 
 def mps_order(router: str, board: str, nets: list) -> list:
     py = Path(router) / ".venv/bin/python"
-    r = subprocess.run([str(py), "-c", MPS, router, board, json.dumps(nets)], capture_output=True, text=True,
-                       cwd=router)
-    return json.loads(r.stdout.strip().splitlines()[-1])
+    with tempfile.TemporaryDirectory() as d:
+        dst = Path(d) / "order.json"
+        subprocess.run([str(py), "-c", MPS, router, board, json.dumps(nets), str(dst)], check=True,
+                       capture_output=True, text=True, cwd=router)
+        return json.loads(dst.read_text())
 
 
 def swapped(order: list, seed: int, swaps: int) -> list:
@@ -143,19 +145,16 @@ def nets_in(args: list) -> tuple:
     return args[i + 1:j], args[:i] + args[j:]
 
 
-UNROUTED = re.compile(r"^    (\S.*) \(\d+ pads\)$")
-BROKEN = re.compile(r"^  (\S.*) \(net \d+\):$")
-
-
-def disconnected(router: str, pcb: Path) -> list | None:
-    """The nets the router's connectivity check finds unrouted or broken."""
-    py = Path(router) / ".venv/bin/python"
-    r = subprocess.run([str(py), "-X", "utf8", str(Path(router) / "py_router/check_connected.py"), str(pcb), "--quiet"],
-                       cwd=router, capture_output=True, text=True, errors="replace")
-    lines = r.stdout.splitlines()
-    if not any(l.strip() in ("OK",) or l.startswith("FAILED") for l in lines):
+def disconnected(pcb: Path) -> list | None:
+    """The nets KiCad's own DRC finds unconnected on the routed board (placemat's
+    DRC reader, structured; zones refilled for the check), or None when the
+    check did not run."""
+    sys.path.insert(0, str(ROOT / "src"))
+    from placemat.kicad.drc import run_drc
+    try:
+        return sorted(run_drc(pcb, Path(pcb).with_suffix(".drc.json")).open_nets)
+    except Exception:
         return None
-    return sorted({m.group(1) for l in lines for m in (UNROUTED.match(l), BROKEN.match(l)) if m})
 
 
 def route(job) -> dict:
@@ -180,7 +179,7 @@ def route(job) -> dict:
         failed = None
     res = {"dx": dx, "dy": dy, "failed": failed, "rc": r.returncode}
     if connectivity:
-        res["disconnected"] = disconnected(router, Path(out) / "out.kicad_pcb")
+        res["disconnected"] = disconnected(Path(out) / "out.kicad_pcb")
     return res   # order/jitter runs: dx the mode, dy the seed
 
 
@@ -209,10 +208,10 @@ def main(argv) -> int:
     ap.add_argument("--runs", type=int, default=8)
     ap.add_argument("--grid", type=float, default=0.1)
     ap.add_argument("--jobs", type=int, default=4)
-    ap.add_argument("--router", default=os.environ.get("KRT_DIR", os.path.expanduser("~/work/KiCadRoutingTools")))
+    ap.add_argument("--router", default=os.environ.get("KRT_DIR", os.path.expanduser("~/work/KRT-upstream")))
     ap.add_argument("--perturb", choices=("order", "jitter", "offset"), default="order")
     ap.add_argument("--connectivity", action="store_true",
-                    help="also run the router's check_connected.py on each output")
+                    help="also list the nets KiCad's DRC finds unconnected on each output")
     ap.add_argument("--swaps", type=int, default=0, help="order: pairs swapped per run (default: a tenth of the nets)")
     a = ap.parse_args(argv)
     out = Path(a.out)

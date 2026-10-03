@@ -270,6 +270,15 @@ no close placement requirement in common may be split into cells of
 their own." It carries no run-score weight (score.py), and the same text
 is a note on the cell's step.
 
+**A number on a `Centre` is a coordinate, and a script says so.** `Centre(30, 12, coordinates=True)` places by coordinates;
+without the flag each axis is a reference (`X(pad)`, `Y(pad)`, a `Mid`) or `None`. `coordinates=False` is the default and
+is never written: a script that writes it gets a `setup` notice (`setup.centre_flag_default`) and a suggestion that removes
+it. In this release a number without the flag is still accepted and gives a `setup` warning (`setup.centre_coordinates`: "u1:
+Centre(30, 12) places by coordinates: write coordinates=True, or place by a relation"); the next release refuses it.
+`Location` is coordinates by its name and takes no flag. A suggestion never writes a number into a `Centre` or a `Location`,
+never sets `coordinates=True`, and never edits a `Location` or a `Centre` with the flag; it may turn a coordinate placement
+into a relation (`Beside`), and it may free one axis of an intent `Centre` (`Centre(X(pad), None)`).
+
 **Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`,
 `Centre(x, y)` and `Pin(key, x, y)` fix both coordinates (the origin, the
 body centre, or the item's own pad `key` (a number or a net), each axis a
@@ -3186,7 +3195,7 @@ matches, better than, worse than, or not judged. **A run that comes out
 worse is a finding naming the score and the term that moved it most, and
 `placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
 part starts a new family. Routing needs
-KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
+KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR` (default `~/work/KRT-upstream`) with
 its own venv; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: a small two-layer board routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
@@ -3245,12 +3254,11 @@ island nets count in the closure, and `--adopt NET` keeps their routes like
 any other net's.
 
 A footprint's own copper graphics (a net-tie's winding, a copper logo) are
-not obstacles to the router, and its writer moves net-less ones on the
-outer layers to silk. So the router's input copy carries a rule area over
-each, on its own layer, forbidding tracks and vias (a route through one is
-a keepout breach naming its footprint), and the routed copy gets every
-footprint's graphics back as they were before its DRC is run; the report's
-`restored_graphics` counts them.
+guarded in the router's input copy: a rule area over each, on its own layer,
+forbidding tracks and vias (a route through one is a keepout breach naming
+its footprint). The guards are deleted from the routed copy before its DRC
+is run. The router keeps a footprint's copper graphics on every layer, so
+nothing is put back.
 
 **Stages and resume.** A route works in three stages - the differential
 pairs, the islands, the main pass - and keeps each in its work folder
@@ -3713,7 +3721,8 @@ rendered from them) and its `suggestions`:
 
 `id` is `s<finding number><letter>` and belongs to the plan that made it. `rank` 1 is the best; `lever` groups variants
 of one change (at most `[studio] suggestions_per_lever` of them). `edit` is data: the operation (`set_kwarg`,
-`remove_kwarg`, `set_arg`, `edit_list`, `insert_statement`, `remove_statement`, `set_constant`, `toml_set`), the
+`remove_kwarg`, `set_arg`, `edit_list`, `insert_statement`, `remove_statement`, `set_constant`, `toml_set`; and for
+the studio's board builder `ensure_import`, `remove_constant`, `move_statement`, `create_file`, `confirm_facts`), the
 declaration it changes by kind, key, file and line, and an intent expression for the value, never source and never a
 coordinate. A number an edit writes is a named constant with a comment saying where it came from. A suggestion whose
 declaration is made in a loop or a helper that runs for several items is not offered, since the edit would change
@@ -3726,15 +3735,29 @@ command says so: run again for suggestions that fit. `--undo` puts back the last
 the files are still as that apply left them. A suggestion is a candidate: the next run says whether the finding
 cleared.
 
+The same engine serves the board builder, which is not driven by findings. `suggestions.apply_edits(edits, digests,
+dry_run, root=, log=, label=, source=)` is the body of `apply_suggestion`: the digest check (`""` for a file that
+must not exist yet), the edits made together, the atomic write, one log entry carrying `label` as its text and
+`source`. A file an edit creates (`create_file`, with the text `script_edit.skeleton(name, description, outline)`
+gives) has `before: null` in its entry, and undoing it removes the file. `redo_last(log, root=)` makes the last undone
+apply again when the files are as they were before it (`RedoRefused` otherwise); a new apply empties what could be
+redone (`NothingToRedo`). `insert_statement` with no target takes `args={"after": {"region": R}}`, R one of `header`,
+`constants`, `outline`, `decided`, `searched`, and an optional `args["bind"]` to write it as an assignment.
+`ensure_import` takes `args={"names": [...]}`; `remove_constant` `args={"name": ...}` and refuses a constant
+something reads; `move_statement` takes `args={"after" | "before": <target json>}`. `script_edit.read_intent(text,
+target, name="at")` reads an argument back as the intent expression that writes it, `{"absent": true}` where the call
+does not give it and None where it is not in the builder's vocabulary (a coordinate, arithmetic).
+
 | Cause | Suggestions |
 |---|---|
 | `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`) |
 | `unplaced.pocket` | place it beside a part that pulls it; a `board.link` toward a part it shares a net with; either face |
 | `unplaced.slide` | `at=OnEdge(...)` on each of the other edges |
-| `unplaced.block` | the block may turn to any of its turns |
+| `unplaced.block` | the block may turn to any of its turns; the satellite that did not fit placed on its own (out of the block's list, a bare `board.place` after it) |
 | `unplaced.bearing`, `unplaced.rides` | none |
-| `fixed.part` | drop its `at=` so it is searched; the other face |
-| `fixed.cutout`, `fixed.keepout` | none |
+| `fixed.part` | drop its `at=` so it is searched; the other face; a row's member taken out of the row and left to the search; a block's satellite placed on its own; an item at an intent `Centre` freed along one axis |
+| `fixed.cutout` | for a web too thin: the board's `web=` lowered to the web it has, to the hundredth, as a named constant |
+| `fixed.keepout` | none |
 | `copper.keepout` | `Net(...)` added to the keepout's `allow=`; the keepout kept off the layer the copper is on (`layers=`); the keepout forbidding only what the copper is not (`excludes=`) |
 | `copper.cross` | `bridge=True` on the track that yields; `priority=Priority.HIGH` on it where the other track may bridge |
 | `copper.meets` | the track's waypoints dropped (pad to pad); the other layer |
@@ -3746,6 +3769,10 @@ cleared.
 | `label.not_drawn` | none |
 | `escape_walled`, `escape_closed` | a `board.fanout(part, sides=[...])` on the side the pad's way out points at; a `board.escape(...)` keeping the pin's lane clear |
 | `escape_lane`, `escape_crossed`, `pair_crossed` | none |
+| `setup.centre_coordinates` | place it beside the neighbour it stands next to, on the side it is on, where that is legal; never `coordinates=True` |
+| `setup.centre_flag_default` | the keyword removed |
+| `setup.frame_reach` | the fit frame's declared width or height made the size that holds the item (not where the item reaches the origin side) |
+| `setup.web` | the board's `web=` lowered to the web it has |
 | `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
 | `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
 | `setup.accept` | the `board.accept(...)` removed |
@@ -3959,7 +3986,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.stop_hard_clear` | `false` | bool | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | `100000` | count | finished variants an explore's checkpoint records; past it a resume tries those again |
 | `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
-| `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KiCadRoutingTools` |
+| `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream` |
 | `route.quick` | `true` | bool | one routing round rather than the router's full run |
 | `route.max_iterations` | `unset` | count | cap on the router's search per net; unset: the router's own default |
 | `route.plane_share` | `0.9` | share | how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing (the router's default layers come from each layer's declared role, not this) |
@@ -3994,7 +4021,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.escape_crossed` | `20.0` | mm | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_depth` | `1.5` | mm | the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.escape_closed` | `50.0` | mm | mm a pad whose last route toward what it connects to is closed costs |
-| `score.escape_walled` | `400.0` | mm | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
+| `score.escape_walled` | `400.0` | mm | mm a pad with no route out at all costs. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends. What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and where a via is wanted the rule areas that forbid vias) is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
 | `score.escape_lane` | `400.0` | mm | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
 | `score.congestion` | `10.0` | mm | explore: mm per `explore.congestion_step` of the worst RUDY cell |
 | `score.via_share` | `1.0` | mm | mm the search adds to a spot for each carried via that shares a via of its net there |

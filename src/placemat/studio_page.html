@@ -47,7 +47,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* header */
 header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 0 1 auto; background: none; border: 0; padding: 2px 6px; margin: 0 -6px; border-radius: 6px; text-align: left; }
+.brand { display: flex; align-items: baseline; gap: 8px; flex: 0 8 auto; background: none; border: 0; padding: 2px 6px; margin: 0 -6px; border-radius: 6px; text-align: left; }
 .brand:hover, .brand[aria-expanded="true"] { background: var(--surface2); }
 .brand .chev { color: var(--dim); font-size: 11px; }
 #menu { position: fixed; z-index: 55; min-width: 280px; max-width: min(520px, calc(100vw - 16px)); max-height: 70vh; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; }
@@ -65,7 +65,10 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 #runbtn.busy { opacity: 0.7; }
 #morebtn { display: none; font-size: 18px; line-height: 1; padding-top: 4px; padding-bottom: 6px; }
 .brand b { font-weight: 650; letter-spacing: 0.01em; }
-#board-sub { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#board-sub { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* while the status runs the subtitle takes what is left and the name never gives way */
+.brand b { flex: none; white-space: nowrap; }
+@media (min-width: 901px) { header { flex-wrap: nowrap; } }       /* wide: one row, whatever the status holds; the subtitle and the stats give way before the status does */
 .share { padding: 10px 12px; width: 268px; max-width: 100%; }
 .share .qr { display: block; width: 244px; max-width: 100%; height: auto; margin: 8px auto 6px; background: #fff; border-radius: 6px; }
 .share .sub { color: var(--dim); font-size: 12px; margin-bottom: 6px; } .share p { margin: 6px 0 0; }
@@ -117,12 +120,18 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 #runstrip { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 5px 10px; color: var(--accent); font-weight: 600; }
 #runstrip[hidden] { display: none; }
 /* wide layouts: the same fields on one line in the header (the strip above the timeline is for narrow ones) */
-#runhead { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; overflow: hidden; color: var(--accent); font-weight: 600; }
+#runhead { flex: 1 1 580px; min-width: 260px; flex-wrap: nowrap; overflow: hidden; color: var(--accent); font-weight: 600; container: rh / inline-size; }
 #runhead[hidden] { display: none; }
-#runhead .f-steps { width: 10.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* what gives way as the header narrows, in order: the phase, then the kind pill, then the item's name; the counters (the step's place in the
+   resolve, the item's rank in the search) and the time never shrink */
+#runhead .f-steps { width: auto; flex: none; white-space: nowrap; }
+#runhead .f-phase { width: auto; flex: 0 1 9em; min-width: 0; overflow: hidden; }
+#runhead .info { flex: none; }
+@container rh (max-width: 500px) { #runhead .f-phase { display: none; } }
+@container rh (max-width: 360px) { #runhead .chip { display: none; } }
+@container rh (max-width: 300px) { #runhead .f-item { display: none; } }
 #runhead .f-item { color: var(--ink); font-weight: 600; }
-#runhead .f-el { width: 2.8em; text-align: right; font-variant-numeric: tabular-nums; }
-#runhead .f-rank { width: 4.2em; } #runhead .f-rank .lbl { display: none; } #runhead .f-phase { width: 7em; }
+#runhead .f-el { width: 2.8em; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
 #runhead:not(.settled) .f-time { display: none; }       /* the time on the step is the elapsed field's neighbour: shown only for the settled step */
 /* between one step settling and the next beginning, the step that settled stays, dimmed, with the time it took */
 .flds.settled > :not(.spin):not(.f-steps):not(.f-el) { opacity: 0.55; }
@@ -147,7 +156,7 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 @keyframes wm { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(2.4); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .spin, .workmark .wm2, .bar.ind b { animation-duration: 3s; } }
 @keyframes pulse { 50% { opacity: 0.25; } }
-#stats { display: flex; gap: 4px 16px; margin-left: auto; white-space: nowrap; overflow-x: auto; scrollbar-width: none; color: var(--dim); }
+#stats { display: flex; gap: 4px 16px; margin-left: auto; min-width: 0; white-space: nowrap; overflow-x: auto; scrollbar-width: none; color: var(--dim); }
 #stats::-webkit-scrollbar { display: none; }
 .stat b { color: var(--ink); font-weight: 650; margin-right: 3px; }
 .stat.bad b { color: var(--bad); } .stat.warn b { color: var(--warn); }
@@ -462,7 +471,7 @@ svg text { user-select: none; font-family: var(--sans); }
   /* a phone: one panel at a time, each the full width and the rest of the height, chosen from the bar under the header */
   body { font-size: 15px; }
   header { padding: 8px 12px 6px; gap: 2px 10px; }
-  .brand { flex: 1 1 0; }
+  .brand { flex: 1 1 0; min-width: 0; }
   #runbtn, #resolvebtn, #sharebtn, #srcbtn { display: none; } #morebtn { display: inline-block; }       /* a phone: one button for the four, so the board's name stays readable */
   #script, #script.full { left: 0; right: 0; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; border-width: 1px 0 0; }
   #script #scriptfull { display: none; }
@@ -535,7 +544,7 @@ svg text { user-select: none; font-family: var(--sans); }
     </div>
     <div id="dock">
       <div id="card"></div>
-      <div id="runstrip" hidden><div class="flds"><i class="spin"></i><span class="f-el" id="rs-el"></span><span class="f-steps" id="rs-steps"></span><span class="bar" id="progbarbox"><b id="progbar"></b></span><button class="mini" id="rs-again" title="cancel this resolve and start another">Again</button></div><div class="flds" id="rs-work"></div></div>
+      <div id="runstrip" hidden><div class="flds"><i class="spin"></i><span class="f-el" id="rs-el"></span><span class="f-steps" id="rs-steps"></span><button class="info" data-info="running" aria-label="about this" draggable="false">i</button><span class="bar" id="progbarbox"><b id="progbar"></b></span><button class="mini" id="rs-again" title="cancel this resolve and start another">Again</button></div><div class="flds" id="rs-work"></div></div>
       <div id="stepnow"></div>
       <div id="replay"><button id="play" title="replay the placement, one item at a time">Play</button><input type="range" id="slider" min="0" max="0" value="0"><span id="steplabel" class="dim"></span><button id="follow" hidden title="back to the newest step">Follow</button></div>
     </div>
@@ -875,10 +884,10 @@ const workTotal = w => w && w.total ? w.total.items + w.total.copper : 0;
 // last settled, dimmed, with the time it took (never a "waiting" line); a replay of unchanged steps says so.
 function workHTML(w) {
   const c = w.cur, R = w.total ? w.total.replay : 0;
-  if (w.replayed && (c ? c.replaying : w.last && w.last.replaying)) return pill("replay", "decided") + itemField("replaying unchanged steps") + '<span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span>";
+  if (w.replayed && (c ? c.replaying : w.last && w.last.replaying)) return pill("replay", "decided") + itemField("replaying unchanged steps");
   if (c) return pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + workFields(c);
   const l = w.last;
-  if (l) return pill(WHAT_WORD[l.what] || l.what, whatClass(l.what)) + itemField(l.item) + rankField(l.rank, l.of) + '<span class="f-phase"></span><span class="f-time">' + esc((l.took / 1000).toFixed(1) + " s") + "</span>";
+  if (l) return pill(WHAT_WORD[l.what] || l.what, whatClass(l.what)) + itemField(l.item) + '<span class="f-phase"></span><span class="f-time">' + esc((l.took / 1000).toFixed(1) + " s") + "</span>";
   return itemField("working");
 }
 const isSettled = w => !w.cur && !!w.last && !w.last.replaying;
@@ -894,14 +903,17 @@ function renderProgress() {
     return;
   }
   const p = plan(), n = p ? replaySteps(p).length : 0, T = workTotal(w);
-  const el_ = fmtDur(Date.now() - w.t0), steps = "step " + n + (T ? " of about " + T : " so far"), settled = isSettled(w), work = workHTML(w);
+  const el_ = fmtDur(Date.now() - w.t0), steps = "step " + n + (T ? " of ~" + T : " so far"), settled = isSettled(w), work = workHTML(w);
+  const stepsTitle = "step " + n + (T ? " of about " + T : " so far") + ": the place of this step in the whole resolve (items placed, copper laid, cutouts cut); the total is what the engine knows up front";
   $("#rs-el").textContent = el_;
-  $("#rs-steps").textContent = steps;
+  $("#rs-steps").textContent = steps; $("#rs-steps").title = stepsTitle;
   $("#progbarbox").classList.toggle("ind", !T);
   $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
   $("#rs-work").className = "flds" + (settled ? " settled" : "");
   $("#rs-work").innerHTML = work;
-  if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-el">' + esc(el_) + '</span><span class="f-steps">' + esc(steps) + "</span>" + work; }
+  if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-el" title="time since this resolve began">' + esc(el_) + '</span><span class="f-steps" title="' + esc(stepsTitle) + '">' + esc(steps) + "</span>" + work + infoBtn("running");
+    const c = w.cur; hd.title = c ? (WHAT_WORD[c.what] || c.what) + " " + c.item + (c.phase ? ": " + c.phase : "") : "";      // what the narrow header leaves out
+  }
 }
 // After a resolve the strip says how long it took for a few seconds, then goes; the slider below does not move.
 function resolveDone() {
@@ -917,7 +929,7 @@ function phaseShort(text, what) {
   const s = String(text || "");
   if (what === "copper") return "copper batch";
   let m;
-  if ((m = /^refining around the best spots: (\\d+ of \\d+)$/.exec(s))) return "refining " + m[1];
+  if ((m = /^refining around the best spots: (\d+ of \d+)$/.exec(s))) return "refining " + m[1];
   if (/^seeding/.test(s)) return "seeding";
   if (/^coarse pass/.test(s)) return "coarse pass";
   if (/^placing at/.test(s)) return "placing";
@@ -926,8 +938,8 @@ function phaseShort(text, what) {
 }
 // The fields of the step being worked on: the rank in the queue (k of n), the phase as a pill, the time on this step.
 // A field keeps its width, so a changing value moves nothing (formatting rule 3: "rank k of n").
-const rankField = (n, of) => '<span class="f-rank">' + (n ? '<span class="lbl">rank </span>' + esc(n + " of " + of) : "") + "</span>";
-const workFields = c => rankField(c.rank, c.of) +
+const rankField = (n, of) => '<span class="f-rank"' + (n ? ' title="' + esc("rank " + n + " of " + of + ": this item's place in the search order, among the " + of + " items the engine searches a spot for (the card's rank, k of n)") + '"' : "") + ">" + (n ? '<span class="lbl">rank </span>' + esc(n + " of " + of) : "") + "</span>";
+const workFields = c =>
   '<span class="f-phase">' + (c.phase || c.what === "copper" ? pill(phaseShort(c.phase, c.what), "phase") : "") + "</span>" +
   '<span class="f-time">' + esc(((Date.now() - c.t) / 1000).toFixed(1) + " s") + "</span>";
 const whatClass = what => what === "searched" ? "searched" : what === "decided" ? "decided" : what === "copper" ? "copper" : what === "cutout" ? "cutout" : what === "replay" ? "decided" : "keepout";
@@ -936,10 +948,10 @@ function pendingRow() {
   const w = S.work; if (!S.resolving || !w) return "";
   const c = w.cur, R = w.total ? w.total.replay : 0, spin = '<span class="i"><i class="spin"></i></span>';
   if (w.replayed && (c ? c.replaying : w.last && w.last.replaying)) {
-    return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill("replay", "decided") + itemField("replaying unchanged steps") + '</div><div class="flds" id="pendtext"><span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span></div>" +
+    return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill("replay", "decided") + itemField("replaying unchanged steps") + '</div><div class="flds" id="pendtext"></div>' +
       (R ? '<div class="pbar"><b style="width:' + Math.min(100, Math.round(100 * w.replayed / R)) + '%"></b></div>' : "") + "</div></div>";
   }
-  if (!c && w.last) { const l = w.last; return '<div class="row pending settled" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill(WHAT_WORD[l.what] || l.what, whatClass(l.what)) + itemField(l.item) + '</div><div class="flds" id="pendtext">' + rankField(l.rank, l.of) + '<span class="f-phase"></span><span class="f-time">' + esc((l.took / 1000).toFixed(1) + " s") + "</span></div></div></div>"; }
+  if (!c && w.last) { const l = w.last; return '<div class="row pending settled" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill(WHAT_WORD[l.what] || l.what, whatClass(l.what)) + itemField(l.item) + '</div><div class="flds" id="pendtext"><span class="f-phase"></span><span class="f-time">' + esc((l.took / 1000).toFixed(1) + " s") + "</span></div></div></div>"; }
   if (!c) return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField("working") + '</div><div class="flds" id="pendtext"></div></div></div>';
   return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + '</div><div class="flds" id="pendtext">' + workFields(c) + "</div></div></div>";
 }
@@ -1296,6 +1308,7 @@ function setHover(keys) {
 
 // ---------------------------------------------------------------- info popups: one component for every explanatory note
 const INFO = {
+  running: "The status of the resolve under way. 'step 24 of ~44' is the place of the item being worked on in the whole resolve: every step the engine makes, whether it places a part, lays copper or cuts a cutout. The total is what the engine knows up front, so it is approximate (the ~). The first pill says what the engine is doing with the item (searching a spot, deciding, laying copper), and the second, where the work takes a while, which phase of it it is in (scanning, refining around the best spots, ...). The time is since the resolve began. An item's rank in the search order is on its card and in its step's details.",
   links: "A link is a pull the script declared between two pads. The arrow runs from the pad of the part it was declared on to its partner pad. A link with a limit is green as far as the limit reaches and red beyond it. Hover one for its length and limit.",
   steps: "Each row is one step of the layout, in the order it was made: items placed, copper laid, cutouts cut. A row says how the step was decided and why. Tap a row for the whole note. The slider on the board replays these steps.",
   marks: "Congestion is a routing-demand estimate made before any routing (RUDY), for the whole board: every routing layer together, not one face, so both faces show the same map. Each net's wire length (the half-perimeter of its pad centres) is spread evenly over the box of its pads, summed on a grid of 0.5 mm cells and set against what a cell can carry (the layers times tracks per mm). Plane and free nets are left out. The colour is the share of capacity, from blue (a few percent) through yellow (full) to red (over). A net whose pads line up (a feed to an antenna, a straight pair) has a box one cell wide, so it shows as a thin strip: that is its straight route, not copper. The red ring marks the single most congested cell. Changes marks what moved since the last resolve; finding marks are circles at a finding's place.",

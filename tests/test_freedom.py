@@ -84,9 +84,9 @@ def test_a_location_with_one_axis_pins_that_coordinate_and_the_item_slides_on_th
     assert box.center.x == pytest.approx(30.0) and box.center.y == pytest.approx(30.0)
     assert plan.step("j1").freedom is not Freedom.FIXED                 # one freedom left: it is searched
     b = make_board()
-    b.place(Cell("mcu"), at=Centre(30, 30))                    # holds the middle of the x = 30 line
-    b.place(Part("j1"), at=Centre(30.0, None))
-    b.place(Part("j2"), at=Centre(30.0, None))
+    b.place(Cell("mcu"), at=Centre(30, 30, coordinates=True))                    # holds the middle of the x = 30 line
+    b.place(Part("j1"), at=Centre(30.0, None, coordinates=True))
+    b.place(Part("j2"), at=Centre(30.0, None, coordinates=True))
     plan = b.resolve()
     mcu, j1, j2 = plan.box("mcu"), plan.box("j1"), plan.box("j2")
     assert declared_findings(plan) == []
@@ -94,7 +94,7 @@ def test_a_location_with_one_axis_pins_that_coordinate_and_the_item_slides_on_th
     assert not j1.overlaps(mcu) and not j2.overlaps(mcu) and not j1.overlaps(j2)
     b = make_board()
     b.place(Part("j1"), at=Location(10.0, 40.0))
-    b.place(Part("j2"), at=Centre(None, 40.0))                 # y pinned, x free
+    b.place(Part("j2"), at=Centre(None, 40.0, coordinates=True))                 # y pinned, x free
     plan = b.resolve()
     assert plan.box("j2").center.y == pytest.approx(40.0) and not plan.box("j2").overlaps(plan.box("j1"))
 

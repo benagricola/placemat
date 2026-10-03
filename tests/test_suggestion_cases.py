@@ -80,13 +80,18 @@ ESCAPE = {"part": "u1", "pin": "3", "side": "NORTH", "reach": 5.0}
 FACTS = {
     C.UNPLACED_SEARCH: SEARCH, C.UNPLACED_POCKET: SEARCH, C.UNPLACED_SLIDE: dict(SEARCH, edge="NORTH"),
     C.UNPLACED_BLOCK: SEARCH, C.UNPLACED_BEARING: SEARCH, C.UNPLACED_RIDES: SEARCH,
-    C.FIXED_PART: SEARCH, C.FIXED_CUTOUT: {}, C.FIXED_KEEPOUT: {},
+    C.FIXED_PART: dict(SEARCH, row={"first": "c1", "index": 1}, centre={"intent": True},
+                       block={"anchor": "u1", "satellites": ["c1"]}, why={"code": "block_no_spot", "sat": "c1"}),
+    C.FIXED_CUTOUT: {"name": "slot", "outline_kind": "rect", "why": {"code": "cutout_web", "gap_mm": 0.9, "web_mm": 1.0}},
+    C.SETUP_FRAME_REACH: {"item": "c1", "from_mm": 1.0, "to_mm": 42.1, "axis": "width", "frame_from_mm": 0.0, "frame_to_mm": 30.0},
+    C.SETUP_WEB: {"cutout": "slot", "gap_mm": 0.9, "web_mm": 1.0, "outline_kind": "rect"}, C.FIXED_KEEPOUT: {},
     C.LINK_OVER: LINK, C.LABEL_SITS_ON: LABEL, C.LABEL_NO_SPOT: LABEL, C.LABEL_NOT_DRAWN: LABEL,
     C.COPPER_KEEPOUT: {"net": "SIG", "keepout": "ant", "word": "track", "layer": "F", "layer_word": "front",
                        "excluded": "tracks", "excludes": ["parts", "tracks"], "keepout_layers": ["F", "B"]},
     C.COPPER_STITCH: {}, C.COPPER_CROSS: {"yielder": "track SIG", "yielder_net": "SIG", "other_net": "GND", "other_bridge": True},
     C.COPPER_MEETS: TRACK, C.COPPER_NOT_DRAWN: TRACK, C.COPPER_CORNER: TRACK, C.COPPER_NOTE: dict(TRACK, variant="waypoint"),
     C.ESCAPE_WALLED: ESCAPE, C.ESCAPE_CLOSED: ESCAPE, C.ESCAPE_CROSSED: ESCAPE, C.ESCAPE_LANE: ESCAPE, C.PAIR_CROSSED: {},
+    C.SETUP_CENTRE_COORDINATES: {"item": "c9", "relation": {"item": "c1", "side": "NORTH"}}, C.SETUP_CENTRE_FLAG_DEFAULT: {"item": "c9"},
     C.SETUP_UNDECLARED: {"item": "c9", "anchor": "c1"}, C.SETUP_LANE_UNUSED: ESCAPE, C.SETUP_ACCEPT: {"key": "keep-out SIG"},
     C.VIAS_DROPPED: {"item": "c4"},
 }
@@ -101,8 +106,11 @@ def test_every_keyword_a_builder_sets_is_a_parameter_of_the_board_method_it_edit
     seen = 0
     for case, builder in sg.CASES.items():
         for pick in builder(FACTS[case], settings) or ():
-            e = pick.edit
-            if e.op in ("set_kwarg", "edit_list", "remove_kwarg") and e.target is not None:
+            e = pick.edits[0]
+            if e.op in ("set_kwarg", "edit_list", "remove_kwarg") and e.target is not None and e.args.get("into"):
+                assert e.args["name"] in {"coordinates", "gap", "across", "at"}, (case, e.args)       # a keyword of an inner call
+                seen += 1
+            elif e.op in ("set_kwarg", "edit_list", "remove_kwarg") and e.target is not None:
                 method = getattr(Board, e.target.kind)
                 params = inspect.signature(method).parameters
                 name = e.args.get("name") or e.args.get("arg")
@@ -135,7 +143,7 @@ def test_a_number_a_builder_writes_into_a_call_is_a_named_constant():
     never stands alone as a keyword's value."""
     for case, builder in sg.CASES.items():
         for pick in builder(FACTS[case], Settings()) or ():
-            e = pick.edit
+            e = pick.edits[0]
             if e.op != "set_kwarg":
                 continue
             assert isinstance(e.value, (bool, dict)), (case, pick.text)

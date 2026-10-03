@@ -40,12 +40,6 @@ def test_a_via_in_the_pad_is_a_way_out():
     assert _walled(b.resolve()) == []
 
 
-def test_a_track_from_the_pad_is_a_way_out():
-    b = _board(_walled_in(0.1))
-    b.track(Net("IN"), [IN, Location(30.0, 30.1)], layer=F, why="a track from the pad")
-    assert _walled(b.resolve()) == []
-
-
 def test_a_pour_over_the_pad_is_a_way_out():
     b = _board(_walled_in(0.1))
     b.pour(Net("IN"), [Location(29.9, 29.9), Location(30.1, 29.9), Location(30.1, 30.1)], layer=F,
@@ -68,6 +62,19 @@ def _ring_open_south():
     fps[1] = Footprint(ring.ref, ring.inst, None, ring.ref, ring.location, 0.0, Face.FRONT, ring.body_box,
                        ring.courtyard_box, ring.phys_box, keep)
     return fps
+
+
+def test_a_track_from_the_pad_out_of_the_ring_is_a_way_out():
+    b = _board(_ring_open_south())
+    b.track(Net("IN"), [IN, Location(30.0, 32.0)], layer=F, why="a track from the pad through the gap")
+    assert _walled(b.resolve()) == []
+
+
+def test_a_track_from_the_pad_that_ends_in_the_wall_is_walled_off():
+    """A track that goes nowhere is the pad's copper, and the way out is looked for from where it ends."""
+    b = _board(_walled_in(0.1))
+    b.track(Net("IN"), [IN, Location(30.0, 30.1)], layer=F, why="a track from the pad that goes nowhere")
+    assert _walled(b.resolve()) == ["U9 pin 1 (IN): walled off by R9"]
 
 
 def test_a_track_of_the_script_that_walls_a_pad_is_named_as_a_refusal_names_it():

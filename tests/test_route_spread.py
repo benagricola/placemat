@@ -23,3 +23,21 @@ def test_its_project_comes_with_it(tmp_path):
     (tmp_path / "b.kicad_pro").write_text("{}\n")
     route_spread.copied(board, tmp_path / "run00")
     assert (tmp_path / "run00" / "in.kicad_pro").read_text() == "{}\n"
+
+
+def test_disconnected_reads_the_open_nets_from_kicads_drc(tmp_path):
+    import shutil
+
+    import pytest
+    pcbnew = pytest.importorskip("pcbnew")
+    from placemat.kicad.drc import run_drc  # noqa: F401
+    src = Path(__file__).resolve().parents[1] / "fixtures/fairing/modules/ringsensor/layout/layout"
+    for ext in (".kicad_pcb", ".kicad_pro"):
+        shutil.copy(str(src) + ext, tmp_path / ("b" + ext))
+    board = tmp_path / "b.kicad_pcb"
+    assert route_spread.disconnected(board) == []              # routed as it stands
+    brd = pcbnew.LoadBoard(str(board))
+    for t in list(brd.GetTracks()):
+        brd.Delete(t)
+    brd.Save(str(board))
+    assert route_spread.disconnected(board)                    # a list of net names

@@ -20,7 +20,7 @@ import time
 
 from .drc import REAL_KINDS, run_drc
 
-BUILTIN_ROUTER = os.path.expanduser("~/work/KiCadRoutingTools")
+BUILTIN_ROUTER = os.path.expanduser("~/work/KRT-upstream")
 ROUTER_DEFAULT = os.environ.get("KRT_DIR", BUILTIN_ROUTER)   # kept: tests and callers import this name
 
 
@@ -85,9 +85,6 @@ class RouteReport:
     # fills it whole, {layer: the net that fills it}; empty when the layers
     # were given (an argument or [route] layers), not defaulted.
     plane_layers: dict = field(default_factory=dict)
-    # Footprint copper graphics put back in the routed copy (the router's
-    # writer moves outer-layer net-less ones to silk): {"footprints", "items"}.
-    restored_graphics: dict = field(default_factory=dict)
     # Partial inner-layer pours of nets left out, kept clear of other nets'
     # tracks in the router's input copy: "NET on LAYER" each.
     pours_kept: list = field(default_factory=list)
@@ -115,9 +112,6 @@ class RouteReport:
                 len(p.get(k) or []) for k in ("coupled", "partial", "failed", "single_ended"))
         if self.plane_layers:
             head += "  " + plane_note(self.plane_layers)
-        if (self.restored_graphics or {}).get("items"):
-            head += "  %d footprint copper graphic(s) put back on %d footprint(s)" % (
-                self.restored_graphics["items"], self.restored_graphics["footprints"])
         if self.pours_kept:
             head += "  other nets kept out of %d pour(s)" % len(self.pours_kept)
         if self.islands:
@@ -134,7 +128,7 @@ class RouteReport:
                 "routed_pcb": str(self.routed_pcb), "log": str(self.log), "quick": self.quick,
                 "invalid_reason": self.invalid_reason, "keepout_breaches": list(self.keepout_breaches),
                 "pairs": self.pairs, "plane_layers": self.plane_layers,
-                "restored_graphics": self.restored_graphics, "pours_kept": list(self.pours_kept),
+                "pours_kept": list(self.pours_kept),
                 "islands": {n: list(v) for n, v in self.islands.items()}, "islands_missing": list(self.islands_missing),
                 "resumed": list(self.resumed)}
 
@@ -168,7 +162,7 @@ def guard_footprint_copper(pcb_path: str) -> int:
     footprint's graphics only on Edge.Cuts, so a net-tie's winding is not an
     obstacle to it. Each graphic gets a rule area on its own layer, drawn as
     its copper outline, forbidding tracks and vias, named for its footprint
-    so `restore_footprint_graphics` finds it. The graphics guarded."""
+    so `remove_guards` finds it. The graphics guarded."""
     from .quiet import import_pcbnew, quiet_stderr
     from .read import CLEAR_ERR_NM
     pcbnew = import_pcbnew()
@@ -226,7 +220,7 @@ def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
     the refill would split it. Each such zone gets a rule area over its
     outline on each inner layer the route uses, forbidding tracks (vias,
     pads and fills may pass: the pour is refilled round a via), named for
-    the pour so `restore_footprint_graphics` removes it. A pour covering at
+    the pour so `remove_guards` removes it. A pour covering at
     least `share` of the board is a plane, and an outer layer's pours hold
     other nets' surface pads: neither is guarded. "NET on LAYER" per guard."""
     from .quiet import import_pcbnew, quiet_stderr
@@ -271,45 +265,20 @@ def _shape_key(d) -> tuple:
     return (d.GetShape(), d.GetLayer(), d.GetStart().x, d.GetStart().y, d.GetEnd().x, d.GetEnd().y, d.GetWidth())
 
 
-def restore_footprint_graphics(pcb_in: str, pcb_out: str) -> dict:
-    """Put each footprint's graphic shapes in the routed copy back as they
-    are in the router's input (its writer moves outer-layer copper graphics
-    to silk), and delete the guards `guard_footprint_copper` and
-    `guard_partial_pours` added. What
-    was restored: {"footprints": n, "items": copper graphics put back}."""
+def remove_guards(pcb_path: str) -> int:
+    """Delete the guards `guard_footprint_copper` and `guard_partial_pours`
+    added from the routed copy. The guards removed."""
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        given = pcbnew.LoadBoard(pcb_in)
-        board = pcbnew.LoadBoard(pcb_out)
-    source = {fp.m_Uuid.AsString(): fp for fp in given.GetFootprints()}
-    by_ref = {fp.GetReference(): fp for fp in given.GetFootprints()}
-    fps = items = 0
-    for fp in board.GetFootprints():
-        was = source.get(fp.m_Uuid.AsString()) or by_ref.get(fp.GetReference())
-        if was is None:
-            continue
-        mine = [d for d in fp.GraphicalItems() if isinstance(d, pcbnew.PCB_SHAPE)]
-        theirs = [d for d in was.GraphicalItems() if isinstance(d, pcbnew.PCB_SHAPE)]
-        if sorted(map(_shape_key, mine)) == sorted(map(_shape_key, theirs)):
-            continue
-        kept = set(map(_shape_key, mine))
-        for d in mine:
-            fp.Delete(d)
-        for d in theirs:
-            dup = d.Duplicate()
-            fp.Add(dup)
-            if d.GetNetname():               # a shape with a net: this board's net, not the input's
-                dup.SetNet(board.FindNet(d.GetNetname()))
-        fps += 1
-        items += sum(1 for d in theirs if pcbnew.IsCopperLayer(d.GetLayer()) and _shape_key(d) not in kept)
+        board = pcbnew.LoadBoard(pcb_path)
     guards = [z for z in board.Zones() if z.GetZoneName().startswith((GUARD, POUR_GUARD))]
     for z in guards:
         board.Delete(z)
-    if fps or guards:
+    if guards:
         with quiet_stderr():
-            board.Save(pcb_out)
-    return {"footprints": fps, "items": items}
+            board.Save(pcb_path)
+    return len(guards)
 
 
 def lock_copper(pcb_path: str) -> int:
@@ -862,7 +831,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     for ext in (".kicad_pro", ".kicad_dru"):
         if (work / ("in" + ext)).exists():
             shutil.copy(work / ("in" + ext), work / ("routed" + ext))
-    restored = restore_footprint_graphics(str(pcb_in), str(pcb_out))
+    remove_guards(str(pcb_out))
     fill_zones(str(pcb_out))
     after = run_drc(pcb_out, work / "drc_after.json", refill_zones=False)     # filled just now
     open1 = {n: v for n, v in after.open_nets.items() if n not in counted}
@@ -876,7 +845,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
                          dict(sorted(open1.items())), sc.shorted, sorted(counted), layers, seconds,
                          router_version(router_dir_path), after.by_type, pcb_out, log, work,
                          "" if valid else "placement DRC not clean before routing: %s" % before.real, quick,
-                         breaches, pairs.as_dict(), plane_dropped, restored, pours,
+                         breaches, pairs.as_dict(), plane_dropped, pours,
                          {n: (before.open_nets.get(n, 0), after.open_nets.get(n, 0)) for n in sorted(islands)},
                          islands_missing, resumed)
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")

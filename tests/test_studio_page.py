@@ -778,10 +778,11 @@ finish(1, ["a", "b", "c"]);
 out.done = [els["#runstrip"].hidden, ev("S.work"), els["#rs-steps"].textContent];
 """)
     assert out["start"][0] is False and "step 0" in out["start"][1] and "so far" in out["start"][1]
-    assert out["prog"][0] is False and "step 1 of about 30" in out["prog"][1] and 'title="psu">psu</b>' in out["prog"][1] and "scan front/back" in out["prog"][1] and "3.2 s" in out["prog"][1] and out["prog"][2] == "3%" and out["prog"][3] == "0:03"
+    assert out["prog"][0] is False and "step 1 of ~30" in out["prog"][1] and 'title="psu">psu</b>' in out["prog"][1] and "scan front/back" in out["prog"][1] and "3.2 s" in out["prog"][1] and out["prog"][2] == "3%" and out["prog"][3] == "0:03"
+    assert "7 of 18" not in out["prog"][1] and "f-rank" not in out["prog"][1]                  # the strip has the one counter too
     pr = out["pending"]
     assert 'id="pendrow"' in pr and 'class="f-item" title="psu">psu</b>' in pr and '<span class="chip searched">searching</span>' in pr
-    assert '<span class="f-rank"><span class="lbl">rank </span>7 of 18</span>' in pr and '<span class="chip phase">scan front/back</span>' in pr and '<span class="f-time">3.2 s</span>' in pr
+    assert "7 of 18" not in pr and "rank" not in pr and '<span class="chip phase">scan front/back</span>' in pr and '<span class="f-time">3.2 s</span>' in pr
     assert "scanning the front or back" not in pr                                         # the phase is a short pill
     assert out["stepnow_shown"] == "none"                                                   # the step display is for settled steps; the running strip has this one
     assert out["mark"]["hint"] == [6, 8] and out["mark"]["rank"] == 7
@@ -804,7 +805,7 @@ out.text = els["#rs-work"].innerHTML;
 send("begin", {id: 1, kind: "begin", item: "c", what: "searched", rank: 1, of: 1, replaying: false, n: 2});
 out.after = els["#tab-steps"].innerHTML;
 """)
-    assert out["replayed"] == 1 and "replaying unchanged steps" in out["row"] and "1 of 3" in out["row"] and '<span class="chip decided">replay</span>' in out["row"] and out["row"].count('id="pendrow"') == 1
+    assert out["replayed"] == 1 and "replaying unchanged steps" in out["row"] and "1 of 3" not in out["row"] and '<span class="chip decided">replay</span>' in out["row"] and out["row"].count('id="pendrow"') == 1
     assert "replaying unchanged steps" in out["text"]
     assert "replaying unchanged steps" not in out["after"] and "searching" in out["after"]
 
@@ -1159,7 +1160,7 @@ out.done = [els["#runhead"].hidden, els["#runhead"].innerHTML];
 """)
     assert out["wide"][0] is False and out["wide"][1] is True
     h = out["wide"][2]
-    assert h.startswith('<i class="spin"></i>') and "step 1 of about 30" in h and 'title="psu">psu</b>' in h and "searching" in h and "scan front/back" in h and '<span class="f-el">0:03</span>' in h
+    assert h.startswith('<i class="spin"></i>') and "step 1 of ~30" in h and 'title="psu">psu</b>' in h and "searching" in h and "scan front/back" in h and '>0:03</span>' in h and 'data-info="running"' in h and 'title="step 1 of about 30: the place of this step in the whole resolve' in h and "7 of 18" not in h and "rank" not in h      # one counter; the rank is on the card
     assert out["settled"][1] == "flds settled" and 'title="psu">psu</b>' in out["settled"][0] and "waiting" not in out["settled"][0]
     assert out["narrow"] == [True, False]
     assert out["done"][0] is False and "done in" in out["done"][1]
@@ -1537,3 +1538,11 @@ out.legend = els["#legend"].innerHTML.indexOf('class="fnd warning"') > 0;
     assert '<g class="fnd warning on"' in out["focus"]
     assert out["mirrored"] >= 3                                                                # on the mirrored back panel the badge is turned back
     assert out["legend"]
+
+
+@needs_node
+def test_the_phase_pill_is_shortened_from_the_engines_own_sentences(tmp_path):
+    out = run_more(tmp_path, r"""
+out.short = ["refining around the best spots: 3 of 9", "scanning the front or back", "seeding", "coarse pass over the board", "placing at (1, 2)"].map(s => ev("phaseShort(" + JSON.stringify(s) + ", 'searched')"));
+""")
+    assert out["short"] == ["refining 3 of 9", "scan front/back", "seeding", "coarse pass", "placing"]

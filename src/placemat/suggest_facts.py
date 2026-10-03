@@ -215,9 +215,28 @@ def unplaced_slide(board, i) -> dict:
 
 @safe(dict)
 def fixed_part(board, i) -> dict:
+    """The facts of a decided item that is not legal where it was put: and where the script put it in a row, a block or a
+    Centre, what an edit to that declaration needs."""
     facts = _item_facts(board, i)
     facts["freedom"] = i.freedom.value
+    facts.update(structure_facts(board, i))
     return facts
+
+
+def structure_facts(board, i) -> dict:
+    """`row` ({first, index}: the item is a member of a row, by the key of its first member and its place in the list),
+    `block` ({anchor, satellites}) and `centre` ({"free": [...]} when the item is placed at an intent `Centre`: references
+    on both axes, no coordinates)."""
+    out = {}
+    row = board._row_members.get(i.key)
+    if row is not None:
+        out["row"] = {"first": row[0], "index": row[1]}
+    if i.kind == "block":
+        out["block"] = {"anchor": i.item.anchor.inst, "satellites": [sat.inst for sat, _ in i.item.satellites]}
+    for key, c in board._centres:
+        if key == i.key and c.x is not None and c.y is not None and not c.numeric_axes and not c.by_coordinates:
+            out["centre"] = {"intent": True}
+    return out
 
 
 def escape_facts(board, occ, plan, ref, number, net, by) -> dict:

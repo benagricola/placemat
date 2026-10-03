@@ -24,7 +24,7 @@ def test_a_call_that_already_reads_a_constant_gets_both_variants(tmp_path):
     change, own = raise_limit(plan)
     assert change.text.endswith(", by changing LIMIT (every use of it changes)")
     assert own.text.endswith(", with a constant of its own")
-    assert change.edit.op == "set_constant" and own.edit.op == "set_kwarg"
+    assert change.edits[0].op == "set_constant" and own.edits[0].op == "set_kwarg"
     shown = sg.apply_suggestion(suggestions_of(plan), change.id, dry_run=True).files[str(path)]
     import re
     assert re.search(r"\nLIMIT = \d+\.\d+ +#", shown.after) and "limit_mm=LIMIT)" in shown.after

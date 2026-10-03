@@ -155,8 +155,8 @@ def _section_bounds(text: str, header_re) -> tuple:
     return m.end(), (m.end() + nxt.start() if nxt else len(text))
 
 
-def write_confirmed(path, digest: str, key: str = None) -> None:
-    """Record a confirmed digest in a placemat.toml, touching only [facts].
+def confirmed_text(text: str, digest: str, key: str = None) -> str:
+    """The text of a placemat.toml with a confirmed digest recorded, touching only [facts].
     With `key` (a script's path relative to the file's folder) it is
     `[facts.boards] "<key>" = "<digest>"`, replacing that key's value or
     adding it; the old single `confirmed = "<digest>"` is dropped when it
@@ -164,8 +164,6 @@ def write_confirmed(path, digest: str, key: str = None) -> None:
     the other scripts it may belong to otherwise. Without `key`, the old
     single `confirmed` key. Never fed into a run's id: this is placemat's
     own record, not a board fact."""
-    p = Path(path)
-    text = p.read_text() if p.exists() else ""
     if key is not None:
         text = _drop_old_key(text, digest)
         line = "%s = %s" % (json.dumps(key), json.dumps(digest))
@@ -179,8 +177,7 @@ def write_confirmed(path, digest: str, key: str = None) -> None:
             entry = re.compile(r"^%s[ \t]*=.*$" % re.escape(json.dumps(key)), re.M)
             body = entry.sub(lambda _m: line, body, count=1) if entry.search(body) else "\n" + line + body
             text = text[:b[0]] + body + text[b[1]:]
-        p.write_text(text)
-        return
+        return text
     m = _FACTS_SECTION_RE.search(text)
     if m is None:
         if text and not text.endswith("\n"):
@@ -195,7 +192,7 @@ def write_confirmed(path, digest: str, key: str = None) -> None:
         else:
             section = "\n" + line.rstrip("\n") + section
         text = text[:b[0]] + section + text[b[1]:]
-    p.write_text(text)
+    return text
 
 
 def _drop_old_key(text: str, digest: str) -> str:
@@ -214,3 +211,9 @@ def _drop_old_key(text: str, digest: str) -> str:
     if not section.strip():
         return text[:head.start()] + text[b[1]:].lstrip("\n")
     return text[:b[0]] + section + text[b[1]:]
+
+
+def write_confirmed(path, digest: str, key: str = None) -> None:
+    """`confirmed_text` written to the file (made where there is none)."""
+    p = Path(path)
+    p.write_text(confirmed_text(p.read_text() if p.exists() else "", digest, key))

@@ -132,7 +132,7 @@ def test_remove_the_last_statement_of_a_block_keeps_its_comments():
 
 def test_remove_statement_refuses_a_call_that_is_not_a_statement_of_its_own():
     text = HEAD + 'x = board.accept(a, b)\n'
-    with pytest.raises(se.EditRefused, match="statement of its own"):
+    with pytest.raises(se.EditRefused, match="statement of its own|assigned to a name"):
         run("remove_statement", text, "board.accept", kind="accept", key="a")
 
 

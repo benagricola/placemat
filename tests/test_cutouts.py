@@ -608,7 +608,7 @@ def test_a_free_pinned_axis_shares_a_board_with_a_cutout():
     b = make_board("u1")
     b.rect(width=40.0, height=40.0,
            holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0), why="airflow")])
-    b.place(Part("u1"), at=Centre(20.0, None))          # x pinned, y free
+    b.place(Part("u1"), at=Centre(20.0, None, coordinates=True))   # x pinned, y free
     plan = b.resolve()
     assert not plan.findings, plan.findings
 

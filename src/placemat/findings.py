@@ -90,6 +90,8 @@ class FindingCause(str, Enum):
     SETUP_WEB = (FindingKind.SETUP, "setup.web")
     SETUP_FRAME_REACH = (FindingKind.SETUP, "setup.frame_reach")
     SETUP_ACCEPT = (FindingKind.SETUP, "setup.accept")
+    SETUP_CENTRE_COORDINATES = (FindingKind.SETUP, "setup.centre_coordinates")
+    SETUP_CENTRE_FLAG_DEFAULT = (FindingKind.SETUP, "setup.centre_flag_default")
     SETUP_LAYER_LOST = (FindingKind.SETUP, "setup.layer_lost")
     SETUP_RULE_NOTE = (FindingKind.SETUP, "setup.rule_note")
     SETUP_SETTING_RENAMED = (FindingKind.SETUP, "setup.setting_renamed")

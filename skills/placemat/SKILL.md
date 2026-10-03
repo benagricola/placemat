@@ -35,6 +35,10 @@ another part - and placemat works out the coordinate. A script that
 computes its own positions is a coordinate file that placemat happens to
 read.
 
+A number on a `Centre` axis is a coordinate: write `Centre(30, 12, coordinates=True)` for a deliberate one, or place by a
+relation (`Beside`, `OnEdge`, `Centre(X(pad), Y(pad))`). `coordinates=False` is the default: never write it. A suggestion
+never writes a number into a `Centre` or a `Location` and never sets `coordinates=True`.
+
 A script must not:
 - do arithmetic on a coordinate to decide where a part, a via or a track
   goes: `X(ref, computed_offset)`, `Y(ref, computed_offset)`, a `Location`
