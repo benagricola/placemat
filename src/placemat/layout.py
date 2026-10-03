@@ -871,7 +871,7 @@ class Board:
     def _refuse_on_fit(self, what: str):
         if not self._fit:
             return
-        # fit=Axis.X/Y's declared axis is a number from board.size() on, but its
+        # fit=Axis.X/Y's declared axis is a number from board.rect() on, but its
         # edges are refused here too: the row and edge machinery reads the
         # board's own outline for both axes together, which a fit frame in one
         # axis does not have until content is placed even on the axis it
@@ -933,6 +933,7 @@ class Board:
         # them, and where both match a pair the later decides
         from .rules import stamped_rules
         stamped, self._stamped_rule_notes = stamped_rules(geometry)
+        self._size_alias_used = False       # board.size(...), the old name of board.rect(...), was called
         self._rules: list = list(stamped)
         self._acceptances: list = []        # checks.Acceptance of each board.accept: read by the checks step alone, in no digest
         self._free_nets: set = set()
@@ -949,9 +950,9 @@ class Board:
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
         self._sized = False                 # the script has declared the board size
-        self._fit = False                   # board.size(fit=True): the frame is the placed content plus a margin
+        self._fit = False                   # board.rect(fit=True): the frame is the placed content plus a margin
         self._fit_margin = 0.0
-        self._fit_axis: Axis | None = None  # board.size(fit=Axis.X/Y): only that axis fits; the other is declared
+        self._fit_axis: Axis | None = None  # board.rect(fit=Axis.X/Y): only that axis fits; the other is declared
         self._frame_planes: set = set()     # planes with no outline of their own: on a fit board, planned once the frame is fitted
         self._draw_outline = True
         self._chamfer = 0.0
@@ -1921,7 +1922,7 @@ class Board:
         self._named_cutouts = named
         return tuple(named_paths) + tuple(raw)
 
-    def size(self, width: float | None = None, height: float | None = None, chamfer: float = 0.0, radius: float = 0.0,
+    def rect(self, width: float | None = None, height: float | None = None, chamfer: float = 0.0, radius: float = 0.0,
              holes=(), web: float = 0.0, draw: bool | None = None, *, fit: bool | Axis = False,
              margin: float | None = None):
         """The board outline: a rectangle at the origin, chamfered or rounded.
@@ -1974,6 +1975,11 @@ class Board:
         self.width, self.height = float(width), float(height)
         self._sized = True
         self._draw_outline = draw          # a fragment's frame is for placement only, never written
+
+    def size(self, *args, **kwargs):
+        """The old name of `rect`: does what it does, and a `setup` notice says so."""
+        self._size_alias_used = True
+        return self.rect(*args, **kwargs)
 
     def disc(self, diameter: float, hole: float = 0.0, holes=(), web: float = 0.0, draw: bool = True):
         """The board outline: a round board at the origin, `hole` wide through
@@ -2069,7 +2075,7 @@ class Board:
                 rect = rect_outline(self._outline, self._chamfer, self._radius)
                 self._cached_outline = Outline.of(rect.paths[0], self._cutouts.paths)
             else:
-                raise ValueError("the board has no size yet: board.size(), board.disc() or board.outline() says what it is")
+                raise ValueError("the board has no size yet: board.rect(), board.disc() or board.outline() says what it is")
         return self._cached_outline
 
     @property
@@ -2085,7 +2091,7 @@ class Board:
         `board.centroid` is the area centre instead."""
         self._refuse_on_fit("board.centre")
         if self._outline is None:
-            raise ValueError("the board has no size yet: board.size() or board.disc() says what it is")
+            raise ValueError("the board has no size yet: board.rect() or board.disc() says what it is")
         return self._outline.center
 
     @property
@@ -6056,6 +6062,9 @@ class Board:
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
         plan.findings.extend(Finding("setup", note, "notice") for note in self._stamped_rule_notes)
+        if self._size_alias_used:
+            plan.findings.append(Finding("setup", "board.size(...) is board.rect(...) now; the old name will be removed",
+                                         "notice"))
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement
@@ -8492,7 +8501,7 @@ class Board:
         else:
             hint = None
         hint, band, bt, within = self._band_frame(occ, i, placed, hint)
-        # A board still finding its own frame (board.size(fit=True), before anything is placed)
+        # A board still finding its own frame (board.rect(fit=True), before anything is placed)
         # has no centre or outline to search wide against yet: a push there falls back to a pocket,
         # the same as an unpushed item with nothing else to seed it.
         wide_push = bool(push_sources) and not self._fit and self._outline is not None
