@@ -92,6 +92,10 @@ def _other_than_default(name):
     return default
 
 
+def n_new(notice):
+    return notice[2]
+
+
 @pytest.mark.parametrize("old", sorted(S.RENAMED))
 def test_an_old_name_still_loads_into_the_new_one_with_a_notice(old, tmp_path):
     new = S.RENAMED[old]
@@ -100,8 +104,8 @@ def test_an_old_name_still_loads_into_the_new_one_with_a_notice(old, tmp_path):
     (tmp_path / "placemat.toml").write_text("[%s]\n%s = %s\n" % (section, key, S._toml_value(value)))
     s = load(tmp_path)
     assert getattr(s, new) == value
-    notice = next(n for n in s.notices if "%s.%s" % (section, key) in n)
-    assert "%s.%s" % S.split_key(new) in notice and "one release" in notice
+    notice = next(n for n in s.notices if n[1] == "%s.%s" % (section, key))
+    assert n_new(notice) == "%s.%s" % S.split_key(new)
 
 
 def test_an_old_and_a_new_name_together_are_refused(tmp_path):

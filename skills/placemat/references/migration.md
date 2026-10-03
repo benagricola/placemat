@@ -106,16 +106,23 @@ section for each hand-written pattern a newer form replaces.
 
 - **Findings carry suggestions: changes to the layout script that may clear them.** `run` and `preview` print the
   best one under each critical or warning finding (`try s3a: Place c4 beside c1, on its north side`) and the ids of
-  the others; `run.json`'s `finding_details[i]` and `preview --json` give each finding its `case` and its `suggestions`
+  the others; `run.json`'s `finding_details[i]` and `preview --json` give each finding its `cause`, its `facts` and its `suggestions`
   (`id`, `text`, `rank`, `lever`, the `edit` as data, and the `digests` of the files it writes). Every suggestion is a
   relation, a keyword or a setting, never a coordinate; a number it writes is a named constant with a comment. A
-  record without the fields reads as none. `api.md`, "Findings and severities", has the shape and the cases.
+  record without the fields reads as none. `api.md`, "Findings and severities", has the shape and the causes.
+- **A finding is data and its sentence is rendered from it.** A finding has a `kind`, a `cause`, the `facts` its site
+  measured and `facts_v`, the version of that cause's facts; `run.json`'s `finding_details[i]` and `preview --json` carry
+  all of them beside the `text`, which reads the same as before. The reuse record stores findings as facts and is under
+  a digest of every cause's facts version, so a release that changes a cause's facts replays nothing. A refusal (why a
+  spot was refused) is data too: `refusals.Refusal`, with a code and facts. Suggestions that multiplied a limit by a
+  factor (a wider search radius, `place.via_move`, a finer step) are gone with `[studio] suggest_factor`: a number a
+  suggestion writes is a figure the finding measured.
 - **`placemat apply <id> [--script PATH] [--dry-run] [--undo]`** makes a suggestion's edit: `--dry-run` prints the
   diff and writes nothing; otherwise the file is written atomically and logged in `.placemat/applied.jsonl`, and
   `--undo` puts back the last apply that has not been undone, if the files are still as it left them. It refuses,
   and writes nothing, when the script changed since the run or preview that made the suggestion. `run` and `preview`
   keep the plan's suggestions in `.placemat/suggestions.json` for it.
-- Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), `apply` (true) and `suggest_factor` (2.0),
+- Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), and `apply` (true),
   none part of a run's id. Scripts change nothing.
 - **A stopped command says so and keeps its work.** `placemat run`, `preview` and `route` handle SIGTERM, SIGHUP and
   Ctrl-C: the explore workers are ended, the layout folder is put back as the last run left it, `run.json` is saved

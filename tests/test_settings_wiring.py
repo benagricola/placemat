@@ -39,8 +39,8 @@ def test_courtyard_touch_decides_whether_two_courtyards_overlap():
     loose = Occupancy(g, edge_margin=0.0, settings=Settings(place_courtyard_touch=5.0))
     u1 = g.footprint("U1")
     onto = Placement(Location(30.0, 30.0), 0.0, Face.FRONT)     # right on R1
-    assert "courtyard overlaps" in (tight.legal(u1, onto) or "")
-    assert "courtyard overlaps" not in (loose.legal(u1, onto) or "")
+    assert "courtyard overlaps" in str(tight.legal(u1, onto) or "")
+    assert "courtyard overlaps" not in str(loose.legal(u1, onto) or "")
 
 
 def test_the_scan_step_is_the_declared_one():

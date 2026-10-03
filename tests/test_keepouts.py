@@ -598,7 +598,7 @@ def test_a_front_only_rule_area_leaves_the_back_free():
     g = _with_rule_area(None, poly)                                  # F.Cu only
     occ = Occupancy(g, edge_margin=0.0)
     r1 = g.footprint("R1")
-    assert "antenna_1" in (occ.legal(r1, Placement(Location(30.0, 30.0), 0.0, Face.FRONT)) or "")
+    assert "antenna_1" in str(occ.legal(r1, Placement(Location(30.0, 30.0), 0.0, Face.FRONT)) or "")
     assert occ.legal(r1, Placement(Location(30.0, 30.0), 0.0, Face.BACK)) is None
 
 
@@ -612,7 +612,7 @@ def test_a_cell_s_front_only_rule_area_goes_to_the_back_with_the_cell():
     probe = Placement(Location(r.box.center.x, r.box.center.y), 0.0, Face.FRONT)
     assert "antenna_1" not in (occ.legal(g.footprint("R1"), probe) or "")
     probe = Placement(probe.location, 0.0, Face.BACK)
-    assert "antenna_1" in (occ.legal(g.footprint("R1"), probe) or "")
+    assert "antenna_1" in str(occ.legal(g.footprint("R1"), probe) or "")
 
 
 def test_a_strip_across_the_board_with_its_corners_off_it_still_covers_it():

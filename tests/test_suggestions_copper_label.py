@@ -91,13 +91,12 @@ board.place(Part("j1"), at=Location(50, 20))
 '''
 
 
-def test_a_label_with_a_part_on_it_offers_the_other_sides_and_a_smaller_size(tmp_path):
+def test_a_label_with_a_part_on_it_offers_the_other_sides(tmp_path):
     board, plan, path = resolve(tmp_path, LABEL, imports=IMPORTS)
     fs = [f for f in plan.findings if f.cause in ("label.sits_on", "label.no_spot")]
     assert fs
     texts = [s.text for s in fs[0].suggestions]
     assert any(t.startswith("Move the label of u1 to its ") for t in texts)
-    assert "Make the label of u1 smaller" in texts
     assert not any("north side" in t for t in texts)         # the side it is on is not offered
 
 

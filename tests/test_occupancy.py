@@ -226,7 +226,7 @@ def test_legal_can_name_who_blocked_and_on_which_face():
     why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT), blame=blame)
     assert why is not None                                   # the return value is unchanged
     assert blame and isinstance(blame[0], Blocker)
-    assert blame[0].owner == "R1" and Face.FRONT in blame[0].faces
+    assert str(blame[0].owner) == "R1" and Face.FRONT in blame[0].faces
 
 
 def test_legal_without_blame_behaves_exactly_as_before():

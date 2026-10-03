@@ -34,15 +34,17 @@ def test_letting_the_item_in_places_it(tmp_path):
     assert not search(plan2) and plan2.placement("j1") is not None
 
 
-def test_the_source_of_a_reservation_is_read_from_the_text_that_names_it():
-    assert sf.reservation_source("keepout 'ant' (an antenna's clearance)") == {"keepout": "ant"}
-    assert sf.reservation_source("C4 in keepout 'ant' (a note)") == {"keepout": "ant"}
-    assert sf.reservation_source("label j1 IN") == {"label": "label j1 IN"}
-    assert sf.reservation_source("fanout of U1 (north side)") == {"fanout": "U1"}
-    assert sf.reservation_source("something else") == {}
+def test_the_source_of_a_reservation_is_what_it_was_made_by():
+    from placemat.refusals import Owner, ReservedBy
+    own = lambda by: Owner("reserved", by=by)
+    assert sf.reservation_source(own(ReservedBy("keepout", "ant", "an antenna's clearance"))) == {"keepout": "ant"}
+    assert sf.reservation_source(Owner("member_in", "C4", by=ReservedBy("keepout", "ant", "a note"))) == {"keepout": "ant"}
+    assert sf.reservation_source(own(ReservedBy("label", "j1 IN", item="j1"))) == {"label": "label j1 IN", "item": "j1"}
+    assert sf.reservation_source(own(ReservedBy("fanout", "U1", side="north"))) == {"fanout": "U1"}
+    assert sf.reservation_source(own(ReservedBy("other", "something else"))) == {}
 
 
-def test_the_text_a_keepout_reservation_names_it_by_is_what_the_source_reader_expects(tmp_path):
+def test_a_keepouts_reservation_is_made_by_the_keepout(tmp_path):
     board, plan, path = resolve(tmp_path, KEEPOUT, imports=HEAD)
     why = [r.why for r in plan.occupancy.reservations if "ant" in str(r.why)]
-    assert why and sf.reservation_source(why[0]) == {"keepout": "ant"}
+    assert why and why[0].kind == "keepout" and why[0].name == "ant"

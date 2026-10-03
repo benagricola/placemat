@@ -616,3 +616,82 @@ def _facts_unconfirmed(f):
 @renders(C.SETUP_SETTING_RENAMED, "path", "old", "new")
 def _setup_setting_renamed(f):
     return "%s: %s is now %s (the old name still works for one release)" % (f["path"], f["old"], f["new"])
+
+
+# ------------------------------------------------------------------ what a finding is about, and where it is
+_SUBJECT_KEYS = ("item", "key", "name", "cell", "link", "net", "ref")
+
+
+def subject(cause, facts: dict) -> str:
+    """What a finding is about, from its facts: the item, the label, the link, the cell or the net it names, with the pin
+    where it is about one. Two findings of one cause about different things differ in it, and one finding keeps its
+    subject across resolves, so a try is judged by whether the finding it was for is gone."""
+    if cause in (C.ESCAPE_CLOSED, C.ESCAPE_WALLED, C.ESCAPE_LANE, C.SETUP_LANE_UNUSED):
+        return "%s.%s" % (facts.get("ref") or facts.get("part", ""), facts.get("pin", ""))
+    if cause is C.ESCAPE_CROSSED:
+        return "%s %s" % (facts["ref"], "/".join(facts["pins"]))
+    if cause is C.PAIR_CROSSED:
+        return "%s/%s" % (facts["pos"], facts["neg"])
+    if cause is C.LINK_OVER:
+        return facts["link"]
+    for k in _SUBJECT_KEYS:
+        v = facts.get(k)
+        if isinstance(v, str) and v:
+            return v
+    return ""
+
+
+_PADS = {
+    C.LINK_OVER: lambda f: [[f["a"]["ref"], f["a"]["pad"]], [f["b"]["ref"], f["b"]["pad"]]],
+    C.ESCAPE_CLOSED: lambda f: [[f["ref"], f["pin"]]],
+    C.ESCAPE_WALLED: lambda f: [[f["ref"], f["pin"]]],
+    C.ESCAPE_LANE: lambda f: [[f["ref"], f["pin"]]],
+    C.SETUP_LANE_UNUSED: lambda f: [[f["ref"], f["pin"]]],
+    C.ESCAPE_CROSSED: lambda f: [[f["ref"], p] for p in f["pins"]],
+}
+
+
+def _refs_in_facts(v, known: set, out: list) -> None:
+    """The strings in `v` (facts, nested) that are refdes the plan placed, in the order met."""
+    if isinstance(v, str):
+        if v in known and v not in out:
+            out.append(v)
+    elif isinstance(v, dict):
+        for x in v.values():
+            _refs_in_facts(x, known, out)
+    elif isinstance(v, (list, tuple)):
+        for x in v:
+            _refs_in_facts(x, known, out)
+
+
+def _first_at(v):
+    if isinstance(v, dict):
+        at = v.get("at")
+        if isinstance(at, (list, tuple)) and len(at) == 2 and all(isinstance(x, (int, float)) for x in at):
+            return [float(at[0]), float(at[1])]
+        for x in v.values():
+            found = _first_at(x)
+            if found is not None:
+                return found
+    elif isinstance(v, (list, tuple)):
+        for x in v:
+            found = _first_at(x)
+            if found is not None:
+                return found
+    return None
+
+
+def locate(cause, facts: dict, refs) -> dict:
+    """Where a finding is and which parts it concerns, for a preview: {"at": [x, y] or None, "refs": [placed refdes the
+    facts name], "pads": [[ref, pad], ...]}. `at` is the first point the facts carry."""
+    found: list = []
+    _refs_in_facts(facts, set(refs), found)
+    pads = _PADS[cause](facts) if cause in _PADS else []
+    return {"at": _first_at(facts), "refs": found, "pads": [list(p) for p in pads if p[0] in refs]}
+
+
+def pocket_took_text(p: dict) -> str:
+    """What a seeded item that took a pocket says of it: its size, where, how far from the seed, and the face it took if
+    that is not the one it asked for."""
+    return "took the pocket %.1f x %.1f at (%.1f, %.1f), %.1f mm from the seed%s" % (
+        p["w_mm"], p["h_mm"], p["at"][0], p["at"][1], p["seed_mm"], ", on the %s face" % p["face"] if p["face"] else "")

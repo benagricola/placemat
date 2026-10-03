@@ -3,6 +3,7 @@ synthetic geometry, no KiCad."""
 import dataclasses
 
 from placemat import queries
+from placemat.refusals import Code, Refusal
 from placemat.board_geometry import CopperItem, RuleArea
 from placemat.values import Box, CopperLayer, Location
 from tests.fixtures import board_geometry, footprint, rect, track
@@ -29,7 +30,7 @@ def _geom(copper=(), fps=(), **kw):
 def test_a_via_within_clearance_of_another_nets_track_is_blocked():
     g = _geom([track("SIG", 20, 5, 20, 35)])
     v = queries.judge_via(g, Location(20.5, 20), "GND", 0.6, 0.3)
-    assert not v.clear and any("SIG" in h and "track" in h for h in v.hard)
+    assert not v.clear and any("SIG" in str(h) and "track" in str(h) for h in v.hard)
 
 
 def test_copper_of_the_vias_own_net_does_not_block():
@@ -40,18 +41,18 @@ def test_copper_of_the_vias_own_net_does_not_block():
 def test_another_nets_pour_gives_way_rather_than_blocking():
     g = _geom([_zone("V3", 10, 10, 30, 30)])
     v = queries.judge_via(g, Location(20, 20), "GND", 0.6, 0.3)
-    assert v.clear and any("V3" in s for s in v.soft)
+    assert v.clear and any("V3" in str(s) for s in v.soft)
 
 
 def test_a_hole_closer_than_hole_to_hole_blocks():
     g = _geom([_via("V3", 20.5, 20)], hole_to_hole=0.25)      # a 0.2 mm web between the holes
     v = queries.judge_via(g, Location(20, 20), "V3", 0.6, 0.3)   # same net: only the hole rule applies
-    assert not v.clear and any("hole" in h for h in v.hard)
+    assert not v.clear and any("hole" in str(h) for h in v.hard)
 
 
 def test_the_board_edge_closer_than_the_edge_clearance_blocks():
     v = queries.judge_via(_geom(), Location(0.5, 20), "GND", 0.6, 0.3)
-    assert not v.clear and any("edge" in h for h in v.hard)
+    assert not v.clear and any("edge" in str(h) for h in v.hard)
 
 
 def test_a_rule_area_forbidding_vias_blocks_one_forbidding_tracks_does_not():
@@ -65,26 +66,26 @@ def test_a_rule_area_forbidding_vias_blocks_one_forbidding_tracks_does_not():
 def test_a_tail_crossing_another_nets_track_on_its_layer_is_blocked():
     g = _geom([track("SIG", 20, 5, 20, 35)])
     said = queries.judge_tail(g, Location(15, 20), Location(25, 20), "GND", 0.2, F)
-    assert said and "SIG" in said[0]
+    assert said and "SIG" in str(said[0])
     assert queries.judge_tail(g, Location(15, 20), Location(25, 20), "GND", 0.2, B) == ()
 
 
 def test_the_search_returns_the_nearest_clear_spot_and_a_tally_of_the_rest():
-    blocked = lambda c: ("copper", ()) if c.x < 20.9 else (None, ())
+    blocked = lambda c: (Refusal(Code.Q_OWN_COPPER), ()) if c.x < 20.9 else (None, ())
     spot, tally, tried = queries.free_spot(Location(20, 20), blocked, radius=2.0, step=0.1)
     assert spot is not None and spot.at.x >= 20.9
     assert tally["copper"] >= 1 and tried > tally["copper"]
 
 
 def test_the_search_is_identical_run_twice():
-    judge = lambda c: ("edge", ()) if (c.x + c.y) % 0.7 < 0.3 else (None, ())
+    judge = lambda c: (Refusal(Code.Q_OFF_BOARD), ()) if (c.x + c.y) % 0.7 < 0.3 else (None, ())
     a = queries.free_spot(Location(20, 20), judge, radius=1.0, step=0.1)
     b = queries.free_spot(Location(20, 20), judge, radius=1.0, step=0.1)
     assert a[0] == b[0] and a[1] == b[1]
 
 
 def test_nowhere_within_the_radius_returns_no_spot_and_the_whole_tally():
-    spot, tally, tried = queries.free_spot(Location(20, 20), lambda c: ("edge", ()), radius=0.5, step=0.1)
+    spot, tally, tried = queries.free_spot(Location(20, 20), lambda c: (Refusal(Code.Q_OFF_BOARD), ()), radius=0.5, step=0.1)
     assert spot is None and tally["edge"] == tried
 
 
@@ -100,13 +101,13 @@ def test_a_real_search_clears_a_blocking_track():
 def test_a_net_named_like_an_obstacle_is_tallied_by_what_it_is():
     """A reason is bucketed by its shape, not by the first word that looks
     like a kind: a track of a net called /mcu/edge_led is copper, not the edge."""
-    assert queries._kind("0.12 mm from /mcu/edge_led track on F.Cu (needs 0.20)") == "track"
-    assert queries._kind("0.30 mm from hole_sense via on B.Cu/F.Cu (needs 0.20)") == "via"
-    assert queries._kind("0.20 mm from the board edge (needs 0.50)") == "edge"
-    assert queries._kind("off the board") == "edge"
-    assert queries._kind("hole 0.10 mm from the via GND hole (needs 0.25)") == "hole"
-    assert queries._kind("tail 0.05 mm from tail_en track on F.Cu (needs 0.20)") == "tail"
-    assert queries._kind("inside keepout a, which forbids vias") == "keepout"
+    assert Refusal(Code.Q_COPPER, net="/mcu/edge_led", kind="track", layers=["F.Cu"], gap_mm=0.12, need_mm=0.2).tally == "track"
+    assert Refusal(Code.Q_COPPER, net="hole_sense", kind="via", layers=["B.Cu", "F.Cu"], gap_mm=0.3, need_mm=0.2).tally == "via"
+    assert Refusal(Code.Q_EDGE, gap_mm=0.2, need_mm=0.5).tally == "edge"
+    assert Refusal(Code.Q_OFF_BOARD).tally == "edge"
+    assert Refusal(Code.Q_HOLE, hole={"form": "via", "net": "GND"}, gap_mm=0.1, need_mm=0.25).tally == "hole"
+    assert Refusal(Code.Q_TAIL, net="tail_en", kind="track", layer="F.Cu", gap_mm=0.05, need_mm=0.2).tally == "tail"
+    assert Refusal(Code.Q_KEEPOUT, base="keepout a").tally == "keepout"
 
 
 def test_the_copper_under_a_point_is_named_per_layer():
@@ -174,7 +175,7 @@ def test_a_pin_split_into_two_lands_keeps_a_via_out_of_both():
     g = _geom(fps=[fp])
     source = queries.pad_copper(fp, fp.pads[0].number)
     judge = queries.via_judge(g, fp.pads[0].box.center, "GND", 0.6, 0.3, 0.2, F, source)
-    assert judge(second.box.center)[0] == "in the source pad"
+    assert str(judge(second.box.center)[0]) == "in the source pad"
 
 
 def test_a_tails_rounded_end_counts_against_a_pad_behind_its_start():
@@ -206,7 +207,7 @@ def test_a_via_keeps_its_copper_off_an_unplated_hole():
     g = _geom(fps=[fp], hole_clearance=0.25)
     at = Location(20.95, 20.0)          # holes 0.3 apart edge to edge (the rule's 0.25 met); copper 0.15 off the peg
     v = queries.judge_via(g, at, "GND", 0.6, 0.3)
-    assert not v.clear and any("unplated" in h for h in v.hard)
+    assert not v.clear and any("unplated" in str(h) for h in v.hard)
 
 
 def test_via_near_keeps_off_a_footprints_own_copper():

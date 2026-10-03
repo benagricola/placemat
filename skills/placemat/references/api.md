@@ -3668,6 +3668,8 @@ A failed design check is a verdict, not a finding, and has its own severity in t
 
 ### Suggestions
 
+A finding is data: a `kind`, a `cause`, the `facts` its site measured and a `facts_v` naming the version of that cause's facts. Its sentence is rendered from the facts, in one place, so a record carries both and a reader that does not know a `facts_v` shows the sentence.
+
 A finding may carry suggestions: changes to the layout script, worded in the board's own terms, that may clear it.
 `run` and `preview` print the best one under each critical or warning finding and the ids of the rest:
 
@@ -3677,7 +3679,8 @@ A finding may carry suggestions: changes to the layout script, worded in the boa
     or s2b, s2c, s2d, s2e
 ```
 
-`run.json`'s `finding_details[i]` and `preview --json` give a finding its `case` and its `suggestions`:
+`run.json`'s `finding_details[i]` and `preview --json` give a finding its `cause`, its `facts` (what the site measured; the sentence is
+rendered from them) and its `suggestions`:
 
 ```
 {"id": "s2a", "text": "Place j1 beside r1, on its west side", "rank": 1, "lever": "beside",
@@ -3702,35 +3705,36 @@ command says so: run again for suggestions that fit. `--undo` puts back the last
 the files are still as that apply left them. A suggestion is a candidate: the next run says whether the finding
 cleared.
 
-| Case | Suggestions |
+| Cause | Suggestions |
 |---|---|
-| `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`); a via that gave way, `place.via_move` or `place.via_leave` wider; a wider search radius, as a named constant |
-| `unplaced.pocket` | a `board.link` toward a part it shares a net with; either face; a finer search step, as a named constant |
+| `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`) |
+| `unplaced.pocket` | place it beside a part that pulls it; a `board.link` toward a part it shares a net with; either face |
 | `unplaced.slide` | `at=OnEdge(...)` on each of the other edges |
-| `unplaced.block` | the block may turn to any of its turns; `place.block_gap_reach` wider |
-| `unplaced.bearing` | `place.bearing_step` finer |
-| `unplaced.rides` | none: the item it rides has its own finding |
+| `unplaced.block` | the block may turn to any of its turns |
+| `unplaced.bearing`, `unplaced.rides` | none |
 | `fixed.part` | drop its `at=` so it is searched; the other face |
 | `fixed.cutout`, `fixed.keepout` | none |
 | `copper.keepout` | `Net(...)` added to the keepout's `allow=`; the keepout kept off the layer the copper is on (`layers=`); the keepout forbidding only what the copper is not (`excludes=`) |
 | `copper.cross` | `bridge=True` on the track that yields; `priority=Priority.HIGH` on it where the other track may bridge |
-| `copper.meets` | the track's waypoints dropped (pad to pad); a smaller `chamfer=` or `radius=`; the other layer |
-| `copper.not_drawn` | a smaller `radius=` for an arc that did not fit; for a track through an item, its waypoints dropped or the other layer |
-| `copper.corner` | a smaller `chamfer=` |
-| `copper.note` | the waypoints dropped |
+| `copper.meets` | the track's waypoints dropped (pad to pad); the other layer |
+| `copper.not_drawn` | for an arc that did not fit, the radius that fits the leg (the radius times the leg's length over what its arcs take, a named constant saying so); for a track through an item, its waypoints dropped or the other layer |
+| `copper.corner`, `copper.stitch` | none |
+| `copper.note` | the waypoints dropped, for a waypoint that steers a track into a pad |
 | `link_over` | place it beside the far part, on a free side; a heavier `weight=`; `priority=Priority.HIGH`; the limit raised to the measured length, as a named constant |
-| `label.sits_on`, `label.no_spot` | the label on each of its other sides; a smaller `size=`, as a named constant |
+| `label.sits_on`, `label.no_spot` | the label on each of its other sides |
 | `label.not_drawn` | none |
 | `escape_walled`, `escape_closed` | a `board.fanout(part, sides=[...])` on the side the pad's way out points at; a `board.escape(...)` keeping the pin's lane clear |
-| `escape_lane` | `place.escape_via_reach` wider |
-| `escape_crossed`, `pair_crossed` | none |
+| `escape_lane`, `escape_crossed`, `pair_crossed` | none |
 | `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
 | `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
 | `setup.accept` | the `board.accept(...)` removed |
-| `vias.dropped` | `place.via_move` or `place.via_leave` wider |
+| `vias.dropped` | none |
+
+A suggestion's number is a figure the finding measured, or one derived from such a figure and said so in the constant's
+comment; a lever with no measurement behind it (a wider radius, a finer step) is not offered.
 
 A setting is written into the script's own `[scripts."<path>".<section>]` table of the nearest `placemat.toml`,
-changing only that line. `[studio] suggest_factor` is how much a suggestion widens a limit.
+changing only that line.
 
 
 ## Report form and the files placemat writes
@@ -4009,6 +4013,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.note_age_s` | `3600` | seconds | a note left in the studio is hidden after this long; 0 keeps it |
 | `studio.notes_keep` | `100` | count | notes kept in a board's notes file |
 | `studio.cancel_grace_ms` | `2000` | ms | a resolve asked to stop that has not stopped by then has its worker restarted |
+| `studio.suggestions_per_lever` | `3` | count | a finding's suggestions for one lever (which side to place beside): the best this many |
+| `studio.try_timeout_s` | `60` | seconds | a try of a suggestion (a resolve of the edited script) is stopped after this long |
+| `studio.apply` | `true` | bool | false: the studio shows suggestions and diffs but refuses to write them |
 | `facts.confirmed` | `""` | text | the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm` |
 | `facts.boards` | `{}` | table | `[facts.boards]`: a script's path relative to this placemat.toml -> the digest of its last `placemat facts --confirm`; placemat's own record, not part of a run's id |
 <!-- settings-table:end -->

@@ -153,6 +153,7 @@ class ReservedBy:
     limit: float | None = None
     radius_mm: float | None = None
     side: str = ""
+    item: str = ""                      # a label: the item it is on (`name` is the item and the text)
 
     def __str__(self) -> str:
         if self.kind == "keepout":
@@ -171,7 +172,8 @@ class ReservedBy:
     def to_json(self) -> dict:
         return {k: v for k, v in (("kind", self.kind), ("name", self.name), ("why", self.why),
                                   ("max_height_mm", self.max_height_mm), ("limit", self.limit),
-                                  ("radius_mm", self.radius_mm), ("side", self.side)) if v not in ("", None)}
+                                  ("radius_mm", self.radius_mm), ("side", self.side),
+                                  ("item", self.item)) if v not in ("", None)}
 
     @staticmethod
     def from_json(d: dict) -> "ReservedBy":

@@ -146,8 +146,8 @@ class UndoRefused(SuggestionError):
 
 # ------------------------------------------------------------------ the cases
 CASES: dict = {}
-"""{case id: builder}: a builder takes the facts the raising site measured and returns the suggestions, best first,
-each a `Pick`. The id is `kind.case`, as a finding's `case` says."""
+"""{FindingCause: builder}: a builder takes the facts the raising site measured and returns the suggestions, best first,
+each a `Pick`."""
 
 
 @dataclass(frozen=True)
@@ -165,9 +165,9 @@ def case(name):
     return register
 
 
-def suggest(case_id: str, facts: dict, settings=None) -> list:
-    """The suggestions for a finding of this case from the facts its site measured, unbound, ranked 1..n in the order
-    the builder gave them, at most `[studio] suggestions_per_lever` to a lever. A case with no builder, or facts the
+def suggest(case_id, facts: dict, settings=None) -> list:
+    """The suggestions for a finding of this cause from the facts its site measured, unbound, ranked 1..n in the order
+    the builder gave them, at most `[studio] suggestions_per_lever` to a lever. A cause with no builder, or facts the
     builder finds nothing to offer for, gives none."""
     builder = CASES.get(case_id)
     if builder is None:
@@ -554,6 +554,7 @@ def _item(key):
     return {"item": key}
 
 
+from .findings import FindingCause, FindingCause as C
 from .values import Edge as _Edge    # noqa: E402
 _EDGES = tuple(_Edge)
 
@@ -622,7 +623,7 @@ def _side_word(side: str) -> str:
 _WEIGHTS = (("FREE", 0), ("DEFAULT", 1), ("PREFER", 2), ("SHORT", 8))
 
 
-@case("link_over")
+@case(C.LINK_OVER)
 def link_over(f, settings):
     a, b = f["a"], f["b"]
     out = []
@@ -652,34 +653,26 @@ def _label_picks(f, settings):
     for side in f.get("sides", ()):
         out.append(_set("label", f["key"], "side", _enum("Edge.%s" % side),
                         "Move the label of %s to its %s side" % (ref, _side_word(side)), "side"))
-    size = f.get("size")
-    if size:
-        smaller = round(size / settings.studio_suggest_factor, 2)
-        out.append(_set("label", f["key"], "size",
-                        _const(_name(ref, "label", "size", "mm"), smaller,
-                               "A run's finding (%s) said the label of %s was in the way: %s mm is the label size %s "
-                               "mm divided by studio.suggest_factor." % (f["cause"], ref, _mm(smaller), _mm(size))),
-                        "Make the label of %s smaller" % ref, "size"))
     return out
 
 
-@case("label.sits_on")
+@case(C.LABEL_SITS_ON)
 def label_sits_on(f, settings):
-    return _label_picks(dict(f, cause="label.sits_on"), settings)
+    return _label_picks(f, settings)
 
 
-@case("label.no_spot")
+@case(C.LABEL_NO_SPOT)
 def label_no_spot(f, settings):
-    return _label_picks(dict(f, cause="label.no_spot"), settings)
+    return _label_picks(f, settings)
 
 
-@case("label.not_drawn")
+@case(C.LABEL_NOT_DRAWN)
 def label_not_drawn(f, settings):
     return []
 
 
 # ------------------------------------------------------------------ builders: copper
-@case("copper.keepout")
+@case(C.COPPER_KEEPOUT)
 def copper_keepout(f, settings):
     name, net, word = f["keepout"], f["net"], f["word"]
     out = []
@@ -698,7 +691,7 @@ def copper_keepout(f, settings):
     return out
 
 
-@case("copper.cross")
+@case(C.COPPER_CROSS)
 def copper_cross(f, settings):
     me, other = f["yielder_net"], f["other_net"]
     out = []
@@ -719,11 +712,7 @@ def _insert_after(kind, key, value, text, lever="") -> Pick:
     return Pick(text, Edit("insert_statement", Target(kind, key), {}, value, _refs_of(value)), lever)
 
 
-def _widened(x, settings, digits=1):
-    return round(x * settings.studio_suggest_factor, digits)
-
-
-@case("unplaced.search")
+@case(C.UNPLACED_SEARCH)
 def unplaced_search(f, settings):
     item = f["item"]
     out = []
@@ -748,35 +737,16 @@ def unplaced_search(f, settings):
             out.append(_add_to("keepout", r["keepout"], "allow", _item(item),
                                "Let %s into keepout `%s`" % (item, r["keepout"]), "reservation"))
         elif "label" in r:
-            ref = r["label"].split(" ", 2)[1]      # until a reservation names its source as data
             out.append(_set("label", r["label"], "reserve", False,
-                            "Stop the label of %s reserving room" % ref, "reservation"))
+                            "Stop the label of %s reserving room" % r["item"], "reservation"))
     if f.get("drawn") and f.get("envelope") != "courtyard":
         out.append(_setting("place", "envelope", "courtyard", "Judge parts by their courtyards",
                             "A run's finding (unplaced.search): %s was refused by what parts draw round themselves; "
                             "courtyards are what the envelope reads." % item, "envelope"))
-    if f.get("via"):
-        if f.get("via_move", 0) > 0:
-            wide = _widened(f["via_move"], settings, 2)
-            out.append(_setting("place", "via_move", wide, "Let a via move further: place.via_move %g" % wide,
-                                "A run's finding (unplaced.search): %s was refused where a via could not give way; "
-                                "place.via_move was %g mm." % (item, f["via_move"]), "via"))
-        if f.get("via_leave", 0) > 0:
-            wide = _widened(f["via_leave"], settings, 2)
-            out.append(_setting("place", "via_leave", wide, "Let a via leave its pad further: place.via_leave %g" % wide,
-                                "A run's finding (unplaced.search): %s was refused where a via could not give way; "
-                                "place.via_leave was %g mm." % (item, f["via_leave"]), "via"))
-    if f.get("radius"):
-        wide = _widened(f["radius"], settings)
-        out.append(_set("place", item, "radius",
-                        _const(_name(item, "search", "radius", "mm"), wide,
-                               "A run's finding (unplaced.search): %s found no legal spot within %s mm of its hint; "
-                               "searched %g times as far." % (item, f["radius"], settings.studio_suggest_factor)),
-                        "Search %s within a larger radius" % item, "radius"))
     return out
 
 
-@case("unplaced.pocket")
+@case(C.UNPLACED_POCKET)
 def unplaced_pocket(f, settings):
     item = f["item"]
     out = []
@@ -791,17 +761,10 @@ def unplaced_pocket(f, settings):
     if f.get("face") in ("front", "back"):
         out.append(_set("place", item, "face", _enum("Face.EITHER"),
                         "Let %s take the %s face too" % (item, _face_other(f["face"])), "face"))
-    if f.get("step"):
-        fine = round(f["step"] / settings.studio_suggest_factor, 3)
-        out.append(_set("place", item, "step",
-                        _const(_name(item, "search", "step", "mm"), fine,
-                               "A run's finding (unplaced.pocket): no pocket took %s at a %s mm step; searched %g times "
-                               "finer." % (item, f["step"], settings.studio_suggest_factor)),
-                        "Search %s on a finer step" % item, "step"))
     return out
 
 
-@case("unplaced.slide")
+@case(C.UNPLACED_SLIDE)
 def unplaced_slide(f, settings):
     item, here = f["item"], f.get("edge")
     return [_set("place", item, "at", _form("OnEdge", _enum("Edge.%s" % e.name)),
@@ -809,38 +772,25 @@ def unplaced_slide(f, settings):
             for e in _EDGES if here and e.name != here]
 
 
-@case("unplaced.block")
+@case(C.UNPLACED_BLOCK)
 def unplaced_block(f, settings):
     item = f["item"]
     out = [_set("place", item, "rotations", _enum("Turns.ANY"), "Let the block turn to any of its turns", "turns")]
-    reach = f.get("gap_reach")
-    if reach:
-        wide = _widened(reach, settings)
-        out.append(_setting("place", "block_gap_reach", wide,
-                            "Let satellites stand further off: place.block_gap_reach %g" % wide,
-                            "A run's finding (unplaced.block): %s could not be laid out; place.block_gap_reach was "
-                            "%g mm." % (item, reach), "wider"))
     return out
 
 
-@case("unplaced.bearing")
+@case(C.UNPLACED_BEARING)
 def unplaced_bearing(f, settings):
-    step = f.get("bearing_step")
-    if not step:
-        return []
-    fine = round(step / settings.studio_suggest_factor, 3)
-    return [_setting("place", "bearing_step", fine, "Step bearings finer: place.bearing_step %g" % fine,
-                     "A run's finding (unplaced.bearing): no bearing of those tried left %s legal; place.bearing_step "
-                     "was %g degrees." % (f["item"], step))]
+    return []
 
 
-@case("unplaced.rides")
+@case(C.UNPLACED_RIDES)
 def unplaced_rides(f, settings):
     return []
 
 
 # ------------------------------------------------------------------ builders: fixed
-@case("fixed.part")
+@case(C.FIXED_PART)
 def fixed_part(f, settings):
     item = f["item"]
     out = [_unset("place", item, "at", "Let %s be searched" % item, "search")]
@@ -851,24 +801,38 @@ def fixed_part(f, settings):
     return out
 
 
-@case("fixed.cutout")
+@case(C.FIXED_CUTOUT)
 def fixed_cutout(f, settings):
     return []
 
 
-@case("fixed.keepout")
+@case(C.FIXED_KEEPOUT)
 def fixed_keepout(f, settings):
     return []
 
 
 # ------------------------------------------------------------------ builders: copper that does not draw as asked
-def _smaller(kind, key, name, current, unit, case_id, what, settings, lever):
-    small = round(current / settings.studio_suggest_factor, 3)
-    return _set(kind, key, name,
-                _const(_name(key.split(" ", 1)[-1], name, "mm"), small,
-                       "A run's finding (%s): %s; %s was %s mm, %g times smaller is %s mm."
-                       % (case_id, what, name, _mm(current), settings.studio_suggest_factor, _mm(small))),
-                unit, lever)
+def _fitting_radius(f, text):
+    """The radius an arc that did not fit would fit at: a leg of L mm that its arcs take T mm of is fitted by an arc radius
+    scaled by L / T (an arc takes radius * tan(turn / 2) of a leg, so the take is proportional to the radius). The leg and
+    the take are what the arc misfit measured."""
+    m = f.get("misfit") or {}
+    if m.get("code") != "arc_leg" or not f.get("radius_mm"):
+        return []
+    take = sum(a["takes_mm"] for a in m["arcs"])
+    if take <= 0:
+        return []
+    fit = math.floor(f["radius_mm"] * m["length_mm"] / take * 100 - 1e-9) / 100
+    if not 0 < fit < f["radius_mm"]:
+        return []
+    net = f.get("net", "")
+    return [_set("track", f["key"], "radius",
+                 _const(_name(f["key"].split("#")[0].split(" ", 1)[-1], "radius", "mm"), fit,
+                        "A run's finding (copper.not_drawn): the leg was %s mm and the arcs of radius %s mm took %s mm of "
+                        "it; %s mm is the radius that fits it, derived as %s x %s / %s." % (
+                            _mm(m["length_mm"]), _mm(f["radius_mm"]), _mm(take), _mm(fit), _mm(f["radius_mm"]),
+                            _mm(m["length_mm"]), _mm(take))),
+                 text % net, "radius")]
 
 
 def _drop_waypoints(f, text):
@@ -879,18 +843,12 @@ def _drop_waypoints(f, text):
                             {"arg": "points", "action": "remove", "indices": list(range(1, n + 1))}), "waypoints")]
 
 
-@case("copper.meets")
+@case(C.COPPER_MEETS)
 def copper_meets(f, settings):
     net = f["net"]
     out = []
     if f.get("word") == "track" and f.get("key"):
         out += _drop_waypoints(f, "Draw the %s track pad to pad" % net)
-        if f.get("chamfer_hit") and f.get("chamfer"):
-            out.append(_smaller("track", f["key"], "chamfer", f["chamfer"], "Cut the corner of the %s track smaller" % net,
-                                "copper.meets", "its 45 met another net's copper", settings, "corner"))
-        if f.get("arc_hit") and f.get("radius"):
-            out.append(_smaller("track", f["key"], "radius", f["radius"], "Cut the corner of the %s track smaller" % net,
-                                "copper.meets", "its arc met another net's copper", settings, "corner"))
         if f.get("layer") in ("F", "B"):
             other = "B" if f["layer"] == "F" else "F"
             out.append(_set("track", f["key"], "layer", _enum("CopperLayer.%s" % other),
@@ -898,14 +856,13 @@ def copper_meets(f, settings):
     return out
 
 
-@case("copper.not_drawn")
+@case(C.COPPER_NOT_DRAWN)
 def copper_not_drawn(f, settings):
     net = f.get("net", "")
     out = []
-    if f.get("cause") == "arc" and f.get("radius"):
-        out.append(_smaller("track", f["key"], "radius", f["radius"], "Use a smaller radius on the %s track" % net,
-                            "copper.not_drawn", "an arc of that radius did not fit", settings, "radius"))
-    if f.get("cause") == "through":
+    if f.get("variant") == "arc":
+        out += _fitting_radius(f, "Use a smaller radius on the %s track")
+    if f.get("variant") == "through":
         out += _drop_waypoints(f, "Draw the %s track pad to pad" % net)
         if f.get("layer") in ("F", "B"):
             other = "B" if f["layer"] == "F" else "F"
@@ -914,16 +871,20 @@ def copper_not_drawn(f, settings):
     return out
 
 
-@case("copper.corner")
+@case(C.COPPER_CORNER)
 def copper_corner(f, settings):
-    if not f.get("chamfer"):
-        return []
-    return [_smaller("track", f["key"], "chamfer", f["chamfer"], "Cut the corner of the %s track smaller" % f["net"],
-                     "copper.corner", "no 45 fits past the corner", settings, "corner")]
+    return []
 
 
-@case("copper.note")
+@case(C.COPPER_STITCH)
+def copper_stitch(f, settings):
+    return []
+
+
+@case(C.COPPER_NOTE)
 def copper_note(f, settings):
+    if f.get("variant") != "waypoint":
+        return []
     return _drop_waypoints(f, "Drop the waypoint%s" % ("" if f.get("waypoints") == 1 else "s"))
 
 
@@ -943,39 +904,33 @@ def _clear_picks(f, case_id):
     return out
 
 
-@case("escape_walled")
+@case(C.ESCAPE_WALLED)
 def escape_walled(f, settings):
     return _clear_picks(f, "escape_walled")
 
 
-@case("escape_closed")
+@case(C.ESCAPE_CLOSED)
 def escape_closed(f, settings):
     return _clear_picks(f, "escape_closed")
 
 
-@case("escape_crossed")
+@case(C.ESCAPE_CROSSED)
 def escape_crossed(f, settings):
     return []
 
 
-@case("escape_lane")
+@case(C.ESCAPE_LANE)
 def escape_lane(f, settings):
-    reach = f.get("reach")
-    if not reach:
-        return []
-    wide = _widened(reach, settings)
-    return [_setting("place", "escape_via_reach", wide, "Allow the lane's via further: place.escape_via_reach %g" % wide,
-                     "A run's finding (escape_lane): the lane of %s pin %s was blocked; place.escape_via_reach was %g mm."
-                     % (f["part"], f["pin"], reach), "wider")]
+    return []
 
 
-@case("pair_crossed")
+@case(C.PAIR_CROSSED)
 def pair_crossed(f, settings):
     return []
 
 
 # ------------------------------------------------------------------ builders: setup and vias
-@case("setup.undeclared")
+@case(C.SETUP_UNDECLARED)
 def setup_undeclared(f, settings):
     if not f.get("anchor"):
         return []
@@ -984,7 +939,7 @@ def setup_undeclared(f, settings):
                           "Place %s searched from its links" % item, "place")]
 
 
-@case("setup.lane_unused")
+@case(C.SETUP_LANE_UNUSED)
 def setup_lane_unused(f, settings):
     part, pin = f["part"], f["pin"]
     number = {"num": int(pin)} if str(pin).isdigit() else {"str": str(pin)}
@@ -992,22 +947,14 @@ def setup_lane_unused(f, settings):
                  Edit("edit_list", Target("escape", part), {"arg": "pins", "action": "remove"}, number), "pins")]
 
 
-@case("setup.accept")
+@case(C.SETUP_ACCEPT)
 def setup_accept(f, settings):
     return [Pick("Remove the accept for %s" % f["key"], Edit("remove_statement", Target("accept", f["key"])), "accept")]
 
 
-@case("vias.dropped")
+@case(C.VIAS_DROPPED)
 def vias_dropped(f, settings):
-    out = []
-    for key, text in (("via_move", "Let a via move further: place.via_move %g"),
-                      ("via_leave", "Let a via leave its pad further: place.via_leave %g")):
-        cur = f.get(key, 0)
-        if cur > 0:
-            wide = _widened(cur, settings, 2)
-            out.append(_setting("place", key, wide, text % wide,
-                                "A run's finding (vias.dropped): %s; place.%s was %g mm." % (f["item"], key, cur), key))
-    return out
+    return []
 
 
 # ------------------------------------------------------------------ the plan's suggestions, kept for `placemat apply`
@@ -1066,15 +1013,17 @@ def recall(board_dir, script=None) -> dict:
 
 # ------------------------------------------------------------------ did a try clear the finding
 def finding_key(f) -> tuple:
-    """What names a finding across two resolves: (kind, case, item). `f` is a Finding or its JSON (a plan's
-    `findings[i]`, or a run record's `finding_details[i]`); the item is the first word of its sentence, the part,
-    cell, label or keepout it is about."""
-    get = f.get if isinstance(f, dict) else (lambda k, d=None: getattr(f, k, d))
-    text = str(get("text") if isinstance(f, dict) else f)
-    return (get("kind"), get("cause"), (get("item") if isinstance(f, dict) and get("item") else "") or text.split(" ", 1)[0])
+    """What names a finding across two resolves: (kind, cause, subject). `f` is a Finding or its JSON (a plan's
+    `findings[i]`, or a run record's `finding_details[i]`); the subject is what finding_text.subject says the facts are
+    about: the item, the link, the label, the part and pin."""
+    from . import finding_text
+    if isinstance(f, dict):
+        cause = FindingCause.parse(f.get("cause"))
+        return (f.get("kind"), f.get("cause"), finding_text.subject(cause, f.get("facts") or {}) if cause else "")
+    return (f.kind.value, f.cause.value, finding_text.subject(f.cause, f.facts))
 
 
 def cleared(finding, after) -> bool:
     """Whether the finding is gone from `after` (the findings of a try, or of the resolve after an apply): the same
-    (kind, case, item) is not among them."""
+    (kind, cause, subject) is not among them."""
     return finding_key(finding) not in {finding_key(a) for a in after}

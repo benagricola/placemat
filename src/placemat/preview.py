@@ -14,6 +14,7 @@ import math
 import re
 from types import SimpleNamespace
 
+from . import finding_text
 from .board_geometry import members_of
 from .copper import Pour, Text, Track, Via, Zone, arc_circle
 from .geometry import circle_polygon
@@ -307,9 +308,6 @@ def _clipped(a: Location, b: Location, box: Box):
     return Location(a.x + t0 * dx, a.y + t0 * dy), Location(a.x + t1 * dx, a.y + t1 * dy)
 
 
-_AT = re.compile(r"\((-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\)")
-
-
 def annotations(plan, view: Box, links: bool = True, heat: bool = True) -> list:
     """The view's annotations, numbered the same whatever the view: links by
     declaration (L), parts that took a pocket in step order (P), the worst
@@ -339,8 +337,8 @@ def annotations(plan, view: Box, links: bool = True, heat: bool = True) -> list:
             continue
         body = Box.union(boxes)
         corner = Location(body.right, body.top)
-        note = steps[key].note if key in steps else ""
-        why = note[note.index("took the pocket"):] if "took the pocket" in note else "took a pocket"
+        took = steps[key].pocket if key in steps else None
+        why = finding_text.pocket_took_text(took) if took else "took a pocket"
         out.append(Note("P%d" % n, "pocketed", corner if _inside(corner, view) else None,
                         "%s %s" % (key, why), _COLOUR["pocketed"]))
     r = getattr(plan, "rudy", None)
@@ -350,11 +348,11 @@ def annotations(plan, view: Box, links: bool = True, heat: bool = True) -> list:
                             r.worst, r.worst_at.x, r.worst_at.y), "#c92a2a"))
     n = 0
     for f in plan.findings:
-        m = _AT.search(f)
-        if m is None:
+        found = finding_text.locate(f.cause, f.facts, ())["at"]
+        if found is None:
             continue
         n += 1
-        at = Location(float(m.group(1)), float(m.group(2)))
+        at = Location(found[0], found[1])
         out.append(Note("F%d" % n, "finding", at if _inside(at, view) else None, f, "#862e9c"))
     return out
 
@@ -391,7 +389,7 @@ def _side(plan, x: float, top: float) -> tuple:
         y[0] += 0.6
         line("not placed (%d)" % len(unplaced), cls="unplaced", size=1.2, colour="#c92a2a")
         for s in unplaced:
-            why = s.note.split("UNPLACED", 1)[-1].lstrip(": ") if "UNPLACED" in s.note else s.note
+            why = s.unplaced if s.unplaced is not None else s.note
             line("%s: %s" % (s.item, why[:70]), cls="unplaced", size=0.85, colour="#c92a2a", step=1.3)
     y[0] += 1.0
     for name, label in (("pad", "copper pad"), ("through", "through pad"), ("courtyard", "courtyard"),

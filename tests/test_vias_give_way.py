@@ -421,11 +421,14 @@ def test_a_yes_tier_still_shortens_with_a_no_tier_hint_in_place():
 # ------------------------------------------------------------------ the tally of vias that could not give way
 def test_a_refusal_by_a_via_that_cannot_give_way_is_tallied_as_that():
     from placemat.occupancy import VIA_BUCKET, _reason_key
+    from placemat.refusals import Code, Refusal
     assert VIA_BUCKET == "via cannot give way"
-    assert _reason_key("copper: pad Y is 0.0 mm from GND copper; the via GND at (1.00, 2.00) (U1) cannot give way: "
-                       "no spot") == VIA_BUCKET
-    assert _reason_key("through via X at (1.00, 2.00) is too near; it cannot give way: no spot") == VIA_BUCKET
-    assert _reason_key("copper pad Y is 0.0 mm from GND copper") == "copper"
+    near = Refusal(Code.COPPER_NEAR)
+    via = {"net": "GND", "at": [1.0, 2.0], "of": ["part", "U1"]}
+    assert _reason_key(Refusal(Code.CANNOT_GIVE_WAY, base=near, via=via, why_not=[Refusal(Code.NO_SPOT, reach_mm=0.5,
+                                                                                        inside=False)])) == VIA_BUCKET
+    assert _reason_key(Refusal(Code.CANNOT_GIVE_WAY, base=near, via=None, why_not=[])) == VIA_BUCKET
+    assert _reason_key(near) == "copper"
 
 
 def test_a_scan_counts_the_vias_that_could_not_give_way_apart_from_copper():
@@ -438,7 +441,7 @@ def test_a_scan_counts_the_vias_that_could_not_give_way_apart_from_copper():
     r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=None)
     assert r.chosen is None
     assert r.rejected["via cannot give way"] == 1 and "copper" not in r.rejected, r.rejected
-    assert "cannot give way" in r.reasons["via cannot give way"]
+    assert "cannot give way" in str(r.reasons["via cannot give way"])
 
 
 def test_the_unplaced_finding_says_how_many_vias_could_not_give_way():

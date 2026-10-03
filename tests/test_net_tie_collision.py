@@ -224,7 +224,7 @@ def test_the_same_tie_on_a_footprint_that_is_no_net_tie_is_a_conflict(tmp_path):
     b.standing_out("north", net_tie=False)
     path = b.save()
     assert _drc(path)
-    assert [f for f in _findings(path) if "NT copper" in f]
+    assert [f for f in _findings(path) if "NT copper" in str(f)]
 
 
 def test_a_net_tie_lying_along_a_pad_edge_is_not_a_conflict(tmp_path):
@@ -264,7 +264,7 @@ def test_the_same_track_on_a_footprint_that_is_no_net_tie_is_a_conflict(tmp_path
     b.track("V", (20, 20), (20, 21))
     path = b.save()
     assert _drc(path)
-    assert [f for f in _findings(path) if "NT copper" in f]
+    assert [f for f in _findings(path) if "NT copper" in str(f)]
 
 
 def test_the_exclusion_is_judged_either_way_round(tmp_path):

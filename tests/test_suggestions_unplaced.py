@@ -22,7 +22,7 @@ def test_a_search_with_no_legal_spot_offers_the_levers_the_declaration_leaves(tm
     assert "Place j1 before the parts that crowd it" in texts
     assert "Let j1 take the back face too" in texts
     assert "Let j1 turn to any bearing" in texts
-    assert "Search j1 within a larger radius" in texts
+    assert not any("radius" in t for t in texts)           # no wider radius: nothing measured says how much
     assert [s.rank for s in f.suggestions] == list(range(1, len(f.suggestions) + 1))
     assert len({s.id for s in f.suggestions}) == len(f.suggestions)
 
@@ -50,14 +50,6 @@ def test_taking_the_back_face_too_places_it(tmp_path):
     assert not unplaced(plan2, "unplaced.search")
     assert "face=Face.EITHER" in path.read_text()
 
-
-def test_a_wider_search_radius_is_a_named_constant_with_a_comment(tmp_path):
-    board, plan, path = resolve(tmp_path, SEARCH)
-    (f,) = unplaced(plan, "unplaced.search")
-    s = next(s for s in f.suggestions if s.lever == "radius")
-    shown = sg.apply_suggestion(suggestions_of(plan), s.id, dry_run=True).files[str(path)].after
-    assert "J1_SEARCH_RADIUS_MM = " in shown and "radius=J1_SEARCH_RADIUS_MM" in shown
-    assert "# A run's finding (unplaced.search): j1 found no legal spot within" in shown
 
 
 def test_the_cache_keeps_the_suggestions_of_a_replayed_step(tmp_path):
@@ -99,7 +91,7 @@ def test_a_pocket_case_offers_a_link_a_face_and_a_finer_step(tmp_path):
     assert fs
     texts = [s.text for s in fs[0].suggestions]
     assert any(t.startswith("Pull c1 toward ") for t in texts)
-    assert "Search c1 on a finer step" in texts
+    assert not any("finer step" in t for t in texts)
 
 
 EDGE = '''board.place(Part("u1"), at=OnEdge(Edge.NORTH))

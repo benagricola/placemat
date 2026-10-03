@@ -821,10 +821,10 @@ def _report_lines(report) -> list:
 
 
 def lock_summary(plan) -> str:
-    """How the lock fared in a plan: held, drifted, released, from its notes."""
-    held = sum(1 for s in plan.steps if "held by lock" in (s.note or ""))
-    drifted = sum(1 for s in plan.steps if "lock: drifted" in (s.note or ""))
-    released = sum(1 for s in plan.steps if "lock: released" in (s.note or ""))
+    """How the lock fared in a plan: held, drifted, released, from its steps."""
+    held = sum(1 for s in plan.steps if s.lock == "held")
+    drifted = sum(1 for s in plan.steps if s.lock == "drifted")
+    released = sum(1 for s in plan.steps if s.lock == "released")
     if not (held or drifted or released):
         return ""
     return "%d held by lock, %d drifted, %d released" % (held, drifted, released)

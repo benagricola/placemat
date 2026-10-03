@@ -114,7 +114,7 @@ def owners_of(result, bucket: str, buckets) -> list:
 
 
 def reservation_source(owner) -> dict:
-    """What a reservation was made by, from the Owner a scan blamed: {"keepout": name}, {"label": key} or
+    """What a reservation was made by, from the Owner a scan blamed: {"keepout": name}, {"label": key, "item": the item it is on} or
     {"fanout": item}; {} for anything else."""
     by = getattr(owner, "by", None)
     if by is None:
@@ -122,7 +122,7 @@ def reservation_source(owner) -> dict:
     if by.kind == "keepout":
         return {"keepout": by.name}
     if by.kind == "label":
-        return {"label": "label " + by.name}
+        return {"label": "label " + by.name, "item": by.item}
     if by.kind == "fanout":
         return {"fanout": by.name}
     return {}
@@ -131,7 +131,7 @@ def reservation_source(owner) -> dict:
 def _item_facts(board, i) -> dict:
     return {"item": i.key, "kind": i.kind, "face": "either" if i.either else i.face.value,
             "priority": i.priority.value if i.priority_source == "script" else "",
-            "step": i.step, "radius": i.radius}
+            "step": i.step}
 
 
 @safe(dict)
@@ -142,10 +142,9 @@ def unplaced_search(board, occ, plan, i, placed, result, hint, radius) -> dict:
     from .occupancy import VIA_BUCKET
     top = dominant(result)
     facts = _item_facts(board, i)
-    facts.update(dominant=top, radius=round(radius, 3), near=i.near is not None,
+    facts.update(dominant=top, near=i.near is not None,
                  turns=len(board._turns(i)) if i.rotation is not None else 0, rotation_given=bool(i.rotation_given),
-                 envelope=board.settings.place_envelope, via_move=board.settings.place_via_move,
-                 via_leave=board.settings.place_via_leave)
+                 envelope=board.settings.place_envelope)
     facts["drawn"] = bool(top) and top not in KNOWN_BUCKETS and top != VIA_BUCKET and not top.startswith("rider ")
     facts["via"] = top == VIA_BUCKET
     owners = owners_of(result, top, BLOCKED_BY) if top else []

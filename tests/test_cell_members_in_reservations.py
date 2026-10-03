@@ -128,9 +128,9 @@ def test_the_sweep_counts_each_refused_member_as_its_own():
     triples = [(8.0 + 0.5 * i, 10.0, 0) for i in range(30)]
     _, _, refused = sweep.run(triples, False)
     said = {reason() for _, _, _, reason, _ in refused}
-    assert any("member L1" in s for s in said) and any("member C1" in s for s in said), said
+    assert any("member L1" in str(s) for s in said) and any("member C1" in str(s) for s in said), said
     blockers = {b[1] for *_, b in refused}
-    assert any("L1" in o for o in blockers) and any("C1" in o for o in blockers), blockers
+    assert any("L1" in str(o) for o in blockers) and any("C1" in str(o) for o in blockers), blockers
     for _, _, first, reason, blocker in refused:
         x, y, _ = triples[first]
         blame = []
