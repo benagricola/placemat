@@ -129,24 +129,25 @@ def entry_from_turn(key: str, turn: dict, declaration: str, release: str) -> Loc
 
 
 def placement_of(entry: LockEntry, occ) -> tuple:
-    """(placement, "") where the entry puts its item on `occ` as it stands,
-    or (None, why) when it cannot say."""
+    """(placement, None) where the entry puts its item on `occ` as it stands,
+    or (None, why) when it cannot say: why is a record, {"form": "anchor_pending" | "anchor_face" | "anchor_pad_gone", "ref", ["pad"]}
+    (step_text renders it)."""
     if entry.anchor is None:
-        return Placement(Location(entry.offset[0], entry.offset[1]), entry.rotation, Face(entry.face)), ""
+        return Placement(Location(entry.offset[0], entry.offset[1]), entry.rotation, Face(entry.face)), None
     ref, number = ref_of(occ.geometry, entry.anchor[0]), entry.anchor[1]
     g = occ.items.get(ref)
     if g is None or ref in occ.pending:
-        return None, "its anchor %s is not placed before it" % ref
+        return None, {"form": "anchor_pending", "ref": ref}
     if g.reference.face.value != entry.anchor_face:
-        return None, "its anchor %s is on the other face now" % ref
+        return None, {"form": "anchor_face", "ref": ref}
     try:
         a = occ.pad_location(ref, number)
     except KeyError:
-        return None, "its anchor pad %s.%s is gone" % (ref, number)
+        return None, {"form": "anchor_pad_gone", "ref": ref, "pad": number}
     theta = g.reference.rotation
     dx, dy = _turn(entry.offset[0], entry.offset[1], theta)
     return Placement(Location(round(a.x + dx, 6), round(a.y + dy, 6)), round((entry.rotation + theta) % 360.0, 6),
-                     Face(entry.face)), ""
+                     Face(entry.face)), None
 
 
 def entries(board, plan, keys, release: str = "", run: str = "", score: float | None = None) -> list:

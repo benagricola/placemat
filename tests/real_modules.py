@@ -21,8 +21,6 @@ SWITCH_ONLY = {
     "logicsupply": "1.22mm pads=FB_3V3 away=SW_3V3; datasheet fig. 12-2: SW copper leaves the package beside FB at its own pad gap (1.22 mm)",
     "usbconverter": "1.26mm pads=COMP_BB away=SW1,SW2; datasheet fig. 10-1: SW copper leaves the package beside COMP at its own pad gap (1.26 mm)",
 }
-# ... and what the fixture's generated netlist carries (the boot nets named too).
-WITH_BOOT = None
 
 
 def stage(tmp_path: Path, module: str, keep_out: str | None = None, script: str | None = None, edit=None) -> Path:

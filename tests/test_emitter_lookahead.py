@@ -3,7 +3,6 @@ other way round): the search looks ahead to the unplaced counterpart's legal spo
 import dataclasses
 import re
 
-import pytest
 
 from placemat.layout import Board
 from placemat.settings import Settings
@@ -160,3 +159,19 @@ def test_a_partner_whose_room_was_taken_after_the_look_ahead_says_so():
     assert not _said(plan, "look-ahead was dropped"), plan.findings
     refusal = _said(plan, "what was placed since took it")
     assert refusal and refusal[0].startswith("u2: "), plan.findings
+
+
+def test_a_sensitive_member_of_a_cell_needs_only_its_own_body_outside_the_disc():
+    """The source looks ahead for room for the sensitive member alone, as the push's disc fences it alone: the
+    cell's other members may stand inside the disc, so a cell longer than the room outside it still fits radially."""
+    from placemat.values import Cell
+    m1 = footprint("M1", 70, 10, w=4, h=4, inst="m1", nets=("A", "GND"), fields={"Pm.Emits": EMITS})
+    u2 = footprint("U2", 1, 1, w=2, h=2, inst="sensor.u2", nets=("SIG", "GND"), cell="sensor", fields={"Pm.Limit": LIMIT})
+    u3 = footprint("U3", 13, 1, w=3, h=3, inst="sensor.u3", nets=("SIG2", "GND"), cell="sensor")
+    b = Board(board_geometry([m1, u2, u3], cells=["sensor"], width=80, height=80), edge_margin=0.4, keep_going=True)
+    b.disc(2 * R)
+    b.place(Part("m1"), at=Polar((0.0, 6.0), None, about=CENTRE), priority=Priority.HIGH, step=1.0)
+    b.place(Cell("sensor"), priority=Priority.LOW, step=1.0)
+    plan = b.resolve()
+    assert plan.placement("sensor") is not None, plan.findings
+    assert not any("look-ahead" in f or "short of" in f for f in plan.findings), plan.findings

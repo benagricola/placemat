@@ -807,12 +807,12 @@ on("board", d => { if (!S.live || d.id !== S.live.id) return; S.live.board = d.b
 function applyStepTo(L, d) {
   const it = d.item;
   const at = L.items.findIndex(i => i.key === it.key);
-  const entry = {i: L.steps.length, item: it.key, kind: it.kind, placed: it.placed, note: it.note, why: it.why, freedom: it.freedom, how: it.how, seconds: it.seconds, first_seconds: it.first_seconds, copper: [], loop: null};
+  const entry = {i: L.steps.length, item: it.key, kind: it.kind, placed: it.placed, note: it.note, notes: it.notes || [], unplaced: it.unplaced, why: it.why, freedom: it.freedom, how: it.how, seconds: it.seconds, first_seconds: it.first_seconds, copper: [], loop: null};
   if (d.ops && d.ops.length) { entry.copper = d.ops.map((_, j) => L.copper.length + j); L.copper = L.copper.concat(d.ops); }
   if (d.cutout && L.board) { L.board.loops = L.board.loops.concat([d.cutout]); entry.loop = L.board.loops.length - 1; }
   L.steps.push(entry);
   if (it.placed && isDrawn(it)) { if (at >= 0) L.items[at] = it; else L.items.push(it); }
-  else if (!it.placed && (it.kind === "part" || it.kind === "cell" || it.kind === "block")) L.unplaced.push({item: it.key, why: it.note});
+  else if (!it.placed && (it.kind === "part" || it.kind === "cell" || it.kind === "block")) L.unplaced.push({item: it.key, why: it.note, reasons: it.unplaced, notes: it.notes || []});
   return it;
 }
 on("step", d => {                          // a step as it settles: it joins the timeline, the list and the drawing at once
@@ -1767,17 +1767,15 @@ function moduleRefs(p, id) {
 }
 // "decided at a point", "searched: rank 3 of 9", "rides X": what decided the item's place, from its step.
 function howText(s, it) {
-  const note = (s && s.note) || (it && it.note) || "";
-  const rides = /rides ([^,;]+)/.exec(note);
-  if (rides) return "rides " + rides[1].trim();
+  const np = noteParts(notesOf(s, it), reasonsOf(s, it));
+  if (np.rides) return "rides " + np.rides;
   const how = (it && it.how) || (s && s.how) || "", fr = (it && it.freedom) || (s && s.freedom);
   if (how === "pocket") return "pocket: took the first free gap";
-  const slid = /slid ([\d.]+ \S+) from its slot/.exec(note);
+  const slid = np.slid ? np.slid.mm + " " + np.slid.units : "";
   if (fr === "searched" || how === "searched") {
-    const r = /rank (\d+)\/(\d+)/.exec(note), seed = /seeded on ([^;)]+)/.exec(note);
-    return "searched" + (r ? ": rank " + r[1] + " of " + r[2] : " for the best spot") + (seed ? ", seeded on " + seed[1].trim() : "") + (slid ? ", slid " + slid[1] : "");
+    return "searched" + (np.rank ? ": rank " + np.rank.n + " of " + np.rank.of : " for the best spot") + (np.seeded.length ? ", seeded on " + np.seeded.join(", ") : "") + (slid ? ", slid " + slid : "");
   }
-  return (fr === "edge" ? "decided along an edge" : "decided at a point") + (slid ? ", slid " + slid[1] : "");
+  return (fr === "edge" ? "decided along an edge" : "decided at a point") + (slid ? ", slid " + slid : "");
 }
 // howText without the rank and seeds, which a card or a step row gives its own lines.
 const howWord = (s, it) => howText(s, it).replace(/^(searched): rank \d+ of \d+/, "$1").replace(/, seeded on .*?(?=, slid|$)/, "").replace(/, slid [\d.]+ \S+$/, "");
@@ -1785,7 +1783,7 @@ const howClass = (s, it) => /^rides/.test(howText(s, it)) ? "rides" : /^pocket/.
 // The findings that name an item.
 function findingsOf(p, key, it) {
   const fs = ((p && p.findings) || []).filter(f => f.item === key);
-  return fs.length ? fs : ((it && it.findings) || []).map(text => ({text, severity: "warning", kind: ""}));
+  return fs.length ? fs : ((it && it.findings) || []).map(f => typeof f === "string" ? {text: f, severity: "warning", kind: ""} : f);
 }
 
 // ---------------------------------------------------------------- hover (a mouse): the tooltip follows the pointer, its text is rebuilt only when what is under it changes
@@ -1955,40 +1953,42 @@ function splitTop(s, sep) {
   out.push(s.slice(from));
   return out.map(x => x.trim()).filter(Boolean);
 }
-// TEMPORARY, for what a step's note alone says (the engine's Step.note is a log line, not converted to facts): the seeds, why a part slid, stopped short or moved off its hint,
-// its vias and pushes, the line it sits on, the rank's measures, a pocket taken with nothing seeded. A step's rank (k of n) and a seeded item's pocket are data now: withFacts.
-// What a step records as data (its rank and the length of the queue, the pocket a seeded item took) takes the place of what noteParts read of
-// the same things from its note; what the note alone says (seeds, slides, vias, pushes, the rank's measures) is still read from it.
+// A step's notes are records (step_text.py), each with its sentence as `text` made by the studio server: the card reads the facts of the kinds it
+// labels and shows the `text` of the rest as written. A step's rank (k of n) and a seeded item's pocket are data of the step too: withFacts.
+const notesOf = (s, it) => s && s.notes && s.notes.length ? s.notes : (it && it.notes) || [];
+const reasonsOf = (s, it) => s && s.unplaced != null ? s.unplaced : it && it.unplaced != null ? it.unplaced : null;
 function withFacts(np, ...from) {
   for (const s of from) {
     if (!s) continue;
-    if (s.rank != null && s.rank_of != null) np.rank = Object.assign(np.rank || {facts: [], tail: []}, {n: String(s.rank), of: String(s.rank_of)});
-    if (s.pocket) { np.pocketFacts = s.pocket; np.other = np.other.filter(x => !/^took the pocket /.test(x)); }      // TEMPORARY filter: its sentence is the pocket facts' own
+    if (s.rank != null && s.rank_of != null) np.rank = Object.assign(np.rank || {}, {n: String(s.rank), of: String(s.rank_of)});
+    if (s.pocket) np.pocketFacts = s.pocket;
   }
   return np;
 }
-function noteParts(note) {
-  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], pocket: null, slid: null, stopped: null, line: null, other: [], unplaced: null};
-  for (const part of splitTop(note || "", "; ")) {
-    let m;
-    if (o.unplaced) o.unplaced.push(part);                                 // what an unplaced item's note says follows its marker
-    else if ((m = /^UNPLACED\b:?\s*(.*)$/.exec(part))) o.unplaced = m[1] ? [m[1]] : [];
-    else if ((m = /^rank (\d+)\/(\d+)\b/.exec(part))) {
-      let rest = part.slice(m[0].length).trim(), facts = "", tail = [];
-      if (rest[0] === "(") { let d = 0, i = 0; for (; i < rest.length; i++) { if (rest[i] === "(") d++; else if (rest[i] === ")" && --d === 0) break; } facts = rest.slice(1, i); rest = rest.slice(i + 1).trim(); }
-      if (rest) tail = rest.replace(/^\(/, "").replace(/\)(?=,|$)/, "").split(/,\s*/).filter(Boolean);       // "(script: high), required"
-      o.rank = {n: m[1], of: m[2], facts: facts ? splitTop(facts, "; ") : [], tail};
+function noteParts(notes, unplaced) {
+  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], pocket: null, slid: null, stopped: null, line: null, other: [], unplaced: null, rides: ""};
+  for (const n of notes || []) {
+    const mm = x => (+x).toFixed(2);
+    switch (n.kind) {
+      case "unplaced": o.unplaced = (unplaced || []).map(r => r.text); break;       // what an unplaced item's reasons say
+      case "rank": o.rank = Object.assign({}, o.rank, {n: String(n.rank), of: String(n.of), area: (+n.area_mm2).toFixed(1), area_ord: n.area_ord, pins: n.pins, pins_ord: n.pins_ord}); break;
+      case "priority": o.rank = Object.assign(o.rank || {}, {priority: n.value}); break;
+      case "required": if (o.rank) o.rank.required = true; else o.other.push(n.text); break;
+      case "seeded": o.seeded.push(...n.nets); break;
+      case "pocket": o.pocket = {w: (+n.w_mm).toFixed(1), h: (+n.h_mm).toFixed(1), x: (+n.at[0]).toFixed(1), y: (+n.at[1]).toFixed(1), why: n.why_text || ""}; break;
+      case "slid": o.slid = {mm: mm(n.mm), units: n.units || "mm", why: n.why_text || ""}; break;
+      case "stopped_short": o.stopped = {mm: mm(n.mm), side: n.toward, why: n.why_text || ""}; break;
+      case "moved_off_hint": o.moved = {mm: mm(n.mm), why: n.why_text || ""}; break;
+      case "where":
+        if (n.where && n.where.form === "line") { o.line = {axis: n.where.axis, at: mm(n.where.at_mm)}; if (n.tail) o.other.push(n.tail); }
+        else o.other.push(n.head || n.text);
+        break;
+      case "vias": o.vias = n.lines || []; break;
+      case "push": o.push.push(n); break;
+      case "rides": o.rides = n.of; break;
+      case "took_pocket": break;                                                   // the pocket facts of the step say it
+      default: o.other.push(n.text);
     }
-    else if ((m = /^seeded on (.+)$/.exec(part))) o.seeded.push(...m[1].split(/,\s*/));
-    else if ((m = /^pocket ([\d.]+) x ([\d.]+) at \((-?[\d.]+), (-?[\d.]+)\)(?:: (.*))?$/.exec(part))) o.pocket = {w: m[1], h: m[2], x: m[3], y: m[4], why: m[5] || ""};
-    else if ((m = /^slid ([\d.]+) mm from its slot(?:: (.*))?$/.exec(part))) o.slid = {mm: m[1], why: m[2] || ""};
-    else if ((m = /^stopped ([\d.]+) mm short of the (\w+) end by: (.*)$/.exec(part))) o.stopped = {mm: m[1], side: m[2], why: m[3]};
-    else if ((m = /^on the line (x|y) = (-?[\d.]+)$/.exec(part))) o.line = {axis: m[1], at: m[2]};
-    else if ((m = /^moved ([\d.]+) mm off the hint[:\s]*(.*)$/.exec(part))) o.moved = {mm: m[1], why: m[2]};
-    else if ((m = /^vias: (.+)$/.exec(part))) o.vias.push(...m[1].split(/,\s+/));
-    else if (o.vias.length && /^\d+ /.test(part)) o.vias.push(...part.split(/,\s+/));        // the vias' own "; "-separated entries
-    else if (/^push from /.test(part)) o.push.push(part);
-    else if (!/^rides /.test(part)) o.other.push(part);
   }
   return o;
 }
@@ -2030,6 +2030,8 @@ function unplacedParts(texts, fnd) {
   if (!o.why) o.why = "not placed";
   return o;
 }
+// An unplaced entry's example refusals, each as the engine words it (an older plan document has them as one "; "-separated sentence).
+const reasonTexts = u => u.reasons ? u.reasons.map(r => r.text) : splitTop(u.why || "", "; ");
 const SEV_CHIP = {critical: "bad", warning: "warn", notice: ""};
 // An owner of refusals as a pill that selects it: a part's designator or an item's name, where the plan has one.
 function ownerPill(name) {
@@ -2057,29 +2059,16 @@ const isUnplacedFinding = f => f && f.kind === "unplaced";
 const unplacedFindingOf = (p, key) => ((p && p.findings) || []).find(f => isUnplacedFinding(f) && ((f.facts && f.facts.item) === key || f.item === key)) || null;
 const rankRows = r => {
   const rows = [["rank", esc(r.n + " of " + r.of)]];
-  for (const f of r.facts) {
-    const m = /^([\d.]+) (mm2|pins?)(?:, (\S+?)(?: of \d+)?)?$/.exec(f);
-    if (m) rows.push(m[2] === "mm2" ? ["area", esc(m[1] + " mm2") + (m[3] ? esc(", " + m[3] + " largest") : "")]
-                                   : ["pins", esc(m[1] + (m[2] === "pin" || m[1] === "1" ? " pin" : " pins")) + (m[3] ? esc(", " + m[3] + " by pin count") : "")]);
-    else rows.push(["", esc(f)]);
-  }
-  for (const x of r.tail || []) {
-    const pr = /^script: (\w+)$/.exec(x);
-    if (pr) rows.push(["priority", pill(pr[1], "prio-" + pr[1]) + ' <span class="dim">from the script</span>']);
-    else if (x === "required") rows.push(["required", pill("required", "bad")]);
-    else rows.push(["", '<span class="dim">' + esc(x) + "</span>"]);
-  }
+  if (r.area != null) rows.push(["area", esc(r.area + " mm2") + (r.area_ord ? esc(", " + r.area_ord + " largest") : "")]);
+  if (r.pins != null) rows.push(["pins", esc(r.pins + (r.pins === 1 ? " pin" : " pins")) + (r.pins_ord ? esc(", " + r.pins_ord + " by pin count") : "")]);
+  if (r.priority) rows.push(["priority", pill(r.priority, "prio-" + r.priority) + ' <span class="dim">from the script</span>']);
+  if (r.required) rows.push(["required", pill("required", "bad")]);
   return rows;
 };
-// "N what ..." starts a via line; a fragment without a count continues the line before it (a list of owners).
-// TEMPORARY, same reason as noteParts: a via note's entries and a push note are read from the note's words.
-const joinVias = vs => vs.reduce((o, v) => { if (/^\d+ /.test(v) || !o.length) o.push(v); else o[o.length - 1] += ", " + v; return o; }, []);
-const viaLine = v => { const m = /^(\d+) (.*)$/.exec(v); return m ? val(m[1], /drop|cannot|refus/.test(m[2]) ? "warn" : "") + " " + esc(m[2]) : esc(v); };
-// TEMPORARY, same reason as noteParts: a push note's entries are read from the note's words.
-const pushLine = s => {
-  const m = /^push from (.+?): ([\d.e+-]+) at ([\d.]+) mm \(limit ([\d.e+-]+)\)$/.exec(s);
-  return m ? "<b>" + esc(m[1]) + "</b> " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
-};
+// A via note's lines are {n, text, warn}: the count the line starts with (none for a relay's field), the rest of it, and whether vias were dropped.
+const viaLine = v => v.n != null ? val(v.n, v.warn ? "warn" : "") + " " + esc(v.text) : esc(v.text);
+// A push: the source and the value there, the distance and the limit.
+const pushLine = n => "<b>" + esc(n.source) + "</b> " + esc(n.detail);
 const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + (f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + "</span>" + sgHTML(f); }));
 function linkRows(p, refs, all) {
   const ls = (p.links || []).map((l, i) => [l, i]).filter(([l]) => refs.has(l.a[0]) || refs.has(l.b[0])).sort((a, b) => (b[0].state === "over") - (a[0].state === "over"));
@@ -2096,12 +2085,12 @@ const noteRows = np => [...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.
   ["on the line", np.line ? esc(np.line.axis + " = " + np.line.at + " mm") : ""]];
 // "Why it moved": the move and what caused it, together. A searched part that did not sit at its hint was slid along its row, stopped short
 // of an end, or moved off the hint by a refusal; the engine writes the cause in the step's note. A move with no cause in the note says so.
-// TEMPORARY: the cause is read out of the note's sentences (noteParts); the structured facts on a step replace it.
+// The cause comes from the step's notes (slid, stopped short, moved off the hint), with the refusal's own words.
 const NO_CAUSE = '<span class="dim">no cause recorded</span>';
 function movedRows(np, movedMm) {
   if (np.stopped || np.slid) {
     const why = (np.stopped && np.stopped.why) || (np.slid && np.slid.why);
-    return [...(np.slid ? [["slid", val(np.slid.mm + " mm", "warn") + " from its slot"]] : []),
+    return [...(np.slid ? [["slid", val(np.slid.mm + " " + np.slid.units, "warn") + " from its slot"]] : []),
       ...(np.stopped ? [["stopped short", val(np.stopped.mm + " mm", "warn") + " before the " + esc(np.stopped.side) + " end"]] : []), ["because", why ? esc(why) : NO_CAUSE]];
   }
   const mm = np.moved ? np.moved.mm : movedMm;
@@ -2115,13 +2104,13 @@ function noteExtra(np, movedMm, why, key) {
     sect("Pocket", np.pocketFacts ? kvl([["size", esc(np.pocketFacts.w_mm + " x " + np.pocketFacts.h_mm + " mm")], ["at", esc("(" + np.pocketFacts.at[0] + ", " + np.pocketFacts.at[1] + ") mm")],
         ["from the seed", np.pocketFacts.seed_mm != null ? val(np.pocketFacts.seed_mm + " mm", "warn") : ""]]) :
       np.pocket ? kvl([["size", esc(np.pocket.w + " x " + np.pocket.h + " mm")], ["at", esc("(" + np.pocket.x + ", " + np.pocket.y + ") mm")], ["because", esc(np.pocket.why)]]) : "") +
-    sect("Pushes", listOf(np.push.map(pushLine))) + sect("Vias", listOf(joinVias(np.vias).map(viaLine))) +
+    sect("Pushes", listOf(np.push.map(pushLine))) + sect("Vias", listOf(np.vias.map(viaLine))) +
     sect("Notes", listOf(np.other.map(esc).concat(why ? ['<span class="dim">' + esc(why) + "</span>"] : [])));
 }
 function partCard(p, it) {
   const m = it.members.find(x => x.ref === S.selRef) || (it.members.length === 1 ? it.members[0] : null);
   const title = m ? m.ref : it.key, mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
-  const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = withFacts(noteParts(it.note), it, s);
+  const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = withFacts(noteParts(notesOf(s, it), reasonsOf(s, it)), it, s);
   const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select cell</a>' : "";
   const place = kvl([["cell", mod && mod !== title ? esc(mod) : ""], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["placed", pill(howWord(s, it), howClass(s, it))], ["step", step != null ? esc((step + 1) + " of " + replaySteps(p).length) : ""], ["time", esc(durOf(s, it))], ["first took", esc(firstOf(s, it))], ...noteRows(np)]);
   return cardHead(title, it.kind, "", modPill) +
@@ -2138,7 +2127,7 @@ function moduleCard(p) {
     sect("Findings", sevPills(fs)) + linkRows(p, new Set(refs), S.cardLinks);
 }
 function unplacedCard(p, u) {
-  return cardHead(u.item, "unplaced", "unplaced") + unplacedBlock(unplacedParts(splitTop(u.why, "; "), unplacedFindingOf(p, u.item)));
+  return cardHead(u.item, "unplaced", "unplaced") + unplacedBlock(unplacedParts(reasonTexts(u), unplacedFindingOf(p, u.item)));
 }
 function regionCard(p) {
   const {kind, id} = S.selRegion;
@@ -2221,7 +2210,7 @@ function renderStepNow() {
   const settled = S.replay != null && order[k - 1];
   sn.style.display = settled ? "block" : "none";
   if (!settled) return;
-  const it = S.itemAt && S.itemAt.get(settled.item), kind = stepKind(settled, it), np = withFacts(noteParts(settled.note || (it && it.note) || ""), it, settled);
+  const it = S.itemAt && S.itemAt.get(settled.item), kind = stepKind(settled, it), np = withFacts(noteParts(notesOf(settled, it), reasonsOf(settled, it)), it, settled);
   sn.innerHTML = '<div class="flds"><span class="f-n">' + esc("Step " + k) + "</span>" + pill(kind.word, kind.cls) + itemField(kind.name) + rankField(np.rank && np.rank.n, np.rank && np.rank.of) + "</div>";
 }
 const R = {rows: [], k: -1, n: 0};
@@ -2259,7 +2248,6 @@ $("#follow").addEventListener("click", () => setReplay(replayCount()));
 // ---------------------------------------------------------------- steps
 // A row says plainly: the step's number, the item, how it was placed, the reason in one line (the whole note on
 // opening the row), and a marker when findings name the item.
-const oneLine = (text, n = 140) => { const s = String(text || "").split(/;\s+/)[0].trim(); return s.length > n ? s.slice(0, n - 3) + "..." : s; };
 const COPPER_WORDS = {track: "track", via: "via", plane: "plane", pour: "plane", fill: "plane", zone: "plane", label: "label", faces: "label", fanout: "escape", escape: "escape", bridge: "track"};
 // What kind of step a row is: its colour class, the word on its pill and the name it is listed under.
 function stepKind(s, it) {
@@ -2274,7 +2262,7 @@ function stepSummary(s, it, np) {
   if (np.rank) bits.push("rank " + np.rank.n + " of " + np.rank.of);
   if (np.seeded.length) bits.push("seeded on " + np.seeded.slice(0, 3).join(", ") + (np.seeded.length > 3 ? " +" + (np.seeded.length - 3) : ""));
   if (np.moved) bits.push("moved " + np.moved.mm + " mm");
-  if (np.vias.length) bits.push(joinVias(np.vias).length === 1 ? "1 via note" : joinVias(np.vias).length + " via notes");
+  if (np.vias.length) bits.push(np.vias.length === 1 ? "1 via note" : np.vias.length + " via notes");
   if (np.push.length) bits.push(np.push.length + (np.push.length === 1 ? " push" : " pushes"));
   const why = s.why || (it && it.why) || "";
   if (!bits.length) return np.other[0] || why;
@@ -2288,7 +2276,7 @@ function stepDetail(s, it, np, fs) {
     noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why), s.item) + sect("Findings", sevPills(np.unplaced ? fs.filter(f => !isUnplacedFinding(f)) : fs)) + (it && it.file ? '<div class="src"><a data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
 function stepRow(s, p) {
-  const it = S.itemAt && S.itemAt.get(s.item), kind = stepKind(s, it), np = withFacts(noteParts(s.note || (it && it.note) || ""), it, s);
+  const it = S.itemAt && S.itemAt.get(s.item), kind = stepKind(s, it), np = withFacts(noteParts(notesOf(s, it), reasonsOf(s, it)), it, s);
   const fs = findingsOf(p, s.item, it), worst = fs.some(f => sevOf(f) === "critical") ? "critical" : fs.some(f => sevOf(f) === "warning") ? "warning" : fs.length ? "notice" : "";
   return '<div class="row step k-' + kind.cls + (S.sel === s.item ? " sel" : "") + (S.openRows.has(s.at) ? " open" : "") + '" data-n="' + s.n + '" data-at="' + s.at + '" data-item="' + esc(s.item) + '">' +
     '<span class="i">' + (s.n + 1) + '</span><div class="sb"><div class="l1"><b>' + esc(kind.name) + '</b><span class="chip ' + esc(kind.cls) + '">' + esc(kind.word) + "</span>" +
@@ -2304,7 +2292,7 @@ function renderSteps() {
   const unplaced = p.unplaced || [];
   const head = (title, n, id, info) => "<h3>" + title + (info ? infoBtn(info) : "") + ' <span class="c"' + (id ? ' id="' + id + '"' : "") + ">" + n + "</span></h3>";
   let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + (p.seconds != null ? '<div class="dim" id="steptotal" style="padding:0 12px 4px;text-align:right">resolved in ' + esc(dur(p.seconds)) + "</div>" : "") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + pendingRow() + "</div>";
-  if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row unp" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><div class="n wrap unpbody">' + unplacedBlock(unplacedParts(splitTop(u.why, "; "), unplacedFindingOf(p, u.item))) + "</div></div>").join("");
+  if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row unp" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><div class="n wrap unpbody">' + unplacedBlock(unplacedParts(reasonTexts(u), unplacedFindingOf(p, u.item))) + "</div></div>").join("");
   if (other.length) {
     out += '<h3 class="fold" data-fold="other">' + (S.showOther ? "&#9662;" : "&#9656;") + " Keepouts and setup steps" + infoBtn("other") + ' <span class="c">' + other.length + "</span></h3>";
     if (S.showOther) out += other.map(s => '<div class="row" data-at="' + s.at + '"><span class="k">' + esc(s.item) + '</span><span class="chip ' + esc(s.kind) + '">' + esc(s.kind) + '</span><span class="n wrap">' + esc(s.note) + "</span></div>").join("");
@@ -2808,9 +2796,10 @@ function sgHTML(f) {
 // current here from the channel's probe / candidate / probe_done events. A found value is an instant suggestion `<id>.1` in the store, not in
 // the plan: the page asks for it once the probe is done, and draws it with the usual Show, Try and Apply.
 const pnum = v => typeof v === "number" ? String(Number(v.toFixed(4))) : String(v);
+const sameFinding = (a, b) => JSON.stringify((a && a.finding) || null) === JSON.stringify((b && b.finding) || null);
 function probeCmd(s) {
   let best = null;
-  for (const c of S.cmds.values()) if (c.command === "apply" && c.probe && c.probe.start && c.probe.start.id === s.id && c.probe.start.text === s.text && (!best || c.id > best.id)) best = c;
+  for (const c of S.cmds.values()) if (c.command === "apply" && c.probe && c.probe.start && c.probe.start.id === s.id && sameFinding(c.probe.start.figure, s.figure) && (!best || c.id > best.id)) best = c;
   return best;
 }
 function probeWord(d, unit) {
@@ -2839,7 +2828,7 @@ function probeChart(f, cs) {
 }
 function probeCands(cs, unit) {
   return '<div class="sgcands">' + cs.map(c => '<div class="c"><b>' + esc(pnum(c.value) + (typeof c.value === "number" && unit ? " " + unit : "")) + "</b>" +
-    (c.error ? pill("error", "bad") + '<span class="dim">' + esc(c.error) + "</span>" : pill(c.cleared ? "cleared" : "not cleared", c.cleared ? "good" : "bad") +
+    (c.error ? pill("error", "bad") + '<span class="dim">' + esc(c.error_text || "") + "</span>" : pill(c.cleared ? "cleared" : "not cleared", c.cleared ? "good" : "bad") +
       (c.gained.length ? val(c.gained.length + " gained", "bad") : "") + (c.score != null ? "<span>score " + val(Number(c.score.toFixed(2))) + "</span>" : "")) +
     '<span class="dim">' + Number(c.seconds.toFixed(1)) + " s" + (c.saved ? ", saved" : "") + "</span></div>").join("") + "</div>";
 }
@@ -3071,7 +3060,7 @@ function hover3d(key, ref, x, y) {
 function modelState(e) {
   if (e.state === "none") return {word: "no model", why: "no model declared", cls: "warn"};
   if (e.state === "hidden") return {word: "hidden", why: "model hidden in the footprint", cls: ""};
-  if (e.state === "missing") return {word: "no model", why: e.why || "model not found", short: "model not found: " + (e.name || ""), cls: "bad"};
+  if (e.state === "missing") return {word: "no model", why: e.why_text || "model not found", short: "model not found: " + (e.name || ""), cls: "bad"};
   const row = S.models[e.id];
   if (!row || row.state === "loading") return {word: "loading", why: "converting the model", cls: ""};
   if (row.state === "failed") return {word: "no model", why: "conversion failed: " + (row.message || ""), cls: "bad"};
@@ -3201,7 +3190,6 @@ on("note", n => {
 setInterval(() => { if (S.notes.length) schedule("notes", "board", "counts"); }, 30000);
 
 // ---------------------------------------------------------------- the runs view
-const sinceMs = at => Date.now() + (S.skew || 0) - at * 1000;
 function renderRuns() {
   const el = $("#tab-runs"), cmds = [...S.cmds.values()].sort((a, b) => (b.state === "running") - (a.state === "running") || b.started - a.started);
   const row = c => '<div class="row cmd step" data-cmd="' + c.id + '"><span class="chip ' + esc(c.state) + '">' + esc(c.state) + '</span><div class="sb"><div class="l1"><b>' + esc(c.command) + "</b> " + esc(baseName(c.script)) + '</div><div class="l2">pid ' + esc(c.pid) +

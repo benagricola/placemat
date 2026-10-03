@@ -8,7 +8,6 @@ import dataclasses
 import pytest
 
 from placemat.describe import model_check, step_box
-from placemat.values import Box, Face, Location
 from tests.fixtures import footprint
 
 

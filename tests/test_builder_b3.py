@@ -6,7 +6,6 @@ import pytest
 from placemat import builder_intents as bi, builder_outline as bo
 from placemat.builder import BuilderRefused
 from tests.builder_support import Session, coordinates_in
-from tests.fixtures import footprint
 
 HAND = '''"""Demo: a script a person wrote."""
 from placemat import board, Along, Beside, Centre, Edge, Location, OnEdge, Part

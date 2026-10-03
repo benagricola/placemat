@@ -6,7 +6,6 @@ import dataclasses
 from placemat.board_geometry import Footprint
 from placemat.cleanup import cleanup
 from placemat.layout import Board
-from placemat.placement import Placement
 from placemat.settings import Settings
 from placemat.values import Box, Face, LinkWeight, Location, PadRef, Part
 from tests.fixtures import board_geometry, pad
@@ -140,5 +139,4 @@ def test_two_parts_each_wanting_the_others_spot_are_swapped():
 
 def test_fixed_parts_are_never_offered_to_the_cleanup():
     b, plan = _brief()
-    from placemat.layout import Board as _B
     assert "mcu" not in b._cleanup_movable(plan)

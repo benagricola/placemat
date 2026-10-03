@@ -6,7 +6,6 @@ flow of builder_check.py. Run as that is:
 """
 import sys
 import time
-from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 

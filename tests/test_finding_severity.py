@@ -7,8 +7,7 @@ import pytest
 
 from tests.finding_samples import finding
 from placemat.findings import FindingCause as C
-from placemat.findings import DEFAULT_SEVERITY, KINDS, SEVERITIES, SEVERITY, Finding, Findings, summary
-from placemat.layout import Board
+from placemat.findings import DEFAULT_SEVERITY, KINDS, SEVERITIES, SEVERITY, Findings, summary
 from placemat.report import RunRecord
 from placemat.reuse import finding_from_json, finding_to_json
 from placemat.values import Location, Near, Part

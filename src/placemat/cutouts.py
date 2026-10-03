@@ -32,8 +32,6 @@ class EdgeWhy(str, Enum):
 
 
 NM = 1e-5           # ten KiCad units: the placement grid's own rounding, not an allowance
-SAG = 0.02          # how far a flattened arc may cut the corner off the real one; [geometry] arc_sag
-CELLS = 16          # buckets across the longer side: a handful of segments each; [geometry] index_cells
 
 
 @dataclass(frozen=True)

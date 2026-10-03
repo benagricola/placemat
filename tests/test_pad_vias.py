@@ -1,14 +1,13 @@
 """A pad filled with vias: a square grid at the hole-to-hole rule, in the
 part's frame, kept where the whole via lies in the pad's copper. Pure."""
 import dataclasses
-import math
 
 import pytest
 
 from placemat import FreeSpot
 from placemat.board_geometry import Footprint, PadGeom
 from placemat.copper import Via
-from placemat.geometry import circle_polygon, point_in_polygon
+from placemat.geometry import circle_polygon
 from placemat.layout import Board
 from placemat.values import Box, CopperLayer, Face, Location, Net, PadRef, Part
 from tests.fixtures import board_geometry, footprint, pad

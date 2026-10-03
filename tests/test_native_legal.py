@@ -10,7 +10,6 @@ Occupancy.legal() itself: zero mismatches here first. The helper below
 (`_native_legal`) is deliberately NOT src/placemat code yet - it exists
 only to prove the integration point out before it is wired in.
 """
-import math
 import pathlib
 import random
 
@@ -18,10 +17,10 @@ import pytest
 
 placemat_native = pytest.importorskip("placemat_native")
 
-from placemat.occupancy import Occupancy, ShapeIndex
+from placemat.occupancy import Occupancy
 from placemat.placement import Placement
-from placemat.values import CopperLayer, Face, Location
-from tests.fixtures import board_geometry, footprint
+from placemat.values import Face, Location
+from tests.fixtures import footprint
 from tests.test_native_conflict import _cfg_kwargs, _encode_faces, _encode_layers
 
 

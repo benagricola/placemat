@@ -217,12 +217,6 @@ def test_an_edge_point_is_still_refused_for_a_via():
 
 # ------------------------------------------------------------------ a net tie that draws nothing
 
-def _third(ref, nets, cx, cy, w=2.0, h=2.0):
-    """A third part: a drawn body (fab) w x h about (cx, cy), a pad on `nets[0]` at its west end."""
-    p = footprint(ref, cx, cy, w=w, h=h, nets=nets, inst=ref.lower(), fab=(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2))
-    return p
-
-
 def _cover(ref, left, drawn=True, pad_at=1.0):
     """A third part east of the shunt: its body (and courtyard) 2.0 wide from x `left`, y 29.4 to 30.1,
     its one pad (net X) `pad_at` from its west side."""

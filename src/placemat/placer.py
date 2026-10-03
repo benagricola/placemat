@@ -155,16 +155,10 @@ class BearingTurns(SpotTurns):
         return (rots.index(r) if r in rots else len(rots), r)
 
 
-COARSE_STEPS = 4
-"""A scored scan over a wide radius first walks a grid this many steps
-apart and refines to the step only around its best spots. The default for
-`[place] coarse_steps`; a board's own is carried on its Occupancy."""
 COARSE_FROM = 12
 """Radius-to-step ratio from which a scored scan goes coarse first: below
 it the fine grid is a few hundred points and not worth two passes.
 `[place] coarse_from`."""
-REFINE_AROUND = 3
-"""How many of the best coarse spots get a fine pass. `[place] refine_around`."""
 
 
 # Whether a scan judges its passes natively when it can: switched off to
@@ -1066,12 +1060,6 @@ class BlockSpec:
         return (self.anchor,) + tuple(fp for fp, _ in self.satellites)
 
 
-GAP_STEP = 0.05
-"""How finely a block's tightest gap is searched: the fab's placement grid.
-`[place] block_gap_step`."""
-GAP_REACH = 2.0
-"""How far a satellite may stand off its pin before the block gives up: past
-this the part is not at its pin. `[place] block_gap_reach`."""
 
 
 def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None, others=None,
@@ -1212,10 +1200,10 @@ def _extent(occ: Occupancy, item) -> float:
                for x in (sh.box.left, sh.box.right) for y in (sh.box.top, sh.box.bottom))
 
 
-def slide_note(occ: Occupancy, spec: BlockSpec, members: dict, k: int) -> str | None:
+def slide_note(occ: Occupancy, spec: BlockSpec, members: dict, k: int) -> list | None:
     """How far the k-th satellite, as placed in `members`, stands along the
     pin row off its pin's axis, and which of the anchor's pins in that row its
-    body is in front of; None when it is on the axis."""
+    body is in front of, as step_text notes; None when it is on the axis."""
     sat, net = spec.satellites[k]
     anchor_at, sat_at = members.get(spec.anchor.inst), members.get(sat.inst)
     if anchor_at is None or sat_at is None:
@@ -1244,10 +1232,11 @@ def slide_note(occ: Occupancy, spec: BlockSpec, members: dict, k: int) -> str | 
                   and abs((q.x - p.x) * ux + (q.y - p.y) * uy) <= depth + 1e-6
                   and lo - 1e-6 <= (q.x - p.x) * rx + (q.y - p.y) * ry <= hi + 1e-6),
                  key=lambda n: (len(n), n))
-    note = "slid %.2f mm along the pin row from %s pin %s's axis" % (abs(slide), spec.anchor.ref, pin.number)
+    from .step_text import record
+    notes = [record("pin_row_slide", mm=abs(slide), ref=spec.anchor.ref, pin=pin.number)]
     if row:
-        note += "; in front of %s pin%s %s" % (spec.anchor.ref, "s" if len(row) > 1 else "", ", ".join(row))
-    return note
+        notes.append(record("in_front_of", ref=spec.anchor.ref, pins=list(row)))
+    return notes
 
 
 def block_obstacles(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float) -> dict:

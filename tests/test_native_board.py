@@ -15,8 +15,7 @@ pytestmark = [needs_native]
 from placemat.cutouts import Arc, Circle, Cutouts, Slot  # noqa: E402
 from placemat.occupancy import Occupancy  # noqa: E402
 from placemat.outline import Outline  # noqa: E402
-from placemat.placement import Placement  # noqa: E402
-from placemat.values import Box, CopperLayer, Disc, Face, Location  # noqa: E402
+from placemat.values import Box, Disc, Location  # noqa: E402
 from tests.fixtures import board_geometry, footprint  # noqa: E402
 
 N = 20_000

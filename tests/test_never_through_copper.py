@@ -1,7 +1,6 @@
 """The plan never draws a track or a via through another net's copper: a pad, a track, a via or a pour. Copper that
 would be is not drawn, and a finding says which and what it met. A track that may bridge still passes under a track it
 crosses; copper that merely stands nearer than the clearance is a finding and is drawn, as before."""
-import pytest
 
 from placemat.copper import Pour, Track, Via
 from placemat.geometry import polys_overlap

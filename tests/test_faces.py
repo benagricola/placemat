@@ -2,11 +2,10 @@
 and which hands signals off. The module's script says so once; the fact
 rides in the fragment and reaches every board that stamps the cell, so a
 row or an edge placement turns the cell the right way by itself."""
-import pytest
 
 from placemat.copper import Text
 from placemat.layout import Board
-from placemat.values import OnEdge, Cell, Edge, Face, Location, Part
+from placemat.values import OnEdge, Cell, Edge
 from tests.fixtures import board_geometry, footprint
 
 

@@ -745,8 +745,6 @@ def before_resolve(script, board, make_board, options, say, run_id: str = "", ke
     from . import lock as _lock
     if options is None:
         return _lock.read(_lock.path_for(script)), None
-    import time
-    t0 = time.time()
     state = _state_dir(script, make_board)
     report, entries = search(make_board, script, options.seconds, options.jobs, options.keys,
                              options.after_line, options.box, options.accept, release=__version__,

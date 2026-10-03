@@ -176,7 +176,6 @@ def test_an_entry_from_before_has_no_run_or_score(tmp_path):
 
 def test_a_locked_item_turned_by_its_part_is_held_when_the_part_turns():
     from placemat import Turned
-    from placemat.values import Near, PadRef
 
     def board(turn):
         fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B")),

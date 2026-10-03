@@ -10,7 +10,6 @@ a tie by its node set's order, which follows memory addresses: the crossing
 count may differ by that (report.py's AIRWIRE_NOISE note)."""
 import json
 import math
-import re
 import sys
 from pathlib import Path
 

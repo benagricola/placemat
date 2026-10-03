@@ -5,7 +5,7 @@ router's own functions, from its own source, so a placemat that is watching can 
 is modified and no printed router output is read.
 
 What is hooked (each checked first; if any anchor is missing nothing is patched, the router runs as it would have, and the reason is written
-as a `route_off` event and on stderr):
+as a `route_off` event, a record (`reason`, below), and on stderr in words):
 
 - `pcb_modification.add_route_to_pcb_data` and `remove_route_from_pcb_data`, the router's copper choke points: a net's copper committed (or
   restored after a rip) and ripped: events `commit` and `rip` with the segments and vias;
@@ -31,7 +31,7 @@ import sys
 import threading
 import time
 
-VERSION = 1
+VERSION = 2                             # 2: `route_off` carries a `reason` record, not a sentence
 QUEUE_MAX = 20000                       # events waiting for the pipe; more are dropped, never waited for
 FLUSH_S = 3.0                           # at exit: how long the writer may take to pass on what is queued
 _state = {"fd": None, "q": None, "t0": time.monotonic(), "dead": False, "thread": None}
@@ -95,14 +95,31 @@ def _params(fn) -> list:
         return []
 
 
-def _missing(module, name: str, wanted: tuple) -> str:
-    """Why `module.name` is not what the hooks read (empty when it is)."""
+def _missing(module, name: str, wanted: tuple):
+    """Why `module.name` is not what the hooks read, as a reason record (`reason_text` says it), or None when it is."""
     fn = getattr(module, name, None)
     if not callable(fn):
-        return "%s has no %s" % (module.__name__, name)
+        return {"code": "no_function", "module": module.__name__, "name": name}
     have = _params(fn)
     gone = [p for p in wanted if p not in have]
-    return ("%s.%s has no parameter %s" % (module.__name__, name, ", ".join(gone))) if gone else ""
+    return {"code": "no_parameter", "module": module.__name__, "name": name, "parameters": gone} if gone else None
+
+
+def reason_text(reason: dict) -> str:
+    """A `route_off` reason in words: {"code": "no_function" (module, name) | "no_parameter" (module, name, parameters) | "no_field"
+    (class, fields) | "import_failed" (type, detail) | "pipe_closed" (detail)}."""
+    code = reason.get("code")
+    if code == "no_function":
+        return "%s has no %s" % (reason["module"], reason["name"])
+    if code == "no_parameter":
+        return "%s.%s has no parameter %s" % (reason["module"], reason["name"], ", ".join(reason["parameters"]))
+    if code == "no_field":
+        return "kicad_parser.%s has no field %s" % (reason["class"], ", ".join(reason["fields"]))
+    if code == "import_failed":
+        return "the router's modules are not where the hooks expect them (%s: %s)" % (reason.get("type", ""), reason.get("detail", ""))
+    if code == "pipe_closed":
+        return "the events pipe is not open (%s)" % reason.get("detail", "")
+    return str(code)
 
 
 def _net_name(pcb_data, net_id) -> str:
@@ -124,11 +141,12 @@ def _copper(pcb_data, result) -> tuple:
     return (sorted(ids)[0] if len(ids) == 1 else None), segs, vias, sorted(ids)
 
 
-def install(fd: int | None = None) -> str:
-    """Hook the router for this process. Returns "" when the hooks are in (or events are not asked for: no pipe), else why they are not."""
+def install(fd: int | None = None):
+    """Hook the router for this process. Returns None when the hooks are in (or events are not asked for: no pipe), else the reason
+    they are not, a record (`reason_text`)."""
     fd = pipe_fd() if fd is None else fd
     if fd is None:
-        return ""
+        return None
     try:
         import importlib
         pm = importlib.import_module("pcb_modification")
@@ -136,7 +154,7 @@ def install(fd: int | None = None) -> str:
         loop = importlib.import_module("single_ended_loop")
         parser = importlib.import_module("kicad_parser")
     except Exception as e:
-        return "the router's modules are not where the hooks expect them (%s: %s)" % (type(e).__name__, e)
+        return {"code": "import_failed", "type": type(e).__name__, "detail": str(e)}
     why = (_missing(pm, "add_route_to_pcb_data", ("pcb_data", "result")) or _missing(pm, "remove_route_from_pcb_data", ("pcb_data", "result")) or
            _missing(ser, "route_net_with_obstacles", ("pcb_data", "net_id")) or _missing(ser, "route_multipoint_main", ("pcb_data", "net_id")) or
            _missing(ser, "route_oracle_links", ("pcb_data", "net_id")) or _missing(loop, "route_single_ended_nets", ("state", "single_ended_nets")))
@@ -145,14 +163,14 @@ def install(fd: int | None = None) -> str:
             have = set(getattr(getattr(parser, cls, None), "__dataclass_fields__", {}) or ())
             gone = [f for f in fields if f not in have]
             if gone:
-                why = "kicad_parser.%s has no field %s" % (cls, ", ".join(gone))
+                why = {"code": "no_field", "class": cls, "fields": gone}
                 break
     if why:
         return why
     try:
         os.fstat(fd)
     except OSError as e:
-        return "the events pipe is not open (%s)" % e
+        return {"code": "pipe_closed", "detail": str(e)}
     _state.update(fd=fd, q=queue.Queue(QUEUE_MAX), dead=False, t0=time.monotonic())
     th = threading.Thread(target=_writer, daemon=True, name="placemat-route-events")
     th.start()
@@ -234,15 +252,15 @@ def install(fd: int | None = None) -> str:
                     setattr(module, name, patched[key])
             except Exception:
                 continue
-    return ""
+    return None
 
 
-def report_off(why: str, fd: int | None = None) -> None:
-    """Say why the route has no progress: one `route_off` event on the pipe and one line on stderr."""
+def report_off(reason: dict, fd: int | None = None) -> None:
+    """Say why the route has no progress: one `route_off` event (`reason`, a record) on the pipe and one line on stderr."""
     fd = pipe_fd() if fd is None else fd
-    print("route progress is off for this route: %s" % why, file=sys.stderr)
+    print("route progress is off for this route: %s" % reason_text(reason), file=sys.stderr)
     if fd is not None:
         try:
-            os.write(fd, (json.dumps({"ev": "route_off", "why": why, "t": 0.0}) + "\n").encode("utf-8"))
+            os.write(fd, (json.dumps({"ev": "route_off", "reason": reason, "t": 0.0}) + "\n").encode("utf-8"))
         except OSError:
             pass

@@ -164,8 +164,8 @@ def test_the_worker_turns_every_exception_into_an_error_with_the_users_line(proj
         ns["go"]()
     except KeyError as e:
         ev = error_event(3, e, bad)
-    assert ev["ev"] == "error" and ev["id"] == 3 and ev["message"].startswith("KeyError") and "x_missing" in ev["message"]
-    assert ev["file"] == str(bad) and ev["line"] == 4 and ev["source"] == "raise KeyError('x_missing')" and "Traceback" in ev["detail"]
+    assert ev["ev"] == "error" and ev["id"] == 3 and ev["kind"] == "exception" and ev["type"] == "KeyError" and "x_missing" in ev["detail"] and "message" not in ev
+    assert ev["file"] == str(bad) and ev["line"] == 4 and ev["source"] == "raise KeyError('x_missing')" and "Traceback" in ev["traceback"]
 
 
 # ------------------------------------------------------------------ runs
@@ -226,7 +226,7 @@ def test_a_run_is_started_on_request_reports_over_the_channel_and_its_result_rea
             _record(s.runs_dir(), "eeee0005", project, {})
             s._on_channel(7, {"ev": "hello", "pid": 424242, "command": "run", "script": str(project), "args": ["run"]})      # the run says who it is
             s._on_channel(7, {"ev": "item", "item": {"key": "u1", "file": ""}})
-            s._on_channel(7, {"ev": "error", "message": "Layout script failed: boom", "file": "", "line": None})
+            s._on_channel(7, {"ev": "error", "kind": "run_failure", "failure": "script", "detail": "boom", "file": "", "line": None})
             return 0
     seen = {}
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: seen.update(k) or Proc())
@@ -379,10 +379,10 @@ def test_a_command_reporting_over_the_channel_is_listed_with_its_events_and_ends
     s._on_channel(1, {"ev": "done", "record": "/r/run.json"})
     s._on_channel(2, {"ev": "item", "item": {"key": "u9", "file": ""}})
     s._on_channel(2, {"ev": "lost"})
-    s._on_channel(3, {"ev": "error", "message": "boom", "file": "x_layout.py", "line": 7})
+    s._on_channel(3, {"ev": "error", "kind": "exception", "type": "ValueError", "detail": "boom", "file": "x_layout.py", "line": 7})
     by = {c["id"]: c for c in s.commands()}
     assert by[1]["state"] == "done" and by[1]["record"] == "/r/run.json" and by[1]["items"] == 1 and by[1]["command"] == "explore" and by[1]["pid"] == 4001
-    assert by[2]["state"] == "lost" and "u9" in by[2]["message"] and by[3]["state"] == "error" and by[3]["message"] == "boom"
+    assert by[2]["state"] == "lost" and "u9" in by[2]["message"] and by[3]["state"] == "error" and by[3]["message"] == "ValueError: boom"
     d = s.cmd_detail(1)
     assert [e["ev"] for e in d["events"]] == ["resolve", "item", "done"] and d["plan"]["doc"]["items"][0]["file"] == "x_layout.py"
     assert d["events"][1]["item"]["file"] == "sub/a.py"                                 # files as the page names them

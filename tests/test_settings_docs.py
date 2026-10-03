@@ -1,7 +1,6 @@
 """Settings documented as data: every setting's unit and meaning live in settings.py, the api.md table is generated
 from them, `placemat settings --example` writes a complete commented placemat.toml that loads to the defaults, and a
 renamed setting's old name still loads, with a setup notice naming the new one."""
-import dataclasses
 import re
 import tomllib
 from pathlib import Path

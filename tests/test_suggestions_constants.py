@@ -1,6 +1,5 @@
 """Numbers a suggestion writes are named constants: where they go, the variants where the call already reads one, and
 the settings table edits."""
-from pathlib import Path
 
 from placemat import script_edit as se, suggestions as sg
 from tests.suggest_support import IMPORTS, apply_and_resolve, resolve, suggestions_of

@@ -2,7 +2,6 @@
 much board its courtyard needs and how many pins it has, against the rest of
 this board. The script may say otherwise. Either way the step says the rank
 and the numbers behind it."""
-import pytest
 
 from placemat.layout import Board
 from placemat.settings import Settings

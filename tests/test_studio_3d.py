@@ -1,17 +1,14 @@
 """The studio's 3D side: the jobs it accepts, the converter process it keeps (a fake one here; test_model_convert runs the real one), the routes that
 serve meshes and the viewer, and the whole thing over a live studio on a staged module."""
-import json
 import sys
 import textwrap
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from placemat import model_cache, model_mesh as mm, studio_3d
+from placemat import model_mesh as mm, studio_3d
 from placemat.settings import Settings
-from tests.conftest import needs_kicad
 
 FAKE = textwrap.dedent('''
     import json, sys, time
@@ -64,10 +61,12 @@ def fake(tmp_path):
     events = []
     import os
     src = str(Path(__file__).resolve().parents[1] / "src")
-    os.environ["PYTHONPATH"] = src + os.pathsep + os.environ.get("PYTHONPATH", "")
+    mp = pytest.MonkeyPatch()
+    mp.setenv("PYTHONPATH", src + os.pathsep + os.environ.get("PYTHONPATH", ""))
     m = studio_3d.Models3D(cfg(tmp_path), lambda n, d: events.append((n, d)), tmp_path / "c.log", command=[sys.executable, str(script)])
     yield m, events, tmp_path
     m.stop()
+    mp.undo()
 
 
 def test_a_job_must_name_a_real_model_or_board_file_of_the_kind_it_says(tmp_path):

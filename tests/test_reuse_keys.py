@@ -5,7 +5,7 @@ from placemat import reuse
 from placemat.cutouts import Circle
 from placemat.layout import Board
 from placemat.settings import Settings
-from placemat.values import LinkWeight, Location, Near, PadRef, Part
+from placemat.values import LinkWeight, Location, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 
@@ -78,7 +78,7 @@ def test_a_step_and_its_placement_round_trip_through_json():
     from placemat.placement import Placement
     from placemat.values import Face, Freedom, Priority
     s = Step("r1", "part", Priority.DEFAULT, Placement(Location(1.25, 2.0 / 3.0), 90.0, Face.BACK), 0.1 + 0.2,
-             "a note", "why", 0, Freedom.SEARCHED, 3, 7)
+             ({"kind": "slid", "mm": 0.5, "units": "mm"},), "why", 0, Freedom.SEARCHED, 3, 7, unplaced=({"form": "no_pocket"},))
     assert reuse.step_from_json(json.loads(json.dumps(reuse.step_to_json(s)))) == s
     empty = Step("x", "part", None)
     assert reuse.step_from_json(json.loads(json.dumps(reuse.step_to_json(empty)))) == empty

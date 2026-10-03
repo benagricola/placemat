@@ -58,7 +58,6 @@ def _first(s):
 
 
 def test_the_overlay_runs_a_script_and_its_modules_from_the_text_it_holds_and_leaves_the_files_alone(tmp_path):
-    from placemat.values import Location
     helper = tmp_path / "helper.py"
     helper.write_text("VALUE = 1\n")
     script = tmp_path / "x_layout.py"

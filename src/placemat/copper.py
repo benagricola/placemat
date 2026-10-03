@@ -171,11 +171,6 @@ class Zone:
         return Box.of_points(self.points)
 
 
-CopperOp = Track | Via | Pour | Zone
-
-
-
-
 def _segment_polygon(a: Location, b: Location, width: float) -> Polygon:
     """A track as KiCad draws it: its two sides and a round end at each end.
     Each end's vertices stand just outside the arc (every edge on or outside
@@ -410,7 +405,7 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
     as declared, unless `drop` is a list: then the index of the entry that
     should yield is appended to it, for the caller not to draw it, and the finding names it
     (`labels[k]`, what the caller calls entry k) as left out. Returns
-    (ops, notes, findings). The result does not depend on the order of
+    (ops, notes, findings); a note is a step_text record. The result does not depend on the order of
     `entries`."""
     entries = list(entries)
     cuts = {i: [] for i in range(len(entries))}
@@ -438,8 +433,9 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
             if entries[k][2]:
                 cuts[k].append(pt)
                 if why:
-                    notes.append("%s passes under %s at (%.2f, %.2f): %s" % (
-                        entries[k][0].net, entries[other][0].net, pt[0], pt[1], why))
+                    from .step_text import record
+                    notes.append(record("bridge", net=entries[k][0].net, under=entries[other][0].net, at=[pt[0], pt[1]],
+                                      why=why.replace(" ", "_")))
             else:
                 findings.append(Finding(C.COPPER_CROSS, dict(
                     _cross_facts(entries, ids, k, other), variant="tracks", net_a=entries[i][0].net,

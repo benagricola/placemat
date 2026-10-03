@@ -2,6 +2,7 @@
 import copy
 
 from placemat.layout import Board
+from placemat import present
 from placemat.preview_json import declared_sites, plan_json
 from placemat.studio_diff import (declaration_span, diff_plans, line_diff, trace, unified_diff,
                                   with_spans)
@@ -21,7 +22,7 @@ def _plan(u1_at=(30, 10), drop_r1=False, extra_track=False):
     if extra_track:
         b.track(Net("A"), [PadRef(Part("j1"), 1), (6.0, 18.0)], layer=CopperLayer.F)
     plan = b.resolve()
-    return plan_json(plan, declared_sites(b))
+    return present.plan(plan_json(plan, declared_sites(b)))
 
 
 def test_nothing_changed_is_empty():

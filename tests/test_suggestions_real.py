@@ -1,7 +1,6 @@
 """A real fixture module, edited to meet each phase-1 case: its findings carry suggestions that name the module's own
 parts and declarations, and applying one to the staged COPY of the script gives a script that resolves without the
 finding. The fixture under fixtures/ is never written."""
-import pytest
 
 from placemat import suggestions as sg
 from placemat.values import Location

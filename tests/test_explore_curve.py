@@ -4,7 +4,6 @@ by time, the hard terms clear): kept in the report, the channel events and the
 record, and rendered at the console from the data."""
 import json
 
-import pytest
 
 from placemat import channel, checkpoint, explore, score
 from placemat.explore import StopRule, search

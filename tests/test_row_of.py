@@ -5,7 +5,7 @@ synthetic boards."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Along, Edge, Line, Location, Part
+from placemat.values import Along, Edge, Location, Part
 from tests.fixtures import board_geometry, footprint
 
 

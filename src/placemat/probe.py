@@ -22,18 +22,43 @@ PROBES = "probes"
 
 
 class ProbeRefused(Exception):
-    """A searched suggestion that cannot be probed (it has no figure, or its edits cannot be made on the script as it stands)."""
+    """A searched suggestion that cannot be probed (it has no figure, or its edits cannot be made on the script as it stands).
+    `record` is why, as data: {"code": "not_searched" (id) | "edit_failed" (detail: the edit's own error) | "base_failed" (error: the
+    resolve's, see `error_text`) | "finding_gone" (id)}; `str()` is `refusal_text` of it."""
+
+    def __init__(self, code: str, **facts):
+        self.record = {"code": code, **facts}
+        super().__init__(refusal_text(self.record))
+
+
+def error_text(e: dict) -> str:
+    """A resolve's error as `overlay_resolver` records it: {"kind": "timeout", "limit_s"} or {"kind": "exception", "type", "detail"}."""
+    if e.get("kind") == "timeout":
+        return "the resolve took longer than [studio] try_timeout_s (%g s)" % e["limit_s"]
+    return "%s: %s" % (e.get("type", ""), e.get("detail", "")) if e.get("type") else e.get("detail", "")
+
+
+def refusal_text(r: dict) -> str:
+    """A ProbeRefused record in words."""
+    code = r.get("code")
+    if code == "not_searched":
+        return "%s is not a searched suggestion with a figure and the finding it is for" % r["id"]
+    if code == "base_failed":
+        return "the script as it stands does not resolve: %s" % error_text(r["error"])
+    if code == "finding_gone":
+        return "the finding %s is for is not in the script's resolve any more: run it again for suggestions that fit" % r["id"]
+    return r.get("detail", "") or str(code)
 
 
 # ------------------------------------------------------------------ what a candidate resolve gave
 @dataclass
 class Outcome:
     """What resolving one edited script gave: its findings (Findings or their JSON), the run score (lower is better) and the
-    seconds it took. `error` is set where the edited script did not resolve."""
+    seconds it took. `error` is set where the edited script did not resolve (`error_text` says it)."""
     findings: list
     score: float | None = None
     seconds: float = 0.0
-    error: str = ""
+    error: dict | None = None
 
 
 @dataclass
@@ -45,7 +70,7 @@ class Candidate:
     gained: list = field(default_factory=list)
     score: float | None = None
     seconds: float = 0.0
-    error: str = ""
+    error: dict | None = None
     acceptable: bool = False
 
     def to_json(self) -> dict:
@@ -58,7 +83,14 @@ class Candidate:
     @staticmethod
     def from_json(d: dict) -> "Candidate":
         return Candidate(d["value"], bool(d.get("cleared")), list(d.get("gained", ())), d.get("score"),
-                         float(d.get("seconds", 0.0)), d.get("error", ""), bool(d.get("acceptable")))
+                         float(d.get("seconds", 0.0)), _error_of(d.get("error")), bool(d.get("acceptable")))
+
+
+def _error_of(v) -> dict | None:
+    """A saved candidate's error: a record, or the sentence an earlier release saved."""
+    if not v:
+        return None
+    return v if isinstance(v, dict) else {"kind": "exception", "type": "", "detail": str(v)}
 
 
 @dataclass
@@ -72,7 +104,7 @@ class ProbeResult:
     neighbour: dict | None = None
     monotone: bool = True
     of: int = 0
-    message: str = ""
+    refusal: dict | None = None     # a state "error": the ProbeRefused record
     resumed: int = 0
 
     @property
@@ -81,7 +113,7 @@ class ProbeResult:
 
     def to_json(self) -> dict:
         return {"state": self.state, "n": self.n, "of": self.of, "best": self.best.to_json() if self.best else None,
-                "neighbour": self.neighbour, "monotone": self.monotone, "message": self.message, "resumed": self.resumed,
+                "neighbour": self.neighbour, "monotone": self.monotone, "refusal": self.refusal, "resumed": self.resumed,
                 "candidates": [c.to_json() for c in self.candidates]}
 
 
@@ -188,7 +220,7 @@ class Probe:
     def __init__(self, s: sg.Suggestion, resolve, base: Outcome, *, budget_s: float, candidates: int, emit=None, saved=None,
                  save=None, clock=time.monotonic, stoppers=()):
         if s.how != "searched" or not s.figure or "finding" not in s.figure:
-            raise ProbeRefused("%s is not a searched suggestion with a figure and the finding it is for" % (s.id or s.text))
+            raise ProbeRefused("not_searched", id=s.id or s.text)
         self.s, self.figure, self.resolve = s, s.figure, resolve
         self.base_keys = {sg.finding_key(f) for f in base.findings}
         self.budget_s, self.limit = float(budget_s), int(candidates)
@@ -217,7 +249,7 @@ class Probe:
             try:
                 changed = sg.apply_edits(self.edits_for(value), self.s.digests, dry_run=True)
             except sg.SuggestionError as e:
-                raise ProbeRefused(str(e)) from None
+                raise ProbeRefused("edit_failed", detail=str(e)) from None
             overlay = {str(p): ch.after for p, ch in changed.files.items()}
             out = self.resolve(overlay)
             c = judge(self.figure, self.base_keys, out, value)
@@ -236,14 +268,13 @@ class Probe:
     # -- the whole probe
     def run(self) -> ProbeResult:
         f = self.figure
-        self.emit({"ev": "probe", "id": self.s.id, "text": self.s.text, "figure": f, "budget_s": self.budget_s,
-                   "candidates": self.limit})
+        self.emit({"ev": "probe", "id": self.s.id, "figure": f, "budget_s": self.budget_s, "candidates": self.limit})
         from .stop import Stopped
         result = None
         try:
             result = self._bisect() if f["kind"] == "bisect" else self._set()
         except ProbeRefused as e:
-            result = ProbeResult("error", self.tried, of=self.limit, message=str(e))
+            result = ProbeResult("error", self.tried, of=self.limit, refusal=e.record)
         except (Stopped, KeyboardInterrupt):
             result = self._end("stopped")
             self.emit_done(result)
@@ -342,7 +373,7 @@ def line(ev: dict) -> str:
         return "probe %s: %s, %s (budget %.0f s, up to %d candidates)" % (ev["id"], f.get("what", f["name"]), rng, ev["budget_s"],
                                                                          ev["candidates"])
     if kind == "candidate":
-        what = ("cleared" if ev["cleared"] else "not cleared") if not ev.get("error") else "error: %s" % ev["error"]
+        what = ("cleared" if ev["cleared"] else "not cleared") if not ev.get("error") else "error: %s" % error_text(ev["error"])
         gained = (", gained %d" % len(ev["gained"])) if ev["gained"] else ""
         score = (", score %.2f" % ev["score"]) if ev.get("score") is not None else ""
         return "  %s = %s: %s%s%s (%.1f s%s)" % (ev["id"], _num(ev["value"]) if isinstance(ev["value"], (int, float)) else ev["value"],
@@ -365,7 +396,7 @@ def line(ev: dict) -> str:
         if state in ("budget", "limit"):
             why = "budget spent" if state == "budget" else "candidate limit reached"
             return "%s after %d candidates%s" % (why, ev["n"], ": best so far %s" % got if best else "")
-        return "probe failed: %s" % ev.get("message", "")
+        return "probe failed: %s" % refusal_text(ev["refusal"] or {})
     return str(kind)
 
 
@@ -436,10 +467,10 @@ def overlay_resolver(script, timeout_s: float):
                 except Exception:                      # a score is a courtesy: the candidate is judged without it
                     total = None
         except _TimedOut:
-            return Outcome([], None, time.monotonic() - t0,
-                           "the resolve took longer than [studio] try_timeout_s (%g s)" % timeout_s)
+            return Outcome([], None, time.monotonic() - t0, {"kind": "timeout", "limit_s": timeout_s})
         except Exception as e:
-            return Outcome([], None, time.monotonic() - t0, "%s: %s" % (type(e).__name__, str(e).splitlines()[0] if str(e) else ""))
+            return Outcome([], None, time.monotonic() - t0,
+                           {"kind": "exception", "type": type(e).__name__, "detail": str(e).splitlines()[0] if str(e) else ""})
         return Outcome(findings, total, time.monotonic() - t0)
     return resolve
 
@@ -456,7 +487,7 @@ def search(s: sg.Suggestion, board_dir, script, settings, *, resolve=None, emit=
     try:                                    # the script as the plan saw it, and the edit makeable on it, before any resolve is spent
         sg.apply_edits(sg.fill(s.edits, s.figure, sg.sample_value(s.figure)), s.digests, dry_run=True)
     except sg.SuggestionError as e:
-        raise ProbeRefused(str(e)) from None
+        raise ProbeRefused("edit_failed", detail=str(e)) from None
     where = results_path(board_dir, s)
     old = stale_results(board_dir, s)
     if old:
@@ -471,11 +502,10 @@ def search(s: sg.Suggestion, board_dir, script, settings, *, resolve=None, emit=
         say("continuing %s from %d saved result(s); a value already resolved is not resolved again" % (s.id, len(saved)))
     base = resolve({})
     if base.error:
-        raise ProbeRefused("the script as it stands does not resolve: %s" % base.error)
+        raise ProbeRefused("base_failed", error=base.error)
     sk = s.figure.get("finding")
     if sk is not None and tuple(sk) not in {sg.finding_key(f) for f in base.findings}:
-        raise ProbeRefused("the finding %s is for is not in the script's resolve any more: run it again for suggestions that fit"
-                           % s.id)
+        raise ProbeRefused("finding_gone", id=s.id)
     p = Probe(s, resolve, base, budget_s=settings.studio_probe_budget_s, candidates=settings.studio_probe_candidates,
               emit=emit, saved=saved, save=lambda c: save_result(where, c), clock=clock)
     from .stop import Stopped

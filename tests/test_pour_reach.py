@@ -7,14 +7,12 @@ clearance (its footprint sets the gap) is held only as far as it is clear.
 Plan tests are pure (synthetic boards); the written-board tests build a
 from-scratch pcbnew board with two parts, so the net carries a current
 between them and `check current-path` has a route to measure."""
-import dataclasses
 
 import pcbnew
 import pytest
 
 from placemat import pourfit
 from placemat.checks import current_paths
-from placemat.copper import Pour
 from placemat.geometry import point_in_polygon, poly_distance
 from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
@@ -39,10 +37,6 @@ def _node(extra=(), reach=None, **kw):
 
 def _copper(p):
     return pourfit.offset(p.points, p.stroke / 2.0)
-
-
-def _hull_box(pads):
-    return Box.union([Box.of_points(p) for p in pads])
 
 
 def test_without_reach_the_pour_is_the_hull_of_its_pads():
