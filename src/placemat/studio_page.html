@@ -73,22 +73,27 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 .pill.stale { background: var(--warn-soft); color: var(--warn); }
 .pill.error { background: var(--bad-soft); color: var(--bad); }
 /* a resolve is running: a spinner, the time, the steps so far, and the step being worked on */
-.prog { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; font-weight: 600; min-width: 0; }
-.prog[hidden] { display: none; }
+/* the running status is a strip above the timeline: the same fields as the step display, a bar, the time */
+#runstrip { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 5px 12px; color: var(--accent); font-weight: 600; }
+#runstrip[hidden] { display: none; }
+#runstrip .f-el { width: 3em; font-variant-numeric: tabular-nums; }
+#runstrip .f-steps { width: 12.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#runstrip .flds + .flds { margin-top: 2px; font-weight: 400; color: var(--ink); }
+#runstrip .flds > .bar { flex: 1 1 4em; min-width: 3em; }
 .spin { display: inline-block; flex: none; width: 13px; height: 13px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.prog .bar { width: 96px; height: 5px; border-radius: 3px; background: var(--surface2); overflow: hidden; flex: none; }
-.prog .bar b { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
-.prog .bar.ind b { width: 35%; animation: slide 1.3s ease-in-out infinite; }
+.bar { height: 5px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
+.bar b { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+.bar.ind b { width: 35%; animation: slide 1.3s ease-in-out infinite; }
 @keyframes slide { from { margin-left: -35%; } to { margin-left: 100%; } }
 .row.pending { cursor: default; align-items: flex-start; background: var(--accent-soft); }
-.row.pending .i { display: flex; justify-content: flex-end; padding-top: 4px; }
+.row.pending .i { display: flex; justify-content: flex-end; padding-top: 4px; overflow: hidden; }
 .row.pending .pbar { height: 3px; border-radius: 2px; background: var(--surface2); margin-top: 4px; overflow: hidden; }
 .row.pending .pbar b { display: block; height: 100%; background: var(--accent); }
 .workmark circle { fill: none; stroke: var(--accent); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .workmark .wm2 { animation: wm 1.2s ease-out infinite; transform-box: fill-box; transform-origin: center; }
 @keyframes wm { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(2.4); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .spin, .workmark .wm2, .prog .bar.ind b { animation-duration: 3s; } }
+@media (prefers-reduced-motion: reduce) { .spin, .workmark .wm2, .bar.ind b { animation-duration: 3s; } }
 @keyframes pulse { 50% { opacity: 0.25; } }
 #stats { display: flex; gap: 4px 16px; margin-left: auto; white-space: nowrap; overflow-x: auto; scrollbar-width: none; color: var(--dim); }
 #stats::-webkit-scrollbar { display: none; }
@@ -141,12 +146,12 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 #slider { flex: 1; min-width: 0; height: 30px; margin: 0; accent-color: var(--accent); touch-action: none; }
 /* the label and the button have fixed widths: the slider's own width never changes while it is dragged */
 #steplabel { flex: none; width: 6em; text-align: right; white-space: nowrap; overflow: hidden; }
-#stepnow { display: none; box-sizing: border-box; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 4px 12px; }
+#stepnow { display: none; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 4px 12px; }
 /* the current step as fields: each keeps its width where its value changes, the name takes the rest, and the line wraps rather than overflows */
 .flds { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; max-width: 100%; }
 .flds > * { min-width: 0; flex: none; }
 .flds .f-n { width: 5.2em; color: var(--dim); }
-.flds .f-item { flex: 1 1 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flds .f-item { flex: 0 1 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flds .f-rank { width: 6.8em; color: var(--dim); white-space: nowrap; }
 .flds .f-phase { width: 11.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flds .f-time { width: 3.8em; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -374,8 +379,6 @@ svg text { user-select: none; font-family: var(--sans); }
   body { font-size: 15px; }
   header { padding: 8px 12px 6px; gap: 2px 10px; }
   .brand { flex: 1 1 0; }
-  .prog { flex: 1 1 100%; order: 9; } .prog .bar { flex: 1; width: auto; }
-  #progtext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #script, #script.full { left: 0; right: 0; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; border-width: 1px 0 0; }
   #script #scriptfull { display: none; }
   #stats { margin-left: 0; width: 100%; gap: 14px; font-size: 13px; }
@@ -421,7 +424,6 @@ svg text { user-select: none; font-family: var(--sans); }
 <header>
   <button class="brand" id="brandbtn" aria-haspopup="menu" aria-expanded="false" title="switch to another layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
-  <span class="prog" id="progress" hidden><i class="spin"></i><span id="progtext"></span><span class="bar" id="progbarbox"><b id="progbar"></b></span></span>
   <button class="tool" id="runbtn" title="a checked run: the design checks, KiCad's DRC and the score, recorded (no render)">Run</button>
   <button class="tool" id="srcbtn" title="the layout script, at the selected item's line">Source</button>
   <div id="stats"></div>
@@ -441,6 +443,7 @@ svg text { user-select: none; font-family: var(--sans); }
     </div>
     <div id="dock">
       <div id="card"></div>
+      <div id="runstrip" hidden><div class="flds"><i class="spin"></i><span class="f-el" id="rs-el"></span><span class="f-steps" id="rs-steps"></span><span class="bar" id="progbarbox"><b id="progbar"></b></span></div><div class="flds" id="rs-work"></div></div>
       <div id="stepnow"></div>
       <div id="replay"><button id="play" title="replay the placement, one item at a time">Play</button><input type="range" id="slider" min="0" max="0" value="0"><span id="steplabel" class="dim"></span><button id="follow" hidden title="back to the newest step">Follow</button></div>
     </div>
@@ -487,6 +490,7 @@ const S = {
   follow: true,                // shown follows the latest resolve
   sel: null, marked: new Set(), selLine: null,
   focus: null,                 // the finding being looked at: {refs, pads}, lit on the board
+  done: null,                  // "done in 41 s", shown in the running strip for a moment after a resolve
   work: null,                  // the resolve in progress: {t0, total, cur, replayed}, from the engine's begin notices
   scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
   runs: [], run: null, lastRun: null, openRuns: new Set(),      // recorded runs of the script, the run in progress, the one that just ended
@@ -598,7 +602,7 @@ on("started", d => {
             congestion: null, findings: [], unplaced: [], pocketed: [], counts: {placed: 0, findings: 0}, score: null, fromStart: true};
   S.shownId = null; S.cmp = null; S.replay = null; S.liveQ = [];
   S.marked = new Set();
-  S.work = {t0: Date.now(), total: null, cur: null, replayed: 0};
+  S.work = {t0: Date.now(), total: null, cur: null, replayed: 0}; S.done = null;
   schedule("all");
 });
 const ensureWork = () => { if (S.resolving && !S.work) S.work = {t0: Date.now(), total: null, cur: null, replayed: 0}; return S.work; };
@@ -640,7 +644,7 @@ on("items", d => {
 on("finished", d => {
   const L = S.live;
   if (!L || d.id !== L.id) return;
-  S.work = null;
+  resolveDone();
   L.counts = d.counts; L.score = d.score;
   const rec = {id: d.id, doc: L, texts: S.texts, changed: S.changed, timing: d.timing, reused: d.reused, notes: d.notes};
   S.docs.set(d.id, rec);
@@ -739,16 +743,25 @@ const WHAT_WORD = {searched: "searching", decided: "deciding", copper: "laying c
 // The queue's size as far as the engine knows it up front: the items to place and the copper declared.
 const workTotal = w => w && w.total ? w.total.items + w.total.copper : 0;
 function renderProgress() {
-  const w = S.work, on = !!(S.resolving && w), el = $("#progress");
-  el.hidden = !on;
-  if (!on) return;
+  const w = S.work, on = !!(S.resolving && w), el = $("#runstrip");
+  el.hidden = !(on || S.done);
+  if (!on) { if (S.done) { $("#rs-el").textContent = ""; $("#rs-steps").textContent = S.done; $("#rs-work").innerHTML = ""; $("#progbarbox").classList.remove("ind"); $("#progbar").style.width = "100%"; } return; }
   const p = plan(), n = p ? replaySteps(p).length : 0, T = workTotal(w), c = w.cur;
-  const bits = [fmtDur(Date.now() - w.t0), "step " + n + (T ? " of about " + T : " so far")];
-  if (w.replayed && (!c || c.replaying)) bits.push("replaying unchanged steps");
-  else if (c) bits.push((WHAT_WORD[c.what] || c.what) + " " + c.item);
-  $("#progtext").textContent = bits.join(" - ");
-  const box = $("#progbarbox"); box.classList.toggle("ind", !T);
+  $("#rs-el").textContent = fmtDur(Date.now() - w.t0);
+  $("#rs-steps").textContent = "step " + n + (T ? " of about " + T : " so far");
+  $("#progbarbox").classList.toggle("ind", !T);
   $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
+  const R = w.total ? w.total.replay : 0;
+  $("#rs-work").innerHTML = w.replayed && (!c || c.replaying) ? itemField("replaying unchanged steps") + pill("replay", "decided") + '<span class="f-rank">' + esc(w.replayed + (R ? " of " + R : "")) + "</span>"
+    : c ? itemField(c.item) + pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + workFields(c) : '<span class="f-phase dim">waiting for the next step</span>';
+}
+// After a resolve the strip says how long it took for a few seconds, then goes; the slider below does not move.
+function resolveDone() {
+  const secs = S.work ? Math.round((Date.now() - S.work.t0) / 1000) : 0;
+  S.work = null;
+  if (!secs) return;
+  S.done = "done in " + (secs >= 60 ? fmtDur(secs * 1000) : secs + " s");
+  setTimeout(() => { S.done = null; schedule("status"); }, 4000);
 }
 // The engine's phase notes, shortened to a pill's width.
 function phaseShort(text, what) {
@@ -1767,18 +1780,15 @@ function renderReplay() {
   $("#play").textContent = S.play ? "Pause" : "Play";
   $("#play").disabled = !n || !!S.resolving;
 }
-// The display above the timeline: the step the slider is on, or while a resolve runs and the slider follows it, the
-// step being worked on. Fields, not a sentence: step number, name, kind pill, rank, phase pill, time.
+// The display above the timeline for the step the slider is on: fields, not a sentence: step number, name, kind pill,
+// rank. (The step being worked on is in the running strip above it.)
 function renderStepNow() {
-  const sn = $("#stepnow"), p = plan(), order = replaySteps(p), n = order.length, k = S.replay == null ? n : clamp(S.replay, 0, n), w = S.work;
-  const settled = S.replay != null && order[k - 1], work = !settled && S.resolving && w && w.cur && !w.cur.replaying ? w.cur : null;
-  sn.style.display = settled || work ? "block" : "none";
-  if (settled) {
-    const it = S.itemAt && S.itemAt.get(settled.item), kind = stepKind(settled, it), np = noteParts(settled.note || (it && it.note) || "");
-    sn.innerHTML = '<div class="flds"><span class="f-n">' + esc("Step " + k) + "</span>" + itemField(kind.name) + pill(kind.word, kind.cls) + '<span class="f-rank">' + (np.rank ? esc("rank " + np.rank.n + " of " + np.rank.of) : "") + "</span></div>";
-  } else if (work) {
-    sn.innerHTML = '<div class="flds"><span class="f-n">' + esc("Step " + (n + 1)) + "</span>" + itemField(work.item) + pill(WHAT_WORD[work.what] || work.what, whatClass(work.what)) + workFields(work) + "</div>";
-  }
+  const sn = $("#stepnow"), p = plan(), order = replaySteps(p), n = order.length, k = S.replay == null ? n : clamp(S.replay, 0, n);
+  const settled = S.replay != null && order[k - 1];
+  sn.style.display = settled ? "block" : "none";
+  if (!settled) return;
+  const it = S.itemAt && S.itemAt.get(settled.item), kind = stepKind(settled, it), np = noteParts(settled.note || (it && it.note) || "");
+  sn.innerHTML = '<div class="flds"><span class="f-n">' + esc("Step " + k) + "</span>" + itemField(kind.name) + pill(kind.word, kind.cls) + '<span class="f-rank">' + (np.rank ? esc("rank " + np.rank.n + " of " + np.rank.of) : "") + "</span></div>";
 }
 const R = {rows: [], k: -1, n: 0};
 function collectRows() { R.rows = [...document.querySelectorAll("#steplist .row[data-n]")]; R.k = -1; }

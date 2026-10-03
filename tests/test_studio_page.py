@@ -762,30 +762,29 @@ ev("plan().congestion = {cell: 0.5, origin: [0, 0], worst: 1.4, worst_at: [2, 2]
 def test_a_resolve_in_progress_shows_a_spinner_the_time_the_steps_and_the_step_being_worked_on(tmp_path):
     out = run_page(tmp_path, r"""
 hello(); started(1); send("board", BOARD);
-out.start = [els["#progress"].hidden, els["#progtext"].textContent];
+out.start = [els["#runstrip"].hidden, els["#rs-steps"].textContent];
 send("begin", {id: 1, kind: "total", items: 24, searched: 18, copper: 6, replay: 0});
 send("step", {id: 1, item: item("a", 1)});
 send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3});
 send("begin", {id: 1, kind: "phase", text: "scanning the front or back", hint: [6, 8], radius: 12});
-clock += 3200;
-out.prog = [els["#progress"].hidden, els["#progtext"].textContent, els["#progbar"].style.width, els["#progbarbox"].classList];
+clock += 3200; ev("renderProgress()");
+out.prog = [els["#runstrip"].hidden, els["#rs-steps"].textContent + " | " + els["#rs-work"].innerHTML, els["#progbar"].style.width, els["#rs-el"].textContent];
 ev("renderSteps()"); out.pending = els["#tab-steps"].innerHTML; ev("renderStepNow()"); out.stepnow = els["#stepnow"].innerHTML; out.stepnow_shown = els["#stepnow"].style.display;
 out.mark = ev("S.work.cur");
 send("step", {id: 1, item: Object.assign(item("psu", 5), {key: "psu"})});
 out.after = [ev("S.work.cur"), els["#tab-steps"].innerHTML.indexOf("pendrow") < 0 || els["#tab-steps"].innerHTML.indexOf("waiting for the next step") > 0];
 finish(1, ["a", "b", "c"]);
-out.done = [els["#progress"].hidden, ev("S.work")];
+out.done = [els["#runstrip"].hidden, ev("S.work"), els["#rs-steps"].textContent];
 """)
     assert out["start"][0] is False and "step 0" in out["start"][1] and "so far" in out["start"][1]
-    assert out["prog"][0] is False and "step 1 of about 30" in out["prog"][1] and "searching psu" in out["prog"][1] and out["prog"][2] == "3%"
+    assert out["prog"][0] is False and "step 1 of about 30" in out["prog"][1] and 'title="psu">psu</b>' in out["prog"][1] and "scanning front/back" in out["prog"][1] and "3.2 s" in out["prog"][1] and out["prog"][2] == "3%" and out["prog"][3] == "0:03"
     pr = out["pending"]
     assert 'id="pendrow"' in pr and 'class="f-item" title="psu">psu</b>' in pr and '<span class="chip searched">searching</span>' in pr
     assert '<span class="f-rank">rank 7 of 18</span>' in pr and '<span class="chip phase">scanning front/back</span>' in pr and '<span class="f-time">3.2 s</span>' in pr
     assert "scanning the front or back" not in pr                                         # the phase is a short pill
-    sn = out["stepnow"]
-    assert out["stepnow_shown"] == "block" and '<span class="f-n">Step 2</span>' in sn and 'title="psu"' in sn and "rank 7 of 18" in sn and "scanning front/back" in sn
+    assert out["stepnow_shown"] == "none"                                                   # the step display is for settled steps; the running strip has this one
     assert out["mark"]["hint"] == [6, 8] and out["mark"]["rank"] == 7
-    assert out["after"][0] is None and out["done"] == [True, None]
+    assert out["after"][0] is None and out["done"][1] is None and out["done"][0] is False and out["done"][2].startswith("done in ")
 
 
 @needs_node
@@ -797,7 +796,7 @@ send("begin", {id: 1, kind: "begin", item: "a", what: "decided", rank: null, of:
 send("step", {id: 1, item: item("a", 1)});
 send("begin", {id: 1, kind: "begin", item: "b", what: "decided", rank: null, of: null, replaying: true, n: 1});
 out.row = els["#tab-steps"].innerHTML; out.replayed = ev("S.work.replayed");
-out.text = els["#progtext"].textContent;
+out.text = els["#rs-work"].innerHTML;
 send("begin", {id: 1, kind: "begin", item: "c", what: "searched", rank: 1, of: 1, replaying: false, n: 2});
 out.after = els["#tab-steps"].innerHTML;
 """)
@@ -904,6 +903,6 @@ key("Escape"); flush(); out.after2 = els["#card"].style.display;
 def test_phase_notes_are_shortened_to_a_pill_and_no_field_can_run_off_its_box():
     import re as _re
     page = PAGE.read_text()
-    assert ".flds { display: flex; flex-wrap: wrap;" in page and ".flds .f-item { flex: 1 1 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }" in page
-    assert _re.search(r"\.flds \.f-time \{ width: [\d.]+em; text-align: right;", page) and "#stepnow { display: none; box-sizing: border-box; max-width: 100%; min-width: 0;" in page
+    assert ".flds { display: flex; flex-wrap: wrap;" in page and ".flds .f-item { flex: 0 1 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }" in page
+    assert _re.search(r"\.flds \.f-time \{ width: [\d.]+em; text-align: right;", page) and "#stepnow { display: none; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0;" in page
     assert "white-space: nowrap; }\n#stepnow" not in page
