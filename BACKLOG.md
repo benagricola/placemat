@@ -246,6 +246,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Studio, round 4, and "cell" wording** (0.86.0): what a resolve is
+  doing now (spinner, the step being worked on, replay row), one formatting
+  rule set for the card, zones in the legend, keepout reservations hidden with
+  their keepout, findings marked at the part or pad they name, closable
+  overlays; findings and docs say "cell" for a placed module.
+
 - **`board.rect`** (0.85.0): the rectangular board form, named alongside
   `board.disc` and `board.outline`; `board.size` still works and raises a
   setup notice.
