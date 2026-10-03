@@ -67,6 +67,8 @@ Specced work first, then the loose ends.
     ran; again in 0.96.0's): pcb failed to load a stdlib footprint; passes
     alone. Probably another pcb process sharing pcb's package cache: isolate
     the test's pcb cache or find what the other process changes.
+    Lead: tests/test_studio_builder.py has order-dependent tests that fail
+    under -n 2 beside the studio server, worker and hooks tests.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
 12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
@@ -84,6 +86,14 @@ Specced work first, then the loose ends.
     at the rip step; the "of N" total grows as each router launch's queue
     arrives; events dropped on a full queue are missing from the record too;
     a stopped route leaves a partial record listed with the finished ones.
+
+- **Dead code left by the sweep** (2026-10-03, report in the sweep's
+  scratchpad): layout.py (`gap_texts`/`VIA_BUCKET` imports, `_script_line`,
+  `_cutout_label`, write-only `_link_index`/`_flip_said`, the 0.39 lock
+  digest compat), occupancy.py (`re`, `gap_texts`, `_GAP`, `_inner_mirror`),
+  giveway `_far_ends`, native `clean9_many`/`hypot_many`, production code only
+  tests call; `settings.RENAMED` (30 entries from 0.90.0) once the notice path
+  can go. After the native sweep and give-way work leave those files.
 
 ## Open
 
