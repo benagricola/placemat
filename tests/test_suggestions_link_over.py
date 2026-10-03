@@ -65,3 +65,13 @@ board.place(Part("c4"), at=Location(10, 50))
     board, plan, path = resolve(tmp_path, script)
     for f in over(plan):
         assert not [s for s in f.suggestions if s.edit.target.kind == "link"]
+
+
+def test_a_finding_is_cleared_when_its_kind_case_and_item_are_gone_from_the_next_resolve(tmp_path):
+    board, plan, path = resolve(tmp_path, SCRIPT)
+    (f,) = over(plan)
+    assert not sg.cleared(f, plan.findings)
+    assert not sg.cleared(f.detail() | {"item": "link"}, [g.detail() | {"item": "link"} for g in plan.findings])
+    raise_limit = next(s for s in f.suggestions if s.text.startswith("Raise the limit"))
+    board2, plan2 = apply_and_resolve(tmp_path, plan, raise_limit.id, path)
+    assert sg.cleared(f, plan2.findings)

@@ -1011,6 +1011,14 @@ def store_path(board_dir) -> Path:
     return Path(board_dir) / ".placemat" / STORE
 
 
+def project_root(board_dir) -> Path:
+    """The folder a suggestion may write under: the one holding the outermost placemat.toml above the board, else
+    the board's own. Pass it as `root` to `apply_suggestion` and `undo_last`."""
+    from .settings import _files
+    found = _files(board_dir)
+    return found[0].parent if found else Path(board_dir)
+
+
 def log_path(board_dir) -> Path:
     """The applied log, shared by the command line and the studio: `<board>/.placemat/applied.jsonl`."""
     return Path(board_dir) / ".placemat" / LOG
@@ -1046,3 +1054,19 @@ def recall(board_dir, script=None) -> dict:
         out[name] = {"source": entry.get("source", ""), "at": entry.get("at", ""),
                      "suggestions": from_json(entry.get("suggestions", ()))}
     return out
+
+
+# ------------------------------------------------------------------ did a try clear the finding
+def finding_key(f) -> tuple:
+    """What names a finding across two resolves: (kind, case, item). `f` is a Finding or its JSON (a plan's
+    `findings[i]`, or a run record's `finding_details[i]`); the item is the first word of its sentence, the part,
+    cell, label or keepout it is about."""
+    get = f.get if isinstance(f, dict) else (lambda k, d=None: getattr(f, k, d))
+    text = str(get("text") if isinstance(f, dict) else f)
+    return (get("kind"), get("case"), (get("item") if isinstance(f, dict) and get("item") else "") or text.split(" ", 1)[0])
+
+
+def cleared(finding, after) -> bool:
+    """Whether the finding is gone from `after` (the findings of a try, or of the resolve after an apply): the same
+    (kind, case, item) is not among them."""
+    return finding_key(finding) not in {finding_key(a) for a in after}

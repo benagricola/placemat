@@ -1067,14 +1067,6 @@ def _board_dir_of(script) -> Path:
     return p if p.is_dir() else p.parent
 
 
-def _project_root(board_dir) -> Path:
-    """The folder a suggestion may write under: the one holding the outermost placemat.toml above the board, else the
-    board's own."""
-    from .settings import _files
-    found = _files(board_dir)
-    return found[0].parent if found else Path(board_dir)
-
-
 def cmd_apply(args) -> int:
     from . import suggestions as sg
     dirs = _board_dirs(args.script)
@@ -1086,7 +1078,7 @@ def cmd_apply(args) -> int:
                             str(d) for d in logs), level="fail")
             return 1
         try:
-            done = sg.undo_last(sg.log_path(logs[0]), root=_project_root(logs[0]), dry_run=args.dry_run)
+            done = sg.undo_last(sg.log_path(logs[0]), root=sg.project_root(logs[0]), dry_run=args.dry_run)
         except sg.SuggestionError as e:
             console.say("apply", str(e), level="fail")
             return 1
@@ -1109,7 +1101,7 @@ def cmd_apply(args) -> int:
         return 1
     board_dir, script, entry = holders[0]
     try:
-        done = sg.apply_suggestion(entry["suggestions"], args.id, dry_run=args.dry_run, root=_project_root(board_dir),
+        done = sg.apply_suggestion(entry["suggestions"], args.id, dry_run=args.dry_run, root=sg.project_root(board_dir),
                                    log=sg.log_path(board_dir))
     except sg.StaleSuggestion as e:
         console.say("apply", "the script changed since %s made this suggestion (%s): nothing was written; run it again "
