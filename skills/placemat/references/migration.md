@@ -5,6 +5,42 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A pin whose copper ends against another part is reported walled off.** A pad that copper of its own net left counted as
+  having its way out, so a pin on a net with other pads, fanned out on an escape lane or a track that ends in the air, was
+  never walled whatever stood at the end of that copper, a through-hole pad of another cell included. The way out is now looked
+  for from where the pad's own copper ends (a track or lane that reaches another pad of the net, a via or a pour still counts
+  as made), among what the clearance check refuses: other nets' pads on the layers they span, a through-hole pad on every layer,
+  unplated holes (the `hole_clearance`), copper, and for a via the rule areas that forbid vias. Unplated holes also close a
+  pad's corridors in the search now, as pads do. `escape_walled` appears where it did not, and the run score and the search move
+  with it. A script that drew a track to nowhere from a pad (a stub the core's router takes up) may now get the finding.
+
+## To 0.91.0
+
+### Changed
+
+- **The router moves to a new checkout.** The built-in router is `~/work/KRT-upstream` (the router brought up to its
+  current upstream, with filled copper graphics and pad-corner guards), where it was `~/work/KiCadRoutingTools`. `$KRT_DIR` and
+  `[route] router_dir` still override it. A machine with `KRT_DIR` or `router_dir` set keeps the router it names:
+  to move, point it at the new checkout (its `.venv` and `rust_router/grid_router.so` must be built there), or unset it. Routes
+  differ from the old router's: pad corners are guarded exactly instead of by a half-cell buffer, so fine-pitch rows escape
+  where they sealed, and a filled copper graphic (footprint ones too) is copper over its whole area.
+- **A route no longer puts footprint copper graphics back.** The new router keeps a footprint's copper graphics on every
+  layer, so the step that restored them is gone, and `restored_graphics` is no longer in the route report or its JSON. The rule
+  areas that keep tracks off a footprint's copper (a net tie's winding, a coil) stay in the router's input copy and are deleted
+  from the routed copy. Scripts change nothing.
+
+## To 0.90.1
+
+### Changed
+
+- **The studio's running status shows one counter**, "step n of ~N", with the kind and phase pills and an info tooltip; the
+  search rank stays on the card. On desktop the status gives way (subtitle, phase, kind, name) before it can reach the buttons.
+  Scripts change nothing.
+
 ## To 0.90.0
 
 ### New

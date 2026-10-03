@@ -246,6 +246,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **The router moves to current upstream** (0.91.0): ~/work/KRT-upstream with the
+  filled-copper work ported (footprint fills too), corner guards chosen by
+  measurement, the footprint-graphics restore removed, route_spread reading
+  structured DRC.
+
 - **Settings documented as data, renamed where unclear** (0.90.0): every
   setting's unit and meaning in settings.py, the api.md table generated from
   it, `placemat settings --example`, 31 renames (old names accepted for one

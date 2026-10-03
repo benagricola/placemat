@@ -7,8 +7,7 @@ pytest.importorskip("pcbnew")
 
 import shutil
 
-from placemat.kicad.drc import run_drc
-from placemat.kicad.route import guard_footprint_copper, restore_footprint_graphics
+from placemat.kicad.route import guard_footprint_copper, remove_guards
 from tests.conftest import needs_breakout, needs_kicad
 
 pytestmark = [needs_kicad, needs_breakout]
@@ -61,28 +60,6 @@ def _with_art(breakout_pcb, tmp_path):
     return pcb, fp.GetReference(), sq
 
 
-def _routed_as_the_router_writes_it(pcb_in, tmp_path, sq):
-    """The router's writer moves footprint copper graphics on the outer
-    layers to silk; its routing ran through the square."""
-    import pcbnew
-    out = tmp_path / "routed.kicad_pcb"
-    shutil.copy(pcb_in, out)
-    brd = pcbnew.LoadBoard(str(out))
-    for fp in brd.GetFootprints():
-        for d in fp.GraphicalItems():
-            if isinstance(d, pcbnew.PCB_SHAPE) and d.GetLayer() == pcbnew.F_Cu:
-                d.SetLayer(pcbnew.F_SilkS)
-    t = pcbnew.PCB_TRACK(brd)
-    y = pcbnew.FromMM((sq.top + sq.bottom) / 2)
-    t.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(sq.left - 1), y))
-    t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(sq.right + 1), y))
-    t.SetWidth(pcbnew.FromMM(0.2))
-    t.SetLayer(pcbnew.F_Cu)
-    t.SetNet(brd.FindNet(NET))
-    brd.Add(t)
-    brd.Save(str(out))
-    return out
-
 
 def _guards(pcb):
     import pcbnew
@@ -98,38 +75,7 @@ def test_footprint_copper_is_guarded_from_the_router(breakout_pcb, tmp_path):
     assert ref in z.GetZoneName() and z.GetLayerSet().Contains(pcbnew.F_Cu) and not z.GetLayerSet().Contains(pcbnew.B_Cu)
 
 
-def test_the_routed_copy_gets_its_footprint_copper_back(breakout_pcb, tmp_path):
-    import pcbnew
-    pcb, ref, sq = _with_art(breakout_pcb, tmp_path)
-    guard_footprint_copper(str(pcb))
-    routed = _routed_as_the_router_writes_it(pcb, tmp_path, sq)
-    before = run_drc(routed, tmp_path / "drc0.json")
-    assert restore_footprint_graphics(str(pcb), str(routed)) == {"footprints": 1, "items": 1}
-    brd = pcbnew.LoadBoard(str(routed))
-    fp = next(f for f in brd.GetFootprints() if f.GetReference() == ref)
-    assert [d.GetLayer() for d in fp.GraphicalItems() if isinstance(d, pcbnew.PCB_SHAPE)
-            and pcbnew.IsCopperLayer(d.GetLayer())] == [pcbnew.F_Cu]
-    assert not _guards(routed)
-    after = run_drc(routed, tmp_path / "drc1.json")
-    assert sum(after.real.values()) > sum(before.real.values())      # the track against the square it crossed
 
-
-def test_a_board_without_footprint_copper_is_left_alone(breakout_pcb, tmp_path):
-    pcb = _copy(breakout_pcb, tmp_path / "plain")
-    assert guard_footprint_copper(str(pcb)) == 0
-    out = tmp_path / "routed.kicad_pcb"
-    shutil.copy(pcb, out)
-    assert restore_footprint_graphics(str(pcb), str(out)) == {"footprints": 0, "items": 0}
-
-
-def test_the_route_report_says_what_it_put_back(tmp_path):
-    from placemat.kicad.route import RouteReport
-    r = RouteReport(True, 1.0, 1.0, 2, 0, {}, [], [], ["F.Cu"], 1.0, "x", {}, tmp_path, tmp_path, tmp_path,
-                    restored_graphics={"footprints": 6, "items": 12})
-    assert "12 footprint copper graphic(s) put back on 6 footprint(s)" in r.summary()
-    assert r.as_dict()["restored_graphics"] == {"footprints": 6, "items": 12}
-    quiet = RouteReport(True, 1.0, 1.0, 2, 0, {}, [], [], ["F.Cu"], 1.0, "x", {}, tmp_path, tmp_path, tmp_path)
-    assert "put back" not in quiet.summary()
 
 
 def test_a_guard_leaves_the_footprints_own_pads_reachable(breakout_pcb, tmp_path):
@@ -153,21 +99,6 @@ def test_a_guard_leaves_the_footprints_own_pads_reachable(breakout_pcb, tmp_path
     assert not z.Outline().Contains(c)                               # the pad's centre is outside it
     assert z.Outline().Contains(pcbnew.VECTOR2I(c.x, c.y - pcbnew.FromMM(1.5)))   # the winding is inside
 
-
-def test_only_the_graphics_the_router_moved_are_counted_as_put_back(breakout_pcb, tmp_path):
-    import pcbnew
-    pcb, ref, sq = _with_art(breakout_pcb, tmp_path)
-    brd = pcbnew.LoadBoard(str(pcb))
-    fp = next(f for f in brd.GetFootprints() if f.GetReference() == ref)
-    other = pcbnew.PCB_SHAPE(fp, pcbnew.SHAPE_T_RECT)                # a second graphic, on B.Cu, left alone below
-    other.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(sq.left), pcbnew.FromMM(sq.top)))
-    other.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(sq.right), pcbnew.FromMM(sq.bottom)))
-    other.SetFilled(True)
-    other.SetLayer(pcbnew.B_Cu)
-    fp.Add(other)
-    brd.Save(str(pcb))
-    routed = _routed_as_the_router_writes_it(pcb, tmp_path, sq)      # moves the F.Cu one only
-    assert restore_footprint_graphics(str(pcb), str(routed)) == {"footprints": 1, "items": 1}
 
 
 def test_copper_inside_a_ring_guards_hole_is_no_breach():
@@ -203,3 +134,60 @@ def test_a_ring_graphics_guard_is_read_with_its_hole(breakout_pcb, tmp_path):
     guard_footprint_copper(str(pcb))
     (ra,) = [r for r in read_board(pcb).rule_areas if r.name.startswith("placemat footprint copper")]
     assert len(ra.holes) == 1
+
+
+def test_a_board_without_footprint_copper_is_left_alone(breakout_pcb, tmp_path):
+    pcb = _copy(breakout_pcb, tmp_path / "plain")
+    assert guard_footprint_copper(str(pcb)) == 0
+    assert remove_guards(str(pcb)) == 0
+
+
+def test_remove_guards_deletes_what_guard_footprint_copper_added(breakout_pcb, tmp_path):
+    pcb, _, _ = _with_art(breakout_pcb, tmp_path)
+    assert guard_footprint_copper(str(pcb)) == 1
+    assert remove_guards(str(pcb)) == 1
+    assert not _guards(pcb)
+
+
+FIXTURES = __import__("pathlib").Path(__file__).resolve().parents[1] / "fixtures"
+COIL = FIXTURES / "fairing/modules/ringsensor/layout/layout.kicad_pcb"           # RingCoil_V3 x2: 366 copper graphics
+NET_TIE = FIXTURES / "fairing/keep_out/modules/usbconverter/generated/UsbConverter/layout.kicad_pcb"   # NT1, NT2
+
+
+def _copper_graphics(pcb) -> dict:
+    """{footprint reference: its copper-layer graphic shapes, as (shape, layer, start, end)}."""
+    import pcbnew
+    from placemat.kicad.quiet import quiet_stderr
+    with quiet_stderr():
+        brd = pcbnew.LoadBoard(str(pcb))
+    return {fp.GetReference(): sorted((d.GetShape(), d.GetLayer(), d.GetStart().x, d.GetStart().y, d.GetEnd().x, d.GetEnd().y)
+                                      for d in fp.GraphicalItems()
+                                      if isinstance(d, pcbnew.PCB_SHAPE) and pcbnew.IsCopperLayer(d.GetLayer()))
+            for fp in brd.GetFootprints()}
+
+
+def _routed_keeps_footprint_copper(src, tmp_path, strip_tracks):
+    import pcbnew
+    from pathlib import Path
+    from placemat.kicad.route import ROUTER_DEFAULT, route_board
+    if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
+        pytest.skip("router not at %s" % ROUTER_DEFAULT)
+    pcb = _copy(src, tmp_path / "in")
+    if strip_tracks:
+        brd = pcbnew.LoadBoard(str(pcb))
+        for t in list(brd.GetTracks()):
+            brd.Delete(t)
+        brd.Save(str(pcb))
+    before = _copper_graphics(pcb)
+    assert sum(map(len, before.values())) > 0
+    report = route_board(pcb, tmp_path / "route", quick=True)
+    assert _copper_graphics(report.routed_pcb) == before
+    assert not _guards(report.routed_pcb)
+
+
+def test_a_routed_copy_keeps_a_coil_footprints_copper(tmp_path):
+    _routed_keeps_footprint_copper(COIL, tmp_path, strip_tracks=True)
+
+
+def test_a_routed_copy_keeps_a_net_tie_footprints_copper(tmp_path):
+    _routed_keeps_footprint_copper(NET_TIE, tmp_path, strip_tracks=False)
