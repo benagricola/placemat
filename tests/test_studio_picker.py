@@ -215,17 +215,21 @@ def test_a_run_is_compared_with_the_newest_resolve_by_placement_findings_and_sco
     assert s.compare_run("nope") is None
 
 
-def test_a_run_is_started_on_request_and_its_result_reaches_the_page(project, monkeypatch):
+def test_a_run_is_started_on_request_reports_over_the_channel_and_its_result_reaches_the_page(project, monkeypatch):
     s = _fresh(project)
     drain = _events(s)
 
     class Proc:
-        stdout = iter(["resolve  ok\n", "drc  2 real\n"])
+        pid = 424242
 
         def wait(self):
             _record(s.runs_dir(), "eeee0005", project, {})
+            s._on_channel(7, {"ev": "hello", "pid": 424242, "command": "run", "script": str(project), "args": ["run"]})      # the run says who it is
+            s._on_channel(7, {"ev": "item", "item": {"key": "u1", "file": ""}})
+            s._on_channel(7, {"ev": "error", "message": "Layout script failed: boom", "file": "", "line": None})
             return 0
-    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Proc())
+    seen = {}
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: seen.update(k) or Proc())
     assert s.start_run()["id"] == 1
     with pytest.raises(ValueError):
         s.start_run() if s._run is not None else (_ for _ in ()).throw(ValueError("busy"))
@@ -234,9 +238,12 @@ def test_a_run_is_started_on_request_and_its_result_reaches_the_page(project, mo
         time.sleep(0.02)
     ev = drain()
     names = [n for n, _ in ev]
-    assert names[0] == "run_started" and names.count("run_line") == 2 and names[-1] == "run_done"
+    assert seen["stdout"] == subprocess.DEVNULL and seen["stderr"] == subprocess.DEVNULL          # its printed text is not read
+    assert "run_started" in names and "run_line" not in names and names[-1] == "run_done"
+    assert json.loads(next(x for n, x in ev if n == "run_started"))["pid"] == 424242
     done = json.loads(ev[-1][1])
-    assert done["code"] == 0 and done["run"]["id"] == "eeee0005" and done["tail"] == ["resolve  ok", "drc  2 real"] and done["runs"]
+    assert done["code"] == 0 and done["run"]["id"] == "eeee0005" and done["tail"] == ["Layout script failed: boom"] and done["runs"]
+
 
 
 def test_a_begin_notice_from_the_worker_reaches_the_pages_without_being_kept(project):
@@ -352,3 +359,83 @@ def test_the_hello_gives_the_address_another_device_reaches_and_qr_draws_only_th
         assert hello["origin"] == "http://%s:%d" % (hello["origin"].split("//")[1].split(":")[0], wide.port) and hello["port"] == wide.port and wide.url.startswith(hello["origin"])
     finally:
         wide.stop()
+
+
+def _cmd(s, cid=1, script="x_layout.py", **extra):
+    s._on_channel(cid, dict({"ev": "hello", "pid": 4000 + cid, "command": "explore", "script": str(s.root / script), "args": ["run", script]}, **extra))
+
+
+def test_a_command_reporting_over_the_channel_is_listed_with_its_events_and_ends_as_done_error_or_lost(project):
+    s = _fresh(project)
+    drain = _events(s)
+    _cmd(s, 1)
+    _cmd(s, 2)
+    _cmd(s, 3)
+    s._on_channel(1, {"ev": "resolve", "n": 1})
+    s._on_channel(1, {"ev": "item", "item": {"key": "u1", "file": str(s.root / "sub" / "a.py")}})
+    s._on_channel(1, {"ev": "plan", "doc": {"items": [{"key": "u1", "file": str(s.root / "x_layout.py")}], "steps": []}})
+    s._on_channel(1, {"ev": "done", "record": "/r/run.json"})
+    s._on_channel(2, {"ev": "item", "item": {"key": "u9", "file": ""}})
+    s._on_channel(2, {"ev": "lost"})
+    s._on_channel(3, {"ev": "error", "message": "boom", "file": "x_layout.py", "line": 7})
+    by = {c["id"]: c for c in s.commands()}
+    assert by[1]["state"] == "done" and by[1]["record"] == "/r/run.json" and by[1]["items"] == 1 and by[1]["command"] == "explore" and by[1]["pid"] == 4001
+    assert by[2]["state"] == "lost" and "u9" in by[2]["message"] and by[3]["state"] == "error" and by[3]["message"] == "boom"
+    d = s.cmd_detail(1)
+    assert [e["ev"] for e in d["events"]] == ["resolve", "item", "done"] and d["plan"]["doc"]["items"][0]["file"] == "x_layout.py"
+    assert d["events"][1]["item"]["file"] == "sub/a.py"                                 # files as the page names them
+    assert s.cmd_detail(99) is None
+    names = [n for n, _ in drain()]
+    assert names.count("cmd") >= 6 and "cmdev" in names
+    assert [c["id"] for c in json.loads(s.hello()[0][1])["commands"]] == [1, 2, 3]
+
+
+def test_an_explore_streamed_over_the_channel_keeps_its_variants_and_a_record_lists_afterwards(project):
+    s = _fresh(project)
+    _cmd(s, 5)
+    s._on_channel(5, {"ev": "explore", "focus": ["a"], "plain": {"a": [1, 2, 0, "front"]}, "order": ["a"], "baseline": 10.0, "jobs": 2, "at": 1.0})
+    s._on_channel(5, {"ev": "variant", "seed": 1, "score": 9.0, "measures": {}, "placements": {"a": [3, 2, 90, "front"]}, "order": ["a"], "t": 0.5})
+    s._on_channel(5, {"ev": "variant", "seed": 2, "score": 11.0, "measures": {}, "placements": {"a": None}, "order": [], "t": 1.0})
+    d = s.cmd_detail(5)
+    assert [v["seed"] for v in d["explore"]["variants"]] == [1, 2] and d["summary"]["best"] == 9.0 and d["summary"]["variants"] == 2
+    folder = s.src.board_dir / ".placemat" / "views" / "explore"
+    folder.mkdir(parents=True)
+    rec = {"version": 1, "script": str(project), "at": 5.0, "pid": 9, "focus": ["a"], "baseline": 10.0, "best": 9.0, "best_seed": 1, "kept": True,
+           "plain": {"a": [1, 2, 0, "front"]}, "order": ["a"], "variants": [{"seed": 0, "score": 10.0, "placements": {}, "order": [], "t": 0}]}
+    (folder / "20261003-000000-9.json").write_text(json.dumps(rec))
+    listed = s.explores()
+    assert [e["file"] for e in listed] == [str(folder / "20261003-000000-9.json")] and listed[0]["kept"] is True and listed[0]["tried"] == 1
+    assert s.explore_record(listed[0]["file"])["best_seed"] == 1
+    assert s.explore_record("/etc/passwd") is None and s.explore_record(str(folder / "other.json")) is None
+
+
+def test_a_listening_studio_is_found_and_told_by_a_command_in_its_project(project):
+    s = Studio(project, port=0, open_browser=False)
+    s.start()
+    try:
+        entry = json.loads(next((s.root / ".placemat" / "studio").glob("*.json")).read_text())
+        assert entry["pid"] == os.getpid() and entry["address"] == s.url and os.path.exists(entry["socket"])
+        from placemat import channel
+        channel.reset()
+        rep = channel.reporter(project)
+        rep.send({"ev": "item", "item": {"key": "u1", "file": ""}})
+        deadline = time.monotonic() + 10
+        while not s.commands() or s.commands()[0]["items"] < 1:
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        assert s.commands()[0]["pid"] == os.getpid() and s.commands()[0]["script"] == str(project)
+        channel.reset()
+    finally:
+        s.stop()
+    assert not list((s.root / ".placemat" / "studio").glob("*"))                       # gone with the studio
+
+
+def test_a_crashed_worker_is_a_lost_connection_and_the_last_step_it_reported(project):
+    s = _fresh(project)
+    s.worker.log_start = 10 ** 9
+    s._cur = {"id": 3, "texts": {}, "changed": [], "t0": 0}
+    s._on_worker({"ev": "begin", "id": 3, "kind": "begin", "item": "psu", "what": "searched"}, s.worker.serial)
+    s._on_worker({"ev": "item", "id": 3, "item": {"key": "mcu", "file": ""}}, s.worker.serial)
+    s._on_worker({"ev": "begin", "id": 3, "kind": "begin", "item": "psu2", "what": "searched"}, s.worker.serial)
+    msg = s.worker_death(-11)["message"]
+    assert "SIGSEGV" in msg and "while working on psu2" in msg and "the last step it settled was mcu" in msg
