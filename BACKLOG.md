@@ -246,6 +246,10 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Studio, rounds 5 and 6** (0.86.1): the running status as one-line fields
+  above the timeline; Restart during a resolve replays the steps so far, then
+  follows.
+
 - **Studio, round 4, and "cell" wording** (0.86.0): what a resolve is
   doing now (spinner, the step being worked on, replay row), one formatting
   rule set for the card, zones in the legend, keepout reservations hidden with

@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.86.1
+
+### Changed
+
+- **The studio's running status sits above the timeline** as fields that stay on one line (the step, its kind,
+  rank k of n, its phase, the time on it), and during a resolve Play reads Restart: it replays the steps so far,
+  then follows the live end. Scripts change nothing.
+
 ## To 0.86.0
 
 ### Changed
