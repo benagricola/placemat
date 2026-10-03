@@ -135,3 +135,12 @@ def test_the_new_names_are_what_the_docs_say():
     for old in S.RENAMED:
         dotted = old.replace("_", ".", 1)
         assert "`%s`" % dotted not in text, "%s is still in api.md" % dotted
+
+
+def test_every_name_in_a_validation_set_is_a_real_setting():
+    """A missing comma between two names makes one that is no setting (and drops the check on both)."""
+    known = set(Settings.keys())
+    for label, names in (("_ABOVE_ZERO", S._ABOVE_ZERO), ("_AT_LEAST_ZERO", S._AT_LEAST_ZERO), ("_AT_LEAST_TWO", S._AT_LEAST_TWO),
+                         ("_UNIT_INTERVAL", S._UNIT_INTERVAL), ("_CHOICES", S._CHOICES)):
+        assert set(names) <= known, "%s names no setting: %s" % (label, sorted(set(names) - known))
+    assert "studio_port" in S._AT_LEAST_ZERO and "best_crossing_noise" in S._AT_LEAST_ZERO

@@ -58,15 +58,15 @@ def test_the_scan_step_is_the_declared_one():
 
 
 def test_the_coarse_pass_is_skipped_below_the_declared_ratio():
-    """`place.coarse_radius_ratio` is the radius-to-step ratio at which a scored scan
+    """`place.coarse_min_radius_steps` is the radius-to-step ratio at which a scored scan
     goes coarse first. Below it the fine grid is walked once."""
     from placemat.placer import scan
     g = _geom()
     u1 = g.footprint("U1")
     hint = Placement(Location(20, 20), 0, Face.FRONT)
     nowhere = lambda p: 0.0
-    never = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_radius_ratio=1e9))
-    always = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_radius_ratio=1.0))
+    never = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_min_radius_steps=1e9))
+    always = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_min_radius_steps=1.0))
     direct = scan(never, u1, hint, radius=4.0, step=0.25, score=nowhere)
     staged = scan(always, u1, hint, radius=4.0, step=0.25, score=nowhere)
     assert staged.tried < direct.tried

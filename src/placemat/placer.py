@@ -434,7 +434,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
 
     cfg = occ.settings
     phase = getattr(occ, "on_phase", None)             # a viewer's note of which pass a long scan is in
-    if score is None or radius / step < cfg.place_coarse_radius_ratio:
+    if score is None or radius / step < cfg.place_coarse_min_radius_steps:
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), stop_at_first=score is None)
     else:
         coarse = step * cfg.place_coarse_stride
@@ -1355,7 +1355,7 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
         return fits
 
     cfg = occ.settings
-    if score is None or radius / step < cfg.place_coarse_radius_ratio:
+    if score is None or radius / step < cfg.place_coarse_min_radius_steps:
         fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), score is None)
     else:
         coarse = step * cfg.place_coarse_stride

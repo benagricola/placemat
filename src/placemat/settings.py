@@ -39,7 +39,7 @@ FILENAME = "placemat.toml"
 
 # What a setting's unit may be (data about it, shown in the docs and in `placemat settings --example`).
 UNITS = frozenset((
-    "mm", "degrees", "nm", "deg C", "ohm m", "W/(m K)", "seconds", "ms", "pixels", "px/mm", "per second", "count", "ratio",
+    "mm", "steps", "degrees", "nm", "deg C", "ohm m", "W/(m K)", "seconds", "ms", "pixels", "px/mm", "per second", "count", "ratio",
     "share", "fraction", "probability", "weight", "multiplier", "factor", "exponent", "residual", "cost", "track widths",
     "bool", "choice", "list", "table", "text", "path", "command", "port"))
 
@@ -101,8 +101,8 @@ class Settings:
         "the grid the partner's legal spots are found on for that (its own step if coarser)")
     place_coarse_stride: int = S(4, "count",
         "how many steps apart a scored scan's first pass walks")
-    place_coarse_radius_ratio: float = S(12.0, "ratio",
-        "radius-to-step ratio from which a scan goes coarse first")
+    place_coarse_min_radius_steps: float = S(12.0, "steps",
+        "a scored scan does a coarse pass first when its radius is at least this many steps; below it one fine pass is cheaper")
     place_refine_spots: int = S(3, "count",
         "how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take")
     place_block_gap_step: float = S(0.05, "mm",
@@ -406,6 +406,10 @@ class Settings:
         "how often the watched files' modification times are read")
     studio_explore_fps: float = S(2.0, "per second",
         "how many times a second the Runs view redraws the latest variant of a live explore (above 0)")
+    studio_note_age_s: int = S(3600, "seconds",
+        "a note left in the studio is hidden after this long; 0 keeps it")
+    studio_notes_keep: int = S(100, "count",
+        "notes kept in a board's notes file")
     studio_cancel_grace_ms: int = S(2000, "ms",
         "a resolve asked to stop that has not stopped by then has its worker restarted")
 
@@ -452,7 +456,7 @@ RENAMED = {
     "rank_area": "rank_area_weight",
     "rank_pins": "rank_pins_weight",
     "place_coarse_steps": "place_coarse_stride",
-    "place_coarse_from": "place_coarse_radius_ratio",
+    "place_coarse_from": "place_coarse_min_radius_steps",
     "place_refine_around": "place_refine_spots",
     "place_conflict_gap": "place_conflict_reach",
     "place_via_share": "place_via_share_distance",
@@ -564,17 +568,17 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # zero scan step never moves, a zero timeout never runs. Weights are absent
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
-    "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_coarse_radius_ratio", "place_coarse_stride",
+    "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_coarse_min_radius_steps", "place_coarse_stride",
     "place_refine_spots", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
-    "studio_keep", "studio_poll_ms", "studio_explore_fps", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
+    "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
 _AT_LEAST_ZERO = frozenset((
-    "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",

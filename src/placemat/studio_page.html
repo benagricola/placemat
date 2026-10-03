@@ -364,12 +364,15 @@ svg text { user-select: none; font-family: var(--sans); }
 .cy { fill: var(--courtyard); fill-opacity: 0.05; stroke: var(--courtyard); stroke-width: 0.06; stroke-dasharray: 0.25 0.2; }
 .bd { fill: none; stroke: var(--body); stroke-width: 0.07; }
 .sk { fill: var(--silk); }
-.pad { fill: var(--pad); } .thru { fill: var(--thru); }
+/* a pad is the colour of the copper layer it is on (as KiCad draws it); a through pad has both: the front layer's fill, the back layer's rim, and its drill cut through */
+.pad { fill: var(--copper); } .pad.l-B { fill: var(--copperB); }
+.thru { fill: var(--copper); stroke: var(--copperB); stroke-width: 0.1; }
+.hole { fill: var(--substrate); stroke: var(--via); stroke-width: 0.03; pointer-events: none; }
 .trk { fill: none; stroke: var(--copper); stroke-linecap: round; }
 .trk.l-B { stroke: var(--copperB); } .trk.l-In { stroke: var(--copperIn); }
-.via { fill: var(--via); stroke: var(--substrate); }
+.via { fill: var(--via); stroke: var(--substrate); stroke-width: 0.05; }
 .vhole { fill: var(--substrate); stroke: var(--via); stroke-width: 0.04; }
-.copper, .heat, .fnds, .changes { pointer-events: none; }
+.copper, .heat, .changes { pointer-events: none; } .fnds { pointer-events: none; }
 .plane { fill: var(--plane); fill-opacity: 0.2; stroke: var(--plane); stroke-width: 0.12; }
 .fcu { fill: var(--copper); fill-opacity: 0.85; pointer-events: none; } .fcu.l-B { fill: var(--copperB); } .fcu.l-In { fill: var(--copperIn); fill-opacity: 0.45; }
 .plane.l-B { fill: var(--copperB); stroke: var(--copperB); } .plane.l-In { fill: var(--copperIn); stroke: var(--copperIn); }
@@ -393,8 +396,29 @@ svg text { user-select: none; font-family: var(--sans); }
 .fring { fill: none; stroke: var(--finding); stroke-width: 2.5px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pocket { fill: none; stroke: var(--pocket); stroke-width: 0.12; stroke-dasharray: 0.4 0.25; }
 .worst { fill: none; stroke: var(--bad); stroke-width: 2px; vector-effect: non-scaling-stroke; }
-.fmark { fill: var(--sev-warning); fill-opacity: 0.18; stroke: var(--sev-warning); stroke-width: 0.2; }
-.fmark.critical { fill: var(--sev-critical); stroke: var(--sev-critical); } .fmark.notice { fill: var(--sev-notice); stroke: var(--sev-notice); }
+/* a note's pin: its point is the tip; the head sits above it */
+.npin { cursor: pointer; }
+.npin path { fill: var(--accent); stroke: var(--surface); stroke-width: 0.15; }
+.npin circle { fill: var(--surface); }
+.npin.on path { fill: var(--sev-critical); }
+.row.note.on { background: var(--accent-soft); }
+.row.note .sb { flex: 1; min-width: 0; }
+.row.note .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row.note .l2 { overflow-wrap: anywhere; white-space: normal; }
+.row.note .nd { margin-left: auto; border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
+/* finding markers: signal colours with a white halo and a dark rim, so they read on copper, keepouts and the substrate alike */
+.fnd { --fc: #ffd400; pointer-events: auto; cursor: pointer; }
+.fnd.critical { --fc: #ff1744; } .fnd.notice { --fc: #00c2ff; }
+.fnd .halo { fill: none; stroke: #fff; stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+.fnd .stem { fill: none; stroke: #10151b; stroke-width: 2; }
+.fnd .badge { fill: var(--fc); stroke: #10151b; stroke-width: 2.2; stroke-linejoin: round; }
+.fnd .mk { fill: #10151b; stroke: #10151b; stroke-width: 2.6; stroke-linecap: round; }
+.fnd .pulse { fill: none; stroke: var(--fc); stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; animation: fpulse 2.6s ease-out infinite; }
+.fnd .inner { transform: scale(1.2); }
+.fnd.on .inner { transform: scale(1.65); filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 2px #10151b); }
+.fnd.on .badge { stroke-width: 3.2; }
+@keyframes fpulse { 0% { transform: scale(0.4); opacity: 0.9; } 70% { opacity: 0; } 100% { transform: scale(2.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .fnd .pulse { animation: none; } }
 .ko.sel, .res.sel { stroke-width: 0.35; fill-opacity: 0.35; }
 .item.modhl .cy, .item.modhov .cy { stroke: var(--accent); stroke-width: 0.25; stroke-dasharray: none; fill-opacity: 0.12; }
 .item:hover .cy { stroke: var(--accent); stroke-width: 0.2; }
@@ -440,7 +464,7 @@ svg text { user-select: none; font-family: var(--sans); }
   #side { border-left: 0; }
   body[data-nv="board"] #side, body:not([data-nv="board"]) #boardwrap { display: none; }
   body[data-nv] .tab { display: none; }
-  body[data-nv="steps"] #tab-steps, body[data-nv="findings"] #tab-findings, body[data-nv="compare"] #tab-compare, body[data-nv="runs"] #tab-runs { display: block; flex: 1 1 auto; }
+  body[data-nv="steps"] #tab-steps, body[data-nv="findings"] #tab-findings, body[data-nv="compare"] #tab-compare, body[data-nv="runs"] #tab-runs, body[data-nv="notes"] #tab-notes { display: block; flex: 1 1 auto; }
   #legend { position: absolute; left: 0; right: 0; bottom: 0; max-height: 70%; border-right: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: var(--shadow); transform: translateY(105%); transition: transform 0.2s ease; visibility: hidden; }
   #legend.open { transform: none; visibility: visible; }
   #legend .lgh { display: flex; }
@@ -481,7 +505,7 @@ svg text { user-select: none; font-family: var(--sans); }
   <div id="stats"></div>
 </header>
 <div id="menu" role="menu" hidden></div>
-<nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button><button data-nv="runs">Runs<em data-count="runs"></em></button></nav>
+<nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button><button data-nv="runs">Runs<em data-count="runs"></em></button><button data-nv="notes" hidden>Notes<em data-count="notes"></em></button></nav>
 <div id="cmdbar" hidden></div>
 <div id="toast" hidden></div>
 <div id="notice"></div>
@@ -504,11 +528,12 @@ svg text { user-select: none; font-family: var(--sans); }
     <div id="tip"></div>
   </div>
   <div id="side">
-    <div class="tabs"><button data-tab="steps" class="on">Steps<em data-count="steps"></em></button><button data-tab="findings">Findings<em data-count="findings"></em></button><button data-tab="compare">Compare<em data-count="compare"></em></button><button data-tab="runs">Runs<em data-count="runs"></em></button></div>
+    <div class="tabs"><button data-tab="steps" class="on">Steps<em data-count="steps"></em></button><button data-tab="findings">Findings<em data-count="findings"></em></button><button data-tab="compare">Compare<em data-count="compare"></em></button><button data-tab="runs">Runs<em data-count="runs"></em></button><button data-tab="notes" hidden>Notes<em data-count="notes"></em></button></div>
     <div class="tab on" id="tab-steps"></div>
     <div class="tab" id="tab-findings"></div>
     <div class="tab" id="tab-compare"></div>
     <div class="tab" id="tab-runs"></div>
+    <div class="tab" id="tab-notes"></div>
   </div>
   <div id="picker" hidden></div>
   <div id="script" role="dialog" aria-label="the layout script">
@@ -551,6 +576,7 @@ const S = {
   cmdView: null,               // a command's streamed plan shown in place of the studio's own: {id, plan, next}
   xv: null,                    // the explore being looked at: {source, id|file, start, variants, done, sel, mode, auto, drawn, thumbs, density, lastDraw}
   exploreFps: 2,
+  notes: [], noteAge: 0, noteFocus: null,    // notes left in the studio (notes.py records), their age limit in seconds, the one looked at
   work: null,                  // the resolve in progress: {t0, total, cur, replayed}, from the engine's begin notices
   scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
   runs: [], run: null, lastRun: null, openRuns: new Set(),      // recorded runs of the script, the run in progress, the one that just ended
@@ -614,6 +640,7 @@ function render(parts) {
   if (has("compare")) renderCompare();
   if (has("runs") || all) renderRuns();
   if (has("script")) renderScript();
+  if (has("notes") || all) renderNotes();
   if (has("live")) flushLive();
   if (has("legend") || has("board") || all) renderLegend();
   if (S.restore) applyRestore();
@@ -631,6 +658,7 @@ es.onopen = () => { S.status = S.status === "connecting" ? "waiting" : S.status;
 es.onerror = () => { S.status = "disconnected"; schedule("status"); };
 
 function applyHello(d) {
+  S.notes = d.notes || []; S.noteAge = d.note_age_s || 0;
   S.hello = d; S.history = d.history; S.error = d.error; S.resolving = d.resolving; S.scripts = d.scripts || [];
   if (d.now) S.skew = d.now * 1000 - Date.now();                 // the server's clock less this page's: times are the server's
   if (d.resolving && d.work) {                                   // a resolve under way when this page joined: its time is since it began
@@ -909,7 +937,8 @@ function drawWorkMark() {
   for (const panel of B.svg.querySelectorAll(".panel")) panel.insertAdjacentHTML("beforeend", g);
 }
 function renderCounts() {
-  const p = plan(), c = {runs: [...S.cmds.values()].filter(x => x.state === "running").length, steps: replaySteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0};
+  const p = plan(), c = {runs: [...S.cmds.values()].filter(x => x.state === "running").length, steps: replaySteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0, notes: liveNotes().length};
+  document.querySelectorAll('[data-tab="notes"], [data-nv="notes"]').forEach(b => { b.hidden = !c.notes; });
   document.querySelectorAll("[data-count]").forEach(e => { const v = c[e.dataset.count]; e.textContent = v || ""; e.style.display = v ? "" : "none"; });
 }
 
@@ -962,15 +991,18 @@ function itemSVG(it, f, pn, p, n) {
   let any = false;
   o.push('<g class="' + cls + '" data-key="' + esc(it.key) + '" data-s="' + n + '">');
   for (const m of it.members) {
-    const ms = [];
+    const ms = [], holes = [];
     for (const s of m.shapes) {
       if (!s.faces.includes(f) && !(s.kind === "copper" && !s.faces.length)) continue;           // an inner layer's copper shows on both faces
       if (s.kind === "courtyard") ms.push('<polygon class="cy" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "body") ms.push('<polygon class="bd" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "silk") ms.push('<polygon class="sk" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "copper") { const l = (s.layers || [])[0] || ""; ms.push('<polygon class="fcu ' + layerClass(l) + '" data-l="' + esc(l) + '" points="' + polyPts(s.poly) + '"/>'); }
-      else if (s.kind === "pad" || s.kind === "through") ms.push('<polygon class="' + (s.kind === "pad" ? "pad" : "thru") + '" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>');
+      else if (s.kind === "pad") { const l = (s.layers || [])[0] || (s.faces[0] === "back" ? "B.Cu" : "F.Cu"); ms.push('<polygon class="pad ' + layerClass(l) + '" data-l="' + esc(l) + '" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>'); }
+      else if (s.kind === "through") ms.push('<polygon class="thru" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>');
+      else if (s.kind === "hole" || s.kind === "npth") holes.push('<polygon class="hole" points="' + polyPts(s.poly) + '"/>');
     }
+    ms.push(...holes);
     const c = m.shapes.filter(s => s.kind === "courtyard" && s.faces.includes(f));
     const b = bboxOf((c.length ? c : m.shapes.filter(s => s.faces.includes(f))).map(s => s.poly));
     if (b) { const size = labelSize(m.ref, b[2] - b[0]); if (size) ms.push(textAt(pn, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2, m.ref, size, "ref")); }
@@ -1018,6 +1050,18 @@ function findingPlaces(p) {
   fplaceCache = {fs, n: fs.length, its, m: its.length, v};
   return v;
 }
+// A finding's marker: a badge on a short stem, its tip at the point, at one size on the screen whatever the zoom (--u is the board units
+// to a pixel, set on the drawing when the view changes). Its shape (a triangle with !, a circle with i), its signal colour, its white
+// halo and its slow pulse are not the shape or colour of anything in the board; the focused finding's is larger and ringed.
+const FND_GLYPH = {
+  critical: '<path class="halo" d="M0 0V-9M0 -32L13 -9H-13Z"/><path class="stem" d="M0 0V-9"/><circle class="pulse" r="9"/><path class="badge" d="M0 -32L13 -9H-13Z"/><path class="mk" d="M0 -26V-19"/><circle class="mk" cy="-14.5" r="1.5"/>',
+  warning: '<path class="halo" d="M0 0V-9M0 -32L13 -9H-13Z"/><path class="stem" d="M0 0V-9"/><circle class="pulse" r="9"/><path class="badge" d="M0 -32L13 -9H-13Z"/><path class="mk" d="M0 -26V-19"/><circle class="mk" cy="-14.5" r="1.5"/>',
+  notice: '<path class="halo" d="M0 0V-9"/><circle class="halo" cy="-19" r="10"/><path class="stem" d="M0 0V-9"/><circle class="pulse" r="9"/><circle class="badge" cy="-19" r="10"/><path class="mk" d="M0 -20V-14"/><circle class="mk" cy="-25" r="1.5"/>',
+};
+function findingMarker(fd, i, at, pn) {
+  const sev = sevOf(fd), sx = pn.mirror ? "calc(var(--u) * -1)" : "var(--u)";
+  return '<g class="fnd ' + sev + (S.focusIdx === i ? " on" : "") + '" data-fi="' + i + '" style="transform: translate(' + num(at[0]) + "px, " + num(at[1]) + "px) scale(" + sx + ', var(--u))"><title>' + esc(fd.text) + '</title><g class="inner">' + FND_GLYPH[sev] + "</g></g>";
+}
 function panelSVG(p, pn, first, order, diffLayer) {
   const f = pn.face, o = [];
   const tr = pn.mirror ? "translate(" + num(pn.dx + lay.L + lay.R) + " 0) scale(-1 1)" : "translate(" + num(pn.dx) + " 0)";
@@ -1044,10 +1088,11 @@ function panelSVG(p, pn, first, order, diffLayer) {
     o.push('<polygon class="res' + (r.why === selR ? " sel" : "") + '" data-res="' + escRaw(r.why) + '"' + (ko ? ' data-ko-of="' + escRaw(ko) + '"' : "") + ' points="' + polyPts(r.poly) + '"/>');
   }
   const mapped = S.opStep && S.opStep.size ? i => S.opStep.has(i) ? S.opStep.get(i) : S.lastStep : null;     // copper no step laid shows with the last
-  o.push(copperSVG(p.copper || [], f, pn, "", mapped));
+  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "novia"));
   o.push('<g class="items">');
   for (const s of order) { const it = S.itemAt.get(s.item); if (it) o.push(itemSVG(it, f, pn, p, s.n)); }
   o.push("</g>");
+  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "via"));
   o.push('<g class="links">');
   (p.links || []).forEach((l, i) => {
     const x1 = l.pa[0], y1 = l.pa[1], x2 = l.pb[0], y2 = l.pb[1];
@@ -1064,8 +1109,9 @@ function panelSVG(p, pn, first, order, diffLayer) {
   o.push("</g>");
   o.push('<g class="fnds">');
   const places = findingPlaces(p);
-  (p.findings || []).forEach((fd, i) => { const at = places[i]; if (at) o.push('<circle class="fmark ' + sevOf(fd) + '" cx="' + num(at[0]) + '" cy="' + num(at[1]) + '" r="0.9"/>'); });
+  (p.findings || []).forEach((fd, i) => { const at = places[i]; if (at) o.push(findingMarker(fd, i, at, pn)); });
   o.push("</g>");
+  o.push('<g class="npins">' + notePins(p) + "</g>");
   o.push(diffLayer(f, pn));
   o.push("</g>");
   return o.join("");
@@ -1078,11 +1124,12 @@ function silkText(c) {
   const tf = "translate(" + num(c.at[0]) + " " + num(c.at[1]) + ")" + (c.rotation ? " rotate(" + num(-c.rotation) + ")" : "") + (c.mirrored ? " scale(-1 1)" : "");
   return '<text class="silktxt" transform="' + tf + '" font-size="' + num(Math.max(c.size || 0.5, 0.3)) + '" text-anchor="' + anchor + '" dominant-baseline="' + base + '">' + esc(c.text) + "</text>";
 }
-function copperSVG(ops, f, pn, mode, stepOf) {
-  const o = ['<g class="copper">'];
+function copperSVG(ops, f, pn, mode, stepOf, part) {      // part: "novia" (before the parts) or "via" (above them: a via in a pad shows on it)
+  const o = ['<g class="copper' + (part === "via" ? " vias" : "") + '">'];
   const cls = mode === "added" ? " d-cadd" : mode === "removed" ? " d-cdel" : "";
   for (let i = 0; i < ops.length; i++) {
     const c = ops[i], sn = stepOf ? stepOf(i) : null, ds = sn != null && sn >= 0 ? ' data-s="' + sn + '"' : "";   // the replay step that laid it
+    if (part && (c.t === "via") !== (part === "via")) continue;
     if (c.t === "track" && (c.face === f || c.face === "inner")) {
       const op = c.face === "inner" ? "0.6" : "1", at = ds + ' data-l="' + esc(c.layer) + '" stroke-width="' + c.width + '" stroke-opacity="' + op + '"';
       if (c.arc) o.push('<path class="trk ' + layerClass(c.layer) + cls + '" d="M ' + c.a[0] + " " + c.a[1] + " A " + c.arc[0] + " " + c.arc[0] + " 0 " + c.arc[1] + " " + c.arc[2] + " " + c.b[0] + " " + c.b[1] + '" fill="none"' + at + "/>");
@@ -1258,7 +1305,7 @@ let infoHide = () => {};
 
 // ---------------------------------------------------------------- the legend: the colour key and a switch for each kind of thing
 // What is switched off is a set of ids; one stylesheet rule hides each, so a switch redraws nothing.
-const OFFCSS = {cy: ".cy", bd: ".bd, .sk", pad: ".pad, .thru", labels: ".ref", silk: ".silktxt", via: ".viag", ko: ".ko", res: ".res", findings: ".fnds", heat: ".heat, .worst", changes: ".changes"};
+const OFFCSS = {notes: ".npins", cy: ".cy", bd: ".bd, .sk", pad: ".pad, .thru", labels: ".ref", silk: ".silktxt", via: ".viag", ko: ".ko", res: ".res", findings: ".fnds", heat: ".heat, .worst", changes: ".changes"};
 function visRules(off) {
   const q = s => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const out = [];
@@ -1333,7 +1380,7 @@ function setExp(key, on) { legendPref[key] = on; try { localStorage.setItem("pla
 const SW = {   // the legend's swatches draw with the board's own classes, so the key is the colours the board uses
   cy: '<rect x="3" y="2" width="20" height="10" class="cy" style="stroke-width:1.4;stroke-dasharray:3 2;fill-opacity:0.18"/>',
   bd: '<rect x="3" y="2" width="20" height="10" class="bd" style="stroke-width:1.4"/>',
-  pad: '<rect x="4" y="2" width="8" height="10" class="pad"/><rect x="14" y="2" width="8" height="10" class="pad"/>',
+  pad: '<rect x="4" y="2" width="8" height="10" class="pad l-F"/><rect x="14" y="2" width="8" height="10" class="pad l-B"/>',
   labels: '<text x="13" y="11" text-anchor="middle" class="ref" style="font-size:10px;stroke:none">R12</text>',
   silk: '<text x="13" y="11" text-anchor="middle" class="silktxt" style="font-size:10px">TXT</text>',
   track: cls => '<line x1="2" y1="7" x2="24" y2="7" class="trk ' + cls + '" style="stroke-width:3.5"/>',
@@ -1342,7 +1389,8 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
     '<circle cx="2.5" cy="7" r="2.2" class="lkdot ' + cls + '"/><path d="M 17 3 L 24 7 L 17 11 z" class="arrowhead ' + cls + '"/>',
   ko: '<rect x="3" y="2" width="20" height="10" class="ko" style="stroke-width:1.2;fill-opacity:0.3"/>',
   res: '<rect x="3" y="2" width="20" height="10" class="res" style="stroke-width:1.2;stroke-dasharray:3 2;fill-opacity:0.25"/>',
-  findings: '<circle cx="13" cy="7" r="5.5" class="fmark" style="stroke-width:1.6"/>',
+  findings: '<g class="fnd warning" style="transform: translate(13px, 13px) scale(0.4)"><g class="inner">' + FND_GLYPH.warning.replace('<circle class="pulse" r="9"/>', "") + "</g></g>",
+  note: '<g class="npin" transform="translate(13 12) scale(4)"><path d="M0 0 L-0.8 -1.8 A1 1 0 1 1 0.8 -1.8 Z"/><circle cx="0" cy="-2.3" r="0.35"/></g>',
   zone: cls => '<rect x="3" y="2" width="20" height="10" class="plane ' + cls + '" style="stroke-width:1.2"/>',
   heat: '<rect x="3" y="2" width="5" height="10" fill="rgb(59,76,192)"/><rect x="8" y="2" width="5" height="10" fill="rgb(53,176,171)"/><rect x="13" y="2" width="5" height="10" fill="rgb(253,231,37)"/><rect x="18" y="2" width="5" height="10" fill="rgb(249,142,9)"/>',
   changes: '<line x1="2" y1="11" x2="19" y2="3" style="stroke:var(--accent);stroke-width:1.8"/><path d="M 16 1 L 24 2 L 19 8 z" class="arrowhead" style="fill:var(--accent)"/>',
@@ -1381,7 +1429,7 @@ function legendHTML(p) {
   if (isExp("ko", kos.length)) for (const k of kos) o.push(row("ko:" + k.name, SW.ko, k.name, null, {sub: true, title: k.why}));
   o.push(head("res", SW.res, "reserved areas", resNames.length));
   if (isExp("res", resNames.length)) for (const w of resNames) o.push(row("res:" + w, SW.res, w, null, {sub: true}));
-  o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", findingPlaces(p).filter(Boolean).length, {title: findingPlaces(p).filter(Boolean).length + " of " + ((p && p.findings) || []).length + " findings are placed on the board: where they say, else at the pad or part they name. The rest name no place."}), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
+  o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", findingPlaces(p).filter(Boolean).length, {title: findingPlaces(p).filter(Boolean).length + " of " + ((p && p.findings) || []).length + " findings are placed on the board: where they say, else at the pad or part they name. The rest name no place."}), row("notes", SW.note, "notes", liveNotes().length), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
   return o.join("");
 }
 function renderLegend() { seedRegions(plan()); $("#legend").innerHTML = legendHTML(plan()); }
@@ -1446,6 +1494,7 @@ function applyView() {
   S.vb = vb; S.px = r.width;
   const box = [vb.x, vb.y, vb.w, vb.h].map(num).join(" ");
   svg.setAttribute("viewBox", box);
+  if (svg.style && svg.style.setProperty) svg.style.setProperty("--u", num(vb.w / r.width));     // board units to a screen pixel: what a marker of fixed size is scaled by
   $("#grid").setAttribute("viewBox", box);
   svg.classList.toggle("lowzoom", r.width / vb.w < 10);
   drawGrid(vb, r.width);
@@ -1671,6 +1720,10 @@ function hideTip() { tipKey = null; $("#tip").style.display = "none"; setHover([
 function pickAt(x, y) {                      // a tap or a click on the board: a part, a region, a link, or nothing
   const t = document.elementFromPoint(x, y);
   const m = t && t.closest(".mem"), it = t && t.closest(".item");
+  const fm = t && t.closest(".fnd");
+  if (fm) { const f = (plan().findings || [])[+fm.dataset.fi]; if (f) { focusFinding(f); return; } }
+  const pin = t && t.closest(".npin");
+  if (pin) { const n = S.notes.find(x => x.id === pin.dataset.note); if (n) { focusNote(n); return; } }
   if (it) { selectItem(it.dataset.key, {ref: m ? m.dataset.ref : null}); return; }
   const lk = t && t.closest(".lkg");
   if (lk) { const p = plan(), ref = lk.dataset.a, owner = itemsOf(p).find(i => i.members.some(mm => mm.ref === ref)); if (owner) { selectItem(owner.key, {ref}); return; } }
@@ -1894,13 +1947,25 @@ function linkRows(p, refs, all) {
 // What a placed item's note says, as card sections: its rank and seeds (rows of the Placement section), and why it
 // moved, the pushes on it, its vias and whatever else.
 const noteRows = np => [...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.seeded.length ? '<span class="pills">' + np.seeded.map(n => pill(n, "net")).join("") + "</span>" : ""],
-  ["on the line", np.line ? esc(np.line.axis + " = " + np.line.at + " mm") : ""],
-  ["slid", np.slid ? val(np.slid.mm + " mm", "warn") + " from its slot" + (np.slid.why ? ' <span class="dim">' + esc(np.slid.why) + "</span>" : "") : ""],
-  ["stopped short", np.stopped ? val(np.stopped.mm + " mm", "warn") + " before the " + esc(np.stopped.side) + " end" : ""], ["because", np.stopped ? esc(np.stopped.why) : ""]];
+  ["on the line", np.line ? esc(np.line.axis + " = " + np.line.at + " mm") : ""]];
+// "Why it moved": the move and what caused it, together. A searched part that did not sit at its hint was slid along its row, stopped short
+// of an end, or moved off the hint by a refusal; the engine writes the cause in the step's note. A move with no cause in the note says so.
+// TEMPORARY: the cause is read out of the note's sentences (noteParts); the structured facts on a step replace it.
+const NO_CAUSE = '<span class="dim">no cause recorded</span>';
+function movedRows(np, movedMm) {
+  if (np.stopped || np.slid) {
+    const why = (np.stopped && np.stopped.why) || (np.slid && np.slid.why);
+    return [...(np.slid ? [["slid", val(np.slid.mm + " mm", "warn") + " from its slot"]] : []),
+      ...(np.stopped ? [["stopped short", val(np.stopped.mm + " mm", "warn") + " before the " + esc(np.stopped.side) + " end"]] : []), ["because", why ? esc(why) : NO_CAUSE]];
+  }
+  const mm = np.moved ? np.moved.mm : movedMm;
+  if (!mm) return [];
+  return [["moved", val(mm + " mm", "warn") + " off the hint"], ["because", np.moved && np.moved.why ? esc(np.moved.why) : NO_CAUSE]];
+}
 function noteExtra(np, movedMm, why, key) {
   if (np.unplaced) return unplacedBlock(unplacedParts(np.unplaced, unplacedFindingOf(plan(), key)));
-  const moved = np.moved || (movedMm ? {mm: movedMm, why: ""} : null);
-  return sect("Why it moved", moved ? '<div class="facts">' + val(moved.mm + " mm", "warn") + " off the hint</div>" + (moved.why ? '<div class="note">' + esc(moved.why) + "</div>" : "") : "") +
+  const mr = movedRows(np, movedMm);
+  return sect("Why it moved", mr.length ? kvl(mr) : "") +
     sect("Pocket", np.pocket ? kvl([["size", esc(np.pocket.w + " x " + np.pocket.h + " mm")], ["at", esc("(" + np.pocket.x + ", " + np.pocket.y + ") mm")], ["because", esc(np.pocket.why)]]) : "") +
     sect("Pushes", listOf(np.push.map(pushLine))) + sect("Vias", listOf(joinVias(np.vias).map(viaLine))) +
     sect("Notes", listOf(np.other.map(esc).concat(why ? ['<span class="dim">' + esc(why) + "</span>"] : [])));
@@ -2450,6 +2515,86 @@ function renderCmdBar() {
   el.innerHTML = '<span>' + esc(V ? "Viewing " + c.command + " of " + (baseName(c.script) || "a board") + ", pid " + c.pid : "Viewing a recorded explore") + '</span><button id="cmdclose">Back to the studio\'s own view</button>';
   $("#cmdclose").onclick = closeCmd;
 }
+
+// ---------------------------------------------------------------- notes
+// A note (notes.py) is a record the studio sends: {id, at, from, script, description, target: null | {kind: "point", x, y} |
+// {kind: "item", name} | {kind: "pad", ref, pad}}. It is a pin where it points (an item or a pad is looked up in the plan each time it is
+// drawn, so the pin follows it when it moves), a line in the Notes list, and a toast when it arrives. A point is a place to look at,
+// never a placement. Dismissing a note hides it in this browser only; a note also expires after [studio] note_age_s.
+let noteDismissed = (() => { try { return new Set(JSON.parse(localStorage.getItem("placemat.notesDismissed") || "[]")); } catch (e) { return new Set(); } })();
+function saveDismissed() { try { localStorage.setItem("placemat.notesDismissed", JSON.stringify([...noteDismissed].slice(-300))); } catch (e) {} }
+const noteNow = () => Date.now() + (S.skew || 0);
+const liveNotes = () => S.notes.filter(n => !noteDismissed.has(n.id) && (!S.noteAge || noteNow() - n.at * 1000 <= S.noteAge * 1000));
+function notePlace(p, n) {
+  const t = n.target;
+  if (!t) return null;
+  const its = itemsOf(p), mid = b => b ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : null;
+  if (t.kind === "point") return [t.x, t.y];
+  if (t.kind === "item") {
+    const it = its.find(i => i.key === t.name);
+    if (it) return mid(itemBox(it));
+    const o = its.find(i => i.members.some(m => m.ref === t.name));
+    return o ? mid(itemBox(o, t.name)) : null;
+  }
+  if (t.kind === "pad") {
+    for (const it of its) for (const m of it.members) if (m.ref === t.ref) {
+      const s = m.shapes.find(x => (x.kind === "pad" || x.kind === "through") && String(x.number) === String(t.pad));
+      if (s) return mid(bboxOf([s.poly]));
+    }
+  }
+  return null;
+}
+function notePins(p) {
+  return liveNotes().map(n => {
+    const at = notePlace(p, n);
+    return at ? '<g class="npin' + (S.noteFocus === n.id ? " on" : "") + '" data-note="' + esc(n.id) + '" transform="translate(' + num(at[0]) + " " + num(at[1]) + ')"><title>' + esc((n.from ? n.from + ": " : "") + n.description) +
+      '</title><path d="M0 0 L-0.8 -1.8 A1 1 0 1 1 0.8 -1.8 Z"/><circle cx="0" cy="-2.3" r="0.35"/></g>' : "";
+  }).join("");
+}
+function noteAgo(n) {
+  const s = Math.max(0, Math.round((noteNow() - n.at * 1000) / 1000));
+  return s < 60 ? s + " s ago" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago";
+}
+function noteWhere(p, n) {
+  const t = n.target;
+  if (!t) return '<span class="dim">no place named</span>';
+  const at = notePlace(p, n), what = t.kind === "point" ? "" : pill(t.kind, "") + " " + esc(t.kind === "item" ? t.name : t.ref + "." + t.pad);
+  return t.kind === "point" ? esc("at (" + t.x + ", " + t.y + ") mm") : what + (at ? "" : ' <span class="dim">not on the board</span>');
+}
+function renderNotes() {
+  const el = $("#tab-notes"), p = plan(), ns = liveNotes();
+  if (!el) return;
+  el.innerHTML = '<h3>Notes <span class="c">' + ns.length + "</span></h3>" + (ns.length ? '<div class="pad8"><button class="nd" data-notedismiss="*">Dismiss all</button></div>' : "") +
+    (ns.length ? ns.slice().reverse().map(n => '<div class="row note' + (S.noteFocus === n.id ? " on" : "") + '" data-note="' + esc(n.id) + '"><div class="sb"><div class="l1"><b>' + esc(n.from || "a note") + '</b><span class="dim">' + esc(noteAgo(n)) +
+      '</span><button class="nd" data-notedismiss="' + esc(n.id) + '">Dismiss</button></div><div class="l2">' + esc(n.description) + '</div><div class="l2">' + noteWhere(p, n) + "</div></div></div>").join("")
+      : '<div class="pad8 dim">No notes. An agent leaves one with <code>placemat studio note "..."</code>.</div>');
+  el.onclick = e => {
+    const d = e.target.closest("[data-notedismiss]");
+    if (d) { e.stopPropagation(); dismissNote(d.dataset.notedismiss); return; }
+    const r = e.target.closest("[data-note]"); if (r) { const n = S.notes.find(x => x.id === r.dataset.note); if (n) focusNote(n); }
+  };
+}
+function dismissNote(id) {
+  if (id === "*") liveNotes().forEach(n => noteDismissed.add(n.id)); else noteDismissed.add(id);
+  saveDismissed(); schedule("notes", "board", "counts");
+}
+// Looking at a note: the board goes to the place, and an item or a pad it names is selected.
+function focusNote(n) {
+  S.noteFocus = n.id;
+  const p = plan(), at = notePlace(p, n), t = n.target;
+  if (t && t.kind === "item" && itemMap(p).has(t.name)) selectItem(t.name, {zoom: true});
+  else if (t && t.kind === "pad") { const o = itemsOf(p).find(i => i.members.some(m => m.ref === t.ref)); if (o) selectItem(o.key, {ref: t.ref, zoom: true}); }
+  else if (at) zoomTo([at[0] - 4, at[1] - 4, at[0] + 4, at[1] + 4]);
+  if (narrow()) showNarrow("board");
+  schedule("notes", "board");
+}
+on("note", n => {
+  if (S.notes.some(x => x.id === n.id)) return;
+  S.notes.push(n);
+  if (liveNotes().some(x => x.id === n.id)) toast((n.from ? n.from + ": " : "note: ") + n.description, () => focusNote(n));
+  schedule("notes", "board", "counts");
+});
+setInterval(() => { if (S.notes.length) schedule("notes", "board", "counts"); }, 30000);
 
 // ---------------------------------------------------------------- the runs view
 const sinceMs = at => Date.now() + (S.skew || 0) - at * 1000;

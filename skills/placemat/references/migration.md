@@ -9,27 +9,17 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- **Studio board drawing.** A finding is a badge on a stem at one screen size (a triangle with ! for critical and warning, a circle with i
+  for notice) with a white halo, a dark rim and a slow pulse, larger when it is the one looked at; tapping it opens the finding.
+  Vias are drawn above the parts with their drill cut through (they were hidden under pads, and ringed white at high zoom), a
+  through pad shows both layers' colours and its drill, and an SMD pad is the colour of its copper layer and goes with that layer's row in
+  the legend. "Why it moved" in a card says what moved the part (the slide's stop, a refusal, a score gain) beside the distance, and
+  "no cause recorded" where the step's note has none. The plan JSON gives pads their `layers` and adds `hole` and `npth` shapes.
 - **Every setting is documented as data, and `placemat settings --example` writes a complete `placemat.toml`.** Each
   setting carries its unit and its meaning in `settings.py` (`Settings` field metadata, `settings.meta`,
   `settings.SECTIONS`); the api.md table is generated from them (`placemat settings --markdown`) and a test checks it.
   `placemat settings --example [--output FILE]` writes every section and setting with its default, unit and meaning,
   grouped by section, as valid TOML that loads to the defaults.
-
-- **An explore keeps its curve and says when the best was found.** Every finished variant is on the curve: its index
-  (the order it finished in, the plain placement 0), its seed, the seconds since the explore began (over every
-  session of a resumed one) and its score, with `best` set when it beat every variant before it. `metrics.explore`
-  in `run.json` and the explore record in `.placemat/views/explore/` have `curve`, `found` (`{i, seed, t, score,
-  of_variants, of_seconds}`: the last improvement) and `ended`; the channel's `variant` events carry `i`, `t`, `score`
-  and `best`, and `explore_done` carries `found` and `ended`. The checkpoint is deleted on completion, the record is
-  not. The console line says `best found at variant 7 of 34, 5 min 12 s in (of 43 min)`. A curve past 2000 variants is
-  kept as every improvement and an even sample.
-- **`[explore]` stopping rules**, all off by default: `stall_variants` (stop after that many variants without an
-  improvement), `stall_seconds` (or that many seconds since the last one), `stop_hard_clear` (or when a variant has
-  none of the hard terms the plain placement had). `ended.rule` says which ended it: `budget`, `stall_count`,
-  `stall_time`, `hard_clear` or `signal`. An explore ended by a rule is complete, not stopped: `--accept` applies and
-  its checkpoint is cleared as for a finished one. The hard terms are parts left unplaced and the findings whose kind
-  is critical by default that a plan's measures count (`fixed`, `copper`, `escape_walled`; `score.hard_clear`).
-  The three settings are not part of a checkpoint's digest.
 
 ### Changed
 
@@ -42,7 +32,7 @@ section for each hand-written pattern a newer form replaces.
 | `rank.area` | `rank.area_weight` |
 | `rank.pins` | `rank.pins_weight` |
 | `place.coarse_steps` | `place.coarse_stride` |
-| `place.coarse_from` | `place.coarse_radius_ratio` |
+| `place.coarse_from` | `place.coarse_min_radius_steps` |
 | `place.refine_around` | `place.refine_spots` |
 | `place.conflict_gap` | `place.conflict_reach` |
 | `place.via_share` | `place.via_share_distance` |
@@ -69,6 +59,33 @@ section for each hand-written pattern a newer form replaces.
 | `score.priority_high` | `score.unplaced_high` |
 | `score.priority_default` | `score.unplaced_default` |
 | `score.priority_low` | `score.unplaced_low` |
+
+## To 0.89.0
+
+### New
+
+- **An explore keeps its curve and says when the best was found.** Every finished variant is on the curve: its index
+  (the order it finished in, the plain placement 0), its seed, the seconds since the explore began (over every
+  session of a resumed one) and its score, with `best` set when it beat every variant before it. `metrics.explore`
+  in `run.json` and the explore record in `.placemat/views/explore/` have `curve`, `found` (`{i, seed, t, score,
+  of_variants, of_seconds}`: the last improvement) and `ended`; the channel's `variant` events carry `i`, `t`, `score`
+  and `best`, and `explore_done` carries `found` and `ended`. The checkpoint is deleted on completion, the record is
+  not. The console line says `best found at variant 7 of 34, 5 min 12 s in (of 43 min)`. A curve past 2000 variants is
+  kept as every improvement and an even sample.
+- **`[explore]` stopping rules**, all off by default: `stall_variants` (stop after that many variants without an
+  improvement), `stall_seconds` (or that many seconds since the last one), `stop_hard_clear` (or when a variant has
+  none of the hard terms the plain placement had). `ended.rule` says which ended it: `budget`, `stall_count`,
+  `stall_time`, `hard_clear` or `signal`. An explore ended by a rule is complete, not stopped: `--accept` applies and
+  its checkpoint is cleared as for a finished one. The hard terms are parts left unplaced and the findings whose kind
+  is critical by default that a plan's measures count (`fixed`, `copper`, `escape_walled`; `score.hard_clear`).
+  The three settings are not part of a checkpoint's digest.
+
+- **`placemat studio note "<text>" [--at X,Y | --item NAME | --pad REF.N]`** leaves a note where the user is looking at the studio:
+  a record appended to `.placemat/views/studio/notes.jsonl`, shown on the page as a pin that follows its item or pad, a line in a
+  Notes list (dismissable per browser), and a toast. Settings `[studio] note_age_s` (3600; 0 keeps notes) and `notes_keep` (100),
+  neither part of a run's id. A point is a place to look at, never a placement. Scripts change nothing.
+
+### Changed
 
 - **`board.size(...)` is refused.** It was renamed `board.rect(...)` in 0.85.0 and has given a `setup` notice since;
   now it raises `AttributeError: board.size(...) is board.rect(...) since 0.85.0`. Rename the call, arguments

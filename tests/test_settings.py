@@ -11,7 +11,7 @@ def test_defaults_are_todays_values():
     s = S.Settings()
     assert s.rank_area_weight == 0.7 and s.rank_pins_weight == 0.3
     assert s.place_step == 0.2 and s.place_radius == 3.0
-    assert s.place_coarse_stride == 4 and s.place_coarse_radius_ratio == 12.0
+    assert s.place_coarse_stride == 4 and s.place_coarse_min_radius_steps == 12.0
     assert s.place_refine_spots == 3
     assert s.place_block_gap_step == 0.05 and s.place_block_gap_reach == 2.0
     assert s.place_courtyard_touch == 0.0 and s.place_conflict_reach == 1.0
