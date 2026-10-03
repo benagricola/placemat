@@ -156,6 +156,14 @@ class UndoRefused(SuggestionError):
     """The file is not as the apply left it, so putting it back would undo someone else's change as well."""
 
 
+class NothingToRedo(SuggestionError):
+    """The last thing in the log is not an undo: there is nothing undone to make again."""
+
+
+class RedoRefused(SuggestionError):
+    """A file is not as it was before the undone apply, so making that apply again would write over someone else's change."""
+
+
 # ------------------------------------------------------------------ the cases
 CASES: dict = {}
 """{FindingCause: builder}: a builder takes the facts the raising site measured and returns the suggestions, best first,
@@ -369,17 +377,21 @@ def flatten(findings) -> list:
 # ------------------------------------------------------------------ applying
 @dataclass
 class FileChange:
+    """One file's text before and after; None for a side where the file does not exist (a created file has no `before`,
+    a removed one no `after`)."""
     file: str
-    before: str
-    after: str
+    before: str | None
+    after: str | None
 
     @property
     def diff(self) -> str:
-        return "".join(difflib.unified_diff(self.before.splitlines(keepends=True), self.after.splitlines(keepends=True),
-                                            "a/" + self.file, "b/" + self.file))
+        return "".join(difflib.unified_diff((self.before or "").splitlines(keepends=True),
+                                            (self.after or "").splitlines(keepends=True),
+                                            "a/" + self.file if self.before is not None else "/dev/null",
+                                            "b/" + self.file if self.after is not None else "/dev/null"))
 
     def _ops(self):
-        a, b = self.before.splitlines(), self.after.splitlines()
+        a, b = (self.before or "").splitlines(), (self.after or "").splitlines()
         return [op for op in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if op[0] != "equal"]
 
     @property
@@ -419,6 +431,7 @@ def _read(path: str) -> str:
 def _write_atomic(path: str, text: str) -> None:
     """The file's new text, written to a temporary file beside it and moved over it, keeping its mode."""
     p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=p.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
@@ -442,27 +455,42 @@ def _inside(root, path) -> bool:
         return False
 
 
+def _read_or_none(path):
+    try:
+        return _read(path)
+    except OSError:
+        return None
+
+
 def apply_suggestion(suggestions, id: str, dry_run: bool = False, *, root=None, log=None, now=None) -> Applied:
     """Apply the suggestion `id` of `suggestions` to the files it edits, or, with `dry_run`, work out what that would
-    write and write nothing. Every file the edit writes must be as the plan saw it (its digest): if one has changed
-    nothing is written (StaleSuggestion). The files are written atomically; the apply is appended to `log`
-    (`.placemat/applied.jsonl`), and may be undone by `undo_last`. A write needs `root` (only files under it are
-    written) and `log`. Errors are SuggestionErrors: UnknownSuggestion, StaleSuggestion, EditRefused."""
-    from . import script_edit
+    write and write nothing: `apply_edits` on its edits and digests. Errors are SuggestionErrors: UnknownSuggestion,
+    StaleSuggestion, EditRefused."""
     s = find(suggestions, id)
+    return apply_edits(s.edits, s.digests, dry_run, root=root, log=log, now=now, label=s.text, source="suggestion",
+                       id=s.id)
+
+
+def apply_edits(edits, digests=None, dry_run: bool = False, *, root=None, log=None, now=None, label: str = "",
+                source: str = "", id: str = "edits") -> Applied:
+    """Make `edits` together (one atomic write of every file, one entry in the log, one undo), or, with `dry_run`, work
+    out what that would write and write nothing. Every file in `digests` ({path: digest of its text at the plan, "" for a
+    file that is not there}) must be as the plan saw it: if one has changed nothing is written (StaleSuggestion). The
+    files are written atomically; the apply is appended to `log` (`.placemat/applied.jsonl`) with `label` as its text and
+    `source` (who asked), and may be undone by `undo_last`. A write needs `root` (only files under it are written) and
+    `log`. A file the edits create has no `before`."""
+    from . import script_edit
     if not dry_run and (root is None or log is None):
-        raise ValueError("applying a suggestion needs the project root it may write under and the log to record it in")
+        raise ValueError("applying edits needs the project root they may write under and the log to record them in")
     stale = []
-    for path, want in s.digests.items():
-        try:
-            if script_edit.digest(_read(path)) != want:
-                stale.append(path)
-        except OSError:
+    for path, want in (digests or {}).items():
+        now_text = _read_or_none(path)
+        if (now_text is None) != (not want) or (now_text is not None and script_edit.digest(now_text) != want):
             stale.append(path)
     if stale:
         raise StaleSuggestion(stale)
     try:
-        changed = script_edit.apply_edits(s.edits, _read)
+        changed = script_edit.apply_edits(edits, _read)
     except script_edit.StaleEdit as e:
         raise StaleSuggestion(e.files) from None
     except script_edit.EditRefused as e:
@@ -470,28 +498,46 @@ def apply_suggestion(suggestions, id: str, dry_run: bool = False, *, root=None, 
     except OSError as e:
         raise EditRefused("cannot read %s" % (e.filename or e)) from None
     files = {p: FileChange(p, before, after) for p, (before, after) in changed.items()}
-    result = Applied(s.id, s.text, files, dry_run)
+    result = Applied(id, label, files, dry_run)
     if dry_run:
         return result
     outside = [p for p in files if not _inside(root, p)]
     if outside:
-        raise EditRefused("%s is outside the project, which a suggestion does not write" % ", ".join(outside))
+        raise EditRefused("%s is outside the project, which an edit does not write" % ", ".join(outside))
     _write_all(files)
-    _append(log, {"op": "apply", "id": s.id, "text": s.text, "at": _stamp(now),
-                  "files": [{"file": p, "before": c.before, "after": c.after} for p, c in files.items()]})
+    _append(log, _entry("apply", id, label, source, files, now))
     return result
+
+
+def _entry(op: str, id, text, source, files: dict, now, **more) -> dict:
+    out = {"op": op, "id": id, "text": text, "at": _stamp(now)}
+    if source:
+        out["source"] = source
+    out.update(more)
+    out["files"] = [{"file": p, "before": c.before, "after": c.after} for p, c in files.items()]
+    return out
+
+
+def _put(path: str, text) -> None:
+    if text is None:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+    else:
+        _write_atomic(path, text)
 
 
 def _write_all(files: dict) -> None:
     done = []
     try:
         for p, c in files.items():
-            _write_atomic(p, c.after)
+            _put(p, c.after)
             done.append(p)
     except BaseException:
         for p in done:                  # a later file failed: the earlier ones go back
             try:
-                _write_atomic(p, files[p].before)
+                _put(p, files[p].before)
             except OSError:
                 pass
         raise
@@ -508,20 +554,28 @@ def _append(log, entry: dict) -> None:
         f.write(json.dumps(entry) + "\n")
 
 
-def applied_entries(log) -> list:
-    """The applied log as [{"seq", "id", "text", "at", "files", "undone"}], oldest first: what the studio's history
-    lists as applied from a suggestion."""
+def _log_lines(log) -> list:
+    """[(seq, entry)] of the log, oldest first; the line number is the seq, a line that is not JSON is skipped."""
     path = Path(log)
     if not path.exists():
         return []
-    entries, undone = [], set()
+    out = []
     for seq, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
         if not line.strip():
             continue
         try:
-            e = json.loads(line)
+            out.append((seq, json.loads(line)))
         except ValueError:
             continue
+    return out
+
+
+def applied_entries(log) -> list:
+    """The applied log as [{"seq", "op", "id", "text", "at", "source", "files", "undone"}], oldest first: what the
+    studio's history lists. An entry is an apply, or a redo that made an undone apply again; "undone" says an undo took
+    it back."""
+    entries, undone = [], set()
+    for seq, e in _log_lines(log):
         e["seq"] = seq
         if e.get("op") == "undo":
             undone.add(e.get("of"))
@@ -532,21 +586,22 @@ def applied_entries(log) -> list:
     return entries
 
 
+def _outside_root(root, files):
+    if root is not None:
+        outside = [p for p in files if not _inside(root, p)]
+        if outside:
+            raise EditRefused("%s is outside the project, which an edit does not write" % ", ".join(outside))
+
+
 def undo_last(log, *, root=None, dry_run: bool = False, now=None) -> Applied:
-    """Put back what the last apply that has not been undone changed, if each file is still as that apply wrote it
-    (nothing else has touched it since); otherwise refuse (UndoRefused) and write nothing. The undo is logged, so
-    undoing again reverts the apply before it."""
+    """Put back what the last apply that has not been undone changed (a created file is removed), if each file is still
+    as that apply wrote it (nothing else has touched it since); otherwise refuse (UndoRefused) and write nothing. The
+    undo is logged, so undoing again reverts the apply before it, and `redo_last` makes it again."""
     pending = [e for e in applied_entries(log) if not e["undone"]]
     if not pending:
         raise NothingToUndo("nothing applied is left to undo")
     e = pending[-1]
-    moved = []
-    for f in e["files"]:
-        try:
-            if _read(f["file"]) != f["after"]:
-                moved.append(f["file"])
-        except OSError:
-            moved.append(f["file"])
+    moved = [f["file"] for f in e["files"] if _read_or_none(f["file"]) != f["after"]]
     if moved:
         raise UndoRefused("%s changed since %s was applied, so it is not put back: undo would take someone else's "
                           "change with it" % (", ".join(moved), e["id"]))
@@ -554,13 +609,48 @@ def undo_last(log, *, root=None, dry_run: bool = False, now=None) -> Applied:
     result = Applied(e["id"], e["text"], files, dry_run)
     if dry_run:
         return result
-    if root is not None:
-        outside = [p for p in files if not _inside(root, p)]
-        if outside:
-            raise EditRefused("%s is outside the project, which a suggestion does not write" % ", ".join(outside))
+    _outside_root(root, files)
     _write_all(files)
-    _append(log, {"op": "undo", "of": e["seq"], "id": e["id"], "text": e["text"], "at": _stamp(now),
-                  "files": [{"file": p, "before": c.before, "after": c.after} for p, c in files.items()]})
+    _append(log, _entry("undo", e["id"], e["text"], e.get("source", ""), files, now, of=e["seq"]))
+    return result
+
+
+def _redoable(log):
+    """The entry the next redo makes again, or None: undone applies are a stack, an undo pushes the entry it took back, a
+    redo pops it, and a new apply empties it."""
+    stack, entries = [], {}
+    for seq, e in _log_lines(log):
+        op = e.get("op")
+        if op == "undo":
+            stack.append(e.get("of"))
+        elif op == "redo":
+            if stack:
+                stack.pop()
+            entries[seq] = e
+        else:
+            stack.clear()
+            entries[seq] = e
+    return entries.get(stack[-1]) if stack else None
+
+
+def redo_last(log, *, root=None, dry_run: bool = False, now=None) -> Applied:
+    """Make again the apply the last undo took back, if each file is as it was before that apply (a file it created is
+    not there); otherwise refuse (RedoRefused) and write nothing. A run of undos is redone last first; a new apply drops
+    what could be redone (NothingToRedo)."""
+    e = _redoable(log)
+    if e is None:
+        raise NothingToRedo("nothing undone is left to redo")
+    moved = [f["file"] for f in e["files"] if _read_or_none(f["file"]) != f["before"]]
+    if moved:
+        raise RedoRefused("%s changed since %s was undone, so it is not made again: that would write over someone else's "
+                          "change" % (", ".join(moved), e["id"]))
+    files = {f["file"]: FileChange(f["file"], f["before"], f["after"]) for f in e["files"]}
+    result = Applied(e["id"], e["text"], files, dry_run)
+    if dry_run:
+        return result
+    _outside_root(root, files)
+    _write_all(files)
+    _append(log, _entry("redo", e["id"], e["text"], e.get("source", ""), files, now))
     return result
 
 

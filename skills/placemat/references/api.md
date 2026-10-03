@@ -3700,7 +3700,8 @@ rendered from them) and its `suggestions`:
 
 `id` is `s<finding number><letter>` and belongs to the plan that made it. `rank` 1 is the best; `lever` groups variants
 of one change (at most `[studio] suggestions_per_lever` of them). `edit` is data: the operation (`set_kwarg`,
-`remove_kwarg`, `set_arg`, `edit_list`, `insert_statement`, `remove_statement`, `set_constant`, `toml_set`), the
+`remove_kwarg`, `set_arg`, `edit_list`, `insert_statement`, `remove_statement`, `set_constant`, `toml_set`; and for
+the studio's board builder `ensure_import`, `remove_constant`, `move_statement`, `create_file`, `confirm_facts`), the
 declaration it changes by kind, key, file and line, and an intent expression for the value, never source and never a
 coordinate. A number an edit writes is a named constant with a comment saying where it came from. A suggestion whose
 declaration is made in a loop or a helper that runs for several items is not offered, since the edit would change
@@ -3712,6 +3713,19 @@ nothing. Without it the file is written (atomically, under the project root) and
 command says so: run again for suggestions that fit. `--undo` puts back the last apply that has not been undone, if
 the files are still as that apply left them. A suggestion is a candidate: the next run says whether the finding
 cleared.
+
+The same engine serves the board builder, which is not driven by findings. `suggestions.apply_edits(edits, digests,
+dry_run, root=, log=, label=, source=)` is the body of `apply_suggestion`: the digest check (`""` for a file that
+must not exist yet), the edits made together, the atomic write, one log entry carrying `label` as its text and
+`source`. A file an edit creates (`create_file`, with the text `script_edit.skeleton(name, description, outline)`
+gives) has `before: null` in its entry, and undoing it removes the file. `redo_last(log, root=)` makes the last undone
+apply again when the files are as they were before it (`RedoRefused` otherwise); a new apply empties what could be
+redone (`NothingToRedo`). `insert_statement` with no target takes `args={"after": {"region": R}}`, R one of `header`,
+`constants`, `outline`, `decided`, `searched`, and an optional `args["bind"]` to write it as an assignment.
+`ensure_import` takes `args={"names": [...]}`; `remove_constant` `args={"name": ...}` and refuses a constant
+something reads; `move_statement` takes `args={"after" | "before": <target json>}`. `script_edit.read_intent(text,
+target, name="at")` reads an argument back as the intent expression that writes it, `{"absent": true}` where the call
+does not give it and None where it is not in the builder's vocabulary (a coordinate, arithmetic).
 
 | Cause | Suggestions |
 |---|---|

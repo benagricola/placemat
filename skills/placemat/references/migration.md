@@ -14,6 +14,10 @@ section for each hand-written pattern a newer form replaces.
   carries `edits`, a list made together or not at all, with one applied-log entry and one undo; its `how` says how it was
   found. `run.json`'s and `preview --json`'s suggestions have `edits` and `how` where they had `edit`; a record that has
   `edit` still reads. The outline (`rect`, `disc`, `outline`), a `row` and a `block` are declarations a suggestion can edit.
+- **The editing engine has the operations a board builder needs.** `apply_edits` (the body of `apply_suggestion`, for
+  edits that come from a person), `redo_last`, and the ops `create_file`, `ensure_import`, `remove_constant`,
+  `move_statement`, `confirm_facts` and region inserts; `script_edit.read_intent` and `script_edit.skeleton`;
+  `facts.confirmed_text`. An applied-log entry may have `before: null` (a created file) and a `source`.
 - **`Centre(..., coordinates=True)` marks a coordinate.** `coordinates=False` is the default and is never written. A number on
   a `Centre` axis without the flag is still accepted in this release and gives a `setup` warning
   (`setup.centre_coordinates`); the next release refuses it. Writing `coordinates=False` is a `setup` notice.
