@@ -140,11 +140,11 @@ def test_a_run_record_carries_the_suggestions_and_placemat_apply_finds_them_by_i
     edit = lambda t: t + '\nboard.link(PadRef(Part("c_hf1"), "VSHUNT"), PadRef(Part("buck"), VIN_N), limit_mm=0.01)\n'
     result, drc, pcb = rm.run(tmp_path, MODULE, keep_going=True, edit=edit)
     record = json.loads((result.run_dir / "run.json").read_text())
-    (detail,) = [d for d in record["finding_details"] if d.get("case") == "link_over"]
+    (detail,) = [d for d in record["finding_details"] if d.get("cause") == "link_over"]
     ids = [s["id"] for s in detail["suggestions"]]
-    assert ids and detail["suggestions"][0]["edit"]["target"]["file"] == str(layout_of(tmp_path))
+    assert ids and detail["suggestions"][0]["edits"][0]["target"]["file"] == str(layout_of(tmp_path))
     assert all(s["digests"] for s in detail["suggestions"])
-    assert [d for d in record["finding_details"] if d["kind"] == "facts"][0].get("suggestions") is None
+    assert [d for d in record["finding_details"] if d.get("cause") != "link_over"][0].get("suggestions") is None
     from placemat.report import RunRecord
     assert RunRecord.load(result.run_dir / "run.json").finding_details[0]["kind"]            # a record still loads
     layout = layout_of(tmp_path)
