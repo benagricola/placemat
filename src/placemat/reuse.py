@@ -213,3 +213,78 @@ def finding_from_json(v):
     if isinstance(v, str):
         return Finding("setup", v)
     return Finding(v[0], v[1], v[2] if len(v) > 2 else None)
+
+
+# ------------------------------------------------------------ the partial log
+class PartialLog:
+    """The reuse record of a resolve that is still going: the context, then
+    each completed step's record as it is made, one JSON line each, flushed.
+    A resolve that dies leaves what it had done; the next one replays it
+    (the chained keys say which steps still hold). Removed once the whole
+    record is written."""
+
+    def __init__(self, path):
+        from pathlib import Path
+        self.path = Path(path)
+        self._f = None
+
+    def begin(self, context: str) -> None:
+        import json
+        self.close()
+        self._f = open(self.path, "w")
+        self._f.write(json.dumps({"kind": "header", "version": VERSION, "context": context}) + "\n")
+        self._f.flush()
+
+    def append(self, entry: dict) -> None:
+        import json
+        self._f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+        self._f.flush()
+
+    def close(self) -> None:
+        if self._f is not None:
+            self._f.close()
+            self._f = None
+
+    def remove(self) -> None:
+        self.close()
+        try:
+            self.path.unlink()
+        except OSError:
+            pass
+
+
+def read_partial(path):
+    """A resolve's partial log as a record (`version`, `context`, the
+    `steps` it completed), or None when there is none or no header. A line
+    cut short by a kill ends it."""
+    import json
+    try:
+        text = open(path).read()
+    except OSError:
+        return None
+    lines = []
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            lines.append(json.loads(line))
+        except ValueError:
+            break
+    if not lines or lines[0].get("kind") != "header" or lines[0].get("version") != VERSION:
+        return None
+    return {"version": VERSION, "context": lines[0]["context"], "steps": lines[1:]}
+
+
+def better_of(previous, partial):
+    """Of the previous run's record and a died resolve's partial one (the
+    same inputs, so its steps are this run's), the one that replays more:
+    the previous, when it holds every step the partial does and goes on;
+    else the partial. Either may be None."""
+    if partial is None or not partial["steps"]:
+        return previous if previous is not None else partial
+    if previous is None:
+        return partial
+    keys = [s["key"] for s in partial["steps"]]
+    if previous.get("context") == partial["context"] and [s.get("key") for s in previous.get("steps", [])[:len(keys)]] == keys:
+        return previous
+    return partial

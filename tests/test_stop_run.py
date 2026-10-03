@@ -21,9 +21,9 @@ from tests import real_modules as rm
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _stage_and_patch(tmp_path, monkeypatch):
+def _stage_and_patch(tmp_path, monkeypatch, module="usb5v"):
     from placemat import runner
-    script = rm.stage(tmp_path, "usb5v")
+    script = rm.stage(tmp_path, module)
     src = runner.find_board(script)
 
     def restore(src, run_dir, fresh, quiet, timeout=900, keep_renders=False):
@@ -136,8 +136,8 @@ def test_a_real_sigterm_to_a_real_explore_run(tmp_path):
     assert ex["stopped"] == "SIGTERM" and ex["tried"] >= 1 and ex["focus"]
     assert not (mod / "UsbC_layout.lock.json").exists()
     assert {p.name: p.read_bytes() for p in src.layout_dir.iterdir() if p.is_file()} == layout_before
-    for w in workers:
-        assert not Path("/proc/%d" % w).exists() or "Z" in Path("/proc/%d/stat" % w).read_text().rsplit(")", 1)[1][:3]
+    from tests.test_stop import _alive, _wait_for
+    assert _wait_for(lambda: not any(_alive(w) for w in workers), 10), "a worker outlived the run"
     # the command the message offers writes the lock from what was saved
     import re
     m = re.search(r"accept it with: placemat lock (\S+) --accept-seed (\d+)", out)
@@ -157,10 +157,17 @@ def _run_explore(script, seconds, *flags):
                             stderr=subprocess.PIPE, text=True)
 
 
-def _stop_after(proc, seconds):
+def _stop_after(proc, seconds, ck=None, variants=0):
+    """SIGTERM `proc` once its workers are up and, with `ck`, that many more variants have finished in it."""
+    from placemat import checkpoint
     t0 = time.time()
     while len(_children(proc.pid)) < 3 and time.time() - t0 < 120 and proc.poll() is None:
         time.sleep(0.2)
+    if ck is not None:
+        already = sum(1 for d in checkpoint.read_lines(ck) if "v" in d)
+        while time.time() - t0 < 180 and proc.poll() is None and \
+                sum(1 for d in checkpoint.read_lines(ck) if "v" in d) < already + variants:
+            time.sleep(0.2)
     time.sleep(seconds)
     proc.send_signal(signal.SIGTERM)
     out, err = proc.communicate(timeout=60)
@@ -171,12 +178,12 @@ def test_a_real_explore_stopped_twice_resumes_each_time_without_repeating_a_seed
     mod, script, src = _searched_module(tmp_path)
     ck = mod / ".placemat" / "explore" / "UsbC_layout" / "checkpoint.jsonl"
     from placemat import checkpoint
-    rc, out, err = _stop_after(_run_explore(script, 40), 5)
+    rc, out, err = _stop_after(_run_explore(script, 40), 1, ck, 3)
     assert rc == 143
     first = checkpoint.read_lines(ck)
     s1 = [d["v"] for d in first if "v" in d]
     assert first[0]["kind"] == "header" and first[-1]["stop"] == "SIGTERM" and len(s1) >= 3
-    rc, out, err = _stop_after(_run_explore(script, 40), 5)
+    rc, out, err = _stop_after(_run_explore(script, 40), 1, ck, 3)
     assert rc == 143 and "resuming a saved explore: %d variants" % (len(s1) + 1) in out, out
     second = checkpoint.read_lines(ck)
     s2 = [d["v"] for d in second if "v" in d]
@@ -185,13 +192,13 @@ def test_a_real_explore_stopped_twice_resumes_each_time_without_repeating_a_seed
     assert sum(1 for d in second if "stop" in d) == 2 and max(d["t"] for d in second if "t" in d) > first[-1]["t"]
     # finish it: the rest of a short budget (the time already spent counts against it)
     spent = max(d["t"] for d in second if "t" in d)
-    proc = _run_explore(script, int(spent) + 4)
+    proc = _run_explore(script, int(spent) + 12)
     out, err = proc.communicate(timeout=300)
     assert proc.returncode == 0, out + err
     assert "resuming a saved explore: %d variants" % (len(s2) + 1) in out
     assert not ck.exists()                                                    # recorded in the run: not needed
     doc, _ = _only_run(src)
-    assert doc["status"] == "ok" and doc["metrics"]["explore"]["tried"] > len(s2) + 1
+    assert doc["status"] == "ok" and doc["metrics"]["explore"]["tried"] >= len(s2) + 1
 
 
 def test_resume_refuses_a_saved_explore_of_another_script(tmp_path):

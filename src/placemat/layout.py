@@ -6016,7 +6016,8 @@ class Board:
     _on_begin = None
     _begin_plan = None
 
-    def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None, on_step=None, on_begin=None) -> Plan:
+    def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None, on_step=None, on_begin=None,
+                partial=None) -> Plan:
         self._check_groups()                # what a declared group may hold, before the search
         self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
         self._part_keep_outs()              # the clearances the parts' Pm.KeepOut ask of other nets' copper; refuses one with no citation
@@ -6067,6 +6068,8 @@ class Board:
         context = _reuse.context_key(self, self.reuse_extra)
         record = {"version": _reuse.VERSION, "context": context, "steps": [], "reused": 0, "first_change": None}
         plan.reuse = record
+        if partial is not None:             # each step's record, as it is made: a resolve that dies leaves them (reuse.PartialLog)
+            partial.begin(context)
         previous = reuse.get("steps", []) if reuse and reuse.get("version") == _reuse.VERSION \
             and reuse.get("context") == context else None
         chain = {"key": context, "replaying": previous is not None}
@@ -6224,6 +6227,8 @@ class Board:
                                 "replaying": bool(chain["replaying"]), "n": position})
             if isinstance(obj, (KeepoutIntent, CutoutIntent)):
                 record["steps"].append({"key": key})
+                if partial is not None:
+                    partial.append(record["steps"][-1])
                 if chain["replaying"]:
                     record["reused"] += 1
                 elif record["first_change"] is None and previous is not None:
@@ -6257,6 +6262,8 @@ class Board:
                 step, entry = self._recorded_settle(occ, obj, plan, placed)
                 entry["key"] = key
                 record["steps"].append(entry)
+            if partial is not None:
+                partial.append(record["steps"][-1])
             if why_now:
                 step.note = (why_now + "; " + step.note) if step.note else why_now
             if not obj.freedom.decided:

@@ -383,6 +383,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         fab = fab_profile(src.board_dir)
         rid = run_id(script_fingerprint(script), src.pcb.read_bytes(), __version__, cfg.json(), fab.json())
         final_dir = runs / rid
+        # a run of these very inputs that died while resolving left its steps: read before its folder is replaced
+        died = reuse_mod.read_partial(final_dir / "reuse.partial.jsonl") if reuse else None
         keep_route(final_dir, staging)
         shutil.rmtree(final_dir, ignore_errors=True)
         staging.rename(final_dir)
@@ -446,9 +448,12 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         except (explore_mod.FocusError, ResumeRefused) as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         stage = "resolve"
+        if died is not None and reuse_mod.better_of(previous_reuse, died) is died:
+            previous_reuse, previous_id = died, "%s (interrupted)" % rid
+        partial = reuse_mod.PartialLog(run_dir / "reuse.partial.jsonl")
         try:
             plan = board.resolve(progress=progress, reuse=previous_reuse, lock=lock_entries,
-                                 routes=routes_mod.read(routes_mod.path_for(script)))
+                                 routes=routes_mod.read(routes_mod.path_for(script)), partial=partial)
         except PlacementCollision as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             raise RunFailure("placement", "Firm placements collide; fix the script (or --keep-going to see the rest)",
@@ -527,6 +532,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 len(plan.pocketed), ", ".join(plan.pocketed[:8]) + (", ..." if len(plan.pocketed) > 8 else "")))
         plan.reuse["parts"] = parts
         reuse_mod.write(run_dir / "reuse.json", plan.reuse)
+        partial.remove()                    # the whole record is written: the partial one is not needed
         line = reuse_mod.summary(plan.reuse, previous_reuse, "run %s" % previous_id)
         if line:
             say("reused", line[len("reused "):])

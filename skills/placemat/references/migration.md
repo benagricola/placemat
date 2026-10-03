@@ -31,6 +31,10 @@ section for each hand-written pattern a newer form replaces.
   over; `--no-resume` starts over regardless. The checkpoint is removed when the run that explored is recorded;
   `best.json` stays, so `placemat lock <script> --accept-seed N` works after a finished explore too (the explore's
   report ends with the command). `[explore] checkpoint_max_variants` (default 100000) bounds the file.
+- **A resolve that died is replayed as far as it got.** Each completed step's record is appended to
+  `<run dir>/reuse.partial.jsonl` as the resolve goes, and removed once `reuse.json` is written. A rerun of the same
+  inputs replays those steps by their chained keys (a step that changed since is not replayed, nor any after it) and
+  says `reused N of M steps from run <id> (interrupted)`.
 - **An explore's workers are watched.** A worker that is killed from outside (the out-of-memory killer) or raises is
   reported with its exit signal or traceback, and the explore carries on with the others instead of waiting for it. A
   worker ends when its parent does.

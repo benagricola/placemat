@@ -1122,6 +1122,15 @@ unchanged rerun went from 125 s to 7 s, and a change to a part late in the
 order from 118 s to 24 s. A change early in the order - most of the
 fixed tier, the large parts - still re-resolves nearly everything.
 
+A run appends each completed step's record to `<run dir>/reuse.partial.jsonl`
+as it resolves (the context first), and removes the file when `reuse.json` is
+written. A run that died while resolving (killed, stopped, out of memory)
+leaves it; a rerun of the same inputs - the same run id, so the same folder -
+replays those steps, by the same chained keys, so a step that changed since
+is not replayed, nor any after it. It prints `reused N of M steps from run
+<id> (interrupted)`. When an earlier finished run's `reuse.json` holds every
+step the partial one does, and goes on, that one is used instead.
+
 **The global solve.** With `[solve] enabled = true`, at the first searched
 item placemat works out where every unplaced searched part and cell would
 sit if the whole netlist pulled at once - placed items as anchors, each pad
@@ -3546,7 +3555,7 @@ in a place of its own:
 | `run` | the placed board: `layout.kicad_pcb`, the project's presets and a `.kicad_dru` of the script's rules | the board's layout directory |
 | `run` | the generation, cached so a rerun skips `pcb layout` | `.placemat/generated/<board>/` |
 | `run` | what that generation was made from, to know when it is out of date | `.placemat/generated/<board>.inputs.json` |
-| `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays) | `.placemat/runs/<id>/` |
+| `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays; `reuse.partial.jsonl` while resolving, left by a run that died), `run.json` with `status` `ok`, `failed`, `stopped`, or `running` with its `pid` while it works | `.placemat/runs/<id>/` |
 | `run` | `latest.json` (the last run of any board), `latest-<board>.json` (the last of each board: what a run compares with and reuses), `best.json`, and with `--label` an alias | `.placemat/runs/` |
 | `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/views/preview/`, or `--out DIR` |
 | `studio` | `reuse.json` (what the next resolve replays) and `worker.log` | `.placemat/views/studio/` |
