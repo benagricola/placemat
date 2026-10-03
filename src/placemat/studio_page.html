@@ -199,9 +199,11 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 #viewbar { display: none; }
 body[data-mode="3d"] #board, body[data-mode="3d"] #grid, body[data-mode="3d"] #facebar { display: none; }
 body[data-mode="3d"] #viewbar { display: inline-flex; }
-.m3 { margin: 4px 0 8px; font-size: 12px; }
+.m3 { margin: 4px 0 8px; padding: 0 12px; font-size: 12px; }
 .m3 .row3 { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; padding: 1px 0; }
 .m3 .row3 a { cursor: pointer; color: var(--accent); }
+.m3 .row3 span { overflow-wrap: anywhere; min-width: 0; }
+.m3 .row3 b { font-weight: 600; }
 .m3 button { border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
 .tool { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
 .tool.on { background: var(--accent-soft); color: var(--accent); }
@@ -2984,7 +2986,7 @@ function hover3d(key, ref, x, y) {
 function modelState(e) {
   if (e.state === "none") return {word: "no model", why: "no model declared", cls: "warn"};
   if (e.state === "hidden") return {word: "hidden", why: "model hidden in the footprint", cls: ""};
-  if (e.state === "missing") return {word: "no model", why: e.why || "model not found", cls: "bad"};
+  if (e.state === "missing") return {word: "no model", why: e.why || "model not found", short: "model not found: " + (e.name || ""), cls: "bad"};
   const row = S.models[e.id];
   if (!row || row.state === "loading") return {word: "loading", why: "converting the model", cls: ""};
   if (row.state === "failed") return {word: "no model", why: "conversion failed: " + (row.message || ""), cls: "bad"};
@@ -3008,7 +3010,7 @@ function legend3d(p) {
   const stats = V3 ? V3.stats() : {};
   return '<h4>3D models</h4><div class="m3">' + (warn ? '<div class="row3">' + pill("converter", "bad") + "<span>" + esc(warn) + "</span></div>" : "") +
     '<div class="row3"><span>' + counts.model + " with a model, " + counts.none + " without" + (counts.loading ? ", " + counts.loading + " loading" : "") + "</span></div>" +
-    rows.slice(0, 40).map(r => '<div class="row3"><a data-m3="sel" data-key="' + escRaw(r.it.key) + '" data-ref="' + escRaw(r.m.ref) + '">' + esc(r.m.ref) + "</a><span class=\"dim\">" + esc(r.s.why) + "</span></div>").join("") +
+    rows.slice(0, 40).map(r => '<div class="row3"><a data-m3="sel" data-key="' + escRaw(r.it.key) + '" data-ref="' + escRaw(r.m.ref) + '">' + esc(r.m.ref) + "</a><span class=\"dim\" title=\"" + esc(r.s.why) + "\">" + esc(r.s.short || r.s.why) + "</span></div>").join("") +
     (rows.length > 40 ? '<div class="row3 dim">and ' + (rows.length - 40) + " more</div>" : "") +
     '<div class="row3">' + (bad ? '<button data-m3="retry">Retry ' + bad + " failed</button>" : "") + '<label><input type="checkbox" data-m3="dim"' + (S.dim3d ? " checked" : "") + "> dim parts with a model</label></div>" +
     (stats.calls != null ? '<div class="row3 dim">' + stats.calls + " draw calls, " + (stats.triangles || 0).toLocaleString() + " triangles" + (stats.over ? ", over the limit: parts are drawn as plates" : "") + "</div>" : "") + "</div>";

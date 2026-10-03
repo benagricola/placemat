@@ -70,7 +70,7 @@ export async function mount(host) {
     state.theme = t;
     renderer.setClearColor(new THREE.Color(t.bg), 1);
     if (state.body) state.body.material.color.set(t.body);
-    for (const p of state.plates) p.recolor(t);
+    if (state.plateMat) { state.plateMat.map.dispose(); state.plateMat.map = hatch(t.plate); state.plateMat.needsUpdate = true; }
     request();
   }
   const mq = matchMedia("(prefers-color-scheme: dark)");
@@ -130,45 +130,58 @@ export async function mount(host) {
   // ---- parts: instanced models, plates for the rest
   function clearParts() {
     for (const g of state.groups) { state.root.remove(g.mesh); g.mesh.dispose(); }
-    for (const p of state.plates) { state.root.remove(p.object); p.dispose(); }
+    if (state.plateMesh) { state.root.remove(state.plateMesh); state.plateMesh.geometry.dispose(); state.plateMat.map.dispose(); state.plateMat.dispose(); state.plateMesh = null; }
+    for (const p of state.plates) if (p.label) { state.root.remove(p.label); p.label.geometry.dispose(); p.label.material.map.dispose(); p.label.material.dispose(); }
     clearSel();
     state.groups = []; state.plates = [];
   }
   function polyOf(member) { const s = (member.shapes || []).find(x => x.kind === "courtyard"); return s ? s : null; }
-  function makePlate(item, member, why, n, loading) {
+  // A part with no model is a plate: its courtyard extruded a little off its face, hatched. They are one mesh (one draw call) whatever their
+  // number; they are in step order, so the first k are a draw range.
+  function plateOf(item, member, why, n, loading) {
     const cy = polyOf(member);
-    const T = state.T, th = host.settings().plate_mm || 0.1;
     const back = cy ? (cy.faces || ["front"])[0] === "back" : item.face === "back";
     let pts = cy ? cy.poly : null;
     if (!pts || pts.length < 3) {                                           // no courtyard either: a marker at the part
       const at = item.at || [0, 0];
       pts = [[at[0] - 0.6, at[1] - 0.6], [at[0] + 0.6, at[1] - 0.6], [at[0] + 0.6, at[1] + 0.6], [at[0] - 0.6, at[1] + 0.6]];
     }
-    const geo = new THREE.ExtrudeGeometry(new THREE.Shape(ring(pts)), {depth: th, bevelEnabled: false});
-    geo.rotateX(-Math.PI / 2);
-    const t = state.theme;
-    const tex = hatch(t.plate);
-    const top = new THREE.MeshBasicMaterial({map: tex, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false});
-    const side = new THREE.MeshBasicMaterial({color: new THREE.Color(t.plate), transparent: true, opacity: 0.55});
-    const mesh = new THREE.Mesh(geo, [top, side]);
-    const obj = new THREE.Group();
-    obj.add(mesh);
-    obj.position.y = back ? -th : T;
-    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-    const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
-    let label = null;
-    if (w >= 4 && h >= 1.5) {
-      label = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w, h * 4) * 0.9, Math.min(w, h * 4) * 0.9 / 4), new THREE.MeshBasicMaterial({map: labelTexture(loading ? "loading" : "no model: " + why, t.text), transparent: true, depthWrite: false}));
-      label.rotation.x = -Math.PI / 2; label.position.set((Math.min(...xs) + Math.max(...xs)) / 2, th + 0.02, (Math.min(...ys) + Math.max(...ys)) / 2);
-      obj.add(label);
-    }
-    const plate = {n, key: item.key, ref: member.ref, why, loading, object: obj, mesh, tex, label, sel: false,
-      recolor(tt) { top.map = hatch(tt.plate); top.needsUpdate = true; side.color.set(tt.plate); },
-      dispose() { geo.dispose(); tex.dispose(); top.dispose(); side.dispose(); if (label) { label.geometry.dispose(); label.material.map.dispose(); label.material.dispose(); } }};
-    mesh.userData.plate = plate;
-    state.root.add(obj);
-    return plate;
+    return {n, key: item.key, ref: member.ref, why, loading, pts, back, vstart: 0, vend: 0};
   }
+  function buildPlates() {
+    if (!state.plates.length) return;
+    const T = state.T, th = host.settings().plate_mm || 0.1, t = state.theme;
+    state.plates.sort((a, b) => a.n - b.n);
+    const pos = [], nor = [], uv = [];
+    let cur = 0;
+    for (const pl of state.plates) {
+      let g = new THREE.ExtrudeGeometry(new THREE.Shape(ring(pl.pts)), {depth: th, bevelEnabled: false});
+      g.rotateX(-Math.PI / 2); g.translate(0, pl.back ? -th : T, 0);
+      if (g.index) g = g.toNonIndexed();
+      pl.vstart = cur;
+      pos.push(...g.attributes.position.array); nor.push(...g.attributes.normal.array); uv.push(...g.attributes.uv.array);
+      cur += g.attributes.position.count; pl.vend = cur;
+      g.dispose();
+      const xs = pl.pts.map(q => q[0]), ys = pl.pts.map(q => q[1]);
+      pl.bbox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      const w = pl.bbox[2] - pl.bbox[0], h = pl.bbox[3] - pl.bbox[1];
+      if (w >= 4 && h >= 1.5) {                                           // big enough to carry its words
+        const s = Math.min(w, h * 4) * 0.9;
+        const label = new THREE.Mesh(new THREE.PlaneGeometry(s, s / 4), new THREE.MeshBasicMaterial({map: labelTexture(pl.loading ? "loading" : "no model: " + pl.why, t.text), transparent: true, depthWrite: false}));
+        label.rotation.x = -Math.PI / 2; label.position.set((pl.bbox[0] + pl.bbox[2]) / 2, (pl.back ? 0 : T + th) + 0.02, (pl.bbox[1] + pl.bbox[3]) / 2);
+        if (pl.back) label.position.y = -th - 0.02;
+        pl.label = label; state.root.add(label);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    state.plateMat = new THREE.MeshBasicMaterial({map: hatch(t.plate), transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false});
+    state.plateMesh = new THREE.Mesh(geo, state.plateMat);
+    state.root.add(state.plateMesh);
+  }
+  const plateAt = vertex => { let lo = 0, hi = state.plates.length - 1; while (lo <= hi) { const mid = (lo + hi) >> 1, p = state.plates[mid]; if (vertex < p.vstart) hi = mid - 1; else if (vertex >= p.vend) lo = mid + 1; else return p; } return null; };
 
   function rebuild(plan, order) {
     clearParts();
@@ -204,7 +217,7 @@ export async function mount(host) {
           else why = why || e.why || (e.state === "missing" ? "model not found" : "no model declared");
         }
         if (!ms.length) why = "no model declared";
-        if (!drawn) state.plates.push(makePlate(it, m, why || "no model declared", n, why === "loading"));
+        if (!drawn) state.plates.push(plateOf(it, m, why || "no model declared", n, why === "loading"));
       }
     }
     for (const g of byGroup.values()) {
@@ -219,6 +232,7 @@ export async function mount(host) {
       state.root.add(mesh);
       state.groups.push(g);
     }
+    buildPlates();
     state.tris = state.groups.reduce((s, g) => s + g.entries.length * g.mat.tris, 0);
     state.over = state.tris > (host.settings().max_tris || 4000000);
     state.loadingParts = dueLoading;
@@ -229,7 +243,11 @@ export async function mount(host) {
     state.k = k;
     const lim = k == null ? Infinity : k;
     for (const g of state.groups) { g.mesh.count = state.over ? 0 : upper(g.ns, lim); }
-    for (const p of state.plates) p.object.visible = p.n < lim;
+    if (state.plateMesh) {
+      const shown = upper(state.plates.map(p => p.n), lim);
+      state.plateMesh.geometry.setDrawRange(0, shown ? state.plates[shown - 1].vend : 0);
+      for (const p of state.plates) if (p.label) p.label.visible = p.n < lim;
+    }
     request();
   }
 
@@ -242,7 +260,7 @@ export async function mount(host) {
     clearSel();
     const key = state.selKey;
     for (const g of state.groups) g.mesh.material = key ? g.mat.dim : g.mat.mat;
-    for (const p of state.plates) p.mesh.material[1].opacity = key && p.key !== key ? 0.2 : 0.55;
+    if (state.plateMat) state.plateMat.opacity = key ? 0.35 : 0.85;
     if (!key) { request(); return; }
     for (const g of state.groups) {
       const es = g.entries.filter(e => e.key === key && e.n < (state.k == null ? Infinity : state.k));
@@ -252,6 +270,12 @@ export async function mount(host) {
       es.forEach((e, i) => { mtx.fromArray(e.matrix); m.setMatrixAt(i, mtx); });
       m.instanceMatrix.needsUpdate = true; m.frustumCulled = false;
       state.root.add(m); state.selObjs.push(m);
+    }
+    for (const pl of state.plates) if (pl.key === key && pl.n < (state.k == null ? Infinity : state.k)) {         // a selected plate is drawn whole, in the accent colour
+      const g = new THREE.BufferGeometry(), src = state.plateMesh.geometry.attributes;
+      g.setAttribute("position", new THREE.Float32BufferAttribute(src.position.array.slice(pl.vstart * 3, pl.vend * 3), 3));
+      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({color: new THREE.Color(state.theme.accent), transparent: true, opacity: 0.6, depthWrite: false}));
+      m.userData.own = true; state.root.add(m); state.selObjs.push(m);
     }
     const box = selectionBox(key);
     if (box) {
@@ -268,7 +292,8 @@ export async function mount(host) {
       const h = g.asset.header.bbox; mtx.fromArray(e.matrix);
       for (const x of [h[0], h[3]]) for (const y of [h[1], h[4]]) for (const z of [h[2], h[5]]) b.expandByPoint(v.set(x, y, z).applyMatrix4(mtx));
     }
-    for (const p of state.plates) if (p.key === key) b.expandByObject(p.object);
+    const th = host.settings().plate_mm || 0.1;
+    for (const p of state.plates) if (p.key === key) { const y = p.back ? -th : state.T; b.expandByPoint(v.set(p.bbox[0], y, p.bbox[1])); b.expandByPoint(v.set(p.bbox[2], y + th, p.bbox[3])); }
     if (b.isEmpty()) return null;
     const size = b.getSize(new THREE.Vector3()).addScalar(0.1), center = b.getCenter(new THREE.Vector3());
     return {size, center};
@@ -303,11 +328,11 @@ export async function mount(host) {
     ray.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), camera);
     const objs = [];
     for (const g of state.groups) if (g.mesh.count) objs.push(g.mesh);
-    for (const p of state.plates) if (p.object.visible) objs.push(p.mesh);
+    if (state.plateMesh) objs.push(state.plateMesh);
     const hits = ray.intersectObjects(objs, false);
     for (const h of hits) {
       if (h.object.userData.group) { const e = h.object.userData.group.entries[h.instanceId]; if (e) return {key: e.key, ref: e.ref}; }
-      else if (h.object.userData.plate) return {key: h.object.userData.plate.key, ref: h.object.userData.plate.ref};
+      else if (h.object === state.plateMesh && h.faceIndex != null) { const pl = plateAt(h.faceIndex * 3); if (pl) return {key: pl.key, ref: pl.ref}; }
     }
     return null;
   }
@@ -361,7 +386,7 @@ export async function mount(host) {
     }
     if (state.loadingParts) {                                         // plates of models still converting pulse faintly
       const o = 0.5 + 0.25 * Math.sin(now / 350);
-      for (const p of state.plates) if (p.loading) p.mesh.material[0].opacity = o;
+      if (state.plateMat && !state.selKey) state.plateMat.opacity = o + 0.3;
       animating = true;
     }
     renderer.render(scene, camera);
