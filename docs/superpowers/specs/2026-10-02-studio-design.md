@@ -168,27 +168,38 @@ variant: seed, score, measures, the focused items' placements and the order they
 kept), are written when a command ends and read afterwards, so what was tried can be browsed later. Nothing live goes
 through a file.
 
-**Live state goes over a local socket** (Linux and macOS):
+**Live state goes over a local socket owned by the command** (Linux and macOS). The user, 2026-10-03, reversed the first
+design (a socket owned by the studio): each long-running command that resolves a board (`run`, `preview`, an explore
+inside them, `route`, `check`; anything that calls `Board.resolve`) owns a socket for as long as it runs, so any reader
+can follow it.
 
-- Each studio listens on a Unix socket in its project, `<project root>/.placemat/studio/<pid>.sock` (the project root
-  as `studio.project_root` finds it; where that path is too long for a socket address, a short path under the
-  temporary directory, named in the registry), and writes a small registry entry beside it, `<pid>.json`: pid, socket,
-  started, address, the script it watches. Both are removed when it exits; an entry whose pid is dead is removed by
-  whoever finds it.
-- Every placemat command that resolves a board (`run`, `preview`, an explore inside them, `route`, `check`, anything
-  that calls `Board.resolve`) looks for studios of its project the first time it resolves and, if there are any,
-  connects to all of them and sends newline-delimited JSON: `hello` (command, pid, script, arguments, started); the
-  events the studio's own worker sends (`board`, `item` per settled step with its copper or cutout, `begin` and its
-  phases); a `plan` event with the finished plan; for an explore, `explore` (the plain placement, the focus, the
-  budget, the jobs), one `variant` per finished variant and `explore_done`; then `done` (the record's path) or
-  `error` (message, file, line). Not restricted to the script a studio watches: any command in the project reports.
-- A command is never in the way. With no studio there is one directory check, once. With one, a sender thread with a
-  small bounded queue takes the events: a full queue drops the event, and a socket that goes away is dropped
-  silently. Measured: the bench at `--jobs 2` unchanged with no studio, a resolve with one listening within noise.
-- A command that dies without `done` is a closed connection; the studio shows it as lost, with the last step it
-  reported. The internal resolve worker is the studio's own process and does not use the channel; the channel would let
-  it move to an external `placemat preview` process later (not in this round). A worker crash is its lost pipe and
-  the last step it reported; the faulthandler traceback is optional detail only.
+- The command listens on `<project root>/.placemat/sockets/<pid>.sock` (the project root as `studio.project_root`
+  finds it; a short path under the temporary directory where that is too long for a socket address, named in the
+  entry) and writes `<pid>.json` beside it: pid, socket, command, script, arguments, started, a label or run id and
+  the path of its progress file. Both are removed when it exits. Readers clean the entries of dead pids.
+- Readers (the studio, `placemat watch`, an agent) find the sockets by looking in that folder and connect to whichever
+  they want. A reader that connects mid-run first receives a catch-up (`hello`, the latest board and plan state and
+  the work so far, as the studio's own hello does for a late page) and then the live events. The events are newline
+  JSON: `hello`; what the studio's own worker sends (`board`, `item` per settled step with its copper or cutout,
+  `begin` and its phases); `plan` for each finished resolve; for an explore `explore`, a `variant` each and
+  `explore_done`; then `done` (the record's path) or `error` (message, file, line).
+- The command never waits on a reader. Each reader has a bounded queue: a full queue drops the event, and a reader
+  that goes away is dropped. With no reader connected the cost is the listening socket and the events' own
+  construction. Measured: the bench at `--jobs 2` unchanged (it resolves boards without a script, which do not
+  listen), and a resolve with a reader connected within noise.
+- **Crash trail.** A command mirrors its events, in short form, into an append-only `progress.jsonl` (in the run's
+  folder `.placemat/runs/<id>/` for a run, else `.placemat/views/<command>/progress-<pid>.jsonl`), flushed as it goes,
+  so a command that dies leaves its last state. When a command starts it deletes the progress files left by earlier
+  commands of the same script that are no longer running: so what one died leaving stays until the next run of that
+  script, and disk use does not grow. The file is read only for a command that has ended or died (its pid gone with
+  no `done`), never as the live feed: the studio and `watch` show such a command with the last state from it.
+- A command that dies without `done` is, to a reader, a closed connection; the studio shows it as lost with the last
+  step. The internal resolve worker is the studio's own process and does not use the channel; the channel would let it
+  move to an external `placemat preview` process later (not in this round). A worker crash is its lost pipe and the last
+  step it reported; the faulthandler traceback is optional detail only.
+- `placemat watch [pid|label]` follows one command, or every live one in the project when none is named, printing a
+  compact line per event (`--json` for the events as sent), and exits when the command it follows ends, saying done or
+  error, or for a death the last state from its progress file.
 
 **The page's Runs view** lists the live commands from anywhere in the project (and the recent finished ones, from their
 records): command, script, pid, elapsed by the server's clock, state. A toast says when one starts ("explore started:
