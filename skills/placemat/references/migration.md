@@ -15,8 +15,18 @@ section for each hand-written pattern a newer form replaces.
   (`setup.step_budget`, a notice), or, finding none, leaves the item unplaced: the `unplaced.search` finding carries
   `facts["budget"]` (`judged`, `share` of the search area covered, `limit`) and offers a higher `budget=` for the item, a searched
   suggestion. The default is high enough that no benchmark module or the core board reaches it, so nothing a script says changes.
+- **A refusal map for a long scan, off by default** (`place.refusal_map`, from `place.refusal_map_after` candidates a pass has judged one by
+  one). It reads off the shapes which of the rest of the pass a shape of the item lying across a shape of the board is certain to refuse,
+  and judges only the others; the spots found are the same ones, in the same order. The candidates it leaves out are counted under the
+  pair that refuses them, which can differ from the first refusal the judge would have found, so with it on a finding's refusal counts
+  (not its spot, its kind or its owners) can differ a little.
 
 ### Changed
+
+- **A scan with carried vias that may give way judges each refused candidate once.** A full pass judged every candidate as the item is
+  and again, where that refused it, less its carried vias; it now judges less the vias first and the item as it is only where that was
+  legal, which gives the same spots, counts, tallies and sentences. A failing search on a board with such vias takes about half the
+  time in its native passes. Nothing a script says changes.
 
 - **The live channel, `placemat watch --json`, the studio worker's events and the router's events carry records, not sentences** (event
   `format` 2; `hello` carries it, and a reader that finds none reads format 1; plan JSON `version` 3). A reader outside the repository

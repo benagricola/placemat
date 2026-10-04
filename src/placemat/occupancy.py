@@ -2737,6 +2737,11 @@ class NativeSweeper:
         out = sorted(((b, c, f, r, k) for (b, k), (c, f, r) in refused.items()), key=lambda e: e[2])
         return legal, [0.0] * len(legal), out
 
+    def run_native(self, triples, stop_at_first: bool, scoring=None):
+        """`run` less the judgment in Python of the candidates the native pass accepts (`recheck`): what the
+        native pass accepts and refuses, as `run` would have it before it judged the accepted ones again."""
+        return self._native_run(triples, stop_at_first, scoring)
+
     def _native_run(self, triples, stop_at_first: bool, scoring=None):
         from . import geometry as _g
         legal, scores, refused = _g._native.sweep(self.board, self.reservations, self.index, self.handles,
