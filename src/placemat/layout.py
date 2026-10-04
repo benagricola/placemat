@@ -2663,6 +2663,7 @@ class Board:
         room.fixed_tracks = list(ctx.fixed_tracks)
         room.dry = True         # a fitted pour is planned without its reach: the room it keeps is the fitted outline
         self._roomed = set()
+        self._room_refused = {}
         return room
 
     def _dry_rooms(self, occ: Occupancy, plan: Plan, intents, ctx=None, kinds=None) -> dict:
@@ -2733,6 +2734,9 @@ class Board:
         todo = [c for c in todo if c not in pours]
         self._roomed |= {c.index for c in todo}
         got = self._dry_rooms(occ, plan, todo, room_ctx)
+        for c in todo:      # a track it could not draw: the parts placed now are those it was refused with (its finding says so)
+            if not any(isinstance(op, Track) for op in room_ctx.ops_at.get(c.index, ())):
+                self._room_refused[c.index] = frozenset(placed)
         # a fitted pour is the last of what it joins: its vias are planned (here or before) as well as its pads placed
         pours = [c for c in pours if all(m.index in room_ctx.ops_at for m in c.members)]
         self._roomed |= {c.index for c in pours}
@@ -5201,10 +5205,11 @@ class Board:
                         "notice"))
             if begins is not None:
                 self._release_lane(ctx.occ, begins)     # what is judged from here is what this track draws
-            met = self._through(ctx, ops, bridge)
-            if met is not None:
+            hits = self._through_hits(ctx, ops, bridge)
+            if hits is not None:
                 ctx.note(C.COPPER_NOT_DRAWN, {"variant": "through", "key": copper_id(intent), "layer": layer.name,
-                                              "net": name, "waypoints": max(0, len(points) - 2), "met": met})
+                                              "net": name, "waypoints": max(0, len(points) - 2),
+                                              **self._track_through_facts(ctx, hits, intent.index)})
                 return []
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
@@ -5917,23 +5922,61 @@ class Board:
         """What `ops` (a track's or a via's copper) would be drawn through (copper as occupancy.name_copper names it), or None: copper of another net that
         they overlap, placed, or planned before them in this or an earlier batch. A track that may bridge crosses
         a track (the bridging passes it under); two tracks of one batch that cross are the bridging's to settle."""
+        hits = self._through_hits(ctx, ops, bridge)
+        return hits[1][0] if hits else None
+
+    def _through_hits(self, ctx, ops, bridge: bool = False):
+        """(the first op that meets copper, [the copper it meets, as name_copper names it]) or None. The copper is in the
+        order along the op from its start (where each piece is first reached, ties by name), never the occupancy's order; each
+        carries `at_mm`, how far along the op it is first reached."""
         occ = ctx.occ
         for op in ops:
             if not isinstance(op, (Track, Via)):
                 continue
             shape = _shape_of(op)
+            hit = []
             for o in occ.copper_through(shape):
                 if bridge and isinstance(op, Track) and o.wire and o.kind == "copper":
                     continue
-                return occ.name_copper(o)
+                hit.append(o)
             for earlier in ctx.batch_ops:
                 if isinstance(earlier, Track) and isinstance(op, Track):
                     continue
                 other = _shape_of(earlier)
                 if other is not None and other.net and shape.net and other.net != shape.net and shape.layers & other.layers \
                         and shape.box.overlaps(other.box) and occ._conflict(shape, other, 1e-4, exact=True, say=False):
-                    return occ.name_copper(other)
+                    hit.append(other)
+            if not hit:
+                continue
+            if isinstance(op, Track):
+                ux, uy = op.end.x - op.start.x, op.end.y - op.start.y
+                n = math.hypot(ux, uy) or 1.0
+                ux, uy = ux / n, uy / n
+                along = lambda o: min((x - op.start.x) * ux + (y - op.start.y) * uy for x, y in o.poly)
+            else:
+                along = lambda o: 0.0
+            named = []
+            for o in hit:
+                c = occ.name_copper(o)
+                c["at_mm"] = round(max(0.0, along(o)), 4)
+                named.append((c["at_mm"], c["form"], str(c.get("who", "")), str(c.get("label", "")), str(c.get("net", "")), c))
+            named.sort(key=lambda t: t[:5])
+            return op, [t[5] for t in named]
         return None
+
+    def _track_through_facts(self, ctx, hits, index: int) -> dict:
+        """What a track not drawn for the copper it would run through says: every piece along its first leg, the leg,
+        and for each pad whether its part was placed when the room planning first tried this track (None where that was
+        not tried, and for copper that is not a part's pad)."""
+        op, blockers = hits
+        early = None if ctx.dry else self._room_refused.get(index)
+        out = []
+        for c in blockers:
+            c = dict(c)
+            c["placed_when_plannable"] = (c["who"][0] in early) if early is not None and c["form"] == "pad" else None
+            out.append(c)
+        return {"met": out[0], "blockers": out,
+                "leg": {"start": [round(op.start.x, 6), round(op.start.y, 6)], "end": [round(op.end.x, 6), round(op.end.y, 6)]}}
 
     def _tail_why(self, ctx, tail) -> Refusal | None:
         """Why `tail` cannot be drawn - within clearance of another net's via
@@ -6542,6 +6585,7 @@ class Board:
         stops after its firm items when that is so, and the last one, or the first that finds everything in place, is the
         resolve (see `_redo_check`)."""
         self._room_seed, self._swaps, self._room_unsettled, self._swap_notes, self._loose = {}, [], [], {}, frozenset()
+        self._room_refused = {}         # copper index -> the parts placed when the room planning could not draw it
         self._firm_pass_no = None
         passes = self.settings.place_firm_passes
         if not (self.settings.place_copper_room and passes > 1 and

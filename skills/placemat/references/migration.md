@@ -17,6 +17,12 @@ section for each hand-written pattern a newer form replaces.
   is still cut back by whatever stands there. Placements of scripts with such a pour can move; `place.copper_room = false` restores the
   old behaviour. Nothing to change in a script.
 
+- **"Track not drawn, it would run through X" names every piece of copper on the leg, in order along it.** The finding named the first
+  piece in the occupancy's iteration order, which could be a part placed after the ones that actually stood in the way. Its facts now
+  have `blockers` (each as `met` is: form, who, label, net, plus `at_mm` along the leg from its start, and `placed_when_plannable`,
+  whether the part was already placed when the room planning first tried the track, `null` where it did not try), `leg` (its
+  `start` and `end`), and `met` is the first of them. The sentence adds "and N more". Nothing to change in a script.
+
 ### Changed
 
 - **The studio's opening dialog is titled "Open".** Its button and the header's tooltip say the same; the half-sentence title is gone.

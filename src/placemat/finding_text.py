@@ -361,7 +361,8 @@ _NOT_DRAWN = {
         f["track"], ", ".join(f["lost"])),
     "past": lambda f: "%s: its point past %s is not drawn, because %s" % (f["item"], ", ".join(f["names"]), _refusal(f["why"])),
     "arc": _not_drawn_arc,
-    "through": lambda f: "track %s: not drawn, it would run through %s" % (f["net"], _copper_name(f["met"])),
+    "through": lambda f: "track %s: not drawn, it would run through %s%s" % (
+        f["net"], _copper_name(f["met"]), " and %d more" % (len(f["blockers"]) - 1) if len(f.get("blockers", ())) > 1 else ""),
     "pair_close": lambda f: "pair %s/%s: its pad pairs are too close for a centreline of its own; give the centreline's "
                             "points" % (f["p"], f["n"]),
     "vias_span": lambda f: "vias %s: a span of %s does not reach %s.%s on %s" % (
