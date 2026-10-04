@@ -190,7 +190,8 @@ def test_arranging_cells_on_the_largest_real_board_keeps_pcbnews_bindings_and_it
     board.Save(str(pcb))
     del board
     g = read_board(pcb)
-    assert len(cells) > 20 and all(g.cell(n).offered() == ("turn",) for n in cells)
+    assert len(cells) == 30 and {n: (g.cell(n).offered(), g.cell(n).arrangement_problems) for n in cells} == \
+        {n: (("turn",), ()) for n in cells}
     assert g.cell("u5").offered() == tuple(offered)
     b = Board(g, edge_margin=0.0, keep_going=True)
     for name in sorted(cells):

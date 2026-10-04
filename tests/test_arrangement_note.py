@@ -113,6 +113,15 @@ def test_a_zero_that_rounds_from_below_digests_as_zero():
     assert N.base_digest(at(-0.0004)) == N.base_digest(at(0.0001))
 
 
+@pytest.mark.parametrize("y", [33.680469, 46.056501])
+def test_the_digest_a_note_carries_is_the_one_its_stored_places_give(y):
+    """A default place whose 4-place form ends in 5 (33.6805 from 33.680469) rounds to 3 places one way from the place and the other
+    from the stored form: the note's digest is taken from what it stores, so the reader's digest of the note agrees."""
+    was = Placement(Location(45.311001, y), 270.0, Face.FRONT)
+    d = N.document("turn", {}, [("c", was, was)], [], [])
+    assert N.base_digest([(m["inst"], N.pose_from_json(m["from"])) for m in d["members"]]) == d["base"]
+
+
 def test_a_limit_with_no_room_for_a_chunk_is_an_error():
     with pytest.raises(N.NoteError):
         N.encode(doc(), 30)

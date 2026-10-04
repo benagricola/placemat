@@ -115,8 +115,10 @@ def base_digest(places) -> str:
 
 def document(ident: str, choices: dict, members, ops, keepouts, order: int = 0) -> dict:
     """The note's document. `members` is [(inst, pose in this arrangement, pose in the default)], all in the fragment's frame;
-    `order` is where the module run laid the arrangement (the stamping board scans in that order)."""
-    return {"v": VERSION, "id": ident, "order": order, "choices": dict(choices), "base": base_digest([(i, d) for i, _, d in members]),
+    `order` is where the module run laid the arrangement (the stamping board scans in that order). The digest is of the default
+    places as the note stores them (`pose_json`), the form the reader digests."""
+    stored = [(i, pose_from_json(pose_json(d))) for i, _, d in members]
+    return {"v": VERSION, "id": ident, "order": order, "choices": dict(choices), "base": base_digest(stored),
             "members": [{"inst": i, "x": _r(p.location.x, 4), "y": _r(p.location.y, 4), "rotation": _r(p.rotation, 4),
                          "face": p.face.value, "from": pose_json(d)} for i, p, d in members],
             "ops": [op_to_json(o) for o in ops], "keepouts": [keepout_to_json(k) for k in keepouts]}

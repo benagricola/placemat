@@ -254,10 +254,8 @@ def synthetic_notes_for(pcb) -> dict:
         smallest = min(members, key=lambda fp: (fp.body_box.area, fp.inst))
         rows = []
         for fp in members:
-            # the place as the note's json holds it (4 places): the note's digest is taken from the place it is given and read
-            # back from the json's, which round to 3 places apart for a coordinate such as 33.680469 (33.68 against 33.681)
-            was = N.pose_from_json(N.pose_json(Placement(fp.location, fp.rotation, fp.face)))
-            now = Placement(was.location, (was.rotation + 180.0) % 360.0, was.face) if fp is smallest else was
+            was = Placement(fp.location, fp.rotation, fp.face)
+            now = Placement(fp.location, (fp.rotation + 180.0) % 360.0, fp.face) if fp is smallest else was
             rows.append((fp.inst[len(prefix):], now, was))
         doc = N.document("turn", {"turn": "half"}, rows, [], [], order=1)
         for text in N.encode(doc, 4000):
