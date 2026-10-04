@@ -259,6 +259,10 @@ steps replay. Run at a checkpoint only:
 - the first look at a board;
 - a change you mean to keep;
 - before committing.
+A `setup.native` warning on a run or preview means the native module is
+not in use (not installed, or built from another release): the results are
+right but 5-10x slower, so rebuild it (`uv pip install -e ".[native]"`)
+before timing anything or waiting on a large board.
 Between checkpoints, edit and preview, or let the user watch in
 `placemat studio`, which re-resolves as the script changes. A run's
 `run.json` records each stage's seconds (`timing_s`), so you can see which

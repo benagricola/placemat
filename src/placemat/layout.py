@@ -25,7 +25,7 @@ import types
 
 from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
-from .geometry import Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
+from .geometry import native_status, Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from . import blame, finding_text, step_text
 from .phases import Stage
 from .cutouts import EdgeWhy
@@ -6626,6 +6626,8 @@ class Board:
         chain = {"key": context, "replaying": previous is not None}
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
+        if native_status().warns:           # the pure Python path is the reference, and 5-10x slower: never silent
+            plan.findings.append(self._finding(C.SETUP_NATIVE, native_status().facts(), "warning"))
         plan.findings.extend(self._finding(C.SETUP_RULE_NOTE, facts, "notice") for facts in self._stamped_rule_notes)
         plan.findings.extend(self._finding(C.SETUP_SETTING_RENAMED, facts, "notice") for facts in ({"path": p, "old": o, "new": n} for p, o, n in self.settings.notices))    # a renamed setting named by its old name
         self._rank(occ)

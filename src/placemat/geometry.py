@@ -18,33 +18,64 @@ Polygon = tuple[Point, ...]
 # when it was. Every function it supplies has its Python body kept in place
 # as the fallback and the reference - see
 # docs/superpowers/specs/2026-09-24-native-core-design.md.
-def _accept_native(module, version: str):
-    """(module, "") when a native module was built from this placemat's
-    release, else (None, why): a module from another release could place
-    differently, so it is set aside rather than trusted. Between tags both
-    carry the last tag's release; a changed source is rebuilt by uv."""
+@dataclass(frozen=True)
+class NativeStatus:
+    """Whether the native accelerator is in use, and if not, why. The one place that decides: every surface (the
+    findings, the hello event, run.json, the preview JSON, the studio) carries this record and renders it at its edge.
+    `reason` is "" when in use, else not_installed, import_error (`detail` is the error), version_mismatch (the two
+    versions; native_version is None when the module has none) or disabled_by_env (PLACEMAT_NATIVE=0, recorded but never warned about)."""
+    in_use: bool
+    reason: str = ""
+    placemat_version: str = ""
+    native_version: str | None = None
+    detail: str = ""
+
+    @property
+    def warns(self) -> bool:
+        """True when native is off for a reason nobody chose: PLACEMAT_NATIVE=0 is a deliberate switch (the parity
+        reference), so it is recorded but not warned about."""
+        return not self.in_use and self.reason != "disabled_by_env"
+
+    def facts(self) -> dict:
+        """The record as plain JSON data."""
+        return {"in_use": self.in_use, "reason": self.reason, "placemat_version": self.placemat_version,
+                "native_version": self.native_version, "detail": self.detail}
+
+
+def _decide_native(module, import_error: str | None, version: str, disabled: bool) -> tuple:
+    """(module or None, NativeStatus). A module from another release could place differently, so it is set aside rather
+    than trusted. Between tags both carry the last tag's release; a changed source is rebuilt by uv."""
     from . import release
-    theirs = getattr(module, "__version__", None)
-    if theirs is None:
-        return None, "placemat_native has no version: it is not used; rebuild it from this checkout's native/"
-    if release(theirs) != release(version):
-        return None, ("placemat_native is %s, placemat is %s: it is not used; rebuild it from this checkout's "
-                      "native/ (uv pip install -e \".[native]\")" % (theirs, version))
-    return module, ""
+    theirs = getattr(module, "__version__", None) if module is not None else None
+    if module is None:
+        if import_error is None:
+            return None, NativeStatus(False, "not_installed", version)
+        return None, NativeStatus(False, "import_error", version, None, import_error)
+    if disabled:
+        return None, NativeStatus(False, "disabled_by_env", version, theirs)
+    if theirs is None or release(theirs) != release(version):
+        return None, NativeStatus(False, "version_mismatch", version, theirs)
+    return module, NativeStatus(True, "", version, theirs)
 
 
-try:
-    import placemat_native as _native
-except ImportError:
-    _native = None
-if os.environ.get("PLACEMAT_NATIVE") == "0":
-    _native = None
-if _native is not None:
-    from . import __version__ as _version
-    _native, _why = _accept_native(_native, _version)
-    if _why:
-        import sys as _sys
-        print("placemat: " + _why, file=_sys.stderr)
+def _load_native():
+    from . import __version__ as version
+    try:
+        import placemat_native as module
+        error = None
+    except ModuleNotFoundError as e:
+        module, error = None, (None if e.name == "placemat_native" else "%s: %s" % (type(e).__name__, e))
+    except ImportError as e:                    # built, but would not load: a missing library, a wrong interpreter
+        module, error = None, "%s: %s" % (type(e).__name__, e)
+    return _decide_native(module, error, version, os.environ.get("PLACEMAT_NATIVE") == "0")
+
+
+_native, NATIVE_STATUS = _load_native()
+
+
+def native_status() -> NativeStatus:
+    """What this process decided about the native module when geometry was imported."""
+    return NATIVE_STATUS
 
 
 @dataclass(frozen=True)

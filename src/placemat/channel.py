@@ -509,8 +509,9 @@ def reporter(script=None):
         label = ""
         if "--label" in argv and argv.index("--label") + 1 < len(argv):
             label = argv[argv.index("--label") + 1]
+        from .geometry import native_status
         hello = {"command": command, "pid": os.getpid(), "script": str(script), "args": argv[:20], "started": time.time(), "label": label,
-                 "cwd": os.getcwd()}
+                 "cwd": os.getcwd(), "native": native_status().facts()}
         rep = Beacon(root, board_dir, hello, progress=_state["hint"])
         rep.start()
     except Exception as e:                                              # a project that cannot be listened in is run as without
@@ -562,7 +563,9 @@ def describe(ev: dict) -> str:
     """One line for an event, for `placemat watch`."""
     kind = ev.get("ev")
     if kind == "hello":
-        return "%s %s%s" % (ev.get("command", ""), Path(ev.get("script") or "").name, (" (%s)" % ev["label"]) if ev.get("label") else "")
+        native = ev.get("native") or {}
+        off = " - native off: %s, pure Python (slow)" % native.get("reason") if native and not native.get("in_use") and native.get("reason") != "disabled_by_env" else ""
+        return "%s %s%s%s" % (ev.get("command", ""), Path(ev.get("script") or "").name, (" (%s)" % ev["label"]) if ev.get("label") else "", off)
     if kind == "resolve":
         return "resolve %s" % ev.get("n", "")
     if kind == "begin":

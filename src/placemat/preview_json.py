@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 
 from .board_geometry import members_of, stackup_order
+from .geometry import native_status
 from .copper import Pour, Text, Track, Via, Zone, arc_circle
 from . import finding_text
 from .refusals import reserved_by
@@ -280,7 +281,7 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None, models
                 for s in plan.steps if s.placement is None and s.kind in ("part", "cell", "block")]
     extra = {} if models is None else {"stackup": models.stackup(plan.geometry), "models": models.table()}
     return {
-        "version": VERSION, **extra, **board_json(plan),
+        "version": VERSION, "native": native_status().facts(), **extra, **board_json(plan),
         "items": items, "copper": copper, "links": _links(plan),
         "congestion": _congestion(plan), "findings": _findings(plan, seen), "steps": steps, "unplaced": unplaced,
         "seconds": _secs(plan.seconds),

@@ -703,6 +703,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                       "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops,
                       "seconds": round(s.seconds, 3), "first_seconds": None if s.first_seconds is None else round(s.first_seconds, 3)}
                      for s in plan.steps]
+        from .geometry import native_status
+        rec.native = native_status().facts()
         rec.findings = list(plan.findings)
         rec.finding_details = [f.detail() for f in plan.findings]
         rec.status = "ok"

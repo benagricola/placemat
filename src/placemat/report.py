@@ -29,6 +29,7 @@ class RunRecord:
     pid: int | None = None                           # the process that made the run, while it is "running"
     verdicts: list = field(default_factory=list)      # the design checks, as `Verdict` fields
     acceptances: list = field(default_factory=list)   # each board.accept and what it met (checks.Outcome.record)
+    native: dict | None = None                       # geometry.NativeStatus.facts(): whether the native module placed this run
 
     def save(self, path) -> Path:
         path = Path(path)
