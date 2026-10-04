@@ -7,14 +7,6 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
-### Changed
-
-- **A resolve with the native module is about 20% faster, an explore variant about 15%, and nothing in a result changes.** Hashing, the
-  near-obstacle query, routed vias' spots, cutout gaps and a scan's lattice moved to or were tightened in the native module; an explore
-  variant no longer binds suggestions it never shows. Rebuild the native module (`uv pip install -e ".[native]"`) to get it.
-
-## To 0.99.0
-
 ### New
 
 - **The studio follows the latest command of the project by default.** `placemat studio` with no script now opens on the most recent
@@ -23,6 +15,24 @@ section for each hand-written pattern a newer form replaces.
   its first entry, under "Runs") pins it; a "latest" chip in the header shows the mode. While you have selected an item, opened a finding or
   moved the view within `[studio] follow_hold_s` seconds (default 10, 0 never holds) a newer command is offered ("A newer run started",
   "Go to it") instead of shown. The address hash `#latest` names the mode. A project with nothing run opens on the dialog as before.
+
+### Changed
+
+- **A resolve with the native module is about 20% faster, an explore variant about 15%, and nothing in a result changes.** Hashing, the
+  near-obstacle query, routed vias' spots, cutout gaps and a scan's lattice moved to or were tightened in the native module; an explore
+  variant no longer binds suggestions it never shows. Rebuild the native module (`uv pip install -e ".[native]"`) to get it.
+
+### Fixed
+
+- **A run's findings and preview JSON no longer depend on the hash seed.** Crossed escapes from one part (`escape_crossed`) could come out
+  in a different order from one run to the next, and the placement search's crossing sums were added in a different order. The ratsnest now
+  reports crossings in airwire order, and the nets of a moved part are refreshed in name order. A run's placement is unchanged; the order
+  of findings in `run.json` and the preview can change once, for a board with several crossed escapes on one part.
+
+## To 0.99.0
+
+### New
+
 - **`place.order = "room"` orders a tier by how many legal spots each item has left.** The default, `"freedoms"`, is the order as before
   (a slide before an item searched in two, then the rank). With `"room"` the item whose declaration leaves it the fewest spots goes first
   (a slide's length, a `Near` disc, a `Polar` band or the board's free area, less the item's size, hard-limit push discs and the keepouts that
@@ -47,13 +57,6 @@ section for each hand-written pattern a newer form replaces.
 - **The route replay is closer to what the router did.** The pair router's pairs are nets of the route events (`net_begin`, `net_end`, a pair named "P/N"), so they count as routed or failed. Ripped copper is shown until the step that rips it, not left out of the whole replay. The "net N of M" line counts within the stage, not over every launch's queue. Route records carry `complete` (the route finished), each stage carries `complete` and `dropped` (events the router's full queue turned away, or lines it could not finish), and a stopped route is listed as stopped and replayed with a note that it is partial. `route_events.install` takes `pairs=`, and `RouteEvents.end` takes `complete=`; a record written before this has neither flag and reads as complete.
 - **A through-hole pad in the studio follows the layer rows of the legend.** It is hidden when the rows of every copper layer it spans are off and shown while any one is on; before, only the pads row switched it.
 - **The studio's opening dialog is titled "Open".** Its button and the header's tooltip say the same; the half-sentence title is gone.
-
-### Fixed
-
-- **A run's findings and preview JSON no longer depend on the hash seed.** Crossed escapes from one part (`escape_crossed`) could come out
-  in a different order from one run to the next, and the placement search's crossing sums were added in a different order. The ratsnest now
-  reports crossings in airwire order, and the nets of a moved part are refreshed in name order. A run's placement is unchanged; the order
-  of findings in `run.json` and the preview can change once, for a board with several crossed escapes on one part.
 
 ## To 0.98.0
 
