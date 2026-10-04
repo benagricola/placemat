@@ -31,6 +31,17 @@ section for each hand-written pattern a newer form replaces.
     sentences, and its `error` and `try_error` events have `kind`, `type`/`failure` and `detail` where they had `message`.
   - The reuse record is version 4: the first resolve after the upgrade replays nothing. `run.json`'s steps keep `note` and gain
     `notes`.
+  - The 3D converter's events (studio only): a `model` event has `failure`, a record `{"code", ...}` (`no_cli`, `no_mesh`,
+    `timeout` with `limit_s`, `export_failed` with `returncode` and kicad-cli's own last line as `detail`, ...), where it had
+    `message`; the ready event's `selftest` has `failure` (`planes_differ` carries `version`, `front` and `back`, the prism's boxes)
+    where it had `message`. The studio page's own `message` is made from them (`model_convert.failure_text`). A failure kept in the
+    model cache is a JSON record; one an earlier release kept as text still reads.
+  - `placemat preview --json` gains fields, none changes meaning: `reuse` (what was reused, `{"form": "none" | "all" | "some", ...}`
+    beside the `reused` sentence), `png_failure` (`{"code": "not_installed" | "timeout" | "failed" | "no_png", "tool", ...}`
+    beside `png_problem`), and each of `notes` has `data`, the values its `text` says (a link's pads, length, limit and state; a
+    pocket; the worst congestion cell; a finding's cause, severity and facts).
+  - `placemat apply --json` gains `action` (`applied`, `would write`, `undone`), `edits` (the suggestion's edits as fields; none for
+    an undo) and each file's `created` and `removed`; `text` stays the suggestion's sentence.
   A script is not affected.
 
 ### Removed

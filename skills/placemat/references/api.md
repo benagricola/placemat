@@ -3795,7 +3795,7 @@ it is, and what the score counts) and a `severity` (how much it matters to the b
 them says how many of each (`7 finding(s) (1 critical, 2 warning, 4 notice)`). `run.json` keeps `findings` (the
 sentences) and `finding_details` (`kind`, `severity`, `text` per finding, in the same order); a record from before
 severities has no `finding_details`, and its findings read as `warning`. `preview --format json` has the same
-`finding_details`, and the studio's plan JSON gives each of its `findings` a `severity` and has
+`finding_details`, and adds `reuse`, `png_failure` and a `data` record on each of `notes` (every value its `text` says, as fields), and the studio's plan JSON gives each of its `findings` a `severity` and has
 `counts.severities`. The studio's Findings tab lists the most serious first.
 
 A kind has one severity, listed below, except where the finding says its own at the place it is made. The

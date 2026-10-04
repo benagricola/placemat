@@ -42,7 +42,8 @@ def test_the_self_test_finds_the_prism_in_the_model_frame_and_the_planes_where_t
 def test_the_self_test_refuses_a_kicad_whose_planes_are_not_the_ones_modelled(cfg, monkeypatch):
     monkeypatch.setattr(model_place, "FRONT_BELOW", 0.5)
     r = mc.self_test(cfg, CLI)
-    assert not r["ok"] and "model planes" in r["message"] and r["version"]
+    assert not r["ok"] and r["failure"]["code"] == "planes_differ" and r["version"] and r["failure"]["front"] == r["front"]
+    assert "model planes" in mc.failure_text(r["failure"])
 
 
 @needs_kicad
@@ -82,7 +83,7 @@ def test_a_batch_that_times_out_is_split_and_each_model_tried_alone(cfg, cache, 
     def fake(jobs, cfg_, cli, back=frozenset()):
         calls.append(len(jobs))
         if len(jobs) > 1:
-            raise mc.ConvertError("kicad-cli took longer than 120 s")
+            raise mc.ConvertError("timeout", limit_s=120)
         m = mm.Mesh([mm.Material((1, 2, 3), 1.0, __import__("array").array("f", [0, 0, 0, 1, 0, 0, 0, 1, 0]), __import__("array").array("f", [0, 0, 1] * 3), __import__("array").array("I", [0, 1, 2]))])
         return {0: m}
     monkeypatch.setattr(mc, "convert_step_batch", fake)
@@ -94,8 +95,18 @@ def test_a_batch_that_times_out_is_split_and_each_model_tried_alone(cfg, cache, 
 def test_without_kicad_cli_every_step_model_fails_with_one_sentence_and_no_traceback(cfg, cache):
     events = []
     mc.run_batch([job(1), job(2)], cfg, None, cache, events.append)
-    msgs = {e["message"] for e in events if e["ev"] == "model"}
-    assert msgs == {"3D needs kicad-cli on the path, or set studio_3d_kicad_cli"}
+    fails = [e["failure"] for e in events if e["ev"] == "model"]
+    assert fails == [{"code": "no_cli"}] * 2 and "message" not in events[0]
+    assert mc.failure_text(fails[0]) == "3D needs kicad-cli on the path, or set studio_3d_kicad_cli"
+
+
+def test_a_failure_is_a_record_with_the_tools_own_text_beside_the_facts(cache):
+    e = mc.ConvertError("export_failed", returncode=3, detail="boom")
+    assert e.record == {"code": "export_failed", "returncode": 3, "detail": "boom"} and str(e) == "kicad-cli failed (3): boom"
+    cache.put_failure("%032x" % 9, e.record)
+    assert cache.failure("%032x" % 9) == e.record
+    (cache.dir / cache.name("%032x" % 8, "fail")).write_text("an older sentence")
+    assert cache.failure("%032x" % 8) == {"code": "text", "detail": "an older sentence"} and mc.failure_text(cache.failure("%032x" % 8)) == "an older sentence"
 
 
 def test_a_vrml_model_is_read_by_placemat_and_needs_no_kicad_cli(cfg, cache, tmp_path):

@@ -9,7 +9,7 @@ parts that were not placed. Units are millimetres throughout (the viewBox);
 whoever turns it into pixels chooses the size."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from types import SimpleNamespace
 
@@ -282,6 +282,7 @@ class Note:
     at: Location | None
     text: str
     colour: str
+    data: dict = field(default_factory=dict, compare=False)     # what `text` says, as fields (the JSON output carries both)
 
 
 def _inside(p: Location, box: Box) -> bool:
@@ -325,7 +326,10 @@ def annotations(plan, view: Box, links: bool = True, heat: bool = True) -> list:
             limit = "no limit" if l.limit_mm is None else "limit %.2f (%s)" % (l.limit_mm, "within" if state == "ok" else "OVER")
             out.append(Note("L%d" % k, "link", at, "link %s pad %s -> %s pad %s  %.2f mm, %s  (%.2f, %.2f) -> (%.2f, %.2f)%s"
                             % (l.a[0], l.a[1], l.b[0], l.b[1], d, limit, a.x, a.y, b.x, b.y,
-                               ("  " + l.why) if l.why else ""), _COLOUR[state]))
+                               ("  " + l.why) if l.why else ""), _COLOUR[state],
+                            {"a": [l.a[0], str(l.a[1])], "b": [l.b[0], str(l.b[1])], "length_mm": round(d, 4),
+                             "limit_mm": l.limit_mm, "state": state, "from": [round(a.x, 3), round(a.y, 3)],
+                             "to": [round(b.x, 3), round(b.y, 3)], "why": l.why}))
     steps = {s.item: s for s in plan.steps}
     for n, key in enumerate(plan.pocketed, start=1):
         item = plan._items.get(key)
@@ -339,12 +343,13 @@ def annotations(plan, view: Box, links: bool = True, heat: bool = True) -> list:
         took = steps[key].pocket if key in steps else None
         why = finding_text.pocket_took_text(took) if took else "took a pocket"
         out.append(Note("P%d" % n, "pocketed", corner if _inside(corner, view) else None,
-                        "%s %s" % (key, why), _COLOUR["pocketed"]))
+                        "%s %s" % (key, why), _COLOUR["pocketed"], {"item": key, "pocket": took}))
     r = getattr(plan, "rudy", None)
     if heat and r is not None:
         out.append(Note("C", "worst", r.worst_at if _inside(r.worst_at, view) else None,
                         "the most congested cell: demand %.2f of capacity, at (%.1f, %.1f)" % (
-                            r.worst, r.worst_at.x, r.worst_at.y), "#c92a2a"))
+                            r.worst, r.worst_at.x, r.worst_at.y), "#c92a2a",
+                        {"demand": r.worst, "at": [round(r.worst_at.x, 3), round(r.worst_at.y, 3)]}))
     n = 0
     for f in plan.findings:
         found = finding_text.locate(f.cause, f.facts, ())["at"]
@@ -352,7 +357,8 @@ def annotations(plan, view: Box, links: bool = True, heat: bool = True) -> list:
             continue
         n += 1
         at = Location(found[0], found[1])
-        out.append(Note("F%d" % n, "finding", at if _inside(at, view) else None, f, "#862e9c"))
+        out.append(Note("F%d" % n, "finding", at if _inside(at, view) else None, f, "#862e9c",
+                        {"cause": f.cause.value, "severity": f.severity, "facts": f.facts, "at": [found[0], found[1]]}))
     return out
 
 

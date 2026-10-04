@@ -82,12 +82,12 @@ def test_a_write_is_atomic_and_a_read_touches_the_file(cache):
 
 
 def test_a_failure_is_kept_until_retry_or_a_new_version(cache):
-    cache.put_failure("c" * 32, "kicad-cli said no")
-    assert cache.failure("c" * 32) == "kicad-cli said no"
+    cache.put_failure("c" * 32, {"code": "export_failed", "returncode": 1, "detail": "kicad-cli said no"})
+    assert cache.failure("c" * 32) == {"code": "export_failed", "returncode": 1, "detail": "kicad-cli said no"}
     cache.retry("c" * 32)
     assert cache.failure("c" * 32) is None
-    cache.put_failure("c" * 32, "again")
-    cache.put_failure("d" * 32, "other")
+    cache.put_failure("c" * 32, {"code": "no_mesh"})
+    cache.put_failure("d" * 32, {"code": "no_mesh"})
     cache.retry(None)
     assert cache.failure("c" * 32) is None and cache.failure("d" * 32) is None
 

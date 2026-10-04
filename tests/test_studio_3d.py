@@ -19,15 +19,15 @@ FAKE = textwrap.dedent('''
         msg = json.loads(line)
         if msg["cmd"] == "start":
             cache = model_cache.Cache(msg["cfg"]["cache_dir"], 64)
-            print(json.dumps({"ev": "ready", "cli": "/usr/bin/kicad-cli", "selftest": {"ok": True, "message": "", "version": "10.0"}}), flush=True)
+            print(json.dumps({"ev": "ready", "cli": "/usr/bin/kicad-cli", "selftest": {"ok": True, "version": "10.0"}}), flush=True)
         elif msg["cmd"] == "batch":
             for n, j in enumerate(msg["jobs"]):
                 if j["name"].startswith("bad"):
-                    print(json.dumps({"ev": "model", "id": j["id"], "state": "failed", "tris": None, "message": "no mesh"}), flush=True)
+                    print(json.dumps({"ev": "model", "id": j["id"], "state": "failed", "tris": None, "failure": {"code": "no_mesh"}}), flush=True)
                 else:
                     m = mm.Mesh([mm.Material((1, 2, 3), 1.0, array("f", [0, 0, 0, 1, 0, 0, 0, 1, 0]), array("f", [0, 0, 1] * 3), array("I", [0, 1, 2]))])
                     cache.put(j["id"], mm.write_pmm(m))
-                    print(json.dumps({"ev": "model", "id": j["id"], "state": "ok", "tris": 1, "message": ""}), flush=True)
+                    print(json.dumps({"ev": "model", "id": j["id"], "state": "ok", "tris": 1}), flush=True)
                 print(json.dumps({"ev": "progress", "done": n + 1, "total": len(msg["jobs"]), "current": j["id"]}), flush=True)
             print(json.dumps({"ev": "batch_done", "n": len(msg["jobs"])}), flush=True)
         elif msg["cmd"] == "quit":
@@ -92,7 +92,7 @@ def test_models_are_converted_in_the_background_and_the_page_is_told_each_one_an
                      {"id": "../etc", "kind": "file", "path": str(a)}]) == 2
     assert m.table() == {"1" * 32: {"state": "loading", "tris": None, "message": ""}, "2" * 32: {"state": "loading", "tris": None, "message": ""}}
     assert wait(lambda: all(v["state"] != "loading" for v in m.table().values()) and m.status()["progress"]["total"] == 0)
-    assert m.table()["1" * 32]["state"] == "ok" and m.table()["1" * 32]["tris"] == 1 and m.table()["2" * 32] == {"state": "failed", "tris": None, "message": "no mesh"}
+    assert m.table()["1" * 32]["state"] == "ok" and m.table()["1" * 32]["tris"] == 1 and m.table()["2" * 32] == {"state": "failed", "tris": None, "message": "kicad-cli exported no mesh for this model"}
     names = [n for n, _ in events]
     assert names[0] == "models3d" and names.count("model") == 2 and "models" in names
     st = m.status()

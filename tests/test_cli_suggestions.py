@@ -123,6 +123,8 @@ def test_apply_json_gives_the_diff_per_file(tmp_path, planned, capsys):
     doc = json.loads(out.out)
     assert code == 0 and doc["id"] == s.id and doc["dry_run"] is True
     assert doc["files"][0]["file"] == str(path) and "weight=LinkWeight.PREFER" in doc["files"][0]["diff"]
+    assert doc["action"] == "would write" and doc["files"][0]["created"] is False and doc["files"][0]["new_lines"]
+    assert doc["edits"] == [e.to_json() for e in s.edits] and doc["edits"][0]["op"]          # the change as fields, not only the sentence
 
 
 def test_apply_without_an_id_is_a_usage_error(tmp_path, planned, capsys):

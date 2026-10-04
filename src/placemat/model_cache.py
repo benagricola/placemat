@@ -6,6 +6,7 @@ the folder. Each use touches the file's mtime; over the size bound the least rec
 it, never one in use by the plan on screen."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -71,14 +72,21 @@ class Cache:
     def has(self, id: str) -> bool:
         return (self.dir / self.name(id)).is_file()
 
-    def put_failure(self, id: str, message: str) -> None:
-        self._write(self.name(id, "fail"), message.encode("utf-8", errors="replace"))
+    def put_failure(self, id: str, failure: dict) -> None:
+        """Keep why `id` failed (a model_convert failure record) so it is not tried again until `retry`."""
+        self._write(self.name(id, "fail"), json.dumps(failure).encode("utf-8"))
 
-    def failure(self, id: str) -> str | None:
+    def failure(self, id: str) -> dict | None:
+        """The failure kept for `id`, or None. A file an earlier release wrote holds a sentence: it reads as {"code": "text", "detail"}."""
         try:
-            return (self.dir / self.name(id, "fail")).read_text(encoding="utf-8", errors="replace")
+            text = (self.dir / self.name(id, "fail")).read_text(encoding="utf-8", errors="replace")
         except OSError:
             return None
+        try:
+            doc = json.loads(text)
+        except ValueError:
+            doc = None
+        return doc if isinstance(doc, dict) else {"code": "text", "detail": text}
 
     def retry(self, id: str | None = None) -> None:
         """Forget a failure (every one when `id` is None) so the model is tried again."""
