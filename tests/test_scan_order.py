@@ -113,4 +113,4 @@ def test_a_candidate_the_sweeper_judged_legal_less_its_vias_is_not_judged_again(
         monkeypatch.setattr(placer, "JUDGE_ONCE", once)
         placer.scan(occ, item, hint, 5.0, 0.25, rots, None, score=_score)
         totals[once] = len(calls)
-    assert 0 < totals[True] < totals[False], totals
+    assert totals[True] < totals[False], totals         # none at all, where the native pass judges the net ties too
