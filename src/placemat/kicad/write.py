@@ -227,6 +227,37 @@ def _merge_cell_zones(board, plan: Plan) -> list:
     return merged
 
 
+def _separate_cell_zone_priorities(board, plan: Plan) -> list:
+    """Give stamped cells' zones of one net that overlap on a layer distinct priorities. Each cell was
+    stamped with its zone at the module's priority, so two cells' zones overlapping (their frames reach a
+    keep-in past their content) are at one priority, which KiCad's DRC reports as zones_intersect. Same
+    net, so which fills first does not change the copper's connection: the later zone, in group-name
+    order, is raised past every zone it overlaps. Returns (zone name, cell, old, new) for each raised."""
+    zones = sorted(((g.GetName(), it) for g in board.Groups() if g.GetName() in plan.geometry.cells
+                    for it in g.GetItems() if isinstance(it, pcbnew.ZONE) and not it.GetIsRuleArea()),
+                   key=lambda t: (t[0], t[1].GetZoneName()))
+    raised, done = [], []
+    for cell, z in zones:
+        mine = set(z.GetLayerSet().CuStack())
+        near = [o for o in done if o.GetNetname() == z.GetNetname() and mine & set(o.GetLayerSet().CuStack())
+                and _zones_overlap(z, o)]
+        old = new = z.GetAssignedPriority()
+        while any(o.GetAssignedPriority() == new for o in near):
+            new += 1
+        if new != old:
+            z.SetAssignedPriority(new)
+            raised.append((z.GetZoneName(), cell, old, new))
+        done.append(z)
+    return raised
+
+
+def _zones_overlap(a, b) -> bool:
+    """Whether two zones' outlines share area."""
+    o = pcbnew.SHAPE_POLY_SET(a.Outline())
+    o.BooleanIntersection(b.Outline())
+    return o.OutlineCount() > 0
+
+
 def _keep_in_region(board, plan: Plan):
     """The board less the edge keep-in, as a polygon set: where copper may
     be. None when the board has no outline to shrink."""
@@ -901,6 +932,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     _given_way(board, plan, groups)
     if plan.cell_zones_under_planes == "drop":
         plan.merged_zones = _merge_cell_zones(board, plan)
+    _separate_cell_zone_priorities(board, plan)
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
     _draw_keepout_drawings(board, plan)

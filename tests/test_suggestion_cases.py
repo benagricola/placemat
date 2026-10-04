@@ -67,7 +67,8 @@ def test_no_builder_writes_a_coordinate_a_figure_or_a_plane():
 SEARCH = {"item": "c4", "kind": "part", "face": "front", "priority": "", "step": 0.2, "dominant": "reservation",
           "turns": 1, "free_sides": {"c1": ["NORTH", "EAST"]}, "drawn": True, "envelope": "physical", "via": True,
           "reservations": [{"keepout": "ant"}, {"label": "label j1 IN", "item": "j1"}],
-          "links": [{"own": "1", "partner": "u1", "pad": "2"}]}
+          "links": [{"own": "1", "partner": "u1", "pad": "2"}],
+          "budget": {"judged": 5000, "share": 0.1, "limit": 5000}}
 LINK = {"a": {"key": "c1", "pad": "1"}, "b": {"key": "u1", "pad": "2"}, "link": "C1.1>U1.2", "achieved_mm": 5.1,
         "limit_mm": 4.0, "weight": 1, "a_searched": True, "free_sides": ["NORTH", "EAST"]}
 LABEL = {"key": "label j1 IN", "item": "j1", "side": "NORTH", "sides": ["SOUTH", "EAST"], "size": 1.0}
@@ -95,7 +96,7 @@ FACTS = {
     C.ESCAPE_WALLED: ESCAPE, C.ESCAPE_CLOSED: ESCAPE, C.ESCAPE_CROSSED: ESCAPE, C.ESCAPE_LANE: ESCAPE, C.PAIR_CROSSED: {},
     C.SETUP_CENTRE_COORDINATES: {"item": "c9", "relation": {"item": "c1", "side": "NORTH"}}, C.SETUP_CENTRE_FLAG_DEFAULT: {"item": "c9"},
     C.SETUP_UNDECLARED: {"item": "c9", "anchor": "c1"}, C.SETUP_LANE_UNUSED: ESCAPE, C.SETUP_ACCEPT: {"key": "keep-out SIG"},
-    C.VIAS_DROPPED: {"item": "c4"},
+    C.VIAS_DROPPED: {"item": "c4"}, C.SETUP_STEP_BUDGET: {"item": "c4", "judged": 5000, "share": 0.1, "limit": 5000},
 }
 
 
@@ -146,7 +147,7 @@ def test_a_number_a_builder_writes_into_a_call_is_a_named_constant():
     for case, builder in sg.CASES.items():
         for pick in builder(FACTS[case], Settings()) or ():
             e = pick.edits[0]
-            if e.op != "set_kwarg":
+            if e.op != "set_kwarg" or pick.how == "searched":       # a searched figure has no value until a probe finds it
                 continue
             assert isinstance(e.value, (bool, dict)), (case, pick.text)
             assert not (isinstance(e.value, dict) and "num" in e.value), (case, pick.text)

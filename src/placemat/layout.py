@@ -27,6 +27,7 @@ from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
 from .geometry import Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from . import blame, finding_text, step_text
+from .phases import Stage
 from .cutouts import EdgeWhy
 from .refusals import Code, Refusal, ReservedBy
 from .findings import Finding, FindingCause as C, Findings
@@ -37,7 +38,7 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .placer import BandTurns, BearingTurns, BlockSpec, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Tangent, Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
@@ -317,6 +318,7 @@ class PlaceIntent:
     either: bool = field(default=False, metadata={"omit_default": True})   # face=Face.EITHER: `face` is FRONT, and the search also tries the back
     tangent: object = field(default=None, metadata={"omit_default": True})   # a Tangent: the turn at each spot comes from its bearing
     band: object = field(default=None, metadata={"omit_default": True})      # (r_min, r_max) about `about`: Polar((r_min, r_max), None)
+    budget: int | None = field(default=None, metadata={"omit_default": True})   # the candidates its search may judge, else `place.step_budget`
 
     @property
     def turns_on_point(self) -> bool:
@@ -2870,7 +2872,8 @@ class Board:
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
               radius: float | None = None, step: float | None = None, rotations=(),
               priority: Priority | None = None, required: bool = False, why: str = "",
-              drops: Drops = Drops.ALL, _standoff: float | None = None, _row_of: object = None) -> PlaceIntent:
+              drops: Drops = Drops.ALL, budget: int | None = None,
+              _standoff: float | None = None, _row_of: object = None) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
 
@@ -2898,6 +2901,9 @@ class Board:
         nothing                 seeded from its links                     -> searched, two freedoms
 
         `radius=`, `step=` and `rotations=` tune a search (seeded or Near).
+        `budget=` is how many candidates the search may judge, over all its passes and the
+        carried vias' giving way (default `place.step_budget`); a search that spends it
+        takes the best spot it found, or leaves the item unplaced, and says how far it got.
 
         `rotation=` is a number, `Turned(part, degrees)`, `Parallel(a, b, degrees)`
         (the item's x axis along the line between two points) or `Facing(pads,
@@ -2921,6 +2927,11 @@ class Board:
         radius = self.settings.place_radius if radius is None else radius
         step = self.settings.place_step if step is None else step
         geom, key, kind = self._item(item)
+        if isinstance(budget, float) and budget.is_integer():
+            budget = int(budget)                    # a probe writes its figures as numbers
+        if budget is not None and (isinstance(budget, bool) or not isinstance(budget, int) or budget < 1):
+            raise TypeError("%s: budget= is the candidates the search may judge, a whole number of at least 1, not %r"
+                            % (key, budget))
         try:
             face = Face(face)
         except ValueError:
@@ -3175,7 +3186,7 @@ class Board:
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
                              cell_pin=cell_pin, drops=drops, file=_script_site()[0], line=_script_site()[1],
                              toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either,
-                             tangent=tangent, band=band)
+                             tangent=tangent, band=band, budget=budget)
         self._intents.append(intent)
         return intent
 
@@ -4557,10 +4568,14 @@ class Board:
             spots.append(cand)
             return Refusal(Code.LOOKAHEAD_SPOT)
         step = max(j.step, self.settings.place_lookahead_step)
-        for face in self._faces_of(j):
-            turns_at = None if bt is None else self._spot_turns(occ, j, placed, band, face)
-            scan(occ, j.item, Placement(hint.location, hint.rotation, face), radius, step, self._turns(j),
-                 self.clearance, accept=record, turns_at=turns_at, within=within)
+        budget, occ.step_budget = getattr(occ, "step_budget", None), None     # the partner's own spots, not the step's search: not counted
+        try:
+            for face in self._faces_of(j):
+                turns_at = None if bt is None else self._spot_turns(occ, j, placed, band, face)
+                scan(occ, j.item, Placement(hint.location, hint.rotation, face), radius, step, self._turns(j),
+                     self.clearance, accept=record, turns_at=turns_at, within=within)
+        finally:
+            occ.step_budget = budget
         return spots, step
 
     @staticmethod
@@ -6471,14 +6486,29 @@ class Board:
 
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
 
-    def _phase(self, text: str, **info) -> None:
-        """Tell a viewer what the step being worked on is doing now (`on_begin`); nothing when none listens."""
+    def _phase(self, stage, **info) -> bool:
+        """Tell a viewer what the step being worked on is doing now (`on_begin`): a phases.Stage and its numbers (`within`,
+        `hint`, `radius`, `face`), with the item and its seconds so far. True when the step is out of time (timecap.py) and the
+        search is to stop here."""
+        from . import timecap
+        clock = timecap.active()
+        cut = info.pop("cut", False)                # the scan stops here if the step is out of time: not a thing a viewer is told
+        out = clock.phase(stage, cut=cut, **info) if clock is not None else False
         f = self._on_begin
         if f is not None:
-            f(self._begin_plan, {"kind": "phase", "text": text, **info})
+            ev = {"kind": "phase", "stage": str(stage), **info}
+            if self._step_t0 is not None:
+                ev.update(item=self._step_item, elapsed_s=round(time.monotonic() - self._step_t0, 1))
+            if self._firm_pass_no is not None:
+                ev["firm_pass"] = self._firm_pass_no
+            f(self._begin_plan, ev)
+        return out
 
     _on_begin = None
     _begin_plan = None
+    _step_t0 = None                 # when the step being worked on began, and its item: what a phase event says of its time
+    _step_item = None
+    _firm_pass_no = None
 
     def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None, on_step=None, on_begin=None,
                 partial=None) -> Plan:
@@ -6500,12 +6530,14 @@ class Board:
         stops after its firm items when that is so, and the last one, or the first that finds everything in place, is the
         resolve (see `_redo_check`)."""
         self._room_seed, self._swaps, self._room_unsettled, self._swap_notes, self._loose = {}, [], [], {}, frozenset()
+        self._firm_pass_no = None
         passes = self.settings.place_firm_passes
         if not (self.settings.place_copper_room and passes > 1 and
                 (self._copper or any(getattr(i, "beside", None) is not None for i in self._intents))):
             return self._resolve_run(progress, reuse, explore, lock, routes, on_step, on_begin, partial, False)
         saved = self._snapshot()
         for n in range(1, passes + 1):
+            self._firm_pass_no = n if n < passes else None      # a pass that stops after the firm items: the one a slow step names
             try:
                 return self._resolve_run(progress, reuse, explore, lock, routes, on_step, on_begin, partial, n < passes)
             except _Redo as r:
@@ -6574,8 +6606,12 @@ class Board:
         lap = _Lap()
         started = lap.at
         plan.steps = _FedSteps(plan, on_step, lap)
+        from . import timecap
+        clock = timecap.active()
+        if clock is not None and on_begin is None:
+            on_begin = lambda plan, info: None          # the phases still say where a step is, to the clock
         self._on_begin, self._begin_plan = on_begin, plan
-        occ.on_phase = (lambda text, **info: self._phase(text, **info)) if on_begin else None
+        occ.on_phase = (lambda stage, **info: self._phase(stage, **info)) if on_begin else None
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
         self._escape_ctx = ctx              # what a lane's via is judged by (_LaneEnv)
@@ -6605,6 +6641,8 @@ class Board:
         fixed_copper = [c for c in self._copper if c.freedom.decided and c.index not in held]
         other_copper = [c for c in self._copper if not c.freedom.decided and c.index not in held]
         placed: set = set()
+        if clock is not None:
+            clock.new_pass(len(placements), self._firm_pass_no, plan)
         if on_begin:                        # what is ahead, as far as it is known now: the items, how many are searched, the copper
             on_begin(plan, {"kind": "total", "items": sum(1 for i in placements if not isinstance(i, KeepoutIntent)),
                             "searched": sum(1 for i in placements if not getattr(i.freedom, "decided", True)),
@@ -6729,6 +6767,7 @@ class Board:
             position = len(record["steps"])
             if chain["replaying"] and not (position < len(previous) and previous[position]["key"] == key):
                 chain["replaying"] = False
+            self._step_t0, self._step_item = time.monotonic(), getattr(obj, "key", None) or getattr(obj, "name", "")
             if on_begin:
                 decided = getattr(obj.freedom, "decided", True)
                 on_begin(plan, {"kind": "begin", "item": getattr(obj, "key", None) or getattr(obj, "name", ""),
@@ -6774,11 +6813,32 @@ class Board:
                 step = self._replay_settle(occ, plan, previous[position], obj)
                 record["steps"].append(previous[position])
                 record["reused"] += 1
+                self._step_t0 = None
+                if clock is not None:
+                    clock.replayed_step()
             else:
                 if record["first_change"] is None and previous is not None:
                     record["first_change"] = obj.key
-                step, entry = self._recorded_settle(occ, obj, plan, placed)
+                n_found = len(plan.findings)
+                if clock is not None:
+                    clock.begin_step(obj.key)
+                try:
+                    step, entry = self._recorded_settle(occ, obj, plan, placed)
+                except BaseException:
+                    self._step_t0 = None        # (the clock keeps the step it was in: a stop reports it)
+                    raise
+                spent = clock.end_step() if clock is not None else None
+                self._step_t0 = None
                 entry["key"] = key
+                if spent is not None and spent.limited:
+                    # The result depends on how long the machine took: no later run may replay it, and the steps after it are
+                    # searched again too (their keys no longer match the record's).
+                    entry["key"] = key + "|time-limited"
+                    self._time_limited(plan, step, spent, n_found, clock.bounds.step_limit_s)
+                elif spent is not None:
+                    crossed = {"warn_s": clock.bounds.step_warn_s if spent.warned else None,
+                               "limit_s": clock.bounds.step_limit_s if spent.over else None}
+                    plan.findings.append(self._finding(C.TIME_STEP_SLOW, dict(self._time_facts(spent), **crossed)))
                 step.seconds = lap.stamp()
                 entry["step"]["seconds"] = round(step.seconds, 6)
                 record["steps"].append(entry)
@@ -7080,6 +7140,27 @@ class Board:
         return rudy(pads, box, max(1, len(self.geometry.layers)), pitch,
                     skip=self._plane_nets() | self._free_nets)
 
+    @staticmethod
+    def _time_facts(spent) -> dict:
+        """What a time finding says of a step's time (timecap.StepTime), as facts."""
+        from . import timecap
+        at = spent.limited_stage if spent.limited else spent.warned_stage or spent.stage
+        return {"item": spent.item, "elapsed_s": spent.elapsed_s, "warned_at_s": spent.warned_at_s,
+                "pass": timecap.pass_name(at, None, spent.firm_pass), "stage": at,
+                "within": spent.within, "firm_pass": spent.firm_pass}
+
+    def _time_limited(self, plan: Plan, step: Step, spent, n_found: int, limit_s: float) -> None:
+        """A step gave up at its time limit (timecap.py): the findings its search made of having no room are replaced by the
+        one that says why it has none, or has the spot it had found."""
+        kept = "unplaced" if step.placement is None else "best_so_far"
+        if kept == "unplaced":
+            del plan.findings[n_found:]
+        facts = dict(self._time_facts(spent), limit_s=limit_s, kept=kept)
+        plan.findings.append(self._finding(C.TIME_STEP_LIMIT, facts, "critical" if kept == "unplaced" else "warning"))
+        if kept == "unplaced" and not step.unplaced:
+            step.unplaced = ({"form": "time_limit"},)
+            step.notes = (step_text.record("unplaced"),)
+
     def _step(self, i: PlaceIntent, placement, moved_mm: float, notes=(), unplaced: list | None = None) -> Step:
         """A searched or decided item's step, with its priority, freedom and rank. `notes` are step_text records. `unplaced`:
         why the item has no place, as step_text.unplaced_text reads it; the step's notes then start with "unplaced" and
@@ -7107,6 +7188,8 @@ class Board:
         # place_one); a firm one does, and its labels have already given way in _settle.
         occ.labels_yield = bool(plan.__dict__.get("_label_parts")) and not getattr(obj.freedom, "decided", True) \
             and getattr(obj, "kind", "") != "block"
+        occ.step_budget = SearchBudget(getattr(obj, "budget", None) or self.settings.place_step_budget) \
+            if isinstance(obj, PlaceIntent) else None
         try:
             self._riding = (obj.key, self._rider_check(occ, plan, obj)) if riders else None
             with _recording_commits(occ) as commits:
@@ -7122,6 +7205,7 @@ class Board:
                     self._settle_riders(occ, obj, plan, step)
         finally:
             occ.labels_yield = False
+            occ.step_budget = None
             self._riding = None
         entry = {"step": _reuse.step_to_json(step), "commits": commits,
                  "steps": [_reuse.step_to_json(s) for s in plan.steps[n_steps:]],
@@ -9089,7 +9173,7 @@ class Board:
         if i.freedom.decided:
             p, chose = self._firm_placement(occ, plan, i)
             if self._on_begin is not None:
-                self._phase("placing at its declared spot", hint=[round(p.location.x, 3), round(p.location.y, 3)])
+                self._phase(Stage.DECLARED, hint=[round(p.location.x, 3), round(p.location.y, 3)])
             self._labels_give_way(occ, plan, i.item, p)     # a user's label moves, the part does not
             # its carried vias, and those of the items placed before it, may give way (giveway.py):
             # its commit does what this found
@@ -9116,7 +9200,7 @@ class Board:
         if locked is not None:
             return locked
         if self._on_begin is not None:
-            self._phase("seeding from its connections")
+            self._phase(Stage.SEEDING)
         targets = self._targets(i.item, occ, placed)
         seeded, seeded_nets = [], []
         solved = None
@@ -9186,11 +9270,16 @@ class Board:
                                                                        **hopeless)))
             return self._step(i, None, 0.0, unplaced=[{"form": "pocket", **hopeless}])
         if self._on_begin is not None:
-            self._phase("scanning the %s" % self._face_text(i), hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
+            self._phase(Stage.SCAN, face="either" if i.either else i.face.value, hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
         result, face_note = self._scan_faces(occ, i, hint, radius, clr, score, accept,
                                              reseed=(targets if i.near is None and solved is None else None),
                                              turns_at=bt, within=within,
                                              turns_on=lambda f: self._spot_turns(occ, i, placed, band, f))
+        from . import timecap
+        clock = timecap.active()
+        if result.chosen is None and clock is not None and clock.gave_up:
+            # out of time (--step-limit): no pocket, look-ahead or re-seeding is tried; place_one says why in a finding
+            return self._step(i, None, 0.0, unplaced=[{"form": "time_limit"}])
         if result.chosen is not None and ahead is not None:
             lost = plan.__dict__.setdefault("_room_lost", {})
             for a, b, key in ahead.pairs:
@@ -9216,7 +9305,7 @@ class Board:
         if result.chosen is None:
             blamed = blame.blame_of(result)
             pocket_tried = None
-            if i.near is None and bt is None and band is None:
+            if i.near is None and bt is None and band is None and result.cut is None:
                 step, tried = self._seeded_pocket(occ, i, plan, clr, hint, score, self._turns(i),
                                                   step_text.record("seeded_no_spot", nets=seeded_nets or None, radius_mm=radius, blame=blamed))
                 if step is not None:
@@ -9228,8 +9317,11 @@ class Board:
                          radius_mm=radius, at=[hint.location.x, hint.location.y], blame=blamed, room_lost=late)
             if pocket_tried is not None:
                 facts["pocket_tried"] = pocket_tried
+            if result.cut is not None:
+                facts["budget"] = result.cut
             plan.findings.append(self._finding(C.UNPLACED_SEARCH, facts))
             return self._step(i, None, 0.0, unplaced=[w.to_json() for w in result.reasons.values()] +
+                              ([{"form": "budget", "budget": result.cut}] if result.cut is not None else []) +
                               ([{"form": "room_lost", "room_lost": late}] if finding_text.room_lost_text(late) else []))
         notes = list(seeded)
         if face_note:
@@ -9240,6 +9332,9 @@ class Board:
                                         for_score=True if first is None and score else None))
         if push_sources:
             notes += self._push_notes(occ, plan, i, result.chosen, push_sources)
+        if result.cut is not None:
+            plan.findings.append(self._finding(C.SETUP_STEP_BUDGET, dict(item=i.key, **result.cut), "notice"))
+            notes.append(step_text.record("search_budget", **result.cut))
         step = self._step(i, result.chosen, result.moved_mm, notes)
         step.back_face = bool(face_note) and result.chosen.face is Face.BACK
         return step
@@ -9291,7 +9386,8 @@ class Board:
         if front.chosen is not None:
             return front, None
         merged = ScanResult(None, hint, front.tried + back.tried, front.rejected + back.rejected,
-                            {**back.reasons, **front.reasons}, front.blockers + back.blockers)
+                            {**back.reasons, **front.reasons}, front.blockers + back.blockers,
+                            cut=back.cut or front.cut)
         return merged, None
 
     def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> list:

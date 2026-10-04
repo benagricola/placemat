@@ -34,6 +34,17 @@ def parser() -> argparse.ArgumentParser:
                      help="carry on past decided items that collide (recorded as findings) instead of stopping "
                           "there; an item declared required=True still stops the run")
 
+    run.add_argument("--max-time", type=float, metavar="SECONDS",
+                     help="stop after SECONDS of placing, at the next point it can be resumed from (default [run] max_time_s; 0 "
+                          "is no cap). The finished steps are kept: the same command again replays them and goes on. It says how far "
+                          "it got. Wall-clock, so it depends on machine load")
+    run.add_argument("--step-warn", type=float, metavar="SECONDS",
+                     help="a step still working after SECONDS sends a live event (`placemat watch`, the studio) and gets a finding "
+                          "naming the item, its seconds and the pass it was in (default [run] step_warn_s; 0 is never)")
+    run.add_argument("--step-limit", type=float, metavar="SECONDS",
+                     help="a step still working after SECONDS gives up: it is left unplaced, or at the best spot its search had found, "
+                          "with a finding, and the placement goes on with the next item (default [run] step_limit_s; 0 is never). "
+                          "Checked between a search's passes; wall-clock, so which steps give up depends on machine load")
     run.add_argument("--explore", type=float, metavar="SECONDS",
                      help="first spend up to SECONDS trying variants of the focused items' spots and order, and "
                           "report what the best would move. A long explore: run it detached (setsid nohup placemat "
@@ -238,6 +249,17 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("--around", help="draw only round this placed part or cell (its instance name)")
     pv.add_argument("--margin", type=float, default=5.0, help="mm round --around (default 5)")
 
+    pv.add_argument("--max-time", type=float, metavar="SECONDS",
+                     help="stop after SECONDS of placing, at the next point it can be resumed from (default [run] max_time_s; 0 "
+                          "is no cap). The finished steps are kept: the same command again replays them and goes on. It says how far "
+                          "it got. Wall-clock, so it depends on machine load")
+    pv.add_argument("--step-warn", type=float, metavar="SECONDS",
+                     help="a step still working after SECONDS sends a live event (`placemat watch`, the studio) and gets a finding "
+                          "naming the item, its seconds and the pass it was in (default [run] step_warn_s; 0 is never)")
+    pv.add_argument("--step-limit", type=float, metavar="SECONDS",
+                     help="a step still working after SECONDS gives up: it is left unplaced, or at the best spot its search had found, "
+                          "with a finding, and the placement goes on with the next item (default [run] step_limit_s; 0 is never). "
+                          "Checked between a search's passes; wall-clock, so which steps give up depends on machine load")
     pv.add_argument("--explore", type=float, metavar="SECONDS",
                      help="first spend up to SECONDS trying variants of the focused items' spots and order, and "
                           "report what the best would move")
@@ -604,6 +626,11 @@ def cmd_drc(args) -> int:
     from .report import airwires_from_drc
     from .pairs import board_pairs
     pcb = Path(args.pcb)
+    from .runner import missing_rules
+    missing = missing_rules(pcb)
+    if missing and not args.json:
+        console.say("drc", "no %s beside %s: judged by KiCad's default rules, not the board's" % (" or ".join(missing), pcb.name),
+                    level="warning")
     with tempfile.TemporaryDirectory() as scratch:      # the report is read here and not kept: a rerun makes it again
         report = run_drc(pcb, Path(scratch) / "drc.json")
         data = json.loads((Path(scratch) / "drc.json").read_text())
@@ -617,7 +644,7 @@ def cmd_drc(args) -> int:
     aw = airwires_from_drc(data, partners=partners)
     items = violation_items(data, {}, insts)
     if args.json:
-        console.data(json.dumps({"by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
+        console.data(json.dumps({"missing_rules": missing, "by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
                                  "unconnected": report.unconnected, "open_nets": dict(report.open_nets),
                                  "airwires": aw, "violations": items, "unconnected_items": unconnected_items(data, insts)},
                                 indent=2))
@@ -651,6 +678,11 @@ def cmd_route(args) -> int:
     from .settings import bind, load
     src = None if p.suffix == ".kicad_pcb" else find_board(p)
     pcb = p if src is None else src.pcb
+    from .runner import missing_rules
+    missing = missing_rules(pcb)
+    if missing and not args.json:
+        console.say("route", "no %s beside %s: the pre-route DRC and the router use KiCad's default rules, not the board's"
+                    % (" or ".join(missing), pcb.name), level="warning")
     work = Path(args.out) if args.out else pcb.parent.parent.parent / ".placemat" / "route"
     cfg = load(src.board_dir if src is not None else pcb.parent, script=_script_of(p))       # the board's own [route] settings
     from .kicad.route import plane_nets_of
@@ -675,7 +707,7 @@ def cmd_route(args) -> int:
             raise
         channel.finish(getattr(report, "record", None) or None)
     if args.json:
-        console.data(json.dumps(report.as_dict(), indent=2))
+        console.data(json.dumps(dict(report.as_dict(), missing_rules=missing), indent=2))
     else:
         console.say("route", report.summary())
         if report.resumed:
@@ -1105,15 +1137,15 @@ def cmd_preview(args) -> int:
     if args.json:
         console.data(json.dumps({
             "svg": str(result.svg), "png": str(result.png) if result.png else None,
-            "png_problem": result.png_problem or None, "placed": placed,
+            "png_problem": result.png_problem or None, "png_failure": result.png_failure, "placed": placed,
             "findings": plan.findings,
             "finding_details": [f.detail() for f in plan.findings],
-            "reused": result.reused or None,
+            "reused": result.reused or None, "reuse": result.reuse,
             "congestion": None if plan.rudy is None else {"worst": plan.rudy.worst,
                                                           "at": [plan.rudy.worst_at.x, plan.rudy.worst_at.y]},
             "seen_px_per_mm": round(result.seen_px_per_mm, 1) if result.model_edge else None,
             "notes": [{"tag": n.tag, "kind": n.kind, "in_view": n.at is not None,
-                       "at": None if n.at is None else [round(n.at.x, 3), round(n.at.y, 3)], "text": n.text}
+                       "at": None if n.at is None else [round(n.at.x, 3), round(n.at.y, 3)], "text": n.text, "data": n.data}
                       for n in result.notes]}, indent=2))
         return 0
     from .findings import summary
@@ -1260,8 +1292,10 @@ def _search(args, board_dir, script, entry) -> int:
 
 def _report_applied(args, done, verb) -> int:
     if args.json:
-        console.data(json.dumps({"id": done.id, "text": done.text, "dry_run": done.dry_run, "files": [
-            {"file": f, "diff": c.diff, "old_lines": c.old_lines, "new_lines": c.new_lines}
+        console.data(json.dumps({"id": done.id, "text": done.text, "action": verb, "dry_run": done.dry_run,
+                                 "edits": [e.to_json() for e in done.edits], "files": [
+            {"file": f, "created": c.before is None, "removed": c.after is None, "diff": c.diff, "old_lines": c.old_lines,
+             "new_lines": c.new_lines}
             for f, c in done.files.items()]}, indent=2))
         return 0
     console.say("apply", "%s: %s%s" % (done.id, done.text, " (%s)" % verb if args.dry_run or verb == "undone" else ""))
@@ -1605,6 +1639,9 @@ def main(argv=None) -> int:
     if args.format == "json":
         args.json = True
     previous = stop.install() if args.command in STOPPABLE or (args.command == "apply" and args.search) else {}
+    if previous and args.command in ("run", "preview"):         # bounded in time: the cap stops through the handlers just installed
+        from . import timecap
+        timecap.configure(args.max_time, args.step_warn, args.step_limit)
     try:
         return _main(args)
     except stop.Stopped as s:
@@ -1617,6 +1654,8 @@ def main(argv=None) -> int:
         return s.exit_code
     finally:
         stop.restore(previous)
+        from . import timecap
+        timecap.reset()
 
 
 def _main(args) -> int:

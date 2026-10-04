@@ -2,6 +2,7 @@
 (written by the capture as footprint fields), and each check reports a
 number, the limit it is judged against and a verdict."""
 from tests.conftest import needs_kicad
+import dataclasses
 import json
 import math
 
@@ -205,6 +206,22 @@ def test_keep_out_ignores_a_parts_own_adjacent_pins():
     sw = track("SW", 15.4, 13, 18.6, 13, w=0.3)
     (v,) = keep_out(board_geometry([u, l], copper=[sw]), limit_mm=2.0)
     assert v.value == pytest.approx(15.4 - 0.15 - (12.6 + 0.5))       # the track's end to U1's FB pad edge
+
+
+def test_keep_out_allows_kicads_drc_epsilon_under_the_limit():
+    """KiCad's DRC takes its epsilon (500 nm on a board's design settings) off a clearance before comparing, so a
+    distance float noise short of the limit passes and one 0.6 um short does not."""
+    u = footprint("U1", 14, 13, nets=("FB", "SW"), fields={"Pm.Aggressor": "true", "Pm.Sensitive": "FB"})
+    l = footprint("L1", 20, 13, nets=("SW", "VOUT"), fields={"Pm.Aggressor": "true"})
+    sw = track("SW", 15.4, 13, 18.6, 13, w=0.3)
+    (v,) = keep_out(board_geometry([u, l], copper=[sw]), limit_mm=2.0)
+    d = v.value
+    for short, ok in ((1.5e-6, True), (0.49e-3, True), (0.6e-3, False)):
+        (v,) = keep_out(board_geometry([u, l], copper=[sw]), limit_mm=d + short)
+        assert v.ok is ok, short
+    exact = dataclasses.replace(board_geometry([u, l], copper=[sw]), drc_epsilon=0.0)
+    (v,) = keep_out(exact, limit_mm=d + 1.5e-6)
+    assert not v.ok
 
 
 def test_a_pours_narrowest_neck_is_the_current_paths_width():

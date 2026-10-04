@@ -448,6 +448,7 @@ class Applied:
     text: str
     files: dict
     dry_run: bool = False
+    edits: tuple = ()               # the edits an apply made (an undo or a redo has none: its files are the change)
 
     def diff(self) -> str:
         return "".join(c.diff for c in self.files.values())
@@ -537,7 +538,7 @@ def apply_edits(edits, digests=None, dry_run: bool = False, *, root=None, log=No
     except OSError as e:
         raise EditRefused("cannot read %s" % (e.filename or e)) from None
     files = {p: FileChange(p, before, after) for p, (before, after) in changed.items()}
-    result = Applied(id, label, files, dry_run)
+    result = Applied(id, label, files, dry_run, tuple(edits))
     if dry_run:
         return result
     outside = [p for p in files if not _inside(root, p)]
@@ -862,6 +863,29 @@ def _insert_after(kind, key, value, text, lever="") -> Pick:
     return Pick(text, Edit("insert_statement", Target(kind, key), {}, value, _refs_of(value)), lever)
 
 
+def _budget_picks(f, item) -> list:
+    """A higher search budget for `item`, searched: the finding's measurement (`placer.SearchBudget.measurement()`) says the
+    search judged `judged` candidates and covered `share` of its area, so covering it all takes about `judged / share`
+    (with a quarter over); the budget in force is where it does not clear, and `probe.py` finds the least that does."""
+    b = f.get("budget")
+    if not b or not b.get("limit"):
+        return []
+    limit = b["limit"]
+    need = b["judged"] / b["share"] if b.get("share") else limit * 8
+    digits = len(str(int(need * 1.25)))
+    unit = 10 ** max(0, digits - 2)
+    far = int(math.ceil(need * 1.25 / unit) * unit)
+    if far <= limit:
+        return []
+    return [_searched_bisect(Target("place", item), "budget", "budget", "candidates", limit, far, "judged / share", 1.25,
+                             "the search budget of %s" % item, _name(item, "budget"), "budget", resolution=float(unit))]
+
+
+@case(C.SETUP_STEP_BUDGET)
+def setup_step_budget(f, settings):
+    return _budget_picks({"budget": f}, f["item"])
+
+
 @case(C.UNPLACED_SEARCH)
 def unplaced_search(f, settings):
     item = f["item"]
@@ -893,6 +917,8 @@ def unplaced_search(f, settings):
         out.append(_setting("place", "envelope", "courtyard", "Judge parts by their courtyards",
                             "A run's finding (unplaced.search): %s was refused by what parts draw round themselves; "
                             "courtyards are what the envelope reads." % item, "envelope"))
+    if f.get("budget"):
+        out += _budget_picks(f, item)
     return out
 
 

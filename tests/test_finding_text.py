@@ -21,6 +21,10 @@ SAMPLES = [
                          "room_lost": {"gone": ["u1"], "kept": []}},
      "c4: no legal location within 3.0 mm of (10.00, 20.00) (courtyard x3: R1 front face x3); no pocket took it (2 tried); "
      "see: no room was left for it when u1 was placed"),
+    (C.UNPLACED_SEARCH, {"item": "c4", "radius_mm": 3.0, "at": [10.0, 20.0], "blame": BLAME,
+                         "budget": {"judged": 5000, "share": 0.1234, "limit": 5000}},
+     "c4: no legal location found within 3.0 mm of (10.00, 20.00) (courtyard x3: R1 front face x3); the search stopped at its "
+     "budget of 5000 candidates, with 12.3% of the search area covered"),
     (C.UNPLACED_POCKET, {"item": "c4", "variant": "tried", "w_mm": 4.0, "h_mm": 2.0, "face": "front", "tried": 0, "riders": []},
      "c4: no pocket fits its 4.0 x 2.0 envelope on the front face (0 pocket(s) tried)"),
     (C.UNPLACED_POCKET, {"item": "c4", "variant": "any_rotation", "w_mm": 4.0, "h_mm": 2.0, "face": "front or back"},
@@ -99,6 +103,9 @@ SAMPLES = [
     (C.SETUP_LOOKAHEAD, {"item": "u1", "other": "u2", "own": "R1", "short_mm": 0.5, "asked_mm": 2.0},
      "u1: no spot was left for u2 at its limit distance from R1, so the look-ahead was dropped and R1 is placed without it; the "
      "best spot for R1 left u2 0.50 mm short of 2.0 mm"),
+    (C.SETUP_STEP_BUDGET, {"item": "u1", "judged": 20000, "share": 0.05, "limit": 20000},
+     "u1: the search stopped at its budget of 20000 candidates, with 5.0% of the search area covered; it is placed at the best "
+     "spot found so far"),
     (C.SETUP_PCBNEW, {"variant": "current", "net": "A"},
      "pour A: reach=Reach.CURRENT needs KiCad's pcbnew at plan time, for its polygon booleans; the pour is not drawn"),
     (C.ROUTE_DROPPED, {"key": "X", "why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
@@ -114,6 +121,12 @@ SAMPLES = [
     (C.SPLIT_GROUPS, {"cell": "k", "groups": [["R1", "R2"], ["C1", "C2"]], "unjoined": []},
      "k: its parts form 2 groups joined only by board-level nets: R1, R2; C1, C2. Parts with no close placement requirement in "
      "common may be split into cells of their own."),
+    (C.TIME_STEP_SLOW, {"item": "u1", "elapsed_s": 45.2, "warn_s": 30.0, "limit_s": None, "warned_at_s": 30.1, "pass": "refine",
+                        "within": [2, 3], "stage": "refine", "firm_pass": None},
+     "u1: took 45.2 s, past --step-warn 30 s; it was in the refine pass 2 of 3 when it crossed"),
+    (C.TIME_STEP_LIMIT, {"item": "u1", "elapsed_s": 60.4, "limit_s": 60.0, "pass": "coarse", "within": None, "stage": "coarse",
+                         "firm_pass": None, "kept": "unplaced"},
+     "u1: gave up after 60.4 s in the coarse pass (--step-limit 60 s) and is left unplaced; the next run searches it again"),
 ]
 
 

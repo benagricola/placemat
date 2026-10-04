@@ -40,7 +40,44 @@ SELFTEST_BOX = (0.0, 0.0, 0.0, 4.0, 2.0, 1.0)            # the prism's box in it
 
 
 class ConvertError(Exception):
-    """A conversion that did not work, with a sentence for the page."""
+    """A conversion that did not work. `record` is why, as data: {"code", ...facts}; `failure_text` says it. A code is one of no_glb,
+    no_description, not_on_board (ref), timeout (limit_s), cannot_run (detail), export_failed (returncode, detail), unreadable (detail),
+    no_mesh, no_cli, exception (type, detail). `detail` is the external tool's or the library's own text; `str()` is the sentence."""
+
+    def __init__(self, code: str, **facts):
+        self.record = {"code": code, **facts}
+        super().__init__(failure_text(self.record))
+
+
+def failure_text(r: dict) -> str:
+    """A conversion failure (`ConvertError.record`, a self-test's `failure`) in words. A plain string, as an older cache kept it, is itself."""
+    if isinstance(r, str):
+        return r
+    code = r.get("code")
+    if code == "no_glb":
+        return "kicad-cli wrote no GLB"
+    if code == "no_description":
+        return "the GLB has no description"
+    if code == "not_on_board":
+        return "the footprint %s is not on the board file" % r["ref"]
+    if code == "timeout":
+        return "kicad-cli took longer than %d s" % r["limit_s"]
+    if code == "cannot_run":
+        return "kicad-cli could not be run: %s" % r.get("detail", "")
+    if code == "export_failed":
+        return "kicad-cli failed (%d): %s" % (r["returncode"], r.get("detail", ""))
+    if code == "no_mesh":
+        return "kicad-cli exported no mesh for this model"
+    if code == "no_cli":
+        return "3D needs kicad-cli on the path, or set studio_3d_kicad_cli"
+    if code == "no_prism":
+        return "kicad-cli exported no prism (KiCad %s)" % r.get("version", "")
+    if code == "planes_differ":
+        return ("KiCad %s puts its model planes somewhere else than this converter expects (front box %s, back box %s)"
+                % (r.get("version", ""), r["front"], r["back"]))
+    if code == "exception":
+        return "%s: %s" % (r.get("type", ""), r.get("detail", ""))
+    return r.get("detail", "") or str(code)
 
 
 @dataclass
@@ -67,7 +104,7 @@ _WIDTH = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
 class Glb:
     def __init__(self, data: bytes):
         if len(data) < 20 or data[:4] != b"glTF":
-            raise ConvertError("kicad-cli wrote no GLB")
+            raise ConvertError("no_glb")
         self.json, self.bin, at = None, b"", 12
         while at + 8 <= len(data):
             ln, kind = struct.unpack_from("<II", data, at)
@@ -78,7 +115,7 @@ class Glb:
                 self.bin = chunk
             at += 8 + ln
         if self.json is None:
-            raise ConvertError("the GLB has no description")
+            raise ConvertError("no_description")
 
     def accessor(self, i: int):
         a = self.json["accessors"][i]
@@ -225,7 +262,7 @@ def _scratch(jobs: list, folder: Path, back: set = frozenset()) -> Path:
             fp = _source_board(job["board"])
             src = next((f for f in fp.GetFootprints() if f.GetReference() == job["ref"]), None)
             if src is None:
-                raise ConvertError("the footprint %s is not on the board file" % job["ref"])
+                raise ConvertError("not_on_board", ref=job["ref"])
             item = src.Duplicate(False)
             item = pcbnew.Cast_to_FOOTPRINT(item) if not hasattr(item, "Models") else item
             if item.IsFlipped():
@@ -260,11 +297,11 @@ def export_glb(cli: str, pcb: Path, timeout_s: int) -> bytes:
         r = subprocess.run([cli, "pcb", "export", "glb", "--force", "--no-board-body", "--user-origin", "0x0mm", "-o", str(out), str(pcb)],
                            capture_output=True, text=True, timeout=timeout_s)
     except subprocess.TimeoutExpired:
-        raise ConvertError("kicad-cli took longer than %d s" % timeout_s) from None
+        raise ConvertError("timeout", limit_s=timeout_s) from None
     except OSError as e:
-        raise ConvertError("kicad-cli could not be run: %s" % e) from None
+        raise ConvertError("cannot_run", detail=str(e)) from None
     if r.returncode != 0 or not out.is_file():
-        raise ConvertError("kicad-cli failed (%d): %s" % (r.returncode, (r.stderr or r.stdout).strip().splitlines()[-1:] or ""))
+        raise ConvertError("export_failed", returncode=r.returncode, detail=((r.stderr or r.stdout).strip().splitlines() or [""])[-1])
     return out.read_bytes()
 
 
@@ -312,7 +349,7 @@ def read_vrml_file(path: str) -> mm.Mesh:
             raw = gzip.decompress(raw)
         return read_vrml(raw.decode("utf-8", errors="replace"))
     except (OSError, VrmlError) as e:
-        raise ConvertError(str(e)) from None
+        raise ConvertError("unreadable", detail=str(e)) from None
 
 
 def finish(mesh: mm.Mesh, cfg: Config) -> bytes:
@@ -322,14 +359,14 @@ def finish(mesh: mm.Mesh, cfg: Config) -> bytes:
 
 # ---------------------------------------------------------------- the self-test
 def self_test(cfg: Config, cli: str) -> dict:
-    """Convert the prism on a front and a back footprint: {"ok": bool, "message", "front": plane, "back": plane, "version"}. Refuses when
-    the planes are not where model_place says, or the prism's box does not come out in the model frame."""
+    """Convert the prism on a front and a back footprint: {"ok": bool, "failure": a failure record, "front": box, "back": box,
+    "version"}. Refuses when the planes are not where model_place says, or the prism's box does not come out in the model frame."""
     version = kicad_version(cli)
     jobs = [{"kind": "file", "path": str(SELFTEST_MODEL), "name": SELFTEST_MODEL.name}] * 2
     try:
         glb = Glb(export_glb(cli, _scratch_files(jobs, back={1}), cfg.timeout_s))
     except ConvertError as e:
-        return {"ok": False, "message": str(e), "version": version}
+        return {"ok": False, "failure": e.record, "version": version}
     plane_front, plane_back = model_place.planes(THICKNESS)
     rows = {n: (m, w) for n, _, w, m in glb.walk()}
     found = {}
@@ -339,15 +376,15 @@ def self_test(cfg: Config, cli: str) -> dict:
         mesh = mesh_of(glb, mesh_index, world, (x, y), plane_back if i == 1 else plane_front)
         found[i] = mm.bbox(mesh)
     if set(found) != {0, 1}:
-        return {"ok": False, "message": "kicad-cli exported no prism (KiCad %s)" % version, "version": version}
+        return {"ok": False, "failure": {"code": "no_prism", "version": version}, "version": version}
     f = found[0]
     ok_front = all(abs(a - b) < 2e-3 for a, b in zip(f, SELFTEST_BOX))
     g = found[1]
     ok_back = abs(g[2] - -1.0) < 2e-3 and abs(g[5]) < 2e-3                       # hangs 1 mm below its own face
     if not (ok_front and ok_back):
         return {"ok": False, "version": version, "front": f, "back": g,
-                "message": "KiCad %s puts its model planes somewhere else than this converter expects (front box %s, back box %s)" % (version, f, g)}
-    return {"ok": True, "message": "", "version": version, "front": f, "back": g}
+                "failure": {"code": "planes_differ", "version": version, "front": f, "back": g}}
+    return {"ok": True, "version": version, "front": f, "back": g}
 
 
 def _scratch_files(jobs: list, back: set) -> Path:
@@ -357,24 +394,24 @@ def _scratch_files(jobs: list, back: set) -> Path:
 
 # ---------------------------------------------------------------- a batch
 def run_batch(jobs: list, cfg: Config, cli: str | None, cache: model_cache.Cache, emit) -> None:
-    """Convert `jobs` (those not already in the cache) and emit `model` events {id, state, tris, message}. A job missing from the batch's
+    """Convert `jobs` (those not already in the cache) and emit `model` events {id, state, tris, failure}. A job missing from the batch's
     output is tried alone; one that still fails is recorded as a failure."""
     todo = [j for j in jobs if not cache.has(j["id"]) and cache.failure(j["id"]) is None]
     for j in jobs:
         if cache.has(j["id"]):
-            emit({"ev": "model", "id": j["id"], "state": "ok", "tris": None, "message": ""})
+            emit({"ev": "model", "id": j["id"], "state": "ok", "tris": None})
         elif cache.failure(j["id"]) is not None:
-            emit({"ev": "model", "id": j["id"], "state": "failed", "tris": None, "message": cache.failure(j["id"])})
+            emit({"ev": "model", "id": j["id"], "state": "failed", "tris": None, "failure": cache.failure(j["id"])})
     done, total = 0, len(todo)
 
     def ok(job, mesh):
         data = finish(mesh, cfg)
         cache.put(job["id"], data)
-        emit({"ev": "model", "id": job["id"], "state": "ok", "tris": mm.read_pmm(data).header["tris"], "message": ""})
+        emit({"ev": "model", "id": job["id"], "state": "ok", "tris": mm.read_pmm(data).header["tris"]})
 
-    def fail(job, message):
-        cache.put_failure(job["id"], message)
-        emit({"ev": "model", "id": job["id"], "state": "failed", "tris": None, "message": message})
+    def fail(job, failure: dict):
+        cache.put_failure(job["id"], failure)
+        emit({"ev": "model", "id": job["id"], "state": "failed", "tris": None, "failure": failure})
 
     step = []
     for j in todo:
@@ -382,7 +419,7 @@ def run_batch(jobs: list, cfg: Config, cli: str | None, cache: model_cache.Cache
             try:
                 ok(j, read_vrml_file(j["path"]))
             except ConvertError as e:
-                fail(j, str(e))
+                fail(j, e.record)
             done += 1
             emit({"ev": "progress", "done": done, "total": total, "current": j["id"]})
         else:
@@ -391,16 +428,16 @@ def run_batch(jobs: list, cfg: Config, cli: str | None, cache: model_cache.Cache
         batch = step[a:a + max(1, cfg.batch)]
         if cli is None:
             for j in batch:
-                fail(j, "3D needs kicad-cli on the path, or set studio_3d_kicad_cli")
+                fail(j, {"code": "no_cli"})
             done += len(batch)
             continue
-        got, why = {}, ""
+        got, why = {}, {"code": "no_mesh"}
         try:
             got = convert_step_batch(batch, cfg, cli)
         except ConvertError as e:
-            why = str(e)
+            why = e.record
         except Exception as e:                                   # pcbnew or the scratch board went wrong: this batch fails, not the process
-            why = "%s: %s" % (type(e).__name__, e)
+            why = {"code": "exception", "type": type(e).__name__, "detail": str(e)}
         for i, j in enumerate(batch):
             if i in got and len(got[i].materials):
                 ok(j, got[i])
@@ -410,13 +447,13 @@ def run_batch(jobs: list, cfg: Config, cli: str | None, cache: model_cache.Cache
                     if 0 in one and len(one[0].materials):
                         ok(j, one[0])
                     else:
-                        fail(j, "kicad-cli exported no mesh for this model")
+                        fail(j, {"code": "no_mesh"})
                 except ConvertError as e:
-                    fail(j, str(e))
+                    fail(j, e.record)
                 except Exception as e:
-                    fail(j, "%s: %s" % (type(e).__name__, e))
+                    fail(j, {"code": "exception", "type": type(e).__name__, "detail": str(e)})
             else:
-                fail(j, why or "kicad-cli exported no mesh for this model")
+                fail(j, why)
             done += 1
             emit({"ev": "progress", "done": done, "total": total, "current": j["id"]})
     cache.trim(in_use={j["id"] for j in jobs})
@@ -448,13 +485,13 @@ def main() -> int:
             cache.sweep_versions()
             cache.trim()
             cli = find_kicad_cli(cfg.kicad_cli)
-            test = {"ok": False, "message": "3D needs kicad-cli on the path, or set studio_3d_kicad_cli"} if cli is None else self_test(cfg, cli)
+            test = {"ok": False, "failure": {"code": "no_cli"}} if cli is None else self_test(cfg, cli)
             emit({"ev": "ready", "cli": cli or "", "selftest": test, "cache": str(cache.dir)})
         elif cmd == "batch" and cache is not None:
             try:
                 run_batch(msg.get("jobs", []), cfg, cli, cache, emit)
             except Exception as e:                                # the process outlives any one batch
-                emit({"ev": "error", "message": "%s: %s" % (type(e).__name__, e)})
+                emit({"ev": "error", "failure": {"code": "exception", "type": type(e).__name__, "detail": str(e)}})
             emit({"ev": "batch_done", "n": len(msg.get("jobs", []))})
         elif cmd == "retry" and cache is not None:
             cache.retry(msg.get("id"))

@@ -329,6 +329,14 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Structured events; a faster scan with a step budget; NotConnected pins;
+  run-folder rules; KIPRJMOD** (0.97.0): events and plan JSON carry records
+  (step notes, errors, router and probe events, preview/apply --json); the
+  scan judges the item less its carried vias first (core preview about 40%
+  less CPU); `place.step_budget`; a NotConnected pin gets no escape finding;
+  a run folder keeps .kicad_pro/.kicad_dru; generation drops an inherited
+  KIPRJMOD (the builder test flake).
+
 - **Push on a cell member; builder fixes; dead code** (0.96.1): a push fences
   only the member it measures and its source looks ahead for that member alone;
   the builder's part click after a tick and Unplace; unused code and

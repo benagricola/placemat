@@ -321,6 +321,11 @@ def _unplaced(n):
     return "UNPLACED"
 
 
+@renders("search_budget")
+def _search_budget(n):
+    return finding_text.budget_text(n) + ", and the best spot found is taken"
+
+
 # ------------------------------------------------------------------ regions and copper
 @renders("cut")
 def _cut(n):
@@ -421,11 +426,13 @@ def render_all(notes, unplaced=None) -> str:
 
 _FORMS = {
     "no_pocket": lambda r: "no pocket fits",
+    "time_limit": lambda r: "gave up at its time limit (--step-limit)",
     "riders_alone": lambda r: finding_text.riders_alone_note(r),
     "turns": lambda r: finding_text.turns_text(r["turns"]),
     "rides": lambda r: finding_text.rides_note(r),
     "pocket": lambda r: finding_text.pocket_note(r),
     "room_lost": lambda r: finding_text.room_lost_text(r["room_lost"]).lstrip("; "),
+    "budget": lambda r: finding_text.budget_text(r["budget"]),
 }
 
 

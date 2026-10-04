@@ -27,6 +27,7 @@ class PadGeom:
     anchor: Location | None = None  # KiCad's PAD::ShapePos: where its airwires end; None: the box centre
     custom: bool = False        # a custom pad: its copper is its primitives, and its box hides them
     kshapes: tuple = ()         # its KiCad effective shape (kicad_collide tuples, nm, as read): what DRC collides; () when not read
+    no_connect: bool = False    # the capture declares the pin unconnected (KiCad pin type no_connect, a Zener NotConnected())
 
     @property
     def location(self) -> Location:
@@ -301,6 +302,7 @@ class BoardGeometry:
     hole_clearance: float = 0.0           # a hole's clearance to copper of another net
     silk_clearance: float = 0.0           # silk to silk and to a mask opening, from the board's rules
     min_track_width: float = 0.0          # the narrowest track the board's rules allow; 0: not known
+    drc_epsilon: float = 0.0005           # mm KiCad's DRC takes off a clearance before comparing (GetDRCEpsilon: 500 nm on a fresh board)
     pin_names: dict = field(default_factory=dict, compare=False)   # refdes -> {pad number: pin name}, from the symbols
     layer_types: dict = field(default_factory=dict, compare=False)  # CopperLayer -> KiCad's type: signal, power, mixed, jumper
     copper_mm: dict = field(default_factory=dict, compare=False)   # CopperLayer -> thickness mm, from the board's stackup; {}: no stackup declared

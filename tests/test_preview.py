@@ -240,3 +240,32 @@ def test_preview_takes_no_tags():
     from placemat.cli import parser
     args = parser().parse_args(["preview", "x_layout.py", "--zoom", "0,0,5,5", "--no-tags"])
     assert args.no_tags
+
+
+def test_the_converters_failure_is_a_record_and_the_sentence_is_made_from_it(tmp_path):
+    from placemat.previewer import convert_failure, convert_text
+    svg = tmp_path / "p.svg"
+    svg.write_text("<svg/>")
+    f = convert_failure("no-such-converter-anywhere {svg} {png}", svg, tmp_path / "p.png", 100)
+    assert f == {"code": "not_installed", "tool": "no-such-converter-anywhere"}
+    assert convert_text(f) == "no-such-converter-anywhere is not installed; the SVG is the preview" and convert_text(None) == ""
+    g = convert_failure("false {svg} {png}", svg, tmp_path / "p.png", 100)
+    assert g["code"] == "failed" and g["tool"] == "false" and g["returncode"] == 1
+
+
+def test_the_previews_annotations_carry_their_values_as_data(tmp_path):
+    import json
+    from placemat.preview import annotations
+    from placemat.values import Box
+    from tests.test_preview_json import _plan
+    b, plan = _plan()
+    notes = annotations(plan, Box(-5, -5, 70, 40))
+    kinds = {n.kind for n in notes}
+    assert {"link", "pocketed", "worst"} <= kinds
+    for n in notes:
+        assert n.data and json.loads(json.dumps(n.data, default=str))
+    link = next(n for n in notes if n.kind == "link")
+    assert link.data["state"] in ("ok", "over", "free") and isinstance(link.data["length_mm"], float) and len(link.data["a"]) == 2
+    assert next(n for n in notes if n.kind == "worst").data["demand"] > 0 and next(n for n in notes if n.kind == "pocketed").data["item"]
+    for f in (n for n in notes if n.kind == "finding"):
+        assert f.data["cause"] and "facts" in f.data and len(f.data["at"]) == 2

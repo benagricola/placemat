@@ -126,6 +126,23 @@ def cached_generation(src: BoardSource) -> Path:
 # What placemat itself writes into a layout folder, beside what the generator
 # writes (the cached generation's files): anything else there is someone's.
 _OURS = (".kicad_pcb", ".kicad_pro", ".kicad_prl", ".kicad_dru")
+
+
+def missing_rules(pcb: Path) -> list:
+    """The project and design-rules files KiCad reads a board's rules from that are not beside `pcb` (".kicad_pro",
+    ".kicad_dru"): without them a DRC or a route judges the board by KiCad's defaults."""
+    return [ext for ext in (".kicad_pro", ".kicad_dru") if not pcb.with_suffix(ext).exists()]
+
+
+def copy_board(pcb: Path, run_dir: Path) -> None:
+    """The board into a run folder as layout.kicad_pcb, with its project and design rules (the .kicad_pro and .kicad_dru beside
+    it) as layout.kicad_pro and layout.kicad_dru: KiCad reads a board's rules from those, so `placemat drc` and `placemat
+    route` on the run's copy judge it by the board's own rules."""
+    shutil.copy(pcb, run_dir / "layout.kicad_pcb")
+    for ext in (".kicad_pro", ".kicad_dru"):
+        beside = pcb.with_suffix(ext)
+        if beside.exists():
+            shutil.copy(beside, run_dir / ("layout" + ext))
 _RENDERS = ("layout.png", "layout-iso.png", "layout-bottom.png")
 _OUR_FILES = _RENDERS + ("drc.json",)
 
@@ -373,6 +390,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
          resume: bool = True) -> RunResult:
     configure(quiet=quiet)
     say = console.say
+    from . import timecap
+    timecap.arm(cfg)                        # --max-time, --step-warn, --step-limit, when the command has them
     runs = src.board_dir / ".placemat" / "runs"
     from . import reuse as reuse_mod
     # The previous run's record is read now: a rerun with the same id replaces its directory.
@@ -479,9 +498,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from . import explore as explore_mod, routes as routes_mod
         stage = "explore" if explore is not None else "resolve"
         try:
-            lock_entries, explored = explore_mod.before_resolve(
-                script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
-                explore, say, run_id=rid, keep_state=True)
+            with timecap.cap_only():            # an explore's own resolves are not timed step by step
+                lock_entries, explored = explore_mod.before_resolve(
+                    script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
+                    explore, say, run_id=rid, keep_state=True)
         except (explore_mod.FocusError, ResumeRefused) as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         stage = "resolve"
@@ -507,10 +527,11 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             if models_line(e.plan.models):
                 say("models", models_line(e.plan.models))
             finish_board(src.pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
-            shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
+            copy_board(src.pcb, run_dir)
             if render:
                 render_board(src.pcb, run_dir / "render.log", both_faces=True)
             raise RunFailure("placement", str(e), {"item": e.key, "tail": "board written as it stood: %s" % src.pcb})
+        timecap.placement_done()            # the placement is in hand: the cap is lifted for the stages after it
         (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
         rec.timing_s["resolve"] = round(time.time() - t0, 1)
         from .project import fab_min_findings
@@ -550,7 +571,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("models", line)
         finish_board(src.pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
         rec.timing_s["write"] = round(time.time() - t0, 1)
-        shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
+        copy_board(src.pcb, run_dir)
         say("board", "written %s (%.1fs)" % (src.pcb.relative_to(src.board_dir), rec.timing_s["write"]))
 
         if plan.seeded_by_net:
@@ -708,7 +729,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         s.stage = s.stage or stage
         rec.status = "stopped"
         rec.failure = {"kind": "stopped", "signal": s.name, "stage": s.stage, "elapsed_s": round(time.time() - began, 1),
-                       "explore": s.explore}
+                       "explore": s.explore, **stop.cause_fields(s)}
         kept = run_dir / "before"
         if kept.exists():                  # whatever the stop left half written: the folder as the last run left it
             shutil.rmtree(src.layout_dir, ignore_errors=True)

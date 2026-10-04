@@ -21,9 +21,11 @@ from . import reuse as reuse_mod
 class Preview:
     svg: Path
     png: Path | None
-    png_problem: str = ""
+    png_problem: str = ""           # why there is no PNG, in words
+    png_failure: dict | None = None  # the same as data: {"code": not_installed | timeout | failed | no_png, "tool", ["returncode"], ["detail"]}
     plan: object = None
     reused: str = ""
+    reuse: dict | None = None       # what was reused as data (reuse.summary_record)
     lines: list = field(default_factory=list)
     seen_px_per_mm: float = 0.0
     model_edge: int = 0
@@ -36,21 +38,40 @@ def converter_command(template: str, svg, png, width: int) -> list:
     return [piece.format(svg=str(svg), png=str(png), width=int(width)) for piece in shlex.split(template)]
 
 
-def convert(template: str, svg, png, width: int) -> str:
-    """Run the converter. "" when it wrote the PNG, else why not."""
+def convert_failure(template: str, svg, png, width: int) -> dict | None:
+    """Run the converter. None when it wrote the PNG, else why not as data: {"code": "not_installed" | "timeout" | "failed" |
+    "no_png", "tool": the program, "returncode" and "detail" (its own last line) for a failure}."""
     argv = converter_command(template, svg, png, width)
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=300)
     except FileNotFoundError:
-        return "%s is not installed; the SVG is the preview" % argv[0]
+        return {"code": "not_installed", "tool": argv[0]}
     except subprocess.TimeoutExpired:
-        return "%s took over 300 s; the SVG is the preview" % argv[0]
+        return {"code": "timeout", "tool": argv[0], "limit_s": 300}
     if done.returncode != 0:
         last = (done.stderr.strip().splitlines() or ["exit %d" % done.returncode])[-1]
-        return "%s failed: %s" % (argv[0], last)
+        return {"code": "failed", "tool": argv[0], "returncode": done.returncode, "detail": last}
     if not Path(png).exists():
-        return "%s wrote no PNG" % argv[0]
-    return ""
+        return {"code": "no_png", "tool": argv[0]}
+    return None
+
+
+def convert_text(f: dict | None) -> str:
+    """A `convert_failure` in words, "" for none."""
+    if f is None:
+        return ""
+    if f["code"] == "not_installed":
+        return "%s is not installed; the SVG is the preview" % f["tool"]
+    if f["code"] == "timeout":
+        return "%s took over %d s; the SVG is the preview" % (f["tool"], f["limit_s"])
+    if f["code"] == "failed":
+        return "%s failed: %s" % (f["tool"], f["detail"])
+    return "%s wrote no PNG" % f["tool"]
+
+
+def convert(template: str, svg, png, width: int) -> str:
+    """Run the converter. "" when it wrote the PNG, else why not."""
+    return convert_text(convert_failure(template, svg, png, width))
 
 
 def resolve_like_last_run(script, lock_entries=None) -> tuple:
@@ -183,25 +204,27 @@ class Resolved:
 
 @contextmanager
 def resolved(script, out=None, explore=None, quiet: bool = False, progress=None, on_step=None, on_begin=None, cache=None,
-             on_board=None, fresh: bool = False, overlay=None):
+             on_board=None, fresh: bool = False, overlay=None, resumable: bool = False):
     """`_resolved` with `overlay` ({path: text}), when given, read in place of those files on disk and nothing written: the
     studio's try of a suggestion. The last record is replayed from as ever; the try writes none of its own."""
     from . import context
     with context.overlay(overlay):
-        with _resolved(script, out, explore, quiet, progress, on_step, on_begin, cache, on_board, fresh, keep_record=not overlay) as r:
+        with _resolved(script, out, explore, quiet, progress, on_step, on_begin, cache, on_board, fresh, keep_record=not overlay,
+                       resumable=resumable and not overlay) as r:
             yield r
 
 
 @contextmanager
 def _resolved(script, out=None, explore=None, quiet: bool = False, progress=None, on_step=None, on_begin=None, cache=None,
-              on_board=None, fresh: bool = False, keep_record: bool = True):
+              on_board=None, fresh: bool = False, keep_record: bool = True, resumable: bool = False):
     """Place the board as a run does - the cached generation, the settings,
     the fab profile, the script, the newest of the last view's record and the
     last run's replayed - and write nothing but this view's own record. The
     settings are bound while the caller holds the result. `progress` and
     `on_step` are `Board.resolve`'s; `on_board` is called with the board once the script has run on it, before it resolves. `cache`, a dict the caller keeps between
     calls, holds the generation read and its digests: a view resolving again
-    does not read the board file again unless it changed."""
+    does not read the board file again unless it changed. `resumable`: the steps finished are also written as they are made
+    (reuse.PartialLog), so a resolve that was stopped or died leaves them for the next one to replay."""
     from .project import fab_profile, find_board, note_views
     from .report import latest_for
     from .runner import cached_generation, reuse_parts, scripted_board, stale_record, stale_text
@@ -223,6 +246,8 @@ def _resolved(script, out=None, explore=None, quiet: bool = False, progress=None
         console.say("board", "the cached generation is out of date (%s): this preview shows the old one; "
                              "`placemat run %s` generates it again" % (stale_text(stale), script.name), level="finding")
     with settings_mod.bind(cfg):
+        from . import timecap
+        timecap.arm(cfg)                        # --max-time, --step-warn, --step-limit, when the command has them
         fab = fab_profile(src.board_dir)
         stamp = (generated.stat().st_mtime_ns, generated.stat().st_size, fab.courtyard_excess)
         held = cache.get("generation") if cache is not None else None
@@ -246,16 +271,31 @@ def _resolved(script, out=None, explore=None, quiet: bool = False, progress=None
         except (ValueError, TypeError, KeyError, OSError):
             pass
         previous, source = newest_record(candidates, memo=None if cache is None else cache.setdefault("records", {}))
+        partial = reuse_mod.PartialLog(out / "reuse.partial.jsonl") if resumable and keep_record else None
+        if partial is not None and not fresh:       # a preview of these inputs that was stopped left its finished steps
+            died = reuse_mod.read_partial(partial.path)
+            if died is not None and reuse_mod.better_of(previous, died) is died:
+                previous, source = died, "the interrupted preview"
         if fresh:                               # a full resolve: nothing is replayed from an earlier record
             previous, source = None, ""
-        from . import explore as explore_mod
+        from . import explore as explore_mod, stop
         say = (lambda stage, text: None) if quiet else (lambda stage, text: console.say(stage, text))
-        lock_entries, explored = explore_mod.before_resolve(
-            script, board, explore_mod.BoardFactory(script, src, cfg, fab, True, board.geometry),
-            explore, say)
+        try:
+            with timecap.cap_only():            # an explore's own resolves are not timed step by step
+                lock_entries, explored = explore_mod.before_resolve(
+                    script, board, explore_mod.BoardFactory(script, src, cfg, fab, True, board.geometry),
+                    explore, say)
+        except stop.Stopped as s:
+            s.stage = s.stage or "explore"
+            raise
         from . import routes as routes_mod
-        plan = board.resolve(reuse=previous, lock=lock_entries, routes=routes_mod.read(routes_mod.path_for(script)),
-                             progress=progress, on_step=on_step, on_begin=on_begin)
+        try:
+            plan = board.resolve(reuse=previous, lock=lock_entries, routes=routes_mod.read(routes_mod.path_for(script)),
+                                 progress=progress, on_step=on_step, on_begin=on_begin, partial=partial)
+        except stop.Stopped as s:
+            s.stage = s.stage or "resolve"
+            raise
+        timecap.placement_done()                # the placement is in hand: the cap is lifted for the drawing
         held = explore_mod.lock_summary(plan)
         if held and not quiet:
             console.say("lock", held)
@@ -265,6 +305,8 @@ def _resolved(script, out=None, explore=None, quiet: bool = False, progress=None
         plan.reuse["parts"] = parts
         if keep_record:
             reuse_mod.write(out / "reuse.json", plan.reuse)
+        if partial is not None:
+            partial.remove()
         yield Resolved(src, cfg, board, plan, previous, source, parts, out, stale)
 
 
@@ -277,7 +319,7 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
     from .values import Box
     script = Path(script).resolve()
     out = Path(out) if out else find_board(script).board_dir / ".placemat" / "views" / "preview"
-    with resolved(script, out, explore=explore, quiet=quiet) as r:
+    with resolved(script, out, explore=explore, quiet=quiet, resumable=True) as r:
         src, cfg, plan, previous, source = r.src, r.cfg, r.plan, r.previous, r.source
         if around is not None:
             fps = [fp for s in plan.steps if s.item == around and s.placement is not None
@@ -290,7 +332,8 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
                                      title="%s - preview%s" % (src.name, "" if region is None else " (zoomed)"))
         svg = out / "preview.svg"
         svg.write_text(text)
-        result = Preview(svg, None, plan=plan, reused=reuse_mod.summary(plan.reuse, previous, source), notes=notes)
+        result = Preview(svg, None, plan=plan, reused=reuse_mod.summary(plan.reuse, previous, source),
+                         reuse=reuse_mod.summary_record(plan.reuse, previous, source), notes=notes)
         if not svg_only:
             png = out / "preview.png"
             if png.exists():
@@ -300,6 +343,7 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
                 result.seen_px_per_mm = seen_px_per_mm(*svg_size_mm(text), cfg.preview_px_per_mm,
                                                        cfg.preview_model_edge_px)
                 result.model_edge = cfg.preview_model_edge_px
-            result.png_problem = convert(cfg.preview_converter, svg, png, width)
-            result.png = None if result.png_problem else png
+            result.png_failure = convert_failure(cfg.preview_converter, svg, png, width)
+            result.png_problem = convert_text(result.png_failure)
+            result.png = None if result.png_failure else png
     return result

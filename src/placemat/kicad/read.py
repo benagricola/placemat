@@ -385,7 +385,8 @@ def _pads(board, fp, err_nm: int = CLEAR_ERR_NM) -> tuple[PadGeom, ...]:
                             drill_mm=mm(drill.x) if attr == pcbnew.PAD_ATTRIB_PTH else 0.0,
                             mask_paste=_mask_paste(pad),
                             anchor=Location(mm(pad.ShapePos(cu[0]).x), mm(pad.ShapePos(cu[0]).y)),
-                            custom=_is_custom(pad, cu[0]), kshapes=kicad_shapes(pad.GetEffectiveShape(cu[0]), _quarters(pad))))
+                            custom=_is_custom(pad, cu[0]), kshapes=kicad_shapes(pad.GetEffectiveShape(cu[0]), _quarters(pad)),
+                            no_connect=pad.GetPinType() == "no_connect"))
     return tuple(pads)
 
 
@@ -831,6 +832,7 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                     silk_clearance=mm(board.GetDesignSettings().m_SilkClearance),
                     min_track_width=mm(board.GetDesignSettings().m_TrackMinWidth),
                     hole_clearance=mm(board.GetDesignSettings().m_HoleClearance),
+                    drc_epsilon=mm(board.GetDesignSettings().GetDRCEpsilon()),
                     rule_areas=_rule_areas(board, groups_of),
                     board_polygon=_board_polygon(board), layer_types=layer_types(board),
                     copper_mm=stackup_copper_mm(path))

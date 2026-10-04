@@ -245,6 +245,7 @@ board.place(item, at=Near(PadRef(u1, 3).local(0.4, -1.2), radius=0), rotation=Tu
 board.place(cell, at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY)  # on the point, its turn searched (one freedom)
 board.place(cell, at=Polar((r_min, r_max), None, about=centre), rotations=Turns.TANGENT)  # searched in a band, turned to the tangent at each spot
 board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
+board.place(item, at=Near(Location(x, y)), radius=20, budget=5_000_000)  # a search that may judge this many candidates
 ```
 `item` is a `Part` (schematic instance), a `Cell` (a stamped group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -1017,6 +1018,18 @@ best spots (the best `place.refine_spots` by score, and, where riders
 constrain the spot, the best that they take), so a wide `radius=` costs little. A part the script places
 later is not an obstacle where the generator left it, only once it is
 placed. The step note says which of these happened.
+
+**A step's search budget.** The candidates one item's step may judge are counted over all its passes, both
+faces and the carried vias' giving way (each via's giving way counts as one candidate): `place.step_budget`, or the item's own `budget=` on `board.place`. The
+count is of candidates, not seconds, so a result does not depend on how busy the machine is. The look-ahead's scans of a partner's spots are not part of the step's search and are not
+counted. A step that spends it
+stops where it is: it takes the best legal spot found so far (a `setup.step_budget` notice says so, with the
+candidates judged, the share of the search area they covered and the budget), or, where none was found, leaves the
+item unplaced, and the `unplaced.search` finding carries the same measurement in `facts["budget"]`
+(`judged`, `share`, `limit`) and says "the search stopped at its budget". Both offer a higher budget for that
+item, a searched suggestion that finds the least `budget=` that clears the finding, starting from what covering the
+whole area would take at the rate the search went. The default is set high enough that none of the
+benchmark modules or the core board's steps reaches it; it ends a search that would run on without finding anything.
 
 **Order.** FIXED and EDGE items go down as declared. Searched items are
 ordered by the placer, re-measured after each. A cell, a block and a loose
@@ -2940,7 +2953,13 @@ running DRC or rendering it:
 placemat preview <script> [--svg] [--face front|back|both] [--out DIR]
                  [--zoom X0,Y0,X1,Y1 | --around PART [--margin MM]]
                  [--no-heat] [--no-links] [--no-copper] [--no-tags]
+                 [--max-time S] [--step-warn S] [--step-limit S]
 ```
+
+`--max-time`, `--step-warn` and `--step-limit` bound how long the placement takes (see "Bounding the time", under
+"Exploring a placement"); `run` takes the same three. A preview that is stopped keeps its finished steps in
+`<board>/.placemat/views/preview/reuse.partial.jsonl` (removed when the preview completes), and the next preview replays them
+(`reused N of M steps from the interrupted preview`).
 
 It writes `preview.svg` and, through `[preview] converter`, `preview.png` at
 `[preview] px_per_mm`, under `<board>/.placemat/views/preview/`, and prints the
@@ -3346,7 +3365,13 @@ socket for as long as it runs (Linux and macOS):
 - A reader connects and is sent a catch-up first, then live events: newline-delimited JSON, one object each, `ev` naming it.
   `hello` (the entry's fields), `resolve` (`n`: a new resolve; the board and steps before it are forgotten), `board`,
   `begin` (`kind` `total` with the counts, `begin` for the item now being worked on with its `what` and `rank`/`of`, or
-  `phase` with the engine's note, and `within`, `[k, n]`, when the phase counts through its own work: the k-th of n spots being refined), `item` (a settled step: the item, its copper or cutout ops; the item carries `seconds` and, for a replayed step, `first_seconds`, `notes` and, for one with no place, `unplaced`), `plan` (`doc`: the whole
+  `phase`: what the item is doing now, as data. `stage` is one of `declared`, `seeding`, `scan` (with `face` `front`, `back` or `either`, `hint`
+  and `radius`), `coarse`, `coarse_half` (the coarse pass again at half the stride), `fine`, `refine` (with `within`, `[k, n]`: the k-th of n
+  spots being refined) and `give_way` (candidates refused only by carried vias judged again); with the `item` and `elapsed_s`, its seconds so
+  far, when the phase is part of a step, and `firm_pass` when it is in one of the passes over the firm items (`place.firm_passes`). The
+  words are made where the event is read, `placemat watch` and the studio's pill), `step_warn` and `step_limit` (a step past its
+  `--step-warn` or `--step-limit` time: `item`, `elapsed_s`, `bound_s`, `pass` (`coarse`, `fine`, `refine`, `give-way`, ...; `firm pass k` before the step has reached a pass of its search),
+  `stage`, `within`, `firm_pass`, `at`), `item` (a settled step: the item, its copper or cutout ops; the item carries `seconds` and, for a replayed step, `first_seconds`, `notes` and, for one with no place, `unplaced`), `plan` (`doc`: the whole
   plan as the studio draws it), for an explore `explore` (focus, the plain placement and order, the baseline score, jobs),
   `variant` (`seed`, `score`, the focused items' `placements` and `order`) and `explore_done` (`best`, `baseline`, `tried`,
   `kept`, `record`), for a route the `route_*` events below, then `done` (`record`: the run's `run.json` or the explore's record) or `error` (`kind`, `file`,
@@ -3396,7 +3421,9 @@ placemat watch [<pid|label>] [--json]
 ```
 
 follows one command or all of them in the project, a line per event (`--json`: the events as sent), and exits when they
-end: 0 done, 1 error, 2 died (its last state is printed from its trail) or not found. Written for an agent that starts a long
+end: 0 done, 1 error, 2 died (its last state is printed from its trail) or not found. A line reads `ble: searching, rank 3 of 12` when an item
+begins, `ble: refining around the best spots, 2 of 3, 12.4 s` for a phase (the seconds are the step's so far), `ble part, 31.2 s: moved 0.4 mm`
+when it settles and `ble: still working after 30.4 s (--step-warn 30 s) in the refine pass 2 of 3` for a slow step. Written for an agent that starts a long
 job detached and then follows it; the studio's Runs view reads the same sockets.
 
 ## Studio
@@ -3625,6 +3652,39 @@ stopped run's `run.json` has `status: "stopped"` and `failure: {kind:
 last run left it, a final line names the stage and the signal, and the exit
 status is 128 + the signal. While a run works its `run.json` says `status:
 "running"` and its `pid`; a record whose pid is gone died without finishing.
+
+**Bounding the time.** Three bounds, each a flag of `run` and `preview` and a `[run]` setting (a flag wins; 0 is off, the default):
+
+```
+placemat preview <script> --max-time 120 --step-warn 30 --step-limit 90
+```
+
+- `--max-time SECONDS` (`run.max_time_s`) stops the command through the stop path a SIGTERM takes, when the time since it began is up. It
+  covers the placement: the generation, an explore and the resolve. Once the resolve is done it is lifted, because the write, DRC and render that
+  follow are not safe to cut and have their `[timeout]`s. The stop is a SIGTERM raised by a watchdog thread, so it lands at the next point Python
+  can run (between native calls), and everything a stop keeps is kept: a run is recorded `stopped`, an explore keeps its finished variants and its
+  checkpoint, and the steps finished are in `reuse.partial.jsonl`. The exit status is 143 and the line says how far it got, e.g. `preview stopped
+  at --max-time 120 s during resolve: 14 of 40 steps done, ble in progress (refine pass 2 of 3, 31 s), 3 finding(s) so far (1 critical, 2
+  notice); run it again and it goes on from there (the 14 finished steps are replayed, not searched again), with a larger --max-time or
+  none`. The record carries it as data: `run.json`'s `failure` (and the channel's `error` event) has `cause: "max_time"`, `limit_s`,
+  `elapsed_s`, `steps_done`, `steps_of`, `steps_replayed`, `in_progress` (`item`, `elapsed_s`, `pass`, `stage`, `within`, `firm_pass`, or null
+  between steps) and `findings` (`count`, `by_severity`). The steps it did are the placements an uncapped run makes for them; the rerun replays
+  them and carries on, so repeated capped reruns of one command finish it.
+- `--step-warn SECONDS` (`run.step_warn_s`): a step still working after that long sends a `step_warn` event and a console line, and
+  ends with a finding of kind `time`, cause `time.step_slow` (notice): `item`, `elapsed_s`, `warn_s`, `pass`. The placement is what it
+  would have been, and the step is replayed by a later run.
+- `--step-limit SECONDS` (`run.step_limit_s`): a step past it gives up. The search checks at the points where it changes pass (before the
+  coarse pass, before each refine spot, before a fine pass; `placer.scan`'s phases), not inside a native sweep, so a step is cut at its next pass
+  boundary and a single long pass runs to its end. The step is left unplaced, or at the best legal spot its scan had found when the limit was
+  reached, and the finding `time.step_limit` (`kept` `unplaced` or `best_so_far`, `elapsed_s`, `limit_s`, `pass`) says so; severity critical
+  when unplaced, warning otherwise. The resolve goes on with the next item. A step that gave up is not replayed: its reuse key is never matched,
+  so the next run searches it again (and the steps after it). A required item that gives up fails the run as any unplaced one.
+
+Every one of these is wall-clock time and so depends on machine load: the same board on a busy machine cuts steps a quiet one finishes. A
+bound that does not depend on load is a candidate budget (`place.step_budget`), counted in candidates judged. The bounds are not part of a
+run's id or of what a record replays. An explore's variants are not timed (only the command's own resolve is); `--max-time` still stops the
+explore.
+
 **Checkpoint and resume.** An explore keeps its state in
 `<board>/.placemat/explore/<script stem>/`. `checkpoint.jsonl` is a header (the
 digest and the parts it is made of - script, generated board, settings, fab
@@ -3795,7 +3855,7 @@ it is, and what the score counts) and a `severity` (how much it matters to the b
 them says how many of each (`7 finding(s) (1 critical, 2 warning, 4 notice)`). `run.json` keeps `findings` (the
 sentences) and `finding_details` (`kind`, `severity`, `text` per finding, in the same order); a record from before
 severities has no `finding_details`, and its findings read as `warning`. `preview --format json` has the same
-`finding_details`, and the studio's plan JSON gives each of its `findings` a `severity` and has
+`finding_details`, and adds `reuse`, `png_failure` and a `data` record on each of `notes` (every value its `text` says, as fields), and the studio's plan JSON gives each of its `findings` a `severity` and has
 `counts.severities`. The studio's Findings tab lists the most serious first.
 
 A kind has one severity, listed below, except where the finding says its own at the place it is made. The
@@ -3819,11 +3879,13 @@ its kind.
 | `label` | warning | a label with a part on it, or with no spot |
 | `label` (not drawn because its item found no place) | notice | the item's own `unplaced` finding is the fault |
 | `split` | warning | a cell whose members form groups joined only by board-level nets |
+| `time` (`time.step_slow`) | notice | a step ran past `--step-warn` (or `--step-limit`, with no pass left to stop at); the placement is its own |
+| `time` (`time.step_limit`) | critical when the item is left unplaced, warning when it kept the best spot found | a step gave up at `--step-limit`; the next run searches it again |
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
 | `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict) | warning | the script is incomplete or wrong |
-| `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed) | notice | placemat carried on without it |
+| `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `route` | notice | an adopted route dropped because a part it joins moved; the router routes it again |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
@@ -3937,7 +3999,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 
 | Cause | Suggestions |
 |---|---|
-| `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`) |
+| `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`); where the search spent its budget, a higher `budget=` for the item (searched) |
 | `unplaced.pocket` | place it beside a part that pulls it; a `board.link` toward a part it shares a net with; either face |
 | `unplaced.slide` | `at=OnEdge(...)` on each of the other edges |
 | `unplaced.block` | the block may turn to any of its turns; the satellite that did not fit placed on its own (out of the block's list, a bare `board.place` after it) |
@@ -3961,6 +4023,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `setup.centre_flag_default` | the keyword removed |
 | `setup.frame_reach` | the fit frame's declared width or height made the size that holds the item (not where the item reaches the origin side) |
 | `setup.web` | the board's `web=` lowered to the web it has |
+| `setup.step_budget` | a higher `budget=` for the item (searched) |
 | `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
 | `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
 | `setup.accept` | the `board.accept(...)` removed |
@@ -3990,7 +4053,7 @@ in a place of its own:
 | `run` | what that generation was made from, to know when it is out of date | `.placemat/generated/<board>.inputs.json` |
 | `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays; `reuse.partial.jsonl` while resolving, left by a run that died), `run.json` with `status` `ok`, `failed`, `stopped`, or `running` with its `pid` while it works | `.placemat/runs/<id>/` |
 | `run` | `latest.json` (the last run of any board), `latest-<board>.json` (the last of each board: what a run compares with and reuses), `best.json`, and with `--label` an alias | `.placemat/runs/` |
-| `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/views/preview/`, or `--out DIR` |
+| `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays; `reuse.partial.jsonl` while resolving, left by a preview that was stopped) | `.placemat/views/preview/`, or `--out DIR` |
 | `studio` | `reuse.json` (what the next resolve replays) and `worker.log` | `.placemat/views/studio/` |
 | `run` / `preview` with `--explore --accept`, `lock --current`, `route --adopt` | the lock: accepted decisions | `<script stem>.lock.json` beside the script |
 | `freeze` | the script's frozen `place()` calls, and the lock less those entries | the script, and its lock |
@@ -4099,6 +4162,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.block_gap_step` | `0.05` | mm | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | `2.0` | mm | how far a satellite may stand off its pin |
 | `place.copper_room` | `true` | bool | whether placement keeps room for the copper the script declares: a track or via declared between parts is planned provisionally, and a part standing Beside another moves out of its way. False places as before |
+| `place.step_budget` | `20000000` | count | the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area it covered. Counted, not timed: the result does not depend on how busy the machine is. A `place(budget=)` replaces it |
 | `place.firm_passes` | `8` | count | the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was refused by a firm part placed before it, with the two taken in the other order), the last one the settled run |
 | `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |
 | `place.beside_step` | `0.01` | mm | the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands |
@@ -4192,6 +4256,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.diff_pair_gap` | `0.0` | mm | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | `0.0` | mm | mm, a pair's track width; 0 is the net class's diff pair width |
 | `route.adopt_tolerance` | `0.001` | mm | mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped |
+| `run.max_time_s` | `0.0` | seconds | stop a `run` or `preview` after this many seconds of placing, at the next point it can be resumed from (its finished steps are kept and replayed by the rerun); 0 is no cap. `--max-time`. Wall-clock, so it depends on machine load |
+| `run.step_warn_s` | `0.0` | seconds | a step still working after this many seconds sends a live event and gets a finding naming the item, its seconds and the pass it was in; 0 is never. `--step-warn` |
+| `run.step_limit_s` | `0.0` | seconds | a step still working after this many seconds gives up: it is left unplaced, or at the best legal spot its scan had found, with a finding, and the resolve goes on with the next item; checked between a scan's passes; 0 is never. `--step-limit`. Wall-clock, so which steps give up depends on machine load, unlike a candidate budget; such a step is searched again by the next run |
 | `timeout.generate` | `900` | seconds | seconds for `pcb layout` |
 | `timeout.drc` | `600` | seconds | seconds for kicad-cli DRC |
 | `timeout.route` | `3600` | seconds | seconds for the router |

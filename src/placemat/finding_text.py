@@ -285,9 +285,19 @@ def rides_note(f: dict) -> str:
     return "rides %s, which found no place" % f["rider_of"]
 
 
+def budget_text(b: dict) -> str:
+    """What a search that spent its step budget says of how far it got: `placer.SearchBudget.measurement()`."""
+    return "the search stopped at its budget of %d candidates, with %.1f%% of the search area covered" % (
+        b["limit"], b["share"] * 100.0)
+
+
 @renders(C.UNPLACED_SEARCH, "item", "radius_mm", "at", "blame")
 def _unplaced_search(f):
-    blame = "no legal location within %.1f mm of %s (%s)" % (f["radius_mm"], _loc(f["at"]), blame_text(f["blame"]))
+    if f.get("budget"):
+        blame = "no legal location found within %.1f mm of %s (%s); %s" % (
+            f["radius_mm"], _loc(f["at"]), blame_text(f["blame"]), budget_text(f["budget"]))
+    else:
+        blame = "no legal location within %.1f mm of %s (%s)" % (f["radius_mm"], _loc(f["at"]), blame_text(f["blame"]))
     if f.get("pocket_tried") is not None:
         blame += "; no pocket took it (%d tried)" % f["pocket_tried"]
     return "%s: %s%s" % (f["item"], blame, room_lost_text(f.get("room_lost", {})))
@@ -618,6 +628,31 @@ def _setup_lookahead(f):
     return ("%s: no spot was left for %s at its limit distance from %s, so the look-ahead was dropped and %s is placed "
             "without it; the best spot for %s left %s %.2f mm short of %.1f mm" % (
                 f["item"], f["other"], f["own"], f["own"], f["own"], f["other"], f["short_mm"], f["asked_mm"]))
+
+
+@renders(C.SETUP_STEP_BUDGET, "item", "judged", "share", "limit")
+def _setup_step_budget(f):
+    return "%s: %s; it is placed at the best spot found so far" % (f["item"], budget_text(f))
+
+
+def pass_text(f: dict) -> str:
+    """The pass a step was in, from a time finding's facts: "refine pass 2 of 3", "firm pass 1"."""
+    from .timecap import pass_phrase
+    return pass_phrase(f.get("pass") or "settle", f.get("within"), f.get("firm_pass"))
+
+
+@renders(C.TIME_STEP_SLOW, "item", "elapsed_s", "pass")
+def _time_step_slow(f):
+    past = " and ".join(t % f[k] for k, t in (("warn_s", "--step-warn %g s"), ("limit_s", "--step-limit %g s")) if f.get(k))
+    return "%s: took %.1f s, past %s; it was in the %s when it crossed" % (f["item"], f["elapsed_s"], past, pass_text(f)) + (
+        "; no pass was left to stop at, so it finished" if f.get("limit_s") else "")
+
+
+@renders(C.TIME_STEP_LIMIT, "item", "elapsed_s", "limit_s", "pass", "kept")
+def _time_step_limit(f):
+    left = ("left unplaced" if f["kept"] == "unplaced" else "placed at the best legal spot its search had found by then")
+    return "%s: gave up after %.1f s in the %s (--step-limit %g s) and is %s; the next run searches it again" % (
+        f["item"], f["elapsed_s"], pass_text(f), f["limit_s"], left)
 
 
 def facts_reason_text(r: dict) -> str:

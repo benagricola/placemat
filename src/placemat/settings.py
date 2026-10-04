@@ -52,6 +52,7 @@ SECTIONS = {
     "drc": "how KiCad's DRC violations are sorted into buckets and judged",
     "explore": "the time-boxed search of the placer's own choices (`--explore`): variation, workers, checkpoint, stopping rules",
     "route": "routing a copy of the board with KiCadRoutingTools",
+    "run": "how long `placemat run` and `preview` may take: a cap on the command and on one step (off by default; a flag of the same name wins). Not part of a run's id",
     "timeout": "how long each external tool may run before it is given up on",
     "noise": "KiCad stderr lines to suppress, added to the built-ins",
     "best": "judging a run against the best of its family: how much a measure may move before it counts",
@@ -108,6 +109,10 @@ class Settings:
     place_copper_room: bool = S(True, "bool",
         "whether placement keeps room for the copper the script declares: a track or via declared between parts is planned "
         "provisionally, and a part standing Beside another moves out of its way. False places as before")
+    place_step_budget: int = S(20_000_000, "count",
+        "the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; "
+        "a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area "
+        "it covered. Counted, not timed: the result does not depend on how busy the machine is. A `place(budget=)` replaces it")
     place_firm_passes: int = S(8, "count",
         "the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was "
         "refused by a firm part placed before it, with the two taken in the other order), the last one the settled run")
@@ -295,6 +300,12 @@ class Settings:
         "mm, a pair's track width; 0 is the net class's diff pair width")
     route_adopt_tolerance: float = S(0.001, "mm",
         "mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped")
+    run_max_time_s: float = S(0.0, "seconds",
+        "stop a `run` or `preview` after this many seconds of placing, at the next point it can be resumed from (its finished steps are kept and replayed by the rerun); 0 is no cap. `--max-time`. Wall-clock, so it depends on machine load")
+    run_step_warn_s: float = S(0.0, "seconds",
+        "a step still working after this many seconds sends a live event and gets a finding naming the item, its seconds and the pass it was in; 0 is never. `--step-warn`")
+    run_step_limit_s: float = S(0.0, "seconds",
+        "a step still working after this many seconds gives up: it is left unplaced, or at the best legal spot its scan had found, with a finding, and the resolve goes on with the next item; checked between a scan's passes; 0 is never. `--step-limit`. Wall-clock, so which steps give up depends on machine load, unlike a candidate budget; such a step is searched again by the next run")
     timeout_generate: int = S(900, "seconds",
         "seconds for `pcb layout`")
     timeout_drc: int = S(600, "seconds",
@@ -482,10 +493,10 @@ class Settings:
         dict ordering. facts_confirmed and facts_boards are left out: it is placemat's own
         record of a user's confirmation, not a fact that changes a run, so
         confirming never gives a script a new run id. The studio's settings are
-        left out too: they say how a view is served, not what is placed."""
+        left out too: they say how a view is served, not what is placed; so are `[run]`'s, which say how long a command may take."""
         out = {}
         for name in self.keys():
-            if name in ("facts_confirmed", "facts_boards") or name.startswith("studio_"):
+            if name in ("facts_confirmed", "facts_boards") or name.startswith(("studio_", "run_")):
                 continue
             v = getattr(self, name)
             out[name] = sorted(v.items()) if isinstance(v, dict) else (
@@ -615,7 +626,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_coarse_min_radius_steps", "place_coarse_stride",
-    "place_refine_spots", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
+    "place_refine_spots", "place_step_budget", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
@@ -625,7 +636,7 @@ _ABOVE_ZERO = frozenset((
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
 _AT_LEAST_ZERO = frozenset((
     "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
-    "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
+    "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",

@@ -7,7 +7,61 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **A preview or run can be bounded in time.** `--max-time SECONDS` on `placemat preview` and `run` (and so on `--explore`) stops the
+  placement at the next point it can resume from, through the same stop path as SIGTERM (exit 143, `run.json` `stopped`, an explore keeps its
+  variants and checkpoint), says how many steps it finished, the step and pass it was in and the findings so far, and the rerun replays the
+  finished steps. A preview now keeps its finished steps in `.placemat/views/preview/reuse.partial.jsonl` for that, as a run always did.
+  `--step-warn SECONDS` sends a live `step_warn` event and adds a notice finding (`time.step_slow`: item, seconds, pass) to a step that runs
+  past it; `--step-limit SECONDS` makes the step give up (`time.step_limit`): unplaced, or at the best spot its scan had found, and the
+  resolve goes on; such a step is searched again by the next run. Settings `[run] max_time_s`, `step_warn_s`, `step_limit_s` (all 0, off); a
+  flag wins. The times are wall-clock and depend on machine load; the `[run]` settings are not part of a run's id. A new finding kind,
+  `time`. Nothing to change in a script.
+
 ### Changed
+
+- **A phase event is data, not a sentence.** The channel's `begin` events of kind `phase` carried a `text` ("refining around the best
+  spots: 2 of 5"); they now carry `stage` (`declared`, `seeding`, `scan`, `coarse`, `coarse_half`, `fine`, `refine`, `give_way`) and its
+  numbers (`within`, `face`, `hint`, `radius`), with the `item` and `elapsed_s` of the step they belong to and `firm_pass`. The studio makes
+  its status pill from them, and `placemat watch` its line. A tool that read `text` reads `stage` and `within`. The scan also reports its fine
+  pass, the coarse pass at half the stride and the give-way pass as phases now.
+- **`placemat watch` lines read naturally.** `begin begin ble searched` and a bare `begin phase` are gone: `ble: searching, rank 3 of 12`,
+  `ble: refining around the best spots, 2 of 3, 12.4 s`, `ble part, 1.2 s: note`; the total reads `40 items to place (12 searched), 3
+  copper declared`.
+- **Cell scans that meet another item's net tie are judged natively.** A candidate the native pass accepted was judged and
+  scored again in Python whenever the scan met a net tie; one that also passes the native pass with the ties in is now legal without
+  it, and scored natively. A real module's resolve took 49.8 s and now 12.6 s, with identical placements and findings. Nothing to change in
+  a script.
+
+### Fixed
+
+- **`keep-out` allows KiCad's DRC epsilon.** A distance a hair under its limit from float noise (1.2599985 mm against 1.26 mm, a stamped
+  pour's edge at the package's own pad gap, rotated and flipped) failed the check, where KiCad's DRC passes it. The check now accepts a
+  distance within the board's DRC epsilon of the limit (500 nm on a fresh board, read from its design settings as
+  `BoardGeometry.drc_epsilon`), in place of a fixed 1 nm. A distance 0.6 um short still fails.
+- **Two stamped cells' zones of one net that overlap no longer fail KiCad DRC with `zones_intersect`.** Each cell arrives with its zone at
+  the module's priority, and cells a keep-in apart have frames, so their zones, which the board's plane does not wholly cover,
+  overlapped at one priority. Written, the later zone (in cell-name order) is now raised past the priority of every same-net zone it
+  overlaps on a shared layer. A script is not affected.
+
+## To 0.97.0
+
+### New
+
+- **A step's search has a budget.** `place.step_budget` is the most candidates one searched item's step may judge, counted over all its
+  passes, both faces and the carried vias' giving way (candidates, not seconds: it does not depend on how busy the machine is), and
+  `board.place(item, ..., budget=N)` sets one item's. A step that spends it takes the best legal spot found so far and says so
+  (`setup.step_budget`, a notice), or, finding none, leaves the item unplaced: the `unplaced.search` finding carries
+  `facts["budget"]` (`judged`, `share` of the search area covered, `limit`) and offers a higher `budget=` for the item, a searched
+  suggestion. The default is high enough that no benchmark module or the core board reaches it, so nothing a script says changes.
+
+### Changed
+
+- **A scan with carried vias that may give way judges each refused candidate once.** A full pass judged every candidate as the item is
+  and again, where that refused it, less its carried vias; it now judges less the vias first and the item as it is only where that was
+  legal, which gives the same spots, counts, tallies and sentences. A failing search on a board with such vias takes about half the
+  time in its native passes. Nothing a script says changes.
 
 - **The live channel, `placemat watch --json`, the studio worker's events and the router's events carry records, not sentences** (event
   `format` 2; `hello` carries it, and a reader that finds none reads format 1; plan JSON `version` 3). A reader outside the repository
@@ -31,13 +85,33 @@ section for each hand-written pattern a newer form replaces.
     sentences, and its `error` and `try_error` events have `kind`, `type`/`failure` and `detail` where they had `message`.
   - The reuse record is version 4: the first resolve after the upgrade replays nothing. `run.json`'s steps keep `note` and gain
     `notes`.
+  - The 3D converter's events (studio only): a `model` event has `failure`, a record `{"code", ...}` (`no_cli`, `no_mesh`,
+    `timeout` with `limit_s`, `export_failed` with `returncode` and kicad-cli's own last line as `detail`, ...), where it had
+    `message`; the ready event's `selftest` has `failure` (`planes_differ` carries `version`, `front` and `back`, the prism's boxes)
+    where it had `message`. The studio page's own `message` is made from them (`model_convert.failure_text`). A failure kept in the
+    model cache is a JSON record; one an earlier release kept as text still reads.
+  - `placemat preview --json` gains fields, none changes meaning: `reuse` (what was reused, `{"form": "none" | "all" | "some", ...}`
+    beside the `reused` sentence), `png_failure` (`{"code": "not_installed" | "timeout" | "failed" | "no_png", "tool", ...}`
+    beside `png_problem`), and each of `notes` has `data`, the values its `text` says (a link's pads, length, limit and state; a
+    pocket; the worst congestion cell; a finding's cause, severity and facts).
+  - `placemat apply --json` gains `action` (`applied`, `would write`, `undone`), `edits` (the suggestion's edits as fields; none for
+    an undo) and each file's `created` and `removed`; `text` stays the suggestion's sentence.
   A script is not affected.
 
 ### Fixed
 
+- **A run folder keeps the board's rules.** A run folder held `layout.kicad_pcb` alone, so `placemat drc` or `placemat route` on
+  `<run>/layout.kicad_pcb` judged it by KiCad's default rules and reported false clearance, width and short violations. The
+  run folder now keeps `layout.kicad_pro` and `layout.kicad_dru` beside its board, and `drc` and `route` warn when a board has
+  neither beside it (`drc --json` and `route --json` give `missing_rules`).
 - **Generation ignores an inherited `KIPRJMOD`.** A process that had saved a board with pcbnew (or a placemat started from
   KiCad) passed `KIPRJMOD` on to `pcb layout`, which then resolved the stdlib footprint libraries against the wrong folder and
   failed with "Failed to load footprint". Generation now runs without it.
+- **No `escape_walled` finding on a pin the capture leaves unconnected.** A `NotConnected()` pin whose footprint draws its pad
+  as two elements (one number, two shapes) was counted as two pads on its net, so it kept escape corridors and was reported
+  walled off like a pin with something to join. A pad is now counted once per footprint and number, and a pad the capture
+  marks `no_connect` (KiCad pin type, read as `PadGeom.no_connect`) gets no escape judgment whatever its net is called. The
+  net-name pattern (`NC_`, `unconnected-(`, a dot) is kept only as the fallback for a pad without the marker.
 
 ## To 0.96.1
 

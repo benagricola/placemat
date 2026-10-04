@@ -211,7 +211,7 @@ class Watcher:
 def compact(ev: dict):
     """An event in the short form kept in a progress file: what says where the command was, not the drawing."""
     kind = ev.get("ev")
-    if kind in ("hello", "resolve", "done", "error", "explore_done"):
+    if kind in ("hello", "resolve", "done", "error", "explore_done", "step_warn", "step_limit"):
         return {k: v for k, v in ev.items() if k not in ("doc",)}
     if kind == "begin":
         if ev.get("kind") == "phase":
@@ -366,7 +366,7 @@ class Beacon:
         keep = not (kind == "begin" and event.get("kind") == "phase")
         with self.lock:
             if kind == "resolve":
-                self.log = [e for e in self.log if e.get("ev") not in ("board", "item", "plan", "begin")]
+                self.log = [e for e in self.log if e.get("ev") not in ("board", "item", "plan", "begin", "step_warn", "step_limit")]
             if kind and kind.startswith("route_"):
                 if len(self.route_log) < MAX_ROUTE_LOG:
                     self.route_log.append(event)
@@ -566,14 +566,17 @@ def describe(ev: dict) -> str:
     if kind == "resolve":
         return "resolve %s" % ev.get("n", "")
     if kind == "begin":
-        if ev.get("kind") == "total":
-            return "%s steps" % ev.get("n", "")
-        return "begin %s" % " ".join(str(ev[k]) for k in ("kind", "item", "what") if ev.get(k))
+        return describe_begin(ev)
     if kind == "item":
         it = ev.get("item") or ev
+        took = it.get("seconds")
         from . import step_text
         note = step_text.render_all(it.get("notes") or (), it.get("unplaced"))
-        return "%s %s%s" % (it.get("key", "?"), it.get("kind", ""), (": %s" % note) if note else "")
+        return "%s %s%s%s" % (it.get("key", "?"), it.get("kind", ""), (", %.1f s" % took) if took is not None else "",
+                              (": %s" % note) if note else "")
+    if kind in ("step_warn", "step_limit"):
+        from . import timecap
+        return timecap.step_line(ev)
     if kind == "plan":
         doc = ev.get("doc") or {}
         n = len(doc["items"]) if "items" in doc else ev.get("items", 0)
@@ -611,6 +614,30 @@ def describe(ev: dict) -> str:
     if kind == "error":
         return "error: %s%s" % (failure_text(ev), (" (%s:%s)" % (ev.get("file"), ev.get("line"))) if ev.get("file") else "")
     return str(kind)
+
+
+_WHAT_WORD = {"searched": "searching", "decided": "placing", "copper": "laying copper", "cutout": "cutting", "keepout": "keeping out"}
+
+
+def describe_begin(ev: dict) -> str:
+    """One line for a `begin` event: the queue's size, an item being started, or what a long step is doing now (a phase, with
+    its seconds so far where the engine knows them)."""
+    kind = ev.get("kind")
+    if kind == "total":
+        searched = ev.get("searched") or 0
+        return "%d items to place (%d searched), %d copper declared%s" % (
+            ev.get("items") or 0, searched, ev.get("copper") or 0, (", %d steps to replay" % ev["replay"]) if ev.get("replay") else "")
+    item = ev.get("item")
+    if kind == "phase":
+        from . import phases
+        out = "%s: %s" % (item, phases.text(ev)) if item else phases.text(ev)
+        if ev.get("firm_pass"):
+            out += " (firm pass %d)" % ev["firm_pass"]
+        return out + ((", %.1f s" % ev["elapsed_s"]) if ev.get("elapsed_s") is not None else "")
+    out = "%s: %s" % (item, "replaying" if ev.get("replaying") else _WHAT_WORD.get(ev.get("what"), ev.get("what") or "begins"))
+    if ev.get("rank") is not None and ev.get("of"):
+        out += ", rank %d of %d" % (ev["rank"], ev["of"])
+    return out
 
 
 FAILURES = {"generation": "Schematic generation failed", "script": "Layout script failed",

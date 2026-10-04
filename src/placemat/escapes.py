@@ -31,13 +31,15 @@ from .occupancy import ALLOW_SEP
 from .values import Box, CopperLayer, Location
 
 _CELL = 2.0     # mm: the grid corridors and blockers are bucketed into
-# A net a generator gives a pin the design leaves unconnected: Zener's `NC_<part>_<pin>`, a pin named under its instance
-# path (`mcu.GPIO35`), KiCad's `unconnected-(<ref>-<pad>)`. A net local to an instance (a dot in its name) with one pad
-# goes nowhere, so it is not a handoff: a cell's own pins for the parent board have the bare name.
+# A pad the capture declares unconnected carries KiCad's pin type no_connect (`PadGeom.no_connect`): that is what is
+# judged. A board without the marker is judged by name: the net a generator gives such a pin is Zener's
+# `NC_<part>_<pin>` (under its instance path, `mcu.NC_...`) or KiCad's `unconnected-(<ref>-<pad>)`, and a net local to an
+# instance (a dot in its name) with one pad goes nowhere - a cell's own pins for the parent board have the bare name.
 _NO_CONNECT = re.compile(r"\.|^NC_|^unconnected-\(")
 
 
 def is_no_connect(net: str) -> bool:
+    """Whether a net's name says its pin is left unconnected: the fallback for a pad without the capture's marker."""
     return bool(_NO_CONNECT.search(net))
 
 
@@ -78,16 +80,32 @@ def _rect(start, d, length: float, half_width: float) -> tuple:
 
 
 def _net_sizes(occ) -> dict:
-    """{net: pads on it} over the whole board, counted once."""
+    """{net: pads on it} over the whole board, counted once. A pad a footprint draws as several elements (one number, a
+    shape each) is one pad."""
     sizes = occ.__dict__.get("_net_sizes")
     if sizes is None:
-        sizes = {}
+        pads: dict = {}
         for fp in occ.geometry.footprints:
             for p in fp.pads:
                 if p.net:
-                    sizes[p.net] = sizes.get(p.net, 0) + 1
+                    pads.setdefault(p.net, set()).add((fp.ref, p.number))
+        sizes = {net: len(s) for net, s in pads.items()}
         occ.__dict__["_net_sizes"] = sizes
     return sizes
+
+
+def _marked(occ) -> set:
+    """{(ref, number)} of the pads the capture declares unconnected."""
+    marked = occ.__dict__.get("_no_connect_pads")
+    if marked is None:
+        marked = {(fp.ref, p.number) for fp in occ.geometry.footprints for p in fp.pads if p.no_connect}
+        occ.__dict__["_no_connect_pads"] = marked
+    return marked
+
+
+def _unconnected(occ, ref: str, number: str, net: str) -> bool:
+    """Whether the pad is one the design leaves unconnected: the capture's marker, else the net's name."""
+    return (ref, number) in _marked(occ) or is_no_connect(net)
 
 
 def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> list:
@@ -100,7 +118,7 @@ def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> l
     body = Box.union([b for _, _, b in pads.values()]).center
     out = []
     for number, (net, layers, box) in sorted(pads.items()):
-        if not net or _net_sizes(occ).get(net, 0) < 2:
+        if not net or _net_sizes(occ).get(net, 0) < 2 or (ref, number) in _marked(occ):
             continue                        # nothing to join: an unconnected pin keeps no escape
         c = box.center
         d = _pin_normal(centres, ref, c, rotation, box)
@@ -406,7 +424,7 @@ class Escapes:
             if len(pads) < occ.settings.place_escape_min_pads:
                 continue
             for number, (net, layers, box) in sorted(pads.items()):
-                if not net or _net_sizes(occ).get(net, 0) >= 2 or is_no_connect(net):
+                if not net or _net_sizes(occ).get(net, 0) >= 2 or _unconnected(occ, ref, number, net):
                     continue
                 own = self._own_copper(ref, number, net)
                 if any(s.kind == "through" for s in own):

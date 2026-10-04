@@ -3,6 +3,7 @@ parent board). Nothing joins it, so it keeps no corridor in the placement search
 leave it no way out at all, that is a finding. A QFN-56 whose every pin is its own net, with a wall of another net's
 track along the west row."""
 from placemat.values import CopperLayer, Net, PadRef, Part, Location
+from tests.conftest import needs_kicad
 from tests.escape_fixtures import fan_board, one_pad
 
 F = CopperLayer.F
@@ -107,3 +108,60 @@ def test_a_pin_with_something_to_join_is_judged_as_before():
     b.track(Net("X"), [PadRef(Part("x1"), 1), PadRef(Part("x2"), 1)], layer=F, why="the wall")
     plan = b.resolve()
     assert not any("no other pad" in w for w in _walled(plan) if "pin 50" in w)
+
+
+def _edited(pad_edit):
+    """The wall board with U1 pads edited by `pad_edit(PadGeom)`, which returns a PadGeom or a list of them."""
+    import dataclasses
+    b = _wall_board(pin_nets={50: "N50"})
+    fps = []
+    for fp in b.geometry.footprints:
+        if fp.ref == "U1":
+            pads = []
+            for p in fp.pads:
+                r = pad_edit(p)
+                pads.extend(r if isinstance(r, list) else [r])
+            fp = dataclasses.replace(fp, pads=tuple(pads))
+        fps.append(fp)
+    b.geometry = dataclasses.replace(b.geometry, footprints=tuple(fps))
+    return b
+
+
+def test_a_pad_the_capture_marks_no_connect_is_no_finding_whatever_its_net_is_called():
+    import dataclasses
+    b = _edited(lambda p: dataclasses.replace(p, no_connect=True) if p.number == "50" else p)
+    assert not any(w.startswith("U1 pin 50 ") for w in _walled(b.resolve()))
+
+
+def test_a_pad_drawn_as_two_elements_is_one_pad_and_its_net_has_nothing_to_join():
+    """A footprint can draw pad 50 twice (the capture's TPS259470 draws pin 4 twice): the net of that pad alone keeps no
+    corridor, as a net of one drawn element does."""
+    import dataclasses
+    from placemat.escapes import corridors
+    b = _edited(lambda p: [p, dataclasses.replace(p)] if p.number == "50" else p)
+    occ = b.resolve().occupancy
+    assert not [c for c in corridors(occ, "U1") if c.number == "50"]
+
+
+@needs_kicad
+def test_the_read_board_carries_a_pads_no_connect_pin_type(tmp_path):
+    import pcbnew
+    from placemat.kicad.read import read_board
+    b = pcbnew.CreateEmptyBoard()
+    b.SetCopperLayerCount(2)
+    fp = pcbnew.FOOTPRINT(b)
+    fp.SetReference("U1")
+    b.Add(fp)
+    for number, kind in (("1", "no_connect"), ("2", "passive")):
+        p = pcbnew.PAD(fp)
+        p.SetNumber(number)
+        p.SetShape(pcbnew.PAD_SHAPE_RECT)
+        p.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
+        p.SetLayerSet(pcbnew.PAD.SMDMask())
+        p.SetSize(pcbnew.VECTOR2I(pcbnew.FromMM(1.0), pcbnew.FromMM(1.0)))
+        p.SetPinType(kind)
+        fp.Add(p)
+    path = tmp_path / "x.kicad_pcb"
+    b.Save(str(path))
+    got = {p.number: p.no_connect for f in read_board(path).footprints for p in f.pads}
+    assert got == {"1": True, "2": False}

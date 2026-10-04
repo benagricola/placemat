@@ -343,9 +343,9 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     except stop.Stopped as s:
         s.partial = partial()
         s.partial.stopped = True
-        s.partial.ended = {"rule": "signal", "signal": s.name}
+        s.partial.ended = {"rule": "signal", "signal": s.name, **({"cause": s.cause["cause"]} if s.cause else {})}
         if checkpoint is not None:
-            checkpoint.stopped(s.name, s.partial.seconds)
+            checkpoint.stopped(s.label, s.partial.seconds)
         raise
     finally:
         _end(procs)
@@ -438,6 +438,8 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, be
     import traceback
     from . import channel, stop
     channel.disable()                                   # the parent reports for the explore, not each variant's resolve
+    from . import timecap
+    timecap.disable()                                   # and holds the time cap: a variant's steps are not timed
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     stop.parent_death_signal()
     import os
@@ -607,7 +609,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         now = score(base, current)
         r = s.partial or ExploreResult(0, now, now, 0, [], seconds=0.0)       # stopped before a variant was begun
         report = {"tried": r.tried, "focus": sorted(focus), "baseline": r.baseline, "best": r.best,
-                  "best_seed": r.best_seed, "moves": [], "accepted": False, "stopped": s.name,
+                  "best_seed": r.best_seed, "moves": [], "accepted": False, "stopped": s.label,
                   "seconds": round(r.seconds, 1), "failures": r.failures}
         if r.curve:
             report.update(curve=_compact(r.curve), found=_found(r.curve, r.seconds), ended=r.ended)
