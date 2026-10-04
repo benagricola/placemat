@@ -12,6 +12,10 @@ section for each hand-written pattern a newer form replaces.
 - **The studio's 3D Play brings a back part up from below.** Each part dropped onto the board from above, so a part on the
   back face fell through the board to its underside. A part whose model stands under the board's mid-plane now rises to
   the underside.
+- **The board outline, the declared groups and a relayed via also take a free UUID.** 0.99.6 gave written copper and
+  rule areas a UUID no item on the board has; the outline's Edge.Cuts items, the groups a script declares and a via a
+  via field relays were still added without the check, so on a board placemat had written before they could take the
+  UUID of an item from the last write and pull it out of its group on reload.
 
 ## To 0.99.7
 

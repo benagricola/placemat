@@ -336,6 +336,7 @@ def _draw_path(board, path):
             a.SetLayer(pcbnew.Edge_Cuts)
             a.SetWidth(nm(0.1))
             a.SetArcGeometry(vec(*here), vec(*_xy(piece.via)), vec(*_xy(piece.to)))
+            _unique_uuid(board, a)
             board.Add(a)
             here = _xy(piece.to)
         else:
@@ -344,6 +345,7 @@ def _draw_path(board, path):
             s.SetWidth(nm(0.1))
             s.SetStart(vec(*here))
             s.SetEnd(vec(*_xy(piece)))
+            _unique_uuid(board, s)
             board.Add(s)
             here = _xy(piece)
 
@@ -599,6 +601,7 @@ def _draw_outline(board, plan: Plan):
             circle.SetWidth(nm(0.1))
             circle.SetCenter(vec(c.x, c.y))
             circle.SetEnd(vec(c.x + r, c.y))
+            _unique_uuid(board, circle)
             board.Add(circle)
         for path in plan.shape.holes:
             _draw_path(board, path)
@@ -622,6 +625,7 @@ def _draw_outline(board, plan: Plan):
             a.SetCenter(vec(x0 + cx, y0 + cy))
             a.SetStart(vec(x0 + sx, y0 + sy))
             a.SetArcAngleAndEnd(pcbnew.EDA_ANGLE(90, pcbnew.DEGREES_T))
+            _unique_uuid(board, a)
             board.Add(a)
     else:
         segs = [(0, 0, W, 0), (W, 0, W, H), (W, H, 0, H), (0, H, 0, 0)]
@@ -631,6 +635,7 @@ def _draw_outline(board, plan: Plan):
         s.SetWidth(nm(0.1))
         s.SetStart(vec(x0 + x1, y0 + y1))
         s.SetEnd(vec(x0 + x2, y0 + y2))
+        _unique_uuid(board, s)
         board.Add(s)
     for path in plan.cutouts.paths:          # a rectangle's holes hang off the board, not a shape
         _draw_path(board, path)
@@ -1089,6 +1094,7 @@ def _write_groups(board, plan: Plan) -> list:
             if parent is not None:
                 parent.RemoveItem(it)
             g.AddItem(it)
+        _unique_uuid(board, g)
         board.Add(g)
         notes.append("%s written: %d part(s)%s" % (d.name, len(d.parts), " (%s)" % d.why if d.why else ""))
     for g in list(board.Groups()):                  # a module's group that held only its cells, or what a declared one took

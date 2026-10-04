@@ -681,7 +681,7 @@ def write(board, steps: list, groups: dict) -> None:
     drawn before any is changed, the added ones copied from the nearest via of their field, then the
     moves and the removals."""
     import pcbnew
-    from .kicad.write import vec
+    from .kicad.write import _unique_uuid, vec
 
     def on(v, at):
         return abs(v.x / 1e6 - at[0]) <= 0.001 and abs(v.y / 1e6 - at[1]) <= 0.001
@@ -704,6 +704,7 @@ def write(board, steps: list, groups: dict) -> None:
         if a.kind == "relay-add":
             new = via.Duplicate()
             new.SetPosition(vec(*a.to))
+            _unique_uuid(board, new)
             board.Add(new)
             g.AddItem(new)
     for a, g, via in todo:
