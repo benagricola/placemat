@@ -1787,7 +1787,7 @@ function legendHTML(p) {
   for (const l of copperLayers(p)) {
     const face = LAYER_FACE(l), n = copper.filter(c => c.layer === l && c.t !== "via" && c.t !== "text").length + shapes(["copper"], l), other = face !== "inner" && S.face !== "both" && S.face !== face;
     const zs = zonesOf(p, l);
-    o.push(row("cu:" + l, SW.track(layerClass(l)), l + (other ? " (other face)" : ""), n, Object.assign({only: true, title: other ? "drawn on the " + face + " face" : ""}, zs.length > LEGEND_FOLD_OVER ? {exp: "zl:" + l, n: zs.length} : {})));
+    o.push(row("cu:" + l, SW.track(layerClass(l)), l, n, Object.assign({only: true, title: other ? "drawn on the " + face + " face" : ""}, zs.length > LEGEND_FOLD_OVER ? {exp: "zl:" + l, n: zs.length} : {})));
     if (zs.length <= LEGEND_FOLD_OVER || isExp("zl:" + l, zs.length)) for (const z of zs) o.push(row("z:" + z.i, SW.zone(layerClass(l)), z.name, null, {sub: true, title: z.t === "pour" ? "a fitted pour" : "a plane"}));
   }
   o.push(row("via", SW.via, "vias", copper.filter(c => c.t === "via").length, {title: "a via is drawn as its ring with its drill hole inside"}));
