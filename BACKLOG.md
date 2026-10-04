@@ -280,6 +280,14 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Studio 3D copper, see-through, spread layers; back parts rise in Play;
+  more free UUIDs** (0.99.8): the 3D view draws each copper layer at its
+  stackup height with a see-through board, shares the legend's copper
+  switches with 2D, shows findings as markers and congestion as a sheet, and
+  spreads the layers apart; Play brings a back part up to the underside; the
+  outline, declared groups and relayed vias take a free UUID; filled warning
+  marks are yellow in both themes.
+
 - **Parallel layers in current-path; each stamp's keepout its own; saved
   fill current** (0.99.7): current-path adds copper on parallel layers of the
   net joined at both ends of a stretch, each scaled by its own layer's need;
