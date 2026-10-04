@@ -1272,7 +1272,11 @@ items, in dependency order, so a slot placed from a connector waits for that
 connector. One with a freedom waits until every decided thing is down. Both
 are settled before any part is searched, so every part is placed against a
 board that already has its holes. A cutout placed from a *searched* item is
-refused, naming it.
+refused, naming it. A freedom is settled at the first spot where the hole is
+inside the board, keeps its web, mills through nothing already placed, and
+stands the board's silk clearance from every placed part's silk on either
+face (KiCad judges silk against Edge.Cuts by that clearance); a decided
+place is cut where it was put.
 
 **`side=`, not `facing=`.** `board.cutout(name).edge(side=)` is the only route
 to a hole's runs, so `board.edge(facing=)` can never return one. `side=

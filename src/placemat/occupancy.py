@@ -953,6 +953,21 @@ class Occupancy:
         geom = self._geometry(item)
         return transform_box(geom.reach or geom.body, self._transform(geom, placement))
 
+    def placed_silk(self, ref: str) -> tuple:
+        """A footprint's silk outlines on both faces, where it stands now, whatever the envelope claims: what the
+        board's edge (a cutout's included) keeps the silk clearance from."""
+        if not self.geometry.has_footprint(ref):
+            return ()
+        fp = self.geometry.footprint(ref)
+        if not fp.silk:
+            return ()
+        drawn = Placement(fp.location, fp.rotation, fp.face)
+        now = self.items[ref].reference
+        if now == drawn:
+            return tuple(poly for _face, poly in fp.silk)
+        t = self._transform(ItemGeometry(frozenset(), drawn, (), fp.body_box, frozenset()), now)
+        return tuple(tuple(transform_polygon(poly, t)) for _face, poly in fp.silk)
+
     def blame_owner(self, o) -> Owner:
         """What a refusal's tally names a blocking shape by: its owner, and for copper its net too - "cell logic's U3
         GND", or "via GND" for a via no part owns - so a count of copper refusals says whose copper it was. An escape's

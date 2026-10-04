@@ -18,6 +18,14 @@ section for each hand-written pattern a newer form replaces.
   decided, and a rider's place in its group, are judged at the clearance itself as before. A module whose parts were
   placed at the silk clearance gets them up to a micrometre further apart, and a search may take another spot where
   one stood exactly at it; lay the module out again and stamp the new fragment to clear the board's report.
+- **A searched cutout keeps the silk clearance from parts' silk.** A `Cutout` whose place is searched (`at=Near(...)`, a
+  free axis, a `Polar` with a free bearing or radius) was refused only where its box met a placed part's pads and drawn
+  graphics, so it could be cut nearer a part's silk than the board's silk clearance, and KiCad reported `silk_edge_clearance`
+  against the hole's Edge.Cuts. The search now also refuses a spot where the hole would stand nearer than the board's
+  silk clearance to a placed part's silk on either face (`cutout_silk`: "would stand 0.15 mm from U1's silk (the silk
+  clearance is 0.20)"). Such a cutout moves to the next spot of its search, a step or two further from its hint. A
+  cutout whose place the script decided is cut where it was put, as before. A part placed after a cutout is still judged
+  against it by its courtyard, body and copper only, not its silk.
 
 ## To 0.99.4
 
