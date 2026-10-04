@@ -1174,18 +1174,17 @@ board.place(cell)                                        # the default, then eve
   `TypeError`, the empty sequence included. Anything that is not a
   string or a sequence raises a `TypeError` saying `arrangements=` is an
   id or a list of them; an empty string, or an item that is not a
-  string, raises one saying ids are text. A repeated id counts once, at
-  its first place.
-- With `place.arrangements` true a cell offers the arrangements its
-  note names. A riding cell takes its pinned arrangement with its host.
+  string, raises one saying ids are text. A repeated id counts once.
+- A riding cell takes its arrangement only when it is pinned to exactly
+  one id; with several ids or none it is laid in its default.
 - An id the cell does not offer leaves the cell unplaced with an
   `arrangement.missing` finding (critical; facts `item`, `asked`,
   `offered`). A cell with `place.arrangements` false offers only the
   default, so a pin to any other id is missing. A rider of a cell skipped
   for its arrangement is unplaced as a rider of an unplaced item.
-- A note that cannot stand gives an `arrangement.stale` warning for the
-  cell and each reason, naming the arrangements ignored (facts `cell`,
-  `reason`, `ids`). The cell is laid with the arrangements that remain.
+- A note that cannot stand gives one `arrangement.stale` warning per
+  ignored arrangement and reason (facts `cell`, `reason`, `ids`); `text`
+  carries no ids. The cell is laid with the arrangements that remain.
   The reasons are:
 
 | `reason` | A note is ignored because |
@@ -1197,15 +1196,14 @@ board.place(cell)                                        # the default, then eve
 | `net` | it names a net the board does not have |
 | `text` | its text is not whole or does not parse (malformed) |
 
-`run.json`'s `placements[cell]` carries `"arrangement": "<id>"` when the
-cell stands in an arrangement other than the default, and not otherwise.
+`run.json`'s `placements[cell]` carries `"arrangement": "<id>"` when
+the cell stands in an arrangement other than the default.
 
 The writer puts an arranged cell in its arrangement before it moves it
 into place. The cell's copper, keepouts (rule areas and drawings) and
 texts are replaced by the arrangement's, its carried vias are thinned
 against the arranged copper, and its zones are refilled. The cell's
-members go to the arrangement's places. `layout.kicad_pcb` then holds the
-arranged cell.
+members go to the arrangement's places.
 
 **How a searched item finds its place.** An explicit `at=Near(...)` scans
 round its hint; a `Near(PadRef(...))` on another searched item's pad waits
