@@ -470,7 +470,7 @@ def _tail_hit(judge: "_Judge", shape, own) -> bool:
 
 
 def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offsets: list, first, pad, r: float,
-                       tail_spec, aside: bool = False, board: bool = False):
+                       tail_spec, aside: bool = False, board: bool = False, count: bool = True):
     """(used, (dx, dy) or None): the first of `offsets` (the ones `_native_move_offsets` found clear
     of the board, or with `board` every one, the ring and hole judged against the board here) at which `g`'s ring, hole and tail, moved, also clear `mine` (the item's own copper)
     and what earlier actions left, and keep the tests `_give`'s loop applies - one native call in
@@ -479,7 +479,8 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
     `first`: the copper the via first met; `pad`: the pad it must stay inside, or None; `r` its radius;
     `tail_spec`: None, or (the tail's far end, its layer, its width), the tail redrawn from there.
     `aside`: the net ties' copper, on the board and among `mine`, is not judged here, and `span` is not asked
-    whether a net tie lies near: a spot this accepts is the caller's to judge against the ties, in Python."""
+    whether a net tie lies near: a spot this accepts is the caller's to judge against the ties, in Python.
+    `count`: the offsets judged are charged to the resolution; the caller that counts them its own way says not."""
     occ = judge.occ
     entry = getattr(judge.others, "_native", None)
     if not _NATIVE_FIRST_MOVE or entry is None or not offsets:
@@ -507,7 +508,8 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
     while True:
         i = index.first_move(via, offsets, judge.clearance, skip, native_mine, g.centre, first_arg, pad_arg, tail,
                              start, hidden if board else None)
-        judge.count((len(offsets) if i is None else i + 1) - start)
+        if count:
+            judge.count((len(offsets) if i is None else i + 1) - start)
         if i is None:
             return True, None
         dx, dy = offsets[i]
@@ -1395,6 +1397,33 @@ def _rebuilt(occ, g: Group, judge: "_Judge", mine: list, chains: list, to: tuple
     return drawn
 
 
+def _routed_spots(judge: "_Judge", g: Group, mine: list, span: Box, spots: list, pad, r: float, board_clear: bool):
+    """The `spots` of a routed via's move that its ring and hole may stand at, in order, each as `_give_routed`'s
+    loop would have come to it: the spots whose ring and hole meet the item's own copper or what earlier actions left,
+    or fall outside the pad, are left out here by one native call, as `_find_move` leaves them out, and each of those
+    that the loop would have judged is charged to the resolution as it would have been. Where the native call cannot
+    judge (no native index, the switch off, a net tie near) every spot is given, and the loop judges them all.
+    `board_clear`: the spots are already clear of the board, so the pool the loop judges is `judge.extra`'s."""
+    at = 0
+    while at < len(spots):
+        used, found = _native_first_move(judge, g, mine, span, spots[at:], None, pad, r, None, count=False) \
+            if board_clear else (False, None)
+        if not used:
+            yield from spots[at:]
+            return
+        k = len(spots) if found is None else spots.index(found, at)
+        left = spots[at:k]
+        if pad is None:
+            judge.count(len(left))
+        else:
+            judge.count(sum(1 for dx, dy in left if _disc_inside(
+                pad.poly, (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9)), r - 1e-5)))
+        if found is None:
+            return
+        yield found
+        at = k + 1
+
+
 def _give_routed(occ, g: Group, judge: "_Judge", own, who: _Owner, met: str):
     """(Action, why not, None) for a via that two or more of its item's tracks end on, moved up to
     `place.via_route_distance`, nearest spot first, with each track rebuilt from its far end; the spot is used only
@@ -1412,7 +1441,8 @@ def _give_routed(occ, g: Group, judge: "_Judge", own, who: _Owner, met: str):
     # earlier actions left, and without them every offset, against the board too
     pool = [o for o in judge.extra if o.box.overlaps(span, gap=occ._gap)] if clear_spots is not None else \
         judge.near(span, occ._gap)
-    for dx, dy in (offsets if clear_spots is None else clear_spots):
+    spots = offsets if clear_spots is None else clear_spots
+    for dx, dy in _routed_spots(judge, g, mine, span, spots, pad if inside else None, r, clear_spots is not None):
         to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
         if inside and not _disc_inside(pad.poly, to, r - 1e-5):
             continue

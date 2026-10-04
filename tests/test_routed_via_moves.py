@@ -20,7 +20,7 @@ from tests.test_vias_give_way import _via
 F, B = CopperLayer.F, CopperLayer.B
 
 
-def _board(extra=(), settings=None, a_tracks=True, onward_via=False):
+def _board(extra=(), settings=None, a_tracks=True, onward_via=False, on_pad=False, beside=None):
     """Cell m: U1 (front) with SIG pads at (39.1, 40) and (40.9, 40), and a SIG via of the cell's at
     (39.1, 42.2) joined by two tracks that end on it: a straight one up to pad 1, and the first leg of an L
     (east to a corner at (40.9, 42.2), which runs on up to pad 2). It lands 20 mm up and left, the via at
@@ -35,8 +35,10 @@ def _board(extra=(), settings=None, a_tracks=True, onward_via=False):
     if onward_via:
         copper += [_via("SIG", 40.9, 42.2, owner="m")]
     copper += list(extra)
-    fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=("SIG", "SIG"), cell="m"),
+    fps = [footprint("U1", 40, 42.2 if on_pad else 40, w=3, h=1, inst="m.u1", nets=("SIG", "SIG"), cell="m"),
            footprint("R9", 19.5, 23.0, w=2, h=1, inst="r9", nets=("S", "T"), face=Face.BACK)]
+    if beside is not None:              # another net's part of the cell, where its pads are the item's own copper near the via
+        fps.append(footprint("R1", 39.1 + beside[0], 42.2 + beside[1], w=1, h=0.6, inst="m.r1", nets=("Y", "Y"), cell="m"))
     g = board_geometry(fps, cells=["m"], copper=copper, width=50, height=50, extra_nets=("SIG", "Y"))
     centre = Occupancy(g)._geometry(g.cells["m"]).reference.location
     b = Board(g, edge_margin=0.5, keep_going=True, settings=settings or Settings())
@@ -181,6 +183,39 @@ def test_the_native_and_the_python_judging_choose_the_same_spot(monkeypatch):
     monkeypatch.setattr(giveway, "_NATIVE_FIRST_MOVE", False)
     python = _route(_board(extra=blocker).resolve())
     assert (native.to, native.tracks, native.old_tracks) == (python.to, python.tracks, python.old_tracks)
+
+
+def test_the_native_prefilter_of_the_spots_judges_and_charges_as_the_python_loop_does(monkeypatch):
+    """Spots the item's own copper or a pad refuses are left out by one native call; the action chosen and the
+    judgments charged to the resolution (they limit a give-way's work) are those of the loop that judges every spot."""
+    import random
+    rnd = random.Random(20261004)
+    total = [0]
+    real = giveway._Judge.count
+
+    def counting(self, n):
+        total[0] += n
+        return real(self, n)
+    monkeypatch.setattr(giveway._Judge, "count", counting)
+    kinds = {}
+    for case in range(24):
+        extra = []
+        for _ in range(rnd.randint(1, 4)):
+            x, y = 19.1 + rnd.uniform(-1.2, 1.2), 22.2 + rnd.uniform(-1.2, 1.2)
+            x1, y1 = x + rnd.choice([0, 0.6, -0.6]), y + rnd.choice([0, 0.6, -0.6])
+            extra.append(track(rnd.choice(["Y", "Y", "SIG"]), x, y, x1, y1, w=rnd.choice([0.2, 0.3])))
+        beside = (rnd.uniform(-0.9, 0.9), rnd.uniform(-0.9, 0.9)) if case % 3 else None
+        out = []
+        for on in (False, True):
+            monkeypatch.setattr(giveway, "_NATIVE_FIRST_MOVE", on)
+            total[0] = 0
+            plan = _board(extra=extra, on_pad=case % 2 == 1, beside=beside).resolve()
+            acted = [(a.kind, a.to, a.tracks, a.old_tracks) for a in plan.occupancy.given_way.values()]
+            out.append((plan.step("m").placement is not None, acted, total[0]))
+        assert out[0] == out[1], "case %d" % case
+        kind = out[0][1][0][0] if out[0][1] else ("placed" if out[0][0] else "refused")
+        kinds[kind] = kinds.get(kind, 0) + 1
+    assert kinds.get("route", 0) >= 5 and len(kinds) >= 2, kinds
 
 
 def test_a_moved_routed_via_is_still_routed_with_the_same_far_ends():
