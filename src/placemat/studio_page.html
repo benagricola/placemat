@@ -381,9 +381,9 @@ table.diff td.link { color: var(--mark); width: 14px; }
 
 
 .row.step { align-items: flex-start; }
-.row.step .sb { flex: 1; min-width: 0; }
-.row.step .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.row.step .l1 b { overflow-wrap: anywhere; }
+.row.step .sb, .row.pending .sb { flex: 1; min-width: 0; }
+.row.step .l1, .row.pending .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row.step .l1 b, .row.pending .l1 b { overflow-wrap: anywhere; }
 .row.step .l2 { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.step .full { display: none; margin-top: 3px; white-space: normal; overflow-wrap: anywhere; cursor: auto; }
 .row.step .full .cs:first-child { margin-top: 4px; }
@@ -1022,14 +1022,21 @@ function pendingRow() {
     return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill("replay", "decided") + itemField("replaying unchanged steps") + '</div><div class="flds" id="pendtext"></div>' +
       (R ? '<div class="pbar"><b style="width:' + Math.min(100, Math.round(100 * w.replayed / R)) + '%"></b></div>' : "") + "</div></div>";
   }
-  if (!c && w.last) { const l = w.last; return '<div class="row pending settled" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill(WHAT_WORD[l.what] || l.what, whatClass(l.what)) + itemField(l.item) + '</div><div class="flds" id="pendtext"><span class="f-phase"></span><span class="f-time">' + esc((l.took / 1000).toFixed(1) + " s") + "</span></div></div></div>"; }
+  if (!c && w.last) { const l = w.last; return '<div class="row pending settled" id="pendrow">' + spin + '<div class="sb">' + pendHead(l, l.took) + '<div class="flds" id="pendtext"></div></div></div>'; }
   if (!c) return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + itemField("working") + '</div><div class="flds" id="pendtext"></div></div></div>';
-  return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) + itemField(c.item) + '</div><div class="flds" id="pendtext">' + workFields(c) + "</div></div></div>";
+  return '<div class="row pending" id="pendrow">' + spin + '<div class="sb">' + pendHead(c, Date.now() - c.t) + '<div class="flds" id="pendtext">' + phaseField(c) + "</div></div></div>";
 }
+// The running step's first line, laid out as a finished step's: the item, what is being done, and its time at the right end.
+const pendHead = (c, ms) => '<div class="l1"><b title="' + escRaw(c.item) + '">' + esc(c.item) + "</b>" + pill(WHAT_WORD[c.what] || c.what, whatClass(c.what)) +
+  '<span class="dur" id="pendtime">' + esc((ms / 1000).toFixed(1) + " s") + "</span></div>";
+const phaseField = c => '<span class="f-phase">' + (c.stage || c.what === "copper" ? pill(phaseShort(c), "phase") : "") + "</span>";
 // The pending row's own text and the header's, refreshed without drawing the lists again.
 function updatePending() {
   const w = S.work, c = w && w.cur, el = $("#pendtext");
-  if (c && el && !c.replaying) el.innerHTML = workFields(c);
+  if (c && el && !c.replaying) {
+    el.innerHTML = phaseField(c);
+    const t = $("#pendtime"); if (t) t.textContent = ((Date.now() - c.t) / 1000).toFixed(1) + " s";
+  }
   renderStepNow();
   renderProgress();
 }

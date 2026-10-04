@@ -798,8 +798,10 @@ out.done = [els["#runstrip"].hidden, ev("S.work"), els["#rs-steps"].textContent]
     assert out["prog"][0] is False and "step 1 of ~30" in out["prog"][1] and 'title="psu">psu</b>' in out["prog"][1] and "scan front/back" in out["prog"][1] and "3.2 s" in out["prog"][1] and out["prog"][2] == "3%" and out["prog"][3] == "0:03"
     assert "7 of 18" not in out["prog"][1] and "f-rank" not in out["prog"][1]                  # the strip has the one counter too
     pr = out["pending"]
-    assert 'id="pendrow"' in pr and 'class="f-item" title="psu">psu</b>' in pr and '<span class="chip searched">searching</span>' in pr
-    assert "7 of 18" not in pr and "rank" not in pr and '<span class="chip phase">scan front/back</span>' in pr and '<span class="f-time">3.2 s</span>' in pr
+    assert 'id="pendrow"' in pr and '<b title="psu">psu</b>' in pr and '<span class="chip searched">searching</span>' in pr
+    assert "7 of 18" not in pr and "rank" not in pr and '<span class="chip phase">scan front/back</span>' in pr and '<span class="dur" id="pendtime">3.2 s</span>' in pr
+    first_line = pr[pr.index('id="pendrow"'):].split('id="pendtext"')[0]
+    assert 'id="pendtime"' in first_line                                                   # where a finished step's time stands
     assert "scanning the front or back" not in pr                                         # the phase is a short pill
     assert out["stepnow_shown"] == "none"                                                   # the step display is for settled steps; the running strip has this one
     assert out["mark"]["hint"] == [6, 8] and out["mark"]["rank"] == 7

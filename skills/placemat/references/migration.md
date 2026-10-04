@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **The studio's running step shows its time where a finished step's stands.** The live timer sat in the row's second line and jumped
+  to the right end of the first line when the step finished; the running row's first line is now laid out as a finished one (the item,
+  what is being done, its time at the right end).
+
 ## To 0.97.4
 
 ### Changed
