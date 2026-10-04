@@ -20,6 +20,7 @@ from collections import deque
 from pathlib import Path
 
 from . import model_cache
+from .childenv import child_env
 from .model_convert import failure_text
 from .model_mesh import CONVERTER_VERSION
 
@@ -137,7 +138,8 @@ class Models3D:
             log = open(self.log_path, "ab") if self.log_path else subprocess.DEVNULL
             if self.log_path:
                 self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            self.proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1)
+            self.proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1,
+                                         env=child_env(headless=False))
         except OSError:
             self.proc = None
             return False

@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 from .quiet import import_pcbnew, quiet_stderr
+from ..childenv import child_env
 
 pcbnew = import_pcbnew()
 
@@ -872,7 +873,7 @@ def render_board(pcb_path, log, both_faces: bool = False, timeout: int | None = 
     views = [("layout.png", "top", []), ("layout-iso.png", "top", ["--rotate", "-45,0,45", "--perspective"])]
     if both_faces:
         views.append(("layout-bottom.png", "bottom", []))
-    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+    env = child_env()
     done = []
     with open(log, "w") as f:
         for name, side, extra in views:
@@ -1106,7 +1107,7 @@ def show_item(pcb_path, name: str, out_dir, quality: str = "basic") -> list:
     scratch = out_dir / (".%s.show.kicad_pcb" % name)
     with quiet_stderr():
         _extract_item(str(pcb_path), name, str(scratch))
-    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+    env = child_env()
     done = []
     views = [("iso", "top", ["--rotate", "-45,0,45", "--perspective"]),
              ("iso-bottom", "bottom", ["--rotate", "45,0,45", "--perspective"]),

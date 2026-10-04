@@ -16,6 +16,21 @@ section for each hand-written pattern a newer form replaces.
   (`native`) is in `run.json`, the preview JSON, the channel's `hello` event (`placemat watch` shows it) and the studio's hello and header.
   `PLACEMAT_NATIVE=0` stays a silent, deliberate switch. A tool that read the stderr line reads `native`. Nothing to change in a script.
 
+### Changed
+
+- **Severity decides the DRC headline.** Every kind KiCad reports at severity `error` is in `real` (the `DRC ...` part of the summary,
+  `drc_real` in `run.json`, `real` in `placemat drc --json`), not only the kinds in `[drc] real_kinds`; a kind such as `zones_intersect` no
+  longer sits in `other`. `real_kinds` stays the kinds counted whatever their severity, and the footprint and outstanding kinds keep their own
+  lines. The report carries each kind's severity (`DrcReport.severities`; `severities` in `placemat drc --json`). A run's score counts these
+  as real violations, so a board with such errors scores worse than before and a run compared with an older record can read as a regression.
+- **A board outside its project tree says so.** `placemat drc` on a run's `layout.kicad_pcb` reports `lib_footprint_issues` for every
+  footprint when the folder has no `fp-lib-table`, or its `${KIPRJMOD}` entries do not resolve from there. The count and the violations are
+  kept; the report records it (`DrcReport.libraries`: `state` `missing`, `unresolved` or `resolved`, the `unresolved` names; `libraries` in
+  `--json`) and the summary says the library issues come from where the board sits, not from the board.
+- **Child processes do not inherit KIPRJMOD.** pcbnew sets `KIPRJMOD` to an empty string in the C environment of a process that creates
+  or saves a board, and a child started without an explicit environment inherits it. `kicad-cli` (DRC, the 3D export, the version query),
+  the router and the studio's and builder's workers and runs now start with `placemat.childenv.child_env()`, as `pcb layout` already did.
+
 ## To 0.97.1
 
 ### New

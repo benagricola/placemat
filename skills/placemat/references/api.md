@@ -2883,6 +2883,15 @@ items' descriptions and positions, and every open connection as
 `unconnected_items`, by net). An item on a part carries the part's instance
 path beside KiCad's refdes (`instance`; in the text, in brackets).
 
+The counts fall in buckets: `real` (the headline: the `[drc] real_kinds`, whatever
+their severity, and every other kind KiCad reports as an error), `outstanding`,
+`footprint issues` and `other`; `--json` gives each kind's `severities`. A board
+whose folder has no `fp-lib-table`, or one whose `${KIPRJMOD}` entries do not
+resolve from there (a run folder's `layout.kicad_pcb` copied out of its
+project tree), gets `lib_footprint_issues` for every footprint: the count is
+kept, `libraries` (`state`, `unresolved`) records why, and the summary says those
+issues come from where the board sits, not from the board.
+
 `measure` is the geometry query. Given a board it prints, per part, the
 instance, refdes, value, face, rotation and origin, the `body`, `courtyard` and
 `physical` boxes, its drawn envelope and the layer setting each side, how near
@@ -4236,7 +4245,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.zone_step` | `0.05` | mm | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
 | `check.limits` | `{}` | table | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | list | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
-| `drc.real_kinds` | `["clearance", "shorting_items", "track_width", "annular_width", "hole_clearance", "hole_to_hole", "courtyards_overlap", "copper_edge_clearance"]` | list | which violations mean the board is not done: the `real` buckets |
+| `drc.real_kinds` | `["clearance", "shorting_items", "track_width", "annular_width", "hole_clearance", "hole_to_hole", "courtyards_overlap", "copper_edge_clearance"]` | list | which violations mean the board is not done, whatever their severity: the `real` bucket (every other kind KiCad reports as an error counts there too, except footprint issues and outstanding) |
 | `drc.outstanding_kinds` | `["via_dangling", "track_dangling", "isolated_copper"]` | list | which violations are copper not yet joined: `outstanding` |
 | `drc.footprint_kinds` | `["lib_footprint_issues", "lib_footprint_mismatch", "malformed_courtyard", "padstack"]` | list | which violations are defects in the footprints themselves: `footprint issues` |
 | `drc.refill_zones` | `true` | bool | refill zones for the check |

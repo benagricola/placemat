@@ -247,7 +247,7 @@ class Settings:
     parts_order_fields: tuple = S(("Lcsc", "LCSC", "Mpn", "MPN"), "list",
         "a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty")
     drc_real_kinds: tuple = S(DEFAULT_REAL_KINDS, "list",
-        "which violations mean the board is not done: the `real` buckets")
+        "which violations mean the board is not done, whatever their severity: the `real` bucket (every other kind KiCad reports as an error counts there too, except footprint issues and outstanding)")
     drc_outstanding_kinds: tuple = S(DEFAULT_OUTSTANDING_KINDS, "list",
         "which violations are copper not yet joined: `outstanding`")
     drc_footprint_kinds: tuple = S(DEFAULT_FOOTPRINT_KINDS, "list",

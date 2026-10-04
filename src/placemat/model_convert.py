@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import model_cache, model_mesh as mm, model_place
+from .childenv import child_env
 
 THICKNESS = model_place.DEFAULT_THICKNESS
 SELFTEST_MODEL = Path(__file__).with_name("data") / "prism_L.step"
@@ -295,7 +296,7 @@ def export_glb(cli: str, pcb: Path, timeout_s: int) -> bytes:
     out = pcb.with_suffix(".glb")
     try:
         r = subprocess.run([cli, "pcb", "export", "glb", "--force", "--no-board-body", "--user-origin", "0x0mm", "-o", str(out), str(pcb)],
-                           capture_output=True, text=True, timeout=timeout_s)
+                           capture_output=True, text=True, timeout=timeout_s, env=child_env())
     except subprocess.TimeoutExpired:
         raise ConvertError("timeout", limit_s=timeout_s) from None
     except OSError as e:
@@ -307,7 +308,7 @@ def export_glb(cli: str, pcb: Path, timeout_s: int) -> bytes:
 
 def kicad_version(cli: str) -> str:
     try:
-        return subprocess.run([cli, "version"], capture_output=True, text=True, timeout=20).stdout.strip()
+        return subprocess.run([cli, "version"], capture_output=True, text=True, timeout=20, env=child_env()).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         return "unknown"
 

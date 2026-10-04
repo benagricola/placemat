@@ -10,12 +10,49 @@ from pathlib import Path
 import re
 import subprocess
 
+from ..childenv import child_env
 from ..settings import (DEFAULT_FOOTPRINT_KINDS, DEFAULT_OUTSTANDING_KINDS,
                         DEFAULT_REAL_KINDS, active)
 
 # Clearance-class violations: a board with any of these is not done. The
 # defaults; a project says otherwise with `[drc] real_kinds`.
 REAL_KINDS = DEFAULT_REAL_KINDS
+
+
+@dataclass(frozen=True)
+class LibraryTable:
+    """Whether the board's own folder gives KiCad its footprint libraries: `state` is "missing" (no fp-lib-table
+    beside the board), "unresolved" (its entries `unresolved`, by name, do not exist as the project's folder
+    reaches them) or "resolved"."""
+    path: Path | None
+    state: str
+    unresolved: tuple = ()
+
+    def record(self) -> dict:
+        return {"path": str(self.path) if self.path else None, "state": self.state, "unresolved": list(self.unresolved)}
+
+    @property
+    def from_where_the_board_sits(self) -> bool:
+        return self.state != "resolved"
+
+
+_LIB_RE = re.compile(r'\(lib\s+\(name\s+"([^"]*)"\).*?\(uri\s+"([^"]*)"\)', re.S)
+
+
+def library_table(pcb) -> LibraryTable:
+    """The fp-lib-table beside `pcb`, and which of its libraries reach a folder from there. An entry through
+    `${KIPRJMOD}` is resolved against the board's folder; one through another variable or an absolute path is
+    taken as found, since KiCad's own settings supply those."""
+    folder = Path(pcb).parent
+    table = folder / "fp-lib-table"
+    if not table.is_file():
+        return LibraryTable(None, "missing")
+    unresolved = []
+    for name, uri in _LIB_RE.findall(table.read_text(errors="replace")):
+        m = re.match(r"\$[({]KIPRJMOD[)}]/?(.*)$", uri)
+        if m and not Path(os.path.normpath(folder / m.group(1))).exists():
+            unresolved.append(name)
+    return LibraryTable(table, "unresolved" if unresolved else "resolved", tuple(unresolved))
 
 
 @dataclass
@@ -31,14 +68,24 @@ class DrcReport:
     outstanding_kinds: tuple = DEFAULT_OUTSTANDING_KINDS
     footprint_kinds: tuple = DEFAULT_FOOTPRINT_KINDS
     permitted: dict = field(default_factory=dict)      # what a keepout's allow list lets stand, by kind
+    severities: dict = field(default_factory=dict)     # each kind's severity as KiCad reports it (the highest of its violations)
+    libraries: LibraryTable | None = None              # where the board's footprint libraries come from; None when not looked at
 
     @property
     def violations(self) -> int:
         return sum(self.by_type.values())
 
+    def is_real(self, kind: str) -> bool:
+        """A kind counts in the headline when it is in `real_kinds` whatever its severity, or KiCad reports it as an
+        error and it has no line of its own (footprint issues, outstanding)."""
+        if kind in self.real_kinds:
+            return True
+        return (self.severities.get(kind) == "error"
+                and kind not in self.footprint_kinds and kind not in self.outstanding_kinds)
+
     @property
     def real(self) -> dict:
-        return {k: v for k, v in self.by_type.items() if k in self.real_kinds}
+        return {k: v for k, v in self.by_type.items() if self.is_real(k)}
 
     @property
     def outstanding(self) -> dict:
@@ -51,7 +98,7 @@ class DrcReport:
     @property
     def other(self) -> dict:
         return {k: v for k, v in self.by_type.items()
-                if k not in self.real_kinds and k not in self.outstanding_kinds
+                if not self.is_real(k) and k not in self.outstanding_kinds
                 and k not in self.footprint_kinds}
 
     def summary(self) -> str:
@@ -63,11 +110,31 @@ class DrcReport:
         if self.footprint_issues:
             n = sum(self.footprint_issues.values())
             parts.append("footprint issues %d (extents for those parts are unreliable)" % n)
+            lib = self.by_type.get("lib_footprint_issues")
+            if lib and self.libraries is not None and self.libraries.from_where_the_board_sits:
+                parts.append("the %d lib_footprint_issues come from where the board sits (%s), not from the board" % (
+                    lib, "no fp-lib-table beside it" if self.libraries.state == "missing"
+                    else "its fp-lib-table does not resolve from there"))
         if self.other:
             parts.append("other " + ", ".join("%d %s" % (v, k) for k, v in sorted(self.other.items())))
         if self.permitted:
             parts.append("permitted by their keepout %d" % sum(self.permitted.values()))
         return " | ".join(parts)
+
+
+_RANK = {"error": 3, "warning": 2, "exclusion": 1, "ignore": 0}
+
+
+def violation_severities(data: dict, allow: dict) -> dict:
+    """{kind: severity} of the violations that count: the highest severity KiCad gave any of that kind."""
+    out = {}
+    for v in data.get("violations", []):
+        if _permitted(v, allow):
+            continue
+        kind, sev = v.get("type", ""), v.get("severity", "")
+        if kind not in out or _RANK.get(sev, -1) > _RANK.get(out[kind], -1):
+            out[kind] = sev
+    return out
 
 
 def patch_rule_severities(pcb_path, severities: dict) -> None:
@@ -189,7 +256,7 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
     cmd = ["kicad-cli", "pcb", "drc", "--format", "json", "--output", str(out_json), str(pcb)]
     if refill_zones:
         cmd.insert(3, "--refill-zones")
-    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+    env = child_env()
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(pcb.parent), timeout=timeout, env=env)
     report = DrcReport(out_json, command=cmd, returncode=proc.returncode,
                        stderr_tail="\n".join(proc.stderr.strip().splitlines()[-5:]),
@@ -199,6 +266,8 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
         raise RuntimeError("kicad-cli drc wrote no report (rc %d): %s" % (proc.returncode, report.stderr_tail))
     data = json.loads(out_json.read_text())
     report.by_type, report.permitted = count_violations(data, allow or {})
+    report.severities = violation_severities(data, allow or {})
+    report.libraries = library_table(pcb)
     unconnected = data.get("unconnected_items", [])
     report.unconnected = len(unconnected)
     for x in unconnected:

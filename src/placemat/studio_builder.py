@@ -18,6 +18,7 @@ import threading
 
 from . import builder, builder_facts as bf, builder_intents as bi, builder_parts as bp, builder_worker, channel, script_edit, suggestions as sg, zen_edit
 from .suggestions import Edit
+from .childenv import child_env
 
 
 
@@ -36,7 +37,7 @@ def refuse(e: builder.BuilderRefused) -> BuildRefused:
 def subprocess_reader(request: dict, say):
     """Run `builder_worker` on `request`; `say(progress)` gets its progress records. Returns the worker's last event (`board` or `error`)."""
     proc = subprocess.Popen([sys.executable, "-m", "placemat.builder_worker"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, text=True, cwd=str(Path(request["zen"]).resolve().parent))
+                            stderr=subprocess.DEVNULL, text=True, cwd=str(Path(request["zen"]).resolve().parent), env=child_env(headless=False))
     say.proc = proc
     last = {"ev": "error", "kind": "no_answer", "tail": ""}
     try:
