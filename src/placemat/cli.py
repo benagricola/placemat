@@ -1105,15 +1105,15 @@ def cmd_preview(args) -> int:
     if args.json:
         console.data(json.dumps({
             "svg": str(result.svg), "png": str(result.png) if result.png else None,
-            "png_problem": result.png_problem or None, "placed": placed,
+            "png_problem": result.png_problem or None, "png_failure": result.png_failure, "placed": placed,
             "findings": plan.findings,
             "finding_details": [f.detail() for f in plan.findings],
-            "reused": result.reused or None,
+            "reused": result.reused or None, "reuse": result.reuse,
             "congestion": None if plan.rudy is None else {"worst": plan.rudy.worst,
                                                           "at": [plan.rudy.worst_at.x, plan.rudy.worst_at.y]},
             "seen_px_per_mm": round(result.seen_px_per_mm, 1) if result.model_edge else None,
             "notes": [{"tag": n.tag, "kind": n.kind, "in_view": n.at is not None,
-                       "at": None if n.at is None else [round(n.at.x, 3), round(n.at.y, 3)], "text": n.text}
+                       "at": None if n.at is None else [round(n.at.x, 3), round(n.at.y, 3)], "text": n.text, "data": n.data}
                       for n in result.notes]}, indent=2))
         return 0
     from .findings import summary
@@ -1260,8 +1260,10 @@ def _search(args, board_dir, script, entry) -> int:
 
 def _report_applied(args, done, verb) -> int:
     if args.json:
-        console.data(json.dumps({"id": done.id, "text": done.text, "dry_run": done.dry_run, "files": [
-            {"file": f, "diff": c.diff, "old_lines": c.old_lines, "new_lines": c.new_lines}
+        console.data(json.dumps({"id": done.id, "text": done.text, "action": verb, "dry_run": done.dry_run,
+                                 "edits": [e.to_json() for e in done.edits], "files": [
+            {"file": f, "created": c.before is None, "removed": c.after is None, "diff": c.diff, "old_lines": c.old_lines,
+             "new_lines": c.new_lines}
             for f, c in done.files.items()]}, indent=2))
         return 0
     console.say("apply", "%s: %s%s" % (done.id, done.text, " (%s)" % verb if args.dry_run or verb == "undone" else ""))

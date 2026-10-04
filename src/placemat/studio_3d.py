@@ -6,7 +6,8 @@ names a file: a job names a model file or a board file, which is checked to exis
 mesh is served by its id, validated as 32 hex characters (or `e-` and up to 32).
 
 Events to the page: `model` {id, state, tris, message} as each conversion finishes or fails, `models` {done, total, current} while a batch
-runs, and `models3d` {cli, ok, message, version} when the converter is ready (its self-test) or has stopped."""
+runs, and `models3d` {cli, ok, message, version} when the converter is ready (its self-test) or has stopped. The converter's own events
+carry failures as records (model_convert.failure_text); the page's `message` is made here, where they arrive."""
 from __future__ import annotations
 
 import json
@@ -19,6 +20,7 @@ from collections import deque
 from pathlib import Path
 
 from . import model_cache
+from .model_convert import failure_text
 from .model_mesh import CONVERTER_VERSION
 
 ID_RE = re.compile(r"^(?:[0-9a-f]{32}|e-[0-9a-f]{1,32})$")
@@ -85,7 +87,7 @@ class Models3D:
             r = self.ready or {}
             test = r.get("selftest") or {}
             return {"started": self.proc is not None, "ready": self.ready is not None, "cli": bool(r.get("cli")), "ok": bool(test.get("ok")),
-                    "message": test.get("message", ""), "version": test.get("version", ""), "progress": dict(self.progress),
+                    "message": failure_text(test["failure"]) if test.get("failure") else "", "version": test.get("version", ""), "progress": dict(self.progress),
                     "converter": CONVERTER_VERSION, "max_tris": int(self.cfg.studio_3d_max_tris), "appear_ms": int(self.cfg.studio_3d_appear_ms),
                     "plate_mm": float(self.cfg.studio_3d_plate_mm)}
 
@@ -171,7 +173,7 @@ class Models3D:
                     self.ready = ev
                 self.emit("models3d", self.status())
             elif kind == "model":
-                self._set(ev["id"], ev["state"], ev.get("tris"), ev.get("message", ""))
+                self._set(ev["id"], ev["state"], ev.get("tris"), failure_text(ev["failure"]) if ev.get("failure") else "")
             elif kind == "progress":
                 with self.lock:
                     self.progress = {"done": ev["done"], "total": ev["total"], "current": ev.get("current", "")}

@@ -21,9 +21,11 @@ from . import reuse as reuse_mod
 class Preview:
     svg: Path
     png: Path | None
-    png_problem: str = ""
+    png_problem: str = ""           # why there is no PNG, in words
+    png_failure: dict | None = None  # the same as data: {"code": not_installed | timeout | failed | no_png, "tool", ["returncode"], ["detail"]}
     plan: object = None
     reused: str = ""
+    reuse: dict | None = None       # what was reused as data (reuse.summary_record)
     lines: list = field(default_factory=list)
     seen_px_per_mm: float = 0.0
     model_edge: int = 0
@@ -36,21 +38,40 @@ def converter_command(template: str, svg, png, width: int) -> list:
     return [piece.format(svg=str(svg), png=str(png), width=int(width)) for piece in shlex.split(template)]
 
 
-def convert(template: str, svg, png, width: int) -> str:
-    """Run the converter. "" when it wrote the PNG, else why not."""
+def convert_failure(template: str, svg, png, width: int) -> dict | None:
+    """Run the converter. None when it wrote the PNG, else why not as data: {"code": "not_installed" | "timeout" | "failed" |
+    "no_png", "tool": the program, "returncode" and "detail" (its own last line) for a failure}."""
     argv = converter_command(template, svg, png, width)
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=300)
     except FileNotFoundError:
-        return "%s is not installed; the SVG is the preview" % argv[0]
+        return {"code": "not_installed", "tool": argv[0]}
     except subprocess.TimeoutExpired:
-        return "%s took over 300 s; the SVG is the preview" % argv[0]
+        return {"code": "timeout", "tool": argv[0], "limit_s": 300}
     if done.returncode != 0:
         last = (done.stderr.strip().splitlines() or ["exit %d" % done.returncode])[-1]
-        return "%s failed: %s" % (argv[0], last)
+        return {"code": "failed", "tool": argv[0], "returncode": done.returncode, "detail": last}
     if not Path(png).exists():
-        return "%s wrote no PNG" % argv[0]
-    return ""
+        return {"code": "no_png", "tool": argv[0]}
+    return None
+
+
+def convert_text(f: dict | None) -> str:
+    """A `convert_failure` in words, "" for none."""
+    if f is None:
+        return ""
+    if f["code"] == "not_installed":
+        return "%s is not installed; the SVG is the preview" % f["tool"]
+    if f["code"] == "timeout":
+        return "%s took over %d s; the SVG is the preview" % (f["tool"], f["limit_s"])
+    if f["code"] == "failed":
+        return "%s failed: %s" % (f["tool"], f["detail"])
+    return "%s wrote no PNG" % f["tool"]
+
+
+def convert(template: str, svg, png, width: int) -> str:
+    """Run the converter. "" when it wrote the PNG, else why not."""
+    return convert_text(convert_failure(template, svg, png, width))
 
 
 def resolve_like_last_run(script, lock_entries=None) -> tuple:
@@ -290,7 +311,8 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
                                      title="%s - preview%s" % (src.name, "" if region is None else " (zoomed)"))
         svg = out / "preview.svg"
         svg.write_text(text)
-        result = Preview(svg, None, plan=plan, reused=reuse_mod.summary(plan.reuse, previous, source), notes=notes)
+        result = Preview(svg, None, plan=plan, reused=reuse_mod.summary(plan.reuse, previous, source),
+                         reuse=reuse_mod.summary_record(plan.reuse, previous, source), notes=notes)
         if not svg_only:
             png = out / "preview.png"
             if png.exists():
@@ -300,6 +322,7 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
                 result.seen_px_per_mm = seen_px_per_mm(*svg_size_mm(text), cfg.preview_px_per_mm,
                                                        cfg.preview_model_edge_px)
                 result.model_edge = cfg.preview_model_edge_px
-            result.png_problem = convert(cfg.preview_converter, svg, png, width)
-            result.png = None if result.png_problem else png
+            result.png_failure = convert_failure(cfg.preview_converter, svg, png, width)
+            result.png_problem = convert_text(result.png_failure)
+            result.png = None if result.png_failure else png
     return result

@@ -448,6 +448,7 @@ class Applied:
     text: str
     files: dict
     dry_run: bool = False
+    edits: tuple = ()               # the edits an apply made (an undo or a redo has none: its files are the change)
 
     def diff(self) -> str:
         return "".join(c.diff for c in self.files.values())
@@ -537,7 +538,7 @@ def apply_edits(edits, digests=None, dry_run: bool = False, *, root=None, log=No
     except OSError as e:
         raise EditRefused("cannot read %s" % (e.filename or e)) from None
     files = {p: FileChange(p, before, after) for p, (before, after) in changed.items()}
-    result = Applied(id, label, files, dry_run)
+    result = Applied(id, label, files, dry_run, tuple(edits))
     if dry_run:
         return result
     outside = [p for p in files if not _inside(root, p)]
