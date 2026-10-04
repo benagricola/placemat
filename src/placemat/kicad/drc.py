@@ -70,14 +70,28 @@ class DrcReport:
     permitted: dict = field(default_factory=dict)      # what a keepout's allow list lets stand, by kind
     severities: dict = field(default_factory=dict)     # each kind's severity as KiCad reports it (the highest of its violations)
     libraries: LibraryTable | None = None              # where the board's footprint libraries come from; None when not looked at
+    frame_only: bool = False                           # a module fragment's board: its frame is for placement, never drawn on Edge.Cuts
+
+    # What KiCad reports about a board with no outline drawn: expected on a frame-only board, not a fault of the layout.
+    _NO_OUTLINE_KINDS = ("invalid_outline",)
 
     @property
     def violations(self) -> int:
         return sum(self.by_type.values())
 
+    def is_expected(self, kind: str) -> bool:
+        """A kind that follows from what the board is rather than from its layout: no outline on a frame-only board."""
+        return self.frame_only and kind in self._NO_OUTLINE_KINDS
+
+    @property
+    def expected(self) -> dict:
+        return {k: v for k, v in self.by_type.items() if self.is_expected(k)}
+
     def is_real(self, kind: str) -> bool:
         """A kind counts in the headline when it is in `real_kinds` whatever its severity, or KiCad reports it as an
-        error and it has no line of its own (footprint issues, outstanding)."""
+        error and it has no line of its own (footprint issues, outstanding); never one that is expected."""
+        if self.is_expected(kind):
+            return False
         if kind in self.real_kinds:
             return True
         return (self.severities.get(kind) == "error"
@@ -98,7 +112,7 @@ class DrcReport:
     @property
     def other(self) -> dict:
         return {k: v for k, v in self.by_type.items()
-                if not self.is_real(k) and k not in self.outstanding_kinds
+                if not self.is_real(k) and not self.is_expected(k) and k not in self.outstanding_kinds
                 and k not in self.footprint_kinds}
 
     def summary(self) -> str:
@@ -115,6 +129,9 @@ class DrcReport:
                 parts.append("the %d lib_footprint_issues come from where the board sits (%s), not from the board" % (
                     lib, "no fp-lib-table beside it" if self.libraries.state == "missing"
                     else "its fp-lib-table does not resolve from there"))
+        if self.expected:
+            parts.append("%d %s expected: no outline is drawn on a module's frame" % (
+                sum(self.expected.values()), ", ".join(sorted(self.expected))))
         if self.other:
             parts.append("other " + ", ".join("%d %s" % (v, k) for k, v in sorted(self.other.items())))
         if self.permitted:
@@ -234,7 +251,7 @@ def unconnected_items(data: dict, insts: dict | None = None) -> list:
 
 
 def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None = None,
-            real_kinds=None, outstanding_kinds=None, allow=None) -> DrcReport:
+            real_kinds=None, outstanding_kinds=None, allow=None, frame_only: bool = False) -> DrcReport:
     """Run kicad-cli DRC (zones refilled for the check only; the board file is
     not touched) and parse the JSON into buckets."""
     pcb, out_json = Path(pcb).absolute(), Path(out_json).absolute()   # kicad-cli runs in the board's folder
@@ -261,7 +278,7 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
     report = DrcReport(out_json, command=cmd, returncode=proc.returncode,
                        stderr_tail="\n".join(proc.stderr.strip().splitlines()[-5:]),
                        real_kinds=tuple(real_kinds), outstanding_kinds=tuple(outstanding_kinds),
-                       footprint_kinds=tuple(footprint_kinds))
+                       footprint_kinds=tuple(footprint_kinds), frame_only=frame_only)
     if not out_json.exists():
         raise RuntimeError("kicad-cli drc wrote no report (rc %d): %s" % (proc.returncode, report.stderr_tail))
     data = json.loads(out_json.read_text())

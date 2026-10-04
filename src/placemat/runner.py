@@ -317,7 +317,7 @@ def drc_metrics(report, aw: dict, free: float) -> dict:
     the congestion of the free board."""
     per_net = dict(sorted(aw.get("per_net", {}).items(), key=lambda kv: (-kv[1], kv[0])))
     return {"drc_real": report.real, "outstanding": report.outstanding, "other": report.other,
-            "permitted": report.permitted,
+            "permitted": report.permitted, "expected": report.expected,
             "unconnected": report.unconnected, "airwire_mm": aw["total_mm"], "airwire_per_net": per_net,
             "crossings": aw["crossings"], "crossings_per_net": aw["crossings_per_net"],
             "free_area_mm2": round(free, 1), "congestion": congestion(aw["crossings"], free),
@@ -617,7 +617,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             stage = "drc"
             # KiCad's rule area has no allow list: what a keepout lets in is set aside.
             allow = {"keepout %s" % k.name: (set(k.owners), set(k.allow)) for k in plan.keepouts.values()}
-            report = run_drc(src.pcb, run_dir / "drc.json", allow=allow)
+            report = run_drc(src.pcb, run_dir / "drc.json", allow=allow, frame_only=not plan.draw_outline)
             quiet = set(board._plane_nets()) | set(board._free_nets)
             from .pairs import board_pairs
             aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()), quiet,

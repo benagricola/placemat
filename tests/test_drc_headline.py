@@ -134,3 +134,15 @@ def test_every_kicad_child_is_started_with_the_shared_environment():
                 if v is None or (isinstance(v, ast.Constant) and v.value is None):
                     bare.append("%s:%d" % (p.relative_to(root), n.lineno))
     assert not bare, "started with the inherited environment: %s" % bare
+
+
+def test_a_frame_only_board_expects_no_outline_and_does_not_count_it():
+    """A module fragment's fit frame is for placement only and never drawn on Edge.Cuts: KiCad's invalid_outline is expected
+    there, not a fault of the layout, so it is neither in the headline nor in "other"."""
+    r = DrcReport(path=None, by_type={"invalid_outline": 1, "clearance": 1},
+                  severities={"invalid_outline": "error", "clearance": "error"}, frame_only=True)
+    assert r.real == {"clearance": 1} and r.other == {}
+    assert r.expected == {"invalid_outline": 1}
+    assert "no outline is drawn" in r.summary()
+    drawn = DrcReport(path=None, by_type={"invalid_outline": 1}, severities={"invalid_outline": "error"})
+    assert drawn.real == {"invalid_outline": 1} and drawn.expected == {}

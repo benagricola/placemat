@@ -9,6 +9,10 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **A module fragment's DRC no longer counts its missing outline.** Since 0.97.2 every KiCad error counts in the DRC headline, and a
+  fragment's fit frame (`board.rect(fit=True)`) is never drawn on Edge.Cuts, so KiCad's `invalid_outline` counted against every
+  fragment run (200 on its score, "worse than best" with nothing moved). On a frame-only board it is now expected: kept in the
+  report (`expected`, and a summary note), not in the headline or the score.
 - **The studio's running step shows its time where a finished step's stands.** The live timer sat in the row's second line and jumped
   to the right end of the first line when the step finished; the running row's first line is now laid out as a finished one (the item,
   what is being done, its time at the right end).

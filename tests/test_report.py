@@ -196,7 +196,7 @@ def test_the_drc_metrics_record_airwire_per_net_longest_first():
     from placemat.runner import drc_metrics
 
     class Report:
-        real, outstanding, other, permitted, unconnected, open_nets = {}, {}, {}, {}, 2, {}
+        real, outstanding, other, permitted, expected, unconnected, open_nets = {}, {}, {}, {}, {}, 2, {}
     aw = {"total_mm": 13.0, "crossings": 1, "crossings_per_net": {"A": 1}, "per_net": {"A": 3.0, "B": 10.0}}
     m = drc_metrics(Report(), aw, free=100.0)
     assert list(m["airwire_per_net"]) == ["B", "A"] and m["airwire_mm"] == 13.0
