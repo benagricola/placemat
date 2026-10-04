@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from urllib.parse import quote, unquote
 
 from .copper import Pour, Text, Track, Via, Zone
@@ -17,6 +18,7 @@ from .values import CopperLayer, Face, Location
 ARRANGEMENT_PREFIX = "placemat arrangement "
 VERSION = 1
 _SAFE = ",:[]._-"
+_NUMBERED = re.compile(r"([0-9]+)/([0-9]+) (\S+) (.*)", re.ASCII | re.DOTALL)
 
 
 class NoteError(Exception):
@@ -103,7 +105,7 @@ def keepout_from_json(d: dict):
 
 def base_digest(places) -> str:
     """The default places of the members, as a digest the notes of one cell share."""
-    rows = [(inst, _r(p.location.x, 3), _r(p.location.y, 3), _r(p.rotation, 3) % 360.0, p.face.value)
+    rows = [(inst, _r(p.location.x, 3) + 0.0, _r(p.location.y, 3) + 0.0, _r(p.rotation, 3) % 360.0 + 0.0, p.face.value)
             for inst, p in sorted(places, key=lambda t: t[0])]
     return hashlib.sha256(json.dumps(rows).encode()).hexdigest()[:16]
 
@@ -119,12 +121,21 @@ def document(ident: str, choices: dict, members, ops, keepouts, order: int = 0) 
 
 def encode(doc: dict, chars: int) -> list:
     """The texts that carry `doc`: one, or numbered ones (`placemat arrangement 2/3 <key> <chunk>`) of `chars` characters of
-    escaped json each."""
+    escaped json each, each text `chars` characters at most with its header."""
     body = quote(json.dumps(doc, separators=(",", ":"), sort_keys=True), safe=_SAFE)
     if len(body) <= chars:
         return [ARRANGEMENT_PREFIX + body]
     key = hashlib.sha256(body.encode()).hexdigest()[:8]
-    chunks = [body[k:k + chars] for k in range(0, len(body), chars)]
+    for digits in range(1, 12):                       # the header's width depends on the number of chunks
+        size = chars - len(ARRANGEMENT_PREFIX) - 2 * digits - 11      # "n/m " + 8-char key + " "
+        if size < 1:
+            raise NoteError("%d characters leave no room for a numbered note" % chars)
+        count = -(-len(body) // size)
+        if len(str(count)) <= digits:
+            break
+    else:
+        raise NoteError("%d characters are too few for this note" % chars)
+    chunks = [body[k:k + size] for k in range(0, len(body), size)]
     return ["%s%d/%d %s %s" % (ARRANGEMENT_PREFIX, n, len(chunks), key, c) for n, c in enumerate(chunks, 1)]
 
 
@@ -143,10 +154,9 @@ def read_notes(texts) -> tuple:
         if not t.startswith(ARRANGEMENT_PREFIX):
             continue
         rest = t[len(ARRANGEMENT_PREFIX):]
-        head = rest.split(" ", 2)
-        if len(head) == 3 and "/" in head[0] and head[0].replace("/", "").isdigit():
-            n, of = (int(x) for x in head[0].split("/"))
-            parts.setdefault((head[1], of), {})[n] = head[2]
+        m = _NUMBERED.fullmatch(rest)
+        if m:
+            parts.setdefault((m[3], int(m[2])), {})[int(m[1])] = m[4]
         else:
             parts.setdefault(None, []).append(rest)
     whole = [(None, body) for body in parts.pop(None, [])]

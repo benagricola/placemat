@@ -62,7 +62,7 @@ def test_a_net_name_with_markup_characters_survives():
 
 def test_a_long_note_splits_into_numbered_texts_and_joins_again():
     texts = N.encode(doc(), 120)
-    assert len(texts) > 2 and all(len(t) <= 120 + 60 for t in texts)
+    assert len(texts) > 2 and all(len(t) <= 120 for t in texts)
     docs, problems = N.read_notes(list(reversed(texts)))            # the order KiCad lists a group's items in is not the order written
     assert problems == [] and docs == [doc()]
 
@@ -86,3 +86,33 @@ def test_a_truncated_or_newer_note_is_a_problem_not_a_crash():
 
 def test_notes_of_a_cell_with_none_read_as_nothing():
     assert N.read_notes([]) == ([], [])
+
+
+def test_the_order_a_module_run_laid_an_arrangement_in_survives_the_note():
+    d = N.document("c_in.east", {"c_in": "east"}, [], [], [], order=3)
+    assert d["order"] == 3 and N.document("c_in.east", {"c_in": "east"}, [], [], [])["order"] == 0
+    docs, problems = N.read_notes(N.encode(d, 40))
+    assert problems == [] and docs[0]["order"] == 3
+
+
+@pytest.mark.parametrize("chars", [70, 120, 333])
+def test_every_text_is_within_chars_header_included(chars):
+    texts = N.encode(doc(), chars)
+    assert all(len(t) <= chars for t in texts)
+    assert N.read_notes(texts) == ([doc()], [])
+
+
+@pytest.mark.parametrize("head", ["1/2/3 k x", "\u00b2/3 k x", "1/x k x", "1/2 k"])
+def test_a_malformed_numbered_header_is_a_text_problem(head):
+    docs, problems = N.read_notes([N.ARRANGEMENT_PREFIX + head])
+    assert docs == [] and problems and problems[0]["reason"] == "text"
+
+
+def test_a_zero_that_rounds_from_below_digests_as_zero():
+    at = lambda x: [("a", Placement(Location(x, 0.0), 0.0, Face.FRONT))]
+    assert N.base_digest(at(-0.0004)) == N.base_digest(at(0.0001))
+
+
+def test_a_limit_with_no_room_for_a_chunk_is_an_error():
+    with pytest.raises(N.NoteError):
+        N.encode(doc(), 30)
