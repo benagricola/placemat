@@ -27,7 +27,7 @@ def _order(plan, *keys):
 
 def _declare(b):
     """A slide the length of the board, and an item held to a 2 mm radius round a point."""
-    b.place(Part("big"), at=Centre(20, None, toward=Edge.SOUTH))
+    b.place(Part("big"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True))
     b.place(Part("sml"), at=Near(Location(20, 25), radius=2.0))
 
 
@@ -45,7 +45,7 @@ def test_with_room_the_item_with_fewer_legal_spots_goes_first():
 
 def test_room_leaves_the_tiers_alone():
     b = _board(place_order="room")
-    b.place(Part("big"), at=Centre(20, None, toward=Edge.SOUTH), priority=Priority.HIGH)
+    b.place(Part("big"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True), priority=Priority.HIGH)
     b.place(Part("sml"), at=Near(Location(20, 25), radius=2.0))
     assert _order(b.resolve(), "big", "sml") == ["big", "sml"]
 
@@ -61,7 +61,7 @@ def test_a_keepout_that_bars_an_item_narrows_its_room():
     """A hint 8 mm wide is more room than the slide, until a keepout over most of it takes the room."""
     plain, fenced = _board(place_order="room"), _board(place_order="room")
     for b in (plain, fenced):
-        b.place(Part("big"), at=Centre(20, None, toward=Edge.SOUTH))
+        b.place(Part("big"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True))
         b.place(Part("sml"), at=Near(Location(20, 25), radius=8.0))
     fenced.keepout(Circle(15.0), "fence", at=Location(20, 25), excludes=("parts",), why="test")
     assert _order(plain.resolve(), "big", "sml") == ["big", "sml"]
@@ -87,7 +87,7 @@ def test_the_default_records_no_room():
 
 def test_a_slide_counts_its_length_less_its_own_size():
     b = _board(place_order="room")
-    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH))
+    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True))
     i = next(i for i in b._placements() if i.key == "sml")
     found = room.measure(b, b.resolve().occupancy, i, 1.0)
     body = b.resolve().occupancy._geometry(i.item).body       # 50 mm tall, 0.5 mm in from each edge, less the part's mean size
