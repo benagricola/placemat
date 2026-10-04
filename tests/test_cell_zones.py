@@ -26,7 +26,7 @@ def _copy(breakout_pcb, tmp_path):
     return dst
 
 
-def _add_cell_zone(pcb, name, net, layer, group_name, solid_pads=True, connection=None):
+def _add_cell_zone(pcb, name, net, layer, group_name, solid_pads=True, connection=None, at=None, priority=None):
     """A copper zone inside a cell's group, the way `pcb layout` stamps a
     module fragment's own plane: a 2 mm square at the cell's centre.
     `connection`, a pcbnew ZONE_CONNECTION_* name, overrides `solid_pads`."""
@@ -34,9 +34,11 @@ def _add_cell_zone(pcb, name, net, layer, group_name, solid_pads=True, connectio
     board = pcbnew.LoadBoard(str(pcb))
     (g,) = [g for g in board.Groups() if g.GetName() == group_name]
     c = g.GetBoundingBox().Centre()
-    cx, cy = pcbnew.ToMM(c.x), pcbnew.ToMM(c.y)
+    cx, cy = at if at else (pcbnew.ToMM(c.x), pcbnew.ToMM(c.y))
     z = pcbnew.ZONE(board)
     z.SetIsRuleArea(False)
+    if priority is not None:
+        z.SetAssignedPriority(priority)
     z.SetLayer(board.GetLayerID(layer))
     z.SetNetCode(board.GetNetcodeFromNetname(net))
     z.SetPadConnection(getattr(pcbnew, connection) if connection
@@ -174,3 +176,55 @@ def test_a_cell_zone_reaching_nearer_the_edge_than_the_plane_is_merged(breakout_
     plan = _write(pcb)
     assert keep > 0.2 and "cell gnd at the edge" not in _zone_names(pcb)
     assert [(m.cell, m.net) for m in plan.merged_zones] == [("power_drop0", "GND")]
+
+
+def _zone_priorities(pcb, *names):
+    import pcbnew
+    zs = {z.GetZoneName(): z for z in pcbnew.LoadBoard(str(pcb)).Zones()}
+    return [zs[n].GetAssignedPriority() for n in names]
+
+
+def _zones_intersect(pcb, tmp_path):
+    import json
+    import subprocess
+    report = tmp_path / "drc.json"
+    subprocess.run(["kicad-cli", "pcb", "drc", "--format", "json", "--output", str(report), str(pcb)],
+                   capture_output=True, timeout=180)
+    # the breakout's own plane is written as pieces at priority 0 that KiCad reports against each other: not the cells' zones
+    return [v for v in json.loads(report.read_text()).get("violations", []) if v.get("type") == "zones_intersect"
+            and any("priority 0" not in i["description"] for i in v["items"])]
+
+
+def _two_overlapping(breakout_pcb, tmp_path, layer="F.Cu"):
+    import pcbnew
+    pcb = _copy(breakout_pcb, tmp_path)
+    b = pcbnew.LoadBoard(str(pcb))
+    c = next(g for g in b.Groups() if g.GetName() == "power_drop0").GetBoundingBox().Centre()
+    at = (pcbnew.ToMM(c.x), pcbnew.ToMM(c.y))
+    _add_cell_zone(pcb, "cell gnd a", "GND", layer, "power_drop0", at=at, priority=1)
+    _add_cell_zone(pcb, "cell gnd b", "GND", layer, "power_drop1", at=(at[0] + 1, at[1]), priority=1)
+    return pcb
+
+
+def test_two_cells_zones_of_one_net_overlapping_at_one_priority_are_given_distinct_ones(breakout_pcb, tmp_path):
+    pcb = _two_overlapping(breakout_pcb, tmp_path)
+    assert len(_zones_intersect(pcb, tmp_path)) == 1          # the stamped cells as they arrive
+    plan = _write(pcb)
+    a, b = _zone_priorities(pcb, "cell gnd a", "cell gnd b")
+    assert a != b and min(a, b) >= 1
+    assert _zones_intersect(pcb, tmp_path) == []
+    assert plan.merged_zones == []
+
+
+def test_two_cells_zones_on_a_layer_the_plane_covers_are_merged_and_none_intersect(breakout_pcb, tmp_path):
+    pcb = _two_overlapping(breakout_pcb, tmp_path, layer="B.Cu")
+    _write(pcb)
+    assert _zones_intersect(pcb, tmp_path) == []
+
+
+def test_cells_zones_that_do_not_overlap_keep_their_priority(breakout_pcb, tmp_path):
+    pcb = _copy(breakout_pcb, tmp_path)
+    for cell in ("power_drop0", "power_drop1"):
+        _add_cell_zone(pcb, "cell gnd " + cell, "GND", "F.Cu", cell, priority=1)
+    _write(pcb)
+    assert _zone_priorities(pcb, "cell gnd power_drop0", "cell gnd power_drop1") == [1, 1]
