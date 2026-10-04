@@ -7,6 +7,15 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### Fixed
+
+- **Each stamp of a module allows its nets in its own keepout only.** pcb names every stamp's copy of a module's keepout
+  alike (`<name>_1`), so the `.kicad_dru` rule written for one cell's `allow=` area (`intersectsArea('<name>_1')`) also
+  covered every other stamp's copy: a net one cell allowed was forbidden in its own area by the other cell's rule, and
+  KiCad flagged it there. A board that stamps the module now renames each copy that lets nets through for its cell
+  (`<name>_1 @<cell>`) when it writes, and builds that cell's rule from the new name. Write the parent board again;
+  the module and its script need no change.
+
 ### Changed
 
 - **`current-path` adds copper on parallel layers.** A route was judged by one layer's narrowest point, so a load

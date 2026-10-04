@@ -195,7 +195,8 @@ def layer_marker(declared, board_layers) -> str:
 # allowing the types it lets those nets keep (tracks, vias, pads) and a custom rule forbids them to every
 # other net (rules.AllowRule). The nets and the types travel in the name, so a board that stamps the
 # fragment can write the same rule: ` {allow GND,SIG | tracks,vias}`, then pcb's `_1`.
-_ALLOW = re.compile(r"\s*\{allow ([^|}]*) \| ([^}]*)\}(_\d+)?")
+_ALLOW = re.compile(r"\s*\{allow ([^|}]*) \| ([^}]*)\}(_\d+)?( @<[^>]*>(_\d+)*)?")
+_CELL_TAG = re.compile(r" @<[^>]*>(_\d+)*$")
 _ESCAPES = (("%", "%25"), (",", "%2C"), ("|", "%7C"), ("}", "%7D"), ("]", "%5D"))
 
 
@@ -206,6 +207,15 @@ def allow_marker(nets, types) -> str:
             n = n.replace(a, b)
         return n
     return " {allow %s | %s}" % (",".join(esc(n) for n in sorted(nets)), ",".join(types))
+
+
+def cell_tagged(name: str, cell: str) -> str:
+    """A stamped rule area's name as a board that stamps it writes it: tagged ` @<cell>` after its allow marker
+    (any tag it carried before replaced). pcb names every stamp's copy of a module's area alike, so a
+    .kicad_dru rule over one cell's copy (rules.AllowRule, `intersectsArea` by name) would cover every other
+    copy too; the tag makes each name the cell's own. A board that is itself stamped later appends its `_1`
+    after the tag, and its parent retags it."""
+    return _CELL_TAG.sub("", name) + " @<%s>" % cell
 
 
 def split_allow(name: str) -> tuple:

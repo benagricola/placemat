@@ -1611,7 +1611,11 @@ the rule area allows the tracks, vias and pads it excludes, and a custom rule in
 passes an allowed net's copper in the region and flags the rest as
 `items_not_allowed`. The zone's name carries the allowed nets and the types
 (` {allow GND,SIG | tracks,vias,pads}`, after the layer marker), which is how
-a board that stamps the cell writes the same rule. A pour is still kept out
+a board that stamps the cell writes the same rule. pcb names every stamp's
+copy of a module's area alike, so the board that stamps it renames each copy
+for its cell (` @<cell>` after the marker) and builds each cell's rule from
+that name: one stamp's allowed nets are not let through another stamp's
+area. A pour is still kept out
 (`fill`): the allowance is for copper the script draws.
 
 ## Boards of any shape
