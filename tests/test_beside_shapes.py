@@ -94,7 +94,7 @@ def test_the_capacitor_north_of_a_six_lead_package_stands_at_its_silk_line_not_t
     b.place(Part("revpol"), at=Location(-3.636, -5.674991), rotation=0)
     b.place(Part("c_rev_cap"), at=Beside(Part("revpol"), Edge.NORTH), rotation=0)
     plan = b.resolve()
-    gap = max(geometry.silk_clearance, geometry.default_clearance)
+    gap = max(geometry.silk_clearance + Settings().place_silk_margin, geometry.default_clearance)
     assert _shape_gap(plan, "U4", "C4") == pytest.approx(gap, abs=1e-4)
     # the capacitor's lowest drawing is its silk, a gap above the package's silk line (its top is y -7.29),
     # not above the pin 1 dot (-7.645), which it does not stand over

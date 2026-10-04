@@ -5,6 +5,20 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **Silk keeps `place.silk_margin` past the silk clearance.** Placement let two parts' silk stand at exactly the board's
+  silk clearance. KiCad compares silk at the clearance itself, with no DRC epsilon, on geometry rounded to the nanometre,
+  so a module whose silk was packed at the clearance and then stamped as a cell turned off the quarter turns (or a part
+  searched with tangent turns) could be reported as `silk_overlap` at 0.199999 mm against 0.2. Where placement chooses
+  the place (a search, `Beside`, a row), it now keeps silk `place.silk_margin` (0.001 mm) further from another part's
+  silk and mask openings; a refusal at the clearance reads "silk is 0.200 mm from ... (needs 0.201)". A place the script
+  decided, and a rider's place in its group, are judged at the clearance itself as before. A module whose parts were
+  placed at the silk clearance gets them up to a micrometre further apart, and a search may take another spot where
+  one stood exactly at it; lay the module out again and stamp the new fragment to clear the board's report.
+
 ## To 0.99.4
 
 ### Fixed

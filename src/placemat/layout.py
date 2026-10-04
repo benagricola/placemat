@@ -9188,8 +9188,10 @@ class Board:
             others = obstacles.get(r.key) if obstacles is not None else None
             # the vias the group carries are not what a rider is judged against: they give way to it when it is
             # committed (occupancy._commit), as to any item placed after them
-            in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex([x for x in group if not x.carried]),
-                                 board=False)
+            # the group's own shapes stand where the script put them: silk at the board's clearance
+            with occ.silk_as_drawn():
+                in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex([x for x in group if not x.carried]),
+                                     board=False)
             # on the board its carried vias, and those placed before it, may give way (giveway.py)
             on_board = occ.legal_giving_way(r.item, p, self.clearance, others=others,
                                             past_edge=self._firm_past_edge(r), by_corners=True)[0] \
@@ -9325,8 +9327,9 @@ class Board:
                 self._phase(Stage.DECLARED, hint=[round(p.location.x, 3), round(p.location.y, 3)])
             self._labels_give_way(occ, plan, i.item, p)     # a user's label moves, the part does not
             # its carried vias, and those of the items placed before it, may give way (giveway.py):
-            # its commit does what this found
-            why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
+            # its commit does what this found. A decided place is judged as KiCad will: silk at the board's clearance
+            with occ.silk_as_drawn():
+                why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
             if why:
                 from . import suggest_facts
                 plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))

@@ -162,7 +162,7 @@ def test_a_capacitor_row_north_of_a_six_lead_package_stands_at_its_silk_line_not
     b.place(Part("revpol"), at=Location(-3.636, -5.674991), rotation=0)
     b.row([Part("c_rev_cap")], Edge.NORTH, of=Part("revpol"), align=Along.MID, rotation=0)
     plan = b.resolve()
-    gap = max(geometry.silk_clearance, geometry.default_clearance)
+    gap = max(geometry.silk_clearance + Settings().place_silk_margin, geometry.default_clearance)
     assert _shape_gap(plan, "U4", "C4") == pytest.approx(gap, abs=1e-4)
     silk = [s for s in _shapes(plan, "C4") if s.kind == "silk"]
     assert max(s.box.bottom for s in silk) == pytest.approx(-7.29 - gap, abs=1e-3)       # a gap above the package's silk line, not the dot (-7.645)

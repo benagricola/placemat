@@ -143,6 +143,12 @@ class Settings:
         "how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot")
     place_courtyard_touch: float = S(0.0, "mm",
         "how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping")
+    place_silk_margin: float = S(0.001, "mm",
+        "how much further than the board's silk clearance a place placement chooses keeps one part's silk from another's "
+        "silk and mask openings. KiCad compares silk at the clearance itself, with no DRC epsilon, on geometry rounded to "
+        "the nanometre, so silk placed at exactly the clearance and then turned off the quarter turns (a stamped cell, a "
+        "tangent turn) can come out a nanometre short. A place the script decided, and a rider's place in its group, are "
+        "judged at the board's own clearance")
     place_courtyard_polygon_share: float = S(0.98, "share",
         "a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box")
     place_conflict_reach: float = S(1.0, "mm",
@@ -610,7 +616,7 @@ _ABOVE_ZERO = frozenset((
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
 _AT_LEAST_ZERO = frozenset((
-    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
