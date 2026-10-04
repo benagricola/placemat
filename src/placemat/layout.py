@@ -462,6 +462,10 @@ class CopperIntent:
     members: tuple = field(default=(), metadata={"omit_default": True})    # a fitted pour's via intents
     reach: float | Reach | None = field(default=None, metadata={"omit_default": True})   # a fitted pour's reach=: mm, or Reach.CURRENT
     declared: dict = field(default_factory=dict, metadata={"reuse": False})   # what the declaration gave, as a finding's suggestions read it
+    only: tuple = field(default=(), metadata={"omit_default": True})    # the arrangement ids it exists in; () every one (arrangements.py)
+
+    def applies_in(self, ident: str) -> bool:
+        return not self.only or ident in self.only
 
     @property
     def rank(self):
@@ -3371,6 +3375,32 @@ class Board:
         """The facts of `arrangement.limit` when the declarations pass a limit, else None."""
         return self.arrangement_enumeration().over
 
+    def finish_declarations(self) -> None:
+        """Called once the script has declared everything and before any resolve: the checks that need every declaration in.
+        An `only=` names arrangements of this module; copper fitted round or drawn from other copper exists wherever that does."""
+        if self._declarations_done:
+            return
+        self._declarations_done = True
+        from .arrangements import all_ids, known_id
+        order = [i.key for i in sorted(self._intents, key=lambda i: i.index) if i.key in self._options]
+        for c in self._copper:
+            for ident in c.only:
+                if not known_id(ident, order, self._options, self._arr_groups):
+                    file, line = self._only_sites.get(c.index, ("", 0))
+                    groups = [g.name for g in self._arr_groups]
+                    products = [i for i in all_ids(order, self._options, self._arr_groups) if i not in groups]
+                    raise ValueError("%s:%d: %s: only= names %r, which is not an arrangement of this module; it has "
+                                     "arrangements: %s; groups: %s"
+                                     % (file, line, c.key, ident, ", ".join(products), ", ".join(groups) or "none"))
+        by_index = {c.index: c for c in self._copper}
+        for c in self._copper:
+            for idx in self._copper_uses.get(c.index, ()):
+                m = by_index.get(idx)
+                if m is not None and m.only and (not c.only or not set(c.only) <= set(m.only)):
+                    file, line = self._only_sites.get(c.index, self._only_sites.get(idx, ("", 0)))
+                    raise ValueError("%s:%d: %s is drawn from or fitted round %s, which exists only in %s: give it an only= "
+                                     "inside that set" % (file, line, c.key, m.key, ", ".join(m.only)))
+
     @staticmethod
     def _refuse_either(key: str, kind: str, rotation, **decided) -> None:
         """`face=Face.EITHER` is for an item the search places freely: seeded, or round a `Near`.
@@ -5064,7 +5094,20 @@ class Board:
                                          step.placement.rotation, step.placement.face)
 
     # ------------------------------------------------------------ copper
-    def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False, extra_owners=frozenset()):
+    def _only(self, only, form: str) -> tuple:
+        """The arrangement ids a copper declaration exists in: a non-empty sequence of ids, or None for every arrangement."""
+        if only is None:
+            return ()
+        if isinstance(only, str) or not hasattr(only, "__iter__"):
+            raise TypeError("%s: only= is a sequence of arrangement ids, only=(%r,) for one; got %r" % (form, only, only))
+        ids = tuple(only)
+        if not ids:
+            raise ValueError("%s: only= is empty, so the declaration would exist in no arrangement; leave it out for every one" % form)
+        if not all(isinstance(i, str) for i in ids) or len(set(ids)) != len(ids):
+            raise TypeError("%s: only= is a sequence of distinct arrangement ids, not %r" % (form, only))
+        return ids
+
+    def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False, extra_owners=frozenset(), only=()):
         """A copper declaration. WHEN it is planned is not asked here: it is
         derived in resolve(), once every placement is declared, because at
         declaration time a part placed later is invisible. `extra_owners`
@@ -5073,8 +5116,10 @@ class Board:
         name = self.geometry.require_net(net)
         pads = tuple(self._pad_ref(r) for r in refs)
         ci = CopperIntent(key, name, priority, plan, tuple(refs), why, len(self._copper), bridge,
-                          frozenset(owner for owner, *_ in pads) | extra_owners)
+                          frozenset(owner for owner, *_ in pads) | extra_owners, only=only)
         self._copper.append(ci)
+        if only:
+            self._only_sites[ci.index] = _script_site()
         return ci
 
     def faces(self, *, outward: Edge | None = None, quiet: Edge | None = None, handoff: Edge | None = None, why: str = ""):
@@ -5168,7 +5213,7 @@ class Board:
 
     def track(self, net, points, *, layer: CopperLayer, width: float | None = None,
               chamfer: float | None = None, bend: Bend | None = None, radius: float | None = None,
-              priority: Priority = Priority.DEFAULT, bridge: bool = False, why: str = ""):
+              priority: Priority = Priority.DEFAULT, bridge: bool = False, only=None, why: str = ""):
         """Track segments through `points` in order, on one layer. A point is
         a Location, a pad reference, a Mid, a `Between(PadRef(a), PadRef(b))`
         (the centreline of the gap between two pads), a `Past(items, edge)`
@@ -5352,7 +5397,8 @@ class Board:
                                               **self._track_through_facts(ctx, hits, intent.index)})
                 return []
             return ops
-        intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
+        intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge, only=self._only(only, "track"))
+        self._copper_uses[intent.index] = tuple(p.index for p in points if isinstance(p, CopperIntent))
         intent.declared = {"layer": layer.name, "chamfer": chamfer, "radius": arc_r, "arc": bool(arc),
                            "waypoints": max(0, len(points) - 2) if begins is None else 0}
         if begins is None and len(points) >= 2 and all(isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points):
@@ -5375,7 +5421,7 @@ class Board:
 
     def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,
              chamfer: float | None = None, via_step: float | None = None, priority: Priority = Priority.DEFAULT,
-             bridge: bool = False, why: str = ""):
+             bridge: bool = False, only=None, why: str = ""):
         """Two nets drawn together at `gap` along one centreline. `path`
         starts and ends with a (P pad, N pad) tuple; the points between, two
         or more, are the centreline. Width and gap default to the P net's class. Corners
@@ -5433,11 +5479,11 @@ class Board:
                     return []
             return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
                             via_step, chamfer, self._clearance(p_name, n_name), sfaces, efaces)
-        return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge)
+        return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge, only=self._only(only, "pair"))
 
     def vias(self, net, pad=None, *, along=None, count: int | None = None, pitch: float | None = None,
              size: float | None = None, drill: float | None = None,
-             inset: float = 0.0, layers=None, priority: Priority = Priority.DEFAULT, why: str = ""):
+             inset: float = 0.0, layers=None, priority: Priority = Priority.DEFAULT, only=None, why: str = ""):
         """Vias of `net` at a pad, one of two ways.
 
         `pad` (a `PadRef`/`CellPadRef`): the pad filled with a square grid
@@ -5521,7 +5567,7 @@ class Board:
                 ctx.via_at[intent.index] = vias[-1].at      # a track may end on the row's farthest via
                 return vias + [tail]
             # "via row": a track may end on it, as on one via()
-            intent = self._copper_intent("via row %s" % name, net, priority, plan, _refs_in([along]), why)
+            intent = self._copper_intent("via row %s" % name, net, priority, plan, _refs_in([along]), why, only=self._only(only, "vias"))
             return intent
         owner, number, _, _ = self._pad_ref(pad)
         k = len(self._pad_fields)
@@ -5555,7 +5601,7 @@ class Board:
                     ctx.planned_tails.append(a.tail)
                     ops.append(a.tail)
             return ops
-        intent = self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why)
+        intent = self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why, only=self._only(only, "vias"))
         self._late_copper.add(intent.index)         # planned after the search: its part's grid gives way as items are placed
         return intent
 
@@ -5592,7 +5638,7 @@ class Board:
         return out, None
 
     def via(self, net, at, *, drill: float | None = None, size: float | None = None, layers=None,
-            priority: Priority = Priority.DEFAULT, why: str = ""):
+            priority: Priority = Priority.DEFAULT, only=None, why: str = ""):
         """A via of `net`. `at` is a position, a `FreeSpot` near a pad (the
         nearest point a via can stand and be reached, found when the pad is
         placed), or a `Past(items, edge)` (the via's radius plus its
@@ -5654,7 +5700,7 @@ class Board:
             ctx.planned_vias.append(via)        # a later FreeSpot in this batch sees it
             ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
-        intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why)
+        intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why, only=self._only(only, "via"))
         if isinstance(at, FreeSpot):
             # a searched spot keeps clear of the tracks declared before it, whenever those are planned: a track
             # that waits for a searched part is drawn after a decided via is, and has no way round it
@@ -5665,7 +5711,7 @@ class Board:
     def stitch(self, net, region, *, pitch: float | None = None, size: float | None = None,
                drill: float | None = None, edge: bool = False, outside: bool = False,
                hole_to_edge: float | None = None, sides=None, layers=None,
-               priority: Priority = Priority.DEFAULT, why: str = ""):
+               priority: Priority = Priority.DEFAULT, only=None, why: str = ""):
         """Stitching vias of `net` over `region` - a `Cell`, the
         `CopperIntent` `board.pour()` returns, or a keepout's name - `pitch`
         apart (by default the via-to-via rule: the larger of the via's own
@@ -5776,7 +5822,7 @@ class Board:
             if not vias:
                 ctx.note(C.COPPER_STITCH, {"variant": "none", "net": name, "pitch_mm": step})
             return vias
-        intent = self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners)
+        intent = self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners, only=self._only(only, "stitch"))
         if pour_intent is not None:
             self._copper_after[intent.index] = (pour_intent.index,)
         return intent
@@ -6222,7 +6268,7 @@ class Board:
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              width: float | None = None, cover: Cover | None = None, priority: Priority = Priority.DEFAULT,
-             reach: float | Reach | None = None, grow: float | None = None, within=None, why: str = ""):
+             reach: float | Reach | None = None, grow: float | None = None, within=None, only=None, why: str = ""):
         """A filled copper polygon on one layer, written as a graphic polygon
         (never a zone: nothing refills it, and nothing is cut from it once it
         is planned). Another net's copper inside it is a copper finding.
@@ -6360,8 +6406,9 @@ class Board:
                     pts = tuple(_hull([(round(x, 6), round(y, 6)) for x, y in corners]))
             ctx.pour_at[intent.index] = pts       # a stitch over this pour, once it is drawn
             return [Pour(name, layer, pts, stroke, fitted)]
-        intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
+        intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why, only=self._only(only, "pour"))
         intent.members = vias
+        self._copper_uses[intent.index] = tuple(v.index for v in vias)
         self._copper_after[intent.index] = tuple(v.index for v in vias)
         intent.reach = reach
         return intent
@@ -6562,7 +6609,7 @@ class Board:
 
     def plane(self, net, layers, *, outline=None, inset: float | None = None, chamfer: float | None = None,
               clearance: float | None = None, min_thickness: float | None = None, solid_pads: bool = True,
-              priority: Priority = Priority.DEFAULT, over=None, margin: float = 0.0, why: str = ""):
+              priority: Priority = Priority.DEFAULT, over=None, margin: float = 0.0, only=None, why: str = ""):
         """A KiCad zone per layer, filled by KiCad and pulled back round every
         foreign pad, track and via: the whole board inset from the edge, the
         polygon `outline`, or `over=[Part(...), Cell(...)]` the box round
@@ -6608,13 +6655,13 @@ class Board:
                 pts = board_zone_outline(self.width, self.height, inset, ch)
             return [Zone(name, l, pts, clearance, min_thickness, solid_pads) for l in layers]
         refs = _refs_in(over) if over is not None else [] if outline is None else _refs_in(outline)
-        intent = self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
+        intent = self._copper_intent("plane %s" % name, net, priority, plan, refs, why, only=self._only(only, "plane"))
         if outline is None:
             self._frame_planes.add(intent.index)    # on a fit board, planned once the frame is fitted
         return intent
 
     def finger(self, net, *, layer: CopperLayer, from_, to, width,
-               bridge_width: float | None = None, priority: Priority = Priority.DEFAULT, why: str = ""):
+               bridge_width: float | None = None, priority: Priority = Priority.DEFAULT, only=None, why: str = ""):
         """A finger: a rectangular pour along the centreline from `from_` to
         `to` (points, pads, or (x, y) pairs with X()/Y()), `width` wide - a
         number, or a `PadRef`/`CellPadRef` to run as wide as that pad
@@ -6643,7 +6690,7 @@ class Board:
             segs = [chord for t in ctx.tracks_on(layer) if t.net != name for chord in t.chords()]
             return finger_ops(name, layer, a, b, w, segs, self.via_drill, self.via_size, bridge_width,
                               self.settings.copper_bridge_half_gap, self.settings.copper_finger_min_piece)
-        return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
+        return self._copper_intent("finger %s" % name, net, priority, plan, refs, why, only=self._only(only, "finger"))
 
     # ------------------------------------------------------------ resolution
     def _derive_copper_freedom(self):
