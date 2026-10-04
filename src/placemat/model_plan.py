@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from . import model_place
+from .board_geometry import stackup_order
 from .models import embedded_checksums, model_id, resolve_model, workspace_root
 from .placement import Placement
 
@@ -97,4 +98,10 @@ class ModelContext:
         return out
 
     def stackup(self, geometry) -> dict:
-        return {"thickness": round(self.thickness, 4), "copper": {l.value: round(v, 4) for l, v in sorted(geometry.copper_mm.items(), key=lambda kv: kv[0].value)}}
+        """The board's thickness, each copper layer's thickness (`copper`, from the stackup) and `layers`: each copper layer top to bottom
+        with the height of its middle in the scene (`z`, mm, 0 the back face) and its thickness, from the board file's stackup; `declared`
+        False when it has none that lists every copper layer, and the layers are spaced evenly through the thickness instead."""
+        names = [l.value for l in sorted(geometry.layers, key=stackup_order)]
+        layers, declared = model_place.copper_heights(model_place.board_stackup(self.pcb), names, self.thickness)
+        return {"thickness": round(self.thickness, 4), "copper": {l.value: round(v, 4) for l, v in sorted(geometry.copper_mm.items(), key=lambda kv: kv[0].value)},
+                "layers": [{"name": n, "z": z, "thickness": t} for n, z, t in layers], "declared": declared}

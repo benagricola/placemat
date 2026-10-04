@@ -129,3 +129,76 @@ def test_a_streamed_item_carries_the_same_models_and_new_jobs_are_handed_out_onc
     preview_json.item_json(plan, next(s for s in plan.steps if s.item == "c1"), {}, ctx)
     again = ctx.new_jobs(known)
     assert [j["kind"] for j in again] == ["embedded"] and again[0]["ref"] == "C1" and again[0]["board"] == ctx.pcb
+
+
+STACKED = '''(kicad_pcb (version 20240108) (general (thickness 1.6))
+	(setup
+		(stackup
+			(layer "F.SilkS" (type "Top Silk Screen"))
+			(layer "F.Mask" (type "Top Solder Mask") (thickness 0.01))
+			(layer "F.Cu" (type "copper") (thickness 0.035))
+			(layer "dielectric 1" (type "prepreg") (thickness 0.1 locked) (material "FR4") (epsilon_r 4.5))
+			(layer "In1.Cu" (type "copper") (thickness 0.035))
+			(layer "dielectric 2" (type "core") (thickness 0.64) (material "FR4") addsublayer (thickness 0.6) (material "FR4"))
+			(layer "In2.Cu" (type "copper") (thickness 0.035))
+			(layer "dielectric 3" (type "prepreg") (thickness 0.1))
+			(layer "B.Cu" (type "copper") (thickness 0.035))
+			(layer "B.Mask" (type "Bottom Solder Mask") (thickness 0.01))
+			(copper_finish "None")
+		)
+	)
+)
+'''
+
+
+def _geometry(*names, copper=None):
+    from types import SimpleNamespace
+    from placemat.values import CopperLayer
+    return SimpleNamespace(layers=frozenset(CopperLayer.of(n) for n in names), copper_mm={CopperLayer.of(k): v for k, v in (copper or {}).items()})
+
+
+def test_the_stackup_gives_each_copper_layer_its_height_from_the_boards_own_stackup(tmp_path):
+    pcb = tmp_path / "x.kicad_pcb"
+    pcb.write_text(STACKED)
+    got = ModelContext(pcb).stackup(_geometry("F.Cu", "In1.Cu", "In2.Cu", "B.Cu", copper={"F.Cu": 0.035, "In1.Cu": 0.035, "In2.Cu": 0.035, "B.Cu": 0.035}))
+    assert got["thickness"] == 1.6 and got["declared"] is True and got["copper"]["In1.Cu"] == 0.035
+    # each layer's height is its middle, walked down from the top face through the mask, copper and dielectric (both sublayers of the core)
+    assert [l["name"] for l in got["layers"]] == ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]
+    assert [l["z"] for l in got["layers"]] == [1.5725, 1.4375, 0.1625, 0.0275]
+    assert all(l["thickness"] == 0.035 for l in got["layers"])
+
+
+def test_a_stackup_that_does_not_add_up_to_the_thickness_is_scaled_to_it(tmp_path):
+    pcb = tmp_path / "x.kicad_pcb"
+    pcb.write_text(STACKED.replace("(thickness 1.6))", "(thickness 3.2))", 1))
+    got = ModelContext(pcb).stackup(_geometry("F.Cu", "In1.Cu", "In2.Cu", "B.Cu"))
+    assert got["thickness"] == 3.2 and [l["z"] for l in got["layers"]] == [3.145, 2.875, 0.325, 0.055]
+
+
+def test_a_board_with_no_stackup_spaces_its_copper_layers_evenly_through_the_thickness(tmp_path):
+    pcb = tmp_path / "x.kicad_pcb"
+    pcb.write_text(BOARD)
+    got = ModelContext(pcb).stackup(_geometry("F.Cu", "In1.Cu", "In2.Cu", "B.Cu"))
+    assert got["declared"] is False and got["copper"] == {}
+    assert [(l["name"], l["z"], l["thickness"]) for l in got["layers"]] == [("F.Cu", 1.2, None), ("In1.Cu", 0.8, None), ("In2.Cu", 0.4, None), ("B.Cu", 0.0, None)]
+    one = ModelContext(pcb).stackup(_geometry("F.Cu"))
+    assert [(l["name"], l["z"]) for l in one["layers"]] == [("F.Cu", 1.2)]
+
+
+def test_a_stackup_that_misses_one_of_the_boards_layers_is_not_used(tmp_path):
+    pcb = tmp_path / "x.kicad_pcb"
+    pcb.write_text(STACKED)
+    got = ModelContext(pcb).stackup(_geometry("F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "B.Cu"))
+    assert got["declared"] is False and [l["z"] for l in got["layers"]] == [1.6, 1.2, 0.8, 0.4, 0.0]
+
+
+def test_the_stackup_rows_are_read_in_order_with_their_kind_and_thickness(tmp_path):
+    from placemat import model_place
+    pcb = tmp_path / "x.kicad_pcb"
+    pcb.write_text(STACKED)
+    rows = model_place.board_stackup(pcb)
+    assert [r[0] for r in rows] == ["F.SilkS", "F.Mask", "F.Cu", "dielectric 1", "In1.Cu", "dielectric 2", "In2.Cu", "dielectric 3", "B.Cu", "B.Mask"]
+    assert rows[0] == ("F.SilkS", "Top Silk Screen", 0.0) and rows[3] == ("dielectric 1", "prepreg", 0.1) and rows[5][2] == pytest.approx(1.24)
+    assert model_place.board_stackup(tmp_path / "gone.kicad_pcb") == []
+    (tmp_path / "plain.kicad_pcb").write_text(BOARD)
+    assert model_place.board_stackup(tmp_path / "plain.kicad_pcb") == []

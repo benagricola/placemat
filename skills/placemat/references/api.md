@@ -3699,13 +3699,39 @@ Top, Bottom (mirrored, as the 2D back) and Iso; a click selects, as in 2D. A par
 body, else the box of its shapes) 0.1 mm off its face, hatched, flagged with the reason ("no model declared", "model not found: <path>", "conversion failed: ...", "loading"); the legend
 counts parts by state, lists the plates, retries failed conversions and can dim the parts that have a model.
 
+The copper is drawn too, each copper layer at its height in the board: tracks as flat ribbons with round ends, planes and pours as their
+filled outlines (the polygons the 2D view draws), pads and the parts' own copper on each layer they are on, vias as cylinders through the
+layers they join. The colours are the 2D view's layer colours; copper the router laid is drawn lighter, as the 3D form of its hollow 2D
+look. The replay shows copper as the 2D drawing does: a route's replay lays and rips each op at its step, a plan's replay shows it at its end.
+Solid | See-through on the 3D bar draws the board body solid or translucent (in the 2D drawing's substrate colour), so the inner layers'
+copper shows through it; the choice is kept while the page switches between 2D and 3D. The legend's switches are one set for both views:
+a copper layer's row and its only button, a zone's row, the pads and vias rows and the Copper origin rows (planned, kept, routed) hide and
+show the same copper in 3D as in 2D, and switching views keeps them.
+
+The Marks rows act on 3D too. Each finding placed on the board (where it says, else at the pad or part it names) is a marker at its place
+and on the copper layer its facts name, else on the face of the part it is about, in its severity's colour (`--sev-critical`,
+`--sev-warning-mark`, `--sev-notice`: a warning is yellow in both themes, the fill token of the 2D finding areas and counts too, while warning text keeps `--sev-warning`); a click on a marker selects it as a click on a 2D finding area does (one finding is looked at: the
+selection and the card follow; several on one spot are listed in the Findings tab), and hovering one lists what it says. Congestion is a
+translucent sheet lying on the top layer, under its copper, cell by cell in the 2D overlay's colours with the most congested cell ringed:
+the map is of every routing layer together, as 2D draws it under both faces. Both are hidden while a replay is under way, as in 2D.
+
+Spread on the 3D bar pulls the stack apart, so each copper layer stands clear of the next and the inner ones can be told apart from an
+angle: each layer moves `3d_spread_mm` (4) further from the next over `3d_spread_ms` (450), the middle of the stack staying where it is.
+The vias stretch through the spread, the markers and the congestion sheet ride on their layers, front parts ride above the top layer and
+back parts below the bottom one. The board body fades out while the layers part, and each layer gets the board's outline at its height,
+filled faintly and edged. Spread again closes the stack; the choice is kept across views.
+
 - **Plan document** (`version` 2, all additive): each member of an item has `models`, one entry per model of the footprint: `{id, state, name,
   opacity, why, matrix}`. `state` is `ok`, `vrml` (a VRML model with no STEP beside it, read by placemat itself), `none`, `missing` (`why` says
   `model not found: <path as written>`) or `hidden`; `id` names the model by its content (32 hex of SHA-256, or `e-` and KiCad's checksum for an
   embedded model); `matrix` is the 16 numbers, column-major, millimetres, from the model's own frame (x right, y up the footprint's page, z up out
   of the board) to the scene frame (x = board x, y up, z = board y), composed in Python from the footprint as generated, the plan's move and the
   stackup (`model_place.py`, measured against `kicad-cli pcb export glb` to a micrometre). The plan has `stackup` (`thickness`, `copper`: layer ->
-  mm) and `models`, the table of distinct models seen. A plan from an older worker has none of it and still draws in 2D.
+  mm, `layers`: each copper layer top to bottom as `{name, z, thickness}` with `z` the height of its middle in mm from the back face, read from
+  the board file's stackup by walking down through its mask, copper and dielectric rows and scaled to `thickness`; `declared`: false when the
+  file has no stackup that lists every copper layer, and the layers are spaced evenly through the thickness with the outer ones on the faces)
+  and `models`, the table of distinct models seen. A plan from an older worker has none of it and still draws in 2D; in 3D its layers are
+  spaced evenly.
 - **Routes** (token required): `GET /3d/models` (the converter's status and every model's `{state, tris, message}`), `GET /3d/model/<id>.pmm` (the
   converted mesh, immutable; the id is validated), `GET /3d/lib/<token>/<file>` (the viewer script and the vendored three.js, MIT, from a fixed
   list; the token is in the path so the modules it imports come with it), `POST /3d/retry {id?}` (forget failed conversions and queue them
@@ -3719,7 +3745,7 @@ counts parts by state, lists the plates, retries failed conversions and can dim 
   `.wrl`). Meshes are cached by content in the user's cache folder, shared by every project: `~/.cache/placemat/models` (`studio_3d_cache_dir`),
   `studio_3d_cache_mb` (512) bound with the least recently used removed first, a converter version in each file name.
 - **Settings** (`[studio]`): `3d_kicad_cli`, `3d_model_dirs`, `3d_cache_dir`, `3d_cache_mb`, `3d_batch`, `3d_batch_timeout_s`, `3d_model_tris`,
-  `3d_max_tris` (past it the parts are drawn as plates and the view says so), `3d_appear_ms`, `3d_plate_mm`.
+  `3d_max_tris` (past it the parts are drawn as plates and the view says so), `3d_appear_ms`, `3d_plate_mm`, `3d_spread_mm`, `3d_spread_ms`.
 - Other commands' streamed `item` events carry the same `models` and an extra `model_jobs` (for the studio's converter, not the page), so a
   command opened in the Runs view can be watched in 3D.
 - A record carries no models: `GET /runview`, `/build` and `/route` give each member the models of the board the run or route wrote (the
@@ -4477,6 +4503,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.3d_max_tris` | `4000000` | count | triangles the 3D view draws at most; past it the parts are drawn as plates and the view says so |
 | `studio.3d_appear_ms` | `200` | ms | a part arriving in the 3D view drops in and fades over this long; 0 shows it at once |
 | `studio.3d_plate_mm` | `0.1` | mm | how far the plate of a part with no 3D model stands off its face |
+| `studio.3d_spread_mm` | `4.0` | mm | the 3D view's Spread: how much further apart each copper layer stands from the next when the stack is pulled apart |
+| `studio.3d_spread_ms` | `450` | ms | the 3D view's Spread: how long the layers take to part and close; 0 moves them at once |
 | `studio.builder_grid_mm` | `0.5` | mm | the board builder: a dragged outline dimension or vertex snaps to this step, and a suggested size is rounded up to it |
 | `studio.builder_max_fill` | `0.5` | share | the board builder: the most of one face the parts' courtyards may fill in a suggested board size (above 0, at most 1); the outline dialog's fill field overrides it for one board. The one measured board is filled 0.33 per face on average |
 | `studio.builder_aspect` | `1.0` | ratio | the board builder: the width over the height a suggested rectangle takes before the user changes it |

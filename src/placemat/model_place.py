@@ -42,6 +42,75 @@ def board_thickness(pcb_path) -> float:
         return DEFAULT_THICKNESS
 
 
+_STACKUP_HEAD = 1 << 20      # the stackup is in the file's setup, before the footprints
+_STACKUP_ROW = re.compile(r'\(layer\s+"([^"]*)"')
+
+
+def _group_end(text: str, start: int) -> int:
+    """The index just past the parenthesised group that opens at `start`."""
+    depth, i, n = 0, start, len(text)
+    while i < n:
+        c = text[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        elif c == '"':                                   # a quoted name may hold a parenthesis: stepped over whole
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+        i += 1
+    return n
+
+
+def board_stackup(pcb_path) -> list:
+    """The board's own stackup, top to bottom, as rows (name, type, thickness mm): every `(layer ...)` of its `(stackup ...)` block, a
+    dielectric's sublayers (`addsublayer`) summed, 0.0 for a row with no thickness (silk, paste). [] when the board declares no stackup or
+    cannot be read."""
+    try:
+        with open(pcb_path, "r", encoding="utf-8", errors="replace") as f:
+            head = f.read(_STACKUP_HEAD)
+    except OSError:
+        return []
+    m = re.search(r"\(stackup\b", head)
+    if not m:
+        return []
+    block = head[m.start():_group_end(head, m.start())]
+    rows, at = [], 1
+    while True:
+        lm = _STACKUP_ROW.search(block, at)
+        if not lm:
+            break
+        end = _group_end(block, lm.start())
+        body = block[lm.start():end]
+        kind = re.search(r'\(type\s+"([^"]*)"', body)
+        thick = sum(float(t) for t in re.findall(r"\(thickness\s+([-\d.eE]+)", body))
+        rows.append((lm.group(1), kind.group(1) if kind else "", round(float(thick), 6)))
+        at = end
+    return rows
+
+
+def copper_heights(rows, names, thickness: float) -> tuple:
+    """(each copper layer of `names` (top to bottom) as (name, the height of its middle mm, its thickness mm or None), whether the heights
+    are the stackup's). The heights walk down from the top face through each row of the stackup that has a thickness (mask, copper,
+    dielectric), scaled so the rows fill `thickness`. A board whose stackup does not list every one of its copper layers has them spaced
+    evenly instead, the outer ones on the faces."""
+    names = list(names)
+    copper = {r[0]: r for r in rows if r[1] == "copper"}
+    total = sum(r[2] for r in rows)
+    if names and total > 0 and all(n in copper for n in names):
+        k, top, out = thickness / total, 0.0, {}
+        for name, kind, t in rows:
+            if kind == "copper":
+                out[name] = (round(thickness - (top + t / 2) * k, 4), t)
+            top += t
+        return [(n, out[n][0], out[n][1]) for n in names], True
+    last = max(len(names) - 1, 1)
+    return [(n, round(thickness * (1 - i / last), 4), None) for i, n in enumerate(names)], False
+
+
 def _turn(v, axis: str, deg: float):
     """`v` turned about an axis by `-deg` (KiCad's model rotation is applied negated, in its y-up frame)."""
     a = math.radians(-deg)
