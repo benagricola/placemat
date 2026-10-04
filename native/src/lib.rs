@@ -4,6 +4,7 @@
 //! truth for behaviour (see docs/superpowers/specs/2026-09-24-native-core-design.md).
 
 mod board;
+mod cutouts;
 mod escapes;
 mod exact;
 mod fill;
@@ -386,6 +387,12 @@ mod sweep_seen_tests {
         // (1.0, 2.0) at both turns already seen; (5.0, 6.0) is new.
         assert_eq!(second, vec![(5.0, 6.0, 0), (5.0, 6.0, 1)]);
     }
+}
+
+/// `cutouts.loop_gap`: the shortest distance between two closed loops (native/src/cutouts.rs).
+#[pyfunction]
+fn loop_gap(a: Vec<Point>, b: Vec<Point>) -> f64 {
+    cutouts::loop_gap(&a, &b)
 }
 
 /// `ratsnest.mst`: one net's airwires as index pairs into `anchors`
@@ -1221,6 +1228,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(conflict, m)?)?;
     m.add_function(wrap_pyfunction!(largest_rectangle, m)?)?;
     m.add_function(wrap_pyfunction!(hypot, m)?)?;
+    m.add_function(wrap_pyfunction!(loop_gap, m)?)?;
     m.add_function(wrap_pyfunction!(mst, m)?)?;
     m.add_function(wrap_pyfunction!(clean9_many, m)?)?;
     m.add_function(wrap_pyfunction!(transform_polygon, m)?)?;

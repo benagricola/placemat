@@ -312,7 +312,17 @@ def segment_box(x1, y1, x2, y2, box) -> float:
 def loop_gap(a, b) -> float:
     """The shortest distance between two closed loops; 0.0 when they touch
     or cross. Between a cutout and the board that distance is the material
-    left between them."""
+    left between them. Natively where the module is in use (native/src/cutouts.rs, the same bits)."""
+    from . import geometry
+    if geometry._native is not None:
+        try:
+            return geometry._native.loop_gap(a, b)
+        except TypeError:               # points that are not (x, y) tuples of numbers: the loops below take any pair
+            pass
+    return _loop_gap_py(a, b)
+
+
+def _loop_gap_py(a, b) -> float:
     best = math.inf
     for (ax, ay), (bx, by) in zip(a, a[1:] + a[:1]):
         for (cx, cy), (dx, dy) in zip(b, b[1:] + b[:1]):
