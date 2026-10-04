@@ -90,3 +90,44 @@ def extent_findings(board, extent: list, threshold_mm: float) -> list:
             continue
         out.append(Finding(C.ARRANGEMENT_EXTENT_FIXED, dict(row, alternatives=declares), "notice"))
     return out
+
+
+@dataclass
+class Proof:
+    offered: bool
+    refused: list               # records (finding_text.refusal_record_text reads them)
+    metrics: dict               # {"drc": int | None, "findings": {severity: n}, "measures": {...}}
+
+
+def plan_refusals(plan, default_plan) -> list:
+    """What the resolve itself says against an arrangement: an item with no place, a critical finding, and a cell standing
+    elsewhere than in the default (a module's nested cells are placed once, by the default: an arrangement that needs one moved is
+    not offered)."""
+    out = []
+    for s in plan.steps:
+        if s.kind in ("part", "cell", "block") and s.placement is None:
+            out.append({"form": "unplaced", "item": s.item})
+    for f in plan.findings:
+        if f.severity == "critical":
+            out.append({"form": "finding", "cause": f.cause.value, "item": finding_subject(f)})
+    was = {s.item: s.placement for s in default_plan.steps if s.placement is not None}
+    for s in plan.steps:
+        if s.kind == "cell" and s.placement is not None and was.get(s.item) not in (None, s.placement):
+            out.append({"form": "nested_cell", "item": s.item})
+    return out
+
+
+def finding_subject(f) -> str:
+    from . import finding_text
+    return finding_text.subject(f.cause, f.facts) or ""
+
+
+def drc_refusals(report, default_unconnected: int) -> list:
+    out = [{"form": "drc", "bucket": b, "count": n} for b, n in sorted(report.real.items())]
+    if report.unconnected > default_unconnected:
+        out.append({"form": "unconnected", "count": report.unconnected, "default": default_unconnected})
+    return out
+
+
+def verdict_refusals(verdicts) -> list:
+    return [{"form": "verdict", "check": v.check, "item": v.subject} for v in verdicts if v.ok is False and not v.accepted]
