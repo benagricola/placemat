@@ -88,6 +88,10 @@ section for each hand-written pattern a newer form replaces.
   `<run>/layout.kicad_pcb` judged it by KiCad's default rules and reported false clearance, width and short violations. The
   run folder now keeps `layout.kicad_pro` and `layout.kicad_dru` beside its board, and `drc` and `route` warn when a board has
   neither beside it (`drc --json` and `route --json` give `missing_rules`).
+- **Two stamped cells' zones of one net that overlap no longer fail KiCad DRC with `zones_intersect`.** Each cell arrives with its zone at
+  the module's priority, and cells a keep-in apart have frames, so their zones, which the board's plane does not wholly cover,
+  overlapped at one priority. Written, the later zone (in cell-name order) is now raised past the priority of every same-net zone it
+  overlaps on a shared layer. A script is not affected.
 - **Generation ignores an inherited `KIPRJMOD`.** A process that had saved a board with pcbnew (or a placemat started from
   KiCad) passed `KIPRJMOD` on to `pcb layout`, which then resolved the stdlib footprint libraries against the wrong folder and
   failed with "Failed to load footprint". Generation now runs without it.
