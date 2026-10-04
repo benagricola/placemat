@@ -25,7 +25,7 @@ def test_an_unknown_part_is_refused_when_declared():
 def test_declaration_order_does_not_decide_execution_order():
     b = make_board()
     b.place(Part("r1"), at=Near(Location(30, 30)))                           # searched: last
-    b.place(Cell("pd"), at=Centre(30, 30))                          # fixed cell
+    b.place(Cell("pd"), at=Centre(30, 30, coordinates=True))                          # fixed cell
     b.place(Part("j_in"), at=OnEdge(Edge.NORTH, along=30.0))     # edge
     b.place(Part("r2"), at=Location(10, 50))                              # fixed part
     plan = b.resolve()
@@ -44,7 +44,7 @@ def test_a_fixed_part_lands_exactly_where_asked():
 
 def test_a_cell_placed_by_centre_puts_its_box_centre_there():
     b = make_board()
-    b.place(Cell("pd"), at=Centre(30, 30), rotation=90)
+    b.place(Cell("pd"), at=Centre(30, 30, coordinates=True), rotation=90)
     plan = b.resolve()
     box = plan.box("pd")
     assert box.center == Location(30, 30)

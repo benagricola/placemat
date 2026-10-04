@@ -88,7 +88,7 @@ def test_a_cell_flipped_to_the_back_lands_where_the_planner_said(breakout_pcb, t
     before = read_board(pcb)
     cell = before.cell("power_drop0")
     b = Board(before, edge_margin=0.0, keep_going=True)
-    b.place(Cell("power_drop0"), at=Centre(cell.box.center.x, cell.box.center.y),
+    b.place(Cell("power_drop0"), at=Centre(cell.box.center.x, cell.box.center.y, coordinates=True),
             rotation=target, face=Face.BACK)
     plan = b.resolve()
     planned = {(fp.ref, p.number): plan.occupancy.pad_location(fp.ref, p.number)
@@ -145,7 +145,7 @@ def test_a_part_and_a_cell_holding_it_flip_the_same_way(breakout_pcb, tmp_path):
     before = read_board(pcb_c)
     cell = before.cell("power_drop0")
     b = Board(before, edge_margin=0.0, keep_going=True)
-    b.place(Cell("power_drop0"), at=Centre(cell.box.center.x, cell.box.center.y),
+    b.place(Cell("power_drop0"), at=Centre(cell.box.center.x, cell.box.center.y, coordinates=True),
             rotation=0.0, face=Face.BACK)
     apply_plan(pcb_c, b.resolve())
 

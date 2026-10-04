@@ -160,7 +160,7 @@ def test_a_raw_path_and_a_named_cutout_live_side_by_side():
 def test_a_cutout_with_one_freedom_slides_to_where_there_is_room():
     b = make_board("u1")
     b.rect(width=40.0, height=40.0, web=1.0,
-           holes=[Cutout(Circle(6.0), "vent", at=Centre(None, 20.0), why="airflow")])
+           holes=[Cutout(Circle(6.0), "vent", at=Centre(None, 20.0, coordinates=True), why="airflow")])
     b.place(Part("u1"), at=Location(20.0, 20.0))
     plan = b.resolve()
     got = plan.cutouts_placed["vent"].centre
@@ -173,7 +173,7 @@ def test_a_cutout_with_one_freedom_slides_to_where_there_is_room():
 def test_a_cutout_with_nowhere_legal_says_so():
     b = make_board()
     b.rect(width=10.0, height=10.0, web=2.0,
-           holes=[Cutout(Circle(9.0), "vent", at=Centre(None, 5.0), why="airflow")])
+           holes=[Cutout(Circle(9.0), "vent", at=Centre(None, 5.0, coordinates=True), why="airflow")])
     with pytest.raises(PlacementCollision, match="vent"):
         b.resolve()
 
@@ -578,7 +578,7 @@ FREE_PLACES = [
 def test_a_free_item_shares_a_disc_with_a_cutout(name, place):
     b = make_board("u1")
     b.disc(diameter=40.0, hole=6.0,
-           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0), why="airflow")])
+           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0, coordinates=True), why="airflow")])
     place(b)
     plan = b.resolve()
     assert not plan.findings, plan.findings
@@ -588,7 +588,7 @@ def test_a_free_item_shares_a_disc_with_a_cutout(name, place):
 def test_a_free_edge_item_shares_a_rectangle_with_a_cutout():
     b = make_board("u1", "d1")
     b.rect(width=40.0, height=40.0,
-           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 20.0), why="airflow")])
+           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 20.0, coordinates=True), why="airflow")])
     b.place(Part("u1"), at=OnEdge(Edge.NORTH))          # free along the edge
     b.place(Part("d1"), at=OnEdge(Edge.NORTH))          # and its fellow
     plan = b.resolve()
@@ -598,7 +598,7 @@ def test_a_free_edge_item_shares_a_rectangle_with_a_cutout():
 
 def test_a_free_run_item_shares_a_shaped_board_with_a_cutout():
     b = make_board("u1")
-    b.outline(Circle(40.0), holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0), why="airflow")])
+    b.outline(Circle(40.0), holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0, coordinates=True), why="airflow")])
     b.place(Part("u1"), at=OnEdge(b.edge(facing=Edge.NORTH)))       # free along the run
     plan = b.resolve()
     assert not plan.findings, plan.findings
@@ -607,7 +607,7 @@ def test_a_free_run_item_shares_a_shaped_board_with_a_cutout():
 def test_a_free_pinned_axis_shares_a_board_with_a_cutout():
     b = make_board("u1")
     b.rect(width=40.0, height=40.0,
-           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0), why="airflow")])
+           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0, coordinates=True), why="airflow")])
     b.place(Part("u1"), at=Centre(20.0, None, coordinates=True))   # x pinned, y free
     plan = b.resolve()
     assert not plan.findings, plan.findings
@@ -621,7 +621,7 @@ def test_a_cutout_named_after_a_part_does_not_stand_in_for_it():
     generator left it in."""
     b = make_board("u1", "d1")
     b.rect(width=40.0, height=40.0,
-           holes=[Cutout(Circle(3.0), "U1", at=Centre(8.0, 8.0), why="named like the refdes")])
+           holes=[Cutout(Circle(3.0), "U1", at=Centre(8.0, 8.0, coordinates=True), why="named like the refdes")])
     b.place(Part("d1"), at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)))   # waits for the PART
     b.place(Part("u1"), at=Location(20.0, 25.0))                        # declared after it
     plan = b.resolve()
@@ -633,7 +633,7 @@ def test_a_cutout_named_after_a_part_does_not_stand_in_for_it():
 def test_asking_the_plan_for_a_cutouts_box_says_where_to_look():
     b = make_board("u1")
     b.rect(width=40.0, height=40.0,
-           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 30.0), why="airflow")])
+           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 30.0, coordinates=True), why="airflow")])
     b.place(Part("u1"), at=Location(20.0, 10.0))
     plan = b.resolve()
     with pytest.raises(KeyError, match="cutouts_placed"):

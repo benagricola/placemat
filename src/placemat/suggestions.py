@@ -1154,18 +1154,6 @@ def copper_corner(f, settings):
     return out
 
 
-@case(C.SETUP_CENTRE_COORDINATES)
-def setup_centre_coordinates(f, settings):
-    """A coordinate placement turned toward intent: beside the neighbour it stands next to, on the side it is on. Never
-    `coordinates=True`, never a number."""
-    rel = f.get("relation")
-    if not rel:
-        return []
-    item = f["item"]
-    return [_set("place", item, "at", _beside(rel["item"], rel["side"]),
-                 "Place %s beside %s, on its %s side" % (item, rel["item"], _side_word(rel["side"])), "beside")]
-
-
 @case(C.SETUP_CENTRE_FLAG_DEFAULT)
 def setup_centre_flag_default(f, settings):
     item = f["item"]

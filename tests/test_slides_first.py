@@ -24,14 +24,14 @@ def _order(plan, *keys):
 def test_a_slide_goes_before_a_larger_fully_searched_item_of_its_tier():
     b = _board()
     b.place(Part("big"), priority=Priority.HIGH)
-    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH), priority=Priority.HIGH)
+    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True), priority=Priority.HIGH)
     assert _order(b.resolve(), "big", "sml") == ["sml", "big"]
 
 
 def test_the_slide_reaches_its_end_when_the_larger_item_is_searched_there():
     b = _board()
     b.place(Part("big"), at=Near(Location(20, 44), radius=6.0), priority=Priority.HIGH)
-    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH), priority=Priority.HIGH)
+    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True), priority=Priority.HIGH)
     occ = b.resolve().occupancy
     assert occ.items["SML"].body.bottom > 50 - 0.5 - 1.0, occ.items["SML"].body
     assert "BIG" in occ.items
@@ -40,18 +40,18 @@ def test_the_slide_reaches_its_end_when_the_larger_item_is_searched_there():
 def test_items_of_different_tiers_keep_the_tier_order():
     b = _board()
     b.place(Part("big"), priority=Priority.HIGH)
-    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH))              # a slide, but DEFAULT
+    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True))              # a slide, but DEFAULT
     assert _order(b.resolve(), "big", "sml") == ["big", "sml"]
     b2 = _board()
     b2.place(Part("big"))
-    b2.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH), priority=Priority.LOW)
+    b2.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True), priority=Priority.LOW)
     assert _order(b2.resolve(), "big", "sml") == ["big", "sml"]
 
 
 def test_slides_of_one_tier_go_by_rank():
     b = _board()
-    b.place(Part("sml"), at=Centre(10, None, toward=Edge.SOUTH))
-    b.place(Part("big"), at=Centre(30, None, toward=Edge.SOUTH))
+    b.place(Part("sml"), at=Centre(10, None, toward=Edge.SOUTH, coordinates=True))
+    b.place(Part("big"), at=Centre(30, None, toward=Edge.SOUTH, coordinates=True))
     assert _order(b.resolve(), "big", "sml") == ["big", "sml"]
 
 
@@ -67,7 +67,7 @@ def test_a_linked_slide_does_not_wait_for_a_partner_searched_in_two():
     b = _board()
     b.link(PadRef(Part("big"), "A"), PadRef(Part("sml"), "C"))
     b.place(Part("big"))
-    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH))
+    b.place(Part("sml"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True))
     assert _order(b.resolve(), "big", "sml") == ["sml", "big"]
 
 
@@ -77,7 +77,7 @@ def _freedoms(b, key):
 
 @pytest.mark.parametrize("at,expected", [
     (Location(None, 20), 1),
-    (Centre(None, 20, toward=Edge.WEST), 1),
+    (Centre(None, 20, toward=Edge.WEST, coordinates=True), 1),
     (OnEdge(Edge.WEST), 1),
     (Polar(10.0), 1),                                   # a ring: the bearing is free
     (Polar(None, 90.0), 1),                             # a spoke: the radius is free

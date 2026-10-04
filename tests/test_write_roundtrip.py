@@ -31,7 +31,7 @@ def test_moving_a_cell_and_a_part_lands_them_exactly(breakout_pcb, tmp_path):
     b = Board(before, edge_margin=0.0, keep_going=True)     # re-placing cells on a board that already carries their copper
     b.rect(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
     target = pd0.box.center.offset(0, 5.0)
-    b.place(Cell("power_drop0"), at=Centre(target.x, target.y), rotation=0)
+    b.place(Cell("power_drop0"), at=Centre(target.x, target.y, coordinates=True), rotation=0)
     b.place(Part("trunk_pwr"), at=Location(30.0, 12.0), rotation=180)
     plan = b.resolve()
     apply_plan(pcb, plan)
@@ -50,7 +50,7 @@ def test_rotating_a_cell_turns_its_members_and_copper(breakout_pcb, tmp_path):
     before = read_board(pcb)
     pd0 = before.cell("power_drop0")
     b = Board(before, edge_margin=0.0, keep_going=True)     # re-placing cells on a board that already carries their copper
-    b.place(Cell("power_drop0"), at=Centre(pd0.box.center.x, pd0.box.center.y), rotation=90)
+    b.place(Cell("power_drop0"), at=Centre(pd0.box.center.x, pd0.box.center.y, coordinates=True), rotation=90)
     plan = b.resolve()
     apply_plan(pcb, plan)
     after = read_board(pcb)

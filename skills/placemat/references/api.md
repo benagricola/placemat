@@ -274,11 +274,10 @@ is a note on the cell's step.
 **A number on a `Centre` is a coordinate, and a script says so.** `Centre(30, 12, coordinates=True)` places by coordinates;
 without the flag each axis is a reference (`X(pad)`, `Y(pad)`, a `Mid`) or `None`. `coordinates=False` is the default and
 is never written: a script that writes it gets a `setup` notice (`setup.centre_flag_default`) and a suggestion that removes
-it. In this release a number without the flag is still accepted and gives a `setup` warning (`setup.centre_coordinates`: "u1:
-Centre(30, 12) places by coordinates: write coordinates=True, or place by a relation"); the next release refuses it.
+it. A number without the flag is refused where the `Centre` is written (a `ValueError` saying what to write: a relation such
+as `Beside`, a pad's reference on the axis, or `coordinates=True`).
 `Location` is coordinates by its name and takes no flag. A suggestion never writes a number into a `Centre` or a `Location`,
-never sets `coordinates=True`, and never edits a `Location` or a `Centre` with the flag; it may turn a coordinate placement
-into a relation (`Beside`), and it may free one axis of an intent `Centre` (`Centre(X(pad), None)`).
+never sets `coordinates=True`, and never edits a `Location` or a `Centre` with the flag; it may free one axis of an intent `Centre` (`Centre(X(pad), None)`).
 
 **Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`,
 `Centre(x, y)` and `Pin(key, x, y)` fix both coordinates (the origin, the
@@ -4058,7 +4057,6 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `label.not_drawn` | none |
 | `escape_walled`, `escape_closed` | a `board.fanout(part, sides=[...])` on the side the pad's way out points at; a `board.escape(...)` keeping the pin's lane clear |
 | `escape_lane`, `escape_crossed`, `pair_crossed` | none |
-| `setup.centre_coordinates` | place it beside the neighbour it stands next to, on the side it is on, where that is legal; never `coordinates=True` |
 | `setup.centre_flag_default` | the keyword removed |
 | `setup.frame_reach` | the fit frame's declared width or height made the size that holds the item (not where the item reaches the origin side) |
 | `setup.web` | the board's `web=` lowered to the web it has |

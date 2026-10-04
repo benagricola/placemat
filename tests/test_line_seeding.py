@@ -19,8 +19,8 @@ def _board():
 
 def test_items_on_a_line_start_across_from_what_they_connect_to():
     b = _board()
-    b.place(Part("ra"), at=Centre(None, 30))
-    b.place(Part("rb"), at=Centre(None, 30))
+    b.place(Part("ra"), at=Centre(None, 30, coordinates=True))
+    b.place(Part("rb"), at=Centre(None, 30, coordinates=True))
     plan = b.resolve()
     assert abs(plan.box("ra").center.x - 43.6) < 1.5
     assert abs(plan.box("rb").center.x - 10.6) < 1.5
@@ -31,8 +31,8 @@ def test_items_with_nothing_placed_to_pull_them_share_the_line_evenly():
     fps = [footprint("R1", 70, 70, w=2, h=1, inst="ra", nets=("A", "P")),
            footprint("R2", 70, 75, w=2, h=1, inst="rb", nets=("B", "Q"))]
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
-    b.place(Part("ra"), at=Centre(None, 30))
-    b.place(Part("rb"), at=Centre(None, 30))
+    b.place(Part("ra"), at=Centre(None, 30, coordinates=True))
+    b.place(Part("rb"), at=Centre(None, 30, coordinates=True))
     plan = b.resolve()
     xs = sorted([plan.box("ra").center.x, plan.box("rb").center.x])
     assert abs(xs[0] - 20.0) < 1.0 and abs(xs[1] - 40.0) < 1.0     # thirds of the keep-in, 1 .. 59

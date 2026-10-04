@@ -793,20 +793,6 @@ def pocket_took_text(p: dict) -> str:
         p["w_mm"], p["h_mm"], p["at"][0], p["at"][1], p["seed_mm"], ", on the %s face" % p["face"] if p["face"] else "")
 
 
-def _centre_text(f: dict) -> str:
-    """The Centre as written: a number as a number, a free axis as None, a reference as "..." ."""
-    shown = []
-    for axis in ("x", "y"):
-        shown.append("%g" % f["values"][f["axes"].index(axis)] if axis in f["axes"] else
-                     "None" if axis in f["free"] else "...")
-    return "Centre(%s, %s)" % tuple(shown)
-
-
-@renders(C.SETUP_CENTRE_COORDINATES, "item", "axes", "values", "free")
-def _setup_centre_coordinates(f):
-    return "%s: %s places by coordinates: write coordinates=True, or place by a relation" % (f["item"], _centre_text(f))
-
-
 @renders(C.SETUP_CENTRE_FLAG_DEFAULT, "item")
 def _setup_centre_flag_default(f):
     return "%s: coordinates=False is the default: leave it out" % f["item"]

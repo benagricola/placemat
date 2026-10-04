@@ -544,7 +544,7 @@ def test_a_free_region_is_not_judged_by_a_hole_s_rules():
     b = make_board("u1", keep_going=True)
     b.rect(width=40.0, height=40.0, web=2.0)
     # free in x, so it slides; wide enough that every candidate touches the edge
-    b.keepout(Circle(38.0), "band", at=Centre(None, 20.0), why="the seal band")
+    b.keepout(Circle(38.0), "band", at=Centre(None, 20.0, coordinates=True), why="the seal band")
     plan = b.resolve()
     assert "band" in plan.keepouts, plan.findings
     assert any("band" in str(r.why) for r in plan.occupancy.reservations)
@@ -556,7 +556,7 @@ def test_a_free_region_may_sit_over_a_part_that_is_already_placed():
     b = make_board("u1", keep_going=True)
     b.rect(width=40.0, height=40.0)
     b.place(Part("u1"), at=Location(20.0, 20.0))
-    b.keepout(Circle(12.0), "over_it", at=Centre(None, 20.0),
+    b.keepout(Circle(12.0), "over_it", at=Centre(None, 20.0, coordinates=True),
               allow=(Part("u1"),), why="its own matching network lives here")
     plan = b.resolve()
     assert "over_it" in plan.keepouts, plan.findings

@@ -234,7 +234,7 @@ def structure_facts(board, i) -> dict:
     if i.kind == "block":
         out["block"] = {"anchor": i.item.anchor.inst, "satellites": [sat.inst for sat, _ in i.item.satellites]}
     for key, c in board._centres:
-        if key == i.key and c.x is not None and c.y is not None and not c.numeric_axes and not c.by_coordinates:
+        if key == i.key and c.x is not None and c.y is not None and not c.by_coordinates:
             out["centre"] = {"intent": True}
     return out
 

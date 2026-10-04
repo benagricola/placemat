@@ -212,9 +212,8 @@ class Centre:
     way, instead of the one nearest what the item connects to.
 
     A number on an axis is a coordinate, and a script says so: `coordinates=True`. Without it each axis is a reference
-    or None (`Centre(X(pad), Y(pad))`, `Centre(X(pad), None)`), and a number is still accepted in this release with a
-    `setup` warning that names the flag; the next release refuses it. `coordinates=False` is the default: leave it out
-    (writing it is a `setup` notice)."""
+    or None (`Centre(X(pad), Y(pad))`, `Centre(X(pad), None)`), and a number is refused. `coordinates=False` is the
+    default: leave it out (writing it beside references is a `setup` notice)."""
     x: object
     y: object
     toward: object = field(default=None, metadata={"omit_default": True})
@@ -233,6 +232,12 @@ class Centre:
     def __post_init__(self):
         if self.x is None and self.y is None:
             raise ValueError("a Centre needs at least one axis")
+        if self.numeric_axes and not self.coordinates:
+            raise ValueError(
+                "Centre(%s, %s): a number on a Centre axis is a coordinate, and a script says so. Place by intent: "
+                "Beside(part, Edge.X), OnEdge(...), or a pad's reference on the axis (Centre(X(pad), Y(pad)), "
+                "Centre(X(pad), None)); or, for a deliberate coordinate, write Centre(..., coordinates=True)"
+                % tuple("None" if v is None else "%g" % v if isinstance(v, (int, float)) else "..." for v in (self.x, self.y)))
         if self.toward is not None:
             ends = {"x": (Edge.EAST, Edge.WEST), "y": (Edge.NORTH, Edge.SOUTH)}.get(self.free_axis)
             if ends is None or self.toward not in ends:

@@ -20,7 +20,7 @@ def make_board():
 def test_a_location_fixes_the_origin_and_a_centre_fixes_the_body_centre():
     b = make_board()
     b.place(Part("j1"), at=Location(20, 20))
-    b.place(Part("j2"), at=Centre(40, 20))
+    b.place(Part("j2"), at=Centre(40, 20, coordinates=True))
     plan = b.resolve()
     assert plan.placement("j1").location == Location(20, 20) and plan.step("j1").freedom is Freedom.FIXED
     assert plan.box("j2").center == Location(40, 20) and plan.step("j2").freedom is Freedom.FIXED
@@ -30,7 +30,7 @@ def test_a_centre_may_be_said_in_pads_and_with_one_axis_free():
     b = make_board()
     b.place(Part("j1"), at=Location(10, 10))
     b.place(Part("j2"), at=Centre(X(Mid(PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B"))), Y(PadRef(Part("j1"), "A"), 6.0)))
-    b.place(Cell("mcu"), at=Centre(30, None))                     # x pinned, y free
+    b.place(Cell("mcu"), at=Centre(30, None, coordinates=True))                     # x pinned, y free
     plan = b.resolve()
     pa, pb = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J1", "2")
     assert plan.box("j2").center.x == pytest.approx((pa.x + pb.x) / 2) and plan.box("j2").center.y == pytest.approx(pa.y + 6.0)

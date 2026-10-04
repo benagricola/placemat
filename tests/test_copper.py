@@ -100,7 +100,7 @@ def test_copper_at_literal_coordinates_is_planned_before_the_search():
 def test_a_cell_pad_reference_follows_the_placed_cell():
     b = make_board()
     from placemat.values import Cell, CellPadRef
-    b.place(Cell("pd"), at=Centre(60, 60), rotation=0)
+    b.place(Cell("pd"), at=Centre(60, 60, coordinates=True), rotation=0)
     b.track(Net("CANH"), [CellPadRef(Cell("pd"), net="CANH", ref_prefix="H"), Location(0, 0)],
             layer=CopperLayer.F)
     plan = b.resolve()

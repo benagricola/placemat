@@ -34,8 +34,8 @@ board.place(Part("trunk_pwr"), at=OnEdge(Edge.NORTH, along=W / 2 - 14.0), rotati
 board.place(Part("trunk_sig"), at=OnEdge(Edge.NORTH, along=W / 2 + 14.0), rotation=180)
 for d in range(3):
     y0 = TOP + d * (STATION + GAP)
-    board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)
-    board.place(Cell("bus_drop%d" % d), at=Centre(W - EDGE - BD_DEPTH / 2, y0 + BD_ALONG / 2), rotation=90)
+    board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2, coordinates=True), rotation=270)
+    board.place(Cell("bus_drop%d" % d), at=Centre(W - EDGE - BD_DEPTH / 2, y0 + BD_ALONG / 2, coordinates=True), rotation=90)
 board.place(Part("mh1"), at=Location(8, 8)); board.place(Part("mh2"), at=Location(W - 8, 8))
 board.place(Part("mh3"), at=Location(8, H - 8)); board.place(Part("mh4"), at=Location(W - 8, H - 8))
 '''
@@ -165,8 +165,8 @@ def test_a_required_item_that_cannot_place_fails_the_run_but_writes_the_board_as
     script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
     original = script.read_text()
     script.write_text(original.replace(
-        'board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)',
-        'board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270) if d else None')
+        'board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2, coordinates=True), rotation=270)',
+        'board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2, coordinates=True), rotation=270) if d else None')
         + '\nfrom placemat import Near\n'
           'board.place(Cell("power_drop0"), at=Near(Location(8, 8), radius=0.4), required=True)   # on MH1: nowhere to go\n')
     try:

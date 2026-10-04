@@ -22,7 +22,7 @@ def _board():
 
 def test_toward_takes_the_farthest_legal_spot_and_a_low_member_may_cross_into_the_band():
     b = _board()
-    b.place(Cell("m"), at=Centre(20, None, toward=Edge.SOUTH))
+    b.place(Cell("m"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True))
     occ = b.resolve().occupancy
     s1, p1 = occ.items["S1"], occ.items["P1"]
     assert s1.body.bottom <= 30.0 + 1e-6            # the tall member stays out of the band
@@ -32,11 +32,11 @@ def test_toward_takes_the_farthest_legal_spot_and_a_low_member_may_cross_into_th
 
 def test_toward_names_what_stopped_it():
     b = _board()
-    b.place(Cell("m"), at=Centre(20, None, toward=Edge.SOUTH))
+    b.place(Cell("m"), at=Centre(20, None, toward=Edge.SOUTH, coordinates=True))
     note = b.resolve().step("m").note
     assert "south" in note and "band" in note, note
 
 
 def test_toward_must_name_an_end_of_the_free_axis():
     with pytest.raises(ValueError, match="toward"):
-        Centre(20, None, toward=Edge.EAST)
+        Centre(20, None, toward=Edge.EAST, coordinates=True)

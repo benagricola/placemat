@@ -54,8 +54,6 @@ Specced work first, then the loose ends.
    lazily on the pure-Python path.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
-12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
-    after the warning ships.
 13. **Remove `Facts.role`** (unused).
 14. **The router's DRC misses a track wholly inside a filled footprint
     polygon** (the router checkout, local only).

@@ -130,7 +130,7 @@ def test_a_decided_position_leaves_priority_nothing_to_order():
     a message: silently dropping either half would place the part somewhere
     the script never asked for."""
     from placemat.values import Along, Centre, OnEdge, Priority
-    for at in (OnEdge(Edge.NORTH, along=Along.MID), Location(20, 20), Centre(20, 20)):
+    for at in (OnEdge(Edge.NORTH, along=Along.MID), Location(20, 20), Centre(20, 20, coordinates=True)):
         b = make_board()
         with pytest.raises(ValueError, match="decided"):
             b.place(Part("j1"), at=at, priority=Priority.HIGH)

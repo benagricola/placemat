@@ -100,7 +100,7 @@ def test_vias_along_refuses_inset_it_has_no_pad_to_keep_inside():
 def test_stitch_fills_a_cell_with_vias_clear_of_the_other_net():
     fp = footprint("H1", 20, 20, w=4, h=2, cell="pd", inst="pd.h1", nets=("GND", "OTHER"))
     b = Board(board_geometry([fp], cells=["pd"], width=60, height=60), edge_margin=1.0)
-    b.place(Cell("pd"), at=Centre(20, 20), rotation=0)
+    b.place(Cell("pd"), at=Centre(20, 20, coordinates=True), rotation=0)
     b.stitch(Net("GND"), Cell("pd"), size=0.6, drill=0.3, pitch=1.0)
     plan = b.resolve()
     vias = _vias(plan)

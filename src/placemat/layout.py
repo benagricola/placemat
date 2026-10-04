@@ -2878,8 +2878,8 @@ class Board:
         much freedom is left.
 
         Location(x, y)          the origin (a cell: its box centre)        -> FIXED, no freedom
-        Centre(x, y)            the body box centre; each axis a number or
-                                a reference                                -> FIXED, no freedom
+        Centre(x, y)            the body box centre; each axis a reference,
+                                or a number with coordinates=True          -> FIXED, no freedom
         Location(x, None)       one axis pinned, the other free: the item
         Centre(None, y)         slides along the line, from across what it
                                 connects to, else sharing it evenly     -> searched, one freedom
@@ -4767,15 +4767,8 @@ class Board:
         return resolved
 
     def _report_centres(self, occ: Occupancy, plan: Plan) -> None:
-        """A Centre with a number on an axis and no `coordinates=True` is a `setup` warning in this release (the next
-        refuses it); a Centre that writes `coordinates=False` is a notice, since that is the default."""
+        """A Centre that writes `coordinates=False` is a notice, since that is the default."""
         for key, c in self._centres:
-            numeric = c.numeric_axes
-            if numeric and not c.by_coordinates:
-                plan.findings.append(self._finding(C.SETUP_CENTRE_COORDINATES, {
-                    "item": key, "axes": list(numeric), "values": [getattr(c, a) for a in numeric],
-                    "free": [a for a, v in (("x", c.x), ("y", c.y)) if v is None]}))
-                self._late_suggestions.append((plan.findings[-1], lambda f, k=key: self._measure_relation(occ, plan, k, f)))
             if c.coordinates is False:
                 plan.findings.append(self._finding(C.SETUP_CENTRE_FLAG_DEFAULT, {"item": key}, "notice"))
 
@@ -4863,38 +4856,6 @@ class Board:
             facts["a_searched"] = not intent.freedom.decided
             facts["a_priority"] = intent.priority.value if intent.priority_source == "script" else ""
         return facts
-
-    def _measure_relation(self, occ: Occupancy, plan: Plan, key: str, finding) -> None:
-        """The relation a placed item stands in to its nearest placed neighbour - the neighbour and the side it is on -
-        where placing it `Beside` that neighbour on that side is legal: what a coordinate placement may be turned into."""
-        from .suggest_facts import free_sides, intent_of
-        intent = intent_of(self, key)
-        step = next((s for s in plan.steps if s.item == key and s.placement is not None), None)
-        if intent is None or step is None or intent.kind == "block":
-            return
-        mine = occ.items[next(iter(occ._geometry(intent.item).owners))].body
-        best = None
-        for s in plan.steps:
-            if s.item == key or s.placement is None or s.kind != "part":
-                continue
-            other = intent_of(self, s.item)
-            if other is None or not hasattr(other.item, "ref") or other.item.ref not in occ.items:
-                continue
-            body = occ.items[other.item.ref].body
-            gap = math.hypot(max(body.left - mine.right, mine.left - body.right, 0.0),
-                             max(body.top - mine.bottom, mine.top - body.bottom, 0.0))
-            if best is None or gap < best[0]:
-                best = (gap, s.item, body)
-        if best is None:
-            return
-        _, neighbour, body = best
-        dx, dy = mine.center.x - body.center.x, mine.center.y - body.center.y
-        side = (Edge.EAST if dx > 0 else Edge.WEST) if abs(dx) / max(body.width + mine.width, 1e-9) >= \
-            abs(dy) / max(body.height + mine.height, 1e-9) else (Edge.SOUTH if dy > 0 else Edge.NORTH)
-        legal = free_sides(self, occ, plan, intent, neighbour, step.placement.location, step.placement.rotation,
-                           step.placement.face)
-        if side.name in legal:
-            finding.facts["relation"] = {"item": neighbour, "side": side.name}
 
     def _measure_link_over(self, occ: Occupancy, plan: Plan, l, finding) -> None:
         """The sides of the link's far part its near end may stand beside, measured on the finished board."""

@@ -72,7 +72,7 @@ def test_an_edge_part_and_a_line_part_keep_the_rotation_their_place_gives():
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
     b.place(Part("far"), at=Location(5, 30))
     b.place(Part("j"), at=OnEdge(Edge.NORTH))
-    b.place(Part("r"), at=Centre(40, None))
+    b.place(Part("r"), at=Centre(40, None, coordinates=True))
     plan = b.resolve()
     assert plan.placement("j").rotation == b.outward_rotation(Part("j"), Edge.NORTH)[0]
     assert plan.placement("r").rotation == 0

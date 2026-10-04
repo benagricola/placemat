@@ -274,7 +274,7 @@ def test_every_placed_cutout_reaches_edge_cuts(breakout_pcb, tmp_path):
     # board the generated parts left clear. That is the path on which the
     # plan's shape has to grow as each hole is cut.
     b.rect(width=box.width, height=box.height,
-           holes=[Cutout(Slot(13.0, 3.0), "ffc", at=Centre(None, 20.0), why="the cable")])
+           holes=[Cutout(Slot(13.0, 3.0), "ffc", at=Centre(None, 20.0, coordinates=True), why="the cable")])
     plan = b.resolve()
     assert set(plan.cutouts_placed) == {"ffc"}, plan.findings
     apply_plan(pcb, plan)

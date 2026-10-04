@@ -9,6 +9,12 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
+- **A number on a `Centre` axis without `coordinates=True` is refused.** `Centre(30, 12)` and `Centre(30, None)` raise a `ValueError` where
+  they are written (it was the `setup.centre_coordinates` warning since 0.91). A script must change each one: place by a relation
+  (`Beside(part, Edge.X)`, `OnEdge(...)`, a pad's reference such as `Centre(X(pad), Y(pad))` or `Centre(X(pad), None)`), or, for a
+  deliberate coordinate, write `Centre(30, 12, coordinates=True)`. This includes the `at=` of a `Cutout` or a keepout. The
+  `setup.centre_coordinates` finding and its suggestion no longer exist; `coordinates=False` beside a reference is still the
+  `setup.centre_flag_default` notice.
 - **The studio's opening dialog is titled "Open".** Its button and the header's tooltip say the same; the half-sentence title is gone.
 
 ## To 0.98.0

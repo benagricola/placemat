@@ -174,7 +174,7 @@ def test_the_plan_gives_each_finding_its_refs_and_pads():
 
 def test_a_copper_step_says_which_of_the_documents_copper_it_laid_and_a_cutout_step_which_loop_it_cut():
     b = _board()
-    b.rect(width=60.0, height=20.0, holes=[Cutout(Circle(1.0), "vent", at=Centre(40.0, 4.0), why="air")])
+    b.rect(width=60.0, height=20.0, holes=[Cutout(Circle(1.0), "vent", at=Centre(40.0, 4.0, coordinates=True), why="air")])
     plan = b.resolve()
     doc = plan_json(plan, declared_sites(b))
     steps = {s["item"]: s for s in doc["steps"]}
@@ -205,7 +205,7 @@ def test_a_footprints_own_copper_graphics_are_in_its_shapes_with_their_layer():
 def test_copper_and_cutout_steps_are_told_to_on_step_as_they_settle_with_what_they_draw():
     from placemat.preview_json import step_extras
     b = _board()
-    b.rect(width=60.0, height=20.0, holes=[Cutout(Circle(1.0), "vent", at=Centre(40.0, 4.0), why="air")])
+    b.rect(width=60.0, height=20.0, holes=[Cutout(Circle(1.0), "vent", at=Centre(40.0, 4.0, coordinates=True), why="air")])
     seen = []
     b.resolve(on_step=lambda p, s: seen.append((s.kind, s.item, step_extras(p, s))))
     kinds = [k for k, _, _ in seen]
