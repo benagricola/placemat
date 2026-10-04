@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import hashlib
 
 from .arrangements import Spec
+from .findings import Finding, FindingCause as C
+from .values import Box
 
 
 @dataclass
@@ -44,3 +46,58 @@ def signature(plan) -> str:
     for op in plan.copper:
         h.update(repr(op).encode())
     return h.hexdigest()[:16]
+
+
+_SIDE_EDGE = (("north", lambda b: b.top, min), ("east", lambda b: b.right, max),
+              ("south", lambda b: b.bottom, max), ("west", lambda b: b.left, min))
+_TOL = 1e-6
+
+
+def extent_from_boxes(boxes: dict) -> list:
+    """The members whose box reaches the outline round all of them on a side, with how far each stands past the next member's
+    edge on that side (the most over its sides). Most protruding first, then by name."""
+    out: dict = {}
+    for side, edge, pick in _SIDE_EDGE:
+        values = sorted(((edge(b), n) for n, b in boxes.items()), key=lambda t: (t[0] if pick is min else -t[0], t[1]))
+        if not values:
+            continue
+        best = values[0][0]
+        others = [w for w, _ in values if abs(w - best) > _TOL]
+        gap = abs(best - others[0]) if others else 0.0
+        for v, n in values:
+            if abs(v - best) > _TOL:
+                break
+            sides_of, was = out.get(n, ([], 0.0))
+            out[n] = (sides_of + [side], max(was, gap))
+    order = [s for s, _, _ in _SIDE_EDGE]
+    rows = [{"item": n, "sides": sorted(s, key=order.index), "protrudes_mm": round(g, 6)} for n, (s, g) in out.items()]
+    return sorted(rows, key=lambda r: (-r["protrudes_mm"], r["item"]))
+
+
+def extent_of(plan) -> list:
+    """`extent_from_boxes` of a resolved plan's placed members, as the placer claims them (`report.extent_of`)."""
+    from .board_geometry import members_of
+    boxes = {}
+    for step in plan.steps:
+        if step.placement is None or step.kind not in ("part", "cell"):
+            continue
+        item = plan._items.get(step.item)
+        for fp in members_of(item) if item is not None else ():
+            g = plan.occupancy.items.get(fp.ref)
+            claimed = [s.box for s in g.shapes if s.kind != "npth"] if g is not None else []
+            if claimed:
+                boxes[fp.inst] = Box.union(claimed)
+    return extent_from_boxes(boxes)
+
+
+def extent_findings(board, extent: list, threshold_mm: float) -> list:
+    """`arrangement.extent_fixed` for each extent member with no alternative: on a module that declares any, every one; on one
+    that declares none, those standing past the next member by more than `threshold_mm` (`place.extent_notice_mm`)."""
+    declares = bool(board._options or board._arr_groups)
+    moved = set(board._options) | {o.item for g in board._arr_groups for o in g.options}
+    out = []
+    for row in extent:
+        if row["item"] in moved or (not declares and row["protrudes_mm"] <= threshold_mm):
+            continue
+        out.append(Finding(C.ARRANGEMENT_EXTENT_FIXED, dict(row, alternatives=declares), "notice"))
+    return out
