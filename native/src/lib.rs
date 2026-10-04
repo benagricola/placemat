@@ -614,9 +614,8 @@ impl NativeBoard {
     /// its `PolyRaster` as (x0, y0, cell, nx, ny, state rows).
     #[pyo3(signature = (poly, raster=None, courtyard=false))]
     fn add_reservation(&mut self, poly: Vec<Point>, raster: Option<(f64, f64, f64, i64, i64, Vec<Vec<u8>>)>, courtyard: bool) {
-        let bbox = board::B::of_points(&poly);
         let raster = raster.map(|(x0, y0, cell, nx, ny, state)| board::Raster { x0, y0, cell, nx, ny, state });
-        self.reservations.push(board::Reservation { poly, bbox, raster, courtyard });
+        self.reservations.push(board::Reservation::new(poly, raster, courtyard));
     }
 
     fn reservation_count(&self) -> usize {
@@ -987,6 +986,7 @@ fn sweep(
         }
         _ => None,
     };
+    let mut drawn: Vec<Vec<shapes::Shape>> = origins.iter().map(|o| o.shapes.clone()).collect();
     let mut pass = judge::ReservationPass::new(&board.reservations, &reservations, judged.as_ref(), &turn_yards, &hulls, reach);
     let part_boxes: Vec<Vec<board::B>> = parts.iter().map(|ps| ps.iter().map(|p| bx(*p)).collect()).collect();
     let mut legal = Vec::new();
@@ -1067,7 +1067,8 @@ fn sweep(
             continue;
         }
         let t_obs = profile::mark();
-        match obstacles.grid.first_conflict_shifted(&origins[turn].shapes, x, y, clearance, &obstacles.cfg) {
+        let conflict = obstacles.grid.first_conflict_shifted_in(&origins[turn].shapes, &mut drawn[turn], x, y, clearance, &obstacles.cfg);
+        match conflict {
             Some((si, oi)) => { profile::add(4, t_obs); profile::add(8, t_all); refuse((2, ((turn as i64) << 32) | si as i64, oi as i64), idx, &mut refused) },
             None => {
                 profile::add(4, t_obs);

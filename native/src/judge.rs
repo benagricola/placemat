@@ -104,6 +104,58 @@ pub fn reference(
     })
 }
 
+/// The live reservations' boxes binned in a grid: the cell a point falls in holds every reservation whose box
+/// reaches it (as their indexes into `live`, in order).
+struct ResGrid {
+    x0: f64,
+    y0: f64,
+    w: f64,
+    h: f64,
+    n: usize,
+    cells: Vec<Vec<u32>>,
+}
+
+/// Most entries a grid may hold: past it the live reservations are all asked of, as before.
+const MAX_ENTRIES: usize = 2_000_000;
+
+#[inline]
+fn bin_of(v: f64, v0: f64, size: f64, n: usize) -> usize {
+    (((v - v0) / size).floor().max(0.0) as usize).min(n - 1)
+}
+
+impl ResGrid {
+    fn new(res: &[Reservation], live: &[(usize, usize)]) -> Option<ResGrid> {
+        if live.len() < 8 {
+            return None;
+        }
+        let boxes = || live.iter().map(|&(_, ri)| &res[ri].bbox);
+        let x0 = boxes().fold(f64::INFINITY, |m, b| m.min(b.l));
+        let x1 = boxes().fold(f64::NEG_INFINITY, |m, b| m.max(b.r));
+        let y0 = boxes().fold(f64::INFINITY, |m, b| m.min(b.t));
+        let y1 = boxes().fold(f64::NEG_INFINITY, |m, b| m.max(b.b));
+        let n = ((live.len() as f64).sqrt().ceil() as usize * 2).clamp(1, 64);
+        let (w, h) = ((x1 - x0) / n as f64, (y1 - y0) / n as f64);
+        if !(w > 0.0 && h > 0.0 && w.is_finite() && h.is_finite()) {
+            return None;
+        }
+        let mut cells = vec![Vec::new(); n * n];
+        let mut entries = 0usize;
+        for (k, &(_, ri)) in live.iter().enumerate() {
+            let b = &res[ri].bbox;
+            for cy in bin_of(b.t, y0, h, n)..=bin_of(b.b, y0, h, n) {
+                for cx in bin_of(b.l, x0, w, n)..=bin_of(b.r, x0, w, n) {
+                    cells[cy * n + cx].push(k as u32);
+                    entries += 1;
+                }
+            }
+            if entries > MAX_ENTRIES {
+                return None;
+            }
+        }
+        Some(ResGrid { x0, y0, w, h, n, cells })
+    }
+}
+
 pub struct ReservationPass<'a> {
     res: &'a [Reservation],
     judged: Option<&'a Vec<Vec<usize>>>,
@@ -113,6 +165,12 @@ pub struct ReservationPass<'a> {
     /// (position in `reservations`, index in the board's reservations), in `reservations` order: the ones that
     /// can reach a candidate of this sweep.
     live: Vec<(usize, usize)>,
+    /// `live`, binned: a candidate asks only the reservations whose boxes reach the cells under its hull
+    grid: Option<ResGrid>,
+    /// the indexes into `live` found for a candidate, and the stamps that keep one from being found twice
+    found: Vec<u32>,
+    stamp: Vec<u32>,
+    tick: u32,
     scratch: Vec<Point>,
 }
 
@@ -127,7 +185,7 @@ impl<'a> ReservationPass<'a> {
         hulls: &'a [B],
         reach: Option<B>,
     ) -> ReservationPass<'a> {
-        let live = reservations
+        let live: Vec<(usize, usize)> = reservations
             .iter()
             .enumerate()
             .filter(|(_, ri)| match &reach {
@@ -136,7 +194,9 @@ impl<'a> ReservationPass<'a> {
             })
             .map(|(pos, ri)| (pos, *ri))
             .collect();
-        ReservationPass { res, judged, yards, hulls, live, scratch: Vec::new() }
+        let grid = ResGrid::new(res, &live);
+        let stamp = vec![0; live.len()];
+        ReservationPass { res, judged, yards, hulls, live, grid, found: Vec::new(), stamp, tick: 0, scratch: Vec::new() }
     }
 
     /// As `reference`, over the reservations that can reach. `parts` are the unshifted boxes of a cell's
@@ -150,9 +210,40 @@ impl<'a> ReservationPass<'a> {
             Some(h) => B { l: h.l + x - REACH_SLACK, t: h.t + y - REACH_SLACK, r: h.r + x + REACH_SLACK, b: h.b + y + REACH_SLACK },
             None => B { l: f64::NEG_INFINITY, t: f64::NEG_INFINITY, r: f64::INFINITY, b: f64::INFINITY },
         };
-        for &(pos, ri) in &self.live {
+        // the live reservations whose boxes reach `near`, in `live` order
+        let mut found = std::mem::take(&mut self.found);
+        found.clear();
+        match &self.grid {
+            Some(g) => {
+                self.tick = self.tick.wrapping_add(1);
+                if self.tick == 0 {
+                    self.stamp.iter_mut().for_each(|t| *t = 0);
+                    self.tick = 1;
+                }
+                for cy in bin_of(near.t, g.y0, g.h, g.n)..=bin_of(near.b, g.y0, g.h, g.n) {
+                    for cx in bin_of(near.l, g.x0, g.w, g.n)..=bin_of(near.r, g.x0, g.w, g.n) {
+                        for &k in &g.cells[cy * g.n + cx] {
+                            if self.stamp[k as usize] != self.tick {
+                                self.stamp[k as usize] = self.tick;
+                                found.push(k);
+                            }
+                        }
+                    }
+                }
+                found.sort_unstable();
+            }
+            None => found.extend(0..self.live.len() as u32),
+        }
+        let out = self.first_hit(&found, &near, ys, body, parts, x, y);
+        self.found = found;
+        out
+    }
+
+    fn first_hit(&mut self, found: &[u32], near: &B, ys: &TurnYards, body: &B, parts: &[B], x: f64, y: f64) -> Option<(usize, usize)> {
+        for &k in found {
+            let (pos, ri) = self.live[k as usize];
             let r = &self.res[ri];
-            if !r.bbox.overlaps(&near) {
+            if !r.bbox.overlaps(near) {
                 continue;
             }
             if r.courtyard {
@@ -168,7 +259,7 @@ impl<'a> ReservationPass<'a> {
                             }
                             self.scratch.clear();
                             self.scratch.extend(poly.iter().map(|p| (p.0 + x, p.1 + y)));
-                            polys_overlap(&r.poly, &self.scratch)
+                            r.polygon_overlaps(&self.scratch)
                         }
                         _ => false,
                     }
@@ -262,7 +353,8 @@ mod tests {
         };
         let bbox = B::of_points(&poly);
         let raster = if poly.len() >= 24 { Some(honest_raster(&poly)) } else { None };
-        Reservation { poly, bbox, raster, courtyard }
+        let _ = bbox;
+        Reservation::new(poly, raster, courtyard)
     }
 
     /// `geometry.PolyRaster`'s cells: crossed (2) where an edge's box meets the cell, else inside (1) or outside (0)

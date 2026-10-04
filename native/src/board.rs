@@ -11,7 +11,7 @@
 //! the same declared order, with the same test, so the answer is the same.
 
 use crate::exact::hypot;
-use crate::geometry::polys_overlap;
+use crate::geometry::{polys_overlap, Prepared};
 
 type Point = (f64, f64);
 
@@ -483,9 +483,25 @@ pub struct Reservation {
     pub raster: Option<Raster>,
     /// A KiCad rule area: judged by each part's courtyard polygon, not its body box.
     pub courtyard: bool,
+    /// The polygon indexed, when it has many points: the overlap test then looks only at the edges near a box.
+    pub prepared: Option<Prepared>,
 }
 
 impl Reservation {
+    pub fn new(poly: Vec<Point>, raster: Option<Raster>, courtyard: bool) -> Reservation {
+        let bbox = B::of_points(&poly);
+        let prepared = if poly.len() >= 24 { Prepared::new(&poly) } else { None };
+        Reservation { poly, bbox, raster, courtyard, prepared }
+    }
+
+    /// `polys_overlap(poly, other)`.
+    pub fn polygon_overlaps(&self, other: &[Point]) -> bool {
+        match &self.prepared {
+            Some(p) => p.overlaps(other),
+            None => polys_overlap(&self.poly, other),
+        }
+    }
+
     /// `Reservation.overlaps(body)`.
     pub fn overlaps(&self, body: &B) -> bool {
         if !self.bbox.overlaps(body) {
@@ -498,7 +514,7 @@ impl Reservation {
                 }
             }
         }
-        polys_overlap(&self.poly, &body.polygon())
+        self.polygon_overlaps(&body.polygon())
     }
 }
 
