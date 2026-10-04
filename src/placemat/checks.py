@@ -622,10 +622,12 @@ class _KeepOutScope:
 
 
 _JOIN_MM = 1e-3         # copper this close to other copper of its net is joined to it
-_KEEP_OUT_TOLERANCE_MM = 1e-6   # a nanometre: KiCad's DRC and a fitted pour's outline are rounded to it
 
 
 def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Verdict]:
+    """A distance passes when it is not under the limit by more than the board's DRC epsilon, as KiCad's
+    clearance providers subtract it from the clearance before comparing (DRC_TEST_PROVIDER_COPPER_CLEARANCE,
+    `clearance - m_DRCEpsilon`; BOARD_DESIGN_SETTINGS::GetDRCEpsilon)."""
     sensitive = _sensitive_nets(geometry)
     parts, refused = keep_outs(geometry)
     out = [Verdict("keep-out", "%s Pm.KeepOut" % ref, 0.0, "mm", None, False,
@@ -670,7 +672,7 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
                 note += ", and no nearer than its own pads stand to each other (%g mm)" % limit
         if own is not None and own[0] < d:
             note += "; %s's own pads are %.2f mm apart, a distance its footprint sets" % (own[1].owner, own[0])
-        out.append(Verdict("keep-out", net, d, "mm", limit, d >= limit - _KEEP_OUT_TOLERANCE_MM, note))
+        out.append(Verdict("keep-out", net, d, "mm", limit, d >= limit - geometry.drc_epsilon, note))
     return out
 
 

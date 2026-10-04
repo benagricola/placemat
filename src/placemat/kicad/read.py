@@ -832,6 +832,7 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                     silk_clearance=mm(board.GetDesignSettings().m_SilkClearance),
                     min_track_width=mm(board.GetDesignSettings().m_TrackMinWidth),
                     hole_clearance=mm(board.GetDesignSettings().m_HoleClearance),
+                    drc_epsilon=mm(board.GetDesignSettings().GetDRCEpsilon()),
                     rule_areas=_rule_areas(board, groups_of),
                     board_polygon=_board_polygon(board), layer_types=layer_types(board),
                     copper_mm=stackup_copper_mm(path))
