@@ -334,6 +334,12 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Route width findings; findings as areas; the stale banner** (0.97.7): a
+  net the router laid under its asked width is a route.width finding
+  (critical for an island width or under the stated current); the studio
+  draws findings as merged areas with one count each; the stale-generation
+  notice has Regenerate and a dismiss, and goes after a regenerating run.
+
 - **Native sweep faster; the native pill** (0.97.6): reservations through an
   indexed polygon test and a grid, the edge through a segment index, lazy
   member shifts (core preview about 72 -> 45 s, identical output); an element
