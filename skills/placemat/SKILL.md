@@ -323,9 +323,10 @@ not a measure of how hard a step is (a candidate budget is, `place.step_budget`,
    to what your model sees). Gaps are numbers - `measure`, `occupancy`, the
    findings - not pixels. To let the user watch a series of edits live, tell
    them to run `placemat studio <script>`; it re-resolves as the script changes and has a
-   Run button for a checked run (`api.md`, "Studio"). `placemat studio` alone opens on a dialog that asks what to look at - a command
-   running now in the project (preview, full run, explore or route, followed live), a past run (its board and findings, resolved by nothing)
-   or a layout script to resolve in the studio - and starts no resolve of its own until a script is chosen.
+   Run button for a checked run (`api.md`, "Studio"). `placemat studio` alone follows the latest command in the project (preview, full run, explore or
+   route): a running one live, else the one that finished last with its board and findings, switching when a newer one starts, so the user
+   sees what you run without choosing it. The header title opens a dialog to pin a command running now, a past run (resolved by nothing) or
+   a layout script to resolve in the studio instead, or to follow the latest again. A project with nothing run opens on that dialog.
    The page's 2D | 3D switch draws the board built, from the parts' own 3D models (it needs `kicad-cli`; a part with no model is
    a hatched plate saying why); the replay slider and live resolves work in 3D (`api.md`, "Studio", "The 3D view").
    For a board whose `.zen` has no layout script yet, the studio's Build mode (a "Boards with no layout" group in its start view) states

@@ -68,6 +68,7 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 #picker h2 { margin: 0 0 4px; font-size: 18px; } #picker p { margin: 0 0 8px; color: var(--dim); }
 #picker h3 { margin: 12px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); }
 #picker .row { border-radius: 8px; }
+#picker .row.latest.on { background: var(--accent-soft); }
 #picker button.pick { border: 1px solid var(--line); background: var(--surface); margin-bottom: 8px; padding: 10px 12px; }
 #runbtn.busy { opacity: 0.7; }
 #morebtn { display: none; font-size: 18px; line-height: 1; padding-top: 4px; padding-bottom: 6px; }
@@ -590,8 +591,8 @@ svg text { user-select: none; font-family: var(--sans); }
 <body>
 <div id="infopop" role="tooltip" hidden></div>
 <header>
-  <button class="brand" id="brandbtn" aria-haspopup="dialog" aria-expanded="false" title="open a command running now, a past run or a layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
-  <span class="chip kind" id="kindchip" hidden></span><span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
+  <button class="brand" id="brandbtn" aria-haspopup="dialog" aria-expanded="false" title="follow the latest command, or open a command running now, a past run or a layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
+  <span class="chip latest" id="latestchip" hidden>latest</span><span class="chip kind" id="kindchip" hidden></span><span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
   <span class="pill stale" id="nativepill" hidden>native off</span>
   <div class="flds" id="runhead" hidden></div>
   <button class="tool" id="runbtn" title="placemat run: writes the board, runs the design checks and KiCad's DRC, scores and records the run; the live view is only a preview">Full run</button>
@@ -682,6 +683,11 @@ const S = {
   xv: null,                    // the explore being looked at: {source, id|file, start, variants, done, sel, mode, auto, drawn, thumbs, density, lastDraw}
   exploreFps: 2,
   start: null,                 // the dialog that chooses what to look at is open; null until the first hello says whether anything is chosen
+  latestOn: false,             // the Latest mode: the view follows the most recent command of the project
+  latestKey: null,             // what Latest shows now: "cmd:4", "run:ID", "explore:FILE", "route:FILE"
+  latestPending: null,         // a newer command that started while the viewer was looking at something: offered, not shown
+  touchedAt: null,             // when the viewer last selected an item, opened a finding or moved the view
+  openSeq: 0, opening: null,   // the open of a command, record or explore under way: only the newest one is shown
   projectRuns: [],             // the recorded runs of every board of the project (run.json), newest first
   findingsHand: false, findingsTab: false,   // the findings layer: turned on by hand in the legend (kept in this browser), and on while the Findings tab is open
   routes: [],                  // recorded routes of this script's board (their summaries): replayed from their records
@@ -784,7 +790,7 @@ function applyHello(d) {
     S.work = {id: d.resolving, fromHello: true, t0: serverMs(w.t0), total: w.total, replayed: w.replayed || 0,
       cur: c ? {item: c.item, what: c.what, rank: c.rank, of: c.of, replaying: c.replaying, n: c.n, t: serverMs(c.at), stage: c.stage || "", face: c.face || null, within: c.within || null, hint: c.hint || null} : null};
   }
-  if (S.restore && S.restore.s && !S.restore.switched && S.restore.s !== currentScriptId()) { S.restore.switched = true; switchTo(S.restore.s); }    // the address names another script
+  if (S.restore && S.restore.s && !S.restore.latest && !S.restore.switched && S.restore.s !== currentScriptId()) { S.restore.switched = true; switchTo(S.restore.s); }    // the address names another script
   S.cmds = new Map((d.commands || []).map(c => [c.id, c])); S.explores = d.explores || []; S.routes = d.routes || []; S.exploreFps = d.explore_fps || 2;
   S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0, regenerate: !!d.run.regenerate} : null; S.lastRun = null;
   const np = $("#nativepill"); np.hidden = !d.native_text; np.title = d.native_text || "";
@@ -792,9 +798,16 @@ function applyHello(d) {
   S.projectRuns = d.project_runs || S.projectRuns;
   const r = S.restore;
   // The first hello says whether anything is chosen: with no script given, and none named in the address, the page asks what to look at.
-  if (S.start === null) S.start = !!d.picker && !(r && (r.s || r.run || r.cmd));
-  if (r && r.run && !r.runOpened) { r.runOpened = true; openRunRecord(r.run); }
-  if (r && r.cmd && !r.cmdOpened && S.cmds.has(+r.cmd)) { r.cmdOpened = true; openCmd(+r.cmd); }
+  // With no script given and nothing in the address, and with `latest` in the address, the studio follows the latest command of the project; a project
+  // with no command or run to show gets the dialog.
+  if (S.start === null) {
+    const pinned = r && (r.s || r.run || r.cmd) && !r.latest;
+    S.start = !!d.picker && !pinned;
+    const t = !pinned && ((r && r.latest) || d.picker) ? latestTarget() : null;
+    if (t) { S.latestOn = true; S.start = false; latestOpen(t); }
+  } else if (S.latestOn) latestSwitch();                         // a hello again (the page reconnected): what started meanwhile
+  if (r && !r.latest && r.run && !r.runOpened) { r.runOpened = true; openRunRecord(r.run); }
+  if (r && !r.latest && r.cmd && !r.cmdOpened && S.cmds.has(+r.cmd)) { r.cmdOpened = true; openCmd(+r.cmd); }
 }
 on("hello", d => { applyHello(d); schedule("all"); });
 on("scripts", d => { S.scripts = d.scripts; schedule("script", "scripts"); });
@@ -806,7 +819,7 @@ on("switched", d => {                     // the studio now watches another layo
   S.docs.clear(); S.live = null; S.shownId = null; S.latestId = null; S.cmp = null; S.baseId = null; S.texts = {}; S.changed = [];
   S.sel = null; S.selRef = null; S.module = null; S.selRegion = null; S.marked = new Set(); S.replay = null; S.liveQ = [];
   S.file = null; S.cmpFile = null; S.stale = false; S.status = "waiting"; S.follow = true; S.view = null; lay = null;
-  S.cmdView = null; S.xv = null; renderCmdBar();
+  S.cmdView = null; S.xv = null; S.latestOn = false; S.latestKey = S.latestPending = null; renderCmdBar();
   applyHello(d);
   S.start = !!d.picker;
   schedule("all");
@@ -962,12 +975,13 @@ function viewState() {
 }
 function renderStatus() {
   const b = $("#status"), vs = viewState(), pick = !!(S.hello && S.hello.picker);
+  const lc = $("#latestchip"); lc.hidden = !S.latestOn; lc.title = LATEST_TITLE;
   const kc = $("#kindchip"); kc.hidden = !vs;
   if (vs) { kc.className = "chip kind kind-" + vs.kind; kc.textContent = kindWord(vs.kind); kc.title = kindTitle(vs); }
   const head = vs ? [baseName(vs.script) || "placemat studio", [vs.label, vs.pid ? "pid " + vs.pid : "", vs.run ? "run " + vs.run : ""].filter(Boolean).join(", ")]
     : pick ? ["placemat studio", ""] : [(S.hello && (S.hello.title || S.hello.script)) || "placemat studio", (S.hello && S.hello.subtitle) || ""];
   $("#board-title").textContent = head[0]; $("#board-sub").textContent = head[1];
-  $("#nothing").hidden = !(pick && !vs && !S.start);
+  $("#nothing").hidden = !(pick && !vs && !S.start && !S.latestOn);
   const label = vs ? STATE_WORD[vs.state] : pick ? "nothing open" : S.run && S.run.regenerate ? "regenerating" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = label;
   const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Full run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
@@ -1846,7 +1860,7 @@ function applyView() {
 }
 let viewQueued = false;
 function setView(v) {                 // a gesture's view, applied once a frame
-  S.view = v;
+  S.view = v; touch();
   if (!viewQueued) { viewQueued = true; requestAnimationFrame(() => { viewQueued = false; applyView(); }); }
 }
 const panelOf = face => lay.panels.find(x => x.face === face) || lay.panels[0];
@@ -2087,7 +2101,8 @@ function selectRegion(kind, id) {
   schedule("marks", "script", "compare", "card");
 }
 // A finding looked at: the parts and pads it names light up on the board, and the board scrolls to them if they are not in view.
-function focusFinding(f) {
+function focusFinding(f, restore) {
+  if (!restore) touch();
   const p = plan(), m = itemMap(p), owner = ref => itemsOf(p).find(i => i.members.some(x => x.ref === ref));
   const have = new Set(itemsOf(p).flatMap(i => i.members.map(x => x.ref)));
   let refs = (f.refs || []).filter(r => have.has(r));
@@ -2116,6 +2131,7 @@ function inView(box, face) {
   return x0 >= v.x && x1 <= v.x + v.w && y0 >= v.y && y1 <= v.y + v.h;
 }
 function selectItem(key, opt = {}) {
+  if (key && !opt.restore) touch();
   S.focus = S.focusIdx = null;
   S.sel = key; S.selRef = key ? opt.ref || null : null; S.module = null; S.selRegion = null; S.selLine = null; S.cardOff = null;
   if (key) {
@@ -2745,7 +2761,7 @@ $("#file").addEventListener("change", e => {
 });
 // Switching to another layout script: the same request from the header menu and from the picker.
 function switchTo(id) {
-  closeMenu();
+  closeMenu(); leaveLatest();
   const was = S.start;
   S.start = false; schedule("start", "status");
   if (id === currentScriptId() && !(S.hello && S.hello.picker)) { if (S.cmdView || S.xv) closeCmd(); return; }       // already the script the studio resolves
@@ -2894,8 +2910,9 @@ on("cmd", c => {
   const was = S.cmds.get(c.id), fresh = !was;
   S.cmds.set(c.id, c);
   if (was && was.state === "running" && c.state !== "running") refreshPast();
-  if (fresh && c.state === "running" && !(S.run && S.run.pid && S.run.pid === c.pid))
-    toast(kindWord(kindOf(c)) + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { goTab("runs"); openCmd(c.id); });
+  if (fresh && c.state === "running" && S.latestOn && kindOf(c) !== "apply") latestSwitch();
+  else if (fresh && c.state === "running" && !(S.run && S.run.pid && S.run.pid === c.pid))
+    toast(kindWord(kindOf(c)) + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { leaveLatest(); goTab("runs"); openCmd(c.id); });
   if (S.cmdView && S.cmdView.id === c.id) { renderCmdBar(); schedule("status"); }
   if (c.probe) schedule("findings", "card", "steps");
   schedule("runs", "counts", "start");
@@ -2904,8 +2921,9 @@ on("cmd", c => {
 const SLOW_PASS = {coarse: "coarse", coarse_half: "coarse", fine: "fine", refine: "refine", give_way: "give-way", scan: "scan", seeding: "seeding", declared: "declared"};
 const slowPass = d => !d.stage && d.firm_pass ? "firm pass " + d.firm_pass : (SLOW_PASS[d.stage] || "settle") + " pass" + (d.within ? " " + d.within[0] + " of " + d.within[1] : "") + (d.firm_pass ? ", firm pass " + d.firm_pass : "");
 const slowText = d => d.item + (d.ev === "step_limit" ? ": gave up after " : ": still working after ") + Math.round(d.elapsed_s) + " s in the " + slowPass(d);
-on("slow", d => toast(slowText(d), () => { goTab("runs"); openCmd(d.id); }));
+on("slow", d => toast(slowText(d), () => { leaveLatest(); goTab("runs"); openCmd(d.id); }));
 on("cmdev", d => {
+  if (S.opening && S.opening.id === d.id) S.opening.buf.push(d);          // an event between the page asking for the command and getting it
   if (d.ev.ev === "probe" || d.ev.ev === "candidate" || d.ev.ev === "probe_done") probeEvent(d.id, d.ev);
   if (S.cmdView && S.cmdView.id === d.id) cmdEvent(d.ev, d.n);
 });
@@ -2986,11 +3004,49 @@ function routeEvent(V, P, ev) {
 }
 const routeLine = (R, V) => !R ? "" : R.off ? "no progress for this route: " + R.off : (R.finished || (V && S.cmds.has(V.id) && S.cmds.get(V.id).state !== "running")) ? "route " + (R.partial ? "stopped before it finished: " : "finished: ") + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") + (R.dropped ? ", " + R.dropped + " events were lost, so the copper drawn may be incomplete" : "") :
   "net " + Math.min(R.total || 1, R.seen + 1) + " of " + (R.total || "?") + (R.current ? ": " + R.current : "") + ", " + R.done + " routed, " + R.failed + " failed";
+// ---------------------------------------------------------------- Latest: the view follows the most recent command of the project
+const LATEST_TITLE = "The most recent command in this project, whether a preview, a full run, an explore or a route. A running one is followed live; with none running, the one that finished last shows its board and findings. A command that starts takes over, and one that ends stays shown until the next starts.";
+const holdMs = () => 1000 * (S.hello && S.hello.follow_hold_s != null ? S.hello.follow_hold_s : 10);
+function touch() { S.touchedAt = Date.now(); }
+// The viewer is looking at something: they selected an item, opened a finding or moved the view lately, or the dialog is open.
+const holding = () => !!S.start || (S.touchedAt != null && Date.now() - S.touchedAt < holdMs());
+// What Latest shows: the command that started last, if one is running; else the command or record that ended last. A command's own record is the command.
+function latestTarget() {
+  const cmds = [...S.cmds.values()].filter(c => kindOf(c) !== "apply");          // the studio's own searches are not the project's commands
+  const run = cmds.filter(c => c.state === "running").sort((a, b) => b.started - a.started)[0];
+  if (run) return {key: "cmd:" + run.id, kind: "cmd", id: run.id, at: run.started, running: true, what: run};
+  const own = new Set(cmds.map(c => String(c.record || "")).filter(Boolean)), ownRun = r => [...own].some(f => f.includes("/" + r + "/"));
+  const runs = new Set(S.projectRuns.map(r => r.id));
+  return [
+    ...cmds.map(c => ({key: "cmd:" + c.id, kind: "cmd", id: c.id, at: c.ended || c.started, what: c})),
+    ...S.projectRuns.filter(r => !ownRun(r.id)).map(r => ({key: "run:" + r.id, kind: "run", id: r.id, at: r.at, what: {kind: "run", script: r.script, label: r.label, run: r.id}})),
+    ...S.explores.filter(e => !own.has(e.file)).map(e => ({key: "explore:" + e.file, kind: "explore", file: e.file, at: e.at, what: {kind: "explore", script: e.script, pid: e.pid}})),
+    ...S.routes.filter(r => !(r.run && runs.has(r.run))).map(r => ({key: "route:" + r.file, kind: "route", file: r.file, run: r.build ? r.run : "", at: r.at, what: {kind: r.build ? "run" : "route", script: r.script, run: r.run}})),
+  ].sort((a, b) => (b.at || 0) - (a.at || 0))[0] || null;
+}
+function latestOpen(t) {
+  S.latestKey = t.key; S.latestPending = null; S.touchedAt = null;
+  selectItem(null);
+  if (t.kind === "cmd") openCmd(t.id); else if (t.kind === "run") openRunRecord(t.id); else if (t.kind === "explore") openExploreRecord(t.file); else openRoute(t.file, t.run || "");
+  schedule("status", "start");
+}
+// A command started: show it, or, while the viewer is looking at something, offer it.
+function latestSwitch() {
+  const t = latestTarget();
+  if (!S.latestOn || !t || t.key === S.latestKey) return;
+  if (S.latestKey && holding()) { S.latestPending = t; renderCmdBar(); schedule("status"); return; }
+  latestOpen(t);
+}
+function goNewer() { const t = latestTarget(); if (t) latestOpen(t); }
+function startLatest() { const t = latestTarget(); if (!t) return; closeMenu(); S.latestOn = true; S.start = false; latestOpen(t); }
+function leaveLatest() { if (!S.latestOn) return; S.latestOn = false; S.latestKey = S.latestPending = null; schedule("status", "start"); }
 // Opening something to look at closes the dialog that chose it. A past one shows its board and findings and resolves nothing.
 function looking() { S.start = false; S.view = null; lay = null; S.replay = null; }
 async function openRoute(file, run) {
+  const my = ++S.openSeq; S.opening = null;
   try {
     const d = await getJSON(run ? "/build?run=" + encodeURIComponent(run) : "/route?f=" + encodeURIComponent(file));
+    if (my !== S.openSeq) return;
     const sc = (d.board && d.board.script) || "";
     S.cmdView = {id: "route:" + (run || file), plan: d.doc, summary: {command: run ? "build replay" : "route replay", kind: run ? "run" : "route", script: sc, pid: "", run: run || ""}, next: 0, fitted: false, replay: true, route: {total: d.doc.route.nets, done: d.doc.route.routed, failed: d.doc.route.failed, finished: true, partial: !!d.doc.route.partial, dropped: d.doc.route.dropped || 0, results: {}, step: {}}};
     S.xv = null; looking();
@@ -3004,12 +3060,15 @@ function showRunRecord(d) {
   renderCmdBar(); schedule("all");
 }
 async function openRunRecord(id) {
-  try { showRunRecord(await getJSON("/runview?run=" + encodeURIComponent(id))); }
+  const my = ++S.openSeq; S.opening = null;
+  try { const d = await getJSON("/runview?run=" + encodeURIComponent(id)); if (my === S.openSeq) showRunRecord(d); }
   catch (e) { toast("could not open the run: " + e.message); }
 }
 async function openCmd(id) {
+  const my = ++S.openSeq, op = S.opening = {id, buf: []};
   try {
     const d = await getJSON("/cmd/" + id);
+    if (my !== S.openSeq) return;
     S.cmdView = {id, plan: blankPlan(), summary: d.summary, next: d.events.length, fitted: false, route: null};
     S.xv = null;
     for (const ev of d.events) cmdEvent(ev, 0);
@@ -3017,12 +3076,20 @@ async function openCmd(id) {
     if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v, true); if (d.explore.done) S.xv.done = d.explore.done; xvDrawNow(); }
     S.cmdView.next = d.events.length;
     looking();
+    S.opening = null;
+    for (const b of op.buf) {                         // what arrived meanwhile and the command's copy did not have: events of its log past the copy's end, a plan, a variant
+      const k = b.ev.ev;
+      if (k.startsWith("route_") || (k === "explore" ? S.xv : !["plan", "variant", "explore_done"].includes(k) && b.n < d.events.length)) continue;
+      cmdEvent(b.ev, b.n);
+    }
     renderCmdBar(); schedule("all");
-  } catch (e) { toast("could not open the command: " + e.message); }
+  } catch (e) { if (S.opening === op) S.opening = null; toast("could not open the command: " + e.message); }
 }
 async function openExploreRecord(file) {
+  const my = ++S.openSeq; S.opening = null;
   try {
     const doc = await getJSON("/explore?f=" + encodeURIComponent(file));
+    if (my !== S.openSeq) return;
     S.cmdView = null;
     xvStart("record", file, {focus: doc.focus, plain: doc.plain, order: doc.order, baseline: doc.baseline, at: doc.at, jobs: doc.jobs, seconds: doc.seconds});
     for (const v of doc.variants || []) if (v.seed !== 0) xvAdd(v, true);
@@ -3032,7 +3099,7 @@ async function openExploreRecord(file) {
     renderCmdBar(); schedule("all");
   } catch (e) { toast("could not open the explore: " + e.message); }
 }
-function closeCmd() { S.cmdView = null; S.xv = null; S.view = null; lay = null; renderCmdBar(); schedule("all"); }
+function closeCmd() { leaveLatest(); S.cmdView = null; S.xv = null; S.view = null; lay = null; renderCmdBar(); schedule("all"); }
 // The strip under the header while a command or a record is looked at: what it is, and for an explore its numbers.
 function renderCmdBar() {
   const el = $("#cmdbar"), V = S.cmdView, X = S.xv, vs = viewState();
@@ -3041,8 +3108,11 @@ function renderCmdBar() {
   const what = vs.state === "recorded" ? "Past " + kindWord(vs.kind) + (V && V.record ? " " + vs.run : "") + (vs.script ? " of " + baseName(vs.script) : "") + ", nothing is resolved" :
     (vs.state === "running" ? "Following" : "Finished") + " " + (baseName(vs.script) || "a board") + (vs.pid ? ", pid " + vs.pid : "");
   el.innerHTML = kindChip(vs) + '<span class="cbt">' + esc(what) + "</span>" + (X ? xvLine(X) : "") +
-    (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route, V)) + "</span>" : "") + '<button id="cmdclose">' + (S.hello && S.hello.picker ? "Close" : "Back to the studio's own view") + "</button>";
+    (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route, V)) + "</span>" : "") +
+    (S.latestOn && S.latestPending ? '<span class="newer">A newer run started</span><button id="gonewer" title="' + esc("show " + kindTitle(S.latestPending.what)) + '">Go to it</button>' : "") +
+    '<button id="cmdclose">' + (S.latestOn ? "Stop following" : S.hello && S.hello.picker ? "Close" : "Back to the studio's own view") + "</button>";
   $("#cmdclose").onclick = closeCmd;
+  const gn = $("#gonewer"); if (gn) gn.onclick = goNewer;
 }
 
 // ---------------------------------------------------------------- suggestions
@@ -3495,10 +3565,10 @@ function rowRoute(r) {
 }
 // A tap on a row of those lists opens what it names: a command is followed, a past run, explore or route is looked at.
 function runsClick(e) {
-  const c = e.target.closest("[data-cmd]"); if (c) { openCmd(+c.dataset.cmd); return true; }
-  const v = e.target.closest("[data-runview]"); if (v) { openRunRecord(v.dataset.runview); return true; }
-  const x = e.target.closest("[data-explore]"); if (x) { openExploreRecord(x.dataset.explore); return true; }
-  const rr = e.target.closest("[data-route]"); if (rr) { openRoute(rr.dataset.route, rr.dataset.build || ""); return true; }
+  const c = e.target.closest("[data-cmd]"); if (c) { leaveLatest(); openCmd(+c.dataset.cmd); return true; }
+  const v = e.target.closest("[data-runview]"); if (v) { leaveLatest(); openRunRecord(v.dataset.runview); return true; }
+  const x = e.target.closest("[data-explore]"); if (x) { leaveLatest(); openExploreRecord(x.dataset.explore); return true; }
+  const rr = e.target.closest("[data-route]"); if (rr) { leaveLatest(); openRoute(rr.dataset.route, rr.dataset.build || ""); return true; }
   return false;
 }
 function renderRuns() {
@@ -3670,13 +3740,14 @@ document.addEventListener("change", e => { const m = e.target.closest && e.targe
 // address copied or scanned to another device opens the same view. It is written as the view changes (replaceState).
 function viewHash() {
   const q = new URLSearchParams();
-  const sid = currentScriptId(); if (sid) q.set("s", sid);
+  const sid = currentScriptId(); if (sid && !S.latestOn) q.set("s", sid);
   q.set("f", S.face);
   if (S.view) q.set("v", [S.view.x, S.view.y, S.view.w, S.view.h].map(v => Math.round(v * 10) / 10).join(","));
   if (S.sel) q.set("sel", S.sel);
   if (S.sel && S.selRef) q.set("ref", S.selRef);
   if (S.focusIdx != null && S.focusIdx >= 0) q.set("fi", S.focusIdx);
-  if (S.cmdView && String(S.cmdView.id).startsWith("run:")) q.set("run", S.cmdView.id.slice(4));
+  if (S.latestOn) q.set("latest", "1");
+  else if (S.cmdView && String(S.cmdView.id).startsWith("run:")) q.set("run", S.cmdView.id.slice(4));
   else if (S.cmdView && typeof S.cmdView.id === "number") q.set("cmd", S.cmdView.id);
   q.set("tab", S.tab);
   if (narrow() && document.body.dataset.nv) q.set("nv", document.body.dataset.nv);
@@ -3695,7 +3766,7 @@ function readHash(text) {
   const q = new URLSearchParams(String(text || "").replace(/^#/, "")), v = (q.get("v") || "").split(",").map(Number);
   if (![...q.keys()].length) return null;
   return {s: q.get("s") || "", f: q.get("f") || "", v: v.length === 4 && v.every(Number.isFinite) ? v : null, sel: q.get("sel") || "", ref: q.get("ref") || "",
-    fi: q.has("fi") ? +q.get("fi") : null, tab: q.get("tab") || "", nv: q.get("nv") || "", run: q.get("run") || "", cmd: q.has("cmd") ? +q.get("cmd") : null};
+    fi: q.has("fi") ? +q.get("fi") : null, tab: q.get("tab") || "", nv: q.get("nv") || "", run: q.get("run") || "", cmd: q.has("cmd") ? +q.get("cmd") : null, latest: q.has("latest")};
 }
 S.restore = readHash(typeof location !== "undefined" ? location.hash : "");
 // Once the plan of the right script is there: the face, the selection, the finding, the tab, then the box.
@@ -3711,8 +3782,8 @@ function applyRestore() {
   }
   if (S.resolving) return;                                        // a resolve that ends clears the selection: it is opened once that has
   S.restore = null;
-  if (r.fi != null && (p.findings || [])[r.fi]) focusFinding(p.findings[r.fi]);
-  else if (r.sel && itemMap(p).has(r.sel)) selectItem(r.sel, {ref: r.ref || null});
+  if (r.fi != null && (p.findings || [])[r.fi]) focusFinding(p.findings[r.fi], true);
+  else if (r.sel && itemMap(p).has(r.sel)) selectItem(r.sel, {ref: r.ref || null, restore: true});
   if (r.v) { S.view = {x: r.v[0], y: r.v[1], w: r.v[2], h: r.v[3]}; S.pendingFrame = null; }
   schedule("board", "marks", "card");
 }
@@ -3799,7 +3870,11 @@ function startHTML() {
     .sort((a, b) => (b.at || 0) - (a.at || 0));
   const shown = past.slice(0, 10), list = S.scripts || [];
   const sec = (title, n, body, none) => "<section><h3>" + title + ' <span class="c">' + n + "</span></h3>" + (body || '<div class="pad8 dim">' + none + "</div>") + "</section>";
-  return '<div class="box" role="dialog" aria-label="open"><div class="bh"><h2>Open</h2><button class="x" id="startclose" aria-label="close" title="close">&times;</button></div>' +
+  const lt = latestTarget();
+  const latest = '<section><h3>Runs</h3><div class="row cmd step latest' + (S.latestOn ? " on" : "") + '"' + (lt ? ' data-latest="1"' : "") + (S.latestOn ? ' aria-current="true"' : "") + ' title="' + esc(LATEST_TITLE) + '">' +
+    '<span class="chip state latest">latest</span><div class="sb"><div class="l1">' + (lt ? kindChip(lt.what) + " " : "") + "<b>Follow latest</b>" + (S.latestOn ? ' <span class="chip">current</span>' : "") + '</div><div class="l2">' +
+    (lt ? esc((lt.running ? "now " : "last ") + kindTitle(lt.what) + (lt.running ? "" : ", " + ago(lt.at))) : "Nothing has run in this project yet.") + "</div></div></div></section>";
+  return '<div class="box" role="dialog" aria-label="open"><div class="bh"><h2>Open</h2><button class="x" id="startclose" aria-label="close" title="close">&times;</button></div>' + latest +
     sec("Running now", running.length, running.map(rowCmd).join(""), "No placemat command is running in this project. A preview, a run, an explore or a route started here shows up as it begins.") +
     sec("Past runs", past.length, shown.map(p => p.html).join("") + (past.length > shown.length ? '<div class="pad8 dim">' + (past.length - shown.length) + " older ones are in the Runs tab.</div>" : ""), "Nothing has been recorded in this project yet.") +
     "<section><h3>Open a script <span class=\"c\">" + list.length + '</span></h3><div class="pad8 dim">Starts the studio\'s own preview of it.</div>' + (list.length ? list.map(s => scriptEntry(s, "pick")).join("") : '<div class="pad8 dim">The layout scripts are being listed ...</div>') +
@@ -3817,6 +3892,7 @@ function renderPicker() {
     if (e.target === el || e.target.closest("#startclose")) { closeStart(); return; }
     const b = e.target.closest("[data-script]"); if (b) { switchTo(b.dataset.script); return; }
     if (e.target.closest(".info")) return;
+    if (e.target.closest("[data-latest]")) { startLatest(); if (narrow()) showNarrow("board"); else goTab("runs"); return; }
     if (runsClick(e)) { if (narrow()) showNarrow("board"); else goTab("runs"); }
   };
 }

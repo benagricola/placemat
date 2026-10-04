@@ -1628,7 +1628,7 @@ class Studio:
         from .finding_text import native_text
         status = native_status()
         common = {"native": status.facts(), "native_text": native_text(status.facts()) if status.warns else "", "now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
-                  "explores": self.explores(), "routes": self.routes(), "project_runs": self.project_runs(), "explore_fps": self.cfg.studio_explore_fps,
+                  "explores": self.explores(), "routes": self.routes(), "project_runs": self.project_runs(), "explore_fps": self.cfg.studio_explore_fps, "follow_hold_s": self.cfg.studio_follow_hold_s,
                   "models3d": self.m3d.status(), "models": self.m3d.table(),
                   "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),
                   "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s, "builder": self.builder.hello()}
