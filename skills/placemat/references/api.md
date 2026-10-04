@@ -3708,6 +3708,13 @@ copper shows through it; the choice is kept while the page switches between 2D a
 a copper layer's row and its only button, a zone's row, the pads and vias rows and the Copper origin rows (planned, kept, routed) hide and
 show the same copper in 3D as in 2D, and switching views keeps them.
 
+The Marks rows act on 3D too. Each finding placed on the board (where it says, else at the pad or part it names) is a marker at its place
+and on the copper layer its facts name, else on the face of the part it is about, in its severity's colour (`--sev-critical`,
+`--sev-warning`, `--sev-notice`); a click on a marker selects it as a click on a 2D finding area does (one finding is looked at: the
+selection and the card follow; several on one spot are listed in the Findings tab), and hovering one lists what it says. Congestion is a
+translucent sheet lying on the top layer, under its copper, cell by cell in the 2D overlay's colours with the most congested cell ringed:
+the map is of every routing layer together, as 2D draws it under both faces. Both are hidden while a replay is under way, as in 2D.
+
 - **Plan document** (`version` 2, all additive): each member of an item has `models`, one entry per model of the footprint: `{id, state, name,
   opacity, why, matrix}`. `state` is `ok`, `vrml` (a VRML model with no STEP beside it, read by placemat itself), `none`, `missing` (`why` says
   `model not found: <path as written>`) or `hidden`; `id` names the model by its content (32 hex of SHA-256, or `e-` and KiCad's checksum for an

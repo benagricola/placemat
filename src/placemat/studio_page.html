@@ -3400,7 +3400,36 @@ const host3d = () => ({
   select: (key, ref) => selectItem(key, ref ? {ref} : {}), selected: () => S.sel,
   hover: (key, ref, x, y) => hover3d(key, ref, x, y),
   copper: () => copperInfo(plan()), off: () => S.off,
+  findings: () => findings3d(plan()), selectFindings: idx => selectFindings3d(idx), hoverFindings: (idx, x, y) => hoverFindings3d(idx, x, y),
+  heat: u => heatColour(u),
 });
+// The findings the 3D view marks: each one placed on the board (findingPlaces) with its severity, the copper layers its facts name, the face
+// of the part it is about, and whether it is the one looked at (or among those listed).
+function findings3d(p) {
+  const fs = (p && p.findings) || [], places = findingPlaces(p), imap = itemMap(p), owner = new Map();
+  for (const it of itemsOf(p)) for (const m of it.members) owner.set(m.ref, it);
+  const on = new Set(S.fsel || []);
+  if (S.focusIdx != null && S.focusIdx >= 0) on.add(S.focusIdx);
+  const out = [];
+  fs.forEach((f, i) => {
+    if (!places[i]) return;
+    const facts = f.facts || {}, it = (f.pads || []).map(x => owner.get(x[0])).concat((f.refs || []).map(r => owner.get(r))).find(Boolean) || (f.item && imap.get(f.item));
+    const layers = [].concat(typeof facts.layer === "string" ? [facts.layer] : [], Array.isArray(facts.layers) ? facts.layers.filter(x => typeof x === "string") : []);
+    out.push({i, at: places[i], sev: sevOf(f), layers, face: it ? it.face : null, on: on.has(i)});
+  });
+  return out;
+}
+// A click on markers in 3D: one finding is looked at, several are listed, as a click on a 2D cluster does.
+function selectFindings3d(idx) { if (idx && idx.length) selectCluster({idx: idx.slice()}); }
+const findingTip3d = idx => clusterLines({idx}, plan());
+function hoverFindings3d(idx, x, y) {
+  const tip = $("#tip");
+  if (!idx || !idx.length) { tip.style.display = "none"; return; }
+  const r = $("#boardwrap").getBoundingClientRect();
+  tip.textContent = fmtUnits(findingTip3d(idx).join("\n")); tip.style.display = "block";
+  tip.style.left = Math.max(4, Math.min(x - r.left + 14, r.width - 370)) + "px";
+  tip.style.top = Math.max(4, Math.min(y - r.top + 14, r.height - tip.offsetHeight - 6)) + "px";
+}
 // What the 3D view needs of the copper to draw it as the 2D drawing does: each op's origin (copperOrigins), the replay position that lays
 // it (copper no step laid shows with the last) and the one that rips it up again (null: it stands), the number of positions, and whether
 // the replay lays copper step by step (a route's) or draws it only at its end.

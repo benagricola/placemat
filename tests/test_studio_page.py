@@ -2818,3 +2818,34 @@ out.kept = [calls.some(c => c[0] === "visibility"), [...ev("host3d().off()")].so
     assert out["all"] == [1, base]
     assert out["planned"] == [1, sorted(base + ["org:kept", "org:routed"])]
     assert out["kept"] == [True, sorted(base + ["org:kept", "org:routed"])]      # the switches are the page's: a change of view keeps them
+
+
+@needs_node
+def test_the_3d_view_gets_each_placed_finding_with_its_severity_and_layer_and_a_click_on_one_selects_it_as_in_2d(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+const back = Object.assign(item("b", 9), {face: "back"});
+const f = (o) => Object.assign({kind: "clearance", severity: "warning", at: null, item: "", refs: [], pads: [], cause: null, facts: {}, suggestions: [], text: "t"}, o);
+const doc = Object.assign(copperDoc(), {items: [item("a", 1), back], findings: [
+  f({at: [3, 4], facts: {layer: "In1.Cu"}, severity: "critical", refs: ["Ra"]}),
+  f({refs: ["Rb"]}),
+  f({}),
+  f({item: "a", severity: "notice"})]});
+openDoc(doc);
+ev("V3 = __fake");
+out.marks = ev("host3d().findings()");
+ev("host3d().selectFindings([1])"); flush();
+out.one = [ev("S.sel"), ev("S.focusIdx"), ev("S.fsel")];
+out.marks2 = ev("host3d().findings()").filter(m => m.on).map(m => m.i);
+ev("host3d().selectFindings([0, 3])"); flush();
+out.two = [ev("S.tab"), [...ev("S.fsel")]];
+out.tip = ev("findingTip3d([0, 3])");
+out.heat = ev("host3d().heat(1.25)");
+""")
+    marks = {m["i"]: m for m in out["marks"]}
+    assert sorted(marks) == [0, 1, 3]                                             # the one that names no place is not drawn
+    assert marks[0]["sev"] == "critical" and marks[0]["at"] == [3, 4] and marks[0]["layers"] == ["In1.Cu"] and marks[0]["face"] == "front"
+    assert marks[1]["face"] == "back" and marks[1]["layers"] == [] and marks[3]["sev"] == "notice"
+    assert out["one"][0] == "b" and out["one"][1] == 1 and out["one"][2] is None and out["marks2"] == [1]
+    assert out["two"] == ["findings", [0, 3]]                                     # several at one spot: listed in the findings tab, as a 2D cluster
+    assert out["tip"][0] == "2 findings" and out["tip"][1].startswith("critical: ")
+    assert out["heat"] == "rgb(200,20,20)"

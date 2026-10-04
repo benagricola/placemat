@@ -198,6 +198,27 @@ def test_the_legends_switches_hide_the_copper_they_hide_in_2d(tmp_path):
 
 
 @needs_node
+def test_a_finding_stands_on_the_layer_it_names_else_on_the_face_of_its_part(tmp_path):
+    out = node('''
+        import { findingLayer } from "%s";
+        const names = ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"];
+        console.log(JSON.stringify([{layers: ["In2.Cu"], face: "front"}, {layers: ["In7.Cu", "In1.Cu"]}, {layers: [], face: "back"}, {layers: [], face: "front"}, {layers: []}, {layers: ["B.Cu"], face: "front"}]
+          .map(f => findingLayer(f, names)).concat([findingLayer({face: "back"}, [])])));
+    ''' % CORE, tmp_path)
+    assert out == ["In2.Cu", "In1.Cu", "B.Cu", "F.Cu", "F.Cu", "B.Cu", None]
+
+
+@needs_node
+def test_a_marker_is_picked_by_its_place_on_the_screen_and_markers_on_one_spot_together(tmp_path):
+    out = node('''
+        import { pickMarks } from "%s";
+        const pts = [{i: 0, x: 100, y: 100}, {i: 3, x: 104, y: 101}, {i: 5, x: 300, y: 300}, {i: 7, x: 140, y: 100}];
+        console.log(JSON.stringify([pickMarks(pts, 102, 100, 10), pickMarks(pts, 300, 309, 10), pickMarks(pts, 200, 200, 10), pickMarks(pts, 125, 100, 10)]));
+    ''' % CORE, tmp_path)
+    assert out == [[0, 3], [5], [], []]
+
+
+@needs_node
 def test_a_via_spans_its_layers_and_a_through_via_the_whole_stack(tmp_path):
     out = node('''
         import { viaSpan } from "%s";

@@ -151,3 +151,18 @@ export function copperShown(cu, off) {
   if (cu.kind === "via" && off.has("via")) return false;
   return true;
 }
+
+// ---- marks
+// The layer a finding's marker stands on: the first copper layer it names (`layers`, from its facts), else the face of the part it is
+// about (the bottom layer for the back), else the top layer. null when there are no layers.
+export function findingLayer(f, names) {
+  if (!names.length) return null;
+  const named = (f.layers || []).find(l => names.includes(l));
+  if (named) return named;
+  return f.face === "back" ? names[names.length - 1] : names[0];
+}
+// The markers under the pointer: every one whose place on the screen ({i, x, y}, pixels) is within r of it, by index. Markers on one spot
+// are picked together, as a 2D cluster is.
+export function pickMarks(pts, x, y, r) {
+  return pts.filter(p => Math.hypot(p.x - x, p.y - y) <= r).map(p => p.i).sort((a, b) => a - b);
+}

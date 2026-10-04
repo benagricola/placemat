@@ -11,7 +11,7 @@ import { OrbitControls } from "./OrbitControls.js";
 const css = (n, d) => (getComputedStyle(document.documentElement).getPropertyValue(n) || "").trim() || d;
 const dark = () => matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
 
-import { parsePmm, upper, partSteps, plateOutline, layerStack, drawHeight, viaSpan, trackPolys, visibleRanges, copperShown } from "./viewer_core.js";
+import { parsePmm, upper, partSteps, plateOutline, layerStack, drawHeight, viaSpan, trackPolys, visibleRanges, copperShown, findingLayer, pickMarks } from "./viewer_core.js";
 export { parsePmm };
 
 function hatch(color) {
@@ -69,7 +69,11 @@ export async function mount(host) {
     };
     // the copper in the 2D view's layer colours (studio_page.html's tokens)
     Object.assign(t, {cuF: css("--copper", d ? "#e8895a" : "#b45f2c"), cuB: css("--copperB", d ? "#6aa3ff" : "#2f6fb8"), cuIn: css("--copperIn", d ? "#5dc48a" : "#2e8b57"),
-      planeF: css("--plane", d ? "#b8734a" : "#c98a5e"), via: css("--via", d ? "#c47a45" : "#7d4a22"), substrate: css("--substrate", d ? "#1b2025" : "#fbfbf8")});
+      planeF: css("--plane", d ? "#b8734a" : "#c98a5e"), via: css("--via", d ? "#c47a45" : "#7d4a22"), substrate: css("--substrate", d ? "#1b2025" : "#fbfbf8"),
+      sevCritical: css("--sev-critical", d ? "#ff7a73" : "#c8312c"), sevWarning: css("--sev-warning", d ? "#f0b24a" : "#9a5b00"), sevNotice: css("--sev-notice", d ? "#6f9cff" : "#2563eb"),
+      bad: css("--bad", d ? "#ff7a73" : "#c8312c")});
+    state.marksSig = "";                                     // the markers take the theme's colours at their next sync
+    if (host.changed && state.sig) host.changed();
     state.theme = t;
     renderer.setClearColor(new THREE.Color(t.bg), 1);
     bodyLook();
@@ -377,7 +381,98 @@ export async function mount(host) {
   function visibility() {
     const off = host.off ? host.off() : new Set();
     for (const m of state.copper) { const cu = m.userData.cu; cu.off = !copperShown(cu, off); m.visible = !cu.empty && !cu.off; }
+    marksVisibility();
+  }
+
+  // ---- marks: each finding placed on the board is a marker at its place and its layer's height (findingLayer), in its severity's colour
+  // (the page's tokens), drawn over everything; the congestion map is a translucent sheet over the top layer, cell by cell in the 2D
+  // overlay's colours (host.heat), with the most congested cell ringed. The map is of every routing layer together (RUDY), so it lies on
+  // the top one, under its copper as 2D draws it under the copper. Both are switched by the legend's Marks rows and hidden while a replay
+  // is under way, as in 2D.
+  const MARK_PX = 14, MARK_ON_PX = 26, MARK_PICK_PX = 10, HEAT_OPACITY = 0.6, HEAT_LIFT = 0.005, MARK_LIFT = 0.1;
+  state.marks = []; state.markObjs = []; state.heat = null;
+  function dotTexture(ring) {
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const g = c.getContext("2d");
+    g.beginPath(); g.arc(32, 32, ring ? 26 : 24, 0, 2 * Math.PI);
+    if (ring) { g.strokeStyle = "#ffffff"; g.lineWidth = 8; g.stroke(); }
+    else { g.fillStyle = "#ffffff"; g.fill(); g.strokeStyle = "#10151b"; g.lineWidth = 6; g.stroke(); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+  function clearMarks() {
+    for (const o of state.markObjs) { state.root.remove(o); o.geometry.dispose(); if (o.material.map) o.material.map.dispose(); o.material.dispose(); for (const c of o.children) { c.geometry.dispose(); c.material.dispose(); } }
+    state.markObjs = []; state.marks = []; state.heat = null; state.markSel = null;
+  }
+  const markY = m => layerY(m.layer) + (m.layer === state.stack.layers[state.stack.layers.length - 1].name && state.stack.layers.length > 1 ? -MARK_LIFT : MARK_LIFT);
+  function buildMarks(plan) {
+    clearMarks();
+    const names = state.stack ? state.stack.layers.map(l => l.name) : [];
+    if (!names.length) return;
+    const t = state.theme, sevCol = {critical: t.sevCritical, warning: t.sevWarning, notice: t.sevNotice};
+    state.marks = (host.findings ? host.findings() : []).map(m => ({i: m.i, sev: m.sev, at: m.at, on: m.on, layer: findingLayer(m, names)}));
+    const points = (ms, col, px, ring, order) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(ms.flatMap(m => [m.at[0], markY(m), m.at[1]]), 3));
+      const p = new THREE.Points(g, new THREE.PointsMaterial({color: new THREE.Color(col), size: px, sizeAttenuation: false, map: dotTexture(ring), transparent: true, alphaTest: 0.05, depthTest: false, depthWrite: false}));
+      p.renderOrder = order; p.userData.marks = ms; p.userData.kind = "finding"; p.frustumCulled = false;
+      state.root.add(p); state.markObjs.push(p);
+      return p;
+    };
+    ["notice", "warning", "critical"].forEach((sev, n) => { const ms = state.marks.filter(m => m.sev === sev); if (ms.length) points(ms, sevCol[sev], MARK_PX, false, 10 + n); });      // the worst drawn last, on top
+    const on = state.marks.filter(m => m.on);
+    if (on.length) state.markSel = points(on, t.accent, MARK_ON_PX, true, 20);
+    const c = plan.congestion;
+    if (c && c.cells && c.cells.length && host.heat) {
+      const cs = c.cell, n = c.cells.length, pos = new Float32Array(n * 12), col = new Float32Array(n * 12), idx = new Uint32Array(n * 6), tmp = new THREE.Color();
+      c.cells.forEach(([i, j, u], k) => {
+        const x0 = c.origin[0] + i * cs, z0 = c.origin[1] + j * cs;
+        pos.set([x0, 0, z0, x0 + cs, 0, z0, x0 + cs, 0, z0 + cs, x0, 0, z0 + cs], k * 12);
+        tmp.setStyle(host.heat(u));
+        for (let v = 0; v < 4; v++) col.set([tmp.r, tmp.g, tmp.b], k * 12 + v * 3);
+        idx.set([k * 4, k * 4 + 1, k * 4 + 2, k * 4, k * 4 + 2, k * 4 + 3], k * 6);
+      });
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.BufferAttribute(col, 3)); g.setIndex(new THREE.BufferAttribute(idx, 1));
+      const sheet = new THREE.Mesh(g, new THREE.MeshBasicMaterial({vertexColors: true, transparent: true, opacity: HEAT_OPACITY, depthWrite: false, side: THREE.DoubleSide}));
+      sheet.renderOrder = 5; sheet.userData.kind = "heat";
+      if (c.worst_at) {
+        const ring = [], r = cs * 1.6;
+        for (let a = 0; a < 32; a++) ring.push(c.worst_at[0] + r * Math.cos(a / 16 * Math.PI), 0.01, c.worst_at[1] + r * Math.sin(a / 16 * Math.PI));
+        const lg = new THREE.BufferGeometry(); lg.setAttribute("position", new THREE.Float32BufferAttribute(ring, 3));
+        sheet.add(new THREE.LineLoop(lg, new THREE.LineBasicMaterial({color: new THREE.Color(t.bad)})));
+      }
+      g.computeBoundingSphere();
+      state.root.add(sheet); state.markObjs.push(sheet); state.heat = sheet;
+    }
+    placeMarks();
+    marksVisibility();
+  }
+  function placeMarks() {
+    for (const o of state.markObjs) {
+      if (o.userData.kind === "finding") {
+        const pos = o.geometry.attributes.position;
+        o.userData.marks.forEach((m, n) => { pos.array[3 * n + 1] = markY(m); });
+        pos.needsUpdate = true;
+      } else if (o.userData.kind === "heat") o.position.y = layerY(state.stack.layers[0].name) + HEAT_LIFT;
+    }
+  }
+  function marksVisibility() {
+    const off = host.off ? host.off() : new Set(), replaying = state.k != null && state.k < state.cn;
+    for (const o of state.markObjs) o.visible = !replaying && !off.has(o.userData.kind === "heat" ? "heat" : "findings");
     request();
+  }
+  // The findings under the pointer, by their markers' places on the screen.
+  function marksAt(ev) {
+    const shown = state.markObjs.some(o => o.userData.kind === "finding" && o.visible);
+    if (!shown) return [];
+    const r = canvas.getBoundingClientRect(), v = new THREE.Vector3(), pts = [];
+    for (const m of state.marks) {
+      v.set(m.at[0], markY(m), m.at[1]).project(camera);
+      if (v.z > 1) continue;
+      pts.push({i: m.i, x: (v.x + 1) / 2 * r.width, y: (1 - v.y) / 2 * r.height});
+    }
+    return pickMarks(pts, ev.clientX - r.left, ev.clientY - r.top, MARK_PICK_PX);
   }
 
   const plateAt = vertex => { let lo = 0, hi = state.plates.length - 1; while (lo <= hi) { const mid = (lo + hi) >> 1, p = state.plates[mid]; if (vertex < p.vstart) hi = mid - 1; else if (vertex >= p.vend) lo = mid + 1; else return p; } return null; };
@@ -448,7 +543,7 @@ export async function mount(host) {
       for (const p of state.plates) if (p.label) p.label.visible = p.n < lim;
     }
     showCopper(k);
-    request();
+    marksVisibility();
   }
 
   // ---- selection: the selected part is drawn whole, the rest faded
@@ -544,6 +639,8 @@ export async function mount(host) {
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), dt = performance.now() - down.t;
     down = null;
     if (moved > 5 || dt > 500 || e.button > 0) return;
+    const fi = marksAt(e);
+    if (fi.length) { host.selectFindings(fi); return; }
     const hit = pick(e);
     host.select(hit ? hit.key : null, hit ? hit.ref : null);
   });
@@ -556,6 +653,8 @@ export async function mount(host) {
     const now = performance.now();
     if (now - hoverAt < 70) return;
     hoverAt = now;
+    const fi = marksAt(e);
+    if (fi.length && host.hoverFindings) { host.hoverFindings(fi, e.clientX, e.clientY); return; }
     const h = pick(e);
     host.hover(h ? h.key : null, h ? h.ref : null, e.clientX, e.clientY);
   });
@@ -625,6 +724,9 @@ export async function mount(host) {
         fresh = first || !opts.animate ? [] : [...state.seen].filter(k => !before.has(k));
         if (first || (!state.userMoved && state.fitExtent !== state.extent.join(","))) { setView(state.viewName || "iso"); }      // the board grows while a resolve fits it: the view follows until someone moves it
       }
+      const fsig = (host.findings ? host.findings() : []).map(m => m.i + (m.on ? "*" : "")).join(",") + "#" + (plan.congestion ? plan.congestion.cells.length + ":" + plan.congestion.worst : "") +
+        "#" + JSON.stringify(state.stack && state.stack.layers.map(l => l.name));
+      if (sig !== state.lastMarkSig || fsig !== state.marksSig) { buildMarks(plan); state.marksSig = fsig; state.lastMarkSig = sig; }
       const prevK = state.k;
       showSteps(opts.k == null ? null : opts.k);
       if (opts.play && opts.k != null && prevK != null && opts.k > prevK && opts.k - prevK <= 3 && (host.settings().appear_ms || 0) > 0) {
