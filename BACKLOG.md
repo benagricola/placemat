@@ -312,6 +312,11 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Rows laid again in each firm pass** (0.99.4): a row whose start is a
+  reference (`of=` and the like) found its start once, in the first firm
+  pass, so after the copper room moved its anchor part it stood off to one
+  side of it; the firm passes now put rows back with everything else.
+
 - **Keep-out by layer; Between same-net; pin-swap example** (0.99.3): the
   keep-out check judges only copper sharing a layer, as KiCad does, and a
   cross-layer pair with no plane between is a `keep_out.cross_layer` notice;
