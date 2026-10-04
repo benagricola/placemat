@@ -323,6 +323,13 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **The studio opens on a choice; commands say their kind; explores
+  followed** (0.98.0): no board and no resolve until chosen (a running
+  command, a past run, or a script); Runs is the first tab; every command
+  shows preview/run/explore/route; following an explore shows its variants
+  and moves the board to the best; the findings layer follows the Findings
+  tab; chip colours carry meaning.
+
 - **Route width findings; findings as areas; the stale banner** (0.97.7): a
   net the router laid under its asked width is a route.width finding
   (critical for an island width or under the stated current); the studio
