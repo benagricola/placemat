@@ -535,7 +535,8 @@ back is taken when its score plus that is below the front's, or when the front
 has no legal spot. With nothing to score by (no link, push or lane) the front
 is taken whenever it has a spot. The step note says why a back spot was
 taken. An item with no spot on either face takes the front's pockets, then the
-back's, and is unplaced when none fits.
+back's, then a scan of each whole face (the step budget bounds it), and is
+unplaced when none fits.
 
 ```python
 board.place(Cell("m1"), face=Face.EITHER)                       # a cell with no reason to be on one face
@@ -932,7 +933,15 @@ of=Part("u1"), align=Along.START)` runs the row along that side of
 `Part("u1")`'s (or a `Cell`'s) drawn envelope instead of the board's: `gap`
 (default the envelope's own, as `Beside` keeps) is both the row's own gap
 and how far its near line stands off `of`, and `line=` still says how the
-row aligns across itself. `align=Along.START/MID/END` is where along
+row aligns across itself. The distance is taken as `Beside`'s is: from the
+shapes `of`'s envelope is made of, not the box round them, but one distance
+for the row, the nearest at which every item clears the shapes it faces, so
+the row stays on one line: a mark drawn outside the body holds the whole row
+off only if an item stands over it. An item that then stands nearer than the
+box put it, and would be in the way of something placed, is moved on out
+(`place.beside_step`, `place.beside_reach`). A row that overhangs, a row
+riding a searched `of` and a row with an item taken back to the box (copper
+declared where it stands nearer) keep the box. `align=Along.START/MID/END` is where along
 `of`'s side the row sits (default `START`). `centre=PadRef(...)` instead
 puts the row's middle on that pad's centre line: a pad of `of`, or of any
 part placed firmly by then. It takes one `PadRef` or `CellPadRef` (a `Mid`
@@ -4235,6 +4244,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.block_gap_step` | `0.05` | mm | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | `2.0` | mm | how far a satellite may stand off its pin |
 | `place.copper_room` | `true` | bool | whether placement keeps room for the copper the script declares: a track or via declared between parts is planned provisionally, and a part standing Beside another moves out of its way. False places as before |
+| `place.drc_epsilon` | `false` | bool | whether placement judges a copper, hole and hole-to-hole gap as KiCad's DRC does, a gap short of its rule by no more than the board's DRC epsilon (`BoardGeometry.drc_epsilon`, 0.0005 mm on a fresh board) counting as clear, and takes the net-tie exclusion's epsilon from the board. False keeps the nanometre it judged with and the fixed 500 nm. Findings and checks always take the epsilon |
 | `place.step_budget` | `20000000` | count | the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area it covered. Counted, not timed: the result does not depend on how busy the machine is. A `place(budget=)` replaces it |
 | `place.firm_passes` | `8` | count | the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was refused by a firm part placed before it, with the two taken in the other order), the last one the settled run |
 | `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |

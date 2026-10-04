@@ -114,7 +114,7 @@ fn build_rules(rules: Option<Vec<RuleArg>>) -> Vec<shapes::ClearanceRule> {
 /// direct fuzzing against the live Python method - see
 /// tests/test_native_conflict.py.
 #[pyfunction]
-#[pyo3(signature = (s, o, clearance, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance, rules=None))]
+#[pyo3(signature = (s, o, clearance, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance, epsilon, rules=None))]
 #[allow(clippy::too_many_arguments)]
 fn conflict(
     s: PyShape,
@@ -128,6 +128,7 @@ fn conflict(
     net_clearance: shapes::NetMap,
     hole_to_hole: f64,
     hole_clearance: f64,
+    epsilon: f64,
     rules: Option<Vec<RuleArg>>,
 ) -> PyResult<bool> {
     // gap/drawn_gap are only read by ShapeGrid::first_conflict's gap_for,
@@ -136,7 +137,7 @@ fn conflict(
     let max_clearance = shapes::largest_clearance(default_clearance, &net_clearance, &rules);
     let cfg = shapes::ConflictConfig {
         touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance,
-        rules, gap: 0.0, drawn_gap: 0.0, hole_to_hole, hole_clearance, max_clearance,
+        rules, gap: 0.0, drawn_gap: 0.0, hole_to_hole, hole_clearance, max_clearance, epsilon,
     };
     Ok(shapes::conflict(&build_shape(&s)?, &build_shape(&o)?, clearance, &cfg))
 }
@@ -154,7 +155,7 @@ struct NativeObstacles {
 #[pymethods]
 impl NativeObstacles {
     #[new]
-    #[pyo3(signature = (obstacles, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap, hole_to_hole, hole_clearance, rules=None))]
+    #[pyo3(signature = (obstacles, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap, hole_to_hole, hole_clearance, epsilon, rules=None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         obstacles: Vec<PyShape>,
@@ -168,6 +169,7 @@ impl NativeObstacles {
         drawn_gap: f64,
         hole_to_hole: f64,
         hole_clearance: f64,
+        epsilon: f64,
         rules: Option<Vec<RuleArg>>,
     ) -> PyResult<Self> {
         let built: Vec<shapes::Shape> = obstacles.iter().map(build_shape).collect::<PyResult<_>>()?;
@@ -175,7 +177,7 @@ impl NativeObstacles {
         let max_clearance = shapes::largest_clearance(default_clearance, &net_clearance, &rules);
         let cfg = shapes::ConflictConfig {
             touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance,
-            rules, gap, drawn_gap, hole_to_hole, hole_clearance, max_clearance,
+            rules, gap, drawn_gap, hole_to_hole, hole_clearance, max_clearance, epsilon,
         };
         Ok(NativeObstacles { grid: shapes::ShapeGrid::new(built), cfg })
     }

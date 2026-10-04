@@ -34,9 +34,6 @@ Specced work first, then the loose ends.
    "room"` (off by default; `room.py`: spots counted from the declaration, not
    judged); left to do: make it the default once a real board's table says so,
    and count hard link limits once they exist.
-0d. **Pocket path misses non-rectangular room** (same session): an unlinked
-   13.2 x 15.2 part finds no pocket among the few largest free rectangles though
-   the hand layout has a legal spot; fall back to a full sweep of the face.
 1a. **Measurements for the other searched levers**: blocker gap/side, search
    radius, fanout depth, turns, label size, stitch pitch and the tuning limits
    get a searched suggestion only once the sites that raise their findings
@@ -51,7 +48,6 @@ Specced work first, then the loose ends.
    has a distance but no cause, and a block slide or a searched move that no
    refusal explains has none; record one (a `why` refusal on the note) where
    the engine knows it.
-8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
    lazily on the pure-Python path. Not small: about 20 `Refusal(...)` sites in
    occupancy's conflict, hole, edge and via-ban judges build their facts
@@ -67,11 +63,15 @@ Specced work first, then the loose ends.
   `ShapeGrid::first_conflict_shifted_excluding` and an unused
   `point_segment_distance` import in giveway.rs.
 
-- **Placement judges clearance with KiCad's DRC epsilon** (follow-up to the
-  0.97.1 keep-out fix): occupancy's copper clearance and draw/body gaps use a
-  1e-9 tolerance, and net ties a hard-coded 500 nm; reading
-  `BoardGeometry.drc_epsilon` there would remove float-noise refusals during
-  placement. Changes which spots are legal: bench first.
+- **Placement's DRC epsilon is opt-in** (`place.drc_epsilon`, default off; findings
+  and checks always take it): whether to make it the default is for the user once a
+  real board's moves are judged (the fairing core moves five cells with it on). With
+  it on, the other 1e-9 gap tests that stand for a KiCad rule still compare with a
+  nanometre where occupancy takes the epsilon off: `queries.py` (the studio's probe:
+  clearance, hole to hole, hole clearance), the via-site judgments in `layout.py`
+  (hole to hole, hole clearance) and `lanes.py`'s hole check. Silk and courtyard
+  gaps are right as they are: KiCad compares those without it.
+
 ## Open
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`

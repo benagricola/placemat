@@ -115,6 +115,11 @@ class Settings:
     place_copper_room: bool = S(True, "bool",
         "whether placement keeps room for the copper the script declares: a track or via declared between parts is planned "
         "provisionally, and a part standing Beside another moves out of its way. False places as before")
+    place_drc_epsilon: bool = S(False, "bool",
+        "whether placement judges a copper, hole and hole-to-hole gap as KiCad's DRC does, a gap short of its rule by no more than the "
+        "board's DRC epsilon (`BoardGeometry.drc_epsilon`, 0.0005 mm on a fresh board) counting as clear, and takes the net-tie "
+        "exclusion's epsilon from the board. False keeps the nanometre it judged with and the fixed 500 nm. Findings and checks "
+        "always take the epsilon")
     place_step_budget: int = S(20_000_000, "count",
         "the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; "
         "a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area "

@@ -720,9 +720,6 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     return False
 
 
-_CLEAR_EPS = 1e-9       # mm: a gap that short of the clearance is a tie, as occupancy judges one (`gap < clr - 1e-9`)
-
-
 def extra_walls(occ, box: Box, net: str) -> tuple:
     """(holes, bans) near `box` that the clearance check refuses a track or a via at but are no copper: the unplated holes
     of every placed part (a hole is on every layer), and the rule areas that forbid vias, which only a via meets, unless
@@ -737,8 +734,8 @@ def extra_walls(occ, box: Box, net: str) -> tuple:
 def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via: float, toward, bans=(), delta=None, via_exit: bool = True) -> bool:
     """`path_out`'s search on the shapes themselves: from every cell on `start_shapes` (the pad and the pad's own copper) over
     the cells of `win` a track keeps `track` (half its width and the clearance) from every foe on its layers, to the window's
-    edge or to a cell a via fits at, `via` from every foe. A gap short of that by under a nanometre is a tie, which holds, as
-    in occupancy.
+    edge or to a cell a via fits at, `via` from every foe. A gap short of that by no more than the board's DRC epsilon is a tie,
+    which holds, as in occupancy.
 
     A track runs at 0, 45 and 90 degrees, so a second search walks those directions from where the pad's copper can be carried
     on: each end of its tracks and the pad's centre, on a lattice of `place.escape_cell` steps through that point. A lane
@@ -754,12 +751,13 @@ def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via
         return win.left + (i + 0.5) * cw, win.top + (j + 0.5) * ch
 
     delta = delta or {}
+    eps = occ.geometry.drc_epsilon
 
     def near(shapes, x, y, r):
         """Whether the least distance from (x, y) to the shapes is under `r` (a shape's own reach differs by its `delta`), 0
         inside one."""
         for sh in shapes:
-            rs = max(r + delta.get(id(sh), 0.0) - _CLEAR_EPS, 0.0)
+            rs = max(r + delta.get(id(sh), 0.0) - eps, 0.0)
             b = sh.box
             if b.left - rs >= x or x >= b.right + rs or b.top - rs >= y or y >= b.bottom + rs:
                 continue

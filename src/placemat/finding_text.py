@@ -264,8 +264,11 @@ def pocket_note(f: dict) -> str:
     if f["variant"] == "any_rotation":
         return "no pocket fits its %.1f x %.1f envelope on the %s face at any rotation asked for" % (
             f["w_mm"], f["h_mm"], f["face"])
-    return "no pocket fits its %.1f x %.1f envelope on the %s face (%d pocket(s) tried)%s" % (
-        f["w_mm"], f["h_mm"], f["face"], f["tried"], _riders(f.get("riders", ())))
+    scan = ""
+    if f.get("scanned"):
+        scan = "; a scan of the whole face found no legal spot" + ("" if not f.get("budget") else " (%s)" % budget_text(f["budget"]))
+    return "no pocket fits its %.1f x %.1f envelope on the %s face (%d pocket(s) tried)%s%s" % (
+        f["w_mm"], f["h_mm"], f["face"], f["tried"], scan, _riders(f.get("riders", ())))
 
 
 def turns_text(turns: list) -> str:
