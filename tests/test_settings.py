@@ -163,7 +163,7 @@ def test_a_negative_weight_is_an_error(tmp_path):
 def test_a_zero_weight_is_allowed(tmp_path):
     """Weighting pins at nothing is a legitimate choice; weighting a step at
     nothing is a scan that never moves."""
-    _toml(tmp_path / "placemat.toml", "[rank]\npins = 0.0\n")
+    _toml(tmp_path / "placemat.toml", "[rank]\npins_weight = 0.0\n")
     assert S.load(tmp_path).rank_pins_weight == 0.0
 
 

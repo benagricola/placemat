@@ -96,8 +96,6 @@ SAMPLES = [
      "accept keep-out A: no verdict by that check and subject on this board"),
     (C.SETUP_RULE_NOTE, {"variant": "net", "rule": "r", "cell": "k", "net": "N"},
      "rule 'r' from the k cell is not carried: its net N is not on this board"),
-    (C.SETUP_SETTING_RENAMED, {"path": "placemat.toml", "old": "a.b", "new": "a.c"},
-     "placemat.toml: a.b is now a.c (the old name still works for one release)"),
     (C.SETUP_LOOKAHEAD, {"item": "u1", "other": "u2", "own": "R1", "short_mm": 0.5, "asked_mm": 2.0},
      "u1: no spot was left for u2 at its limit distance from R1, so the look-ahead was dropped and R1 is placed without it; the "
      "best spot for R1 left u2 0.50 mm short of 2.0 mm"),

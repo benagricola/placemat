@@ -1,6 +1,5 @@
 """Settings documented as data: every setting's unit and meaning live in settings.py, the api.md table is generated
-from them, `placemat settings --example` writes a complete commented placemat.toml that loads to the defaults, and a
-renamed setting's old name still loads, with a setup notice naming the new one."""
+from them, `placemat settings --example` writes a complete commented placemat.toml that loads to the defaults, and a setting's old name from before a rename is refused as unknown."""
 import re
 import tomllib
 from pathlib import Path
@@ -73,71 +72,13 @@ def test_the_cli_writes_the_example_to_a_file_or_stdout(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------- renames
-def test_the_renames_are_data_and_each_new_name_is_a_setting_the_old_is_not():
-    assert len(S.RENAMED) >= 25
-    for old, new in S.RENAMED.items():
-        assert new in Settings.keys() and old not in Settings.keys(), (old, new)
-    assert S.RENAMED["copper_arc_radius_widths"] == "copper_arc_radius_track_widths"
-
-
-def _other_than_default(name):
-    default = getattr(Settings(), name)
-    if default is None:
-        return 7
-    if isinstance(default, bool):
-        return not default
-    if isinstance(default, (int, float)):
-        return default + 1
-    return default
-
-
-def n_new(notice):
-    return notice[2]
-
-
-@pytest.mark.parametrize("old", sorted(S.RENAMED))
-def test_an_old_name_still_loads_into_the_new_one_with_a_notice(old, tmp_path):
-    new = S.RENAMED[old]
-    value = _other_than_default(new)
-    section, key = S.split_key(old)
-    (tmp_path / "placemat.toml").write_text("[%s]\n%s = %s\n" % (section, key, S._toml_value(value)))
-    s = load(tmp_path)
-    assert getattr(s, new) == value
-    notice = next(n for n in s.notices if n[1] == "%s.%s" % (section, key))
-    assert n_new(notice) == "%s.%s" % S.split_key(new)
-
-
-def test_an_old_and_a_new_name_together_are_refused(tmp_path):
-    (tmp_path / "placemat.toml").write_text("[copper]\narc_radius_widths = 4.0\narc_radius_track_widths = 5.0\n")
-    with pytest.raises(SettingsError, match="arc_radius_track_widths.*arc_radius_widths|both"):
+@pytest.mark.parametrize("old, section, key", [("rank_area", "rank", "area"), ("copper_arc_radius_widths", "copper", "arc_radius_widths"),
+                                               ("place_via_share", "place", "via_share"), ("score_priority_low", "score", "priority_low")])
+def test_a_name_from_before_the_renames_is_an_unknown_setting(old, section, key, tmp_path):
+    assert old not in Settings.keys()
+    (tmp_path / "placemat.toml").write_text("[%s]\n%s = 1\n" % (section, key))
+    with pytest.raises(SettingsError, match="%s.%s is not a setting placemat has" % (section, key)):
         load(tmp_path)
-
-
-def test_an_old_name_works_in_a_per_script_table_too(tmp_path):
-    (tmp_path / "M_layout.py").write_text("")
-    (tmp_path / "placemat.toml").write_text('[scripts."M_layout.py".copper]\narc_radius_widths = 4.0\n')
-    s = load(tmp_path, script=tmp_path / "M_layout.py")
-    assert s.copper_arc_radius_track_widths == 4.0 and any("copper.arc_radius_widths" in n for n in s.notices)
-
-
-def test_the_notice_reaches_the_plan_as_a_setup_notice(tmp_path):
-    from placemat.layout import Board
-    from tests.fixtures import board_geometry, footprint
-    (tmp_path / "placemat.toml").write_text("[copper]\narc_radius_widths = 4.0\n")
-    cfg = load(tmp_path)
-    b = Board(board_geometry([footprint("R1", 5, 5, inst="r1")], width=20, height=20), settings=cfg)
-    from placemat.values import Location, Part
-    b.place(Part("r1"), at=Location(10, 10))
-    plan = b.resolve()
-    found = [f for f in plan.findings if f.kind == "setup" and "copper.arc_radius_track_widths" in str(f)]
-    assert found and found[0].severity == "notice"
-
-
-def test_the_new_names_are_what_the_docs_say():
-    text = API.read_text()
-    for old in S.RENAMED:
-        dotted = old.replace("_", ".", 1)
-        assert "`%s`" % dotted not in text, "%s is still in api.md" % dotted
 
 
 def test_every_name_in_a_validation_set_is_a_real_setting():

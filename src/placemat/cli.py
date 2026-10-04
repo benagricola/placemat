@@ -412,8 +412,6 @@ def cmd_settings(args) -> int:
         console.data(json.dumps({k: {"value": _plain(getattr(s, k)), "source": s.source_of(k)}
                                  for k in Settings.keys()}, indent=2, sort_keys=True))
         return 0
-    for note in s.notices:
-        console.say("settings", note, level="notice")
     for name in Settings.keys():
         section, key = split_key(name)
         console.say("settings", "%-28s %-24s %s" % (

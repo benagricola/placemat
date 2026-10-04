@@ -709,11 +709,6 @@ def _facts_unconfirmed(f):
     return "; ".join(facts_reason_text(r) for r in f["reasons"])
 
 
-@renders(C.SETUP_SETTING_RENAMED, "path", "old", "new")
-def _setup_setting_renamed(f):
-    return "%s: %s is now %s (the old name still works for one release)" % (f["path"], f["old"], f["new"])
-
-
 # ------------------------------------------------------------------ what a finding is about, and where it is
 _SUBJECT_KEYS = ("item", "key", "name", "cell", "link", "net", "ref")
 

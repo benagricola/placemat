@@ -67,10 +67,9 @@ Specced work first, then the loose ends.
     arrives; events dropped on a full queue are missing from the record too;
     a stopped route leaves a partial record listed with the finished ones.
 
-- **Dead code left by the sweep** (2026-10-03): `settings.RENAMED` (30
-  entries from 0.90.0) once the notice path can go. Rust warnings left:
-  `judge::reference`, `ShapeGrid::first_conflict_shifted_excluding` and an
-  unused `point_segment_distance` import in giveway.rs.
+- **Rust dead code** (cargo's warnings): `judge::reference`,
+  `ShapeGrid::first_conflict_shifted_excluding` and an unused
+  `point_segment_distance` import in giveway.rs.
 
 - **Placement judges clearance with KiCad's DRC epsilon** (follow-up to the
   0.97.1 keep-out fix): occupancy's copper clearance and draw/body gaps use a

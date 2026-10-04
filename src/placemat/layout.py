@@ -6584,7 +6584,6 @@ class Board:
         if native_status().warns:           # the pure Python path is the reference, and 5-10x slower: never silent
             plan.findings.append(self._finding(C.SETUP_NATIVE, native_status().facts(), "warning"))
         plan.findings.extend(self._finding(C.SETUP_RULE_NOTE, facts, "notice") for facts in self._stamped_rule_notes)
-        plan.findings.extend(self._finding(C.SETUP_SETTING_RENAMED, facts, "notice") for facts in ({"path": p, "old": o, "new": n} for p, o, n in self.settings.notices))    # a renamed setting named by its old name
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement

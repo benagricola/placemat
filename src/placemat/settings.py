@@ -478,12 +478,10 @@ class Settings:
     # Where each value came from: a file path, "flag", or "default". Never
     # part of equality or of the run id: it says where, not what.
     sources: dict = field(default_factory=dict, compare=False)
-    # What the files said that is to be told (a renamed setting named by its old name): setup notices on the plan.
-    notices: tuple = field(default=(), compare=False)
 
     @staticmethod
     def keys() -> tuple:
-        return tuple(f.name for f in fields(Settings) if f.name not in ("sources", "notices"))
+        return tuple(f.name for f in fields(Settings) if f.name != "sources")
 
     def source_of(self, name: str) -> str:
         return self.sources.get(name, "default")
@@ -503,44 +501,8 @@ class Settings:
                 list(v) if isinstance(v, tuple) else v)
         return json.dumps(out, sort_keys=True, separators=(",", ":"))
 
-    def with_sources(self, sources: dict, notices=()) -> "Settings":
-        return replace(self, sources=dict(sources), notices=tuple(notices))
-
-
-# Settings renamed because the old name did not say what the setting is: {old: new}. The old name still loads for one
-# release, with a notice naming the new one (the pattern of `board.size`).
-RENAMED = {
-    "rank_area": "rank_area_weight",
-    "rank_pins": "rank_pins_weight",
-    "place_coarse_steps": "place_coarse_stride",
-    "place_coarse_from": "place_coarse_min_radius_steps",
-    "place_refine_around": "place_refine_spots",
-    "place_conflict_gap": "place_conflict_reach",
-    "place_via_share": "place_via_share_distance",
-    "place_via_move": "place_via_move_distance",
-    "place_via_leave": "place_via_leave_distance",
-    "place_via_route": "place_via_route_distance",
-    "place_drops_keep": "place_drops_keep_share",
-    "place_escape_pads": "place_escape_min_pads",
-    "copper_arc_radius_widths": "copper_arc_radius_track_widths",
-    "copper_bridge_half": "copper_bridge_half_gap",
-    "copper_pair_via_step": "copper_pair_via_offset",
-    "copper_pour_stroke": "copper_pour_outline_width",
-    "copper_plane_min_thickness": "copper_plane_min_width",
-    "write_keepout_line": "write_keepout_line_width",
-    "write_keepout_text": "write_keepout_text_height",
-    "label_size": "label_text_height",
-    "explore_slack": "explore_spot_slack",
-    "explore_swap": "explore_swap_chance",
-    "route_iterations": "route_max_iterations",
-    "solve_pull": "solve_centre_pull",
-    "cleanup_radius": "cleanup_search_radius",
-    "cleanup_step": "cleanup_search_step",
-    "preview_model_edge": "preview_model_edge_px",
-    "score_priority_high": "score_unplaced_high",
-    "score_priority_default": "score_unplaced_default",
-    "score_priority_low": "score_unplaced_low",
-}
+    def with_sources(self, sources: dict) -> "Settings":
+        return replace(self, sources=dict(sources))
 
 
 # `[check.limits]`, `[drc.severities]` and `[facts.boards]` are the sub-tables: each section is two words.
@@ -732,21 +694,9 @@ _RETIRED = {
 }
 
 
-def body_names(section: str, body: dict) -> set:
-    """The attribute names a section's keys spell."""
-    return {join_key(section, k) for k in body}
-
-
-def _renamed_notice(path, section, key, new) -> tuple:
-    """(file, the old name, the new name) of a renamed setting a file used by its old name."""
-    return (str(path), "%s.%s" % (section, key), "%s.%s" % split_key(new))
-
-
-def _flatten(data: dict, path, notices=None) -> dict:
+def _flatten(data: dict, path) -> dict:
     """A parsed TOML document as {attribute name: value}. Sub-tables named in
-    _SUBTABLES are one value; any other nested table is a section. A key
-    that has been renamed (RENAMED) is read as its new name, and `notices`
-    (a list) says so."""
+    _SUBTABLES are one value; any other nested table is a section."""
     out = {}
     known = set(Settings.keys())
     sections = sorted({split_key(k)[0] for k in known})
@@ -765,14 +715,6 @@ def _flatten(data: dict, path, notices=None) -> dict:
                 out[join_key(full, "")] = dict(value)
                 continue
             name = join_key(section, key)
-            if name in RENAMED:
-                new = RENAMED[name]
-                if new in body_names(section, body):
-                    raise SettingsError("%s: [%s] sets both %s and its old name %s: give %s" % (
-                        path, section, split_key(new)[1], key, split_key(new)[1]))
-                if notices is not None:
-                    notices.append(_renamed_notice(path, section, key, new))
-                name = new
             if name in _RETIRED:
                 raise SettingsError("%s: %s is retired; it named a board fact, now read from %s"
                                     % (path, full, _RETIRED[name]))
@@ -792,7 +734,7 @@ def _coerce(name: str, value):
     return value
 
 
-def _script_tables(data: dict, path, notes=None) -> dict:
+def _script_tables(data: dict, path) -> dict:
     """The `[scripts."<path>".<section>]` tables of a parsed document, as
     {script path: {attribute name: value}}, each body validated like the base
     sections. A path is relative to the folder of the file holding it and must
@@ -810,13 +752,10 @@ def _script_tables(data: dict, path, notes=None) -> dict:
             raise SettingsError("%s: no script %s beside %s" % (label, key, path))
         if "facts" in body:
             raise SettingsError("%s: [facts] is placemat's own record and is not set per script" % label)
-        found = []
-        flat = _flatten(body, label, found)
+        flat = _flatten(body, label)
         for name, value in flat.items():
             _validate(name, value, label)
         out[key] = flat
-        if notes is not None:
-            notes[key] = found
     return out
 
 
@@ -825,7 +764,7 @@ def load(start, overrides=None, script=None) -> Settings:
     from the filesystem root down to the board's own directory (so the nearest
     wins per key), then, for `script`, the `[scripts."<path>"]` tables of those
     files that name it, then the CLI overrides."""
-    values, sources, per_script, notices = {}, {}, [], []
+    values, sources, per_script = {}, {}, []
     for path in _files(start):
         try:
             from . import context
@@ -833,22 +772,20 @@ def load(start, overrides=None, script=None) -> Settings:
             data = tomllib.loads(held if held is not None else path.read_text())
         except tomllib.TOMLDecodeError as e:
             raise SettingsError("%s is not valid TOML: %s" % (path, e))
-        notes = {}
-        tables = _script_tables(data, path, notes)
+        tables = _script_tables(data, path)
         data = {k: v for k, v in data.items() if k != "scripts"}
-        per_script.append((path, tables, notes))
-        for name, value in _flatten(data, path, notices).items():
+        per_script.append((path, tables))
+        for name, value in _flatten(data, path).items():
             _validate(name, value, str(path))
             values[name] = value
             sources[name] = str(path)
     if script is not None:
         script = Path(script).resolve()
-        for path, tables, notes in per_script:
+        for path, tables in per_script:
             try:
                 key = script.relative_to(path.parent.resolve()).as_posix()
             except ValueError:
                 continue
-            notices += notes.get(key, [])
             for name, value in tables.get(key, {}).items():
                 values[name] = value
                 sources[name] = "%s [scripts.%s]" % (path, json.dumps(key))
@@ -859,7 +796,7 @@ def load(start, overrides=None, script=None) -> Settings:
         values[name] = value
         sources[name] = "flag"
     coerced = {name: _coerce(name, value) for name, value in values.items()}
-    return Settings(**coerced).with_sources(sources, dict.fromkeys(notices))
+    return Settings(**coerced).with_sources(sources)
 
 
 # ------------------------------------------------------------ settings as documentation
@@ -906,7 +843,7 @@ def docs_table() -> str:
     """The api.md settings table, from the fields: key, default, unit, meaning."""
     rows = ["| key | default | unit | what it governs |", "|---|---|---|---|"]
     for f in fields(Settings):
-        if f.name in ("sources", "notices"):
+        if f.name == "sources":
             continue
         section, key = split_key(f.name)
         name = "%s.%s" % (section, key)
@@ -925,7 +862,7 @@ def example_toml() -> str:
            ""]
     by_section: dict = {}
     for f in fields(Settings):
-        if f.name in ("sources", "notices"):
+        if f.name == "sources":
             continue
         by_section.setdefault(split_key(f.name)[0], []).append(f)
     for section, fs in by_section.items():
