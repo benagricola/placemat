@@ -10415,7 +10415,8 @@ def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float
     from .geometry import poly_distance
     sa, sb = _pad_shapes(board, ctx.occ, p.a), _pad_shapes(board, ctx.occ, p.b)
     gap = min(poly_distance(x.poly, y.poly) for x in sa for y in sb)
-    need = width + _pad_clearance(board, net, sa[0].net, sa[0].owner) + _pad_clearance(board, net, sb[0].net, sb[0].owner)
+    # clearance is to each pad's net: a pad of the track's own net asks none
+    need = width + sum(0.0 if sh.net == net else _pad_clearance(board, net, sh.net, sh.owner) for sh in (sa[0], sb[0]))
     if gap < need - 1e-6:
         oa, na, _, _ = board._pad_ref(p.a)
         ob, nb, _, _ = board._pad_ref(p.b)

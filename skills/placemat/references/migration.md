@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **`Between()` asks no clearance to a pad of the track's own net.** The gap check added the clearance to each pad's net
+  even when that net was the track's own, so a gap between two pads of the track's net raised a false "not enough for a ...
+  track" note; the copper itself was drawn right.
+
 ## To 0.99.2
 
 ### Changed
