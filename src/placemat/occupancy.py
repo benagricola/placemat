@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+from contextlib import contextmanager
 import math
 from dataclasses import dataclass, field
 
@@ -428,7 +429,12 @@ class Occupancy:
         self.geometry = geometry
         self.envelope = self.settings.place_envelope
         self.component_spacing = component_spacing          # body to body, body to another part's pad
-        self.silk_clearance = geometry.silk_clearance       # silk to silk, silk to a mask opening
+        # silk to silk, silk to a mask opening: the board's clearance and `[place] silk_margin`. KiCad compares silk at
+        # the clearance itself on geometry rounded to the nanometre (SHAPE_SEGMENT::Collide, no DRC epsilon), so silk
+        # placed at exactly the clearance can come out a nanometre short once it is turned off the quarter turns.
+        # A place the script decided is judged at the board's own clearance (`silk_as_drawn`).
+        self.silk_clearance = geometry.silk_clearance + self.settings.place_silk_margin
+        self._silk_as_drawn = False
         # KiCad's DRC epsilon: a copper, hole or hole-to-hole gap short of its rule by no more than this is clear
         # (DRC_TEST_PROVIDER_COPPER_CLEARANCE sub_e, DRC_TEST_PROVIDER_HOLE_TO_HOLE), and how far a collision may
         # lie outside a net-tie pad and still be inside it (DRC_ENGINE::IsNetTieExclusion). A check - a finding's
@@ -946,6 +952,21 @@ class Occupancy:
         (an assembly margin) does not."""
         geom = self._geometry(item)
         return transform_box(geom.reach or geom.body, self._transform(geom, placement))
+
+    def placed_silk(self, ref: str) -> tuple:
+        """A footprint's silk outlines on both faces, where it stands now, whatever the envelope claims: what the
+        board's edge (a cutout's included) keeps the silk clearance from."""
+        if not self.geometry.has_footprint(ref):
+            return ()
+        fp = self.geometry.footprint(ref)
+        if not fp.silk:
+            return ()
+        drawn = Placement(fp.location, fp.rotation, fp.face)
+        now = self.items[ref].reference
+        if now == drawn:
+            return tuple(poly for _face, poly in fp.silk)
+        t = self._transform(ItemGeometry(frozenset(), drawn, (), fp.body_box, frozenset()), now)
+        return tuple(tuple(transform_polygon(poly, t)) for _face, poly in fp.silk)
 
     def blame_owner(self, o) -> Owner:
         """What a refusal's tally names a blocking shape by: its owner, and for copper its net too - "cell logic's U3
@@ -1674,6 +1695,8 @@ class Occupancy:
         native_entry = getattr(others, "_native", None)
         if native_entry is not None and self._tie_refs & geom.owners:
             native_entry = None             # a net tie's own pairs are settled in Python (see _tie_refs)
+        if native_entry is not None and self._silk_as_drawn and self.silk_clearance != self.geometry.silk_clearance:
+            native_entry = None             # the native judge holds the silk margin (see silk_as_drawn)
         if native_entry is not None:
             # The near-obstacle search itself - ShapeIndex.near() plus the
             # per-shape "close" filter plus _conflict/_drawn_conflict's own
@@ -1741,6 +1764,18 @@ class Occupancy:
                         blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
                     return why
         return None
+
+    @contextmanager
+    def silk_as_drawn(self):
+        """Judge silk at the board's own silk clearance, without `[place] silk_margin`, inside the block: for a place the
+        script decided (a fixed part, a rider's place in its group), which KiCad judges as it stands. The margin is
+        for the places placement chooses. The block's checks run in Python: the native judge holds the margin."""
+        was = self._silk_as_drawn
+        self._silk_as_drawn = True
+        try:
+            yield
+        finally:
+            self._silk_as_drawn = was
 
     def legal_giving_way(self, item, placement: Placement, clearance: float | None = None, others=None,
                          past_edge: bool = False, blame: list | None = None, by_corners: bool = False) -> tuple:
@@ -1957,7 +1992,7 @@ class Occupancy:
             return None
         pair = frozenset((s.kind, o.kind))
         if pair in (frozenset(("silk",)), frozenset(("silk", "mask"))):
-            gap = self.silk_clearance
+            gap = self.geometry.silk_clearance if self._silk_as_drawn else self.silk_clearance
         elif pair == frozenset(("silk", "body")) or pair == frozenset(("body", "npth")):
             gap = 0.0
         elif pair == frozenset(("body",)):

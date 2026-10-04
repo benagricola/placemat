@@ -5,6 +5,32 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **Silk keeps `place.silk_margin` past the silk clearance.** Placement let two parts' silk stand at exactly the board's
+  silk clearance. KiCad compares silk at the clearance itself, with no DRC epsilon, on geometry rounded to the nanometre,
+  so a module whose silk was packed at the clearance and then stamped as a cell turned off the quarter turns (or a part
+  searched with tangent turns) could be reported as `silk_overlap` at 0.199999 mm against 0.2. Where placement chooses
+  the place (a search, `Beside`, a row), it now keeps silk `place.silk_margin` (0.001 mm) further from another part's
+  silk and mask openings; a refusal at the clearance reads "silk is 0.200 mm from ... (needs 0.201)". A place the script
+  decided, and a rider's place in its group, are judged at the clearance itself as before. A module whose parts were
+  placed at the silk clearance gets them up to a micrometre further apart, and a search may take another spot where
+  one stood exactly at it; lay the module out again and stamp the new fragment to clear the board's report.
+- **A searched cutout keeps the silk clearance from parts' silk.** A `Cutout` whose place is searched (`at=Near(...)`, a
+  free axis, a `Polar` with a free bearing or radius) was refused only where its box met a placed part's pads and drawn
+  graphics, so it could be cut nearer a part's silk than the board's silk clearance, and KiCad reported `silk_edge_clearance`
+  against the hole's Edge.Cuts. The search now also refuses a spot where the hole would stand nearer than the board's
+  silk clearance to a placed part's silk on either face (`cutout_silk`: "would stand 0.15 mm from U1's silk (the silk
+  clearance is 0.20)"). Such a cutout moves to the next spot of its search, a step or two further from its hint. A
+  cutout whose place the script decided is cut where it was put, as before. A part placed after a cutout is still judged
+  against it by its courtyard, body and copper only, not its silk.
+- **Text on a back layer is written mirrored.** A keepout's name drawn on B.Fab (`write.keepout_drawings`), and a text
+  given a back layer by name, were written unmirrored, which KiCad's DRC reports as `nonmirrored_text_on_back_layer`.
+  Every text placemat writes on B.Cu, B.Silkscreen, B.Mask or B.Fab is now mirrored, and one on their front twins is not.
+  A stamped cell's texts are put right as the cell is moved, so a fragment written before this fix needs no new layout.
+
 ## To 0.99.4
 
 ### Fixed

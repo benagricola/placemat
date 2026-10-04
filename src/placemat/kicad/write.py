@@ -35,6 +35,18 @@ def vec(x: float, y: float) -> pcbnew.VECTOR2I:
     return pcbnew.VECTOR2I(nm(x), nm(y))
 
 
+# The layers KiCad's DRC judges a text's mirroring on (drc_test_provider_text_mirroring.cpp): a text on a back one must
+# be mirrored, one on a front one must not be.
+_FRONT_TEXT_LAYERS = (pcbnew.F_Cu, pcbnew.F_SilkS, pcbnew.F_Mask, pcbnew.F_Fab)
+_BACK_TEXT_LAYERS = (pcbnew.B_Cu, pcbnew.B_SilkS, pcbnew.B_Mask, pcbnew.B_Fab)
+
+
+def _mirror_for_layer(text, default: bool = False) -> None:
+    """Mirror a text as its layer's face asks: on a back layer mirrored, on a front one not, elsewhere `default`."""
+    layer = text.GetLayer()
+    text.SetMirrored(True if layer in _BACK_TEXT_LAYERS else False if layer in _FRONT_TEXT_LAYERS else default)
+
+
 def seed_uuids(seed: int = 0x5EED):
     """New board items draw their UUIDs from a seeded generator, so a plan
     applied twice writes the same file."""
@@ -78,6 +90,8 @@ def _move_cell(board, cell: CellGeom, target: Placement, groups: dict):
         if target.rotation:
             it.Rotate(pivot, angle)
         it.Move(delta)
+        if isinstance(it, pcbnew.PCB_TEXT):
+            _mirror_for_layer(it, it.IsMirrored())     # a fragment written before its back texts were mirrored
 
 
 def _flip_keeping_inner(it, pivot) -> None:
@@ -543,6 +557,7 @@ def _draw_keepout_drawings(board, plan):
         t = pcbnew.PCB_TEXT(board)
         t.SetText(_keepout_admits_text(k))
         t.SetLayer(layer)
+        _mirror_for_layer(t)
         t.SetTextSize(pcbnew.VECTOR2I(nm(size), nm(size)))
         t.SetTextThickness(nm(line))
         t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
@@ -678,7 +693,7 @@ def _draw_text(board, op: Text):
     t = pcbnew.PCB_TEXT(board)
     t.SetText(op.text)
     t.SetLayer(board.GetLayerID(op.layer) if op.layer else (pcbnew.B_SilkS if op.face is Face.BACK else pcbnew.F_SilkS))
-    t.SetMirrored(op.mirrored)
+    _mirror_for_layer(t, op.mirrored)
     t.SetTextSize(pcbnew.VECTOR2I(nm(op.size), nm(op.size)))
     t.SetTextThickness(nm(op.thickness))
     t.SetHorizJustify(_HJUST[op.hjust])

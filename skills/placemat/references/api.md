@@ -1139,7 +1139,13 @@ touch. Copper keeps the board's hole clearance from an unplated hole,
 whichever of the two is being placed. A part's or a cell's own holes are its
 own.
 
-The silk clearance is the board's minimum silk item clearance; the component
+The silk clearance is the board's minimum silk item clearance. Where
+placement chooses the place (a search, `Beside`, a row), it keeps silk
+`place.silk_margin` (0.001 mm) wider: KiCad compares silk at the clearance
+itself on geometry rounded to the nanometre, so silk placed at exactly the
+clearance can come out a nanometre short once a stamped cell or a tangent turn
+takes it off the quarter turns. A place the script decided, and a rider's
+place in its group, are judged at the clearance itself. The component
 spacing is `courtyard.component_spacing_mm` in fab-profile.json, twice the
 courtyard excess when absent. Tracks and vias may run under a body. The
 members of a block keep these gaps from each other too. The rank measures an
@@ -1266,7 +1272,11 @@ items, in dependency order, so a slot placed from a connector waits for that
 connector. One with a freedom waits until every decided thing is down. Both
 are settled before any part is searched, so every part is placed against a
 board that already has its holes. A cutout placed from a *searched* item is
-refused, naming it.
+refused, naming it. A freedom is settled at the first spot where the hole is
+inside the board, keeps its web, mills through nothing already placed, and
+stands the board's silk clearance from every placed part's silk on either
+face (KiCad judges silk against Edge.Cuts by that clearance); a decided
+place is cut where it was put.
 
 **`side=`, not `facing=`.** `board.cutout(name).edge(side=)` is the only route
 to a hole's runs, so `board.edge(facing=)` can never return one. `side=
@@ -4262,6 +4272,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.escape_via_step` | `0.05` | mm | the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
 | `place.escape_via_reach` | `5.0` | mm | how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
 | `place.courtyard_touch` | `0.0` | mm | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
+| `place.silk_margin` | `0.001` | mm | how much further than the board's silk clearance a place placement chooses keeps one part's silk from another's silk and mask openings. KiCad compares silk at the clearance itself, with no DRC epsilon, on geometry rounded to the nanometre, so silk placed at exactly the clearance and then turned off the quarter turns (a stamped cell, a tangent turn) can come out a nanometre short. A place the script decided, and a rider's place in its group, are judged at the board's own clearance |
 | `place.courtyard_polygon_share` | `0.98` | share | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
 | `place.conflict_reach` | `1.0` | mm | how far outside a box a conflict can still reach; a floor under the largest clearance a rule asks |
 | `place.fit_room` | `10.0` | mm | on a fit frame, how far round the decided content a searched item may go |

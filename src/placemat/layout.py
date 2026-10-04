@@ -1511,10 +1511,12 @@ class Board:
         self._cutout_loop_of[name] = len(self._shaped().loops) - 1
         self._settled_cutouts[name] = placed
 
-    def _cutout_illegal(self, occ, path, name: str) -> Refusal | None:
+    def _cutout_illegal(self, occ, path, name: str, silk: bool = True) -> Refusal | None:
         """Why this hole may not be cut here (a Refusal), or None. In the spec's order:
-        inside the board, clear of its outline, enough web, and not through
-        anything already placed."""
+        inside the board, clear of its outline, enough web, not through
+        anything already placed and, with `silk` (a searched hole), the silk
+        clearance from every placed part's silk. A hole whose place the script
+        decided is cut there whatever silk stands by it."""
         shape = self._shaped()
         loop = Cutouts([path]).loops[0]
         board = shape.loops[0]
@@ -1532,6 +1534,24 @@ class Board:
         for owner, g in occ.items.items():
             if owner not in occ.pending and (g.reach or g.body).overlaps(box):
                 return Refusal(Code.CUTOUT_MILLED, owner=owner)
+        return self._cutout_silk(occ, loop, box) if silk else None
+
+    def _cutout_silk(self, occ, loop, box: Box) -> Refusal | None:
+        """A placed part's silk, on either face, nearer the hole than the board's silk clearance: KiCad judges silk
+        against Edge.Cuts by that clearance less its DRC epsilon (drc_test_provider_edge_clearance.cpp testAgainstEdge,
+        SILK_CLEARANCE_CONSTRAINT), a hole's edge included. The hole is measured by its flattened loop, whose chords
+        may cut `geometry.arc_sag` inside a curved edge, so that much more is kept."""
+        need = occ.clear_limit(self.geometry.silk_clearance) + self.settings.geometry_arc_sag
+        for owner, g in occ.items.items():
+            if owner in occ.pending or not (g.reach or g.body).overlaps(box, gap=need):
+                continue
+            for poly in occ.placed_silk(owner):
+                if not Box.of_points(poly).overlaps(box, gap=need):
+                    continue
+                gap = poly_distance(loop, poly)
+                if gap < need:
+                    return Refusal(Code.CUTOUT_SILK, owner=owner, gap_mm=gap,
+                                   need_mm=self.geometry.silk_clearance)
         return None
 
     def _cutout_centre(self, occ, cutout) -> Location:
@@ -6746,7 +6766,7 @@ class Board:
             else:
                 centre = self._cutout_centre(occ, c)
                 turn = self._region_rotation(occ, c, centre)
-                why = self._cutout_illegal(occ, c.shape.path_at(centre, turn), c.name)
+                why = self._cutout_illegal(occ, c.shape.path_at(centre, turn), c.name, silk=False)
             path = c.shape.path_at(centre, turn)
             step = Step(intent.key, "cutout", None, why=intent.why)
             if why:
@@ -9188,8 +9208,10 @@ class Board:
             others = obstacles.get(r.key) if obstacles is not None else None
             # the vias the group carries are not what a rider is judged against: they give way to it when it is
             # committed (occupancy._commit), as to any item placed after them
-            in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex([x for x in group if not x.carried]),
-                                 board=False)
+            # the group's own shapes stand where the script put them: silk at the board's clearance
+            with occ.silk_as_drawn():
+                in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex([x for x in group if not x.carried]),
+                                     board=False)
             # on the board its carried vias, and those placed before it, may give way (giveway.py)
             on_board = occ.legal_giving_way(r.item, p, self.clearance, others=others,
                                             past_edge=self._firm_past_edge(r), by_corners=True)[0] \
@@ -9325,8 +9347,9 @@ class Board:
                 self._phase(Stage.DECLARED, hint=[round(p.location.x, 3), round(p.location.y, 3)])
             self._labels_give_way(occ, plan, i.item, p)     # a user's label moves, the part does not
             # its carried vias, and those of the items placed before it, may give way (giveway.py):
-            # its commit does what this found
-            why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
+            # its commit does what this found. A decided place is judged as KiCad will: silk at the board's clearance
+            with occ.silk_as_drawn():
+                why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
             if why:
                 from . import suggest_facts
                 plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))
