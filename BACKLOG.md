@@ -48,7 +48,6 @@ Specced work first, then the loose ends.
    has a distance but no cause, and a block slide or a searched move that no
    refusal explains has none; record one (a `why` refusal on the note) where
    the engine knows it.
-7. **Studio: through-hole pads switch with the layer rows** of the legend.
 8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
    lazily on the pure-Python path. Not small: about 20 `Refusal(...)` sites in
@@ -57,18 +56,9 @@ Specced work first, then the loose ends.
    do it after the clearance-tolerance work in `_conflict` lands.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
-14. **The router's DRC misses a track wholly inside a filled footprint
-    polygon** (the router checkout, local only).
 15. **U21 pin 14 (SCL)**: the walled check finds a channel south of its stub;
     the user is checking it by eye. If the channel is not usable, find what
     the check does not model.
-
-16. **Routing replay gaps** (studio round 10): the pair router reports
-    commits only (no per-net begin/end, so pair nets get no routed/failed
-    counts); a ripped net's copper is removed for the whole replay instead of
-    at the rip step; the "of N" total grows as each router launch's queue
-    arrives; events dropped on a full queue are missing from the record too;
-    a stopped route leaves a partial record listed with the finished ones.
 
 - **Rust dead code** (cargo's warnings): `judge::reference`,
   `ShapeGrid::first_conflict_shifted_excluding` and an unused
@@ -318,6 +308,36 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Routing replay gaps** (unreleased, was Next 16): the pair router reports
+  each pair as a net through two hooks, `diff_pair_loop.route_diff_pairs`
+  (`queue`, `queue_end`) and `get_diff_pair_terminals` (`net_begin`, and
+  `net_end` read from `state.routed_net_ids`), so pair nets count as routed
+  or failed; a ripped net's copper is shown until the step that rips it
+  (`x` on the op) in the live view and in a replay; the count "of N" is of
+  the stage (the islands stage says its count up front); a pair is one net
+  "P/N" (it was "?" in a replay and its live rips never matched); events
+  dropped on a full queue are counted (`dropped`) and the studio says the
+  copper may be incomplete; a record says whether it is `complete`, each stage
+  does too, and a stopped route is listed as stopped and replayed as partial.
+
+- **Through-hole pads follow the legend's layer rows** (unreleased, was Next 7): a
+  through pad is drawn with the copper layers it spans (`data-ls`) and is
+  hidden when the rows of all of them are off, shown while one is on. Checked
+  in headless Chrome on a replayed route.
+
+- **A track inside a filled footprint polygon** (unreleased, was Next 14):
+  the miss is in the router checkout's own checker, not in placemat's path.
+  KRT `check_drc.py` adds the net of every track touching a footprint
+  graphic to the graphic's effective nets (`_build_graphic_unification`, with
+  `include_mutable`) and `_graphic_pair_is_same_net` (line 1153) then waives
+  the pair, so a foreign track wholly inside the fill is judged to be on its
+  net. placemat does not run that checker: its before and after DRC is
+  kicad-cli's, which reports the track as a clearance violation, and the
+  router is kept off the polygon by the footprint-copper rule area, whose
+  breach check names a track laid inside it. Pinned by
+  `tests/test_route_filled_footprint_polygon.py`. The KRT checker stays as it
+  is (local checkout, nothing filed upstream).
 
 - **The studio opens on a choice; commands say their kind; explores
   followed** (0.98.0): no board and no resolve until chosen (a running

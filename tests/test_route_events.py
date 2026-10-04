@@ -127,6 +127,89 @@ def test_a_net_search_inside_another_is_one_net_begin_and_one_net_end(router):
     assert [e["ev"] for e in pipe.events(hooks)] == ["net_begin", "net_end"]
 
 
+def _pair_router(router, monkeypatch):
+    """A stand-in for the pair router's loop: pair "P0" routes, pair "P1" does not; each pair is taken up with one call to get_diff_pair_terminals,
+    and a multipoint pair asks again for its own terminals from inside."""
+    dpl = types.ModuleType("diff_pair_loop")
+    monkeypatch.setitem(sys.modules, "diff_pair_loop", dpl)
+    dpl.get_diff_pair_terminals = lambda pcb_data, p_net_id, n_net_id: [(0, 0), (1, 1)]
+
+    def route_diff_pairs(state, diff_pair_ids_to_route):
+        for name, p in diff_pair_ids_to_route:
+            dpl.get_diff_pair_terminals(None, p.p_net_id, p.n_net_id)
+            dpl.get_diff_pair_terminals(None, p.p_net_id, p.n_net_id)
+            if name == "P0":
+                state.routed_net_ids += [p.p_net_id, p.n_net_id]
+        return 1, 1, 0.1, 0, 2
+    dpl.route_diff_pairs = route_diff_pairs
+    return dpl
+
+
+def test_the_pair_router_reports_each_pair_as_a_net_with_its_outcome(router, monkeypatch):
+    dpl = _pair_router(router, monkeypatch)
+    pipe, hooks = Pipe(), _hooks()
+    assert hooks.install(pipe.w, pairs=True) is None
+    state = types.SimpleNamespace(routed_net_ids=[])
+    pairs = [("P0", types.SimpleNamespace(p_net_id=1, n_net_id=2)), ("P1", types.SimpleNamespace(p_net_id=3, n_net_id=4))]
+    assert dpl.route_diff_pairs(state, pairs) == (1, 1, 0.1, 0, 2)
+    events = pipe.events(hooks)
+    assert [(e["ev"], e.get("net"), e.get("ok")) for e in events] == [
+        ("queue", None, None), ("net_begin", "P0", None), ("net_end", "P0", True), ("net_begin", "P1", None), ("net_end", "P1", False), ("queue_end", None, None)]
+    assert events[0]["nets"] == ["P0", "P1"] and events[-1]["routed"] == 1 and events[-1]["failed"] == 1
+
+
+def test_a_pair_router_that_lacks_the_loop_says_why_and_a_single_ended_one_is_not_asked_for_it(router, monkeypatch):
+    dpl = _pair_router(router, monkeypatch)
+    del dpl.route_diff_pairs
+    hooks = _hooks()
+    assert hooks.install(os.pipe()[1], pairs=True) == {"code": "no_function", "module": "diff_pair_loop", "name": "route_diff_pairs"}
+    hooks = _hooks()
+    assert hooks.install(os.pipe()[1]) is None
+
+
+def test_events_that_do_not_fit_the_queue_are_counted_and_the_writer_says_how_many(router):
+    hooks = _hooks()
+    pipe = Pipe()
+    hooks._state["dropped"] = 0
+    assert hooks.install(pipe.w) is None
+    hooks._state["dropped"] = 7                                                  # what the queue turned away before the writer had room
+    hooks._emit({"ev": "net_begin", "net": "A"})
+    events = pipe.events(hooks)
+    assert [e["ev"] for e in events] == ["dropped", "net_begin"] and events[0]["n"] == 7
+
+
+def test_a_stage_that_did_not_run_to_its_end_and_events_that_were_lost_are_in_the_record(tmp_path):
+    info = {"pcb": "x.kicad_pcb", "run": "", "script": ""}
+    rev = route_progress.RouteEvents(tmp_path, None, info)
+    rev.begin("main")
+    _send_lines(rev, json.dumps({"ev": "dropped", "n": 4}) + "\n", '{"ev": "commit", "net"')       # a line the router's end cut short
+    rev.end("main", complete=False)
+    record = route_progress.read_record(tmp_path / route_progress.RECORD)
+    assert record["complete"] is False and record["stages"][0]["complete"] is False and record["stages"][0]["dropped"] == 5
+    summary = json.loads((tmp_path / route_progress.SUMMARY).read_text())
+    assert summary["complete"] is False and summary["dropped"] == 5
+    rev.save({}, complete=True)
+    assert route_progress.read_record(tmp_path / route_progress.RECORD)["complete"] is True
+
+
+def test_the_islands_stage_says_how_many_nets_it_will_take(tmp_path):
+    sent = []
+    rev = route_progress.RouteEvents(tmp_path, sent.append)
+    rev.begin("islands", nets=3)
+    rev.end("islands")
+    assert sent[0] == {"ev": "route_stage", "stage": "islands", "resumed": False, "nets": 3}
+
+
+def test_the_pair_routers_pair_name_and_queue_are_turned_back_to_the_boards_nets(tmp_path):
+    sent = []
+    rev = route_progress.RouteEvents(tmp_path, sent.append)
+    rev.names = {"PAIR0": "USB_DP/USB_DN"}
+    rev.begin("pairs")
+    _send_lines(rev, json.dumps({"ev": "queue", "nets": ["PAIR0"]}) + "\n" + json.dumps({"ev": "net_begin", "net": "PAIR0"}) + "\n")
+    rev.end("pairs")
+    assert sent[1]["nets"] == ["USB_DP/USB_DN"] and sent[2]["net"] == "USB_DP/USB_DN"
+
+
 @pytest.mark.parametrize("what", ["add_route_to_pcb_data", "route_oracle_links", "route_single_ended_nets"])
 def test_a_missing_hook_target_patches_nothing_and_says_why(router, what):
     for mod in router.values():
@@ -190,7 +273,7 @@ def test_a_router_that_outruns_its_reader_drops_events_and_one_that_lost_its_rea
 
 def test_the_wrapper_scripts_load_the_hooks_by_path_and_report_the_reason_when_off(tmp_path):
     text = (__import__("pathlib").Path(route_progress.__file__).parent / "kicad" / "route_hooked.py").read_text()
-    assert "route_events.install()" in text and "report_off" in text and "spec_from_file_location" in text
+    assert "route_events.install(pairs=" in text and "report_off" in text and "spec_from_file_location" in text
     one = (__import__("pathlib").Path(route_progress.__file__).parent / "kicad" / "route_one_round.py").read_text()
     assert "route_events.install()" in one and "final_reconcile=False" in one
 
@@ -233,7 +316,7 @@ def test_a_stage_taken_from_an_earlier_route_sends_and_keeps_what_that_routes_re
     rev = route_progress.RouteEvents(tmp_path, sent.append, info)
     rev.resumed("islands", 2.5)
     assert [e["ev"] for e in sent] == ["route_stage", "route_queue", "route_commit"] and sent[0]["resumed"] is True
-    assert rev.stages == [{"stage": "islands", "resumed": True, "seconds": 2.5, "events": [{"ev": "queue", "nets": ["G"]}, _commit("G", 0)]}]
+    assert rev.stages == [{"stage": "islands", "resumed": True, "complete": True, "dropped": 0, "seconds": 2.5, "events": [{"ev": "queue", "nets": ["G"]}, _commit("G", 0)]}]
 
 
 def test_each_stage_that_ends_leaves_the_record_as_it_stands_for_a_stopped_route(tmp_path):
@@ -263,15 +346,40 @@ def test_events_off_gives_the_router_no_pipe(tmp_path, monkeypatch):
     assert rev.end("main") == []
 
 
-def test_laid_order_gives_each_nets_copper_what_a_rip_took_and_each_nets_result():
+def test_laid_order_gives_each_step_its_copper_what_a_rip_took_and_each_nets_result():
     via = [[1.0, 0.0, 0.6, 0.3, ["F.Cu", "B.Cu"]]]
-    events = [{"ev": "queue", "nets": ["A", "B", "C"]}, {"ev": "net_begin", "net": "A"}, _commit("A", 0, via=via), {"ev": "net_end", "net": "A", "ok": True},
-              {"ev": "net_begin", "net": "B"}, _commit("B", 5), {"ev": "net_end", "net": "B", "ok": True},
-              {"ev": "rip", "net": "B", "seg": [[5, 0, 6, 0, "F.Cu", 0.2]], "via": []},
-              {"ev": "net_begin", "net": "C"}, {"ev": "net_end", "net": "C", "ok": False}, _commit("A", 9, how="restore")]
+    events = [{"ev": "queue", "nets": ["A", "B", "C"]}, {"ev": "net_begin", "net": "A"}, {"ev": "net_end", "net": "A", "ok": True}, _commit("A", 0, via=via),
+              {"ev": "net_begin", "net": "B"}, {"ev": "net_end", "net": "B", "ok": True}, _commit("B", 5),
+              {"ev": "net_begin", "net": "C"}, {"ev": "rip", "net": "B", "seg": [[5, 0, 6, 0, "F.Cu", 0.2]], "via": []},
+              {"ev": "net_end", "net": "C", "ok": False}, _commit("A", 9, how="restore")]
     laid = route_view.lay(events)
-    assert laid["order"] == ["A", "B", "C"] and [o["t"] for o in laid["ops"]["A"]] == ["track", "via", "track"] and laid["ops"]["B"] == [] and laid["ops"]["C"] == []
+    assert laid["order"] == ["A", "B", "C"]
+    assert [o["t"] for o in laid["ops"]["A"]] == ["track", "via"] and all(o["gone"] is None for o in laid["ops"]["A"])
+    assert [(o["net"], o["gone"]) for o in laid["ops"]["B"]] == [("B", "C")]          # ripped while C was searched: it goes at C's step
+    assert [(o["net"], o["gone"]) for o in laid["ops"]["C"]] == [("A", None)]          # A's restore is laid in the step in progress
     assert laid["result"] == {"A": "routed", "B": "ripped", "C": "no route found"}
+
+
+def test_a_pair_is_one_net_named_for_both_its_nets_and_a_net_that_never_ended_is_unfinished():
+    events = [{"ev": "net_begin", "net": "DP/DN"}, {"ev": "net_end", "net": "DP/DN", "ok": True}, _commit(["DP", "DN"], 0), {"ev": "net_begin", "net": "X"}]
+    laid = route_view.lay(events)
+    assert laid["order"] == ["DP/DN", "X"] and laid["ops"]["DP/DN"][0]["net"] == "DP/DN"
+    assert laid["result"] == {"DP/DN": "routed", "X": "unfinished"}
+
+
+def test_a_replay_takes_ripped_copper_away_at_the_step_that_ripped_it_and_says_when_the_record_is_partial():
+    events = [{"ev": "net_begin", "net": "B"}, {"ev": "net_end", "net": "B", "ok": True}, _commit("B", 5),
+              {"ev": "net_begin", "net": "C"}, {"ev": "rip", "net": "B", "seg": [[5, 0, 6, 0, "F.Cu", 0.2]], "via": []}, {"ev": "net_end", "net": "C", "ok": True}, _commit("C", 8)]
+    record = {"stages": [{"stage": "main", "complete": False, "dropped": 3, "events": events}]}
+    board = {"items": [{"key": "u1", "kind": "part", "placed": True, "members": []}], "layers": ["F.Cu"]}
+    doc = route_view.route_doc(record, board)
+    assert [s["item"] for s in doc["steps"]] == ["u1", "track B", "track C"]
+    ripped = [o for o in doc["copper"] if o["net"] == "B"][0]
+    assert ripped["x"] == 2 and "gone" not in ripped          # shown from B's step (1), gone after C's (2)
+    assert doc["steps"][1]["note"] == "ripped" and doc["steps"][2]["note"].startswith("routed: 1 track")
+    assert doc["route"] == {"nets": 2, "routed": 1, "failed": 1, "partial": True, "dropped": 3}
+    whole = dict(record, stages=[dict(record["stages"][0], complete=True, dropped=0)], complete=True)
+    assert route_view.route_doc(whole, board)["route"]["partial"] is False
 
 
 def test_a_route_record_replays_as_a_plan_with_a_step_per_part_then_per_net(tmp_path):
@@ -286,7 +394,7 @@ def test_a_route_record_replays_as_a_plan_with_a_step_per_part_then_per_net(tmp_
     doc = route_view.route_doc(record, board)
     assert [s["item"] for s in doc["steps"]] == ["u1", "track A", "track B"] and [s["kind"] for s in doc["steps"]] == ["part", "copper", "copper"]
     assert doc["steps"][1]["copper"] == [0] and doc["copper"][0]["t"] == "track" and doc["steps"][2]["note"] == "no route found" and doc["steps"][1]["note"].startswith("routed: 1 track")
-    assert doc["route"] == {"nets": 2, "routed": 1, "failed": 1}
+    assert doc["route"] == {"nets": 2, "routed": 1, "failed": 1, "partial": True, "dropped": 0}      # written before the route finished
     plan = dict(board, steps=[{"i": 0, "item": "u1", "kind": "part", "placed": True, "note": "", "copper": []}], copper=[{"t": "track", "layer": "F.Cu"}], counts={"placed": 1, "findings": 0}, score=None)
     whole = route_view.route_doc(record, plan)                                                    # a run's plan first: the whole build
     assert [s["item"] for s in whole["steps"]] == ["u1", "track A", "track B"] and whole["steps"][1]["copper"] == [1] and len(whole["copper"]) == 2

@@ -2,7 +2,7 @@
 """Runs one of KiCadRoutingTools' own entry scripts (route.py, route_diff.py) with placemat's progress hooks in place: `route_hooked.py ENTRY
 ARGS...`. The same copper and the same flags; the hooks (route_events.py) only watch. The router is executed from its own source and
 nothing in its checkout is modified. Run by placemat's routing under the router's own interpreter; $KRT_DIR is the checkout (default
-~/work/KRT-upstream). If the hooks' anchors are not where they expect, the router runs unhooked and `route_off` says why."""
+~/work/KRT-upstream). The pair router (route_diff.py) also has its loop over the pairs hooked. If the hooks' anchors are not where they expect, the router runs unhooked and `route_off` says why."""
 import os
 import sys
 
@@ -22,7 +22,7 @@ _spec = importlib.util.spec_from_file_location("route_events", os.path.join(os.p
 route_events = importlib.util.module_from_spec(_spec)               # beside this file: the progress hooks (loaded by path, no sys.path change)
 _spec.loader.exec_module(route_events)
 
-why = route_events.install()
+why = route_events.install(pairs=os.path.basename(entry) == "route_diff.py")
 if why:
     route_events.report_off(why)
 src = open(entry).read()

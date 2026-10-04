@@ -21,6 +21,8 @@ section for each hand-written pattern a newer form replaces.
 - **A lock entry written by 0.43-0.46 is released once.** Its declaration digest named parts by refdes; a run no longer accepts that form,
   so such an entry is released with "declaration changed" and the item is placed afresh (accept the run to write it again). Entries from
   0.47 on are unaffected.
+- **The route replay is closer to what the router did.** The pair router's pairs are nets of the route events (`net_begin`, `net_end`, a pair named "P/N"), so they count as routed or failed. Ripped copper is shown until the step that rips it, not left out of the whole replay. The "net N of M" line counts within the stage, not over every launch's queue. Route records carry `complete` (the route finished), each stage carries `complete` and `dropped` (events the router's full queue turned away, or lines it could not finish), and a stopped route is listed as stopped and replayed with a note that it is partial. `route_events.install` takes `pairs=`, and `RouteEvents.end` takes `complete=`; a record written before this has neither flag and reads as complete.
+- **A through-hole pad in the studio follows the layer rows of the legend.** It is hidden when the rows of every copper layer it spans are off and shown while any one is on; before, only the pads row switched it.
 - **The studio's opening dialog is titled "Open".** Its button and the header's tooltip say the same; the half-sentence title is gone.
 
 ## To 0.98.0

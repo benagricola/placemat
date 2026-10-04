@@ -772,12 +772,14 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         t1 = time.time()
         if pair_list:
             rev.begin("pairs")
+        whole = False
         try:
             board, pairs = route_pairs(rpy, router_dir_path, pcb_in, work, pair_list, layers, cfg,
                                        iterations, probe, timeout, dict(env, **rev.env("pairs")), events=rev)
+            whole = True
         finally:
             if pair_list:
-                rev.end("pairs")
+                rev.end("pairs", complete=whole)
         spent += time.time() - t1
         if board != pcb_in:                      # the pair router ran: its board is a finished stage
             state.record("pairs", d_pairs, {"board": board.name, "pairs": pairs.to_dict(),
@@ -795,12 +797,14 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         else:
             state.drop_from("islands")
             t1 = time.time()
-            rev.begin("islands")
+            rev.begin("islands", nets=len(islands))
+            whole = False
             try:
                 board, island_breaches = route_islands(rpy, script, router_dir_path, board, work, islands, layers, iterations,
                                                        probe, quick, timeout, dict(env, **rev.env("islands")), cfg.route_plane_share)
+                whole = True
             finally:
-                rev.end("islands")
+                rev.end("islands", complete=whole)
             kept = guard_partial_pours(str(board), set(islands), layers, cfg.route_plane_share)
             pours += kept
             spent += time.time() - t1
@@ -819,6 +823,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         cmd = router_command(rpy, script, board, raw_out, excluded | pairs.routed_nets, layers, summary,
                              iterations, probe, quick)
         rev.begin("main")
+        rc = None
         try:
             with open(log, "w") as f:
                 f.write("$ %s\n\n" % " ".join(cmd))
@@ -826,7 +831,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                 rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=dict(env, **rev.env("main")),
                                     timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
         finally:
-            rev.end("main")
+            rev.end("main", complete=rc == 0)
         if rc != 0 or not raw_out.exists():
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
             raise RuntimeError("router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
@@ -860,7 +865,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         for r in report.widths:
             rep.send(dict(r, ev="route_width"))
     if route_progress.enabled():
-        report.record = str(route_progress.write_record(work, rev.info, rev.stages, report.as_dict()))
+        report.record = str(route_progress.write_record(work, rev.info, rev.stages, report.as_dict(), complete=True))
     _HOOK = False
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report
