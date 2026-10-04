@@ -18,6 +18,21 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Next, in order
 
+- **current-path: parallel layers share the current** (decided): where a
+  load's route crosses copper on several layers of its net joined at both
+  ends (plated holes or via fields), the neck is judged by the layers'
+  widths added, each scaled by its own layer's IPC-2152 constant. Today
+  one layer's narrowest disc is judged alone, so a GND pair over two
+  inner planes in parallel fails at one plane's neck.
+- **Two stamps of one module share keepout area names**: each stamp's copy
+  is `<name>_1`, so a stamped AllowRule's intersectsArea covers the other
+  cell's area too.
+- **Stale zone fill in a module run's saved board**: the saved fill is
+  older than the board's own copper (a refill changes it); it reaches
+  every parent through stamped default cells. Candidate: the .kicad_dru is
+  written after the save. Decide too whether a parent write refills cell
+  zones.
+
 Specced work first, then the loose ends.
 
 0. **A hard limit on a link** (a board's session, 2026-10-03): `board.link(...,
