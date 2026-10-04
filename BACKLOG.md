@@ -74,6 +74,15 @@ Specced work first, then the loose ends.
 
 ## Open
 
+- **Part silk against the outline and cutouts.** Placement does not judge a
+  part's silk against the board outline or a cutout already cut (KiCad's
+  silk_edge_clearance): under the courtyard envelope silk can stand 0.06 mm
+  from a hole, under the physical envelope inside it. The scan's edge test is
+  native; deciding whether silk joins it is a policy call (an overhanging
+  part's silk crosses the edge by design).
+- **A box crossing a cutout at edge_margin=0.** `flat_edge_margin` becomes 0
+  and `segment_box < 0 - NM` is never true, so the crossing is not refused.
+
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
   keeps its 45 chamfers; a pair of arc corners needs two concentric arcs, R
   plus and minus half the pitch, and a radius above half the pitch plus the
