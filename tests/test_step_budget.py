@@ -135,3 +135,39 @@ def test_budget_must_be_a_whole_number_of_at_least_one(tmp_path):
     for bad in ("budget=0", "budget=2.5", "budget=True", "budget='x'"):
         with pytest.raises(TypeError, match="budget="):
             resolve(tmp_path, SEARCH % bad)
+
+
+def test_a_give_way_resolve_charges_the_budget_what_it_judged(monkeypatch):
+    """A candidate whose carried vias give way is charged `Resolution.judged` (at least one), not one, so a step's budget
+    counts the spots, tails and conflicts a via's move search put to the board."""
+    import random
+    from placemat import giveway
+    from tests.scan_scenes import carried_vias_reachable, scene
+
+    def run(occ, item, hint, rots, judged_of):
+        spent = []
+
+        def resolve(*a, **k):
+            res = giveway.Resolution()
+            res.judged = judged_of(len(spent))
+            spent.append(res.judged)
+            return res
+        monkeypatch.setattr(giveway, "resolve", resolve)
+        occ.step_budget = placer.SearchBudget(10 ** 9)
+        placer.scan(occ, item, hint, 5.0, 0.25, rots, None, score=lambda c: c.location.x * 0.013 + c.location.y * 0.007,
+                    pick=lambda ranked: ranked[0])
+        return occ.step_budget.judged, spent
+
+    rnd = random.Random(3)
+    scenes = zero = many = 0
+    for _ in range(40):
+        occ, item, hint, rots = scene(rnd, cell=True, vias=True)
+        if not carried_vias_reachable(occ, item, hint, 5.0):
+            continue
+        floor, _ = run(occ, item, hint, rots, lambda k: 0)
+        charged, spent = run(occ, item, hint, rots, lambda k: 3 * (k % 5))
+        assert charged - floor == sum(max(1, j) - 1 for j in spent)
+        scenes += 1
+        zero += spent.count(0)
+        many += sum(j > 1 for j in spent)
+    assert scenes >= 10 and zero >= 5 and many >= 20, (scenes, zero, many)

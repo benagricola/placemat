@@ -348,8 +348,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if afford(1) == 0:
             budget.cut = True
             return None
-        charge(1)
         res = gw.resolve(cand)
+        charge(max(1, res.judged))          # what the give way judged (its vias' spots, tails and conflicts), at least the one
         if res.why is not None:
             return _reason_key(res.why), (lambda why=res.why: why), [blocker_key(res.blocker)]
         if not (inline and refused(cand)):
