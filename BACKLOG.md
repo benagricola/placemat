@@ -312,6 +312,12 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Pour room; track blockers; determinism; faster; follow latest; a pour
+  crash** (0.99.1): a fitted pour between searched parts keeps its room; a
+  "not drawn" track names every blocker along its leg; output order no longer
+  depends on the hash seed; about 20% less CPU; the studio follows the latest
+  command; a pour blocked by the board edge no longer crashes the run.
+
 - **Numeric Centre refused; cleanup; routing replay; opt-in order by room**
   (0.99.0): a number on a Centre axis needs coordinates=True; the 0.90.0
   setting names, Facts.role and leftover dead code are gone; the route replay
