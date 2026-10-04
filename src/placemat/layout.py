@@ -1451,13 +1451,16 @@ class Board:
     def _record_arranged_thinned(occ, plan, i, placement) -> None:
         """For the writer: a cell committed in an arrangement has the vias its drops= took out of the arrangement's copper in
         plan.thinned, in place of its default's (kicad/write.py thins them once it has drawn that copper)."""
-        if i.kind != "cell" or not placement.arrangement:
-            return
-        gone = occ.arranged_gone.get((i.item.name, placement.arrangement))
+        if i.kind == "cell" and placement.arrangement:
+            Board._record_thinned(occ, plan, i.item.name, placement.arrangement)
+
+    @staticmethod
+    def _record_thinned(occ, plan, cell: str, arrangement: str) -> None:
+        gone = occ.arranged_gone.get((cell, arrangement))
         if gone:
-            plan.thinned[i.item.name] = list(gone)
+            plan.thinned[cell] = list(gone)
         else:
-            plan.thinned.pop(i.item.name, None)
+            plan.thinned.pop(cell, None)
 
     def _thin_arranged(self, cell, shapes: list) -> tuple:
         """Occupancy.thin_arranged: (the shapes of arranged cell `cell`'s own copper `shapes` its `drops=` keeps, [(x, y)] of each via
@@ -7620,16 +7623,23 @@ class Board:
                    if k < len(was) and (s.placement, s.notes) != was[k]]
         return {"commits": commits, "changed": changed, "cleanup": dict(plan.cleanup)}
 
-    def _apply_commits(self, occ: Occupancy, commits):
-        """Commit, in order, what _recording_commits recorded."""
+    def _apply_commits(self, occ: Occupancy, commits, plan: Plan):
+        """Commit, in order, what _recording_commits recorded. A cell recorded in an arrangement commits as it stands it, and its
+        thinned vias are the arrangement's, as when it was first committed."""
         from . import reuse as _reuse
-        for (kind, name), placement in commits:
+        for key, placement in commits:
+            kind, name = key[0], key[1]
             item = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
-            occ.commit(item, _reuse.placement_from_json(placement))
+            placement = _reuse.placement_from_json(placement)
+            if len(key) > 2:
+                placement = dataclasses.replace(placement, arrangement=key[2])
+            occ.commit(item, placement)
+            if kind == "cell" and placement.arrangement:
+                self._record_thinned(occ, plan, name, placement.arrangement)
 
     def _replay_cleanup(self, occ: Occupancy, plan: Plan, entry: dict):
         from . import reuse as _reuse
-        self._apply_commits(occ, entry["commits"])
+        self._apply_commits(occ, entry["commits"], plan)
         for k, placement, notes in entry["changed"]:
             plan.steps[k].placement = _reuse.placement_from_json(placement)
             plan.steps[k].notes = tuple(notes)
@@ -7645,7 +7655,7 @@ class Board:
         from . import reuse as _reuse
         if isinstance(obj, PlaceIntent) and obj.kind != "block":
             self._reserve_pushes(occ, plan, obj)
-        self._apply_commits(occ, entry["commits"])
+        self._apply_commits(occ, entry["commits"], plan)
         plan.steps.extend(_reuse.step_from_json(s) for s in entry["steps"])
         plan.findings.extend(_reuse.finding_from_json(f) for f in entry["findings"])
         plan.pocketed.extend(entry["pocketed"])
@@ -9650,9 +9660,10 @@ class Board:
             notes = [step_text.record("rides", of=self._rider_of[r.key])] + ([step_text.record("required")] if r.required else [])
             notes += [x for x in (chose, step_text.record("refused", why=why.to_json()) if why else None,
                                   step_text.record(r.faces_note) if r.faces_note else None) if x]
-            plan.steps.append(self._step(r, p, 0.0, notes))
-            occ.commit(r.item, p)
-            self._record_arranged_thinned(occ, plan, r, p)
+            step = self._step(r, p, 0.0, notes)
+            plan.steps.append(step)
+            occ.commit(r.item, step.placement)          # its step's placement names the arrangement the rider is pinned to
+            self._record_arranged_thinned(occ, plan, r, step.placement)
 
     def _band_frame(self, occ: Occupancy, i: PlaceIntent, placed, hint: Placement | None) -> tuple:
         """(hint, band, turns, within) for a search of `i`: its radial band and the spot turns that
@@ -10310,8 +10321,17 @@ def _recording_commits(occ: Occupancy):
     real = occ.commit
 
     def commit(item, placement):
-        commits.append([("cell", item.name) if isinstance(item, CellGeom) else ("fp", item.ref),
-                        _reuse.placement_to_json(placement)])
+        if not isinstance(item, CellGeom):
+            commits.append([("fp", item.ref), _reuse.placement_to_json(placement)])
+            return real(item, placement)
+        # A cell in an arrangement records it beside its name and in its placement (a rider's placement may leave it to the item); a
+        # cell in its default records as it always did.
+        arranged = placement.arrangement or item.arrangement
+        if arranged:
+            commits.append([("cell", item.name, arranged),
+                            _reuse.placement_to_json(dataclasses.replace(placement, arrangement=arranged))])
+        else:
+            commits.append([("cell", item.name), _reuse.placement_to_json(placement)])
         return real(item, placement)
     occ.commit = commit
     try:

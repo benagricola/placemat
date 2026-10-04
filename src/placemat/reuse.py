@@ -17,7 +17,7 @@ from .board_geometry import CellGeom, Footprint, members_of
 from .placement import Placement
 from .values import Face, Freedom, Location, Priority
 
-VERSION = 4                 # of the record's format: 2 records the items a step names (a block's members); 3 stores findings as facts; 4 stores a step's notes and unplaced reasons as records
+VERSION = 5                 # of the record's format: 2 records the items a step names (a block's members); 3 stores findings as facts; 4 stores a step's notes and unplaced reasons as records; 5 carries a cell's arrangement in a placement and in a commit
 
 
 def omitted(obj, f) -> bool:
@@ -97,6 +97,14 @@ def placement_settings(settings) -> str:
     return json.dumps({k: v for k, v in data.items() if not k.startswith(_NOT_PLACEMENT)}, sort_keys=True)
 
 
+def arrangements_digest(g) -> str:
+    """What the stamped cells' arrangements say, for the context: each one's id, its members' poses, its copper and its rule areas.
+    Empty when no cell has any."""
+    rows = [(name, [(a.id, [(m.ref, m.pose) for m in a.members], a.ops, a.rule_areas) for a in cell.arrangements])
+            for name, cell in sorted(g.cells.items()) if cell.arrangements]
+    return canonical(rows) if rows else ""
+
+
 def context_key(board, extra: str = "") -> str:
     """Everything that feeds every step: `extra` (the runner's tool version,
     board file digest, settings and fab profile), the generated board, and
@@ -112,6 +120,9 @@ def context_key(board, extra: str = "") -> str:
                         board._fanouts])]
     if board._escapes:                  # left out when none is declared, so a script without one digests as before
         parts.append(canonical(board._escapes))
+    arranged = arrangements_digest(board.geometry)
+    if arranged:                        # likewise: a board whose cells carry no arrangement digests as before
+        parts.append(arranged)
     if board.settings.solve_enabled:
         parts.append(canonical([board._intents, board._links]))
     return _sha("context", str(VERSION), *parts)
