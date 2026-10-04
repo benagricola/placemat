@@ -12,5 +12,8 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.29.0", features = ["extension-module", "abi3-py312"] }   # one wheel per platform for Python 3.12 on
 
+[features]
+profile = []     # stage timers in the sweep (src/profile.rs)
+
 [profile.release]
 lto = true

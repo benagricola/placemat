@@ -266,6 +266,27 @@ pub struct Raster {
 }
 
 impl Raster {
+    /// Whether the polygon lies clear of `b` and of a `slack` all round it: every cell the grown box
+    /// touches, edges included, has no edge of the polygon in it and its corner outside. The polygon then
+    /// shares no interior with anything inside `b`, whatever an overlap test's tolerances.
+    pub fn clear_of(&self, b: &B, slack: f64) -> bool {
+        let g = B { l: b.l - slack, t: b.t - slack, r: b.r + slack, b: b.b + slack };
+        let c = self.cell;
+        let i0 = 0i64.max(((g.l - self.x0) / c).floor() as i64);
+        let i1 = self.nx.min(((g.r - self.x0) / c).ceil() as i64);
+        let j0 = 0i64.max(((g.t - self.y0) / c).floor() as i64);
+        let j1 = self.ny.min(((g.b - self.y0) / c).ceil() as i64);
+        for j in j0..j1 {
+            let row = &self.state[j as usize];
+            for i in i0..i1 {
+                if row[i as usize] != 0 {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     /// `PolyRaster.classify`: Some(overlaps) when the cells decide it.
     pub fn classify(&self, b: &B) -> Option<bool> {
         let c = self.cell;

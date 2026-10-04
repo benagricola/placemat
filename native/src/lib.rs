@@ -9,7 +9,9 @@ mod exact;
 mod fill;
 mod geometry;
 mod giveway;
+mod judge;
 mod pockets;
+mod profile;
 mod ratsnest;
 mod shapes;
 
@@ -962,6 +964,31 @@ fn sweep(
         _ => Vec::new(),
     };
     let esc_turns: Vec<PyRef<'_, NativeEscTurn>> = turn_handles.iter().map(|t| t.borrow(py)).collect();
+    let turn_yards: Vec<judge::TurnYards> = yards.iter().map(|y| judge::TurnYards::new(y)).collect();
+    // per turn, a box holding the item's body, parts and courtyards at the origin; and, past them, every place
+    // a candidate's boxes and courtyards can be: the reservations clear of it are never asked
+    let hulls: Vec<board::B> = (0..bodies.len()).map(|t| {
+        let mut h = bx(bodies[t]);
+        for p in parts.get(t).map(|v| v.as_slice()).unwrap_or(&[]) {
+            h = judge::hull(&h, &bx(*p));
+        }
+        for yb in turn_yards.get(t).map(|y| y.boxes.as_slice()).unwrap_or(&[]).iter().flatten() {
+            h = judge::hull(&h, yb);
+        }
+        h
+    }).collect();
+    let reach = match (hulls.iter().copied().reduce(|a, b| judge::hull(&a, &b)), points.first()) {
+        (Some(h), Some(&(x0, y0, _))) => {
+            let (mut lx, mut ly, mut hx, mut hy) = (x0, y0, x0, y0);
+            for &(x, y, _) in &points {
+                lx = lx.min(x); ly = ly.min(y); hx = hx.max(x); hy = hy.max(y);
+            }
+            Some(board::B { l: lx + h.l, t: ly + h.t, r: hx + h.r, b: hy + h.b })
+        }
+        _ => None,
+    };
+    let mut pass = judge::ReservationPass::new(&board.reservations, &reservations, judged.as_ref(), &turn_yards, &hulls, reach);
+    let mut members: Vec<board::B> = Vec::new();
     let mut legal = Vec::new();
     let mut scores = Vec::new();
     let mut seen: HashMap<(u8, i64, i64), usize> = HashMap::new();
@@ -976,6 +1003,7 @@ fn sweep(
         }
     };
     for (idx, &(x, y, turn)) in points.iter().enumerate() {
+        let t_all = profile::mark();
         let o = bodies[turn];
         let body = board::B {
             l: exact::clean9(o.0 + x),
@@ -986,15 +1014,15 @@ fn sweep(
         // A cell whose box fails is judged again by its members' boxes
         // (`Occupancy._edge_or_reservation_conflict`); b names the member
         // whose box the edge refused, 1-based, or 0 for the whole box.
-        let members: Vec<board::B> = match parts.get(turn) {
-            Some(ps) if !ps.is_empty() => ps.iter().map(|p| board::B {
+        members.clear();
+        if let Some(ps) = parts.get(turn) {
+            members.extend(ps.iter().map(|p| board::B {
                 l: exact::clean9(p.0 + x),
                 t: exact::clean9(p.1 + y),
                 r: exact::clean9(p.2 + x),
                 b: exact::clean9(p.3 + y),
-            }).collect(),
-            _ => Vec::new(),
-        };
+            }));
+        }
         let shift = |p: PyBox| board::B {
             l: exact::clean9(p.0 + x),
             t: exact::clean9(p.1 + y),
@@ -1006,6 +1034,8 @@ fn sweep(
             Some(ps) if !members.is_empty() => ps,
             _ => &[],
         };
+        profile::add(0, t_all);
+        let t_edge = profile::mark();
         let mut edge_hit: Option<(u8, usize)> = None;
         if let Some(code) = board.keepin.why_not_flat(&shift(flat)) {
             edge_hit = if member_edges.is_empty() {
@@ -1028,57 +1058,27 @@ fn sweep(
                 }
             }
         }
+        profile::add(1, t_edge);
         if let Some((code, k)) = edge_hit {
+            profile::add(6, t_all);
             refuse((0, code as i64, k as i64), idx, &mut refused);
             continue;
         }
         // b: the part the reservation refuses, 1-based (a cell's member or its own copper, in
         // `Occupancy.judged` order); 0 for an item with no parts
-        if let Some((ri, k)) = reservations.iter().enumerate().find_map(|(pos, ri)| {
-            let r = &board.reservations[*ri];
-            if r.courtyard {
-                // A KiCad rule area: each part's courtyard polygon against it
-                // (`Occupancy._courtyard_hit`). A cell's own copper, past its members,
-                // has no courtyard and is judged by its box.
-                let ys: &[Option<Vec<Point>>] = yards.get(turn).map(|v| v.as_slice()).unwrap_or(&[]);
-                let yard_hit = |k: usize| -> bool {
-                    match ys.get(k) {
-                        Some(Some(poly)) => {
-                            let moved: Vec<Point> = poly.iter().map(|p| (p.0 + x, p.1 + y)).collect();
-                            r.bbox.overlaps(&board::B::of_points(&moved)) && geometry::polys_overlap(&r.poly, &moved)
-                        }
-                        _ => false,
-                    }
-                };
-                if members.is_empty() {
-                    return if yard_hit(0) { Some((*ri, 0usize)) } else { None };
-                }
-                let idx: Vec<usize> = match judged.as_ref() {
-                    Some(j) => j[pos].clone(),
-                    None => (0..members.len()).collect(),
-                };
-                return idx.into_iter().find(|&k| k < members.len()
-                    && if k < ys.len() { yard_hit(k) } else { r.overlaps(&members[k]) })
-                    .map(|k| (*ri, k + 1));
-            }
-            if !r.overlaps(&body) {
-                return None;
-            }
-            if members.is_empty() {
-                return Some((*ri, 0usize));
-            }
-            let hit = match judged.as_ref() {
-                Some(j) => j[pos].iter().copied().find(|&k| k < members.len() && r.overlaps(&members[k])),
-                None => (0..members.len()).find(|&k| r.overlaps(&members[k])),
-            };
-            hit.map(|k| (*ri, k + 1))
-        }) {
+        let t_res = profile::mark();
+        let rh = pass.hit(turn, &body, &members, x, y);
+        profile::add(3, t_res);
+        if let Some((ri, k)) = rh {
+            profile::add(7, t_all);
             refuse((1, ri as i64, k as i64), idx, &mut refused);
             continue;
         }
+        let t_obs = profile::mark();
         match obstacles.grid.first_conflict_shifted(&origins[turn].shapes, x, y, clearance, &obstacles.cfg) {
-            Some((si, oi)) => refuse((2, ((turn as i64) << 32) | si as i64, oi as i64), idx, &mut refused),
+            Some((si, oi)) => { profile::add(4, t_obs); profile::add(8, t_all); refuse((2, ((turn as i64) << 32) | si as i64, oi as i64), idx, &mut refused) },
             None => {
+                profile::add(4, t_obs);
                 legal.push(idx);
                 scores.push(match (search.as_mut(), tidy.as_mut(), rn.as_ref()) {
                     (Some(sc), _, Some(rn)) => sc.score(rn, &esc_turns, x, y, turn),
@@ -1219,6 +1219,7 @@ impl NativeRatsnest {
 #[pymodule]
 fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("PLACEMAT_VERSION"))?;      // the release (git tag) it was built from: build.rs
+    m.add_function(wrap_pyfunction!(profile::sweep_profile, m)?)?;
     m.add_function(wrap_pyfunction!(polys_overlap, m)?)?;
     m.add_function(wrap_pyfunction!(poly_distance, m)?)?;
     m.add_function(wrap_pyfunction!(point_segment_distance, m)?)?;
