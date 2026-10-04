@@ -805,6 +805,10 @@ def draw_copper(board, ops):
             zones.append(_draw_zone(board, op))
     if zones:
         _raise_planes_over_zones(board, zones)
+        # The filler removes a fill's isolated islands by the board's connectivity, which LoadBoard built
+        # before the plan moved the parts and drew its copper. Filled on that, a module's ground fill kept
+        # islands a refill of the saved board removes (tests/test_keep_out_modules.py).
+        board.BuildConnectivity()
         pcbnew.ZONE_FILLER(board).Fill(board.Zones())
 
 

@@ -15,6 +15,12 @@ section for each hand-written pattern a newer form replaces.
   KiCad flagged it there. A board that stamps the module now renames each copy that lets nets through for its cell
   (`<name>_1 @<cell>`) when it writes, and builds that cell's rule from the new name. Write the parent board again;
   the module and its script need no change.
+- **A plane's saved fill is the fill of the saved board.** The write filled its zones on the connectivity KiCad built
+  when it loaded the board, before the plan moved the parts and drew its copper, so a fill could keep isolated islands
+  that a refill of the saved board removes (a module's ground fill read 97.74 mm2 saved and 96.96 mm2 refilled). The
+  write now builds the board's connectivity again before it fills. A module run once more saves its fill without those
+  islands, and a board that stamps it gets them through the stamped cell; a parent board whose script draws a plane
+  refills every zone, its cells' included, as before.
 
 ### Changed
 
