@@ -348,22 +348,26 @@ def _net_tie_owners(occ) -> frozenset:
     return hit
 
 
-def _meets_net_tie(judge: "_Judge", shapes: list, box: Box, near: list) -> bool:
-    """Whether a net tie's copper lies within a conflict's reach of `box`, on the board (`shapes`,
-    a native index's backing list) or among `near` (the item's own copper and what earlier actions
-    left): where it does the native rules and `_conflict` can disagree, and Python judges."""
+def _tie_boxes(judge: "_Judge", shapes: list, near: list) -> list:
+    """The boxes of the net ties' copper: on the board (`shapes`, a native index's backing list) and among
+    `near` (the item's own copper and what earlier actions left)."""
     occ = judge.occ
     tied = _net_tie_owners(occ)
     if not tied:
-        return False
+        return []
     boxes = judge.others.__dict__.get("_net_tie_boxes")
     if boxes is None:
         boxes = judge.others.__dict__["_net_tie_boxes"] = [
             x.box for x in shapes if x.owner in tied and x.kind in ("pad", "through", "copper")]
-    gap = occ._gap
-    return any(b.overlaps(box, gap=gap) for b in boxes) or \
-        any(o.owner in tied and o.kind in ("pad", "through", "copper") and o.box.overlaps(box, gap=gap)
-            for o in near)
+    return boxes + [o.box for o in near if o.owner in tied and o.kind in ("pad", "through", "copper")]
+
+
+def _meets_net_tie(judge: "_Judge", shapes: list, box: Box, near: list) -> bool:
+    """Whether a net tie's copper lies within a conflict's reach of `box`, on the board (`shapes`,
+    a native index's backing list) or among `near` (the item's own copper and what earlier actions
+    left): where it does the native rules and `_conflict` can disagree, and Python judges."""
+    gap = judge.occ._gap
+    return any(b.overlaps(box, gap=gap) for b in _tie_boxes(judge, shapes, near))
 
 
 def _native_shape(judge: "_Judge", s):
@@ -407,21 +411,22 @@ def _tail_hit(judge: "_Judge", shape, own) -> bool:
 
 
 def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offsets: list, first, pad, r: float,
-                       tail_spec):
+                       tail_spec, untied: bool = False):
     """(used, (dx, dy) or None): the first of `offsets` (the ones `_native_move_offsets` found clear
     of the board) at which `g`'s ring, hole and tail, moved, also clear `mine` (the item's own copper)
     and what earlier actions left, and keep the tests `_give`'s loop applies - one native call in
     place of judging each offset in Python. `used` is False where the loop must run instead: no
     native index, the switch off, or a net tie near the move, whose rules the native ones do not model.
     `first`: the copper the via first met; `pad`: the pad it must stay inside, or None; `r` its radius;
-    `tail_spec`: None, or (the tail's far end, its layer, its width), the tail redrawn from there."""
+    `tail_spec`: None, or (the tail's far end, its layer, its width), the tail redrawn from there.
+    `untied`: the caller has set aside the offsets whose move reaches a net tie, so `span` is not asked."""
     occ = judge.occ
     entry = getattr(judge.others, "_native", None)
     if not _NATIVE_FIRST_MOVE or entry is None or not offsets:
         return False, None
     index, shapes = entry
     near = list(mine) + [o for o in judge.extra if o.box.overlaps(span, gap=occ._gap)]
-    if _meets_net_tie(judge, shapes, span, near):
+    if not untied and _meets_net_tie(judge, shapes, span, near):
         return False, None
     met = _first_met(occ, g, first, judge.clearance)
     native_mine = [_native_shape(judge, o) for o in near]
@@ -752,38 +757,63 @@ def _find_move(occ, g: Group, judge: "_Judge", own, first, limit: float, pad, ta
 
     # The offsets are judged nearest first in windows that double in size, from `place.via_search_chunk`
     # offsets: the first window that holds a spot ends the search, so a via with a spot near it never has
-    # the rest of its reach judged. Each window is judged as the whole list once was.
+    # the rest of its reach judged. Each window is judged as the whole list once was, except that the
+    # offsets whose move reaches a net tie (where the native rules and `_conflict` can disagree) are
+    # judged in Python, and only as far as the first the native call accepts.
+    ties = None                     # the net ties' boxes within the reach, made when the first native window needs them
+
+    def native_first(candidates):
+        """(used, (dx, dy, width) or None): the first of `candidates` that `_native_first_move` accepts and a tail clears."""
+        while candidates:
+            used, at = _native_first_move(judge, g, mine, span, candidates, first, pad, r, narrow, True)
+            if not used or at is None:
+                return used, None
+            width = _widest(judge, g, mine, at, tail)
+            if width is not None:
+                return True, (at[0], at[1], width)
+            # a spot native accepted that no width of the tail clears here (the board's edge is judged in Python
+            # only): on to the next offset, and not the narrowest tail at a spot where it is not clear either
+            candidates = candidates[candidates.index(at) + 1:]
+        return True, None
+
     lo, size = 0, chunk
     while lo < len(all_offsets):
         hi = min(len(all_offsets), lo + size)
         indices = _native_clear_indices(judge, g.ring, g.hole, all_offsets, hi)
         if indices is None:
-            native_clear, candidates = None, all_offsets[lo:]
-            hi = len(all_offsets)
-        else:
-            native_clear, candidates = True, [all_offsets[i] for i in indices[bisect.bisect_left(indices, lo):]]
-        # what this window's spots can reach: a net tie further off than that does not take the window from native
-        reach_w = math.hypot(*all_offsets[hi - 1])
-        window = g.ring.box.inflate(reach_w) if g.tail is None else \
-            Box.union([g.ring.box.inflate(reach_w), g.tail.box.inflate(reach_w)])
+            return python_loop(all_offsets[lo:], None)
+        candidates = [all_offsets[i] for i in indices[bisect.bisect_left(indices, lo):]]
         lo, size = hi, size * 2
-        while native_clear is not None and candidates:
-            used, at = _native_first_move(judge, g, mine, window, candidates, first, pad, r, narrow)
-            if not used:
-                break
-            if at is None:
-                candidates = []
-                break
-            width = _widest(judge, g, mine, at, tail)
-            if width is not None:
-                return at[0], at[1], width
-            # a spot native accepted that no width of the tail clears here (the board's edge is judged in Python
-            # only): on to the next offset, and not the narrowest tail at a spot where it is not clear either
-            candidates = candidates[candidates.index(at) + 1:]
-        if native_clear is None or (candidates and not used):
-            found = python_loop(candidates, native_clear)
-            if found is not None:
-                return found
+        if not candidates:
+            continue
+        if ties is None:
+            entry = getattr(judge.others, "_native", None)
+            near = list(mine) + [o for o in judge.extra if o.box.overlaps(span, gap=occ._gap)]
+            ties = [b for b in _tie_boxes(judge, entry[1], near) if b.overlaps(span, gap=occ._gap)]
+        tied, untied = [], candidates
+        if ties:
+            # the spots whose ring, or tail, comes within a conflict's reach of a net tie
+            tied, untied = [], []
+            for at in candidates:
+                reach = g.ring.box.moved(at[0], at[1])
+                if tail is not None:
+                    half = tail[2][0] / 2.0
+                    (fx, fy), (tx, ty) = tail[0], (g.centre[0] + at[0], g.centre[1] + at[1])
+                    reach = Box.union([reach, Box(min(fx, tx) - half, min(fy, ty) - half,
+                                                  max(fx, tx) + half, max(fy, ty) + half)])
+                (tied if any(b.overlaps(reach, gap=occ._gap) for b in ties) else untied).append(at)
+        used, hit = native_first(untied)
+        if not used:
+            found = python_loop(candidates, True)
+        else:
+            stop = len(candidates) if hit is None else candidates.index((hit[0], hit[1]))
+            tied_at = set(tied)
+            before = [at for at in candidates[:stop] if at in tied_at]
+            found = python_loop(before, True) if before else None
+            if found is None:
+                found = hit
+        if found is not None:
+            return found
     return None
 
 

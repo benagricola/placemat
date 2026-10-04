@@ -887,3 +887,18 @@ def test_a_via_with_a_spot_near_it_does_not_have_its_whole_reach_judged(monkeypa
                          settings=_settings(place_via_move_distance=3.0)).resolve()
     assert any(a.kind == "move" for a in plan.occupancy.given_way.values())
     assert asked and max(upto for upto, _ in asked) < asked[0][1]
+
+
+@pytest.mark.parametrize("name", sorted(_MOVES))
+@pytest.mark.parametrize("shift", (-3.0, 3.0, 5.0))
+def test_a_net_tie_takes_only_the_spots_it_reaches_from_native(monkeypatch, name, shift):
+    """With a net tie beside the via, the spots near the tie are judged in Python and the rest natively,
+    and the spot taken is the one the all-Python loop takes."""
+    from placemat import giveway
+    monkeypatch.setattr(giveway, "_net_tie_owners", lambda occ: frozenset(["R9"]))
+    real = giveway._tie_boxes
+    monkeypatch.setattr(giveway, "_tie_boxes", lambda *a: [b.moved(shift, 0.0) for b in real(*a)])
+    _with_search_chunk(monkeypatch, 8)
+    runs = _first_move_runs(monkeypatch, _MOVES[name])
+    assert runs[True][:2] == runs[False][:2]
+    print(name, shift, runs[True][2])
