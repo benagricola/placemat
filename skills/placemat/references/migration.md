@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **The studio's 3D Play brings a back part up from below.** Each part dropped onto the board from above, so a part on the
+  back face fell through the board to its underside. A part whose model stands under the board's mid-plane now rises to
+  the underside.
+
 ## To 0.99.7
 
 ### Fixed

@@ -215,7 +215,7 @@ export async function mount(host) {
                 const gk = e.id + ":" + i;
                 let g = byGroup.get(gk);
                 if (!g) { g = {key: gk, asset: a, i, mat, entries: []}; byGroup.set(gk, g); }
-                g.entries.push({n, key: it.key, ref: m.ref, matrix: e.matrix});
+                g.entries.push({n, key: it.key, ref: m.ref, matrix: e.matrix, below: e.matrix[13] < state.T / 2});     // the model's origin under the board's mid-plane: a part on the back
               });
               drawn++;
             } else if (a && a.failed) why = why || "model could not be read";
@@ -389,7 +389,7 @@ export async function mount(host) {
       state.animations = state.animations.filter(a => {
         const t = ms ? Math.min(1, (now - a.t0) / ms) : 1, e = 1 - Math.pow(1 - t, 3);
         mtx.fromArray(a.entry.matrix);
-        lift.makeTranslation(0, 4 * (1 - e), 0);
+        lift.makeTranslation(0, (a.entry.below ? -4 : 4) * (1 - e), 0);     // a back part rises to the board from underneath
         a.group.mesh.setMatrixAt(a.i, lift.multiply(mtx));
         a.group.mesh.instanceMatrix.needsUpdate = true;
         return t < 1;
