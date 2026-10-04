@@ -38,6 +38,7 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
+from .arrangements import DEFAULT_SPEC, Alt, Enumeration, Group, Option, check_keywords, check_name, enumerate_specs, merged_call
 from .placer import BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
@@ -1016,6 +1017,14 @@ class Board:
         self._outline_decl: str = ""        # which of rect, disc, outline the script declared the board with
         self._centres: list = []            # (item key, the Centre it was placed at): what a Centre's flag is judged by
         self._sites: list = []              # the Site of each declaration: where the script made it (suggestions.bind)
+        self._place_calls: dict = {}        # item key -> (the item as given, `at=`, the other place() keywords as given, "row"/"ring"/""): what an alternative lays over
+        self._options: dict = {}            # item key -> [Option]: board.alternative(), in declaration order
+        self._arr_groups: list = []         # Group: board.arrangement(), in declaration order
+        self._compound: str = ""            # "row" or "ring" while one of them declares its members
+        self._arrangement_enum = None       # arrangements.Enumeration, cached until a declaration changes it
+        self._declarations_done = False
+        self._only_sites: dict = {}         # copper index -> (file, line) of an `only=` (Task 1.4)
+        self._copper_uses: dict = {}        # copper index -> the indexes of the copper intents it is drawn from or fitted round (Task 1.4)
         self._file_digests: dict = {}       # file -> digest of its text when the first declaration in it was made
         self.script_file = ""               # the layout script this board runs, set by the runner
         self.source_reader = None           # callable(path) -> text where the script ran from other than the file on disk
@@ -2942,7 +2951,7 @@ class Board:
               radius: float | None = None, step: float | None = None, rotations=(),
               priority: Priority | None = None, required: bool = False, why: str = "",
               drops: Drops = Drops.ALL, budget: int | None = None,
-              _standoff: float | None = None, _row_of: object = None) -> PlaceIntent:
+              _standoff: float | None = None, _row_of: object = None, _declare: bool = True) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
 
@@ -2993,6 +3002,9 @@ class Board:
         and adds `score.back_face` to a back spot. A position that is decided or
         along an edge, a block, and a turn that depends on the face are refused.
         """
+        raw = {"rotation": rotation, "face": face, "radius": radius, "step": step, "rotations": rotations, "priority": priority,
+               "required": required, "why": why, "drops": drops, "budget": budget, "_standoff": _standoff, "_row_of": _row_of}
+        given_at = at
         radius = self.settings.place_radius if radius is None else radius
         step = self.settings.place_step if step is None else step
         geom, key, kind = self._item(item)
@@ -3016,7 +3028,7 @@ class Board:
                             % (key, drops)) from None
         if drops is not Drops.ALL and kind != "cell":
             raise TypeError("%s: drops= thins a cell's via fields; a %s carries none of its own" % (key, kind))
-        if any(i.key == key for i in self._intents):
+        if _declare and any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
         center = edge = along = near = about = run = band = None
         rim = angle = radius_at = None
@@ -3137,7 +3149,7 @@ class Board:
             at = None
         elif isinstance(at, (Location, Centre, tuple)):
             _centre_toward = at if isinstance(at, Centre) else None
-            if isinstance(at, Centre):
+            if isinstance(at, Centre) and _declare:
                 self._centres.append((key, at))
             free = _free_axis(at)
             if free is not None:
@@ -3256,8 +3268,108 @@ class Board:
                              cell_pin=cell_pin, drops=drops, file=_script_site()[0], line=_script_site()[1],
                              toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either,
                              tangent=tangent, band=band, budget=budget)
-        self._intents.append(intent)
+        if _declare:
+            self._intents.append(intent)
+            self._place_calls[key] = (item, given_at, raw, self._compound)
+            self._arrangement_enum = None
         return intent
+
+    # ------------------------------------------------------------ arrangements
+    @staticmethod
+    def _refuse_coordinates(key: str, at) -> None:
+        """An alternative is a relation, as the default is: no number as a coordinate."""
+        def numeric(v):
+            return isinstance(v, (int, float)) and not isinstance(v, bool)
+        if isinstance(at, Near):
+            Board._refuse_coordinates(key, at.location)
+            return
+        bad = (isinstance(at, (Location, Centre)) and (numeric(at.x) or numeric(at.y))) or \
+              (isinstance(at, tuple) and any(numeric(v) for v in at))
+        if bad:
+            raise TypeError("%s: an alternative is a relation (Beside, Pin, a turn), as the default is; %r names a coordinate"
+                            % (key, at))
+
+    def _checked_option(self, item, name: str, keywords: dict, *, grouped: bool = False) -> Option:
+        site = _script_site()
+        geom, key, kind = self._item(item)
+        call = self._place_calls.get(key)
+        if call is None:
+            raise ValueError("%s: board.alternative() adds an option to an item's place(), and the script has not placed it; "
+                             "a block's member has none of its own: name a group of them" % key)
+        if kind != "part":
+            raise TypeError("%s: an alternative is for a part of a module; a %s's arrangements are the ones its own module "
+                            "offers (arrangements= on its place())" % (key, kind))
+        if not grouped and (key in self._row_members or call[3]):
+            raise ValueError("%s is a member of a %s: an arrangement of a row is a named group (board.arrangement)"
+                             % (key, "row" if key in self._row_members else call[3]))
+        if "+" in key:
+            raise ValueError("%s: an item key with a + cannot be named in an arrangement id" % key)
+        check_name("option", name)
+        check_keywords(key, keywords)
+        self._refuse_coordinates(key, keywords.get("at"))
+        option = Option(key, name, tuple((k, v) for k, v in keywords.items() if k != "why"), keywords.get("why", ""), *site)
+        self._intent_option(option)         # built now: a bad keyword or a bad relation is refused where it is written
+        return option
+
+    def alternative(self, item, name: str, **keywords) -> Option:
+        """Another way an item the script has placed may stand: an option on that item's `place()`, which stays its default.
+        `keywords` are those of `place()` that change where an item goes (`at=`, `rotation=`, `rotations=`, `face=`, `radius=`,
+        `step=`) and `why=`; every other keyword and each one not given is the item's own. An option that gives `rotation=`
+        replaces the item's `rotations=` and `Turned`, and one that gives `rotations=` replaces its `rotation=`. The module run
+        lays out every arrangement and offers the ones that pass its own DRC and checks; the board's search chooses among them."""
+        option = self._checked_option(item, name, keywords)
+        if any(o.name == name for o in self._options.get(option.item, ())):
+            raise ValueError("%s already has an option %r" % (option.item, name))
+        self._options.setdefault(option.item, []).append(option)
+        self._arrangement_enum = None
+        return option
+
+    def arrangement(self, name: str, *alts, why: str = "") -> Group:
+        """One arrangement the script names, made of the options of the members it moves, `Alt(item, **keywords)` each (the
+        keywords of `alternative`); the members not named keep their `place()`. For members whose alternatives only make sense
+        together, and for a row or a pair that moves as a unit."""
+        check_name("arrangement", name)
+        if any(g.name == name for g in self._arr_groups):
+            raise ValueError("arrangement %r is already declared" % name)
+        if not alts:
+            raise ValueError("arrangement %r names no member: give Alt(item, **keywords) for each one it moves" % name)
+        seen, options = set(), []
+        for a in alts:
+            if not isinstance(a, Alt):
+                raise TypeError("arrangement %r takes Alt(item, **keywords), not %r" % (name, a))
+            o = self._checked_option(a.item, name, a.keywords, grouped=True)
+            if o.item in seen:
+                raise ValueError("arrangement %r names %s twice" % (name, o.item))
+            seen.add(o.item)
+            options.append(o)
+        group = Group(name, tuple(options), why, *_script_site())
+        self._arr_groups.append(group)
+        self._arrangement_enum = None
+        return group
+
+    def _intent_option(self, option: Option) -> "PlaceIntent":
+        """The PlaceIntent an option makes of its item: the item's own `place()` call with the option laid over it, built
+        without being declared."""
+        item, at, raw, _ = self._place_calls[option.item]
+        call = merged_call(at, raw, option)
+        return Board.place.__wrapped__(self, item, call.pop("at"), _declare=False, **call)
+
+    def arrangement_enumeration(self) -> Enumeration:
+        """The arrangements this module offers, the default first (`place.arrangements` false, or no declaration: the default
+        alone). Over a limit: the default alone, with the facts of `arrangement.limit` (`arrangement_limit`)."""
+        if self._arrangement_enum is None:
+            if not self.settings.place_arrangements or not (self._options or self._arr_groups):
+                self._arrangement_enum = Enumeration((DEFAULT_SPEC,), None, 1)
+            else:
+                order = [i.key for i in sorted(self._intents, key=lambda i: i.index) if i.key in self._options]
+                self._arrangement_enum = enumerate_specs(order, self._options, self._arr_groups,
+                                                         self.settings.place_arrangement_options_max,
+                                                         self.settings.place_arrangements_max)
+        return self._arrangement_enum
+
+    def arrangement_limit(self) -> dict | None:
+        """The facts of `arrangement.limit` when the declarations pass a limit, else None."""
+        return self.arrangement_enumeration().over
 
     @staticmethod
     def _refuse_either(key: str, kind: str, rotation, **decided) -> None:
@@ -3553,9 +3665,13 @@ class Board:
         ref = base.standoff + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
         clears = [ref - {"centre": d / 2.0, "outer": 0.0, "inner": d}[line] for d in depths]
         row.line = line.value          # the plain value: what a declaration digest wrote before Line existed
-        for n, (item, r, c) in enumerate(zip(items, rots, clears)):
-            along = row.centres[n] if row.start is not None else _RowSlot(row, n)
-            self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why, _row_of=of)
+        self._compound = "row"
+        try:
+            for n, (item, r, c) in enumerate(zip(items, rots, clears)):
+                along = row.centres[n] if row.start is not None else _RowSlot(row, n)
+                self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why, _row_of=of)
+        finally:
+            self._compound = ""
         return row
 
     def _check_row_pitch(self, items, keys, rots, along_axis: bool, pitch: float, gap: float) -> None:
@@ -3620,8 +3736,12 @@ class Board:
             angles.append(angle)
             rots.append(given[k] if given is not None else self.outward_rotation(item, angle)[0])
             depths.append(thick)
-        for item, a, r in zip(items, angles, rots):
-            self.place(item, at=(OnRim(a) if radius is None else Polar(radius, a, about=centre)), rotation=r, why=why)
+        self._compound = "ring"
+        try:
+            for item, a, r in zip(items, angles, rots):
+                self.place(item, at=(OnRim(a) if radius is None else Polar(radius, a, about=centre)), rotation=r, why=why)
+        finally:
+            self._compound = ""
         return Ring(float(radius) if radius is not None else None, angles,
                     max(depths) if depths else 0.0, list(items), [self._item(it)[1] for it in items])
 
@@ -3675,11 +3795,15 @@ class Board:
             s0 = run.project(_as_point(start) if isinstance(start, (tuple, Location)) else start) + first_half
         alongs, _ = walk(s0)
         keys = []
-        for k, (item, along) in enumerate(zip(items, alongs)):
-            rot = given[k] if given is not None else self.outward_rotation(item, run.at(along)[1])[0]
-            self.place(item, at=OnEdge(run, along=along), rotation=rot,
-                       _standoff=(-float(overhang) if overhang else self.keep_in), why=why)
-            keys.append(self._item(item)[1])
+        self._compound = "row"
+        try:
+            for k, (item, along) in enumerate(zip(items, alongs)):
+                rot = given[k] if given is not None else self.outward_rotation(item, run.at(along)[1])[0]
+                self.place(item, at=OnEdge(run, along=along), rotation=rot,
+                           _standoff=(-float(overhang) if overhang else self.keep_in), why=why)
+                keys.append(self._item(item)[1])
+        finally:
+            self._compound = ""
         return RunRow(run, alongs, max((c.height for c in claims), default=0.0), total, list(items), keys)
 
 
@@ -9805,6 +9929,8 @@ _SITED = {
     "block": lambda b, out, a, k: [out.anchor.inst],
     "rule": lambda b, out, a, k: [out.why],
     "accept": lambda b, out, a, k: ["%s %s" % (out.check, out.subject)],
+    "alternative": lambda b, out, a, k: ["%s.%s" % (out.item, out.name)],
+    "arrangement": lambda b, out, a, k: [out.name],
 }
 
 

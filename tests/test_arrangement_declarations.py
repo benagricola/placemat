@@ -68,3 +68,116 @@ def test_all_ids_are_the_enumerated_ids_up_to_the_cap():
     args = (["c_in", "r_pull"], options, [group])
     assert A.all_ids(*args) == [s.id for s in A.enumerate_specs(*args, 4, 20).specs]
     assert A.all_ids(*args, cap=3) == ["default", "r_pull.turned", "r_pull.back"]
+
+
+from placemat import Alt
+from placemat.values import Beside, Edge, Location, Near, Part, Turned
+from tests.arrangement_support import module
+
+
+def test_an_option_inherits_the_places_keywords_and_replaces_the_ones_it_gives():
+    b = module()
+    opt = b.alternative(Part("r_pull"), "turned", rotation=180)
+    i = b._intent_option(opt)
+    assert i.rotation == 180.0 and i.beside is not None and i.why == "pull-up at OUT" and i.key == "r_pull"
+    east = b.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST), why="bypass on the output side")
+    j = b._intent_option(east)
+    assert j.beside.side == Edge.EAST and j.rotation == 0.0 and east.why == "bypass on the output side"
+
+
+def test_an_options_turn_replaces_the_places_way_of_turning_and_keeps_the_rest():
+    """Review focus 5: rotation= over rotations= or a Turned, rotations= over rotation=, and at= over a Near keeps the radius."""
+    b = module()
+    b.place(Part("r_free"), at=Near(Location(40, 10), radius=4.0), rotations=(0, 90))
+    turned = b._intent_option(b.alternative(Part("r_free"), "turned", rotation=180))
+    assert turned.rotations == () and turned.rotation == 180.0 and turned.rotation_given and turned.near is not None
+    assert turned.radius == 4.0
+    spread = b._intent_option(b.alternative(Part("r_free"), "spread", rotations=(0, 180)))
+    assert tuple(float(r) for r in spread.rotations) == (0.0, 180.0) and not spread.rotation_given
+    beside = b._intent_option(b.alternative(Part("r_free"), "beside", at=Beside(Part("u1"), Edge.NORTH)))
+    assert beside.beside is not None and beside.near is None and beside.radius == b.settings.place_radius
+    assert tuple(beside.rotations) == (0.0, 90.0)           # the item's own rotations stay when the option gives no turn
+    b2 = module()
+    b2.place(Part("r_free"), at=Beside(Part("u1"), Edge.NORTH), rotation=Turned(Part("u1"), 90))
+    flat = b2._intent_option(b2.alternative(Part("r_free"), "flat", rotation=0))
+    assert flat.turned is None and flat.rotation == 0.0
+
+
+@pytest.mark.parametrize("call, error", [
+    (lambda b: b.alternative(Part("r_free"), "x", rotation=90), ValueError),            # no place() of its own
+    (lambda b: b.alternative(Part("r_pull"), "x", required=True), TypeError),           # not a keyword an option may change
+    (lambda b: b.alternative(Part("r_pull"), "East", rotation=90), ValueError),         # not a lower-case word
+    (lambda b: b.alternative(Part("r_pull"), "default", rotation=90), ValueError),      # reserved
+    (lambda b: b.alternative(Part("r_pull"), "x", at=Location(3, 4)), TypeError),        # a coordinate
+    (lambda b: b.alternative(Part("r_pull"), "x", bogus=1), TypeError),
+])
+def test_a_bad_alternative_is_refused_where_it_is_written(call, error):
+    b = module()
+    with pytest.raises(error):
+        call(b)
+
+
+def test_a_duplicate_option_name_and_a_row_members_alternative_are_refused():
+    b = module()
+    b.alternative(Part("r_pull"), "turned", rotation=180)
+    with pytest.raises(ValueError):
+        b.alternative(Part("r_pull"), "turned", rotation=90)
+    b.row([Part("r_free")], Edge.NORTH)
+    with pytest.raises(ValueError) as e:
+        b.alternative(Part("r_free"), "x", rotation=90)
+    assert "group" in str(e.value)
+
+
+def test_an_alternative_is_not_a_second_place_and_leaves_the_declarations_alone():
+    b = module()
+    before = [i.key for i in b._intents]
+    b.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
+    assert [i.key for i in b._intents] == before
+    assert len(b.sites_of("place", "c_in")) == 1 and len(b.sites_of("alternative", "c_in.east")) == 1
+
+
+def test_a_group_names_the_members_it_moves_and_the_ids_are_formed_as_specified():
+    b = module()
+    b.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
+    b.alternative(Part("r_pull"), "turned", rotation=180)
+    b.arrangement("mirrored", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST), rotation=180),
+                  Alt(Part("r_pull"), at=Beside(Part("u1"), Edge.WEST)), why="mirrored")
+    ids = [s.id for s in b.arrangement_enumeration().specs]
+    assert ids == ["default", "r_pull.turned", "c_in.east", "c_in.east+r_pull.turned", "mirrored"]
+    with pytest.raises(ValueError):
+        b.arrangement("mirrored", Alt(Part("c_in"), rotation=90))                     # a second group of that name
+    with pytest.raises(TypeError):
+        b.arrangement("x", Part("c_in"))                                              # not an Alt
+    with pytest.raises(ValueError):
+        b.arrangement("y", Alt(Part("c_in"), rotation=90), Alt(Part("c_in"), rotation=180))   # a member twice
+
+
+def test_the_limits_leave_the_default_alone_and_the_switch_does_too():
+    import dataclasses
+    from placemat.settings import Settings
+    b = module(dataclasses.replace(Settings(), place_arrangements_max=2))
+    b.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
+    b.alternative(Part("r_pull"), "turned", rotation=180)            # 2 * 2 = 4 > 2
+    assert [s.id for s in b.arrangement_enumeration().specs] == ["default"]
+    assert b.arrangement_limit()["variant"] == "arrangements"
+    off = module(dataclasses.replace(Settings(), place_arrangements=False))
+    off.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
+    assert [s.id for s in off.arrangement_enumeration().specs] == ["default"] and off.arrangement_limit() is None
+
+
+def test_a_group_may_name_a_row_member_and_re_placing_it_keeps_the_rows_standoff():
+    from placemat.layout import Board
+    from placemat.settings import Settings
+    from tests.arrangement_support import parts
+    from tests.fixtures import board_geometry, footprint
+    big = footprint("R3", 30, 30, w=3, h=4.0, nets=("OUT", "GND"), inst="r_big")
+    b = Board(board_geometry(parts() + [big], width=60, height=40), edge_margin=1.0, settings=Settings())
+    b.row([Part("r_free"), Part("r_big")], Edge.NORTH)
+    original = b._intents[0]
+    assert original.key == "r_free" and original.clearance != b.keep_in          # the row gave the shallower item its own standoff
+    group = b.arrangement("moved", Alt(Part("r_free"), rotation=90), why="turned")
+    i = b._intent_option(group.options[0])
+    assert i.rotation == 90.0 and i.clearance == original.clearance and i.row_of == original.row_of and i.key == "r_free"
+    with pytest.raises(ValueError):
+        b.alternative(Part("r_big"), "x", rotation=90)
+    assert [s.id for s in b.arrangement_enumeration().specs] == ["default", "moved"]
