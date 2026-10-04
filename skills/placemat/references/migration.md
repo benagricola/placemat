@@ -42,6 +42,13 @@ section for each hand-written pattern a newer form replaces.
 - **A through-hole pad in the studio follows the layer rows of the legend.** It is hidden when the rows of every copper layer it spans are off and shown while any one is on; before, only the pads row switched it.
 - **The studio's opening dialog is titled "Open".** Its button and the header's tooltip say the same; the half-sentence title is gone.
 
+### Fixed
+
+- **A run's findings and preview JSON no longer depend on the hash seed.** Crossed escapes from one part (`escape_crossed`) could come out
+  in a different order from one run to the next, and the placement search's crossing sums were added in a different order. The ratsnest now
+  reports crossings in airwire order, and the nets of a moved part are refreshed in name order. A run's placement is unchanged; the order
+  of findings in `run.json` and the preview can change once, for a board with several crossed escapes on one part.
+
 ## To 0.98.0
 
 ### Changed

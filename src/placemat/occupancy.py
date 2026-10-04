@@ -1135,7 +1135,7 @@ class Occupancy:
                     anchors.setdefault(s.net, {})[(ref, s.label)] = Anchor(ref, s.label, a.x, a.y)
                     touched.add(s.net)
         rn = self.__dict__["_ratsnest"]
-        for net in touched:
+        for net in sorted(touched):               # a set of names: the ratsnest keeps its airwires in the order they are set
             rn.set_net(net, sorted(anchors.get(net, {}).values(), key=lambda a: (a.ref, a.number)))
 
     def candidate_anchors(self, item, placement: Placement) -> list:

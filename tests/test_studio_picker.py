@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 
 import pytest
@@ -521,14 +522,20 @@ def test_a_regenerating_run_says_so_and_is_followed_by_a_resolve_when_the_shown_
     asked = []
     monkeypatch.setattr(s, "resolve_now", lambda fresh=False: asked.append(fresh) or {})
 
+    checked = threading.Event()
+
     class Proc:
         pid = 424243
 
         def wait(self):
+            checked.wait(10)                    # the run is in progress until the test has looked at it
             return 0
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Proc())
     assert s.start_run(regenerate=True)["id"] == 1
-    assert s._run_state()["regenerate"] is True
+    try:
+        assert s._run_state()["regenerate"] is True
+    finally:
+        checked.set()
     ev, deadline = [], time.monotonic() + 30
     while not any(n == "run_done" for n, _ in ev) and time.monotonic() < deadline:
         time.sleep(0.02)

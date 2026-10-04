@@ -295,6 +295,17 @@ class Ratsnest:
         and cross within `depth` of that part's pads: crossed escapes."""
         return len(self.crossed_pair_list(depth))
 
+    def _later(self, e, i, index) -> list:
+        """The airwires sharing a grid cell with `e` that come after it (`i` its place in `edges()`), each once, in
+        `edges()` order: the grid's buckets are in the order the nets were last set, which is not an order to report in."""
+        near = {}
+        for c in _cells(*_ends(e)):
+            for f in self._grid.get(c, ()):
+                k = index.get(id(f), -1)
+                if k > i:
+                    near[k] = f
+        return [near[k] for k in sorted(near)]
+
     def crossed_pair_list(self, depth: float = 1.0) -> list:
         """(part, edge, edge) for each crossed escape `crossed_pairs` counts."""
         out = []
@@ -302,23 +313,20 @@ class Ratsnest:
         index = {id(e): i for i, e in enumerate(edges)}
         for i, e in enumerate(edges):
             parts_e = {e.a.ref, e.b.ref} - {""}
-            seen = set()
-            for c in _cells(*_ends(e)):
-                for f in self._grid.get(c, ()):
-                    if id(f) in seen or f.net == e.net or index.get(id(f), -1) <= i:
-                        continue
-                    seen.add(id(f))
-                    shared = parts_e & ({f.a.ref, f.b.ref} - {""})
-                    if not shared or not _cross_nm(*self._nmends[id(e)], *self._nmends[id(f)]):
-                        continue
-                    at = _crossing_point(*_ends(e), *_ends(f))
-                    for n in sorted(shared):
-                        if e.a.ref == e.b.ref == n or f.a.ref == f.b.ref == n:
-                            continue            # an airwire between two of the part's own pads is no escape
-                        ends = [(v.x, v.y) for v in (e.a, e.b, f.a, f.b) if v.ref == n]
-                        if at is not None and min(math.hypot(at[0] - x, at[1] - y) for x, y in ends) <= depth:
-                            out.append((n, e, f))
-                            break
+            for f in self._later(e, i, index):
+                if f.net == e.net:
+                    continue
+                shared = parts_e & ({f.a.ref, f.b.ref} - {""})
+                if not shared or not _cross_nm(*self._nmends[id(e)], *self._nmends[id(f)]):
+                    continue
+                at = _crossing_point(*_ends(e), *_ends(f))
+                for n in sorted(shared):
+                    if e.a.ref == e.b.ref == n or f.a.ref == f.b.ref == n:
+                        continue            # an airwire between two of the part's own pads is no escape
+                    ends = [(v.x, v.y) for v in (e.a, e.b, f.a, f.b) if v.ref == n]
+                    if at is not None and min(math.hypot(at[0] - x, at[1] - y) for x, y in ends) <= depth:
+                        out.append((n, e, f))
+                        break
         return out
 
     def pair_crossings(self) -> list:
@@ -331,14 +339,9 @@ class Ratsnest:
             partner = self.partners.get(e.net)
             if partner is None:
                 continue
-            seen = set()
-            for c in _cells(*_ends(e)):
-                for f in self._grid.get(c, ()):
-                    if id(f) in seen or f.net != partner or index.get(id(f), -1) <= i:
-                        continue
-                    seen.add(id(f))
-                    if _cross_nm(*self._nmends[id(e)], *self._nmends[id(f)]):
-                        out.append((e, f))
+            for f in self._later(e, i, index):
+                if f.net == partner and _cross_nm(*self._nmends[id(e)], *self._nmends[id(f)]):
+                    out.append((e, f))
         return out
 
     def added(self, pads, own=frozenset()) -> float:
