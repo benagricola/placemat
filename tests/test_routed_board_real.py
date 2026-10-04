@@ -22,14 +22,34 @@ def geometry():
     return _read["g"]
 
 
+def _ground(geometry):
+    """The ground net's current-path verdict, judged once for the tests that read it."""
+    if "gnd" not in _read:
+        from placemat.checks import current_paths
+        _read["gnd"] = {x.subject: x for x in current_paths(geometry)}["GND"]
+    return _read["gnd"]
+
+
 def test_the_ground_net_is_judged_on_its_planes_not_a_sliver(geometry):
     """Through-hole carriers joined by inner planes on every layer: the
     widest route between them is the planes', not a sliver where two fills
     of the front layer meet (0.05 mm, one step, before)."""
-    from placemat.checks import ZONE_STEP, current_paths
-    v = {x.subject: x for x in current_paths(geometry)}["GND"]
+    from placemat.checks import ZONE_STEP
+    v = _ground(geometry)
     assert v.value > 1.0, v.note
     assert "one %g mm step or less" % ZONE_STEP not in v.note, v.note
+
+
+def test_the_ground_planes_carry_the_current_in_parallel(geometry):
+    """The ground route's neck is on one inner plane between two vias, and
+    the other inner plane joins the same two vias: the neck is judged by
+    both planes' widths added (1.47 mm on one plane alone, before)."""
+    v = _ground(geometry)
+    on = {d["layer"]: d for d in v.facts["layers"]}
+    assert {"In1.Cu", "In4.Cu"} <= set(on), v.facts["layers"]
+    assert on["In1.Cu"]["width_mm"] > 1.0 and on["In4.Cu"]["width_mm"] > 1.0
+    assert v.value == pytest.approx(sum(d["width_mm"] * d["scale"] for d in on.values()))
+    assert v.value > on["In1.Cu"]["width_mm"] + 1.0
 
 
 def test_a_cell_whose_label_lies_on_a_placed_part_is_refused_where_it_stands(geometry):

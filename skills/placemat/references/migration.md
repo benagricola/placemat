@@ -5,6 +5,18 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **`current-path` adds copper on parallel layers.** A route was judged by one layer's narrowest point, so a load
+  carried by two planes joined at the same vias or through-hole pads failed at one plane's neck. The route is now cut at
+  its plated holes, and where fills or pours of the net on other layers touch the same two holes as a stretch of the
+  route, the stretch is judged by the layers' widths added, each scaled to the route's layer by the ratio of the two
+  layers' IPC-2221 needs. The note names the layers and their widths, and the verdict carries them as `facts["layers"]`
+  (`layer`, `width_mm`, `scale`, `at`, `route`). A net that failed on one of two parallel planes reads wider and may
+  pass; a check script that read the verdict's width as one layer's reads `facts["layers"]` instead.
+
 ## To 0.99.5
 
 ### Fixed
