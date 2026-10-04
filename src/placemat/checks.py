@@ -623,15 +623,48 @@ class _KeepOutScope:
 _JOIN_MM = 1e-3         # copper this close to other copper of its net is joined to it
 
 
+@dataclass(frozen=True)
+class KeepOutNotice:
+    """A pair of copper on different layers inside a keep-out distance with no plane between: not a failure
+    (KiCad's clearance judges only copper sharing a layer) but proximity a datasheet may care about. `away` is
+    the copper of the away net, `pads` that of the pads net; `layers` the two layers (away's, pads') nearest each other."""
+    kind: str
+    net: str
+    away: _NamedCopper
+    pads: _NamedCopper
+    layers: tuple
+    distance_mm: float
+    limit_mm: float
+    points: tuple
+
+
 def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Verdict]:
-    """A distance passes when it is not under the limit by more than the board's DRC epsilon, as KiCad's
-    clearance providers subtract it from the clearance before comparing (DRC_TEST_PROVIDER_COPPER_CLEARANCE,
-    `clearance - m_DRCEpsilon`; BOARD_DESIGN_SETTINGS::GetDRCEpsilon)."""
+    """The keep-out verdicts: one per net, judging the pairs that share a copper layer (a through-hole pad or a
+    via spans its layers), as KiCad's clearance does. A distance passes when it is not under the limit by more
+    than the board's DRC epsilon, as KiCad's clearance providers subtract it from the clearance before comparing
+    (DRC_TEST_PROVIDER_COPPER_CLEARANCE, `clearance - m_DRCEpsilon`; BOARD_DESIGN_SETTINGS::GetDRCEpsilon)."""
+    return _keep_out_judged(geometry, limit_mm)[0]
+
+
+def keep_out_notices(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[KeepOutNotice]:
+    """Per net, the nearest pair on different layers inside its keep-out distance with no plane on a layer
+    between them covering both nearest points (`_shielded`'s test). A pair a plane shields is not reported."""
+    return _keep_out_judged(geometry, limit_mm)[1]
+
+
+def _layer_gap(a: frozenset, b: frozenset) -> tuple:
+    """The two layers, one from each set, nearest each other in the stackup."""
+    from .board_geometry import stackup_order
+    return min(((x, y) for x in a for y in b), key=lambda xy: abs(stackup_order(xy[0]) - stackup_order(xy[1])))
+
+
+def _keep_out_judged(geometry: BoardGeometry, limit_mm: float) -> tuple:
     sensitive = _sensitive_nets(geometry)
     parts, refused = keep_outs(geometry)
     out = [Verdict("keep-out", "%s Pm.KeepOut" % ref, 0.0, "mm", None, False,
                    "refused, so the part is judged at the board-wide %g mm: %s" % (limit_mm, why)) for ref, why in refused]
     scope = _KeepOutScope(geometry, parts)
+    notices = []
     nodes = {n.net for n in switch_nodes(geometry)}
     named = {n for k in parts.values() for n in k.away}
     for net in sorted(nodes | named):
@@ -641,7 +674,7 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
         if not node_items or not sense_items:
             continue
         # a part's own pins are package, not layout: judged apart, and said when nearer
-        best, own = None, None
+        best, own, across = None, None, []
         for a in node_items:
             for b, snet in sense_items:
                 same = a.kind == "pad" and b.kind == "pad" and a.owner == b.owner
@@ -649,9 +682,14 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
                 if how == "skip":
                     continue                    # a pair only a part's own limit names, and it holds none: not judged
                 limit = kmm if k is not None else limit_mm
+                shared = not a.layers or not b.layers or bool(a.layers & b.layers)
                 for oa in a.outlines:
                     for ob in b.outlines:
                         d = poly_distance(oa, ob)
+                        if not shared:
+                            if how != "own" and not same and d < limit - geometry.drc_epsilon:
+                                across.append((d, a, b, oa, ob, limit))
+                            continue
                         if same:
                             if own is None or d < own[0]:
                                 own = (d, a)
@@ -659,6 +697,12 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
                             continue
                         elif best is None or (d - limit, d) < (best[0] - best[5], best[0]):
                             best = (d, a, b, oa, ob, limit, k)
+        for d, a, b, oa, ob, limit in sorted(across, key=lambda t: t[0]):
+            la, lb = _layer_gap(a.layers, b.layers)
+            pa, pb, _ = _nearest_points(oa, ob)
+            if not _plane_between(geometry, la, lb, (pa, pb), (oa, ob)):
+                notices.append(KeepOutNotice("keep-out-cross-layer", net, a, b, (la, lb), d, limit, (pa, pb)))
+                break
         if best is None:
             continue
         d, a, b, oa, ob, limit, k = best
@@ -672,7 +716,7 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
         if own is not None and own[0] < d:
             note += "; %s's own pads are %.2f mm apart, a distance its footprint sets" % (own[1].owner, own[0])
         out.append(Verdict("keep-out", net, d, "mm", limit, d >= limit - geometry.drc_epsilon, note))
-    return out
+    return out, notices
 
 
 def _shielded(geometry: BoardGeometry, track: CopperItem, other: CopperItem) -> bool:
@@ -685,14 +729,30 @@ def _shielded(geometry: BoardGeometry, track: CopperItem, other: CopperItem) -> 
     lo, hi = min(a, b), max(a, b)
     overlaps = [(p, q) for p in track.outlines for q in other.outlines if polys_overlap(p, q)]
     points = [x for p, q in overlaps for x in _overlap_points(p, q)]
+    return _plane_covers(geometry, lo, hi, points, (track.box, other.box))
+
+
+def _plane_covers(geometry: BoardGeometry, lo: int, hi: int, points, boxes) -> bool:
+    """A zone on a copper layer strictly between stackup positions `lo` and `hi`, over both boxes, covering
+    every one of `points` (at least one)."""
+    from .board_geometry import stackup_order
     for z in geometry.copper:
         if z.kind != "zone" or not any(lo < stackup_order(l) < hi for l in z.layers):
             continue
-        if not (z.box.overlaps(track.box) and z.box.overlaps(other.box)):
+        if not all(z.box.overlaps(b) for b in boxes):
             continue
         if points and all(_covered(x, z.outlines) for x in points):
             return True
     return False
+
+
+def _plane_between(geometry: BoardGeometry, la, lb, points, outlines) -> bool:
+    """A plane between layers `la` and `lb` covering each of `points`: where `_shielded` asks it of a crossing,
+    a keep-out pair that does not touch asks it of the two nearest points."""
+    from .board_geometry import stackup_order
+    from .values import Box
+    lo, hi = sorted((stackup_order(la), stackup_order(lb)))
+    return _plane_covers(geometry, lo, hi, list(points), [Box.of_points(o) for o in outlines])
 
 
 def _overlap_points(p, q) -> list:
@@ -1567,6 +1627,14 @@ def run_checks(geometry: BoardGeometry, ambient_c: float = AMBIENT_C, keep_out_m
     out += heat(geometry, ambient_c)
     out += exposures(geometry)
     return out
+
+
+def notice_line(n: KeepOutNotice) -> str:
+    """A keep-out notice as a line for a person: the edge, where the record turns to text."""
+    return "keep-out %s %.2f mm (limit %g), on %s and %s with no plane between: %s to %s (not a failure: KiCad judges " \
+           "clearance only between copper on one layer)" % (
+               n.net, n.distance_mm, n.limit_mm, n.layers[0].value, n.layers[1].value,
+               _keep_out_text(n.away, n.points[0]), _keep_out_text(n.pads, n.points[1]))
 
 
 def kwargs_from(settings) -> dict:

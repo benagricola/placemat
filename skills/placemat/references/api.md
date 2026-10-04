@@ -2063,6 +2063,11 @@ The plan holds it as a clearance, and the check judges by it:
   nobody's escape is not held by the planner; `keep-out` judges it (below);
 - other copper on the same nets, and another part's pads on `pads=` nets,
   keep the netclass figure in the plan;
+- only copper sharing a copper layer is judged (a through-hole pad or a via spans its layers), as KiCad's clearance
+  is: a pair on different layers does not fail `keep-out`. One inside the distance with no plane on a layer between
+  them covering both nearest points is a notice, not a failure (`checks.keep_out_notices`: kind, the two items, their
+  layers, distance, limit; `placemat check` prints it), for a datasheet that cares about proximity through the board.
+  A pair with a plane between is not reported;
 - a `Pm.KeepOut` that does not read (no citation, a distance that does not
   parse or is not above zero, a net no pad of the part carries) refuses the
   run at `resolve()` naming the part, and `placemat check` reports it as a

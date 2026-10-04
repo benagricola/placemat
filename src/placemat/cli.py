@@ -1585,12 +1585,16 @@ def cmd_check(args) -> int:
     cfg = load(src.board_dir if src is not None else pcb.parent, overrides=overrides_from(args), script=_script_of(p))
     with bind(cfg):
         geometry = read.read_board(pcb)
-        verdicts = checks.run_checks(geometry, **check_kwargs(cfg))
+        kwargs = check_kwargs(cfg)
+        verdicts = checks.run_checks(geometry, **kwargs)
+        notices = checks.keep_out_notices(geometry, kwargs.get("keep_out_mm", checks.KEEP_OUT_MM))
     if args.json:
         console.data(json.dumps([v.__dict__ for v in verdicts], indent=2))
     else:
         for v in verdicts:
             console.say("check", v.line())
+        for n in notices:
+            console.say("check", checks.notice_line(n))
         if not verdicts:
             console.say("check", "no Pm.* facts on this board: nothing to check")
     return 1 if any(v.ok is False for v in verdicts) else 0
