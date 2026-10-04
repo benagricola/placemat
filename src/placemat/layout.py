@@ -9772,11 +9772,19 @@ class Board:
             blamed = blame.blame_of(result)
             pocket_tried = None
             if i.near is None and bt is None and band is None and result.cut is None:
-                step, tried = self._seeded_pocket(occ, i, plan, clr, hint, score, self._turns(i),
-                                                  step_text.record("seeded_no_spot", nets=seeded_nets or None, radius_mm=radius, blame=blamed))
-                if step is not None:
-                    return step
-                pocket_tried = tried
+                # each arrangement's pocket in the order of the search, with its own scorer: the first that places stands
+                why = step_text.record("seeded_no_spot", nets=seeded_nets or None, radius_mm=radius, blame=blamed)
+                pocket_tried = 0
+                for t in scanned.tried:
+                    if t.hopeless:
+                        continue                        # no pocket fits it
+                    step, n = self._seeded_pocket(occ, t.j, plan, clr, t.hint, t.score, self._turns(t.j), why)
+                    pocket_tried += n
+                    if step is not None:
+                        ident = getattr(t.j.item, "arrangement", "")
+                        if ident:
+                            step.notes = step.notes + (step_text.record("arrangement", id=ident),)
+                        return step
             late = self._room_lost(plan, i)
             from . import suggest_facts
             facts = dict(suggest_facts.unplaced_search(self, occ, plan, i, placed, result, hint, radius),
@@ -9818,7 +9826,6 @@ class Board:
         from . import timecap
         clock = timecap.active()
         cost = self.settings.score_arrangement
-        back = self.settings.score_back_face
         self._arr_unreached.pop(i.key, None)
         tried, best = [], None                          # best: (total, ident, _Tried)
         for k, ident in enumerate(ids):
@@ -9844,7 +9851,7 @@ class Board:
             if t.score is None:
                 best = (0.0, ident, t)                  # unscored: the first with a spot stands, nothing else is scanned
                 break
-            total = r.score + extra + (back if r.chosen.face is Face.BACK and i.either else 0.0)
+            total = self._standing_total(t, extra)
             if best is None or total < best[0]:
                 best = (total, ident, t)
         return self._chosen_scan(i, tried, best, cost)
@@ -9862,35 +9869,49 @@ class Board:
                 merged = ScanResult(None, tried[0][1].hint, sum(r.tried for _, r in results),
                                     sum((r.rejected for _, r in results), Counter()),
                                     {k: w for _, r in reversed(results) for k, w in r.reasons.items()},
-                                    sum((r.blockers for _, r in results), Counter()), cut=cut)
+                                    sum((r.blockers for _, r in results), Counter()), cut=cut,
+                                    bound=sum(r.bound for _, r in results))
             return _Scanned(None, [t for _, t in tried], merged, None, None, reasons)
         _, ident, won = best
         won.result.cut = won.result.cut or cut
         note = self._arrangement_note(ident, won, tried, cost) if len(tried) > 1 or ident else None
         return _Scanned(won, [t for _, t in tried], won.result, won.face_note, note, [])
 
-    @staticmethod
-    def _arrangement_note(ident, won, tried, cost) -> dict:
-        """The step's `arrangement` note: the one taken, its score and cost, and each arrangement tried (its score with its cost,
-        None when unscored or when it could not beat the best so far, and whether it had a legal spot). `default_score` is the
-        default's score when the default was tried and had a legal spot; `default_blame` why it had none."""
+    def _standing_total(self, t, extra: float) -> float:
+        """What a scan's spot (`_Tried` with a legal spot) is compared at: its score, plus `extra` (the arrangement's cost) and
+        `score.back_face` when an either-face item stands on the back."""
+        r = t.result
+        return r.score + extra + (self.settings.score_back_face if r.chosen.face is Face.BACK and t.j.either else 0.0)
+
+    def _arrangement_note(self, ident, won, tried, cost) -> dict:
+        """The step's `arrangement` note: the one taken, its score (with `score.back_face` when it stands on the back of an
+        either-face item) and its cost, and each arrangement tried: its total as the choice compared it, and whether it had a
+        legal spot. A row is `beaten`, with no score, when the floor of the best so far cut it: it had room but could not beat
+        that. A score is None when the search is unscored. `default_score` is the default's total when the default was tried and
+        had a legal spot; `default_blame` says why it had none."""
+        def beaten(t):
+            r = t.result
+            return t.score is not None and r is not None and (r.score >= PRUNED if r.chosen is not None else r.bound > 0)
+
         def row(a, t):
             r = t.result
-            legal = r is not None and r.chosen is not None
-            beaten = legal and t.score is not None and r.score >= PRUNED
-            out = {"id": a or "default", "score": round(r.score + (cost if a else 0.0), 3)
-                   if legal and t.score is not None and not beaten else None, "legal": legal}
-            if beaten:
-                out["beaten"] = True                   # pruned by the floor: it could not beat the best so far
+            cut = beaten(t)
+            legal = r is not None and (r.chosen is not None or cut)
+            out = {"id": a or "default", "score": round(self._standing_total(t, cost if a else 0.0), 3)
+                   if legal and t.score is not None and not cut else None, "legal": legal}
+            if cut:
+                out["beaten"] = True
             return out
         rows = [row(a, t) for a, t in tried]
         default = next((t for a, t in tried if not a), None)
         scored = won.score is not None
-        facts = dict(id=ident or "default", score=round(won.result.score, 3) if scored else None,
+        facts = dict(id=ident or "default", score=round(self._standing_total(won, 0.0), 3) if scored else None,
                      cost=(cost if ident else 0.0) if scored else None, tried=rows)
         if default is not None and default.result is not None and default.result.chosen is not None:
             if scored:
-                facts["default_score"] = round(default.result.score, 3)
+                facts["default_score"] = round(self._standing_total(default, 0.0), 3)
+        elif default is not None and default.hopeless:
+            facts["default_blame"] = [{"form": "pocket", **default.hopeless}]
         elif default is not None and default.result is not None:
             facts["default_blame"] = blame.blame_of(default.result)
         return step_text.record("arrangement", **facts)
@@ -10029,9 +10050,11 @@ class Board:
         back_turns = turns_on(Face.BACK) if turns_at is not None and turns_on is not None else turns_at
         back = scan(occ, i.item, back_hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
                     turns_at=back_turns, within=within)
-        if back.chosen is not None and (front.chosen is None or back.score + cost < front.score):
+        if back.chosen is not None and back.score < PRUNED and (front.chosen is None or back.score + cost < front.score):
             if front.chosen is None:
                 said = step_text.record("back_face", front_blame=blame.blame_of(front))
+            elif front.score >= PRUNED:                 # the front was cut by the floor of an earlier arrangement: no score of its own
+                said = step_text.record("back_face", back=back.score, cost=cost, front_beaten=True)
             else:
                 said = step_text.record("back_face", back=back.score, cost=cost, front=front.score)
             return back, said
@@ -10039,7 +10062,7 @@ class Board:
             return front, None
         merged = ScanResult(None, hint, front.tried + back.tried, front.rejected + back.rejected,
                             {**back.reasons, **front.reasons}, front.blockers + back.blockers,
-                            cut=back.cut or front.cut)
+                            cut=back.cut or front.cut, bound=front.bound + back.bound)
         return merged, None
 
     def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> list:

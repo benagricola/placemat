@@ -192,10 +192,14 @@ def _loc(at) -> str:
 
 
 def blame_text(entries: list) -> str:
-    """The rejection counts of a scan (blame.blame_of) and, for each kind, the owners that caused most of them."""
+    """The rejection counts of a scan (blame.blame_of) and, for each kind, the owners that caused most of them; a "pocket" entry
+    (an arrangement note's default that fits no pocket) says so."""
     from .refusals import Owner, Refusal
     parts = []
     for e in entries:
+        if e["form"] == "pocket":                   # a search that never ran: no pocket fits the item (Board._no_pocket_note)
+            parts.append(pocket_note(e))
+            continue
         n = e["count"]
         if e["form"] == "vias":
             parts.append("vias that could not give way x%d" % n)

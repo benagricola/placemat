@@ -139,6 +139,8 @@ def _pocket_other_face(n):
 def _back_face(n):
     if n.get("front_blame") is not None:
         return "on the back face: the front has no legal spot (%s)" % finding_text.blame_text(n["front_blame"])
+    if n.get("front_beaten"):
+        return "on the back face: %.2f and %.2f for the back face; the front could not beat the best so far" % (n["back"], n["cost"])
     return "on the back face: %.2f and %.2f for the back face against %.2f on the front" % (n["back"], n["cost"], n["front"])
 
 
@@ -151,7 +153,7 @@ def _arrangement(n):
     said = "arrangement %s: %.2f and %.2f for it" % (n["id"], n["score"], n.get("cost", 0.0))
     if n.get("default_score") is not None and n["id"] != "default":
         return said + " against %.2f as the default module stands" % n["default_score"]
-    others = [t["id"] for t in n.get("tried", ()) if t["id"] != n["id"]]
+    others = [t["id"] for t in n.get("tried", ()) if t["id"] != n["id"] and t["legal"]]
     return said + (", the lowest of it and %s" % _list(others) if others else "")
 
 

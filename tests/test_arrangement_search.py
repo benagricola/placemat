@@ -171,6 +171,163 @@ def test_a_step_out_of_time_after_the_default_names_the_arrangements_it_did_not_
     finally:
         timecap.reset()
     (f,) = [f for f in plan.findings if f.cause == "time.step_limit" and f.facts["item"] == "mod"]
-    assert f.facts["arrangements"] == ["c_in.east"]
-    assert plan.placement("mod") is None or plan.placement("mod").arrangement == ""
+    assert f.facts["arrangements"] == ["c_in.east"] and f.facts["kept"] == "unplaced"
+    assert plan.placement("mod") is None                # the default's scan gave up at its coarse pass, before any spot
     assert "arrangements not reached: c_in.east" in str(f)
+
+
+# ------------------------------------------------------------------ fix round 1
+
+
+def _consistent(note):
+    """The note's numbers are those the choice compared: the winner's row is the lowest scored one (the first of equals),
+    its score and cost add to that row's, and the default's score is the default row's."""
+    rows = {t["id"]: t for t in note["tried"]}
+    won = rows[note["id"]]
+    assert won["score"] == pytest.approx(note["score"] + note["cost"])
+    scored = [t for t in note["tried"] if t["score"] is not None]
+    assert won["score"] == min(t["score"] for t in scored)
+    assert next(t for t in scored if t["score"] == won["score"])["id"] == note["id"]
+    if "default_score" in note:
+        assert rows["default"]["score"] == pytest.approx(note["default_score"])
+    assert not [t for t in note["tried"] if t["score"] is not None and t["score"] >= 1e5]
+
+
+@pytest.mark.parametrize("partner", [(50.0, 42.0), (60.0, 30.0), (18.0, 30.0), (40.0, 52.0)])
+def test_an_either_face_cell_notes_each_arrangements_total_with_the_back_face_cost(partner):
+    from placemat.values import Face
+    cost = dataclasses.replace(Settings(), score_back_face=2.0)
+    b = board(partner, cost)
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR), face=Face.EITHER)
+    plan = b.resolve()
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    _consistent(note)
+
+
+def test_the_reviewers_case_the_default_on_the_back_is_noted_with_the_back_face_cost():
+    from placemat.values import Face
+    b = board((50.0, 42.0), dataclasses.replace(Settings(), score_back_face=2.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR), face=Face.EITHER)
+    plan = b.resolve()
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    alone = board((50.0, 42.0), dataclasses.replace(Settings(), score_back_face=2.0))
+    alone.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR), face=Face.EITHER, arrangements=("default",))
+    default = alone.resolve().placement("mod")
+    if default.face is Face.BACK:                       # the default stood on the back: its noted score carries the 2.0
+        assert note["default_score"] >= 2.0
+    if note["id"] != "default":
+        assert note["score"] + note["cost"] < note["default_score"]
+    else:
+        assert all(t["score"] is None or t["score"] >= note["score"] for t in note["tried"])
+
+
+def test_an_arrangement_whose_front_is_pruned_and_whose_back_wins_is_noted_by_the_backs_total(monkeypatch):
+    from placemat import layout, step_text
+    from placemat.values import Face
+    real = layout.scan
+
+    def pruned_front(occ, item, hint, *a, **k):
+        r = real(occ, item, hint, *a, **k)
+        if getattr(item, "arrangement", "") == "c_in.east" and r.chosen is not None:
+            r.score = r.score + layout.PRUNED if hint.face is Face.FRONT else 1.0     # the front cut by the floor, the back cheap
+        return r
+    monkeypatch.setattr(layout, "scan", pruned_front)
+    b = board((60.0, 30.0), dataclasses.replace(Settings(), score_back_face=2.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR), face=Face.EITHER)
+    plan = b.resolve()
+    p = plan.placement("mod")
+    assert p.arrangement == "c_in.east" and p.face is Face.BACK
+    notes = {n["kind"]: n for n in plan.step("mod").notes}
+    assert notes["back_face"] == {"kind": "back_face", "back": 1.0, "cost": 2.0, "front_beaten": True}
+    assert "1000" not in step_text.render(notes["back_face"])
+    _consistent(notes["arrangement"])
+    assert next(t for t in notes["arrangement"]["tried"] if t["id"] == "c_in.east")["score"] == pytest.approx(3.0)
+
+
+def test_a_row_cut_by_the_bound_while_its_vias_gave_way_is_beaten_not_without_room():
+    from placemat.layout import _Tried
+    from placemat.placer import ScanResult
+    from placemat.placement import Placement
+    from placemat.values import Face
+    b = board((60.0, 30.0))
+    hint = Placement(Location(40.0, 30.0), 0.0, Face.FRONT)
+    i = types_intent(b)
+    won = ScanResult(hint, hint, 10)
+    won.score = 5.0
+    default = _Tried(i, hint, 8.0, won, None, None, object())
+    east = _Tried(b._arranged(i, "c_in.east"), hint, 8.0, ScanResult(None, hint, 10, bound=3), None, None, object())
+    note = b._arrangement_note("", default, [("", default), ("c_in.east", east)], 0.0)
+    assert note["tried"][1] == {"id": "c_in.east", "score": None, "legal": True, "beaten": True}
+
+
+def types_intent(b):
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    return next(i for i in b._placements() if i.key == "mod")
+
+
+def test_a_required_cell_is_placed_when_only_an_arrangement_has_a_legal_spot():
+    b = board(obstacle=OBSTACLE)
+    b.keep_going = False
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), radius=0.0, step=0.5), required=True)
+    assert b.resolve().placement("mod").arrangement == "c_in.east"
+
+
+# A board walled off but for a hole north-east and the corner the partner stands in. The default (9.5 x 4 mm) fits neither; the
+# arrangement c_in.north, c_in stood above u1 (6 x 6 mm), fits the hole.
+
+def north_doc():
+    from placemat.placement import Placement
+    from placemat.values import Face
+    from tests.arrangement_support import DEFAULT_C_IN, DEFAULT_U1
+    north = Placement(Location(6.0, -0.2), 0.0, Face.FRONT)
+    return N.document("c_in.north", {"c_in": "north"}, [("c_in", north, DEFAULT_C_IN), ("u1", DEFAULT_U1, DEFAULT_U1)], [], [],
+                      order=1)
+
+
+def walled(partner, hole_bottom):
+    from tests.fixtures import board_geometry, footprint
+    walls = [(43.15, 11.85, 73.7, 23.7), (3.0, 32.4, 6.0, 55.2), (32.0, 42.0, 51.4, 36.0), (73.15, 42.0, 13.7, 36.0),
+             (62.0, (hole_bottom + 0.3 + 60.0) / 2, 8.0, 60.0 - hole_bottom - 0.3)]
+    fps = [footprint("C1", 31.0, 13.0, w=3, h=1.6, nets=("mod.VIN", "mod.GND"), cell="mod", inst="mod.c_in"),
+           footprint("U1", 36.0, 13.0, w=6, h=4, nets=("mod.VIN", "mod.OUT"), cell="mod", inst="mod.u1"),
+           footprint("R8", partner[0], partner[1], w=3, h=1.6, nets=("mod.VIN", "GND"), inst="r8")]
+    fps += [footprint("W%d" % k, x, y, w=w, h=h, nets=("GND", "GND"), inst="w%d" % k) for k, (x, y, w, h) in enumerate(walls)]
+    g = board_geometry(fps, cells=["mod"], extra_nets=("mod.GND", "mod.OUT", "GND"), width=80, height=60)
+    g = with_arrangement(g, north_doc())
+    b = Board(g, edge_margin=0.0, keep_going=True, settings=Settings())
+    b.rect(width=80, height=60)
+    for k, (x, y, _, _) in enumerate(walls):
+        b.place(Part("w%d" % k), at=Location(x, y))
+    b.place(Part("r8"), at=Location(*partner))
+    return b
+
+
+def test_a_default_with_no_pocket_is_blamed_for_it_in_the_note():
+    from placemat import step_text
+    b = walled((62.0, 33.0), 35.3)
+    b.place(Cell("mod"))
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.north"
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    assert note["tried"][0] == {"id": "default", "score": None, "legal": False}
+    assert note["default_blame"] == [{"form": "pocket", "variant": "any_rotation", "w_mm": pytest.approx(9.5, abs=0.5),
+                                      "h_mm": pytest.approx(4.0, abs=0.5), "face": "front"}]
+    assert "no pocket fits" in step_text.render(note)
+
+
+def test_the_lowest_of_list_names_only_arrangements_with_room():
+    from placemat import step_text
+    note = {"kind": "arrangement", "id": "c_in.a", "score": 3.0, "cost": 0.0,
+            "tried": [{"id": "c_in.b", "score": None, "legal": False}, {"id": "c_in.a", "score": 3.0, "legal": True},
+                      {"id": "c_in.c", "score": None, "legal": True, "beaten": True}]}
+    assert step_text.render(note) == "arrangement c_in.a: 3.00 and 0.00 for it, the lowest of it and c_in.c"
+
+
+def test_a_cell_whose_default_fits_no_pocket_takes_the_pocket_of_an_arrangement_that_fits_one():
+    b = walled((2.0, 1.5), 32.3)
+    b.place(Cell("mod"))
+    plan = b.resolve()
+    p = plan.placement("mod")
+    assert p is not None and p.arrangement == "c_in.north"
+    assert "mod" in plan.pocketed
+    assert 57.7 < p.location.x < 66.3 and 23.7 < p.location.y < 32.3

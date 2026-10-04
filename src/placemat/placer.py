@@ -60,6 +60,7 @@ class ScanResult:
     blockers: Counter = field(default_factory=Counter)   # (kind, owner, face label) -> how often
     score: float = 0.0
     cut: dict | None = None      # set when the step's budget ended the search: `SearchBudget.measurement()` at that point
+    bound: int = 0               # candidates with room whose carried vias' giving way could not beat the score bound (`score.best`)
 
     @property
     def moved_mm(self) -> float:
@@ -336,6 +337,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     least = giveway.least_cost(occ.settings, getattr(occ, "fab_via_tiers", None))
     best = score.best if score and hasattr(score, "best") else None
     bounded = best is not None and pick is None and accept is None     # a spot that cannot be the best is not asked
+    n_bound = [0]                       # how many such spots: they had room, and are neither legal nor refused
 
     def gave_way(cand, legal: list, judged: bool = False):
         """Phase B for one candidate the item as it is was refused at: None
@@ -364,6 +366,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             if best is not None:
                 best[0] = before
             if bounded and sc + least > before:
+                n_bound[0] += 1
                 return None
         if afford(1) == 0:
             budget.cut = True
@@ -616,23 +619,23 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     out_of_time = lambda *a, **kw: phase is not None and phase(*a, cut=True, **kw)     # true: stop here (the step's time limit)
     if score is None or radius / step < cfg.place_coarse_min_radius_steps:
         if out_of_time(Stage.FINE):
-            return ScanResult(None, hint, tried, rejected, reasons, blockers)
+            return ScanResult(None, hint, tried, rejected, reasons, blockers, bound=n_bound[0])
         legal = sweep(lattice(hint.location, radius, step), stop_at_first=score is None)
     else:
         coarse = step * cfg.place_coarse_stride
         if out_of_time(Stage.COARSE):
-            return ScanResult(None, hint, tried, rejected, reasons, blockers)
+            return ScanResult(None, hint, tried, rejected, reasons, blockers, bound=n_bound[0])
         legal = sweep(lattice(hint.location, radius, coarse), False)
         if not any_counted(legal) and not spent():
             if out_of_time(Stage.COARSE_HALF):
-                return ScanResult(None, hint, tried, rejected, reasons, blockers)
+                return ScanResult(None, hint, tried, rejected, reasons, blockers, bound=n_bound[0])
             legal += sweep(lattice(hint.location, radius, coarse / 2), False)
         if not any_counted(legal) and not spent():
             # Nothing on either coarse lattice. The coarse pass is there to
             # save time, not to decide: the fine grid still gets its walk, so
             # a spot narrower than a coarse step is not reported as no room.
             if out_of_time(Stage.FINE):
-                return ScanResult(None, hint, tried, rejected, reasons, blockers)
+                return ScanResult(None, hint, tried, rejected, reasons, blockers, bound=n_bound[0])
             legal += sweep(lattice(hint.location, radius, step), False)
         if legal:
             legal.sort(key=lambda k: k[:3])
@@ -656,7 +659,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         legal = counted(sorted(legal, key=lambda k: k[:3]), 1 if pick is None else None)
     cut = budget.measurement() if budget is not None and budget.cut else None
     if not legal:
-        return ScanResult(None, hint, tried, rejected, reasons, blockers, cut=cut)
+        return ScanResult(None, hint, tried, rejected, reasons, blockers, cut=cut, bound=n_bound[0])
     if pick is None:
         best = min(legal, key=lambda k: k[:3])
     else:                                   # explore: the caller draws among them, best first
@@ -664,7 +667,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     chosen = best[3]
     if commit:
         occ.commit(item, chosen)
-    result = ScanResult(chosen, hint, tried, rejected, reasons, blockers, cut=cut)
+    result = ScanResult(chosen, hint, tried, rejected, reasons, blockers, cut=cut, bound=n_bound[0])
     result.score = best[0]
     return result
 
