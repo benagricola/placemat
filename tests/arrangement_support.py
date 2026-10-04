@@ -128,3 +128,144 @@ def kicad_cell_board(path, cells=(("mod", (30.0, 10.0)),), notes=None):
             group.AddItem(t)
     board.Save(str(path))
     return path
+
+
+def stamp_fragment(board, fragment_pcb, cell, offset):
+    """Stamp the module fragment at `fragment_pcb` into `board` (a pcbnew BOARD) as group `cell`, the way `pcb layout` does
+    (pcb-layout kicad_adapter.py `_apply_fragment_routing`): each track, via, zone and drawing (its notes among them) duplicated from
+    the fragment's board with `BOARD_ITEM.Duplicate`, put on the cell's net `<cell>.<net>`, moved by `offset` (mm) and added to the
+    group, a zone's priority raised by one (FRAGMENT_ZONE_PRIORITY_BIAS). pcb makes the footprints from their libraries and stands
+    them where the fragment has them, each with a reference of the board's; here each is duplicated from the fragment, numbered
+    on when the board has its reference already, its pads put on the cell's nets and its Path `<cell>.<path>`. Returns the group."""
+    import pcbnew
+    frag = pcbnew.LoadBoard(str(fragment_pcb))
+    group = pcbnew.PCB_GROUP(board)
+    group.SetName(cell)
+    board.Add(group)
+    nets = {}
+
+    def net_of(src):
+        name = src.GetNetname()
+        if not name:
+            return None
+        full = "%s.%s" % (cell, name)
+        if full not in nets:
+            info = board.FindNet(full)
+            if info is None:
+                info = pcbnew.NETINFO_ITEM(board, full)
+                board.Add(info)
+            nets[full] = info
+        return nets[full]
+
+    shift = pcbnew.VECTOR2I(pcbnew.FromMM(offset[0]), pcbnew.FromMM(offset[1]))
+
+    def dup(src, connected=True):
+        item = pcbnew.BOARD_ITEM.Duplicate(src)
+        if connected:
+            info = net_of(src)
+            if info is not None:
+                item.SetNet(info)
+        board.Add(item)
+        item.Move(shift)
+        group.AddItem(item)
+        return item
+
+    refs = {fp.GetReference() for fp in board.GetFootprints()}
+
+    def fresh(ref):                     # a board's references are its own: a second stamp's parts are numbered on
+        if ref not in refs:
+            return ref
+        letters = ref.rstrip("0123456789")
+        n = 1
+        while "%s%d" % (letters, n) in refs:
+            n += 1
+        return "%s%d" % (letters, n)
+
+    for src in frag.GetFootprints():
+        fp = pcbnew.Cast_to_FOOTPRINT(pcbnew.BOARD_ITEM.Duplicate(src))
+        fp.SetReference(fresh(fp.GetReference()))
+        refs.add(fp.GetReference())
+        for pad, was in zip(fp.Pads(), src.Pads()):
+            info = net_of(was)
+            if info is not None:
+                pad.SetNet(info)
+        board.Add(fp)
+        fp.Move(shift)
+        try:
+            path = fp.GetFieldText("Path")
+        except KeyError:
+            path = ""
+        if path:
+            fp.SetField("Path", "%s.%s" % (cell, path))
+        else:
+            fp.SetReference("%s.%s" % (cell, fp.GetReference()))
+        group.AddItem(fp)
+    for src in frag.GetTracks():
+        dup(src)
+    for src in frag.Zones():
+        zone = dup(src)
+        zone.SetAssignedPriority(src.GetAssignedPriority() + 1)
+    for src in frag.GetDrawings():
+        dup(src, connected=False)
+    return group
+
+
+def stamp_fragment_as_cells(fragment_pcb, out_pcb, cells):
+    """A board of the module fragment at `fragment_pcb` stamped once for each `{cell: offset}` (`stamp_fragment`), saved at `out_pcb`.
+    The board starts as the fragment's own with its items deleted, so it keeps the fragment's layers and setup; the project and rules
+    files are copied beside it."""
+    import pathlib
+    import shutil
+    import pcbnew
+    fragment_pcb, out_pcb = pathlib.Path(fragment_pcb), pathlib.Path(out_pcb)
+    board = pcbnew.LoadBoard(str(fragment_pcb))
+    for item in list(board.GetFootprints()) + list(board.GetTracks()) + list(board.Zones()) + list(board.GetDrawings()):
+        board.Delete(item)
+    for cell, offset in cells.items():
+        stamp_fragment(board, fragment_pcb, cell, offset)
+    board.Save(str(out_pcb))
+    for ext in (".kicad_pro", ".kicad_dru"):
+        if fragment_pcb.with_suffix(ext).exists():
+            shutil.copy(fragment_pcb.with_suffix(ext), out_pcb.with_suffix(ext))
+    return out_pcb
+
+
+def stamp_fragment_as_cell(fragment_pcb, out_pcb, cell, offset):
+    """What `pcb layout` does with a module fragment: its parts, copper, rule areas and notes become one group `cell` on a board, the
+    instance paths and nets prefixed by the cell's name, the group moved by `offset`. The project and rules files are copied beside it."""
+    return stamp_fragment_as_cells(fragment_pcb, out_pcb, {cell: offset})
+
+
+def synthetic_notes_for(pcb) -> dict:
+    """Write a note into every cell of the board at `pcb` that has two or more members: the arrangement `turn` leaves every member where it
+    is and turns the smallest one half way round about its own origin (the stamped frame is taken as the fragment's, offset 0). Returns
+    {cell: "turn"} for the cells that got one."""
+    import pcbnew
+    from placemat.kicad.read import read_board
+    geometry = read_board(pcb)
+    board = pcbnew.LoadBoard(str(pcb))
+    groups = {g.GetName(): g for g in board.Groups()}
+    done = {}
+    for name, cell in sorted(geometry.cells.items()):
+        prefix = name + "."
+        members = [fp for fp in cell.members if fp.inst.startswith(prefix)]
+        if len(cell.members) < 2 or len(members) != len(cell.members) or name not in groups:
+            continue
+        smallest = min(members, key=lambda fp: (fp.body_box.area, fp.inst))
+        rows = []
+        for fp in members:
+            # the place as the note's json holds it (4 places): the note's digest is taken from the place it is given and read
+            # back from the json's, which round to 3 places apart for a coordinate such as 33.680469 (33.68 against 33.681)
+            was = N.pose_from_json(N.pose_json(Placement(fp.location, fp.rotation, fp.face)))
+            now = Placement(was.location, (was.rotation + 180.0) % 360.0, was.face) if fp is smallest else was
+            rows.append((fp.inst[len(prefix):], now, was))
+        doc = N.document("turn", {"turn": "half"}, rows, [], [], order=1)
+        for text in N.encode(doc, 4000):
+            t = pcbnew.PCB_TEXT(board)
+            t.SetText(text)
+            t.SetLayer(pcbnew.Cmts_User)
+            board.Add(t)
+            groups[name].AddItem(t)
+        done[name] = "turn"
+    board.Save(str(pcb))
+    return done
