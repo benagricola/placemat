@@ -507,6 +507,29 @@ def _setup_pcbnew(f):
         f["net"], "=Reach.CURRENT" if f["variant"] == "current" else "=")
 
 
+def native_text(f: dict) -> str:
+    """The native accelerator's status record (geometry.NativeStatus.facts) as a sentence, with what to do."""
+    reason, ours, theirs = f["reason"], f["placemat_version"], f.get("native_version")
+    rebuild = "rebuild it from this checkout's native/ (uv pip install -e \".[native]\")"
+    if reason == "version_mismatch":
+        have = "placemat_native %s" % theirs if theirs else "a placemat_native with no version"
+        return "%s does not match placemat %s, so the pure Python path runs: results are the same, 5-10x slower on a large board; %s" % (
+            have, ours, rebuild)
+    if reason == "not_installed":
+        return "placemat_native is not installed, so the pure Python path runs: results are the same, 5-10x slower on a large board; install it (uv pip install -e \".[native]\")"
+    if reason == "import_error":
+        return "placemat_native would not import (%s), so the pure Python path runs: results are the same, 5-10x slower on a large board; %s" % (
+            f.get("detail") or "no detail", rebuild)
+    if reason == "disabled_by_env":
+        return "PLACEMAT_NATIVE=0 is set, so the pure Python path runs: results are the same, 5-10x slower on a large board; unset it to use native"
+    return "placemat_native is in use"
+
+
+@renders(C.SETUP_NATIVE, "reason", "placemat_version", "native_version", "detail")
+def _setup_native(f):
+    return native_text(f)
+
+
 @renders(C.FIXED_CUTOUT, "name", "why")
 def _fixed_cutout(f):
     return "%s (cutout): %s" % (f["name"], _refusal(f["why"]))

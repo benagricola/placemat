@@ -644,13 +644,14 @@ def cmd_drc(args) -> int:
     aw = airwires_from_drc(data, partners=partners)
     items = violation_items(data, {}, insts)
     if args.json:
-        console.data(json.dumps({"missing_rules": missing, "by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
+        console.data(json.dumps({"missing_rules": missing, "by_type": report.by_type, "severities": report.severities, "real": report.real, "outstanding": report.outstanding,
+                                 "libraries": report.libraries and report.libraries.record(),
                                  "unconnected": report.unconnected, "open_nets": dict(report.open_nets),
                                  "airwires": aw, "violations": items, "unconnected_items": unconnected_items(data, insts)},
                                 indent=2))
     else:
         console.say("drc", report.summary())
-        real = [v for v in items if v["kind"] in report.real_kinds]
+        real = [v for v in items if report.is_real(v["kind"])]
         for v in real[:20]:                     # the ones that fail the board, each where it is
             at = next((i["at"] for i in v["items"] if i["at"]), None)
             console.say("drc", "%s%s: %s; %s" % (v["kind"], " at (%.2f, %.2f)" % tuple(at) if at else "",
@@ -1670,7 +1671,19 @@ def _main(args) -> int:
             console._stream, console.colour = previous, colour
 
 
+def say_native_off(args) -> None:
+    """The console line for a command that places or routes with the native module off: said first, before the work
+    that is slow for it. Silent for JSON output and when native is in use."""
+    from .geometry import native_status
+    status = native_status()
+    if status.warns and not getattr(args, "json", False):
+        from .finding_text import native_text
+        console.say("setup", native_text(status.facts()), level="warning")
+
+
 def _dispatch(args) -> int:
+    if args.command in ("run", "preview", "route", "studio"):
+        say_native_off(args)
     return {"run": cmd_run, "lock": cmd_lock, "freeze": cmd_freeze, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "layer": cmd_layer, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets, "facts": cmd_facts,

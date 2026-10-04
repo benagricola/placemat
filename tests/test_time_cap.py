@@ -23,7 +23,7 @@ def _clean():
     timecap.reset()
 
 
-def _slow_scan(monkeypatch, ref="R2", seconds=1.2):
+def _slow_scan(monkeypatch, ref="R2", seconds=3.0):
     """The search of one part takes `seconds` before it starts."""
     from placemat import layout
     real = layout.scan
@@ -52,17 +52,18 @@ def _armed(**bounds):
     return timecap.arm(Settings())
 
 
-def _times(plan):
-    return [f for f in plan.findings if f.kind == "time"]
+def _times(plan, item="r2"):
+    """The time findings of the slowed part: under a loaded machine an ordinary step can cross a bound too."""
+    return [f for f in plan.findings if f.kind == "time" and f.facts.get("item") == item]
 
 
 def test_a_step_past_its_warn_time_gets_a_finding_naming_the_item_its_seconds_and_the_pass(monkeypatch):
     _slow_scan(monkeypatch)
-    _armed(step_warn=0.5)
+    _armed(step_warn=1.5)
     plan = _board().resolve()
     [f] = _times(plan)
-    assert f.cause is C.TIME_STEP_SLOW and f.facts["item"] == "r2" and f.facts["elapsed_s"] >= 1.2
-    assert f.facts["pass"] in ("scan", "coarse", "fine") and f.facts["warn_s"] == 0.5 and f.severity == "notice"
+    assert f.cause is C.TIME_STEP_SLOW and f.facts["item"] == "r2" and f.facts["elapsed_s"] >= 3.0
+    assert f.facts["pass"] in ("scan", "coarse", "fine") and f.facts["warn_s"] == 1.5 and f.severity == "notice"
     assert "r2" in f and "--step-warn" in f
     plain = _board()
     timecap.reset()
@@ -73,20 +74,20 @@ def test_a_warn_sends_a_live_event_while_the_step_is_still_running(monkeypatch):
     from placemat import channel
     sent = []
     monkeypatch.setattr(channel, "send", sent.append)
-    _slow_scan(monkeypatch, seconds=2.0)
-    _armed(step_warn=0.8)
+    _slow_scan(monkeypatch, seconds=3.0)
+    _armed(step_warn=1.5)
     _board().resolve()
-    [ev] = [e for e in sent if e["ev"] == "step_warn"]
-    assert ev["item"] == "r2" and ev["bound_s"] == 0.8 and ev["elapsed_s"] >= 0.8 and ev["pass"] and "at" in ev
+    [ev] = [e for e in sent if e["ev"] == "step_warn" and e.get("item") == "r2"]
+    assert ev["item"] == "r2" and ev["bound_s"] == 1.5 and ev["elapsed_s"] >= 1.5 and ev["pass"] and "at" in ev
 
 
 def test_a_step_past_its_limit_is_left_unplaced_with_a_finding_and_the_resolve_goes_on(monkeypatch):
     _slow_scan(monkeypatch)
-    _armed(step_limit=0.5)
+    _armed(step_limit=1.5)
     plan = _board().resolve()
     [f] = _times(plan)
     assert f.cause is C.TIME_STEP_LIMIT and f.facts["item"] == "r2" and f.facts["kept"] == "unplaced" and f.severity == "critical"
-    assert f.facts["limit_s"] == 0.5 and f.facts["elapsed_s"] >= 1.2 and f.facts["pass"] in ("scan", "coarse", "fine")
+    assert f.facts["limit_s"] == 1.5 and f.facts["elapsed_s"] >= 3.0 and f.facts["pass"] in ("scan", "coarse", "fine")
     step = next(s for s in plan.steps if s.item == "r2")
     assert step.placement is None and "UNPLACED: gave up" in step.note
     assert not [x for x in plan.findings if x.kind == "unplaced" and x.facts.get("item") == "r2"]      # not "no room"
@@ -105,7 +106,7 @@ def test_a_limit_inside_a_scored_scan_keeps_the_best_spot_found_so_far(monkeypat
 
 def test_a_step_that_gave_up_is_searched_again_by_the_next_resolve(monkeypatch):
     _slow_scan(monkeypatch)
-    _armed(step_limit=0.5)
+    _armed(step_limit=1.5)
     first = _board().resolve()
     timecap.reset()
     monkeypatch.undo()

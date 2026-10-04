@@ -76,18 +76,19 @@ def test_the_version_is_the_checkout_s_git_tag():
 def test_a_native_module_from_another_release_is_not_used():
     """An old build could place differently after an upgrade without a word:
     placemat uses a native module only when it is its own version."""
-    from placemat.geometry import _accept_native
+    from placemat.geometry import _decide_native
 
     class Module:
         __version__ = "0.0.1"
-    module, note = _accept_native(Module(), "0.31.0.post2.dev0+g1a2b3c4")
-    assert module is None and "0.0.1" in note
+    module, status = _decide_native(Module(), None, "0.31.0.post2.dev0+g1a2b3c4", False)
+    assert module is None and not status.in_use
+    assert (status.reason, status.native_version) == ("version_mismatch", "0.0.1")
     Module.__version__ = "0.31.0"                       # built at the tag, placemat two commits on
-    module, note = _accept_native(Module(), "0.31.0.post2.dev0+g1a2b3c4")
-    assert module is not None and note == ""
+    module, status = _decide_native(Module(), None, "0.31.0.post2.dev0+g1a2b3c4", False)
+    assert module is not None and status.in_use and status.reason == ""
 
 
 def test_a_native_module_with_no_version_is_not_used():
-    from placemat.geometry import _accept_native
-    module, note = _accept_native(object(), placemat.__version__)
-    assert module is None and "no version" in note
+    from placemat.geometry import _decide_native
+    module, status = _decide_native(object(), None, placemat.__version__, False)
+    assert module is None and (status.reason, status.native_version) == ("version_mismatch", None)

@@ -89,6 +89,15 @@ Specced work first, then the loose ends.
   tests call; `settings.RENAMED` (30 entries from 0.90.0) once the notice path
   can go. After the native sweep and give-way work leave those files.
 
+- **Placement judges clearance with KiCad's DRC epsilon** (follow-up to the
+  0.97.1 keep-out fix): occupancy's copper clearance and draw/body gaps use a
+  1e-9 tolerance, and net ties a hard-coded 500 nm; reading
+  `BoardGeometry.drc_epsilon` there would remove float-noise refusals during
+  placement. Changes which spots are legal: bench first.
+- **Give-way native port** (native sweep report): give-way was 181 s of a
+  400 s core profile; a multi-function port that needs its own design. The
+  converter give-way investigation reports first.
+
 ## Open
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
@@ -328,6 +337,19 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Native status said; DRC as KiCad judges; planes over zones** (0.97.2): a
+  run without the native module says so (setup.native); every KiCad
+  error-severity kind counts in the DRC headline; KiCad and pcb children run
+  without an inherited KIPRJMOD; a board outside its project says where its
+  library issues come from; a plane is written above a same-net zone it
+  overlaps.
+
+- **Native net-tie sweeps; time bounds; zone and keep-out fixes** (0.97.1):
+  a cell scan meeting a net tie judges natively (a real module 49.8 -> 12.6 s);
+  `--max-time`, `--step-warn`, `--step-limit`; structured phase events and
+  readable watch lines; overlapping stamped same-net zones get distinct
+  priorities; keep-out allows KiCad's DRC epsilon.
 
 - **Structured events; a faster scan with a step budget; NotConnected pins;
   run-folder rules; KIPRJMOD** (0.97.0): events and plan JSON carry records

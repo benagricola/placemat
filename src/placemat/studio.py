@@ -38,6 +38,7 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 from . import channel, present
+from .childenv import child_env
 from .console import console
 from .studio_diff import diff_plans, line_diff, trace, unified_diff, with_spans
 from .studio_watch import Debounce, Poller
@@ -129,7 +130,8 @@ class WorkerProcess:
         self.log_start = self.log_path.stat().st_size if self.log_path.exists() else 0
         log = open(self.log_path, "ab")
         self.proc = subprocess.Popen([sys.executable, "-m", "placemat.studio_worker"], stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1)
+                                     stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1,
+                                     env=child_env(headless=False))
         log.close()
         threading.Thread(target=self._read, args=(self.proc, serial), daemon=True).start()
 
@@ -1045,7 +1047,7 @@ class Studio:
         sg.keep(board_dir, script, "studio resolve #%d" % rec.id, pool)       # the store the command reads: the plan the page was shown
         cmd = [sys.executable, "-m", "placemat", "apply", sid, "--search", "--yes", "--script", str(script)]
         try:
-            proc = subprocess.Popen(cmd, cwd=str(board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc = subprocess.Popen(cmd, cwd=str(board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=child_env(headless=False))
         except OSError as e:
             raise SuggestRefused(409, "could not start the probe: %s" % e)
         with self.lock:
@@ -1445,7 +1447,7 @@ class Studio:
         try:
             # the run is a command like any other: it reports over the channel (its steps reach the page as the command's
             # events), and what it leaves is its record. Its printed text is not read.
-            proc = subprocess.Popen(cmd, cwd=str(self.src.board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc = subprocess.Popen(cmd, cwd=str(self.src.board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=child_env(headless=False))
             with self.lock:
                 if self._run is not None:
                     self._run["pid"] = proc.pid
@@ -1538,7 +1540,10 @@ class Studio:
         return {"t0": c.get("at", time.time()), "total": c.get("total"), "cur": c.get("now"), "replayed": c.get("replayed", 0)}
 
     def _hello_data(self) -> dict:
-        common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
+        from .geometry import native_status
+        from .finding_text import native_text
+        status = native_status()
+        common = {"native": status.facts(), "native_text": native_text(status.facts()) if status.warns else "", "now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
                   "explores": self.explores(), "routes": self.routes(), "explore_fps": self.cfg.studio_explore_fps,
                   "models3d": self.m3d.status(), "models": self.m3d.table(),
                   "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),

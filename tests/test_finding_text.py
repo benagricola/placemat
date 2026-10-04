@@ -108,6 +108,9 @@ SAMPLES = [
      "spot found so far"),
     (C.SETUP_PCBNEW, {"variant": "current", "net": "A"},
      "pour A: reach=Reach.CURRENT needs KiCad's pcbnew at plan time, for its polygon booleans; the pour is not drawn"),
+    (C.SETUP_NATIVE, {"in_use": False, "reason": "version_mismatch", "placemat_version": "0.98.0", "native_version": "0.97.0", "detail": ""},
+     "placemat_native 0.97.0 does not match placemat 0.98.0, so the pure Python path runs: results are the same, 5-10x slower on a "
+     "large board; rebuild it from this checkout's native/ (uv pip install -e \".[native]\")"),
     (C.ROUTE_DROPPED, {"key": "X", "why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
      "adopted route X dropped: its end at (1.00, 2.00) no longer meets the net's other copper; the router routes it again"),
     (C.VIAS_GAVE_WAY, {"item": "m", "nets": [{"net": "SIG", "parts": [{"kind": "move", "n": 1, "moved_mm": 0.25}],

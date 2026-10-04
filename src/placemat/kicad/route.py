@@ -19,6 +19,7 @@ import subprocess
 import time
 
 from .. import route_progress
+from ..childenv import child_env
 from .drc import REAL_KINDS, run_drc
 
 BUILTIN_ROUTER = os.path.expanduser("~/work/KRT-upstream")
@@ -779,7 +780,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     raw_out = work / "router_out.kicad_pcb"      # what the router wrote: post-processing is made on a copy
     summary = work / "router_summary.json"
     script = str(ONE_ROUND) if quick else str(route_py)
-    env = dict(os.environ)
+    env = child_env(headless=False)
     env.pop("KICAD_ROUTE_TRACE", None)
     env.pop("KICAD_SMOOTH_ROUTE", None)     # it overrides the router's smoothing flag: [route] smoothing decides
     env["KRT_DIR"] = str(router_dir_path)

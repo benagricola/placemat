@@ -2883,6 +2883,15 @@ items' descriptions and positions, and every open connection as
 `unconnected_items`, by net). An item on a part carries the part's instance
 path beside KiCad's refdes (`instance`; in the text, in brackets).
 
+The counts fall in buckets: `real` (the headline: the `[drc] real_kinds`, whatever
+their severity, and every other kind KiCad reports as an error), `outstanding`,
+`footprint issues` and `other`; `--json` gives each kind's `severities`. A board
+whose folder has no `fp-lib-table`, or one whose `${KIPRJMOD}` entries do not
+resolve from there (a run folder's `layout.kicad_pcb` copied out of its
+project tree), gets `lib_footprint_issues` for every footprint: the count is
+kept, `libraries` (`state`, `unresolved`) records why, and the summary says those
+issues come from where the board sits, not from the board.
+
 `measure` is the geometry query. Given a board it prints, per part, the
 instance, refdes, value, face, rotation and origin, the `body`, `courtyard` and
 `physical` boxes, its drawn envelope and the layer setting each side, how near
@@ -3884,12 +3893,18 @@ its kind.
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
-| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict) | warning | the script is incomplete or wrong |
+| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `route` | notice | an adopted route dropped because a part it joins moved; the router routes it again |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
 | `needs` | notice | an if-needed fab option would have cleared a spot; the item's `unplaced` finding is the fault |
+
+`setup.native` (warning) is on every run, preview and explore where the native module is not in use, so the placement ran in pure Python:
+the same results, 5-10x slower on a large board. Facts: `reason` (`version_mismatch`, `not_installed`, `import_error`),
+`placemat_version`, `native_version` (null when none), `detail` (the import error). `PLACEMAT_NATIVE=0` is a deliberate switch and gives
+no finding. The same record (`in_use`, `reason`, `placemat_version`, `native_version`, `detail`) is `native` in `run.json`, in the preview
+JSON, in the channel's `hello` event and in the studio's hello.
 
 A failed design check is a verdict, not a finding, and has its own severity in the checks output and in
 `run.json`'s `verdicts`: `critical` for `keep-out` and `current-path`, `warning` for `crossings-under`, `heat`,
@@ -4024,6 +4039,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `setup.frame_reach` | the fit frame's declared width or height made the size that holds the item (not where the item reaches the origin side) |
 | `setup.web` | the board's `web=` lowered to the web it has |
 | `setup.step_budget` | a higher `budget=` for the item (searched) |
+| `setup.native` | none: rebuild or reinstall the native module (`uv pip install -e ".[native]"`); results are right, only slower |
 | `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
 | `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
 | `setup.accept` | the `board.accept(...)` removed |
@@ -4230,7 +4246,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.zone_step` | `0.05` | mm | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
 | `check.limits` | `{}` | table | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | list | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
-| `drc.real_kinds` | `["clearance", "shorting_items", "track_width", "annular_width", "hole_clearance", "hole_to_hole", "courtyards_overlap", "copper_edge_clearance"]` | list | which violations mean the board is not done: the `real` buckets |
+| `drc.real_kinds` | `["clearance", "shorting_items", "track_width", "annular_width", "hole_clearance", "hole_to_hole", "courtyards_overlap", "copper_edge_clearance"]` | list | which violations mean the board is not done, whatever their severity: the `real` bucket (every other kind KiCad reports as an error counts there too, except footprint issues and outstanding) |
 | `drc.outstanding_kinds` | `["via_dangling", "track_dangling", "isolated_copper"]` | list | which violations are copper not yet joined: `outstanding` |
 | `drc.footprint_kinds` | `["lib_footprint_issues", "lib_footprint_mismatch", "malformed_courtyard", "padstack"]` | list | which violations are defects in the footprints themselves: `footprint issues` |
 | `drc.refill_zones` | `true` | bool | refill zones for the check |

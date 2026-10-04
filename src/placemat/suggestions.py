@@ -886,6 +886,12 @@ def setup_step_budget(f, settings):
     return _budget_picks({"budget": f}, f["item"])
 
 
+@case(C.SETUP_NATIVE)
+def setup_native(f, settings):
+    """No script edit helps: the native module is rebuilt or reinstalled outside the script."""
+    return []
+
+
 @case(C.UNPLACED_SEARCH)
 def unplaced_search(f, settings):
     item = f["item"]

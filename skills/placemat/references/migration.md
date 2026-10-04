@@ -5,7 +5,40 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.97.2
+
+### New
+
+- **A native module that is not in use is said on every run.** When `placemat_native` is not installed, would not import, or is from
+  another release than placemat, placement falls back to pure Python (the same results, 5-10x slower on a large board), which was only a
+  line on stderr at import. Every run, preview and explore now carries a `setup` warning (`setup.native`: `reason`, `placemat_version`,
+  `native_version`, `detail`), `placemat run`, `preview`, `route` and `studio` print it first with the command to rebuild, and the record
+  (`native`) is in `run.json`, the preview JSON, the channel's `hello` event (`placemat watch` shows it) and the studio's hello and header.
+  `PLACEMAT_NATIVE=0` stays a silent, deliberate switch. A tool that read the stderr line reads `native`. Nothing to change in a script.
+
+### Changed
+
+- **Severity decides the DRC headline.** Every kind KiCad reports at severity `error` is in `real` (the `DRC ...` part of the summary,
+  `drc_real` in `run.json`, `real` in `placemat drc --json`), not only the kinds in `[drc] real_kinds`; a kind such as `zones_intersect` no
+  longer sits in `other`. `real_kinds` stays the kinds counted whatever their severity, and the footprint and outstanding kinds keep their own
+  lines. The report carries each kind's severity (`DrcReport.severities`; `severities` in `placemat drc --json`). A run's score counts these
+  as real violations, so a board with such errors scores worse than before and a run compared with an older record can read as a regression.
+- **A board outside its project tree says so.** `placemat drc` on a run's `layout.kicad_pcb` reports `lib_footprint_issues` for every
+  footprint when the folder has no `fp-lib-table`, or its `${KIPRJMOD}` entries do not resolve from there. The count and the violations are
+  kept; the report records it (`DrcReport.libraries`: `state` `missing`, `unresolved` or `resolved`, the `unresolved` names; `libraries` in
+  `--json`) and the summary says the library issues come from where the board sits, not from the board.
+- **Child processes do not inherit KIPRJMOD.** pcbnew sets `KIPRJMOD` to an empty string in the C environment of a process that creates
+  or saves a board, and a child started without an explicit environment inherits it. `kicad-cli` (DRC, the 3D export, the version query),
+  the router and the studio's and builder's workers and runs now start with `placemat.childenv.child_env()`, as `pcb layout` already did.
+
+### Fixed
+
+- **A plane is written above the same-net zone it overlaps.** A plane the script declares on a layer where the board already has a zone
+  of that net (a board-wide ground zone under a plane bounded to a fit frame) was written at priority 0 beside it, which KiCad's DRC
+  reports as `zones_intersect`. The plane now takes a priority one above the zones it overlaps, and a plane overlapping an earlier one of
+  the script does the same. The board's own zone stays and fills what the plane does not cover. Nothing to change in a script.
+
+## To 0.97.1
 
 ### New
 

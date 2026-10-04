@@ -11,6 +11,7 @@ import subprocess
 import time
 import traceback
 
+from .childenv import child_env
 from .console import configure, console
 from .layout import Board
 from .context import run_script
@@ -239,7 +240,7 @@ def generation_env() -> dict[str, str]:
     """The environment `pcb layout` runs in. KIPRJMOD is dropped: pcb takes the board's folder for it only when it is unset, and
     pcbnew sets it (to an empty string) in a process that creates or saves a board, so a process that has done that, and the
     children it starts, would resolve every footprint library against the wrong folder."""
-    return {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "KIPRJMOD")}
+    return child_env()
 
 
 def _inputs_record(src: BoardSource) -> Path:
@@ -703,6 +704,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                       "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops,
                       "seconds": round(s.seconds, 3), "first_seconds": None if s.first_seconds is None else round(s.first_seconds, 3)}
                      for s in plan.steps]
+        from .geometry import native_status
+        rec.native = native_status().facts()
         rec.findings = list(plan.findings)
         rec.finding_details = [f.detail() for f in plan.findings]
         rec.status = "ok"
