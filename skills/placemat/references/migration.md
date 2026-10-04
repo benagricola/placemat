@@ -5,10 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.99.6
 
 ### Fixed
 
+- **Written copper and rule areas take a UUID no item on the board has.** A board placemat already wrote once carries
+  items at UUIDs from the same seeded sequence a later write draws from; a track, via, text, pour, zone or keepout rule
+  area written there could take one, and after a reload a group keyed by UUID read the other item as its own. Each is now
+  given a free UUID before it joins the board. A board with no clash writes the same file.
 - **The studio's 3D view draws a past run's parts.** A run opened from its records (what `placemat studio` shows when it follows the latest
   run, or a run picked in the Runs tab) carried no 3D models, so no model was converted and every part was a hatched plate, most of them a
   small marker at their cell, since a run's plan keeps few courtyards. The studio now reads the models from the board the run wrote and

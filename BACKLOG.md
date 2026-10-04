@@ -336,6 +336,12 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Studio 3D for past runs; routed runs shown routed; free UUIDs** (0.99.6):
+  a run opened from its records gets its board's models and the converter
+  starts where its log folder is missing; a run that routed opens on its
+  routed board, with router copper drawn hollow and a Copper origin legend;
+  written copper and rule areas take a UUID the board does not already have.
+
 - **Silk margin; cutout silk; back text mirrored; current-path planes;
   KiCad's copper shapes; cell labels in the search** (0.99.5): placement
   keeps `place.silk_margin` past the silk clearance so a turned stamp still
