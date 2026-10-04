@@ -1762,7 +1762,7 @@ class Occupancy:
         return (res.why, None) if res.why is not None else (None, res)
 
     def legal_bucket(self, item, placement: Placement, clearance: float | None = None, others=None,
-                     blame: list | None = None):
+                     blame: list | None = None, board: bool = True):
         """As `legal()`, but for a scan's sweep, which only ever keeps ONE
         example sentence per rejection bucket (`ScanResult.reasons`,
         `reasons.setdefault(key, why)`) however many candidates land in it -
@@ -1784,17 +1784,20 @@ class Occupancy:
         produce their sentence cheaply (a box test or a `_conflict` call
         that has to run anyway to know the candidate is illegal at all), so
         they run exactly as `legal()` does and bucket the result with
-        `_reason_key`, unchanged."""
+        `_reason_key`, unchanged. `board=False` leaves the edge and the reservations
+        to the caller, which has judged them (a native pass's accepted candidate)."""
         geom = self._geometry(item)
-        body = self.shifted_body_box(item, placement)
-        why = self._edge_or_reservation_conflict(geom, body, placement, False, blame)
+        why = None
+        if board:
+            body = self.shifted_body_box(item, placement)
+            why = self._edge_or_reservation_conflict(geom, body, placement, False, blame)
         if why is not None:
             return _reason_key(why), (lambda why=why: why)
         if others is None:
             others = self.obstacles(geom)
         native_entry = getattr(others, "_native", None)
         if native_entry is None or self._tie_refs & geom.owners:
-            why = self.legal(item, placement, clearance, others=others, blame=blame)
+            why = self.legal(item, placement, clearance, others=others, blame=blame, board=False)   # judged above
             return None if why is None else (_reason_key(why), (lambda why=why: why))
         native_index, native_shapes = native_entry
         dx, dy = placement.location.x, placement.location.y
@@ -1807,7 +1810,7 @@ class Occupancy:
         o = native_shapes[oi]
         s = origin_shapes[si]
         if o.owner in self._tie_refs:
-            why = self.legal(item, placement, clearance, others=others, blame=blame)   # a net tie's exclusion
+            why = self.legal(item, placement, clearance, others=others, blame=blame, board=False)   # a net tie's exclusion
             return None if why is None else (_reason_key(why), (lambda why=why: why))
         moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
                      tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims, wire=s.wire)
@@ -2788,7 +2791,7 @@ class NativeSweeper:
         x, y, turn = triple
         blame = []
         hit = self.occ.legal_bucket(item, Placement(Location(x, y), self.rots[turn], self.face), self.clearance,
-                                    others, blame)
+                                    others, blame, board=False)         # the native pass has judged the edge and the reservations
         return hit, blame
 
     @staticmethod
