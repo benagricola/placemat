@@ -1,5 +1,6 @@
 from placemat import arrangement_run as run
-from placemat.values import Beside, Box, Edge, Location, Near, Part
+from placemat.arrangements import Alt
+from placemat.values import Beside, Box, Edge, Part
 from tests.arrangement_support import module
 
 
@@ -35,3 +36,17 @@ def test_the_extent_of_a_resolved_plan_names_instances():
     plan = module().resolve()
     got = run.extent_of(plan)
     assert {g["item"] for g in got} <= {"u1", "c_in", "r_pull"} and got and all(g["sides"] for g in got)
+
+
+def test_members_sharing_the_outermost_edge_both_reach_the_side():
+    boxes = {"a": Box(0.0, 0.0, 4.0, 2.0), "b": Box(0.0, 0.5, 3.0, 2.0), "c": Box(1.0, 0.5, 2.0, 1.5)}
+    assert run.extent_from_boxes(boxes) == [
+        {"item": "a", "sides": ["north", "east", "south", "west"], "protrudes_mm": 1.0},
+        {"item": "b", "sides": ["south", "west"], "protrudes_mm": 1.0}]
+
+
+def test_a_member_moved_only_by_a_group_option_gets_no_notice():
+    b = module()
+    b.arrangement("flip", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))
+    extent = [{"item": "c_in", "sides": ["west"], "protrudes_mm": 0.4}, {"item": "r_pull", "sides": ["east"], "protrudes_mm": 0.1}]
+    assert [f.facts["item"] for f in run.extent_findings(b, extent, 2.0)] == ["r_pull"]

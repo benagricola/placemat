@@ -8,7 +8,6 @@ import hashlib
 
 from .arrangements import Spec
 from .findings import Finding, FindingCause as C
-from .values import Box
 
 
 @dataclass
@@ -75,19 +74,9 @@ def extent_from_boxes(boxes: dict) -> list:
 
 
 def extent_of(plan) -> list:
-    """`extent_from_boxes` of a resolved plan's placed members, as the placer claims them (`report.extent_of`)."""
-    from .board_geometry import members_of
-    boxes = {}
-    for step in plan.steps:
-        if step.placement is None or step.kind not in ("part", "cell"):
-            continue
-        item = plan._items.get(step.item)
-        for fp in members_of(item) if item is not None else ():
-            g = plan.occupancy.items.get(fp.ref)
-            claimed = [s.box for s in g.shapes if s.kind != "npth"] if g is not None else []
-            if claimed:
-                boxes[fp.inst] = Box.union(claimed)
-    return extent_from_boxes(boxes)
+    """`extent_from_boxes` of a resolved plan's placed members, as the placer claims them (`report.claimed_boxes`)."""
+    from .report import claimed_boxes
+    return extent_from_boxes(claimed_boxes(plan))
 
 
 def extent_findings(board, extent: list, threshold_mm: float) -> list:
