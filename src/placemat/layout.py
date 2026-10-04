@@ -38,7 +38,7 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .arrangements import DEFAULT_SPEC, Alt, Enumeration, Group, Option, check_keywords, check_name, enumerate_specs, merged_call
+from .arrangements import DEFAULT_SPEC, Alt, Enumeration, Group, Option, Spec, check_keywords, check_name, enumerate_specs, merged_call
 from .placer import BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
@@ -3401,6 +3401,31 @@ class Board:
                     raise ValueError("%s:%d: %s is drawn from or fitted round %s, which exists only in %s: give it an only= "
                                      "inside that set" % (file, line, c.key, m.key, ", ".join(m.only)))
 
+    def arrangement_specs(self) -> tuple:
+        """The arrangements a module run lays out, the default first, once the declarations are checked."""
+        self.finish_declarations()
+        return self.arrangement_enumeration().specs
+
+    _laid = DEFAULT_SPEC.id          # the arrangement the board's declarations are laid as
+
+    def lay_arrangement(self, spec: Spec) -> None:
+        """Put the board's declarations as arrangement `spec` has them: each option of `spec` laid over its item's
+        PlaceIntent, which keeps its place in the declaration order, its line and the pushes made on it; and only the copper
+        that exists in `spec`. Called on a board `_restore` has put back; `resolve()` lays the default."""
+        for key, option in spec.overrides:
+            old = next(i for i in self._intents if i.key == key)
+            new = self._intent_option(option)
+            new.index, new.line, new.file = old.index, old.line, old.file
+            new.pushes = old.pushes
+            for p in old.pushes:
+                new.needs = new.needs | self._push_needs(p.source)
+            old.__dict__.clear()
+            old.__dict__.update(new.__dict__)
+        kept = [c for c in self._copper if c.applies_in(spec.id)]
+        if len(kept) != len(self._copper):
+            self._copper = kept
+        self._laid = spec.id
+
     @staticmethod
     def _refuse_either(key: str, kind: str, rotation, **decided) -> None:
         """`face=Face.EITHER` is for an item the search places freely: seeded, or round a `Near`.
@@ -4330,11 +4355,15 @@ class Board:
                              "disc that formula asks for has no finite radius" % (falloff, r_ref, v_ref, limit))
         p = Push(from_, float(falloff), float(r_ref), float(v_ref), float(limit), target_pad_key, owner, why)
         intent.pushes = intent.pushes + (p,)
-        needs = {self._pad_ref(r)[0] for r in _refs_in([from_])}
-        if isinstance(from_, str):
-            needs.add(cutout_token(from_))   # a keepout settles like a hole: waited for the same way
-        intent.needs = intent.needs | needs
+        intent.needs = intent.needs | self._push_needs(from_)
         return p
+
+    def _push_needs(self, source) -> set:
+        """What a push from `source` places first: its part, or its keepout."""
+        needs = {self._pad_ref(r)[0] for r in _refs_in([source])}
+        if isinstance(source, str):
+            needs.add(cutout_token(source))   # a keepout settles like a hole: waited for the same way
+        return needs
 
     def free_net(self, net):
         """A net whose length on this board does not matter (its off-board
@@ -5705,7 +5734,7 @@ class Board:
             # a searched spot keeps clear of the tracks declared before it, whenever those are planned: a track
             # that waits for a searched part is drawn after a decided via is, and has no way round it
             self._copper_after[intent.index] = tuple(
-                c.index for c in self._copper[:intent.index] if c.key.startswith("track ") and c.net != name)
+                c.index for c in self._copper if c.index < intent.index and c.key.startswith("track ") and c.net != name)
         return intent
 
     def stitch(self, net, region, *, pitch: float | None = None, size: float | None = None,
@@ -6757,6 +6786,9 @@ class Board:
         """Place everything and plan the copper. When a studio listens in the project (channel.py), the steps and the
         finished plan are also sent to it; with none, that costs one lookup, made once per process. `partial` is a
         reuse.PartialLog: each completed step's record is appended to it as the resolve goes."""
+        self.finish_declarations()
+        if self._laid == DEFAULT_SPEC.id:
+            self.lay_arrangement(DEFAULT_SPEC)      # a board laid as another arrangement resolves as that one
         from . import channel
         rep = channel.reporter(getattr(self, "_script", None))
         if rep is None:
@@ -6872,6 +6904,9 @@ class Board:
         if native_status().warns:           # the pure Python path is the reference, and 5-10x slower: never silent
             plan.findings.append(self._finding(C.SETUP_NATIVE, native_status().facts(), "warning"))
         plan.findings.extend(self._finding(C.SETUP_RULE_NOTE, facts, "notice") for facts in self._stamped_rule_notes)
+        limit = self.arrangement_limit()
+        if limit is not None:
+            plan.findings.append(self._finding(C.ARRANGEMENT_LIMIT, limit, "warning"))
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement
