@@ -5,16 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## To 0.97.0
-
-### New
-
-- **A step's search has a budget.** `place.step_budget` is the most candidates one searched item's step may judge, counted over all its
-  passes, both faces and the carried vias' giving way (candidates, not seconds: it does not depend on how busy the machine is), and
-  `board.place(item, ..., budget=N)` sets one item's. A step that spends it takes the best legal spot found so far and says so
-  (`setup.step_budget`, a notice), or, finding none, leaves the item unplaced: the `unplaced.search` finding carries
-  `facts["budget"]` (`judged`, `share` of the search area covered, `limit`) and offers a higher `budget=` for the item, a searched
-  suggestion. The default is high enough that no benchmark module or the core board reaches it, so nothing a script says changes.
+## Unreleased
 
 ### New
 
@@ -27,6 +18,43 @@ section for each hand-written pattern a newer form replaces.
   resolve goes on; such a step is searched again by the next run. Settings `[run] max_time_s`, `step_warn_s`, `step_limit_s` (all 0, off); a
   flag wins. The times are wall-clock and depend on machine load; the `[run]` settings are not part of a run's id. A new finding kind,
   `time`. Nothing to change in a script.
+
+### Changed
+
+- **A phase event is data, not a sentence.** The channel's `begin` events of kind `phase` carried a `text` ("refining around the best
+  spots: 2 of 5"); they now carry `stage` (`declared`, `seeding`, `scan`, `coarse`, `coarse_half`, `fine`, `refine`, `give_way`) and its
+  numbers (`within`, `face`, `hint`, `radius`), with the `item` and `elapsed_s` of the step they belong to and `firm_pass`. The studio makes
+  its status pill from them, and `placemat watch` its line. A tool that read `text` reads `stage` and `within`. The scan also reports its fine
+  pass, the coarse pass at half the stride and the give-way pass as phases now.
+- **`placemat watch` lines read naturally.** `begin begin ble searched` and a bare `begin phase` are gone: `ble: searching, rank 3 of 12`,
+  `ble: refining around the best spots, 2 of 3, 12.4 s`, `ble part, 1.2 s: note`; the total reads `40 items to place (12 searched), 3
+  copper declared`.
+- **Cell scans that meet another item's net tie are judged natively.** A candidate the native pass accepted was judged and
+  scored again in Python whenever the scan met a net tie; one that also passes the native pass with the ties in is now legal without
+  it, and scored natively. A real module's resolve took 49.8 s and now 12.6 s, with identical placements and findings. Nothing to change in
+  a script.
+
+### Fixed
+
+- **`keep-out` allows KiCad's DRC epsilon.** A distance a hair under its limit from float noise (1.2599985 mm against 1.26 mm, a stamped
+  pour's edge at the package's own pad gap, rotated and flipped) failed the check, where KiCad's DRC passes it. The check now accepts a
+  distance within the board's DRC epsilon of the limit (500 nm on a fresh board, read from its design settings as
+  `BoardGeometry.drc_epsilon`), in place of a fixed 1 nm. A distance 0.6 um short still fails.
+- **Two stamped cells' zones of one net that overlap no longer fail KiCad DRC with `zones_intersect`.** Each cell arrives with its zone at
+  the module's priority, and cells a keep-in apart have frames, so their zones, which the board's plane does not wholly cover,
+  overlapped at one priority. Written, the later zone (in cell-name order) is now raised past the priority of every same-net zone it
+  overlaps on a shared layer. A script is not affected.
+
+## To 0.97.0
+
+### New
+
+- **A step's search has a budget.** `place.step_budget` is the most candidates one searched item's step may judge, counted over all its
+  passes, both faces and the carried vias' giving way (candidates, not seconds: it does not depend on how busy the machine is), and
+  `board.place(item, ..., budget=N)` sets one item's. A step that spends it takes the best legal spot found so far and says so
+  (`setup.step_budget`, a notice), or, finding none, leaves the item unplaced: the `unplaced.search` finding carries
+  `facts["budget"]` (`judged`, `share` of the search area covered, `limit`) and offers a higher `budget=` for the item, a searched
+  suggestion. The default is high enough that no benchmark module or the core board reaches it, so nothing a script says changes.
 
 ### Changed
 
@@ -69,29 +97,13 @@ section for each hand-written pattern a newer form replaces.
   - `placemat apply --json` gains `action` (`applied`, `would write`, `undone`), `edits` (the suggestion's edits as fields; none for
     an undo) and each file's `created` and `removed`; `text` stays the suggestion's sentence.
   A script is not affected.
-- **A phase event is data, not a sentence.** The channel's `begin` events of kind `phase` carried a `text` ("refining around the best
-  spots: 2 of 5"); they now carry `stage` (`declared`, `seeding`, `scan`, `coarse`, `coarse_half`, `fine`, `refine`, `give_way`) and its
-  numbers (`within`, `face`, `hint`, `radius`), with the `item` and `elapsed_s` of the step they belong to and `firm_pass`. The studio makes
-  its status pill from them, and `placemat watch` its line. A tool that read `text` reads `stage` and `within`. The scan also reports its fine
-  pass, the coarse pass at half the stride and the give-way pass as phases now.
-- **`placemat watch` lines read naturally.** `begin begin ble searched` and a bare `begin phase` are gone: `ble: searching, rank 3 of 12`,
-  `ble: refining around the best spots, 2 of 3, 12.4 s`, `ble part, 1.2 s: note`; the total reads `40 items to place (12 searched), 3
-  copper declared`.
 
 ### Fixed
 
-- **`keep-out` allows KiCad's DRC epsilon.** A distance a hair under its limit from float noise (1.2599985 mm against 1.26 mm, a stamped
-  pour's edge at the package's own pad gap, rotated and flipped) failed the check, where KiCad's DRC passes it. The check now accepts a
-  distance within the board's DRC epsilon of the limit (500 nm on a fresh board, read from its design settings as
-  `BoardGeometry.drc_epsilon`), in place of a fixed 1 nm. A distance 0.6 um short still fails.
 - **A run folder keeps the board's rules.** A run folder held `layout.kicad_pcb` alone, so `placemat drc` or `placemat route` on
   `<run>/layout.kicad_pcb` judged it by KiCad's default rules and reported false clearance, width and short violations. The
   run folder now keeps `layout.kicad_pro` and `layout.kicad_dru` beside its board, and `drc` and `route` warn when a board has
   neither beside it (`drc --json` and `route --json` give `missing_rules`).
-- **Two stamped cells' zones of one net that overlap no longer fail KiCad DRC with `zones_intersect`.** Each cell arrives with its zone at
-  the module's priority, and cells a keep-in apart have frames, so their zones, which the board's plane does not wholly cover,
-  overlapped at one priority. Written, the later zone (in cell-name order) is now raised past the priority of every same-net zone it
-  overlaps on a shared layer. A script is not affected.
 - **Generation ignores an inherited `KIPRJMOD`.** A process that had saved a board with pcbnew (or a placemat started from
   KiCad) passed `KIPRJMOD` on to `pcb layout`, which then resolved the stdlib footprint libraries against the wrong folder and
   failed with "Failed to load footprint". Generation now runs without it.
