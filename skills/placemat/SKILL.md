@@ -690,6 +690,39 @@ forcing long or crossing copper):
   resort. Prefer it to widening search reaches, accepting findings, or
   writing coordinates.
 
+## Pin assignments are a layout lever
+
+Where an IC's pins are general purpose, which pin carries which net is a
+choice the capture made before the layout existed. Moving a net to another
+pin can remove ratsnest crossings, shorten tracks and free an escape. Make
+the swap, without asking, when all of these hold:
+
+- the part's datasheet (or reference manual) confirms the new pin offers
+  the function the net needs: the pin mux or alternate-function table lists
+  it, or the pin is plain GPIO and the net is plain GPIO;
+- no other datasheet restriction is broken. Read the pin and peripheral
+  chapters for: pins a peripheral needs contiguous or in one bank or group
+  (a microcontroller whose SPI or PIO pins must be consecutive), pins tied to
+  one peripheral instance (a UART's TX and RX on the same instance), boot,
+  strapping or debug pins, ADC-capable, 5 V tolerant, high drive or clock
+  pins, pins in a different voltage domain, and differential pairs;
+- the swap keeps every pin of the same function group together where the
+  datasheet asks it to.
+
+Then:
+
+- make the change in the capture (the `.zen` that wires the part), never by
+  editing the board, and regenerate;
+- name what moved in the run notes and in the capture's comment beside the
+  wiring: each net, the old and new pin, and the datasheet table or page that
+  allows it, so firmware's pin map can follow;
+- swap a group as a group (all of an SPI's or a bus's pins, or none);
+- preview again and keep the swap only where crossings or lengths improve
+  and no new finding appears.
+
+When the datasheet does not confirm the function, or a restriction is
+unclear, the pin stays where it is: say so in the run notes and ask.
+
 ## Gates, in order
 
 `real` DRC buckets empty; `unconnected` 0 (or only the nets not drawn yet,

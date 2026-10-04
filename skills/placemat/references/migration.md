@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **The skill makes pin swaps a layout lever.** Where an IC's pins are general purpose, the agent moves a net to another pin
+  the datasheet confirms for that function (and no restriction forbids: contiguous groups, one peripheral instance, boot or
+  strapping pins, voltage domains), in the capture, naming each move and its datasheet basis. Nothing a script says changes.
+
 ## To 0.99.1
 
 ### New
