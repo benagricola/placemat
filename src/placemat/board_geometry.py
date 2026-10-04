@@ -27,6 +27,7 @@ class PadGeom:
     anchor: Location | None = None  # KiCad's PAD::ShapePos: where its airwires end; None: the box centre
     custom: bool = False        # a custom pad: its copper is its primitives, and its box hides them
     kshapes: tuple = ()         # its KiCad effective shape (kicad_collide tuples, nm, as read): what DRC collides; () when not read
+    no_connect: bool = False    # the capture declares the pin unconnected (KiCad pin type no_connect, a Zener NotConnected())
 
     @property
     def location(self) -> Location:

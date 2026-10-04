@@ -53,6 +53,11 @@ section for each hand-written pattern a newer form replaces.
 - **Generation ignores an inherited `KIPRJMOD`.** A process that had saved a board with pcbnew (or a placemat started from
   KiCad) passed `KIPRJMOD` on to `pcb layout`, which then resolved the stdlib footprint libraries against the wrong folder and
   failed with "Failed to load footprint". Generation now runs without it.
+- **No `escape_walled` finding on a pin the capture leaves unconnected.** A `NotConnected()` pin whose footprint draws its pad
+  as two elements (one number, two shapes) was counted as two pads on its net, so it kept escape corridors and was reported
+  walled off like a pin with something to join. A pad is now counted once per footprint and number, and a pad the capture
+  marks `no_connect` (KiCad pin type, read as `PadGeom.no_connect`) gets no escape judgment whatever its net is called. The
+  net-name pattern (`NC_`, `unconnected-(`, a dot) is kept only as the fallback for a pad without the marker.
 
 ## To 0.96.1
 
