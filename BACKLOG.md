@@ -89,6 +89,15 @@ Specced work first, then the loose ends.
   tests call; `settings.RENAMED` (30 entries from 0.90.0) once the notice path
   can go. After the native sweep and give-way work leave those files.
 
+- **Placement judges clearance with KiCad's DRC epsilon** (follow-up to the
+  0.97.1 keep-out fix): occupancy's copper clearance and draw/body gaps use a
+  1e-9 tolerance, and net ties a hard-coded 500 nm; reading
+  `BoardGeometry.drc_epsilon` there would remove float-noise refusals during
+  placement. Changes which spots are legal: bench first.
+- **Give-way native port** (native sweep report): give-way was 181 s of a
+  400 s core profile; a multi-function port that needs its own design. The
+  converter give-way investigation reports first.
+
 ## Open
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
