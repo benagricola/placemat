@@ -34,3 +34,24 @@ def test_a_plane_on_a_fit_frame_is_written_inside_it(breakout_pcb, tmp_path):
              and plan.outline.inflate(1e-3).contains(z.box)]
     assert zones, "no GND zone inside the fitted frame %s" % (plan.outline,)
     assert run_drc(pcb, tmp_path / "after.json").real == before.real
+
+
+def test_a_plane_is_written_above_the_same_net_zone_it_overlaps(breakout_pcb, tmp_path):
+    """The board's own board-wide GND zone and the plane bounded to a fit frame overlap on B.Cu: at one
+    priority KiCad reports zones_intersect, so the plane takes the higher one."""
+    pcb = tmp_path / "layout.kicad_pcb"
+    shutil.copy(breakout_pcb, pcb)
+    shutil.copy(breakout_pcb.with_suffix(".kicad_pro"), tmp_path / "layout.kicad_pro")
+    g = read_board(pcb)
+    a = g.footprint("term_near_ra")
+    b = Board(g, edge_margin=0.0, keep_going=True)
+    b.rect(fit=True, draw=False, margin=0.5)
+    b.place(Part(a.inst), at=a.location, rotation=a.rotation)
+    b.plane(Net("GND"), layers=(CopperLayer.B,))
+    apply_plan(pcb, b.resolve())
+    import pcbnew
+    board = pcbnew.LoadBoard(str(pcb))
+    back = [z for z in board.Zones() if z.GetNetname() == "GND" and board.GetLayerID("B.Cu") in z.GetLayerSet().CuStack()]
+    assert len(back) == 2
+    assert len({z.GetAssignedPriority() for z in back}) == 2
+    assert run_drc(pcb, tmp_path / "after.json").by_type.get("zones_intersect", 0) == 0

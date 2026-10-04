@@ -754,6 +754,24 @@ def _draw_zone(board, op: Zone):
     return z
 
 
+def _raise_planes_over_zones(board, planes) -> None:
+    """Give each drawn plane a priority above every same-net zone it overlaps on a shared layer: the zones
+    the board already had (a board-wide ground zone under a plane bounded to a fit frame) and the planes
+    drawn before it. KiCad's DRC reports two overlapping zones at one priority as zones_intersect. Same
+    net, so which fills first does not change the connection; the plane, drawn by the script, fills first
+    where they overlap."""
+    uid = lambda z: z.m_Uuid.AsString()
+    later = {uid(z) for z in planes}
+    for z in planes:
+        later.discard(uid(z))               # what is left is the planes not yet raised
+        layers = set(z.GetLayerSet().CuStack())
+        near = [o for o in board.Zones() if uid(o) != uid(z) and uid(o) not in later and not o.GetIsRuleArea()
+                and o.GetNetname() == z.GetNetname() and layers & set(o.GetLayerSet().CuStack())
+                and _zones_overlap(z, o)]
+        if near:
+            z.SetAssignedPriority(max(o.GetAssignedPriority() for o in near) + 1)
+
+
 def draw_copper(board, ops):
     zones = []
     for op in ops:
@@ -768,6 +786,7 @@ def draw_copper(board, ops):
         elif isinstance(op, Zone):
             zones.append(_draw_zone(board, op))
     if zones:
+        _raise_planes_over_zones(board, zones)
         pcbnew.ZONE_FILLER(board).Fill(board.Zones())
 
 

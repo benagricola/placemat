@@ -31,6 +31,13 @@ section for each hand-written pattern a newer form replaces.
   or saves a board, and a child started without an explicit environment inherits it. `kicad-cli` (DRC, the 3D export, the version query),
   the router and the studio's and builder's workers and runs now start with `placemat.childenv.child_env()`, as `pcb layout` already did.
 
+### Fixed
+
+- **A plane is written above the same-net zone it overlaps.** A plane the script declares on a layer where the board already has a zone
+  of that net (a board-wide ground zone under a plane bounded to a fit frame) was written at priority 0 beside it, which KiCad's DRC
+  reports as `zones_intersect`. The plane now takes a priority one above the zones it overlaps, and a plane overlapping an earlier one of
+  the script does the same. The board's own zone stays and fills what the plane does not cover. Nothing to change in a script.
+
 ## To 0.97.1
 
 ### New
