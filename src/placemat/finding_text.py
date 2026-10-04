@@ -726,7 +726,23 @@ def refusal_record_text(r: dict) -> str:
         return "%s %s failed" % (r["check"], r["item"])
     if form == "nested_cell":
         return "%s, a cell inside the module, stands elsewhere than in the default" % r["item"]
+    if form == "escape":
+        return "a declared escape cannot be laid out with its part as placed"
+    if form == "note_chars":
+        return "place.arrangement_note_chars = %d leaves no room for its note" % r["chars"]
     return form
+
+
+def arrangement_row_text(row: dict) -> str:
+    """One console line of the module run's arrangements (arrangement_run.lines)."""
+    state = row["state"]
+    if state == "written":
+        return "%s: offered, written" % row["id"]
+    if state == "offered":
+        return "%s: offered" % row["id"]
+    if state == "duplicate":
+        return "%s: the same as %s, dropped" % (row["id"], row["same_as"])
+    return "%s: not offered: %s" % (row["id"], "; ".join(refusal_record_text(r) for r in row["refused"]))
 
 
 @renders(C.ARRANGEMENT_LIMIT, "variant", "arrangements", "max_arrangements", "options", "max_options")

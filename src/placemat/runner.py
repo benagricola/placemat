@@ -15,7 +15,7 @@ from .childenv import child_env
 from .console import configure, console
 from .layout import Board
 from .context import run_script
-from . import checks, settings, stop
+from . import arrangement_run, checks, settings, stop
 from .checkpoint import ResumeRefused
 from .project import BoardSource, fab_profile, find_board, generator_inputs, script_fingerprint
 from .report import (RunRecord, _drc_total, against_best, airwires_from_drc, best_for, comparable, congestion,
@@ -359,6 +359,7 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
         board.source_reader = context_mod.read_source
     try:
         run_script(script, board)
+        board.finish_declarations()                     # an only= naming no arrangement is the script's error
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)
         from .project import script_files
@@ -397,12 +398,14 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     from . import reuse as reuse_mod
     # The previous run's record is read now: a rerun with the same id replaces its directory.
     previous_reuse, previous_id = None, None
+    previous_arr = {}                       # each arrangement's record in that run, by id
     if reuse:
         try:
             last = latest_for(runs, src.name)
             if last is not None:
                 previous_reuse = reuse_mod.read(Path(last.paths.get("run_dir", "")) / "reuse.json")
                 previous_id = last.run_id
+                previous_arr = arrangement_run.read_previous(Path(last.paths.get("run_dir", "")))
         except (json.JSONDecodeError, TypeError, KeyError, OSError):
             previous_reuse = None
     # Which run made the renders in the layout folder: a run that renders none keeps them, and says whose
@@ -440,6 +443,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         final_dir = runs / rid
         # a run of these very inputs that died while resolving left its steps: read before its folder is replaced
         died = reuse_mod.read_partial(final_dir / "reuse.partial.jsonl") if reuse else None
+        died_arr = arrangement_run.read_died(final_dir) if reuse else {}
         keep_route(final_dir, staging)
         shutil.rmtree(final_dir, ignore_errors=True)
         staging.rename(final_dir)
@@ -509,9 +513,11 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         if died is not None and reuse_mod.better_of(previous_reuse, died) is died:
             previous_reuse, previous_id = died, "%s (interrupted)" % rid
         partial = reuse_mod.PartialLog(run_dir / "reuse.partial.jsonl")
+        declared = arrangement_run.begin(board)
+        routes = routes_mod.read(routes_mod.path_for(script))
         try:
             plan = board.resolve(progress=progress, reuse=previous_reuse, lock=lock_entries,
-                                 routes=routes_mod.read(routes_mod.path_for(script)), partial=partial)
+                                 routes=routes, partial=partial)
         except PlacementCollision as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             raise RunFailure("placement", "Firm placements collide; fix the script (or --keep-going to see the rest)",
@@ -532,11 +538,16 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             if render:
                 render_board(src.pcb, run_dir / "render.log", both_faces=True)
             raise RunFailure("placement", str(e), {"item": e.key, "tail": "board written as it stood: %s" % src.pcb})
+        plan.reuse["parts"] = parts
+        others = arrangement_run.resolve_others(declared, plan, run_dir, previous_arr, died_arr, lock_entries, routes,
+                                                lambda ident: say("arrangement", "resolving %s" % ident))
         timecap.placement_done()            # the placement is in hand: the cap is lifted for the stages after it
         (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
         rec.timing_s["resolve"] = round(time.time() - t0, 1)
         from .project import fab_min_findings
         plan.findings += fab_min_findings(board.geometry.netclasses, fab)
+        if not plan.draw_outline:               # a module: the members that set its extent with no alternative
+            plan.findings += arrangement_run.extent_findings(board, arrangement_run.extent_of(plan), cfg.place_extent_notice_mm)
         if facts_reasons:
             from .findings import Finding, FindingCause
             plan.findings.append(Finding(FindingCause.FACTS_UNCONFIRMED, {"reasons": facts_reasons}))
@@ -589,7 +600,6 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         if plan.pocketed:
             say("pocketed", "%d item(s) had no room by what they connect to and took a pocket: %s" % (
                 len(plan.pocketed), ", ".join(plan.pocketed[:8]) + (", ..." if len(plan.pocketed) > 8 else "")))
-        plan.reuse["parts"] = parts
         reuse_mod.write(run_dir / "reuse.json", plan.reuse)
         partial.remove()                    # the whole record is written: the partial one is not needed
         line = reuse_mod.summary(plan.reuse, previous_reuse, "run %s" % previous_id)
@@ -655,6 +665,21 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         for f in stale:
             console.finding(f)
         rec.timing_s["checks"] = round(time.time() - t0, 1)
+        if len(declared.specs) > 1 or board.arrangement_limit() is not None:
+            t0 = time.time()
+            stage = "arrangements"
+            outcome = arrangement_run.finish(declared, plan, others, src=src, cfg=cfg, fab=fab, run_dir=run_dir,
+                                             default_report=report if drc else None, board=board, drc=drc)
+            rec.arrangements = outcome.record
+            plan.findings.extend(outcome.findings)
+            if outcome.texts:
+                from .kicad.arrange import write_notes
+                write_notes(src.pcb, outcome.texts)
+                copy_board(src.pcb, run_dir)
+            from .finding_text import arrangement_row_text
+            for row in arrangement_run.lines(outcome.record):
+                say("arrangements", arrangement_row_text(row))
+            rec.timing_s["arrangements"] = round(time.time() - t0, 1)
         if route:
             from .kicad.route import route_board
             t0 = time.time()

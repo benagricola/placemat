@@ -672,3 +672,10 @@ marked.
 
 10. **Selecting by name in a board script.** A: `arrangements=` on the board's `place()`, in this change (chosen).
     B: left out until point 4 is decided.
+
+## Build notes
+
+Phase 1: a fixture module with 2 declared options per item (4 arrangements) offered one of its three non-default
+arrangements (the other two were refused: one turned capacitor's pad meets another net's copper, in it and in the
+combination). The offered arrangement's note was 20988 characters of escaped JSON, most of it the arrangement's planned
+copper, so at place.arrangement_note_chars = 4000 it was split into 6 texts (1192 to 4000 characters each).

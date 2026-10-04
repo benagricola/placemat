@@ -164,3 +164,111 @@ def test_an_unknown_only_id_is_refused_before_the_resolve():
     c.track(Net("OUT"), [PadRef(Part("r_pull"), 1), PadRef(Part("u1"), 2)], layer=F, only=("r_pull.sideways",))
     with pytest.raises(ValueError, match="not an arrangement of this module"):
         run.begin(c)
+
+
+def test_resolve_others_records_a_failing_arrangement_as_refused_and_goes_on(tmp_path):
+    from placemat import reuse
+    b = board()
+    b.keep_going = False                # c_in east of u1 meets r_pull: the resolve of c_in.east raises
+    prepared = run.begin(b)
+    default = b.resolve()
+    began = []
+    got = run.resolve_others(prepared, default, tmp_path, {}, {}, (), None, began.append)
+    assert began == ["r_pull.turned", "c_in.east", "c_in.east+r_pull.turned"]
+    assert [r.spec.id for r in got] == began
+    turned, east, both = got
+    assert turned.plan is not None and turned.refused == []
+    assert reuse.read(tmp_path / "arrangements" / "r_pull.turned" / "reuse.json")["steps"]
+    for r in (east, both):
+        assert r.plan is None and r.duplicate_of == "" and r.refused
+        assert all(x["form"] == "finding" and x["cause"] == "fixed.part" for x in r.refused)
+    assert b._laid == "default" and b.resolve().placements == default.placements       # the board is the default's again
+
+
+def test_resolve_others_records_an_unplaced_required_item_as_refused(tmp_path, monkeypatch):
+    from placemat.layout import CriticalUnplaced
+    b = board()
+    prepared = run.begin(b)
+    default = b.resolve()
+    real = run.resolve_spec
+
+    def unplaced(prepared, spec, **kw):
+        if spec.id == "c_in.east":
+            raise CriticalUnplaced("c_in", "no place", None)
+        return real(prepared, spec, **kw)
+    monkeypatch.setattr(run, "resolve_spec", unplaced)
+    got = {r.spec.id: r for r in run.resolve_others(prepared, default, tmp_path, {}, {}, (), None, lambda ident: None)}
+    assert got["c_in.east"].refused == [{"form": "unplaced", "item": "c_in"}]
+    assert got["r_pull.turned"].plan is not None and got["c_in.east+r_pull.turned"].plan is not None
+
+
+def test_resolve_others_drops_an_arrangement_that_lays_out_as_an_earlier_one(tmp_path):
+    b = board()
+    b.alternative(Part("c_in"), "same", at=Beside(Part("u1"), Edge.WEST))      # the default's own relation
+    prepared = run.begin(b)
+    default = b.resolve()
+    got = {r.spec.id: r for r in run.resolve_others(prepared, default, tmp_path, {}, {}, (), None, lambda ident: None)}
+    assert got["c_in.same"].plan is None and got["c_in.same"].duplicate_of == "default"
+    assert got["c_in.same+r_pull.turned"].duplicate_of == "r_pull.turned"
+    assert (tmp_path / "arrangements" / "c_in.same" / "reuse.json").exists()
+
+
+def test_read_died_takes_a_finished_record_or_the_steps_of_a_partial_log(tmp_path):
+    from placemat import reuse
+    b = board()
+    prepared = run.begin(b)
+    default = b.resolve()
+    run.resolve_others(prepared, default, tmp_path, {}, {}, (), None, lambda ident: None)
+    died = run.read_died(tmp_path)
+    assert sorted(died) == ["c_in.east", "c_in.east+r_pull.turned", "r_pull.turned"]
+    assert died["r_pull.turned"]["steps"] == reuse.read(tmp_path / "arrangements" / "r_pull.turned" / "reuse.json")["steps"]
+    assert run.read_previous(tmp_path).keys() == died.keys()
+    assert run.read_died(tmp_path / "nothing") == {} and run.read_previous(tmp_path / "nothing") == {}
+
+
+def test_a_note_the_setting_leaves_no_room_for_refuses_its_arrangement_with_a_finding(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    b = board()
+    prepared = run.begin(b)
+    default = b.resolve()
+    got = run.resolve_others(prepared, default, tmp_path, {}, {}, (), None, lambda ident: None)
+    monkeypatch.setattr(run, "prove", lambda *a, **kw: run.Proof(True, [], {"drc": None}))
+    src = SimpleNamespace(board_dir=tmp_path, name="m", pcb=tmp_path / "m.kicad_pcb")
+    cfg = dataclasses.replace(Settings(), place_arrangement_note_chars=1)
+    out = run.finish(prepared, default, got[:1], src=src, cfg=cfg, fab=None, run_dir=tmp_path, default_report=None,
+                     board=b, drc=False)
+    entry = out.record[1]
+    assert entry["id"] == "r_pull.turned" and entry["offered"] is False
+    assert entry["refused"] == [{"form": "note_chars", "chars": 1}] and out.texts == []
+    (f,) = out.findings
+    assert f.cause == "arrangement.refused" and f.facts["id"] == "r_pull.turned" and f.severity == "warning"
+    assert "place.arrangement_note_chars" in str(f)
+
+
+def test_the_console_rows_of_the_record():
+    from placemat import finding_text
+    record = [{"id": "default", "offered": True},
+              {"id": "a.b", "offered": True},
+              {"id": "a.c", "offered": False, "duplicate_of": "a.b"},
+              {"id": "a.d", "offered": False, "refused": [{"form": "unplaced", "item": "c1"}]}]
+    rows = run.lines(record)
+    assert [r["state"] for r in rows] == ["written", "offered", "duplicate", "refused"]
+    assert [finding_text.arrangement_row_text(r) for r in rows] == [
+        "default: offered, written", "a.b: offered", "a.c: the same as a.b, dropped", "a.d: not offered: c1 is not placed"]
+
+
+def test_a_row_anchored_on_a_moved_member_follows_it_whatever_was_resolved_before():
+    def with_row():
+        b = module()
+        b.row([Part("r_free")], Edge.EAST, of=Part("r_pull"))          # its start waits on r_pull's place
+        b.alternative(Part("r_pull"), "north", at=Beside(Part("u1"), Edge.NORTH))
+        return b
+    alone = run.begin(with_row())
+    first = run.resolve_spec(alone, alone.specs[1])
+    b = with_row()
+    prepared = run.begin(b)
+    default = b.resolve()
+    after = run.resolve_spec(prepared, prepared.specs[1])
+    assert after.placement("r_free") == first.placement("r_free") != default.placement("r_free")
+    assert after.reuse["context"] == first.reuse["context"]
+    assert b.resolve().placement("r_free") == default.placement("r_free")      # the default's rows are put back

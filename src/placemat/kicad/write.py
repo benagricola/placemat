@@ -25,6 +25,7 @@ from ..board_geometry import (CellGeom, Footprint, allow_marker, layer_marker, r
 from ..cutouts import closes_itself
 from .read import FACES_PREFIX
 from ..rules import RULE_PREFIX, rule_note
+from ..arrangement_note import ARRANGEMENT_PREFIX
 from ..values import Box, CopperLayer, Face
 
 def nm(v: float) -> int:
@@ -971,8 +972,11 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     return out
 
 
+NOTE_PREFIXES = (FACES_PREFIX, RULE_PREFIX, ARRANGEMENT_PREFIX)     # a fragment's facts for the board that stamps it
+
+
 def _is_note(item) -> bool:
-    return isinstance(item, pcbnew.PCB_TEXT) and item.GetText().startswith((FACES_PREFIX, RULE_PREFIX))
+    return isinstance(item, pcbnew.PCB_TEXT) and item.GetText().startswith(NOTE_PREFIXES)
 
 
 def _delete_note(board, note) -> None:
@@ -987,7 +991,7 @@ def _loose_faces(item) -> bool:
 
 
 def _drop_stamped_notes(board, plan: Plan) -> None:
-    """Take a stamped fragment's notes (its faces, its clearance rules) off the board. A note is the
+    """Take a stamped fragment's notes (its faces, its clearance rules, its arrangements) off the board. A note is the
     fragment's fact for the parent, read at load (read.board_geometry_of), so it does not stay: stamped,
     it sits below the fragment's content, stays behind when the cell is turned and placed, and stretches
     the group's box across the gap. Every note goes, in a group or loose on the board. The board's own
@@ -1154,12 +1158,21 @@ def write_rule_notes(board, rules) -> list:
         if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith(RULE_PREFIX) and d.GetParentGroup() is None:
             board.Delete(d)
     texts = [rule_note(r) for r in rules if r.kind == "clearance" and r.of is None]
+    add_notes_below(board, texts, RULE_NOTES_MM)     # under the faces note
+    return texts
+
+
+FACES_NOTE_MM, RULE_NOTES_MM, ARRANGEMENT_NOTES_MM, NOTE_PITCH_MM = 1.0, 2.0, 4.0, 0.7    # each kind's first line below the drawing
+
+
+def add_notes_below(board, texts, start_mm: float) -> None:
+    """User.Comments texts in the margin below everything the board draws but its notes, left-aligned with it: never over a
+    part or the module's origin. The first stands `start_mm` below the drawing, the rest a line apart."""
     if not texts:
-        return []
-    # in the margin below everything the fragment draws, under its faces note: never over a part
+        return
     boxes = [fp.GetBoundingBox(True, True) for fp in board.GetFootprints()]
     boxes += [d.GetBoundingBox() for d in board.GetDrawings()
-              if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith((FACES_PREFIX, RULE_PREFIX)))]
+              if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith(NOTE_PREFIXES))]
     boxes += [t.GetBoundingBox() for t in board.GetTracks()] + [z.GetBoundingBox() for z in board.Zones()]
     left = min(b.GetLeft() for b in boxes) if boxes else 0
     bottom = max(b.GetBottom() for b in boxes) if boxes else 0
@@ -1171,10 +1184,9 @@ def write_rule_notes(board, rules) -> list:
         t.SetTextThickness(nm(0.1))
         t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_LEFT)
         t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_TOP)
-        t.SetPosition(pcbnew.VECTOR2I(left, bottom + nm(2.0 + 0.7 * i)))
+        t.SetPosition(pcbnew.VECTOR2I(left, bottom + nm(start_mm + NOTE_PITCH_MM * i)))
         _unique_uuid(board, t)
         board.Add(t)
-    return texts
 
 
 def write_faces(pcb_path, faces: dict) -> str:
@@ -1189,23 +1201,7 @@ def write_faces(pcb_path, faces: dict) -> str:
         for d in list(board.GetDrawings()):
             if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith("placemat faces "):
                 board.Delete(d)
-        # Below everything the module draws (courtyards included), left-aligned with it:
-        # a note in the margin, never over the module's origin or a part.
-        boxes = [fp.GetBoundingBox(True, True) for fp in board.GetFootprints()]
-        boxes += [d.GetBoundingBox() for d in board.GetDrawings() if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith((FACES_PREFIX, RULE_PREFIX)))]
-        boxes += [t.GetBoundingBox() for t in board.GetTracks()]
-        boxes += [z.GetBoundingBox() for z in board.Zones()]
-        left = min(b.GetLeft() for b in boxes) if boxes else 0
-        bottom = max(b.GetBottom() for b in boxes) if boxes else 0
-        t = pcbnew.PCB_TEXT(board)
-        t.SetText(text)
-        t.SetLayer(pcbnew.Cmts_User)
-        t.SetTextSize(pcbnew.VECTOR2I(nm(0.5), nm(0.5)))
-        t.SetTextThickness(nm(0.1))
-        t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_LEFT)
-        t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_TOP)
-        t.SetPosition(pcbnew.VECTOR2I(left, bottom + nm(1.0)))
-        board.Add(t)
+        add_notes_below(board, [text], FACES_NOTE_MM)
         seed_uuids()
         save(board, str(pcb_path))
     return text

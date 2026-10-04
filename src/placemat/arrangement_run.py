@@ -1,12 +1,18 @@
-"""The module run's side of arrangements: the board prepared once its script has declared everything, and each arrangement
-resolved from a snapshot of the declarations. The later tasks of the arrangements work add the proof, the record, the extent
-and the fragment's notes here."""
+"""The module run's side of arrangements: the board prepared once its script has declared everything, each arrangement
+resolved from a snapshot of the declarations and proven on a scratch board of its own, the record of them all, and the notes
+that carry the offered ones in the fragment."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
+from pathlib import Path
+import shutil
+import time
 
+from . import arrangement_note as note, checks, reuse as reuse_mod, score as score_mod
 from .arrangements import Spec
+from .copper import Text
+from .layout import _RowSlot
 from .findings import Finding, FindingCause as C
 
 
@@ -15,12 +21,34 @@ class Prepared:
     board: object
     saved: tuple                # Board._snapshot() once the declarations are finished, before any arrangement is laid
     specs: tuple                # arrangements.Spec, the default first
+    rows: list = field(default_factory=list)    # _row_state then
+
+
+def _row_state(board) -> list:
+    """Each row whose start waits on what it is anchored to, with its fields: a resolve fixes the start on the Row itself (a
+    PlaceIntent holds it through a _RowSlot), which `Board._snapshot` does not copy. Left begun, the next arrangement's rows
+    would stand where the last resolve put them, and its reuse context would differ from a run that never began them."""
+    rows, todo = {}, [i.along.row for i in board._intents if isinstance(getattr(i, "along", None), _RowSlot)]
+    while todo:
+        row = todo.pop()
+        if id(row) in rows:
+            continue
+        rows[id(row)] = row
+        if row.anchor is not None and row.anchor[0] in ("before", "after"):
+            todo.append(row.anchor[1])
+    return [(row, dict(row.__dict__)) for row in rows.values()]
+
+
+def _put_rows(state) -> None:
+    for row, fields in state:
+        row.__dict__.clear()
+        row.__dict__.update(fields)
 
 
 def begin(board) -> Prepared:
     """The board as its script left it, checked and snapshotted, with the arrangements its declarations make."""
     board.finish_declarations()
-    return Prepared(board, board._snapshot(), board.arrangement_specs())
+    return Prepared(board, board._snapshot(), board.arrangement_specs(), _row_state(board))
 
 
 def resolve_spec(prepared: Prepared, spec: Spec, *, reuse=None, lock=(), routes=None, partial=None):
@@ -28,13 +56,15 @@ def resolve_spec(prepared: Prepared, spec: Spec, *, reuse=None, lock=(), routes=
     reported to a studio: the module run's own plan is the default's. The board is left as it was found, the arrangement
     it was laid as included, whether the resolve returns or raises."""
     board = prepared.board
-    found = board._snapshot()
+    found, found_rows = board._snapshot(), _row_state(board)
     try:
         board._restore(prepared.saved)
+        _put_rows(prepared.rows)
         board.lay_arrangement(spec)
         return board._resolve(None, reuse, None, lock, routes, None, None, partial)
     finally:
         board._restore(found)
+        _put_rows(found_rows)
 
 
 def signature(plan) -> str:
@@ -132,3 +162,211 @@ def drc_refusals(report, default_unconnected: int) -> list:
 
 def verdict_refusals(verdicts) -> list:
     return [{"form": "verdict", "check": v.check, "item": v.subject} for v in verdicts if v.ok is False and not v.accepted]
+
+
+@dataclass
+class Resolved:
+    spec: Spec
+    plan: object | None         # None: a duplicate (`duplicate_of`) or a resolve that raised (`refused`)
+    duplicate_of: str = ""
+    seconds: float = 0.0
+    refused: list = field(default_factory=list)     # refusal records of a resolve that raised (plan_refusals' forms)
+
+
+@dataclass
+class Outcome:
+    record: list                # RunRecord.arrangements: one entry per arrangement, the default first
+    findings: list
+    texts: list                 # the note texts of the offered arrangements, for the fragment
+
+
+def _dir(run_dir, ident) -> Path:
+    return Path(run_dir) / "arrangements" / ident
+
+
+def read_previous(last_run_dir) -> dict:
+    """The reuse record each arrangement of an earlier run kept, by id."""
+    out = {}
+    for p in sorted((Path(last_run_dir) / "arrangements").glob("*/reuse.json")):
+        try:
+            out[p.parent.name] = reuse_mod.read(p)
+        except (ValueError, OSError):
+            pass
+    return out
+
+
+def read_died(final_dir) -> dict:
+    """What a stopped or crashed run of these very inputs left of each arrangement (read before its folder is replaced): the record
+    it finished, or the steps of its partial log, whichever replays more."""
+    out = {}
+    for d in sorted(p for p in (Path(final_dir) / "arrangements").glob("*") if p.is_dir()):
+        try:
+            done = reuse_mod.read(d / "reuse.json") if (d / "reuse.json").exists() else None
+        except (ValueError, OSError):
+            done = None
+        got = reuse_mod.better_of(done, reuse_mod.read_partial(d / "reuse.partial.jsonl"))
+        if got is not None:
+            out[d.name] = got
+    return out
+
+
+def _raised_refusals(e) -> list:
+    """The refusal records of a resolve that raised: a required item with no place, or firm items that collide."""
+    from . import finding_text
+    from .layout import CriticalUnplaced, PlacementCollision
+    if isinstance(e, CriticalUnplaced):
+        return [{"form": "unplaced", "item": e.key}]
+    if isinstance(e, PlacementCollision):
+        return [{"form": "finding", "cause": f.cause.value, "item": finding_text.subject(f.cause, f.facts) or ""}
+                for f in e.collisions]
+    return [{"form": "escape"}]
+
+
+def resolve_others(prepared, default_plan, run_dir, previous, died, lock, routes, on_begin) -> list:
+    """Each arrangement after the default, resolved from the snapshot, in declared order (`on_begin` is called with its id
+    first). One that lays out exactly as an earlier one is dropped (its plan is not kept) and named by `duplicate_of`; one whose
+    resolve raises (a required item with no place, firm items that collide, an escape that cannot be laid out) is kept with its
+    refusals, and the rest go on. Each keeps its steps' record in its own folder, so a stopped run resumes it without laying
+    finished arrangements again. The board is left as the default's resolve left it."""
+    from .layout import CriticalUnplaced, PlacementCollision
+    from .lanes import EscapeError
+    out, seen = [], {signature(default_plan): "default"}
+    for spec in prepared.specs[1:]:
+        d = _dir(run_dir, spec.id)
+        d.mkdir(parents=True, exist_ok=True)
+        before = previous.get(spec.id)
+        if spec.id in died and reuse_mod.better_of(before, died[spec.id]) is died[spec.id]:
+            before = died[spec.id]
+        partial = reuse_mod.PartialLog(d / "reuse.partial.jsonl")
+        t0 = time.monotonic()
+        on_begin(spec.id)
+        try:
+            plan = resolve_spec(prepared, spec, reuse=before, lock=lock, routes=routes, partial=partial)
+        except (CriticalUnplaced, PlacementCollision, EscapeError) as e:
+            out.append(Resolved(spec, None, "", time.monotonic() - t0, _raised_refusals(e)))
+            continue
+        plan.reuse["parts"] = default_plan.reuse.get("parts", {})
+        reuse_mod.write(d / "reuse.json", plan.reuse)
+        partial.remove()
+        sig = signature(plan)
+        if sig in seen:
+            out.append(Resolved(spec, None, seen[sig], time.monotonic() - t0))
+            continue
+        seen[sig] = spec.id
+        out.append(Resolved(spec, plan, "", time.monotonic() - t0))
+    return out
+
+
+def scratch_board(generated_pcb, arr_dir) -> Path:
+    """arr_dir/layout.kicad_pcb with its project and rules beside it, from the board `pcb layout` generated (the cached generation):
+    the plan is written on it without touching the fragment the run writes."""
+    generated_pcb, arr_dir = Path(generated_pcb), Path(arr_dir)
+    arr_dir.mkdir(parents=True, exist_ok=True)
+    for ext in (".kicad_pcb", ".kicad_pro", ".kicad_dru"):
+        src = generated_pcb.with_suffix(ext)
+        if src.exists():
+            shutil.copy(src, arr_dir / ("layout" + ext))
+    return arr_dir / "layout.kicad_pcb"
+
+
+def prove(prepared, resolved, default_plan, *, generated, cfg, fab, arr_dir, default_unconnected: int, drc: bool = True) -> Proof:
+    """The judgement the default gets, on this arrangement's own board: its resolve places every member with no critical finding;
+    the plan written to a scratch board passes KiCad's DRC (the `real` buckets empty, no more unconnected than the default); the
+    design checks run on it (no failed verdict, `board.accept` applied). Warnings, notices and measures are recorded, not refused.
+    The board is written whatever the resolve says, to be looked at; one the resolve refuses is not judged further."""
+    from .kicad.drc import run_drc
+    from .kicad.read import read_board
+    from .kicad.write import apply_plan, finish_board
+    plan, board = resolved.plan, prepared.board
+    refused = plan_refusals(plan, default_plan)
+    metrics = {"drc": None, "findings": plan.findings.by_severity(), "measures": score_mod.plan_measures(board, plan)}
+    pcb = scratch_board(generated, arr_dir)
+    apply_plan(pcb, plan)
+    finish_board(pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
+    if refused:
+        return Proof(False, refused, metrics)
+    if drc:
+        allow = {"keepout %s" % k.name: (set(k.owners), set(k.allow)) for k in plan.keepouts.values()}
+        report = run_drc(pcb, Path(arr_dir) / "drc.json", allow=allow, frame_only=not plan.draw_outline)
+        refused += drc_refusals(report, default_unconnected)
+        metrics["drc"] = sum(report.real.values())
+        metrics["measures"]["drc"] = metrics["drc"]
+    verdicts, _ = checks.judge(checks.run_checks(read_board(pcb), **checks.kwargs_from(cfg)), plan.acceptances)
+    refused += verdict_refusals(verdicts)
+    return Proof(not refused, refused, metrics)
+
+
+def members_doc(prepared, plan, default_plan, spec, texts_chars: int) -> list:
+    """The note of an offered arrangement (arrangement_note.encode of its document): every loose member's place in the fragment's
+    frame, the copper this arrangement planned (the faces text is the default's), and the rule areas it declares. Raises
+    arrangement_note.NoteError when `texts_chars` leaves no room for a chunk."""
+    geometry = prepared.board.geometry
+    members = []
+    for fp in geometry.footprints:
+        if fp.cell is None and fp.ref in plan.occupancy.items and fp.ref in default_plan.occupancy.items:
+            members.append((fp.inst, plan.occupancy.items[fp.ref].reference, default_plan.occupancy.items[fp.ref].reference))
+    ops = [op for op in plan.copper if not (isinstance(op, Text) and op.layer == "User.Comments")]
+    doc = note.document(spec.id, spec.choices, members, ops, list(plan.keepouts.values()),
+                        order=[s.id for s in prepared.specs].index(spec.id))
+    return note.encode(doc, texts_chars)
+
+
+def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_report, board, drc: bool = True) -> Outcome:
+    """After the default's own DRC and checks: prove each other arrangement, build the record, the findings, and the texts that carry
+    the offered ones. The default is copied into its own folder beside the others'."""
+    from .runner import cached_generation
+    generated = cached_generation(src) / src.pcb.name
+    default_unconnected = default_report.unconnected if default_report is not None else 0
+    default_drc = sum(default_report.real.values()) if default_report is not None else None
+    measures = score_mod.plan_measures(board, default_plan)
+    if default_drc is not None:
+        measures["drc"] = default_drc
+    record = [{"id": "default", "choices": {}, "offered": True, "dir": "arrangements/default",
+               "metrics": {"drc": default_drc, "findings": default_plan.findings.by_severity(), "measures": measures},
+               "extent": extent_of(default_plan)}]
+    findings, texts = [], []
+    for r in resolved:
+        spec = r.spec
+        entry = {"id": spec.id, "choices": spec.choices, "dir": "arrangements/" + spec.id}
+        record.append(entry)
+        if r.duplicate_of:
+            entry.update(offered=False, duplicate_of=r.duplicate_of, metrics=None)
+            findings.append(Finding(C.ARRANGEMENT_DUPLICATE, {"id": spec.id, "same_as": r.duplicate_of}, "notice"))
+            continue
+        if r.plan is None:                      # its resolve raised
+            entry.update(offered=False, metrics=None, refused=r.refused)
+            findings.append(Finding(C.ARRANGEMENT_REFUSED, {"id": spec.id, "refused": r.refused}, "warning"))
+            continue
+        proof = prove(prepared, r, default_plan, generated=generated, cfg=cfg, fab=fab, arr_dir=_dir(run_dir, spec.id),
+                      default_unconnected=default_unconnected, drc=drc)
+        entry.update(offered=proof.offered, metrics=proof.metrics, extent=extent_of(r.plan))
+        refused = proof.refused
+        if proof.offered:
+            try:
+                texts += members_doc(prepared, r.plan, default_plan, spec, cfg.place_arrangement_note_chars)
+            except note.NoteError:
+                refused = [{"form": "note_chars", "chars": cfg.place_arrangement_note_chars}]
+                entry["offered"] = False
+        if refused:
+            entry["refused"] = refused
+            findings.append(Finding(C.ARRANGEMENT_REFUSED, {"id": spec.id, "refused": refused}, "warning"))
+    d = _dir(run_dir, "default")
+    d.mkdir(parents=True, exist_ok=True)
+    for name in ("layout.kicad_pcb", "layout.kicad_pro", "layout.kicad_dru", "drc.json", "reuse.json"):
+        if (Path(run_dir) / name).exists():
+            shutil.copy(Path(run_dir) / name, d / name)
+    return Outcome(record, findings, texts)
+
+
+def lines(record: list) -> list:
+    """One row per arrangement of the record, for the console (finding_text.arrangement_row_text): its id and `state`, written (the
+    default), offered, duplicate (with `same_as`) or refused (with `refused`)."""
+    out = []
+    for a in record:
+        if a.get("duplicate_of"):
+            out.append({"id": a["id"], "state": "duplicate", "same_as": a["duplicate_of"]})
+        elif a["offered"]:
+            out.append({"id": a["id"], "state": "written" if a["id"] == "default" else "offered"})
+        else:
+            out.append({"id": a["id"], "state": "refused", "refused": a.get("refused", [])})
+    return out

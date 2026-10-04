@@ -30,10 +30,14 @@ class RunRecord:
     verdicts: list = field(default_factory=list)      # the design checks, as `Verdict` fields
     acceptances: list = field(default_factory=list)   # each board.accept and what it met (checks.Outcome.record)
     native: dict | None = None                       # geometry.NativeStatus.facts(): whether the native module placed this run
+    arrangements: list = field(default_factory=list)  # the module run's arrangements: id, choices, offered, metrics, dir, extent, refusals (arrangement_run.finish)
 
     def save(self, path) -> Path:
         path = Path(path)
-        path.write_text(json.dumps(asdict(self), indent=2, sort_keys=True) + "\n")
+        data = asdict(self)
+        if not data["arrangements"]:
+            del data["arrangements"]            # a module with no alternatives writes the record it always did
+        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
         return path
 
     def add_finding(self, text: str, kind: str = "", severity: str = "warning") -> None:
