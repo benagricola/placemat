@@ -225,3 +225,22 @@ def test_a_board_with_no_rules_beside_it_names_what_is_missing(tmp_path):
     (tmp_path / "b.kicad_pro").write_text("pro")
     (tmp_path / "b.kicad_dru").write_text("dru")
     assert missing_rules(tmp_path / "b.kicad_pcb") == []
+
+
+def test_a_generation_is_current_right_after_it_is_made_and_stale_once_a_stamped_layout_is_written_again(tmp_path, monkeypatch):
+    """The record of what a generation was made from is taken by the generation itself: a module's layout written by placemat
+    after it is a change, one written before it is not."""
+    root, board, src = _project(tmp_path)
+    monkeypatch.setattr(runner, "_sh", _fake_pcb([]))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assert runner.stale_record(src) == {"form": "no_record"}
+    runner.generate(src, run_dir, fresh=False, quiet=True)
+    assert runner.stale_record(src) is None
+    (board / "sub" / "layout.kicad_pcb").write_text("(kicad_pcb sub as a run of the module placed it)\n")
+    assert runner.stale_record(src) == {"form": "changed", "files": ["sub/layout.kicad_pcb"]}
+    assert runner.stale_text(runner.stale_record(src)) == "sub/layout.kicad_pcb changed since it was generated"
+    runner.generate(src, run_dir, fresh=False, quiet=True)
+    assert runner.stale_record(src) is None
+    (board / "sub" / "layout.kicad_pcb").write_text("(kicad_pcb sub as a run of the module placed it)\n")      # the same bytes again
+    assert runner.stale_record(src) is None

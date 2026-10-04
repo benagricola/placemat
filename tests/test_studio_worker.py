@@ -37,6 +37,7 @@ def test_a_resolve_streams_board_items_and_a_finished_plan(staged):
     assert set(keys) <= {s["item"] for s in done["doc"]["steps"]}       # placements, copper and cutouts, as the plan records them
     assert {i["key"] for i in done["doc"]["items"]} & set(keys)
     assert done["timing"]["resolve_s"] >= 0 and done["timing"]["first_step_s"] <= done["timing"]["resolve_s"]
+    assert done["stale"] is None or done["stale"]["form"] in ("no_record", "changed")        # why the generation is out of date is a record, not a sentence
     json.dumps(events)                                  # every event is plain JSON
 
 

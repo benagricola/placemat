@@ -899,13 +899,13 @@ def test_every_finding_that_names_a_pad_a_part_or_an_item_is_marked_and_counted(
 const fnd = (text, extra) => Object.assign({text, kind: "k", at: null, item: "", refs: [], pads: [], severity: "warning"}, extra);
 const it = item("a", 1); it.members[0].shapes.push({kind: "pad", faces: ["front"], number: "7", poly: [[1, 1], [1.4, 1], [1.4, 1.4]]});
 full([it, item("b", 5)], [st("a"), st("b")], {findings: [fnd("with a place", {at: [20, 20]}), fnd("at a pad", {refs: ["Ra"], pads: [["Ra", "7"]]}), fnd("at a part", {refs: ["Rb"]}), fnd("an item", {item: "a"}), fnd("nothing")]});
-out.places = ev("findingPlaces(plan())"); out.board = (board().innerHTML.match(/class="fnd /g) || []).length;
+out.places = ev("findingPlaces(plan())"); out.board = (board().innerHTML.match(/class="fa /g) || []).length;
 out.legend = els["#legend"].innerHTML;
 """)
     assert out["places"][0] == [20, 20] and out["places"][4] is None
     assert out["places"][1][0] == (1 + 1.4) / 2 and out["places"][1][1] == (1 + 1.4) / 2                    # at the pad's centre
     assert out["places"][2] is not None and out["places"][3] is not None
-    assert out["board"] >= 4
+    assert out["board"] >= 1
     assert "4 of 5 findings are placed on the board" in out["legend"] and "<em>4</em>" in out["legend"]
 
 
@@ -1644,22 +1644,23 @@ ev("setFace('back')"); flush(); out.back = board().innerHTML;
 
 
 @needs_node
-def test_a_finding_marker_is_a_fixed_size_badge_with_a_halo_per_severity_and_the_focused_one_is_larger(tmp_path):
+def test_an_area_is_in_its_worst_severitys_class_the_focused_one_is_lit_and_a_count_badge_keeps_its_size_on_the_back(tmp_path):
     out = run_more(tmp_path, r"""
 const mkF = (sev, at) => ({text: "a " + sev + " finding", kind: "link_over", severity: sev, item: "", at, refs: [], pads: []});
-full([item("a", 1)], [st("a")], {findings: [mkF("critical", [3, 3]), mkF("warning", [5, 5]), mkF("notice", [7, 7])]});
+full([item("a", 1)], [st("a")], {findings: [mkF("critical", [3, 3]), mkF("warning", [20, 12]), mkF("notice", [37, 27]), mkF("notice", [37.1, 27.1])]});
 const h = board().innerHTML;
-out.marks = (h.match(/<g class="fnd [^"]*"/g) || []);
-out.styles = (h.match(/style="transform: translate\([^"]*"/g) || []).slice(0, 3);
-out.glyph = [h.indexOf('class="halo"') > 0, h.indexOf('class="badge"') > 0, h.indexOf('class="pulse"') > 0];
-ev("S.focusIdx = 1; schedule('board')"); flush(); out.focus = (board().innerHTML.match(/<g class="fnd [^"]*"/g) || []);
+out.areas = (h.match(/<g class="fa [^"]*"/g) || []);
+out.glyph = [h.indexOf('class="area"') > 0, h.indexOf('class="dots"') > 0, h.indexOf('class="badge"') > 0, h.indexOf('class="halo"') < 0, h.indexOf('class="pulse"') < 0];
+out.badge = (h.match(/<g class="cnt" style="[^"]*"/g) || [])[0];
+ev("S.focusIdx = 1; schedule('board')"); flush(); out.focus = (board().innerHTML.match(/<g class="fa [^"]*"/g) || []);
 ev("setFace('back')"); flush(); out.mirrored = (board().innerHTML.match(/scale\(calc\(var\(--u\) \* -1\), var\(--u\)\)/g) || []).length;
-out.legend = els["#legend"].innerHTML.indexOf('class="fnd warning"') > 0;
+out.legend = els["#legend"].innerHTML.indexOf('class="fa warning"') > 0;
 """)
-    assert out["marks"][:3] == ['<g class="fnd critical"', '<g class="fnd warning"', '<g class="fnd notice"'] and "translate(3px, 3px) scale(var(--u), var(--u))" in out["styles"][0]
-    assert out["glyph"] == [True, True, True]
-    assert '<g class="fnd warning on"' in out["focus"]
-    assert out["mirrored"] >= 3                                                                # on the mirrored back panel the badge is turned back
+    assert out["areas"][:3] == ['<g class="fa notice"', '<g class="fa warning"', '<g class="fa critical"'] and len(out["areas"]) % 3 == 0        # the worst is drawn last, on top
+    assert out["glyph"] == [True] * 5
+    assert "translate(" in out["badge"] and "scale(var(--u), var(--u))" in out["badge"]
+    assert '<g class="fa warning on"' in out["focus"]
+    assert out["mirrored"] >= 1                                                                # on the mirrored back panel the count is turned back
     assert out["legend"]
 
 
@@ -1842,3 +1843,218 @@ ev("renderProgress()");
 out.steps = els["#rs-steps"].textContent;
 """)
     assert out["steps"] == "step 2 of ~2, firm pass 2"
+
+
+# ---------------------------------------------------------------- findings as areas, and the stale generation's banner
+AREAS = r"""
+const fnd = (text, at, severity = "warning", extra = {}) => Object.assign({text, kind: "k", at, item: "", refs: [], pads: [], severity}, extra);
+const pts = (list, sev = "warning") => list.map((at, i) => ({i, at, sev}));
+"""
+
+
+@needs_node
+def test_findings_that_are_close_on_the_screen_make_one_cluster_and_zooming_in_separates_them(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+const near = [[10, 10], [10.5, 10], [10, 10.9], [300, 200]];
+const cf = ev("clusterFindings");
+out.far = cf(pts(near), 1, 26).map(c => c.idx);                      // 1 px to a mm: the three together
+out.zoomed = cf(pts(near), 40, 26).map(c => c.idx);                  // 40 px to a mm: 0.5 mm is 20 px; the third is 36 px from where those two centre
+out.deep = cf(pts(near), 400, 26).map(c => c.idx);
+out.worst = cf([{i: 0, at: [1, 1], sev: "notice"}, {i: 1, at: [1.1, 1], sev: "critical"}, {i: 2, at: [1, 1.1], sev: "warning"}], 5, 26).map(c => [c.sev, c.idx]);
+""")
+    assert out["far"] == [[0, 1, 2], [3]]
+    assert out["zoomed"] == [[0, 1], [2], [3]]
+    assert out["deep"] == [[0], [1], [2], [3]]
+    assert out["worst"] == [["critical", [0, 1, 2]]]
+
+
+@needs_node
+def test_a_rounded_hull_is_a_disc_for_a_point_a_capsule_for_two_and_holds_every_point_of_a_set(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+const hull = ev("roundedHull");
+const one = hull([[5, 5]], 2), two = hull([[0, 0], [10, 0]], 2), many = hull([[0, 0], [10, 0], [10, 6], [0, 6], [5, 3], [5, 3]], 1);
+const span = o => [Math.min(...o.map(q => q[0])), Math.max(...o.map(q => q[0])), Math.min(...o.map(q => q[1])), Math.max(...o.map(q => q[1]))].map(v => Math.round(v * 100) / 100);
+out.one = [span(one), one.length]; out.two = span(two); out.many = span(many);
+""")
+    assert out["one"][0] == [3, 7, 3, 7] and out["one"][1] >= 12
+    assert out["two"] == [-2, 12, -2, 2]
+    assert out["many"] == [-1, 11, -1, 7]
+
+
+@needs_node
+def test_each_cluster_is_one_area_with_a_count_only_when_it_holds_several(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+const list = [fnd("a1", [10, 10], "notice"), fnd("a2", [10.2, 10.1], "critical"), fnd("a3", [10.1, 10.3]), fnd("alone", [35, 25], "notice")];
+full([item("a", 1)], [st("a")], {findings: list});
+const html = board().innerHTML;
+out.areas = (html.match(/class="fa /g) || []).length; out.counts = [...html.matchAll(/<text>(\d+)<\/text>/g)].map(m => m[1]);
+out.cls = [...html.matchAll(/class="(fa [a-z]+(?: on)?)"/g)].map(m => m[1]);
+out.markers = (html.match(/class="fnd /g) || []).length;
+out.oneGroup = (html.match(/class="fnds"/g) || []).length;
+""")
+    assert out["areas"] == 2 * out["oneGroup"] and out["counts"] == ["3"] * out["oneGroup"]
+    assert sorted(set(out["cls"])) == ["fa critical", "fa notice"] and out["markers"] == 0
+
+
+@needs_node
+def test_the_areas_of_a_big_board_are_one_group_per_panel_and_made_without_a_marker_each(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+const list = []; for (let i = 0; i < 240; i++) list.push(fnd("f" + i, [2 + (i * 7) % 36, 2 + (i * 11) % 26], ["critical", "warning", "notice"][i % 3]));
+full([item("a", 1)], [st("a")], {findings: list});
+const html = board().innerHTML;
+out.groups = (html.match(/class="fnds"/g) || []).length; out.areas = (html.match(/class="fa /g) || []).length;
+out.clusters = ev("findingClusters(plan())").length; out.members = ev("findingClusters(plan())").reduce((n, c) => n + c.idx.length, 0);
+out.again = ev("findingClusters(plan()) === findingClusters(plan())");
+""")
+    assert out["groups"] >= 1 and out["members"] == 240 and out["clusters"] < 240 and out["areas"] == out["clusters"] * out["groups"]
+    assert out["again"] is True
+
+
+@needs_node
+def test_a_cluster_lists_its_findings_worst_first_on_hover(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+full([item("a", 1)], [st("a")], {findings: [fnd("minor", [10, 10], "notice"), fnd("major", [10.1, 10], "critical"), fnd("middling", [10, 10.1])]});
+const c = ev("findingClusters(plan())")[0];
+out.lines = ev("clusterLines")(c, ev("plan()"));
+""")
+    assert out["lines"] == ["3 findings", "critical: major", "warning: middling", "notice: minor"]
+
+
+@needs_node
+def test_clicking_a_cluster_lists_its_findings_in_the_side_panel_and_one_finding_opens_its_card(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+const it = item("a", 1);
+full([it, item("b", 20)], [st("a"), st("b")], {findings: [fnd("one", [10, 10]), fnd("two", [10.1, 10], "critical"), fnd("lone", [35, 25], "notice", {item: "b"}), fnd("elsewhere", [20, 28], "notice")]});
+const cs = ev("findingClusters(plan())");
+const pair = cs.find(c => c.idx.length === 2), lone = cs.find(c => c.idx[0] === 2);
+ev("selectCluster")(pair); flush();
+out.sel = [...ev("S.fsel")]; out.tab = ev("S.tab"); out.list = els["#tab-findings"].innerHTML;
+ev("selectCluster")(lone); flush();
+out.sel2 = ev("S.fsel"); out.focus = ev("S.focusIdx");
+ev("S.fsel = new Set([0, 1])"); els["#tab-findings"].onclick({target: {closest: s => s === "[data-sev]" ? {dataset: {sev: ""}} : null}});
+out.after = ev("S.fsel");
+""")
+    assert out["sel"] == [0, 1] and out["tab"] == "findings"
+    assert "2 findings in the selected area" in out["list"] and re.search(r"\bone\b", out["list"]) and "elsewhere" not in out["list"] and "lone" not in out["list"]
+    assert out["sel2"] is None and out["focus"] == 2
+    assert out["after"] is None
+
+
+@needs_node
+def test_the_areas_are_remade_for_the_zoom_when_the_view_stops_changing_not_on_each_frame(tmp_path):
+    page = PAGE.read_text()
+    assert "fTimer = setTimeout(() => { fTimer = null; rebuildFindings(); schedule(\"marks\"); }, 140);" in page
+    body = page[page.index("function applyView()"):page.index("let viewQueued")]
+    assert "findingAreasSVG" not in body and "clusterFindings" not in body            # the frame does no clustering
+    out = run_more(tmp_path, AREAS + r"""
+const list = [fnd("a", [10, 10]), fnd("b", [10.4, 10]), fnd("c", [30, 20])];
+full([item("a", 1)], [st("a")], {findings: list});
+const made = []; ctx.__g = {dataset: {face: "front"}, set innerHTML(v) { made.push(v); }};
+ev("B.svg = {querySelectorAll: q => q === '.fnds' ? [globalThis.__g] : []}");
+ev("S.vb = {x: 0, y: 0, w: 40, h: 30}; S.px = 400"); ev("findingClusters(plan(), true)");
+out.before = ev("findingClusters(plan())").map(c => c.idx.length).sort();
+ev("rebuildFindings()"); out.same = made.length;                                  // the zoom has not changed: nothing to redo
+ev("S.vb = {x: 0, y: 0, w: 5, h: 3.75}"); ev("rebuildFindings()");
+out.zoomed = made.length; out.clustersAfter = ev("findingClusters(plan())").map(c => c.idx.length).sort();
+""")
+    assert out["before"] == [1, 2] and out["same"] == 0 and out["zoomed"] == 1
+    assert out["clustersAfter"] == [1, 1, 1]
+
+
+@needs_node
+def test_the_legend_keeps_its_findings_row_and_a_finding_row_still_frames_the_findings_place(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+const f = fnd("far off", [38, 28], "warning", {refs: ["Rb"]});
+full([item("a", 1), item("b", 5)], [st("a"), st("b")], {findings: [f]});
+ev("S.view = {x: 0, y: 0, w: 3, h: 3}"); ev("applyView()");
+els["#tab-findings"].onclick({target: {closest: s => s === ".row" ? {dataset: {i: "0"}} : null}}); flush();
+out.view = ev("S.view"); out.legend = els["#legend"].innerHTML; out.on = ev("S.focusIdx");
+""")
+    assert 'data-id="findings"' in out["legend"] and "1 of 1 findings are placed on the board" in out["legend"]
+    assert out["on"] == 0 and out["view"]["w"] > 3             # the view moved out to take in the finding's place
+
+
+STALE = r"""
+ctx.localStorage = (() => { const m = {}; return {getItem: k => k in m ? m[k] : null, setItem: (k, v) => { m[k] = String(v); }, m}; })();
+const finishStale = stale => { hello(); started(1); send("board", BOARD);
+  send("items", {id: 1, items: [item("a", 1)], steps: [st1("a")], unplaced: [], pocketed: [], board: BOARD.board, keepouts: [], reservations: []});
+  send("finished", {id: 1, counts: {placed: 1, findings: 0}, score: null, timing: {}, reused: "", stale, history: [{id: 1, at: 0, changed: [], timing: {}, counts: {}}]}); };
+const st1 = key => ({item: key, kind: "part", placed: true, note: "", freedom: "fixed"});
+const notice = () => els["#notice"];
+"""
+
+
+@needs_node
+def test_a_stale_generation_says_so_plainly_with_the_files_in_a_tooltip_and_offers_regenerate_and_dismiss(tmp_path):
+    out = run_more(tmp_path, STALE + r"""
+finishStale({form: "changed", files: ["modules/mcu/layout/layout.kicad_pcb"]});
+out.layout = notice().innerHTML; out.shown = notice().style.display;
+finishStale({form: "changed", files: ["modules/mcu/Mcu.zen", "pcb.toml"]}); out.other = notice().innerHTML;
+finishStale({form: "no_record"}); out.norecord = notice().innerHTML;
+finishStale(null); out.none = notice().style.display;
+""")
+    assert out["shown"] == "block"
+    assert "This board&#39;s layout file changed after it was generated; the view shows the last generation." in out["layout"] or \
+        "This board's layout file changed after it was generated; the view shows the last generation." in out["layout"]
+    assert 'title="modules/mcu/layout/layout.kicad_pcb"' in out["layout"] and ">Regenerate</button>" in out["layout"] and 'id="stalex"' in out["layout"]
+    assert "(" not in re.sub(r"<[^>]*>", "", out["layout"]) and "(" not in re.sub(r"<[^>]*>", "", out["other"])
+    assert "A file this board is generated from changed" in out["other"] and 'title="modules/mcu/Mcu.zen, pcb.toml"' in out["other"]
+    assert "no record of the files it was generated from" in out["norecord"] and out["none"] == "none"
+
+
+@needs_node
+def test_regenerate_starts_a_run_for_it_and_the_status_bar_says_regenerating_with_its_step(tmp_path):
+    out = run_more(tmp_path, STALE + r"""
+finishStale({form: "changed", files: ["m/layout/layout.kicad_pcb"]});
+els["#regen"].onclick(); flush();
+out.post = fetched.filter(f => f[0].startsWith("/run")).map(f => JSON.parse(f[1].body));
+send("run_started", {id: 1, at: 0, pid: 5, regenerate: true});
+out.pill = els["#statustext"].textContent; out.cls = els["#status"].className; out.busy = notice().textContent;
+send("run_progress", {id: 1, item: "c_cpu", n: 4});
+out.step = notice().textContent;
+send("run_done", {id: 1, code: 1, run: null, tail: ["generation failed"], runs: []});
+out.failed = notice().innerHTML; out.failcls = notice().className;
+send("run_started", {id: 2, at: 0, pid: 6, regenerate: true}); out.cleared = notice().textContent;
+send("run_done", {id: 2, code: 0, run: null, tail: [], runs: []}); out.done = notice().innerHTML;
+""")
+    assert out["post"] == [{"regenerate": True}]
+    assert out["pill"] == "regenerating" and "busy" in out["cls"] and out["busy"] == "Regenerating the board ..."
+    assert out["step"] == "Regenerating the board: step 4, c_cpu"
+    assert "Regenerating the board failed:</b> generation failed" in out["failed"] and out["failcls"] == "err" and ">Try again</button>" in out["failed"]
+    assert out["cleared"].startswith("Regenerating the board") and "failed" not in out["cleared"]
+    assert "Regenerate</button>" in out["done"]            # a run that ended well leaves the banner until the resolve that follows shows the new generation
+
+
+@needs_node
+def test_the_full_run_button_does_not_ask_for_a_regeneration(tmp_path):
+    out = run_more(tmp_path, STALE + r"""
+finishStale(null);
+els["#runbtn"].onclick(); flush();
+out.post = fetched.filter(f => f[0].startsWith("/run")).map(f => JSON.parse(f[1].body));
+""")
+    assert out["post"] == [{"regenerate": False}]
+
+
+@needs_node
+def test_dismissing_the_banner_hides_it_for_this_board_until_its_files_change_and_is_kept_in_the_browser(tmp_path):
+    out = run_more(tmp_path, STALE + r"""
+finishStale({form: "changed", files: ["a/layout.kicad_pcb"]});
+els["#stalex"].onclick(); flush();
+out.hidden = notice().style.display; out.kept = ctx.localStorage.m["placemat.staleDismissed"];
+finishStale({form: "changed", files: ["a/layout.kicad_pcb"]}); out.again = notice().style.display;           // the next resolve, the same condition
+finishStale({form: "changed", files: ["a/layout.kicad_pcb", "b/layout.kicad_pcb"]}); out.changed = notice().style.display;
+""")
+    assert out["hidden"] == "none" and "a/layout.kicad_pcb" in out["kept"] and "x_layout.py" in out["kept"]
+    assert out["again"] == "none" and out["changed"] == "block"
+
+
+@needs_node
+def test_a_browser_without_storage_still_shows_and_dismisses_the_banner(tmp_path):
+    out = run_more(tmp_path, r"""
+ctx.localStorage = {getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); }};
+hello(); started(1); send("board", BOARD);
+send("items", {id: 1, items: [item("a", 1)], steps: [{item: "a", kind: "part", placed: true, note: "", freedom: "fixed"}], unplaced: [], pocketed: [], board: BOARD.board, keepouts: [], reservations: []});
+send("finished", {id: 1, counts: {placed: 1, findings: 0}, score: null, timing: {}, reused: "", stale: {form: "no_record"}, history: [{id: 1, at: 0, changed: [], timing: {}, counts: {}}]});
+out.shown = els["#notice"].style.display; els["#stalex"].onclick(); flush(); out.hidden = els["#notice"].style.display;
+""")
+    assert out["shown"] == "block" and out["hidden"] == "none"
