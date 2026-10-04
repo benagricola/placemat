@@ -31,12 +31,6 @@ Specced work first, then the loose ends.
    shrunk by hard limits - hard links, pushes, keepouts), then rank; replaces
    "fewer freedoms first", which put a long slide (the debug panel) before an
    MCU that needed its spot near the antenna. After the hard link limit.
-0c. **A searched cell over another cell's plane drops** (a board's session,
-   2026-10-03): a back-face 15 mm cell is refused everywhere because the only
-   room it fits is over front cells' through GND drops; the hand layout puts it
-   there with the drops re-sited. Give way reaches 0.5 mm move / 1 mm leave and
-   keeps half a pad's drops. Find on the real board (as a fixture) which via
-   refuses and why, then decide the reach or a re-site form with the user.
 0d. **Pocket path misses non-rectangular room** (same session): an unlinked
    13.2 x 15.2 part finds no pocket among the few largest free rectangles though
    the hand layout has a legal spot; fall back to a full sweep of the face.
@@ -58,11 +52,6 @@ Specced work first, then the loose ends.
 8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
    lazily on the pure-Python path.
-10. **A flaky native parity test**: `test_native_legal` failed under the
-    two-process release suite twice (SlotControl-physical; MCU_RP2350B-union),
-    passing on rerun each time. It seeds its sampler with `hash()` and fails on
-    about 7% of hash seeds with a native/Python blame difference (a pour
-    blocker), also on 0.93.0: a parity bug, with the native sweep.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
 12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
