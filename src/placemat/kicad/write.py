@@ -420,6 +420,7 @@ def rule_area(board, k, stack, zone_name: str | None = None):
     for x, y in k.poly:
         o.Append(nm(x), nm(y))
     z.SetZoneName(zone_name or _keepout_zone_name(k, stack))
+    _unique_uuid(board, z)
     board.Add(z)
     return z
 
@@ -516,7 +517,8 @@ def _unique_uuid(board, it) -> None:
     creates, so an unchanged plan writes an unchanged file - but a board
     this project already wrote once (or hand-built with the same seed) can
     already carry an unrelated item at a UUID this write's own sequence
-    lands on next; a group keyed by UUID (`keepout drawings`) would then
+    lands on next; a group keyed by UUID (`keepout drawings`, or a cell
+    whose arrangement's copper kicad/arrange.py draws into it) would then
     read that unrelated item as one of its own. `ResolveItem` (None: not
     found) is asked before `it` joins the board, so it can only find an
     EXISTING item; `ResetUuid` redraws from the same seeded generator,
@@ -676,6 +678,7 @@ def _draw_track(board, op: Track):
     t.SetEnd(vec(op.end.x, op.end.y))
     if op.mid is not None:
         t.SetMid(vec(op.mid.x, op.mid.y))
+    _unique_uuid(board, t)
     board.Add(t)
     return t
 
@@ -706,6 +709,7 @@ def _draw_via(board, op: Via):
     v.SetDrill(nm(op.drill))
     v.SetWidth(nm(op.size))
     v.SetNetCode(_netcode(board, op.net))
+    _unique_uuid(board, v)
     board.Add(v)
     return v
 
@@ -740,6 +744,7 @@ def _draw_text(board, op: Text):
             t.Move(pcbnew.VECTOR2I(nm(op.at.x) - bb.GetRight(), 0))
         else:
             t.Move(pcbnew.VECTOR2I(nm(op.at.x) - bb.GetLeft(), 0))
+    _unique_uuid(board, t)
     board.Add(t)
     return t
 
@@ -756,6 +761,7 @@ def _draw_pour(board, op: Pour):
     sh.SetWidth(nm(op.stroke))
     sh.SetPolyShape(one)
     sh.SetNetCode(_netcode(board, op.net))
+    _unique_uuid(board, sh)
     board.Add(sh)
     return sh
 
@@ -792,6 +798,7 @@ def _draw_zone(board, op: Zone):
             th = 2.0 * math.pi * a / n
             hole.Append(nm(hx + rr * math.cos(th)), nm(hy + rr * math.sin(th)))
         o.BooleanSubtract(hole)
+    _unique_uuid(board, z)
     board.Add(z)
     return z
 
