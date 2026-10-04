@@ -187,3 +187,31 @@ def test_a_part_refused_by_a_fixed_one_sends_the_part_it_is_aligned_with_back_to
     plan = b.resolve()
     assert not [f for f in plan.findings if f.cause.value == "fixed.part"], plan.findings
     assert plan.box("r1").bottom == pytest.approx(17.9 - GAP, abs=1e-4)           # the box's distance, not the silk line's
+
+
+def _two_searched_joined_by_a_pour(room):
+    """S1 and S2, searched first (the bigger parts), are joined by a fitted pour of net A; T, searched after them, is
+    drawn to the middle between them, where the pour must go."""
+    fps = [footprint("S1", 20, 30, w=6, h=3, inst="s1", nets=("C", "A"), excess=0.0, fab=(17, 28.5, 23, 31.5)),
+           footprint("S2", 36, 30, w=6, h=3, inst="s2", nets=("A", "D"), excess=0.0, fab=(33, 28.5, 39, 31.5)),
+           footprint("T1", 28, 30, w=2, h=1, inst="t1", nets=("E", "G"), excess=0.0, fab=(27, 29.5, 29, 30.5))]
+    b = _board(fps, room)
+    b.place(Part("s1"), at=Location(20, 30))
+    b.place(Part("s2"), at=Near(Location(36, 30)))
+    b.place(Part("t1"), at=Near(Location(28, 30)))
+    b.pour(Net("A"), [PadRef(Part("s1"), 2), PadRef(Part("s2"), 1)], layer=F, swallow_pads=True, why="joins the two")
+    return b.resolve()
+
+
+def test_a_part_searched_after_a_pour_joining_searched_parts_keeps_clear_of_it():
+    from placemat.copper import Pour
+    got = _two_searched_joined_by_a_pour(True)
+    assert any(isinstance(c, Pour) for c in got.copper), got.findings
+    assert not got.findings, got.findings
+    assert not any("not drawn" in str(f) for f in got.findings)
+
+
+def test_without_room_a_part_searched_after_the_pour_lands_where_it_cannot_be_drawn():
+    from placemat.copper import Pour
+    got = _two_searched_joined_by_a_pour(False)
+    assert not any(isinstance(c, Pour) for c in got.copper) and any("not drawn" in str(f) for f in got.findings)

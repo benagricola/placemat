@@ -24,6 +24,18 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **A fitted pour between searched parts keeps its room during the search.** Declared-copper room (`place.copper_room`, on since 0.95.0)
+  held tracks, pairs and vias whose ends are searched parts as soon as those parts were placed, but a pour joining searched parts was
+  planned only after the whole search, so a later small part could land between them ("pad ... leaves no way between pads ...; the pour is
+  not drawn"). A fitted pour is now planned when the last of its members is placed (dry, without `reach=`) and its outline is held clear
+  of other nets for the items placed after it; same-net copper and its members are let in. Copper that `reach=` grows beyond the outline
+  is still cut back by whatever stands there. Placements of scripts with such a pour can move; `place.copper_room = false` restores the
+  old behaviour. Nothing to change in a script.
+- **"Track not drawn, it would run through X" names every piece of copper on the leg, in order along it.** The finding named the first
+  piece in the occupancy's iteration order, which could be a part placed after the ones that actually stood in the way. Its facts now
+  have `blockers` (each as `met` is: form, who, label, net, plus `at_mm` along the leg from its start, and `placed_when_plannable`,
+  whether the part was already placed when the room planning first tried the track, `null` where it did not try), `leg` (its
+  `start` and `end`), and `met` is the first of them. The sentence adds "and N more". Nothing to change in a script.
 - **A run's findings and preview JSON no longer depend on the hash seed.** Crossed escapes from one part (`escape_crossed`) could come out
   in a different order from one run to the next, and the placement search's crossing sums were added in a different order. The ratsnest now
   reports crossings in airwire order, and the nets of a moved part are refreshed in name order. A run's placement is unchanged; the order

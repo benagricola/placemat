@@ -247,3 +247,8 @@ Where the build differs from the draft above:
   settles in four runs.
 - Findings: `fixed.room` (item, copper key, net, side, reach) and `fixed.room_unsettled` (copper key, the distance it moved,
   passes). Neither is a collision, neither stops a run.
+- Pours (decision 3 reversed): a fitted pour whose members are searched is held like a track. When the last of its pads is
+  placed and its member vias are planned, it is dry-planned (`_rooms_after`, `_CopperContext.dry`) without `reach=` and its
+  outline, with half its stroke, is a room for the items placed after it. Reach copper is not reserved: it grows into what is
+  left and is cut back by whatever stands there, as before. A pour fitted in the dry plan also keeps clear of the rooms held
+  for other declared copper. A pour whose members are all firm is still planned for real before the search.
