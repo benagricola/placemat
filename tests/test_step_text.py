@@ -29,7 +29,7 @@ def test_an_unplaced_step_says_why_from_its_reasons():
 def test_every_kind_renders_from_its_facts():
     where = {"form": "line", "axis": "x", "at_mm": 26.5}
     sample = {
-        "next_largest": {"area_mm2": 12.0}, "one_freedom": {}, "waited_for": {"partner": "u2"}, "placed_before": {"other": "u2"},
+        "next_largest": {"area_mm2": 12.0}, "one_freedom": {}, "room": {"form": "near", "spots": 12.6, "cut_mm2": 3.0, "level": 3, "pitch_mm": 1.0}, "waited_for": {"partner": "u2"}, "placed_before": {"other": "u2"},
         "no_faces_declared": {}, "seeded": {"nets": ["A"]}, "seeded_by_solve": {}, "pocket": {"w_mm": 1.0, "h_mm": 2.0, "at": [3.0, 4.0]},
         "pocket_other_face": {"face": "back", "wanted": "front"}, "back_face": {"back": 1.0, "cost": 2.0, "front": 3.0},
         "lookahead_dropped": {"partners": ["a", "b"]}, "solve_hint_dropped": {"radius_mm": 3.0}, "room_kept": {"for": ["x"]},

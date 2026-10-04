@@ -7,6 +7,15 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **`place.order = "room"` orders a tier by how many legal spots each item has left.** The default, `"freedoms"`, is the order as before
+  (a slide before an item searched in two, then the rank). With `"room"` the item whose declaration leaves it the fewest spots goes first
+  (a slide's length, a `Near` disc, a `Polar` band or the board's free area, less the item's size, hard-limit push discs and the keepouts that
+  bar it; counted at `place.room_pitch`, items within `place.room_ratio` of each other level and ordered by rank). Each step carries a `room`
+  note; `placemat preview` and the studio show it. Set it in `placemat.toml` (`[place] order = "room"`) or for one script
+  (`[scripts."path.py".place]`). No layout changes unless it is set.
+
 ### Changed
 
 - **A number on a `Centre` axis without `coordinates=True` is refused.** `Centre(30, 12)` and `Centre(30, None)` raise a `ValueError` where

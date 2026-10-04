@@ -30,7 +30,10 @@ Specced work first, then the loose ends.
    how many legal spots it could have (a slide's line length, a region's area,
    shrunk by hard limits - hard links, pushes, keepouts), then rank; replaces
    "fewer freedoms first", which put a long slide (the debug panel) before an
-   MCU that needed its spot near the antenna. After the hard link limit.
+   MCU that needed its spot near the antenna. Built behind `place.order =
+   "room"` (off by default; `room.py`: spots counted from the declaration, not
+   judged); left to do: make it the default once a real board's table says so,
+   and count hard link limits once they exist.
 0d. **Pocket path misses non-rectangular room** (same session): an unlinked
    13.2 x 15.2 part finds no pocket among the few largest free rectangles though
    the hand layout has a legal spot; fall back to a full sweep of the face.

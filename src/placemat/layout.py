@@ -952,6 +952,7 @@ class Board:
         self._rank_score: dict = {}
         self._rank_of: dict = {}
         self._rank_note: dict = {}
+        self._room: dict = {}               # key -> room.measure's record, taken when the first searched item is reached
         self._waited: dict = {}                # item key -> the linked partner it waited for
         self._copper: list[CopperIntent] = []
         self._pad_tracks: set = set()      # indices of the tracks whose points are all pads: their way is known before they are planned
@@ -8072,7 +8073,7 @@ class Board:
         tie-break's business, not this one's."""
         from .ranking import pin_count, rank_scores
         self._rank_score, self._rank_of, self._rank_note = {}, {}, {}
-        self._waited = {}
+        self._waited, self._room = {}, {}
         searched = [i for i in self._placements() if not i.freedom.decided]
         if not searched:
             return
@@ -8562,8 +8563,9 @@ class Board:
     def _next_to_place(self, pending: list, occ: Occupancy, placed: set):
         """Which searched item goes next: the script's tier first, then the
         freedoms its place leaves (a slide before an item searched in two),
-        then the rank (what the item IS), then the strongest pull toward what
-        is already placed, then the largest.
+        or with `place.order = "room"` the band of legal spots its declaration
+        leaves it (room.py), then the rank (what the item IS), then the
+        strongest pull toward what is already placed, then the largest.
 
         Pull is a TIE-BREAK. It counts an item's pads against the placed pads
         they share a net with, so it measures net fan-out, which tracks pin
@@ -8594,25 +8596,53 @@ class Board:
         # Of two linked items neither placed, the one with more placed
         # connections goes first: the other is then seeded on it, the part
         # the link joins it to, instead of on whatever else it touches.
-        waits = self._link_waits(pending, {k: m[1] for k, m in measured.items()})
+        waits = self._link_waits(pending, {k: m[1] for k, m in measured.items()}, occ)
         for k, partner in waits.items():
             self._waited.setdefault(k, partner)
         free = [o for o in ready if o.key not in waits] or ready
         scored = sorted(((measured[o.key], o) for o in free),
-                        key=lambda m: (-m[1].priority.rank, getattr(m[1], "freedoms", 2), -m[0][0], -m[0][1],
+                        key=lambda m: (-m[1].priority.rank, self._order_of(m[1], occ), -m[0][0], -m[0][1],
                                        -m[0][2], m[1].key))
         (score, pull, area), obj = scored[0]
         # A ranked item's step is tagged with its rank already; only an unranked
         # one needs saying why it went next.
         why = [] if obj.key in self._rank_note else [step_text.record("next_largest", area_mm2=area)]
-        if getattr(obj, "freedoms", 2) == 1 and any(
+        if self.settings.place_order == "room":
+            why.append(self._room_note(obj, occ))
+        elif getattr(obj, "freedoms", 2) == 1 and any(
                 o.priority is obj.priority and getattr(o, "freedoms", 2) > 1 for _, o in scored):
             why.append(step_text.record("one_freedom"))
         if obj.key in self._waited:
             why.append(step_text.record("waited_for", partner=self._waited[obj.key]))
         return obj, why
 
-    def _link_waits(self, pending: list, pull: dict) -> dict:
+    def _room_of(self, obj, occ: Occupancy) -> dict:
+        """What room an item has (room.measure), taken the first time it is asked: the board as it stands when the first
+        searched item is reached, with the firm items in. An item that is no part, cell or block has the whole board."""
+        if obj.key not in self._room:
+            from . import room
+            self._room[obj.key] = room.measure(self, occ, obj, self.settings.place_room_pitch) \
+                if isinstance(obj, PlaceIntent) else {"form": "board", "spots": float("inf")}
+        return self._room[obj.key]
+
+    def _order_of(self, obj, occ: Occupancy) -> int:
+        """What an item's turn in its tier is ordered by: the freedoms its place leaves, or, with `place.order = "room"`,
+        the band its room falls in."""
+        if self.settings.place_order != "room":
+            return getattr(obj, "freedoms", 2)
+        from . import room
+        spots = self._room_of(obj, occ)["spots"]
+        return room.level(spots, self.settings.place_room_ratio) if spots != float("inf") else 10 ** 6
+
+    def _room_note(self, obj, occ: Occupancy) -> dict:
+        """The note that says how much room an item had when it went."""
+        facts = self._room_of(obj, occ)
+        spots = facts["spots"]
+        return step_text.record("room", form=facts["form"], spots=None if spots == float("inf") else round(spots, 1),
+                                cut_mm2=None if "cut_mm2" not in facts else round(facts["cut_mm2"], 1),
+                                level=self._order_of(obj, occ), pitch_mm=self.settings.place_room_pitch)
+
+    def _link_waits(self, pending: list, pull: dict, occ: Occupancy) -> dict:
         """{item key: the linked partner it waits for}, over declared links
         between two pending items: the one with less pull toward what is
         placed waits. Level pull waits for nothing, and nothing waits for a
@@ -8634,7 +8664,7 @@ class Board:
             if abs(pa - pb) > 1e-9:
                 slow, fast = (a, b) if pa < pb else (b, a)
                 if (fast.priority.rank >= slow.priority.rank
-                        and getattr(fast, "freedoms", 2) <= getattr(slow, "freedoms", 2)):
+                        and self._order_of(fast, occ) <= self._order_of(slow, occ)):
                     waits.setdefault(slow.key, fast.key)
         return waits
 

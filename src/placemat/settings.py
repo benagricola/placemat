@@ -92,6 +92,12 @@ class Settings:
         "degrees between the turns of `rotations=Turns.ANY`")
     place_tangent_bin: float = S(10.0, "degrees",
         "degrees of bearing a `Turns.TANGENT` search turns as one: a spot takes its bin's turn")
+    place_order: str = S("freedoms", "choice",
+        "which searched item of a tier goes next: `freedoms` (the one with fewer freedoms left, then the rank) or `room` (the one with the fewest legal spots left, counted from its declaration, then the rank)")
+    place_room_pitch: float = S(1.0, "mm",
+        "the pitch `place.order = \"room\"` counts an item's legal spots at: a line's length over it, a region's area over its square")
+    place_room_ratio: float = S(2.0, "factor",
+        "`place.order = \"room\"`: items whose spot counts differ by less than this factor count as level and go by rank")
     place_lookahead: bool = S(True, "bool",
         "a `Pm.Emits` / `Pm.Limit` part is placed where its still-unplaced partner keeps a legal spot at the limit distance")
     place_lookahead_step: float = S(1.0, "mm",
@@ -579,7 +585,7 @@ class SettingsError(ValueError):
 
 
 # Keys with a fixed set of values.
-_CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotations": ("all", "declared"),
+_CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotations": ("all", "declared"), "place_order": ("freedoms", "room"),
             "copper_cell_zones_under_planes": ("drop", "keep"), "write_split_groups": ("lift", "split", "keep"),
             "write_keepout_drawings": ("admitting", "all", "none")}
 
@@ -587,7 +593,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # zero scan step never moves, a zero timeout never runs. Weights are absent
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
-    "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_coarse_min_radius_steps", "place_coarse_stride",
+    "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_room_pitch", "place_coarse_min_radius_steps", "place_coarse_stride",
     "place_refine_spots", "place_step_budget", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
@@ -608,7 +614,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
-_AT_LEAST_TWO = frozenset(("place_split_min_group",))
+_AT_LEAST_TWO = frozenset(("place_split_min_group", "place_room_ratio"))
 _UNIT_INTERVAL = frozenset(("check_neck_end_share", "studio_builder_max_fill"))      # a share: 0 to 1
 
 

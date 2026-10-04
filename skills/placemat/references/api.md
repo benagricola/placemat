@@ -313,7 +313,8 @@ axis `None`, `OnEdge(edge)`, a `Polar` ring or spoke, `OnRim()`, a stretch
 of `board.edge(facing=)`, a point whose turn is searched) before an item
 searched in two (nothing, `Near`, a `Polar` band), so a large item does not
 take the line a slide runs along. Items with the same number of freedoms
-go in rank order. With no `rotation=`, an item
+go in rank order. (`place.order = "room"` orders by legal spots instead; see
+Order by room.) With no `rotation=`, an item
 `OnEdge(edge)` with no `along=`, on a run from `board.edge(facing=)`, or on
 a rim is turned so its outward side faces out (a cell's declared
 `faces(outward=)`, a part's local +Y; see Faces); one at
@@ -1045,6 +1046,27 @@ orders items within one `priority=` tier: an item never waits for a partner
 of a lower tier, so a `HIGH` item linked to a `DEFAULT` one goes down with
 the `HIGH` tier and the other then places toward it. Two pulled equally
 keep the rank's order.
+
+**Order by room.** `place.order = "room"` (default `"freedoms"`) replaces
+"fewer freedoms first" with "fewest legal spots first": within a tier, the
+item whose declaration leaves it the fewest places goes first, then the rank,
+the pull and the size as above. The spots are counted at `place.room_pitch`
+from what the declaration says and the board as it stands when the first
+searched item is reached (the firm items, keepouts and reservations in); no
+spot is judged. A slide, an edge, a run, a rim, a ring or a spoke is its
+length less the item's own size over the pitch; `Near` with a `radius=`, a
+`Polar` band and an item left to the whole board are an area (the board's
+free area for the last) over the pitch squared, less each `board.push`
+hard-limit disc and each keepout or reservation that does not let the item
+in; a turn searched on a point is its number of turns. Items whose counts are
+within `place.room_ratio` of each other are level and go by rank, so a shelf
+of unconstrained parts keeps the rank's order. The estimate is of a box
+overlap, not a judgment: it says how tight an item is, not exactly where it
+fits. A link's `limit_mm` is a price, not a limit, and counts for nothing.
+The step carries a `room` note (`form`, `spots`, `cut_mm2`, `level`),
+shown as `room 214 spots (near, counted at 1.0 mm), band 7`. Set it in
+`placemat.toml` (`[place] order = "room"`) or for one script
+(`[scripts."path.py".place]`).
 
 **What a part claims.** `[place] envelope` says what one part may not share
 with another. `courtyard` (the default) is its courtyard and its pads.
@@ -4192,6 +4214,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.rotations` | `"all"` | choice | a searched part with no `rotation=` or `rotations=`: `all` four rotations, or only its `declared` one. One of: all, declared. |
 | `place.bearing_step` | `5.0` | degrees | degrees between the turns of `rotations=Turns.ANY` |
 | `place.tangent_bin` | `10.0` | degrees | degrees of bearing a `Turns.TANGENT` search turns as one: a spot takes its bin's turn |
+| `place.order` | `"freedoms"` | choice | which searched item of a tier goes next: `freedoms` (the one with fewer freedoms left, then the rank) or `room` (the one with the fewest legal spots left, counted from its declaration, then the rank) One of: freedoms, room. |
+| `place.room_pitch` | `1.0` | mm | the pitch `place.order = "room"` counts an item's legal spots at: a line's length over it, a region's area over its square |
+| `place.room_ratio` | `2.0` | factor | `place.order = "room"`: items whose spot counts differ by less than this factor count as level and go by rank |
 | `place.lookahead` | `true` | bool | a `Pm.Emits` / `Pm.Limit` part is placed where its still-unplaced partner keeps a legal spot at the limit distance |
 | `place.lookahead_step` | `1.0` | mm | the grid the partner's legal spots are found on for that (its own step if coarser) |
 | `place.coarse_stride` | `4` | count | how many steps apart a scored scan's first pass walks |

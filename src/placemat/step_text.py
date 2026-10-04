@@ -74,6 +74,13 @@ def _one_freedom(n):
     return "one freedom: before the items of its tier searched in two"
 
 
+@renders("room")
+def _room(n):
+    spots = ("room %.0f spots" % n["spots"]) if "spots" in n else "room: the whole board"
+    cut = (", %.0f mm2 cut by limits" % n["cut_mm2"]) if "cut_mm2" in n else ""
+    return "%s (%s%s, counted at %.1f mm), band %d" % (spots, n["form"], cut, n["pitch_mm"], n["level"])
+
+
 @renders("waited_for")
 def _waited_for(n):
     return "waited for %s, the item it is linked to with more placed connections" % n["partner"]
