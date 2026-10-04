@@ -329,6 +329,13 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Native status said; DRC as KiCad judges; planes over zones** (0.97.2): a
+  run without the native module says so (setup.native); every KiCad
+  error-severity kind counts in the DRC headline; KiCad and pcb children run
+  without an inherited KIPRJMOD; a board outside its project says where its
+  library issues come from; a plane is written above a same-net zone it
+  overlaps.
+
 - **Native net-tie sweeps; time bounds; zone and keep-out fixes** (0.97.1):
   a cell scan meeting a net tie judges natively (a real module 49.8 -> 12.6 s);
   `--max-time`, `--step-warn`, `--step-limit`; structured phase events and
