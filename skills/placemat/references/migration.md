@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A carried via's move or leave search stops at the nearest window with a spot.** The search judged every offset of its reach on the
+  `place.via_move_step` grid before it took the nearest clear one, so a longer `place.via_leave_distance` cost the square of the reach: 3 mm
+  instead of 1 mm is nine times the offsets for each via at each candidate, and on a cell with net ties each of them in Python. The offsets
+  are now judged nearest first in windows (`place.via_search_chunk`, 64, each window twice the last) and the search ends at the first
+  window that holds a spot; a net tie within reach no longer sends the whole search to Python, the native call judges the move without the
+  ties' copper and Python judges each spot it accepts. The spot taken is the same: a core board's preview at the default reach gives the same
+  placements, give-way actions and SVG, in 190 s against 290 s, and a 3 mm leave reach with `drops_keep_share` 0.25 runs in 262 s where it ran
+  past twenty minutes. Nothing to change in a script.
+
 ## To 0.97.2
 
 ### New
@@ -66,15 +79,6 @@ section for each hand-written pattern a newer form replaces.
   scored again in Python whenever the scan met a net tie; one that also passes the native pass with the ties in is now legal without
   it, and scored natively. A real module's resolve took 49.8 s and now 12.6 s, with identical placements and findings. Nothing to change in
   a script.
-
-- **A carried via's move or leave search stops at the nearest window with a spot.** The search judged every offset of its reach on the
-  `place.via_move_step` grid before it took the nearest clear one, so a longer `place.via_leave_distance` cost the square of the reach: 3 mm
-  instead of 1 mm is nine times the offsets for each via at each candidate, and on a cell with net ties each of them in Python. The offsets
-  are now judged nearest first in windows (`place.via_search_chunk`, 64, each window twice the last) and the search ends at the first
-  window that holds a spot; a net tie within reach no longer sends the whole search to Python, the native call judges the move without the
-  ties' copper and Python judges each spot it accepts. The spot taken is the same: a core board's preview at the default reach gives the same
-  placements, give-way actions and SVG, in 190 s against 290 s, and a 3 mm leave reach with `drops_keep_share` 0.25 runs in 262 s where it ran
-  past twenty minutes. Nothing to change in a script.
 
 ### Fixed
 
