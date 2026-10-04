@@ -1,7 +1,7 @@
 # A module's alternative arrangements, chosen by the board
 
 Date: 2026-10-04
-Status: draft
+Status: approved (2026-10-04).
 Source: a board's session, 2026-10-04, and the user's approval of points 1 to 3 of its proposal. Point 4 (a free
 board-level override of a member's place) is not in this spec.
 
