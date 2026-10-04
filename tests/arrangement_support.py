@@ -31,7 +31,7 @@ from placemat.placement import Placement
 from placemat.values import CopperLayer, Face
 
 
-def stamped_geometry(offset=(30.0, 10.0), partner=None, obstacle=None):
+def stamped_geometry(offset=(30.0, 10.0), partner=None, obstacle=None, copper=()):
     """A board holding cell `mod` stamped from a fragment whose c_in stood at (1.0, 3.0) and u1 at (6.0, 3.0), moved by `offset`, and
     a loose part. The fragment's nets are `VIN`, `GND` and `OUT`; the board names them `mod.VIN` and so on. `partner=(x, y)` adds a
     part `r8` on the cell's VIN net there (the pull a search follows); `obstacle=(x, y, w, h)` adds a part `obst` that fills that box."""
@@ -44,7 +44,7 @@ def stamped_geometry(offset=(30.0, 10.0), partner=None, obstacle=None):
     if obstacle is not None:
         x, y, w, h = obstacle
         fps.append(footprint("R7", x, y, w=w, h=h, nets=("GND", "GND"), inst="obst"))
-    return board_geometry(fps, cells=["mod"], extra_nets=("mod.GND", "GND"), width=80, height=60)
+    return board_geometry(fps, cells=["mod"], copper=copper, extra_nets=("mod.GND", "GND"), width=80, height=60)
 
 
 DEFAULT_C_IN = Placement(Location(1.0, 3.0), 0.0, Face.FRONT)
@@ -52,12 +52,18 @@ DEFAULT_U1 = Placement(Location(6.0, 3.0), 0.0, Face.FRONT)
 OBSTACLE = (43.0, 32.5, 2.0, 1.0)         # filled in the default's u1 and free in c_in.east, for a firm cell with its box centre on (40, 30)
 
 
-def east_doc(ident="c_in.east", order=1, ops=None, base_from=None, keepouts=()):
+def east_doc(ident="c_in.east", order=1, ops=None, keepouts=()):
     """The note of an arrangement that turns c_in half way round and stands it east of u1 (fragment frame)."""
     east = Placement(Location(11.0, 3.0), 180.0, Face.FRONT)
     ops = [Track("VIN", CopperLayer.F, 0.3, Location(9.0, 3.0), Location(10.1, 3.0))] if ops is None else ops
     return N.document(ident, {"c_in": "east"}, [("c_in", east, DEFAULT_C_IN), ("u1", DEFAULT_U1, DEFAULT_U1)], ops,
                       list(keepouts), order=order)
+
+
+def still_doc(ops=(), keepouts=(), ident="still"):
+    """The note of an arrangement that moves no member: its geometry is the default's, with the module's copper `ops`."""
+    return N.document(ident, {}, [("c_in", DEFAULT_C_IN, DEFAULT_C_IN), ("u1", DEFAULT_U1, DEFAULT_U1)], list(ops), list(keepouts),
+                      order=1)
 
 
 def with_arrangement(g=None, doc=None):

@@ -6,12 +6,14 @@ import dataclasses
 
 from . import arrangement_note as note
 from .board_geometry import Arrangement, CellGeom, CopperItem, MemberPose, RuleArea, resolve_marker, stamped_net
-from .copper import Pour, Track, Via, Zone
+from .copper import Pour, Track, Via, Zone, stroked_outlines
 from .geometry import pose_transform, transform_box
 from .placement import Placement
+from .settings import active
 from .values import Box, Face, Location
 
 _TOL = 1e-3
+_MALFORMED = (KeyError, TypeError, ValueError, IndexError, AttributeError, note.NoteError)
 _ALLOWED_TYPES = ("tracks", "vias", "pads")     # what a keepout's allow= nets may keep (kicad/write.py _relaxed)
 
 
@@ -49,10 +51,14 @@ def _copper_item(op, owner: str, layers):
         return CopperItem("via", op.net, frozenset(op.layers) if op.layers else frozenset(layers), (op.polygon,), op.box, owner,
                           op.size, op.drill, ((op.at.x, op.at.y),))
     if isinstance(op, Pour):
-        return CopperItem("poly", op.net, frozenset([op.layer]), (op.points,), op.box, owner, op.stroke, 0.0, (), 0.0,
-                          (op.points,), True)
-    if isinstance(op, Zone):
-        return CopperItem("zone", op.net, frozenset([op.layer]), (op.points,), op.box, owner)
+        # a filled graphic polygon grown by its stroke (plus the arc tolerance outside), its box from that; the reader merges
+        # the pieces into one polygon, which covers the same copper
+        outs = stroked_outlines([op.points], op.stroke + 2 * active().geometry_arc_error_nm / 1e6, True) if op.stroke > 0 \
+            else (op.points,)
+        return CopperItem("poly", op.net, frozenset([op.layer]), outs, Box.of_points([p for o in outs for p in o]), owner,
+                          op.stroke, 0.0, (), 0.0, (op.points,), True)
+    if isinstance(op, Zone):                    # the reader gives a zone no owner: it is no cell's, and a plane to layout
+        return CopperItem("zone", op.net, frozenset([op.layer]), (op.points,), op.box, None)
     return None
 
 
@@ -78,7 +84,7 @@ def build(cell: CellGeom, doc: dict, nets, layers):
         if fp is None:
             return None, _problem("member", ident)
         stamped[m["inst"]] = fp
-    if {fp.ref for fp in stamped.values()} != {fp.ref for fp in cell.members} or len(stamped) != len(cell.members):
+    if len(doc["members"]) != len(cell.members) or {fp.ref for fp in stamped.values()} != {fp.ref for fp in cell.members}:
         return None, _problem("member", ident)
     offsets = []
     for m in doc["members"]:
@@ -111,7 +117,7 @@ def build(cell: CellGeom, doc: dict, nets, layers):
     areas = tuple(_rule_area(note.keepout_from_json(d), cell.name, dx, dy, nets, layers) for d in doc["keepouts"])
     by_ref = {fp.ref: fp for fp in cell.members}
     moved = lambda attr: [transform_box(getattr(by_ref[mp.ref], attr), pose_transform(mp.default, mp.pose)) for mp in poses]
-    own = [c.box for c in items]
+    own = [c.box for c in items if c.owner is not None]     # the cell's extents hold its own copper, as the reader's do
     geom = dataclasses.replace(
         cell, box=Box.union(moved("body_box") + own), phys_box=Box.union(moved("phys_box") + own),
         courtyard_box=Box.union(moved("courtyard_box") + own), copper_box=Box.union(own) if own else None,
@@ -128,8 +134,12 @@ def attach(cell: CellGeom, texts, nets, layers) -> CellGeom:
         return cell
     docs, problems = note.read_notes(texts)
     built = []
-    for d in sorted(docs, key=lambda d: (d.get("order", 0), d["id"])):
-        arr, problem = build(cell, d, nets, layers)
+    order = lambda d: (d["order"] if isinstance(d.get("order"), int) else 0, str(d["id"]))
+    for d in sorted(docs, key=order):
+        try:
+            arr, problem = build(cell, d, nets, layers)
+        except _MALFORMED:              # it parsed, but a key, kind or value is not one the note's form has
+            arr, problem = None, _problem("text", d["id"])
         if arr is None:
             problems.append(problem)
         else:

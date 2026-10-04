@@ -171,6 +171,19 @@ class Zone:
         return Box.of_points(self.points)
 
 
+def stroked_outlines(outlines, width: float, filled: bool) -> tuple:
+    """A stroked graphic polygon's copper as KiCad's DRC tests it: each outline (when filled) and a round-ended strip of
+    `width` along every edge, as separate polygons (kicad/read.py copper_outlines merges them into one)."""
+    out = []
+    for pts in outlines:
+        pts = [tuple(p) for p in pts]
+        if filled and len(pts) >= 3:
+            out.append(tuple(pts))
+        for a, b in zip(pts, pts[1:] + pts[:1]):
+            out.append(_segment_polygon(Location(*a), Location(*b), width))
+    return tuple(out)
+
+
 def _segment_polygon(a: Location, b: Location, width: float) -> Polygon:
     """A track as KiCad draws it: its two sides and a round end at each end.
     Each end's vertices stand just outside the arc (every edge on or outside

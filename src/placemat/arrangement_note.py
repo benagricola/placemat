@@ -92,8 +92,11 @@ def op_from_json(d: dict):
 
 
 def keepout_to_json(k) -> dict:
+    """The keepout as its stamped zone holds it: one that admits parts (PlacedKeepout.admits_parts) is written allowing
+    footprints, so its entry excludes no parts either."""
+    excludes = [e for e in k.excludes if not (e == "parts" and k.admits_parts)]
     return {"name": k.name, "polygon": [_pt(p) for p in k.poly], "layers": None if k.layers is None else [l.value for l in k.layers],
-            "excludes": list(k.excludes), "allow": sorted(k.allow), "why": k.why}
+            "excludes": excludes, "allow": sorted(k.allow), "why": k.why}
 
 
 def keepout_from_json(d: dict):

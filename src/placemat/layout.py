@@ -394,6 +394,12 @@ class PlacedKeepout:
     admitted: frozenset = frozenset()   # the parts owners admits by height alone, a subset of owners
     barred: frozenset = frozenset()     # the parts a bars= keepout keeps out; every other part is in owners
 
+    @property
+    def admits_parts(self) -> bool:
+        """Whether a keepout that excludes parts lets some in: by name (`allow=` parts or cells) or by height (`max_height=`).
+        Its rule area is written allowing footprints (kicad/write.py), and a custom rule forbids the rest."""
+        return "parts" in self.excludes and (bool(self.owners) or self.max_height is not None)
+
 
 @dataclass
 class KeepoutIntent:

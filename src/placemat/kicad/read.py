@@ -104,18 +104,12 @@ def copper_outlines(item, layer_id, err_nm=CLEAR_ERR_NM):
     edges of a polygon that doubles back on itself (a pour's did, and a via
     passed 0.127 mm from it against a 0.16 rule)."""
     if isinstance(item, pcbnew.PCB_SHAPE) and item.GetShape() == pcbnew.SHAPE_T_POLY and item.GetWidth() > 0:
-        from ..copper import _segment_polygon
+        from ..copper import stroked_outlines
         ps = item.GetPolyShape()
         w = mm(item.GetWidth()) + 2 * mm(err_nm)      # outside by the tolerance, as KiCad's own conversion is
-        out = []
         filled = item.IsSolidFill() if hasattr(item, "IsSolidFill") else item.IsFilled()
-        for k in range(ps.OutlineCount()):
-            o = ps.Outline(k)
-            pts = [(mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount())]
-            if filled and len(pts) >= 3:
-                out.append(tuple(pts))
-            for a, b in zip(pts, pts[1:] + pts[:1]):
-                out.append(_segment_polygon(Location(*a), Location(*b), w))
+        out = list(stroked_outlines([[(mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount())]
+                                     for o in (ps.Outline(k) for k in range(ps.OutlineCount()))], w, filled))
         if out and not filled:
             return tuple(out)                           # a stroke round nothing: its strips, its middle open
         if out:

@@ -392,7 +392,7 @@ def _draw_keepouts(board, plan):
         for name, setter in _KEEPOUT_FLAGS.items():
             # one that admits parts allows footprints: a .kicad_dru rule forbids the rest (keepout_rules); one
             # that lets nets through allows what they keep, and a rule forbids it to the others (allow_rules)
-            getattr(z, setter)(name in k.excludes and not (name == "parts" and _admits_parts(k)) and name not in relaxed)
+            getattr(z, setter)(name in k.excludes and not (name == "parts" and k.admits_parts) and name not in relaxed)
         o = z.Outline()
         o.NewOutline()
         for x, y in k.poly:
@@ -426,12 +426,6 @@ def allow_rules(plan, stack) -> list:
     return out
 
 
-def _admits_parts(k) -> bool:
-    """Whether a keepout that excludes parts lets some in: by name
-    (`allow=` parts or cells) or by height (`max_height=`)."""
-    return "parts" in k.excludes and (bool(k.owners) or k.max_height is not None)
-
-
 def keepout_rules(plan, refs, stack) -> list:
     """A KeepoutRule for each keepout that admits parts: the footprints of
     `refs` (the board's references) it does not admit, forbidden in its
@@ -439,7 +433,7 @@ def keepout_rules(plan, refs, stack) -> list:
     from ..rules import KeepoutRule
     out = []
     for k in plan.keepouts.values():
-        if not _admits_parts(k):
+        if not k.admits_parts:
             continue
         if k.barred and k.max_height is None:       # bars=: exactly the parts it names, whatever else the board holds
             forbid = tuple(sorted(r for r in set(refs) if r in k.barred))
