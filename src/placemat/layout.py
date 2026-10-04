@@ -12,6 +12,7 @@ placements, copper ops and findings for the writer and the run record."""
 from __future__ import annotations
 
 import collections
+import collections.abc
 import contextlib
 import copy
 import dataclasses
@@ -3051,14 +3052,18 @@ class Board:
                             % (key, drops)) from None
         if drops is not Drops.ALL and kind != "cell":
             raise TypeError("%s: drops= thins a cell's via fields; a %s carries none of its own" % (key, kind))
-        if arrangements is None:
-            ids = ()
-        elif isinstance(arrangements, str):
-            ids = (arrangements,)
-        else:
-            ids = tuple(arrangements)
-        if ids and (kind != "cell" or not all(isinstance(a, str) for a in ids)):
-            raise TypeError("%s: arrangements= selects among a cell's arrangements, ids as text; a %s has none" % (key, kind))
+        ids = ()
+        if arrangements is not None:
+            if kind != "cell":
+                raise TypeError("%s: arrangements= selects among a cell's arrangements; a %s has none" % (key, kind))
+            if isinstance(arrangements, str):
+                ids = (arrangements,)
+            elif isinstance(arrangements, collections.abc.Sequence):
+                ids = tuple(dict.fromkeys(arrangements))        # a repeated id once, in its first place
+            else:
+                raise TypeError("%s: arrangements= is an arrangement id or a list of them, not %r" % (key, arrangements))
+            if not all(isinstance(a, str) and a for a in ids):
+                raise TypeError("%s: arrangements= names arrangements by their ids, as text, not %r" % (key, arrangements))
         if _declare and any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
         center = edge = along = near = about = run = band = None
@@ -9410,11 +9415,15 @@ class Board:
         each where its declaration puts it with `i` and the riders before it
         there, judged against `i` and those riders, then against the board as
         a firm item is (not with `board=False`). With `stop`, the list ends at
-        the first rider that is not legal."""
+        the first rider that is not legal. A cell rider is laid as its one pinned
+        arrangement (`_pinned`), and one that names an id it does not offer is left out."""
         view = _Riding(occ)
         group = view.move(i.item, at)
         out = []
         for r in self._ride_groups[i.key]:
+            r, gone = self._pinned(r)
+            if gone is not None:
+                continue                                # unplaced by _settle_riders: arrangements= names an id not offered
             if isinstance(r.along, _RowSlot):
                 self._reset_rows(r.along.row)
             if r.turned is not None:
@@ -9481,7 +9490,7 @@ class Board:
         <key>: why". The board as the search sees it is gathered once, and
         the riders are laid once per turn of the item wherever they move
         exactly as it does: a candidate then shifts them and asks the board."""
-        obstacles = {r.key: occ.obstacles(occ._geometry(r.item)) for r in self._ride_groups[i.key]}
+        obstacles = {r.key: occ.obstacles(occ._geometry(r.item)) for r in (self._pinned(r)[0] for r in self._ride_groups[i.key])}
         turns = {}
 
         def accept(at: Placement):
@@ -9512,11 +9521,20 @@ class Board:
     def _settle_riders(self, occ: Occupancy, i: PlaceIntent, plan: Plan, step: Step) -> None:
         """Commit `i`'s riders where they go with `i` at its step's placement,
         a step each; or, with `i` unplaced, an unplaced step and a finding
-        each."""
+        each. A cell rider whose `arrangements=` names an id it does not offer
+        is unplaced with `arrangement.missing` either way."""
         for r in self._ride_groups[i.key]:
             plan._items[r.key] = r.item
+        gone = {}
+        for r in self._ride_groups[i.key]:
+            offered = self._pinned(r)[1]
+            if offered is not None:
+                gone[r.key] = offered
+                plan.steps.append(self._arrangement_gone(r, offered, plan))
         if step.placement is None:
             for r in self._ride_groups[i.key]:
+                if r.key in gone:
+                    continue
                 facts = {"item": r.key, "variant": "rode", "rider_of": self._rider_of[r.key]}
                 plan.findings.append(self._finding(C.UNPLACED_RIDES, facts))
                 plan.steps.append(self._step(r, None, 0.0, unplaced=[{"form": "rides", "rider_of": facts["rider_of"]}]))
@@ -9767,19 +9785,28 @@ class Board:
             facts["source"] = source
         return self._finding(C.ARRANGEMENT_MISSING, facts, "warning" if source == "lock" else "critical")
 
-    def _gate(self, occ, i: PlaceIntent, plan: Plan) -> tuple:
-        """(the intent to settle, None), or (i, the unplaced step) when `arrangements=` names an id the cell does not offer. A cell that
-        is to take one arrangement is settled as that arrangement. What the cell offers is read off the base cell."""
+    def _pinned(self, i: PlaceIntent) -> tuple:
+        """(the intent to lay, None), or (i, the ids the cell offers) when `arrangements=` names an id it does not offer. A cell
+        that is to take one arrangement is laid as that arrangement. What the cell offers is read off the base cell."""
         if i.kind != "cell" or getattr(i.item, "arrangement", ""):
             return i, None                              # a settle that runs again with the item already arranged
         offered = ("default",) + self._offered(self.geometry.cells[i.key])
-        missing = [a for a in i.arrangements if a not in offered]
-        if missing:
-            plan.findings.append(self._arrangement_missing(i.key, i.arrangements, offered))
-            return i, self._step(i, None, 0.0, unplaced=[{"form": "arrangement_missing", "asked": list(i.arrangements),
-                                                          "offered": list(offered)}])
+        if any(a not in offered for a in i.arrangements):
+            return i, offered
         ids = self._arrangement_ids(i)
         return (self._arranged(i, ids[0]) if len(ids) == 1 else i), None
+
+    def _arrangement_gone(self, i: PlaceIntent, offered: tuple, plan: Plan) -> Step:
+        """The unplaced step of a cell whose `arrangements=` names an id it does not offer, and its finding."""
+        plan.findings.append(self._arrangement_missing(i.key, i.arrangements, offered))
+        return self._step(i, None, 0.0, unplaced=[{"form": "arrangement_missing", "asked": list(i.arrangements),
+                                                   "offered": list(offered)}])
+
+    def _gate(self, occ, i: PlaceIntent, plan: Plan) -> tuple:
+        """(the intent to settle, None), or (i, the unplaced step) when `arrangements=` names an id the cell does not offer
+        (`_pinned`)."""
+        i, offered = self._pinned(i)
+        return (i, None) if offered is None else (i, self._arrangement_gone(i, offered, plan))
 
     def _scan_faces(self, occ: Occupancy, i: PlaceIntent, hint: Placement, radius: float, clr, score, accept,
                     reseed=None, turns_at=None, within=None, turns_on=None):

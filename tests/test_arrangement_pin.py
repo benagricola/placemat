@@ -100,3 +100,63 @@ def test_offered_reads_the_base_cell_and_is_empty_for_an_arranged_one():
     base = b.geometry.cells["mod"]
     assert b._offered(base) == ("c_in.east",)
     assert b._offered(base.arranged("c_in.east")) == ()
+
+
+def riding(arrangements):
+    """`mod` rides r9, which is searched: the cell is laid with r9, never settled on its own."""
+    from placemat.values import Beside, Edge, Near
+    b = board()
+    b.place(Part("r9"), at=Near(Location(20.0, 30.0)))
+    b.place(Cell("mod"), at=Beside(Part("r9"), Edge.EAST), arrangements=arrangements)
+    plan = b.resolve()
+    assert [r.key for r in b._ride_groups["r9"]] == ["mod"]
+    return plan
+
+
+def test_a_riding_cell_pinned_to_an_offered_id_stands_in_it():
+    plan = riding("c_in.east")
+    assert plan.placement("mod").arrangement == "c_in.east"
+    assert plan.occupancy.items["C1"].reference.rotation == 180.0
+    assert not [f for f in plan.findings if f.cause == "arrangement.missing"]
+
+
+def test_a_riding_cell_pinned_to_an_id_not_offered_is_unplaced_with_the_finding():
+    plan = riding("c_in.west")
+    assert plan.step("mod").placement is None and plan.placement("r9") is not None
+    (f,) = [f for f in plan.findings if f.cause == "arrangement.missing"]
+    assert f.facts == {"item": "mod", "asked": ["c_in.west"], "offered": ["default", "c_in.east"]} and f.severity == "critical"
+
+
+@pytest.mark.parametrize("value", [(), [], "x"])
+def test_any_arrangements_on_a_part_is_refused(value):
+    with pytest.raises(TypeError, match="arrangements="):
+        board().place(Part("R9"), at=Location(5, 5), arrangements=value)
+
+
+def test_arrangements_that_is_not_text_or_a_sequence_is_refused_by_name():
+    with pytest.raises(TypeError, match="mod: arrangements="):
+        board().place(Cell("mod"), at=Location(40.0, 30.0), arrangements=5)
+
+
+@pytest.mark.parametrize("value", ["", ["c_in.east", ""]])
+def test_an_empty_id_is_refused(value):
+    with pytest.raises(TypeError, match="mod: arrangements="):
+        board().place(Cell("mod"), at=Location(40.0, 30.0), arrangements=value)
+
+
+def test_repeated_ids_are_kept_once_in_their_order():
+    b = board()
+    i = b.place(Cell("mod"), at=Location(40.0, 30.0), arrangements=["c_in.east", "default", "c_in.east"])
+    assert i.arrangements == ("c_in.east", "default")
+    one = board()
+    one.place(Cell("mod"), at=Location(40.0, 30.0), arrangements=("c_in.east", "c_in.east"))
+    assert one.resolve().placement("mod").arrangement == "c_in.east"
+
+
+def test_a_required_riding_cell_pinned_to_an_id_not_offered_stops_the_run():
+    from placemat.values import Beside, Edge, Near
+    b = Board(with_arrangement(), edge_margin=0.0)
+    b.place(Part("r9"), at=Near(Location(20.0, 30.0)))
+    b.place(Cell("mod"), at=Beside(Part("r9"), Edge.EAST), arrangements="c_in.west", required=True)
+    with pytest.raises(CriticalUnplaced):
+        b.resolve()
