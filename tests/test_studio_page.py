@@ -15,6 +15,19 @@ from placemat.step_text import record as R
 PAGE = Path(placemat.__file__).with_name("studio_page.html")
 
 
+def test_a_filled_warning_mark_is_yellow_in_both_themes_and_warning_text_keeps_its_own_colour():
+    text = PAGE.read_text()
+    marks = re.findall(r"--sev-warning-mark:\s*(#[0-9a-f]{6})", text)
+    assert len(marks) == 2                                                       # light and dark
+    for c in marks:
+        r, g, b = (int(c[i:i + 2], 16) for i in (1, 3, 5))
+        assert r > 220 and g > 180 and b < 60, c                                 # reads yellow, not brown
+    assert ".fa { --fc: var(--sev-warning-mark);" in text and "background: var(--sev-warning-mark)" in text[text.index(".fdot {"):]
+    assert "color: var(--sev-warning)" in text[text.index(".sev {"):]          # text stays the darker token
+    viewer = Path(placemat.__file__).with_name("studio_3d.js").read_text()
+    assert 'css("--sev-warning-mark"' in viewer and 'css("--sev-warning"' not in viewer
+
+
 def test_the_page_ships_in_the_package_and_loads_nothing_from_outside():
     text = PAGE.read_text()
     assert text.lstrip().lower().startswith("<!doctype html>")

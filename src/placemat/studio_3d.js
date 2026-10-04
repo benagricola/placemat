@@ -70,7 +70,7 @@ export async function mount(host) {
     // the copper in the 2D view's layer colours (studio_page.html's tokens)
     Object.assign(t, {cuF: css("--copper", d ? "#e8895a" : "#b45f2c"), cuB: css("--copperB", d ? "#6aa3ff" : "#2f6fb8"), cuIn: css("--copperIn", d ? "#5dc48a" : "#2e8b57"),
       planeF: css("--plane", d ? "#b8734a" : "#c98a5e"), via: css("--via", d ? "#c47a45" : "#7d4a22"), substrate: css("--substrate", d ? "#1b2025" : "#fbfbf8"),
-      sevCritical: css("--sev-critical", d ? "#ff7a73" : "#c8312c"), sevWarning: css("--sev-warning", d ? "#f0b24a" : "#9a5b00"), sevNotice: css("--sev-notice", d ? "#6f9cff" : "#2563eb"),
+      sevCritical: css("--sev-critical", d ? "#ff7a73" : "#c8312c"), sevWarning: css("--sev-warning-mark", d ? "#ffd400" : "#f2c200"), sevNotice: css("--sev-notice", d ? "#6f9cff" : "#2563eb"),
       bad: css("--bad", d ? "#ff7a73" : "#c8312c")});
     state.marksSig = "";                                     // the markers take the theme's colours at their next sync
     if (host.changed && state.sig) host.changed();

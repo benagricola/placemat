@@ -21,6 +21,7 @@
   --keepout: #d6336c; --reserve: #3b6fe0; --ok: #1a7f47; --over: #d1342f; --free: #8a929d; --pocket: #e8590c; --finding: #d97706; --ref: #26396b;
   --copperB: #2f6fb8; --copperIn: #2e8b57; --tk: #a626a4; --ts: #2a7a3b; --tc: #7a8490; --tn: #b5560a; --tf: #1f5fbf; --td: #9a5b00;
   --sev-notice: #2563eb; --sev-warning: #9a5b00; --sev-critical: #c8312c;
+  --sev-warning-mark: #f2c200;     /* a filled warning mark (a marker, an area, a count): yellow; --sev-warning is for text, dark enough to read */
   /* hues for what a chip names (a kind of step or command), apart from the state colours: blue running, green done, yellow warning, red error */
   --k-teal: #0b7285; --k-violet: #6d3fc4; --k-pink: #b02a75;
   --shadow: 0 1px 2px rgba(0,0,0,0.08), 0 4px 14px rgba(0,0,0,0.10);
@@ -35,6 +36,7 @@
     --keepout: #ff6b9a; --reserve: #6f9cff; --ok: #4cc27e; --over: #ff6a62; --free: #7d8793; --pocket: #ff8a4d; --finding: #f5a524; --ref: #b4c4ee;
     --copperB: #6aa3ff; --copperIn: #5dc48a; --tk: #d196ff; --ts: #8fd18f; --tc: #7d8794; --tn: #ffb070; --tf: #7fb2ff; --td: #f0c060;
     --sev-notice: #6f9cff; --sev-warning: #f0b24a; --sev-critical: #ff7a73;
+    --sev-warning-mark: #ffd400;
     --k-teal: #4cc9d9; --k-violet: #b79bff; --k-pink: #f27fb8;
     --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 4px 14px rgba(0,0,0,0.45);
   }
@@ -423,8 +425,8 @@ table.diff td.link { color: var(--mark); width: 14px; }
 .row.step .full .fndrow.go { cursor: pointer; }
 .row.step.open .l2 { display: none; }
 .row.step.open .full { display: block; }
-.fdot { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #fff; background: var(--sev-warning); padding: 0 4px; }
-.fdot.critical { background: var(--sev-critical); } .fdot.notice { background: var(--sev-notice); }
+.fdot { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #10151b; background: var(--sev-warning-mark); padding: 0 4px; }
+.fdot.critical { background: var(--sev-critical); color: #fff; } .fdot.notice { background: var(--sev-notice); color: #fff; }
 .sev { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 0 7px; border-radius: 999px; background: var(--warn-soft); color: var(--sev-warning); flex: none; }
 .sev.critical { background: var(--bad-soft); color: var(--sev-critical); } .sev.notice { background: var(--accent-soft); color: var(--sev-notice); }
 .filters { display: flex; gap: 6px; padding: 8px 12px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
@@ -507,7 +509,7 @@ svg text { user-select: none; font-family: var(--sans); }
 .row.note .l2 { overflow-wrap: anywhere; white-space: normal; }
 .row.note .nd { margin-left: auto; border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
 /* findings: translucent areas in the worst severity's signal colour with a thin outline, a count badge where there are several */
-.fa { --fc: #ffd400; pointer-events: auto; cursor: pointer; }
+.fa { --fc: var(--sev-warning-mark); pointer-events: auto; cursor: pointer; }
 .fa.critical { --fc: #ff1744; } .fa.notice { --fc: #00c2ff; }
 .fa .area { fill: var(--fc); fill-opacity: 0.12; stroke: var(--fc); stroke-width: 1.5px; stroke-opacity: 0.95; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .fa:hover .area { fill-opacity: 0.24; }
