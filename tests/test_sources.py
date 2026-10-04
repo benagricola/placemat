@@ -202,3 +202,26 @@ def test_the_generation_environment_drops_the_kicad_project_variable(monkeypatch
     monkeypatch.setenv("PLACEMAT_KEEP", "1")
     env = runner.generation_env()
     assert "KIPRJMOD" not in env and "DISPLAY" not in env and env["PLACEMAT_KEEP"] == "1"
+
+
+def test_a_run_folder_keeps_the_boards_rules_beside_its_copy(tmp_path):
+    from placemat.runner import copy_board
+    board = tmp_path / "layout"
+    board.mkdir()
+    (board / "layout.kicad_pcb").write_text("pcb")
+    (board / "layout.kicad_pro").write_text("pro")
+    (board / "layout.kicad_dru").write_text("dru")
+    run = tmp_path / "run"
+    run.mkdir()
+    copy_board(board / "layout.kicad_pcb", run)
+    assert sorted(p.name for p in run.iterdir()) == ["layout.kicad_dru", "layout.kicad_pcb", "layout.kicad_pro"]
+    assert (run / "layout.kicad_dru").read_text() == "dru"
+
+
+def test_a_board_with_no_rules_beside_it_names_what_is_missing(tmp_path):
+    from placemat.runner import missing_rules
+    (tmp_path / "b.kicad_pcb").write_text("pcb")
+    assert missing_rules(tmp_path / "b.kicad_pcb") == [".kicad_pro", ".kicad_dru"]
+    (tmp_path / "b.kicad_pro").write_text("pro")
+    (tmp_path / "b.kicad_dru").write_text("dru")
+    assert missing_rules(tmp_path / "b.kicad_pcb") == []

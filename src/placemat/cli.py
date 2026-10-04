@@ -604,6 +604,11 @@ def cmd_drc(args) -> int:
     from .report import airwires_from_drc
     from .pairs import board_pairs
     pcb = Path(args.pcb)
+    from .runner import missing_rules
+    missing = missing_rules(pcb)
+    if missing and not args.json:
+        console.say("drc", "no %s beside %s: judged by KiCad's default rules, not the board's" % (" or ".join(missing), pcb.name),
+                    level="warning")
     with tempfile.TemporaryDirectory() as scratch:      # the report is read here and not kept: a rerun makes it again
         report = run_drc(pcb, Path(scratch) / "drc.json")
         data = json.loads((Path(scratch) / "drc.json").read_text())
@@ -617,7 +622,7 @@ def cmd_drc(args) -> int:
     aw = airwires_from_drc(data, partners=partners)
     items = violation_items(data, {}, insts)
     if args.json:
-        console.data(json.dumps({"by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
+        console.data(json.dumps({"missing_rules": missing, "by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
                                  "unconnected": report.unconnected, "open_nets": dict(report.open_nets),
                                  "airwires": aw, "violations": items, "unconnected_items": unconnected_items(data, insts)},
                                 indent=2))
@@ -651,6 +656,11 @@ def cmd_route(args) -> int:
     from .settings import bind, load
     src = None if p.suffix == ".kicad_pcb" else find_board(p)
     pcb = p if src is None else src.pcb
+    from .runner import missing_rules
+    missing = missing_rules(pcb)
+    if missing and not args.json:
+        console.say("route", "no %s beside %s: the pre-route DRC and the router use KiCad's default rules, not the board's"
+                    % (" or ".join(missing), pcb.name), level="warning")
     work = Path(args.out) if args.out else pcb.parent.parent.parent / ".placemat" / "route"
     cfg = load(src.board_dir if src is not None else pcb.parent, script=_script_of(p))       # the board's own [route] settings
     from .kicad.route import plane_nets_of
@@ -675,7 +685,7 @@ def cmd_route(args) -> int:
             raise
         channel.finish(getattr(report, "record", None) or None)
     if args.json:
-        console.data(json.dumps(report.as_dict(), indent=2))
+        console.data(json.dumps(dict(report.as_dict(), missing_rules=missing), indent=2))
     else:
         console.say("route", report.summary())
         if report.resumed:

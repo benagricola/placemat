@@ -126,6 +126,23 @@ def cached_generation(src: BoardSource) -> Path:
 # What placemat itself writes into a layout folder, beside what the generator
 # writes (the cached generation's files): anything else there is someone's.
 _OURS = (".kicad_pcb", ".kicad_pro", ".kicad_prl", ".kicad_dru")
+
+
+def missing_rules(pcb: Path) -> list:
+    """The project and design-rules files KiCad reads a board's rules from that are not beside `pcb` (".kicad_pro",
+    ".kicad_dru"): without them a DRC or a route judges the board by KiCad's defaults."""
+    return [ext for ext in (".kicad_pro", ".kicad_dru") if not pcb.with_suffix(ext).exists()]
+
+
+def copy_board(pcb: Path, run_dir: Path) -> None:
+    """The board into a run folder as layout.kicad_pcb, with its project and design rules (the .kicad_pro and .kicad_dru beside
+    it) as layout.kicad_pro and layout.kicad_dru: KiCad reads a board's rules from those, so `placemat drc` and `placemat
+    route` on the run's copy judge it by the board's own rules."""
+    shutil.copy(pcb, run_dir / "layout.kicad_pcb")
+    for ext in (".kicad_pro", ".kicad_dru"):
+        beside = pcb.with_suffix(ext)
+        if beside.exists():
+            shutil.copy(beside, run_dir / ("layout" + ext))
 _RENDERS = ("layout.png", "layout-iso.png", "layout-bottom.png")
 _OUR_FILES = _RENDERS + ("drc.json",)
 
@@ -507,7 +524,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             if models_line(e.plan.models):
                 say("models", models_line(e.plan.models))
             finish_board(src.pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
-            shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
+            copy_board(src.pcb, run_dir)
             if render:
                 render_board(src.pcb, run_dir / "render.log", both_faces=True)
             raise RunFailure("placement", str(e), {"item": e.key, "tail": "board written as it stood: %s" % src.pcb})
@@ -550,7 +567,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("models", line)
         finish_board(src.pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
         rec.timing_s["write"] = round(time.time() - t0, 1)
-        shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
+        copy_board(src.pcb, run_dir)
         say("board", "written %s (%.1fs)" % (src.pcb.relative_to(src.board_dir), rec.timing_s["write"]))
 
         if plan.seeded_by_net:
