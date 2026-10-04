@@ -693,6 +693,71 @@ def _time_step_limit(f):
         f["item"], f["elapsed_s"], pass_text(f), f["limit_s"], left)
 
 
+# ------------------------------------------------------------------ arrangements
+def refusal_record_text(r: dict) -> str:
+    """One reason an arrangement is not offered (arrangement_run.prove)."""
+    form = r["form"]
+    if form == "unplaced":
+        return "%s is not placed" % r["item"]
+    if form == "finding":
+        return "%s (%s)" % (r["cause"], r["item"]) if r.get("item") else r["cause"]
+    if form == "drc":
+        return "DRC %s x%d" % (r["bucket"], r["count"])
+    if form == "unconnected":
+        return "%d unconnected, the default has %d" % (r["count"], r["default"])
+    if form == "verdict":
+        return "%s %s failed" % (r["check"], r["item"])
+    if form == "nested_cell":
+        return "%s, a cell inside the module, stands elsewhere than in the default" % r["item"]
+    return form
+
+
+@renders(C.ARRANGEMENT_LIMIT, "variant", "arrangements", "max_arrangements", "options", "max_options")
+def _arrangement_limit(f):
+    tail = "so only the default is laid out; name a group (board.arrangement) for each combination that matters"
+    if f["variant"] == "options":
+        item, n = max(f["options"].items(), key=lambda kv: (kv[1], kv[0]))
+        return "%s has %d options, over the %d place.arrangement_options_max allows, %s" % (item, n, f["max_options"], tail)
+    return "this module declares %d arrangements, over the %d place.arrangements_max allows, %s" % (
+        f["arrangements"], f["max_arrangements"], tail)
+
+
+@renders(C.ARRANGEMENT_REFUSED, "id", "refused")
+def _arrangement_refused(f):
+    return "arrangement %s is not offered: %s" % (f["id"], "; ".join(refusal_record_text(r) for r in f["refused"]))
+
+
+@renders(C.ARRANGEMENT_DUPLICATE, "id", "same_as")
+def _arrangement_duplicate(f):
+    return "arrangement %s lays out exactly as %s and is dropped" % (f["id"], f["same_as"])
+
+
+_STALE_WHY = {"version": "its note is of a version this placemat does not read",
+              "base": "the cell's members are not where the module run left them",
+              "offset": "the cell's members do not stand at one offset from the module run's places",
+              "member": "the note names members the cell does not have, or the cell has members the note does not",
+              "net": "the note names a net this board does not have",
+              "text": "its note text is not whole or does not parse"}
+
+
+@renders(C.ARRANGEMENT_STALE, "cell", "reason", "ids")
+def _arrangement_stale(f):
+    ids = ", ".join(f["ids"]) or "its arrangements"
+    return "%s: arrangement %s is ignored: %s" % (f["cell"], ids, _STALE_WHY.get(f["reason"], f["reason"]))
+
+
+@renders(C.ARRANGEMENT_MISSING, "item", "asked", "offered")      # `source` ("lock") is optional, added by the lock
+def _arrangement_missing(f):
+    return "%s: arrangements= names %s, which the module does not offer (it offers %s)" % (
+        f["item"], ", ".join(f["asked"]), ", ".join(f["offered"]) or "nothing")
+
+
+@renders(C.ARRANGEMENT_EXTENT_FIXED, "item", "sides", "protrudes_mm", "alternatives")
+def _arrangement_extent_fixed(f):
+    return "%s sets the module's extent on the %s side%s (%.1f mm past the next part) and has no alternative" % (
+        f["item"], " and ".join(f["sides"]), "s" if len(f["sides"]) > 1 else "", f["protrudes_mm"])
+
+
 def facts_reason_text(r: dict) -> str:
     """One reason the board's facts are unconfirmed (facts.unconfirmed_reasons)."""
     reason = r["reason"]

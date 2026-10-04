@@ -32,6 +32,7 @@ class FindingKind(str, Enum):
     NEEDS = "needs"                     # a spot placemat would have used an if-needed fab option for, and did not
     SPLIT = "split"                     # a cell whose members form two or more groups joined only by board-level nets
     TIME = "time"                       # a step that ran past the time a command allows it (`--step-warn`, `--step-limit`)
+    ARRANGEMENT = "arrangement"         # a module's alternative arrangements: over the limits, refused by the module run, stale on the stamping board, asked for and not offered
 
     def __str__(self):
         return self.value
@@ -110,6 +111,12 @@ class FindingCause(str, Enum):
     SPLIT_GROUPS = (FindingKind.SPLIT, "split.groups")
     TIME_STEP_SLOW = (FindingKind.TIME, "time.step_slow")
     TIME_STEP_LIMIT = (FindingKind.TIME, "time.step_limit")
+    ARRANGEMENT_LIMIT = (FindingKind.ARRANGEMENT, "arrangement.limit")
+    ARRANGEMENT_REFUSED = (FindingKind.ARRANGEMENT, "arrangement.refused")
+    ARRANGEMENT_DUPLICATE = (FindingKind.ARRANGEMENT, "arrangement.duplicate")
+    ARRANGEMENT_STALE = (FindingKind.ARRANGEMENT, "arrangement.stale")
+    ARRANGEMENT_MISSING = (FindingKind.ARRANGEMENT, "arrangement.missing")
+    ARRANGEMENT_EXTENT_FIXED = (FindingKind.ARRANGEMENT, "arrangement.extent_fixed")
 
     def __str__(self):
         return self.value
@@ -150,6 +157,7 @@ SEVERITY = {
     FindingKind.NEEDS: "notice",
     FindingKind.SPLIT: "warning",
     FindingKind.TIME: "notice",
+    FindingKind.ARRANGEMENT: "warning",
 }
 """A kind's default severity: a classification of what the kind means, not a
 tunable. A finding of a kind that mixes causes is made with its own."""

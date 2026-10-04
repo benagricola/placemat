@@ -3944,6 +3944,8 @@ its kind.
 | `split` | warning | a cell whose members form groups joined only by board-level nets |
 | `time` (`time.step_slow`) | notice | a step ran past `--step-warn` (or `--step-limit`, with no pass left to stop at); the placement is its own |
 | `time` (`time.step_limit`) | critical when the item is left unplaced, warning when it kept the best spot found | a step gave up at `--step-limit`; the next run searches it again |
+| `arrangement` (`arrangement.limit`, `arrangement.refused`, `arrangement.stale`, `arrangement.missing`) | warning | a module's alternatives over the limits, refused by the module's proof, ignored on the stamping board, or asked for and not offered |
+| `arrangement` (`arrangement.duplicate`, `arrangement.extent_fixed`) | notice | an arrangement dropped for laying out as another; a part that sets the module's extent and has no alternative |
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
@@ -4236,6 +4238,11 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.block_gap_reach` | `2.0` | mm | how far a satellite may stand off its pin |
 | `place.copper_room` | `true` | bool | whether placement keeps room for the copper the script declares: a track or via declared between parts is planned provisionally, and a part standing Beside another moves out of its way. False places as before |
 | `place.step_budget` | `20000000` | count | the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area it covered. Counted, not timed: the result does not depend on how busy the machine is. A `place(budget=)` replaces it |
+| `place.arrangements` | `true` | bool | whether a stamped cell's module arrangements (alternative layouts a module run proved) are searched; false lays every cell's default only, and a module run lays out its default only |
+| `place.arrangement_options_max` | `4` | count | the most options one item of a module may have, its `place()` included; a module that declares more is not partly accepted: its run lays out the default only and says so |
+| `place.arrangements_max` | `8` | count | the most arrangements a module may have, the default and the named groups included; the product of the items' options counts |
+| `place.arrangement_note_chars` | `4000` | count | the characters one arrangement note text holds before it is split into numbered texts (a note rides on a User.Comments text of the fragment) |
+| `place.extent_notice_mm` | `1.0` | mm | how far a part may stand past the next part on a side of a module that declares no alternatives before `arrangement.extent_fixed` notes it as setting the module's extent |
 | `place.firm_passes` | `8` | count | the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was refused by a firm part placed before it, with the two taken in the other order), the last one the settled run |
 | `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |
 | `place.beside_step` | `0.01` | mm | the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands |
@@ -4362,6 +4369,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.via_move` | `2.0` | mm | mm for each carried via that moves there |
 | `score.via_drop` | `10.0` | mm | mm for each plane drop dropped there |
 | `score.back_face` | `2.0` | mm | mm the search adds to a spot on the back face of an item placed with `face=Face.EITHER`, so an equal spot is the front's; no item with a fixed face pays it |
+| `score.arrangement` | `0.0` | mm | mm the search adds to a cell's non-default arrangement, so an equal score keeps the module's own layout; a project raises it to prefer the module's default by that much |
 | `score.push` | `10.0` | mm | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
 | `score.via_leave` | `4.0` | mm | mm for each carried via that leaves its pad there, between move and shorten |
 | `score.via_relay` | `3.0` | mm | mm for each via field re-laid there, once, between move and leave |

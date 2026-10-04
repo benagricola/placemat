@@ -137,6 +137,16 @@ def _back_face(n):
     return "on the back face: %.2f and %.2f for the back face against %.2f on the front" % (n["back"], n["cost"], n["front"])
 
 
+@renders("arrangement")
+def _arrangement(n):
+    if n.get("default_blame") is not None:
+        return "arrangement %s: the default module has no legal spot (%s)" % (n["id"], finding_text.blame_text(n["default_blame"]))
+    if n.get("score") is None:
+        return "arrangement %s" % n["id"]
+    return "arrangement %s: %.2f and %.2f for it against %.2f as the default module stands" % (
+        n["id"], n["score"], n.get("cost", 0.0), n["default_score"])
+
+
 @renders("lookahead_dropped")
 def _lookahead_dropped(n):
     return "no spot left %s room, so the look-ahead was dropped" % _list(n["partners"])

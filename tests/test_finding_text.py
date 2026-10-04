@@ -133,6 +133,27 @@ SAMPLES = [
     (C.TIME_STEP_LIMIT, {"item": "u1", "elapsed_s": 60.4, "limit_s": 60.0, "pass": "coarse", "within": None, "stage": "coarse",
                          "firm_pass": None, "kept": "unplaced"},
      "u1: gave up after 60.4 s in the coarse pass (--step-limit 60 s) and is left unplaced; the next run searches it again"),
+    (C.ARRANGEMENT_LIMIT, {"variant": "arrangements", "arrangements": 12, "max_arrangements": 8,
+                           "options": {"c_in": 3, "r_pull": 2}, "max_options": 4},
+     "this module declares 12 arrangements, over the 8 place.arrangements_max allows, so only the default is laid out; "
+     "name a group (board.arrangement) for each combination that matters"),
+    (C.ARRANGEMENT_LIMIT, {"variant": "options", "arrangements": 6, "max_arrangements": 8,
+                           "options": {"c_in": 5}, "max_options": 4},
+     "c_in has 5 options, over the 4 place.arrangement_options_max allows, so only the default is laid out; "
+     "name a group (board.arrangement) for each combination that matters"),
+    (C.ARRANGEMENT_REFUSED, {"id": "mirrored", "refused": [{"form": "drc", "bucket": "clearance", "count": 2},
+                                                           {"form": "verdict", "check": "hot-loop", "item": "c_in"}]},
+     "arrangement mirrored is not offered: DRC clearance x2; hot-loop c_in failed"),
+    (C.ARRANGEMENT_DUPLICATE, {"id": "c_in.same", "same_as": "default"},
+     "arrangement c_in.same lays out exactly as default and is dropped"),
+    (C.ARRANGEMENT_STALE, {"cell": "mod", "reason": "base", "ids": ["c_in.east"]},
+     "mod: arrangement c_in.east is ignored: the cell's members are not where the module run left them"),
+    (C.ARRANGEMENT_MISSING, {"item": "mod", "asked": ["c_in.west"], "offered": ["default", "c_in.east"]},
+     "mod: arrangements= names c_in.west, which the module does not offer (it offers default, c_in.east)"),
+    (C.ARRANGEMENT_MISSING, {"item": "mod", "asked": ["c_in.west"], "offered": ["default"], "source": "lock"},
+     "mod: arrangements= names c_in.west, which the module does not offer (it offers default)"),
+    (C.ARRANGEMENT_EXTENT_FIXED, {"item": "c_bulk", "sides": ["east", "north"], "protrudes_mm": 1.8, "alternatives": True},
+     "c_bulk sets the module's extent on the east and north sides (1.8 mm past the next part) and has no alternative"),
 ]
 
 
