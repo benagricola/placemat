@@ -20,3 +20,49 @@ def module(settings=None) -> Board:
     b.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST), why="bypass at VIN")
     b.place(Part("r_pull"), at=Beside(Part("u1"), Edge.EAST), why="pull-up at OUT")
     return b
+
+
+import dataclasses
+
+from placemat import arrangement_note as N
+from placemat.arranged_geometry import attach
+from placemat.copper import Track
+from placemat.placement import Placement
+from placemat.values import CopperLayer, Face
+
+
+def stamped_geometry(offset=(30.0, 10.0), partner=None, obstacle=None):
+    """A board holding cell `mod` stamped from a fragment whose c_in stood at (1.0, 3.0) and u1 at (6.0, 3.0), moved by `offset`, and
+    a loose part. The fragment's nets are `VIN`, `GND` and `OUT`; the board names them `mod.VIN` and so on. `partner=(x, y)` adds a
+    part `r8` on the cell's VIN net there (the pull a search follows); `obstacle=(x, y, w, h)` adds a part `obst` that fills that box."""
+    ox, oy = offset
+    fps = [footprint("C1", 1.0 + ox, 3.0 + oy, w=3, h=1.6, nets=("mod.VIN", "mod.GND"), cell="mod", inst="mod.c_in"),
+           footprint("U1", 6.0 + ox, 3.0 + oy, w=6, h=4, nets=("mod.VIN", "mod.OUT"), cell="mod", inst="mod.u1"),
+           footprint("R9", 5, 5, nets=("mod.OUT", "GND"))]
+    if partner is not None:
+        fps.append(footprint("R8", partner[0], partner[1], w=3, h=1.6, nets=("mod.VIN", "GND"), inst="r8"))
+    if obstacle is not None:
+        x, y, w, h = obstacle
+        fps.append(footprint("R7", x, y, w=w, h=h, nets=("GND", "GND"), inst="obst"))
+    return board_geometry(fps, cells=["mod"], extra_nets=("mod.GND", "GND"), width=80, height=60)
+
+
+DEFAULT_C_IN = Placement(Location(1.0, 3.0), 0.0, Face.FRONT)
+DEFAULT_U1 = Placement(Location(6.0, 3.0), 0.0, Face.FRONT)
+OBSTACLE = (43.0, 32.5, 2.0, 1.0)         # filled in the default's u1 and free in c_in.east, for a firm cell with its box centre on (40, 30)
+
+
+def east_doc(ident="c_in.east", order=1, ops=None, base_from=None, keepouts=()):
+    """The note of an arrangement that turns c_in half way round and stands it east of u1 (fragment frame)."""
+    east = Placement(Location(11.0, 3.0), 180.0, Face.FRONT)
+    ops = [Track("VIN", CopperLayer.F, 0.3, Location(9.0, 3.0), Location(10.1, 3.0))] if ops is None else ops
+    return N.document(ident, {"c_in": "east"}, [("c_in", east, DEFAULT_C_IN), ("u1", DEFAULT_U1, DEFAULT_U1)], ops,
+                      list(keepouts), order=order)
+
+
+def with_arrangement(g=None, doc=None):
+    """`stamped_geometry` whose cell `mod` carries the note `doc` read as the reader reads it."""
+    g = g or stamped_geometry()
+    texts = N.encode(doc or east_doc(), 4000)
+    cell = attach(g.cells["mod"], texts, frozenset(g.nets), g.layers)
+    return dataclasses.replace(g, cells={**g.cells, "mod": cell})

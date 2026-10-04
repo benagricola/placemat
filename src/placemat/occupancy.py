@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from . import geometry as _geometry_module
 from . import kicad_collide as _kc
 from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
-                       point_in_polygon, point_segment_distance, polys_overlap, transform_box,
+                       point_in_polygon, point_segment_distance, polys_overlap, pose_transform, transform_box,
                        transform_polygon)
 from .outline import Outline
 from .placement import Placement
@@ -661,14 +661,7 @@ class Occupancy:
 
         A cell's reference rotation is always 0, so this is identical to the
         unflipped arithmetic for a cell and nothing about cells changes."""
-        ref = geom.reference
-        t = Transform.translate(-ref.location.x, -ref.location.y)
-        flip = placement.face != ref.face
-        if flip:
-            t = t.then(Transform.mirror_x(Location(0, 0)))
-        turn = placement.rotation + ref.rotation if flip else placement.rotation - ref.rotation
-        t = t.then(Transform.rotate(turn))
-        return t.then(Transform.translate(placement.location.x, placement.location.y))
+        return pose_transform(geom.reference, placement)
 
     def _flip_layers(self, layers: frozenset[CopperLayer]) -> frozenset[CopperLayer]:
         """The layers a cell's own copper stands on once the cell is flipped:
