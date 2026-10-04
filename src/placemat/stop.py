@@ -152,7 +152,7 @@ def _cap_line(rec: dict, who: str) -> str:
         now = rec.get("in_progress")
         if now:
             from .timecap import pass_phrase
-            out += ", %s in progress (%s, %.0f s)" % (now["item"], pass_phrase(now["pass"], now.get("within")), now["elapsed_s"])
+            out += ", %s in progress (%s, %.0f s)" % (now["item"], pass_phrase(now["pass"], now.get("within"), now.get("firm_pass")), now["elapsed_s"])
         found = rec.get("findings") or {}
         if found.get("count"):
             out += ", %d finding(s) so far (%s)" % (found["count"], ", ".join("%d %s" % (n, s) for s, n in found["by_severity"].items()))

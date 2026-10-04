@@ -623,7 +623,7 @@ def _setup_lookahead(f):
 def pass_text(f: dict) -> str:
     """The pass a step was in, from a time finding's facts: "refine pass 2 of 3", "firm pass 1"."""
     from .timecap import pass_phrase
-    return pass_phrase(f.get("pass") or "settle", f.get("within"))
+    return pass_phrase(f.get("pass") or "settle", f.get("within"), f.get("firm_pass"))
 
 
 @renders(C.TIME_STEP_SLOW, "item", "elapsed_s", "pass")

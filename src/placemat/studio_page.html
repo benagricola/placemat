@@ -2642,7 +2642,7 @@ on("cmd", c => {
 });
 // A step a command found past its time (--step-warn, --step-limit): the item, its seconds and the pass it was in.
 const SLOW_PASS = {coarse: "coarse", coarse_half: "coarse", fine: "fine", refine: "refine", give_way: "give-way", scan: "scan", seeding: "seeding", declared: "declared"};
-const slowPass = d => d.firm_pass ? "firm pass " + d.firm_pass : (SLOW_PASS[d.stage] || "settle") + " pass" + (d.within ? " " + d.within[0] + " of " + d.within[1] : "");
+const slowPass = d => !d.stage && d.firm_pass ? "firm pass " + d.firm_pass : (SLOW_PASS[d.stage] || "settle") + " pass" + (d.within ? " " + d.within[0] + " of " + d.within[1] : "") + (d.firm_pass ? ", firm pass " + d.firm_pass : "");
 const slowText = d => d.item + (d.ev === "step_limit" ? ": gave up after " : ": still working after ") + Math.round(d.elapsed_s) + " s in the " + slowPass(d);
 on("slow", d => toast(slowText(d), () => { goTab("runs"); openCmd(d.id); }));
 on("cmdev", d => {

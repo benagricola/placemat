@@ -1824,4 +1824,4 @@ out.say = [
 ];
 """)
     assert out["say"] == ["ble: still working after 31 s in the refine pass 2 of 3", "ble: gave up after 62 s in the coarse pass",
-                          "ble: still working after 40 s in the firm pass 2"]
+                          "ble: still working after 40 s in the give-way pass, firm pass 2"]

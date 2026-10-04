@@ -60,19 +60,20 @@ class StepTime:
 
 
 def pass_name(stage, within=None, firm_pass=None) -> str:
-    """The pass a step is in, as one word for a person (phases.label): coarse, fine, refine, give-way, a firm pass k, or what
-    else it was doing."""
-    if firm_pass is not None:
-        return "firm pass %d" % firm_pass
+    """The pass a step is in, as one word for a person (phases.label): coarse, fine, refine, give-way, ...; a step not yet in
+    a pass of its search, in a firm pass of the resolve, is in "firm pass k"."""
     from .phases import label
+    if not stage and firm_pass is not None:
+        return "firm pass %d" % firm_pass
     return label(stage)
 
 
-def pass_phrase(name: str, within=None) -> str:
-    """A pass named for a sentence: "coarse pass", "refine pass 2 of 3", "firm pass 1"."""
+def pass_phrase(name: str, within=None, firm_pass=None) -> str:
+    """A pass named for a sentence: "coarse pass", "refine pass 2 of 3", "give-way pass, firm pass 1"."""
     if name.startswith("firm pass"):
         return name
-    return "%s pass%s" % (name or "settle", (" %d of %d" % tuple(within)) if within else "")
+    return "%s pass%s%s" % (name or "settle", (" %d of %d" % tuple(within)) if within else "",
+                            (", firm pass %d" % firm_pass) if firm_pass else "")
 
 
 def configure(max_time=None, step_warn=None, step_limit=None) -> None:
@@ -321,7 +322,7 @@ class Clock:
 
 def step_line(ev: dict) -> str:
     """One line for a `step_warn` or `step_limit` event, for the console and `placemat watch`."""
-    where = pass_phrase(ev.get("pass") or "settle", ev.get("within"))
+    where = pass_phrase(ev.get("pass") or "settle", ev.get("within"), ev.get("firm_pass"))
     if ev.get("ev") == "step_limit":
         return "%s: gave up after %.1f s (--step-limit %g s) in the %s" % (ev.get("item"), ev.get("elapsed_s", 0.0), ev.get("bound_s", 0), where)
     return "%s: still working after %.1f s (--step-warn %g s) in the %s" % (ev.get("item"), ev.get("elapsed_s", 0.0), ev.get("bound_s", 0), where)

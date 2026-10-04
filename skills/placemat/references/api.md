@@ -3357,7 +3357,7 @@ socket for as long as it runs (Linux and macOS):
   spots being refined) and `give_way` (candidates refused only by carried vias judged again); with the `item` and `elapsed_s`, its seconds so
   far, when the phase is part of a step, and `firm_pass` when it is in one of the passes over the firm items (`place.firm_passes`). The
   words are made where the event is read, `placemat watch` and the studio's pill), `step_warn` and `step_limit` (a step past its
-  `--step-warn` or `--step-limit` time: `item`, `elapsed_s`, `bound_s`, `pass` (`coarse`, `fine`, `refine`, `give-way`, `firm pass k`, ...),
+  `--step-warn` or `--step-limit` time: `item`, `elapsed_s`, `bound_s`, `pass` (`coarse`, `fine`, `refine`, `give-way`, ...; `firm pass k` before the step has reached a pass of its search),
   `stage`, `within`, `firm_pass`, `at`), `item` (a settled step: the item, its copper or cutout ops; the item carries `seconds` and, for a replayed step, `first_seconds`, `notes` and, for one with no place, `unplaced`), `plan` (`doc`: the whole
   plan as the studio draws it), for an explore `explore` (focus, the plain placement and order, the baseline score, jobs),
   `variant` (`seed`, `score`, the focused items' `placements` and `order`) and `explore_done` (`best`, `baseline`, `tried`,
