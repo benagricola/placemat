@@ -338,6 +338,11 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Give-way search stops at the nearest window** (0.97.3): a carried via's
+  move or leave search judges nearest offsets first and stops at the first
+  window with a spot; a net tie in reach stays native. Same results at
+  defaults; a 3 mm reach now costs 1.35-2x instead of not finishing.
+
 - **Native status said; DRC as KiCad judges; planes over zones** (0.97.2): a
   run without the native module says so (setup.native); every KiCad
   error-severity kind counts in the DRC headline; KiCad and pcb children run
