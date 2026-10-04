@@ -11,7 +11,7 @@ import { OrbitControls } from "./OrbitControls.js";
 const css = (n, d) => (getComputedStyle(document.documentElement).getPropertyValue(n) || "").trim() || d;
 const dark = () => matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
 
-import { parsePmm, upper, partSteps } from "./viewer_core.js";
+import { parsePmm, upper, partSteps, plateOutline } from "./viewer_core.js";
 export { parsePmm };
 
 function hatch(color) {
@@ -153,17 +153,10 @@ export async function mount(host) {
     clearSel();
     state.groups = []; state.plates = [];
   }
-  function polyOf(member) { const s = (member.shapes || []).find(x => x.kind === "courtyard"); return s ? s : null; }
-  // A part with no model is a plate: its courtyard extruded a little off its face, hatched. They are one mesh (one draw call) whatever their
-  // number; they are in step order, so the first k are a draw range.
+  // A part with no model is a plate: its outline (plateOutline: its courtyard, else its body, else the box of its shapes) extruded a little off
+  // its face, hatched. They are one mesh (one draw call) whatever their number; they are in step order, so the first k are a draw range.
   function plateOf(item, member, why, n, loading) {
-    const cy = polyOf(member);
-    const back = cy ? (cy.faces || ["front"])[0] === "back" : item.face === "back";
-    let pts = cy ? cy.poly : null;
-    if (!pts || pts.length < 3) {                                           // no courtyard either: a marker at the part
-      const at = item.at || [0, 0];
-      pts = [[at[0] - 0.6, at[1] - 0.6], [at[0] + 0.6, at[1] - 0.6], [at[0] + 0.6, at[1] + 0.6], [at[0] - 0.6, at[1] + 0.6]];
-    }
+    const {pts, back} = plateOutline(item, member);
     return {n, key: item.key, ref: member.ref, why, loading, pts, back, vstart: 0, vend: 0};
   }
   function buildPlates() {

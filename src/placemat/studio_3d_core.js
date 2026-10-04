@@ -21,6 +21,22 @@ export function parsePmm(buf) {
 export const upper = (arr, k) => { let lo = 0, hi = arr.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < k) lo = mid + 1; else hi = mid; } return lo; };   // how many of a sorted array are below k
 
 
+// The outline a part with no model is drawn as (a plate) and the face it is on: its courtyard; else its body (a document from a run's records
+// carries no courtyard for a part that is spaced by what it draws); else the box of its shapes; else a small marker at its item.
+export function plateOutline(item, member) {
+  const shapes = member.shapes || [], face = s => (s.faces || [item.face || "front"])[0] === "back";
+  const own = shapes.find(s => s.kind === "courtyard" && s.poly && s.poly.length >= 3) || shapes.find(s => s.kind === "body" && s.poly && s.poly.length >= 3);
+  if (own) return {pts: own.poly, back: face(own)};
+  const drawn = shapes.filter(s => s.poly && s.poly.length);
+  if (drawn.length) {
+    const xs = drawn.flatMap(s => s.poly.map(p => p[0])), ys = drawn.flatMap(s => s.poly.map(p => p[1]));
+    const x0 = Math.min(...xs), y0 = Math.min(...ys), x1 = Math.max(...xs), y1 = Math.max(...ys);
+    return {pts: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], back: face(drawn[0])};
+  }
+  const at = item.at || [0, 0], r = 0.6, q = v => Math.round(v * 1000) / 1000;
+  return {pts: [[q(at[0] - r), q(at[1] - r)], [q(at[0] + r), q(at[1] - r)], [q(at[0] + r), q(at[1] + r)], [q(at[0] - r), q(at[1] + r)]], back: item.face === "back"};
+}
+
 // The replay step number of each placed item: the position its first step has in the page's replaySteps order.
 export function partSteps(order) {
   const n = new Map();

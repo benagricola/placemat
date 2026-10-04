@@ -69,6 +69,21 @@ def fake(tmp_path):
     mp.undo()
 
 
+def test_the_converter_starts_where_its_log_folder_does_not_exist_yet(tmp_path, monkeypatch):
+    import os
+    script = tmp_path / "fake_converter.py"
+    script.write_text(FAKE)
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1] / "src") + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    log = tmp_path / "project" / ".placemat" / "views" / "studio" / "models3d.log"      # a project the studio has written nothing in
+    m = studio_3d.Models3D(cfg(tmp_path), lambda n, d: None, log, command=[sys.executable, str(script)])
+    try:
+        assert m.submit([{"id": "1" * 32, "kind": "file", "path": str(step(tmp_path, "a.step")), "name": "a.step"}]) == 1
+        assert wait(lambda: m.table()["1" * 32]["state"] != "loading")
+        assert m.table()["1" * 32]["state"] == "ok" and log.is_file()
+    finally:
+        m.stop()
+
+
 def test_a_job_must_name_a_real_model_or_board_file_of_the_kind_it_says(tmp_path):
     good = step(tmp_path, "a.step")
     wrl = step(tmp_path, "b.wrl")

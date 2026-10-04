@@ -655,6 +655,42 @@ def test_a_past_run_opens_with_its_board_and_findings_and_resolves_nothing(own_p
     assert s.run_view("nope") is None and s.run_view("../x") is None and s.run_view("") is None and s.run_view(".staging") is None
 
 
+def test_a_past_run_and_its_build_carry_the_models_of_the_board_it_wrote_and_their_jobs_go_to_the_converter(own_project):
+    pytest.importorskip("pcbnew")
+    import shutil
+    from placemat import route_progress, route_view
+    from placemat.kicad.read import read_board
+    s = Studio(None, port=0, open_browser=False, root=own_project.parents[2])
+    got = []
+    s.m3d.submit = lambda jobs: got.append(list(jobs)) or len(jobs)
+    board_dir = next(d for d in _board_dirs(s) if (d / ".placemat" / "generated").is_dir())
+    script = next(e["path"] for e in s.scripts() if e["src"].board_dir == board_dir)
+    cached = next((board_dir / ".placemat" / "generated").glob("*/layout.kicad_pcb"))
+    folder = _run_folder(board_dir, "ffff0006", script)
+    shutil.copy(cached, folder / "layout.kicad_pcb")
+
+    def check(doc):
+        members = [m for it in doc["items"] for m in it["members"]]
+        ids = {e["id"] for m in members for e in m["models"] if e["id"]}
+        assert members and ids and ids == set(doc["models"]) and doc["stackup"]["thickness"] > 0
+        assert all(e["matrix"] and len(e["matrix"]) == 16 for m in members for e in m["models"] if e["id"])
+        return ids
+
+    ids = check(s.run_view("ffff0006")["doc"])                                       # the written board, no plan.json
+    assert {j["id"] for j in got[-1]} == ids
+    assert {j["board"] for j in got[-1] if j["kind"] == "embedded"} == {str(folder / "layout.kicad_pcb")}
+    # a routed run: its plan.json names the members by ref; the route record's board is the same placement
+    (folder / "plan.json").write_text(json.dumps(route_view.board_doc(read_board(str(cached)))))
+    (folder / "route").mkdir()
+    stages = [{"stage": "main", "resumed": False, "seconds": 1.0, "events": [{"ev": "net_begin", "net": "A"}, {"ev": "commit", "net": "A", "seg": [[0, 0, 1, 0, "F.Cu", 0.2]], "via": []}, {"ev": "net_end", "net": "A", "ok": True}]}]
+    route_progress.write_record(folder / "route", {"pcb": str(cached), "run": "ffff0006", "script": str(script)}, stages, {"closure": 1.0}, complete=True)
+    assert check(s.run_view("ffff0006")["doc"]) == ids
+    build = s.build_record("ffff0006")["doc"]
+    assert check(build) == ids and {j["id"] for j in got[-1]} == ids
+    assert [o["origin"] for o in build["copper"] if o.get("origin")] == ["routed"] and build["steps"][-1]["origin"] == "routed"
+    assert build["score"] == {"total": s.run_summary(folder / "run.json")["score"]}                # the build is the run's: its score is the run's
+
+
 def test_a_runs_findings_are_placed_from_their_facts(project):
     from placemat import route_view
     base = {"board": {"loops": [], "drawn": False, "extent": [0, 0, 10, 10]}, "layers": ["F.Cu"],

@@ -135,9 +135,9 @@ class Models3D:
         if self.proc is not None and self.proc.poll() is None:
             return True
         try:
-            log = open(self.log_path, "ab") if self.log_path else subprocess.DEVNULL
-            if self.log_path:
+            if self.log_path:                   # the folder first: a project the studio has written nothing in has none yet
                 self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            log = open(self.log_path, "ab") if self.log_path else subprocess.DEVNULL
             self.proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1,
                                          env=child_env(headless=False))
         except OSError:

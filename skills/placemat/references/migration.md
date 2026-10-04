@@ -5,6 +5,21 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **The studio's 3D view draws a past run's parts.** A run opened from its records (what `placemat studio` shows when it follows the latest
+  run, or a run picked in the Runs tab) carried no 3D models, so no model was converted and every part was a hatched plate, most of them a
+  small marker at their cell, since a run's plan keeps few courtyards. The studio now reads the models from the board the run wrote and
+  queues them for the converter, as it does for a live resolve; a part with no model is a plate of its courtyard, else its body. The
+  converter also failed to start in a project whose `.placemat/views/studio` folder did not exist yet, with every model "the model
+  converter could not start"; it now makes the folder first.
+- **A run that routed is shown routed.** Following the latest run, or opening a past run that routed, showed the placement the run kept
+  (`plan.json`) with only the copper the script declared. Such a run now opens as its build: the placement, then the route, ending on the
+  board the router left, with the route's routed and failed counts in the strip. The router's tracks are drawn hollow, and the legend's
+  "Copper origin" rows (planned, kept, routed) count each kind and hide, show or isolate it. Nothing to change in a script.
+
 ## To 0.99.5
 
 ### Fixed
