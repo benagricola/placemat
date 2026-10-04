@@ -826,7 +826,7 @@ def test_a_placed_vias_clear_moves_are_searched_once_per_scan():
     others._native = (Index(), [])
     occ = types.SimpleNamespace(_body_refs=frozenset(), _leads=frozenset(), _margins={},
                                 settings=Settings())
-    judge = types.SimpleNamespace(occ=occ, others=others, hidden={"m via 0"}, clearance=0.2)
+    judge = types.SimpleNamespace(occ=occ, others=others, hidden={"m via 0"}, clearance=0.2, count=lambda n: None)
     from placemat.occupancy import Shape
     poly = circle_polygon(Location(10, 10), 0.225)
     ring = Shape("m", "through", frozenset([Face.FRONT, Face.BACK]), frozenset([F, B]), "GND", poly,
@@ -902,3 +902,36 @@ def test_a_net_tie_takes_only_the_spots_it_reaches_from_native(monkeypatch, name
     runs = _first_move_runs(monkeypatch, _MOVES[name])
     assert runs[True][:2] == runs[False][:2]
     print(name, shift, runs[True][2])
+
+
+def _resolutions(monkeypatch, make):
+    """The Resolutions the give way made for `make()` resolved."""
+    from placemat import giveway
+    seen = []
+    real = giveway.resolve
+
+    def spy(*a, **k):
+        seen.append(real(*a, **k))
+        return seen[-1]
+    monkeypatch.setattr(giveway, "resolve", spy)
+    make().resolve()
+    return seen
+
+
+def test_a_resolution_counts_the_judgments_it_made(monkeypatch):
+    seen = _resolutions(monkeypatch, lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0)))
+    assert seen and all(r.judged > 0 for r in seen if r.actions or r.why is not None)
+
+
+def test_the_judgments_counted_stop_at_the_window_that_holds_the_spot(monkeypatch):
+    from placemat import geometry
+    if geometry._native is None:
+        pytest.skip("no native module")
+    near = sum(r.judged for r in _resolutions(
+        monkeypatch, lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0),
+                                           settings=_settings(place_via_move_distance=3.0))))
+    _with_search_chunk(monkeypatch, 100000)
+    whole = sum(r.judged for r in _resolutions(
+        monkeypatch, lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0),
+                                           settings=_settings(place_via_move_distance=3.0))))
+    assert 0 < near < whole

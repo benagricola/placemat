@@ -179,6 +179,10 @@ class Resolution:
     # code option_via), judged but never applied - set only when that is why the
     # give way that refused this candidate could not go through for real.
     needs: "Refusal | None" = None
+    # How many judgments the resolve made: each spot of a via's move put to the board (natively or in Python),
+    # each tail and each conflict test `_Judge.hit` ran. What a scan's per-step budget charges a candidate that
+    # reached the give way.
+    judged: int = 0
 
 
 def _shift(s, dx: float, dy: float):
@@ -317,6 +321,7 @@ def _native_clear_indices(judge: "_Judge", ring, hole, offsets: tuple, upto: int
         from .occupancy import _to_native_shape
         py_shapes = [_to_native_shape(x, occ._body_refs, occ._leads, occ._margins)
                      for x in ((ring,) if hole is None else (ring, hole))]
+        judge.count(upto - done)
         found = index.first_clear_offset(py_shapes, list(offsets[done:upto]), judge.clearance, False,
                                          _hidden_skip(judge, shapes))
         clear.extend(done + i for i in found)
@@ -391,6 +396,7 @@ def _native_tail_clear(judge: "_Judge", shape, own):
     if not _NATIVE_TAIL_CLEAR or entry is None:
         return None
     index, shapes = entry
+    judge.count(1)
     gap = occ.gap_for(shape)
     near = [o for o in list(own) + judge.extra if o.box.overlaps(shape.box, gap=gap)]
     if _meets_net_tie(judge, shapes, shape.box, near):
@@ -443,6 +449,7 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
     while True:
         i = index.first_move(via, offsets, judge.clearance, skip, native_mine, g.centre, first_arg, pad_arg, tail,
                              start)
+        judge.count((len(offsets) if i is None else i + 1) - start)
         if i is None:
             return True, None
         dx, dy = offsets[i]
@@ -469,10 +476,15 @@ class _Judge:
     item being placed) less the vias hidden because they gave way, plus the
     copper they left in their place."""
 
-    def __init__(self, occ, others, clearance):
+    def __init__(self, occ, others, clearance, res=None):
         self.occ, self.others, self.clearance = occ, others, clearance
+        self.res = res if res is not None else Resolution()
         self.hidden: set = set()
         self.extra: list = []
+
+    def count(self, n: int) -> None:
+        """`n` more judgments made for the resolution this judges for."""
+        self.res.judged += n
 
     def near(self, box: Box, gap: float) -> list:
         from .occupancy import ShapeIndex
@@ -487,6 +499,7 @@ class _Judge:
         judged against the board's edge too. `say=False`: the refusal is
         only the kind of conflict."""
         occ = self.occ
+        self.count(1)
         for s in shapes:
             gap = occ.gap_for(s)
             for o in pool:
@@ -965,7 +978,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
     if others is None:
         extent = Box.union([x.box for x in mine])
         others = occ.obstacles(geom, extent.inflate(reach(s)))
-    judge = _Judge(occ, others, clearance)
+    judge = _Judge(occ, others, clearance, res)
     # what a via may not sit on: copper and holes, and a courtyard where the board's house rule says so
     kinds = _COPPER_AND_HOLES | {"viaban"} | ({"courtyard"} if occ.vias_block_courtyards else frozenset())
     fixed = [x for x in mine if not x.carried and x.kind in kinds]
@@ -980,6 +993,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
         for g in occ.placed_groups().values():
             if g.home in skip or g.owner in skip or not g.ring.box.overlaps(extent, gap=occ._gap):
                 continue
+            judge.count(1)
             hit = None
             parts = g.shapes
             for x in fixed:

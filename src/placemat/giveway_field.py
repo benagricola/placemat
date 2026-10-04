@@ -230,7 +230,7 @@ class _Layouts:
         # the board the new sites are judged against: the pad's neighbourhood, less the field's own vias
         self.rel_ids = {m.id for m in self.rel}
         local = _pool(occ, ctx.geom, box)
-        self.judge = _Judge(occ, local, judge.clearance)
+        self.judge = _Judge(occ, local, judge.clearance, judge.res)
         self.judge.hidden = set(judge.hidden) | self.rel_ids
         self.judge.extra = list(judge.extra)
         self.own = [o for o in own if o.carried not in self.rel_ids]
