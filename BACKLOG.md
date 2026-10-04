@@ -329,6 +329,12 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Native net-tie sweeps; time bounds; zone and keep-out fixes** (0.97.1):
+  a cell scan meeting a net tie judges natively (a real module 49.8 -> 12.6 s);
+  `--max-time`, `--step-warn`, `--step-limit`; structured phase events and
+  readable watch lines; overlapping stamped same-net zones get distinct
+  priorities; keep-out allows KiCad's DRC epsilon.
+
 - **Structured events; a faster scan with a step budget; NotConnected pins;
   run-folder rules; KIPRJMOD** (0.97.0): events and plan JSON carry records
   (step notes, errors, router and probe events, preview/apply --json); the
