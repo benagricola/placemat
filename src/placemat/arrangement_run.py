@@ -24,11 +24,16 @@ def begin(board) -> Prepared:
 
 def resolve_spec(prepared: Prepared, spec: Spec, *, reuse=None, lock=(), routes=None, partial=None):
     """One arrangement's Plan: the declarations put back, `spec` laid over them, and the resolve the default gets. Not
-    reported to a studio: the module run's own plan is the default's."""
+    reported to a studio: the module run's own plan is the default's. The board is left as it was found, the arrangement
+    it was laid as included, whether the resolve returns or raises."""
     board = prepared.board
-    board._restore(prepared.saved)
-    board.lay_arrangement(spec)
-    return board._resolve(None, reuse, None, lock, routes, None, None, partial)
+    found = board._snapshot()
+    try:
+        board._restore(prepared.saved)
+        board.lay_arrangement(spec)
+        return board._resolve(None, reuse, None, lock, routes, None, None, partial)
+    finally:
+        board._restore(found)
 
 
 def signature(plan) -> str:

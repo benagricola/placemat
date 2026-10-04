@@ -24,6 +24,8 @@ def test_the_default_resolves_as_the_script_says_and_an_alternative_lays_its_opt
     assert [s.id for s in prepared.specs] == ["default", "r_pull.turned", "c_in.east", "c_in.east+r_pull.turned"]
     default = run.resolve_spec(prepared, prepared.specs[0])
     east = run.resolve_spec(prepared, prepared.specs[2])
+    collided = lambda plan: [f for f in plan.findings if f.cause == "fixed.part"]
+    assert not collided(default) and collided(east)                    # east lands on r_pull: a finding under keep_going
     u1 = default.placement("u1").location.x
     assert default.placement("c_in").location.x < u1 < east.placement("c_in").location.x
     again = run.resolve_spec(prepared, prepared.specs[0])
@@ -45,27 +47,58 @@ def with_tracks():
     b.track(Net("OUT"), [PadRef(Part("u1"), 2), PadRef(Part("r_pull"), 1)], layer=F, only=("default",))
     b.track(Net("OUT"), [PadRef(Part("u1"), 2), Location(22.4, 13), Location(25.6, 13), PadRef(Part("r_pull"), 1)], layer=F,
             only=("r_pull.turned",))
+    b.via(Net("VIN"), PadRef(Part("u1"), 1))                            # no only=: in every arrangement
     return b
 
 
 def detoured(plan) -> bool:
-    return any(abs(p.y - 13) < 1e-6 for op in plan.copper for p in (op.start, op.end))
+    return any(abs(p.y - 13) < 1e-6 for op in tracks(plan) for p in (op.start, op.end))
+
+
+def tracks(plan) -> list:
+    return [op for op in plan.copper if hasattr(op, "start")]
+
+
+def vias(plan) -> list:
+    return [op for op in plan.copper if not hasattr(op, "start")]
 
 
 def test_copper_exists_only_in_the_arrangements_it_names():
     prepared = run.begin(with_tracks())
     default = run.resolve_spec(prepared, prepared.specs[0])
     turned = run.resolve_spec(prepared, prepared.specs[1])
-    assert not detoured(default) and len(default.copper) == 1
-    assert detoured(turned) and len(turned.copper) == 5                # the detour's segments, and no straight track
-    assert all(op.net == "OUT" for op in turned.copper)
+    assert not detoured(default) and len(tracks(default)) == 1
+    assert detoured(turned) and len(tracks(turned)) == 5                # the detour's segments, and no straight track
+    assert all(op.net == "OUT" for op in tracks(turned))
     east = run.resolve_spec(prepared, prepared.specs[2])
-    assert len(east.copper) == 0                                        # neither track exists in c_in.east
+    assert tracks(east) == []                                           # neither track exists in c_in.east
+    for spec in prepared.specs:
+        assert [op.net for op in vias(run.resolve_spec(prepared, spec))] == ["VIN"], spec.id
 
 
 def test_a_plain_resolve_lays_the_default_copper():
     plan = with_tracks().resolve()
-    assert not detoured(plan) and len(plan.copper) == 1
+    assert not detoured(plan) and len(tracks(plan)) == 1 and [op.net for op in vias(plan)] == ["VIN"]
+
+
+def test_resolving_an_arrangement_leaves_the_board_as_it_was():
+    plain = with_tracks().resolve()
+    b = with_tracks()
+    prepared = run.begin(b)
+    run.resolve_spec(prepared, prepared.specs[3])                       # c_in.east+r_pull.turned
+    assert b._laid == "default"
+    after = b.resolve()
+    assert after.placements == plain.placements and after.copper == plain.copper and len(after.copper) == 2
+
+
+def test_a_resolve_that_raises_leaves_the_board_as_it_was():
+    b = with_tracks()
+    b.keep_going = False
+    prepared = run.begin(b)
+    with pytest.raises(Exception, match="collide"):
+        run.resolve_spec(prepared, prepared.specs[2])                   # c_in.east lands on r_pull
+    assert b._laid == "default" and next(i for i in b._intents if i.key == "c_in").beside.side == Edge.WEST
+    assert len(b._copper) == 3
 
 
 def test_two_arrangements_that_resolve_alike_have_one_signature():
