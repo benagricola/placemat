@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A native module that is not in use is said on every run.** When `placemat_native` is not installed, would not import, or is from
+  another release than placemat, placement falls back to pure Python (the same results, 5-10x slower on a large board), which was only a
+  line on stderr at import. Every run, preview and explore now carries a `setup` warning (`setup.native`: `reason`, `placemat_version`,
+  `native_version`, `detail`), `placemat run`, `preview`, `route` and `studio` print it first with the command to rebuild, and the record
+  (`native`) is in `run.json`, the preview JSON, the channel's `hello` event (`placemat watch` shows it) and the studio's hello and header.
+  `PLACEMAT_NATIVE=0` stays a silent, deliberate switch. A tool that read the stderr line reads `native`. Nothing to change in a script.
+
 ## To 0.97.1
 
 ### New
@@ -18,13 +29,6 @@ section for each hand-written pattern a newer form replaces.
   resolve goes on; such a step is searched again by the next run. Settings `[run] max_time_s`, `step_warn_s`, `step_limit_s` (all 0, off); a
   flag wins. The times are wall-clock and depend on machine load; the `[run]` settings are not part of a run's id. A new finding kind,
   `time`. Nothing to change in a script.
-
-- **A native module that is not in use is said on every run.** When `placemat_native` is not installed, would not import, or is from
-  another release than placemat, placement falls back to pure Python (the same results, 5-10x slower on a large board), which was only a
-  line on stderr at import. Every run, preview and explore now carries a `setup` warning (`setup.native`: `reason`, `placemat_version`,
-  `native_version`, `detail`), `placemat run`, `preview`, `route` and `studio` print it first with the command to rebuild, and the record
-  (`native`) is in `run.json`, the preview JSON, the channel's `hello` event (`placemat watch` shows it) and the studio's hello and header.
-  `PLACEMAT_NATIVE=0` stays a silent, deliberate switch. A tool that read the stderr line reads `native`. Nothing to change in a script.
 
 ### Changed
 
