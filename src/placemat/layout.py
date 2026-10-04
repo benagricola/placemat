@@ -321,6 +321,16 @@ class PlaceIntent:
     budget: int | None = field(default=None, metadata={"omit_default": True})   # the candidates its search may judge, else `place.step_budget`
 
     @property
+    def stands_off(self) -> tuple | None:
+        """(the item it stands off, the side of it) for a Beside or a row(of=) item - what its standoff from the shapes of
+        the neighbour's envelope is measured against - else None."""
+        if self.beside is not None:
+            return self.beside.item, self.beside.side
+        if self.row_of is not None:
+            return self.row_of, self.edge
+        return None
+
+    @property
     def turns_on_point(self) -> bool:
         """A place that is a point, declared with turns to search: the item stays on the point
         and its turn is the search."""
@@ -2418,11 +2428,11 @@ class Board:
         axis - the greatest of the shape pairs' last contacts (`sweep_standoff`, as `copper=True` takes the
         pads'). A mark drawn outside the body at a corner holds the part off only where the part stands over
         it; the envelope box, which every standoff here was, holds it off along the whole side. None when no
-        pair of shapes comes within `gap` across the side."""
-        b = i.beside
-        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[b.side]
+        pair of shapes comes within `gap` across the side. A `row(of=)` item stands off its `of` the same way."""
+        item, side = i.stands_off
+        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[side]
         cross = (0.0, oy) if u[0] else (ox, 0.0)
-        theirs = [s for s in occ._geometry(self._item(b.item)[0]).shapes if s.kind != "npth"]
+        theirs = [s for s in occ._geometry(self._item(item)[0]).shapes if s.kind != "npth"]
         _, moved = self._bare_occupancy().candidate_shapes(i.item, Placement(Location(0.0, 0.0), i.rotation, i.face))
         mine = [s for s in moved if s.kind != "npth"]
 
@@ -2714,7 +2724,7 @@ class Board:
         for k, owner in hits:
             refs = set(by_index[k].owners) | ({owner} if owner else set())
             for it in self._intents:
-                if getattr(it, "beside", None) is not None and it.key in self._tight and \
+                if getattr(it, "stands_off", None) is not None and it.key in self._tight and \
                         refs & {fp.ref for fp in members_of(it.item)}:
                     out.add(it.key)
         return frozenset(out), bool(hits)
@@ -2766,8 +2776,7 @@ class Board:
         when something else already placed lies in its way. Stepped out from the standoff, `place.beside_step` a
         time up to `place.beside_reach`, then bisected back to the first spot that stands. The standoff itself
         when it stands, and when nothing within reach does (the collision is then reported as any firm one is)."""
-        b = i.beside
-        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[b.side]
+        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[i.stands_off[1]]
         real = getattr(occ, "_occ", occ)        # a rider is laid in a view: the host and riders before it stand in it
         others = real.obstacles(real._geometry(i.item))
         group = [x for g in list(occ._moved.values()) + list(occ._cells.values()) for x in g.shapes if not x.carried] \
@@ -2833,7 +2842,7 @@ class Board:
             if plan is not None:
                 plan.findings.append(self._finding(C.FIXED_ROOM, {
                     "item": i.key, "copper": name[len("room "):], "net": getattr(owner, "net", ""),
-                    "side": i.beside.side.name.lower(), "reach_mm": self.settings.place_beside_reach}))
+                    "side": i.stands_off[1].name.lower(), "reach_mm": self.settings.place_beside_reach}))
             return
         q = next((it for it in self._intents if getattr(it, "beside", None) is not None and it.key != i.key
                   and it.kind in ("part", "cell") and name in {fp.ref for fp in members_of(it.item)}), None)
@@ -2843,9 +2852,9 @@ class Board:
         # refused by a part nothing can turn round: what it is aligned with, if that stands nearer than the box put it,
         # goes back to the box (the part it carries along with it stands off it again)
         it, seen = i, set()
-        while it is not None and getattr(it, "beside", None) is not None and it.key not in seen:
+        while it is not None and getattr(it, "stands_off", None) is not None and it.key not in seen:
             seen.add(it.key)
-            parent = it.beside.item
+            parent = it.stands_off[0]
             if isinstance(parent, KeepoutIntent) or self._escape_owner(parent) is not None:
                 break
             key = self._item(parent)[1]
@@ -2854,11 +2863,9 @@ class Board:
                 break
             it = next((x for x in self._intents if x.key == key), None)
 
-    def _row_of_placement(self, occ: Occupancy, i: PlaceIntent, along: float) -> Placement:
-        """Where one item of a `row(..., of=)` lands: its own drawn envelope
-        `i.clearance` (the row's line, already worked out) off `of`'s, on
-        `i.edge`; its body centre at `along` down the row, as an edge row's
-        does."""
+    def _row_of_box_offset(self, occ: Occupancy, i: PlaceIntent, along: float) -> tuple:
+        """(ox, oy) where the envelope box puts one item of a `row(..., of=)`: its own drawn envelope `i.clearance` (the
+        row's line, already worked out) off `of`'s box, on `i.edge`; its body centre at `along` down the row."""
         of_box = self._placed_envelope_box(occ, i.row_of)
         own_box = self.envelope(i.item, i.rotation, i.face)
         own_body = self.extent(i.item, i.rotation, i.face)
@@ -2875,7 +2882,60 @@ class Board:
             oy = along - own_body.center.y
         else:
             ox = along - own_body.center.x
-        return Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
+        return ox, oy
+
+    def _row_of_nearer(self, occ: Occupancy, i: PlaceIntent) -> float:
+        """How much nearer `of` than the envelope box puts them the items of `i`'s `row(of=)` all stand, along the row's
+        edge axis: the least that any item's own standoff from the shapes `of`'s envelope is made of (`_beside_shape_standoff`,
+        as Beside takes it) allows, so that every item clears the shapes it faces and the row keeps one line. 0.0 where the box
+        stands: an item with no shape to face does not limit the row, but a rider, an overhanging row (a negative
+        clearance, which reaches into `of`), an item taken back to the box (`_loose`) or one whose turn is not known yet
+        does, for the whole row."""
+        first, _ = self._row_members[i.key]
+        keys = sorted((n, k) for k, (f, n) in self._row_members.items() if f == first)
+        horizontal = i.edge in (Edge.EAST, Edge.WEST)
+        away = 1.0 if i.edge in (Edge.EAST, Edge.SOUTH) else -1.0
+        nearest = None
+        for _, key in keys:
+            j = i if key == i.key else next(x for x in self._intents if x.key == key)
+            if j.key in self._rider_of or j.clearance < 0.0 or j.key in self._loose:
+                return 0.0
+            if j is not i and j.turned is not None:
+                try:
+                    j = dataclasses.replace(j, rotation=self._turned_rotation(occ, j))
+                except Exception:               # what its turn reads is not placed yet
+                    return 0.0
+            along = j.along.resolve(self, occ) if isinstance(j.along, _RowSlot) else j.along
+            ox, oy = self._row_of_box_offset(occ, j, along)
+            stand = self._beside_shape_standoff(occ, j, ox, oy, j.clearance)
+            if stand is None:
+                continue
+            nearer = away * ((ox if horizontal else oy) - stand)
+            nearest = nearer if nearest is None else min(nearest, nearer)
+        return 0.0 if nearest is None else nearest
+
+    def _row_of_placement(self, occ: Occupancy, i: PlaceIntent, along: float) -> Placement:
+        """Where one item of a `row(..., of=)` lands: its own drawn envelope `i.clearance` (the row's line, already worked
+        out) off `of`'s, on `i.edge`; its body centre at `along` down the row, as an edge row's does. As Beside is
+        (`_beside_placement`), the distance is taken from the shapes `of`'s envelope is made of, not the box round them, but
+        one distance for the row: the nearest at which every item clears the shapes it faces (`_row_of_nearer`), so the
+        row stays on one line. An item that then is in the way of something else already placed is moved on out where it
+        is; a rider is laid by the box, and so is an overhanging row, which reaches into `of`."""
+        ox, oy = self._row_of_box_offset(occ, i, along)
+        shaped = i.key not in self._rider_of and i.clearance >= 0.0
+        if shaped:
+            nearer = self._row_of_nearer(occ, i)
+            if abs(nearer) > 1e-6:
+                self._tight[i.key] = abs(nearer)            # nearer than the box put it
+                away = 1.0 if i.edge in (Edge.EAST, Edge.SOUTH) else -1.0
+                if i.edge in (Edge.EAST, Edge.WEST):
+                    ox -= away * nearer
+                else:
+                    oy -= away * nearer
+        placement = Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
+        if shaped:
+            placement = self._beside_clear_of_others(occ, i, placement)
+        return placement
 
     # ------------------------------------------------------------ placement
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,

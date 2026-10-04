@@ -27,6 +27,16 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
+- **`row(of=)` stands against the shapes of `of`'s envelope, as `Beside` does, at one distance for the row.** The row's distance from `of`
+  was taken from the box round its envelope, so a pin 1 dot or any silk mark outside the body held every item of the row off the whole
+  side by the mark's reach. It is now taken from the envelope's own shapes (pads, mask, silk and body under a physical envelope, the
+  courtyard under a courtyard one): the row stands at the nearest distance at which every item clears the shapes it faces, applied to
+  all its items so the row keeps its line, and a mark holds the whole row off only if an item stands over it. An item that then stands
+  nearer than the box put it, and would be in the way of something already placed, is moved on out along its side to the first place the
+  collision rule allows (`place.beside_step`, up to `place.beside_reach`), and the row is taken back to the box's distance where
+  declared copper meets, as a `Beside` part is (`place.copper_room`). A row with `overhang=` and a row of items riding a searched `of`
+  are laid by the box as before. A script with a row beside a part that draws a mark outside its body gets that row nearer.
+
 - **Findings take KiCad's DRC epsilon; placement can with `place.drc_epsilon`.** KiCad takes the DRC epsilon (`BoardGeometry.drc_epsilon`,
   0.0005 mm on a fresh board, read from the board) off a copper or hole clearance before comparing, and relaxes hole to hole by it; a gap
   short of its rule by no more than that is clear. The plan's own copper (the `copper.meets` finding, "track X is 0.1596 mm from Y

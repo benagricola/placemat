@@ -48,7 +48,6 @@ Specced work first, then the loose ends.
    has a distance but no cause, and a block slide or a searched move that no
    refusal explains has none; record one (a `why` refusal on the note) where
    the engine knows it.
-8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
    lazily on the pure-Python path. Not small: about 20 `Refusal(...)` sites in
    occupancy's conflict, hole, edge and via-ban judges build their facts

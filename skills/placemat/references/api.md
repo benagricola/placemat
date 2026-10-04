@@ -933,7 +933,15 @@ of=Part("u1"), align=Along.START)` runs the row along that side of
 `Part("u1")`'s (or a `Cell`'s) drawn envelope instead of the board's: `gap`
 (default the envelope's own, as `Beside` keeps) is both the row's own gap
 and how far its near line stands off `of`, and `line=` still says how the
-row aligns across itself. `align=Along.START/MID/END` is where along
+row aligns across itself. The distance is taken as `Beside`'s is: from the
+shapes `of`'s envelope is made of, not the box round them, but one distance
+for the row, the nearest at which every item clears the shapes it faces, so
+the row stays on one line: a mark drawn outside the body holds the whole row
+off only if an item stands over it. An item that then stands nearer than the
+box put it, and would be in the way of something placed, is moved on out
+(`place.beside_step`, `place.beside_reach`). A row that overhangs, a row
+riding a searched `of` and a row with an item taken back to the box (copper
+declared where it stands nearer) keep the box. `align=Along.START/MID/END` is where along
 `of`'s side the row sits (default `START`). `centre=PadRef(...)` instead
 puts the row's middle on that pad's centre line: a pad of `of`, or of any
 part placed firmly by then. It takes one `PadRef` or `CellPadRef` (a `Mid`
