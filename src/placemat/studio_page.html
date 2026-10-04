@@ -481,9 +481,9 @@ svg text { user-select: none; font-family: var(--sans); }
 /* findings: translucent areas in the worst severity's signal colour with a thin outline, a count badge where there are several */
 .fa { --fc: #ffd400; pointer-events: auto; cursor: pointer; }
 .fa.critical { --fc: #ff1744; } .fa.notice { --fc: #00c2ff; }
-.fa .area { fill: var(--fc); fill-opacity: 0.22; stroke: var(--fc); stroke-width: 1.5px; stroke-opacity: 0.95; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.fa:hover .area { fill-opacity: 0.38; }
-.fa.on .area { fill-opacity: 0.4; stroke-width: 2.6px; }
+.fa .area { fill: var(--fc); fill-opacity: 0.12; stroke: var(--fc); stroke-width: 1.5px; stroke-opacity: 0.95; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.fa:hover .area { fill-opacity: 0.24; }
+.fa.on .area { fill-opacity: 0.26; stroke-width: 2.6px; }
 .fa .dots { fill: none; stroke: var(--fc); stroke-width: 4px; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
 .fa .badge { fill: var(--fc); stroke: #10151b; stroke-width: 1.4; }
 .fa .cnt text { fill: #10151b; font: 700 9px/1 system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
@@ -1196,11 +1196,11 @@ function findingPlaces(p) {
   return v;
 }
 // Findings are drawn as areas, not one marker each. Findings that are close on the screen at the current zoom make one cluster
-// (clusterFindings: the worst first, each joining the nearest cluster whose centre is within FA_JOIN pixels, else starting one), drawn as
+// (clusterFindings: the worst first, each joining the nearest cluster whose centre is within FA_JOIN pixels, else starting one; then clusters whose areas would overlap are made one, until none do or the merged area would reach more than FA_MAXR pixels from its centre), drawn as
 // a rounded hull round its points, filled translucent in its worst severity's colour with a thin outline, and a small count badge when
 // it holds more than one. The clustering is by screen distance, so zooming in separates them; it is redone a moment after the view
 // stops changing (rebuildFindings), not on each frame. Pan and zoom in between keep the badge's size; the area's reach is as of the rebuild.
-const FA_JOIN = 26, FA_REACH = 11, FA_ALONE = 7;           // screen pixels: the join distance, the area's reach round a cluster's points and round a lone finding
+const FA_JOIN = 56, FA_REACH = 11, FA_ALONE = 7, FA_DOTS = 3, FA_MAXR = 64;           // screen pixels: the join distance, the area's reach round a cluster's points and round a lone finding
 const SEV_RANK = {critical: 0, warning: 1, notice: 2};
 function clusterFindings(pts, k, join) {          // pts: [{i, at, sev}] in board mm; k: pixels to a mm
   const cl = [];
@@ -1211,6 +1211,21 @@ function clusterFindings(pts, k, join) {          // pts: [{i, at, sev}] in boar
     if (!best) { cl.push({idx: [q.i], pts: [q.at], sev: q.sev, cx: q.at[0], cy: q.at[1]}); continue; }
     best.idx.push(q.i); best.pts.push(q.at);
     const n = best.pts.length; best.cx += (q.at[0] - best.cx) / n; best.cy += (q.at[1] - best.cy) / n;
+  }
+  // An area reaches FA_REACH (a lone finding's FA_ALONE) past its farthest point: two whose reaches meet are one area.
+  const reach = c => c.r !== undefined ? c.r : (c.r = Math.max(0, ...c.pts.map(q => Math.hypot(q[0] - c.cx, q[1] - c.cy) * k)) + (c.pts.length > 1 ? FA_REACH : FA_ALONE));
+  for (let again = true; again;) {
+    again = false;
+    for (let a = 0; a < cl.length && !again; a++) for (let b = a + 1; b < cl.length && !again; b++) {
+      const x = cl[a], y = cl[b];
+      if (Math.hypot(x.cx - y.cx, x.cy - y.cy) * k >= reach(x) + reach(y)) continue;
+      const pts = x.pts.concat(y.pts), cx = pts.reduce((t, q) => t + q[0], 0) / pts.length, cy = pts.reduce((t, q) => t + q[1], 0) / pts.length;
+      if (Math.max(...pts.map(q => Math.hypot(q[0] - cx, q[1] - cy) * k)) + FA_REACH > FA_MAXR) continue;
+      x.idx.push(...y.idx); x.pts = pts; x.cx = cx; x.cy = cy;
+      if (SEV_RANK[y.sev] < SEV_RANK[x.sev]) x.sev = y.sev;
+      x.r = undefined;
+      cl.splice(b, 1); again = true;
+    }
   }
   for (const c of cl) c.idx.sort((a, b) => a - b);
   return cl;
@@ -1257,7 +1272,7 @@ function findingAreasSVG(p, pn) {
     const xs = outline.map(q => q[0]), ys = outline.map(q => q[1]);
     const on = c.idx.some(i => sel.has(i) || S.focusIdx === i);
     o.push('<g class="fa ' + c.sev + (on ? " on" : "") + '" data-ci="' + c.n + '"><polygon class="area" points="' + outline.map(q => num(q[0]) + "," + num(q[1])).join(" ") + '"/>' +
-      '<path class="dots" d="' + c.pts.map(q => "M" + num(q[0]) + " " + num(q[1]) + "h0").join("") + '"/>' +
+      (c.idx.length <= FA_DOTS ? '<path class="dots" d="' + c.pts.map(q => "M" + num(q[0]) + " " + num(q[1]) + "h0").join("") + '"/>' : "") +
       (c.idx.length > 1 ? '<g class="cnt" style="transform: translate(' + num(Math.max(...xs)) + "px, " + num(Math.min(...ys)) + "px) scale(" + sx + ', var(--u))"><circle class="badge" r="7"/><text>' + c.idx.length + "</text></g>" : "") + "</g>");
   }
   return o.join("");

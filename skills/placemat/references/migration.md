@@ -10,7 +10,7 @@ section for each hand-written pattern a newer form replaces.
 ### Changed
 
 - **The studio draws findings as areas.** A marker per finding piled up where many sat together. Findings that are close on the screen at
-  the current zoom now make one cluster, drawn as a soft rounded area in the worst severity's colour, with a small count where it holds
+  the current zoom now make one cluster (clusters whose areas touch are joined, up to a size), drawn as a light rounded area outlined in the worst severity's colour, with a small count where it holds
   more than one. Zooming in separates them (the areas are made again a moment after the view stops changing). Hovering an area lists its
   findings, worst first; clicking one lists them in the Findings panel, and a lone finding opens its card as before.
 - **The studio's stale generation notice can be resolved or hidden.** "Regenerate" starts a run (which generates the board again when its

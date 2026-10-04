@@ -1954,7 +1954,7 @@ ev("B.svg = {querySelectorAll: q => q === '.fnds' ? [globalThis.__g] : []}");
 ev("S.vb = {x: 0, y: 0, w: 40, h: 30}; S.px = 400"); ev("findingClusters(plan(), true)");
 out.before = ev("findingClusters(plan())").map(c => c.idx.length).sort();
 ev("rebuildFindings()"); out.same = made.length;                                  // the zoom has not changed: nothing to redo
-ev("S.vb = {x: 0, y: 0, w: 5, h: 3.75}"); ev("rebuildFindings()");
+ev("S.vb = {x: 0, y: 0, w: 1, h: 0.75}"); ev("rebuildFindings()");
 out.zoomed = made.length; out.clustersAfter = ev("findingClusters(plan())").map(c => c.idx.length).sort();
 """)
     assert out["before"] == [1, 2] and out["same"] == 0 and out["zoomed"] == 1
@@ -2058,3 +2058,26 @@ send("finished", {id: 1, counts: {placed: 1, findings: 0}, score: null, timing: 
 out.shown = els["#notice"].style.display; els["#stalex"].onclick(); flush(); out.hidden = els["#notice"].style.display;
 """)
     assert out["shown"] == "block" and out["hidden"] == "none"
+
+
+@needs_node
+def test_clusters_whose_areas_touch_are_one_area_up_to_a_size_and_dots_show_only_in_small_areas(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+const cf = ev("clusterFindings");
+// points 10 px apart with a join distance of 5: none joins another at first, their areas (7 px round a lone point) overlap, so they become one
+const row = Array.from({length: 4}, (_, i) => [i, 0]);
+out.row = cf(pts(row), 10, 5).map(c => c.idx);
+// a long row cannot become one area wider than FA_MAXR pixels from its centre
+const long = Array.from({length: 40}, (_, i) => [i * 2, 0]);
+out.long = cf(pts(long), 10, 56).map(c => c.idx.length);
+out.maxr = ev("FA_MAXR");
+// no two of the areas overlap when they stay separate: far apart points stay apart
+out.apart = cf(pts([[0, 0], [100, 0], [0, 100]]), 10, 56).length;
+full([item("a", 1)], [st("a")], {findings: [fnd("a", [10, 10]), fnd("b", [10.1, 10]), fnd("c", [10, 10.1]), fnd("d", [10.1, 10.1]), fnd("e", [30, 20]), fnd("f", [30.1, 20])]});
+const h = board().innerHTML;
+out.dots = (h.match(/class="dots"/g) || []).length; out.badges = [...h.matchAll(/<text>(\d+)<\/text>/g)].map(m => m[1]);
+""")
+    assert out["row"] == [[0, 1, 2, 3]]
+    assert 1 < len(out["long"]) and max(out["long"]) < 40 and sum(out["long"]) == 40
+    assert out["apart"] == 3
+    assert out["dots"] >= 1 and set(out["badges"]) == {"4", "2"}        # the area of four findings has no dots, the pair has
