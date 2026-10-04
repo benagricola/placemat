@@ -127,6 +127,11 @@ SAMPLES = [
     (C.SPLIT_GROUPS, {"cell": "k", "groups": [["R1", "R2"], ["C1", "C2"]], "unjoined": []},
      "k: its parts form 2 groups joined only by board-level nets: R1, R2; C1, C2. Parts with no close placement requirement in "
      "common may be split into cells of their own."),
+    (C.KEEP_OUT_CROSS_LAYER, {"net": "SW", "distance_mm": 0.7, "limit_mm": 2.0, "layers": ["F.Cu", "B.Cu"],
+                              "away": {"kind": "pad", "owner": "L1", "number": "1", "net": "SW", "at": [18.6, 13.0]},
+                              "pads": {"kind": "via", "owner": None, "number": None, "net": "FB", "at": [18.6, 15.0]}},
+     "keep-out SW: L1 pad 1 (SW) on F.Cu is 0.70 mm from via FB at (18.60, 15.00) on B.Cu, inside the 2 mm keep-out, with no "
+     "plane between; KiCad's clearance judges only copper on one layer, so this is not a failed check"),
     (C.TIME_STEP_SLOW, {"item": "u1", "elapsed_s": 45.2, "warn_s": 30.0, "limit_s": None, "warned_at_s": 30.1, "pass": "refine",
                         "within": [2, 3], "stage": "refine", "firm_pass": None},
      "u1: took 45.2 s, past --step-warn 30 s; it was in the refine pass 2 of 3 when it crossed"),

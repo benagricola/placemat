@@ -2063,6 +2063,12 @@ The plan holds it as a clearance, and the check judges by it:
   nobody's escape is not held by the planner; `keep-out` judges it (below);
 - other copper on the same nets, and another part's pads on `pads=` nets,
   keep the netclass figure in the plan;
+- only copper sharing a copper layer is judged (a through-hole pad or a via spans its layers), as KiCad's clearance
+  is: a pair on different layers does not fail `keep-out`. One inside the distance with no plane on a layer between
+  them covering both nearest points is a notice, not a failure (`checks.keep_out_notices`: kind, the two items, their
+  layers, distance, limit), raised as a `keep_out.cross_layer` finding that `placemat run` records in `run.json` and
+  `placemat check` prints, for a datasheet that cares about proximity through the board.
+  A pair with a plane between is not reported;
 - a `Pm.KeepOut` that does not read (no citation, a distance that does not
   parse or is not above zero, a net no pad of the part carries) refuses the
   run at `resolve()` naming the part, and `placemat check` reports it as a
@@ -3951,6 +3957,7 @@ its kind.
 | `label` | warning | a label with a part on it, or with no spot |
 | `label` (not drawn because its item found no place) | notice | the item's own `unplaced` finding is the fault |
 | `split` | warning | a cell whose members form groups joined only by board-level nets |
+| `keep_out` (`keep_out.cross_layer`) | notice | a `Pm.KeepOut` pair on different copper layers inside the distance with no plane between; KiCad judges clearance only on one layer, so `keep-out` does not fail it; facts: `net`, `distance_mm`, `limit_mm`, `layers`, `away` and `pads` (kind, owner, number, net, at) |
 | `time` (`time.step_slow`) | notice | a step ran past `--step-warn` (or `--step-limit`, with no pass left to stop at); the placement is its own |
 | `time` (`time.step_limit`) | critical when the item is left unplaced, warning when it kept the best spot found | a step gave up at `--step-limit`; the next run searches it again |
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
