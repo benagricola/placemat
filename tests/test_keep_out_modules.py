@@ -81,3 +81,24 @@ def test_the_keep_out_check_judges_a_part_by_its_own_distance(run):
     assert all(v["ok"] is not False for v in judged), [(v["subject"], v["value"], v["limit"], v["note"]) for v in judged]
     named = [v for v in judged if "Pm.KeepOut" in v["note"]]
     assert all(v["limit"] <= DISTANCE[module] + 1e-9 for v in named)
+
+
+def test_the_saved_fill_is_the_fill_of_the_saved_board(run):
+    """Each zone's fill as the run saved it is what a refill of the saved
+    board gives (KiCad's own refill, the board loaded afresh): the write
+    filled over the copper it saved, not the board as it was read."""
+    import pcbnew
+    module, (_, _, pcb) = run
+    board = pcbnew.LoadBoard(str(pcb))
+
+    def areas():
+        out = {}
+        for z in board.Zones():
+            if not z.GetIsRuleArea():
+                z.CalculateFilledArea()
+                out[(z.GetNetname(), tuple(board.GetLayerName(l) for l in z.GetLayerSet().CuStack()))] = \
+                    round(z.GetFilledArea() / 1e12, 3)
+        return out
+    saved = areas()
+    pcbnew.ZONE_FILLER(board).Fill(board.Zones())
+    assert saved == areas()

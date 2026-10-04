@@ -207,13 +207,15 @@ class AllowRule:
     area: str                   # the rule area's zone name, as written
     nets: tuple                 # the nets let through
     types: tuple                # what the area was written allowing: tracks, vias, pads
+    cell: str | None = None     # the stamped cell whose area it is; None for the board's own keepout
 
     _ITEMS = {"tracks": "track", "vias": "via", "pads": "pad"}
 
     def text(self) -> str:
         from .board_geometry import split_marker
         cond = ["A.intersectsArea('%s')" % self.area] + ["A.NetName != '%s'" % n for n in self.nets]
-        name = "%s allows %s" % (split_marker(self.area)[0], ", ".join(self.nets) or "no net")
+        name = "%s%s allows %s" % (split_marker(self.area)[0], " in %s" % self.cell if self.cell else "",
+                                   ", ".join(self.nets) or "no net")
         items = " ".join(self._ITEMS[t] for t in self._ITEMS if t in self.types)
         return '(rule "%s"\n  (constraint disallow %s)\n  (condition "%s"))' % (
             name.replace('"', "'"), items, " && ".join(cond))

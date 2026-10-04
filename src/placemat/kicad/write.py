@@ -20,8 +20,8 @@ from ..layout import MergedZone, Plan
 from ..copper import Pour, Text, Track, Via, Zone
 from ..geometry import Transform, poly_within
 from ..placement import Placement
-from ..board_geometry import (CellGeom, Footprint, allow_marker, layer_marker, resolve_marker, split_marker,
-                              stackup_order)
+from ..board_geometry import (CellGeom, Footprint, allow_marker, cell_tagged, layer_marker, resolve_marker,
+                              split_allow, split_marker, stackup_order)
 from ..cutouts import closes_itself
 from .read import FACES_PREFIX
 from ..rules import RULE_PREFIX, rule_note
@@ -389,6 +389,9 @@ def _draw_keepouts(board, plan):
         # name says what it declared. Only ever widened, to what it declared.
         if not (z.GetIsRuleArea() and _kiid(z) in grouped):
             continue
+        if split_allow(z.GetZoneName())[1] and z.GetParentGroup() is not None:
+            # its allow rule names it: by its cell's own name, not the one every stamp of the module shares
+            z.SetZoneName(cell_tagged(z.GetZoneName(), z.GetParentGroup().GetName()))
         declared = split_marker(z.GetZoneName())[1]
         if declared is None:
             continue
@@ -435,7 +438,7 @@ def allow_rules(plan, stack) -> list:
     from ..rules import AllowRule
     out = [AllowRule(_keepout_zone_name(k, stack), tuple(sorted(k.allow)), _relaxed(k))
            for k in plan.keepouts.values() if _relaxed(k)]
-    out += [AllowRule(ra.name, tuple(sorted(ra.allow)), ra.relaxed)
+    out += [AllowRule(cell_tagged(ra.name, ra.cell), tuple(sorted(ra.allow)), ra.relaxed, ra.cell)
             for ra in plan.geometry.rule_areas if ra.cell is not None and ra.relaxed]
     return out
 
@@ -808,6 +811,10 @@ def draw_copper(board, ops):
             zones.append(_draw_zone(board, op))
     if zones:
         _raise_planes_over_zones(board, zones)
+        # The filler removes a fill's isolated islands by the board's connectivity, which LoadBoard built
+        # before the plan moved the parts and drew its copper. Filled on that, a module's ground fill kept
+        # islands a refill of the saved board removes (tests/test_keep_out_modules.py).
+        board.BuildConnectivity()
         pcbnew.ZONE_FILLER(board).Fill(board.Zones())
 
 

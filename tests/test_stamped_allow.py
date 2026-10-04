@@ -19,6 +19,16 @@ def test_the_marker_round_trips_nets_and_types_through_pcbs_stamp():
     assert split_marker("keepout antenna" + allow_marker({"GND"}, ("vias",)) + "_1") == ("keepout antenna", None)
 
 
+def test_a_cell_tag_keeps_the_marker_and_replaces_the_tag_it_had():
+    from placemat.board_geometry import cell_tagged
+    name = "keepout antenna [*.Cu]" + allow_marker({"GND"}, ("tracks",)) + "_1"
+    tagged = cell_tagged(name, "sheet.a")
+    assert tagged == name + " @<sheet.a>"
+    assert split_allow(tagged) == (("GND",), ("tracks",)) and split_marker(tagged) == ("keepout antenna", "*")
+    assert cell_tagged(tagged, "sheet.a") == tagged
+    assert cell_tagged(tagged + "_1", "top.sheet.a") == name + " @<top.sheet.a>"       # stamped once more
+
+
 def test_a_net_name_with_the_markers_own_characters_survives():
     nets = {"A,B", "N|1", "X}", "Y]", "100%"}
     assert set(split_allow("keepout k" + allow_marker(nets, ("vias",)))[0]) == nets
@@ -252,3 +262,65 @@ def test_the_board_that_stamps_the_cell_writes_the_rule_the_module_did(tmp_path)
     assert "(constraint disallow track via pad)" in dru
     found = [i["description"] for v in _drc(pcb) if v["type"] == "items_not_allowed" for i in v["items"]]
     assert len(found) == 1 and "[X]" in found[0], found
+
+
+def _two_stamps(tmp_path, name):
+    """Two cells stamped from one module, as pcb layout stamps them: each cell's group holds its copy of the
+    module's rule area, and both copies carry the same name. Cell sheet.a's area is x 10 to 30, sheet.b's
+    x 40 to 60; each lets its own cell's SIG_A through."""
+    import pcbnew
+    b = pcbnew.CreateEmptyBoard()
+    b.SetCopperLayerCount(4)
+    for cell, x0 in (("sheet.a", 10), ("sheet.b", 40)):
+        g = pcbnew.PCB_GROUP(b)
+        g.SetName(cell)
+        b.Add(g)
+        z = pcbnew.ZONE(b)
+        z.SetIsRuleArea(True)
+        z.SetLayerSet(pcbnew.LSET.AllCuMask(4))
+        z.SetDoNotAllowFootprints(False)
+        z.SetDoNotAllowZoneFills(True)
+        z.SetDoNotAllowTracks(False)
+        z.SetDoNotAllowVias(False)
+        z.SetDoNotAllowPads(False)
+        o = z.Outline()
+        o.NewOutline()
+        for px, py in ((x0, 10), (x0 + 20, 10), (x0 + 20, 30), (x0, 30)):
+            o.Append(pcbnew.FromMM(px), pcbnew.FromMM(py))
+        z.SetZoneName(name)
+        b.Add(z)
+        g.AddItem(z)
+    # sheet.a's net stands in both areas; sheet.b's in its own
+    _copper(b, [("via", 20, 20, "sheet.a.SIG_A"), ("via", 50, 20, "sheet.a.SIG_A"), ("via", 52, 20, "sheet.b.SIG_A")])
+    path = tmp_path / "layout.kicad_pcb"
+    b.Save(str(path))
+    (tmp_path / "layout.kicad_pro").write_text("{}")
+    return path
+
+
+@needs_kicad
+def test_two_stamps_of_one_module_each_allow_only_in_their_own_area(tmp_path):
+    """Each cell's rule names its own area: sheet.a's net is let through sheet.a's area and flagged in
+    sheet.b's, and sheet.b's net passes in its own. A second write names the areas as the first did."""
+    import pcbnew
+    from placemat.kicad.read import read_board
+    from placemat.kicad.write import apply_plan
+    from placemat.layout import Board
+    pcb = _two_stamps(tmp_path, "keepout antenna" + allow_marker({"SIG_A"}, ("tracks", "vias", "pads")) + "_1")
+    written = []
+    for _ in range(2):
+        plan = Board(read_board(pcb), edge_margin=0.0, keep_going=True).resolve()
+        apply_plan(pcb, plan)
+        names = sorted(z.GetZoneName() for z in pcbnew.LoadBoard(str(pcb)).Zones() if z.GetIsRuleArea())
+        assert len(set(names)) == 2, names
+        written.append(names)
+        found = [(v["items"][0]["pos"]["x"], i["description"]) for v in _drc(pcb) if v["type"] == "items_not_allowed"
+                 for i in v["items"]]
+        assert len(found) == 1, found
+        x, what = found[0]
+        assert "[sheet.a.SIG_A]" in what and 40 <= x <= 60, found
+    assert written[0] == written[1]
+    dru = (tmp_path / "layout.kicad_dru").read_text()
+    assert dru.count("(rule ") == 2
+    for n in written[1]:
+        assert "intersectsArea('%s')" % n in dru, (n, dru)

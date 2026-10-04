@@ -5,6 +5,33 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **Each stamp of a module allows its nets in its own keepout only.** pcb names every stamp's copy of a module's keepout
+  alike (`<name>_1`), so the `.kicad_dru` rule written for one cell's `allow=` area (`intersectsArea('<name>_1')`) also
+  covered every other stamp's copy: a net one cell allowed was forbidden in its own area by the other cell's rule, and
+  KiCad flagged it there. A board that stamps the module now renames each copy that lets nets through for its cell
+  (`<name>_1 @<cell>`) when it writes, and builds that cell's rule from the new name. Write the parent board again;
+  the module and its script need no change.
+- **A plane's saved fill is the fill of the saved board.** The write filled its zones on the connectivity KiCad built
+  when it loaded the board, before the plan moved the parts and drew its copper, so a fill could keep isolated islands
+  that a refill of the saved board removes (a module's ground fill read 97.74 mm2 saved and 96.96 mm2 refilled). The
+  write now builds the board's connectivity again before it fills. A module run once more saves its fill without those
+  islands, and a board that stamps it gets them through the stamped cell; a parent board whose script draws a plane
+  refills every zone, its cells' included, as before.
+
+### Changed
+
+- **`current-path` adds copper on parallel layers.** A route was judged by one layer's narrowest point, so a load
+  carried by two planes joined at the same vias or through-hole pads failed at one plane's neck. The route is now cut at
+  its plated holes, and where fills or pours of the net on other layers touch the same two holes as a stretch of the
+  route, the stretch is judged by the layers' widths added, each scaled to the route's layer by the ratio of the two
+  layers' IPC-2221 needs. The note names the layers and their widths, and the verdict carries them as `facts["layers"]`
+  (`layer`, `width_mm`, `scale`, `at`, `route`). A net that failed on one of two parallel planes reads wider and may
+  pass; a check script that read the verdict's width as one layer's reads `facts["layers"]` instead.
+
 ## To 0.99.6
 
 ### Fixed

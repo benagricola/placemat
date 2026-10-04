@@ -1611,7 +1611,11 @@ the rule area allows the tracks, vias and pads it excludes, and a custom rule in
 passes an allowed net's copper in the region and flags the rest as
 `items_not_allowed`. The zone's name carries the allowed nets and the types
 (` {allow GND,SIG | tracks,vias,pads}`, after the layer marker), which is how
-a board that stamps the cell writes the same rule. A pour is still kept out
+a board that stamps the cell writes the same rule. pcb names every stamp's
+copy of a module's area alike, so the board that stamps it renames each copy
+for its cell (` @<cell>` after the marker) and builds each cell's rule from
+that name: one stamp's allowed nets are not let through another stamp's
+area. A pour is still kept out
 (`fill`): the allowance is for copper the script draws.
 
 ## Boards of any shape
@@ -3187,7 +3191,23 @@ are judged at the lesser of their two currents - what can flow between
 them - by the narrowest point of the widest route from any pad of one to
 any pad of the other; the net's verdict is its worst pair, naming both ends
 and the current, and its neck: the point along the route the width is
-narrowest - "neck at (x, y)". A route's width is the widest to any pin of
+narrowest - "neck at (x, y)".
+
+Copper on parallel layers shares the current. The route is cut at its
+plated holes (vias and through-hole pads); between two of them it stays on
+one layer. Where a fill or pour of the net on another layer touches the
+same two holes, that layer carries the current alongside the route there:
+it is measured between the two holes as the route's own fill is, and the
+stretch is judged by the layers' widths added, each scaled to the route's
+layer by the ratio of the two layers' IPC-2221 needs at that current (a
+1 oz outer layer's millimetre counts as about 2.6 mm of a 1 oz inner
+layer's). The route is judged at the stretch with the least added width
+for its need. The note names the layers - "2.95 mm as In1.Cu copper, on
+In1.Cu, In4.Cu in parallel: In1.Cu 1.47 mm, In4.Cu 1.47 mm" - and the
+verdict's `facts` carry them: `layers`, each `{layer, width_mm, scale, at,
+route}`, the route's own first. Parallel layers count only when the route
+fails on its own copper. A layer joined to the stretch's ends through other
+holes than the route's own two is not counted. A route's width is the widest to any pin of
 the load on the net: a load with several pins on a net (a small pin and an
 exposed pad) is judged by the route to whichever is joined widest.
 

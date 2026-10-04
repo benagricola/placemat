@@ -100,6 +100,9 @@ class Verdict:
     ok: bool | None = None              # None: not judged (no limit, or a fact is missing)
     note: str = ""
     accepted: str = ""                  # a failed verdict inside a script's acceptance: "accepted (>= 0.35): why"
+    facts: dict = dataclasses.field(default_factory=dict, hash=False)
+    """What the check measured, as fields (current-path: the route's ends, its current and neck, and per layer
+    the width that carried it); `note` is rendered from them where the check has them."""
 
     @property
     def severity(self) -> str:
@@ -1346,17 +1349,123 @@ def _fill_on(nodes, path: list, fills: dict, measured: dict, step: float):
         z = path[k]
         if nodes[z][0] not in _FILLED:
             continue
-        key = (z,) + tuple(sorted((path[k - 1], path[k + 1])))
-        if key not in measured:
-            if z not in fills:
-                fills[z] = _Fill(nodes[z][2][0], step)
-            got = fills[z].width(nodes[path[k - 1]][2], nodes[path[k + 1]][2])
-            measured[key] = None if got is None else got + (nodes[z][4], nodes[z][0] == "poly", fills[z],
-                                                             nodes[path[k - 1]][2], nodes[path[k + 1]][2])
-        got = measured[key]
+        got = _crossing(nodes, z, path[k - 1], path[k + 1], fills, measured, step)
         if got is not None and (worst is None or got[0] < worst[0]):
             worst = got
     return worst
+
+
+def _crossing(nodes, z: int, a: int, b: int, fills: dict, measured: dict, step: float):
+    """Fill or pour `z` measured between the copper `a` and `b` (`_Fill.width`), cached in `measured` under
+    `_crossing_key`: (width, point, one step or less, the fill's layers, whether it is a pour, its `_Fill`, a's
+    polygons, b's polygons), or None where a and b touch."""
+    key = _crossing_key(z, a, b)
+    if key not in measured:
+        if z not in fills:
+            fills[z] = _Fill(nodes[z][2][0], step)
+        got = fills[z].width(nodes[a][2], nodes[b][2])
+        measured[key] = None if got is None else got + (nodes[z][4], nodes[z][0] == "poly", fills[z],
+                                                         nodes[a][2], nodes[b][2])
+    return measured[key]
+
+
+@dataclass(frozen=True)
+class LayerShare:
+    """One layer's copper across the stretch of a load's route a current-path
+    verdict judges: its width there, the factor that turns that width into
+    the route layer's (the route layer's IPC-2221 need over this layer's, at
+    the same current; 1 on the route's own layer), where it is narrowest,
+    and whether it is the route's own copper or a parallel layer's."""
+    layer: object                       # CopperLayer
+    width: float
+    scale: float
+    point: tuple
+    route: bool
+
+    def record(self) -> dict:
+        return {"layer": getattr(self.layer, "value", str(self.layer)), "width_mm": self.width,
+                "scale": self.scale, "at": [round(self.point[0], 3), round(self.point[1], 3)], "route": self.route}
+
+
+def _plated(node) -> bool:
+    """A via or a through-hole pad: copper on more than one layer, joining them."""
+    return node[0] not in _FILLED and node[0] != "track" and len(node[4]) > 1
+
+
+def _stretches(nodes, path: list, fills: dict, measured: dict, step: float) -> list:
+    """The route cut at its plated holes (`_plated`): for each run of its
+    copper between two of them, or between one and an end of the route,
+    (the path positions of the run's two ends, its layer, its width - its
+    narrowest track or fill crossing -, the path position of that copper).
+    Between two holes the route stays on one layer: only a hole changes it.
+    A run with no copper of its own (copper that touches) is left out."""
+    cut = [0] + [k for k in range(1, len(path) - 1) if _plated(nodes[path[k]])] + [len(path) - 1]
+    out = []
+    for p, q in zip(cut, cut[1:]):
+        best = None
+        for k in range(p + 1, q):
+            i = path[k]
+            if nodes[i][0] in _FILLED:
+                got = _crossing(nodes, i, path[k - 1], path[k + 1], fills, measured, step)
+                w = math.inf if got is None else got[0]
+            elif nodes[i][0] == "track":
+                w = nodes[i][1]
+            else:
+                continue
+            if best is None or w < best[0]:
+                best = (w, k)
+        if best is not None and not math.isinf(best[0]):
+            out.append((p, q, next(iter(nodes[path[best[1]]][4])), best[0], best[1]))
+    return out
+
+
+def _alongside(nodes, near, a: int, b: int, layer) -> list:
+    """The net's fills and pours on layers other than `layer` that touch
+    both plated holes `a` and `b`, on a layer both are on: copper in parallel
+    with the route's own between the two holes."""
+    if not (_plated(nodes[a]) and _plated(nodes[b])):
+        return []
+    common = (nodes[a][4] & nodes[b][4]) - {layer}
+    if not common:
+        return []
+    at_b = set(near[b])
+    return [z for z in near[a] if z in at_b and nodes[z][0] in _FILLED and nodes[z][4] & common]
+
+
+def _parallel(nodes, near, path: list, fills: dict, measured: dict, step: float, need_of):
+    """The route judged with its parallel layers: each stretch between two
+    plated holes (`_stretches`) carries the current on its own copper and on
+    every fill or pour of the net on another layer that touches both holes
+    (`_alongside`), each such fill measured between the two holes as the
+    route's own are (`_Fill.width`). The stretch's width is the layers'
+    widths added, each scaled to the route's layer (`LayerShare.scale`), and
+    the route is judged at the stretch with the least width for its need.
+    (that width, the need on the stretch's layer, the stretch as
+    `_stretches` gives it, the other layers' `LayerShare`s), or None when no
+    stretch of the route has copper alongside it. Stretches are measured in
+    the order of their own width for their need, and stop once one cannot be
+    the least."""
+    runs = _stretches(nodes, path, fills, measured, step)
+    side = {r: _alongside(nodes, near, path[r[0]], path[r[1]], r[2]) for r in runs}
+    if not any(side.values()):
+        return None
+    best = None
+    for r in sorted(runs, key=lambda r: r[3] / need_of(frozenset([r[2]]))):
+        need = need_of(frozenset([r[2]]))
+        if best is not None and r[3] / need >= best[0] / best[1] - 1e-12:
+            break
+        a, b = path[r[0]], path[r[1]]
+        width, shares = r[3], []
+        for z in side[r]:
+            got = _crossing(nodes, z, a, b, fills, measured, step)
+            if got is None:
+                continue
+            scale = need / need_of(nodes[z][4])
+            width += got[0] * scale
+            shares.append(LayerShare(next(iter(nodes[z][4])), got[0], scale, tuple(got[1]), False))
+        if best is None or width / need < best[0] / best[1]:
+            best = (width, need, r, shares)
+    return best
 
 
 @dataclass(frozen=True)
@@ -1418,13 +1527,18 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
     A route narrower than its need has its neck's length measured, and the
     neck credited when it is short (`_neck_credit`), unless `measure_necks`
     is off (a caller that wants widths only).
+    A route narrower than its need is judged again with its parallel
+    layers (`_parallel`): where fills of the net on other layers join the
+    same two plated holes as a stretch of the route, the stretch's width is
+    the layers' widths added, each scaled to the route's layer.
     Returns (judged: [(width, need, amps, from, to, the fill: None when the
     route passes none, else (its width, one step or less, whether it is the
     neck, whether it is a pour), the neck's point, how far the route stays
     narrower than the need (None where not measured), the `_Basis` of a neck
-    narrower than its need, else None)], unmeasured: [(from, to, why)] -
-    a route through pads and vias alone, which has no copper width to
-    judge - and apart: the pairs no copper joins yet)."""
+    narrower than its need, else None, the `LayerShare`s that carry it, the
+    route's own first)], unmeasured: [(from, to, why: a key of
+    `_UNMEASURED`)] - a route through pads and vias alone, which has no
+    copper width to judge - and apart: the pairs no copper joins yet)."""
     nodes, near = _net_graph(geometry, net)
     owner = {i: n[0].split(".")[0] for i, n in enumerate(nodes) if n[0] != "zone" and "." in n[0]
              and math.isinf(n[1])}
@@ -1492,11 +1606,16 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
             continue
         width, w, to, start, zoned, path, fill, narrows = pick
         if math.isinf(width):
-            unmeasured.append((start, to, "joined only through pads and vias" if not zoned
-                               else "joined only through pads, vias and a zone fill or pour where their copper meets"))
+            unmeasured.append((start, to, "pads_vias_fill" if zoned else "pads_vias"))
             continue
         if narrows:
             need = need_of(fill[3])
+            if width < need - 1e-9:
+                par = _parallel(nodes, near, path, fills, measured, zone_step, need_of)
+                if par is not None:
+                    judged.append(_judged_parallel(nodes, path, par, amps, start, to, need_of, measured,
+                                                   measure_necks, lengths, geometry.copper_mm, rise_c, copper_oz))
+                    continue
             length, basis = None, None
             if measure_necks and width < need - 1e-9:
                 key = (id(fill[5]), id(fill[6]), id(fill[7]), round(need, 6))
@@ -1504,16 +1623,52 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
                     lengths[key] = fill[5].neck_length(fill[6], fill[7], need)
                 length = lengths[key]
                 basis = _neck_credit(width, need, amps, length, fill[3], geometry.copper_mm, rise_c, copper_oz)
-            judged.append((width, need, amps, start, to, (fill[0], fill[2], True, fill[4]), fill[1], length, basis))
+            judged.append((width, need, amps, start, to, (fill[0], fill[2], True, fill[4]), fill[1], length, basis,
+                           (LayerShare(next(iter(fill[3])), width, 1.0, tuple(fill[1]), True),)))
             continue
         point, length, neck_layers = _neck(nodes, path, w, need_of)
         need = need_of(neck_layers)
+        if w < need - 1e-9:
+            par = _parallel(nodes, near, path, fills, measured, zone_step, need_of)
+            if par is not None:
+                judged.append(_judged_parallel(nodes, path, par, amps, start, to, need_of, measured,
+                                               measure_necks, lengths, geometry.copper_mm, rise_c, copper_oz))
+                continue
         basis = None
         if measure_necks and w < need - 1e-9:
             basis = _neck_credit(w, need, amps, length, neck_layers, geometry.copper_mm, rise_c, copper_oz)
         judged.append((w, need, amps, start, to, None if fill is None else (fill[0], fill[2], False, fill[4]), point,
-                       length, basis))
+                       length, basis, (LayerShare(next(iter(neck_layers)), w, 1.0, tuple(point), True),)))
     return judged, unmeasured, apart
+
+
+def _judged_parallel(nodes, path: list, par, amps: float, start: str, to: str, need_of, measured: dict,
+                     measure_necks: bool, lengths: dict, copper_mm: dict, rise_c: float, copper_oz: float) -> tuple:
+    """`_pairs`'s reading of a route judged with its parallel layers
+    (`_parallel`): the stretch's added width against the need on its layer.
+    Its neck is the route's own narrowest copper on the stretch, and its
+    length the run where the route's own copper is narrower than that need
+    alone; a neck credited as short (`_neck_credit`) is credited on that
+    length at the added width."""
+    width, need, (p, q, layer, own, k), shares = par
+    i = path[k]
+    layers = frozenset([layer])
+    length, basis = None, None
+    if nodes[i][0] in _FILLED:
+        got = measured[_crossing_key(i, path[k - 1], path[k + 1])]
+        fill, point = (got[0], got[2], True, got[4]), tuple(got[1])
+        if measure_necks and width < need - 1e-9:
+            key = (id(got[5]), id(got[6]), id(got[7]), round(need, 6))
+            if key not in lengths:
+                lengths[key] = got[5].neck_length(got[6], got[7], need)
+            length = lengths[key]
+    else:
+        fill = None
+        point, length, _ = _neck(nodes, path[p:q + 1], own, need_of)
+    if measure_necks and width < need - 1e-9:
+        basis = _neck_credit(width, need, amps, length, layers, copper_mm, rise_c, copper_oz)
+    return (width, need, amps, start, to, fill, point, length, basis,
+            (LayerShare(layer, own, 1.0, tuple(point), True),) + tuple(shares))
 
 
 def carriers_of(geometry: BoardGeometry) -> dict[str, dict[str, float]]:
@@ -1585,9 +1740,7 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
                                "not known; give the part that takes the load its Pm.I" % (amps, ref, net)))
             continue
         judged, unmeasured, apart = _pairs(geometry, net, on, rise_c, copper_oz, zone_step)
-        said = ["no copper joins %s %s on %s yet" % (a, "and %s" % b if b else "to another part", net)
-                for a, b in apart]
-        said += ["%s to %s: %s" % (a, b, why) for a, b, why in unmeasured]
+        said = _unjoined_text(apart, unmeasured, net)
         if not judged:
             amps = max(on.values())
             out.append(Verdict("current-path", net, 0.0, "mm", ipc2221_width_mm(amps, rise_c, copper_oz), None,
@@ -1596,22 +1749,56 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
         def passes(j):
             return j[0] >= j[1] or (j[8] is not None and j[8].credited)
         # the worst route: one that fails, then the narrowest against its need
-        w, need, amps, a, b, fill, point, length, basis = min(judged, key=lambda j: (passes(j), j[0] / j[1]))
-        ok = passes((w, need, amps, a, b, fill, point, length, basis))
-        note = "narrowest point of the load's widest route, %s to %s, for %g A at %g C rise on %g oz" % (
-            a, b, amps, rise_c, copper_oz)
-        if fill is not None and fill[2]:
-            note += "; neck at (%.2f, %.2f), the %s's narrowest point" % (point + ("pour" if fill[3] else "fill",))
-            if fill[1]:
-                note += " (one %g mm step or less wide there, read as one step)" % zone_step
-        else:
-            note += "; neck at (%.2f, %.2f)" % (point[0], point[1])
-            if fill is not None:
-                note += "; through a %s %.2f mm wide at its narrowest" % ("pour" if fill[3] else "zone fill", fill[0])
-        if basis is not None:
-            note += "; " + _basis_text(basis, rise_c)
-        out.append(Verdict("current-path", net, w, "mm", need, ok, note + ("; " + "; ".join(said) if said else "")))
+        worst = min(judged, key=lambda j: (passes(j), j[0] / j[1]))
+        w, need, amps, a, b, fill, point, length, basis, shares = worst
+        facts = {"net": net, "from": a, "to": b, "amps": amps, "rise_c": rise_c, "copper_oz": copper_oz, "zone_step": zone_step,
+                 "width_mm": w, "need_mm": need, "neck": [point[0], point[1]],
+                 "fill": None if fill is None else {"width_mm": fill[0], "one_step": bool(fill[1]),
+                                                    "is_neck": bool(fill[2]), "pour": bool(fill[3])},
+                 "layers": [s.record() for s in shares],
+                 "basis": None if basis is None else {k: None if isinstance(v, float) and math.isinf(v) else v
+                                                      for k, v in dataclasses.asdict(basis).items()},
+                 "apart": [[x, y] for x, y in apart], "unmeasured": [[x, y, why] for x, y, why in unmeasured]}
+        out.append(Verdict("current-path", net, w, "mm", need, passes(worst), current_path_text(facts), facts=facts))
     return out
+
+
+_UNMEASURED = {"pads_vias": "joined only through pads and vias",
+               "pads_vias_fill": "joined only through pads, vias and a zone fill or pour where their copper meets"}
+"""Why `_pairs` could not measure a route, by the reason it gives."""
+
+
+def _unjoined_text(apart, unmeasured, net: str) -> list:
+    """The sentences naming the carriers no copper joins yet and the routes with no copper width to judge."""
+    said = ["no copper joins %s %s on %s yet" % (a, "and %s" % b if b else "to another part", net) for a, b in apart]
+    return said + ["%s to %s: %s" % (a, b, _UNMEASURED[why]) for a, b, why in unmeasured]
+
+
+def current_path_text(facts: dict) -> str:
+    """A judged current-path verdict's note, rendered from its facts."""
+    f = facts
+    note = "narrowest point of the load's widest route, %s to %s, for %g A at %g C rise on %g oz" % (
+        f["from"], f["to"], f["amps"], f["rise_c"], f["copper_oz"])
+    fill, (x, y) = f["fill"], f["neck"]
+    if fill is not None and fill["is_neck"]:
+        note += "; neck at (%.2f, %.2f), the %s's narrowest point" % (x, y, "pour" if fill["pour"] else "fill")
+        if fill["one_step"]:
+            note += " (one %g mm step or less wide there, read as one step)" % f["zone_step"]
+    else:
+        note += "; neck at (%.2f, %.2f)" % (x, y)
+        if fill is not None:
+            note += "; through a %s %.2f mm wide at its narrowest" % ("pour" if fill["pour"] else "zone fill",
+                                                                      fill["width_mm"])
+    if len(f["layers"]) > 1:
+        route = f["layers"][0]
+        note += "; %.2f mm as %s copper, on %s in parallel: %s" % (
+            f["width_mm"], route["layer"], ", ".join(d["layer"] for d in f["layers"]),
+            ", ".join("%s %.2f mm%s" % (d["layer"], d["width_mm"], "" if abs(d["scale"] - 1.0) < 1e-9
+                                         else " (x%.2f)" % d["scale"]) for d in f["layers"]))
+    if f["basis"] is not None:
+        note += "; " + _basis_text(_Basis(**f["basis"]), f["rise_c"])
+    said = _unjoined_text(f["apart"], f["unmeasured"], f["net"])
+    return note + ("; " + "; ".join(said) if said else "")
 
 
 def _basis_text(basis: _Basis, rise_c: float) -> str:
