@@ -9724,41 +9724,15 @@ class Board:
             seeded = "searched wide for its push" if len(push_sources) == 1 else "searched wide for its pushes"
         elif hint is None:
             return self._settle_in_pocket(occ, i, plan, clr)
-        # riders refuse candidates after they are scored: a refused one must not prune the rest
-        accept = self._accept(i)
-        exposed = self._exposure_accept(occ, i, push_sources)
-        if exposed is not None:
-            accept = exposed if accept is None else (lambda c, a=accept, b=exposed: a(c) or b(c))
-        ahead = self._lookahead(occ, i, placed) if look else None
-        if ahead is not None:
-            accept = ahead if accept is None else (lambda c, a=accept, b=ahead: a(c) or b(c))
-        lanes = self._lane_pricer(occ, plan, i)
-        score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and accept is None,
-                             pushes=push_sources, lanes=lanes) if targets or push_sources or lanes else None
-        # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
-        body = occ._geometry(i.item).body
-        if band is not None:
-            radius = band[2] + hint.location.distance(band[0])      # every point of the band is within it
-        elif i.near is not None:
-            radius = i.radius
-        elif wide_push or wide_tangent:
-            # A push's own disc can swallow whatever a link or the global solve seeded, so the
-            # widening applies whatever else set the hint - not only when a push seeded it too.
-            radius = math.hypot(self._outline.width, self._outline.height)
-        else:
-            radius = max(i.radius, body.width, body.height)
-        hopeless = None if bt is not None or band is not None else self._no_pocket_note(occ, i)
-        if hopeless:
+        reseed = targets if i.near is None and solved is None else None
+        tried = self._scan_one(occ, i, plan, placed, targets=targets, push_sources=push_sources, hint=hint, band=band, bt=bt,
+                               within=within, reseed=reseed, wide_push=wide_push, wide_tangent=wide_tangent, look=look, clr=clr)
+        if tried.hopeless:
             from . import suggest_facts
             plan.findings.append(self._finding(C.UNPLACED_POCKET, dict(suggest_facts.unplaced_pocket(self, occ, plan, i),
-                                                                       **hopeless)))
-            return self._step(i, None, 0.0, unplaced=[{"form": "pocket", **hopeless}])
-        if self._on_begin is not None:
-            self._phase(Stage.SCAN, face="either" if i.either else i.face.value, hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
-        result, face_note = self._scan_faces(occ, i, hint, radius, clr, score, accept,
-                                             reseed=(targets if i.near is None and solved is None else None),
-                                             turns_at=bt, within=within,
-                                             turns_on=lambda f: self._spot_turns(occ, i, placed, band, f))
+                                                                       **tried.hopeless)))
+            return self._step(i, None, 0.0, unplaced=[{"form": "pocket", **tried.hopeless}])
+        result, face_note, ahead, score, radius = tried.result, tried.face_note, tried.ahead, tried.score, tried.radius
         from . import timecap
         clock = timecap.active()
         if result.chosen is None and clock is not None and clock.gave_up:
@@ -9886,6 +9860,45 @@ class Board:
         (`_pinned`)."""
         i, offered = self._pinned(i)
         return (i, None) if offered is None else (i, self._arrangement_gone(i, offered, plan))
+
+    def _scan_one(self, occ, j, plan, placed, *, targets, push_sources, hint, band, bt, within, reseed, wide_push, wide_tangent,
+                  look, clr, floor=None, cost: float = 0.0) -> "_Tried":
+        """One standing of the item scanned (the item as its script says it): the riders', exposure and look-ahead tests, the lane
+        pricer, the scorer, the radius, the pocket check, and the front-then-back scan."""
+        # riders refuse candidates after they are scored: a refused one must not prune the rest
+        accept = self._accept(j)
+        exposed = self._exposure_accept(occ, j, push_sources)
+        if exposed is not None:
+            accept = exposed if accept is None else (lambda c, a=accept, b=exposed: a(c) or b(c))
+        ahead = self._lookahead(occ, j, placed) if look else None
+        if ahead is not None:
+            accept = ahead if accept is None else (lambda c, a=accept, b=ahead: a(c) or b(c))
+        lanes = self._lane_pricer(occ, plan, j)
+        score = self._scorer(j.item, occ, targets, prune=self._pick(j) is None and accept is None,
+                             pushes=push_sources, lanes=lanes) if targets or push_sources or lanes else None
+        if score is not None and floor is not None and hasattr(score, "best"):
+            score.best[0] = min(score.best[0], floor - cost)
+        # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
+        body = occ._geometry(j.item).body
+        if band is not None:
+            radius = band[2] + hint.location.distance(band[0])      # every point of the band is within it
+        elif j.near is not None:
+            radius = j.radius
+        elif wide_push or wide_tangent:
+            # A push's own disc can swallow whatever a link or the global solve seeded, so the
+            # widening applies whatever else set the hint - not only when a push seeded it too.
+            radius = math.hypot(self._outline.width, self._outline.height)
+        else:
+            radius = max(j.radius, body.width, body.height)
+        hopeless = None if bt is not None or band is not None else self._no_pocket_note(occ, j)
+        if hopeless:
+            return _Tried(j, hint, radius, None, None, ahead, score, hopeless)
+        if self._on_begin is not None:
+            self._phase(Stage.SCAN, face="either" if j.either else j.face.value,
+                        hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
+        result, face_note = self._scan_faces(occ, j, hint, radius, clr, score, accept, reseed=reseed, turns_at=bt, within=within,
+                                             turns_on=lambda f: self._spot_turns(occ, j, placed, band, f))
+        return _Tried(j, hint, radius, result, face_note, ahead, score)
 
     def _scan_faces(self, occ: Occupancy, i: PlaceIntent, hint: Placement, radius: float, clr, score, accept,
                     reseed=None, turns_at=None, within=None, turns_on=None):
@@ -10431,6 +10444,19 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = 
 _RIDE_PROBE = (1.37, -0.73)
 """How far _ride_turn moves an item to see whether its riders move with it:
 off any grid a search walks, on both axes."""
+
+
+@dataclass
+class _Tried:
+    """One standing of an item scanned (`Board._scan_one`)."""
+    j: PlaceIntent
+    hint: Placement
+    radius: float
+    result: ScanResult | None
+    face_note: dict | None
+    ahead: object
+    score: object
+    hopeless: dict | None = None
 
 
 class _Redo(Exception):
