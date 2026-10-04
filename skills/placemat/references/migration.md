@@ -30,7 +30,20 @@ section for each hand-written pattern a newer form replaces.
 
 ## To 0.97.5
 
+### Changed
+
+- **The studio draws findings as areas.** A marker per finding piled up where many sat together. Findings that are close on the screen at
+  the current zoom now make one cluster (clusters whose areas touch are joined, up to a size), drawn as a light rounded area outlined in the worst severity's colour, with a small count where it holds
+  more than one. Zooming in separates them (the areas are made again a moment after the view stops changing). Hovering an area lists its
+  findings, worst first; clicking one lists them in the Findings panel, and a lone finding opens its card as before.
+- **The studio's stale generation notice can be resolved or hidden.** "Regenerate" starts a run (which generates the board again when its
+  inputs changed) and resolves again when it ends; the status bar says "regenerating" with the step. The cross hides the notice for that
+  board in this browser until the set of changed files changes. The notice names the cause in plain words, the files in a tooltip.
+
 ### Fixed
+
+- **The studio showed the stale generation notice after a run had regenerated the board.** The notice belonged to the last resolve and
+  stayed until the next one; a run that ends well now starts a resolve when the one shown was on an out of date generation.
 
 - **A module fragment's DRC no longer counts its missing outline.** Since 0.97.2 every KiCad error counts in the DRC headline, and a
   fragment's fit frame (`board.rect(fit=True)`) is never drawn on Edge.Cuts, so KiCad's `invalid_outline` counted against every

@@ -185,6 +185,9 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #notice { display: none; padding: 6px 14px; background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--line); }
 #notice.err { background: var(--bad-soft); color: var(--bad); }
 #notice a { color: inherit; font-weight: 600; }
+#notice .nrow { display: flex; align-items: center; gap: 10px; }
+#notice .ntext { flex: 1 1 auto; min-width: 0; }
+#notice .x { flex: none; border: 0; background: none; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
 #notice code { color: var(--ink); }
 
 /* layout */
@@ -476,19 +479,16 @@ svg text { user-select: none; font-family: var(--sans); }
 .row.note .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .row.note .l2 { overflow-wrap: anywhere; white-space: normal; }
 .row.note .nd { margin-left: auto; border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
-/* finding markers: signal colours with a white halo and a dark rim, so they read on copper, keepouts and the substrate alike */
-.fnd { --fc: #ffd400; pointer-events: auto; cursor: pointer; }
-.fnd.critical { --fc: #ff1744; } .fnd.notice { --fc: #00c2ff; }
-.fnd .halo { fill: none; stroke: #fff; stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
-.fnd .stem { fill: none; stroke: #10151b; stroke-width: 2; }
-.fnd .badge { fill: var(--fc); stroke: #10151b; stroke-width: 2.2; stroke-linejoin: round; }
-.fnd .mk { fill: #10151b; stroke: #10151b; stroke-width: 2.6; stroke-linecap: round; }
-.fnd .pulse { fill: none; stroke: var(--fc); stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; animation: fpulse 2.6s ease-out infinite; }
-.fnd .inner { transform: scale(1.2); }
-.fnd.on .inner { transform: scale(1.65); filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 2px #10151b); }
-.fnd.on .badge { stroke-width: 3.2; }
-@keyframes fpulse { 0% { transform: scale(0.4); opacity: 0.9; } 70% { opacity: 0; } 100% { transform: scale(2.6); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .fnd .pulse { animation: none; } }
+/* findings: translucent areas in the worst severity's signal colour with a thin outline, a count badge where there are several */
+.fa { --fc: #ffd400; pointer-events: auto; cursor: pointer; }
+.fa.critical { --fc: #ff1744; } .fa.notice { --fc: #00c2ff; }
+.fa .area { fill: var(--fc); fill-opacity: 0.12; stroke: var(--fc); stroke-width: 1.5px; stroke-opacity: 0.95; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.fa:hover .area { fill-opacity: 0.24; }
+.fa.on .area { fill-opacity: 0.26; stroke-width: 2.6px; }
+.fa .dots { fill: none; stroke: var(--fc); stroke-width: 4px; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.fa .badge { fill: var(--fc); stroke: #10151b; stroke-width: 1.4; }
+.fa .cnt text { fill: #10151b; font: 700 9px/1 system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.fa.on .badge { stroke-width: 2.4; }
 .ko.sel, .res.sel { stroke-width: 0.35; fill-opacity: 0.35; }
 .item.modhl .cy, .item.modhov .cy { stroke: var(--accent); stroke-width: 0.25; stroke-dasharray: none; fill-opacity: 0.12; }
 .item:hover .cy { stroke: var(--accent); stroke-width: 0.2; }
@@ -756,7 +756,7 @@ function applyHello(d) {
   }
   if (S.restore && S.restore.s && !S.restore.switched && S.restore.s !== currentScriptId()) { S.restore.switched = true; switchTo(S.restore.s); }    // the address names another script
   S.cmds = new Map((d.commands || []).map(c => [c.id, c])); S.explores = d.explores || []; S.routes = d.routes || []; S.exploreFps = d.explore_fps || 2;
-  S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0} : null; S.lastRun = null;
+  S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0, regenerate: !!d.run.regenerate} : null; S.lastRun = null;
   $("#board-title").textContent = d.picker ? "placemat studio" : (d.title || d.script);
   $("#board-sub").textContent = d.picker ? (d.scripts || []).length + " found" : (d.subtitle || "");
   const np = $("#nativepill"); np.hidden = !d.native_text; np.title = d.native_text || "";
@@ -764,9 +764,9 @@ function applyHello(d) {
 }
 on("hello", d => { applyHello(d); schedule("all"); });
 on("scripts", d => { S.scripts = d.scripts; schedule("script", "scripts"); });
-on("run_started", d => { S.run = {id: d.id, lines: [], t0: d.at}; S.lastRun = null; schedule("status", "compare"); });
+on("run_started", d => { S.run = {id: d.id, lines: [], t0: d.at, regenerate: !!d.regenerate}; S.lastRun = null; S.regenError = null; schedule("status", "compare"); });
 
-on("run_done", d => { S.run = null; S.lastRun = d; S.runs = d.runs || S.runs; if (d.run) S.openRuns.add(d.run.id); schedule("status", "compare"); });
+on("run_done", d => { S.regenError = S.run && S.run.regenerate && d.code !== 0 ? (d.tail || []).slice(-3).join(" ") || "the run ended with exit code " + d.code + "; the Runs tab has its record" : null; S.run = null; S.lastRun = d; S.runs = d.runs || S.runs; if (d.run) S.openRuns.add(d.run.id); schedule("status", "compare"); });
 on("switched", d => {                     // the studio now watches another layout script: nothing of the old one stays
   stopPlay(); S.work = null;
   S.docs.clear(); S.live = null; S.shownId = null; S.latestId = null; S.cmp = null; S.baseId = null; S.texts = {}; S.changed = [];
@@ -776,7 +776,7 @@ on("switched", d => {                     // the studio now watches another layo
   schedule("all");
 });
 on("state", d => {                       // the latest resolve, whole
-  const rec = {id: d.id, doc: d.doc, texts: d.texts, changed: d.changed, timing: d.timing, reused: d.reused, notes: d.notes};
+  const rec = {id: d.id, doc: d.doc, texts: d.texts, changed: d.changed, timing: d.timing, reused: d.reused, stale: d.stale || null};
   S.docs.set(d.id, rec);
   S.latestId = d.id;
   showResolve(d.id, d.compare);
@@ -842,7 +842,7 @@ on("finished", d => {
   if (!L || d.id !== L.id) return;
   resolveDone();
   L.counts = d.counts; L.score = d.score;
-  const rec = {id: d.id, doc: L, texts: S.texts, changed: S.changed, timing: d.timing, reused: d.reused, notes: d.notes};
+  const rec = {id: d.id, doc: L, texts: S.texts, changed: S.changed, timing: d.timing, reused: d.reused, stale: d.stale || null};
   S.docs.set(d.id, rec);
   S.latestId = d.id; S.history = d.history; S.resolving = null; S.stale = false; S.status = "live";
   trimDocs();
@@ -914,11 +914,11 @@ function statNumbers(p, rec) {
 }
 function renderStatus() {
   const b = $("#status");
-  const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
+  const label = S.hello && S.hello.picker ? "choose a script" : S.run && S.run.regenerate ? "regenerating" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = typeof label === "string" ? label : label;
   const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Full run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
   rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = $("#sharebtn").hidden = !!(S.hello && S.hello.picker);
-  b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", try: "stale", disconnected: "error"}[S.status] || "");
+  b.className = "pill " + (S.run && S.run.regenerate ? "busy" : {live: "live", resolving: "busy", stale: "stale", error: "error", try: "stale", disconnected: "error"}[S.status] || "");
   const rec = S.docs.get(S.shownId), p = plan();
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
   const n = $("#notice");
@@ -930,11 +930,36 @@ function renderStatus() {
   } else if (S.stale && !S.resolving) {
     n.className = ""; n.style.display = "block";
     n.textContent = "Waiting to resolve" + (S.changedFiles.length ? ": " + S.changedFiles.join(", ") + " changed" : "");
-  } else if (rec && rec.notes && rec.notes.length && !S.resolving) {
-    n.className = ""; n.style.display = "block"; n.textContent = rec.notes.join("; ") + (rec.reused ? "" : "");
+  } else if (S.run && S.run.regenerate) {
+    n.className = ""; n.style.display = "block";
+    n.textContent = "Regenerating the board" + (S.run.n ? ": step " + S.run.n + (S.run.step ? ", " + S.run.step : "") : " ...");
+  } else if (S.regenError) {
+    n.className = "err"; n.style.display = "block";
+    n.innerHTML = '<div class="nrow"><span class="ntext"><b>Regenerating the board failed:</b> ' + esc(S.regenError) + '</span><button class="tool" id="regen">Try again</button><button class="x" id="regenx" aria-label="dismiss">&times;</button></div>';
+    $("#regen").onclick = () => startRun(true);
+    $("#regenx").onclick = () => { S.regenError = null; schedule("status"); };
+  } else if (rec && rec.stale && !S.resolving && !staleDismissed(rec.stale)) {
+    n.className = ""; n.style.display = "block";
+    n.innerHTML = '<div class="nrow"><span class="ntext" title="' + esc(staleTitle(rec.stale)) + '">' + esc(staleText(rec.stale)) + '</span><button class="tool" id="regen"' + (S.run ? " disabled" : "") + '>Regenerate</button><button class="x" id="stalex" aria-label="dismiss" title="hide this until the files change again">&times;</button></div>';
+    $("#regen").onclick = () => startRun(true);
+    $("#stalex").onclick = () => { dismissStale(rec.stale); schedule("status", "board"); };
   } else n.style.display = "none";
   $("#boardwrap").classList.toggle("stale", S.stale && !S.resolving);
   renderProgress();
+}
+// The stale generation's banner: a stale record (runner.stale_record) in words, and its dismissal, kept per script in this browser.
+// A dismissal holds while the record is the same one: a different set of changed files shows the banner again.
+const staleText = st => st.form === "no_record" ? "This board has no record of the files it was generated from; the view shows the last generation."
+  : (st.files || []).every(f => /\.kicad_pcb$/.test(f)) ? "This board's layout file changed after it was generated; the view shows the last generation."
+  : "A file this board is generated from changed after it was generated; the view shows the last generation.";
+const staleTitle = st => st.form === "no_record" ? "" : (st.files || []).join(", ");
+const staleSig = st => JSON.stringify([st.form, st.files || []]);
+let staleSeen = (() => { try { const v = JSON.parse(localStorage.getItem("placemat.staleDismissed") || "{}"); return v && typeof v === "object" ? v : {}; } catch (e) { return {}; } })();
+const staleKey = () => String(S.hello && S.hello.script || "");
+const staleDismissed = st => staleSeen[staleKey()] === staleSig(st);
+function dismissStale(st) {
+  staleSeen[staleKey()] = staleSig(st);
+  try { localStorage.setItem("placemat.staleDismissed", JSON.stringify(staleSeen)); } catch (e) {}
 }
 // ---------------------------------------------------------------- a resolve in progress
 const fmtDur = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
@@ -1171,17 +1196,117 @@ function findingPlaces(p) {
   fplaceCache = {fs, n: fs.length, its, m: its.length, v};
   return v;
 }
-// A finding's marker: a badge on a short stem, its tip at the point, at one size on the screen whatever the zoom (--u is the board units
-// to a pixel, set on the drawing when the view changes). Its shape (a triangle with !, a circle with i), its signal colour, its white
-// halo and its slow pulse are not the shape or colour of anything in the board; the focused finding's is larger and ringed.
-const FND_GLYPH = {
-  critical: '<path class="halo" d="M0 0V-9M0 -32L13 -9H-13Z"/><path class="stem" d="M0 0V-9"/><circle class="pulse" r="9"/><path class="badge" d="M0 -32L13 -9H-13Z"/><path class="mk" d="M0 -26V-19"/><circle class="mk" cy="-14.5" r="1.5"/>',
-  warning: '<path class="halo" d="M0 0V-9M0 -32L13 -9H-13Z"/><path class="stem" d="M0 0V-9"/><circle class="pulse" r="9"/><path class="badge" d="M0 -32L13 -9H-13Z"/><path class="mk" d="M0 -26V-19"/><circle class="mk" cy="-14.5" r="1.5"/>',
-  notice: '<path class="halo" d="M0 0V-9"/><circle class="halo" cy="-19" r="10"/><path class="stem" d="M0 0V-9"/><circle class="pulse" r="9"/><circle class="badge" cy="-19" r="10"/><path class="mk" d="M0 -20V-14"/><circle class="mk" cy="-25" r="1.5"/>',
-};
-function findingMarker(fd, i, at, pn) {
-  const sev = sevOf(fd), sx = pn.mirror ? "calc(var(--u) * -1)" : "var(--u)";
-  return '<g class="fnd ' + sev + (S.focusIdx === i ? " on" : "") + '" data-fi="' + i + '" style="transform: translate(' + num(at[0]) + "px, " + num(at[1]) + "px) scale(" + sx + ', var(--u))"><title>' + esc(fd.text) + '</title><g class="inner">' + FND_GLYPH[sev] + "</g></g>";
+// Findings are drawn as areas, not one marker each. Findings that are close on the screen at the current zoom make one cluster
+// (clusterFindings: the worst first, each joining the nearest cluster whose centre is within FA_JOIN pixels, else starting one; then clusters whose areas would overlap are made one, until none do or the merged area would reach more than FA_MAXR pixels from its centre), drawn as
+// a rounded hull round its points, filled translucent in its worst severity's colour with a thin outline, and a small count badge when
+// it holds more than one. The clustering is by screen distance, so zooming in separates them; it is redone a moment after the view
+// stops changing (rebuildFindings), not on each frame. Pan and zoom in between keep the badge's size; the area's reach is as of the rebuild.
+const FA_JOIN = 56, FA_REACH = 11, FA_ALONE = 7, FA_DOTS = 3, FA_MAXR = 64;           // screen pixels: the join distance, the area's reach round a cluster's points and round a lone finding
+const SEV_RANK = {critical: 0, warning: 1, notice: 2};
+function clusterFindings(pts, k, join) {          // pts: [{i, at, sev}] in board mm; k: pixels to a mm
+  const cl = [];
+  const order = pts.slice().sort((a, b) => SEV_RANK[a.sev] - SEV_RANK[b.sev] || a.i - b.i);
+  for (const q of order) {
+    let best = null, bd = join * join;
+    for (const c of cl) { const dx = (q.at[0] - c.cx) * k, dy = (q.at[1] - c.cy) * k, d = dx * dx + dy * dy; if (d <= bd) { bd = d; best = c; } }
+    if (!best) { cl.push({idx: [q.i], pts: [q.at], sev: q.sev, cx: q.at[0], cy: q.at[1]}); continue; }
+    best.idx.push(q.i); best.pts.push(q.at);
+    const n = best.pts.length; best.cx += (q.at[0] - best.cx) / n; best.cy += (q.at[1] - best.cy) / n;
+  }
+  // An area reaches FA_REACH (a lone finding's FA_ALONE) past its farthest point: two whose reaches meet are one area.
+  const reach = c => c.r !== undefined ? c.r : (c.r = Math.max(0, ...c.pts.map(q => Math.hypot(q[0] - c.cx, q[1] - c.cy) * k)) + (c.pts.length > 1 ? FA_REACH : FA_ALONE));
+  for (let again = true; again;) {
+    again = false;
+    for (let a = 0; a < cl.length && !again; a++) for (let b = a + 1; b < cl.length && !again; b++) {
+      const x = cl[a], y = cl[b];
+      if (Math.hypot(x.cx - y.cx, x.cy - y.cy) * k >= reach(x) + reach(y)) continue;
+      const pts = x.pts.concat(y.pts), cx = pts.reduce((t, q) => t + q[0], 0) / pts.length, cy = pts.reduce((t, q) => t + q[1], 0) / pts.length;
+      if (Math.max(...pts.map(q => Math.hypot(q[0] - cx, q[1] - cy) * k)) + FA_REACH > FA_MAXR) continue;
+      x.idx.push(...y.idx); x.pts = pts; x.cx = cx; x.cy = cy;
+      if (SEV_RANK[y.sev] < SEV_RANK[x.sev]) x.sev = y.sev;
+      x.r = undefined;
+      cl.splice(b, 1); again = true;
+    }
+  }
+  for (const c of cl) c.idx.sort((a, b) => a - b);
+  return cl;
+}
+// The convex hull of points (Andrew's monotone chain, counter-clockwise in the usual axes), then grown by r all round: the hull's
+// corners become arcs, so a lone point is a disc and two are a capsule. Returns the outline's points.
+function roundedHull(pts, r) {
+  const u = [...new Map(pts.map(q => [q[0] + "," + q[1], q])).values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  let h = u;
+  if (u.length > 2) {
+    const lo = [], up = [];
+    for (const q of u) { while (lo.length > 1 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+    for (const q of u.slice().reverse()) { while (up.length > 1 && cross(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+    h = lo.slice(0, -1).concat(up.slice(0, -1));
+  }
+  const out = [], n = h.length, TAU = Math.PI * 2;
+  if (n === 1) { for (let i = 0; i < 16; i++) out.push([h[0][0] + r * Math.cos(TAU * i / 16), h[0][1] + r * Math.sin(TAU * i / 16)]); return out; }
+  const ang = (a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1]; return Math.atan2(-dx, dy); };       // the outward normal of the edge a -> b
+  for (let i = 0; i < n; i++) {
+    const a0 = ang(h[(i + n - 1) % n], h[i]); let sweep = ang(h[i], h[(i + 1) % n]) - a0;
+    sweep = ((sweep % TAU) + TAU) % TAU;
+    const steps = Math.max(1, Math.ceil(sweep / (Math.PI / 8)));
+    for (let j = 0; j <= steps; j++) { const t = a0 + sweep * j / steps; out.push([h[i][0] + r * Math.cos(t), h[i][1] + r * Math.sin(t)]); }
+  }
+  return out;
+}
+let fcl = null;                                    // the clusters last made: {fs, k, list}
+const fscale = () => S.vb && S.px ? S.px / S.vb.w : 8;
+function findingClusters(p, force) {
+  const fs = (p && p.findings) || [], k = fscale(), places = findingPlaces(p);
+  if (!force && fcl && fcl.fs === fs && fcl.n === fs.length && fcl.places === places && fcl.k === k) return fcl.list;
+  const pts = [];
+  fs.forEach((f, i) => { if (places[i]) pts.push({i, at: places[i], sev: sevOf(f)}); });
+  const list = clusterFindings(pts, k, FA_JOIN).sort((a, b) => SEV_RANK[b.sev] - SEV_RANK[a.sev]);        // the worst drawn last, on top
+  list.forEach((c, n) => { c.n = n; });
+  fcl = {fs, n: fs.length, places, k, list};
+  return list;
+}
+function findingAreasSVG(p, pn) {
+  const sx = pn.mirror ? "calc(var(--u) * -1)" : "var(--u)", k = fscale(), sel = S.fsel || new Set(), o = [];
+  for (const c of findingClusters(p)) {
+    const outline = roundedHull(c.pts, (c.idx.length > 1 ? FA_REACH : FA_ALONE) / k);
+    const xs = outline.map(q => q[0]), ys = outline.map(q => q[1]);
+    const on = c.idx.some(i => sel.has(i) || S.focusIdx === i);
+    o.push('<g class="fa ' + c.sev + (on ? " on" : "") + '" data-ci="' + c.n + '"><polygon class="area" points="' + outline.map(q => num(q[0]) + "," + num(q[1])).join(" ") + '"/>' +
+      (c.idx.length <= FA_DOTS ? '<path class="dots" d="' + c.pts.map(q => "M" + num(q[0]) + " " + num(q[1]) + "h0").join("") + '"/>' : "") +
+      (c.idx.length > 1 ? '<g class="cnt" style="transform: translate(' + num(Math.max(...xs)) + "px, " + num(Math.min(...ys)) + "px) scale(" + sx + ', var(--u))"><circle class="badge" r="7"/><text>' + c.idx.length + "</text></g>" : "") + "</g>");
+  }
+  return o.join("");
+}
+// After the view has stopped changing the areas are made again for its zoom.
+let fTimer = null;
+function rebuildFindings(force) {
+  if (!B.svg || !B.svg.querySelectorAll || !lay) return;
+  const p = plan();
+  if (!p || !(p.findings || []).length) return;
+  if (!force && fcl && Math.abs(fscale() / fcl.k - 1) < 0.04) return;
+  for (const g of B.svg.querySelectorAll(".fnds")) {
+    const pn = lay.panels.find(x => x.face === g.dataset.face);
+    if (pn) g.innerHTML = findingAreasSVG(p, pn);
+  }
+}
+const clusterOf = ci => fcl && fcl.list.find(c => c.n === +ci) || null;
+// What the pointer is over: a cluster's findings, worst first, one per line.
+function clusterLines(c, p) {
+  const fs = (p.findings || []), lines = [c.idx.length === 1 ? "1 finding" : c.idx.length + " findings"];
+  const sorted = c.idx.slice().sort((a, b) => SEV_RANK[sevOf(fs[a])] - SEV_RANK[sevOf(fs[b])] || a - b);
+  for (const i of sorted.slice(0, 12)) lines.push(sevOf(fs[i]) + ": " + fs[i].text);
+  if (sorted.length > 12) lines.push("... " + (sorted.length - 12) + " more");
+  return lines;
+}
+// A click on a cluster: one finding is looked at as ever (its card); several are listed in the findings panel.
+function selectCluster(c) {
+  const p = plan(), fs = (p.findings || []);
+  if (c.idx.length === 1) { S.fsel = null; focusFinding(fs[c.idx[0]]); schedule("findings"); return; }
+  selectItem(null);
+  S.fsel = new Set(c.idx); S.sevFilter = "";
+  goTab("findings");
+  schedule("marks", "findings");
 }
 function panelSVG(p, pn, first, order, diffLayer) {
   const f = pn.face, o = [];
@@ -1228,10 +1353,7 @@ function panelSVG(p, pn, first, order, diffLayer) {
       body + '<circle class="lkdot ' + startCls + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/>' + ends + "</g>");
   });
   o.push("</g>");
-  o.push('<g class="fnds">');
-  const places = findingPlaces(p);
-  (p.findings || []).forEach((fd, i) => { const at = places[i]; if (at) o.push(findingMarker(fd, i, at, pn)); });
-  o.push("</g>");
+  o.push('<g class="fnds" data-face="' + f + '">' + findingAreasSVG(p, pn) + "</g>");
   o.push('<g class="npins">' + notePins(p) + "</g>");
   o.push(diffLayer(f, pn));
   o.push("</g>");
@@ -1380,6 +1502,10 @@ function applyMarks() {
     m.classList.toggle("fhl", fr.has(ref));
     for (const pd of m.querySelectorAll ? m.querySelectorAll("[data-pad]") : []) pd.classList.toggle("fpad", fp.has(ref + "\n" + pd.dataset.pad));
   }
+  if (B.svg && B.svg.querySelectorAll) for (const a of B.svg.querySelectorAll(".fa")) {
+    const c = clusterOf(a.dataset.ci);
+    a.classList.toggle("on", !!c && c.idx.some(i => (S.fsel && S.fsel.has(i)) || S.focusIdx === i));
+  }
   drawFocusRings(p);
   const refs = selRefs(p);
   for (const l of B.links) l.classList.toggle("mine", refs.has(l.dataset.a) || refs.has(l.dataset.b));
@@ -1515,7 +1641,7 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
     '<circle cx="2.5" cy="7" r="2.2" class="lkdot ' + cls + '"/><path d="M 17 3 L 24 7 L 17 11 z" class="arrowhead ' + cls + '"/>',
   ko: '<rect x="3" y="2" width="20" height="10" class="ko" style="stroke-width:1.2;fill-opacity:0.3"/>',
   res: '<rect x="3" y="2" width="20" height="10" class="res" style="stroke-width:1.2;stroke-dasharray:3 2;fill-opacity:0.25"/>',
-  findings: '<g class="fnd warning" style="transform: translate(13px, 13px) scale(0.4)"><g class="inner">' + FND_GLYPH.warning.replace('<circle class="pulse" r="9"/>', "") + "</g></g>",
+  findings: '<g class="fa warning" style="pointer-events:none"><rect x="3" y="2" width="20" height="10" rx="5" class="area"/><circle cx="23" cy="2.5" r="3.2" class="badge"/></g>',
   note: '<g class="npin" transform="translate(13 12) scale(4)"><path d="M0 0 L-0.8 -1.8 A1 1 0 1 1 0.8 -1.8 Z"/><circle cx="0" cy="-2.3" r="0.35"/></g>',
   zone: cls => '<rect x="3" y="2" width="20" height="10" class="plane ' + cls + '" style="stroke-width:1.2"/>',
   heat: '<rect x="3" y="2" width="5" height="10" fill="rgb(59,76,192)"/><rect x="8" y="2" width="5" height="10" fill="rgb(53,176,171)"/><rect x="13" y="2" width="5" height="10" fill="rgb(253,231,37)"/><rect x="18" y="2" width="5" height="10" fill="rgb(249,142,9)"/>',
@@ -1626,6 +1752,8 @@ function applyView() {
   $("#grid").setAttribute("viewBox", box);
   svg.classList.toggle("lowzoom", r.width / vb.w < 10);
   drawGrid(vb, r.width);
+  if (fTimer) clearTimeout(fTimer);
+  fTimer = setTimeout(() => { fTimer = null; rebuildFindings(); schedule("marks"); }, 140);
 }
 let viewQueued = false;
 function setView(v) {                 // a gesture's view, applied once a frame
@@ -1829,9 +1957,10 @@ function regionLines(kind, id, p) {
 }
 function hover(e) {
   const p = plan(), t = e.target && e.target.closest ? e.target : null;
-  const g = t && t.closest(".item"), rg = t && t.closest(".ko, .res"), lk = t && t.closest(".lkg");
+  const g = t && t.closest(".item"), rg = t && t.closest(".ko, .res"), lk = t && t.closest(".lkg"), fa = t && t.closest(".fa");
   let tipd = null;
-  if (g) tipd = tipItem(g, e, p);
+  if (fa && clusterOf(fa.dataset.ci)) { const c = clusterOf(fa.dataset.ci); tipd = {key: "fa:" + c.idx.join(","), lines: clusterLines(c, p), mod: []}; }
+  else if (g) tipd = tipItem(g, e, p);
   else if (lk) {
     const l = (p.links || [])[+lk.dataset.i];
     if (l) tipd = {key: "l:" + lk.dataset.i, lines: [linkLine(l, null), l.why].filter(Boolean), mod: []};
@@ -1852,8 +1981,8 @@ function hideTip() { tipKey = null; $("#tip").style.display = "none"; setHover([
 function pickAt(x, y) {                      // a tap or a click on the board: a part, a region, a link, or nothing
   const t = document.elementFromPoint(x, y);
   const m = t && t.closest(".mem"), it = t && t.closest(".item");
-  const fm = t && t.closest(".fnd");
-  if (fm) { const f = (plan().findings || [])[+fm.dataset.fi]; if (f) { focusFinding(f); return; } }
+  const fm = t && t.closest(".fa");
+  if (fm) { const c = clusterOf(fm.dataset.ci); if (c) { selectCluster(c); return; } }
   const pin = t && t.closest(".npin");
   if (pin) { const n = S.notes.find(x => x.id === pin.dataset.note); if (n) { focusNote(n); return; } }
   if (it) { selectItem(it.dataset.key, {ref: m ? m.dataset.ref : null}); return; }
@@ -1861,6 +1990,7 @@ function pickAt(x, y) {                      // a tap or a click on the board: a
   if (lk) { const p = plan(), ref = lk.dataset.a, owner = itemsOf(p).find(i => i.members.some(mm => mm.ref === ref)); if (owner) { selectItem(owner.key, {ref}); return; } }
   const rg = t && t.closest(".ko, .res");
   if (rg) { selectRegion(rg.dataset.ko !== undefined ? "ko" : "res", rg.dataset.ko !== undefined ? rg.dataset.ko : rg.dataset.res); return; }
+  if (S.fsel) { S.fsel = null; schedule("marks", "findings"); }
   selectItem(null);
 }
 function selectRegion(kind, id) {
@@ -1880,7 +2010,8 @@ function focusFinding(f) {
   S.focus = refs.length || pads.length ? {refs, pads} : null;
   S.focusIdx = S.focus ? ((p.findings || []).indexOf(f)) : null;
   const boxes = refs.map(r => { const o = owner(r); return o && itemBox(o, r); }).filter(Boolean);
-  if (f.at) boxes.push([f.at[0] - 1, f.at[1] - 1, f.at[0] + 1, f.at[1] + 1]);
+  const at = findingPlaces(p)[(p.findings || []).indexOf(f)];
+  if (at) boxes.push([at[0] - 1, at[1] - 1, at[0] + 1, at[1] + 1]);
   if (boxes.length) {
     const box = [Math.min(...boxes.map(b => b[0])), Math.min(...boxes.map(b => b[1])), Math.max(...boxes.map(b => b[2])), Math.max(...boxes.map(b => b[3]))];
     const face = first && first.face;
@@ -2339,18 +2470,20 @@ function renderFindings() {
   if (!all.length) { el.innerHTML = '<div class="empty">No findings</div>'; return; }
   const bySev = SEVERITIES.map(s => [s, all.filter(f => sevOf(f) === s).length]).filter(x => x[1]);
   const hasSev = all.some(f => f.severity);
-  const fs = S.sevFilter ? all.filter(f => sevOf(f) === S.sevFilter) : all;
+  const area = S.fsel && S.fsel.size ? all.filter((f, i) => S.fsel.has(i)) : null;
+  const fs = area ? area : S.sevFilter ? all.filter(f => sevOf(f) === S.sevFilter) : all;
   const groups = new Map();
   fs.forEach(f => { const k = hasSev ? sevOf(f) : f.kind || "other"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push([f, all.indexOf(f)]); });
   const order = hasSev ? SEVERITIES.filter(k => groups.has(k)) : [...groups.keys()];
-  const filters = bySev.length > 1 ? '<div class="filters"><button data-sev=""' + (S.sevFilter ? "" : ' class="on"') + ">all " + all.length + "</button>" + bySev.map(([s, n]) => '<button data-sev="' + s + '"' + (S.sevFilter === s ? ' class="on"' : "") + ">" + s + " " + n + "</button>").join("") + "</div>" : "";
+  const filters = area ? '<div class="filters"><span class="dim">' + area.length + ' findings in the selected area</span><button data-sev="" data-all="1">all ' + all.length + "</button></div>" :
+    bySev.length > 1 ? '<div class="filters"><button data-sev=""' + (S.sevFilter ? "" : ' class="on"') + ">all " + all.length + "</button>" + bySev.map(([s, n]) => '<button data-sev="' + s + '"' + (S.sevFilter === s ? ' class="on"' : "") + ">" + s + " " + n + "</button>").join("") + "</div>" : "";
   el.innerHTML = filters + order.map(kind => {
     const list = groups.get(kind), closed = S.closedKinds.has(kind), worst = hasSev ? kind : list.some(([f]) => sevOf(f) === "critical") ? "critical" : list.some(([f]) => sevOf(f) === "notice") && !list.some(([f]) => sevOf(f) === "warning") ? "notice" : "warning";
     return '<div class="gh" data-kind="' + esc(kind) + '"><span class="dim">' + (closed ? "&#9656;" : "&#9662;") + "</span>" + esc(kind) + '<span class="ct">' + list.length + "</span></div>" +
       (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + (isUnplacedFinding(f) ? unplacedInline(f) : esc(f.text)) + srcLink(f, p) + sgHTML(f) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
   }).join("");
   el.onclick = e => {
-    const sv = e.target.closest("[data-sev]"); if (sv) { S.sevFilter = sv.dataset.sev; renderFindings(); return; }
+    const sv = e.target.closest("[data-sev]"); if (sv) { S.sevFilter = sv.dataset.sev; S.fsel = null; renderFindings(); schedule("marks"); return; }
     const gh = e.target.closest(".gh");
     if (gh) { const k = gh.dataset.kind; if (S.closedKinds.has(k)) S.closedKinds.delete(k); else S.closedKinds.add(k); renderFindings(); return; }
     if (e.target.closest(".fixslot")) return;
@@ -2616,7 +2749,7 @@ function wireCompare(el) {
   if (b) b.onchange = async () => { const id = +b.value; await pickShown(id); if (a && a.value) loadCompare(+a.value, id); };
   el.querySelectorAll(".fbtn").forEach(x => x.onclick = () => { S.cmpFile = x.dataset.f; schedule("compare"); });
   const sbs = $("#sbs"); if (sbs) sbs.onchange = () => { S.sbs = sbs.checked; schedule("compare"); };
-  const rn = $("#runnow"); if (rn) rn.onclick = startRun;
+  const rn = $("#runnow"); if (rn) rn.onclick = () => startRun();
   el.onclick = e => {
     if (e.target.closest(".info")) return;
     const sl = e.target.closest("[data-act=src]"); if (sl) { openScript(sl.dataset.file, +sl.dataset.line); return; }
@@ -2665,7 +2798,7 @@ on("cmdev", d => {
   if (d.ev.ev === "probe" || d.ev.ev === "candidate" || d.ev.ev === "probe_done") probeEvent(d.id, d.ev);
   if (S.cmdView && S.cmdView.id === d.id) cmdEvent(d.ev, d.n);
 });
-on("run_progress", d => { if (S.run && S.run.id === d.id) { S.run.step = d.item; S.run.n = d.n; schedule("compare"); } });
+on("run_progress", d => { if (S.run && S.run.id === d.id) { S.run.step = d.item; S.run.n = d.n; schedule("compare", "status"); } });
 // One event of the opened command: a resolve's steps build its plan, an explore's variants its explore view.
 function cmdEvent(ev, n) {
   const V = S.cmdView; if (!V) return;
@@ -2956,7 +3089,7 @@ function sgShowDiff(d) {
 }
 // The try's plan shown in place of the resolve it was made on, compared with it, marked "try, not written".
 function showTry(res) {
-  S.docs.set(res.id, {id: res.id, doc: res.doc, texts: res.texts, changed: [], timing: res.timing, reused: "", notes: []});
+  S.docs.set(res.id, {id: res.id, doc: res.doc, texts: res.texts, changed: [], timing: res.timing, reused: "", stale: null});
   S.try = {id: res.id, base: res.base, suggestion: res.suggestion, cleared: res.cleared, gained: res.gained, lost: res.lost, moved: res.moved, score: res.score, applied: res.applied};
   S.follow = false; stopPlay();
   S.shownId = res.id; S.live = null; S.liveQ = []; S.texts = res.texts; S.changed = []; S.stale = false; S.error = null; S.status = "try";
@@ -3459,13 +3592,13 @@ function renderPicker() {
   el.innerHTML = '<div class="box"><h2>Choose a layout script</h2><p>' + list.length + " found under <code>" + esc(S.hello.root || "") + "</code>. Nothing is resolved until you choose one.</p>" + list.map(s => scriptEntry(s, "pick")).join("") + "</div>";
   el.onclick = e => { const b = e.target.closest("[data-script]"); if (b) switchTo(b.dataset.script); };
 }
-function startRun() {
+function startRun(regenerate) {
   if (S.run) return;
-  fetch("/run?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"})
+  fetch("/run?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({regenerate: regenerate === true})})
     .then(r => { if (!r.ok) return r.text().then(m => { throw new Error(m); }); })
     .catch(err => { const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not start a run: " + err.message; });
 }
-$("#runbtn").onclick = startRun;
+$("#runbtn").onclick = () => startRun();
 // A file the server names by its full path, as the page's texts name it (relative to the script's folder).
 const relName = f => { const k = Object.keys(S.texts || {}).find(n => f === n || String(f).endsWith("/" + n)); return k || f; };
 const ago = at => { const s = Math.max(0, Date.now() / 1000 - at); return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };

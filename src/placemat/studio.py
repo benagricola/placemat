@@ -58,7 +58,7 @@ class Record:
     changed: list                               # what changed from the resolve before (as `started` said)
     timing: dict = field(default_factory=dict)
     reused: str = ""
-    notes: list = field(default_factory=list)
+    stale: dict | None = None                   # why the cached generation is out of date (runner.stale_record), None when it is not
     applied: str = ""                           # the suggestion whose edit this resolve followed ("applied from a suggestion: ...")
 
     def summary(self) -> dict:
@@ -793,10 +793,8 @@ class Studio:
             item["file"] = self.name_of(item["file"]) if item.get("file") else ""
         doc = with_spans(doc, cur["texts"])
         from . import reuse as reuse_mod
-        from .runner import stale_text
-        stale = stale_text(ev.get("stale"))
         rec = Record(rid, time.time(), cur["texts"], doc, cur["changed"], ev["timing"], reuse_mod.summary_text(ev.get("reused")),
-                     ["the cached generation is out of date (%s): this shows the old one" % stale] if stale else [], cur.get("applied", ""))
+                     ev.get("stale"), cur.get("applied", ""))
         previous = self.history[-1] if self.history else None
         self.history.append(rec)
         self._cur, self._cancel_at, self._error = None, None, None
@@ -809,7 +807,7 @@ class Studio:
         emit("items", {"id": rid, "items": doc["items"], "steps": doc["steps"], "unplaced": doc["unplaced"],
                        "pocketed": doc["pocketed"], "board": doc["board"], "keepouts": doc["keepouts"],
                        "reservations": doc["reservations"], "layers": doc["layers"], "seconds": doc.get("seconds")}, keep=True)
-        emit("finished", {"id": rid, "counts": doc["counts"], "timing": rec.timing, "reused": rec.reused, "notes": rec.notes,
+        emit("finished", {"id": rid, "counts": doc["counts"], "timing": rec.timing, "reused": rec.reused, "stale": rec.stale,
                           "score": doc.get("score"), "history": [r.summary() for r in self.history]}, keep=True)
         if previous is not None:
             emit("compare", self.compare(previous, rec), keep=True)
@@ -1424,18 +1422,20 @@ class Studio:
     def _run_state(self):
         with self.lock:
             r = self._run
-            return None if r is None else {"id": r["id"], "lines": r["lines"][-40:], "t0": r["t0"]}
+            return None if r is None else {"id": r["id"], "lines": r["lines"][-40:], "t0": r["t0"], "regenerate": r.get("regenerate", False)}
 
-    def start_run(self) -> dict:
+    def start_run(self, regenerate: bool = False) -> dict:
         """A checked run of the script (`placemat run --no-render`: the design checks, KiCad's DRC and the score, a run
-        record), started on a thread; its progress and result go to the pages as `run_line` and `run_done`."""
+        record), started on a thread; its progress and result go to the pages as `run_line` and `run_done`. A run generates
+        the board again when its cached generation is out of date; `regenerate` says it is started for that, so the pages
+        say so. A run that ends well with the last resolve showing an out of date generation is followed by a resolve."""
         with self.lock:
             if self.script is None:
                 raise ValueError("choose a layout script first")
             if self._run is not None:
                 raise ValueError("a run is already in progress")
             self._next_run = getattr(self, "_next_run", 0) + 1
-            self._run = {"id": self._next_run, "lines": [], "t0": time.time()}
+            self._run = {"id": self._next_run, "lines": [], "t0": time.time(), "regenerate": bool(regenerate)}
             rid = self._run["id"]
         threading.Thread(target=self._do_run, args=(rid,), daemon=True).start()
         return {"id": rid}
@@ -1454,7 +1454,7 @@ class Studio:
                 for c in self.cmds.values():
                     if c.get("pid") == proc.pid:
                         c["own_run"] = rid
-            self.hub.emit("run_started", {"id": rid, "at": t0, "pid": proc.pid})
+            self.hub.emit("run_started", {"id": rid, "at": t0, "pid": proc.pid, "regenerate": bool(self._run and self._run.get("regenerate"))})
             code = proc.wait()
         except OSError as e:
             tail.append("could not start the run: %s" % e)
@@ -1469,6 +1469,13 @@ class Studio:
         if note:
             tail.append(note)
         self.hub.emit("run_done", {"id": rid, "code": code, "run": newest, "tail": tail[-25:], "runs": self.runs()})
+        with self.lock:
+            shown_stale = bool(self.history and self.history[-1].stale)
+        if code == 0 and shown_stale:           # the run generated the board again: what is shown is from the old generation
+            try:
+                self.resolve_now()
+            except ValueError:
+                pass
 
     def run_doc(self, run_id: str) -> dict | None:
         """A recorded run as a plan document for the compare: its placements as items, its findings and score."""
@@ -1566,7 +1573,7 @@ class Studio:
                 last = self.history[-1]
                 prev = self.history[-2] if len(self.history) > 1 else None
                 out.append(("state", json.dumps({"id": last.id, "doc": last.doc, "texts": last.texts, "changed": last.changed,
-                                                 "timing": last.timing, "reused": last.reused, "notes": last.notes,
+                                                 "timing": last.timing, "reused": last.reused, "stale": last.stale,
                                                  "compare": self.compare(prev, last) if prev else None}, separators=(",", ":"))))
             return out
 
@@ -1630,7 +1637,7 @@ def _handler(studio: Studio):
                 if rec is None:
                     return self._refuse(404, "no such resolve (the last %d are kept)" % studio.keep)
                 return self._json({"id": rec.id, "doc": rec.doc, "texts": rec.texts, "changed": rec.changed,
-                                   "timing": rec.timing, "reused": rec.reused, "notes": rec.notes})
+                                   "timing": rec.timing, "reused": rec.reused, "stale": rec.stale})
             if path == "/diff":
                 a, b = studio.record(_int(query.get("a", [""])[0])), studio.record(_int(query.get("b", [""])[0]))
                 if a is None or b is None:
@@ -1745,7 +1752,9 @@ def _handler(studio: Studio):
                     return self._refuse(400, str(e))
             if url.path == "/run":
                 try:
-                    return self._json(studio.start_run())
+                    n = min(int(self.headers.get("Content-Length") or 0), 4096)
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    return self._json(studio.start_run(bool(body.get("regenerate"))))
                 except ValueError as e:
                     return self._refuse(409, str(e))
             if url.path == "/resolve":

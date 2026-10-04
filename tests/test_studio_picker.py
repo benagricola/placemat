@@ -511,3 +511,53 @@ def test_a_step_a_command_found_slow_is_kept_with_the_command_and_sent_to_the_pa
     assert [x["ev"] for x in slow] == ["step_warn", "step_limit"] and slow[0]["id"] == 1 and slow[0]["command"] == "explore"
     s._on_channel(1, {"ev": "resolve", "n": 2})
     assert s.commands()[0]["slow"] == []                                    # a new resolve starts a new list
+
+
+def test_a_regenerating_run_says_so_and_is_followed_by_a_resolve_when_the_shown_generation_was_stale(project, monkeypatch):
+    from placemat.studio import Record
+    s = _fresh(project)
+    drain = _events(s)
+    s.history.append(Record(1, 0.0, {}, {"items": [], "findings": [], "unplaced": [], "counts": {}}, [], stale={"form": "changed", "files": ["m/layout/layout.kicad_pcb"]}))
+    asked = []
+    monkeypatch.setattr(s, "resolve_now", lambda fresh=False: asked.append(fresh) or {})
+
+    class Proc:
+        pid = 424243
+
+        def wait(self):
+            return 0
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Proc())
+    assert s.start_run(regenerate=True)["id"] == 1
+    assert s._run_state()["regenerate"] is True
+    ev, deadline = [], time.monotonic() + 30
+    while not any(n == "run_done" for n, _ in ev) and time.monotonic() < deadline:
+        time.sleep(0.02)
+        ev += drain()
+    assert json.loads(next(x for n, x in ev if n == "run_started"))["regenerate"] is True
+    deadline = time.monotonic() + 5
+    while not asked and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert asked == [False]
+
+
+def test_a_run_after_a_current_generation_starts_no_resolve(project, monkeypatch):
+    from placemat.studio import Record
+    s = _fresh(project)
+    drain = _events(s)
+    s.history.append(Record(1, 0.0, {}, {"items": [], "findings": [], "unplaced": [], "counts": {}}, [], stale=None))
+    asked = []
+    monkeypatch.setattr(s, "resolve_now", lambda fresh=False: asked.append(fresh) or {})
+
+    class Proc:
+        pid = 424244
+
+        def wait(self):
+            return 0
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Proc())
+    s.start_run()
+    ev, deadline = [], time.monotonic() + 30
+    while not any(n == "run_done" for n, _ in ev) and time.monotonic() < deadline:
+        time.sleep(0.02)
+        ev += drain()
+    time.sleep(0.2)
+    assert asked == []
