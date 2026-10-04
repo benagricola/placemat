@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A carried via's give way is judged faster.** The native polygon clearance test stops at the first pair under the limit, a via's move
+  search judges the board last, at the few spots that pass the cheaper tests (nearly all spots fail the pad, the copper it first met or the
+  item's own copper), and a via's judgment against the board is one native call. The same placements, give-way actions and SVG: a core
+  board's preview takes 72 s where it took 120 s, the give way in it 16 s where it took 61 s. Nothing to change in a script.
+- **A candidate whose vias give way is charged what the give way judged against the step budget (`place.step_budget`).** It was charged
+  one candidate however many spots and tails the vias' search put to the board (about 3300 on average in a core board's preview). A step
+  with many carried vias reaches its budget sooner, and the `judged` its finding reports is larger. `place.via_clear_cache` now serves only
+  a routed via's search.
+
 ## To 0.97.3
 
 ### Changed
