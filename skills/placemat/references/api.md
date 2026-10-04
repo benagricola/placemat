@@ -1460,6 +1460,10 @@ cell, inside its group, and are honoured: they move with the cell and fence the
 placer. Its labels come the same way: each silk text in the cell's group keeps
 parts off its box on its face once the cell lands (`sits in the reservation
 for label 'BOOT' from the debug cell`), so a parent need not declare them again.
+While the cell is searched each text's box is the cell's silk, judged as its
+parts' silk is against what is already placed: under the `physical` or `union`
+envelope a spot that puts it within the silk clearance of another part's silk
+or mask opening is refused, on the face the cell lands on.
 A stamped region larger than its cell costs the parent the difference: the
 cell's step says `its stamped regions keep parts off N mm2 of board beyond
 its own parts`. For a part's escape band, `board.fanout()` follows the pad
@@ -3174,7 +3178,11 @@ the fill by - the widest disc that can travel from touching the one to
 touching the other. Its width reads within about one step of the copper's;
 a neck no cell falls in reads as one step and says so. The fill's
 width is the route's there when it is narrower than the rest of the route
-by more than a step. Each two parts carrying `Pm.I` on the net
+by more than a step. The search for the widest route reads a fill no wider
+than the widest disc anywhere in it until it has measured the crossing;
+where the route it found narrows in a fill, it searches again with that
+crossing at its measured width, up to `check.route_tries` searches, so a
+plane joining the same pads is taken over a sliver of another fill. Each two parts carrying `Pm.I` on the net
 are judged at the lesser of their two currents - what can flow between
 them - by the narrowest point of the widest route from any pad of one to
 any pad of the other; the net's verdict is its worst pair, naming both ends
@@ -4329,6 +4337,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.neck_resistivity` | `2.2e-08` | ohm m | copper's resistivity at the working temperature, ohm m (1.68e-8 at 20 C, 4.04e-3 per K, at 100 C) |
 | `check.neck_conductivity` | `384.0` | W/(m K) | copper's thermal conductivity, W/(m K) |
 | `check.zone_step` | `0.05` | mm | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
+| `check.route_tries` | `4` | count | how many times the load's route between two carriers is searched, each search after the first avoiding the zone fill crossings the earlier ones measured narrow |
 | `check.limits` | `{}` | table | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | list | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
 | `drc.real_kinds` | `["clearance", "shorting_items", "track_width", "annular_width", "hole_clearance", "hole_to_hole", "courtyards_overlap", "copper_edge_clearance"]` | list | which violations mean the board is not done, whatever their severity: the `real` bucket (every other kind KiCad reports as an error counts there too, except footprint issues and outstanding) |

@@ -10815,7 +10815,8 @@ def _shape_of(op) -> Shape | None:
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box,
                     ends=((op.start.x, op.start.y), (op.end.x, op.end.y)), wire=True,
-                    arc=() if op.mid is None else (op.mid.x, op.mid.y))
+                    arc=() if op.mid is None else (op.mid.x, op.mid.y),
+                    segment=(op.start.x, op.start.y, op.end.x, op.end.y, op.width) if op.mid is None else ())
     if isinstance(op, Via):
         faces = frozenset(l.face for l in op.layers if l.face is not None) if op.layers else both
         return Shape("", "through", faces, _op_layers(op), op.net, op.polygon, op.box,
@@ -10826,7 +10827,8 @@ def _shape_of(op) -> Shape | None:
         if op.stroke > 0:                       # the copper reaches half the stroke past its outline
             from .pourfit import offset
             poly = offset(poly, op.stroke / 2.0)
-        return Shape("", "copper", faces, frozenset([op.layer]), op.net, poly, Box.of_points(poly))
+        return Shape("", "copper", faces, frozenset([op.layer]), op.net, poly, Box.of_points(poly),
+                     drawn=((op.polygon,), op.stroke, True))
     return None            # a zone pulls back round everything; it is never an obstacle
 
 

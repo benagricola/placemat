@@ -30,6 +30,25 @@ section for each hand-written pattern a newer form replaces.
   given a back layer by name, were written unmirrored, which KiCad's DRC reports as `nonmirrored_text_on_back_layer`.
   Every text placemat writes on B.Cu, B.Silkscreen, B.Mask or B.Fab is now mirrored, and one on their front twins is not.
   A stamped cell's texts are put right as the cell is moved, so a fragment written before this fix needs no new layout.
+- **`current-path` takes the plane over a sliver of another fill.** The search for the load's widest route read every zone
+  fill and pour as passing any width, and measured only the fills on the route it happened to find first, so a route
+  through a sliver where two fills of the net meet on one layer could be judged while a plane joined the same pads: a
+  through-hole pad pair joined by inner planes read as a 0.05 mm neck. The search now reads an unmeasured fill no wider
+  than the widest disc anywhere in it, and where the route it found narrows in a fill it searches again with that crossing
+  at its measured width (`check.route_tries`, default 4). A net that failed on such a sliver is judged on its planes; the
+  verdict can still fail there, at the plane's own narrowest point between the holes of other nets.
+- **A copper finding measures a straight track and a pour as KiCad's DRC does.** It measured a track by its polygon, whose
+  round ends stand up to 1.6 micrometres outside the copper, and a pour by its outline grown by half its stroke, mitred at
+  each corner; read from the board, both by an outline KiCad grew by its arc error. Copper KiCad passes at its rule read 1
+  to 3 micrometres short of it, past the DRC epsilon, and was reported (`copper ... is 0.158 mm from ... (needs 0.160)`). A
+  finding now collides a straight track as its centreline and width and a pour as its outline and a stroke along each
+  edge, as KiCad's DRC does. An arc track is still measured by its polygon.
+- **A stamped cell's own labels are judged while the cell is searched.** The silk texts a module fragment's `board.label()`
+  stamps with its cell kept parts off their boxes only once the cell had landed, so the search could set the cell where a
+  label lay on a part already placed: KiCad then reported `silk_over_copper` and `silk_overlap`. Each text's box is now the
+  cell's silk during the search: under the `physical` or `union` envelope a spot within the silk clearance of another
+  part's silk or mask opening is refused. A cell that landed with a label on another part looks for another spot; one
+  with no room left for its labels is reported unplaced as any other.
 
 ## To 0.99.4
 

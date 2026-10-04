@@ -46,6 +46,10 @@ class Shape:
     ends: tuple = ()                # a track's own two endpoints, for a finding that names the segment
     arc: tuple = field(default=(), metadata={"omit_default": True})   # an arc track's mid point: its poly is the arc's, not the segment's
     circle: tuple = ()              # a via's (x, y, radius): its copper as the circle it is, for a finding
+    # a straight track's (ax, ay, bx, by, width): its copper as the segment it is, for a finding
+    segment: tuple = field(default=(), metadata={"omit_default": True})
+    # a drawn copper polygon's (outlines, stroke width, filled): its copper as KiCad's DRC collides it, for a finding
+    drawn: tuple = field(default=(), metadata={"omit_default": True})
     # A carried via (giveway.py): its ring, its hole and its tail carry its id, and `points`
     # its centre (and a tail's far end after it), moved as the shape moves. `given` names the
     # via whose giving way drew this shape.
@@ -539,10 +543,13 @@ class Occupancy:
                 at = Location(*c.anchors[0]) if c.anchors else c.box.center
                 circle = (at.x, at.y, c.width_mm / 2.0)
             tag, points = carried.get(id(c), ("", ()))
+            segment = _read_segment(c) if not tag else ()
+            drawn = (c.vertices, c.width_mm, c.filled) if c.kind == "poly" and c.vertices and not tag else ()
             for poly in c.outlines:
                 self.copper.append(Shape(c.owner or "", "through" if c.kind == "via" else "copper",
                                          faces, c.layers, c.net, poly, Box.of_points(poly), circle=circle,
-                                         carried=tag, points=points, wire=c.kind in ("track", "via")))
+                                         carried=tag, points=points, wire=c.kind in ("track", "via"),
+                                         segment=segment, drawn=drawn))
             if c.kind == "via" and c.drill_mm:
                 at = Location(*c.anchors[0]) if c.anchors else c.box.center
                 hole = hole_shape(c.owner or "", at, c.drill_mm, c.net, layers=span)
@@ -570,6 +577,12 @@ class Occupancy:
                                  courtyard=True)
             else:
                 self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
+                if ra.name.startswith("label "):
+                    # the text is the cell's silk as well: judged as its parts' silk is while the cell is
+                    # searched, and moved with the cell's own copper when it lands
+                    poly = tuple(tuple(p) for p in ra.polygon)
+                    self.copper.append(Shape(ra.cell, "silk", frozenset(l.face for l in ra.layers if l.face),
+                                             frozenset(), "", poly, Box.of_points(poly), ra.name[len("label "):]))
 
     # ------------------------------------------------------------ geometry of a candidate
     def _register(self, fp: Footprint) -> ItemGeometry:
@@ -632,7 +645,7 @@ class Occupancy:
         if geom.part_refs:
             n = len(geom.part_refs)
             name = next(o for o in geom.owners if o not in geom.part_refs and o not in self._footprint_refs)
-            parts = tuple(geom.parts[:n]) + tuple(s.box for s in shapes if s.owner == name and s.kind != "viaban")
+            parts = tuple(geom.parts[:n]) + tuple(s.box for s in shapes if s.owner == name and s.kind not in ("viaban", "silk"))
         less = dataclasses.replace(geom, shapes=shapes, parts=parts)
         cache[id(item)] = (geom, less)
         return less
@@ -1041,7 +1054,7 @@ class Occupancy:
             return hit[2]
         n = len(geom.part_refs)
         own = [s for s in geom.shapes if s.owner in geom.owners and s.owner not in geom.part_refs
-               and s.kind != "viaban"]
+               and s.kind not in ("viaban", "silk")]
         out = [k for k in range(n) if not self._member_let_in(r, geom.part_refs[k])]
         if r.admitted is None and r.copper:
             out += [n + j for j, s in enumerate(own[:len(geom.parts) - n]) if not (s.net and s.net in r.allow)]
@@ -1224,7 +1237,7 @@ class Occupancy:
         """A cell's geometry from its members' ({refdes: ItemGeometry}) and
         its own copper, as _geometry builds it from what is committed."""
         shapes = tuple(s for fp in item.members for s in members[fp.ref].shapes) + tuple(own)
-        mine = [s.box for s in shapes if s.owner == item.name and s.kind != "viaban"]
+        mine = [s.box for s in shapes if s.owner == item.name and s.kind not in ("viaban", "silk")]
         body = Box.union([members[fp.ref].body for fp in item.members] + mine)
         reach = Box.union([members[fp.ref].reach or members[fp.ref].body for fp in item.members] + mine)
         return ItemGeometry(frozenset(m for fp in item.members for m in members[fp.ref].owners) | {item.name},
@@ -1602,7 +1615,7 @@ class Occupancy:
                     flat_parts.append(Box.union([geom.parts[k]] + [s.box for s in mine if s.kind in flat_kinds]))
                     cu = [s.box for s in mine if s.kind in _COPPERISH]
                     copper_parts.append(Box.union(cu) if cu else None)
-                own = [s for s in geom.shapes if s.owner == name and s.kind != "viaban"]
+                own = [s for s in geom.shapes if s.owner == name and s.kind not in ("viaban", "silk")]
                 for k, s in enumerate(own):
                     flat_parts.append(geom.parts[n + k])
                     copper_parts.append(s.box if s.kind in _COPPERISH else None)
@@ -2634,11 +2647,58 @@ def _point_poly_distance(p, poly) -> float:
     return min(point_segment_distance(p, poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly)))
 
 
+def _read_segment(c) -> tuple:
+    """A track read from the board as (ax, ay, bx, by, width) when it is
+    straight - its own length its ends' distance; an arc's is longer - else
+    ()."""
+    if c.kind != "track" or len(c.anchors) < 2 or not c.width_mm:
+        return ()
+    (ax, ay), (bx, by) = c.anchors[0], c.anchors[1]
+    if c.length_mm and abs(c.length_mm - math.hypot(bx - ax, by - ay)) > 1e-6:
+        return ()
+    return (ax, ay, bx, by, c.width_mm)
+
+
+def _kicad_of(sh):
+    """A shape as `kicad_collide` collides it (nm): a straight track the
+    SHAPE_SEGMENT it is, a via its circle, a drawn polygon the compound
+    KiCad makes of it (EDA_SHAPE::MakeEffectiveShapes, SHAPE_T::POLY: each
+    outline a SHAPE_SIMPLE when filled, and each of its edges a SHAPE_SEGMENT
+    of the stroke's width when stroked), anything else its polygon."""
+    if sh.drawn:
+        outlines, width, filled = sh.drawn
+        parts = []
+        for outline in outlines:
+            pts = tuple((_kc.to_nm(x), _kc.to_nm(y)) for x, y in outline)
+            if filled:
+                parts.append(("p", pts))
+            if width > 0 or not filled:
+                w = _kc.to_nm(width)
+                parts += [("s",) + pts[k] + pts[(k + 1) % len(pts)] + (w,) for k in range(len(pts))]
+        return _kc.Compound(parts)
+    if sh.segment:
+        ax, ay, bx, by, w = sh.segment
+        return ("s", _kc.to_nm(ax), _kc.to_nm(ay), _kc.to_nm(bx), _kc.to_nm(by), _kc.to_nm(w))
+    if sh.circle:
+        x, y, r = sh.circle
+        return ("c", _kc.to_nm(x), _kc.to_nm(y), _kc.to_nm(r))
+    return ("p", tuple((_kc.to_nm(x), _kc.to_nm(y)) for x, y in sh.poly))
+
+
 def _copper_gap(s, o) -> float:
     """The gap between two pieces of copper, a via measured as the circle it
     is: its polygon lies a few microns outside the circle (a 16-gon's vertices,
     or a read outline's arc error), so a gap just over a clearance read as just
-    under it, where KiCad's DRC, measuring the circle, passes."""
+    under it, where KiCad's DRC, measuring the circle, passes. A straight track
+    and a drawn polygon are measured the same way, as the segment and the
+    stroked outline they are (a track's polygon's round ends and a pour's
+    mitred corners stand outside the copper too), by KiCad's own collisions
+    (`kicad_collide`, shape_collisions.cpp)."""
+    if s.segment or o.segment or s.drawn or o.drawn:
+        far = _box_gap(s.box, o.box) + 1.0          # a clearance the two collide within, so `actual` comes back
+        hit = _kc.collide(_kicad_of(s), _kicad_of(o), _kc.to_nm(far))
+        if hit is not None:
+            return hit[0] / 1e6
     if s.circle and o.circle:
         (ax, ay, ar), (bx, by, br) = s.circle, o.circle
         return max(0.0, math.hypot(ax - bx, ay - by) - ar - br)
