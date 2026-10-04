@@ -76,21 +76,6 @@ def test_a_default_commit_is_recorded_as_before_and_an_old_record_reads_as_the_d
     assert reuse.placement_from_json([1.0, 2.0, 0.0, "front"]).arrangement == ""
 
 
-def _context_parts(monkeypatch, b):
-    """The parts context_key hashes for board `b`, in order."""
-    seen = []
-    real = reuse._sha
-
-    def spy(*parts):
-        if parts and parts[0] == "context":
-            seen.append(parts)
-        return real(*parts)
-    monkeypatch.setattr(reuse, "_sha", spy)
-    reuse.context_key(b, "t")
-    monkeypatch.setattr(reuse, "_sha", real)
-    return seen[-1]
-
-
 def test_the_context_digest_follows_the_cells_arrangements_only_when_it_has_any(monkeypatch):
     plain = stamped_geometry()
     assert reuse.arrangements_digest(plain) == ""
@@ -98,10 +83,10 @@ def test_the_context_digest_follows_the_cells_arrangements_only_when_it_has_any(
     assert reuse.arrangements_digest(one) != "" and reuse.arrangements_digest(one) != reuse.arrangements_digest(other)
     arranged = board(with_arrangement(stamped_geometry(partner=(60.0, 30.0))))
     bare = board(stamped_geometry(partner=(60.0, 30.0)))
-    assert arranged.resolve().reuse["context"] != bare.resolve().reuse["context"]
-    # the plain board hashes exactly the parts it hashed before arrangements: the arranged one's, less its digest
-    with_digest, without = _context_parts(monkeypatch, arranged), _context_parts(monkeypatch, bare)
-    assert with_digest[-1] == reuse.arrangements_digest(arranged.geometry) and with_digest[:-1] == without
+    assert reuse.context_key(arranged, "t") != reuse.context_key(bare, "t")
+    # with the digest empty the arranged board keys as the plain one: an empty digest adds nothing to the context
+    monkeypatch.setattr(reuse, "arrangements_digest", lambda g: "")
+    assert reuse.context_key(arranged, "t") == reuse.context_key(bare, "t")
 
 
 def test_a_record_of_another_version_replays_nothing():
