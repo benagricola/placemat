@@ -707,7 +707,8 @@ def _time_step_slow(f):
 def _time_step_limit(f):
     left = ("left unplaced" if f["kept"] == "unplaced" else "placed at the best legal spot its search had found by then")
     return "%s: gave up after %.1f s in the %s (--step-limit %g s) and is %s; the next run searches it again" % (
-        f["item"], f["elapsed_s"], pass_text(f), f["limit_s"], left)
+        f["item"], f["elapsed_s"], pass_text(f), f["limit_s"], left) + (
+        "; arrangements not reached: " + ", ".join(f["arrangements"]) if f.get("arrangements") else "")
 
 
 # ------------------------------------------------------------------ arrangements

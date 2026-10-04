@@ -977,6 +977,7 @@ class Board:
         self._rank_note: dict = {}
         self._room: dict = {}               # key -> room.measure's record, taken when the first searched item is reached
         self._waited: dict = {}                # item key -> the linked partner it waited for
+        self._arr_unreached: dict = {}         # item key -> the arrangements a step out of time did not reach
         self._copper: list[CopperIntent] = []
         self._pad_tracks: set = set()      # indices of the tracks whose points are all pads: their way is known before they are planned
         self._pad_vias: list = []          # (pad ref, net, drill, size, span) of each via declared at a pad: its part carries it
@@ -7534,6 +7535,9 @@ class Board:
         if kept == "unplaced":
             del plan.findings[n_found:]
         facts = dict(self._time_facts(spent), limit_s=limit_s, kept=kept)
+        unreached = self._arr_unreached.pop(step.item, [])
+        if unreached:
+            facts["arrangements"] = unreached
         plan.findings.append(self._finding(C.TIME_STEP_LIMIT, facts, "critical" if kept == "unplaced" else "warning"))
         if kept == "unplaced" and not step.unplaced:
             step.unplaced = ({"form": "time_limit"},)
@@ -9725,14 +9729,18 @@ class Board:
         elif hint is None:
             return self._settle_in_pocket(occ, i, plan, clr)
         reseed = targets if i.near is None and solved is None else None
-        tried = self._scan_one(occ, i, plan, placed, targets=targets, push_sources=push_sources, hint=hint, band=band, bt=bt,
-                               within=within, reseed=reseed, wide_push=wide_push, wide_tangent=wide_tangent, look=look, clr=clr)
-        if tried.hopeless:
+        scanned = self._scan_arrangements(occ, i, plan, placed, self._arrangement_ids(i), targets=targets,
+                                          push_sources=push_sources, hint=hint, band=band, bt=bt, within=within, reseed=reseed,
+                                          wide_push=wide_push, wide_tangent=wide_tangent, look=look, clr=clr)
+        lead = scanned.tried[0]                         # the first arrangement's, for what follows a search that found nothing
+        if scanned.won is None and all(t.hopeless for t in scanned.tried):
             from . import suggest_facts
             plan.findings.append(self._finding(C.UNPLACED_POCKET, dict(suggest_facts.unplaced_pocket(self, occ, plan, i),
-                                                                       **tried.hopeless)))
-            return self._step(i, None, 0.0, unplaced=[{"form": "pocket", **tried.hopeless}])
-        result, face_note, ahead, score, radius = tried.result, tried.face_note, tried.ahead, tried.score, tried.radius
+                                                                       **lead.hopeless)))
+            return self._step(i, None, 0.0, unplaced=[{"form": "pocket", **lead.hopeless}])
+        stood = scanned.won or lead
+        result, face_note, ahead, score, radius = scanned.result, scanned.face_note, stood.ahead, stood.score, stood.radius
+        won = stood.j
         from . import timecap
         clock = timecap.active()
         if result.chosen is None and clock is not None and clock.gave_up:
@@ -9778,12 +9786,14 @@ class Board:
             if result.cut is not None:
                 facts["budget"] = result.cut
             plan.findings.append(self._finding(C.UNPLACED_SEARCH, facts))
-            return self._step(i, None, 0.0, unplaced=[w.to_json() for w in result.reasons.values()] +
+            return self._step(i, None, 0.0, unplaced=scanned.reasons +
                               ([{"form": "budget", "budget": result.cut}] if result.cut is not None else []) +
                               ([{"form": "room_lost", "room_lost": late}] if finding_text.room_lost_text(late) else []))
         notes = list(seeded)
         if face_note:
             notes.append(face_note)
+        if scanned.note:
+            notes.append(scanned.note)
         if result.moved_mm > 0:
             first = next(iter(result.reasons.values()), None)
             notes.append(step_text.record("moved_off_hint", mm=result.moved_mm, why=None if first is None else first.to_json(),
@@ -9793,9 +9803,97 @@ class Board:
         if result.cut is not None:
             plan.findings.append(self._finding(C.SETUP_STEP_BUDGET, dict(item=i.key, **result.cut), "notice"))
             notes.append(step_text.record("search_budget", **result.cut))
-        step = self._step(i, result.chosen, result.moved_mm, notes)
+        step = self._step(won, result.chosen, result.moved_mm, notes)
         step.back_face = bool(face_note) and result.chosen.face is Face.BACK
         return step
+
+    def _scan_arrangements(self, occ, i, plan, placed, ids, **kw) -> "_Scanned":
+        """Scan item `i` in each arrangement of `ids` ("" the default), in order, each an ordinary scan of the arranged cell (its own
+        geometry, sweeper, scorer, seed and lanes), the front before the back. A non-default arrangement costs `score.arrangement`
+        more and is taken only when its best score plus that is strictly below the best so far, or when nothing earlier has a legal
+        spot; the best so far, less the cost, is the next scorer's pruning floor. The default's scan takes no floor, so its score
+        is known whenever it has a legal spot. An unscored search (no links, pushes or lanes to price) takes the first arrangement
+        with a legal spot and scans no further. Each scan has the step's budget afresh; the step's time limit stops between scans.
+        `kw` are `_scan_one`'s keywords but `j`."""
+        from . import timecap
+        clock = timecap.active()
+        cost = self.settings.score_arrangement
+        back = self.settings.score_back_face
+        self._arr_unreached.pop(i.key, None)
+        tried, best = [], None                          # best: (total, ident, _Tried)
+        for k, ident in enumerate(ids):
+            if k and clock is not None and clock.gave_up:
+                self._arr_unreached[i.key] = [a or "default" for a in ids[k:]]
+                break
+            j = self._arranged(i, ident)
+            budget = occ.step_budget
+            if k and budget is not None:
+                budget.judged = budget.lattice = budget.covered = 0
+                budget.cut = False
+            hint = kw["hint"]
+            if j.item is not i.item and kw["reseed"] is not None and kw["band"] is None and kw["bt"] is None \
+                    and not (kw["wide_push"] or kw["wide_tangent"]):
+                hint = self._seed_hint(j.item, occ, kw["targets"], i.rotation, i.face)      # laid from the arranged item's pads
+            extra = cost if ident else 0.0
+            floor = best[0] if best is not None and ident else None
+            t = self._scan_one(occ, j, plan, placed, **{**kw, "hint": hint}, floor=floor, cost=extra)
+            tried.append((ident, t))
+            r = t.result
+            if r is None or r.chosen is None:
+                continue
+            if t.score is None:
+                best = (0.0, ident, t)                  # unscored: the first with a spot stands, nothing else is scanned
+                break
+            total = r.score + extra + (back if r.chosen.face is Face.BACK and i.either else 0.0)
+            if best is None or total < best[0]:
+                best = (total, ident, t)
+        return self._chosen_scan(i, tried, best, cost)
+
+    def _chosen_scan(self, i, tried, best, cost) -> "_Scanned":
+        """What `_scan_arrangements` found: the winner's scan, or every arrangement's refusals merged when none has a legal spot, and
+        the step's `arrangement` note when more than one arrangement was scanned or a non-default one was taken."""
+        results = [(a, t.result) for a, t in tried if t.result is not None]
+        cut = next((r.cut for _, r in results if r.cut), None)       # a cut is reported if any scan was cut
+        if best is None:
+            reasons = [dict(w.to_json(), **({"arrangement": a} if a else {})) for a, r in results for w in r.reasons.values()]
+            if len(results) == 1:
+                merged = results[0][1]
+            else:
+                merged = ScanResult(None, tried[0][1].hint, sum(r.tried for _, r in results),
+                                    sum((r.rejected for _, r in results), Counter()),
+                                    {k: w for _, r in reversed(results) for k, w in r.reasons.items()},
+                                    sum((r.blockers for _, r in results), Counter()), cut=cut)
+            return _Scanned(None, [t for _, t in tried], merged, None, None, reasons)
+        _, ident, won = best
+        won.result.cut = won.result.cut or cut
+        note = self._arrangement_note(ident, won, tried, cost) if len(tried) > 1 or ident else None
+        return _Scanned(won, [t for _, t in tried], won.result, won.face_note, note, [])
+
+    @staticmethod
+    def _arrangement_note(ident, won, tried, cost) -> dict:
+        """The step's `arrangement` note: the one taken, its score and cost, and each arrangement tried (its score with its cost,
+        None when unscored or when it could not beat the best so far, and whether it had a legal spot). `default_score` is the
+        default's score when the default was tried and had a legal spot; `default_blame` why it had none."""
+        def row(a, t):
+            r = t.result
+            legal = r is not None and r.chosen is not None
+            beaten = legal and t.score is not None and r.score >= PRUNED
+            out = {"id": a or "default", "score": round(r.score + (cost if a else 0.0), 3)
+                   if legal and t.score is not None and not beaten else None, "legal": legal}
+            if beaten:
+                out["beaten"] = True                   # pruned by the floor: it could not beat the best so far
+            return out
+        rows = [row(a, t) for a, t in tried]
+        default = next((t for a, t in tried if not a), None)
+        scored = won.score is not None
+        facts = dict(id=ident or "default", score=round(won.result.score, 3) if scored else None,
+                     cost=(cost if ident else 0.0) if scored else None, tried=rows)
+        if default is not None and default.result is not None and default.result.chosen is not None:
+            if scored:
+                facts["default_score"] = round(default.result.score, 3)
+        elif default is not None and default.result is not None:
+            facts["default_blame"] = blame.blame_of(default.result)
+        return step_text.record("arrangement", **facts)
 
     @staticmethod
     def _faces_of(i: PlaceIntent) -> tuple:
@@ -9826,7 +9924,9 @@ class Board:
         return [""] + list(self._offered(self.geometry.cells[i.key]))
 
     def _arranged(self, i: PlaceIntent, ident: str) -> PlaceIntent:
-        """`i` with its cell standing as arrangement `ident` ("" the default), built from the base cell."""
+        """`i` with its cell standing as arrangement `ident` ("" the default), built from the base cell; a part or block as it is."""
+        if i.kind != "cell":
+            return i
         item = self.geometry.cells[i.key].arranged(ident)
         return i if item is i.item else dataclasses.replace(i, item=item)
 
@@ -10457,6 +10557,19 @@ class _Tried:
     ahead: object
     score: object
     hopeless: dict | None = None
+
+
+@dataclass
+class _Scanned:
+    """The scans of every arrangement of an item (`Board._scan_arrangements`) and which stands: the winner's _Tried, its
+    ScanResult and face note (every arrangement's refusals merged when none has a legal spot), the step's arrangement note, and,
+    when none has a legal spot, the refusals as records, each tagged with the arrangement it came from (none for the default)."""
+    won: "_Tried | None"
+    tried: list
+    result: ScanResult
+    face_note: dict | None
+    note: dict | None
+    reasons: list
 
 
 class _Redo(Exception):

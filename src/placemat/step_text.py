@@ -148,8 +148,11 @@ def _arrangement(n):
         return "arrangement %s: the default module has no legal spot (%s)" % (n["id"], finding_text.blame_text(n["default_blame"]))
     if n.get("score") is None:
         return "arrangement %s" % n["id"]
-    return "arrangement %s: %.2f and %.2f for it against %.2f as the default module stands" % (
-        n["id"], n["score"], n.get("cost", 0.0), n["default_score"])
+    said = "arrangement %s: %.2f and %.2f for it" % (n["id"], n["score"], n.get("cost", 0.0))
+    if n.get("default_score") is not None and n["id"] != "default":
+        return said + " against %.2f as the default module stands" % n["default_score"]
+    others = [t["id"] for t in n.get("tried", ()) if t["id"] != n["id"]]
+    return said + (", the lowest of it and %s" % _list(others) if others else "")
 
 
 @renders("lookahead_dropped")
@@ -462,4 +465,12 @@ _FORMS = {
 def unplaced_text(reasons) -> str:
     """The reasons an item has no place, "; "-separated: each a refusal (`Refusal.to_json()`, it has a "code") or a record with a
     "form" (and no "code") for what the finding's own facts state."""
-    return "; ".join(_refusal(r) if "code" in r else _FORMS[r["form"]](r) for r in reasons or ())
+    return "; ".join(_tagged(r) if "code" in r else _FORMS[r["form"]](r) for r in reasons or ())
+
+
+def _tagged(r: dict) -> str:
+    """A refusal record, said with the arrangement it came from when it carries one (a search over arrangements tags each)."""
+    if "arrangement" not in r:
+        return _refusal(r)
+    r = dict(r)
+    return "as %s: %s" % (r.pop("arrangement"), _refusal(r))
