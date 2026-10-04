@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A net list passed as one argument is refused.** `placemat route --exclude` and `placemat run --route-exclude` took an
+  argument holding several names separated by spaces (a shell variable left unsplit, as zsh leaves `$list`) as one net
+  name, so the router was told to leave out a net no board has and routed every net. Such an argument now stops the
+  command, saying to pass each net as its own argument.
+
 ## To 0.99.8
 
 ### New
