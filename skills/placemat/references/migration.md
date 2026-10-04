@@ -26,6 +26,10 @@ section for each hand-written pattern a newer form replaces.
   clearance is 0.20)"). Such a cutout moves to the next spot of its search, a step or two further from its hint. A
   cutout whose place the script decided is cut where it was put, as before. A part placed after a cutout is still judged
   against it by its courtyard, body and copper only, not its silk.
+- **Text on a back layer is written mirrored.** A keepout's name drawn on B.Fab (`write.keepout_drawings`), and a text
+  given a back layer by name, were written unmirrored, which KiCad's DRC reports as `nonmirrored_text_on_back_layer`.
+  Every text placemat writes on B.Cu, B.Silkscreen, B.Mask or B.Fab is now mirrored, and one on their front twins is not.
+  A stamped cell's texts are put right as the cell is moved, so a fragment written before this fix needs no new layout.
 
 ## To 0.99.4
 
