@@ -5,6 +5,18 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A row placed by a reference is laid again in each firm pass.** When `place.copper_room` ran the firm items again (a
+  `Beside` part moved out of declared copper's way, or placed before the part that refused it), the run was put back as it
+  stood before the first pass except for its rows: a row whose start is a reference (`of=`, `centre=`, `end=`, `start=` a
+  reference, `before=`/`after=` such a row, `align=Along.MID/END` on an unsized board) kept the start the first pass found.
+  Its items were laid against where the anchor stood then, so a row `of=` a part that moved between the passes stood off to
+  one side of it. Such a row now finds its start again in each pass; a script with one anchored on a part the copper room
+  moves gets that row level with where the part ends up.
+
 ## To 0.99.3
 
 ### Fixed
