@@ -8,7 +8,7 @@ from .quiet import import_pcbnew, quiet_stderr
 pcbnew = import_pcbnew()
 
 from ..arrangement_note import ARRANGEMENT_PREFIX
-from ..board_geometry import CellGeom
+from ..board_geometry import CellGeom, untagged
 from ..copper import Pour, Text, Track, Via, Zone
 from ..rules import RULE_PREFIX
 from ..values import CopperLayer
@@ -76,9 +76,10 @@ def _label(texts, k):
 
 
 def _zone_name(base: str, stamped: dict, used: set) -> str:
-    """The name of an arranged rule area whose written name is `base`: with the suffix pcb gave the cell's stamped default of it
-    (`stamped`: base -> suffix, else the cell's own suffix), or the next one no other zone on the board has. pcb names a module's
-    keepout `<name>_1` in every cell it stamps, and a cell's AllowRule finds its area by name, so two cells' areas must differ."""
+    """The name of an arranged rule area whose written name is `base`, as pcb names a stamped default's: with the suffix pcb gave the
+    cell's stamped default of it (`stamped`: base -> suffix, else the cell's own suffix), or the next one the cell has not used.
+    `_draw_keepouts` then tags it with its cell, as it tags a default's (board_geometry.cell_tagged), which keeps two cells' names
+    apart."""
     n = stamped.get(base) or next(iter(sorted(stamped.values())), 1)
     while "%s_%d" % (base, n) in used:
         n += 1
@@ -104,9 +105,10 @@ def arrange_cell(board, group, cell: CellGeom, ident: str, settings=None) -> Cel
     labels = [it.GetText() for it in gone if isinstance(it, pcbnew.PCB_TEXT)]
     stamped = {}
     for z in areas:
-        m = _STAMP.search(z.GetZoneName())
+        own = untagged(z.GetZoneName())         # a board written before carries its cell's tag (write._draw_keepouts)
+        m = _STAMP.search(own)
         if m:
-            stamped[z.GetZoneName()[:m.start()]] = int(m.group(1))
+            stamped[own[:m.start()]] = int(m.group(1))
     gone += _keepout_drawings(group, areas)
     for it in gone:
         group.RemoveItem(it)
@@ -116,7 +118,7 @@ def arrange_cell(board, group, cell: CellGeom, ident: str, settings=None) -> Cel
         draw = next(d for kind, d in _DRAW if isinstance(op, kind))
         drawn.append(draw(board, op))
     stack = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
-    used = {z.GetZoneName() for z in board.Zones()}
+    used = set()
     mode = settings.write_keepout_drawings
     for k in arr.keepouts:
         name = _zone_name(_keepout_zone_name(k, stack), stamped, used)

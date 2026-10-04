@@ -95,3 +95,21 @@ def test_the_3d_view_shows_at_each_replay_step_the_parts_the_2d_drawing_shows(tm
     for k, ours, theirs in out["res"]:
         assert ours == theirs, k
     assert out["res"][-1][1] == ["a", "b", "c", "d"] and out["res"][2][1] == ["a"]
+
+
+@needs_node
+def test_a_part_with_no_model_is_a_plate_of_its_courtyard_else_its_body_else_the_box_of_its_shapes(tmp_path):
+    out = node('''
+        import { plateOutline } from "%s";
+        const sq = (x, y, w) => [[x, y], [x + w, y], [x + w, y + w], [x, y + w]];
+        const it = {key: "cell", at: [50, 50], face: "front"};
+        const court = {shapes: [{kind: "courtyard", faces: ["back"], poly: sq(0, 0, 3)}, {kind: "body", faces: ["front"], poly: sq(10, 10, 1)}]};
+        const body = {shapes: [{kind: "silk", faces: ["front"], poly: sq(0, 0, 9)}, {kind: "body", faces: ["back"], poly: sq(10, 10, 2)}]};
+        const pads = {shapes: [{kind: "pad", faces: ["back"], poly: sq(20, 20, 1)}, {kind: "pad", faces: ["back"], poly: sq(23, 20, 1)}]};
+        const none = {shapes: []};
+        console.log(JSON.stringify([court, body, pads, none].map(m => plateOutline(it, m))));
+    ''' % CORE, tmp_path)
+    assert out[0] == {"pts": [[0, 0], [3, 0], [3, 3], [0, 3]], "back": True}
+    assert out[1] == {"pts": [[10, 10], [12, 10], [12, 12], [10, 12]], "back": True}
+    assert out[2] == {"pts": [[20, 20], [24, 20], [24, 21], [20, 21]], "back": True}                     # the box of its pads, on their face
+    assert out[3] == {"pts": [[49.4, 49.4], [50.6, 49.4], [50.6, 50.6], [49.4, 50.6]], "back": False}      # nothing to draw: a marker at the item

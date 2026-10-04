@@ -1808,7 +1808,11 @@ the rule area allows the tracks, vias and pads it excludes, and a custom rule in
 passes an allowed net's copper in the region and flags the rest as
 `items_not_allowed`. The zone's name carries the allowed nets and the types
 (` {allow GND,SIG | tracks,vias,pads}`, after the layer marker), which is how
-a board that stamps the cell writes the same rule. A pour is still kept out
+a board that stamps the cell writes the same rule. pcb names every stamp's
+copy of a module's area alike, so the board that stamps it renames each copy
+for its cell (` @<cell>` after the marker) and builds each cell's rule from
+that name: one stamp's allowed nets are not let through another stamp's
+area. A pour is still kept out
 (`fill`): the allowance is for copper the script draws.
 
 ## Boards of any shape
@@ -3384,7 +3388,23 @@ are judged at the lesser of their two currents - what can flow between
 them - by the narrowest point of the widest route from any pad of one to
 any pad of the other; the net's verdict is its worst pair, naming both ends
 and the current, and its neck: the point along the route the width is
-narrowest - "neck at (x, y)". A route's width is the widest to any pin of
+narrowest - "neck at (x, y)".
+
+Copper on parallel layers shares the current. The route is cut at its
+plated holes (vias and through-hole pads); between two of them it stays on
+one layer. Where a fill or pour of the net on another layer touches the
+same two holes, that layer carries the current alongside the route there:
+it is measured between the two holes as the route's own fill is, and the
+stretch is judged by the layers' widths added, each scaled to the route's
+layer by the ratio of the two layers' IPC-2221 needs at that current (a
+1 oz outer layer's millimetre counts as about 2.6 mm of a 1 oz inner
+layer's). The route is judged at the stretch with the least added width
+for its need. The note names the layers - "2.95 mm as In1.Cu copper, on
+In1.Cu, In4.Cu in parallel: In1.Cu 1.47 mm, In4.Cu 1.47 mm" - and the
+verdict's `facts` carry them: `layers`, each `{layer, width_mm, scale, at,
+route}`, the route's own first. Parallel layers count only when the route
+fails on its own copper. A layer joined to the stretch's ends through other
+holes than the route's own two is not counted. A route's width is the widest to any pin of
 the load on the net: a load with several pins on a net (a small pin and an
 exposed pad) is judged by the route to whichever is joined widest.
 
@@ -3714,9 +3734,14 @@ live channel" in the studio spec; an explore's variants are kept in
 `.placemat/views/explore/*.json`, and `GET /cmd/ID` and `GET /explore?f=PATH` serve a command's events and an
 explore's record. `GET /routes` lists the recorded routes of the
 script's board (`.placemat/route/` and each run's `route/`), `GET /route?f=PATH` serves a route's replay document (a step per
-part, then a `copper` step per net in laid order) and `GET /build?run=ID` a run's placement and route as one document. A route in the
-Runs view draws its tracks net by net as they are laid, with the net it is on and the routed and failed counts; a finished one
-replays from its record.
+part, then a `copper` step per net in laid order) and `GET /build?run=ID` a run's placement and route as one document, with the run's
+score. A route in the Runs view draws its tracks net by net as they are laid, with the net it is on and the routed and failed counts; a
+finished one replays from its record. The router's copper is drawn hollow (the track in its layer's colour, its core in the board's), and
+the legend's "Copper origin" rows count, hide and show (or show alone, "only") each kind: planned (the copper the script declares, as
+the plan laid it), kept (a route kept beside the script by `placemat route --adopt`, laid again by the plan) and routed (the router's).
+In a replay document the router's copper ops and its nets' steps carry `origin: "routed"`; a route's live events are tagged the same in
+the page. A past run that routed (it has a route record and a `plan.json`) opens as its build, at the end of its replay: the board as
+the router left it; one that did not route opens with the board it wrote.
 
 With no `<script>` (and no `s=`, `run=` or `cmd=` in the address) the page follows the latest command of the project, the "Latest" mode:
 the command that started last while one is running, else the command or record that ended last (a command, a past run, an explore or a
@@ -3867,8 +3892,8 @@ A 2D | 3D switch in the board area replaces the drawing with the board built: it
 drills, each part drawn from its real 3D model at the pose the plan gave it, the rest of the page (legend, steps, cards, replay bar,
 selection) shared. The replay slider shows the first k steps in 3D as it does in 2D, and a resolve under way adds its parts as their steps settle.
 Orbit with one finger or the left button, pan with two fingers or the right button, zoom with the wheel or a pinch, double tap or Fit to fit,
-Top, Bottom (mirrored, as the 2D back) and Iso; a click selects, as in 2D. A part with no usable model is a plate: its courtyard 0.1 mm
-off its face, hatched, flagged with the reason ("no model declared", "model not found: <path>", "conversion failed: ...", "loading"); the legend
+Top, Bottom (mirrored, as the 2D back) and Iso; a click selects, as in 2D. A part with no usable model is a plate: its courtyard (else its
+body, else the box of its shapes) 0.1 mm off its face, hatched, flagged with the reason ("no model declared", "model not found: <path>", "conversion failed: ...", "loading"); the legend
 counts parts by state, lists the plates, retries failed conversions and can dim the parts that have a model.
 
 - **Plan document** (`version` 2, all additive): each member of an item has `models`, one entry per model of the footprint: `{id, state, name,
@@ -3894,6 +3919,10 @@ counts parts by state, lists the plates, retries failed conversions and can dim 
   `3d_max_tris` (past it the parts are drawn as plates and the view says so), `3d_appear_ms`, `3d_plate_mm`.
 - Other commands' streamed `item` events carry the same `models` and an extra `model_jobs` (for the studio's converter, not the page), so a
   command opened in the Runs view can be watched in 3D.
+- A record carries no models: `GET /runview`, `/build` and `/route` give each member the models of the board the run or route wrote (the
+  run folder's `layout.kicad_pcb`, a route's `in.kicad_pcb`, matched by reference, `${KIPRJMOD}` read as the board's own folder from the
+  run record), with the plan's `models` and `stackup`, and queue those models for the converter, so a past run is drawn in 3D as a live
+  one is.
 
 ## Exploring a placement
 

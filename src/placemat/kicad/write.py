@@ -21,8 +21,8 @@ from ..layout import MergedZone, Plan
 from ..copper import Pour, Text, Track, Via, Zone
 from ..geometry import Transform, poly_within
 from ..placement import Placement
-from ..board_geometry import (CellGeom, Footprint, allow_marker, layer_marker, resolve_marker, split_marker,
-                              stackup_order)
+from ..board_geometry import (CellGeom, Footprint, allow_marker, cell_tagged, layer_marker, resolve_marker,
+                              split_allow, split_marker, stackup_order, untagged)
 from ..cutouts import closes_itself
 from .read import FACES_PREFIX
 from .text import _mirror_for_layer, text_item
@@ -327,6 +327,7 @@ def _draw_path(board, path):
             a.SetLayer(pcbnew.Edge_Cuts)
             a.SetWidth(nm(0.1))
             a.SetArcGeometry(vec(*here), vec(*_xy(piece.via)), vec(*_xy(piece.to)))
+            _unique_uuid(board, a)
             board.Add(a)
             here = _xy(piece.to)
         else:
@@ -335,6 +336,7 @@ def _draw_path(board, path):
             s.SetWidth(nm(0.1))
             s.SetStart(vec(*here))
             s.SetEnd(vec(*_xy(piece)))
+            _unique_uuid(board, s)
             board.Add(s)
             here = _xy(piece)
 
@@ -380,6 +382,9 @@ def _draw_keepouts(board, plan):
         # name says what it declared. Only ever widened, to what it declared.
         if not (z.GetIsRuleArea() and _kiid(z) in grouped):
             continue
+        if split_allow(z.GetZoneName())[1] and z.GetParentGroup() is not None:
+            # its allow rule names it: by its cell's own name, not the one every stamp of the module shares
+            z.SetZoneName(cell_tagged(z.GetZoneName(), z.GetParentGroup().GetName()))
         declared = split_marker(z.GetZoneName())[1]
         if declared is None:
             continue
@@ -430,14 +435,15 @@ def _keepout_zone_name(k, stack) -> str:
 
 def allow_rules(plan, stack, arranged_areas: dict | None = None) -> list:
     """An AllowRule for each keepout of the plan that lets nets through, and for each stamped cell's rule
-    area that declares such a list (it arrives with the cell: board_geometry.allow_marker). A cell placed in
-    an arrangement has its arrangement's areas instead, by the names they were written with:
-    `arranged_areas` is {cell: [zone name, ...]}, read off the cells' groups once they are arranged (apply_plan)."""
+    area that declares such a list (it arrives with the cell: board_geometry.allow_marker), named as
+    `_draw_keepouts` tags it with its cell. A cell placed in an arrangement has its arrangement's areas
+    instead, by the names they were written with: `arranged_areas` is {cell: [zone name, ...]}, read off the
+    cells' groups once `_draw_keepouts` has tagged them (apply_plan)."""
     from ..rules import AllowRule
     out = [AllowRule(_keepout_zone_name(k, stack), tuple(sorted(k.allow)), _relaxed(k))
            for k in plan.keepouts.values() if _relaxed(k)]
     arranged = _arranged_cells(plan)
-    out += [AllowRule(ra.name, tuple(sorted(ra.allow)), ra.relaxed)
+    out += [AllowRule(cell_tagged(ra.name, ra.cell), tuple(sorted(ra.allow)), ra.relaxed, ra.cell)
             for ra in plan.geometry.rule_areas if ra.cell is not None and ra.relaxed and ra.cell not in arranged]
     for name, ident in sorted(arranged.items()):        # its rule areas are the arrangement's (kicad/arrange.py)
         arr = _arrangement(plan, name, ident)
@@ -445,10 +451,10 @@ def allow_rules(plan, stack, arranged_areas: dict | None = None) -> list:
         for k, ra in zip(arr.keepouts, arr.rule_areas):
             if not ra.relaxed:
                 continue
-            base = _keepout_zone_name(k, stack)
+            base = re.escape(_keepout_zone_name(k, stack))
             for zone in written:
-                if zone == base or re.fullmatch(re.escape(base) + r"_\d+", zone):
-                    out.append(AllowRule(zone, tuple(sorted(ra.allow)), ra.relaxed))
+                if re.fullmatch(base + r"(_\d+)?", untagged(zone)):
+                    out.append(AllowRule(zone, tuple(sorted(ra.allow)), ra.relaxed, name))
     return out
 
 
@@ -609,6 +615,7 @@ def _draw_outline(board, plan: Plan):
             circle.SetWidth(nm(0.1))
             circle.SetCenter(vec(c.x, c.y))
             circle.SetEnd(vec(c.x + r, c.y))
+            _unique_uuid(board, circle)
             board.Add(circle)
         for path in plan.shape.holes:
             _draw_path(board, path)
@@ -632,6 +639,7 @@ def _draw_outline(board, plan: Plan):
             a.SetCenter(vec(x0 + cx, y0 + cy))
             a.SetStart(vec(x0 + sx, y0 + sy))
             a.SetArcAngleAndEnd(pcbnew.EDA_ANGLE(90, pcbnew.DEGREES_T))
+            _unique_uuid(board, a)
             board.Add(a)
     else:
         segs = [(0, 0, W, 0), (W, 0, W, H), (W, H, 0, H), (0, H, 0, 0)]
@@ -641,6 +649,7 @@ def _draw_outline(board, plan: Plan):
         s.SetWidth(nm(0.1))
         s.SetStart(vec(x0 + x1, y0 + y1))
         s.SetEnd(vec(x0 + x2, y0 + y2))
+        _unique_uuid(board, s)
         board.Add(s)
     for path in plan.cutouts.paths:          # a rectangle's holes hang off the board, not a shape
         _draw_path(board, path)
@@ -797,6 +806,10 @@ def draw_copper(board, ops):
             zones.append(_draw_zone(board, op))
     if zones:
         _raise_planes_over_zones(board, zones)
+        # The filler removes a fill's isolated islands by the board's connectivity, which LoadBoard built
+        # before the plan moved the parts and drew its copper. Filled on that, a module's ground fill kept
+        # islands a refill of the saved board removes (tests/test_keep_out_modules.py).
+        board.BuildConnectivity()
         pcbnew.ZONE_FILLER(board).Fill(board.Zones())
 
 
@@ -967,14 +980,15 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
                 if item.name in plan.thinned:
                     _thin_cell(board, groups[item.name], plan.thinned[item.name])
             _move_cell(board, item, step.placement, groups)
-    arranged_areas = {name: [z.GetZoneName() for z in groups[name].GetItems() if isinstance(z, pcbnew.ZONE) and z.GetIsRuleArea()]
-                      for name in arranged}
     _given_way(board, plan, groups)
     if plan.cell_zones_under_planes == "drop":
         plan.merged_zones = _merge_cell_zones(board, plan)
     _separate_cell_zone_priorities(board, plan)
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
+    # an arranged cell's rule areas by their written names, once _draw_keepouts has tagged them as it tags a default's
+    arranged_areas = {name: [z.GetZoneName() for z in groups[name].GetItems() if isinstance(z, pcbnew.ZONE) and z.GetIsRuleArea()]
+                      for name in arranged}
     _draw_keepout_drawings(board, plan)
     if not plan.draw_outline:
         write_rule_notes(board, plan.rules)         # a fragment: its clearance rules ride with the cell
@@ -1105,6 +1119,7 @@ def _write_groups(board, plan: Plan) -> list:
             if parent is not None:
                 parent.RemoveItem(it)
             g.AddItem(it)
+        _unique_uuid(board, g)
         board.Add(g)
         notes.append("%s written: %d part(s)%s" % (d.name, len(d.parts), " (%s)" % d.why if d.why else ""))
     for g in list(board.Groups()):                  # a module's group that held only its cells, or what a declared one took

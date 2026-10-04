@@ -469,6 +469,7 @@ svg text { user-select: none; font-family: var(--sans); }
 .hole { fill: var(--substrate); stroke: var(--via); stroke-width: 0.03; pointer-events: none; }
 .trk { fill: none; stroke: var(--copper); stroke-linecap: round; }
 .trk.l-B { stroke: var(--copperB); } .trk.l-In { stroke: var(--copperIn); }
+.trk.rcore { stroke: var(--substrate); }                                   /* the router's copper: a track drawn hollow, its core the board's colour */
 .via { fill: var(--via); stroke: var(--substrate); stroke-width: 0.05; }
 .vhole { fill: var(--substrate); stroke: var(--via); stroke-width: 0.04; }
 .copper, .heat, .changes { pointer-events: none; } .fnds { pointer-events: none; }
@@ -1403,11 +1404,12 @@ function panelSVG(p, pn, first, order, diffLayer) {
   }
   const goneAt = c => c.x != null && S.stepN && S.stepN.has(c.x) ? S.stepN.get(c.x) : null;     // a ripped op's step, as a replay position
   const mapped = S.opStep && S.opStep.size ? i => S.opStep.has(i) ? S.opStep.get(i) : S.lastStep : null;     // copper no step laid shows with the last
-  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "novia", goneAt));
+  const origins = copperOrigins(p), originOf = i => origins[i];
+  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "novia", goneAt, originOf));
   o.push('<g class="items">');
   for (const s of order) { const it = S.itemAt.get(s.item); if (it) o.push(itemSVG(it, f, pn, p, s.n)); }
   o.push("</g>");
-  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "via", goneAt));
+  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "via", goneAt, originOf));
   o.push('<g class="links">');
   (p.links || []).forEach((l, i) => {
     const x1 = l.pa[0], y1 = l.pa[1], x2 = l.pb[0], y2 = l.pb[1];
@@ -1436,17 +1438,30 @@ function silkText(c) {
   const tf = "translate(" + num(c.at[0]) + " " + num(c.at[1]) + ")" + (c.rotation ? " rotate(" + num(-c.rotation) + ")" : "") + (c.mirrored ? " scale(-1 1)" : "");
   return '<text class="silktxt" transform="' + tf + '" font-size="' + num(Math.max(c.size || 0.5, 0.3)) + '" text-anchor="' + anchor + '" dominant-baseline="' + base + '">' + esc(c.text) + "</text>";
 }
-function copperSVG(ops, f, pn, mode, stepOf, part, goneOf) {      // part: "novia" (before the parts) or "via" (above them: a via in a pad shows on it); goneOf: the replay step that rips an op up again
+// Where each copper op of a plan came from: the router laid it ("routed", route_view.route_doc and a route's events say so), a route kept beside
+// the script laid it again ("kept": the step of an adopted route, layout.py names it "adopted <key>"), or the script declared it ("planned").
+function copperOrigins(p) {
+  const kept = new Set();
+  for (const s of (p && p.steps) || []) if (s.kind === "copper" && String(s.item).startsWith("adopted ")) for (const i of s.copper || []) kept.add(i);
+  return ((p && p.copper) || []).map((c, i) => c.origin === "routed" ? "routed" : kept.has(i) ? "kept" : "planned");
+}
+// part: "novia" (before the parts) or "via" (above them: a via in a pad shows on it); goneOf: the replay step that rips an op up again;
+// originOf: an op's origin by its index (copperOrigins), drawn as data-o
+function copperSVG(ops, f, pn, mode, stepOf, part, goneOf, originOf) {
   const o = ['<g class="copper' + (part === "via" ? " vias" : "") + '">'];
   const cls = mode === "added" ? " d-cadd" : mode === "removed" ? " d-cdel" : "";
   for (let i = 0; i < ops.length; i++) {
     const c = ops[i], sn = stepOf ? stepOf(i) : null, gn = goneOf ? goneOf(c) : null;
-    const ds = (sn != null && sn >= 0 ? ' data-s="' + sn + '"' : "") + (gn != null ? ' data-x="' + gn + '"' : "");   // the replay steps that lay it and that take it away
+    const org = originOf ? originOf(i) : "";
+    const ds = (sn != null && sn >= 0 ? ' data-s="' + sn + '"' : "") + (gn != null ? ' data-x="' + gn + '"' : "") + (org ? ' data-o="' + org + '"' : "");   // the replay steps that lay it and that take it away, and where it came from
     if (part && (c.t === "via") !== (part === "via")) continue;
     if (c.t === "track" && (c.face === f || c.face === "inner")) {
-      const op = c.face === "inner" ? "0.6" : "1", at = ds + ' data-l="' + esc(c.layer) + '" stroke-width="' + c.width + '" stroke-opacity="' + op + '"';
-      if (c.arc) o.push('<path class="trk ' + layerClass(c.layer) + cls + '" d="M ' + c.a[0] + " " + c.a[1] + " A " + c.arc[0] + " " + c.arc[0] + " 0 " + c.arc[1] + " " + c.arc[2] + " " + c.b[0] + " " + c.b[1] + '" fill="none"' + at + "/>");
-      else o.push('<line class="trk ' + layerClass(c.layer) + cls + '" x1="' + c.a[0] + '" y1="' + c.a[1] + '" x2="' + c.b[0] + '" y2="' + c.b[1] + '"' + at + "/>");
+      const op = c.face === "inner" ? "0.6" : "1", at = ds + ' data-l="' + esc(c.layer) + '" stroke-opacity="' + op + '"';
+      // the router's track is drawn hollow: the track, then its core in the board's colour
+      for (const [k, w] of org === "routed" && !mode ? [["", c.width], [" rcore", num(c.width * 0.4)]] : [["", c.width]]) {
+        if (c.arc) o.push('<path class="trk ' + layerClass(c.layer) + cls + k + '" d="M ' + c.a[0] + " " + c.a[1] + " A " + c.arc[0] + " " + c.arc[0] + " 0 " + c.arc[1] + " " + c.arc[2] + " " + c.b[0] + " " + c.b[1] + '" fill="none"' + at + ' stroke-width="' + w + '"/>');
+        else o.push('<line class="trk ' + layerClass(c.layer) + cls + k + '" x1="' + c.a[0] + '" y1="' + c.a[1] + '" x2="' + c.b[0] + '" y2="' + c.b[1] + '"' + at + ' stroke-width="' + w + '"/>');
+      }
     } else if (c.t === "via") {      // a ring with its drill hole, on every panel: a via goes through
       o.push('<g class="viag"' + ds + '><circle class="via' + cls + '" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.size / 2) + '"/><circle class="vhole" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.drill / 2) + '"/></g>');
     } else if ((c.t === "plane" || c.t === "pour") && (c.face === f || c.face === "inner") && !mode) {
@@ -1595,6 +1610,7 @@ const FULL_RUN = "placemat run: writes the board, runs the design checks and KiC
 const INFO = {
   fullrun: FULL_RUN,
   running: "The status of the resolve under way. 'step 24 of ~44' is the place of the item being worked on in the whole resolve: every step the engine makes, whether it places a part, lays copper or cuts a cutout. The total is what the engine knows up front, so it is approximate (the ~). The first pill says what the engine is doing with the item (searching a spot, deciding, laying copper), and the second, where the work takes a while, which phase of it it is in (scanning, refining around the best spots, ...). The time is since the resolve began. An item's rank in the search order is on its card and in its step's details.",
+  origin: "Where the copper drawn came from. Planned: the tracks, vias, planes and pours the layout script declares, as the plan laid them. Kept: copper of an earlier route that placemat route --adopt kept beside the script, laid again by each run while its parts stand as they did. Routed: what the router laid, in a route or a run that routed, drawn hollow so it stands apart from the rest. Tap a row to hide or show it; only shows it alone.",
   links: "A link is a pull the script declared between two pads. The arrow runs from the pad of the part it was declared on to its partner pad. A link with a limit is green as far as the limit reaches and red beyond it. Hover one for its length and limit.",
   steps: "Each row is one step of the layout, in the order it was made: items placed, copper laid, cutouts cut. A row says how the step was decided and why. Tap a row for the whole note. The slider on the board replays these steps.",
   marks: "Congestion is a routing-demand estimate made before any routing (RUDY), for the whole board: every routing layer together, not one face, so both faces show the same map. Each net's wire length (the half-perimeter of its pad centres) is spread evenly over the box of its pads, summed on a grid of 0.5 mm cells and set against what a cell can carry (the layers times tracks per mm). Plane and free nets are left out. The colour is the share of capacity, from blue (a few percent) through yellow (full) to red (over). A net whose pads line up (a feed to an antenna, a straight pair) has a box one cell wide, so it shows as a thin strip: that is its straight route, not copper. The red ring marks the single most congested cell. Changes marks what moved since the last resolve; finding marks are circles at a finding's place.",
@@ -1647,6 +1663,7 @@ function visRules(off, thru = []) {
     else if (k === "res" && v) sels = ['[data-res="' + q(v) + '"]'];
     else if (k === "z" && v) sels = ['[data-z="' + q(v) + '"]'];
     else if (k === "cu") sels = ['[data-l="' + q(v) + '"]'];
+    else if (k === "org") sels = ['.copper [data-o="' + q(v) + '"]'];
     else if (k === "link") sels = ['.lkg[data-st="' + q(v) + '"]'];
     else if (OFFCSS[k]) sels = OFFCSS[k].split(",").map(s => s.trim());
     if (sels) out.push(sels.map(s => "#board " + s).join(", ") + " { display: none; }");
@@ -1739,6 +1756,7 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
   labels: '<text x="13" y="11" text-anchor="middle" class="ref" style="font-size:10px;stroke:none">R12</text>',
   silk: '<text x="13" y="11" text-anchor="middle" class="silktxt" style="font-size:10px">TXT</text>',
   track: cls => '<line x1="2" y1="7" x2="24" y2="7" class="trk ' + cls + '" style="stroke-width:3.5"/>',
+  routed: '<line x1="2" y1="7" x2="24" y2="7" class="trk l-F" style="stroke-width:3.5"/><line x1="2" y1="7" x2="24" y2="7" class="trk l-F rcore" style="stroke-width:1.4"/>',
   via: '<circle cx="13" cy="7" r="6" class="via" style="stroke:none"/><circle cx="13" cy="7" r="2.6" class="vhole" style="stroke-width:1"/>',
   link: cls => (cls === "over" ? '<line x1="2" y1="7" x2="10" y2="7" class="lk ok" style="stroke-width:1.8"/><line x1="10" y1="7" x2="19" y2="7" class="lk over" style="stroke-width:1.8"/>' : '<line x1="2" y1="7" x2="19" y2="7" class="lk ' + cls + '" style="stroke-width:1.8"/>') +
     '<circle cx="2.5" cy="7" r="2.2" class="lkdot ' + cls + '"/><path d="M 17 3 L 24 7 L 17 11 z" class="arrowhead ' + cls + '"/>',
@@ -1769,10 +1787,15 @@ function legendHTML(p) {
   for (const l of copperLayers(p)) {
     const face = LAYER_FACE(l), n = copper.filter(c => c.layer === l && c.t !== "via" && c.t !== "text").length + shapes(["copper"], l), other = face !== "inner" && S.face !== "both" && S.face !== face;
     const zs = zonesOf(p, l);
-    o.push(row("cu:" + l, SW.track(layerClass(l)), l + (other ? " (other face)" : ""), n, Object.assign({only: true, title: other ? "drawn on the " + face + " face" : ""}, zs.length > LEGEND_FOLD_OVER ? {exp: "zl:" + l, n: zs.length} : {})));
+    o.push(row("cu:" + l, SW.track(layerClass(l)), l, n, Object.assign({only: true, title: other ? "drawn on the " + face + " face" : ""}, zs.length > LEGEND_FOLD_OVER ? {exp: "zl:" + l, n: zs.length} : {})));
     if (zs.length <= LEGEND_FOLD_OVER || isExp("zl:" + l, zs.length)) for (const z of zs) o.push(row("z:" + z.i, SW.zone(layerClass(l)), z.name, null, {sub: true, title: z.t === "pour" ? "a fitted pour" : "a plane"}));
   }
   o.push(row("via", SW.via, "vias", copper.filter(c => c.t === "via").length, {title: "a via is drawn as its ring with its drill hole inside"}));
+  const origins = copperOrigins(p), byOrigin = k => origins.filter((x, i) => x === k && copper[i].t !== "text").length;
+  o.push("<h4>Copper origin" + infoBtn("origin") + "</h4>");
+  for (const [k, sw, title] of [["planned", SW.track("l-F"), "copper the layout script declared, as the plan laid it"],
+                                ["kept", SW.track("l-F"), "copper of an earlier route kept beside the script, laid again by the plan"],
+                                ["routed", SW.routed, "copper the router laid, drawn hollow"]]) o.push(row("org:" + k, sw, k, byOrigin(k), {only: true, title}));
   o.push("<h4>Links" + infoBtn("links") + "</h4>");
   for (const [st, name] of [["ok", "within its limit"], ["over", "over its limit"], ["free", "no limit"]]) o.push(row("link:" + st, SW.link(st), name, links.filter(l => l.state === st).length));
   const head = (g, sw, name, n) => {
@@ -1787,8 +1810,15 @@ function legendHTML(p) {
   o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", findingPlaces(p).filter(Boolean).length, {title: findingPlaces(p).filter(Boolean).length + " of " + ((p && p.findings) || []).length + " findings are placed on the board: where they say, else at the pad or part they name. The rest name no place."}), row("notes", SW.note, "notes", liveNotes().length), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
   return o.join("");
 }
+// "only" on an origin's row: that origin alone, or every origin again when it is already alone
+function soloOrigin(id) {
+  const all = ["org:planned", "org:kept", "org:routed"], alone = all.every(x => x === id ? !S.off.has(x) : S.off.has(x));
+  for (const x of all) { if (alone || x === id) S.off.delete(x); else S.off.add(x); }
+  applyVisibility(); renderLegend();
+}
 function renderLegend() { seedRegions(plan()); $("#legend").innerHTML = legendHTML(plan()) + (S.mode === "3d" ? legend3d(plan()) : ""); }
 function soloLayer(id) {
+  if (id.startsWith("org:")) { soloOrigin(id); return; }
   const p = plan(), all = copperLayers(p).map(l => "cu:" + l), others = all.filter(x => x !== id);
   const alone = others.every(x => S.off.has(x)) && !S.off.has(id);
   for (const x of all) { if (alone || x === id) S.off.delete(x); else S.off.add(x); }
@@ -2500,6 +2530,8 @@ const COPPER_WORDS = {track: "track", via: "via", plane: "plane", pour: "plane",
 function stepKind(s, it) {
   const item = String(s.item);
   if (s.kind === "cutout") return {cls: "cutout", word: "cutout", name: item.replace(/^cutout /, "")};
+  if (s.kind === "copper" && s.origin === "routed") return {cls: "track", word: "routed", name: item.replace(/^track /, "")};
+  if (s.kind === "copper" && item.startsWith("adopted ")) return {cls: "track", word: "kept", name: item.slice("adopted ".length)};
   if (s.kind === "copper") { const w = item.split(" ")[0], cls = COPPER_WORDS[w] || "copper"; return {cls, word: COPPER_WORDS[w] ? w : "copper", name: COPPER_WORDS[w] && item.includes(" ") ? item.slice(w.length + 1) : item}; }
   return {cls: howClass(s, it), word: howWord(s, it), name: item};
 }
@@ -2954,11 +2986,11 @@ function cmdEvent(ev, n) {
 // it is committed (a ripped net's removed again) and whether it was routed. A net is a step of kind `copper`: the timeline plays the route as it
 // plays a placement. V.route holds the counts the status line says.
 const routeNet = ev => Array.isArray(ev.net) ? ev.net.join("/") : String(ev.net);          // a pair's two nets are one net, "P/N"
-const routeOps = ev => (ev.seg || []).map(s => ({t: "track", layer: s[4], face: s[4] === "F.Cu" ? "front" : s[4] === "B.Cu" ? "back" : "inner", width: s[5], a: [s[0], s[1]], b: [s[2], s[3]], net: routeNet(ev)}))
-  .concat((ev.via || []).map(v => ({t: "via", at: [v[0], v[1]], size: v[2], drill: v[3], net: routeNet(ev), layers: []})));
+const routeOps = ev => (ev.seg || []).map(s => ({t: "track", layer: s[4], face: s[4] === "F.Cu" ? "front" : s[4] === "B.Cu" ? "back" : "inner", width: s[5], a: [s[0], s[1]], b: [s[2], s[3]], net: routeNet(ev), origin: "routed"}))
+  .concat((ev.via || []).map(v => ({t: "via", at: [v[0], v[1]], size: v[2], drill: v[3], net: routeNet(ev), layers: [], origin: "routed"})));
 function routeStep(P, V, net) {
   let i = V.route.step[net];
-  if (i == null) { i = P.steps.length; V.route.step[net] = i; P.steps.push({i, item: "track " + net, kind: "copper", placed: false, freedom: null, rank: null, rank_of: null, pocket: null, lock: "", note: "", why: "", copper: [], loop: null}); }
+  if (i == null) { i = P.steps.length; V.route.step[net] = i; P.steps.push({i, item: "track " + net, kind: "copper", placed: false, freedom: null, rank: null, rank_of: null, pocket: null, lock: "", note: "", why: "", copper: [], loop: null, origin: "routed"}); }
   return P.steps[i];
 }
 function routeNote(P, R, net, st) {
@@ -3019,7 +3051,7 @@ function latestTarget() {
   const runs = new Set(S.projectRuns.map(r => r.id));
   return [
     ...cmds.map(c => ({key: "cmd:" + c.id, kind: "cmd", id: c.id, at: c.ended || c.started, what: c})),
-    ...S.projectRuns.filter(r => !ownRun(r.id)).map(r => ({key: "run:" + r.id, kind: "run", id: r.id, at: r.at, what: {kind: "run", script: r.script, label: r.label, run: r.id}})),
+    ...S.projectRuns.filter(r => !ownRun(r.id)).map(r => ({key: "run:" + r.id, kind: "run", id: r.id, at: r.at, what: {kind: "run", script: r.script, label: r.label, run: r.id}})),       // a run that routed opens as its build (openRunRecord)
     ...S.explores.filter(e => !own.has(e.file)).map(e => ({key: "explore:" + e.file, kind: "explore", file: e.file, at: e.at, what: {kind: "explore", script: e.script, pid: e.pid}})),
     ...S.routes.filter(r => !(r.run && runs.has(r.run))).map(r => ({key: "route:" + r.file, kind: "route", file: r.file, run: r.build ? r.run : "", at: r.at, what: {kind: r.build ? "run" : "route", script: r.script, run: r.run}})),
   ].sort((a, b) => (b.at || 0) - (a.at || 0))[0] || null;
@@ -3059,7 +3091,12 @@ function showRunRecord(d) {
   S.xv = null; looking();
   renderCmdBar(); schedule("all");
 }
+// A past run: one that routed opens as its build (the placement and then the route, from its records), so what is shown is the board the
+// router left; one that did not opens with the board it wrote.
+const routedBuild = id => S.routes.find(r => r.run === id && r.build);
 async function openRunRecord(id) {
+  const b = routedBuild(id);
+  if (b) return openRoute(b.file, id);
   const my = ++S.openSeq; S.opening = null;
   try { const d = await getJSON("/runview?run=" + encodeURIComponent(id)); if (my === S.openSeq) showRunRecord(d); }
   catch (e) { toast("could not open the run: " + e.message); }
@@ -3105,7 +3142,7 @@ function renderCmdBar() {
   const el = $("#cmdbar"), V = S.cmdView, X = S.xv, vs = viewState();
   el.hidden = !(V || X);
   if (!V && !X) return;
-  const what = vs.state === "recorded" ? "Past " + kindWord(vs.kind) + (V && V.record ? " " + vs.run : "") + (vs.script ? " of " + baseName(vs.script) : "") + ", nothing is resolved" :
+  const what = vs.state === "recorded" ? "Past " + kindWord(vs.kind) + (V && (V.record || V.replay) && vs.run ? " " + vs.run : "") + (vs.script ? " of " + baseName(vs.script) : "") + ", nothing is resolved" :
     (vs.state === "running" ? "Following" : "Finished") + " " + (baseName(vs.script) || "a board") + (vs.pid ? ", pid " + vs.pid : "");
   el.innerHTML = kindChip(vs) + '<span class="cbt">' + esc(what) + "</span>" + (X ? xvLine(X) : "") +
     (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route, V)) + "</span>" : "") +

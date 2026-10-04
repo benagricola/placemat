@@ -18,62 +18,6 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Next, in order
 
-- **current-path: parallel layers share the current** (decided): where a
-  load's route crosses copper on several layers of its net joined at both
-  ends (plated holes or via fields), the neck is judged by the layers'
-  widths added, each scaled by its own layer's IPC-2152 constant. Today
-  one layer's narrowest disc is judged alone, so a GND pair over two
-  inner planes in parallel fails at one plane's neck.
-- **Two stamps of one module share keepout area names**: each stamp's copy
-  is `<name>_1`, so a stamped AllowRule's intersectsArea covers the other
-  cell's area too.
-- **Stale zone fill in a module run's saved board**: the saved fill is
-  older than the board's own copper (a refill changes it); it reaches
-  every parent through stamped default cells. Candidate: the .kicad_dru is
-  written after the save. Decide too whether a parent write refills cell
-  zones.
-
-Specced work first, then the loose ends.
-
-0. **A hard limit on a link** (a board's session, 2026-10-03): `board.link(...,
-   limit_mm=6, hard=True)` refuses a candidate where the link would exceed its
-   limit (as a push's hard limit reserves a disc), so the search finds the best
-   spot that meets it, or leaves the item unplaced with a finding naming the
-   link. Next (the preview slowdown fix is in 0.96.0).
-0b. **Placement order by search-space size** (a board's session and the user,
-   2026-10-03): within a tier the most constrained item goes first, measured by
-   how many legal spots it could have (a slide's line length, a region's area,
-   shrunk by hard limits - hard links, pushes, keepouts), then rank; replaces
-   "fewer freedoms first", which put a long slide (the debug panel) before an
-   MCU that needed its spot near the antenna. Built behind `place.order =
-   "room"` (off by default; `room.py`: spots counted from the declaration, not
-   judged); left to do: make it the default once a real board's table says so,
-   and count hard link limits once they exist.
-1a. **Measurements for the other searched levers**: blocker gap/side, search
-   radius, fanout depth, turns, label size, stitch pitch and the tuning limits
-   get a searched suggestion only once the sites that raise their findings
-   record the number that bounds them.
-4. **Studio 3D phases 2-3** (spec `2026-10-03-studio-3d-design.md`; phase 1 in
-   0.96.0): copper, silk, findings markers and ghosts; routing replay and mask.
-5. **Suggestions phase 7: the improve loop** (recommended in the suggestions
-   work; needs a short design): instant suggestions tried on an overlay,
-   kept when the score improves, before explore runs.
-6. **Causes for the moves a step note records** (`Step.notes` are records
-   now, `step_text.py`; the studio's parsers are gone): a cleanup move or swap
-   has a distance but no cause, and a block slide or a searched move that no
-   refusal explains has none; record one (a `why` refusal on the note) where
-   the engine knows it.
-9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
-   lazily on the pure-Python path. Not small: about 20 `Refusal(...)` sites in
-   occupancy's conflict, hole, edge and via-ban judges build their facts
-   (`_w`, `_copper_of`, `_hole_of`) eagerly, so a lazy form changes each one;
-   do it after the clearance-tolerance work in `_conflict` lands.
-11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
-    quiet machine.
-15. **U21 pin 14 (SCL)**: the walled check finds a channel south of its stub;
-    the user is checking it by eye. If the channel is not usable, find what
-    the check does not model.
-
 - **Rust dead code** (cargo's warnings): `judge::reference`,
   `ShapeGrid::first_conflict_shifted_excluding` and an unused
   `point_segment_distance` import in giveway.rs.
@@ -335,6 +279,19 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Parallel layers in current-path; each stamp's keepout its own; saved
+  fill current** (0.99.7): current-path adds copper on parallel layers of the
+  net joined at both ends of a stretch, each scaled by its own layer's need;
+  a stamped keepout that lets nets through is named per cell so its rule
+  covers that cell only; a plane's saved fill is the fill of the saved board
+  (connectivity rebuilt before the fill).
+
+- **Studio 3D for past runs; routed runs shown routed; free UUIDs** (0.99.6):
+  a run opened from its records gets its board's models and the converter
+  starts where its log folder is missing; a run that routed opens on its
+  routed board, with router copper drawn hollow and a Copper origin legend;
+  written copper and rule areas take a UUID the board does not already have.
 
 - **Silk margin; cutout silk; back text mirrored; current-path planes;
   KiCad's copper shapes; cell labels in the search** (0.99.5): placement

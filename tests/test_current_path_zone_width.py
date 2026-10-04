@@ -145,7 +145,9 @@ def test_a_necked_fill_is_passed_by_when_a_plane_joins_the_same_pads(plane_mm):
 
 def test_the_route_tries_are_the_setting():
     """With one search, the route the search found first through the front
-    fill is the one judged."""
+    fill is the one judged: the front sliver is the route's own copper, and
+    the back plane, joining the same two through-hole pads, counts only in
+    parallel with it."""
     q1 = footprint("Q1", 10, 10, nets=("GND", "SW"), through=True, fields={"Pm.I": "1A"})
     l1 = footprint("L1", 20, 10, nets=("SW", "VOUT"), through=True, fields={"Pm.I": "1A"})
     sliver = ((11, 8.5), (14.8, 8.5), (14.8, 9.985), (15.2, 9.985), (15.2, 8.5), (19, 8.5), (19, 11.5),
@@ -155,4 +157,6 @@ def test_the_route_tries_are_the_setting():
     geom = board_geometry([q1, l1], copper=[_zone("SW", sliver), back])
     with bind(Settings(check_route_tries=1)):
         v = {v.subject: v for v in current_paths(geom)}["SW"]
-    assert v.value == pytest.approx(STEP), v.note
+    route, *rest = v.facts["layers"]
+    assert route["layer"] == "F.Cu" and route["route"] and route["width_mm"] == pytest.approx(STEP), v.note
+    assert [d["layer"] for d in rest] == ["B.Cu"]

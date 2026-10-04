@@ -212,10 +212,10 @@ def test_an_arranged_keepout_that_lets_a_net_through_is_written_with_its_rule(tm
     plan = place(pcb, mod=dict(at=Location(40.0, 30.0), arrangements="c_in.east")).resolve()
     apply_plan(pcb, plan)
     rules = [z for z in pcbnew.LoadBoard(str(pcb)).Zones() if z.GetIsRuleArea()]
-    assert [z.GetZoneName() for z in rules] == ["keepout lane [*.Cu] {allow VIN | tracks}_1"]
+    assert [z.GetZoneName() for z in rules] == ["keepout lane [*.Cu] {allow VIN | tracks}_1 @<mod>"]   # tagged as a default's is
     assert not rules[0].GetDoNotAllowTracks()
     dru = (tmp_path / "layout.kicad_dru").read_text()
-    assert "intersectsArea('keepout lane [*.Cu] {allow VIN | tracks}_1')" in dru and "A.NetName != 'mod.VIN'" in dru
+    assert "intersectsArea('keepout lane [*.Cu] {allow VIN | tracks}_1 @<mod>')" in dru and "A.NetName != 'mod.VIN'" in dru
 
 
 LANE = PlacedKeepout("lane", ((9.0, 5.0), (12.0, 5.0), (12.0, 6.0), (9.0, 6.0)), Location(0.0, 0.0), 0.0, ("tracks",), None,
@@ -236,6 +236,7 @@ def _stamp_keepout(pcb, cell, origin, drawing=True):
     z.SetIsRuleArea(True)
     z.SetLayerSet(pcbnew.LSET.AllCuMask(2))
     z.SetDoNotAllowVias(True)
+    z.SetDoNotAllowTracks(False)            # as the module wrote it: tracks allowed, its rule forbids them to the other nets
     z.SetZoneName(LANE_ZONE + "_1")
     o = z.Outline()
     o.NewOutline()
@@ -288,7 +289,8 @@ def test_an_arranged_keepouts_drawing_replaces_the_stamped_ones(tmp_path):
 
 def test_two_arranged_stamps_name_their_areas_apart_and_each_rule_names_its_own(tmp_path):
     """pcb stamps a module's keepout as `<name>_1` in every cell; two arranged stamps must not share a name, or each cell's
-    AllowRule (`intersectsArea`) would cover the other's area too. KiCad's DRC passes A's VIN in A's lane."""
+    AllowRule (`intersectsArea`) would cover the other's area too. Each is tagged with its cell, as a stamped default's is. KiCad's
+    DRC passes A's VIN in A's lane."""
     import json
     import subprocess
     import pcbnew
@@ -302,7 +304,7 @@ def test_two_arranged_stamps_name_their_areas_apart_and_each_rule_names_its_own(
     board = pcbnew.LoadBoard(str(pcb))
     by_cell = {g.GetName(): [it for it in g.GetItems() if isinstance(it, pcbnew.ZONE) and it.GetIsRuleArea()] for g in board.Groups()}
     (za,), (zb,) = by_cell["mod_a"], by_cell["mod_b"]
-    assert za.GetZoneName() != zb.GetZoneName() and {za.GetZoneName(), zb.GetZoneName()} <= {LANE_ZONE + "_1", LANE_ZONE + "_2"}
+    assert (za.GetZoneName(), zb.GetZoneName()) == (LANE_ZONE + "_1 @<mod_a>", LANE_ZONE + "_1 @<mod_b>")
     dru = (tmp_path / "layout.kicad_dru").read_text()
     rules = [r for r in dru.split("(rule ")[1:] if "intersectsArea" in r]
     assert len(rules) == 2
@@ -324,3 +326,56 @@ def test_two_arranged_stamps_name_their_areas_apart_and_each_rule_names_its_own(
     subprocess.run(["kicad-cli", "pcb", "drc", "--format", "json", "--output", str(out), str(pcb)], capture_output=True, timeout=120)
     flagged = [v for v in json.loads(out.read_text())["violations"] if v["type"] == "items_not_allowed"]
     assert flagged == []
+
+
+def test_a_default_and_an_arranged_stamp_each_allow_their_net_only_in_their_own_area(tmp_path):
+    """Cell A arranged, cell B in its default: both areas are tagged with their cell, each cell's rule names its own, and KiCad's DRC
+    flags each cell's VIN only in the other's area. A second write keeps the names."""
+    import json
+    import subprocess
+    import pcbnew
+    pcb = staged(tmp_path, (("mod_a", (30.0, 10.0)), ("mod_b", (30.0, 40.0))), doc=east_doc(keepouts=[LANE]))
+    _stamp_keepout(pcb, "mod_a", (30.0, 10.0), drawing=False)
+    _stamp_keepout(pcb, "mod_b", (30.0, 40.0), drawing=False)
+    plan = place(pcb, mod_a=dict(at=Location(20.0, 15.0), arrangements="c_in.east"),
+                 mod_b=dict(at=Location(60.0, 45.0), arrangements="default")).resolve()
+    assert plan.placement("mod_a").arrangement == "c_in.east" and plan.placement("mod_b").arrangement == ""
+
+    def areas():
+        board = pcbnew.LoadBoard(str(pcb))
+        return board, {g.GetName(): [it for it in g.GetItems() if isinstance(it, pcbnew.ZONE) and it.GetIsRuleArea()]
+                       for g in board.Groups()}
+    apply_plan(pcb, plan)
+    _, by_cell = areas()
+    (za,), (zb,) = by_cell["mod_a"], by_cell["mod_b"]
+    first = (za.GetZoneName(), zb.GetZoneName())
+    assert first == (LANE_ZONE + "_1 @<mod_a>", LANE_ZONE + "_1 @<mod_b>")
+    apply_plan(pcb, Board(read_board(pcb), edge_margin=0.0, keep_going=True).resolve())    # placed where it is, read back
+    board, by_cell = areas()
+    (za,), (zb,) = by_cell["mod_a"], by_cell["mod_b"]
+    assert (za.GetZoneName(), zb.GetZoneName()) == first
+    dru = (tmp_path / "layout.kicad_dru").read_text()
+    rules = [r for r in dru.split("(rule ")[1:] if "intersectsArea" in r]
+    assert len(rules) == 2
+    for name, net in zip(first, ("mod_a.VIN", "mod_b.VIN")):
+        (rule,) = [r for r in rules if "A.NetName != '%s'" % net in r]
+        assert "intersectsArea('%s')" % name in rule and rule.count("intersectsArea") == 1
+    # each cell's VIN across both areas: allowed in its own, flagged in the other's
+    for z in (za, zb):
+        c = z.GetBoundingBox().GetCenter()
+        for dy, net in ((-0.25, "mod_a.VIN"), (0.25, "mod_b.VIN")):
+            t = pcbnew.PCB_TRACK(board)
+            t.SetLayer(pcbnew.F_Cu)
+            t.SetWidth(pcbnew.FromMM(0.1))
+            t.SetStart(pcbnew.VECTOR2I(c.x - pcbnew.FromMM(1.0), c.y + pcbnew.FromMM(dy)))
+            t.SetEnd(pcbnew.VECTOR2I(c.x + pcbnew.FromMM(1.0), c.y + pcbnew.FromMM(dy)))
+            t.SetNet(board.FindNet(net))
+            board.Add(t)
+    board.Save(str(pcb))
+    (tmp_path / "layout.kicad_pro").write_text("{}")
+    out = tmp_path / "drc.json"
+    subprocess.run(["kicad-cli", "pcb", "drc", "--format", "json", "--output", str(out), str(pcb)], capture_output=True, timeout=120)
+    flagged = [v for v in json.loads(out.read_text())["violations"] if v["type"] == "items_not_allowed"]
+    ya, yb = pcbnew.ToMM(za.GetBoundingBox().GetCenter().y), pcbnew.ToMM(zb.GetBoundingBox().GetCenter().y)
+    found = sorted((round(v["items"][0]["pos"]["y"]), i["description"].split("[")[1].split("]")[0]) for v in flagged for i in v["items"])
+    assert found == sorted([(round(ya), "mod_b.VIN"), (round(yb), "mod_a.VIN")]), found

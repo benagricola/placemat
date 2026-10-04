@@ -191,7 +191,10 @@ runs the same checks on the board it wrote.
   width at `--rise` (default 10 C), on the copper weight the board's own
   stackup gives that layer (the IPC-2221 inner-layer constant on an inner
   layer, outer on F.Cu/B.Cu; a layer the stackup does not weigh falls back
-  to 1 oz), with the neck's point; a neck narrower than the width needed
+  to 1 oz), with the neck's point; where fills of the net on other layers
+  join the same two plated holes as a stretch of the route, the stretch is
+  judged by the layers' widths added, each scaled to the route's layer by
+  their IPC-2221 needs; a neck narrower than the width needed
   is judged by its length too, credited as short or too long
   (`check.neck_end_share`, `neck_resistivity`, `neck_conductivity`); carriers
   no copper joins yet

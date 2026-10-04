@@ -11,6 +11,52 @@ section for each hand-written pattern a newer form replaces.
 
 - **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name, Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
 
+## To 0.99.7
+
+### Fixed
+
+- **Each stamp of a module allows its nets in its own keepout only.** pcb names every stamp's copy of a module's keepout
+  alike (`<name>_1`), so the `.kicad_dru` rule written for one cell's `allow=` area (`intersectsArea('<name>_1')`) also
+  covered every other stamp's copy: a net one cell allowed was forbidden in its own area by the other cell's rule, and
+  KiCad flagged it there. A board that stamps the module now renames each copy that lets nets through for its cell
+  (`<name>_1 @<cell>`) when it writes, and builds that cell's rule from the new name. Write the parent board again;
+  the module and its script need no change.
+- **A plane's saved fill is the fill of the saved board.** The write filled its zones on the connectivity KiCad built
+  when it loaded the board, before the plan moved the parts and drew its copper, so a fill could keep isolated islands
+  that a refill of the saved board removes (a module's ground fill read 97.74 mm2 saved and 96.96 mm2 refilled). The
+  write now builds the board's connectivity again before it fills. A module run once more saves its fill without those
+  islands, and a board that stamps it gets them through the stamped cell; a parent board whose script draws a plane
+  refills every zone, its cells' included, as before.
+
+### Changed
+
+- **`current-path` adds copper on parallel layers.** A route was judged by one layer's narrowest point, so a load
+  carried by two planes joined at the same vias or through-hole pads failed at one plane's neck. The route is now cut at
+  its plated holes, and where fills or pours of the net on other layers touch the same two holes as a stretch of the
+  route, the stretch is judged by the layers' widths added, each scaled to the route's layer by the ratio of the two
+  layers' IPC-2221 needs. The note names the layers and their widths, and the verdict carries them as `facts["layers"]`
+  (`layer`, `width_mm`, `scale`, `at`, `route`). A net that failed on one of two parallel planes reads wider and may
+  pass; a check script that read the verdict's width as one layer's reads `facts["layers"]` instead.
+
+## To 0.99.6
+
+### Fixed
+
+- **Written copper and rule areas take a UUID no item on the board has.** A board placemat already wrote once carries
+  items at UUIDs from the same seeded sequence a later write draws from; a track, via, text, pour, zone or keepout rule
+  area written there could take one, and after a reload a group keyed by UUID read the other item as its own. Each is now
+  given a free UUID before it joins the board. A board with no clash writes the same file.
+- **The studio's 3D view draws a past run's parts.** A run opened from its records (what `placemat studio` shows when it follows the latest
+  run, or a run picked in the Runs tab) carried no 3D models, so no model was converted and every part was a hatched plate, most of them a
+  small marker at their cell, since a run's plan keeps few courtyards. The studio now reads the models from the board the run wrote and
+  queues them for the converter, as it does for a live resolve; a part with no model is a plate of its courtyard, else its body. The
+  converter also failed to start in a project whose `.placemat/views/studio` folder did not exist yet, with every model "the model
+  converter could not start"; it now makes the folder first.
+- **A run that routed is shown routed.** Following the latest run, or opening a past run that routed, showed the placement the run kept
+  (`plan.json`) with only the copper the script declared. Such a run now opens as its build: the placement, then the route, ending on the
+  board the router left, with the route's routed and failed counts in the strip. The router's tracks are drawn hollow, and the legend's
+  "Copper origin" rows (planned, kept, routed) count each kind and hide, show or isolate it. Nothing to change in a script.
+
 ## To 0.99.5
 
 ### Fixed

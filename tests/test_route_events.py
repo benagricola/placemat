@@ -398,6 +398,8 @@ def test_a_route_record_replays_as_a_plan_with_a_step_per_part_then_per_net(tmp_
     plan = dict(board, steps=[{"i": 0, "item": "u1", "kind": "part", "placed": True, "note": "", "copper": []}], copper=[{"t": "track", "layer": "F.Cu"}], counts={"placed": 1, "findings": 0}, score=None)
     whole = route_view.route_doc(record, plan)                                                    # a run's plan first: the whole build
     assert [s["item"] for s in whole["steps"]] == ["u1", "track A", "track B"] and whole["steps"][1]["copper"] == [1] and len(whole["copper"]) == 2
+    # the router's copper and its nets' steps say they are the router's; the plan's own copper and steps do not
+    assert [o.get("origin") for o in whole["copper"]] == [None, "routed"] and [s.get("origin") for s in whole["steps"]] == [None, "routed", "routed"]
 
 
 def test_a_record_that_is_not_one_is_not_read(tmp_path):
