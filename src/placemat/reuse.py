@@ -141,13 +141,16 @@ def step_key(previous: str, intent, links, extra: str = "") -> str:
 def placement_to_json(p):
     if p is None:
         return None
-    return [p.location.x, p.location.y, p.rotation, p.face.value]
+    out = [p.location.x, p.location.y, p.rotation, p.face.value]
+    if p.arrangement:
+        out.append(p.arrangement)           # a placement with no arrangement writes what it wrote before
+    return out
 
 
 def placement_from_json(v):
     if v is None:
         return None
-    return Placement(Location(v[0], v[1]), v[2], Face(v[3]))
+    return Placement(Location(v[0], v[1]), v[2], Face(v[3]), v[4] if len(v) > 4 else "")
 
 
 def step_to_json(s) -> dict:

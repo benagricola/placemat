@@ -39,4 +39,4 @@ def test_a_note_that_cannot_stand_is_a_finding_and_the_cell_places_as_its_defaul
     plan = b.resolve()
     stale = [f for f in plan.findings if f.cause == "arrangement.stale"]
     assert sorted(f.facts["reason"] for f in stale) == ["text", "version"] and all(f.facts["cell"] == "mod" for f in stale)
-    assert plan.placement("mod") is not None
+    assert plan.placement("mod") is not None and plan.placement("mod").arrangement == ""
