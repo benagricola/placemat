@@ -8671,7 +8671,7 @@ class Board:
         run = i.run
         fellows = [x for x in self._placements() if x.run is i.run and x.along is None
                    and not x.freedom.decided]
-        k, n = fellows.index(i), max(len(fellows), 1)
+        k, n = _slot_of(fellows, i), max(len(fellows), 1)
         ideal = run.length * (k + 1) / (n + 1)
         shape = occ.board_shape or self._shaped()
 
@@ -8724,7 +8724,7 @@ class Board:
         pinned = _coord(self, occ, i.pin_x if axis == "x" else i.pin_y, axis)
         fellows = [o for o in self._placements() if (o.pin_x if axis == "x" else o.pin_y) is not None
                    and (o.pin_x if axis == "x" else o.pin_y) == (i.pin_x if axis == "x" else i.pin_y)]
-        k, n = fellows.index(i), len(fellows)
+        k, n = _slot_of(fellows, i), len(fellows)
         box = occ.board_box
         lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
         lo, hi = lo + self.keep_in, hi - self.keep_in
@@ -8757,7 +8757,7 @@ class Board:
         pinned = _coord(self, occ, i.pin_x if axis == "x" else i.pin_y, axis)
         fellows = [o for o in self._placements() if (o.pin_x if axis == "x" else o.pin_y) is not None
                    and (o.pin_x if axis == "x" else o.pin_y) == (i.pin_x if axis == "x" else i.pin_y)]
-        k, n = fellows.index(i), len(fellows)
+        k, n = _slot_of(fellows, i), len(fellows)
         box = occ.board_box
         lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
         lo, hi = lo + self.keep_in, hi - self.keep_in
@@ -8794,7 +8794,7 @@ class Board:
         length, so one alone sits at the midpoint."""
         fellows = [x for x in self._placements() if x.edge is i.edge and x.along is None
                    and not x.freedom.decided]
-        k, n = fellows.index(i), len(fellows)
+        k, n = _slot_of(fellows, i), len(fellows)
         box = occ.board_box
         lo, hi = (box.left, box.right) if i.edge in (Edge.NORTH, Edge.SOUTH) else (box.top, box.bottom)
         lo, hi = lo + self.keep_in, hi - self.keep_in
@@ -8817,7 +8817,7 @@ class Board:
         run = i.run
         fellows = [x for x in self._placements() if x.run is i.run and x.along is None
                    and not x.freedom.decided]
-        k, n = fellows.index(i), max(len(fellows), 1)
+        k, n = _slot_of(fellows, i), max(len(fellows), 1)
         ideal = run.length * (k + 1) / (n + 1)
         shape = occ.board_shape or self._shaped()
 
@@ -8834,7 +8834,7 @@ class Board:
         fellows = [x for x in self._placements() if x.angle is None
                    and (x.rim, x.radius_at, x.about) == (i.rim, i.radius_at, i.about)
                    and not x.freedom.decided]
-        k, n = fellows.index(i), max(len(fellows), 1)
+        k, n = _slot_of(fellows, i), max(len(fellows), 1)
         return 360.0 * k / n
 
     def _settle_round_rim(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
@@ -9673,17 +9673,17 @@ class Board:
         if i.turns_on_point:
             return self._settle_turns_on_point(occ, i, plan, placed, clr, push_sources)
         if i.run is not None:
-            return self._settle_along_run(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_along_run(occ, j, plan, clr))
         if i.rim is not None:
-            return self._settle_round_rim(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_round_rim(occ, j, plan, clr))
         if i.radius_at is not None:
-            return self._settle_round_ring(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_round_ring(occ, j, plan, clr))
         if i.angle is not None:
-            return self._settle_along_spoke(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_along_spoke(occ, j, plan, clr))
         if i.edge is not None:
-            return self._settle_along_edge(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_along_edge(occ, j, plan, clr))
         if i.pin_x is not None or i.pin_y is not None:
-            return self._settle_along_line(occ, i, plan, clr, placed)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_along_line(occ, j, plan, clr, placed))
         locked = self._settle_locked(occ, i, plan, clr)
         if locked is not None:
             return locked
@@ -9783,7 +9783,7 @@ class Board:
                     if step is not None:
                         ident = getattr(t.j.item, "arrangement", "")
                         if ident:
-                            step.notes = step.notes + (step_text.record("arrangement", id=ident),)
+                            step.notes = step.notes + (self._arrangement_note(ident),)
                         return step
             late = self._room_lost(plan, i)
             from . import suggest_facts
@@ -9814,6 +9814,31 @@ class Board:
         step = self._step(won, result.chosen, result.moved_mm, notes)
         step.back_face = bool(face_note) and result.chosen.face is Face.BACK
         return step
+
+    def _first_legal(self, occ, i, plan, settle_one) -> Step:
+        """A form that is not scored (a slide along an edge, a line, a run, a rim, a ring, a spoke) takes the default
+        arrangement when it has a legal spot and tries the others, in order, only when it has none: `settle_one(j)` settles
+        `j`, the item standing as one arrangement. What an arrangement that failed said is dropped when another stands; when
+        none does, the first one's findings stand. The step's `arrangement` note lists those tried when more than one was, or
+        one other than the default was taken."""
+        ids = self._arrangement_ids(i)
+        if len(ids) == 1:
+            return settle_one(self._arranged(i, ids[0]))
+        n = len(plan.findings)
+        first, first_findings, rows = None, [], []
+        for ident in ids:
+            step = settle_one(self._arranged(i, ident))
+            rows.append(self._arrangement_row(ident, None, step.placement is not None))
+            if step.placement is not None:
+                if ident or len(rows) > 1:
+                    step.notes = step.notes + (self._arrangement_note(ident, rows),)
+                return step
+            if first is None:
+                first, first_findings = step, list(plan.findings[n:])
+            del plan.findings[n:]
+        plan.findings.extend(first_findings)
+        first.notes = first.notes + (self._arrangement_note(ids[0], rows),)
+        return first
 
     def _scan_arrangements(self, occ, i, plan, placed, ids, **kw) -> "_Scanned":
         """Scan item `i` in each arrangement of `ids` ("" the default), in order, each an ordinary scan of the arranged cell (its own
@@ -9874,7 +9899,7 @@ class Board:
             return _Scanned(None, [t for _, t in tried], merged, None, None, reasons)
         _, ident, won = best
         won.result.cut = won.result.cut or cut
-        note = self._arrangement_note(ident, won, tried, cost) if len(tried) > 1 or ident else None
+        note = self._scanned_note(ident, won, tried, cost) if len(tried) > 1 or ident else None
         return _Scanned(won, [t for _, t in tried], won.result, won.face_note, note, [])
 
     def _standing_total(self, t, extra: float) -> float:
@@ -9883,12 +9908,11 @@ class Board:
         r = t.result
         return r.score + extra + (self.settings.score_back_face if r.chosen.face is Face.BACK and t.j.either else 0.0)
 
-    def _arrangement_note(self, ident, won, tried, cost) -> dict:
-        """The step's `arrangement` note: the one taken, its score (with `score.back_face` when it stands on the back of an
-        either-face item) and its cost, and each arrangement tried: its total as the choice compared it, and whether it had a
-        legal spot. A row is `beaten`, with no score, when the floor of the best so far cut it: it had room but could not beat
-        that. A score is None when the search is unscored. `default_score` is the default's total when the default was tried and
-        had a legal spot; `default_blame` says why it had none."""
+    def _scanned_note(self, ident, won, tried, cost) -> dict:
+        """The `arrangement` note of a scan over arrangements (`_arrangement_note`): `won` the `_Tried` taken, `tried` each
+        (id, `_Tried`) scanned. Each row is its total as the choice compared it (`_standing_total`). A row is `beaten`, with no
+        score, when the floor of the best so far cut it: it had room but could not beat that. `default_blame` says why the
+        default had no legal spot."""
         def beaten(t):
             r = t.result
             return t.score is not None and r is not None and (r.score >= PRUNED if r.chosen is not None else r.bound > 0)
@@ -9897,24 +9921,42 @@ class Board:
             r = t.result
             cut = beaten(t)
             legal = r is not None and (r.chosen is not None or cut)
-            out = {"id": a or "default", "score": round(self._standing_total(t, cost if a else 0.0), 3)
-                   if legal and t.score is not None and not cut else None, "legal": legal}
-            if cut:
-                out["beaten"] = True
-            return out
-        rows = [row(a, t) for a, t in tried]
+            total = self._standing_total(t, cost if a else 0.0) if legal and t.score is not None and not cut else None
+            return self._arrangement_row(a, total, legal, beaten=cut)
         default = next((t for a, t in tried if not a), None)
         scored = won.score is not None
-        facts = dict(id=ident or "default", score=round(self._standing_total(won, 0.0), 3) if scored else None,
-                     cost=(cost if ident else 0.0) if scored else None, tried=rows)
+        default_score = default_blame = None
         if default is not None and default.result is not None and default.result.chosen is not None:
             if scored:
-                facts["default_score"] = round(self._standing_total(default, 0.0), 3)
+                default_score = self._standing_total(default, 0.0)
         elif default is not None and default.hopeless:
-            facts["default_blame"] = [{"form": "pocket", **default.hopeless}]
+            default_blame = [{"form": "pocket", **default.hopeless}]
         elif default is not None and default.result is not None:
-            facts["default_blame"] = blame.blame_of(default.result)
-        return step_text.record("arrangement", **facts)
+            default_blame = blame.blame_of(default.result)
+        return self._arrangement_note(ident, [row(a, t) for a, t in tried],
+                                      score=self._standing_total(won, 0.0) if scored else None,
+                                      cost=(cost if ident else 0.0) if scored else None, default_score=default_score,
+                                      default_blame=default_blame)
+
+    @staticmethod
+    def _arrangement_row(ident, total, legal: bool, beaten: bool = False) -> dict:
+        """A row of the `arrangement` note: an arrangement tried ("" the default), its total as the choice compared it (None when
+        the choice was unscored, it had no legal spot, or a bound cut it), whether it had a legal spot, and `beaten` when a bound
+        cut it."""
+        out = {"id": ident or "default", "score": None if total is None else round(total, 3), "legal": legal}
+        if beaten:
+            out["beaten"] = True
+        return out
+
+    @staticmethod
+    def _arrangement_note(ident, rows=None, *, score=None, cost=None, default_score=None, default_blame=None) -> dict:
+        """The step's `arrangement` note, every form's: `ident` the one taken ("" the default); `rows` each arrangement tried
+        (`_arrangement_row`); `score` the one taken's, without its cost, and `cost` its `score.arrangement` (both None when the
+        choice was unscored); `default_score` the default's total, given only when the default was tried and had a legal spot in
+        a scored choice; `default_blame` why the default had no legal spot. What is None is left out."""
+        return step_text.record("arrangement", id=ident or "default", score=None if score is None else round(score, 3), cost=cost,
+                                tried=rows, default_score=None if default_score is None else round(default_score, 3),
+                                default_blame=default_blame)
 
     @staticmethod
     def _faces_of(i: PlaceIntent) -> tuple:
@@ -10137,59 +10179,86 @@ class Board:
                                  hint.rotation, hint.face)
         fellows = [x for x in self._placements() if x.band == i.band and x.about == i.about and x.angle is None
                    and not x.freedom.decided]
-        k, n = fellows.index(i), max(len(fellows), 1)
+        k, n = _slot_of(fellows, i), max(len(fellows), 1)
         return Placement(polar_point(centre, 360.0 * k / n, (lo + hi) / 2.0), i.rotation, i.face)
 
     def _settle_turns_on_point(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set, clr,
                                push_sources: list) -> Step:
-        """The item stays on its point and its turn is searched: each turn `rotations=` names is laid
-        as the declaration lays it, kept when the item is legal there as a decided place is judged,
-        and scored as a search scores a candidate (links, pushes, escape lanes, a via giving way).
-        The cheapest wins; a tie goes to the turn nearest `rotation=`, then the smaller angle."""
+        """The item stays on its point and its turn is searched: each turn `rotations=` names, in each arrangement of a cell, is
+        laid as the declaration lays it, kept when the item is legal there as a decided place is judged, and scored as a search
+        scores a candidate (links, pushes, escape lanes, a via giving way) with its arrangement's scorer. The lowest score plus
+        `score.arrangement` (for an arrangement other than the default) wins; a tie goes to the arrangement tried first, then
+        the turn nearest `rotation=`, then the smaller angle. With nothing to score, the first arrangement with a legal turn
+        stands and those after it are not laid."""
         turns = sorted({float(r) % 360.0 for r in i.rotations})
-        laid = {}
-        for rot in turns:
-            laid[rot] = self._firm_placement(occ, plan, dataclasses.replace(i, rotation=rot))
-        geom = occ._geometry(i.item)
-        region = Box.union([transform_box(occ._extent(geom), occ._transform(geom, p)) for p, _ in laid.values()])
-        others = occ.obstacles(geom, region)
+        ids = self._arrangement_ids(i)
+        arr_cost = self.settings.score_arrangement
         targets = self._targets(i.item, occ, placed)
-        exposed = self._exposure_accept(occ, i, push_sources)
-        accept = self._accept(i)            # the items riding it, asked of each turn that is otherwise legal
-        lanes = self._lane_pricer(occ, plan, i)
-        score = self._scorer(i.item, occ, targets, prune=exposed is None and accept is None, pushes=push_sources,
-                             lanes=lanes) if targets or push_sources or lanes else None
         declared = float(i.rotation) % 360.0
         found = []
         rejected: Counter = Counter()
-        reasons: dict = {}
-        for rot, (p, chose) in laid.items():
-            why, resolution = occ.legal_giving_way(i.item, p, clr, others=others, by_corners=True)
-            if why is None and exposed is not None:
-                why = exposed(p)
-            if why is None and accept is not None:
-                why = accept(p)
-            if why is not None:
-                key = _reason_key(why)
-                rejected[key] += 1
-                reasons.setdefault(key, why)
-                continue
-            cost = (score(p) if score is not None else 0.0) + (resolution.cost if resolution is not None else 0.0)
-            away = abs((rot - declared + 180.0) % 360.0 - 180.0)
-            found.append((cost, away, rot, p, chose))
+        reasons: dict = {}                  # (arrangement, reason key) -> the first refusal of that kind
+        rows, scored, default_total = [], False, None
+        for k, ident in enumerate(ids):
+            j = self._arranged(i, ident)
+            laid = {rot: self._firm_placement(occ, plan, dataclasses.replace(j, rotation=rot)) for rot in turns}
+            geom = occ._geometry(j.item)
+            region = Box.union([transform_box(occ._extent(geom), occ._transform(geom, p)) for p, _ in laid.values()])
+            others = occ.obstacles(geom, region)
+            exposed = self._exposure_accept(occ, j, push_sources)
+            accept = self._accept(j)            # the items riding it, asked of each turn that is otherwise legal
+            lanes = self._lane_pricer(occ, plan, j)
+            score = self._scorer(j.item, occ, targets, prune=exposed is None and accept is None, pushes=push_sources,
+                                 lanes=lanes) if targets or push_sources or lanes else None
+            scored = scored or score is not None
+            extra = arr_cost if ident else 0.0
+            best = None
+            for rot, (p, chose) in laid.items():
+                why, resolution = occ.legal_giving_way(j.item, p, clr, others=others, by_corners=True)
+                if why is None and exposed is not None:
+                    why = exposed(p)
+                if why is None and accept is not None:
+                    why = accept(p)
+                if why is not None:
+                    key = _reason_key(why)
+                    rejected[key] += 1
+                    reasons.setdefault((ident, key), why)
+                    continue
+                cost = (score(p) if score is not None else 0.0) + (resolution.cost if resolution is not None else 0.0)
+                away = abs((rot - declared + 180.0) % 360.0 - 180.0)
+                found.append((cost + extra, k, away, rot, cost, p, chose, ident, j))
+                best = cost + extra if best is None else min(best, cost + extra)
+            rows.append(self._arrangement_row(ident, best if score is not None else None, best is not None))
+            if not ident and best is not None and score is not None:
+                default_total = best
+            if score is None and best is not None:
+                break                           # unscored: the first arrangement with a legal turn stands
         if not found:
             plan.findings.append(self._finding(C.UNPLACED_BEARING, {
                 "item": i.key, "turns": len(turns), "counts": blame.counts_of(rejected),
                 }))
-            return self._step(i, None, 0.0, unplaced=[w.to_json() for w in reasons.values()])
-        cost, away, rot, p, chose = min(found, key=lambda f: f[:3])
+            return self._step(i, None, 0.0, unplaced=[dict(w.to_json(), **({"arrangement": a} if a else {}))
+                                                      for (a, _), w in reasons.items()])
+        _, k, away, rot, cost, p, chose, ident, j = min(found, key=lambda f: f[:4])
         notes = [chose] if chose else []
-        notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if score is not None else None))
+        notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if scored else None,
+                                      arrangement=ident or None))
         if rejected:
             notes.append(step_text.record("refused_count", n=sum(rejected.values()), why=next(iter(reasons.values())).to_json()))
+        if len(rows) > 1 or ident:
+            notes.append(self._arrangement_note(ident, rows, score=cost if scored else None,
+                                                cost=(arr_cost if ident else 0.0) if scored else None,
+                                                default_score=default_total))
         if push_sources:
-            notes += self._push_notes(occ, plan, i, p, push_sources)
-        return self._step(i, p, 0.0, notes)
+            notes += self._push_notes(occ, plan, j, p, push_sources)
+        return self._step(j, p, 0.0, notes)
+
+
+def _slot_of(fellows: list, i: "PlaceIntent") -> int:
+    """Where `i` stands among the declarations sharing its freedom, found by key: a cell searched in an arrangement is not equal
+    to its declaration."""
+    return [x.key for x in fellows].index(i.key)
+
 
 @contextlib.contextmanager
 def _recording_commits(occ: Occupancy):
