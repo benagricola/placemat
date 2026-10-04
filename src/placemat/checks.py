@@ -1629,12 +1629,19 @@ def run_checks(geometry: BoardGeometry, ambient_c: float = AMBIENT_C, keep_out_m
     return out
 
 
-def notice_line(n: KeepOutNotice) -> str:
-    """A keep-out notice as a line for a person: the edge, where the record turns to text."""
-    return "keep-out %s %.2f mm (limit %g), on %s and %s with no plane between: %s to %s (not a failure: KiCad judges " \
-           "clearance only between copper on one layer)" % (
-               n.net, n.distance_mm, n.limit_mm, n.layers[0].value, n.layers[1].value,
-               _keep_out_text(n.away, n.points[0]), _keep_out_text(n.pads, n.points[1]))
+def _item_facts(item: _NamedCopper, point: tuple) -> dict:
+    return {"kind": item.kind, "owner": item.owner, "number": item.number, "net": item.net,
+            "at": [round(point[0], 3), round(point[1], 3)]}
+
+
+def keep_out_findings(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list:
+    """`keep_out_notices` as `keep_out.cross_layer` findings (notice severity), for a run to record."""
+    from .findings import Finding, FindingCause as C
+    return [Finding(C.KEEP_OUT_CROSS_LAYER,
+                    {"net": n.net, "distance_mm": round(n.distance_mm, 4), "limit_mm": n.limit_mm,
+                     "layers": [l.value for l in n.layers],
+                     "away": _item_facts(n.away, n.points[0]), "pads": _item_facts(n.pads, n.points[1])})
+            for n in keep_out_notices(geometry, limit_mm)]
 
 
 def kwargs_from(settings) -> dict:

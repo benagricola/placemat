@@ -12,8 +12,8 @@ section for each hand-written pattern a newer form replaces.
 - **The `keep-out` check judges only copper that shares a layer.** It measured a part's `Pm.KeepOut` distance between `away`
   copper and `pads` copper whatever their layers, so a back-layer pad with a plane between it and a front-layer pad failed at
   a distance KiCad's DRC, which judges clearance between items on one copper layer (a through-hole pad or a via spans its
-  layers), passes. A pair on different layers inside the distance with no plane between them is now a notice from
-  `checks.keep_out_notices` and a line in `placemat check`, not a failure; one with a plane between is not reported.
+  layers), passes. A pair on different layers inside the distance with no plane between them is now a notice finding
+  (`keep_out.cross_layer`, in `run.json` and printed by `placemat check`), not a failure; one with a plane between is not reported.
 - **The skill's pin-swap example is corrected.** It said a microcontroller's SPI pins must be consecutive; a hardware SPI's
   signals sit on fixed pins of one instance, not necessarily adjacent. The rule that must be consecutive is a programmable-IO
   block's pin ranges (a base pin and the next ones in number).

@@ -31,6 +31,7 @@ class FindingKind(str, Enum):
     FACTS = "facts"                     # the board's facts do not match what `placemat facts --confirm` last confirmed
     NEEDS = "needs"                     # a spot placemat would have used an if-needed fab option for, and did not
     SPLIT = "split"                     # a cell whose members form two or more groups joined only by board-level nets
+    KEEP_OUT = "keep_out"               # a keep-out distance that KiCad's DRC does not judge: copper on different layers
     TIME = "time"                       # a step that ran past the time a command allows it (`--step-warn`, `--step-limit`)
 
     def __str__(self):
@@ -108,6 +109,7 @@ class FindingCause(str, Enum):
     FACTS_UNCONFIRMED = (FindingKind.FACTS, "facts.unconfirmed")
     NEEDS_OPTION = (FindingKind.NEEDS, "needs.option")
     SPLIT_GROUPS = (FindingKind.SPLIT, "split.groups")
+    KEEP_OUT_CROSS_LAYER = (FindingKind.KEEP_OUT, "keep_out.cross_layer")
     TIME_STEP_SLOW = (FindingKind.TIME, "time.step_slow")
     TIME_STEP_LIMIT = (FindingKind.TIME, "time.step_limit")
 
@@ -149,6 +151,7 @@ SEVERITY = {
     FindingKind.FACTS: "warning",
     FindingKind.NEEDS: "notice",
     FindingKind.SPLIT: "warning",
+    FindingKind.KEEP_OUT: "notice",
     FindingKind.TIME: "notice",
 }
 """A kind's default severity: a classification of what the kind means, not a

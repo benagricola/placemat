@@ -81,8 +81,18 @@ def test_a_via_spanning_both_layers_within_the_limit_fails():
     assert "via" in v.note
 
 
-def test_a_notice_reads_as_a_line_at_the_edge():
-    from placemat.checks import notice_line
-    (n,) = _judge(_parts(Face.BACK))[1]
-    line = notice_line(n)
-    assert "L1 pad" in line and "U1 pad" in line and "F.Cu" in line and "B.Cu" in line, line
+def test_a_notice_is_a_notice_finding_with_its_facts():
+    from placemat.checks import keep_out_findings
+    from placemat.findings import FindingCause as C
+    geometry = board_geometry(_parts(Face.BACK))
+    (f,) = keep_out_findings(geometry, LIMIT)
+    assert f.cause is C.KEEP_OUT_CROSS_LAYER and f.kind == "keep_out" and f.severity == "notice"
+    assert f.facts["net"] == "SW" and f.facts["layers"] == ["F.Cu", "B.Cu"]
+    assert f.facts["away"]["owner"] == "L1" and f.facts["pads"]["owner"] == "U1"
+    assert f.facts["distance_mm"] == pytest.approx(0.7) and f.facts["limit_mm"] == LIMIT
+    assert "L1 pad 1 (SW) on F.Cu" in f and "not a failed check" in f
+
+
+def test_a_shielded_pair_raises_no_finding():
+    from placemat.checks import keep_out_findings
+    assert keep_out_findings(board_geometry(_parts(Face.BACK), copper=[_plane()]), LIMIT) == []
