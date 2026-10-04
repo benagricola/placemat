@@ -978,6 +978,7 @@ class Board:
         self._room: dict = {}               # key -> room.measure's record, taken when the first searched item is reached
         self._waited: dict = {}                # item key -> the linked partner it waited for
         self._arr_unreached: dict = {}         # item key -> the arrangements a step out of time did not reach
+        self._collect_into: list | None = None  # while an explore draws over arrangements: each scan's legal candidates, best first
         self._copper: list[CopperIntent] = []
         self._pad_tracks: set = set()      # indices of the tracks whose points are all pads: their way is known before they are planned
         self._pad_vias: list = []          # (pad ref, net, drill, size, span) of each via declared at a pad: its part carries it
@@ -9011,6 +9012,8 @@ class Board:
         ex = getattr(self, "_explore", None)
         if ex is None or i.key not in ex.focus:
             return None
+        if self._collect_into is not None:          # `_scan_arrangements` draws over every arrangement: a scan hands it its
+            return lambda cands: (self._collect_into.extend(cands), cands[0])[1]      # sorted candidates and keeps its best
         import random as _random
         from .explore import draw
         rng = _random.Random("%d:%s" % (ex.seed, i.key))
@@ -9901,12 +9904,17 @@ class Board:
         spot; the best so far, less the cost, is the next scorer's pruning floor. The default's scan takes no floor, so its score
         is known whenever it has a legal spot. An unscored search (no links, pushes or lanes to price) takes the first arrangement
         with a legal spot and scans no further. Each scan has the step's budget afresh; the step's time limit stops between scans.
-        `kw` are `_scan_one`'s keywords but `j`."""
+        `kw` are `_scan_one`'s keywords but `j`.
+
+        An explore variant (`_pick`) over more than one arrangement draws once from every arrangement's legal spots pooled, each
+        at its total as the choice compares it, on the face its arrangement's scan took; the arrangement of the spot drawn
+        stands. Over one arrangement the scan draws as it always has."""
         from . import timecap
         clock = timecap.active()
         cost = self.settings.score_arrangement
         self._arr_unreached.pop(i.key, None)
-        tried, best = [], None                          # best: (total, ident, _Tried)
+        draw = self._pick(i) if len(ids) > 1 else None
+        tried, best, pool = [], None, []                # best: (total, ident, _Tried); pool: what `draw` draws from
         for k, ident in enumerate(ids):
             if k and clock is not None and clock.gave_up:
                 self._arr_unreached[i.key] = [a or "default" for a in ids[k:]]
@@ -9922,17 +9930,31 @@ class Board:
                 hint = self._seed_hint(j.item, occ, kw["targets"], i.rotation, i.face)      # laid from the arranged item's pads
             extra = cost if ident else 0.0
             floor = best[0] if best is not None and ident else None
-            t = self._scan_one(occ, j, plan, placed, **{**kw, "hint": hint}, floor=floor, cost=extra)
+            self._collect_into = [] if draw is not None else None
+            try:
+                t = self._scan_one(occ, j, plan, placed, **{**kw, "hint": hint}, floor=floor, cost=extra)
+            finally:
+                got, self._collect_into = self._collect_into, None
             tried.append((ident, t))
             r = t.result
             if r is None or r.chosen is None:
                 continue
+            if got:
+                face = r.chosen.face
+                back = self.settings.score_back_face if face is Face.BACK and j.either else 0.0
+                pool += [(c[0] + extra + back, c[1], c[2], c[3], ident, t) for c in got if c[3].face is face]
             if t.score is None:
                 best = (0.0, ident, t)                  # unscored: the first with a spot stands, nothing else is scanned
                 break
             total = self._standing_total(t, extra)
             if best is None or total < best[0]:
                 best = (total, ident, t)
+        if pool:
+            pool.sort(key=lambda c: c[:3])
+            total, _, _, chosen, ident, t = draw(pool)  # explore.draw weighs by the total and the rank: the rest rides along
+            back = self.settings.score_back_face if chosen.face is Face.BACK and t.j.either else 0.0
+            t.result.chosen, t.result.score = chosen, total - (cost if ident else 0.0) - back
+            best = (total, ident, t)
         return self._chosen_scan(i, tried, best, cost)
 
     def _chosen_scan(self, i, tried, best, cost) -> "_Scanned":
