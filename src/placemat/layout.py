@@ -6923,6 +6923,9 @@ class Board:
         limit = self.arrangement_limit()
         if limit is not None:
             plan.findings.append(self._finding(C.ARRANGEMENT_LIMIT, limit, "warning"))
+        for cname in sorted(self.geometry.cells):
+            for p in self.geometry.cells[cname].arrangement_problems:
+                plan.findings.append(self._finding(C.ARRANGEMENT_STALE, {"cell": cname, "reason": p["reason"], "ids": p["ids"]}, "warning"))
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement

@@ -16,6 +16,8 @@ pcbnew = import_pcbnew()
 
 from ..board_geometry import (BoardGeometry, CellGeom, CopperItem, Footprint, NetClass, PadGeom, RuleArea,
                               resolve_marker, split_allow, split_marker, stamped_net)
+from ..arrangement_note import ARRANGEMENT_PREFIX
+from ..arranged_geometry import attach
 from ..rules import RULE_PREFIX, parse_rule_note
 from ..values import Box, CopperLayer, Face, Location
 
@@ -795,6 +797,7 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
     by_ref = {fp.ref: fp for fp in fps}
     copper = _copper(board, groups_of, arc_error_nm)
     cells = {}
+    arrangement_texts = {}
     for name, items in group_items.items():
         # in reference order: KiCad returns a group's items in no fixed order, and the search and the
         # findings read members in turn
@@ -816,9 +819,13 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                         faces[k] = v
         rules = tuple(r for r in (parse_rule_note(it.GetText()) for it in items
                                   if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(RULE_PREFIX)) if r)
+        arrangement_texts[name] = [it.GetText() for it in items
+                                   if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(ARRANGEMENT_PREFIX)]
         cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces, parent_of.get(name), rules)
     classes, default_clr = _netclasses(board)
     layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
+    cells = {n: (attach(c, arrangement_texts[n], frozenset(classes), layers) if arrangement_texts.get(n) else c)
+             for n, c in cells.items()}
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
                     layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance),

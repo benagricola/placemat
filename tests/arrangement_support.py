@@ -72,3 +72,55 @@ def with_arrangement(g=None, doc=None):
     texts = N.encode(doc or east_doc(), 4000)
     cell = attach(g.cells["mod"], texts, frozenset(g.nets), g.layers)
     return dataclasses.replace(g, cells={**g.cells, "mod": cell})
+
+
+def kicad_cell_board(path, cells=(("mod", (30.0, 10.0)),), notes=None):
+    """A 2-layer board of stamped cells (pcbnew, no libraries): each a group of c_in and u1 at the module's places (1.0, 3.0) and (6.0, 3.0) moved
+    by the cell's offset. A footprint has no Path field, so its instance is its reference, `<cell>.c_in`."""
+    import pcbnew
+    mm = pcbnew.FromMM
+    board = pcbnew.CreateEmptyBoard()
+    board.SetCopperLayerCount(2)
+    names = ["GND"] + ["%s.%s" % (c, n) for c, _ in cells for n in ("VIN", "GND", "OUT")]
+    info = {}
+    for n in names:
+        info[n] = pcbnew.NETINFO_ITEM(board, n)
+        board.Add(info[n])
+    rect = getattr(pcbnew, "PAD_SHAPE_RECT", None) or pcbnew.PAD_SHAPE_RECTANGLE
+    for cell, (ox, oy) in cells:
+        group = pcbnew.PCB_GROUP(board)
+        group.SetName(cell)
+        board.Add(group)
+        for inst, x, y, n1, n2 in (("c_in", 1.0, 3.0, "VIN", "GND"), ("u1", 6.0, 3.0, "VIN", "OUT")):
+            fp = pcbnew.FOOTPRINT(board)
+            fp.SetReference("%s.%s" % (cell, inst))
+            board.Add(fp)
+            fp.SetPosition(pcbnew.VECTOR2I(mm(x + ox), mm(y + oy)))
+            for number, dx, net in (("1", -0.9, n1), ("2", 0.9, n2)):
+                pad = pcbnew.PAD(fp)
+                pad.SetNumber(number)
+                pad.SetShape(rect)
+                pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
+                pad.SetSize(pcbnew.VECTOR2I(mm(1.0), mm(1.0)))
+                pad.SetLayerSet(pad.SMDMask())
+                pad.SetNet(info["%s.%s" % (cell, net)])
+                fp.Add(pad)
+                pad.SetPosition(pcbnew.VECTOR2I(mm(x + ox + dx), mm(y + oy)))
+            group.AddItem(fp)
+        track = pcbnew.PCB_TRACK(board)                     # the cell's own stamped copper
+        track.SetLayer(pcbnew.F_Cu)
+        track.SetNet(info["%s.GND" % cell])
+        track.SetWidth(mm(0.3))
+        track.SetStart(pcbnew.VECTOR2I(mm(ox), mm(oy + 4.0)))
+        track.SetEnd(pcbnew.VECTOR2I(mm(ox + 2.0), mm(oy + 4.0)))
+        board.Add(track)
+        group.AddItem(track)
+        for text in (notes or {}).get(cell, ()):
+            t = pcbnew.PCB_TEXT(board)
+            t.SetText(text)
+            t.SetLayer(pcbnew.Cmts_User)
+            t.SetPosition(pcbnew.VECTOR2I(mm(ox), mm(oy + 20)))
+            board.Add(t)
+            group.AddItem(t)
+    board.Save(str(path))
+    return path

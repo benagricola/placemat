@@ -770,8 +770,8 @@ def _arrangement_duplicate(f):
 
 
 _STALE_WHY = {"version": "its note is of a version this placemat does not read",
-              "base": "the cell's members are not where the module run left them",
-              "offset": "the cell's members do not stand at one offset from the module run's places",
+              "base": "a note does not match its own digest of the module's default places",
+              "offset": "the cell's stamp no longer matches the module's default places",
               "member": "the note names members the cell does not have, or the cell has members the note does not",
               "net": "the note names a net this board does not have",
               "text": "its note text is not whole or does not parse"}

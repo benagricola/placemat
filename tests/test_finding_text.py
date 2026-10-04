@@ -152,7 +152,7 @@ SAMPLES = [
     (C.ARRANGEMENT_DUPLICATE, {"id": "c_in.same", "same_as": "default"},
      "arrangement c_in.same lays out exactly as default and is dropped"),
     (C.ARRANGEMENT_STALE, {"cell": "mod", "reason": "base", "ids": ["c_in.east"]},
-     "mod: arrangement c_in.east is ignored: the cell's members are not where the module run left them"),
+     "mod: arrangement c_in.east is ignored: a note does not match its own digest of the module's default places"),
     (C.ARRANGEMENT_MISSING, {"item": "mod", "asked": ["c_in.west"], "offered": ["default", "c_in.east"]},
      "mod: arrangements= names c_in.west, which the module does not offer (it offers default, c_in.east)"),
     (C.ARRANGEMENT_MISSING, {"item": "mod", "asked": ["c_in.west"], "offered": ["default"], "source": "lock"},
