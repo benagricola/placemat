@@ -9,6 +9,7 @@
 //! courtyard that is clear of the reservation's box.
 
 use crate::board::{Reservation, B};
+use crate::exact::clean9;
 use crate::geometry::polys_overlap;
 
 type Point = (f64, f64);
@@ -138,8 +139,10 @@ impl<'a> ReservationPass<'a> {
         ReservationPass { res, judged, yards, hulls, live, scratch: Vec::new() }
     }
 
-    /// As `reference`, over the reservations that can reach.
-    pub fn hit(&mut self, turn: usize, body: &B, members: &[B], x: f64, y: f64) -> Option<(usize, usize)> {
+    /// As `reference`, over the reservations that can reach. `parts` are the unshifted boxes of a cell's
+    /// parts, each shifted (and rounded as a candidate's boxes are) only when a reservation asks for it;
+    /// `body` is the candidate's shifted body box.
+    pub fn hit(&mut self, turn: usize, body: &B, parts: &[B], x: f64, y: f64) -> Option<(usize, usize)> {
         let empty = TurnYards { polys: Vec::new(), boxes: Vec::new() };
         let ys = self.yards.get(turn).unwrap_or(&empty);
         // Everything this candidate puts down lies in `near`: a reservation clear of it refuses nothing.
@@ -170,7 +173,7 @@ impl<'a> ReservationPass<'a> {
                         _ => false,
                     }
                 };
-                if members.is_empty() {
+                if parts.is_empty() {
                     if yard_hit(0) {
                         return Some((ri, 0));
                     }
@@ -178,8 +181,8 @@ impl<'a> ReservationPass<'a> {
                 }
                 let n = ys.polys.len();
                 let found = match self.judged {
-                    Some(j) => j[pos].iter().copied().find(|&k| k < members.len() && if k < n { yard_hit(k) } else { r.overlaps(&members[k]) }),
-                    None => (0..members.len()).find(|&k| if k < n { yard_hit(k) } else { r.overlaps(&members[k]) }),
+                    Some(j) => j[pos].iter().copied().find(|&k| k < parts.len() && if k < n { yard_hit(k) } else { r.overlaps(&shifted(&parts[k], x, y)) }),
+                    None => (0..parts.len()).find(|&k| if k < n { yard_hit(k) } else { r.overlaps(&shifted(&parts[k], x, y)) }),
                 };
                 if let Some(k) = found {
                     return Some((ri, k + 1));
@@ -189,12 +192,12 @@ impl<'a> ReservationPass<'a> {
             if !r.overlaps(body) {
                 continue;
             }
-            if members.is_empty() {
+            if parts.is_empty() {
                 return Some((ri, 0));
             }
             let found = match self.judged {
-                Some(j) => j[pos].iter().copied().find(|&k| k < members.len() && r.overlaps(&members[k])),
-                None => (0..members.len()).find(|&k| r.overlaps(&members[k])),
+                Some(j) => j[pos].iter().copied().find(|&k| k < parts.len() && r.overlaps(&shifted(&parts[k], x, y))),
+                None => (0..parts.len()).find(|&k| r.overlaps(&shifted(&parts[k], x, y))),
             };
             if let Some(k) = found {
                 return Some((ri, k + 1));
@@ -202,6 +205,12 @@ impl<'a> ReservationPass<'a> {
         }
         None
     }
+}
+
+/// A box shifted by (x, y) and rounded, as a candidate's boxes are.
+#[inline]
+pub fn shifted(b: &B, x: f64, y: f64) -> B {
+    B { l: clean9(b.l + x), t: clean9(b.t + y), r: clean9(b.r + x), b: clean9(b.b + y) }
 }
 
 #[cfg(test)]
@@ -343,7 +352,8 @@ mod tests {
                 let members: Vec<B> = parts.iter().map(|p| sh(&p.0)).collect();
                 let body = sh(&body_o);
                 let want = reference(&res, &list, judged.as_ref(), &yards, 0, &body, &members, x, y);
-                let got = pass.hit(0, &body, &members, x, y);
+                let unshifted: Vec<B> = parts.iter().map(|p| p.0).collect();
+                let got = pass.hit(0, &body, &unshifted, x, y);
                 assert_eq!(got, want, "round {round} at ({x}, {y})");
                 asked += 1;
                 hits += want.is_some() as usize;

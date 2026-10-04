@@ -988,7 +988,7 @@ fn sweep(
         _ => None,
     };
     let mut pass = judge::ReservationPass::new(&board.reservations, &reservations, judged.as_ref(), &turn_yards, &hulls, reach);
-    let mut members: Vec<board::B> = Vec::new();
+    let part_boxes: Vec<Vec<board::B>> = parts.iter().map(|ps| ps.iter().map(|p| bx(*p)).collect()).collect();
     let mut legal = Vec::new();
     let mut scores = Vec::new();
     let mut seen: HashMap<(u8, i64, i64), usize> = HashMap::new();
@@ -1014,15 +1014,7 @@ fn sweep(
         // A cell whose box fails is judged again by its members' boxes
         // (`Occupancy._edge_or_reservation_conflict`); b names the member
         // whose box the edge refused, 1-based, or 0 for the whole box.
-        members.clear();
-        if let Some(ps) = parts.get(turn) {
-            members.extend(ps.iter().map(|p| board::B {
-                l: exact::clean9(p.0 + x),
-                t: exact::clean9(p.1 + y),
-                r: exact::clean9(p.2 + x),
-                b: exact::clean9(p.3 + y),
-            }));
-        }
+        let has_members = parts.get(turn).is_some_and(|ps| !ps.is_empty());
         let shift = |p: PyBox| board::B {
             l: exact::clean9(p.0 + x),
             t: exact::clean9(p.1 + y),
@@ -1031,7 +1023,7 @@ fn sweep(
         };
         let (flat, copper) = edges[turn];
         let member_edges: &[(PyBox, Option<PyBox>)] = match edge_parts.get(turn) {
-            Some(ps) if !members.is_empty() => ps,
+            Some(ps) if has_members => ps,
             _ => &[],
         };
         profile::add(0, t_all);
@@ -1067,7 +1059,7 @@ fn sweep(
         // b: the part the reservation refuses, 1-based (a cell's member or its own copper, in
         // `Occupancy.judged` order); 0 for an item with no parts
         let t_res = profile::mark();
-        let rh = pass.hit(turn, &body, &members, x, y);
+        let rh = pass.hit(turn, &body, part_boxes.get(turn).map(|v| v.as_slice()).unwrap_or(&[]), x, y);
         profile::add(3, t_res);
         if let Some((ri, k)) = rh {
             profile::add(7, t_all);
