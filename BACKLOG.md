@@ -334,6 +334,12 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Fragment DRC; studio status and step timer** (0.97.5): a frame-only
+  board's invalid_outline is expected, out of the headline and score (a
+  0.97.2 regression); the status count is distinct items with the firm pass
+  said; fixed widths in the header; the running step's time where a finished
+  one's stands.
+
 - **Give-way judged natively** (0.97.4): the carried-via judgment's board
   test is one native call, judged last after the cheap tests; the step budget
   charges a give-way resolve's judgments. Core preview give-way 60.8 -> 15.9 s,
