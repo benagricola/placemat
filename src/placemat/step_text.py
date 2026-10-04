@@ -455,6 +455,7 @@ _FORMS = {
     "pocket": lambda r: finding_text.pocket_note(r),
     "room_lost": lambda r: finding_text.room_lost_text(r["room_lost"]).lstrip("; "),
     "budget": lambda r: finding_text.budget_text(r["budget"]),
+    "arrangement_missing": lambda r: "arrangements= names %s; the cell offers %s" % (", ".join(r["asked"]), ", ".join(r["offered"])),
 }
 
 

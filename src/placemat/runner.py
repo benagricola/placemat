@@ -51,6 +51,15 @@ def _merged_by_cell(merged) -> list:
             for cell, nets in out.items()]
 
 
+def placements_record(plan) -> dict:
+    """run.json's `placements`: each placed part and cell's x, y, rotation and face, and a cell's `arrangement` when it stands in
+    one other than its module's own layout."""
+    return {s.item: {"x": s.placement.location.x, "y": s.placement.location.y,
+                     "rotation": s.placement.rotation, "face": s.placement.face.value,
+                     **({"arrangement": s.placement.arrangement} if s.placement.arrangement else {})}
+            for s in plan.steps if s.placement is not None and s.kind != "block"}
+
+
 def run_metrics(plan, n_place: int, n_copper: int, extent_metrics: dict) -> dict:
     """What a run records of its plan, before DRC adds its own."""
     metrics = {"board": [round(plan.outline.width, 3), round(plan.outline.height, 3)] if plan.outline else None,
@@ -727,9 +736,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 say("render", "not rendered: %s kept from %s, the board as that run placed it" % (
                     ", ".join(kept), "run %s" % renders_from if renders_from else "an earlier run"))
         rec.metrics = metrics
-        rec.placements = {s.item: {"x": s.placement.location.x, "y": s.placement.location.y,
-                                   "rotation": s.placement.rotation, "face": s.placement.face.value}
-                          for s in plan.steps if s.placement is not None and s.kind != "block"}
+        rec.placements = placements_record(plan)
         rec.cutouts = {n: {"x": c.centre.x, "y": c.centre.y, "rotation": c.rotation}
                        for n, c in plan.cutouts_placed.items()}
         rec.steps = [{"item": s.item, "kind": s.kind,

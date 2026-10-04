@@ -320,6 +320,7 @@ class PlaceIntent:
     tangent: object = field(default=None, metadata={"omit_default": True})   # a Tangent: the turn at each spot comes from its bearing
     band: object = field(default=None, metadata={"omit_default": True})      # (r_min, r_max) about `about`: Polar((r_min, r_max), None)
     budget: int | None = field(default=None, metadata={"omit_default": True})   # the candidates its search may judge, else `place.step_budget`
+    arrangements: tuple = field(default=(), metadata={"omit_default": True})   # arrangements=: the arrangement ids a cell may take, in the order tried; () every one it offers
 
     @property
     def stands_off(self) -> tuple | None:
@@ -2967,7 +2968,7 @@ class Board:
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
               radius: float | None = None, step: float | None = None, rotations=(),
               priority: Priority | None = None, required: bool = False, why: str = "",
-              drops: Drops = Drops.ALL, budget: int | None = None,
+              drops: Drops = Drops.ALL, budget: int | None = None, arrangements=None,
               _standoff: float | None = None, _row_of: object = None, _declare: bool = True) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
@@ -2999,6 +3000,11 @@ class Board:
         `budget=` is how many candidates the search may judge, over all its passes and the
         carried vias' giving way (default `place.step_budget`); a search that spends it
         takes the best spot it found, or leaves the item unplaced, and says how far it got.
+
+        `arrangements=` (a cell only) is an arrangement id its module offers, or a list of them
+        in the order tried; "default" is the module's own layout. Without it the cell may take
+        any arrangement it offers. An id it does not offer leaves the cell unplaced, with
+        `arrangement.missing` naming the ids it offers.
 
         `rotation=` is a number, `Turned(part, degrees)`, `Parallel(a, b, degrees)`
         (the item's x axis along the line between two points) or `Facing(pads,
@@ -3045,6 +3051,14 @@ class Board:
                             % (key, drops)) from None
         if drops is not Drops.ALL and kind != "cell":
             raise TypeError("%s: drops= thins a cell's via fields; a %s carries none of its own" % (key, kind))
+        if arrangements is None:
+            ids = ()
+        elif isinstance(arrangements, str):
+            ids = (arrangements,)
+        else:
+            ids = tuple(arrangements)
+        if ids and (kind != "cell" or not all(isinstance(a, str) for a in ids)):
+            raise TypeError("%s: arrangements= selects among a cell's arrangements, ids as text; a %s has none" % (key, kind))
         if _declare and any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
         center = edge = along = near = about = run = band = None
@@ -3284,7 +3298,7 @@ class Board:
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
                              cell_pin=cell_pin, drops=drops, file=_script_site()[0], line=_script_site()[1],
                              toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either,
-                             tangent=tangent, band=band, budget=budget)
+                             tangent=tangent, band=band, budget=budget, arrangements=ids)
         if _declare:
             self._intents.append(intent)
             self._place_calls[key] = (item, given_at, raw, self._compound)
@@ -7465,6 +7479,9 @@ class Board:
         why the item has no place, as step_text.unplaced_text reads it; the step's notes then start with "unplaced" and
         none of `notes` is kept."""
         notes = [step_text.record("unplaced")] if unplaced is not None else list(notes)
+        arranged = getattr(i.item, "arrangement", "")
+        if placement is not None and arranged and placement.arrangement != arranged:
+            placement = dataclasses.replace(placement, arrangement=arranged)
         drops = self.__dict__.get("_drops_notes", {}).get(i.key)
         if drops:
             notes.append(drops)
@@ -9535,6 +9552,9 @@ class Board:
                 solve: bool = True, look: bool = True) -> Step:
         if i.kind == "block":
             return self._settle_block(occ, i, plan, placed)
+        i, gone = self._gate(occ, i, plan)
+        if gone is not None:
+            return gone
         clr = self.clearance
         push_sources = self._reserve_pushes(occ, plan, i)
         if i.freedom.decided:
@@ -9714,6 +9734,52 @@ class Board:
     @staticmethod
     def _face_text(i: PlaceIntent) -> str:
         return "front or back" if i.either else i.face.value
+
+    def _offered(self, cell) -> tuple:
+        """The ids a cell offers besides its own layout; none while `place.arrangements` is false. Give it the base cell
+        (`self.geometry.cells[key]`): an arranged cell holds no arrangements and offers ()."""
+        if not self.settings.place_arrangements or not isinstance(cell, CellGeom):
+            return ()
+        return cell.offered()
+
+    def _arrangement_ids(self, i: PlaceIntent) -> list:
+        """The arrangements a search of `i` tries, "" standing for the default: the ones `arrangements=` names in its order, else the
+        default then everything the cell offers in the module's order. A part and a block have [""]; a cell already standing in an
+        arrangement has that one alone. What a cell offers is read off the base cell, never off `i.item`."""
+        if i.kind != "cell":
+            return [""]
+        if getattr(i.item, "arrangement", ""):
+            return [i.item.arrangement]
+        if i.arrangements:
+            return ["" if a == "default" else a for a in i.arrangements]
+        return [""] + list(self._offered(self.geometry.cells[i.key]))
+
+    def _arranged(self, i: PlaceIntent, ident: str) -> PlaceIntent:
+        """`i` with its cell standing as arrangement `ident` ("" the default), built from the base cell."""
+        item = self.geometry.cells[i.key].arranged(ident)
+        return i if item is i.item else dataclasses.replace(i, item=item)
+
+    def _arrangement_missing(self, item: str, asked: list, offered: list, source: str = "") -> Finding:
+        """`arrangement.missing`: critical when the cell's step ends unplaced for it; a warning when `source` is "lock" (the lock
+        names an arrangement the cell no longer offers, and the cell is placed anyway)."""
+        facts = {"item": item, "asked": list(asked), "offered": list(offered)}
+        if source:
+            facts["source"] = source
+        return self._finding(C.ARRANGEMENT_MISSING, facts, "warning" if source == "lock" else "critical")
+
+    def _gate(self, occ, i: PlaceIntent, plan: Plan) -> tuple:
+        """(the intent to settle, None), or (i, the unplaced step) when `arrangements=` names an id the cell does not offer. A cell that
+        is to take one arrangement is settled as that arrangement. What the cell offers is read off the base cell."""
+        if i.kind != "cell" or getattr(i.item, "arrangement", ""):
+            return i, None                              # a settle that runs again with the item already arranged
+        offered = ("default",) + self._offered(self.geometry.cells[i.key])
+        missing = [a for a in i.arrangements if a not in offered]
+        if missing:
+            plan.findings.append(self._arrangement_missing(i.key, i.arrangements, offered))
+            return i, self._step(i, None, 0.0, unplaced=[{"form": "arrangement_missing", "asked": list(i.arrangements),
+                                                          "offered": list(offered)}])
+        ids = self._arrangement_ids(i)
+        return (self._arranged(i, ids[0]) if len(ids) == 1 else i), None
 
     def _scan_faces(self, occ: Occupancy, i: PlaceIntent, hint: Placement, radius: float, clr, score, accept,
                     reseed=None, turns_at=None, within=None, turns_on=None):

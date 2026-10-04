@@ -608,6 +608,8 @@ class Occupancy:
         return self._pristine.get(ref) or self.items[ref]
 
     def _geometry(self, item) -> ItemGeometry:
+        """The geometry of a part, or of a cell as it stands (its own layout, or the arrangement `item.arrangement` names). A cell
+        re-committed with arrangement "" keeps the arrangement it stands in; it does not revert to the module's default layout."""
         if isinstance(item, Footprint):
             return self._pristine.get(item.ref) or self.items.get(item.ref) or self._register(item)
         if isinstance(item, CellGeom):
@@ -1110,7 +1112,8 @@ class Occupancy:
 
     def commit(self, item, placement: Placement):
         """Record that `item` now sits at `placement`; later checks see it there. A placement that names an arrangement
-        commits the cell as that arrangement stands it."""
+        commits the cell as that arrangement stands it. Re-committing a cell with arrangement "" keeps the arrangement the
+        cell stands in; it does not revert to the module's default layout."""
         item = self._arranged(item, placement)
         owners = self._geometry(item).owners
         self._commit(item, placement)
