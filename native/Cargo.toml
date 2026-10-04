@@ -17,3 +17,4 @@ profile = []     # stage timers in the sweep (src/profile.rs)
 
 [profile.release]
 lto = true
+codegen-units = 1

@@ -73,8 +73,10 @@ pub(crate) fn point_segment_distance_below(p: Point, a: Point, b: Point, best: f
         let t = t.max(0.0).min(1.0);
         (px - (ax + t * dx), py - (ay + t * dy))
     };
-    // 1e-14 relative is many units in the last place (2.2e-16): a pair this far over cannot be the minimum
-    if ex.hypot(ey) > best * (1.0 + 1e-14) {
+    // 1e-14 relative is many units in the last place (2.2e-16): a pair this far over cannot be the minimum. The
+    // square root of the sum of squares is within a few units of the exact distance (a sum that underflows or
+    // overflows is the exact hypot's, or is far past `best`).
+    if (ex * ex + ey * ey).sqrt() > best * (1.0 + 1e-14) {
         return f64::INFINITY;
     }
     crate::exact::hypot(ex, ey)

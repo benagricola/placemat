@@ -17,7 +17,9 @@ mod shapes;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasherDefault;
+use shapes::IdSet;
 
 type Point = (f64, f64);
 
@@ -122,7 +124,7 @@ fn conflict(
     silk_clearance: f64,
     component_spacing: f64,
     default_clearance: f64,
-    net_clearance: HashMap<String, f64>,
+    net_clearance: shapes::NetMap,
     hole_to_hole: f64,
     hole_clearance: f64,
     rules: Option<Vec<RuleArg>>,
@@ -160,7 +162,7 @@ impl NativeObstacles {
         silk_clearance: f64,
         component_spacing: f64,
         default_clearance: f64,
-        net_clearance: HashMap<String, f64>,
+        net_clearance: shapes::NetMap,
         gap: f64,
         drawn_gap: f64,
         hole_to_hole: f64,
@@ -225,7 +227,7 @@ impl NativeObstacles {
         skip: Vec<usize>,
     ) -> PyResult<Vec<usize>> {
         let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
-        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let skip: IdSet = skip.into_iter().collect();
         let mut out = Vec::new();
         let mut hint = shapes::Blockers::new(&built);
         for (i, &(dx, dy)) in offsets.iter().enumerate() {
@@ -246,7 +248,7 @@ impl NativeObstacles {
     fn tail_clear(&self, shapes: Vec<PyShape>, mine: Vec<PyShape>, clearance: Option<f64>, skip: Vec<usize>) -> PyResult<bool> {
         let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
         let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
-        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let skip: IdSet = skip.into_iter().collect();
         Ok(giveway::tail_clear(&self.grid, &built, &mine, clearance, &self.cfg, &skip))
     }
 
@@ -258,7 +260,7 @@ impl NativeObstacles {
         -> PyResult<Option<(usize, bool, usize)>> {
         let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
         let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
-        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let skip: IdSet = skip.into_iter().collect();
         Ok(giveway::first_hit(&self.grid, &built, &mine, clearance, &self.cfg, &skip))
     }
 
@@ -288,8 +290,8 @@ impl NativeObstacles {
     ) -> PyResult<Option<usize>> {
         let via: Vec<shapes::Shape> = via.iter().map(build_shape).collect::<PyResult<_>>()?;
         let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
-        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
-        let board: Option<std::collections::HashSet<usize>> = board.map(|b| b.into_iter().collect());
+        let skip: IdSet = skip.into_iter().collect();
+        let board: Option<IdSet> = board.map(|b| b.into_iter().collect());
         let proto = match &tail {
             Some((t, _, _, _)) => Some(build_shape(t)?),
             None => None,
@@ -344,7 +346,7 @@ impl NativeOriginShapes {
 #[pyclass]
 #[derive(Default)]
 struct NativeSweepSeen {
-    seen: std::collections::HashSet<(u64, u64, usize)>,
+    seen: HashSet<(u64, u64, usize), BuildHasherDefault<ratsnest::Fx>>,
 }
 
 #[pymethods]

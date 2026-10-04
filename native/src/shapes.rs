@@ -23,6 +23,17 @@
 
 use crate::geometry::{point_in_polygon, point_segment_distance, poly_distance_below, polys_overlap, Point};
 use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasherDefault;
+
+/// The registered shapes of each cell of a `ShapeGrid`, by (column, row).
+type CellMap = HashMap<(i64, i64), Vec<usize>, BuildHasherDefault<crate::ratsnest::Fx>>;
+
+/// A set of obstacle indices. The give-way search asks it once per obstacle near each offset it tries, so the
+/// hash is `Fx`'s, not the default's; the set is only asked, never walked.
+pub type IdSet = HashSet<usize, BuildHasherDefault<crate::ratsnest::Fx>>;
+
+/// A net's own clearance, by its name: asked twice for each pair of shapes judged, never walked in order.
+pub type NetMap = HashMap<String, f64, BuildHasherDefault<crate::ratsnest::Fx>>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
@@ -152,7 +163,7 @@ pub struct ConflictConfig {
     pub silk_clearance: f64,
     pub component_spacing: f64,
     pub default_clearance: f64,
-    pub net_clearance: HashMap<String, f64>, // net name -> its netclass's own clearance
+    pub net_clearance: NetMap, // net name -> its netclass's own clearance
     pub rules: Vec<ClearanceRule>, // the script's clearance rules, in declaration order: the last that matches decides
     pub gap: f64,       // Occupancy._gap: the conflict-gap prefilter for a non-drawn shape
     pub drawn_gap: f64, // Occupancy._drawn_gap: for a silk/mask/body shape
@@ -163,7 +174,7 @@ pub struct ConflictConfig {
 
 /// The largest figure `ConflictConfig::pair_clearance` can answer when no clearance is asked for: the
 /// default, a netclass's, or a rule's.
-pub fn largest_clearance(default_clearance: f64, net_clearance: &HashMap<String, f64>, rules: &[ClearanceRule]) -> f64 {
+pub fn largest_clearance(default_clearance: f64, net_clearance: &NetMap, rules: &[ClearanceRule]) -> f64 {
     net_clearance.values().chain(rules.iter().map(|r| &r.min)).fold(default_clearance, |m, &c| m.max(c))
 }
 
@@ -401,8 +412,13 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
 /// why this one query replaces `near()` + the per-shape `close` filter.
 pub struct ShapeGrid {
     pub(crate) shapes: Vec<Shape>,
+    /// Each shape's box, in one array: a query tests a box of every shape its cells hold, and the shapes themselves
+    /// are large and apart.
+    boxes: Vec<Bounds>,
+    /// The cells each shape was registered in, as (first column, last column, first row, last row).
+    spans: Vec<(i64, i64, i64, i64)>,
     cell: f64,
-    grid: HashMap<(i64, i64), Vec<usize>>,
+    grid: CellMap,
     /// The same cells in a dense array over the cells the shapes reach (None: too many to hold densely, and
     /// `grid` answers).
     dense: Option<Dense>,
@@ -460,7 +476,7 @@ impl Blockers {
 }
 
 impl Dense {
-    fn of(grid: &HashMap<(i64, i64), Vec<usize>>) -> Option<Dense> {
+    fn of(grid: &CellMap) -> Option<Dense> {
         let (mut i0, mut i1, mut j0, mut j1) = (i64::MAX, i64::MIN, i64::MAX, i64::MIN);
         for &(i, j) in grid.keys() {
             i0 = i0.min(i);
@@ -485,17 +501,21 @@ impl Dense {
 
 impl ShapeGrid {
     pub fn new(shapes: Vec<Shape>) -> Self {
-        let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+        let mut grid = CellMap::default();
+        let mut spans = Vec::with_capacity(shapes.len());
         for (k, s) in shapes.iter().enumerate() {
             let (x0, y0, x1, y1) = s.bbox;
-            for i in cell_at(x0, CELL)..=cell_at(x1, CELL) {
-                for j in cell_at(y0, CELL)..=cell_at(y1, CELL) {
+            let span = (cell_at(x0, CELL), cell_at(x1, CELL), cell_at(y0, CELL), cell_at(y1, CELL));
+            for i in span.0..=span.1 {
+                for j in span.2..=span.3 {
                     grid.entry((i, j)).or_default().push(k);
                 }
             }
+            spans.push(span);
         }
         let dense = Dense::of(&grid);
-        ShapeGrid { shapes, cell: CELL, grid, dense }
+        let boxes = shapes.iter().map(|s| s.bbox).collect();
+        ShapeGrid { shapes, boxes, spans, cell: CELL, grid, dense }
     }
 
     /// The registered shapes in cell (i, j), in registration order.
@@ -532,7 +552,7 @@ impl ShapeGrid {
         if i0 == i1 && j0 == j1 {
             // one cell: its shapes are in registration order, each once
             if let Some(ks) = self.cell_shapes(i0, j0) {
-                out.extend(ks.iter().copied().filter(|&k| box_overlaps(self.shapes[k].bbox, query, gap)));
+                out.extend(ks.iter().copied().filter(|&k| box_overlaps(self.boxes[k], query, gap)));
             }
             return;
         }
@@ -544,13 +564,19 @@ impl ShapeGrid {
         for i in ia..=ib {
             for j in ja..=jb {
                 if let Some(ks) = self.cell_shapes(i, j) {
-                    out.extend_from_slice(ks);
+                    // A shape is taken from the first of the visited cells it lies in (the later of its own first
+                    // column and row and the query's), so each is met once, and its box is tested before the sort:
+                    // most of a big query's cells hold shapes it does not reach.
+                    for &k in ks {
+                        let sp = self.spans[k];
+                        if i == ia.max(sp.0) && j == ja.max(sp.2) && box_overlaps(self.boxes[k], query, gap) {
+                            out.push(k);
+                        }
+                    }
                 }
             }
         }
         out.sort_unstable();
-        out.dedup();
-        out.retain(|&k| box_overlaps(self.shapes[k].bbox, query, gap));
     }
 
     /// The first (candidate shape index, obstacle index) pair that
@@ -674,7 +700,7 @@ impl ShapeGrid {
         dy: f64,
         explicit_clearance: Option<f64>,
         cfg: &ConflictConfig,
-        skip: &HashSet<usize>,
+        skip: &IdSet,
         blockers: &mut Blockers,
     ) -> bool {
         let meets = |si: usize, oi: usize, blockers: &mut Blockers| -> bool {
@@ -729,7 +755,7 @@ impl ShapeGrid {
         dy: f64,
         explicit_clearance: Option<f64>,
         cfg: &ConflictConfig,
-        skip: &std::collections::HashSet<usize>,
+        skip: &IdSet,
     ) -> Option<(usize, usize)> {
         for (si, s0) in origin_shapes.iter().enumerate() {
             let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
@@ -791,7 +817,7 @@ mod tests {
             silk_clearance: 0.1,
             component_spacing: 0.2,
             default_clearance: 0.2,
-            net_clearance: HashMap::new(),
+            net_clearance: NetMap::default(),
             rules: Vec::new(),
             gap: 1.0,
             drawn_gap: 0.2,
@@ -1187,7 +1213,7 @@ mod tests {
         }
         let grid = ShapeGrid::new(obstacles);
         let c = cfg();
-        let skip: HashSet<usize> = (0..300).filter(|i| i % 11 == 0).collect();
+        let skip: IdSet = (0..300).filter(|i| i % 11 == 0).collect();
         let (mut clear, mut blocked) = (0, 0);
         for round in 0..20 {
             let origin = vec![
@@ -1254,7 +1280,7 @@ mod tests {
         // unskipped: the moved hole still conflicts with its own static copy
         assert_eq!(grid.first_conflict_shifted(&moved_hole, 0.05, 0.0, None, &c), Some((0, 0)));
         // skipped: no obstacle is left to conflict with
-        let mut skip = std::collections::HashSet::new();
+        let mut skip = IdSet::default();
         skip.insert(0usize);
         assert_eq!(grid.first_conflict_shifted_excluding(&moved_hole, 0.05, 0.0, None, &c, &skip), None);
     }
