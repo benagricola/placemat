@@ -21,7 +21,7 @@
 //! shape's own box and gap finds exactly the same obstacles `near` + `close`
 //! would, in the same order, without needing the two-stage split.
 
-use crate::geometry::{point_in_polygon, point_segment_distance, poly_distance, polys_overlap, Point};
+use crate::geometry::{point_in_polygon, point_segment_distance, poly_distance_below, polys_overlap, Point};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -158,6 +158,13 @@ pub struct ConflictConfig {
     pub drawn_gap: f64, // Occupancy._drawn_gap: for a silk/mask/body shape
     pub hole_to_hole: f64,   // BoardGeometry.hole_to_hole: two drilled holes, whatever their nets
     pub hole_clearance: f64, // BoardGeometry.hole_clearance: copper to a drilled hole
+    pub max_clearance: f64,  // the largest clearance `pair_clearance` can answer (`largest_clearance`): a pair further apart than this is clear
+}
+
+/// The largest figure `ConflictConfig::pair_clearance` can answer when no clearance is asked for: the
+/// default, a netclass's, or a rule's.
+pub fn largest_clearance(default_clearance: f64, net_clearance: &HashMap<String, f64>, rules: &[ClearanceRule]) -> f64 {
+    net_clearance.values().chain(rules.iter().map(|r| &r.min)).fold(default_clearance, |m, &c| m.max(c))
 }
 
 impl ConflictConfig {
@@ -215,7 +222,7 @@ fn drawn_conflict(s: &Shape, o: &Shape, cfg: &ConflictConfig) -> bool {
     if box_gap(s.bbox, o.bbox) >= gap - 1e-9 {
         return false;
     }
-    poly_distance(&s.poly, &o.poly) < gap - 1e-9
+    poly_distance_below(&s.poly, &o.poly, gap - 1e-9)
 }
 
 /// `occupancy._HOLE_SLACK`: how much further the hole rules' box prefilter
@@ -365,11 +372,15 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         if !s.net.is_empty() && s.net == o.net {
             return false;
         }
+        let apart = box_gap(s.bbox, o.bbox);
+        if apart >= explicit_clearance.unwrap_or(cfg.max_clearance) - 1e-9 {
+            return false;           // no clearance is larger than this: the cheap way out, before the rules are searched
+        }
         let clr = cfg.pair_clearance(explicit_clearance, s, o);
-        if box_gap(s.bbox, o.bbox) >= clr - 1e-9 {
+        if apart >= clr - 1e-9 {
             return false;
         }
-        return poly_distance(&s.poly, &o.poly) < clr - 1e-9;
+        return poly_distance_below(&s.poly, &o.poly, clr - 1e-9);
     }
     if (s.kind == Kind::Npth && is_copperish(o.kind)) || (o.kind == Kind::Npth && is_copperish(s.kind)) {
         if polys_overlap(&s.poly, &o.poly) {
@@ -421,20 +432,15 @@ impl ShapeGrid {
     pub(crate) fn near(&self, query: Bounds, gap: f64) -> Vec<usize> {
         let (x0, y0, x1, y1) = (query.0 - gap, query.1 - gap, query.2 + gap, query.3 + gap);
         let mut hits: Vec<usize> = Vec::new();
-        let mut seen = vec![false; self.shapes.len()];
         for i in cell_at(x0, self.cell)..=cell_at(x1, self.cell) {
             for j in cell_at(y0, self.cell)..=cell_at(y1, self.cell) {
                 if let Some(ks) = self.grid.get(&(i, j)) {
-                    for &k in ks {
-                        if !seen[k] {
-                            seen[k] = true;
-                            hits.push(k);
-                        }
-                    }
+                    hits.extend_from_slice(ks);
                 }
             }
         }
         hits.sort_unstable();
+        hits.dedup();
         hits.into_iter().filter(|&k| box_overlaps(self.shapes[k].bbox, query, gap)).collect()
     }
 
@@ -484,18 +490,76 @@ impl ShapeGrid {
         for (si, s0) in origin_shapes.iter().enumerate() {
             let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
             let gap = cfg.gap_for(s0);
+            let mut moved: Option<Shape> = None;        // the shape at the offset, built when an obstacle needs it
             for oi in self.near(bbox, gap) {
                 if !may_meet(s0.kind, self.shapes[oi].kind) {
                     continue;
                 }
-                let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
-                let s = Shape { poly, bbox, ..s0.clone() };
-                if conflict(&s, &self.shapes[oi], explicit_clearance, cfg) {
+                let s = moved.get_or_insert_with(|| {
+                    let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
+                    Shape { poly, bbox, ..s0.clone() }
+                });
+                if conflict(s, &self.shapes[oi], explicit_clearance, cfg) {
                     return Some((si, oi));
                 }
             }
         }
         None
+    }
+
+    /// Whether any of `origin_shapes`, shifted by `(dx, dy)`, conflicts with an obstacle outside `skip`:
+    /// `first_conflict_shifted_excluding` is_some, tested the likeliest pair first. `hint` is the pair
+    /// that refused the offset before; a refusal is only a yes or no, so which obstacle is tried first
+    /// does not change the answer, and the next offset is mostly refused by the same one. `hint` is
+    /// set to the pair that refuses this offset, left as it was when none does.
+    pub fn any_conflict_shifted_excluding(
+        &self,
+        origin_shapes: &[Shape],
+        dx: f64,
+        dy: f64,
+        explicit_clearance: Option<f64>,
+        cfg: &ConflictConfig,
+        skip: &HashSet<usize>,
+        hint: &mut Option<(usize, usize)>,
+    ) -> bool {
+        let mut moved: Vec<Option<Shape>> = vec![None; origin_shapes.len()];
+        let shifted = |si: usize, moved: &mut Vec<Option<Shape>>| {
+            if moved[si].is_none() {
+                let s0 = &origin_shapes[si];
+                let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
+                let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
+                moved[si] = Some(Shape { poly, bbox, ..s0.clone() });
+            }
+        };
+        let meets = |si: usize, oi: usize, moved: &mut Vec<Option<Shape>>| -> bool {
+            let s0 = &origin_shapes[si];
+            let o = &self.shapes[oi];
+            if skip.contains(&oi) || !may_meet(s0.kind, o.kind) {
+                return false;
+            }
+            let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
+            if !box_overlaps(o.bbox, bbox, cfg.gap_for(s0)) {
+                return false;
+            }
+            shifted(si, moved);
+            conflict(moved[si].as_ref().unwrap(), o, explicit_clearance, cfg)
+        };
+        if let Some((si, oi)) = *hint {
+            if meets(si, oi, &mut moved) {
+                return true;
+            }
+        }
+        for si in 0..origin_shapes.len() {
+            let s0 = &origin_shapes[si];
+            let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
+            for oi in self.near(bbox, cfg.gap_for(s0)) {
+                if meets(si, oi, &mut moved) {
+                    *hint = Some((si, oi));
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// As `first_conflict_shifted`, but an obstacle index in `skip` is
@@ -522,13 +586,16 @@ impl ShapeGrid {
         for (si, s0) in origin_shapes.iter().enumerate() {
             let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
             let gap = cfg.gap_for(s0);
+            let mut moved: Option<Shape> = None;        // the shape at the offset, built when an obstacle needs it
             for oi in self.near(bbox, gap) {
                 if skip.contains(&oi) || !may_meet(s0.kind, self.shapes[oi].kind) {
                     continue;
                 }
-                let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
-                let s = Shape { poly, bbox, ..s0.clone() };
-                if conflict(&s, &self.shapes[oi], explicit_clearance, cfg) {
+                let s = moved.get_or_insert_with(|| {
+                    let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
+                    Shape { poly, bbox, ..s0.clone() }
+                });
+                if conflict(s, &self.shapes[oi], explicit_clearance, cfg) {
                     return Some((si, oi));
                 }
             }
@@ -582,6 +649,7 @@ mod tests {
             drawn_gap: 0.2,
             hole_to_hole: 0.25,
             hole_clearance: 0.0,
+            max_clearance: f64::INFINITY,       // the tests that add rules leave the early way out off
         }
     }
 
@@ -871,6 +939,79 @@ mod tests {
             }
         }
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn any_conflict_with_a_hint_is_the_same_as_the_first_conflict_at_every_offset() {
+        let mut state = 99u64;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 33) as f64) / ((1u64 << 31) as f64)
+        };
+        let mut obstacles = Vec::new();
+        for i in 0..300 {
+            let (x, y) = (next() * 20.0, next() * 20.0);
+            let kind = [Kind::Pad, Kind::Through, Kind::Copper, Kind::Hole, Kind::Courtyard][(next() * 5.0) as usize % 5];
+            let net = ["A", "B", "C", ""][(next() * 4.0) as usize % 4];
+            let size = 0.3 + next();
+            let layers = if kind == Kind::Courtyard { 0 } else { 1 + (next() * 3.0) as u32 % 3 };
+            obstacles.push(shape(kind, &format!("O{i}"), rect(x, y, size, size * (0.5 + next())), 3, layers, net, i % 3 == 0));
+        }
+        let grid = ShapeGrid::new(obstacles);
+        let c = cfg();
+        let skip: HashSet<usize> = (0..300).filter(|i| i % 11 == 0).collect();
+        let (mut clear, mut blocked) = (0, 0);
+        for round in 0..20 {
+            let origin = vec![
+                shape(Kind::Through, "V", rect(0.0, 0.0, 0.6, 0.6), 3, 3, ["A", "B"][round % 2], false),
+                shape(Kind::Hole, "V", rect(0.0, 0.0, 0.3, 0.3), 3, 0, ["A", "B"][round % 2], false),
+            ];
+            let (cx, cy) = (next() * 20.0, next() * 20.0);
+            let mut hint = None;
+            for k in 0..400 {
+                let (dx, dy) = (cx + (k % 20) as f64 * 0.05, cy + (k / 20) as f64 * 0.05);
+                let want = grid.first_conflict_shifted_excluding(&origin, dx, dy, None, &c, &skip).is_some();
+                let got = grid.any_conflict_shifted_excluding(&origin, dx, dy, None, &c, &skip, &mut hint);
+                assert_eq!(got, want, "round {round} offset {k}");
+                if got { blocked += 1 } else { clear += 1 }
+            }
+        }
+        assert!(clear > 100 && blocked > 100, "{clear} clear, {blocked} blocked");
+    }
+
+    #[test]
+    fn the_largest_clearance_cut_changes_no_answer() {
+        let mut state = 7u64;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 33) as f64) / ((1u64 << 31) as f64)
+        };
+        let mut c = cfg();
+        c.net_clearance.insert("A".into(), 0.3);
+        c.net_clearance.insert("B".into(), 0.15);
+        c.rules.push(ClearanceRule { on: Some("C".into()), min: 0.5, ..Default::default() });
+        c.rules.push(ClearanceRule { between: Some(("A".into(), "B".into())), min: 0.1, ..Default::default() });
+        let mut cut = ConflictConfig { max_clearance: largest_clearance(c.default_clearance, &c.net_clearance, &c.rules), ..cfg() };
+        cut.net_clearance = c.net_clearance.clone();
+        cut.rules = c.rules.clone();
+        assert_eq!(cut.max_clearance, 0.5);
+        let kinds = [Kind::Pad, Kind::Through, Kind::Copper];
+        let nets = ["A", "B", "C", "D", ""];
+        let mut hits = 0;
+        for _ in 0..20000 {
+            let mk = |next: &mut dyn FnMut() -> f64| {
+                let (x, y, w) = (next() * 3.0, next() * 3.0, 0.2 + next() * 0.8);
+                shape(kinds[(next() * 3.0) as usize % 3], "o", rect(x, y, w, w * (0.5 + next())), 3, 1 + (next() * 3.0) as u32 % 3,
+                      nets[(next() * 5.0) as usize % 5], false)
+            };
+            let (s, o) = (mk(&mut next), mk(&mut next));
+            for explicit in [None, Some(0.25)] {
+                let want = conflict(&s, &o, explicit, &c);
+                assert_eq!(conflict(&s, &o, explicit, &cut), want);
+                hits += want as usize;
+            }
+        }
+        assert!(hits > 1000, "{hits}");
     }
 
     #[test]

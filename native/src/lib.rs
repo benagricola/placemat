@@ -127,9 +127,11 @@ fn conflict(
 ) -> PyResult<bool> {
     // gap/drawn_gap are only read by ShapeGrid::first_conflict's gap_for,
     // not by conflict() itself: unused here.
+    let rules = build_rules(rules);
+    let max_clearance = shapes::largest_clearance(default_clearance, &net_clearance, &rules);
     let cfg = shapes::ConflictConfig {
         touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance,
-        rules: build_rules(rules), gap: 0.0, drawn_gap: 0.0, hole_to_hole, hole_clearance,
+        rules, gap: 0.0, drawn_gap: 0.0, hole_to_hole, hole_clearance, max_clearance,
     };
     Ok(shapes::conflict(&build_shape(&s)?, &build_shape(&o)?, clearance, &cfg))
 }
@@ -164,9 +166,11 @@ impl NativeObstacles {
         rules: Option<Vec<RuleArg>>,
     ) -> PyResult<Self> {
         let built: Vec<shapes::Shape> = obstacles.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let rules = build_rules(rules);
+        let max_clearance = shapes::largest_clearance(default_clearance, &net_clearance, &rules);
         let cfg = shapes::ConflictConfig {
             touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance,
-            rules: build_rules(rules), gap, drawn_gap, hole_to_hole, hole_clearance,
+            rules, gap, drawn_gap, hole_to_hole, hole_clearance, max_clearance,
         };
         Ok(NativeObstacles { grid: shapes::ShapeGrid::new(built), cfg })
     }
@@ -221,8 +225,9 @@ impl NativeObstacles {
         let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
         let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
         let mut out = Vec::new();
+        let mut hint = None;
         for (i, &(dx, dy)) in offsets.iter().enumerate() {
-            if self.grid.first_conflict_shifted_excluding(&built, dx, dy, clearance, &self.cfg, &skip).is_none() {
+            if !self.grid.any_conflict_shifted_excluding(&built, dx, dy, clearance, &self.cfg, &skip, &mut hint) {
                 out.push(i);
                 if stop_at_first {
                     break;

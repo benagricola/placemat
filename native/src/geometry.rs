@@ -232,9 +232,73 @@ pub fn poly_distance(a: &Polygon, b: &Polygon) -> f64 {
     best
 }
 
+/// `poly_distance(a, b) < limit`, answered without the whole minimum: a pair of vertex and edge whose
+/// boxes lie further than `limit` apart cannot be the one, and the first pair under `limit` ends it.
+/// The same answer as the comparison, since a minimum is under `limit` just when one of its terms is;
+/// the boxes are held off by a micrometre more than `limit` so no rounding can flip a pair.
+pub fn poly_distance_below(a: &Polygon, b: &Polygon, limit: f64) -> bool {
+    if limit <= 0.0 {
+        return false;               // no distance is negative, and the overlap answers 0
+    }
+    if polys_overlap(a, b) {
+        return true;
+    }
+    let reach = limit + 1e-6;
+    let near = |p: Point, (x0, y0, x1, y1): (f64, f64, f64, f64)| -> bool {
+        p.0 >= x0 - reach && p.0 <= x1 + reach && p.1 >= y0 - reach && p.1 <= y1 + reach
+    };
+    let (ba, bb) = (bounds(a), bounds(b));
+    let against = |pts: &Polygon, poly: &Polygon, pb: (f64, f64, f64, f64)| -> bool {
+        for &p in pts {
+            if !near(p, pb) {
+                continue;
+            }
+            for (q1, q2) in edges(poly) {
+                if p.0 < q1.0.min(q2.0) - reach || p.0 > q1.0.max(q2.0) + reach || p.1 < q1.1.min(q2.1) - reach
+                    || p.1 > q1.1.max(q2.1) + reach
+                {
+                    continue;
+                }
+                if point_segment_distance_below(p, q1, q2, limit) < limit {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+    against(a, b, bb) || against(b, a, ba)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn poly_distance_below_is_the_comparison_with_poly_distance() {
+        let mut state = 41u64;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 33) as f64) / ((1u64 << 31) as f64)
+        };
+        let ngon = |cx: f64, cy: f64, r: f64, n: usize, rot: f64| -> Vec<Point> {
+            (0..n).map(|i| {
+                let t = rot + i as f64 * std::f64::consts::TAU / n as f64;
+                (cx + r * t.cos(), cy + r * t.sin())
+            }).collect()
+        };
+        let (mut under, mut over) = (0, 0);
+        for _ in 0..4000 {
+            let a = ngon(next() * 4.0, next() * 4.0, 0.1 + next() * 0.6, 3 + (next() * 20.0) as usize, next());
+            let b = ngon(next() * 4.0, next() * 4.0, 0.1 + next() * 0.9, 3 + (next() * 20.0) as usize, next());
+            let d = poly_distance(&a, &b);
+            for limit in [0.0, 1e-9, 0.2 - 1e-9, 0.5, d, d + 1e-12, d - 1e-12, d * 1.0000001, 3.0] {
+                let want = d < limit;
+                assert_eq!(poly_distance_below(&a, &b, limit), want, "d {d} limit {limit}");
+                if want { under += 1 } else { over += 1 }
+            }
+        }
+        assert!(under > 3000 && over > 3000, "{under} {over}");
+    }
 
     #[test]
     fn disjoint_boxes_do_not_overlap() {
