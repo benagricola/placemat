@@ -106,10 +106,15 @@ def _pad_text(board, key, ref, number) -> str:
 
 
 def frozen_args(board, key, turn, fixed: bool, entry=None, why: str = "") -> dict:
-    """The keyword arguments that put an item where its turn did (_frozen_core), and a cell's `arrangements=`
-    when its turn stood it in an arrangement other than the module's own layout."""
+    """The keyword arguments that put an item where its turn did (_frozen_core), and a cell's `arrangements=`: the
+    arrangement its turn stood it in, or "default" for a cell that offers arrangements and stood in its own layout, so the
+    frozen call does not search the arrangements again at that spot."""
     out = _frozen_core(board, key, turn, fixed, entry, why)
     arrangement = turn["placement"].arrangement
+    if not arrangement:
+        intent = next((i for i in board._placements() if i.key == key), None)
+        if intent is not None and intent.kind == "cell" and board._offered(board.geometry.cells[key]):
+            arrangement = "default"
     if arrangement:
         out["arrangements"] = repr(arrangement)            # the call's own keyword: the arrangement the lock held
     return out

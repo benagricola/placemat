@@ -4096,7 +4096,9 @@ anchor part's own frame - and `rotation=Turned(Part(<anchor>), r)`, so it
 keeps its turn of the order and turns with its anchor exactly as the lock
 held it, and its `why=` gains where the spot came from (`explore <run>:
 <score> mm, frozen <date>`). A cell whose entry holds an arrangement also
-gains `arrangements="<id>"`, and its `why=` gains `; arrangement <id>`.
+gains `arrangements="<id>"`, and its `why=` gains `; arrangement <id>`; a
+cell locked in its default that offers arrangements gains
+`arrangements="default"`, so the frozen call does not search them again.
 `--fixed` writes a firm
 `Location(X(...), Y(...))` instead, allowed when the anchor is fixed. Only
 that call's arguments change - comments and every other line stay - and the

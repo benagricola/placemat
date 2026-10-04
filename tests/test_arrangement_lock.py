@@ -123,3 +123,28 @@ def test_a_locked_cell_is_laid_in_its_arrangement_where_the_search_would_choose_
     again = board(west, partner=(18.0, 30.0)).resolve(lock=[e])
     assert again.step("mod").lock == "held" and again.placement("mod") == p
     assert again.occupancy.items["C1"].reference.rotation == 180.0
+
+
+def test_a_cell_locked_in_its_default_freezes_to_the_default_where_an_arrangement_scores_better_at_that_spot():
+    g = with_arrangement(stamped_geometry(partner=(60.0, 30.0)))
+    held = board(g, arrangements="default").resolve()
+    p = held.placement("mod")
+    assert p.arrangement == ""
+    turn = {"placement": p, "anchor": None}
+    args = frozen_args(board(g), "mod", turn, False)
+    assert args["arrangements"] == "'default'"
+
+    def frozen(**pin):
+        b = Board(g, edge_margin=0.0, keep_going=True)
+        b.rect(width=80, height=60)
+        b.place(Part("r8"), at=Location(60.0, 30.0))
+        b.place(Cell("mod"), at=Near(p.location, radius=0), rotation=p.rotation, **pin)
+        return b.resolve().placement("mod")
+    assert frozen().arrangement == "c_in.east"         # unpinned, the search takes the arrangement at the same spot
+    assert frozen(arrangements=eval(args["arrangements"])) == p
+
+
+def test_a_cell_that_offers_no_arrangement_freezes_with_no_arrangements_keyword():
+    turn = {"placement": Placement(Location(10.0, 20.0), 0.0, Face.FRONT), "anchor": None}
+    assert "arrangements" not in frozen_args(board(stamped_geometry(partner=(60.0, 30.0))), "mod", turn, False)
+    assert "arrangements" not in frozen_args(board(stamped_geometry(partner=(60.0, 30.0))), "r8", turn, False)
