@@ -16,6 +16,12 @@ section for each hand-written pattern a newer form replaces.
   than the widest disc anywhere in it, and where the route it found narrows in a fill it searches again with that crossing
   at its measured width (`check.route_tries`, default 4). A net that failed on such a sliver is judged on its planes; the
   verdict can still fail there, at the plane's own narrowest point between the holes of other nets.
+- **A copper finding measures a straight track and a pour as KiCad's DRC does.** It measured a track by its polygon, whose
+  round ends stand up to 1.6 micrometres outside the copper, and a pour by its outline grown by half its stroke, mitred at
+  each corner; read from the board, both by an outline KiCad grew by its arc error. Copper KiCad passes at its rule read 1
+  to 3 micrometres short of it, past the DRC epsilon, and was reported (`copper ... is 0.158 mm from ... (needs 0.160)`). A
+  finding now collides a straight track as its centreline and width and a pour as its outline and a stroke along each
+  edge, as KiCad's DRC does. An arc track is still measured by its polygon.
 
 ## To 0.99.4
 
