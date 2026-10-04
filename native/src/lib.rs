@@ -4,6 +4,7 @@
 //! truth for behaviour (see docs/superpowers/specs/2026-09-24-native-core-design.md).
 
 mod board;
+mod cutouts;
 mod escapes;
 mod exact;
 mod fill;
@@ -17,7 +18,9 @@ mod shapes;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasherDefault;
+use shapes::IdSet;
 
 type Point = (f64, f64);
 
@@ -122,7 +125,7 @@ fn conflict(
     silk_clearance: f64,
     component_spacing: f64,
     default_clearance: f64,
-    net_clearance: HashMap<String, f64>,
+    net_clearance: shapes::NetMap,
     hole_to_hole: f64,
     hole_clearance: f64,
     rules: Option<Vec<RuleArg>>,
@@ -160,7 +163,7 @@ impl NativeObstacles {
         silk_clearance: f64,
         component_spacing: f64,
         default_clearance: f64,
-        net_clearance: HashMap<String, f64>,
+        net_clearance: shapes::NetMap,
         gap: f64,
         drawn_gap: f64,
         hole_to_hole: f64,
@@ -225,7 +228,7 @@ impl NativeObstacles {
         skip: Vec<usize>,
     ) -> PyResult<Vec<usize>> {
         let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
-        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let skip: IdSet = skip.into_iter().collect();
         let mut out = Vec::new();
         let mut hint = shapes::Blockers::new(&built);
         for (i, &(dx, dy)) in offsets.iter().enumerate() {
@@ -246,7 +249,7 @@ impl NativeObstacles {
     fn tail_clear(&self, shapes: Vec<PyShape>, mine: Vec<PyShape>, clearance: Option<f64>, skip: Vec<usize>) -> PyResult<bool> {
         let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
         let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
-        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let skip: IdSet = skip.into_iter().collect();
         Ok(giveway::tail_clear(&self.grid, &built, &mine, clearance, &self.cfg, &skip))
     }
 
@@ -258,7 +261,7 @@ impl NativeObstacles {
         -> PyResult<Option<(usize, bool, usize)>> {
         let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
         let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
-        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let skip: IdSet = skip.into_iter().collect();
         Ok(giveway::first_hit(&self.grid, &built, &mine, clearance, &self.cfg, &skip))
     }
 
@@ -288,8 +291,8 @@ impl NativeObstacles {
     ) -> PyResult<Option<usize>> {
         let via: Vec<shapes::Shape> = via.iter().map(build_shape).collect::<PyResult<_>>()?;
         let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
-        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
-        let board: Option<std::collections::HashSet<usize>> = board.map(|b| b.into_iter().collect());
+        let skip: IdSet = skip.into_iter().collect();
+        let board: Option<IdSet> = board.map(|b| b.into_iter().collect());
         let proto = match &tail {
             Some((t, _, _, _)) => Some(build_shape(t)?),
             None => None,
@@ -344,7 +347,42 @@ impl NativeOriginShapes {
 #[pyclass]
 #[derive(Default)]
 struct NativeSweepSeen {
-    seen: std::collections::HashSet<(u64, u64, usize)>,
+    seen: HashSet<(u64, u64, usize), BuildHasherDefault<ratsnest::Fx>>,
+}
+
+thread_local! {
+    /// `placer._grid_offsets`' own cache (it keeps sixteen), by the bits of (radius, step).
+    static GRID_OFFSETS: std::cell::RefCell<HashMap<(u64, u64), std::rc::Rc<Vec<(f64, f64, f64)>>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// `placer._grid_offsets(radius, step)`: (d, dx, dy) within `radius` on a `step` grid, nearest first.
+fn grid_offsets(radius: f64, step: f64) -> std::rc::Rc<Vec<(f64, f64, f64)>> {
+    let key = (radius.to_bits(), step.to_bits());
+    if let Some(hit) = GRID_OFFSETS.with(|c| c.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let n = (radius / step + 1e-9).floor() as i64;
+    let mut pts = Vec::new();
+    for i in -n..=n {
+        for j in -n..=n {
+            let (dx, dy) = (i as f64 * step, j as f64 * step);
+            let d = exact::hypot(dx, dy);
+            if d <= radius + 1e-9 {
+                pts.push((d, dx, dy));
+            }
+        }
+    }
+    pts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let pts = std::rc::Rc::new(pts);
+    GRID_OFFSETS.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() >= 16 {
+            c.clear();
+        }
+        c.insert(key, pts.clone());
+    });
+    pts
 }
 
 #[pymethods]
@@ -352,6 +390,31 @@ impl NativeSweepSeen {
     #[new]
     fn new() -> Self {
         NativeSweepSeen::default()
+    }
+
+    /// `expand` for the points of `placer._grid(Location(cx, cy), radius, step)`, in its order, those within
+    /// `around` = (x, y, r) of its point when that is given (`hypot <= r + 1e-9`): the lattice is made here, not
+    /// in Python and handed over a point at a time.
+    #[pyo3(signature = (cx, cy, radius, step, n_rots, around=None))]
+    fn expand_grid(&mut self, cx: f64, cy: f64, radius: f64, step: f64, n_rots: usize, around: Option<(f64, f64, f64)>)
+        -> Vec<(f64, f64, usize)> {
+        let offsets = grid_offsets(radius, step);
+        let mut out = Vec::new();
+        for &(_, dx, dy) in offsets.iter() {
+            let (x, y) = (exact::round6(cx + dx), exact::round6(cy + dy));
+            if let Some((hx, hy, r)) = around {
+                if !(exact::hypot(x - hx, y - hy) <= r + 1e-9) {
+                    continue;
+                }
+            }
+            let (kx, ky) = (x.to_bits(), y.to_bits());
+            for turn in 0..n_rots {
+                if self.seen.insert((kx, ky, turn)) {
+                    out.push((x, y, turn));
+                }
+            }
+        }
+        out
     }
 
     /// (x, y, turn) triples for every (x, y) in `points` at every turn in
@@ -386,6 +449,12 @@ mod sweep_seen_tests {
     }
 }
 
+/// `cutouts.loop_gap`: the shortest distance between two closed loops (native/src/cutouts.rs).
+#[pyfunction]
+fn loop_gap(a: Vec<Point>, b: Vec<Point>) -> f64 {
+    cutouts::loop_gap(&a, &b)
+}
+
 /// `ratsnest.mst`: one net's airwires as index pairs into `anchors`
 /// ((x, y, refdes, pad number)), in Kruskal's order (native/src/ratsnest.rs).
 #[pyfunction]
@@ -397,6 +466,12 @@ fn mst(anchors: Vec<(f64, f64, String, String)>, joined: Vec<(usize, usize)>) ->
 #[pyfunction]
 fn hypot(a: f64, b: f64) -> f64 {
     exact::hypot(a, b)
+}
+
+/// `round(v, 6)` on each value, for comparing against Python in bulk.
+#[pyfunction]
+fn round6_many(values: Vec<f64>) -> Vec<f64> {
+    values.into_iter().map(exact::round6).collect()
 }
 
 /// `geometry.transform_polygon(poly, t)` with its rounding: each vertex as `Transform.apply` takes it,
@@ -1207,7 +1282,9 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(conflict, m)?)?;
     m.add_function(wrap_pyfunction!(largest_rectangle, m)?)?;
     m.add_function(wrap_pyfunction!(hypot, m)?)?;
+    m.add_function(wrap_pyfunction!(loop_gap, m)?)?;
     m.add_function(wrap_pyfunction!(mst, m)?)?;
+    m.add_function(wrap_pyfunction!(round6_many, m)?)?;
     m.add_function(wrap_pyfunction!(transform_polygon, m)?)?;
     m.add_class::<NativeFill>()?;
     m.add_class::<NativeReach>()?;

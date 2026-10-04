@@ -53,3 +53,19 @@ def test_steps_before_the_first_focused_item_are_replayed():
     order = [s.item for s in plain.steps if s.kind == "part"]
     assert variant.reuse["first_change"] == "c1"
     assert variant.reuse["reused"] >= order.index("c1")          # the fixed part and the searched ones before c1
+
+
+def test_a_variant_binds_no_suggestions_and_the_plain_run_does(monkeypatch):
+    """A variant is scored and compared, never shown or applied: its findings' suggestions are not bound to the script's
+    lines (the script's AST work is a fifth of its resolve), and its placements are those it would have had."""
+    from placemat import suggestions
+    real = suggestions.bind
+    calls = []
+    monkeypatch.setattr(suggestions, "bind", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    ex = Explore(seed=7, focus=frozenset({"r1", "r2", "r3", "c1"}))
+    variant = _where(_board().resolve(explore=ex))
+    assert calls == []
+    _board().resolve()
+    assert calls == [1]
+    monkeypatch.setattr(suggestions, "bind", real)
+    assert variant == _where(_board().resolve(explore=ex))

@@ -6986,7 +6986,8 @@ class Board:
             except Exception:                       # a suggestion is best-effort: no sides measured, the rest still offered
                 pass
         self._late_suggestions = []
-        suggestions.bind(plan.findings, self)       # each suggestion to the lines of the script it edits
+        if self._explore is None:                   # a variant of an explore is scored and compared, never shown or applied
+            suggestions.bind(plan.findings, self)   # each suggestion to the lines of the script it edits
         plan.seconds = time.perf_counter() - started
         return plan
 

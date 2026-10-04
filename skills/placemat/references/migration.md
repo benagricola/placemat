@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A resolve with the native module is about 20% faster, an explore variant about 15%, and nothing in a result changes.** Hashing, the
+  near-obstacle query, routed vias' spots, cutout gaps and a scan's lattice moved to or were tightened in the native module; an explore
+  variant no longer binds suggestions it never shows. Rebuild the native module (`uv pip install -e ".[native]"`) to get it.
+
 ## To 0.99.0
 
 ### New

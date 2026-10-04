@@ -105,30 +105,35 @@ pub fn hypot(a: f64, b: f64) -> f64 {
     vector_norm2([x, y], max, found_nan)
 }
 
-fn clean9_slow(v: f64) -> f64 {
-    let s = format!("{:.9}", v);
-    s.parse::<f64>().unwrap_or(v)
-}
-
 /// `round(v, 9)`, correctly rounded as CPython does it.
 pub fn round9(v: f64) -> f64 {
+    round_to(v, 1e9, 9)
+}
+
+/// `round(v, 6)`, as `round9` is rounded to nine places.
+pub fn round6(v: f64) -> f64 {
+    round_to(v, 1e6, 6)
+}
+
+/// `round(v, digits)` for `scale` = 10**digits, correctly rounded as CPython does it (see the head of this file).
+fn round_to(v: f64, scale: f64, digits: usize) -> f64 {
     if !v.is_finite() {
         return v;
     }
-    let p = v * 1e9;
+    let slow = || format!("{:.*}", digits, v).parse::<f64>().unwrap_or(v);
+    let p = v * scale;
     if p.abs() >= 4.0e15 {
-        return clean9_slow(v); // near the end of exact integers: take no chances
+        return slow(); // near the end of exact integers: take no chances
     }
-    let err = v.mul_add(1e9, -p); // the exact v*1e9 is p + err
+    let err = v.mul_add(scale, -p); // the exact v*scale is p + err
     let r = p.round_ties_even();
     let off = (p - r).abs();
     // Unsure only when the exact product may sit on the other side of a half
     // than its rounded value p does, or exactly on one.
     if (off - 0.5).abs() <= err.abs() * 2.0 + 1e-6 {
-        return clean9_slow(v);
+        return slow();
     }
-    let _ = err;
-    r / 1e9
+    r / scale
 }
 
 /// `geometry._clean`: `round(v, 9)`, and 0.0 for either zero.
