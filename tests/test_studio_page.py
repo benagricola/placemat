@@ -2389,3 +2389,27 @@ def test_a_chips_text_is_readable_on_its_tint_in_the_light_and_dark_themes():
             ground = [0.17 * a + 0.83 * b for a, b in zip(c, surface)]
             hi, lo = sorted((_luminance(text), _luminance(ground)), reverse=True)
             assert (hi + 0.05) / (lo + 0.05) >= 4.5, (theme, name)
+
+
+@needs_node
+def test_a_through_pad_follows_the_rows_of_the_copper_layers_it_spans(tmp_path):
+    out = run_more(tmp_path, r"""
+const it = item("a", 1);
+it.members[0].shapes.push({kind: "through", faces: ["front", "back"], layers: ["B.Cu", "F.Cu"], poly: [[3, 1], [4, 1], [4, 2]], number: "1"}, {kind: "through", faces: ["front", "back"], layers: ["B.Cu", "F.Cu", "In1.Cu"], poly: [[5, 1], [6, 1], [6, 2]], number: "2"});
+full([it], [st("a")]);
+ev("renderBoard()");
+out.board = board().innerHTML;
+out.sets = ev("thruSets(plan())");
+const click = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
+out.none = els["#visrules"].textContent;
+click("cu:F.Cu"); out.front = els["#visrules"].textContent;
+click("cu:B.Cu"); out.both = els["#visrules"].textContent;
+click("cu:In1.Cu"); out.all = els["#visrules"].textContent;
+click("cu:F.Cu"); out.back = els["#visrules"].textContent;
+""")
+    assert 'class="thru" data-ls="B.Cu,F.Cu" data-pad="1"' in out["board"] and 'data-ls="B.Cu,F.Cu,In1.Cu" data-pad="2"' in out["board"]
+    assert sorted(out["sets"]) == ["B.Cu,F.Cu", "B.Cu,F.Cu,In1.Cu"]
+    assert ".thru" not in out["none"] and ".thru" not in out["front"]                             # one row of the layers it spans is still on
+    assert '#board .thru[data-ls="B.Cu,F.Cu"] { display: none; }' in out["both"] and "In1.Cu\"]" not in out["both"].split("thru")[-1]
+    assert out["all"].count(".thru[") == 2                                                          # every row it spans is off
+    assert ".thru[" not in out["back"].replace('data-ls="B.Cu,F.Cu,In1.Cu"', "")                   # F.Cu on again: the two-layer pad is back

@@ -48,7 +48,6 @@ Specced work first, then the loose ends.
    has a distance but no cause, and a block slide or a searched move that no
    refusal explains has none; record one (a `why` refusal on the note) where
    the engine knows it.
-7. **Studio: through-hole pads switch with the layer rows** of the legend.
 8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
    lazily on the pure-Python path.
@@ -320,6 +319,11 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Through-hole pads follow the legend's layer rows** (unreleased, was Next 7): a
+  through pad is drawn with the copper layers it spans (`data-ls`) and is
+  hidden when the rows of all of them are off, shown while one is on. Checked
+  in headless Chrome on a replayed route.
 
 - **A track inside a filled footprint polygon** (unreleased, was Next 14):
   the miss is in the router checkout's own checker, not in placemat's path.

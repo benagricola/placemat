@@ -1199,7 +1199,7 @@ function itemSVG(it, f, pn, p, n) {
       else if (s.kind === "silk") ms.push('<polygon class="sk" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "copper") { const l = (s.layers || [])[0] || ""; ms.push('<polygon class="fcu ' + layerClass(l) + '" data-l="' + esc(l) + '" points="' + polyPts(s.poly) + '"/>'); }
       else if (s.kind === "pad") { const l = (s.layers || [])[0] || (s.faces[0] === "back" ? "B.Cu" : "F.Cu"); ms.push('<polygon class="pad ' + layerClass(l) + '" data-l="' + esc(l) + '" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>'); }
-      else if (s.kind === "through") ms.push('<polygon class="thru" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>');
+      else if (s.kind === "through") ms.push('<polygon class="thru" data-ls="' + esc((s.layers || []).join(",")) + '" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "hole" || s.kind === "npth") holes.push('<polygon class="hole" points="' + polyPts(s.poly) + '"/>');
     }
     ms.push(...holes);
@@ -1612,12 +1612,20 @@ let infoHide = () => {};
 // ---------------------------------------------------------------- the legend: the colour key and a switch for each kind of thing
 // What is switched off is a set of ids; one stylesheet rule hides each, so a switch redraws nothing.
 const OFFCSS = {notes: ".npins", cy: ".cy", bd: ".bd, .sk", pad: ".pad, .thru", labels: ".ref", silk: ".silktxt", via: ".viag", ko: ".ko", res: ".res", findings: ".fnds", heat: ".heat, .worst", changes: ".changes"};
-function visRules(off) {
+// `thru`: the sets of copper layers the through pads span (thruSets), each as its layers' names joined by commas. A through pad is drawn on every
+// layer it spans, so it goes when the rows of all of them are off and stays while one is on.
+function thruSets(p) {
+  const sets = new Set();
+  for (const it of itemsOf(p)) for (const m of it.members) for (const s of m.shapes) if (s.kind === "through" && (s.layers || []).length) sets.add(s.layers.join(","));
+  return [...sets];
+}
+function visRules(off, thru = []) {
   const q = s => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const out = [];
   for (const id of off) {
     const i = id.indexOf(":"), k = i < 0 ? id : id.slice(0, i), v = i < 0 ? "" : id.slice(i + 1);
     let sels = null;                       // one selector each: a name may hold a comma, so they are never split
+  for (const set of thru) if (set.split(",").every(l => off.has("cu:" + l))) out.push('#board .thru[data-ls="' + q(set) + '"] { display: none; }');
     if (k === "ko" && v) sels = ['[data-ko="' + q(v) + '"]', '[data-ko-of="' + q(v) + '"]'];       // a keepout, and the reservation made from it
     else if (k === "res" && v) sels = ['[data-res="' + q(v) + '"]'];
     else if (k === "z" && v) sels = ['[data-z="' + q(v) + '"]'];
@@ -1628,7 +1636,7 @@ function visRules(off) {
   }
   return out.join("\n");
 }
-function applyVisibility() { $("#visrules").textContent = visRules(S.off); }
+function applyVisibility() { $("#visrules").textContent = visRules(S.off, thruSets(plan())); }
 // The findings layer is off on the board until it is asked for: it is on while the Findings tab is open and off again when the tab is left,
 // unless the viewer turned it on by hand in the legend, which keeps it on until they turn it off. That choice is kept in this browser.
 const FINDINGS_HAND = "placemat.findingsLayer";

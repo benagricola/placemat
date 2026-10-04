@@ -9,6 +9,7 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
+- **A through-hole pad in the studio follows the layer rows of the legend.** It is hidden when the rows of every copper layer it spans are off and shown while any one is on; before, only the pads row switched it.
 - **The studio's opening dialog is titled "Open".** Its button and the header's tooltip say the same; the half-sentence title is gone.
 
 ## To 0.98.0
