@@ -165,6 +165,60 @@ def test_a_share_tail_is_judged_the_same_by_tail_clear_as_by_hit(monkeypatch):
     assert clear >= 100 and blocked >= 100 and native >= 500, (clear, blocked, native)
 
 
+def test_shapes_are_judged_against_the_board_the_same_by_first_hit_as_by_the_python_loop(monkeypatch):
+    rnd = random.Random(20261001)
+    native = refused = clear = edge = 0
+    for n in range(_CASES):
+        occ, grp, judge, own, who, first = _scene(rnd)
+        at = (grp.centre[0] + rnd.uniform(-1.5, 1.5), grp.centre[1] + rnd.uniform(-1.5, 1.5))
+        dx, dy = at[0] - grp.centre[0], at[1] - grp.centre[1]
+        shapes = [replace(giveway._shift(grp.ring, dx, dy), given=grp.id)]
+        if rnd.random() < 0.7:
+            shapes.append(replace(giveway._shift(grp.hole, dx, dy), given=grp.id))
+        if rnd.random() < 0.5:
+            _, tail = giveway._tail_shape(grp.owner, grp.net, rnd.choice([_F, _B]), 0.2, grp.far or grp.centre, at,
+                                          given=grp.id)
+            shapes = [tail] if rnd.random() < 0.5 else shapes + [tail]
+        say = rnd.random() < 0.5
+        monkeypatch.setattr(giveway, "_NATIVE_JUDGE", False)
+        judge.res.judged = 0
+        ref = judge.hit_board(shapes, own, say=say)
+        ref_judged = judge.res.judged
+        monkeypatch.setattr(giveway, "_NATIVE_JUDGE", True)
+        judge.res.judged = 0
+        got = judge.hit_board(shapes, own, say=say)
+        assert (got is None) == (ref is None), "case %d" % n
+        if ref is not None:
+            assert got[0] == ref[0] and got[1] is ref[1], "case %d" % n
+        assert judge.res.judged == ref_judged, "case %d" % n
+        native += getattr(judge.others, "_native", None) is not None
+        refused += ref is not None
+        clear += ref is None
+        edge += ref is not None and ref[1] is None
+    assert refused >= 200 and clear >= 200 and edge >= 5 and native == _CASES, (refused, clear, edge, native)
+
+
+def test_boxes_on_a_grid_answer_what_a_scan_of_all_of_them_does():
+    rnd = random.Random(20261002)
+    yes = no = 0
+    for _ in range(300):
+        boxes = []
+        for _ in range(rnd.randint(1, 60)):
+            x, y = rnd.uniform(-5, 25), rnd.uniform(-5, 25)
+            if rnd.random() < 0.3:                       # on the grid's lines, so a box touches a gap exactly
+                x, y = round(x / 2.0) * 2.0, round(y / 2.0) * 2.0
+            boxes.append(Box(x, y, x + rnd.choice([0.0, 0.3, 1.0, 4.0]), y + rnd.choice([0.0, 0.3, 1.0, 4.0])))
+        grid = giveway._Boxes(boxes)
+        for _ in range(40):
+            x, y = rnd.choice([rnd.uniform(-5, 25), round(rnd.uniform(-5, 25) / 2.0) * 2.0]), rnd.uniform(-5, 25)
+            box = Box(x, y, x + rnd.choice([0.0, 0.5, 3.0]), y + rnd.choice([0.0, 0.5, 3.0]))
+            gap = rnd.choice([0.0, 0.2, 1.0, 2.0])
+            want = any(b.overlaps(box, gap=gap) for b in boxes)
+            assert grid.near(box, gap) == want
+            yes, no = yes + want, no + (not want)
+    assert yes >= 1000 and no >= 1000, (yes, no)
+
+
 # ------------------------------------------------------------------ the whole-board fixture
 def _placed_fixture():
     import sys
@@ -221,6 +275,7 @@ def test_resolutions_at_random_spots_on_the_whole_board_fixture_match(monkeypatc
         for on in (False, True):
             monkeypatch.setattr(giveway, "_NATIVE_FIRST_MOVE", on)
             monkeypatch.setattr(giveway, "_NATIVE_TAIL_CLEAR", on)
+            monkeypatch.setattr(giveway, "_NATIVE_JUDGE", on)
             used.clear()
             out = _resolution(giveway.resolve(occ, item, cand))
             if not on:

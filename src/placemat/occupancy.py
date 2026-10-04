@@ -1308,6 +1308,7 @@ class Occupancy:
             out = [o for o in out if o.box.overlaps(region, gap=self._gap)]
         idx = ShapeIndex(out)
         idx._native = self._native_obstacle_index(skip, carried)
+        idx._region = region            # what the shapes were gathered for: a native judge reads the whole board
         return idx
 
     def _obstacle_shapes(self, skip, carried: bool = True) -> list:

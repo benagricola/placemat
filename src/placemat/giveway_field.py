@@ -260,10 +260,7 @@ class _Layouts:
 
     def _hit(self, shapes):
         """What the first of `shapes` meets, as the report names it, or None."""
-        j = self.judge
-        box = Box.union([x.box for x in shapes])
-        pool = j.near(box, self.occ._gap)
-        found = j.hit(shapes, pool, self.own, say=False)
+        found = self.judge.hit_board(shapes, self.own, say=False)
         if found is None:
             return None
         o = found[1]

@@ -248,6 +248,18 @@ impl NativeObstacles {
         Ok(giveway::tail_clear(&self.grid, &built, &mine, clearance, &self.cfg, &skip))
     }
 
+    /// `giveway._Judge.hit` against the board: the first of `shapes` that meets the board (less `skip`) or
+    /// `mine` (what the index does not hold: the item's own copper, what earlier actions left), as
+    /// (the shape's index, whether the other is in `mine`, its index there), or `None`. Which refusal it is,
+    /// and the board's edge, are Python's.
+    fn first_hit(&self, shapes: Vec<PyShape>, mine: Vec<PyShape>, clearance: Option<f64>, skip: Vec<usize>)
+        -> PyResult<Option<(usize, bool, usize)>> {
+        let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        Ok(giveway::first_hit(&self.grid, &built, &mine, clearance, &self.cfg, &skip))
+    }
+
     /// The index in `offsets` (from `start`) of the first at which a via's
     /// move passes every test `giveway._give`'s loop applies, or `None`:
     /// the disc inside `pad` (poly, radius), the copper `first` met

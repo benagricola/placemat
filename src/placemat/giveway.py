@@ -70,6 +70,10 @@ _NATIVE_FIRST_MOVE = True
 """Whether a via's whole move is judged by one native call (`first_move`) when the offset search
 is native: switched off to compare against the per-offset Python loop."""
 
+_NATIVE_JUDGE = True
+"""Whether `_Judge.hit_board` judges shapes against the board by a native call (`first_hit`) when it can:
+switched off to compare against the Python loop of `_Judge.hit`."""
+
 
 def pad_via_id(k: int) -> str:
     """The id of the k-th via the script declared at a pad."""
@@ -353,18 +357,51 @@ def _net_tie_owners(occ) -> frozenset:
     return hit
 
 
-def _tie_boxes(judge: "_Judge", shapes: list, near: list) -> list:
-    """The boxes of the net ties' copper: on the board (`shapes`, a native index's backing list) and among
-    `near` (the item's own copper and what earlier actions left)."""
+class _Boxes:
+    """Boxes on a grid of cells, asked whether any lies within a gap of a box."""
+    CELL = 2.0
+
+    def __init__(self, boxes):
+        self.cells: dict = {}
+        c = self.CELL
+        for b in boxes:
+            for x in range(math.floor(b.left / c), math.floor(b.right / c) + 1):
+                for y in range(math.floor(b.top / c), math.floor(b.bottom / c) + 1):
+                    self.cells.setdefault((x, y), []).append(b)
+
+    def near(self, box: Box, gap: float) -> bool:
+        c = self.CELL
+        for x in range(math.floor((box.left - gap) / c), math.floor((box.right + gap) / c) + 1):
+            for y in range(math.floor((box.top - gap) / c), math.floor((box.bottom + gap) / c) + 1):
+                for b in self.cells.get((x, y), ()):
+                    if b.overlaps(box, gap=gap):
+                        return True
+        return False
+
+
+def _tie_grid(judge: "_Judge", shapes: list) -> "_Boxes | None":
+    """The boxes of the net ties' copper on the board (`shapes`, a native index's backing list), kept for the board;
+    None where the board has no net tie."""
     occ = judge.occ
     tied = _net_tie_owners(occ)
     if not tied:
-        return []
-    boxes = judge.others.__dict__.get("_net_tie_boxes")
-    if boxes is None:
-        boxes = judge.others.__dict__["_net_tie_boxes"] = [
-            x.box for x in shapes if x.owner in tied and x.kind in ("pad", "through", "copper")]
-    return boxes + [o.box for o in near if o.owner in tied and o.kind in ("pad", "through", "copper")]
+        return None
+    grid = judge.others.__dict__.get("_net_tie_grid")
+    if grid is None:
+        grid = judge.others.__dict__["_net_tie_grid"] = _Boxes(
+            x.box for x in shapes if x.owner in tied and x.kind in ("pad", "through", "copper"))
+    return grid
+
+
+def _near_net_tie(judge: "_Judge", shapes: list, box: Box, near: list) -> bool:
+    """Whether a net tie's copper lies within a conflict's reach of `box`, on the board (`shapes`) or among
+    `near` (the item's own copper and what earlier actions left)."""
+    tied = _net_tie_owners(judge.occ)
+    if not tied:
+        return False
+    gap = judge.occ._gap
+    grid = _tie_grid(judge, shapes)
+    return grid.near(box, gap) or any(o.box.overlaps(box, gap=gap) for o in near if _is_tie_copper(tied, o))
 
 
 def _is_tie_copper(tied: frozenset, o) -> bool:
@@ -384,8 +421,7 @@ def _meets_net_tie(judge: "_Judge", shapes: list, box: Box, near: list) -> bool:
     """Whether a net tie's copper lies within a conflict's reach of `box`, on the board (`shapes`,
     a native index's backing list) or among `near` (the item's own copper and what earlier actions
     left): where it does the native rules and `_conflict` can disagree, and Python judges."""
-    gap = judge.occ._gap
-    return any(b.overlaps(box, gap=gap) for b in _tie_boxes(judge, shapes, near))
+    return _near_net_tie(judge, shapes, box, near)
 
 
 def _native_shape(judge: "_Judge", s):
@@ -478,6 +514,10 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
         return True, (dx, dy)
 
 
+_NO_NATIVE = object()
+"""What `_Judge._native_hit` answers where Python must judge."""
+
+
 def _is_tail(s) -> bool:
     """Whether a shape is a track of a carried via, or one giving way drew: copper the board's edge is held off,
     which the search does not judge of an item's carried vias (it judges the item less them)."""
@@ -512,6 +552,21 @@ class _Judge:
         out = [o for o in found if not (o.carried and o.carried in self.hidden)]
         return out + [o for o in self.extra if o.box.overlaps(box, gap=gap)]
 
+    def _edge_hit(self, s):
+        """(refusal, None) when `s` crosses the board's edge as `hit` judges it (a via's ring, a track of a carried via
+        or one giving way), else None."""
+        occ = self.occ
+        if s.kind == "through" and occ.edge_margin is not None:
+            why = occ._edge_why(s.box)
+            if why:
+                c = _centre(s)
+                return Refusal(Code.VIA_RING_EDGE, net=s.net, at=[c[0], c[1]], edge=why), None
+        if _is_tail(s) and occ.edge_margin is not None:
+            why = occ._edge_why(s.box)
+            if why:
+                return Refusal(Code.TRACK_EDGE, net=s.net, ends=_where(s), edge=why), None
+        return None
+
     def hit(self, shapes, pool, own=(), say: bool = True):
         """(refusal, what it met) for the first of `shapes` that meets
         anything in `pool` (from `near`) or `own`, or None. A via's ring is
@@ -531,16 +586,55 @@ class _Judge:
                     why = occ._conflict(s, o, self.clearance, say=say)
                     if why:
                         return why, o
-            if s.kind == "through" and occ.edge_margin is not None:
-                why = occ._edge_why(s.box)
-                if why:
-                    c = _centre(s)
-                    return Refusal(Code.VIA_RING_EDGE, net=s.net, at=[c[0], c[1]], edge=why), None
-            if _is_tail(s) and occ.edge_margin is not None:
-                why = occ._edge_why(s.box)
-                if why:
-                    return Refusal(Code.TRACK_EDGE, net=s.net, ends=_where(s), edge=why), None
+            edge = self._edge_hit(s)
+            if edge is not None:
+                return edge
         return None
+
+    def hit_board(self, shapes, own=(), say: bool = True, pool=None):
+        """What `hit(shapes, <the board near them>, own, say)` answers, judged by one native call where the board has a
+        native index. `pool`: where the board's shapes near `shapes` are not asked of the judge, a function that
+        gives them (`near`'s), for the Python loop."""
+        box = Box.union([x.box for x in shapes])
+        out = self._native_hit(shapes, box, own, say) if _NATIVE_JUDGE else _NO_NATIVE
+        if out is not _NO_NATIVE:
+            return out
+        return self.hit(shapes, self.near(box, self.occ._gap) if pool is None else pool(), own, say)
+
+    def _native_hit(self, shapes, box: Box, own, say: bool):
+        """`hit_board`'s answer, or `_NO_NATIVE` where Python must judge: no native index; shapes outside the region the
+        board's shapes were gathered for (the native index holds the whole board, Python's pool only the region, and a
+        shape inside the region has every board shape that can reach it there); a net tie near, whose rules the native
+        ones do not model."""
+        from .occupancy import _to_native_shape
+        occ = self.occ
+        entry = getattr(self.others, "_native", None)
+        if entry is None:
+            return _NO_NATIVE
+        region = getattr(self.others, "_region", None)
+        if region is not None and not all(region.contains(x.box) for x in shapes):
+            return _NO_NATIVE
+        index, backing = entry
+        gap = occ._gap
+        mine = [o for o in self.extra if o.box.overlaps(box, gap=gap)] + [o for o in own if o.box.overlaps(box, gap=gap)]
+        if _meets_net_tie(self, backing, box, mine):
+            return _NO_NATIVE
+        self.count(1)
+        found = index.first_hit([_to_native_shape(x, occ._body_refs, occ._leads, occ._margins) for x in shapes],
+                                [_native_shape(self, o) for o in mine], self.clearance, _hidden_skip(self, backing))
+        for s in shapes[:len(shapes) if found is None else found[0]]:
+            edge = self._edge_hit(s)         # as `hit`: a shape's edge is judged after what it meets, before the next shape's
+            if edge is not None:
+                return edge
+        if found is None:
+            return None
+        si, in_mine, k = found
+        o = mine[k] if in_mine else backing[k]
+        why = occ._conflict(shapes[si], o, self.clearance, say=say)
+        if not why:
+            self.count(-1)
+            return _NO_NATIVE
+        return why, o
 
     def vias(self, net: str, centre: tuple, reach: float, home: str) -> list:
         """(distance, centre, radius, carried id) of each via of `net` within
@@ -683,8 +777,7 @@ def _shorten(occ, g: Group, judge: "_Judge", own, layer, met: str):
     layers = frozenset(span)
     ring = replace(g.ring, layers=layers, given=g.id)
     shapes = (ring,) if g.hole is None else (ring, replace(g.hole, layers=layers, given=g.id))
-    pool = judge.near(Box.union([x.box for x in shapes]), occ._gap)
-    would_clear = judge.hit(shapes, pool, own, say=False) is None
+    would_clear = judge.hit_board(shapes, own, say=False) is None
     if tier == "no":
         return None, None, Refusal(Code.SHORTER_VIA_REFUSED, via=kind, from_layer=span[0].value,
                                    to_layer=span[-1].value) if would_clear else None
@@ -795,15 +888,18 @@ def _find_move(occ, g: Group, judge: "_Judge", own, first, limit: float, pad, ta
     # the search goes on from the next offset where Python refuses it.
     near_ties = None                # whether a net tie lies within the reach, found when the first native window needs it
 
-    def python_ok(at) -> bool:
-        """Whether the ring and hole of the via moved by `at` are clear of the board, `mine` and what earlier actions left."""
+    def ahead_pool() -> list:
         if not ahead:
             ahead["pool"] = judge.near(span, occ._gap)
             ahead["still"] = _still_meets(occ, g, first, judge.clearance, r)
+        return ahead["pool"]
+
+    def python_ok(at) -> bool:
+        """Whether the ring and hole of the via moved by `at` are clear of the board, `mine` and what earlier actions left."""
         moved = [replace(_shift(g.ring, at[0], at[1]), given=g.id)]
         if g.hole is not None:
             moved.append(replace(_shift(g.hole, at[0], at[1]), given=g.id))
-        return not judge.hit(moved, ahead["pool"], mine, say=False)
+        return not judge.hit_board(moved, mine, say=False, pool=ahead_pool)
 
     def native_first(candidates):
         """(used, (dx, dy, width) or None): the first of `candidates` that `_native_first_move` accepts and Python and
@@ -835,7 +931,7 @@ def _find_move(occ, g: Group, judge: "_Judge", own, first, limit: float, pad, ta
         if near_ties is None:
             entry = getattr(judge.others, "_native", None)
             near = list(mine) + [o for o in judge.extra if o.box.overlaps(span, gap=occ._gap)]
-            near_ties = any(b.overlaps(span, gap=occ._gap) for b in _tie_boxes(judge, entry[1], near))
+            near_ties = _near_net_tie(judge, entry[1], span, near)
         used, found = native_first(candidates)
         if not used:
             found = python_loop(candidates, True)
@@ -850,11 +946,17 @@ def _widest(judge: "_Judge", g: Group, mine: list, at: tuple, tail, pool=None):
     if tail is None:
         return 0.0
     to = (round(g.centre[0] + at[0], 9), round(g.centre[1] + at[1], 9))
+    held = [pool]
+
+    def pool_of(shape):
+        def get() -> list:
+            if held[0] is None:
+                held[0] = judge.near(shape.box, judge.occ.gap_for(shape))
+            return held[0]
+        return get
     for width in tail[2]:
         _, shape = _tail_shape(g.owner, g.net, tail[1], width, tail[0], to, carried=g.id, given=g.id)
-        if pool is None:
-            pool = judge.near(shape.box, judge.occ.gap_for(shape))
-        if judge.hit([shape], pool, mine, say=False) is None:
+        if judge.hit_board([shape], mine, say=False, pool=pool_of(shape)) is None:
             return width
     return None
 
@@ -1054,8 +1156,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
         who = _Owner(occ, _pads(occ, mine), mine_face, own)
         meeting = []
         for g in own.values():
-            pool = judge.near(Box.union([x.box for x in g.shapes]), occ._gap)
-            hit = judge.hit(g.shapes, pool)
+            hit = judge.hit_board(g.shapes)
             if hit is not None:
                 meeting.append((g, hit))
         if meeting:

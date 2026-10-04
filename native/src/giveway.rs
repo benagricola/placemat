@@ -86,6 +86,30 @@ pub fn tail_clear(grid: &ShapeGrid, shapes: &[Shape], mine: &[Shape], clearance:
     shapes.iter().all(|s| !meets_board(grid, s, clearance, cfg, skip) && !meets_any(s, mine, clearance, cfg))
 }
 
+/// Where `first_hit` found a conflict: the index of the shape asked about, whether the other was on the
+/// board (`false`) or among `mine` (`true`), and its index there.
+pub type Hit = (usize, bool, usize);
+
+/// The first of `shapes` that meets the board (less `skip`) or `mine`, in `_Judge.hit`'s order: each shape
+/// against the board's shapes near it, then against `mine`, before the next shape.
+pub fn first_hit(grid: &ShapeGrid, shapes: &[Shape], mine: &[Shape], clearance: Option<f64>, cfg: &ConflictConfig,
+                 skip: &HashSet<usize>) -> Option<Hit> {
+    for (si, s) in shapes.iter().enumerate() {
+        let gap = cfg.gap_for(s);
+        for oi in grid.near(s.bbox, gap) {
+            if !skip.contains(&oi) && may_meet(s.kind, grid.shapes[oi].kind) && conflict(s, &grid.shapes[oi], clearance, cfg) {
+                return Some((si, false, oi));
+            }
+        }
+        for (mi, o) in mine.iter().enumerate() {
+            if box_overlaps(o.bbox, s.bbox, gap) && may_meet(s.kind, o.kind) && conflict(s, o, clearance, cfg) {
+                return Some((si, true, mi));
+            }
+        }
+    }
+    None
+}
+
 /// What a via's move is judged against, other than the board's own shapes.
 pub struct Move<'a> {
     pub via: &'a [Shape],
@@ -246,6 +270,20 @@ mod tests {
                        pad: Some((&pad, 0.3)), tail: None };
         // 5.0 leaves the pad; -0.2 is still within clearance + radius of what it met; 0.2 is free
         assert_eq!(first_move(&grid, &cfg(), &m, &offsets, Some(0.2), &HashSet::new(), 0), Some(2));
+    }
+
+    #[test]
+    fn first_hit_names_the_shape_and_where_the_other_was() {
+        let grid = ShapeGrid::new(vec![copper(Kind::Pad, square(0.0, 0.0, 0.3), "B"), copper(Kind::Pad, square(5.0, 0.0, 0.3), "B")]);
+        let near_second = copper(Kind::Copper, square(5.0, 0.4, 0.1), "A");
+        let far = copper(Kind::Copper, square(20.0, 0.0, 0.1), "A");
+        let mine = vec![copper(Kind::Pad, square(20.0, 0.3, 0.1), "B")];
+        let skip = HashSet::new();
+        assert_eq!(first_hit(&grid, &[far.clone(), near_second.clone()], &[], Some(0.2), &cfg(), &skip), Some((1, false, 1)));
+        assert_eq!(first_hit(&grid, &[far.clone()], &mine, Some(0.2), &cfg(), &skip), Some((0, true, 0)));
+        let skipped: HashSet<usize> = [1].into_iter().collect();
+        assert_eq!(first_hit(&grid, &[near_second], &[], Some(0.2), &cfg(), &skipped), None);
+        assert_eq!(first_hit(&grid, &[far], &[], Some(0.2), &cfg(), &skip), None);
     }
 
     #[test]
