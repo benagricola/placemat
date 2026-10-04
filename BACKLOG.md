@@ -334,6 +334,11 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Native sweep faster; the native pill** (0.97.6): reservations through an
+  indexed polygon test and a grid, the edge through a segment index, lazy
+  member shifts (core preview about 72 -> 45 s, identical output); an element
+  the studio hides stays hidden (the native pill showed on every studio).
+
 - **Fragment DRC; studio status and step timer** (0.97.5): a frame-only
   board's invalid_outline is expected, out of the headline and score (a
   0.97.2 regression); the status count is distinct items with the firm pass
