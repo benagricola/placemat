@@ -57,8 +57,6 @@ Specced work first, then the loose ends.
 12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
     after the warning ships.
 13. **Remove `Facts.role`** (unused).
-14. **The router's DRC misses a track wholly inside a filled footprint
-    polygon** (the router checkout, local only).
 15. **U21 pin 14 (SCL)**: the walled check finds a channel south of its stub;
     the user is checking it by eye. If the channel is not usable, find what
     the check does not model.
@@ -322,6 +320,19 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **A track inside a filled footprint polygon** (unreleased, was Next 14):
+  the miss is in the router checkout's own checker, not in placemat's path.
+  KRT `check_drc.py` adds the net of every track touching a footprint
+  graphic to the graphic's effective nets (`_build_graphic_unification`, with
+  `include_mutable`) and `_graphic_pair_is_same_net` (line 1153) then waives
+  the pair, so a foreign track wholly inside the fill is judged to be on its
+  net. placemat does not run that checker: its before and after DRC is
+  kicad-cli's, which reports the track as a clearance violation, and the
+  router is kept off the polygon by the footprint-copper rule area, whose
+  breach check names a track laid inside it. Pinned by
+  `tests/test_route_filled_footprint_polygon.py`. The KRT checker stays as it
+  is (local checkout, nothing filed upstream).
 
 - **The studio opens on a choice; commands say their kind; explores
   followed** (0.98.0): no board and no resolve until chosen (a running
