@@ -279,8 +279,9 @@ def pocket_note(f: dict) -> str:
 
 
 def turns_text(turns: list) -> str:
-    """"0: ...; 90: ...": a refusal at each rotation tried."""
-    return "; ".join("%g: %s" % (rot, _refusal(why)) for rot, why in turns)
+    """"0: ...; 90: ...": a refusal at each rotation tried. A turn tagged with an arrangement ([rotation, refusal, id]) says it
+    first: "c_in.east at 0: ..."."""
+    return "; ".join(("%s at " % t[2] if len(t) > 2 else "") + "%g: %s" % (t[0], _refusal(t[1])) for t in turns)
 
 
 def block_alone_note(f: dict) -> str:

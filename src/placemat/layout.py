@@ -7582,9 +7582,15 @@ class Board:
             with _recording_commits(occ) as commits:
                 alone = self._riders_alone(occ, plan, obj) if riders else None
                 if alone:
-                    facts = {"item": obj.key, "variant": "alone", "turns": [[r, w.to_json()] for r, w in alone]}
+                    # a refusal of an arrangement other than the default is tagged with it, as _first_legal tags its refusals
+                    turns = [[r, w.to_json()] + ([a] if a else []) for r, w, a in alone]
+                    facts = {"item": obj.key, "variant": "alone", "turns": turns}
                     plan.findings.append(self._finding(C.UNPLACED_RIDES, facts))
                     step = self._step(obj, None, 0.0, unplaced=[{"form": "riders_alone", "turns": facts["turns"]}])
+                    tried = list(dict.fromkeys(a for _, _, a in alone))
+                    if len(tried) > 1 or tried != [""]:
+                        step.notes = step.notes + (self._arrangement_note(None, [self._arrangement_row(a, None, False)
+                                                                                  for a in tried]),)
                 else:
                     step = self._settle(occ, obj, plan, placed)
                 occ.labels_yield = False
@@ -9538,27 +9544,25 @@ class Board:
         rider wherever `i` goes fails here in a moment rather than after a
         scan of the whole board, as a block's satellites do. Only for an item
         searched at a known set of turns whose riders move exactly as it
-        does; else None, and the search finds out. A cell is alone only when it is in every arrangement its search may take; the
-        refusals said are the first arrangement's."""
+        does; else None, and the search finds out. A cell is alone only when it is in every arrangement its search may take; each
+        refusal is then [rotation, Refusal, the arrangement it came from ("" the default)]."""
         if i.outward or i.tangent is not None or self._locked(i) is not None:
             return None             # turned by where it lands, or by its lock: any turn at all
         if self._pinned(i)[1] is not None:
             return None             # an arrangement it does not offer: _settle says so
         turns = set(self._turns(i)) | {i.rotation, (i.rotation + 90) % 360}      # a pocket's two as well
         at = occ.board_box.center if occ.board_box is not None else Location(0.0, 0.0)
-        first = None
+        why = []
         for ident in self._arrangement_ids(i):
             j = self._arranged(i, ident)
-            why = []
             for face in self._faces_of(j):
                 for rot in sorted(turns):
                     laid = self._ride_turn(occ, plan, j, Placement(at, rot, face))
                     bad = None if laid is None else next(((r, g) for r, _, g in laid[1] if g), None)
                     if bad is None:
                         return None
-                    why.append([rot, Refusal(Code.RIDER, key=bad[0].key, why=bad[1])])
-            first = why if first is None else first
-        return first
+                    why.append([rot, Refusal(Code.RIDER, key=bad[0].key, why=bad[1]), ident])
+        return why
 
     def _rider_check(self, occ: Occupancy, plan: Plan, i: PlaceIntent):
         """What a search asks of each candidate of an item that has riders:
@@ -9742,7 +9746,7 @@ class Board:
             hint = Placement(self.centre, i.rotation, i.face)
             seeded = "searched wide for its push" if len(push_sources) == 1 else "searched wide for its pushes"
         elif hint is None:
-            return self._settle_in_pocket(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_in_pocket(occ, j, plan, clr))
         reseed = targets if i.near is None and solved is None else None
         scanned = self._scan_arrangements(occ, i, plan, placed, self._arrangement_ids(i), targets=targets,
                                           push_sources=push_sources, hint=hint, band=band, bt=bt, within=within, reseed=reseed,
@@ -9831,12 +9835,13 @@ class Board:
         return step
 
     def _first_legal(self, occ, i, plan, settle_one) -> Step:
-        """A form that is not scored (a slide along an edge, a line, a run, a rim, a ring, a spoke) takes the default
-        arrangement when it has a legal spot and tries the others, in order, only when it has none: `settle_one(j)` settles
-        `j`, the item standing as one arrangement. What an arrangement that failed said is dropped when another stands; when
-        none does, the first one's findings stand and the step's refusals are every arrangement's, tagged with the one they
+        """A form that is not scored (a slide along an edge, a line, a run, a rim, a ring, a spoke, a pocket with no hint) takes
+        the default arrangement when it has a legal spot and tries the others, in order, only when it has none: `settle_one(j)`
+        settles `j`, the item standing as one arrangement. What an arrangement that failed said is dropped when another stands;
+        when none does, the first one's findings stand and the step's refusals are every arrangement's, tagged with the one they
         came from. The step's `arrangement` note lists those tried when more than one was, or one other than the default was
-        taken, with the default's refusal counts when it had no legal spot; when none stood it names none as taken."""
+        taken, with why the default had no legal spot (its refusal counts, or the pocket it found none in); when none stood it
+        names none as taken."""
         ids = self._arrangement_ids(i)
         if len(ids) == 1:
             return settle_one(self._arranged(i, ids[0]))
@@ -9854,6 +9859,9 @@ class Board:
                 counts = next((f.facts["counts"] for f in said if f.cause == C.UNPLACED_SLIDE and f.facts.get("item") == i.key),
                               None)
                 default_blame = None if counts is None else [{"form": "counts", "counts": counts}]
+                pocket = next((f.facts for f in said if f.cause == C.UNPLACED_POCKET and f.facts.get("item") == i.key), None)
+                if pocket is not None:          # what the pocket said (finding_text.pocket_note), without the item's suggestions
+                    default_blame = [dict({k: pocket[k] for k in _POCKET_NOTE_KEYS if k in pocket}, form="pocket")]
             refused += [dict(r, **({"arrangement": ident} if ident else {})) for r in step.unplaced or ()]
             if first is None:
                 first, first_findings = step, said
@@ -10669,6 +10677,8 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = 
 
 
 _RIDE_PROBE = (1.37, -0.73)
+# the facts of an `unplaced.pocket` finding that finding_text.pocket_note reads
+_POCKET_NOTE_KEYS = ("variant", "w_mm", "h_mm", "face", "tried", "scanned", "budget", "riders")
 """How far _ride_turn moves an item to see whether its riders move with it:
 off any grid a search walks, on both axes."""
 

@@ -772,3 +772,76 @@ def test_cleanup_moving_a_loose_part_leaves_the_arranged_cell_where_the_search_s
     assert cleaned.placement("mod") == still.placement("mod") and cleaned.placement("mod").arrangement == "c_in.east"
     assert [cleaned.occupancy.pad_location(r, n) for r in ("C1", "U1") for n in ("1", "2")] == \
         [still.occupancy.pad_location(r, n) for r in ("C1", "U1") for n in ("1", "2")]
+
+
+# --- Task 3.4 fix round 1: the no-hint pocket tries each arrangement; riders alone in every arrangement say each one's refusals
+
+def under_doc():
+    """An arrangement that stands c_in under u1: the cell is 6.0 x 5.6 mm where the default is 9.5 x 4.0 mm."""
+    from tests.arrangement_support import DEFAULT_C_IN, DEFAULT_U1
+    from placemat.placement import Placement
+    from placemat.values import Face
+    under = Placement(Location(6.0, 5.8), 0.0, Face.FRONT)
+    return N.document("c_in.under", {"c_in": "under"}, [("c_in", under, DEFAULT_C_IN), ("u1", DEFAULT_U1, DEFAULT_U1)], [], [],
+                      order=1)
+
+
+def small_board(size=8.0):
+    """A `size` mm square board holding only the cell (no loose part): at 8 mm the default fits no pocket on it and c_in.under
+    does."""
+    g = stamped_geometry()
+    g = with_arrangement(dataclasses.replace(g, footprints=tuple(fp for fp in g.footprints if fp.ref != "R9")), under_doc())
+    b = Board(g, edge_margin=0.0, keep_going=True, settings=Settings())
+    b.rect(width=size, height=size)
+    return b
+
+
+def test_a_cell_with_no_hint_whose_default_fits_no_pocket_takes_an_arrangement_that_does():
+    from placemat import step_text
+    b = small_board()
+    b.place(Cell("mod"))
+    plan = b.resolve()
+    assert plan.placement("mod") is not None and plan.placement("mod").arrangement == "c_in.under"
+    assert not [f for f in plan.findings if f.facts.get("item") == "mod"]
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    assert note["id"] == "c_in.under" and [(t["id"], t["legal"]) for t in note["tried"]] == [("default", False), ("c_in.under", True)]
+    assert note["default_blame"][0]["form"] == "pocket"
+    assert "the default module has no legal spot (no pocket fits its 9.5 x 4.0 envelope" in step_text.render(note)
+
+
+def test_a_cell_with_no_hint_takes_the_first_arrangement_named_in_its_pocket():
+    b = board()
+    b.place(Cell("mod"), arrangements=("c_in.east", "default"))
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east"
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    assert note["id"] == "c_in.east" and [t["id"] for t in note["tried"]] == ["c_in.east"]
+
+
+def test_a_cell_with_no_hint_that_fits_no_pocket_in_any_arrangement_keeps_the_defaults_finding_and_every_refusal():
+    b = small_board(5.0)
+    b.place(Cell("mod"))
+    plan = b.resolve()
+    assert plan.placement("mod") is None
+    [f] = [f for f in plan.findings if f.facts.get("item") == "mod"]
+    assert f.cause.value == "unplaced.pocket" and f.facts["w_mm"] == 9.5
+    assert [r.get("arrangement") for r in plan.step("mod").unplaced if r["form"] == "no_pocket"] == [None, "c_in.under"]
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    assert "id" not in note and [t["id"] for t in note["tried"]] == ["default", "c_in.under"]
+
+
+def test_riders_alone_in_every_arrangement_say_each_arrangements_refusals():
+    """r9 stands 2.6mm west of u1's pad 1: on c_in in the default and on u1 in c_in.east, at every turn. The finding gives each
+    arrangement's refusals, tagged, and the step's note names both as tried and none as taken."""
+    from placemat import finding_text
+    b = board(partner=(60.0, 30.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    pad = PadRef(Part("mod.u1"), 1).offset(dx=-2.6)
+    b.place(Part("r9"), at=Centre(X(pad), Y(pad)))
+    plan = b.resolve()
+    f = next(f for f in plan.findings if f.cause.value == "unplaced.rides" and f.facts["item"] == "mod")
+    tags = [t[2] if len(t) > 2 else None for t in f.facts["turns"]]
+    assert tags == [None, None, "c_in.east", "c_in.east"]
+    assert "c_in.east at 0: " in finding_text.turns_text(f.facts["turns"])
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    assert "id" not in note and [t["id"] for t in note["tried"]] == ["default", "c_in.east"]
