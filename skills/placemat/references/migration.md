@@ -9,6 +9,9 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **The skill's pin-swap example is corrected.** It said a microcontroller's SPI pins must be consecutive; a hardware SPI's
+  signals sit on fixed pins of one instance, not necessarily adjacent. The rule that must be consecutive is a programmable-IO
+  block's pin ranges (a base pin and the next ones in number).
 - **`Between()` asks no clearance to a pad of the track's own net.** The gap check added the clearance to each pad's net
   even when that net was the track's own, so a gap between two pads of the track's net raised a false "not enough for a ...
   track" note; the copper itself was drawn right.
