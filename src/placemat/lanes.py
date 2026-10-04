@@ -26,7 +26,10 @@ _SQ2 = math.sqrt(2.0)
 
 class EscapeError(ValueError):
     """An escape that cannot be laid out whatever stands round it: a script
-    error, named as such."""
+    error, named as such. `escape` and `part` name it once the board knows
+    which declaration was being laid out (Board._place_escapes)."""
+    escape = ""
+    part = ""
 
 
 class NoViaSpot(EscapeError):

@@ -4223,6 +4223,9 @@ class Board:
             ways = self._reserve_ways(occ, decl)
             try:
                 laid = self._escape_layout(occ, decl)
+            except EscapeError as e:
+                e.escape, e.part = e.escape or decl.key, e.part or decl.part.inst
+                raise
             finally:
                 occ.remove_copper(ways)
             self._escape_laid[decl.index] = laid

@@ -211,25 +211,36 @@ def read_died(final_dir) -> dict:
 
 
 def _raised_refusals(e) -> list:
-    """The refusal records of a resolve that raised: a required item with no place, or firm items that collide."""
+    """The refusal records of a resolve or a proof that raised: a required item with no place, firm items that collide, an
+    escape that cannot be laid out, or any other error (its type and message)."""
     from . import finding_text
+    from .lanes import EscapeError
     from .layout import CriticalUnplaced, PlacementCollision
     if isinstance(e, CriticalUnplaced):
         return [{"form": "unplaced", "item": e.key}]
     if isinstance(e, PlacementCollision):
         return [{"form": "finding", "cause": f.cause.value, "item": finding_text.subject(f.cause, f.facts) or ""}
                 for f in e.collisions]
-    return [{"form": "escape"}]
+    if isinstance(e, EscapeError):
+        return [{"form": "escape", "escape": e.escape, "part": e.part}]
+    return [{"form": "error", "type": type(e).__name__, "message": str(e)}]
+
+
+def _keep_partial(d, partial, parts) -> None:
+    """An arrangement whose resolve raised: the steps it completed become its record (reuse.json, as a finished one's), so the
+    next run replays them as far as they hold, and no partial log is left as if it were still running."""
+    got = reuse_mod.read_partial(d / "reuse.partial.jsonl")
+    partial.remove()
+    if got is not None:
+        reuse_mod.write(d / "reuse.json", dict(got, reused=0, first_change=None, parts=parts))
 
 
 def resolve_others(prepared, default_plan, run_dir, previous, died, lock, routes, on_begin) -> list:
     """Each arrangement after the default, resolved from the snapshot, in declared order (`on_begin` is called with its id
     first). One that lays out exactly as an earlier one is dropped (its plan is not kept) and named by `duplicate_of`; one whose
-    resolve raises (a required item with no place, firm items that collide, an escape that cannot be laid out) is kept with its
-    refusals, and the rest go on. Each keeps its steps' record in its own folder, so a stopped run resumes it without laying
+    resolve raises (a required item with no place, firm items that collide, an escape that cannot be laid out, any other error)
+    is kept with its refusals, and the rest go on; a stop (stop.Stopped, a BaseException) ends the run, its partial log kept. Each keeps its steps' record in its own folder, so a stopped run resumes it without laying
     finished arrangements again. The board is left as the default's resolve left it."""
-    from .layout import CriticalUnplaced, PlacementCollision
-    from .lanes import EscapeError
     out, seen = [], {signature(default_plan): "default"}
     for spec in prepared.specs[1:]:
         d = _dir(run_dir, spec.id)
@@ -242,7 +253,8 @@ def resolve_others(prepared, default_plan, run_dir, previous, died, lock, routes
         on_begin(spec.id)
         try:
             plan = resolve_spec(prepared, spec, reuse=before, lock=lock, routes=routes, partial=partial)
-        except (CriticalUnplaced, PlacementCollision, EscapeError) as e:
+        except Exception as e:
+            _keep_partial(d, partial, default_plan.reuse.get("parts", {}))
             out.append(Resolved(spec, None, "", time.monotonic() - t0, _raised_refusals(e)))
             continue
         plan.reuse["parts"] = default_plan.reuse.get("parts", {})
@@ -297,23 +309,30 @@ def prove(prepared, resolved, default_plan, *, generated, cfg, fab, arr_dir, def
 
 
 def members_doc(prepared, plan, default_plan, spec, texts_chars: int) -> list:
-    """The note of an offered arrangement (arrangement_note.encode of its document): every loose member's place in the fragment's
-    frame, the copper this arrangement planned (the faces text is the default's), and the rule areas it declares. Raises
+    """The note texts of an offered arrangement: arrangement_note.encode of `members_document`. Raises
     arrangement_note.NoteError when `texts_chars` leaves no room for a chunk."""
+    return note.encode(members_document(prepared, plan, default_plan, spec), texts_chars)
+
+
+def members_document(prepared, plan, default_plan, spec) -> dict:
+    """The note's document of an offered arrangement: every loose member's place in the fragment's frame, the copper this
+    arrangement planned (the faces text is the default's), and the rule areas it declares."""
     geometry = prepared.board.geometry
     members = []
     for fp in geometry.footprints:
         if fp.cell is None and fp.ref in plan.occupancy.items and fp.ref in default_plan.occupancy.items:
             members.append((fp.inst, plan.occupancy.items[fp.ref].reference, default_plan.occupancy.items[fp.ref].reference))
     ops = [op for op in plan.copper if not (isinstance(op, Text) and op.layer == "User.Comments")]
-    doc = note.document(spec.id, spec.choices, members, ops, list(plan.keepouts.values()),
-                        order=[s.id for s in prepared.specs].index(spec.id))
-    return note.encode(doc, texts_chars)
+    return note.document(spec.id, spec.choices, members, ops, list(plan.keepouts.values()),
+                         order=[s.id for s in prepared.specs].index(spec.id))
 
 
-def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_report, board, drc: bool = True) -> Outcome:
+def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_report, board, drc: bool = True,
+           render: bool = False) -> Outcome:
     """After the default's own DRC and checks: prove each other arrangement, build the record, the findings, and the texts that carry
-    the offered ones. The default is copied into its own folder beside the others'."""
+    the offered ones. A proof that raises refuses its arrangement (an `error` refusal) and the rest go on. With `render`, each
+    proven arrangement's board is rendered in its folder, as the default's is. The default is copied into its own folder beside
+    the others'."""
     from .runner import cached_generation
     generated = cached_generation(src) / src.pcb.name
     default_unconnected = default_report.unconnected if default_report is not None else 0
@@ -337,13 +356,21 @@ def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_
             entry.update(offered=False, metrics=None, refused=r.refused)
             findings.append(Finding(C.ARRANGEMENT_REFUSED, {"id": spec.id, "refused": r.refused}, "warning"))
             continue
-        proof = prove(prepared, r, default_plan, generated=generated, cfg=cfg, fab=fab, arr_dir=_dir(run_dir, spec.id),
-                      default_unconnected=default_unconnected, drc=drc)
+        arr_dir = _dir(run_dir, spec.id)
+        try:
+            proof = prove(prepared, r, default_plan, generated=generated, cfg=cfg, fab=fab, arr_dir=arr_dir,
+                          default_unconnected=default_unconnected, drc=drc)
+            if render:
+                from .kicad.write import render_board
+                render_board(arr_dir / "layout.kicad_pcb", arr_dir / "render.log", both_faces=getattr(board, "both_faces", False))
+        except Exception as e:
+            proof = Proof(False, _raised_refusals(e), None)
         entry.update(offered=proof.offered, metrics=proof.metrics, extent=extent_of(r.plan))
         refused = proof.refused
         if proof.offered:
+            doc = members_document(prepared, r.plan, default_plan, spec)
             try:
-                texts += members_doc(prepared, r.plan, default_plan, spec, cfg.place_arrangement_note_chars)
+                texts += note.encode(doc, cfg.place_arrangement_note_chars)
             except note.NoteError:
                 refused = [{"form": "note_chars", "chars": cfg.place_arrangement_note_chars}]
                 entry["offered"] = False

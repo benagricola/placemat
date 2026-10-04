@@ -182,6 +182,10 @@ def test_resolve_others_records_a_failing_arrangement_as_refused_and_goes_on(tmp
     for r in (east, both):
         assert r.plan is None and r.duplicate_of == "" and r.refused
         assert all(x["form"] == "finding" and x["cause"] == "fixed.part" for x in r.refused)
+        d = tmp_path / "arrangements" / r.spec.id
+        assert not (d / "reuse.partial.jsonl").exists()                 # a finished run leaves no log as if mid-run
+        kept = reuse.read(d / "reuse.json")                             # the steps it completed, for the next run to replay
+        assert kept["context"] and kept["steps"] and kept["reused"] == 0
     assert b._laid == "default" and b.resolve().placements == default.placements       # the board is the default's again
 
 
@@ -272,3 +276,98 @@ def test_a_row_anchored_on_a_moved_member_follows_it_whatever_was_resolved_befor
     assert after.placement("r_free") == first.placement("r_free") != default.placement("r_free")
     assert after.reuse["context"] == first.reuse["context"]
     assert b.resolve().placement("r_free") == default.placement("r_free")      # the default's rows are put back
+
+
+def test_resolve_others_records_any_other_error_of_one_arrangement_and_goes_on(tmp_path, monkeypatch):
+    b = board()
+    prepared = run.begin(b)
+    default = b.resolve()
+    real = run.resolve_spec
+
+    def raising(prepared, spec, **kw):
+        if spec.id == "c_in.east":
+            raise ValueError("c_in is placed relative to u9, which is not placed by then")
+        return real(prepared, spec, **kw)
+    monkeypatch.setattr(run, "resolve_spec", raising)
+    got = {r.spec.id: r for r in run.resolve_others(prepared, default, tmp_path, {}, {}, (), None, lambda ident: None)}
+    assert got["c_in.east"].plan is None and got["c_in.east"].refused == [
+        {"form": "error", "type": "ValueError", "message": "c_in is placed relative to u9, which is not placed by then"}]
+    assert got["r_pull.turned"].plan is not None and got["c_in.east+r_pull.turned"].plan is not None
+    assert not (tmp_path / "arrangements" / "c_in.east" / "reuse.partial.jsonl").exists()
+
+
+def test_a_stop_inside_one_arrangement_still_stops_the_run(tmp_path, monkeypatch):
+    from placemat import stop
+    b = board()
+    prepared = run.begin(b)
+    default = b.resolve()
+    monkeypatch.setattr(run, "resolve_spec", lambda prepared, spec, **kw: (_ for _ in ()).throw(stop.Stopped(15)))
+    with pytest.raises(stop.Stopped):
+        run.resolve_others(prepared, default, tmp_path, {}, {}, (), None, lambda ident: None)
+
+
+def test_an_escape_that_cannot_be_laid_out_names_the_escape_and_its_part():
+    from placemat import finding_text
+    from placemat.lanes import EscapeError
+    from tests.escape_fixtures import fan_board
+    from placemat.values import CopperLayer as L
+    b = fan_board(keep_going=True, via_size=0.9, via_drill=0.3)        # no legal spot for pin 10's via at this pitch
+    esc = b.escape(Part("mcu"), [9, 10], vias=[9, 10], why="south pins")
+    for p in (9, 10):
+        b.track(Net("N%d" % p), [esc[p]], layer=L.F, why="its lane")
+    with pytest.raises(EscapeError) as e:
+        b.resolve()
+    (r,) = run._raised_refusals(e.value)
+    assert r["form"] == "escape" and r["part"] == "mcu" and r["escape"].startswith("escape ")
+    assert finding_text.refusal_record_text(r) == "%s cannot be laid out with mcu as placed" % r["escape"]
+
+
+def test_an_error_refusal_renders_its_type_and_message():
+    from placemat import finding_text
+    assert finding_text.refusal_record_text({"form": "error", "type": "ValueError", "message": "a tie"}) == \
+        "its resolve or proof raised ValueError: a tie"
+
+
+def proven(tmp_path, make=None):
+    b = (make or board)()
+    prepared = run.begin(b)
+    default = b.resolve()
+    return b, prepared, default, run.resolve_others(prepared, default, tmp_path, {}, {}, (), None, lambda ident: None)
+
+
+def finish(b, prepared, default, got, tmp_path, cfg=None):
+    from types import SimpleNamespace
+    src = SimpleNamespace(board_dir=tmp_path, name="m", pcb=tmp_path / "m.kicad_pcb")
+    return run.finish(prepared, default, got, src=src, cfg=cfg or Settings(), fab=None, run_dir=tmp_path, default_report=None,
+                      board=b, drc=False)
+
+
+def test_a_proof_that_raises_refuses_its_arrangement_and_the_others_are_written(tmp_path, monkeypatch):
+    b, prepared, default, got = proven(tmp_path)
+
+    def prove(prepared, resolved, default_plan, **kw):
+        if resolved.spec.id == "c_in.east":
+            raise RuntimeError("kicad-cli died")
+        return run.Proof(True, [], {"drc": None})
+    monkeypatch.setattr(run, "prove", prove)
+    out = finish(b, prepared, default, got, tmp_path)
+    by = {e["id"]: e for e in out.record}
+    assert by["c_in.east"]["offered"] is False
+    assert by["c_in.east"]["refused"] == [{"form": "error", "type": "RuntimeError", "message": "kicad-cli died"}]
+    assert by["r_pull.turned"]["offered"] is True and by["c_in.east+r_pull.turned"]["offered"] is True
+    from placemat.arrangement_note import read_notes
+    docs, problems = read_notes(out.texts)
+    assert problems == [] and sorted(d["id"] for d in docs) == ["c_in.east+r_pull.turned", "r_pull.turned"]
+    assert [f.facts["id"] for f in out.findings if f.cause == "arrangement.refused"] == ["c_in.east"]
+
+
+def test_a_note_error_outside_the_encode_is_not_read_as_the_setting(tmp_path, monkeypatch):
+    from placemat import arrangement_note
+    b, prepared, default, got = proven(tmp_path, with_tracks)          # copper the note writes
+    monkeypatch.setattr(run, "prove", lambda *a, **kw: run.Proof(True, [], {"drc": None}))
+
+    def no_form(op):
+        raise arrangement_note.NoteError("no note form for Thing")
+    monkeypatch.setattr(arrangement_note, "op_to_json", no_form)
+    with pytest.raises(arrangement_note.NoteError, match="no note form"):
+        finish(b, prepared, default, got[:1], tmp_path)

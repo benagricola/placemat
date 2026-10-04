@@ -727,7 +727,11 @@ def refusal_record_text(r: dict) -> str:
     if form == "nested_cell":
         return "%s, a cell inside the module, stands elsewhere than in the default" % r["item"]
     if form == "escape":
+        if r.get("escape"):
+            return "%s cannot be laid out with %s as placed" % (r["escape"], r["part"])
         return "a declared escape cannot be laid out with its part as placed"
+    if form == "error":
+        return "its resolve or proof raised %s: %s" % (r["type"], r["message"])
     if form == "note_chars":
         return "place.arrangement_note_chars = %d leaves no room for its note" % r["chars"]
     return form

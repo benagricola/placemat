@@ -538,12 +538,15 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             if render:
                 render_board(src.pcb, run_dir / "render.log", both_faces=True)
             raise RunFailure("placement", str(e), {"item": e.key, "tail": "board written as it stood: %s" % src.pcb})
+        resolve_s = round(time.time() - t0, 1)              # the default's: the arrangements are timed apart
         plan.reuse["parts"] = parts
+        t0 = time.time()
         others = arrangement_run.resolve_others(declared, plan, run_dir, previous_arr, died_arr, lock_entries, routes,
                                                 lambda ident: say("arrangement", "resolving %s" % ident))
+        others_s = time.time() - t0
         timecap.placement_done()            # the placement is in hand: the cap is lifted for the stages after it
         (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
-        rec.timing_s["resolve"] = round(time.time() - t0, 1)
+        rec.timing_s["resolve"] = resolve_s
         from .project import fab_min_findings
         plan.findings += fab_min_findings(board.geometry.netclasses, fab)
         if not plan.draw_outline:               # a module: the members that set its extent with no alternative
@@ -669,7 +672,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             t0 = time.time()
             stage = "arrangements"
             outcome = arrangement_run.finish(declared, plan, others, src=src, cfg=cfg, fab=fab, run_dir=run_dir,
-                                             default_report=report if drc else None, board=board, drc=drc)
+                                             default_report=report if drc else None, board=board, drc=drc, render=render)
             rec.arrangements = outcome.record
             plan.findings.extend(outcome.findings)
             if outcome.texts:
@@ -679,7 +682,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             from .finding_text import arrangement_row_text
             for row in arrangement_run.lines(outcome.record):
                 say("arrangements", arrangement_row_text(row))
-            rec.timing_s["arrangements"] = round(time.time() - t0, 1)
+            rec.timing_s["arrangements"] = round(others_s + time.time() - t0, 1)     # their resolves and their proofs
         if route:
             from .kicad.route import route_board
             t0 = time.time()

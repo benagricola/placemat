@@ -49,7 +49,7 @@ def stage(tmp_path: Path, module: str, keep_out: str | None = None, script: str 
 
 
 def run(tmp_path: Path, module: str, keep_out: str | None = None, overrides: dict | None = None, keep_going: bool = False,
-        script: str | None = None, edit=None, reuse: bool = False, fresh_folder: bool = True):
+        script: str | None = None, edit=None, reuse: bool = False, fresh_folder: bool = True, render: bool = False):
     """The module's layout run (no renders), as `(RunResult, DRC report as a dict, the written board's path)`. `reuse` lets the
     run replay an earlier one's steps; `fresh_folder` false runs the board an earlier call staged under `tmp_path` again, so
     this run sees that one's run folders."""
@@ -68,7 +68,7 @@ def run(tmp_path: Path, module: str, keep_out: str | None = None, overrides: dic
     was = runner.generate
     runner.generate = restore
     try:
-        result = runner.run(script, render=False, quiet=True, reuse=reuse, overrides=overrides or {}, keep_going=keep_going)
+        result = runner.run(script, render=render, quiet=True, reuse=reuse, overrides=overrides or {}, keep_going=keep_going)
     finally:
         runner.generate = was
         from placemat import console

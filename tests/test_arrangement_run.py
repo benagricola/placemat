@@ -1,6 +1,7 @@
 """The module run with alternatives, on a real module of the fixtures (KiCad): each arrangement resolved, proven by DRC and the
 checks on its own scratch board, recorded in run.json and written into the fragment as notes."""
 import json
+from pathlib import Path
 
 import pytest
 
@@ -45,7 +46,13 @@ def test_a_module_with_alternatives_records_each_arrangement_and_writes_the_offe
     docs, problems = read_notes(texts)
     assert problems == [] and sorted(d["id"] for d in docs) == sorted(offered)
     print("note characters:", sorted(len(t) for t in texts))             # the size Phase 1 measures
-    assert max(len(t) for t in texts) < 20000
+    from placemat.settings import Settings
+    assert len(texts) > 1 and all(len(t) <= Settings().place_arrangement_note_chars for t in texts)    # split, and rejoined above
+    (doc,) = docs
+    assert doc["choices"] == {"r_rt": "apart"} and doc["order"] == 1
+    r_rt = next(m for m in doc["members"] if m["inst"].endswith("r_rt"))
+    assert r_rt["y"] > r_rt["from"][1]                                  # further south than in the default
+    assert "arrangements" in rec["timing_s"]
     run_copy = pcbnew.LoadBoard(str(result.run_dir / "layout.kicad_pcb"))      # the run's copy is the fragment, notes and all
     assert sorted(d.GetText() for d in run_copy.GetDrawings() if isinstance(d, pcbnew.PCB_TEXT)
                   and d.GetText().startswith(ARRANGEMENT_PREFIX)) == sorted(texts)
@@ -137,3 +144,31 @@ def test_notes_stand_below_the_fragment_and_its_other_notes(tmp_path):
     faces = next(v for k, v in at.items() if k.startswith("placemat faces "))
     assert faces[1] == pytest.approx(5.0 + 1.0, abs=0.2)
     assert at[ARRANGEMENT_PREFIX + "a"][1] > faces[1] and at[ARRANGEMENT_PREFIX + "b"][1] > at[ARRANGEMENT_PREFIX + "a"][1]
+
+
+def test_with_render_each_proven_arrangement_is_rendered_in_its_folder_and_its_resolve_timed_apart(tmp_path, monkeypatch):
+    import time
+    from placemat import arrangement_run
+    from placemat.kicad import write
+    rendered = []
+
+    def render_board(pcb_path, log, both_faces=False, timeout=None):        # kicad-cli's render is minutes: where it is asked
+        rendered.append(Path(pcb_path).parent)
+        (Path(pcb_path).parent / "layout.png").write_bytes(b"png")
+        return ["layout.png"]
+    monkeypatch.setattr(write, "render_board", render_board)
+    real = arrangement_run.resolve_spec
+
+    def slow(prepared, spec, **kw):
+        time.sleep(2.0)
+        return real(prepared, spec, **kw)
+    monkeypatch.setattr(arrangement_run, "resolve_spec", slow)
+    result, _, _ = real_modules.run(tmp_path / "r", "usb5v", edit=with_alternatives, render=True)
+    rec = json.loads((result.run_dir / "run.json").read_text())
+    for a in rec["arrangements"][1:]:
+        assert (result.run_dir / a["dir"] / "layout.png").exists(), a["id"]
+    assert rec["timing_s"]["resolve"] < 6.0 <= rec["timing_s"]["arrangements"]      # three arrangements of 2 s each
+    rendered.clear()
+    monkeypatch.setattr(arrangement_run, "resolve_spec", real)
+    plain, _, _ = real_modules.run(tmp_path / "p", "usb5v", edit=with_alternatives)
+    assert rendered == [] and not list((plain.run_dir / "arrangements").glob("*/layout.png"))
