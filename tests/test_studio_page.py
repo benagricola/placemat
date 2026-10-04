@@ -1130,13 +1130,14 @@ rev(5, {ev: "route_commit", net: "A", how: "route", seg: seg(0), via: [[1, 0, 0.
 out.noteA = ev("plan().steps.find(s => s.item === 'track A').note");
 rev(6, {ev: "route_net_begin", net: "B"}); rev(7, {ev: "route_net_end", net: "B", ok: false});
 out.mid = ev("routeLine(S.cmdView.route, S.cmdView)");
+rev(7, {ev: "route_net_begin", net: "C"});
 rev(8, {ev: "route_commit", net: "C", how: "route", seg: seg(5), via: []});
 rev(9, {ev: "route_rip", net: "C", seg: seg(5), via: []});
-out.gone = ev("plan().copper.filter(c => c.gone).length");
+out.gone = ev("plan().copper.filter(c => c.x != null).map(c => c.x)");
 out.stepsKinds = ev("plan().steps.map(s => s.kind).join(',')");
 rev(10, {ev: "route_queue_end"});
 out.beforeEnd = ev("routeLine(S.cmdView.route, S.cmdView)");
-send("cmd", cmd({state: "done", ended: clock / 1000, route: {total: 3, done: 1, failed: 1, current: "", finished: false}}));
+send("cmd", cmd({state: "done", ended: clock / 1000, route: {total: 3, seen: 2, done: 1, failed: 1, current: "", finished: false}}));
 out.end = ev("routeLine(S.cmdView.route, S.cmdView)");
 out.row = els["#tab-runs"].innerHTML;
 rev(11, {ev: "route_off", why: "the router has no route_multipoint_main"});
@@ -1145,7 +1146,7 @@ ev("S.routes = [{file: '/p/.placemat/route/route_record.json', run: '', at: 1, n
 ev("renderRuns()"); out.list = els["#tab-runs"].innerHTML;
 """)
     assert out["begin"] == "net 1 of 3: A, 0 routed, 0 failed" and out["mid"] == "net 3 of 3: B, 1 routed, 1 failed"
-    assert out["noteA"] == "routed: 1 tracks, 1 vias" and out["gone"] == 1 and out["stepsKinds"] == "part,copper,copper,copper"
+    assert out["noteA"] == "routed: 1 tracks, 1 vias" and out["gone"] == [3] and out["stepsKinds"] == "part,copper,copper,copper"
     assert out["beforeEnd"].startswith("net ") and out["end"] == "route finished: 1 routed, 1 failed"          # a queue's end is not the route's
     assert "net 2 of 3" in out["row"] or "net 3 of 3" in out["row"]
     assert out["off"] == "no progress for this route: the router has no route_multipoint_main"
@@ -2389,6 +2390,57 @@ def test_a_chips_text_is_readable_on_its_tint_in_the_light_and_dark_themes():
             ground = [0.17 * a + 0.83 * b for a, b in zip(c, surface)]
             hi, lo = sorted((_luminance(text), _luminance(ground)), reverse=True)
             assert (hi + 0.05) / (lo + 0.05) >= 4.5, (theme, name)
+
+
+@needs_node
+def test_ripped_copper_is_drawn_from_its_step_to_the_step_that_rips_it(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+ev('plan().steps = [{item: "a", kind: "part", placed: true, note: ""}, {item: "track B", kind: "copper", placed: false, note: "", copper: [0]}, {item: "track C", kind: "copper", placed: false, note: "", copper: [1]}]');
+ev('plan().copper = [{t: "track", layer: "F.Cu", face: "front", width: 0.2, a: [0, 0], b: [1, 0], net: "B", x: 2}, {t: "track", layer: "F.Cu", face: "front", width: 0.2, a: [2, 0], b: [3, 0], net: "C"}]');
+ev("renderBoard()");
+out.board = board().innerHTML;
+const rip = {g: {style: {}}, s: 1, x: 2};
+ctx.__rip = rip; ev("B.rips = [__rip]");
+out.visible = [];
+for (const k of [0, 1, 2, 3]) { ev("showSteps(" + k + ")"); out.visible.push(rip.g.style.display); }
+""")
+    assert re.search(r'<line class="trk l-F"[^>]*data-s="1" data-x="2"', out["board"])        # laid by step 1, taken away by step 2 (replay positions)
+    assert "data-x" not in re.search(r'<line class="trk l-F"[^>]*data-s="2"[^>]*>', out["board"]).group(0)
+    assert out["visible"] == ["none", "none", "", "none"]                                      # shown once step 2 is reached... and gone once step 3 is
+
+
+@needs_node
+def test_a_routes_count_is_of_its_stage_and_a_pair_is_one_net(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const cmd = (o) => Object.assign({id: 4, pid: 4312, command: "route", script: "/p/x.pcb", args: [], started: clock / 1000 - 5, state: "running", items: 0, variants: 0, route: null}, o);
+send("cmd", cmd({}));
+ev("S.cmdView = {id: 4, plan: blankPlan(), summary: S.cmds.get(4), next: 0, route: null}");
+let n = 0;
+const rev = o => send("cmdev", {id: 4, n: n++, ev: o});
+const line = () => ev("routeLine(S.cmdView.route, S.cmdView)");
+rev({ev: "route_board", doc: {board: BOARD.board, keepouts: [], reservations: [], items: [item("u1", 1)], layers: ["F.Cu"]}});
+rev({ev: "route_stage", stage: "pairs"}); rev({ev: "route_queue", nets: ["DP/DN"]});
+rev({ev: "route_net_begin", net: "DP/DN"});
+rev({ev: "route_net_end", net: "DP/DN", ok: true});
+rev({ev: "route_commit", net: ["DP", "DN"], how: "route", seg: [[0, 0, 1, 0, "F.Cu", 0.2]], via: []});
+rev({ev: "route_queue_end"});
+rev({ev: "route_stage", stage: "islands", nets: 2, resumed: false}); rev({ev: "route_queue", nets: ["G1"]});
+out.islands = line();
+rev({ev: "route_net_end", net: "G1", ok: true});
+rev({ev: "route_stage", stage: "main"}); rev({ev: "route_queue", nets: ["A", "B", "C", "D"]});
+out.main = line();
+out.steps = ev("plan().steps.filter(s => s.kind === 'copper').map(s => s.item)");
+out.pairNet = ev("plan().copper[0].net");
+rev({ev: "route_dropped", n: 6});
+send("cmd", cmd({state: "done", ended: clock / 1000}));
+out.end = line();
+""")
+    assert out["islands"].startswith("net 1 of 2")                     # the islands stage said it takes two nets: one queue does not make it one
+    assert out["main"].startswith("net 1 of 4")                        # not "of 7": the stages before it are not part of this stage's count
+    assert out["steps"] == ["track DP/DN", "track G1"] and out["pairNet"] == "DP/DN"
+    assert out["end"] == "route finished: 2 routed, 0 failed, 6 events were lost, so the copper drawn may be incomplete"
 
 
 @needs_node

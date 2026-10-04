@@ -434,13 +434,13 @@ def test_recorded_routes_are_listed_and_served_only_from_this_projects_folders(p
     stages = [{"stage": "main", "resumed": False, "seconds": 1.0, "events": [{"ev": "net_end", "net": "A", "ok": True}, {"ev": "commit", "net": "A", "how": "route", "seg": [[0, 0, 1, 0, "F.Cu", 0.2]], "via": []}]}]
     (base / "route").mkdir(parents=True)
     (base / "runs" / "ab12" / "route").mkdir(parents=True)
-    own = route_progress.write_record(base / "route", {"pcb": "x.kicad_pcb", "run": "", "script": "x_layout.py"}, stages, {"closure": 1.0})
-    ran = route_progress.write_record(base / "runs" / "ab12" / "route", {"pcb": "x.kicad_pcb", "run": "ab12", "script": "x_layout.py"}, stages, {"closure": 1.0})
+    own = route_progress.write_record(base / "route", {"pcb": "x.kicad_pcb", "run": "", "script": "x_layout.py"}, stages, {"closure": 1.0}, complete=True)
+    ran = route_progress.write_record(base / "runs" / "ab12" / "route", {"pcb": "x.kicad_pcb", "run": "ab12", "script": "x_layout.py"}, stages, {"closure": 1.0}, complete=True)
     (base / "route" / route_progress.BOARD).write_text(json.dumps({"board": {"loops": [], "drawn": False, "extent": [0, 0, 1, 1]}, "items": [], "layers": ["F.Cu"]}))
     (base / "runs" / "ab12" / "plan.json").write_text(json.dumps({"board": {"loops": [], "drawn": False, "extent": [0, 0, 1, 1]}, "items": [], "layers": ["F.Cu"], "steps": [], "copper": []}))
     listed = s.routes()
     assert {e["file"]: (e["run"], e["build"], e["nets"], e["routed"]) for e in listed} == {str(own): ("", False, 1, 1), str(ran): ("ab12", True, 1, 1)}
-    assert s.route_record(str(own))["doc"]["route"] == {"nets": 1, "routed": 1, "failed": 0}
+    assert s.route_record(str(own))["doc"]["route"] == {"nets": 1, "routed": 1, "failed": 0, "partial": False, "dropped": 0}
     assert s.build_record("ab12")["doc"]["steps"][0]["item"] == "track A" and s.build_record("nope") is None and s.build_record("../x") is None and s.build_record("") is None
     assert s.route_record("/etc/passwd") is None and s.route_record(str(own.with_name("route_summary.json"))) is None
     assert json.loads(s.hello()[0][1])["routes"] == listed
@@ -687,3 +687,14 @@ def test_the_past_runs_explores_and_routes_are_found_without_a_script_and_served
         assert conn.getresponse().status == 403                                                              # the token is needed
     finally:
         s.stop()
+
+
+def test_a_routes_count_is_of_the_stage_it_is_in_and_lost_events_are_counted(project):
+    s = _fresh(project)
+    _cmd(s, 7)
+    for ev in ({"ev": "route_stage", "stage": "pairs"}, {"ev": "route_queue", "nets": ["P"]}, {"ev": "route_net_end", "net": "P", "ok": True},
+               {"ev": "route_stage", "stage": "islands", "nets": 2}, {"ev": "route_queue", "nets": ["G1"]}, {"ev": "route_net_end", "net": "G1", "ok": True},
+               {"ev": "route_stage", "stage": "main"}, {"ev": "route_queue", "nets": ["A", "B", "C"]}, {"ev": "route_dropped", "n": 5}):
+        s._on_channel(7, ev)
+    r = {c["id"]: c for c in s.commands()}[7]["route"]
+    assert (r["total"], r["seen"], r["done"], r["dropped"], r["stage"]) == (3, 0, 2, 5, "main") and "in_stage" not in r

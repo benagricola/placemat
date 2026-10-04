@@ -1106,7 +1106,7 @@ class Studio:
                                       "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe", "slow", "label")} | \
             {"kind": channel.kind_of(c.get("command", ""), c.get("args"), c.get("explore") is not None),
              "stopped": (c.get("error") or {}).get("kind") == "stopped",          # ended on purpose (--max-time, a stop, a signal), not by a failure
-             "route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results")}}
+             "route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results", "in_stage")}}
 
     def commands(self) -> list:
         with self.lock:
@@ -1232,17 +1232,25 @@ class Studio:
     def _on_route(self, cid: int, c: dict, ev: dict) -> None:
         """A route's event (route_progress.py: the router's hooks): the counts and the current net are kept here, the events themselves for a late
         page and sent to the open ones. Called with the lock held."""
-        kind, r = ev["ev"], c.setdefault("route", {"total": 0, "done": 0, "failed": 0, "current": "", "stage": "", "off": "", "truncated": False, "finished": False, "log": [], "results": {}})
+        kind, r = ev["ev"], c.setdefault("route", {"total": 0, "seen": 0, "done": 0, "failed": 0, "current": "", "stage": "", "off": "", "dropped": 0, "truncated": False, "finished": False, "log": [], "results": {}, "in_stage": set(), "fixed": False})
         if kind == "route_stage":
+            # `total` and `seen` are of the stage: its own nets (a stage that says how many it will take, else what its queues add up to), not the whole route's
             r["stage"] = ev.get("stage", "")
+            r["total"], r["fixed"], r["seen"] = ev.get("nets") or 0, ev.get("nets") is not None, 0
+            r["in_stage"] = set()
         elif kind == "route_queue":
-            r["total"] += len(ev.get("nets", ()))
+            if not r["fixed"]:
+                r["total"] += len(ev.get("nets", ()))
         elif kind == "route_net_begin":
             r["current"] = ev.get("net", "")
         elif kind == "route_net_end":
             r["results"][ev.get("net", "")] = bool(ev.get("ok"))
+            r["in_stage"].add(ev.get("net", ""))
+            r["seen"] = len(r["in_stage"])
             r["done"] = sum(1 for v in r["results"].values() if v)
             r["failed"] = sum(1 for v in r["results"].values() if not v)
+        elif kind == "route_dropped":
+            r["dropped"] += int(ev.get("n") or 0)
         elif kind == "route_queue_end":
             r["current"] = ""                        # one stage's queue: the route is over when its command is
         elif kind == "route_off":
@@ -1305,7 +1313,7 @@ class Studio:
                 continue
             run = doc.get("run") or ""
             out.append({"file": str(rec), "run": run, "at": at, "nets": doc.get("nets"), "routed": doc.get("routed"), "failed": doc.get("failed"),
-                        "closure": doc.get("closure"), "seconds": doc.get("seconds"), "script": doc.get("script") or doc.get("pcb", ""),
+                        "closure": doc.get("closure"), "seconds": doc.get("seconds"), "complete": doc.get("complete", True), "dropped": doc.get("dropped", 0), "script": doc.get("script") or doc.get("pcb", ""),
                         "build": bool(run) and (rec.parent.parent / "plan.json").is_file()})
         out.sort(key=lambda e: -(e["at"] or 0))
         return out[:limit]

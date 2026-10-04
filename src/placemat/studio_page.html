@@ -1387,12 +1387,13 @@ function panelSVG(p, pn, first, order, diffLayer) {
     const ko = koOf(r.why);
     o.push('<polygon class="res' + (r.why === selR ? " sel" : "") + '" data-res="' + escRaw(r.why) + '"' + (ko ? ' data-ko-of="' + escRaw(ko) + '"' : "") + ' points="' + polyPts(r.poly) + '"/>');
   }
+  const goneAt = c => c.x != null && S.stepN && S.stepN.has(c.x) ? S.stepN.get(c.x) : null;     // a ripped op's step, as a replay position
   const mapped = S.opStep && S.opStep.size ? i => S.opStep.has(i) ? S.opStep.get(i) : S.lastStep : null;     // copper no step laid shows with the last
-  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "novia"));
+  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "novia", goneAt));
   o.push('<g class="items">');
   for (const s of order) { const it = S.itemAt.get(s.item); if (it) o.push(itemSVG(it, f, pn, p, s.n)); }
   o.push("</g>");
-  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "via"));
+  o.push(copperSVG(p.copper || [], f, pn, "", mapped, "via", goneAt));
   o.push('<g class="links">');
   (p.links || []).forEach((l, i) => {
     const x1 = l.pa[0], y1 = l.pa[1], x2 = l.pb[0], y2 = l.pb[1];
@@ -1421,13 +1422,13 @@ function silkText(c) {
   const tf = "translate(" + num(c.at[0]) + " " + num(c.at[1]) + ")" + (c.rotation ? " rotate(" + num(-c.rotation) + ")" : "") + (c.mirrored ? " scale(-1 1)" : "");
   return '<text class="silktxt" transform="' + tf + '" font-size="' + num(Math.max(c.size || 0.5, 0.3)) + '" text-anchor="' + anchor + '" dominant-baseline="' + base + '">' + esc(c.text) + "</text>";
 }
-function copperSVG(ops, f, pn, mode, stepOf, part) {      // part: "novia" (before the parts) or "via" (above them: a via in a pad shows on it)
+function copperSVG(ops, f, pn, mode, stepOf, part, goneOf) {      // part: "novia" (before the parts) or "via" (above them: a via in a pad shows on it); goneOf: the replay step that rips an op up again
   const o = ['<g class="copper' + (part === "via" ? " vias" : "") + '">'];
   const cls = mode === "added" ? " d-cadd" : mode === "removed" ? " d-cdel" : "";
   for (let i = 0; i < ops.length; i++) {
-    const c = ops[i], sn = stepOf ? stepOf(i) : null, ds = sn != null && sn >= 0 ? ' data-s="' + sn + '"' : "";   // the replay step that laid it
+    const c = ops[i], sn = stepOf ? stepOf(i) : null, gn = goneOf ? goneOf(c) : null;
+    const ds = (sn != null && sn >= 0 ? ' data-s="' + sn + '"' : "") + (gn != null ? ' data-x="' + gn + '"' : "");   // the replay steps that lay it and that take it away
     if (part && (c.t === "via") !== (part === "via")) continue;
-    if (c.gone) continue;                                              // copper a live route ripped up again
     if (c.t === "track" && (c.face === f || c.face === "inner")) {
       const op = c.face === "inner" ? "0.6" : "1", at = ds + ' data-l="' + esc(c.layer) + '" stroke-width="' + c.width + '" stroke-opacity="' + op + '"';
       if (c.arc) o.push('<path class="trk ' + layerClass(c.layer) + cls + '" d="M ' + c.a[0] + " " + c.a[1] + " A " + c.arc[0] + " " + c.arc[0] + " 0 " + c.arc[1] + " " + c.arc[2] + " " + c.b[0] + " " + c.b[1] + '" fill="none"' + at + "/>");
@@ -1482,7 +1483,7 @@ function renderBoard() {
   const order = replaySteps(p);
   S.itemAt = itemMap(p);
   S.stepNo = new Map(order.filter(s => s.type === "place").map(s => [s.item, s.n]));
-  S.opStep = new Map(); S.loopStep = new Map();
+  S.opStep = new Map(); S.loopStep = new Map(); S.stepN = new Map(order.map(s => [s.at, s.n]));
   for (const s of order) { for (const c of s.copper || []) S.opStep.set(c, s.n); if (s.loop != null) S.loopStep.set(s.loop, s.n); }
   S.lastStep = order.length - 1;
   const showDiff = S.cmp && !S.resolving && S.cmp.b === S.shownId && !S.cmp.diff.empty;
@@ -1505,6 +1506,7 @@ function indexBoard(svg, n) {
     pushTo(B.groups, g.dataset.key, g);
   }
   for (const g of svg.querySelectorAll(".copper [data-s], .cutoutg")) (B.byStep[+g.dataset.s] || (B.byStep[+g.dataset.s] = [])).push(g);
+  B.rips = [...svg.querySelectorAll(".copper [data-x]")].map(g => ({g, s: +g.dataset.s, x: +g.dataset.x}));
   for (const m of svg.querySelectorAll(".mem")) pushTo(B.mems, m.dataset.ref, m);
   B.regions = [...svg.querySelectorAll(".ko, .res")];
   B.links = [...svg.querySelectorAll(".lkg")];
@@ -1516,6 +1518,7 @@ function showSteps(k) {
   const lo = Math.min(B.k, k), hi = Math.max(B.k, k), on = k > B.k;
   for (let n = lo; n < hi; n++) for (const g of B.byStep[n] || []) g.style.display = on ? "" : "none";
   B.k = k;
+  for (const r of B.rips || []) r.g.style.display = k > r.s && k <= r.x ? "" : "none";       // copper that was ripped up: shown from the step that laid it to the one that took it away
   if (B.svg) B.svg.classList.toggle("replaying", k < B.n);
   if (B.svg) B.svg.classList.toggle("laid", !!(S.cmdView && S.cmdView.route));
 }
@@ -1622,10 +1625,10 @@ function thruSets(p) {
 function visRules(off, thru = []) {
   const q = s => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const out = [];
+  for (const set of thru) if (set.split(",").every(l => off.has("cu:" + l))) out.push('#board .thru[data-ls="' + q(set) + '"] { display: none; }');
   for (const id of off) {
     const i = id.indexOf(":"), k = i < 0 ? id : id.slice(0, i), v = i < 0 ? "" : id.slice(i + 1);
     let sels = null;                       // one selector each: a name may hold a comma, so they are never split
-  for (const set of thru) if (set.split(",").every(l => off.has("cu:" + l))) out.push('#board .thru[data-ls="' + q(set) + '"] { display: none; }');
     if (k === "ko" && v) sels = ['[data-ko="' + q(v) + '"]', '[data-ko-of="' + q(v) + '"]'];       // a keepout, and the reservation made from it
     else if (k === "res" && v) sels = ['[data-res="' + q(v) + '"]'];
     else if (k === "z" && v) sels = ['[data-z="' + q(v) + '"]'];
@@ -2932,20 +2935,21 @@ function cmdEvent(ev, n) {
 // The events of a route (route_progress.py): the board it is drawn on, the nets in the order the router takes them, and for each net its copper as
 // it is committed (a ripped net's removed again) and whether it was routed. A net is a step of kind `copper`: the timeline plays the route as it
 // plays a placement. V.route holds the counts the status line says.
-const routeOps = ev => (ev.seg || []).map(s => ({t: "track", layer: s[4], face: s[4] === "F.Cu" ? "front" : s[4] === "B.Cu" ? "back" : "inner", width: s[5], a: [s[0], s[1]], b: [s[2], s[3]], net: String(ev.net)}))
-  .concat((ev.via || []).map(v => ({t: "via", at: [v[0], v[1]], size: v[2], drill: v[3], net: String(ev.net), layers: []})));
+const routeNet = ev => Array.isArray(ev.net) ? ev.net.join("/") : String(ev.net);          // a pair's two nets are one net, "P/N"
+const routeOps = ev => (ev.seg || []).map(s => ({t: "track", layer: s[4], face: s[4] === "F.Cu" ? "front" : s[4] === "B.Cu" ? "back" : "inner", width: s[5], a: [s[0], s[1]], b: [s[2], s[3]], net: routeNet(ev)}))
+  .concat((ev.via || []).map(v => ({t: "via", at: [v[0], v[1]], size: v[2], drill: v[3], net: routeNet(ev), layers: []})));
 function routeStep(P, V, net) {
   let i = V.route.step[net];
   if (i == null) { i = P.steps.length; V.route.step[net] = i; P.steps.push({i, item: "track " + net, kind: "copper", placed: false, freedom: null, rank: null, rank_of: null, pocket: null, lock: "", note: "", why: "", copper: [], loop: null}); }
   return P.steps[i];
 }
 function routeNote(P, R, net, st) {
-  const ok = R.results[net], mine = st.copper.map(i => P.copper[i]).filter(o => !o.gone), tr = mine.filter(o => o.t === "track").length, vi = mine.length - tr;
+  const ok = R.results[net], mine = st.copper.map(i => P.copper[i]).filter(o => o.x == null && o.net === net), tr = mine.filter(o => o.t === "track").length, vi = mine.length - tr;
   st.note = ok ? "routed: " + tr + " tracks, " + vi + " vias" : "no route found";
 }
 function routeEvent(V, P, ev) {
-  const R = V.route || (V.route = {total: 0, done: 0, failed: 0, current: "", stage: "", off: "", results: {}, step: {}, finished: false, truncated: false});
-  const net = Array.isArray(ev.net) ? ev.net[0] : ev.net;
+  const R = V.route || (V.route = {total: 0, seen: 0, fixed: false, inStage: new Set(), dropped: 0, partial: false, done: 0, failed: 0, current: "", stage: "", off: "", results: {}, step: {}, finished: false, truncated: false});
+  const net = ev.net == null ? ev.net : routeNet(ev);
   if (ev.ev === "route_board") {
     const d = ev.doc || {};
     if (!P.items.length) {
@@ -2954,38 +2958,41 @@ function routeEvent(V, P, ev) {
       if (!V.fitted) { V.fitted = true; S.view = null; lay = null; }
     }
   }
-  else if (ev.ev === "route_stage") R.stage = ev.stage;
-  else if (ev.ev === "route_queue") R.total += (ev.nets || []).length;
-  else if (ev.ev === "route_net_begin") R.current = net;
+  else if (ev.ev === "route_stage") { R.stage = ev.stage; R.total = ev.nets || 0; R.fixed = ev.nets != null; R.seen = 0; R.inStage = new Set(); }          // the counts are of the stage
+  else if (ev.ev === "route_queue") { if (!R.fixed) R.total += (ev.nets || []).length; }
+  else if (ev.ev === "route_net_begin") { R.current = net; routeStep(P, V, net); }
   else if (ev.ev === "route_commit") {
-    const st = routeStep(P, V, net), ops = routeOps(ev);
+    const st = routeStep(P, V, R.current || net), ops = routeOps(ev);                   // laid in the step in progress
     for (const op of ops) { st.copper.push(P.copper.length); P.copper.push(op); }
-    if (net in R.results) routeNote(P, R, net, st);           // a net's copper is committed after its search ends
+    if (st.item === "track " + net && net in R.results) routeNote(P, R, net, st);           // a net's copper is committed after its search ends
   }
   else if (ev.ev === "route_rip") {
+    const at = routeStep(P, V, R.current || net);                                       // it goes at the step in progress
     for (const op of P.copper) {
-      if (op.gone || op.net !== String(net)) continue;
+      if (op.x != null || op.net !== net) continue;
       if ((ev.seg || []).some(s => op.t === "track" && op.a[0] === s[0] && op.a[1] === s[1] && op.b[0] === s[2] && op.b[1] === s[3] && op.layer === s[4])
-        || (ev.via || []).some(v => op.t === "via" && op.at[0] === v[0] && op.at[1] === v[1])) op.gone = true;
+        || (ev.via || []).some(v => op.t === "via" && op.at[0] === v[0] && op.at[1] === v[1])) op.x = at.i;
     }
+    for (const n of Object.keys(R.step)) { const st = P.steps[R.step[n]]; if (n in R.results) routeNote(P, R, n, st); }
   }
   else if (ev.ev === "route_net_end") {
-    R.results[net] = !!ev.ok; R.done = Object.values(R.results).filter(x => x).length; R.failed = Object.values(R.results).filter(x => !x).length;
+    R.results[net] = !!ev.ok; R.inStage.add(net); R.seen = R.inStage.size; R.done = Object.values(R.results).filter(x => x).length; R.failed = Object.values(R.results).filter(x => !x).length;
     routeNote(P, R, net, routeStep(P, V, net));
   }
   else if (ev.ev === "route_queue_end") R.current = "";                   // one stage's queue: the route is finished when its command is
   else if (ev.ev === "route_off") R.off = ev.why || "";
+  else if (ev.ev === "route_dropped") R.dropped += ev.n || 0;
   else if (ev.ev === "route_truncated") R.truncated = true;
 }
-const routeLine = (R, V) => !R ? "" : R.off ? "no progress for this route: " + R.off : (R.finished || (V && S.cmds.has(V.id) && S.cmds.get(V.id).state !== "running")) ? "route finished: " + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") :
-  "net " + Math.min(R.total || 1, R.done + R.failed + 1) + " of " + (R.total || "?") + (R.current ? ": " + R.current : "") + ", " + R.done + " routed, " + R.failed + " failed";
+const routeLine = (R, V) => !R ? "" : R.off ? "no progress for this route: " + R.off : (R.finished || (V && S.cmds.has(V.id) && S.cmds.get(V.id).state !== "running")) ? "route " + (R.partial ? "stopped before it finished: " : "finished: ") + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") + (R.dropped ? ", " + R.dropped + " events were lost, so the copper drawn may be incomplete" : "") :
+  "net " + Math.min(R.total || 1, R.seen + 1) + " of " + (R.total || "?") + (R.current ? ": " + R.current : "") + ", " + R.done + " routed, " + R.failed + " failed";
 // Opening something to look at closes the dialog that chose it. A past one shows its board and findings and resolves nothing.
 function looking() { S.start = false; S.view = null; lay = null; S.replay = null; }
 async function openRoute(file, run) {
   try {
     const d = await getJSON(run ? "/build?run=" + encodeURIComponent(run) : "/route?f=" + encodeURIComponent(file));
     const sc = (d.board && d.board.script) || "";
-    S.cmdView = {id: "route:" + (run || file), plan: d.doc, summary: {command: run ? "build replay" : "route replay", kind: run ? "run" : "route", script: sc, pid: "", run: run || ""}, next: 0, fitted: false, replay: true, route: {total: d.doc.route.nets, done: d.doc.route.routed, failed: d.doc.route.failed, finished: true, results: {}, step: {}}};
+    S.cmdView = {id: "route:" + (run || file), plan: d.doc, summary: {command: run ? "build replay" : "route replay", kind: run ? "run" : "route", script: sc, pid: "", run: run || ""}, next: 0, fitted: false, replay: true, route: {total: d.doc.route.nets, done: d.doc.route.routed, failed: d.doc.route.failed, finished: true, partial: !!d.doc.route.partial, dropped: d.doc.route.dropped || 0, results: {}, step: {}}};
     S.xv = null; looking();
     renderCmdBar(); schedule("all");
   } catch (e) { toast("could not open the route: " + e.message); }
@@ -3465,7 +3472,7 @@ setInterval(() => { if (S.notes.length) schedule("notes", "board", "counts"); },
 const rowStateChip = (cls, word) => '<span class="chip state ' + esc(cls) + '">' + esc(word) + "</span>";
 function rowCmd(c) {
   const dur = fmtDur((c.ended ? c.ended * 1000 : Date.now() + (S.skew || 0)) - c.started * 1000);
-  const more = c.route && c.route.total ? ", net " + Math.min(c.route.total, c.route.done + c.route.failed + (c.state === "running" ? 1 : 0)) + " of " + c.route.total + ", " + c.route.done + " routed, " + c.route.failed + " failed" + (c.route.current ? ", now " + esc(c.route.current) : "")
+  const more = c.route && c.route.total ? ", net " + Math.min(c.route.total, (c.route.seen || 0) + (c.state === "running" ? 1 : 0)) + " of " + c.route.total + ", " + c.route.done + " routed, " + c.route.failed + " failed" + (c.route.current ? ", now " + esc(c.route.current) : "")
     : c.variants ? ", " + c.variants + " variants" : c.items ? ", " + c.items + " steps" : "";
   return '<div class="row cmd step" data-cmd="' + c.id + '" title="' + esc(kindTitle(c)) + '">' + rowStateChip(c.stopped ? "warn" : c.state, c.stopped ? "stopped" : c.state) + '<div class="sb"><div class="l1">' + kindChip(c) + " <b>" + esc(baseName(c.script)) + '</b></div><div class="l2">' +
     (c.label ? esc(c.label) + ", " : "") + "pid " + esc(c.pid) + ", " + '<span class="fx" style="--w:4ch">' + dur + "</span>" + more + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
@@ -3483,7 +3490,7 @@ function rowExplore(e) {
 }
 function rowRoute(r) {
   const k = {kind: r.build ? "run" : "route", script: r.script, run: r.run};
-  return '<div class="row cmd step" data-route="' + escRaw(r.file) + '"' + (r.build ? ' data-build="' + esc(r.run) + '"' : "") + ' title="' + esc(kindTitle(k) + (r.build ? ", build" : "")) + '">' + rowStateChip(r.failed ? "error" : "done", r.failed ? "failed" : "done") + '<div class="sb"><div class="l1">' + kindChip(k) + " <b>" + esc(baseName(r.script) || "a board") + "</b> " + (r.run ? (r.build ? "build of run " : "run ") + esc(r.run) : "") +
+  return '<div class="row cmd step" data-route="' + escRaw(r.file) + '"' + (r.build ? ' data-build="' + esc(r.run) + '"' : "") + ' title="' + esc(kindTitle(k) + (r.build ? ", build" : "")) + '">' + rowStateChip(r.complete === false ? "warn" : r.failed ? "error" : "done", r.complete === false ? "stopped" : r.failed ? "failed" : "done") + '<div class="sb"><div class="l1">' + kindChip(k) + " <b>" + esc(baseName(r.script) || "a board") + "</b> " + (r.run ? (r.build ? "build of run " : "run ") + esc(r.run) : "") +
     '</div><div class="l2">' + r.nets + " nets, " + r.routed + " routed" + (r.failed ? ", " + r.failed + " failed" : "") + (r.closure != null ? ", closure " + Math.round(r.closure * 1000) / 10 + "%" : "") + (r.seconds ? ", " + r.seconds + " s" : "") + "</div></div></div>";
 }
 // A tap on a row of those lists opens what it names: a command is followed, a past run, explore or route is looked at.

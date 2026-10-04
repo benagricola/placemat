@@ -113,51 +113,72 @@ def net_names(ev) -> list:
     return [n] if isinstance(n, str) else list(n or [])
 
 
+def net_key(ev) -> str:
+    """The net an event is about, as one name: a pair's two nets are "P/N"."""
+    return "/".join(str(n) for n in net_names(ev)) or "?"
+
+
 def lay(events: list) -> dict:
-    """The events of a route in laid order as per-net copper: {"order": [net, ...] by first commit (a net that failed is added when it
-    fails), "ops": {net: [op, ...]} the ops that stood at the end (a ripped net's copper is gone), "result": {net: "routed" | "no route found" |
-    "ripped"}}. An op is {"t": "track" | "via", ...} in the plan document's copper shape."""
-    order, live, result = [], {}, {}
+    """The events of a route in laid order as copper by step: {"order": [net, ...] (a step each, in the order the router took the nets up: its
+    search began, it committed copper, or it failed), "ops": {step: [op, ...]} every op laid during that step, standing or not, "result":
+    {net: "routed" | "no route found" | "ripped" | "unfinished"}}. An op is {"t": "track" | "via", ..., "net": the net it belongs to,
+    "gone": the step during which it was ripped, or None if it stood to the end} in the plan document's copper shape. Copper committed
+    while another net's search is under way (a restore after a rip) is laid in that net's step. A pair is one net, "P/N"."""
+    order, ops, live, result, begun = [], {}, {}, {}, set()
+    cur = None
+
+    def step(n):
+        if n not in order:
+            order.append(n)
+        return n
+
     for ev in events:
         kind = ev.get("ev")
-        if kind in ("commit", "route_commit"):
-            names = net_names(ev)
-            net = names[0] if len(names) == 1 else None
+        if kind in ("net_begin", "route_net_begin"):
+            cur = step(net_key(ev))
+            begun.add(cur)
+        elif kind in ("commit", "route_commit"):
+            n = net_key(ev)
+            at = step(cur if cur is not None else n)
             for s in ev.get("seg", ()):
-                n = net or "?"
-                if n not in order:
-                    order.append(n)
-                live.setdefault(n, {})[("s",) + _seg_key(s)] = {"t": "track", "layer": s[4], "face": _face_of(s[4]), "width": s[5], "a": [s[0], s[1]], "b": [s[2], s[3]], "net": n}
+                op = {"t": "track", "layer": s[4], "face": _face_of(s[4]), "width": s[5], "a": [s[0], s[1]], "b": [s[2], s[3]], "net": n, "gone": None}
+                ops.setdefault(at, []).append(op)
+                live[(n, "s") + _seg_key(s)] = op
             for v in ev.get("via", ()):
-                n = net or "?"
-                if n not in order:
-                    order.append(n)
-                live.setdefault(n, {})[("v",) + _via_key(v)] = {"t": "via", "at": [v[0], v[1]], "size": v[2], "drill": v[3], "net": n, "layers": []}
+                op = {"t": "via", "at": [v[0], v[1]], "size": v[2], "drill": v[3], "net": n, "layers": [], "gone": None}
+                ops.setdefault(at, []).append(op)
+                live[(n, "v") + _via_key(v)] = op
         elif kind in ("rip", "route_rip"):
-            names = net_names(ev)
-            net = names[0] if len(names) == 1 else None
-            for s in ev.get("seg", ()):
-                live.get(net or "?", {}).pop(("s",) + _seg_key(s), None)
-            for v in ev.get("via", ()):
-                live.get(net or "?", {}).pop(("v",) + _via_key(v), None)
+            n = net_key(ev)
+            at = step(cur if cur is not None else n)
+            for key in [(n, "s") + _seg_key(s) for s in ev.get("seg", ())] + [(n, "v") + _via_key(v) for v in ev.get("via", ())]:
+                op = live.pop(key, None)
+                if op is not None:
+                    op["gone"] = at
         elif kind in ("net_end", "route_net_end"):
-            n = ev.get("net")
+            n = step(net_key(ev))
             result[n] = "routed" if ev.get("ok") else "no route found"
-            if n not in order:
-                order.append(n)
-    ops = {n: list(live.get(n, {}).values()) for n in order}
+        elif kind in ("queue_end", "route_queue_end"):
+            cur = None
+    standing = {}
+    for op in live.values():
+        standing[op["net"]] = standing.get(op["net"], 0) + 1
     for n in order:
-        if result.get(n) == "routed" and not ops[n]:
+        if result.get(n) == "routed" and not standing.get(n):
             result[n] = "ripped"
-        result.setdefault(n, "routed" if ops[n] else "ripped")
-    return {"order": order, "ops": ops, "result": result}
+        if n not in result:
+            result[n] = "routed" if standing.get(n) else "unfinished" if n in begun else "ripped"
+    return {"order": order, "ops": {n: ops.get(n, []) for n in order}, "result": result}
 
 
 def route_doc(record: dict, board: dict) -> dict:
-    """The plan document of a finished route. `board` is the board_doc (parts only: a step for each part, then each net) or a run's plan.json
+    """The plan document of a route's record. `board` is the board_doc (parts only: a step for each part, then each net) or a run's plan.json
     (its own steps and copper first: the whole build, the placement and then the route). Each net is a step of kind `copper` in the order
-    the router first committed copper for it, its result as the note and the copper that stood at the end as its ops."""
-    events = [ev for st in record.get("stages", ()) for ev in st.get("events", ())]
+    the router took it up, its result as the note and the copper laid during it as its ops; copper that was ripped carries `x`, the index of
+    the step during which it went, so the replay takes it away there. `route` counts the nets and says whether the record is `partial` (the
+    route did not finish, or a stage did not) and how many events were `dropped`."""
+    stages = record.get("stages", ())
+    events = [ev for st in stages for ev in st.get("events", ())]
     laid = lay(events)
     base = dict(board)
     doc = {"version": PLAN_VERSION, "board": {"loops": [], "drawn": True, "extent": [0, 0, 100, 60]}, "keepouts": [], "reservations": [], "items": [], "layers": [],
@@ -166,19 +187,28 @@ def route_doc(record: dict, board: dict) -> dict:
     steps = [dict(s) for s in base["steps"]] if base.get("steps") else [
         {"i": n, "item": it["key"], "kind": "part", "placed": True, "note": "", "notes": [], "unplaced": None, "why": "", "freedom": "fixed", "rank": None, "rank_of": None, "pocket": None,
          "lock": "", "copper": [], "loop": None} for n, it in enumerate(doc["items"])]
+    first = len(steps)
+    index = {net: first + k for k, net in enumerate(laid["order"])}
     copper = list(base.get("copper") or [])
     for net in laid["order"]:
-        at = []
-        for op in laid["ops"][net]:
+        at, mine = [], laid["ops"][net]
+        for op in mine:
+            op = dict(op)
+            gone = op.pop("gone")
+            if gone is not None:
+                op["x"] = index[gone]
             at.append(len(copper))
             copper.append(op)
-        tracks = sum(1 for o in laid["ops"][net] if o["t"] == "track")
-        vias = len(laid["ops"][net]) - tracks
+        own = [o for o in mine if o["net"] == net and o["gone"] is None]
+        tracks = sum(1 for o in own if o["t"] == "track")
+        vias = len(own) - tracks
         result = laid["result"][net]
         steps.append({"i": len(steps), "item": "track " + str(net), "kind": "copper", "placed": False, "freedom": None, "rank": None, "rank_of": None, "pocket": None, "lock": "",
                       "note": "%s: %d track%s, %d via%s" % (result, tracks, "" if tracks == 1 else "s", vias, "" if vias == 1 else "s") if result == "routed" else result,
                       "why": "", "copper": at, "loop": None})
+    lost = sum(int(st.get("dropped") or 0) for st in stages)
+    partial = not record.get("complete", True) or any(not st.get("complete", True) for st in stages)
     doc.update(copper=copper, steps=steps, counts=base.get("counts") or {"placed": len(doc["items"]), "findings": len(doc["findings"])}, score=base.get("score"),
                route={"nets": len(laid["order"]), "routed": sum(1 for n in laid["order"] if laid["result"][n] == "routed"),
-                      "failed": sum(1 for n in laid["order"] if laid["result"][n] != "routed")})
+                      "failed": sum(1 for n in laid["order"] if laid["result"][n] in ("no route found", "ripped")), "partial": partial, "dropped": lost})
     return doc

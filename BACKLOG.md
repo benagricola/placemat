@@ -60,13 +60,6 @@ Specced work first, then the loose ends.
     the user is checking it by eye. If the channel is not usable, find what
     the check does not model.
 
-16. **Routing replay gaps** (studio round 10): the pair router reports
-    commits only (no per-net begin/end, so pair nets get no routed/failed
-    counts); a ripped net's copper is removed for the whole replay instead of
-    at the rip step; the "of N" total grows as each router launch's queue
-    arrives; events dropped on a full queue are missing from the record too;
-    a stopped route leaves a partial record listed with the finished ones.
-
 - **Dead code left by the sweep** (2026-10-03, report in the sweep's
   scratchpad): layout.py (`gap_texts`/`VIA_BUCKET` imports, `_script_line`,
   `_cutout_label`, write-only `_link_index`/`_flip_said`, the 0.39 lock
@@ -319,6 +312,18 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Routing replay gaps** (unreleased, was Next 16): the pair router reports
+  each pair as a net through two hooks, `diff_pair_loop.route_diff_pairs`
+  (`queue`, `queue_end`) and `get_diff_pair_terminals` (`net_begin`, and
+  `net_end` read from `state.routed_net_ids`), so pair nets count as routed
+  or failed; a ripped net's copper is shown until the step that rips it
+  (`x` on the op) in the live view and in a replay; the count "of N" is of
+  the stage (the islands stage says its count up front); a pair is one net
+  "P/N" (it was "?" in a replay and its live rips never matched); events
+  dropped on a full queue are counted (`dropped`) and the studio says the
+  copper may be incomplete; a record says whether it is `complete`, each stage
+  does too, and a stopped route is listed as stopped and replayed as partial.
 
 - **Through-hole pads follow the legend's layer rows** (unreleased, was Next 7): a
   through pad is drawn with the copper layers it spans (`data-ls`) and is

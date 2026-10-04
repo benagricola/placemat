@@ -151,3 +151,25 @@ def test_a_board_with_no_pair_class_has_no_pairs_to_route(tmp_path):
     assert report.pairs == {"coupled": [], "partial": [], "failed": [], "single_ended": []}
     assert not (report.work / "pairs.log").exists()
     assert report.open_after == 0, report.open_nets
+
+
+@needs_kicad
+@needs_router
+def test_the_pair_router_reports_its_pair_as_a_net_with_its_outcome(tmp_path, monkeypatch):
+    import types
+    from placemat import channel, route_progress, route_view
+    sent = []
+    monkeypatch.setattr(channel, "current", lambda: types.SimpleNamespace(send=sent.append))
+    report = _route(tmp_path, route_diff_pair_gap=0.2, route_diff_pair_width=0.2)
+    assert report.pairs["coupled"] == ["D_P/D_N"], report.pairs
+    pair = [e for e in sent if e.get("stage") == "pairs"]
+    assert [(e["ev"], e.get("net")) for e in pair if e["ev"] in ("route_queue", "route_net_begin", "route_net_end")][:3] == [
+        ("route_queue", None), ("route_net_begin", "D_P/D_N"), ("route_net_end", "D_P/D_N")]
+    assert [e for e in pair if e["ev"] == "route_net_end"][0]["ok"] is True
+    assert [e for e in pair if e["ev"] == "route_queue"][0]["nets"] == ["D_P/D_N"]
+    commit = [e for e in pair if e["ev"] == "route_commit"][0]
+    assert commit["net"] == ["D_P", "D_N"]
+    record = route_progress.read_record(Path(report.record))
+    assert record["complete"] is True and all(st["complete"] for st in record["stages"])
+    laid = route_view.lay([e for st in record["stages"] for e in st["events"]])
+    assert laid["result"]["D_P/D_N"] == "routed" and laid["ops"]["D_P/D_N"]
