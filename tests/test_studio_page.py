@@ -400,7 +400,7 @@ click("ko:antenna_clear");
 out.ko = els["#visrules"].textContent;
 out.rules2 = ev('visRules(new Set(["cy", "ko", "cu:F.Cu", "link:ok"]))');
 """)
-    assert out["start"].split("\n") == ["#board .ref { display: none; }", '#board [data-ko="antenna_clear"], #board [data-ko-of="antenna_clear"] { display: none; }', '#board [data-res="fanout of mcu (north side)"] { display: none; }']   # designators, keepouts and reserved areas start hidden
+    assert out["start"].split("\n") == ["#board .ref { display: none; }", "#board .fnds { display: none; }", '#board [data-ko="antenna_clear"], #board [data-ko-of="antenna_clear"] { display: none; }', '#board [data-res="fanout of mcu (north side)"] { display: none; }']   # designators, findings, keepouts and reserved areas start hidden
     for row in ('data-id="cy"', 'data-id="cu:F.Cu"', 'data-id="via"', 'data-id="link:ok"', 'data-id="link:over"', 'data-grp="ko"', 'data-grp="res"', 'data-id="findings"'):
         assert row in out["legend"]
     assert '<em>1</em>' in out["legend"] and "within its limit" in out["legend"]
@@ -521,21 +521,21 @@ out.size = [ev('labelSize("R12", 0.6)'), ev('labelSize("R1", 6)')];
 
 
 @needs_node
-def test_the_header_menu_lists_the_layout_scripts_and_choosing_one_asks_the_server_to_switch(tmp_path):
+def test_the_header_title_opens_the_dialog_that_lists_the_layout_scripts_and_choosing_one_asks_the_server_to_switch(tmp_path):
     out = run_page(tmp_path, r"""
 const scripts = [{id: "m/A_layout.py", title: "A", subtitle: "first", current: true}, {id: "m/B_layout.py", title: "B", subtitle: "", current: false}];
 send("hello", {script: "A_layout.py", title: "A", subtitle: "first board", scripts, keep: 5, history: [], resolving: null, error: null});
 send("started", {id: 1, script: "A_layout.py", at: 0, texts: {"A_layout.py": "board.place()\n", "core_geometry.py": "def f(): pass\n", "placemat.toml": ""}, changed: [], stale_files: []});
 out.title = [els["#board-title"].textContent, els["#board-sub"].textContent];
-els["#menu"].hidden = true; els["#brandbtn"].onclick();
-out.menu = els["#menu"].innerHTML; out.open = els["#menu"].hidden === false;
-els["#menu"].onclick({target: {closest: s => s === "[data-script]" ? {dataset: {script: "m/B_layout.py"}} : null}});
-out.fetched = fetched.map(([u, o]) => [u, o.method, o.body]); out.closed = els["#menu"].hidden;
+els["#brandbtn"].onclick(); flush();
+out.menu = els["#picker"].innerHTML; out.open = els["#picker"].hidden === false;
+els["#picker"].onclick({target: {closest: s => s === "[data-script]" ? {dataset: {script: "m/B_layout.py"}} : null}}); flush();
+out.fetched = fetched.filter(([u, o]) => o).map(([u, o]) => [u, o.method, o.body]); out.closed = els["#picker"].hidden;
 send("switched", {script: "B_layout.py", title: "B", subtitle: "", scripts: scripts.map(s => Object.assign({}, s, {current: !s.current})), keep: 5, history: [], resolving: null, error: null});
 out.after = [els["#board-title"].textContent, ev("S.docs.size"), ev("S.live"), ev("S.status")];
 """)
     assert out["title"] == ["A", "first board"] and out["open"] and out["closed"] is True
-    assert "m/A_layout.py" in out["menu"] and "m/B_layout.py" in out["menu"] and 'class="cur"' in out["menu"] and "core_geometry" not in out["menu"]
+    assert "m/A_layout.py" in out["menu"] and "m/B_layout.py" in out["menu"] and "core_geometry" not in out["menu"] and "Open a script" in out["menu"]
     assert out["fetched"] == [["/switch?t=x", "POST", '{"script":"m/B_layout.py"}']]
     assert out["after"] == ["B", 0, None, "waiting"]
 
@@ -547,12 +547,13 @@ const scripts = [{id: "a/A_layout.py", title: "A", subtitle: "first", current: f
 send("hello", {script: "", picker: true, root: "/work/proj", scripts, keep: 5, history: [], resolving: null, error: null, runs: [], run: null});
 out.picker = [els["#picker"].hidden, els["#picker"].innerHTML]; out.title = els["#board-title"].textContent; out.status = els["#statustext"].textContent; out.run = els["#runbtn"].disabled;
 els["#picker"].onclick({target: {closest: s => s === "[data-script]" ? {dataset: {script: "b/B_layout.py"}} : null}});
-out.fetched = fetched.map(([u, o]) => o.body);
+out.fetched = fetched.filter(([u, o]) => o).map(([u, o]) => o.body);
 send("switched", {script: "B_layout.py", title: "B", subtitle: "second", scripts: scripts.map(s => Object.assign({}, s, {current: s.id[0] === "b"})), keep: 5, history: [], resolving: null, error: null, runs: [], run: null});
 out.after = [els["#picker"].hidden, els["#board-title"].textContent];
 """)
-    assert out["picker"][0] is False and "2 found under" in out["picker"][1] and "/work/proj" in out["picker"][1] and "A_layout.py" in out["picker"][1] and "second" in out["picker"][1]
-    assert out["title"] == "placemat studio" and out["status"] == "choose a script" and out["run"] is True
+    assert out["picker"][0] is False and "Choose what to look at" in out["picker"][1] and "Running now" in out["picker"][1] and "Past runs" in out["picker"][1] and "Open a script" in out["picker"][1]
+    assert "A_layout.py" in out["picker"][1] and "second" in out["picker"][1]
+    assert out["title"] == "placemat studio" and out["status"] == "nothing open" and out["run"] is True
     assert out["fetched"] == ['{"script":"b/B_layout.py"}'] and out["after"] == [True, "B"]
 
 
@@ -1196,7 +1197,8 @@ out.moved = ev("moveShape([[3, 2], [4, 2]], [2, 2, 0], [10, 10, 90])");
 """)
     assert out["first"] == [1, 2] and out["between"] == [1, 4, 3]                                    # variants 2 and 3 arrived between frames
     assert out["later"][0] == 3 and out["later"][1] == 3 and out["later"][2] == [1, 3] and out["dup"] == 4
-    assert "Explore" in out["html"] and "best 8 (seed 3)" in out["html"] and "for the plain placement" in out["html"] and out["html"].count("data-xs=") == 4 and 'data-xt="3"' in out["html"]
+    assert "Explore" in out["html"] and out["html"].count("data-xs=") == 4 and 'data-xt="3"' in out["html"]
+    assert '<span class="fx" style="--w:6ch">8.0</span> <span class="dim">#3, -2.0</span>' in out["html"] and '<span class="fx" style="--w:6ch">10.0</span>' in out["html"]      # the best so far with its seed and its distance from the baseline
     assert out["stepped"][0] is False and out["byscore"] == 2                                        # stepping stops following live; by score, after the plain one (10) comes the best (8)...
     assert "kept" in out["done"]
     assert all(abs(a - b) < 1e-9 for p, q in zip(out["moved"], [[10, 9], [10, 8]]) for a, b in zip(p, q))       # turned a quarter counter-clockwise about its place, carried to the new one
@@ -2089,3 +2091,301 @@ out.dots = (h.match(/class="dots"/g) || []).length; out.badges = [...h.matchAll(
     assert 1 < len(out["long"]) and max(out["long"]) < 40 and sum(out["long"]) == 40
     assert out["apart"] == 3
     assert out["dots"] >= 1 and set(out["badges"]) == {"4", "2"}        # the area of four findings has no dots, the pair has
+
+
+# ---------------------------------------------------------------- opening the studio: what to look at, and what each command is
+OPENING = r"""
+const scripts = [{id: "a/A_layout.py", title: "A", subtitle: "first", current: false}, {id: "b/B_layout.py", title: "B", subtitle: "second", current: false}];
+const PROJ = "/work/proj";
+const cmd = o => Object.assign({id: 4, pid: 4312, command: "run", kind: "explore", label: "try-a", script: PROJ + "/a/A_layout.py", args: [], started: clock / 1000 - 75, state: "running", items: 0, variants: 3}, o);
+const past = [{id: "aaaa0001", status: "ok", score: 4.2, findings: 2, at: 1, script: PROJ + "/a/A_layout.py", label: "first", board: "A", pid: 9},
+  {id: "bbbb0002", status: "running", died: true, score: null, findings: 0, at: 2, script: PROJ + "/b/B_layout.py", label: "", board: "B", pid: 10}];
+const explores = [{file: PROJ + "/a/.placemat/views/explore/e.json", script: PROJ + "/a/A_layout.py", at: 3, pid: 8, tried: 12, best: 9, baseline: 10, kept: true, focus: 2}];
+const helloPicker = (extra = {}) => send("hello", Object.assign({script: "", picker: true, root: PROJ, scripts, keep: 5, history: [], resolving: null, error: null, runs: [], run: null,
+  project_runs: past, explores, routes: [], commands: []}, extra));
+const posts = () => fetched.filter(([u, o]) => o).map(([u, o]) => [u, o.body]);
+const gets = () => fetched.filter(([u, o]) => !o).map(([u]) => u);
+const click = (el, sel, data) => els[el].onclick({target: {closest: s => s === sel ? {dataset: data || {}} : null}});
+"""
+
+
+@needs_node
+def test_with_no_script_the_page_opens_on_a_dialog_that_chooses_what_to_look_at_and_resolves_nothing(tmp_path):
+    out = run_page(tmp_path, OPENING + r"""
+helloPicker();
+send("cmd", cmd({}));
+send("cmd", cmd({id: 5, pid: 4313, command: "preview", kind: "preview", label: "", variants: 0, items: 12}));
+send("cmd", cmd({id: 6, pid: 4314, kind: "run", command: "run", state: "done", ended: clock / 1000, variants: 0}));
+out.dialog = [els["#picker"].hidden, els["#picker"].innerHTML];
+out.state = [ev("S.start"), ev("S.tab"), ev("S.resolving"), els["#statustext"].textContent, els["#runstrip"].hidden];
+out.runs = els["#tab-runs"].innerHTML;
+out.off = ev('S.off.has("findings")');
+out.posts = posts();
+""")
+    hidden, html = out["dialog"]
+    assert hidden is False and html.index("Running now") < html.index("Past runs") < html.index("Open a script")
+    assert html.count('data-cmd="') == 2                                                       # the two running ones; the finished command is not "running now"
+    assert 'class="chip kind kind-explore" title="explore of A_layout.py, label try-a, pid 4312">explore<' in html
+    assert 'class="chip kind kind-preview" title="preview of A_layout.py, pid 4313">preview<' in html
+    assert 'data-runview="aaaa0001"' in html and ">full run<" in html and ">died<" in html and 'data-explore="/work/proj/a/.placemat/views/explore/e.json"' in html
+    assert 'data-script="a/A_layout.py"' in html and "second" in html and "Starts the studio" in html
+    assert out["state"] == [True, "runs", None, "nothing open", True] and out["posts"] == [] and out["off"] is True
+    assert 'data-cmd="6"' in out["runs"] and "Past runs" in out["runs"]                          # the page behind is usable: its Runs tab lists the commands and the past runs
+
+
+@needs_node
+def test_each_choice_in_the_dialog_opens_what_it_names_and_only_a_script_starts_a_resolve(tmp_path):
+    out = run_page(tmp_path, OPENING + r"""
+helloPicker();
+send("cmd", cmd({}));
+click("#picker", "[data-cmd]", {cmd: "4"});
+click("#picker", "[data-runview]", {runview: "aaaa0001"});
+click("#picker", "[data-explore]", {explore: "/work/proj/a/.placemat/views/explore/e.json"});
+out.opened = gets();
+out.posts_before = posts();
+click("#picker", "[data-script]", {script: "b/B_layout.py"}); flush();
+out.posts = posts(); out.start = ev("S.start"); out.hidden = els["#picker"].hidden;
+// the header title opens it again; a click on its backdrop, its close button and Escape close it
+els["#brandbtn"].onclick(); flush(); out.again = [ev("S.start"), els["#picker"].hidden];
+els["#picker"].onclick({target: els["#picker"]}); flush(); out.backdrop = ev("S.start");
+els["#infopop"].hidden = true; els["#menu"].hidden = true;
+els["#brandbtn"].onclick(); flush(); ctx.document.__keys.forEach(f => f({key: "Escape"})); flush(); out.escape = ev("S.start");
+els["#brandbtn"].onclick(); flush(); click("#picker", "#startclose"); out.close = ev("S.start");
+""")
+    assert out["opened"] == ["/cmd/4?t=x", "/runview?run=aaaa0001&t=x", "/explore?f=%2Fwork%2Fproj%2Fa%2F.placemat%2Fviews%2Fexplore%2Fe.json&t=x"]
+    assert out["posts_before"] == [] and out["posts"] == [["/switch?t=x", '{"script":"b/B_layout.py"}']] and out["start"] is False and out["hidden"] is True
+    assert out["again"] == [True, False] and out["backdrop"] is False and out["escape"] is False and out["close"] is False
+
+
+@needs_node
+def test_a_script_given_to_the_command_or_named_in_the_address_is_not_asked_about(tmp_path):
+    out = run_page(tmp_path, OPENING + r"""
+send("hello", {script: "A_layout.py", title: "A", subtitle: "", scripts, keep: 5, history: [], resolving: 1, error: null});
+out.given = [ev("S.start"), els["#picker"].hidden];
+""")
+    assert out["given"] == [False, True]
+    tail = r"""helloPicker({commands: [cmd({})]}); out.start = ev("S.start"); out.posts = posts(); out.gets = gets();"""
+    by_script = run_page(tmp_path, OPENING + tail, hash="s=b%2FB_layout.py")
+    assert by_script["start"] is False and by_script["posts"] == [["/switch?t=x", '{"script":"b/B_layout.py"}']]
+    by_run = run_page(tmp_path, OPENING + tail, hash="run=aaaa0001")
+    assert by_run["start"] is False and by_run["gets"] == ["/runview?run=aaaa0001&t=x"] and by_run["posts"] == []
+    by_cmd = run_page(tmp_path, OPENING + tail, hash="cmd=4")
+    assert by_cmd["start"] is False and by_cmd["gets"] == ["/cmd/4?t=x"]
+
+
+def test_the_default_tab_is_runs():
+    text = PAGE.read_text()
+    assert '<button data-tab="runs" class="on">' in text and '<div class="tab on" id="tab-runs">' in text and 'data-tab="steps" class="on"' not in text
+    assert 'tab: "runs"' in text
+
+
+@needs_node
+def test_a_past_run_shows_its_board_and_findings_under_the_header_as_a_full_run_and_resolves_nothing(tmp_path):
+    out = run_page(tmp_path, OPENING + r"""
+helloPicker();
+const doc = Object.assign({}, BOARD, {items: [item("a", 1)], steps: [{i: 0, item: "a", kind: "part", placed: true, note: "", freedom: "fixed", copper: []}], copper: [], links: [], findings: [
+  {text: "a pad too close", kind: "copper", severity: "warning", at: [2, 2], item: "a", refs: [], pads: []}], unplaced: [], pocketed: [], layers: ["F.Cu"], counts: {placed: 1, findings: 1}, score: {total: 4.2}});
+ev("showRunRecord")({doc, summary: past[0]}); flush();
+out.items = ev("plan().items.map(i => i.key)"); out.findings = ev("plan().findings.length"); out.resolving = ev("S.resolving"); out.posts = posts();
+out.bar = els["#cmdbar"].innerHTML; out.chip = [els["#kindchip"].hidden, els["#kindchip"].className, els["#kindchip"].textContent, els["#kindchip"].title];
+out.head = [els["#board-title"].textContent, els["#board-sub"].textContent, els["#statustext"].textContent, els["#status"].className, els["#picker"].hidden];
+out.hash = ev("viewHash()"); out.stats = els["#stats"].innerHTML;
+out.row = ev("rowRun(" + JSON.stringify(past[0]) + ")");
+""")
+    assert out["items"] == ["a"] and out["findings"] == 1 and out["resolving"] is None and out["posts"] == []
+    assert "Past full run aaaa0001 of A_layout.py, nothing is resolved" in out["bar"] and "kind-run" in out["bar"] and ">Close<" in out["bar"]
+    assert out["chip"] == [False, "chip kind kind-run", "full run", "full run of A_layout.py, label first, run aaaa0001"]
+    assert out["head"] == ["A_layout.py", "first, run aaaa0001", "recorded", "pill accent", True]
+    assert "run=aaaa0001" in out["hash"] and "<b>1</b>placed" in out["stats"] and "<b>1</b>findings" in out["stats"]
+    assert 'title="full run of A_layout.py, label first, run aaaa0001"' in out["row"] and '<span class="chip state done">done</span>' in out["row"]
+
+
+@needs_node
+def test_every_command_says_whether_it_is_a_preview_a_full_run_an_explore_or_a_route(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const cmd = o => Object.assign({id: 4, pid: 4312, command: "run", script: "/p/Core_layout.py", args: [], label: "", started: clock / 1000 - 5, state: "running", items: 0, variants: 0, route: null}, o);
+for (const o of [{id: 1, command: "preview", kind: "preview"}, {id: 2, kind: "run"}, {id: 3, kind: "explore", label: "try-b"}, {id: 4, command: "route", kind: "route"}, {id: 5, command: "preview", kind: undefined}]) send("cmd", cmd(o));
+out.runs = els["#tab-runs"].innerHTML;
+ev("S.cmdView = {id: 3, plan: blankPlan(), summary: S.cmds.get(3), next: 0}"); ev("renderStatus(); renderCmdBar()");
+out.head = [els["#kindchip"].className, els["#kindchip"].textContent, els["#kindchip"].title, els["#board-title"].textContent, els["#board-sub"].textContent, els["#statustext"].textContent, els["#status"].className];
+send("cmd", cmd({id: 3, kind: "explore", state: "error", message: "boom", ended: clock / 1000}));
+out.failed = [els["#statustext"].textContent, els["#status"].className];
+""")
+    for word, cls in (("preview", "kind-preview"), ("full run", "kind-run"), ("explore", "kind-explore"), ("route", "kind-route")):
+        assert 'class="chip kind %s" title="%s of Core_layout.py' % (cls, word) in out["runs"]
+    assert "label try-b, pid 4312" in out["runs"] and out["runs"].count('class="chip kind kind-preview"') == 2          # a summary without a kind is named by its command
+    assert out["head"] == ["chip kind kind-explore", "explore", "explore of Core_layout.py, label try-b, pid 4312", "Core_layout.py", "try-b, pid 4312", "running", "pill busy"]
+    assert out["failed"] == ["failed", "pill error"]
+
+
+@needs_node
+def test_following_an_explore_shows_its_focus_variants_seed_baseline_best_and_time_and_the_board_the_best_so_far(tmp_path):
+    out = run_more(tmp_path, r"""
+const it = Object.assign(item("a", 1), {at: [2, 2], rotation: 0});
+full([it, item("b", 5)], [st("a"), st("b")]);
+ev("S.exploreFps = 100");
+const click = (el, sel, data) => els[el].onclick({target: {closest: s => s === sel ? {dataset: data || {}} : null}});
+send("cmd", {id: 8, pid: 77, command: "run", kind: "explore", label: "x", script: "/p/x.py", args: [], started: clock / 1000 - 30, state: "running", items: 0, variants: 0});
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: S.cmds.get(8), next: 0}");
+const start = {focus: ["a", "b"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2, seconds: 240, seeds: 20, at: clock / 1000 - 30};
+send("cmdev", {id: 8, n: 0, ev: Object.assign({ev: "explore"}, start)});
+const v = (seed, score, x, rot, t) => ({ev: "variant", seed, score, measures: {}, placements: {a: [x, 2, rot, "front"]}, order: ["a"], t});
+const land = (...a) => { clock += 1000; send("cmdev", {id: 8, n: 0, ev: v(...a)}); };
+land(1, 9, 4, 90, 31); land(2, 11, 5, 0, 32); land(3, 8, 6, 180, 33); land(4, 12, 7, 0, 34);
+out.drawn = [ev("S.xv.drawn.seed"), ev("S.xv.bestDrawn.seed"), ev("S.xv.auto")];            // a worse one landed last: the board keeps the best
+out.info = ev("(() => { const I = xvInfo(S.xv); return {focus: I.focus, tried: I.tried, seeds: I.seeds, seed: I.seed, base: I.base, best: I.best.seed, delta: I.delta, running: I.running, budget: I.budget, elapsed: Math.round(I.elapsed / 1000)}; })()");
+ev("renderRuns()"); out.html = els["#tab-runs"].innerHTML; out.bar = els["#cmdbar"].innerHTML;
+out.recent = (out.html.match(/data-xr="\d+"/g) || []).length;
+// a variant picked is kept while better ones land; following the best again returns to the best
+click("#tab-runs", "[data-xs]", {xs: "1"}); out.picked = [ev("S.xv.auto"), ev("S.xv.drawn.seed")];
+land(5, 7, 8, 0, 35); out.picked_after = ev("S.xv.drawn.seed");
+ev("renderRuns()"); out.off_html = els["#tab-runs"].innerHTML;
+click("#tab-runs", "[data-xauto]"); out.back = [ev("S.xv.auto"), ev("S.xv.drawn.seed")];
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_done", best_seed: 5, best: 7, baseline: 10, kept: true}});
+send("cmd", {id: 8, pid: 77, command: "run", kind: "explore", script: "/p/x.py", args: [], started: clock / 1000 - 30, ended: clock / 1000, state: "done", items: 0, variants: 5});
+ev("renderRuns()"); out.done = els["#tab-runs"].innerHTML;
+// the focused item is moved to the variant: turned about the plain spot, then carried
+const g = {dataset: {}, attrs: {}, setAttribute(k, val) { this.attrs[k] = val; }, removeAttribute(k) { delete this.attrs[k]; }};
+ctx.__g = g; ev("B.groups = new Map([['a', [__g]]])");
+ev("xvMoveParts(S.xv, S.xv.variants.find(v => v.seed === 1))"); out.transform = g.attrs.transform;
+ev("xvMoveParts(S.xv, S.xv.variants[0])"); out.reset = [g.attrs.transform === undefined, g.dataset.xmv === undefined];
+""")
+    assert out["drawn"] == [3, 3, True]
+    assert out["info"] == {"focus": ["a", "b"], "tried": 4, "seeds": 20, "seed": 4, "base": 10, "best": 3, "delta": -2, "running": True, "budget": 240000, "elapsed": 34}
+    html = out["html"]
+    assert "a, b" in html and '<span class="fx" style="--w:4ch">4</span> of 20' in html and '<span class="fx" style="--w:5ch">#4</span>' in html
+    assert '<span class="fx" style="--w:6ch">10.0</span>' in html and '<span class="fx" style="--w:6ch">8.0</span> <span class="dim">#3, -2.0</span>' in html and "of 4:00" in html
+    assert "Board: best so far, #3, changes when a better one lands" in html and 'aria-pressed="true"' in html and ">Follow best<" in html and ">running<" in html
+    assert 'class="xline"' in out["bar"] and "variants" in out["bar"] and "seed" in out["bar"] and "best" in out["bar"]
+    assert out["recent"] == 4
+    assert out["picked"] == [False, 1] and out["picked_after"] == 1 and 'aria-pressed="false"' in out["off_html"] and "#1, picked" in out["off_html"]
+    assert out["back"] == [True, 5] and ">kept<" in out["done"]
+    assert out["transform"] == "translate(4 2) rotate(-90) translate(-2 -2)" and out["reset"] == [True, True]
+
+
+# ---------------------------------------------------------------- the findings layer
+@needs_node
+def test_the_findings_layer_is_off_follows_the_findings_tab_and_stays_on_when_turned_on_by_hand(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+WIDE = true;
+const saved = [], removed = [];
+ctx.localStorage = {getItem: () => null, setItem: (k, v) => saved.push([k, v]), removeItem: k => removed.push(k)};
+full([item("a", 1)], [st("a")], {findings: [fnd("a", [10, 10])]});
+const on = () => !ev("S.off").has("findings"), rules = () => els["#visrules"].textContent.includes(".fnds");
+const legend = () => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id: "findings"}} : null}});
+out.start = [on(), rules()];
+ev("goTab")("findings"); out.tab = [on(), rules(), ev("S.tab")];
+ev("goTab")("runs"); out.left = [on(), rules()];
+// hidden by hand while its tab is open: hidden for that visit, and the tab brings it back next time
+ev("goTab")("findings"); legend(); out.hid = [on(), ev("S.findingsHand")]; ev("goTab")("steps"); out.hid_left = on();
+ev("goTab")("findings"); out.again = on(); ev("goTab")("runs");
+// turned on by hand: it stays through the tabs until it is turned off by hand, and the choice is kept in this browser
+legend(); out.hand = [on(), ev("S.findingsHand"), saved.slice()];
+ev("goTab")("findings"); ev("goTab")("steps"); ev("goTab")("runs"); out.stays = on();
+legend(); out.off_by_hand = [on(), ev("S.findingsHand"), removed.slice()];
+// remembered by this viewer: a page that opens with the choice stored has the layer on
+ctx.localStorage = {getItem: () => "on", setItem() {}, removeItem() {}};
+ev("loadFindingsHand(); syncFindingsLayer()"); out.remembered = [ev("S.findingsHand"), on()];
+// no storage: the layer still follows the tab and the legend
+ctx.localStorage = {getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); }, removeItem() { throw new Error("blocked"); }};
+ev("loadFindingsHand()"); ev("S.findingsHand = false; S.findingsTab = false; syncFindingsLayer()");
+legend(); out.blocked = [on(), ev("S.findingsHand")]; legend(); out.blocked_off = on();
+""")
+    assert out["start"] == [False, True] and out["tab"] == [True, False, "findings"] and out["left"] == [False, True]
+    assert out["hid"] == [False, False] and out["hid_left"] is False and out["again"] is True
+    assert out["hand"] == [True, True, [["placemat.findingsLayer", "on"]]] and out["stays"] is True
+    assert out["off_by_hand"][:2] == [False, False] and out["off_by_hand"][2][-1] == "placemat.findingsLayer"
+    assert out["remembered"] == [True, True] and out["blocked"] == [True, True] and out["blocked_off"] is False
+
+
+@needs_node
+def test_on_a_phone_the_layer_follows_the_findings_panel(tmp_path):
+    out = run_more(tmp_path, AREAS + r"""
+full([item("a", 1)], [st("a")], {findings: [fnd("a", [10, 10])]});
+const on = () => !ev("S.off").has("findings");
+ev("showNarrow")("findings"); out.panel = on();
+ev("showNarrow")("board"); out.board = on();                      // looking at the board after the panel: the findings it named are still shown
+ev("showNarrow")("steps"); out.steps = on();
+""")
+    assert out == {"panel": True, "board": True, "steps": False}
+
+
+# ---------------------------------------------------------------- the colour of a chip or a pill means something
+def _stylesheet() -> str:
+    text = PAGE.read_text()
+    return re.sub(r"/\*.*?\*/", "", text[text.index("<style>") + 7:text.index("</style>")], flags=re.S)
+
+
+def _rules(css: str) -> list:
+    """[(selector, declarations)] of every rule, those inside a media query too."""
+    return [(s.strip(), d) for s, d in re.findall(r"([^{}@]+)\{([^{}]*)\}", css)]
+
+
+CHIP_RULES = re.compile(r"\.(chip|pill|sev|fdot)\b")
+
+
+def test_no_chip_or_pill_class_is_grey():
+    """A chip says a state (blue running, green done, yellow warning, red error) or names a kind in a hue of its own. The plain grey of --surface2 on --dim
+    says nothing, and --dim, --ink and the free-space greys are not a chip's colour either."""
+    css = _stylesheet()
+    grey = re.compile(r"(?<![\w-])background:\s*var\(--surface2\)|(?<![\w-])color:\s*var\(--(?:dim|ink)\)|--c:\s*var\(--(?:dim|ink|free|tc|line|surface2)\)")
+    bad = [s for s, d in _rules(css) if CHIP_RULES.search(s) and grey.search(d)]
+    assert bad == []
+    base = {}
+    for s, d in _rules(css):
+        base.setdefault(s, d)
+    assert "--c: var(--accent)" in base[".chip"] and "background: var(--accent-soft)" in base[".pill"]          # without a class they are informational, in blue
+
+
+def test_every_kind_of_step_and_command_and_every_state_has_a_colour_of_its_own():
+    css = _stylesheet()
+    tint = {}                                   # class -> the token a chip of it takes
+    for sel, d in _rules(css):
+        for m in re.finditer(r"\.chip\.([\w-]+)\b", sel):
+            tok = re.search(r"--c:\s*var\(--([\w-]+)\)", d) or re.search(r"color:\s*var\(--([\w-]+)\)", d)
+            if tok:
+                tint[m.group(1)] = tok.group(1)
+    kinds = ["decided", "searched", "rides", "pocket", "track", "via", "plane", "label", "escape", "cutout", "copper", "keepout",
+             "kind-preview", "kind-run", "kind-explore", "kind-route", "kind-apply"]
+    states = {"running": "accent", "done": "good", "error": "bad", "lost": "bad", "unplaced": "bad", "warn": "warn", "refusal": "warn", "good": "good", "bad": "bad"}
+    assert [k for k in kinds if k not in tint] == [] and {k: tint.get(k) for k in states} == states
+    commands = [tint["kind-" + k] for k in ("preview", "run", "explore", "route", "apply")]
+    assert len(set(commands)) == 5 and not set(commands) & {"accent", "good", "bad", "warn"}                 # a kind of command is not mistaken for a state
+    assert tint["escape"] not in ("finding", "warn") and tint["cutout"] != "bad"                              # nor a kind of step for a warning or an error
+
+
+def test_every_class_a_chip_is_given_in_the_page_is_styled():
+    text = PAGE.read_text()
+    css = _stylesheet()
+    script = text[text.index("<script>"):]
+    used = set(re.findall(r'pill\([^()]*?,\s*"([\w-]+)"\)', script)) | set(re.findall(r'class="chip ([a-z][\w-]*)', script))
+    styled = {m for s, _ in _rules(css) for m in re.findall(r"\.chip\.([\w-]+)", s)}
+    assert sorted(used - styled - {"state", "kind"}) == []
+
+
+def _hex(token: str, tokens: dict) -> list:
+    h = tokens[token]
+    return [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+
+
+def _luminance(c) -> float:
+    f = lambda v: v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = map(f, c)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def test_a_chips_text_is_readable_on_its_tint_in_the_light_and_dark_themes():
+    """The text is its colour with a fifth of --ink mixed in, on a 17% tint of the colour over --surface: WCAG contrast of at least 4.5."""
+    css = _stylesheet()
+    dark_at = css.index("@media (prefers-color-scheme: dark)")
+    tokens = {"light": dict(re.findall(r"(--[\w-]+):\s*(#[0-9a-fA-F]{6})", css[:dark_at]))}
+    tokens["dark"] = {**tokens["light"], **dict(re.findall(r"(--[\w-]+):\s*(#[0-9a-fA-F]{6})", css[dark_at:css.index("* { box-sizing")]))}
+    assert "--c: var(--accent); font-size: 11px" in css and "color-mix(in srgb, var(--c) 80%, var(--ink))" in css and "color-mix(in srgb, var(--c) 17%, var(--surface))" in css
+    for theme, tok in tokens.items():
+        for name in ("accent", "courtyard", "tk", "k-violet", "copper", "via", "body", "ref", "k-teal", "k-pink", "copperB"):
+            c, ink, surface = _hex("--" + name, tok), _hex("--ink", tok), _hex("--surface", tok)
+            text = [0.8 * a + 0.2 * b for a, b in zip(c, ink)]
+            ground = [0.17 * a + 0.83 * b for a, b in zip(c, surface)]
+            hi, lo = sorted((_luminance(text), _luminance(ground)), reverse=True)
+            assert (hi + 0.05) / (lo + 0.05) >= 4.5, (theme, name)

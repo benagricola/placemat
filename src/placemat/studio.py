@@ -1101,9 +1101,11 @@ class Studio:
 
     @staticmethod
     def _cmd_summary(c: dict) -> dict:
+        """A command as the page lists it. `kind` is what it is (channel.kind_of: preview, run, explore, route); `command` the name it was typed as."""
         return {k: c.get(k) for k in ("id", "pid", "command", "script", "args", "started", "state", "message", "record", "last", "items",
-                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe", "slow")} | \
-            {"route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results")}}
+                                      "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe", "slow", "label")} | \
+            {"kind": channel.kind_of(c.get("command", ""), c.get("args"), c.get("explore") is not None),
+             "route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results")}}
 
     def commands(self) -> list:
         with self.lock:
@@ -1126,7 +1128,7 @@ class Studio:
             if kind == "hello":
                 run = self._run
                 c = {"id": cid, "pid": ev.get("pid"), "command": ev.get("command", ""), "script": ev.get("script", ""), "args": ev.get("args", []),
-                     "started": time.time(), "state": "running", "items": 0, "variants": 0, "resolves": 0, "log": [], "plan": None, "explore": None,
+                     "label": ev.get("label") or "", "started": time.time(), "state": "running", "items": 0, "variants": 0, "resolves": 0, "log": [], "plan": None, "explore": None,
                      "own_run": run["id"] if run is not None and run.get("pid") == ev.get("pid") else None}
                 self.cmds[cid] = c
                 for old in [k for k, v in self.cmds.items() if v["state"] != "running"][:-self.MAX_CMDS]:
@@ -1210,7 +1212,7 @@ class Studio:
         items = [e for e in events if e.get("ev") == "item"]
         last = items[-1].get("key") if items else None
         c = {"id": cid, "pid": entry.get("pid"), "command": entry.get("command", ""), "script": entry.get("script", ""),
-             "args": entry.get("args", []), "started": entry.get("started") or time.time(), "ended": time.time(), "items": len(items),
+             "args": entry.get("args", []), "label": entry.get("label") or "", "started": entry.get("started") or time.time(), "ended": time.time(), "items": len(items),
              "variants": sum(1 for e in events if e.get("ev") == "variant"), "resolves": sum(1 for e in events if e.get("ev") == "resolve"),
              "log": [], "plan": None, "explore": None, "last": last, "own_run": None}
         if done is not None and done.get("ev") == "done":
@@ -1263,39 +1265,37 @@ class Studio:
 
     def explores(self, limit: int = 20) -> list:
         """The recorded explores of the project's boards (their result files), newest first, as the page lists them."""
-        dirs = set()
-        if self.src is not None:
-            dirs.add(self.src.board_dir / ".placemat" / "views" / "explore")
+        dirs = {d / ".placemat" / "views" / "explore" for d in self.board_dirs()}
         with self.lock:
             for c in self.cmds.values():
                 if c.get("record") and "views" in c["record"] and "explore" in c["record"]:
                     dirs.add(Path(c["record"]).parent)
-        out = []
+        out, files = [], []
         for d in dirs:
             try:
-                files = [f for f in d.glob("*.json")]
+                files += [(f.stat().st_mtime, f) for f in d.glob("*.json")]
             except OSError:
                 continue
-            for f in files:
-                try:
-                    doc = json.loads(f.read_text())
-                except (OSError, ValueError):
-                    continue
-                if doc.get("version") != 1:
-                    continue
-                out.append({"file": str(f), "script": doc.get("script", ""), "at": doc.get("at"), "pid": doc.get("pid"), "tried": len(doc.get("variants", ())),
-                            "best": doc.get("best"), "baseline": doc.get("baseline"), "kept": doc.get("kept"), "focus": len(doc.get("focus", ()))})
+        for _, f in sorted(files, key=lambda x: -x[0])[:limit * 2]:
+            try:
+                doc = json.loads(f.read_text())
+            except (OSError, ValueError):
+                continue
+            if doc.get("version") != 1:
+                continue
+            out.append({"file": str(f), "script": doc.get("script", ""), "at": doc.get("at"), "pid": doc.get("pid"), "tried": len(doc.get("variants", ())),
+                        "best": doc.get("best"), "baseline": doc.get("baseline"), "kept": doc.get("kept"), "focus": len(doc.get("focus", ()))})
         out.sort(key=lambda e: -(e["at"] or 0))
         return out[:limit]
 
     def routes(self, limit: int = 20) -> list:
-        """The recorded routes of this script's board (`.placemat/route/` and each run's `route/`), newest first: each from its small summary file."""
-        if self.src is None:
-            return []
+        """The recorded routes of the project's boards (`.placemat/route/` and each run's `route/`), newest first: each from its small summary file."""
         from . import route_progress
-        base = self.src.board_dir / ".placemat"
-        out = []
-        for rec in [base / "route" / route_progress.RECORD] + sorted(base.glob("runs/*/route/" + route_progress.RECORD)):
+        out, recs = [], []
+        for d in self.board_dirs():
+            base = d / ".placemat"
+            recs += [base / "route" / route_progress.RECORD] + sorted(base.glob("runs/*/route/" + route_progress.RECORD))
+        for rec in recs:
             summ = rec.with_name(route_progress.SUMMARY)
             try:
                 doc = json.loads(summ.read_text())
@@ -1338,11 +1338,10 @@ class Studio:
     def build_record(self, run: str):
         """A run's whole build: its placement (plan.json) and then its route, from the run folder's records."""
         from . import route_progress
-        if self.src is None or not run or "/" in run or run.startswith("."):
+        d = self.run_folder(run, record=False)
+        if d is None or self.root.resolve() not in d.resolve().parents:
             return None
-        d = (self.src.board_dir / ".placemat" / "runs" / run).resolve()
-        if self.root.resolve() not in d.parents:
-            return None
+        d = d.resolve()
         return self._route_doc(d / "route" / route_progress.RECORD, d / "plan.json" if (d / "plan.json").is_file() else None)
 
     def explore_record(self, path: str):
@@ -1390,7 +1389,7 @@ class Studio:
         fail = rec.failure or None
         out = {"id": run_json.parent.name, "run_id": rec.run_id, "label": rec.paths.get("label", "") if isinstance(rec.paths, dict) else "", "status": rec.status, "at": mtime,
                "board": rec.board, "script": rec.paths.get("script", "") if isinstance(rec.paths, dict) else "",
-               "score": score, "findings": len(rec.findings), "severities": sev,
+               "score": score, "findings": len(rec.findings), "severities": sev, "pid": rec.pid,
                "drc": {k: m.get(k) for k in ("drc_real", "outstanding", "other", "permitted", "unconnected") if k in m},
                "airwire_mm": m.get("airwire_mm"), "open_nets": len(m.get("open_nets") or {}),
                "checks": {k: m.get(k) for k in ("checks_failed", "checks_unjudged", "checks_accepted") if k in m},
@@ -1518,6 +1517,75 @@ class Studio:
                           or d["score"] and d["score"]["delta"])
         return {"a": "run " + run_id, "b": b.id, "diff": d, "files": {}, "trace": {"items": {}, "lines": {}}, "run": run_id}
 
+    # ------------------------------------------------------------ the project's past runs
+    def board_dirs(self) -> list:
+        """The board folders of the project's layout scripts (and of the one watched), each once."""
+        seen = []
+        for s in self.scripts():
+            if s["src"].board_dir not in seen:
+                seen.append(s["src"].board_dir)
+        if self.src is not None and self.src.board_dir not in seen:
+            seen.append(self.src.board_dir)
+        return seen
+
+    def project_runs(self, limit: int = 40) -> list:
+        """The recorded runs of every board of the project, newest first, as `runs()` lists a script's, each with its `kind` ("run")."""
+        found = []
+        for d in self.board_dirs():
+            try:
+                for r in (d / ".placemat" / "runs").iterdir():
+                    if r.name.startswith(".") or r.is_symlink():          # a run still being staged; a label that names a run's folder
+                        continue
+                    rj = r / "run.json"
+                    if rj.is_file():
+                        found.append((rj.stat().st_mtime, rj))
+            except OSError:
+                continue
+        out = []
+        for _, rj in sorted(found, key=lambda f: -f[0]):
+            s = self.run_summary(rj)
+            if s is None or (s["status"] == "running" and s["pid"] and channel.pid_alive(s["pid"])):       # a run under way is a command running, not a past run
+                continue
+            out.append({**s, "kind": "run", "died": s["status"] == "running"})            # a record still "running" whose process is gone is a run that died
+            if len(out) >= limit:
+                break
+        return out
+
+    def run_folder(self, run_id: str, record: bool = True) -> Path | None:
+        """A run's folder, if it is one of this project's boards'; with `record`, one that has its run.json."""
+        if not run_id or "/" in run_id or run_id.startswith("."):
+            return None
+        for d in self.board_dirs():
+            f = d / ".placemat" / "runs" / run_id
+            if (f / "run.json").is_file() if record else f.is_dir():
+                return f
+        return None
+
+    def run_view(self, run_id: str) -> dict | None:
+        """A recorded run as the page shows a board it has not resolved: the plan the run kept (plan.json, written by a routed run) or else
+        the board the run wrote, and the run's findings and score. Nothing is resolved. None when the run is not there or kept no board."""
+        from . import route_view
+        from .report import RunRecord
+        folder = self.run_folder(run_id)
+        if folder is None:
+            return None
+        summary = self.run_summary(folder / "run.json")
+        if summary is None:
+            return None
+        base = None
+        try:
+            base = json.loads((folder / "plan.json").read_text())
+        except (OSError, ValueError):
+            pass
+        if base is None:
+            pcb = folder / "layout.kicad_pcb"
+            if not pcb.is_file():
+                return None
+            from .kicad.read import read_board
+            base = route_view.board_doc(read_board(str(pcb)))
+        findings = RunRecord.load(folder / "run.json").findings_with_severity()
+        return {"doc": present.plan(route_view.run_doc(base, findings, summary.get("score"))), "summary": summary}
+
     # ------------------------------------------------------------ comparing
     @staticmethod
     def compare(a: Record, b: Record) -> dict:
@@ -1551,7 +1619,7 @@ class Studio:
         from .finding_text import native_text
         status = native_status()
         common = {"native": status.facts(), "native_text": native_text(status.facts()) if status.warns else "", "now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
-                  "explores": self.explores(), "routes": self.routes(), "explore_fps": self.cfg.studio_explore_fps,
+                  "explores": self.explores(), "routes": self.routes(), "project_runs": self.project_runs(), "explore_fps": self.cfg.studio_explore_fps,
                   "models3d": self.m3d.status(), "models": self.m3d.table(),
                   "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),
                   "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s, "builder": self.builder.hello()}
@@ -1698,6 +1766,13 @@ def _handler(studio: Studio):
                 return self._build(path, query, None)
             if path == "/runs":
                 return self._json(studio.runs())
+            if path == "/explores":
+                return self._json(studio.explores())
+            if path == "/projectruns":
+                return self._json(studio.project_runs())
+            if path == "/runview":
+                doc = studio.run_view(query.get("run", [""])[0])
+                return self._json(doc) if doc is not None else self._refuse(404, "no such run, or it kept no board")
             if path == "/runcompare":
                 out = studio.compare_run(query.get("run", [""])[0])
                 if out is None:

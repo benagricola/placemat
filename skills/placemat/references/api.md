@@ -3467,6 +3467,17 @@ part, then a `copper` step per net in laid order) and `GET /build?run=ID` a run'
 Runs view draws its tracks net by net as they are laid, with the net it is on and the routed and failed counts; a finished one
 replays from its record.
 
+With no `<script>` the page opens on a dialog, "Choose what to look at", over the usual interface (Runs tab first; the findings layer on
+the board is off until the Findings tab is open or the legend turns it on). Its three choices: a command running now (followed live, as a
+background run), a past run (`GET /projectruns` lists every board's `run.json` records; `GET /runview?run=ID` serves one as a plan
+document - the run's `plan.json` when it has one, else the board it wrote with its findings placed from their facts - and resolves
+nothing) or a layout script (`POST /switch`, the only choice that starts the studio's own preview). The header title opens it again.
+The address's hash can name a script (`s=`), a past run (`run=ID`) or a running command (`cmd=ID`). Every command in a list says what it
+is - preview, full run, explore or route - by a chip; a command summary carries `kind` (`channel.kind_of`: a run or preview given
+`--explore`, or one that has sent `explore` events, is an explore) and `label`. Following an explore shows its focus, variants landed (of
+its seeds when it has a fixed number), the seed that landed last, the baseline, the best so far and the time, and the board draws the best
+variant so far; `GET /explores` lists the recorded explores.
+
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. By default the server listens on 127.0.0.1 only. Every request
 needs the token in the address (and a `Host` header the studio listens on);
@@ -4347,7 +4358,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.open` | `true` | bool | open the browser on the page; `--no-open` overrides |
 | `studio.keep` | `10` | count | resolves kept, so the page can compare any two |
 | `studio.poll_ms` | `200` | ms | how often the watched files' modification times are read |
-| `studio.explore_fps` | `2.0` | per second | how many times a second the Runs view redraws the latest variant of a live explore (above 0) |
+| `studio.explore_fps` | `2.0` | per second | how many times a second the board is redrawn for a live explore, to the best variant so far (above 0) |
 | `studio.note_age_s` | `3600` | seconds | a note left in the studio is hidden after this long; 0 keeps it |
 | `studio.notes_keep` | `100` | count | notes kept in a board's notes file |
 | `studio.cancel_grace_ms` | `2000` | ms | a resolve asked to stop that has not stopped by then has its worker restarted |

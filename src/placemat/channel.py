@@ -558,6 +558,14 @@ def reset() -> None:
     _state.update({"checked": False, "reporter": None, "off": False, "hint": None})
 
 
+def kind_of(command: str, args=(), explored: bool = False) -> str:
+    """What a command is, as the studio labels it: `preview`, `run` (a full run), `explore` (a run or a preview given --explore, or one
+    that has sent explore events), `route`, or the command's own name (`apply`, a suggestion's search). A run that routes is still a `run`."""
+    if explored or any(a == "--explore" or str(a).startswith("--explore=") for a in args or ()):
+        return "explore"
+    return command or ""
+
+
 # ------------------------------------------------------------------ placemat watch
 def describe(ev: dict) -> str:
     """One line for an event, for `placemat watch`."""

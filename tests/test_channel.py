@@ -387,3 +387,12 @@ def test_a_progress_file_keeps_each_steps_seconds():
     ev = {"ev": "item", "item": {"key": "ble", "kind": "cell", "placed": True, "note": "", "seconds": 12.5, "first_seconds": None}}
     kept = channel.compact(ev)
     assert kept["seconds"] == 12.5 and kept["first_seconds"] is None
+
+
+def test_a_command_is_named_by_what_it_is_for_the_studio():
+    assert channel.kind_of("preview", ["preview", "x.py"]) == "preview"
+    assert channel.kind_of("run", ["run", "x.py", "--route"]) == "run"                      # a run that routes is still a full run
+    assert channel.kind_of("run", ["run", "x.py", "--explore", "60"]) == "explore"
+    assert channel.kind_of("preview", ["preview", "x.py", "--explore=30"]) == "explore"
+    assert channel.kind_of("run", ["run", "x.py"], explored=True) == "explore"             # explore events say it is one whatever its arguments were
+    assert channel.kind_of("route", ["route", "x.pcb"]) == "route" and channel.kind_of("apply", None) == "apply" and channel.kind_of("", ()) == ""

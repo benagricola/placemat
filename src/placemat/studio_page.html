@@ -21,6 +21,8 @@
   --keepout: #d6336c; --reserve: #3b6fe0; --ok: #1a7f47; --over: #d1342f; --free: #8a929d; --pocket: #e8590c; --finding: #d97706; --ref: #26396b;
   --copperB: #2f6fb8; --copperIn: #2e8b57; --tk: #a626a4; --ts: #2a7a3b; --tc: #7a8490; --tn: #b5560a; --tf: #1f5fbf; --td: #9a5b00;
   --sev-notice: #2563eb; --sev-warning: #9a5b00; --sev-critical: #c8312c;
+  /* hues for what a chip names (a kind of step or command), apart from the state colours: blue running, green done, yellow warning, red error */
+  --k-teal: #0b7285; --k-violet: #6d3fc4; --k-pink: #b02a75;
   --shadow: 0 1px 2px rgba(0,0,0,0.08), 0 4px 14px rgba(0,0,0,0.10);
 }
 @media (prefers-color-scheme: dark) {
@@ -33,6 +35,7 @@
     --keepout: #ff6b9a; --reserve: #6f9cff; --ok: #4cc27e; --over: #ff6a62; --free: #7d8793; --pocket: #ff8a4d; --finding: #f5a524; --ref: #b4c4ee;
     --copperB: #6aa3ff; --copperIn: #5dc48a; --tk: #d196ff; --ts: #8fd18f; --tc: #7d8794; --tn: #ffb070; --tf: #7fb2ff; --td: #f0c060;
     --sev-notice: #6f9cff; --sev-warning: #f0b24a; --sev-critical: #ff7a73;
+    --k-teal: #4cc9d9; --k-violet: #b79bff; --k-pink: #f27fb8;
     --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 4px 14px rgba(0,0,0,0.45);
   }
 }
@@ -57,10 +60,14 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 #menu button.cur { background: var(--accent-soft); }
 #menu .sub, #picker .sub { color: var(--dim); font-size: 12px; }
 #menu code, #picker code { color: var(--dim); font-size: 11.5px; overflow-wrap: anywhere; }
-#picker { position: absolute; inset: 0; z-index: 15; overflow: auto; background: var(--bg); padding: 24px 16px; }
+#picker { position: absolute; inset: 0; z-index: 15; overflow: auto; background: color-mix(in srgb, var(--bg) 80%, transparent); padding: 24px 16px; }
 #picker[hidden] { display: none; }
-#picker .box { max-width: 640px; margin: 0 auto; }
-#picker h2 { margin: 0 0 4px; font-size: 18px; } #picker p { margin: 0 0 14px; color: var(--dim); }
+#picker .box { max-width: 720px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 14px 16px 10px; }
+#picker .bh { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; } #picker .bh h2 { flex: 1; }
+#picker .bh .x { border: 0; background: none; font-size: 22px; line-height: 1; color: var(--dim); padding: 0 6px; }
+#picker h2 { margin: 0 0 4px; font-size: 18px; } #picker p { margin: 0 0 8px; color: var(--dim); }
+#picker h3 { margin: 12px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); }
+#picker .row { border-radius: 8px; }
 #picker button.pick { border: 1px solid var(--line); background: var(--surface); margin-bottom: 8px; padding: 10px 12px; }
 #runbtn.busy { opacity: 0.7; }
 #morebtn { display: none; font-size: 18px; line-height: 1; padding-top: 4px; padding-bottom: 6px; }
@@ -109,9 +116,28 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #cmdbar button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 6px; padding: 1px 10px; }
 #toast { position: fixed; z-index: 70; left: 50%; transform: translateX(-50%); top: 64px; max-width: calc(100vw - 24px); background: var(--surface); color: var(--ink); border: 1px solid var(--accent); border-radius: 999px; box-shadow: var(--shadow); padding: 6px 16px; cursor: pointer; font-weight: 600; }
 #toast[hidden] { display: none; }
-.row.cmd .chip.running { --c: var(--accent); } .row.cmd .chip.done { --c: var(--good); } .row.cmd .chip.error, .row.cmd .chip.lost { --c: var(--bad); }
-.row.cmd .chip.running, .row.cmd .chip.done, .row.cmd .chip.error, .row.cmd .chip.lost { background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
+/* what a command is: a hue for each kind, apart from the state colours (running blue, done green, failed red) */
+.chip.state { min-width: 7ch; text-align: center; }
+#status { min-width: 12ch; justify-content: center; }
+.fx { display: inline-block; min-width: var(--w, 3ch); text-align: right; }
+#nothing { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; pointer-events: none; }
+#nothing[hidden] { display: none; }
+#nothing button { pointer-events: auto; }
 .xv { padding: 6px 12px 12px; }
+.xv .xh { display: flex; align-items: center; gap: 8px; padding: 0 0 6px; }
+.xv .xh h3 { margin: 0; padding: 0; }
+.xv .xf { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 4px 12px; margin: 0 0 8px; }
+.xv .xc .k { display: block; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.xv .xc .v { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xv .xshow { margin: 2px 0 4px; }
+.xv .xlist { margin: 4px 0; font-size: 12px; }
+.xv .xlist .xl { display: grid; grid-template-columns: 6ch 7ch 1fr; gap: 8px; padding: 1px 4px; border-radius: 4px; cursor: pointer; }
+.xv .xlist .xl:hover { background: var(--hover); }
+.xv .xlist .xl.best { color: var(--good); font-weight: 600; }
+.xv .xctl button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+#cmdbar .xline { font-weight: 500; }
+.row.cmd.step .l2 { white-space: normal; overflow: visible; }
+#cmdbar .cbt { font-weight: 600; }
 .xv svg.plot { width: 100%; height: 130px; display: block; background: var(--surface2); border-radius: 8px; }
 .xv .xctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
 .xv .xctl button, .xv .xctl select { border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 1px 9px; }
@@ -126,13 +152,14 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .xarr { stroke: var(--mark); stroke-width: 0.12; fill: none; pointer-events: none; } .xarr.best { stroke: var(--good); }
 .xdens { fill: var(--accent); fill-opacity: 0.25; pointer-events: none; }
 [hidden] { display: none !important; }       /* an element hidden by the page stays hidden whatever display its class sets */
-.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; background: var(--surface2); color: var(--dim); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; flex: none; }
 .pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .pill.live { background: var(--good-soft); color: var(--good); }
 .pill.busy { background: var(--accent-soft); color: var(--accent); }
 .pill.busy i { animation: pulse 1s ease-in-out infinite; }
 .pill.stale { background: var(--warn-soft); color: var(--warn); }
 .pill.error { background: var(--bad-soft); color: var(--bad); }
+.pill.accent { background: var(--accent-soft); color: var(--accent); }
 /* a resolve is running: a spinner, the time, the steps so far, and the step being worked on */
 /* the running status is a strip above the timeline: the same fields as the step display, a bar, the time */
 #runstrip { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 5px 10px; color: var(--accent); font-weight: 600; }
@@ -348,21 +375,21 @@ span.info { display: inline-block; text-align: center; }
 .unpbody .cs { margin-top: 4px; } .unpbody .cs:first-child { margin-top: 0; }
 .refrow { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 5px; }
 .blk { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
-.chip.refusal { background: var(--surface2); color: var(--ink); }
 a.chip.act { cursor: pointer; }
 .row .dur { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row .n { color: var(--dim); min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.open .n, .row .n.wrap { white-space: normal; }
 .row .go { display: none; border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 1px 8px; flex: none; }
-.chip { font-size: 11px; line-height: 17px; padding: 0 7px; border-radius: 999px; background: var(--surface2); color: var(--dim); flex: none; font-weight: 600; }
+/* A chip is tinted by --c: informational blue unless its class says what it is. A kind of step or command has a hue of its own, and a state has the state's. Never grey. */
+.chip { --c: var(--accent); font-size: 11px; line-height: 17px; padding: 0 7px; border-radius: 999px; background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: color-mix(in srgb, var(--c) 80%, var(--ink)); flex: none; font-weight: 600; }
 /* a step's kind has its own colour from the board's palette: a tint of it behind the colour itself */
-.chip.decided, .chip.searched, .chip.pocket, .chip.rides, .chip.track, .chip.via, .chip.plane, .chip.label, .chip.escape, .chip.cutout, .chip.copper, .chip.keepout, .chip.unplaced { background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
-.chip.decided { --c: var(--accent); } .chip.searched { --c: var(--courtyard); } .chip.pocket { --c: var(--pocket); } .chip.rides { --c: var(--good); }
-.chip.track { --c: var(--copper); } .chip.via { --c: var(--via); } .chip.plane { --c: var(--copperIn); } .chip.label { --c: var(--ref); } .chip.escape { --c: var(--finding); } .chip.cutout { --c: var(--keepout); } .chip.copper { --c: var(--copper); }
-.chip.keepout { --c: var(--keepout); } .chip.unplaced { --c: var(--bad); }
-.chip.bad { background: var(--bad-soft); color: var(--bad); }
-.chip.warn { background: var(--warn-soft); color: var(--warn); } .chip.good { background: var(--good-soft); color: var(--good); }
-.chip.net { background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: 11.5px; }
+.chip.decided, .chip.running, .chip.phase { --c: var(--accent); } .chip.searched { --c: var(--courtyard); } .chip.pocket { --c: var(--tk); } .chip.rides { --c: var(--k-violet); }
+.chip.track, .chip.copper { --c: var(--copper); } .chip.via { --c: var(--via); } .chip.plane { --c: var(--body); } .chip.label { --c: var(--ref); } .chip.escape { --c: var(--k-teal); }
+.chip.cutout, .chip.keepout { --c: var(--k-pink); }
+.chip.kind-preview { --c: var(--k-teal); } .chip.kind-run { --c: var(--courtyard); } .chip.kind-explore { --c: var(--k-pink); } .chip.kind-route { --c: var(--copper); } .chip.kind-apply { --c: var(--k-violet); }
+.chip.bad, .chip.error, .chip.lost, .chip.unplaced { background: var(--bad-soft); color: var(--bad); }
+.chip.warn, .chip.refusal { background: var(--warn-soft); color: var(--warn); } .chip.good, .chip.done { background: var(--good-soft); color: var(--good); }
+.chip.net { font-family: var(--mono); font-size: 11.5px; }
 h3 { margin: 0; padding: 12px 12px 5px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); font-weight: 650; }
 h3.fold { cursor: pointer; display: flex; gap: 6px; }
 h3 .c { font-weight: 500; }
@@ -415,9 +442,6 @@ a.srcl { color: var(--accent); font-family: var(--mono); font-size: 11.5px; curs
 .kvv { overflow-wrap: anywhere; }
 .sep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: pre; }      /* copied as "label: value", not seen */
 .val { font-weight: 600; } .val.bad { color: var(--bad); } .val.warn { color: var(--warn); } .val.good { color: var(--good); }
-.chip.prio-high { --c: var(--bad); background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
-.chip.prio-low { --c: var(--dim); }
-.chip.face-front, .chip.face-back { background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
 .chip.face-front { --c: var(--copper); } .chip.face-back { --c: var(--copperB); }
 #card .lrow { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; cursor: pointer; font-size: 12px; }
 #card .lrow .num { margin-left: auto; white-space: nowrap; }
@@ -565,8 +589,8 @@ svg text { user-select: none; font-family: var(--sans); }
 <body>
 <div id="infopop" role="tooltip" hidden></div>
 <header>
-  <button class="brand" id="brandbtn" aria-haspopup="menu" aria-expanded="false" title="switch to another layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
-  <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
+  <button class="brand" id="brandbtn" aria-haspopup="dialog" aria-expanded="false" title="choose what to look at: a command running now, a past run or a layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
+  <span class="chip kind" id="kindchip" hidden></span><span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
   <span class="pill stale" id="nativepill" hidden>native off</span>
   <div class="flds" id="runhead" hidden></div>
   <button class="tool" id="runbtn" title="placemat run: writes the board, runs the design checks and KiCad's DRC, scores and records the run; the live view is only a preview">Full run</button>
@@ -587,6 +611,7 @@ svg text { user-select: none; font-family: var(--sans); }
   <div id="boardwrap">
     <svg id="grid" xmlns="http://www.w3.org/2000/svg"></svg>
     <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="nothing" hidden><b>No board is open</b><span class="dim">Follow a command running in this project, open a past run, or open a layout script.</span><button class="tool" id="nothingpick">Choose what to look at</button></div>
     <div id="bar">
       <div class="seg" id="facebar"><button data-face="front">Front</button><button data-face="back">Back</button><button data-face="both">Both</button></div>
       <div class="seg" id="modebar" title="draw the board flat (2D) or built (3D, from the parts' real models)"><button data-mode="2d" class="on">2D</button><button data-mode="3d">3D</button></div>
@@ -605,11 +630,11 @@ svg text { user-select: none; font-family: var(--sans); }
     <button class="edge" id="sidetoggle" aria-label="hide the side panel" title="hide the side panel"></button>
   </div>
   <div id="side">
-    <div class="tabs"><button data-tab="steps" class="on">Steps<em data-count="steps"></em></button><button data-tab="findings">Findings<em data-count="findings"></em></button><button data-tab="compare">Compare<em data-count="compare"></em></button><button data-tab="runs">Runs<em data-count="runs"></em></button><button data-tab="notes" hidden>Notes<em data-count="notes"></em></button></div>
-    <div class="tab on" id="tab-steps"></div>
+    <div class="tabs"><button data-tab="steps">Steps<em data-count="steps"></em></button><button data-tab="findings">Findings<em data-count="findings"></em></button><button data-tab="compare">Compare<em data-count="compare"></em></button><button data-tab="runs" class="on">Runs<em data-count="runs"></em></button><button data-tab="notes" hidden>Notes<em data-count="notes"></em></button></div>
+    <div class="tab" id="tab-steps"></div>
     <div class="tab" id="tab-findings"></div>
     <div class="tab" id="tab-compare"></div>
-    <div class="tab" id="tab-runs"></div>
+    <div class="tab on" id="tab-runs"></div>
     <div class="tab" id="tab-notes"></div>
   </div>
   <div id="picker" hidden></div>
@@ -655,6 +680,9 @@ const S = {
   cmdView: null,               // a command's streamed plan shown in place of the studio's own: {id, plan, next}
   xv: null,                    // the explore being looked at: {source, id|file, start, variants, done, sel, mode, auto, drawn, thumbs, density, lastDraw}
   exploreFps: 2,
+  start: null,                 // the dialog that chooses what to look at is open; null until the first hello says whether anything is chosen
+  projectRuns: [],             // the recorded runs of every board of the project (run.json), newest first
+  findingsHand: false, findingsTab: false,   // the findings layer: turned on by hand in the legend (kept in this browser), and on while the Findings tab is open
   routes: [],                  // recorded routes of this script's board (their summaries): replayed from their records
   sg: {more: new Set(), busy: null, show: null, note: null, src: false, confirm: null, found: {}, asked: new Set()},   // suggestions: the finding slots opened, a try in flight, the diff shown, what the last apply said
   try: null,                   // a try shown, not written: {id, base, suggestion, cleared, gained, lost, moved, score, applied}
@@ -667,9 +695,9 @@ const S = {
   replay: null,                // null: every placement step shown; k: the first k placement steps
   play: null,                  // the running replay: {t0, k0, rate, n}
   liveQ: [],                   // streamed items waiting to be added to the drawing
-  face: "both", off: new Set(["labels"]), seenRegions: new Set(),   // off: what the legend has switched off
+  face: "both", off: new Set(["labels", "findings"]), seenRegions: new Set(),   // off: what the legend has switched off
   selRef: null, selRegion: null, module: null, sevFilter: "",
-  view: null, tab: "steps", file: null, cmpFile: null, sbs: false, openRows: new Set(), showOther: false, closedKinds: new Set(), cardOff: null, cardLinks: false, sliding: false,
+  view: null, tab: "runs", file: null, cmpFile: null, sbs: false, openRows: new Set(), showOther: false, closedKinds: new Set(), cardOff: null, cardLinks: false, sliding: false,
 };
 
 function plan() {                      // the plan to draw
@@ -717,7 +745,8 @@ function schedule(...parts) {
 function render(parts) {
   const all = parts.includes("all");
   const has = p => all || parts.includes(p);
-  if (has("status") || has("scripts")) { renderStatus(); renderPicker(); }
+  if (has("status") || has("scripts")) renderStatus();
+  if (has("status") || has("scripts") || has("start") || (has("runs") && S.start)) renderPicker();
   if (has("board") && S.mode !== "3d") renderBoard();
   if (has("steps")) renderSteps();
   if (has("findings")) renderFindings();
@@ -757,22 +786,28 @@ function applyHello(d) {
   if (S.restore && S.restore.s && !S.restore.switched && S.restore.s !== currentScriptId()) { S.restore.switched = true; switchTo(S.restore.s); }    // the address names another script
   S.cmds = new Map((d.commands || []).map(c => [c.id, c])); S.explores = d.explores || []; S.routes = d.routes || []; S.exploreFps = d.explore_fps || 2;
   S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0, regenerate: !!d.run.regenerate} : null; S.lastRun = null;
-  $("#board-title").textContent = d.picker ? "placemat studio" : (d.title || d.script);
-  $("#board-sub").textContent = d.picker ? (d.scripts || []).length + " found" : (d.subtitle || "");
   const np = $("#nativepill"); np.hidden = !d.native_text; np.title = d.native_text || "";
   document.title = (d.picker ? "placemat studio" : (d.title || d.script) + " - placemat studio");
+  S.projectRuns = d.project_runs || S.projectRuns;
+  const r = S.restore;
+  // The first hello says whether anything is chosen: with no script given, and none named in the address, the page asks what to look at.
+  if (S.start === null) S.start = !!d.picker && !(r && (r.s || r.run || r.cmd));
+  if (r && r.run && !r.runOpened) { r.runOpened = true; openRunRecord(r.run); }
+  if (r && r.cmd && !r.cmdOpened && S.cmds.has(+r.cmd)) { r.cmdOpened = true; openCmd(+r.cmd); }
 }
 on("hello", d => { applyHello(d); schedule("all"); });
 on("scripts", d => { S.scripts = d.scripts; schedule("script", "scripts"); });
 on("run_started", d => { S.run = {id: d.id, lines: [], t0: d.at, regenerate: !!d.regenerate}; S.lastRun = null; S.regenError = null; schedule("status", "compare"); });
 
-on("run_done", d => { S.regenError = S.run && S.run.regenerate && d.code !== 0 ? (d.tail || []).slice(-3).join(" ") || "the run ended with exit code " + d.code + "; the Runs tab has its record" : null; S.run = null; S.lastRun = d; S.runs = d.runs || S.runs; if (d.run) S.openRuns.add(d.run.id); schedule("status", "compare"); });
+on("run_done", d => { refreshPast(); S.regenError = S.run && S.run.regenerate && d.code !== 0 ? (d.tail || []).slice(-3).join(" ") || "the run ended with exit code " + d.code + "; the Runs tab has its record" : null; S.run = null; S.lastRun = d; S.runs = d.runs || S.runs; if (d.run) S.openRuns.add(d.run.id); schedule("status", "compare"); });
 on("switched", d => {                     // the studio now watches another layout script: nothing of the old one stays
   stopPlay(); S.work = null;
   S.docs.clear(); S.live = null; S.shownId = null; S.latestId = null; S.cmp = null; S.baseId = null; S.texts = {}; S.changed = [];
   S.sel = null; S.selRef = null; S.module = null; S.selRegion = null; S.marked = new Set(); S.replay = null; S.liveQ = [];
   S.file = null; S.cmpFile = null; S.stale = false; S.status = "waiting"; S.follow = true; S.view = null; lay = null;
+  S.cmdView = null; S.xv = null; renderCmdBar();
   applyHello(d);
+  S.start = !!d.picker;
   schedule("all");
 });
 on("state", d => {                       // the latest resolve, whole
@@ -912,13 +947,31 @@ function statNumbers(p, rec) {
   if (rec && rec.timing) out.push(["s", rec.timing.total_s, ""]);
   return out;
 }
+// What the header says of a command being followed or a record being looked at: its kind, its script and its state.
+const STATE_WORD = {running: "running", done: "done", error: "failed", lost: "lost", recorded: "recorded"};
+const STATE_PILL = {running: "busy", done: "live", error: "error", lost: "error", recorded: "accent"};
+function viewState() {
+  const V = S.cmdView, X = S.xv;
+  if (V) {
+    const s = V.summary || {}, c = V.record || V.replay ? s : (S.cmds.get(V.id) || s);
+    return {kind: kindOf(c), script: c.script || "", label: c.label || "", pid: V.record || V.replay ? "" : c.pid || "", run: s.run || "", state: V.record || V.replay ? "recorded" : c.state || "running"};
+  }
+  if (X) return {kind: "explore", script: X.script || "", label: "", pid: "", run: "", state: "recorded"};
+  return null;
+}
 function renderStatus() {
-  const b = $("#status");
-  const label = S.hello && S.hello.picker ? "choose a script" : S.run && S.run.regenerate ? "regenerating" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
-  $("#statustext").textContent = typeof label === "string" ? label : label;
+  const b = $("#status"), vs = viewState(), pick = !!(S.hello && S.hello.picker);
+  const kc = $("#kindchip"); kc.hidden = !vs;
+  if (vs) { kc.className = "chip kind kind-" + vs.kind; kc.textContent = kindWord(vs.kind); kc.title = kindTitle(vs); }
+  const head = vs ? [baseName(vs.script) || "placemat studio", [vs.label, vs.pid ? "pid " + vs.pid : "", vs.run ? "run " + vs.run : ""].filter(Boolean).join(", ")]
+    : pick ? ["placemat studio", "choose what to look at"] : [(S.hello && (S.hello.title || S.hello.script)) || "placemat studio", (S.hello && S.hello.subtitle) || ""];
+  $("#board-title").textContent = head[0]; $("#board-sub").textContent = head[1];
+  $("#nothing").hidden = !(pick && !vs && !S.start);
+  const label = vs ? STATE_WORD[vs.state] : pick ? "nothing open" : S.run && S.run.regenerate ? "regenerating" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
+  $("#statustext").textContent = label;
   const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Full run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
   rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = $("#sharebtn").hidden = !!(S.hello && S.hello.picker);
-  b.className = "pill " + (S.run && S.run.regenerate ? "busy" : {live: "live", resolving: "busy", stale: "stale", error: "error", try: "stale", disconnected: "error"}[S.status] || "");
+  b.className = "pill " + (vs ? STATE_PILL[vs.state] : pick ? "accent" : S.run && S.run.regenerate ? "busy" : {live: "live", resolving: "busy", stale: "stale", error: "error", try: "stale", disconnected: "error"}[S.status] || "accent");
   const rec = S.docs.get(S.shownId), p = plan();
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
   const n = $("#notice");
@@ -1575,6 +1628,25 @@ function visRules(off) {
   return out.join("\n");
 }
 function applyVisibility() { $("#visrules").textContent = visRules(S.off); }
+// The findings layer is off on the board until it is asked for: it is on while the Findings tab is open and off again when the tab is left,
+// unless the viewer turned it on by hand in the legend, which keeps it on until they turn it off. That choice is kept in this browser.
+const FINDINGS_HAND = "placemat.findingsLayer";
+function loadFindingsHand() { try { S.findingsHand = localStorage.getItem(FINDINGS_HAND) === "on"; } catch (e) { /* no storage: the layer follows the tab */ } }
+loadFindingsHand();
+function saveFindingsHand() { try { if (S.findingsHand) localStorage.setItem(FINDINGS_HAND, "on"); else localStorage.removeItem(FINDINGS_HAND); } catch (e) { /* kept for this page only */ } }
+function syncFindingsLayer() {
+  const want = S.findingsHand || S.findingsTab;
+  if (want === !S.off.has("findings")) return;
+  if (want) S.off.delete("findings"); else S.off.add("findings");
+  applyVisibility(); schedule("legend");
+}
+// The tab shown changes (a wide screen's sidebar, a phone's panels): the layer follows it.
+function setTab(name) {
+  S.tab = name;
+  S.findingsTab = name === "findings";
+  syncFindingsLayer();
+}
+syncFindingsLayer();
 // Keepouts and reserved areas start hidden: a region the page has not seen yet is switched off once, so the choice
 // to show one stays through later resolves.
 // A keepout is drawn as a region and as the reservation it made ("keepout 'name' (why)"): the reservation follows the
@@ -1620,6 +1692,11 @@ function toggleOff(id) {
     }
   }
   if (S.off.has(id)) S.off.delete(id); else S.off.add(id);
+  if (id === "findings") {               // by hand: shown stays until it is hidden by hand; hiding it while its tab is open hides it for that visit
+    S.findingsHand = !S.off.has("findings");
+    if (!S.findingsHand) S.findingsTab = false;
+    saveFindingsHand();
+  }
   applyVisibility(); renderLegend();
 }
 
@@ -2657,10 +2734,13 @@ $("#file").addEventListener("change", e => {
 // Switching to another layout script: the same request from the header menu and from the picker.
 function switchTo(id) {
   closeMenu();
-  if (id === currentScriptId() && !(S.hello && S.hello.picker)) return;
+  const was = S.start;
+  S.start = false; schedule("start", "status");
+  if (id === currentScriptId() && !(S.hello && S.hello.picker)) { if (S.cmdView || S.xv) closeCmd(); return; }       // already the script the studio resolves
+  if (S.cmdView || S.xv) { S.cmdView = null; S.xv = null; renderCmdBar(); }
   fetch("/switch?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({script: id})})
     .then(r => { if (!r.ok) return r.text().then(m => { throw new Error(m); }); })
-    .catch(err => { S.restore = null; const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not switch: " + err.message; });
+    .catch(err => { S.restore = null; S.start = was; schedule("start", "status"); const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not switch: " + err.message; });
 }
 function gotoLine(file, n) { openScript(file, n); }
 function stepChange(dir) {
@@ -2779,15 +2859,34 @@ function toast(text, onclick) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 9000);
 }
 const baseName = f => String(f || "").split("/").pop();
+// ---------------------------------------------------------------- what a command is
+// Every command the studio shows, running or past, says what it is: a preview, a full run, an explore or a route. The server names it
+// (`kind`, channel.kind_of); a summary with no kind is named by its command. The hover text has its script, its label and its pid.
+const KIND_WORD = {preview: "preview", run: "full run", explore: "explore", route: "route", apply: "search"};
+const kindOf = c => (c && (c.kind || c.command)) || "";
+const kindWord = k => KIND_WORD[k] || k || "command";
+function kindTitle(c) {
+  const bits = [kindWord(kindOf(c)) + (c.script ? " of " + baseName(c.script) : "")];
+  if (c.label) bits.push("label " + c.label);
+  if (c.pid) bits.push("pid " + c.pid);
+  if (c.run) bits.push("run " + c.run);
+  return bits.join(", ");
+}
+const kindChip = c => '<span class="chip kind kind-' + escRaw(kindOf(c)) + '" title="' + esc(kindTitle(c)) + '">' + esc(kindWord(kindOf(c))) + "</span>";
+// The lists of what has run, as the Runs tab and the dialog that chooses what to look at show them. Opening a past one resolves nothing.
+function refreshPast() {
+  for (const [url, set] of [["/projectruns", r => { S.projectRuns = r; }], ["/explores", r => { S.explores = r; }], ["/routes", r => { S.routes = r; }]])
+    getJSON(url).then(r => { set(r); schedule("runs", "start"); }).catch(() => {});
+}
 on("cmd", c => {
-  const fresh = !S.cmds.has(c.id);
+  const was = S.cmds.get(c.id), fresh = !was;
   S.cmds.set(c.id, c);
-  if (c.route && c.state !== "running" && fresh === false) getJSON("/routes").then(r => { S.routes = r; schedule("runs"); }).catch(() => {});
+  if (was && was.state === "running" && c.state !== "running") refreshPast();
   if (fresh && c.state === "running" && !(S.run && S.run.pid && S.run.pid === c.pid))
-    toast(c.command + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { goTab("runs"); openCmd(c.id); });
-  if (S.cmdView && S.cmdView.id === c.id && S.cmdView.route) renderCmdBar();
+    toast(kindWord(kindOf(c)) + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { goTab("runs"); openCmd(c.id); });
+  if (S.cmdView && S.cmdView.id === c.id) { renderCmdBar(); schedule("status"); }
   if (c.probe) schedule("findings", "card", "steps");
-  schedule("runs", "counts");
+  schedule("runs", "counts", "start");
 });
 // A step a command found past its time (--step-warn, --step-limit): the item, its seconds and the pass it was in.
 const SLOW_PASS = {coarse: "coarse", coarse_half: "coarse", fine: "fine", refine: "refine", give_way: "give-way", scan: "scan", seeding: "seeding", declared: "declared"};
@@ -2871,14 +2970,26 @@ function routeEvent(V, P, ev) {
 }
 const routeLine = (R, V) => !R ? "" : R.off ? "no progress for this route: " + R.off : (R.finished || (V && S.cmds.has(V.id) && S.cmds.get(V.id).state !== "running")) ? "route finished: " + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") :
   "net " + Math.min(R.total || 1, R.done + R.failed + 1) + " of " + (R.total || "?") + (R.current ? ": " + R.current : "") + ", " + R.done + " routed, " + R.failed + " failed";
+// Opening something to look at closes the dialog that chose it. A past one shows its board and findings and resolves nothing.
+function looking() { S.start = false; S.view = null; lay = null; S.replay = null; }
 async function openRoute(file, run) {
   try {
     const d = await getJSON(run ? "/build?run=" + encodeURIComponent(run) : "/route?f=" + encodeURIComponent(file));
-    S.cmdView = {id: "route:" + (run || file), plan: d.doc, summary: {command: run ? "build replay" : "route replay", script: (d.board && d.board.script) || "", pid: ""}, next: 0, fitted: false, replay: true, route: {total: d.doc.route.nets, done: d.doc.route.routed, failed: d.doc.route.failed, finished: true, results: {}, step: {}}};
-    S.xv = null; S.replay = null;
-    S.view = null; lay = null;
+    const sc = (d.board && d.board.script) || "";
+    S.cmdView = {id: "route:" + (run || file), plan: d.doc, summary: {command: run ? "build replay" : "route replay", kind: run ? "run" : "route", script: sc, pid: "", run: run || ""}, next: 0, fitted: false, replay: true, route: {total: d.doc.route.nets, done: d.doc.route.routed, failed: d.doc.route.failed, finished: true, results: {}, step: {}}};
+    S.xv = null; looking();
     renderCmdBar(); schedule("all");
   } catch (e) { toast("could not open the route: " + e.message); }
+}
+function showRunRecord(d) {
+  const r = d.summary;
+  S.cmdView = {id: "run:" + r.id, plan: d.doc, summary: {command: "run", kind: "run", script: r.script, label: r.label, pid: "", run: r.id, record: r}, next: 0, fitted: false, record: true};
+  S.xv = null; looking();
+  renderCmdBar(); schedule("all");
+}
+async function openRunRecord(id) {
+  try { showRunRecord(await getJSON("/runview?run=" + encodeURIComponent(id))); }
+  catch (e) { toast("could not open the run: " + e.message); }
 }
 async function openCmd(id) {
   try {
@@ -2887,9 +2998,9 @@ async function openCmd(id) {
     S.xv = null;
     for (const ev of d.events) cmdEvent(ev, 0);
     if (d.plan) cmdEvent(d.plan, 0);
-    if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v); if (d.explore.done) S.xv.done = d.explore.done; }
+    if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v, true); if (d.explore.done) S.xv.done = d.explore.done; xvDrawNow(); }
     S.cmdView.next = d.events.length;
-    S.view = null; lay = null;
+    looking();
     renderCmdBar(); schedule("all");
   } catch (e) { toast("could not open the command: " + e.message); }
 }
@@ -2901,17 +3012,20 @@ async function openExploreRecord(file) {
     for (const v of doc.variants || []) if (v.seed !== 0) xvAdd(v, true);
     S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline}; S.xv.script = doc.script;
     S.xv.auto = false; S.xv.sel = S.xv.variants.findIndex(v => v.seed === doc.best_seed); xvDrawNow();
+    S.xv.drawn = S.xv.variants[S.xv.sel] || S.xv.bestDrawn; looking();
     renderCmdBar(); schedule("all");
   } catch (e) { toast("could not open the explore: " + e.message); }
 }
 function closeCmd() { S.cmdView = null; S.xv = null; S.view = null; lay = null; renderCmdBar(); schedule("all"); }
+// The strip under the header while a command or a record is looked at: what it is, and for an explore its numbers.
 function renderCmdBar() {
-  const el = $("#cmdbar"), V = S.cmdView, X = S.xv;
+  const el = $("#cmdbar"), V = S.cmdView, X = S.xv, vs = viewState();
   el.hidden = !(V || X);
   if (!V && !X) return;
-  const c = V && (S.cmds.get(V.id) || V.summary);
-  el.innerHTML = '<span>' + esc(V ? "Viewing " + c.command + " of " + (baseName(c.script) || "a board") + (c.pid ? ", pid " + c.pid : "") : "Viewing a recorded explore") + '</span>' +
-    (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route, V)) + "</span>" : "") + '<button id="cmdclose">Back to the studio\'s own view</button>';
+  const what = vs.state === "recorded" ? "Past " + kindWord(vs.kind) + (V && V.record ? " " + vs.run : "") + (vs.script ? " of " + baseName(vs.script) : "") + ", nothing is resolved" :
+    (vs.state === "running" ? "Following" : "Finished") + " " + (baseName(vs.script) || "a board") + (vs.pid ? ", pid " + vs.pid : "");
+  el.innerHTML = kindChip(vs) + '<span class="cbt">' + esc(what) + "</span>" + (X ? xvLine(X) : "") +
+    (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route, V)) + "</span>" : "") + '<button id="cmdclose">' + (S.hello && S.hello.picker ? "Close" : "Back to the studio's own view") + "</button>";
   $("#cmdclose").onclick = closeCmd;
 }
 
@@ -3339,23 +3453,53 @@ on("note", n => {
 setInterval(() => { if (S.notes.length) schedule("notes", "board", "counts"); }, 30000);
 
 // ---------------------------------------------------------------- the runs view
+const rowStateChip = (cls, word) => '<span class="chip state ' + esc(cls) + '">' + esc(word) + "</span>";
+function rowCmd(c) {
+  const dur = fmtDur((c.ended ? c.ended * 1000 : Date.now() + (S.skew || 0)) - c.started * 1000);
+  const more = c.route && c.route.total ? ", net " + Math.min(c.route.total, c.route.done + c.route.failed + (c.state === "running" ? 1 : 0)) + " of " + c.route.total + ", " + c.route.done + " routed, " + c.route.failed + " failed" + (c.route.current ? ", now " + esc(c.route.current) : "")
+    : c.variants ? ", " + c.variants + " variants" : c.items ? ", " + c.items + " steps" : "";
+  return '<div class="row cmd step" data-cmd="' + c.id + '" title="' + esc(kindTitle(c)) + '">' + rowStateChip(c.state, c.state) + '<div class="sb"><div class="l1">' + kindChip(c) + " <b>" + esc(baseName(c.script)) + '</b></div><div class="l2">' +
+    (c.label ? esc(c.label) + ", " : "") + "pid " + esc(c.pid) + ", " + '<span class="fx" style="--w:4ch">' + dur + "</span>" + more + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
+}
+function rowRun(r) {
+  const k = {kind: "run", script: r.script, label: r.label, run: r.id};
+  const bits = [r.score != null ? "score " + r.score : "", r.findings + " findings", ago(r.at)].filter(Boolean).join(", ");
+  return '<div class="row cmd step" data-runview="' + esc(r.id) + '" title="' + esc(kindTitle(k)) + '">' + rowStateChip(r.died ? "error" : r.status === "ok" ? "done" : r.status === "running" ? "running" : "error", r.died ? "died" : r.status === "ok" ? "done" : r.status) + '<div class="sb"><div class="l1">' + kindChip(k) + " <b>" + esc(baseName(r.script) || r.board || "a board") +
+    '</b> <span class="dim">' + esc(r.id) + '</span></div><div class="l2">' + esc(bits) + "</div></div></div>";
+}
+function rowExplore(e) {
+  const k = {kind: "explore", script: e.script, pid: e.pid};
+  return '<div class="row cmd step" data-explore="' + escRaw(e.file) + '" title="' + esc(kindTitle(k) + ", " + baseName(e.file)) + '">' + rowStateChip("done", e.kept ? "kept" : "done") + '<div class="sb"><div class="l1">' + kindChip(k) + " <b>" + esc(baseName(e.script)) +
+    '</b></div><div class="l2">' + e.tried + " variants, " + e.focus + " items" + (e.best != null ? ", best " + Math.round(e.best * 10) / 10 + " of " + Math.round(e.baseline * 10) / 10 : "") + ", " + ago(e.at) + "</div></div></div>";
+}
+function rowRoute(r) {
+  const k = {kind: r.build ? "run" : "route", script: r.script, run: r.run};
+  return '<div class="row cmd step" data-route="' + escRaw(r.file) + '"' + (r.build ? ' data-build="' + esc(r.run) + '"' : "") + ' title="' + esc(kindTitle(k) + (r.build ? ", build" : "")) + '">' + rowStateChip(r.failed ? "error" : "done", r.failed ? "failed" : "done") + '<div class="sb"><div class="l1">' + kindChip(k) + " <b>" + esc(baseName(r.script) || "a board") + "</b> " + (r.run ? (r.build ? "build of run " : "run ") + esc(r.run) : "") +
+    '</div><div class="l2">' + r.nets + " nets, " + r.routed + " routed" + (r.failed ? ", " + r.failed + " failed" : "") + (r.closure != null ? ", closure " + Math.round(r.closure * 1000) / 10 + "%" : "") + (r.seconds ? ", " + r.seconds + " s" : "") + "</div></div></div>";
+}
+// A tap on a row of those lists opens what it names: a command is followed, a past run, explore or route is looked at.
+function runsClick(e) {
+  const c = e.target.closest("[data-cmd]"); if (c) { openCmd(+c.dataset.cmd); return true; }
+  const v = e.target.closest("[data-runview]"); if (v) { openRunRecord(v.dataset.runview); return true; }
+  const x = e.target.closest("[data-explore]"); if (x) { openExploreRecord(x.dataset.explore); return true; }
+  const rr = e.target.closest("[data-route]"); if (rr) { openRoute(rr.dataset.route, rr.dataset.build || ""); return true; }
+  return false;
+}
 function renderRuns() {
   const el = $("#tab-runs"), cmds = [...S.cmds.values()].sort((a, b) => (b.state === "running") - (a.state === "running") || b.started - a.started);
-  const row = c => '<div class="row cmd step" data-cmd="' + c.id + '"><span class="chip ' + esc(c.state) + '">' + esc(c.state) + '</span><div class="sb"><div class="l1"><b>' + esc(c.command) + "</b> " + esc(baseName(c.script)) + '</div><div class="l2">pid ' + esc(c.pid) +
-    ", " + fmtDur((c.ended ? c.ended * 1000 : Date.now() + (S.skew || 0)) - c.started * 1000) + (c.route && c.route.total ? ", net " + Math.min(c.route.total, c.route.done + c.route.failed + (c.state === "running" ? 1 : 0)) + " of " + c.route.total + " (" + c.route.done + " routed, " + c.route.failed + " failed)" + (c.route.current ? ", now " + esc(c.route.current) : "") : c.variants ? ", " + c.variants + " variants" : c.items ? ", " + c.items + " steps" : "") + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
-  const ex = e => '<div class="row cmd step" data-explore="' + escRaw(e.file) + '"><span class="chip ' + (e.kept ? "done" : "") + '">' + (e.kept ? "kept" : "explore") + '</span><div class="sb"><div class="l1"><b>' + esc(baseName(e.script)) + '</b> ' + esc(baseName(e.file)) + '</div><div class="l2">' + e.tried + " variants, " + e.focus + " items" + (e.best != null ? ", best " + Math.round(e.best * 10) / 10 + " of " + Math.round(e.baseline * 10) / 10 : "") + "</div></div></div>";
-  const rt = r => '<div class="row cmd step" data-route="' + escRaw(r.file) + '"' + (r.build ? ' data-build="' + esc(r.run) + '"' : "") + '><span class="chip ' + (r.failed ? "error" : "done") + '">' + (r.build ? "build" : "route") + '</span><div class="sb"><div class="l1"><b>' + esc(baseName(r.script) || "a board") + "</b> " + (r.run ? "run " + esc(r.run) : "") + '</div><div class="l2">' + r.nets + " nets, " + r.routed + " routed" + (r.failed ? ", " + r.failed + " failed" : "") + (r.closure != null ? ", closure " + Math.round(r.closure * 1000) / 10 + "%" : "") + (r.seconds ? ", " + r.seconds + " s" : "") + "</div></div></div>";
-  el.innerHTML = '<h3>Commands in this project ' + infoBtn("runsview") + ' <span class="c">' + cmds.length + "</span></h3>" + (cmds.length ? cmds.map(row).join("") : '<div class="pad8 dim">No placemat command has reported to this studio yet. Run one in this project (run, preview, an explore) and it shows here.</div>') +
-    (S.explores.length ? "<h3>Recorded explores</h3>" + S.explores.map(ex).join("") : "") + (S.routes.length ? "<h3>Recorded routes</h3>" + S.routes.map(rt).join("") : "") + exploreHTML();
-  el.onclick = e => {
-    if (e.target.closest(".info")) return;
-    const c = e.target.closest("[data-cmd]"); if (c) { openCmd(+c.dataset.cmd); return; }
-    const x = e.target.closest("[data-explore]"); if (x) { openExploreRecord(x.dataset.explore); return; }
-    const rr = e.target.closest("[data-route]"); if (rr) { openRoute(rr.dataset.route, rr.dataset.build || ""); return; }
-    exploreClick(e);
-  };
+  el.innerHTML = exploreHTML() + '<h3>Commands in this project ' + infoBtn("runsview") + ' <span class="c">' + cmds.length + "</span></h3>" + (cmds.length ? cmds.map(rowCmd).join("") : '<div class="pad8 dim">No placemat command has reported to this studio yet. Run one in this project (run, preview, an explore) and it shows here.</div>') +
+    '<h3>Past runs <span class="c">' + S.projectRuns.length + "</span></h3>" + (S.projectRuns.length ? S.projectRuns.map(rowRun).join("") : '<div class="pad8 dim">No recorded run yet. A full run records one.</div>') +
+    (S.explores.length ? "<h3>Recorded explores</h3>" + S.explores.map(rowExplore).join("") : "") + (S.routes.length ? "<h3>Recorded routes</h3>" + S.routes.map(rowRoute).join("") : "");
+  el.onclick = e => { if (e.target.closest(".info")) return; if (!runsClick(e)) exploreClick(e); };
 }
-setInterval(() => { if ([...S.cmds.values()].some(c => c.state === "running") && $("#tab-runs") && $("#tab-runs").classList.contains("on")) renderRuns(); }, 1000);
+// A running command's time and counts move each second; a list being chosen from (a menu open in it) is left alone.
+setInterval(() => {
+  const busy = typeof document.activeElement !== "undefined" && document.activeElement && document.activeElement.tagName === "SELECT";
+  if (busy || ![...S.cmds.values()].some(c => c.state === "running")) return;
+  if ($("#tab-runs") && $("#tab-runs").classList.contains("on")) renderRuns();
+  if (S.xv || S.cmdView) renderCmdBar();
+  if (S.start) renderPicker();
+}, 1000);
 
 // ---------------------------------------------------------------- an explore: the variants, plotted, stepped through and drawn
 // The focused items' places move with a rigid change from the plain placement to a variant's: turned about the item's
@@ -3365,10 +3509,10 @@ function moveShape(poly, from, to) {
   return poly.map(([x, y]) => { const dx = x - from[0], dy = y - from[1]; return [to[0] + dx * c + dy * s, to[1] - dx * s + dy * c]; });
 }
 function xvStart(source, id, start) {
-  S.xv = {source, id, start: start || {}, variants: [], seeds: new Set(), done: null, sel: null, mode: "order", auto: true, drawn: null, bestDrawn: null, thumbs: [], density: true, lastDraw: 0, timer: null};
+  S.xv = {source, id, start: start || {}, variants: [], seeds: new Set(), done: null, sel: null, mode: "order", auto: true, drawn: null, bestDrawn: null, thumbs: [], density: true, lastDraw: 0, timer: null, script: (S.cmds.get(id) || {}).script || ""};
   const plain = {seed: 0, score: start.baseline, measures: start.baseline_measures || {}, placements: start.plain || {}, order: start.order || [], t: 0};
   S.xv.variants.push(plain); S.xv.seeds.add(0);
-  S.xv.drawn = plain;
+  S.xv.drawn = S.xv.bestDrawn = plain;
 }
 function xvAdd(v, quiet) {
   const X = S.xv; if (!X || X.seeds.has(v.seed)) return;
@@ -3380,27 +3524,65 @@ function xvTouch() {
   const X = S.xv, gap = 1000 / (S.exploreFps || 2), now = Date.now();
   if (now - X.lastDraw >= gap) xvDrawNow();
   else if (!X.timer) X.timer = setTimeout(() => { X.timer = null; xvDrawNow(); }, gap - (now - X.lastDraw));
-  schedule("runs");
+  schedule("runs"); renderCmdBar();
 }
 function xvBest() { const X = S.xv; return X.variants.reduce((b, v) => (b == null || v.score < b.score || (v.score === b.score && v.seed < b.seed)) ? v : b, null); }
+// Following the explore, the board shows the best variant so far and changes when a better one lands; a variant picked stays until following is asked for again.
 function xvDrawNow() {
   const X = S.xv; if (!X) return;
   X.lastDraw = Date.now();
   X.bestDrawn = xvBest();
-  if (X.auto) {
-    const latest = X.variants[X.variants.length - 1];
-    if (X.drawn !== latest) { X.drawn = latest; if (latest.seed !== 0) { X.thumbs = X.thumbs.filter(s => s !== latest.seed); X.thumbs.push(latest.seed); if (X.thumbs.length > 6) X.thumbs.shift(); } }
-  }
-  drawExplore(); schedule("runs");
+  const latest = X.variants[X.variants.length - 1];
+  if (latest.seed !== 0 && !X.thumbs.includes(latest.seed)) { X.thumbs.push(latest.seed); if (X.thumbs.length > 6) X.thumbs.shift(); }
+  if (X.auto) X.drawn = X.bestDrawn;
+  drawExplore(); schedule("runs"); renderCmdBar();
 }
 const xvBySeed = seed => S.xv && S.xv.variants.find(v => v.seed === seed);
-// What the board shows for the explore: the plain spots (dashed), where the shown variant put each focused item
-// (and an arrow to it), the best so far in its own colour, and where every variant put each item.
+// What the explore is doing, as numbers: the focus, the variants landed (of the seeds there are, when the explore has a fixed number), the seed that landed last,
+// the baseline, the best so far and the time.
+function xvInfo(X) {
+  const tried = X.variants.filter(v => v.seed !== 0), best = xvBest(), last = tried[tried.length - 1], c = X.source === "cmd" ? S.cmds.get(X.id) : null;
+  const running = !X.done && !!c && c.state === "running", spent = Math.max(0, ...tried.map(v => v.t || 0));
+  const elapsed = running && X.start.at ? Math.max(spent * 1000, Date.now() - serverMs(X.start.at)) : (X.source === "record" ? (X.start.seconds || spent) : spent) * 1000;
+  const base = X.start.baseline;
+  return {focus: X.start.focus || [], tried: tried.length, seeds: X.start.seeds || null, seed: last ? last.seed : null, base, best, delta: best && base != null ? best.score - base : null,
+    elapsed, budget: X.source === "cmd" && X.start.seconds ? X.start.seconds * 1000 : 0, running, done: X.done, ended: c && !running && !X.done ? c.state : ""};
+}
+const f1 = v => v == null ? "-" : Number(v).toFixed(1);
+const f1d = d => d == null ? "" : (d > 0 ? "+" : d < 0 ? "-" : "") + Math.abs(d).toFixed(1);
+const seedWord = v => v ? (v.seed === 0 ? "plain" : "#" + v.seed) : "-";
+const focusWord = list => list.length <= 3 ? list.join(", ") : list.slice(0, 3).join(", ") + " +" + (list.length - 3);
+// The explore in the header strip: fixed-width fields, so the line does not move as the numbers do.
+function xvLine(X) {
+  const I = xvInfo(X), fx = (w, v) => '<span class="fx" style="--w:' + w + 'ch">' + esc(v) + "</span>";
+  const tip = "variants landed" + (I.seeds ? " of " + I.seeds + " seeds" : "") + ", the seed that landed last, the best score so far against the plain placement, and the time";
+  return '<span class="xline" title="' + esc(tip) + '">variants ' + fx(4, I.tried) + (I.seeds ? " of " + I.seeds : "") + ", seed " + fx(5, I.seed != null ? "#" + I.seed : "-") +
+    ", best " + fx(6, f1(I.best && I.best.score)) + " of " + fx(6, f1(I.base)) + ", " + fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) : "") + "</span>";
+}
+// What the board shows for the explore: the focused items moved to where the shown variant put them (its own parts, turned about the
+// plain spot and carried), the plain spots (dashed), the best so far in its own colour, and where every variant put each item.
+// Copper and links stay as the plain placement had them.
+function xvMoveParts(X, shown) {
+  const groups = typeof B !== "undefined" && B && B.groups; if (!groups) return;
+  const plain = X.start.plain || {};
+  for (const [key, gs] of groups) {
+    const a = plain[key], pl = shown && shown.placements && shown.placements[key];
+    const moved = a && pl && pl[3] === a[3] && (pl[0] !== a[0] || pl[1] !== a[1] || pl[2] !== a[2]);
+    const tf = moved ? "translate(" + num(pl[0]) + " " + num(pl[1]) + ") rotate(" + num(-(pl[2] - a[2])) + ") translate(" + num(-a[0]) + " " + num(-a[1]) + ")" : "";
+    for (const g of gs) {
+      if (!g.setAttribute) continue;
+      if (tf) { g.setAttribute("transform", tf); g.dataset.xmv = "1"; }
+      else if (g.dataset.xmv) { g.removeAttribute("transform"); delete g.dataset.xmv; }
+    }
+  }
+}
 function drawExplore() {
   const svg = typeof B !== "undefined" && B.svg; if (!svg || !svg.querySelectorAll) return;
   for (const e of svg.querySelectorAll(".explore")) e.remove();
-  const X = S.xv, p = plan(); if (!X || !p) return;
+  const X = S.xv, p = plan();
+  if (!X || !p) { if (typeof B !== "undefined" && B.groups) for (const gs of B.groups.values()) for (const g of gs) if (g.dataset && g.dataset.xmv && g.removeAttribute) { g.removeAttribute("transform"); delete g.dataset.xmv; } return; }
   const plain = X.start.plain || {}, imap = itemMap(p), shown = X.drawn, best = X.bestDrawn;
+  xvMoveParts(X, shown);
   const polys = (key, pl) => { const it = imap.get(key), a = plain[key]; if (!it || !a || !pl || pl[3] !== a[3]) return []; return it.members.flatMap(m => m.shapes.filter(s => s.kind === "courtyard" || s.kind === "body").map(s => moveShape(s.poly, a, pl))); };
   for (const panel of svg.querySelectorAll(".panel")) {
     const face = panel.classList.contains("back") ? "back" : "front", o = ['<g class="explore">'];
@@ -3408,7 +3590,7 @@ function drawExplore() {
     for (const key of Object.keys(plain)) {
       const a = plain[key]; if (!a || a[3] !== face) continue;
       for (const poly of polys(key, a)) o.push('<polygon class="xplain" points="' + polyPts(poly) + '"/>');
-      for (const [v, cls] of [[best, "xbest"], [shown, "xlatest"]]) {
+      for (const [v, cls] of [[best, "xbest"], [shown === best ? null : shown, "xlatest"]]) {
         const pl = v && v.placements && v.placements[key]; if (!pl || pl[3] !== face) continue;
         for (const poly of polys(key, pl)) o.push('<polygon class="' + cls + '" points="' + polyPts(poly) + '"/>');
         if (pl[0] !== a[0] || pl[1] !== a[1]) o.push('<line class="xarr' + (cls === "xbest" ? " best" : "") + '" x1="' + num(a[0]) + '" y1="' + num(a[1]) + '" x2="' + num(pl[0]) + '" y2="' + num(pl[1]) + '"/>');
@@ -3420,7 +3602,7 @@ function drawExplore() {
 }
 function exploreHTML() {
   const X = S.xv; if (!X) return "";
-  const vs = X.variants, best = xvBest(), base = X.start.baseline, shown = X.drawn;
+  const I = xvInfo(X), vs = X.variants, best = I.best, base = I.base, shown = X.drawn;
   const tmax = Math.max(1, ...vs.map(v => v.t || 0)), lo = Math.min(...vs.map(v => v.score)), hi = Math.max(...vs.map(v => v.score)), span = Math.max(hi - lo, 1e-9);
   const px = v => 10 + 280 * (v.t || 0) / tmax, py = s => 112 - 100 * (s - lo) / span;
   let run = Infinity; const stairs = [];
@@ -3434,25 +3616,34 @@ function exploreHTML() {
     for (const key of Object.keys(v.placements || {})) { const it = imap.get(key), a = plain[key], pl = v.placements[key]; if (!it || !a || !pl || pl[3] !== a[3]) continue;
       for (const m of it.members) for (const s of m.shapes) if (s.kind === "courtyard" || s.kind === "body") polys.push('<polygon points="' + polyPts(moveShape(s.poly, a, pl)) + '"/>'); }
     return '<svg viewBox="' + [e[0], e[1], e[2] - e[0], e[3] - e[1]].map(num).join(" ") + '"><rect x="' + e[0] + '" y="' + e[1] + '" width="' + (e[2] - e[0]) + '" height="' + (e[3] - e[1]) + '" fill="none" stroke="var(--line)" stroke-width="0.6"/><g fill="var(--mark)" fill-opacity="0.35" stroke="var(--mark)" stroke-width="0.4">' + polys.join("") + "</g></svg>"; };
-  const thumbs = [...new Set([...(best ? [best.seed] : []), ...X.thumbs])].map(s => xvBySeed(s)).filter(Boolean).map(v => '<button data-xt="' + v.seed + '" class="' + (v === shown ? "on " : "") + (v === best ? "best" : "") + '">' + thumb(v) + "<div>#" + v.seed + " " + Math.round(v.score * 10) / 10 + "</div></button>").join("");
+  const thumbs = [...new Set([...(best ? [best.seed] : []), ...X.thumbs])].map(s => xvBySeed(s)).filter(Boolean).map(v => '<button data-xt="' + v.seed + '" class="' + (v === shown ? "on " : "") + (v === best ? "best" : "") + '">' + thumb(v) + "<div>" + seedWord(v) + " " + f1(v.score) + "</div></button>").join("");
   const plainP = X.start.plain || {}, moves = shown ? Object.keys(shown.placements || {}).map(k => { const a = plainP[k], b = shown.placements[k]; if (!a || !b) return ""; const mm = Math.hypot(a[0] - b[0], a[1] - b[1]), dr = ((b[2] - a[2]) % 360 + 360) % 360; return mm < 0.001 && dr === 0 ? "" : '<div class="xrow"><b>' + esc(k) + "</b>" + esc(Math.round(mm * 100) / 100 + " mm" + (dr ? ", turned " + dr + "°" : "") + (a[3] !== b[3] ? ", on the " + b[3] : "")) + "</div>"; }).join("") : "";
-  const done = X.done;
-  return '<div class="xv"><h3 style="padding:0 0 4px">Explore ' + (done ? "" : '<i class="spin"></i> ') + '<span class="c">' + vs.length + "</span></h3>" +
-    '<div class="dim">best ' + (best ? Math.round(best.score * 10) / 10 + " (seed " + best.seed + ")" : "") + " against " + (base != null ? Math.round(base * 10) / 10 : "") + " for the plain placement" + (done && done.kept ? ", " + pill("kept", "good") : "") + (done ? "" : ", still running") + "</div>" + plot +
-    '<div class="xctl"><button data-xstep="-1">&lt;</button><span>' + (shown ? "#" + shown.seed + " " + Math.round(shown.score * 10) / 10 : "") + " (" + (at + 1) + " of " + vs.length + ')</span><button data-xstep="1">&gt;</button>' +
+  const fx = (w, v) => '<span class="fx" style="--w:' + w + 'ch">' + esc(v) + "</span>";
+  const cell = (k, v, tip) => '<div class="xc"' + (tip ? ' title="' + esc(tip) + '"' : "") + '><span class="k">' + k + '</span><span class="v">' + v + "</span></div>";
+  const st = I.running ? ["running", "running"] : I.done ? [I.done.kept ? "done" : "done", I.done.kept ? "kept" : "done"] : I.ended ? [I.ended === "error" ? "error" : "lost", I.ended === "error" ? "failed" : "lost"] : ["done", "recorded"];
+  const fields = '<div class="xf">' + cell("focus", esc(focusWord(I.focus)) || "-", I.focus.join(", ")) +
+    cell("variants", fx(4, I.tried) + (I.seeds ? " of " + I.seeds : " tried"), I.seeds ? "variants landed, of the seeds this explore has" : "variants landed: the explore runs for its time, with no fixed number") +
+    cell("seed", fx(5, I.seed != null ? "#" + I.seed : "-"), "the seed of the variant that landed last") + cell("baseline", fx(6, f1(base)), "the score of the plain placement; lower is better") +
+    cell("best", fx(6, f1(best && best.score)) + ' <span class="dim">' + esc(seedWord(best) + (I.delta != null ? ", " + (I.delta === 0 ? "level" : f1d(I.delta)) : "")) + "</span>", "the best score so far, its seed and its distance from the baseline") +
+    cell("time", fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) : ""), "time spent, of the time the explore was given") + "</div>";
+  const recent = vs.filter(v => v.seed !== 0).slice(-6).reverse().map(v => { const d = base != null ? v.score - base : null; return '<div class="xl' + (v === best ? " best" : "") + '" data-xr="' + vs.indexOf(v) + '"><span>' + seedWord(v) + "</span><span>" + f1(v.score) + "</span><span class=\"" + (d != null && d < 0 ? "add" : "dim") + '">' + (d == null ? "" : d === 0 ? "level" : f1d(d)) + "</span></div>"; }).join("");
+  return '<div class="xv"><div class="xh">' + (I.running ? '<i class="spin"></i>' : "") + "<h3>Explore</h3>" + rowStateChip(st[0], st[1]) + "</div>" + fields + plot +
+    '<div class="xshow dim">Board: ' + (X.auto ? "best so far, " + seedWord(best) + ", changes when a better one lands" : seedWord(shown) + ", picked") + "</div>" +
+    '<div class="xctl"><button data-xstep="-1">&lt;</button><span>' + (shown ? seedWord(shown) + " " + f1(shown.score) + ", " : "") + (at + 1) + " of " + vs.length + '</span><button data-xstep="1">&gt;</button>' +
     '<select data-xmode><option value="order"' + (X.mode === "order" ? " selected" : "") + '>by order</option><option value="score"' + (X.mode === "score" ? " selected" : "") + ">by score</option></select>" +
-    '<button data-xauto="1">' + (X.auto ? "live" : "follow live") + '</button><label><input type="checkbox" data-xdens' + (X.density ? " checked" : "") + "> where it tried</label></div>" +
-    (thumbs ? '<div class="xthumbs">' + thumbs + "</div>" : "") + moves + "</div>";
+    '<button data-xauto="1" class="' + (X.auto ? "on" : "") + '" aria-pressed="' + (X.auto ? "true" : "false") + '" title="the board shows the best variant so far and changes when a better one lands">Follow best</button><label><input type="checkbox" data-xdens' + (X.density ? " checked" : "") + "> where it tried</label></div>" +
+    (recent ? '<div class="xlist" title="the variants that landed last, newest first, against the baseline">' + recent + "</div>" : "") + (thumbs ? '<div class="xthumbs">' + thumbs + "</div>" : "") + moves + "</div>";
 }
 function exploreClick(e) {
   const X = S.xv; if (!X) return;
-  const vs = X.variants, show = i => { X.auto = false; X.drawn = vs[i]; X.bestDrawn = xvBest(); drawExplore(); schedule("runs"); };
+  const vs = X.variants, show = i => { X.auto = false; X.drawn = vs[i]; X.bestDrawn = xvBest(); drawExplore(); schedule("runs"); renderCmdBar(); };
   const dot = e.target.closest("[data-xs]"); if (dot) { show(+dot.dataset.xs); return; }
+  const row = e.target.closest("[data-xr]"); if (row) { show(+row.dataset.xr); return; }
   const th = e.target.closest("[data-xt]"); if (th) { show(vs.findIndex(v => v.seed === +th.dataset.xt)); return; }
   const st = e.target.closest("[data-xstep]");
   if (st) { const order = X.mode === "score" ? vs.map((v, i) => i).sort((a, b) => vs[a].score - vs[b].score || vs[a].seed - vs[b].seed) : vs.map((v, i) => i);
     const at = Math.max(0, order.indexOf(vs.indexOf(X.drawn))), next = Math.min(order.length - 1, Math.max(0, at + +st.dataset.xstep)); show(order[next]); return; }
-  if (e.target.closest("[data-xauto]")) { X.auto = true; X.drawn = vs[vs.length - 1]; drawExplore(); schedule("runs"); return; }
+  if (e.target.closest("[data-xauto]")) { X.auto = !X.auto; X.bestDrawn = xvBest(); if (X.auto) X.drawn = X.bestDrawn; drawExplore(); schedule("runs"); renderCmdBar(); return; }
   if (e.target.closest("[data-xdens]")) { X.density = !X.density; drawExplore(); schedule("runs"); }
 }
 document.addEventListener("change", e => { const m = e.target.closest && e.target.closest("[data-xmode]"); if (m && S.xv) { S.xv.mode = m.value; schedule("runs"); } });
@@ -3468,6 +3659,8 @@ function viewHash() {
   if (S.sel) q.set("sel", S.sel);
   if (S.sel && S.selRef) q.set("ref", S.selRef);
   if (S.focusIdx != null && S.focusIdx >= 0) q.set("fi", S.focusIdx);
+  if (S.cmdView && String(S.cmdView.id).startsWith("run:")) q.set("run", S.cmdView.id.slice(4));
+  else if (S.cmdView && typeof S.cmdView.id === "number") q.set("cmd", S.cmdView.id);
   q.set("tab", S.tab);
   if (narrow() && document.body.dataset.nv) q.set("nv", document.body.dataset.nv);
   return q.toString();
@@ -3485,7 +3678,7 @@ function readHash(text) {
   const q = new URLSearchParams(String(text || "").replace(/^#/, "")), v = (q.get("v") || "").split(",").map(Number);
   if (![...q.keys()].length) return null;
   return {s: q.get("s") || "", f: q.get("f") || "", v: v.length === 4 && v.every(Number.isFinite) ? v : null, sel: q.get("sel") || "", ref: q.get("ref") || "",
-    fi: q.has("fi") ? +q.get("fi") : null, tab: q.get("tab") || "", nv: q.get("nv") || ""};
+    fi: q.has("fi") ? +q.get("fi") : null, tab: q.get("tab") || "", nv: q.get("nv") || "", run: q.get("run") || "", cmd: q.has("cmd") ? +q.get("cmd") : null};
 }
 S.restore = readHash(typeof location !== "undefined" ? location.hash : "");
 // Once the plan of the right script is there: the face, the selection, the finding, the tab, then the box.
@@ -3534,12 +3727,8 @@ function openMenuAt(anchor, html) {
   m.style.left = Math.max(8, Math.min(r.left, (window.innerWidth || 800) - 300)) + "px";
   m.style.top = (r.bottom + 4 + mh > vh ? Math.max(8, r.top - mh - 4) : r.bottom + 4) + "px";            // under the button, or over it where there is no room below
 }
-function openMenu() {
-  const list = S.scripts || [];
-  openMenuAt($("#brandbtn"), list.length ? list.map(s => scriptEntry(s, s.current ? "cur" : "")).join("") : '<div class="pad8 dim">The layout scripts are being listed ...</div>');
-}
 function closeMenu() { const m = $("#menu"); m.hidden = true; $("#brandbtn").setAttribute("aria-expanded", "false"); }
-$("#brandbtn").onclick = () => { if ($("#menu").hidden) openMenu(); else closeMenu(); };
+$("#brandbtn").onclick = () => { if (S.start) closeStart(); else openStart(); };
 // Resolve again: now, without a file changing; or from scratch, with no replay of the steps an earlier resolve did the same.
 function resolveMenu(anchor) {
   if (!$("#menu").hidden) { closeMenu(); return; }
@@ -3574,6 +3763,7 @@ document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (!$("#infopop").hidden) infoHide();
   else if (!$("#menu").hidden) closeMenu();
+  else if (S.start) closeStart();
   else if (narrow() && $("#legend").classList.contains("open")) $("#legend").classList.remove("open");
   else if (S.scriptOpen) closeScript();
   else if ($("#card").style.display === "block") { S.cardOff = cardKey(); renderCard(); }
@@ -3583,15 +3773,39 @@ document.addEventListener("click", e => { const lg = $("#legend"); if (narrow() 
 let lgSwipe = null;
 $("#legend").addEventListener("pointerdown", e => { lgSwipe = e.pointerType === "touch" && e.target.closest && e.target.closest(".lgh") ? e.clientY : null; });
 $("#legend").addEventListener("pointerup", e => { if (lgSwipe != null && e.clientY - lgSwipe > 50) $("#legend").classList.remove("open"); lgSwipe = null; });
-// With no script given, the page opens on this list and nothing resolves until one is chosen.
-function renderPicker() {
-  const el = $("#picker"), pick = !!(S.hello && S.hello.picker);
-  el.hidden = !pick;
-  if (!pick) return;
-  const list = S.scripts || [];
-  el.innerHTML = '<div class="box"><h2>Choose a layout script</h2><p>' + list.length + " found under <code>" + esc(S.hello.root || "") + "</code>. Nothing is resolved until you choose one.</p>" + list.map(s => scriptEntry(s, "pick")).join("") + "</div>";
-  el.onclick = e => { const b = e.target.closest("[data-script]"); if (b) switchTo(b.dataset.script); };
+// With no script given, the page opens on a dialog that chooses what to look at, and nothing resolves until a script is chosen: a command running
+// now (followed live), a past run (its board and findings, resolved by nothing) or a layout script (the only choice that starts the studio's own preview).
+// The brand button in the header opens it again.
+function startHTML() {
+  const running = [...S.cmds.values()].filter(c => c.state === "running").sort((a, b) => b.started - a.started);
+  const past = [...S.projectRuns.map(r => ({at: r.at, html: rowRun(r)})), ...S.explores.map(e => ({at: e.at, html: rowExplore(e)})), ...S.routes.map(r => ({at: r.at, html: rowRoute(r)}))]
+    .sort((a, b) => (b.at || 0) - (a.at || 0));
+  const shown = past.slice(0, 10), list = S.scripts || [];
+  const sec = (title, n, body, none) => "<section><h3>" + title + ' <span class="c">' + n + "</span></h3>" + (body || '<div class="pad8 dim">' + none + "</div>") + "</section>";
+  return '<div class="box" role="dialog" aria-label="choose what to look at"><div class="bh"><h2>Choose what to look at</h2><button class="x" id="startclose" aria-label="close" title="close">&times;</button></div>' +
+    sec("Running now", running.length, running.map(rowCmd).join(""), "No placemat command is running in this project. A preview, a run, an explore or a route started here shows up as it begins.") +
+    sec("Past runs", past.length, shown.map(p => p.html).join("") + (past.length > shown.length ? '<div class="pad8 dim">' + (past.length - shown.length) + " older ones are in the Runs tab.</div>" : ""), "Nothing has been recorded in this project yet.") +
+    "<section><h3>Open a script <span class=\"c\">" + list.length + '</span></h3><div class="pad8 dim">Starts the studio\'s own preview of it.</div>' + (list.length ? list.map(s => scriptEntry(s, "pick")).join("") : '<div class="pad8 dim">The layout scripts are being listed ...</div>') +
+    "</section></div>";
 }
+function renderPicker() {
+  const el = $("#picker"), open = !!S.start;
+  el.hidden = !open;
+  $("#brandbtn").setAttribute("aria-expanded", open ? "true" : "false");
+  if (!open) return;
+  const top = el.scrollTop;
+  el.innerHTML = startHTML();
+  el.scrollTop = top;
+  el.onclick = e => {
+    if (e.target === el || e.target.closest("#startclose")) { closeStart(); return; }
+    const b = e.target.closest("[data-script]"); if (b) { switchTo(b.dataset.script); return; }
+    if (e.target.closest(".info")) return;
+    if (runsClick(e)) { if (narrow()) showNarrow("board"); else goTab("runs"); }
+  };
+}
+function openStart() { closeMenu(); S.start = true; schedule("start", "status"); refreshPast(); }
+function closeStart() { S.start = false; schedule("start", "status"); }
+$("#nothingpick").onclick = openStart;
 function startRun(regenerate) {
   if (S.run) return;
   fetch("/run?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({regenerate: regenerate === true})})
@@ -3644,7 +3858,7 @@ const narrow = () => matchMedia("(max-width: 900px)").matches;
 function goTab(name) {                         // the board, or a panel: the bar on a phone, the sidebar's tabs on a wide screen
   if (narrow()) { showNarrow(name); return; }
   if (name === "board") return;
-  S.tab = name;
+  setTab(name);
   document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x.dataset.tab === name));
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.id === "tab-" + name));
 }
@@ -3660,7 +3874,7 @@ $("#keybtn").onclick = () => $("#legend").classList.toggle("open");
 function showNarrow(v) {
   document.body.dataset.nv = v;
   document.querySelectorAll("#ntabs button").forEach(x => x.classList.toggle("on", x.dataset.nv === v));
-  if (v !== "board") S.tab = v;
+  if (v !== "board") setTab(v);
   if (v !== "board") $("#legend").classList.remove("open");
   schedule("all");
   if (v === "board") requestAnimationFrame(applyView);

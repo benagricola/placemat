@@ -966,7 +966,7 @@ ev("build", d => {
 });
 ev("applied", () => { drawButtons(); if (BS.st) { refreshState(); refreshParts(); } });
 ev("finished", () => { if (BS.st && hasScript()) refreshParts().then(() => { if (BS.pendingTurn) { const k = BS.pendingTurn; BS.pendingTurn = null; BS.subj = [k]; drawTab(); loadTurns(k); } }); });
-ev("switched", () => { BS.parts = null; BS.subj = []; BS.target = null; BS.offers = null; setTimeout(async () => { await refreshState(); drawAll(); if (hasScript()) { try { goTab("build"); } catch (e) { /* narrow screens use the bar */ } } }, 50); });
+ev("switched", () => { BS.parts = null; BS.subj = []; BS.target = null; BS.offers = null; setTimeout(async () => { await refreshState(); drawAll(); }, 50); });
 
 // a Build button in the header opens the tab (and the flow for a new board is the start view's)
 // In Build, the findings "no declaration places it" are the unplaced items of a half-built board: they are counted in the parts list and

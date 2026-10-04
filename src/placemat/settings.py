@@ -426,7 +426,7 @@ class Settings:
     studio_poll_ms: int = S(200, "ms",
         "how often the watched files' modification times are read")
     studio_explore_fps: float = S(2.0, "per second",
-        "how many times a second the Runs view redraws the latest variant of a live explore (above 0)")
+        "how many times a second the board is redrawn for a live explore, to the best variant so far (above 0)")
     studio_note_age_s: int = S(3600, "seconds",
         "a note left in the studio is hidden after this long; 0 keeps it")
     studio_notes_keep: int = S(100, "count",

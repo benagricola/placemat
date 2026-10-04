@@ -5,6 +5,31 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **The studio opens on a choice of what to look at and resolves nothing until a script is chosen.** `placemat studio` with no script shows the
+  usual interface with no board selected, over which a dialog offers a command running now in the project (followed live, as a
+  background run), a past run (every board's `run.json` records: its board and findings, resolved by nothing) or a layout script to
+  resolve here, the only choice that starts the studio's own preview. The header title opens the dialog again. A script given to the
+  command, or named in the address (`#s=`), is opened as before; `#run=ID` opens a past run and `#cmd=ID` follows a running command. The
+  Runs tab is the default tab (opening a script no longer jumps to Build) and lists past runs of every board beside the commands.
+- **Every command says what it is.** The runs list, the header and the dialog show a chip for preview, full run, explore or route, with the
+  script, label and pid in its tooltip. A command summary carries `kind` (a run or a preview given `--explore`, or one that has sent
+  `explore` events, is an explore; a run that routes is a full run) and `label`. `placemat studio` serves `/projectruns`, `/runview?run=ID`
+  and `/explores`.
+- **Following an explore shows what it is doing.** Its focus, the variants landed (of its seeds when it has a fixed number), the seed that
+  landed last, the baseline, the best so far with its distance from it, the time and each variant's score as it lands; the board shows
+  the best variant so far, the focused parts moved to where it put them, and changes when a better one lands. The "live" control that did
+  nothing when the explore was already followed is "Follow best", a toggle: picking a variant stops following, and the control follows the
+  best again. The explore sat at the foot of the Runs tab; it is now at the top.
+- **The findings layer on the board starts off.** It is on while the Findings tab is open and off again when the tab is left. Turning it on
+  in the legend keeps it on until it is turned off there; that choice is kept in the browser. A past run places its findings from the
+  facts its `run.json` keeps.
+- **The colour of a chip or pill means something.** Blue is running or informational, green done, yellow a warning, red an error. A kind of
+  step or command (preview, full run, explore, route, searched, decided, copper, cutout, escape) has a hue of its own and no chip is grey.
+
 ## To 0.97.7
 
 ### Changed

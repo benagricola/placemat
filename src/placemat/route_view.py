@@ -59,6 +59,43 @@ def board_doc(geometry) -> dict:
             "layers": [l.value for l in geometry.layers]}
 
 
+def _run_finding(d: dict, refs: set, keys: set) -> dict:
+    """A finding of a run record (report.RunRecord.findings_with_severity: kind, severity, sentence and, from a run that kept them, cause and
+    facts) as the page's finding record: where it is and which parts it names are read from its facts, as preview_json does for a live plan."""
+    from . import finding_text
+    from .findings import FindingCause
+    cause = FindingCause.parse(d.get("cause")) if d.get("cause") else None
+    facts = d.get("facts") or {}
+    where, first = {"at": None, "refs": [], "pads": []}, ""
+    if cause is not None:
+        try:
+            where, first = finding_text.locate(cause, facts, refs), finding_text.subject(cause, facts)
+        except (KeyError, ValueError, TypeError, IndexError):          # facts of another version name nothing
+            pass
+    return {"kind": d.get("kind", ""), "severity": d.get("severity", "warning"), "text": d.get("text", ""), "at": where["at"], "item": first if first in keys else "",
+            "refs": where["refs"], "pads": where["pads"], "cause": d.get("cause"), "facts_v": d.get("facts_v"), "facts": facts, "suggestions": []}
+
+
+def run_doc(base: dict, findings=(), score=None) -> dict:
+    """A recorded run as the page draws it where no resolve is under way: `base` is the run's plan.json (its own steps, copper and findings) or a
+    board_doc of the run's written board (a step for each part). The run record's findings replace a board_doc's none, placed from their facts; a
+    plan.json keeps its own. `score` is the run's total, when it has one."""
+    doc = {"version": PLAN_VERSION, "board": {"loops": [], "drawn": True, "extent": [0, 0, 100, 60]}, "keepouts": [], "reservations": [], "items": [], "layers": [],
+           "links": [], "congestion": None, "findings": [], "unplaced": [], "pocketed": [], "copper": []}
+    doc.update(base)
+    if not base.get("steps"):
+        doc["steps"] = [{"i": n, "item": it["key"], "kind": "part", "placed": True, "note": "", "notes": [], "unplaced": None, "why": "", "freedom": "fixed", "rank": None,
+                         "rank_of": None, "pocket": None, "lock": "", "copper": [], "loop": None} for n, it in enumerate(doc["items"])]
+    if not base.get("findings") and findings:
+        refs = {m[k] for it in doc["items"] for m in it["members"] for k in ("ref", "inst") if m.get(k)}
+        keys = {it["key"] for it in doc["items"]}
+        doc["findings"] = [_run_finding(f, refs, keys) for f in findings]
+    if score is not None and not base.get("score"):
+        doc["score"] = {"total": score}
+    doc["counts"] = base.get("counts") or {"placed": len(doc["items"]), "findings": len(doc["findings"])}
+    return doc
+
+
 def _face_of(layer: str) -> str:
     return "front" if layer == "F.Cu" else "back" if layer == "B.Cu" else "inner"
 

@@ -561,3 +561,129 @@ def test_a_run_after_a_current_generation_starts_no_resolve(project, monkeypatch
         ev += drain()
     time.sleep(0.2)
     assert asked == []
+
+
+# ------------------------------------------------------------------ what a command is, and the project's past runs
+def test_a_command_is_named_by_what_it_is_and_carries_its_label(project):
+    s = _fresh(project)
+    for cid, command, args, label in ((1, "preview", ["preview", "x.py"], ""), (2, "run", ["run", "x.py", "--route"], "nightly"), (3, "run", ["run", "x.py", "--explore", "60"], ""),
+                                      (4, "preview", ["preview", "x.py", "--explore=30"], ""), (5, "route", ["route", "x.pcb"], ""), (6, "apply", ["apply", "x.py"], "")):
+        s._on_channel(cid, {"ev": "hello", "pid": 5000 + cid, "command": command, "script": str(s.root / "x_layout.py"), "args": args, "label": label})
+    by = {c["id"]: c for c in s.commands()}
+    assert [by[i]["kind"] for i in range(1, 7)] == ["preview", "run", "explore", "explore", "route", "apply"]
+    assert by[2]["label"] == "nightly" and by[1]["label"] == "" and by[2]["command"] == "run"
+    s._on_channel(1, {"ev": "explore", "focus": ["a"], "plain": {}, "order": [], "baseline": 1.0, "jobs": 1, "at": 1.0})          # one that explores is an explore whatever it was typed as
+    assert {c["id"]: c["kind"] for c in s.commands()}[1] == "explore"
+    assert json.loads(s.hello()[0][1])["commands"][1]["label"] == "nightly"
+
+
+@pytest.fixture
+def own_project(tmp_path):
+    """A project of this test's own, so what it lists is only what the test made."""
+    return real_modules.stage(tmp_path, "usbconverter")
+
+
+def _board_dirs(s):
+    out = []
+    for entry in s.scripts():
+        if entry["src"].board_dir not in out:
+            out.append(entry["src"].board_dir)
+    return out
+
+
+def _run_folder(board_dir, rid, script, status="ok", pid=None, findings=(), details=None):
+    d = board_dir / ".placemat" / "runs" / rid
+    d.mkdir(parents=True)
+    doc = {"run_id": rid, "board": board_dir.name, "status": status, "placements": {}, "cutouts": {}, "metrics": {"measures": {"airwire_mm": 10.0, "crossings": {}, "drc": 0, "findings": {}, "link_excess": 0.0, "unplaced": {}}},
+           "findings": [f[1] for f in findings], "finding_details": details if details is not None else [{"kind": "k", "severity": f[0], "text": f[1]} for f in findings],
+           "steps": [], "timing_s": {}, "paths": {"script": str(script), "label": ""}, "failure": None, "verdicts": [], "acceptances": [], "pid": pid}
+    (d / "run.json").write_text(json.dumps(doc))
+    return d
+
+
+def test_the_projects_past_runs_are_listed_from_every_board_with_no_script_chosen(own_project):
+    s = Studio(None, port=0, open_browser=False, root=own_project.parents[2])
+    assert s.script is None
+    first, second = _board_dirs(s)[:2]
+    scripts = {e["src"].board_dir: e["path"] for e in s.scripts()}
+    _run_folder(first, "aaaa0001", scripts[first], findings=[("warning", "one")])
+    time.sleep(0.02)
+    _run_folder(second, "bbbb0002", scripts[second])
+    time.sleep(0.02)
+    _run_folder(second, "cccc0003", scripts[second], status="running", pid=os.getpid())                  # under way: a command running, not a past run
+    _run_folder(second, "dddd0004", scripts[second], status="running", pid=2 ** 22 + 11)                   # a record that says running, whose process is gone: it died
+    (second / ".placemat" / "runs" / "a-label").symlink_to("bbbb0002")                                      # a label is another name for a run, not another run
+    (second / ".placemat" / "runs" / ".staging").mkdir()
+    (second / ".placemat" / "runs" / ".staging" / "run.json").write_text("{}")
+    listed = s.project_runs()
+    assert [r["id"] for r in listed] == ["dddd0004", "bbbb0002", "aaaa0001"] and {r["kind"] for r in listed} == {"run"}
+    assert [r["died"] for r in listed] == [True, False, False] and listed[2]["findings"] == 1 and listed[2]["script"] == str(scripts[first])
+    assert s.project_runs(limit=1)[0]["id"] == "dddd0004"
+    assert json.loads(s.hello()[0][1])["project_runs"] == listed
+    assert s.script is None and s.history == type(s.history)(maxlen=s.history.maxlen)                      # nothing was resolved to list them
+
+
+def test_a_past_run_opens_with_its_board_and_findings_and_resolves_nothing(own_project):
+    pytest.importorskip("pcbnew")
+    import shutil
+    s = Studio(None, port=0, open_browser=False, root=own_project.parents[2])
+    s.worker.send = lambda cmd: pytest.fail("a past run is opened, not resolved")
+    board_dir = next(d for d in _board_dirs(s) if (d / ".placemat" / "generated").is_dir())
+    script = next(e["path"] for e in s.scripts() if e["src"].board_dir == board_dir)
+    cached = next((board_dir / ".placemat" / "generated").glob("*/layout.kicad_pcb"))
+    details = [{"kind": "copper", "severity": "warning", "text": "somewhere", "cause": None, "facts": {}},
+               {"kind": "x", "severity": "notice", "text": "from a later version", "cause": "no_such_cause", "facts": {"a": 1}}]
+    folder = _run_folder(board_dir, "eeee0005", script, findings=[("warning", "somewhere"), ("notice", "from a later version")], details=details)
+    shutil.copy(cached, folder / "layout.kicad_pcb")
+    view = s.run_view("eeee0005")
+    doc = view["doc"]
+    assert view["summary"]["id"] == "eeee0005" and doc["items"] and len(doc["steps"]) == len(doc["items"]) and doc["board"]["extent"]
+    assert [(f["severity"], f["text"], f["at"]) for f in doc["findings"]] == [("warning", "somewhere", None), ("notice", "from a later version", None)]
+    assert doc["score"]["total"] is not None and doc["counts"]["findings"] == 2
+    (folder / "plan.json").write_text(json.dumps({"board": {"loops": [], "drawn": False, "extent": [0, 0, 1, 1]}, "items": [], "layers": ["F.Cu"], "steps": [{"i": 0, "item": "x", "kind": "part"}], "copper": [{"t": "track"}], "findings": [{"text": "kept", "kind": "k", "severity": "warning", "at": None, "refs": [], "pads": []}]}))
+    assert s.run_view("eeee0005")["doc"]["copper"] == [{"t": "track"}] and [f["text"] for f in s.run_view("eeee0005")["doc"]["findings"]] == ["kept"]      # a routed run keeps its own plan
+    (folder / "layout.kicad_pcb").unlink()
+    (folder / "plan.json").unlink()
+    assert s.run_view("eeee0005") is None                                                                    # a run that kept no board has none to show
+    assert s.run_view("nope") is None and s.run_view("../x") is None and s.run_view("") is None and s.run_view(".staging") is None
+
+
+def test_a_runs_findings_are_placed_from_their_facts(project):
+    from placemat import route_view
+    base = {"board": {"loops": [], "drawn": False, "extent": [0, 0, 10, 10]}, "layers": ["F.Cu"],
+            "items": [{"key": "u1", "members": [{"ref": "U1", "inst": "u1", "shapes": []}, {"ref": "C1", "inst": "c1", "shapes": []}]}]}
+    details = [{"kind": "escape", "severity": "warning", "text": "U1 pins 1/2: A crosses B", "cause": "escape_crossed", "facts": {"ref": "U1", "pins": ["1", "2"], "nets": ["A", "B"]}},
+               {"kind": "copper", "severity": "warning", "text": "a pour narrows at (3, 4)", "cause": "copper_pour_narrow", "facts": {"at": [3.0, 4.0]}}]
+    doc = route_view.run_doc(base, details, 5.0)
+    first = doc["findings"][0]
+    assert first["refs"] == ["U1"] and first["pads"] == [["U1", "1"], ["U1", "2"]] and first["text"] == "U1 pins 1/2: A crosses B" and doc["score"] == {"total": 5.0}
+    assert doc["counts"] == {"placed": 1, "findings": 2} and doc["steps"][0]["item"] == "u1"
+
+
+def test_the_past_runs_explores_and_routes_are_found_without_a_script_and_served_over_http(own_project):
+    import http.client
+    s = Studio(None, port=0, open_browser=False, root=own_project.parents[2])
+    board_dir = _board_dirs(s)[0]
+    script = next(e["path"] for e in s.scripts() if e["src"].board_dir == board_dir)
+    _run_folder(board_dir, "ffff0006", script)
+    folder = board_dir / ".placemat" / "views" / "explore"
+    folder.mkdir(parents=True)
+    (folder / "20261003-000000-9.json").write_text(json.dumps({"version": 1, "script": str(script), "at": 5.0, "pid": 9, "focus": ["a"], "baseline": 10.0, "best": 9.0, "best_seed": 1, "kept": False, "variants": []}))
+    assert [e["script"] for e in s.explores()] == [str(script)]
+    url = s.start()
+    try:
+        host, token = url.split("//")[1].split("/?t=")
+        conn = http.client.HTTPConnection(host, timeout=30)
+        get = lambda path: (conn.request("GET", path + "&t=" + token if "?" in path else path + "?t=" + token), conn.getresponse())[1]
+        r = get("/projectruns")
+        assert r.status == 200 and [x["id"] for x in json.loads(r.read())] == ["ffff0006"]
+        r = get("/explores")
+        assert r.status == 200 and len(json.loads(r.read())) == 1
+        r = get("/runview?run=ffff0006")
+        assert r.status == 404 and "kept no board" in r.read().decode()                                      # no board file in this record
+        r = get("/runview?run=..%2Fx")
+        assert r.status == 404
+        conn.request("GET", "/projectruns")
+        assert conn.getresponse().status == 403                                                              # the token is needed
+    finally:
+        s.stop()
