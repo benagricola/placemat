@@ -130,13 +130,15 @@ def kicad_cell_board(path, cells=(("mod", (30.0, 10.0)),), notes=None):
     return path
 
 
-def stamp_fragment(board, fragment_pcb, cell, offset):
+def stamp_fragment(board, fragment_pcb, cell, offset, shared=()):
     """Stamp the module fragment at `fragment_pcb` into `board` (a pcbnew BOARD) as group `cell`, the way `pcb layout` does
     (pcb-layout kicad_adapter.py `_apply_fragment_routing`): each track, via, zone and drawing (its notes among them) duplicated from
     the fragment's board with `BOARD_ITEM.Duplicate`, put on the cell's net `<cell>.<net>`, moved by `offset` (mm) and added to the
     group, a zone's priority raised by one (FRAGMENT_ZONE_PRIORITY_BIAS). pcb makes the footprints from their libraries and stands
     them where the fragment has them, each with a reference of the board's; here each is duplicated from the fragment, numbered
-    on when the board has its reference already, its pads put on the cell's nets and its Path `<cell>.<path>`. Returns the group."""
+    on when the board has its reference already, its pads put on the cell's nets and its Path `<cell>.<path>`. A net named in
+    `shared` keeps the fragment's name, as one the module takes from the sheet above it does, so stamps share it. Returns the
+    group."""
     import pcbnew
     frag = pcbnew.LoadBoard(str(fragment_pcb))
     group = pcbnew.PCB_GROUP(board)
@@ -148,7 +150,7 @@ def stamp_fragment(board, fragment_pcb, cell, offset):
         name = src.GetNetname()
         if not name:
             return None
-        full = "%s.%s" % (cell, name)
+        full = name if name in shared else "%s.%s" % (cell, name)
         if full not in nets:
             info = board.FindNet(full)
             if info is None:
@@ -210,10 +212,10 @@ def stamp_fragment(board, fragment_pcb, cell, offset):
     return group
 
 
-def stamp_fragment_as_cells(fragment_pcb, out_pcb, cells):
+def stamp_fragment_as_cells(fragment_pcb, out_pcb, cells, shared=()):
     """A board of the module fragment at `fragment_pcb` stamped once for each `{cell: offset}` (`stamp_fragment`), saved at `out_pcb`.
     The board starts as the fragment's own with its items deleted, so it keeps the fragment's layers and setup; the project and rules
-    files are copied beside it."""
+    files are copied beside it. `shared` as for `stamp_fragment`."""
     import pathlib
     import shutil
     import pcbnew
@@ -222,7 +224,7 @@ def stamp_fragment_as_cells(fragment_pcb, out_pcb, cells):
     for item in list(board.GetFootprints()) + list(board.GetTracks()) + list(board.Zones()) + list(board.GetDrawings()):
         board.Delete(item)
     for cell, offset in cells.items():
-        stamp_fragment(board, fragment_pcb, cell, offset)
+        stamp_fragment(board, fragment_pcb, cell, offset, shared)
     board.Save(str(out_pcb))
     for ext in (".kicad_pro", ".kicad_dru"):
         if fragment_pcb.with_suffix(ext).exists():

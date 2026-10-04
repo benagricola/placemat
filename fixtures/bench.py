@@ -14,6 +14,10 @@ shown beside it.
 A change that can move a placement runs this before it is committed, puts the
 tally lines in the commit message, and commits bench.json with it when a
 number changed.
+
+`--arrangements` measures what module arrangements cost, which the corpus
+cannot show (it declares none): `bench_arrangements`, its baseline in
+bench_arrangements.json (`--arrangements --update` writes it).
 """
 from __future__ import annotations
 
@@ -246,6 +250,135 @@ def bench_checks() -> tuple[float, dict]:
     return dt, {"verdicts": len(verdicts), "failing": sum(1 for v in verdicts if v.ok is False)}
 
 
+ARRANGED_MODULE = "usb5v"
+"""The real module the arrangement bench runs (tests/real_modules.py), with the alternatives of tests/test_arrangement_run.py."""
+STAMPS = {"u5a": (20.0, 20.0), "u5b": (70.0, 20.0), "u5c": (20.0, 70.0), "u5d": (70.0, 70.0)}
+SHARED = ("VSHUNT", "PP5V", "V3V3", "VBUS_EN")   # the module's nets from the sheet above: the stamps share them, so each links to the rest
+STAMPED_SIZE = (140.0, 120.0)
+ARRANGED_BASELINE = ROOT / "bench_arrangements.json"
+ARRANGED_REPEATS = 3         # each resolve of the arrangement bench is timed this many times: a single run varies by 10 to 30 percent
+
+
+def _resolve_cells(g, outline, on: bool, firm: bool) -> dict:
+    """`g`'s cells and loose parts placed and resolved, each cell free or (`firm`) at the centre of its box as `g` stands it, with
+    `place.arrangements` `on` or off. `outline(board)` gives the board its outline. The resolve's seconds, run score, items placed,
+    and cells standing in an arrangement other than their default."""
+    from placemat import score
+    from placemat.layout import Board
+    from placemat.settings import Settings
+    from placemat.values import Cell, Part
+    b = Board(g, keep_going=True, settings=dataclasses.replace(Settings(), place_arrangements=on))
+    outline(b)
+    cells = [name for name, cell in sorted(g.cells.items()) if cell.members]
+    for name in cells:
+        b.place(Cell(name), at=g.cells[name].box.center) if firm else b.place(Cell(name))
+    for fp in sorted(g.footprints, key=lambda f: f.inst):
+        if fp.cell is None:
+            b.place(Part(fp.inst))
+    t0 = time.perf_counter()
+    plan = b.resolve()
+    dt = time.perf_counter() - t0
+    stood = [s for s in plan.steps if s.placement is not None and s.kind in ("part", "cell")]
+    return {"s": dt, "score": score.total(score.plan_measures(b, plan), b.settings), "placed": len(stood),
+            "taken": sum(1 for s in stood if s.kind == "cell" and s.placement.arrangement), "plan": plan}
+
+
+def _arranged_case(plain, g, outline, firm: bool, repeats: int) -> tuple:
+    """One board resolved three ways: `plain` (no notes) and `g` (the same board with notes) with arrangements off and on, each
+    `repeats` times; the seconds are the median. (the row, the last plan with arrangements on)"""
+    row = {"cells": sum(1 for c in g.cells.values() if c.members), "offered": sum(1 for c in g.cells.values() if c.offered())}
+    for key, geometry, on in (("plain", plain, False), ("off", g, False), ("on", g, True)):
+        runs = [_resolve_cells(geometry, outline, on, firm) for _ in range(repeats)]
+        r = runs[-1]
+        row.update({"%s_s" % key: round(statistics.median(x["s"] for x in runs), 2), "%s_score" % key: round(r["score"], 1)})
+        if key != "plain":
+            row.update({"%s_placed" % key: r["placed"], "%s_taken" % key: r["taken"]})
+    return row, r["plan"]
+
+
+def _own_copper(plan, cell) -> int:
+    """The copper shapes `cell` (a CellGeom, arranged or not) holds of its own in `plan`'s occupancy: its tracks and each piece of
+    its pours."""
+    return sum(1 for s in plan.occupancy._geometry(cell).shapes if s.owner == cell.name and s.kind == "copper")
+
+
+def bench_arrangements(module: str | None = ARRANGED_MODULE, board=None, outline=None, repeats: int = ARRANGED_REPEATS) -> dict:
+    """The cost of arrangements, in cases the module corpus cannot show (it declares none). Seconds and run scores.
+
+    `module`: the real module run with its one layout and with k arrangements (`module_one_s`, `module_k_s`, `module_k`); then its
+    fragment stamped four times on one board, the stamps linked by the nets the module takes from the sheet above (`stamped`): the
+    plain fragment's stamps, and the noted fragment's with arrangements off and on, with a stamp's own copper shapes in its default
+    and in the first arrangement offered (`default_copper`, `arranged_copper`). None skips both.
+    `board`: a generated board of stamped cells (default the whole-board fixture's), each cell with two or more members given a
+    synthetic note (tests/arrangement_support.synthetic_notes_for), resolved with every cell free (`board`) and at its stamped
+    place (`firm`), each as the board without notes and with notes, arrangements off and on. `outline` is the board's outline as
+    points; by default the fixture's written board's. Each resolve runs `repeats` times and its seconds are the median.
+
+    Budgets: a module run at most about k times the default's; a board's resolve at most 25 percent longer than the same board
+    without arrangements."""
+    import shutil
+    import tempfile
+    sys.path.insert(0, str(ROOT.parent))
+    from placemat.kicad.read import read_board
+    from tests.arrangement_support import stamp_fragment_as_cells, synthetic_notes_for
+    out = {}
+    work = pathlib.Path(tempfile.mkdtemp())
+    try:
+        if module is not None:
+            from tests import real_modules
+            from tests.test_arrangement_run import with_alternatives
+            frags = {}
+            for label, edit in (("one", None), ("k", with_alternatives)):
+                t0 = time.perf_counter()
+                result, _, frags[label] = real_modules.run(work / label, module, edit=edit)
+                out["module_%s_s" % label] = round(time.perf_counter() - t0, 1)
+                if label == "k":
+                    out["module_k"] = len(json.loads((result.run_dir / "run.json").read_text()).get("arrangements", [1]))
+            stamped = {label: read_board(stamp_fragment_as_cells(frags[label], work / ("stamped_%s.kicad_pcb" % label), STAMPS,
+                                                                 SHARED))
+                       for label in frags}
+            rect = lambda b: b.rect(width=STAMPED_SIZE[0], height=STAMPED_SIZE[1])
+            row, plan = _arranged_case(stamped["one"], stamped["k"], rect, False, repeats)
+            cell = stamped["k"].cells[sorted(STAMPS)[0]]
+            row["default_copper"] = _own_copper(plan, cell)
+            row["arranged_copper"] = _own_copper(plan, cell.arranged(cell.offered()[0])) if cell.offered() else None
+            out["stamped"] = row
+        source = pathlib.Path(board) if board is not None else BOARD_FIXTURE / "generated" / "layout.kicad_pcb"
+        pcb = work / "noted" / source.name
+        pcb.parent.mkdir()
+        for f in source.parent.glob(source.stem + ".*"):
+            shutil.copy(f, pcb.parent / f.name)
+        plain = read_board(pcb)
+        synthetic_notes_for(pcb)
+        g = read_board(pcb)
+        if outline is None:
+            written = read_board(BOARD_FIXTURE / "layout" / "layout.kicad_pcb")
+            edge = lambda b: b.outline(written.board_polygon[0], holes=written.board_polygon[1:])
+        else:
+            edge = lambda b: b.outline(list(outline))
+        for key, firm in (("board", False), ("firm", True)):
+            out[key] = _arranged_case(plain, g, edge, firm, repeats)[0]
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return out
+
+
+def arrangement_changes(run: dict, base: dict) -> list:
+    """What moved against the arrangement baseline, as (case, key, baseline, now): every count and score that differs (key None
+    for a top-level value). Seconds are machine time and are left out."""
+    out = []
+    for case in sorted(set(run) | set(base)):
+        new, old = run.get(case), base.get(case)
+        if not isinstance(new, dict) or not isinstance(old, dict):
+            if new != old and not case.endswith("_s"):
+                out.append((case, None, old, new))
+            continue
+        for key in sorted(set(new) | set(old)):
+            if not key.endswith("_s") and new.get(key) != old.get(key):
+                out.append((case, key, old.get(key), new.get(key)))
+    return out
+
+
 def _line(c, m, new, old) -> str:
     def pair(key, fmt):
         a, b = old[key], new[key]
@@ -329,7 +462,22 @@ def main(argv) -> int:
     ap.add_argument("--out", help="write this run's results here, as bench.json is written")
     ap.add_argument("--board", action="store_true", help="the whole-board fixture's placement, timed alone")
     ap.add_argument("--checks", action="store_true", help="the whole-board fixture's checks, timed alone")
+    ap.add_argument("--arrangements", action="store_true",
+                    help="the cost of arrangements: a module run with k, its fragment stamped four times, the whole board and a "
+                         "board of firm cells with synthetic notes, timed without notes and with arrangements off and on")
     a = ap.parse_args(argv)
+    if a.arrangements:
+        run = bench_arrangements()
+        print(json.dumps(run, indent=1, sort_keys=True))
+        if ARRANGED_BASELINE.exists():
+            for case, key, old, new in arrangement_changes(run, json.loads(ARRANGED_BASELINE.read_text())):
+                print("%s%s: %s -> %s" % (case, " " + key if key else "", old, new))
+        if a.out:
+            pathlib.Path(a.out).write_text(json.dumps(run, indent=1, sort_keys=True) + "\n")
+        if a.update:
+            ARRANGED_BASELINE.write_text(json.dumps(run, indent=1, sort_keys=True) + "\n")
+            print("wrote %s" % ARRANGED_BASELINE.relative_to(ROOT.parent))
+        return 0
     if a.board or a.checks:
         if a.board:
             dt, row = bench_board()

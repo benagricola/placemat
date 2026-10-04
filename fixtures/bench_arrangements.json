@@ -1,0 +1,49 @@
+{
+ "board": {
+  "cells": 30,
+  "off_placed": 24,
+  "off_s": 3.78,
+  "off_score": 104491.2,
+  "off_taken": 0,
+  "offered": 29,
+  "on_placed": 24,
+  "on_s": 4.68,
+  "on_score": 105897.3,
+  "on_taken": 4,
+  "plain_s": 4.16,
+  "plain_score": 104491.2
+ },
+ "firm": {
+  "cells": 30,
+  "off_placed": 30,
+  "off_s": 1.75,
+  "off_score": 25619.4,
+  "off_taken": 0,
+  "offered": 29,
+  "on_placed": 30,
+  "on_s": 1.81,
+  "on_score": 25619.4,
+  "on_taken": 0,
+  "plain_s": 1.85,
+  "plain_score": 25619.4
+ },
+ "module_k": 4,
+ "module_k_s": 4.6,
+ "module_one_s": 1.7,
+ "stamped": {
+  "arranged_copper": 330,
+  "cells": 4,
+  "default_copper": 49,
+  "off_placed": 4,
+  "off_s": 1.12,
+  "off_score": 1807.7,
+  "off_taken": 0,
+  "offered": 4,
+  "on_placed": 4,
+  "on_s": 2.31,
+  "on_score": 1832.2,
+  "on_taken": 1,
+  "plain_s": 1.13,
+  "plain_score": 1807.7
+ }
+}
