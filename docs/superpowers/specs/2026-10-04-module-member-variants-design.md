@@ -98,6 +98,35 @@ the group's name. `default` is the default's id. Option and group names are lowe
 Two arrangements that resolve to the same member places and copper (compared after the run) are one: the later is
 dropped with a notice naming both.
 
+### Copper that exists in some arrangements
+
+A copper declaration (`board.track`, `board.via`, `board.pour`, and the other copper forms that take `net=` and
+points) takes `only=`, a sequence of arrangement ids naming the arrangements it exists in:
+
+```python
+board.track(Net("VIN"), [PadRef(Part("c_in"), 1), PadRef(Part("u1"), 3)])                       # every arrangement
+board.track(Net("GATE"), [PadRef(Part("q1"), 1), PadRef(Part("u1"), 7)], only=("mirrored",))
+board.pour(Net("SRC"), ..., only=("c_in.east", "c_in.east+r_pull.turned"))
+```
+
+- The default is every arrangement, so a declaration without `only=` is what it was. `only=("default",)` names the
+  default arrangement.
+- A name must be an arrangement id of the module. Ids are known once all declarations are collected, so the check
+  is made when the script finishes declaring and before any resolve: an unknown id is refused with the line of the
+  declaration and the ids the module has (`ValueError`, as a bad keyword is). An empty `only=` is refused.
+- A product id is matched as written. `only=` does not take a pattern, so a pour that belongs to "any arrangement
+  with c_in east" lists the product ids that contain it (or the module names a group for them).
+- `only=` is part of the declaration, so it is in the reuse digest (`omit_default`, left out when absent) and in a
+  fragment-run's declarations the studio lists.
+- Copper that depends on an item (a track from a pad of a member that has options) needs no `only=` to follow it:
+  it is drawn from the arrangement's pads. `only=` is for copper that does not exist in the others (a track that
+  would cross a member standing elsewhere, a pour a differently turned member makes pointless).
+
+Resolving an arrangement keeps the declarations whose `only=` contains its id, so the copper planned, the crossing
+settlement, the dry plans of the copper-room passes, the DRC and the checks all see that arrangement's set. A net
+join that exists only in some arrangements is checked in each: an arrangement that leaves a net unconnected in its
+own set fails `unconnected` as the default would.
+
 ### Limits
 
 Growth is multiplicative, so two settings bound it, under `place`:
@@ -126,9 +155,9 @@ There is one generate (`pcb layout`) for the module, whatever the arrangements.
 
 The resolves are sequential. A module run with k arrangements costs about k times one.
 
-Copper declared by intent holds in every arrangement. A track whose waypoints cannot be drawn in an arrangement is
-that arrangement's finding, and (below) keeps it from being offered. Copper declared for one arrangement only is
-not part of this change (Decisions, 8).
+Each arrangement resolves with its own copper set: the copper declarations that exist in it (next section). A
+track whose waypoints cannot be drawn in an arrangement is that arrangement's finding, and (below) keeps it from
+being offered.
 
 ### Proving
 
@@ -191,7 +220,8 @@ One text per offered arrangement: `placemat arrangement <json>`, the document be
 
 - `members` lists every member, by its instance path within the module (what `CellGeom.member(suffix)` matches), at
   its place in the fragment's own frame: the same frame the default's items are in.
-- `ops` are the module's copper for the arrangement, as the plan holds them (`Track`, `Via`, `Pour`, `Text`,
+- `ops` are the module's copper for the arrangement, as its resolve planned them (so only the copper whose `only=`
+  holds for it) (`Track`, `Via`, `Pour`, `Text`,
   `Zone` in copper.py) in a JSON form the writer reads back. This is the one new codec in the change; the
   studio's plan.json copper is a drawn form and cannot be written.
 - `keepouts` are the rule areas the arrangement declares, as `RuleArea` records. A keepout shaped by a member
@@ -262,18 +292,55 @@ first:
   `_seed_hint` reseeding is the model: a seed is laid from the arranged item's pads), and its own lane pricing;
 - the arrangement's score is the Scorer's, as for any candidate: links from the pads where they land, crossings,
   escape weights and lanes, pushes, limit and emitter pairs, the cost of vias giving way;
-- a non-default arrangement costs `score.arrangement` more (mm, default 0.5). It is taken when its best score plus
-  that is below the best so far, or when nothing earlier has a legal spot. An equal score goes to the arrangement
-  earlier in the declared order, so the default;
+- a non-default arrangement costs `score.arrangement` more (mm, default 0, at least 0). It is taken only when its
+  best score plus that is strictly below the best so far, or when nothing earlier has a legal spot. With the default
+  of 0 an equal score keeps the arrangement scanned first, and the default is scanned first, then the others in
+  declared order, so a tie is decided by that order and never by anything else: the result is deterministic and a
+  cell whose arrangements score alike stays at the default. A project raises the setting to make the board prefer
+  the module's own layout by that many mm of score;
 - the best score so far, less the cost, is passed to the next scan as the pruning floor (`score.best`), as the back
   face does, so the native scoring prunes candidates that cannot win;
 - an unscored search (no links, pushes or lanes to price) takes the default arrangement when it has a legal spot,
   and scans the others only when it has none, taking the first that has one. A cell with nothing pulling it does
   not change arrangement for no reason.
 
-A decided place (`Location`, `Centre`, `Pin`, `Origin`, `Mid`, `Beside`, an edge or a row) lays the default
-arrangement, or, with `arrangements=` naming others, the first of them in the order given that is legal. It is
-never scored. Searched forms with one freedom (`OnEdge(edge)`, a slide) search the arrangements as above.
+Searched forms with one freedom (`OnEdge(edge)`, a slide) search the arrangements as above.
+
+### A firm cell
+
+A cell whose place is decided (`Location`, `Centre`, `Pin`, `Origin`, `Mid`, `Beside`, an edge or a row) searches
+its arrangements too, with nothing to scan:
+
+1. The declaration is laid for each offered arrangement: the point forms put the arranged cell's box centre (or the
+   pinned member's origin) on the point, `Beside` stands the arranged cell against its reference, an edge form puts
+   the arranged cell's reach at the keep-in. Each arrangement therefore has its own placement from the same
+   declaration, as each turn of `rotations=` does at a decided point (cell-bearing-search spec).
+2. Each is judged for legality as a firm item is judged (courtyards, keepouts, the edge, carried vias allowed to give
+   way). An illegal one is out.
+3. Each legal one is scored once by the Scorer, at that placement, against what is placed when the firm item is
+   laid: links to placed pads, pushes, lanes and limit pairs. Partners not yet placed contribute nothing, so a firm
+   cell whose partners are searched items scores every arrangement alike and keeps the default. The lowest
+   `score + score.arrangement` wins; a tie keeps the arrangement earlier in declared order, so the default.
+4. If no arrangement is legal the cell is a firm collision as it is today, and the finding is the default
+   arrangement's, with the other arrangements' refusals listed under it.
+
+The cost is k legality judgments and at most k scorer evaluations (one candidate each), not k scans, so a firm cell
+costs a small multiple of what it costs now. `arrangements=` on the cell's `place()` limits the set: one id lays
+that arrangement only (no choice, no extra cost), several are tried in that order.
+
+Firm passes and declared copper room. The firm phase repeats while the dry plan of the declared copper moves
+(`place.firm_passes`, `_Redo`). The arrangement a firm cell takes is decided inside each pass, from what that pass
+has placed and the provisional copper (`_room_seed`) it was seeded with, and the dry plan is made from the
+arrangement taken. A pass is settled when its ops are where they were and every firm cell took the arrangement it
+took in the pass before. The choice is carried between passes like the Beside swaps are (`_swaps`): the arrangement
+taken by each firm cell is part of what a run hands the next. A cell whose arrangement still changes at the last
+pass keeps that pass's, and `fixed.room_unsettled` names it with the arrangement ids that alternated. Firm items
+placed relative to the cell (`Beside` it, a rider) are placed after it is, against the arrangement it took; they do
+not influence the choice.
+
+What is recorded: the step's `arrangement` note, as a searched cell's, with the score of each arrangement tried and
+whether it was legal; the placement's `arrangement`; the reuse digest of the step (the arrangement is in the
+placement). Nothing else about a firm cell's step changes.
 
 When no arrangement has a legal spot the cell is unplaced; the finding's refusals are the arrangements' merged and
 tagged with the arrangement they came from (as the two faces' are).
@@ -281,18 +348,18 @@ tagged with the arrangement they came from (as the two faces' are).
 The step records which was taken and why, as a structured note:
 
 ```json
-{"kind": "arrangement", "id": "c_in.east", "score": 41.2, "cost": 0.5, "default_score": 44.9}
+{"kind": "arrangement", "id": "c_in.east", "score": 41.2, "cost": 0.0, "default_score": 44.9}
 {"kind": "arrangement", "id": "c_in.east", "default_blame": {...}}      // the default had no legal spot
 ```
 
-`step_text` renders it ("arrangement c_in.east: 41.20 and 0.50 for it against 44.90 as the default module
+`step_text` renders it ("arrangement c_in.east: 41.20 and 0.00 for it against 44.90 as the default module
 stands"), and the studio and `placemat watch` show that sentence; nothing reads it back. The run's `placements`
 gain `"arrangement"` for a cell that took one other than the default.
 
 ### Boundaries on the search
 
 - `arrangements=` on a cell's `place()` takes an arrangement id, or a sequence of them. One id pins the cell to it;
-  several restrict the search to them, in that order (the order breaks ties). An id the module does not offer is an
+  several restrict the search, or a firm cell's trial, to them, in that order (the order breaks ties). An id the module does not offer is an
   unplaced item with a finding `arrangement.missing` naming the ids offered; with `required=True` it stops the run
   as any required item does. Allowed on a cell only. The field is `omit_default`, so a declaration without it digests
   as it did.
@@ -363,11 +430,10 @@ step does.
 
 ## Interactions
 
-- **Declared copper room.** A firm cell lays the default or the first legal named arrangement, so the firm passes
-  and their dry plans see one arrangement, and a `_Redo` pass that moves a Beside neighbour re-judges the cell with
-  the same one. For a searched cell, declared copper whose ends become placed (Decision 2 of the copper-room spec)
+- **Declared copper room.** A firm cell's arrangement is chosen in each firm pass and carried between passes (see
+  "A firm cell"); the dry plans see the arrangement taken. For a searched cell, declared copper whose ends become placed (Decision 2 of the copper-room spec)
   is dry-planned from the committed arrangement's pads. The reuse digest of a firm step includes the arrangement
-  it laid, because the placement does.
+  it took, because the placement does.
 - **Carried vias and give-way.** An arrangement's vias are its own copper, carried as the default's are. The
   search judges the arranged cell's carried vias giving way (`giveway.for_scan`) per arrangement. `plan.thinned`
   (`drops=`) and `plan.given_way` hold positions "as generated"; the write arranges the cell first, so they are in
@@ -421,14 +487,54 @@ the board and run are what they were. The first run after the release replays no
 
 A module that adds alternatives needs its script run again and the board run after it. A board that stamps it then
 searches the arrangements by default, so its placements can change: that is the purpose. A board pins one with
-`arrangements=` to hold the default.
+`arrangements=` to hold the default. A firm cell searches its arrangements too, so a firm cell of such a module can
+also take a non-default arrangement; `arrangements="default"` holds it.
 
 `references/migration.md` gets an entry (new forms; the `arrangement` word; a re-run is needed to write the notes).
 `api.md` gets "Arrangements" under Placement (the three forms, `arrangements=`, the limits, the settings in the
-settings table) and the run record's `arrangements` field. SKILL.md, "Shaping modules for the board", gains a
-bullet: when the board wants one member on one side and the module is as good either way, declare the alternative in
-the module and let the board's search choose, before editing the module's default. The release notes and the gaps
+settings table) and the run record's `arrangements` field. SKILL.md changes as "What the skill says" sets out, including
+"Shaping modules for the board". The release notes and the gaps
 file follow the release procedure.
+
+## What the skill says
+
+The implementation updates `skills/placemat/SKILL.md` and, where the forms are documented, `references/api.md`, so an
+agent laying out a new module develops alternatives as it goes and gives the board's search as much chance as
+possible of finding an arrangement that fits. The skill says:
+
+- **When to declare one.** While laying out a module, wherever a member's side or turn is a free choice the module's
+  own rules allow: a bypass capacitor on either side of its pin, a pull-up turned either way, a part that could sit
+  on the other face, a pair or row that could be mirrored. The question to ask of each placed member is "would the
+  module be as correct with this on the other side or turned?"; if yes, declare the other way as an alternative. A
+  member whose place is a fact (a polarised part read by assembly, a connector's mouth, a part held by its
+  datasheet's figure) gets none.
+- **Every alternative keeps the module's intent.** An alternative is a relation the module is equally happy with,
+  not a compromise made for a board that does not exist yet. The module run proves it by the module's own links,
+  limits, keepouts and checks, and an alternative that fails is not offered. A shape that breaks the module's reason
+  (a decoupling loop, a sense line, a thermal path) is not an alternative; it is the case "Shaping modules for the
+  board" already says is not a fix.
+- **Within the caps.** `place.arrangement_options_max` options per item and `place.arrangements_max` arrangements
+  per module, the product counted. The skill says to prefer a few alternatives on the members that matter, to name a
+  group for a combination that only works together instead of declaring each member's options and paying for the
+  product, and to use `only=` for copper that exists in some arrangements.
+- **Names.** An option is named for what it does (`east`, `turned`, `back`), a group for what it is (`mirrored`),
+  never `alt1`; ids appear in the board script's `arrangements=`, in the lock, in step notes and in the studio, so a
+  reader should know the arrangement from its name.
+- **Reading the report.** After the module run the agent reads the run's arrangement report (`run.json`'s
+  `arrangements`, and the `arrangement.refused` and `arrangement.limit` findings), refused ones included: for each
+  refused alternative it reads the refusals, then fixes the alternative (a `gap=`, a different anchor, `only=` for a
+  track that cannot exist there) or drops it. A module is not finished with a declared alternative that is refused.
+- **Order of remedies, tied to "Shaping modules for the board".** When a placement struggles because of one member's
+  side or turn, the agent first looks for or adds an arrangement on that member in the module and lets the board's
+  search choose, and edits the module's default layout only when no arrangement that keeps the module's intent
+  fits. The bullets of that section that say to turn a bypass or move a part to the other side of its IC become "add
+  it as an alternative first".
+- **On the board side.** `arrangements=` pins or restricts a cell's arrangements, and freeze writes it; the agent
+  does not edit a module's default to hold a choice the lock can hold.
+
+`api.md` documents the forms (`alternative`, `arrangement`, `Alt`, `only=`, `arrangements=`), the ids, the limits and
+the run record's `arrangements`; the skill does not repeat them, and points to them. The skill's text states the
+rules above and no project's parts.
 
 ## Testing
 
@@ -438,6 +544,14 @@ Pure, synthetic modules and boards (the fragment tests' staging helpers):
   and an unknown keyword are refused; ids are formed as specified; a duplicate id and a reserved name are refused;
   the limits refuse with the finding and leave the default only; `place.arrangements = false` is the default only;
 - product and group arrangements are enumerated in declaration order, and two that resolve alike are one;
+- `only=`: an unknown id, an empty `only=` and a name given to a form that takes none are refused at the declaration
+  with its line; a declaration without `only=` is in every arrangement; each arrangement's resolve, DRC and checks see
+  only its copper set (a track in one arrangement is absent from the others' boards and ops); an arrangement missing a
+  join its own set needs fails `unconnected` and is not offered; `only=` changes the reuse digest only when given;
+- a firm cell: takes the arrangement that scores lower at its decided spot, the default on a tie and when partners
+  are unplaced, the only legal one when the default is illegal, none when none is (a firm collision naming all);
+  `arrangements=` with one id lays that one and with several limits the trial; the choice is stable across firm
+  passes and a cell that alternates raises `fixed.room_unsettled`; dependents placed after it follow its arrangement;
 - the module run lays out each arrangement; one whose copper cannot be drawn, or whose member is unplaced, or whose
   DRC or verdict fails, is not offered and raises `arrangement.refused`; the default is written either way;
 - the written fragment's live items are the default's and equal the bytes of a run without alternatives; each
@@ -461,7 +575,13 @@ Pure, synthetic modules and boards (the fragment tests' staging helpers):
 - the written board (with KiCad): an arranged cell's members and copper are as the arrangement and its group is
   intact (`GetItems()` and `GetPosition()` still work afterwards, as in CLAUDE.md), DRC on the arranged board has no
   more than the module's own arrangement run had;
-- `step_text` and `finding_text` render the new notes and findings, and the studio's step panel shows them.
+- `step_text` and `finding_text` render the new notes and findings, and the studio's step panel shows them;
+- a skill check: an agent given only the updated skill and a fixture module with a bypass beside its IC, a
+  pull-up and a polarised part is asked to lay the module out. The check passes when it declares alternatives for
+  the bypass and the pull-up (and a mirrored group where one is natural), declares none for the polarised part,
+  names them for what they do, stays within the caps, runs the module, reads the arrangement report, and fixes or
+  drops an alternative the run refuses. It is run on at least two fixture modules and the transcripts kept with
+  the build notes; a failure is a change to the skill's wording, not to the check.
 
 A real module fixture: a module under `fixtures/*/modules/` staged by `tests/real_modules.py`, run with a bypass
 alternative on the other side of its IC and a member turn, then stamped by its fixture board and searched. The
@@ -474,87 +594,63 @@ in the commit. A new case set declares alternatives on fixture modules and is ru
 spec's build notes: the module run's seconds with k arrangements against one, and the whole-board fixture
 (`fixtures/bench.py --board`) resolve's seconds and run score with and without arrangements. Budget: a module run
 with k arrangements takes at most about k times the default's; a board's resolve with arrangement modules takes at
-most 25 percent longer than the same board without. Real-board runs and the full suite run one at a time.
+most 25 percent longer than the same board without. A firm-cell case: a board of firm cells of arrangement modules, timed with and without, to show the k
+legality judgments and scorings are small beside the scans. Real-board runs and the full suite run one at a time.
 
 ## Phasing
 
-1. **Declaration, module proof, the note** (about 4 days). `alternative`, `arrangement`, `Alt`, the limits and
-   settings, the per-arrangement resolve and scratch boards, the offered gate, `run.json`'s `arrangements`, the ops
-   codec and the note, `arrangement.limit` and `arrangement.refused`. Measures the note's size. Ends with a module
-   run whose fragment is byte-identical without alternatives and carries notes with them.
+1. **Declaration, module proof, the note** (about 5.5 days). `alternative`, `arrangement`, `Alt`, the limits and
+   settings, `only=` on the copper forms with its validation and the per-arrangement copper set, the per-arrangement
+   resolve and scratch boards, the offered gate, `run.json`'s `arrangements`, the ops codec and the note,
+   `arrangement.limit` and `arrangement.refused`. Measures the note's size. Ends with a module run whose fragment is
+   byte-identical without alternatives and carries notes with them. The skill and `api.md` update for the
+   declaration, the proof and the report (`## What the skill says`, all but the board-side bullet) lands with this
+   phase, plus about 1 day, so module authors start declaring alternatives as soon as they can be proven.
 2. **The board reads and writes arrangements** (about 3 days). `CellGeom.arrangements`, arranged geometry in the
-   occupancy, `Placement.arrangement`, the writer's arrange step, `arrangement.stale`. A firm cell lays an arrangement
-   by `arrangements=`. Verified on a real board for the group deletion.
-3. **The search** (about 4 days). `_scan_faces` over arrangements, `score.arrangement`, notes and findings, replay
+   occupancy, `Placement.arrangement`, the writer's arrange step, `arrangement.stale`. A cell is laid in an
+   arrangement by `arrangements=`. Verified on a real board for the group deletion. The skill's board-side bullet and `arrangements=` in `api.md` land here, plus about 0.5 day.
+3. **The search** (about 5 days). `_scan_faces` over arrangements, `score.arrangement`, notes and findings, replay
    keys, lock and freeze, explore, cleanup. Bench and timing.
-4. **Studio and docs** (about 2 days). Step panel and the module run's arrangement list, `api.md`, SKILL.md,
-   migration, the release entry.
+4. **Firm cells** (about 3 days). The trial of arrangements at a decided place, its carry between firm passes, the
+   settle test and `fixed.room_unsettled` for it, the notes, and the tests with declared copper room.
+5. **Studio and the rest of the docs** (about 1.5 days). Step panel and the module run's arrangement list,
+   migration, the release entry; the skill check's transcripts.
 
-About 13 working days. Phases 1 and 2 can ship without 3: a module can declare and prove arrangements and a board
-can pin one by name, which already removes the module-edit round trip for a fix the agent knows.
+About 20 working days (13 in the first draft; `only=` adds about 1.5, firm cells about 3, the skill update about
+1.5 and the rest is test growth). Phases 1 and 2 can ship without 3 and 4: a module can
+declare and prove arrangements and a board can pin one by name, which already removes the module-edit round trip
+for a fix the agent knows.
 
-## Decisions for the user
+## Decisions
 
-1. **The word.** "Variant" is already the name of a `.zen` `Layout` per config and of explore's tries.
-   - A: "arrangement" (this spec).
-   - B: "variant", with the other two renamed in the docs.
-   - C: "stance" or "option".
-   Recommendation: A. Cheapest, and no existing page changes.
+The ten questions of the first draft, as the user answered them. The options considered are kept; the choice is
+marked.
 
-2. **How per-member alternatives combine.**
-   - A: the product of each item's options, capped (this spec), plus named groups for the combinations that matter.
-   - B: one change at a time from the default (1 + the sum of the options), plus named groups; no product.
-   - C: named groups only; per-member `alternative` is sugar for a group of one.
-   Recommendation: A with the caps of 4 and 8. Members interact (a bypass's side with a turned resistor next to it),
-   and an arrangement is only proven if it is run, so the product is what the module author would otherwise write
-   by hand. B is the fallback if the cap proves too tight on real modules.
+1. **The word.** A: "arrangement" (chosen). B: "variant", with the other two renamed. C: "stance" or "option".
 
-3. **What a non-default arrangement costs the board.**
-   - A: `score.arrangement` = 0.5 mm, tuned on the bench (this spec).
-   - B: 0, a tie going to the default.
-   - C: 2.0 mm, as `score.back_face`.
-   Recommendation: A. The module's default is its author's first choice, so a gain smaller than noise should not
-   change it; the number is set from the bench before the release, not here.
+2. **How per-member alternatives combine.** A: the product of each item's options, capped, plus named groups
+   (chosen). B: one change at a time from the default, plus named groups. C: named groups only.
 
-4. **What keeps an arrangement from being offered.**
-   - A: an unplaced member, a critical finding, a failed verdict, a `real` DRC violation (this spec).
-   - B: A, and any warning.
-   - C: only an unplaced member and a `real` DRC violation.
-   Recommendation: A. It is the module's own gate, and warnings stay on the record for the reader.
+3. **What a non-default arrangement costs the board.** A: 0.5 mm. B: 0, a tie going to the default (chosen:
+   `score.arrangement` defaults to 0, stays a setting so a project can raise it, and a tie is decided by the
+   scan order, default first). C: 2.0 mm.
 
-5. **Decided (firm) cells.**
-   - A: lay the default, or the first legal of `arrangements=` (this spec).
-   - B: search them like a searched cell, scored by their links.
-   Recommendation: A. A firm place is a statement that the cell goes there; scoring a firm item has no precedent
-   and would change what a point means (the arranged box centre).
+4. **What keeps an arrangement from being offered.** A: an unplaced member, a critical finding, a failed verdict, a
+   `real` DRC error (chosen). B: A, and any warning. C: only an unplaced member and a `real` DRC error.
 
-6. **The step budget.**
-   - A: `place.step_budget` per arrangement scan (this spec).
-   - B: one budget split across the arrangements.
-   Recommendation: A. The default's scan then equals today's scan, and the ceiling stays a ceiling.
+5. **Decided (firm) cells.** A: lay the default, or the first legal of `arrangements=`. B: search them like a
+   searched cell, scored by their links (chosen, as a trial of each proven arrangement at the decided spot; see "A firm
+   cell"; the default keeps a tie; `arrangements=` limits it).
 
-7. **Where the proven arrangements live.**
-   - A: texts on the fragment (this spec), as faces and rules do.
-   - B: a sidecar in the module's layout folder.
-   Recommendation: A. The stamping board cannot find a sidecar (the fragment-notes spec); the cost is the ops codec
-   and the note's size, measured in Phase 1.
+6. **The step budget.** A: `place.step_budget` per arrangement scan (chosen). B: one budget split across them.
 
-8. **Copper for one arrangement only.** A module may want a track that exists only in one arrangement.
-   - A: not in this change; copper declared by intent holds in all arrangements and an arrangement that cannot draw
-     it is not offered.
-   - B: `only=`/`not_in=` on `board.track`, `board.via` and `board.pour`, naming arrangement ids.
-   Recommendation: A, and add B when a real module needs it. B grows every copper form's signature.
+7. **Where the proven arrangements live.** A: texts on the fragment (chosen). B: a sidecar in the module's layout
+   folder.
 
-9. **Zones in a module.** A module's plane zone follows its frame, and `board.rect(fit=True)` frames each
-   arrangement differently.
-   - A: each arrangement carries its own zone (this spec).
-   - B: one frame fitted to the union of the arrangements, and one zone for all.
-   Recommendation: A. B makes every arrangement carry the largest one's frame and leaves the cell's box larger than
-   it needs.
+8. **Copper for one arrangement only.** A: not in this change. B: `only=` on the copper forms (chosen, in v1; see
+   "Copper that exists in some arrangements").
 
-10. **Selecting by name in a board script.** `arrangements=` on the board's `place()` selects among arrangements the
-    module proved. It is needed for freeze, and it is not the free override of point 4.
-    - A: in this change.
-    - B: left out until point 4 is decided; freeze writes the lock only.
-    Recommendation: A. It cannot produce a place the module did not prove, so it stays on the module's side of the
-    line; without it a frozen board cannot hold the choice.
+9. **Zones in a module.** A: each arrangement carries its own (chosen). B: one frame fitted to the union.
+
+10. **Selecting by name in a board script.** A: `arrangements=` on the board's `place()`, in this change (chosen).
+    B: left out until point 4 is decided.
