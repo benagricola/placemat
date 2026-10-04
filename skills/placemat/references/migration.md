@@ -5,30 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## To 0.97.6
-
-### Changed
-
-- **The native legality pass of a search is faster on a board with a shaped outline and large rule areas.** The board edge is judged through
-  an index over the outline's segments, a rule area of many points is tested through an index over its edges (and cleared by its raster
-  where the courtyard is far from it), the reservations a pass can reach are binned, and the obstacle grid is a dense array. The same
-  placements, refusal counts, blockers and SVG: a large board's preview takes 44 s where it took 72 s, the native pass in it 9 s where it
-  took 37 s. Nothing to change in a script.
-
-### Fixed
-
-- **A route says when the router laid an island net narrower than its width.** The router retries a blocked wide route at its default
-  track width and ships the net under the width asked; the route report said nothing (a net asked 1.37 mm shipped 16.6 of 17.2 mm under
-  it, narrowest 0.16 mm, and the closure read 84.3%). The router's per-stage measurement is now read: `route.json` has `widths` (net,
-  stage, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, and the router's `max_a` for the narrowest
-  copper), the summary line ends `UNDER WIDTH: ...`, `route_summary.json` has `under_width`, `placemat watch` shows a `route_width`
-  event, and each is a `route.width` finding in the console and `run.json`. Critical when the net has a width in `[route] islands`
-  or its ampacity is under the current the parts state (`Pm.I`), warning otherwise. Nothing to change in a script; a route that
-  reports one is a route whose widths were not delivered.
-- **The studio's "native off" pill shows only when native is off.** The pill's own style overrode the page hiding it, so it showed on
-  every studio, with no tooltip, whatever the native module's state; any element the page hides now stays hidden.
-
-## To 0.97.5
+## Unreleased
 
 ### Changed
 
@@ -42,8 +19,35 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **A route says when the router laid an island net narrower than its width.** The router retries a blocked wide route at its default
+  track width and ships the net under the width asked; the route report said nothing (a net asked 1.37 mm shipped 16.6 of 17.2 mm under
+  it, narrowest 0.16 mm, and the closure read 84.3%). The router's per-stage measurement is now read: `route.json` has `widths` (net,
+  stage, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, and the router's `max_a` for the narrowest
+  copper), the summary line ends `UNDER WIDTH: ...`, `route_summary.json` has `under_width`, `placemat watch` shows a `route_width`
+  event, and each is a `route.width` finding in the console and `run.json`. Critical when the net has a width in `[route] islands`
+  or its ampacity is under the current the parts state (`Pm.I`), warning otherwise. Nothing to change in a script; a route that
+  reports one is a route whose widths were not delivered.
 - **The studio showed the stale generation notice after a run had regenerated the board.** The notice belonged to the last resolve and
   stayed until the next one; a run that ends well now starts a resolve when the one shown was on an out of date generation.
+
+## To 0.97.6
+
+### Changed
+
+- **The native legality pass of a search is faster on a board with a shaped outline and large rule areas.** The board edge is judged through
+  an index over the outline's segments, a rule area of many points is tested through an index over its edges (and cleared by its raster
+  where the courtyard is far from it), the reservations a pass can reach are binned, and the obstacle grid is a dense array. The same
+  placements, refusal counts, blockers and SVG: a large board's preview takes 44 s where it took 72 s, the native pass in it 9 s where it
+  took 37 s. Nothing to change in a script.
+
+### Fixed
+
+- **The studio's "native off" pill shows only when native is off.** The pill's own style overrode the page hiding it, so it showed on
+  every studio, with no tooltip, whatever the native module's state; any element the page hides now stays hidden.
+
+## To 0.97.5
+
+### Fixed
 
 - **A module fragment's DRC no longer counts its missing outline.** Since 0.97.2 every KiCad error counts in the DRC headline, and a
   fragment's fit frame (`board.rect(fit=True)`) is never drawn on Edge.Cuts, so KiCad's `invalid_outline` counted against every
