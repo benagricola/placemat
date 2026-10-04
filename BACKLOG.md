@@ -51,7 +51,10 @@ Specced work first, then the loose ends.
 7. **Studio: through-hole pads switch with the layer rows** of the legend.
 8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
-   lazily on the pure-Python path.
+   lazily on the pure-Python path. Not small: about 20 `Refusal(...)` sites in
+   occupancy's conflict, hole, edge and via-ban judges build their facts
+   (`_w`, `_copper_of`, `_hole_of`) eagerly, so a lazy form changes each one;
+   do it after the clearance-tolerance work in `_conflict` lands.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
 14. **The router's DRC misses a track wholly inside a filled footprint
