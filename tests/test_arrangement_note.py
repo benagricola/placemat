@@ -116,3 +116,12 @@ def test_a_zero_that_rounds_from_below_digests_as_zero():
 def test_a_limit_with_no_room_for_a_chunk_is_an_error():
     with pytest.raises(N.NoteError):
         N.encode(doc(), 30)
+
+
+def test_the_single_text_limit_counts_the_prefix():
+    (one,) = N.encode(doc(), 100000)
+    n = len(one)
+    assert N.encode(doc(), n) == [one]
+    texts = N.encode(doc(), n - 1)
+    assert len(texts) > 1 and all(len(t) <= n - 1 for t in texts)
+    assert N.read_notes(texts) == ([doc()], [])

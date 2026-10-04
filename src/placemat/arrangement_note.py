@@ -123,7 +123,7 @@ def encode(doc: dict, chars: int) -> list:
     """The texts that carry `doc`: one, or numbered ones (`placemat arrangement 2/3 <key> <chunk>`) of `chars` characters of
     escaped json each, each text `chars` characters at most with its header."""
     body = quote(json.dumps(doc, separators=(",", ":"), sort_keys=True), safe=_SAFE)
-    if len(body) <= chars:
+    if len(ARRANGEMENT_PREFIX) + len(body) <= chars:
         return [ARRANGEMENT_PREFIX + body]
     key = hashlib.sha256(body.encode()).hexdigest()[:8]
     for digits in range(1, 12):                       # the header's width depends on the number of chunks
