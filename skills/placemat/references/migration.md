@@ -7,6 +7,16 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### Fixed
+
+- **A fitted pour between searched parts keeps its room during the search.** Declared-copper room (`place.copper_room`, on since 0.95.0)
+  held tracks, pairs and vias whose ends are searched parts as soon as those parts were placed, but a pour joining searched parts was
+  planned only after the whole search, so a later small part could land between them ("pad ... leaves no way between pads ...; the pour is
+  not drawn"). A fitted pour is now planned when the last of its members is placed (dry, without `reach=`) and its outline is held clear
+  of other nets for the items placed after it; same-net copper and its members are let in. Copper that `reach=` grows beyond the outline
+  is still cut back by whatever stands there. Placements of scripts with such a pour can move; `place.copper_room = false` restores the
+  old behaviour. Nothing to change in a script.
+
 ### Changed
 
 - **The studio's opening dialog is titled "Open".** Its button and the header's tooltip say the same; the half-sentence title is gone.

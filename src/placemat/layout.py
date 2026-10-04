@@ -2599,6 +2599,7 @@ class Board:
 
     # ------------------------------------------------------------ room for declared copper
     _ROOM_KINDS = ("track", "pair", "via")
+    _ROOM_KINDS_AFTER = _ROOM_KINDS + ("pour",)     # a fitted pour is held once its last member is placed, not in the firm passes
 
     def _snapshot(self) -> tuple:
         """What a pass over the firm items changes on the board, to put back: its attributes (a container copied), and the
@@ -2660,18 +2661,20 @@ class Board:
         room.ops_at, room.via_at, room.pour_at = dict(ctx.ops_at), dict(ctx.via_at), dict(ctx.pour_at)
         room.planned_tracks, room.planned_vias = list(ctx.planned_tracks), list(ctx.planned_vias)
         room.fixed_tracks = list(ctx.fixed_tracks)
+        room.dry = True         # a fitted pour is planned without its reach: the room it keeps is the fitted outline
         self._roomed = set()
         return room
 
-    def _dry_rooms(self, occ: Occupancy, plan: Plan, intents, ctx=None, done=None) -> dict:
-        """{copper index: [Shape]}: where each track and via of `intents` would be drawn, planned as the real plan plans
-        it but committed nowhere. A declaration the plan cannot read yet (an end not placed) has none."""
+    def _dry_rooms(self, occ: Occupancy, plan: Plan, intents, ctx=None, kinds=None) -> dict:
+        """{copper index: [Shape]}: where each track and via of `intents` (and each pour, in `kinds`) would be drawn, planned
+        as the real plan plans it but committed nowhere. A declaration the plan cannot read yet (an end not placed) has none."""
+        kinds = kinds or self._ROOM_KINDS
         if ctx is None:
             ctx = _CopperContext(self, occ)
             ctx.plan = plan
         out = {}
         for c in sorted(intents, key=lambda c: c.index):
-            if c.key.split(" ")[0] not in self._ROOM_KINDS:
+            if c.key.split(" ")[0] not in kinds:
                 continue
             try:
                 ops = c.plan(ctx)
@@ -2684,7 +2687,7 @@ class Board:
                         x.net == op.net and x.kind in ("pad", "through") and point_in_polygon((op.at.x, op.at.y), x.poly)
                         for g in occ.items.values() for x in g.shapes if x.box.contains_point(op.at)):
                     continue            # a via in a pad of its net is carried by the part, and gives way with it
-                if isinstance(op, (Track, Via)):
+                if isinstance(op, (Track, Via, Pour)):
                     sh = _shape_of(op)
                     if sh is not None:
                         shapes.append(dataclasses.replace(sh, owner="room " + c.key, label=",".join(sorted(c.owners))))
@@ -2726,8 +2729,15 @@ class Board:
         todo = [c for c in other_copper if c.index not in self._roomed and c.owners and c.owners <= placed]
         if not todo:
             return
+        pours = [c for c in todo if c.key.startswith("pour ")]
+        todo = [c for c in todo if c not in pours]
         self._roomed |= {c.index for c in todo}
         got = self._dry_rooms(occ, plan, todo, room_ctx)
+        # a fitted pour is the last of what it joins: its vias are planned (here or before) as well as its pads placed
+        pours = [c for c in pours if all(m.index in room_ctx.ops_at for m in c.members)]
+        self._roomed |= {c.index for c in pours}
+        got.update(self._dry_rooms(occ, plan, pours, room_ctx, self._ROOM_KINDS_AFTER))
+        todo += pours
         shapes = [sh for v in got.values() for sh in v]
         if shapes:
             occ.set_rooms(occ.rooms + shapes)
@@ -6142,7 +6152,7 @@ class Board:
                 nx, ny = -uy * w / 2.0, ux * w / 2.0
                 pts = ((ca.x + nx, ca.y + ny), (cb.x + nx, cb.y + ny), (cb.x - nx, cb.y - ny), (ca.x - nx, ca.y - ny))
             elif fitted:
-                outlines = self._fit_pour(ctx, name, points, layer, stroke, reach)
+                outlines = self._fit_pour(ctx, name, points, layer, stroke, None if ctx.dry else reach)
                 if not outlines:
                     return []
                 pts = outlines[0]
@@ -6246,6 +6256,8 @@ class Board:
             if owner not in occ.pending:
                 shapes += [sh for sh in g.shapes if sh.kind in ("pad", "through", "copper", "npth")]
         shapes += [sh for sh in occ.copper if sh.kind in ("copper", "through")]
+        if ctx.dry:             # copper declared before it, held as planned: the pour is fitted round that too
+            shapes += [sh for sh in occ.rooms if sh.kind in ("copper", "through")]
         shapes += [sh for sh in (_shape_of(op) for op in ctx.batch_ops) if sh is not None]
         for sh in shapes:
             if sh.kind == "npth":
@@ -10088,6 +10100,7 @@ class _CopperContext:
         self.pour_at: dict = {}            # pour intent index -> its drawn points, for a stitch over it
         self.ops_at: dict = {}             # copper intent index -> the ops its plan gave, for a Past over it
         self.plan = None                   # the plan being built: its keepouts, for a FreeSpot
+        self.dry = False                   # planned for the room it keeps, committed nowhere: a fitted pour has no reach
 
     def note(self, cause, facts: dict, severity: str = "warning") -> None:
         """A finding about a declaration that is not drawn as asked, a person's call."""
