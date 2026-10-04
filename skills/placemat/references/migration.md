@@ -16,6 +16,15 @@ section for each hand-written pattern a newer form replaces.
   moved the view within `[studio] follow_hold_s` seconds (default 10, 0 never holds) a newer command is offered ("A newer run started",
   "Go to it") instead of shown. The address hash `#latest` names the mode. A project with nothing run opens on the dialog as before.
 
+### Fixed
+
+- **A part nothing placed pulls is no longer left unplaced by room the pocket raster cannot see.** An item with no placed neighbour and no
+  hint took one of a few free rectangles of a raster, and was reported "no pocket fits its envelope" where a legal spot existed in room
+  that is not a free rectangle (an L, an arm narrower than the raster's cells resolve, a spot between keepouts). When no pocket takes it,
+  the item is now scanned over each face it may take, nearest the board's centre, within the step budget and the time limits; the pockets
+  stay the fast first try. A step that took a spot this way says so (`pocket_scan` note) and a finding that still fails says the scan found
+  nothing either. A board that placed every part by a pocket is unchanged. Scripts change nothing.
+
 ### Changed
 
 - **A resolve with the native module is about 20% faster, an explore variant about 15%, and nothing in a result changes.** Hashing, the

@@ -7471,12 +7471,52 @@ class Board:
                                 notes.append(step_text.record("pocket_other_face", face=face.value, wanted=i.face.value))
                             return self._step(i, result.chosen, 0.0, notes)
                         tried.append(pocket)
+        # The raster rounds each blocker out to its cells and reads a free rectangle only: room of another shape, or
+        # narrower than its cells resolve, is no pocket. A scan of the whole face judges what is really there.
+        result, face, cut, timed_out = self._scan_whole_face(occ, i, rots, clr, riders)
+        if timed_out:
+            return self._step(i, None, 0.0, unplaced=[{"form": "time_limit"}])
+        if result is not None:
+            notes = [step_text.record("pocket_scan", tried=len(tried))]
+            if face is not i.face:
+                notes.append(step_text.record("pocket_other_face", face=face.value, wanted=i.face.value))
+            return self._step(i, result.chosen, 0.0, notes)
         from . import suggest_facts
         env = occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face))
         facts = dict(suggest_facts.unplaced_pocket(self, occ, plan, i), variant="tried", w_mm=env.width, h_mm=env.height,
                      face=self._face_text(i), tried=len(tried), riders=[w.to_json() for w in riders.values()])
+        if occ.board_box is not None:
+            facts["scanned"] = True
+            if cut is not None:
+                facts["budget"] = cut
         plan.findings.append(self._finding(C.UNPLACED_POCKET, facts))
-        return self._step(i, None, 0.0, unplaced=[{"form": "no_pocket"}] + [why.to_json() for why in riders.values()])
+        return self._step(i, None, 0.0, unplaced=[{"form": "no_pocket"}] + [why.to_json() for why in riders.values()] +
+                          ([{"form": "budget", "budget": cut}] if cut is not None else []))
+
+    def _scan_whole_face(self, occ: Occupancy, i: PlaceIntent, rots, clr, riders: dict) -> tuple:
+        """(the result of the nearest legal spot to the board's centre on a face `i` may take, the front first, else
+        None; that face; the step budget's measurement when it ended a scan, else None; whether the step's time limit
+        ended the search). The scan a searched item makes, over the radius a wide search uses, bounded by the step
+        budget. `riders` collects the riders' refusals."""
+        box = occ.board_box
+        if box is None:
+            return None, None, None, False
+        from . import timecap
+        radius = math.hypot(box.width, box.height)
+        cut = None
+        for face in self._faces_of(i):
+            result = scan(occ, i.item, Placement(box.center, rots[0], face), radius, i.step, tuple(rots), clr,
+                          accept=self._accept(i))
+            for k, why in result.reasons.items():
+                if why.code is Code.RIDER:
+                    riders.setdefault(k, why)
+            if result.chosen is not None:
+                return result, face, None, False
+            cut = cut or result.cut
+            clock = timecap.active()
+            if clock is not None and clock.gave_up:
+                return None, None, cut, True
+        return None, None, cut, False
 
     def _via_passes(self, occ: Occupancy, i: PlaceIntent) -> tuple:
         """How a pocket search treats the board's through vias, in turn. An

@@ -34,9 +34,6 @@ Specced work first, then the loose ends.
    "room"` (off by default; `room.py`: spots counted from the declaration, not
    judged); left to do: make it the default once a real board's table says so,
    and count hard link limits once they exist.
-0d. **Pocket path misses non-rectangular room** (same session): an unlinked
-   13.2 x 15.2 part finds no pocket among the few largest free rectangles though
-   the hand layout has a legal spot; fall back to a full sweep of the face.
 1a. **Measurements for the other searched levers**: blocker gap/side, search
    radius, fanout depth, turns, label size, stitch pitch and the tuning limits
    get a searched suggestion only once the sites that raise their findings

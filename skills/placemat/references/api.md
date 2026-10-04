@@ -535,7 +535,8 @@ back is taken when its score plus that is below the front's, or when the front
 has no legal spot. With nothing to score by (no link, push or lane) the front
 is taken whenever it has a spot. The step note says why a back spot was
 taken. An item with no spot on either face takes the front's pockets, then the
-back's, and is unplaced when none fits.
+back's, then a scan of each whole face (the step budget bounds it), and is
+unplaced when none fits.
 
 ```python
 board.place(Cell("m1"), face=Face.EITHER)                       # a cell with no reason to be on one face
