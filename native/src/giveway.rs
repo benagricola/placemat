@@ -122,14 +122,19 @@ pub struct Move<'a> {
     /// the tail's shape (its outline is replaced at each offset), its far end, its width and the
     /// segments round each of its round ends
     pub tail: Option<(&'a Shape, Point, f64, usize)>,
+    /// where the offsets are not yet known to be clear of the board: the vias to set aside; the ring and
+    /// hole (`via`) are then judged against the board at each offset, after the cheaper tests
+    pub board: Option<&'a HashSet<usize>>,
 }
 
-/// The index in `offsets` (from `start`) of the first that passes every
-/// test `_give`'s loop applies, in its order, or None. The offsets are
-/// already clear of the board for the ring and hole.
+/// The index in `offsets` (from `start`) of the first that passes every test `_give`'s loop applies, or
+/// None. The ring and hole are clear of the board at every offset where `m.board` is None; where it is
+/// set they are judged here, with the vias it names set aside, after the cheaper tests (a spot is taken
+/// only when all pass, so the order does not change which).
 #[allow(clippy::too_many_arguments)]
 pub fn first_move(grid: &ShapeGrid, cfg: &ConflictConfig, m: &Move, offsets: &[(f64, f64)], clearance: Option<f64>,
                   skip: &HashSet<usize>, start: usize) -> Option<usize> {
+    let mut hint = None;
     'offsets: for (i, &(dx, dy)) in offsets.iter().enumerate().skip(start) {
         let to = (exact::round9(m.centre.0 + dx), exact::round9(m.centre.1 + dy));
         if let Some((poly, r)) = m.pad {
@@ -152,6 +157,11 @@ pub fn first_move(grid: &ShapeGrid, cfg: &ConflictConfig, m: &Move, offsets: &[(
             let s = Shape { poly, bbox, ..s0.clone() };
             if meets_any(&s, m.mine, clearance, cfg) {
                 continue 'offsets;
+            }
+        }
+        if let Some(aside) = m.board {
+            if grid.any_conflict_shifted_excluding(m.via, dx, dy, clearance, cfg, aside, &mut hint) {
+                continue;
             }
         }
         if let Some((proto, far, width, cap_steps)) = m.tail {
@@ -238,7 +248,7 @@ mod tests {
         let grid = ShapeGrid::new(vec![copper(Kind::Pad, square(0.0, -3.0, 0.3), "B")]);
         let offsets = vec![(0.3, 0.0), (0.0, 0.3), (-0.3, 0.0)];
         let via = vec![ring];
-        let m = Move { via: &via, mine: &mine, centre: (0.0, 0.0), first: None, pad: None, tail: None };
+        let m = Move { via: &via, mine: &mine, centre: (0.0, 0.0), first: None, pad: None, tail: None, board: None };
         assert_eq!(first_move(&grid, &cfg(), &m, &offsets, Some(0.2), &HashSet::new(), 0), Some(2));
         assert_eq!(first_move(&grid, &cfg(), &m, &offsets, Some(0.2), &HashSet::new(), 3), None);
     }
@@ -252,7 +262,7 @@ mod tests {
         let via = vec![ring];
         let offsets = vec![(0.0, 1.0), (2.0, 0.0)];
         let m = Move { via: &via, mine: &[], centre: (0.0, 0.0), first: None, pad: None,
-                       tail: Some((&proto, (0.0, -1.0), 0.2, CAP_STEPS)) };
+                       tail: Some((&proto, (0.0, -1.0), 0.2, CAP_STEPS)), board: None };
         assert_eq!(first_move(&grid, &cfg(), &m, &offsets, Some(0.2), &HashSet::new(), 0), Some(1));
         let skip: HashSet<usize> = [0].into_iter().collect();
         assert_eq!(first_move(&grid, &cfg(), &m, &offsets, Some(0.2), &skip, 0), Some(0));
@@ -267,7 +277,7 @@ mod tests {
         let via = vec![ring];
         let offsets = vec![(5.0, 0.0), (-0.2, 0.0), (0.2, 0.0)];
         let m = Move { via: &via, mine: &[], centre: (0.0, 0.0), first: Some((&first, 0.2, 0.3)),
-                       pad: Some((&pad, 0.3)), tail: None };
+                       pad: Some((&pad, 0.3)), tail: None, board: None };
         // 5.0 leaves the pad; -0.2 is still within clearance + radius of what it met; 0.2 is free
         assert_eq!(first_move(&grid, &cfg(), &m, &offsets, Some(0.2), &HashSet::new(), 0), Some(2));
     }
@@ -284,6 +294,62 @@ mod tests {
         let skipped: HashSet<usize> = [1].into_iter().collect();
         assert_eq!(first_hit(&grid, &[near_second], &[], Some(0.2), &cfg(), &skipped), None);
         assert_eq!(first_hit(&grid, &[far], &[], Some(0.2), &cfg(), &skip), None);
+    }
+
+    #[test]
+    fn first_move_judging_the_board_itself_takes_the_spot_the_clear_offsets_do() {
+        let mut state = 17u64;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 33) as f64) / ((1u64 << 31) as f64)
+        };
+        let (mut found, mut none) = (0, 0);
+        for round in 0..300 {
+            let mut board = Vec::new();
+            for _ in 0..40 {
+                let kind = [Kind::Pad, Kind::Copper, Kind::Through][(next() * 3.0) as usize % 3];
+                board.push(copper(kind, square(next() * 6.0, next() * 6.0, 0.15 + next() * 0.4), ["A", "B", "C"][(next() * 3.0) as usize % 3]));
+            }
+            let grid = ShapeGrid::new(board);
+            let c = cfg();
+            let (cx, cy) = (1.0 + next() * 4.0, 1.0 + next() * 4.0);
+            let via = vec![copper(Kind::Through, square(cx, cy, 0.3), "A"), copper(Kind::Hole, square(cx, cy, 0.15), "A")];
+            let mine: Vec<Shape> = (0..(next() * 4.0) as usize)
+                .map(|_| copper(Kind::Pad, square(cx + next() * 2.0 - 1.0, cy + next() * 2.0 - 1.0, 0.3), "B")).collect();
+            let skip: HashSet<usize> = (0..40).filter(|i| i % 9 == round % 9).collect();
+            let mut offsets = Vec::new();
+            for i in -6..=6 {
+                for j in -6..=6 {
+                    if i != 0 || j != 0 {
+                        offsets.push((i as f64 * 0.1, j as f64 * 0.1));
+                    }
+                }
+            }
+            offsets.sort_by(|a, b| (a.0 * a.0 + a.1 * a.1).partial_cmp(&(b.0 * b.0 + b.1 * b.1)).unwrap());
+            let pad = square(cx, cy, 0.8);
+            let first = square(cx - 0.9, cy, 0.5);
+            let proto = copper(Kind::Copper, vec![(0.0, 0.0); 3], "A");
+            let origin_shapes = via.clone();
+            let clear: Vec<usize> = (0..offsets.len()).filter(|&i| {
+                grid.first_conflict_shifted_excluding(&origin_shapes, offsets[i].0, offsets[i].1, Some(0.2), &c, &skip).is_none()
+            }).collect();
+            let kept: Vec<(f64, f64)> = clear.iter().map(|&i| offsets[i]).collect();
+            for variant in 0..4 {
+                let m = Move {
+                    via: &via, mine: &mine, centre: (cx, cy),
+                    first: if variant & 1 == 1 { Some((&first, 0.2, 0.3)) } else { None },
+                    pad: if variant & 2 == 2 { Some((&pad, 0.3)) } else { None },
+                    tail: if round % 2 == 0 { Some((&proto, (cx - 1.5, cy), 0.2, CAP_STEPS)) } else { None },
+                    board: None,
+                };
+                let want = first_move(&grid, &c, &m, &kept, Some(0.2), &skip, 0).map(|i| kept[i]);
+                let fused = Move { board: Some(&skip), ..m };
+                let got = first_move(&grid, &c, &fused, &offsets, Some(0.2), &skip, 0).map(|i| offsets[i]);
+                assert_eq!(got, want, "round {round} variant {variant}");
+                if want.is_some() { found += 1 } else { none += 1 }
+            }
+        }
+        assert!(found > 200 && none > 100, "{found} {none}");
     }
 
     #[test]

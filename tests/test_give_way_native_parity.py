@@ -141,6 +141,9 @@ def test_give_way_decides_the_same_with_the_native_calls_as_with_the_python_loop
         used.clear()
         got = _gave(giveway._give(occ, grp, judge, own, who, "met", {}, first))
         assert got == ref, "case %d" % n
+        monkeypatch.setattr(giveway, "_NATIVE_FUSED_MOVE", False)       # the board judged first, at every offset
+        assert _gave(giveway._give(occ, grp, judge, own, who, "met", {}, first)) == ref, "case %d, clear offsets first" % n
+        monkeypatch.setattr(giveway, "_NATIVE_FUSED_MOVE", True)
         kind = got[0][0] if got[0] else "refused"
         kinds[kind] = kinds.get(kind, 0) + 1
         judged_native += any(used)
@@ -276,6 +279,7 @@ def test_resolutions_at_random_spots_on_the_whole_board_fixture_match(monkeypatc
             monkeypatch.setattr(giveway, "_NATIVE_FIRST_MOVE", on)
             monkeypatch.setattr(giveway, "_NATIVE_TAIL_CLEAR", on)
             monkeypatch.setattr(giveway, "_NATIVE_JUDGE", on)
+            monkeypatch.setattr(giveway, "_NATIVE_FUSED_MOVE", on)
             used.clear()
             out = _resolution(giveway.resolve(occ, item, cand))
             if not on:

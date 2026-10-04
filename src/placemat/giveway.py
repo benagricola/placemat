@@ -70,6 +70,10 @@ _NATIVE_FIRST_MOVE = True
 """Whether a via's whole move is judged by one native call (`first_move`) when the offset search
 is native: switched off to compare against the per-offset Python loop."""
 
+_NATIVE_FUSED_MOVE = True
+"""Whether a via's move search hands the native call every offset of a window, which judges the board last, after the
+cheaper tests, rather than the offsets `_native_clear_indices` found clear of the board: switched off to compare."""
+
 _NATIVE_JUDGE = True
 """Whether `_Judge.hit_board` judges shapes against the board by a native call (`first_hit`) when it can:
 switched off to compare against the Python loop of `_Judge.hit`."""
@@ -466,9 +470,9 @@ def _tail_hit(judge: "_Judge", shape, own) -> bool:
 
 
 def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offsets: list, first, pad, r: float,
-                       tail_spec, aside: bool = False):
+                       tail_spec, aside: bool = False, board: bool = False):
     """(used, (dx, dy) or None): the first of `offsets` (the ones `_native_move_offsets` found clear
-    of the board) at which `g`'s ring, hole and tail, moved, also clear `mine` (the item's own copper)
+    of the board, or with `board` every one, the ring and hole judged against the board here) at which `g`'s ring, hole and tail, moved, also clear `mine` (the item's own copper)
     and what earlier actions left, and keep the tests `_give`'s loop applies - one native call in
     place of judging each offset in Python. `used` is False where the loop must run instead: no
     native index, the switch off, or a net tie near the move, whose rules the native ones do not model.
@@ -490,9 +494,8 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
     met = _first_met(occ, g, first, judge.clearance)
     native_mine = [_native_shape(judge, o) for o in near]
     via = [_native_shape(judge, x) for x in ((g.ring,) if g.hole is None else (g.ring, g.hole))]
-    skip = _hidden_skip(judge, shapes)
-    if aside:
-        skip = skip + _tie_indices(judge, shapes)
+    hidden = _hidden_skip(judge, shapes)
+    skip = hidden + _tie_indices(judge, shapes) if aside else hidden
     tail = None
     if tail_spec is not None:
         far, layer, width = tail_spec
@@ -503,7 +506,7 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
     start = 0
     while True:
         i = index.first_move(via, offsets, judge.clearance, skip, native_mine, g.centre, first_arg, pad_arg, tail,
-                             start)
+                             start, hidden if board else None)
         judge.count((len(offsets) if i is None else i + 1) - start)
         if i is None:
             return True, None
@@ -901,11 +904,11 @@ def _find_move(occ, g: Group, judge: "_Judge", own, first, limit: float, pad, ta
             moved.append(replace(_shift(g.hole, at[0], at[1]), given=g.id))
         return not judge.hit_board(moved, mine, say=False, pool=ahead_pool)
 
-    def native_first(candidates):
+    def native_first(candidates, board=False):
         """(used, (dx, dy, width) or None): the first of `candidates` that `_native_first_move` accepts and Python and
         a tail do not refuse."""
         while candidates:
-            used, at = _native_first_move(judge, g, mine, span, candidates, first, pad, r, narrow, near_ties)
+            used, at = _native_first_move(judge, g, mine, span, candidates, first, pad, r, narrow, near_ties, board)
             if not used or at is None:
                 return used, None
             if not near_ties or python_ok(at):
@@ -918,13 +921,21 @@ def _find_move(occ, g: Group, judge: "_Judge", own, first, limit: float, pad, ta
             candidates = candidates[candidates.index(at) + 1:]
         return True, None
 
+    # Of the spots clear of the board, nearly all fail the cheap tests (inside the pad, off what it met, clear of the
+    # item's copper), so the native call is given every offset of the window and judges the board last, at the few that
+    # pass them: the same first spot, without the board judged at each of the rest.
+    fused = _NATIVE_MOVE_SEARCH and _NATIVE_FIRST_MOVE and _NATIVE_FUSED_MOVE and bool(all_offsets) \
+        and getattr(judge.others, "_native", None) is not None
     lo, size = 0, chunk
     while lo < len(all_offsets):
         hi = min(len(all_offsets), lo + size)
-        indices = _native_clear_indices(judge, g.ring, g.hole, all_offsets, hi)
-        if indices is None:
-            return python_loop(all_offsets[lo:], None)
-        candidates = [all_offsets[i] for i in indices[bisect.bisect_left(indices, lo):]]
+        if fused:
+            candidates = all_offsets[lo:hi]
+        else:
+            indices = _native_clear_indices(judge, g.ring, g.hole, all_offsets, hi)
+            if indices is None:
+                return python_loop(all_offsets[lo:], None)
+            candidates = [all_offsets[i] for i in indices[bisect.bisect_left(indices, lo):]]
         lo, size = hi, size * 2
         if not candidates:
             continue
@@ -932,9 +943,9 @@ def _find_move(occ, g: Group, judge: "_Judge", own, first, limit: float, pad, ta
             entry = getattr(judge.others, "_native", None)
             near = list(mine) + [o for o in judge.extra if o.box.overlaps(span, gap=occ._gap)]
             near_ties = _near_net_tie(judge, entry[1], span, near)
-        used, found = native_first(candidates)
+        used, found = native_first(candidates, fused)
         if not used:
-            found = python_loop(candidates, True)
+            found = python_loop(candidates, None if fused else True)
         if found is not None:
             return found
     return None

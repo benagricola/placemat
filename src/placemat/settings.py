@@ -153,7 +153,7 @@ class Settings:
     place_via_search_chunk: int = S(64, "count",
         "how many of the nearest offsets a via's move or leave search judges first; each later window is twice the last, and the search ends at the first window that holds a spot; a speed setting, results are the same")
     place_via_clear_cache: int = S(4096, "count",
-        "how many placed vias' clear moves a scan keeps, each searched once for every candidate that meets it; a speed setting, results are the same")
+        "how many placed routed vias' clear moves a scan keeps, each searched once for every candidate that meets it; a speed setting, results are the same")
     place_drops_keep_share: float = S(0.5, "share",
         "the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there)")
     place_edge_step: float = S(0.05, "mm",

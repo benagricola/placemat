@@ -877,17 +877,17 @@ def test_a_via_with_a_spot_near_it_does_not_have_its_whole_reach_judged(monkeypa
     if geometry._native is None:
         pytest.skip("no native module")
     asked = []
-    real = giveway._native_clear_indices
+    real = giveway._native_first_move
 
-    def spy(judge, ring, hole, offsets, upto):
-        asked.append((upto, len(offsets)))
-        return real(judge, ring, hole, offsets, upto)
-    monkeypatch.setattr(giveway, "_native_clear_indices", spy)
+    def spy(judge, g, mine, span, offsets, *a, **k):
+        asked.append(len(offsets))
+        return real(judge, g, mine, span, offsets, *a, **k)
+    monkeypatch.setattr(giveway, "_native_first_move", spy)
     _with_search_chunk(monkeypatch, 8)
     plan = _moving_board((39.1, 42.2), True, (19.5, 23.0),
                          settings=_settings(place_via_move_distance=3.0)).resolve()
     assert any(a.kind == "move" for a in plan.occupancy.given_way.values())
-    assert asked and max(upto for upto, _ in asked) < asked[0][1]
+    assert asked and max(asked) < len(giveway._offsets(3.0, 0.05))
 
 
 @pytest.mark.parametrize("name", sorted(_MOVES))
@@ -921,7 +921,9 @@ def test_a_resolution_counts_the_judgments_it_made(monkeypatch):
     assert seen and all(r.judged > 0 for r in seen if r.actions or r.why is not None)
 
 
-def test_the_judgments_counted_stop_at_the_window_that_holds_the_spot(monkeypatch):
+def test_the_judgments_counted_stop_at_the_spot_whatever_the_window(monkeypatch):
+    """A via's move counts the spots looked at up to the one taken, so the window size, a speed setting, does not
+    change the count."""
     from placemat import geometry
     if geometry._native is None:
         pytest.skip("no native module")
@@ -932,4 +934,4 @@ def test_the_judgments_counted_stop_at_the_window_that_holds_the_spot(monkeypatc
     whole = sum(r.judged for r in _resolutions(
         monkeypatch, lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0),
                                            settings=_settings(place_via_move_distance=3.0))))
-    assert 0 < near < whole
+    assert 0 < near == whole

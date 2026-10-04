@@ -266,8 +266,9 @@ impl NativeObstacles {
     /// (poly, clearance, radius) no longer met, `via` (ring, hole) shifted
     /// clear of `mine`, and `tail` (shape, far end, width, cap steps) redrawn clear of
     /// the board less `skip`, and of `mine`. The offsets are the ones
-    /// `first_clear_offset` found clear of the board. See `giveway.rs`.
-    #[pyo3(signature = (via, offsets, clearance, skip, mine, centre, first, pad, tail, start))]
+    /// `first_clear_offset` found clear of the board, or where `board` is given (the vias to set
+    /// aside) every offset, the ring and hole judged against the board here. See `giveway.rs`.
+    #[pyo3(signature = (via, offsets, clearance, skip, mine, centre, first, pad, tail, start, board=None))]
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn first_move(
         &self,
@@ -281,10 +282,12 @@ impl NativeObstacles {
         pad: Option<(Vec<Point>, f64)>,
         tail: Option<(PyShape, Point, f64, usize)>,
         start: usize,
+        board: Option<Vec<usize>>,
     ) -> PyResult<Option<usize>> {
         let via: Vec<shapes::Shape> = via.iter().map(build_shape).collect::<PyResult<_>>()?;
         let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
         let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let board: Option<std::collections::HashSet<usize>> = board.map(|b| b.into_iter().collect());
         let proto = match &tail {
             Some((t, _, _, _)) => Some(build_shape(t)?),
             None => None,
@@ -299,6 +302,7 @@ impl NativeObstacles {
                 (Some(p), Some((_, far, w, cap))) => Some((p, *far, *w, *cap)),
                 _ => None,
             },
+            board: board.as_ref(),
         };
         Ok(giveway::first_move(&self.grid, &self.cfg, &m, &offsets, clearance, &skip, start))
     }
