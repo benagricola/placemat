@@ -69,8 +69,10 @@ def _with_project(tmp_path, name, with_track):
 def test_the_boards_drc_reports_a_track_inside_a_filled_footprint_polygon(tmp_path):
     with_track = run_drc(_with_project(tmp_path, "inside", True), tmp_path / "a.json")
     without = run_drc(_with_project(tmp_path, "free", False), tmp_path / "b.json")
-    assert with_track.by_type.get("clearance", 0) == without.by_type.get("clearance", 0) + 1
-    assert "clearance" in with_track.real
+    # KiCad files contact with net-less copper as clearance or as shorting_items from one run to the next: both are real kinds
+    touching = lambda r: r.by_type.get("clearance", 0) + r.by_type.get("shorting_items", 0)
+    assert touching(with_track) == touching(without) + 1
+    assert {"clearance", "shorting_items"} & set(with_track.real)
 
 
 def test_a_track_the_router_lays_inside_the_polygon_is_a_breach(tmp_path):
