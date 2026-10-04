@@ -201,6 +201,15 @@ changes: the default's verdicts decide whether the module passes.
 The run score is the default's. An arrangement's measures (the run score's inputs, `score.plan_measures`) are
 recorded for it so the studio and a reader can compare, and are not summed into the module's score.
 
+The record also names the members that set the module's extent (`"extent": [{"item": "c_bulk", "sides": ["east",
+"north"], "protrudes_mm": 1.8}, ...]`): each member whose envelope reaches the module's outline (the fit frame, or the
+box round everything) on a side, with how far it stands past the next member on that side. It is measured on the
+default arrangement and on each offered one, so a reader sees which alternative pulls a protruding member in. A
+member on the extent with no alternative declared raises a notice `arrangement.extent_fixed` (facts: the item, its
+sides, how far it protrudes) on a module that declares any alternatives, and on one that declares none when the
+member protrudes more than `place.extent_notice_mm` (a setting); the skill reads it as the first list of members to
+consider.
+
 ### What is written to the fragment
 
 The fragment board `pcb layout` stamps is the default arrangement, as written today. Every other offered
@@ -502,6 +511,12 @@ The implementation updates `skills/placemat/SKILL.md` and, where the forms are d
 agent laying out a new module develops alternatives as it goes and gives the board's search as much chance as
 possible of finding an arrangement that fits. The skill says:
 
+- **Members that set the extent first.** The members that set a module's outline (a bulk capacitor, a connector, an
+  inductor or a tall part standing proud on one side) are the ones that make a module hard to place in some
+  orientations on a board, so they are the first to consider for alternatives: a turn, the other side of their
+  partner, the other face, or a group that tucks them in. The module run lists them (`extent` in the record, and an
+  `arrangement.extent_fixed` notice for each one with no alternative); the agent works through that list before
+  adding alternatives elsewhere, and states in the run notes why any extent-setting member has none.
 - **When to declare one.** While laying out a module, wherever a member's side or turn is a free choice the module's
   own rules allow: a bypass capacitor on either side of its pin, a pull-up turned either way, a part that could sit
   on the other face, a pair or row that could be mirrored. The question to ask of each placed member is "would the
@@ -577,7 +592,9 @@ Pure, synthetic modules and boards (the fragment tests' staging helpers):
   more than the module's own arrangement run had;
 - `step_text` and `finding_text` render the new notes and findings, and the studio's step panel shows them;
 - a skill check: an agent given only the updated skill and a fixture module with a bypass beside its IC, a
-  pull-up and a polarised part is asked to lay the module out. The check passes when it declares alternatives for
+  pull-up, a polarised part and a member that protrudes past the rest on one side (and so sets the module's extent) is
+  asked to lay the module out. It must declare an alternative for the protruding member, or say in the run notes why
+  it can have none. The check passes when it declares alternatives for
   the bypass and the pull-up (and a mirrored group where one is natural), declares none for the polarised part,
   names them for what they do, stays within the caps, runs the module, reads the arrangement report, and fixes or
   drops an alternative the run refuses. It is run on at least two fixture modules and the transcripts kept with
@@ -599,10 +616,11 @@ legality judgments and scorings are small beside the scans. Real-board runs and 
 
 ## Phasing
 
-1. **Declaration, module proof, the note** (about 5.5 days). `alternative`, `arrangement`, `Alt`, the limits and
+1. **Declaration, module proof, the note** (about 6 days). `alternative`, `arrangement`, `Alt`, the limits and
    settings, `only=` on the copper forms with its validation and the per-arrangement copper set, the per-arrangement
    resolve and scratch boards, the offered gate, `run.json`'s `arrangements`, the ops codec and the note,
-   `arrangement.limit` and `arrangement.refused`. Measures the note's size. Ends with a module run whose fragment is
+   `arrangement.limit` and `arrangement.refused`, the record's `extent` and the `arrangement.extent_fixed` notice. Measures
+   the note's size. Ends with a module run whose fragment is
    byte-identical without alternatives and carries notes with them. The skill and `api.md` update for the
    declaration, the proof and the report (`## What the skill says`, all but the board-side bullet) lands with this
    phase, plus about 1 day, so module authors start declaring alternatives as soon as they can be proven.
@@ -616,8 +634,8 @@ legality judgments and scorings are small beside the scans. Real-board runs and 
 5. **Studio and the rest of the docs** (about 1.5 days). Step panel and the module run's arrangement list,
    migration, the release entry; the skill check's transcripts.
 
-About 20 working days (13 in the first draft; `only=` adds about 1.5, firm cells about 3, the skill update about
-1.5 and the rest is test growth). Phases 1 and 2 can ship without 3 and 4: a module can
+About 20.5 working days (13 in the first draft; `only=` adds about 1.5, firm cells about 3, the skill update about
+1.5, the extent report about 0.5, and the rest is test growth). Phases 1 and 2 can ship without 3 and 4: a module can
 declare and prove arrangements and a board can pin one by name, which already removes the module-edit round trip
 for a fix the agent knows.
 
