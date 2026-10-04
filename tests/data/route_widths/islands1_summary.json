@@ -1,0 +1,62 @@
+{
+ "successful": 1,
+ "failed": 0,
+ "power_widths": {
+  "USB_HV": {
+   "requested_mm": 1.37,
+   "length_mm": 17.24,
+   "under_mm": 16.61,
+   "under_share": 0.9636,
+   "min_mm": 0.16,
+   "by_width_mm": {
+    "0.16": 14.01,
+    "0.3": 1.82,
+    "0.402": 0.2,
+    "0.644": 0.2,
+    "0.886": 0.2,
+    "1.128": 0.2,
+    "1.37": 0.63
+   },
+   "in_run_scope": true
+  }
+ },
+ "power_trace_ampacity": [
+  {
+   "net": "USB_HV",
+   "bottleneck_width_mm": 0.1,
+   "bottleneck_layer": "B.Cu",
+   "copper_oz": 1.0000000000000002,
+   "max_current_a": 0.45,
+   "max_current_ipc2152_a": 0.45,
+   "temp_rise_c": 10.0,
+   "trace_length_mm": 57.1
+  }
+ ],
+ "power_widths_run_scope": [
+  "USB_HV"
+ ],
+ "power_widths_measured_on": "written board",
+ "scope": "merged",
+ "design_rules": {
+  "escalation_policy": "off",
+  "count": 1,
+  "nets": [
+   155
+  ],
+  "narrowed": [
+   {
+    "net": 155,
+    "net_name": "USB_HV",
+    "kind": "track_width",
+    "requested": 1.37,
+    "delivered": 0.16,
+    "site": "power copper shipped under width",
+    "count": 1,
+    "length_mm": 16.61
+   }
+  ],
+  "min_delivered": {
+   "track_width": 0.16
+  }
+ }
+}

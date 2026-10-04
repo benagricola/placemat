@@ -1,0 +1,12 @@
+{
+ "successful": 1,
+ "failed": 0,
+ "scope": "merged",
+ "design_rules": {
+  "escalation_policy": "off",
+  "count": 0,
+  "nets": [],
+  "narrowed": [],
+  "min_delivered": {}
+ }
+}

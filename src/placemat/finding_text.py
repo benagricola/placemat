@@ -646,6 +646,18 @@ def _route_dropped(f):
     return "adopted route %s dropped: %s; the router routes it again" % (f["key"], _refusal(f["why"]))
 
 
+@renders(C.ROUTE_WIDTH, "net", "stage", "requested_mm", "delivered_min_mm", "length_under_mm")
+def _route_width(f):
+    of = " of %.1f mm (%.0f%%)" % (f["length_mm"], 100 * (f.get("share") or 0.0)) if f.get("length_mm") is not None else " mm"
+    text = "net %s: %.1f%s of its copper in the %s stage is under the %g mm it was asked, narrowest %g mm" % (
+        f["net"], f["length_under_mm"], of, f["stage"], f["requested_mm"], f["delivered_min_mm"])
+    if f.get("max_a") is not None:
+        text += "; its narrowest copper carries %g A at most" % f["max_a"]
+        if f.get("stated_a") is not None:
+            text += ", the design states %g A" % f["stated_a"]
+    return text
+
+
 @renders(C.SETUP_LOOKAHEAD, "item", "other", "own", "short_mm", "asked_mm")
 def _setup_lookahead(f):
     return ("%s: no spot was left for %s at its limit distance from %s, so the look-ahead was dropped and %s is placed "

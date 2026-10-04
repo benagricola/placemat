@@ -675,6 +675,12 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
             for breach in report.keepout_breaches:
                 say("route", breach, level="finding")
+            if report.widths:
+                from .kicad.route_widths import stated_currents
+                short = report.findings(stated_currents(read_board(src.pcb)))
+                plan.findings.extend(short)
+                for f in short:
+                    console.finding(f, "route")
             if report.open_nets:
                 worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
                 say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))

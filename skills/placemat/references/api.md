@@ -3298,6 +3298,18 @@ island net had apart before and after (`islands` in the report); the
 island nets count in the closure, and `--adopt NET` keeps their routes like
 any other net's.
 
+A wide route the router cannot lay is retried at its default track width (its "neck-down"), so a width asked for is not a width
+delivered. The route reads the router's own measurement of the copper it shipped from each stage's summary (`power_widths`,
+`design_rules.narrowed`, `power_trace_ampacity`; `power_widths` only in a stage given a width, so an island net's) and keeps `widths` in
+`route.json`: per net and stage that delivered under the width asked, `net`, `stage` (`islands` or `main`), `requested_mm`,
+`delivered_min_mm`, `length_under_mm`, `length_mm` and `share` (null where the router gave only the narrowing), `declared` (the net has a
+width in `[route] islands`), and `max_a` and `bottleneck_mm` (the router's IPC-2152 current for the narrowest copper, when it gave
+one). The route's summary line ends `UNDER WIDTH: NET 16.6 of 17.2 mm under 1.37 (min 0.16)`, `route_summary.json` has `under_width`
+(the same records), `placemat watch` and the studio's stream get a `route_width` event per record, and each is a `route.width` finding
+in the console, `run.json` and `placemat route --json` (`finding_details`). A net the router recorded as narrowed but the script gave no
+width is not measured per length and has `length_mm` null. Net-class and pair widths are reported only where the router records a
+narrowing of them: its pair router writes no summary.
+
 A footprint's own copper graphics (a net-tie's winding, a copper logo) are
 guarded in the router's input copy: a rule area over each, on its own layer,
 forbidding tracks and vias (a route through one is a keepout breach naming
@@ -3895,7 +3907,8 @@ its kind.
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
 | `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
-| `route` | notice | an adopted route dropped because a part it joins moved; the router routes it again |
+| `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
+| `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net has a width in `[route] islands` (it carries current), or when the router's current for its narrowest copper is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a` |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
 | `needs` | notice | an if-needed fab option would have cleared a spot; the item's `unplaced` finding is the fault |
