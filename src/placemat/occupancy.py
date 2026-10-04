@@ -571,6 +571,12 @@ class Occupancy:
                                  courtyard=True)
             else:
                 self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
+                if ra.name.startswith("label "):
+                    # the text is the cell's silk as well: judged as its parts' silk is while the cell is
+                    # searched, and moved with the cell's own copper when it lands
+                    poly = tuple(tuple(p) for p in ra.polygon)
+                    self.copper.append(Shape(ra.cell, "silk", frozenset(l.face for l in ra.layers if l.face),
+                                             frozenset(), "", poly, Box.of_points(poly), ra.name[len("label "):]))
 
     # ------------------------------------------------------------ geometry of a candidate
     def _register(self, fp: Footprint) -> ItemGeometry:
@@ -633,7 +639,7 @@ class Occupancy:
         if geom.part_refs:
             n = len(geom.part_refs)
             name = next(o for o in geom.owners if o not in geom.part_refs and o not in self._footprint_refs)
-            parts = tuple(geom.parts[:n]) + tuple(s.box for s in shapes if s.owner == name and s.kind != "viaban")
+            parts = tuple(geom.parts[:n]) + tuple(s.box for s in shapes if s.owner == name and s.kind not in ("viaban", "silk"))
         less = dataclasses.replace(geom, shapes=shapes, parts=parts)
         cache[id(item)] = (geom, less)
         return less
@@ -1027,7 +1033,7 @@ class Occupancy:
             return hit[2]
         n = len(geom.part_refs)
         own = [s for s in geom.shapes if s.owner in geom.owners and s.owner not in geom.part_refs
-               and s.kind != "viaban"]
+               and s.kind not in ("viaban", "silk")]
         out = [k for k in range(n) if not self._member_let_in(r, geom.part_refs[k])]
         if r.admitted is None and r.copper:
             out += [n + j for j, s in enumerate(own[:len(geom.parts) - n]) if not (s.net and s.net in r.allow)]
@@ -1210,7 +1216,7 @@ class Occupancy:
         """A cell's geometry from its members' ({refdes: ItemGeometry}) and
         its own copper, as _geometry builds it from what is committed."""
         shapes = tuple(s for fp in item.members for s in members[fp.ref].shapes) + tuple(own)
-        mine = [s.box for s in shapes if s.owner == item.name and s.kind != "viaban"]
+        mine = [s.box for s in shapes if s.owner == item.name and s.kind not in ("viaban", "silk")]
         body = Box.union([members[fp.ref].body for fp in item.members] + mine)
         reach = Box.union([members[fp.ref].reach or members[fp.ref].body for fp in item.members] + mine)
         return ItemGeometry(frozenset(m for fp in item.members for m in members[fp.ref].owners) | {item.name},
@@ -1588,7 +1594,7 @@ class Occupancy:
                     flat_parts.append(Box.union([geom.parts[k]] + [s.box for s in mine if s.kind in flat_kinds]))
                     cu = [s.box for s in mine if s.kind in _COPPERISH]
                     copper_parts.append(Box.union(cu) if cu else None)
-                own = [s for s in geom.shapes if s.owner == name and s.kind != "viaban"]
+                own = [s for s in geom.shapes if s.owner == name and s.kind not in ("viaban", "silk")]
                 for k, s in enumerate(own):
                     flat_parts.append(geom.parts[n + k])
                     copper_parts.append(s.box if s.kind in _COPPERISH else None)

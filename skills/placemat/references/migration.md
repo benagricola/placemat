@@ -22,6 +22,12 @@ section for each hand-written pattern a newer form replaces.
   to 3 micrometres short of it, past the DRC epsilon, and was reported (`copper ... is 0.158 mm from ... (needs 0.160)`). A
   finding now collides a straight track as its centreline and width and a pour as its outline and a stroke along each
   edge, as KiCad's DRC does. An arc track is still measured by its polygon.
+- **A stamped cell's own labels are judged while the cell is searched.** The silk texts a module fragment's `board.label()`
+  stamps with its cell kept parts off their boxes only once the cell had landed, so the search could set the cell where a
+  label lay on a part already placed: KiCad then reported `silk_over_copper` and `silk_overlap`. Each text's box is now the
+  cell's silk during the search: under the `physical` or `union` envelope a spot within the silk clearance of another
+  part's silk or mask opening is refused. A cell that landed with a label on another part looks for another spot; one
+  with no room left for its labels is reported unplaced as any other.
 
 ## To 0.99.4
 

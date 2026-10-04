@@ -32,6 +32,35 @@ def test_the_ground_net_is_judged_on_its_planes_not_a_sliver(geometry):
     assert "one %g mm step or less" % ZONE_STEP not in v.note, v.note
 
 
+def test_a_cell_whose_label_lies_on_a_placed_part_is_refused_where_it_stands(geometry):
+    """Each stamped cell with labels, judged where it landed against
+    everything else: refused for its silk exactly when one of its labels'
+    boxes lies over another part's mask opening on the cell's face."""
+    from placemat.geometry import polys_overlap
+    from placemat.occupancy import Occupancy
+    from placemat.placement import Placement
+    from placemat.settings import Settings
+    from placemat.values import Face
+    occ = Occupancy(geometry, edge_margin=0.0, settings=dataclasses.replace(Settings(), place_envelope="physical"))
+    labelled = sorted({ra.cell for ra in geometry.rule_areas if ra.cell and ra.name.startswith("label ")})
+    assert labelled
+    refused = 0
+    for name in labelled:
+        cell = geometry.cell(name)
+        mine = {fp.ref for fp in cell.members}
+        on = [(ra.polygon, next(l.face for l in ra.layers)) for ra in geometry.rule_areas
+              if ra.cell == name and ra.name.startswith("label ")]
+        covers = any(face == mface and polys_overlap(poly, mask)
+                     for fp in geometry.footprints if fp.ref not in mine
+                     for mface, mask in fp.mask for poly, face in on)
+        geom = occ._geometry(cell)
+        why = occ.legal(cell, Placement(geom.reference.location, 0.0, Face.FRONT))     # where it stands
+        if covers:
+            refused += 1
+            assert why is not None and "silk" in str(why), (name, why)
+    assert refused, "the board has a cell whose label lies on another part"
+
+
 def test_no_copper_finding_is_a_few_micrometres_short_of_its_rule(geometry):
     """Every straight track and every via, judged as a planned one against
     the rest of the board's copper: KiCad passes them all at their rules, so

@@ -1450,6 +1450,10 @@ cell, inside its group, and are honoured: they move with the cell and fence the
 placer. Its labels come the same way: each silk text in the cell's group keeps
 parts off its box on its face once the cell lands (`sits in the reservation
 for label 'BOOT' from the debug cell`), so a parent need not declare them again.
+While the cell is searched each text's box is the cell's silk, judged as its
+parts' silk is against what is already placed: under the `physical` or `union`
+envelope a spot that puts it within the silk clearance of another part's silk
+or mask opening is refused, on the face the cell lands on.
 A stamped region larger than its cell costs the parent the difference: the
 cell's step says `its stamped regions keep parts off N mm2 of board beyond
 its own parts`. For a part's escape band, `board.fanout()` follows the pad
