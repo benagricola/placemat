@@ -403,6 +403,25 @@ pub struct ShapeGrid {
     pub(crate) shapes: Vec<Shape>,
     cell: f64,
     grid: HashMap<(i64, i64), Vec<usize>>,
+    /// The same cells in a dense array over the cells the shapes reach (None: too many to hold densely, and
+    /// `grid` answers).
+    dense: Option<Dense>,
+}
+
+struct Dense {
+    i0: i64,
+    j0: i64,
+    ni: usize,
+    nj: usize,
+    cells: Vec<Vec<usize>>,
+}
+
+/// Most cells a dense array may hold.
+const MAX_DENSE: usize = 4_000_000;
+
+thread_local! {
+    /// What `near_into` fills, taken and given back by a search, so a candidate allocates none.
+    static NEAR: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 const CELL: f64 = 2.0;
@@ -440,6 +459,30 @@ impl Blockers {
     }
 }
 
+impl Dense {
+    fn of(grid: &HashMap<(i64, i64), Vec<usize>>) -> Option<Dense> {
+        let (mut i0, mut i1, mut j0, mut j1) = (i64::MAX, i64::MIN, i64::MAX, i64::MIN);
+        for &(i, j) in grid.keys() {
+            i0 = i0.min(i);
+            i1 = i1.max(i);
+            j0 = j0.min(j);
+            j1 = j1.max(j);
+        }
+        if i0 > i1 {
+            return None;
+        }
+        let (ni, nj) = ((i1 - i0) as usize + 1, (j1 - j0) as usize + 1);
+        if ni.checked_mul(nj)? > MAX_DENSE {
+            return None;
+        }
+        let mut cells = vec![Vec::new(); ni * nj];
+        for (&(i, j), ks) in grid {
+            cells[(i - i0) as usize * nj + (j - j0) as usize] = ks.clone();
+        }
+        Some(Dense { i0, j0, ni, nj, cells })
+    }
+}
+
 impl ShapeGrid {
     pub fn new(shapes: Vec<Shape>) -> Self {
         let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
@@ -451,7 +494,23 @@ impl ShapeGrid {
                 }
             }
         }
-        ShapeGrid { shapes, cell: CELL, grid }
+        let dense = Dense::of(&grid);
+        ShapeGrid { shapes, cell: CELL, grid, dense }
+    }
+
+    /// The registered shapes in cell (i, j), in registration order.
+    #[inline]
+    fn cell_shapes(&self, i: i64, j: i64) -> Option<&[usize]> {
+        match &self.dense {
+            Some(d) => {
+                let (a, b) = (i - d.i0, j - d.j0);
+                if a < 0 || b < 0 || a as usize >= d.ni || b as usize >= d.nj {
+                    return None;
+                }
+                Some(&d.cells[a as usize * d.nj + b as usize])
+            }
+            None => self.grid.get(&(i, j)).map(|v| v.as_slice()),
+        }
     }
 
     /// Indices of registered shapes whose box overlaps `query` inflated by
@@ -459,18 +518,39 @@ impl ShapeGrid {
     /// `sorted(hits)` - insertion order - so a "first conflict" search over
     /// this order matches Python's).
     pub(crate) fn near(&self, query: Bounds, gap: f64) -> Vec<usize> {
+        let mut hits = Vec::new();
+        self.near_into(query, gap, &mut hits);
+        hits
+    }
+
+    /// `near`, into `out` (cleared first).
+    pub(crate) fn near_into(&self, query: Bounds, gap: f64, out: &mut Vec<usize>) {
+        out.clear();
         let (x0, y0, x1, y1) = (query.0 - gap, query.1 - gap, query.2 + gap, query.3 + gap);
-        let mut hits: Vec<usize> = Vec::new();
-        for i in cell_at(x0, self.cell)..=cell_at(x1, self.cell) {
-            for j in cell_at(y0, self.cell)..=cell_at(y1, self.cell) {
-                if let Some(ks) = self.grid.get(&(i, j)) {
-                    hits.extend_from_slice(ks);
+        let (i0, i1) = (cell_at(x0, self.cell), cell_at(x1, self.cell));
+        let (j0, j1) = (cell_at(y0, self.cell), cell_at(y1, self.cell));
+        if i0 == i1 && j0 == j1 {
+            // one cell: its shapes are in registration order, each once
+            if let Some(ks) = self.cell_shapes(i0, j0) {
+                out.extend(ks.iter().copied().filter(|&k| box_overlaps(self.shapes[k].bbox, query, gap)));
+            }
+            return;
+        }
+        // a dense array holds nothing past its edge: only the cells it has are visited
+        let (ia, ib, ja, jb) = match &self.dense {
+            Some(d) => (i0.max(d.i0), i1.min(d.i0 + d.ni as i64 - 1), j0.max(d.j0), j1.min(d.j0 + d.nj as i64 - 1)),
+            None => (i0, i1, j0, j1),
+        };
+        for i in ia..=ib {
+            for j in ja..=jb {
+                if let Some(ks) = self.cell_shapes(i, j) {
+                    out.extend_from_slice(ks);
                 }
             }
         }
-        hits.sort_unstable();
-        hits.dedup();
-        hits.into_iter().filter(|&k| box_overlaps(self.shapes[k].bbox, query, gap)).collect()
+        out.sort_unstable();
+        out.dedup();
+        out.retain(|&k| box_overlaps(self.shapes[k].bbox, query, gap));
     }
 
     /// The first (candidate shape index, obstacle index) pair that
@@ -516,11 +596,14 @@ impl ShapeGrid {
         explicit_clearance: Option<f64>,
         cfg: &ConflictConfig,
     ) -> Option<(usize, usize)> {
-        for (si, s0) in origin_shapes.iter().enumerate() {
+        let mut hits = NEAR.with(|n| std::mem::take(&mut *n.borrow_mut()));
+        let mut found = None;
+        'shapes: for (si, s0) in origin_shapes.iter().enumerate() {
             let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
             let gap = cfg.gap_for(s0);
             let mut moved: Option<Shape> = None;        // the shape at the offset, built when an obstacle needs it
-            for oi in self.near(bbox, gap) {
+            self.near_into(bbox, gap, &mut hits);
+            for &oi in &hits {
                 if !may_meet(s0.kind, self.shapes[oi].kind) {
                     continue;
                 }
@@ -529,11 +612,54 @@ impl ShapeGrid {
                     Shape { poly, bbox, ..s0.clone() }
                 });
                 if conflict(s, &self.shapes[oi], explicit_clearance, cfg) {
-                    return Some((si, oi));
+                    found = Some((si, oi));
+                    break 'shapes;
                 }
             }
         }
-        None
+        NEAR.with(|n| *n.borrow_mut() = hits);
+        found
+    }
+
+    /// `first_conflict_shifted` over `drawn`, a copy of `origin_shapes` kept by the caller from one candidate to
+    /// the next: a shape's polygon is shifted in it, in place, when an obstacle needs it, so a candidate
+    /// builds nothing (the shapes carry strings, and a candidate meets thousands of pairs).
+    pub fn first_conflict_shifted_in(
+        &self,
+        origin_shapes: &[Shape],
+        drawn: &mut [Shape],
+        dx: f64,
+        dy: f64,
+        explicit_clearance: Option<f64>,
+        cfg: &ConflictConfig,
+    ) -> Option<(usize, usize)> {
+        let mut hits = NEAR.with(|n| std::mem::take(&mut *n.borrow_mut()));
+        let mut found = None;
+        'shapes: for (si, s0) in origin_shapes.iter().enumerate() {
+            let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
+            let gap = cfg.gap_for(s0);
+            let mut moved = false;                      // the shape at the offset, drawn when an obstacle needs it
+            self.near_into(bbox, gap, &mut hits);
+            for &oi in &hits {
+                if !may_meet(s0.kind, self.shapes[oi].kind) {
+                    continue;
+                }
+                let s = &mut drawn[si];
+                if !moved {
+                    for (q, p) in s.poly.iter_mut().zip(&s0.poly) {
+                        *q = (p.0 + dx, p.1 + dy);
+                    }
+                    s.bbox = bbox;
+                    moved = true;
+                }
+                if conflict(s, &self.shapes[oi], explicit_clearance, cfg) {
+                    found = Some((si, oi));
+                    break 'shapes;
+                }
+            }
+        }
+        NEAR.with(|n| *n.borrow_mut() = hits);
+        found
     }
 
     /// Whether any of `origin_shapes`, shifted by `(dx, dy)`, conflicts with an obstacle outside `skip`:
@@ -926,6 +1052,86 @@ mod tests {
         // rule only blocks a through shape whose owner is NOT one (a routed
         // via, not another part's pad).
         assert!(!conflict(&court, &not_lead, None, &c));
+    }
+
+    /// `near` as it was: the hash grid's cells in turn, sorted, deduplicated, then filtered.
+    fn near_by_hash(grid: &ShapeGrid, query: Bounds, gap: f64) -> Vec<usize> {
+        let (x0, y0, x1, y1) = (query.0 - gap, query.1 - gap, query.2 + gap, query.3 + gap);
+        let mut hits: Vec<usize> = Vec::new();
+        for i in cell_at(x0, grid.cell)..=cell_at(x1, grid.cell) {
+            for j in cell_at(y0, grid.cell)..=cell_at(y1, grid.cell) {
+                if let Some(ks) = grid.grid.get(&(i, j)) {
+                    hits.extend_from_slice(ks);
+                }
+            }
+        }
+        hits.sort_unstable();
+        hits.dedup();
+        hits.into_iter().filter(|&k| box_overlaps(grid.shapes[k].bbox, query, gap)).collect()
+    }
+
+    #[test]
+    fn near_gives_what_the_hash_grid_gave_dense_or_not() {
+        let mut state = 99u64;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((state >> 33) as f64) / (u32::MAX as f64)
+        };
+        for spread in [1.0, 1.0e5] {      // the second is past what a dense array holds
+            let mut obstacles = Vec::new();
+            for i in 0..400 {
+                let x = (next() * 100.0 - 50.0).round() / 2.0 * spread;
+                let y = next() * 100.0 - 50.0;
+                let (w, h) = (0.5 + next() * if i % 20 == 0 { 30.0 } else { 3.0 }, 0.5 + next() * 3.0);
+                obstacles.push(shape(Kind::Pad, &format!("U{i}"), rect(x, y, w, h), 1, 1, "NET", true));
+            }
+            let grid = ShapeGrid::new(obstacles);
+            assert_eq!(grid.dense.is_some(), spread < 100.0);
+            let mut out = Vec::new();
+            for _ in 0..3000 {
+                let (x, y) = ((next() * 140.0 - 70.0) * if spread > 1.0 { 3.0e3 } else { 1.0 }, next() * 140.0 - 70.0);
+                let q = (x, y, x + next() * 6.0, y + next() * 6.0);
+                let gap = [0.0, 0.2, 1.0, 5.0][(next() * 4.0) as usize % 4];
+                grid.near_into(q, gap, &mut out);
+                assert_eq!(out, near_by_hash(&grid, q, gap));
+                assert_eq!(grid.near(q, gap), out);
+            }
+        }
+    }
+
+    #[test]
+    fn the_search_over_kept_shapes_finds_the_pair_the_one_that_builds_them_does() {
+        let mut state = 4242u64;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((state >> 33) as f64) / (u32::MAX as f64)
+        };
+        let kinds = [Kind::Pad, Kind::Courtyard, Kind::Silk, Kind::Body, Kind::Copper, Kind::Hole];
+        let (mut some, mut none) = (0, 0);
+        for round in 0..40 {
+            let crowd = if round % 2 == 0 { 40 } else { 600 };
+            let mut obstacles = Vec::new();
+            for i in 0..crowd {
+                let kind = kinds[(next() * 6.0) as usize % 6];
+                obstacles.push(shape(kind, &format!("O{}", i % 7), rect(next() * 80.0, next() * 60.0, 0.4 + next() * 2.0, 0.4 + next() * 2.0), 1, 1,
+                                      ["A", "B", ""][(next() * 3.0) as usize % 3], i % 3 == 0));
+            }
+            let item: Vec<Shape> = (0..30).map(|i| {
+                let kind = kinds[(next() * 6.0) as usize % 6];
+                shape(kind, &format!("P{}", i % 5), rect(next() * 8.0 - 4.0, next() * 6.0 - 3.0, 0.3 + next() * 1.5, 0.3 + next() * 1.5), 1, 1, "C", i % 2 == 0)
+            }).collect();
+            let grid = ShapeGrid::new(obstacles);
+            let c = cfg();
+            let mut drawn = item.clone();       // kept from one offset to the next, as a sweep keeps them
+            for _ in 0..200 {
+                let (dx, dy) = (next() * 100.0 - 10.0, next() * 80.0 - 10.0);
+                let want = grid.first_conflict_shifted(&item, dx, dy, None, &c);
+                let got = grid.first_conflict_shifted_in(&item, &mut drawn, dx, dy, None, &c);
+                assert_eq!(got, want, "round {round} at ({dx}, {dy})");
+                if want.is_some() { some += 1 } else { none += 1 }
+            }
+        }
+        assert!(some > 300 && none > 300, "{some} conflicts, {none} clear");
     }
 
     #[test]

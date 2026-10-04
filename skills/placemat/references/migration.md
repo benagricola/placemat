@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **The native legality pass of a search is faster on a board with a shaped outline and large rule areas.** The board edge is judged through
+  an index over the outline's segments, a rule area of many points is tested through an index over its edges (and cleared by its raster
+  where the courtyard is far from it), the reservations a pass can reach are binned, and the obstacle grid is a dense array. The same
+  placements, refusal counts, blockers and SVG: a large board's preview takes 44 s where it took 72 s, the native pass in it 9 s where it
+  took 37 s. Nothing to change in a script.
+
 ## To 0.97.5
 
 ### Fixed
