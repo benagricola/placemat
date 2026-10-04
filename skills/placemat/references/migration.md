@@ -60,6 +60,10 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **`keep-out` allows KiCad's DRC epsilon.** A distance a hair under its limit from float noise (1.2599985 mm against 1.26 mm, a stamped
+  pour's edge at the package's own pad gap, rotated and flipped) failed the check, where KiCad's DRC passes it. The check now accepts a
+  distance within the board's DRC epsilon of the limit (500 nm on a fresh board, read from its design settings as
+  `BoardGeometry.drc_epsilon`), in place of a fixed 1 nm. A distance 0.6 um short still fails.
 - **A run folder keeps the board's rules.** A run folder held `layout.kicad_pcb` alone, so `placemat drc` or `placemat route` on
   `<run>/layout.kicad_pcb` judged it by KiCad's default rules and reported false clearance, width and short violations. The
   run folder now keeps `layout.kicad_pro` and `layout.kicad_dru` beside its board, and `drc` and `route` warn when a board has
