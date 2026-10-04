@@ -3,9 +3,8 @@ every lane that would meet another net's pad, hole or copper already placed, or 
 spot. Where every spot is blocked the part still lands, and each blocked lane is a finding. Pure."""
 import pytest
 
-from placemat.copper import Track
 from placemat.settings import Settings
-from placemat.values import Edge, Location, Near, Net, Part, CopperLayer
+from placemat.values import Edge, Location, Near, Part, CopperLayer
 from tests.escape_fixtures import PD_NETS, board_with, qfn
 from tests.fixtures import footprint
 

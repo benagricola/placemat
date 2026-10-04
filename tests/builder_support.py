@@ -4,6 +4,7 @@ import ast
 from pathlib import Path
 
 from placemat.context import run_script
+from placemat import present
 from placemat.preview_json import declared_sites, plan_json
 from tests.suggest_support import make_board
 
@@ -25,7 +26,7 @@ def run_text(tmp_path: Path, text: str, parts=None, name="layout.py", **kw):
     board.script_file = str(path)
     run_script(path, board)
     plan = board.resolve()
-    return board, plan, plan_json(plan, declared_sites(board)), path
+    return board, plan, present.plan(plan_json(plan, declared_sites(board))), path
 
 
 FORBIDDEN_CALLS = {"Location", "figure"}

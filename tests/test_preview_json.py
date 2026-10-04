@@ -53,7 +53,7 @@ def test_it_is_plain_json_and_the_same_every_time():
     text = json.dumps(_untimed(plan_json(plan, declared_sites(b))), sort_keys=True)
     b2, plan2 = _plan()
     assert json.dumps(_untimed(plan_json(plan2, declared_sites(b2))), sort_keys=True) == text
-    assert json.loads(text)["version"] == 2
+    assert json.loads(text)["version"] == 3
 
 
 def test_the_shapes_are_those_the_drawing_has():
@@ -75,7 +75,9 @@ def test_the_shapes_are_those_the_drawing_has():
     assert [k["name"] for k in doc["keepouts"]] == ["clear"]
     assert doc["pocketed"] == list(plan.pocketed)
     assert [u["item"] for u in doc["unplaced"]] == ["big"]
-    assert doc["findings"] and all("text" in f for f in doc["findings"])
+    assert doc["findings"] and not any("text" in f for f in doc["findings"])                    # records: the studio makes the sentences
+    from placemat import present
+    assert all(f["text"] for f in present.plan(doc)["findings"])
 
 
 def test_an_item_carries_what_the_page_shows_for_it():
@@ -88,7 +90,9 @@ def test_an_item_carries_what_the_page_shows_for_it():
     assert r1["face"] == "back"
     assert j1["file"].endswith("test_preview_json.py") and j1["line"] > 0
     assert items["u1"]["line"] == j1["line"] + 2
-    assert items["u1"]["note"] and items["u1"]["how"] == "pocket" and items["j1"]["how"] == "decided"
+    assert items["u1"]["notes"] and "note" not in items["u1"] and items["u1"]["how"] == "pocket" and items["j1"]["how"] == "decided"
+    from placemat import present
+    assert present.item(items["u1"])["note"]
     pads = [s for s in j1["members"][0]["shapes"] if s["kind"] == "pad"]
     assert {p["net"] for p in pads} == {"A", "GND"} and {p["number"] for p in pads} == {"1", "2"}
 
@@ -258,7 +262,7 @@ def test_a_variants_shapes_are_the_plain_ones_turned_about_the_item_and_carried_
 
 def test_a_findings_facts_carry_the_engines_words_for_each_refusal_owner_slide_and_turn():
     """The page reads a finding's facts and shows the engine's own words as written (`text`); it parses no sentence."""
-    from placemat.preview_json import _with_texts
+    from placemat.present import facts as _with_texts
     from placemat.refusals import Code, Owner, Refusal
     refusal = Refusal(Code.VIA_BAN, ban="the ring keepout", net="GND", at=[1.0, 2.0]).to_json()
     facts = {"item": "u1", "where": {"form": "edge", "edge": "north"}, "turns": [[0, refusal], [90, refusal]],

@@ -48,10 +48,6 @@ def _side(plan, ref, numbers, body=None):
     return Edge.SOUTH if dy > 0 else Edge.NORTH
 
 
-def _opposite(edge):
-    return {Edge.NORTH: Edge.SOUTH, Edge.SOUTH: Edge.NORTH, Edge.EAST: Edge.WEST, Edge.WEST: Edge.EAST}[edge]
-
-
 # ------------------------------------------------------------------ a grid
 
 @pytest.mark.parametrize("edge", list(Edge))

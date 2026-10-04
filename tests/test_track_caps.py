@@ -1,7 +1,6 @@
 """A track's end is round, as KiCad draws it: a square cap's corner came
 0.04 mm nearer a pad's corner than the copper does, and a clean board read
 0.13 mm against a 0.16 rule. Pure."""
-import dataclasses
 import math
 
 from placemat.copper import Track

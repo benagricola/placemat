@@ -231,7 +231,6 @@ def test_a_block_scan_gathers_each_members_obstacles_once(monkeypatch):
 def test_a_block_lands_where_it_did_with_the_obstacles_gathered_once():
     """The placements are those of the per-call gather, to the nanometre."""
     import placemat.placer as placer
-    from placemat.occupancy import Occupancy
 
     def run():
         b = make_board()
@@ -556,5 +555,6 @@ def test_a_slid_satellite_says_how_far_and_which_pins_it_stands_in_front_of():
     dx, dy = p4.x - p3.x, p4.y - p3.y                          # one pitch along the row, away from pin 3
     at = members["cb"]
     members["cb"] = dataclasses.replace(at, location=Location(at.location.x + dx, at.location.y + dy))
-    note = slide_note(occ, spec, members, 1)
+    from placemat import step_text
+    note = step_text.render_all(slide_note(occ, spec, members, 1))
     assert "in front of U1 pin 5" in note, note

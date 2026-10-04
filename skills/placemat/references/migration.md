@@ -7,6 +7,55 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### Changed
+
+- **The live channel, `placemat watch --json`, the studio worker's events and the router's events carry records, not sentences** (event
+  `format` 2; `hello` carries it, and a reader that finds none reads format 1; plan JSON `version` 3). A reader outside the repository
+  that parsed the old text needs the new fields:
+  - `item` events: the item has `notes`, a list of `{"kind", ...facts}` records (61 kinds, `step_text.py`: `rank`, `slid`,
+    `moved_off_hint`, `vias`, `push`, `pocket`, `lock_held`, ...), and `unplaced` (the reasons, refusal records, for an item that
+    found no place), where it had `note`, one "; "-joined sentence. `placemat watch` renders them; so does `Step.note` in a script's
+    own checks (a read-only property of `Step.notes`).
+  - `error` events: `kind` says which (`run_failure` with `failure` and the free text `detail`, `exception` with `type` and
+    `detail`, `probe_refused` with `code` and its facts, `stopped`, and from `watch` itself `lost`, `died`, `cannot_follow`), with
+    `file` and `line`; the `message` sentence is gone.
+  - `route_off` events: `reason`, `{"code", ...}` (`no_function`, `no_parameter`, `no_field`, `import_failed`, `pipe_closed`), where
+    `why` was a sentence. The router-side hooks (`kicad/route_events.py`) are version 2.
+  - `probe` events lose `text` (the suggestion's sentence; its `id` and `figure.finding` say which), `probe_done` has `refusal` (a
+    record) where it had `message`, and a `candidate`'s `error` is `{"kind": "timeout" | "exception", ...}`.
+  - Plan JSON (`done` and `plan` events, a run's `plan.json`): steps and items have `notes` and `unplaced`, an `unplaced` entry has
+    `reasons`, a finding has no `text` and its `facts` carry no rendered `text` fields, a reservation has `by` (a record) where it
+    had `why`, a model entry's `why` is a word (`not_found`, `vrml_only`, `no_checksum`, `unreadable`, `no_model`) with `text` and
+    `detail`. The studio server makes the sentences for its page (`present.py`) with the same renderers the console uses.
+  - The studio worker's `done` has `reused` as a record (`{"form": "none" | "all" | "some", ...}`) and `stale` where it had two
+    sentences, and its `error` and `try_error` events have `kind`, `type`/`failure` and `detail` where they had `message`.
+  - The reuse record is version 4: the first resolve after the upgrade replays nothing. `run.json`'s steps keep `note` and gain
+    `notes`.
+  A script is not affected.
+
+### Fixed
+
+- **Generation ignores an inherited `KIPRJMOD`.** A process that had saved a board with pcbnew (or a placemat started from
+  KiCad) passed `KIPRJMOD` on to `pcb layout`, which then resolved the stdlib footprint libraries against the wrong folder and
+  failed with "Failed to load footprint". Generation now runs without it.
+
+## To 0.96.1
+
+### Removed
+
+- **`check.neck_band` is gone.** It has not been read since 0.72.0 (`check.neck_end_share` and the neck length replaced it). A
+  `placemat.toml` that still names it now fails as an unknown setting: delete the line.
+
+### Fixed
+
+- **A push on a member of a stamped cell fences that member alone.** An annotated pair (`Pm.Emits` / `Pm.Limit`) or a
+  `board.push` whose item is a cell member reserved its disc against every member of the cell, so the whole cell had to stand
+  outside it; and a source placed first looked ahead for room for the whole cell. Both now take the member the push measures,
+  as api.md, "Push", says: the cell's other members may stand inside the disc. A cell holding a sensitive part can now stand
+  with that part outermost; nothing a script says changes.
+
+## To 0.96.0
+
 ### New
 
 - **The studio has a 3D view.** A 2D | 3D switch draws the board built from the parts' real models (STEP converted with `kicad-cli`, VRML read
@@ -23,6 +72,14 @@ section for each hand-written pattern a newer form replaces.
   done and, in a second colour, how far the step under way has got where its phase counts (`begin` phase events carry `within`, `[k, n]`;
   a phase with no count does not move the bar). The legend and the right panel each fold away (a handle on each edge, kept per
   viewer), and the source dialog's full-screen view fills the page below the header with no canvas showing under it.
+
+### Changed
+
+- **Searching a big cell is faster.** A searched cell's member boxes are moved when read, far reservations are rejected before
+  rounding, the empty occupancy is built once and reservations are judged once per cell: a large board's preview took about a third
+  less CPU, with identical placements and findings.
+- **`placemat watch` finds a board's command from the workspace root.** The project root is the outermost folder with a
+  `placemat.toml` or a workspace `pcb.toml`, so every command of a project registers in one sockets folder.
 
 ## To 0.95.0
 

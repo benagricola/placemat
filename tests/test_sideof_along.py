@@ -3,7 +3,7 @@ the end of the row it is nearer; for Beside's side and Facing's toward=. Pure:
 synthetic boards."""
 import pytest
 
-from placemat.values import Beside, Edge, Face, Facing, Location, PadRef, Part, SideOf
+from placemat.values import Beside, Edge, Facing, Location, PadRef, Part, SideOf
 from tests.fixtures import footprint
 from tests.test_facing_grids_rows_sides import _TURNS, _board, _centre_of, _dist, _part
 

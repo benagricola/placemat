@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import builder_parts as bp, script_edit as se
-from .builder import (BUILDER, EDGES, BuilderRefused, _cell, _enum, _form, _identifier, _name, _num, _part, _str, _Names, wrap, mm)
+from .builder import (BUILDER, EDGES, BuilderRefused, _cell, _enum, _form, _identifier, _name, _part, _str, _Names, wrap)
 from .suggestions import Edit, FileChange, Suggestion, Target
 
 SEARCHED_NOTE = "Searched from their links."
@@ -599,7 +599,7 @@ def _pad_offers(ctx: Ctx, subject: str, target: dict, params: dict, names: _Name
     else:
         pre = []
         rad = _radius_constant(ctx, names, subject, t, params, pre)
-        out.append(Offer("near_pad", "near %s pad %s (they share no net)" % (ctx.label(t), pad),
+        out.append(Offer("near_pad", "near %s pad %s, they share no net" % (ctx.label(t), pad),
                          _form("Near", padref_t, **({"radius": rad} if rad else {})), pre, refs=refs))
     for axis, word in (("X", "column"), ("Y", "row")):
         at = _form("Centre", _form("X", padref_t), None) if axis == "X" else _form("Centre", None, _form("Y", padref_t))
@@ -754,7 +754,7 @@ def search_rest(ctx: Ctx, keys: list | None = None, either_face: bool = False) -
     imp = imports_for(ctx, stmts)
     if imp is not None:
         edits.insert(0, imp)
-    s = _suggestion(ctx, "Search the rest (%d)" % len(stmts), edits)
+    s = _suggestion(ctx, "Search the rest, %d items" % len(stmts), edits)
     return {"suggestion": s, "count": len(stmts), "keys": [r["key"] for r in cells + parts]}
 
 
@@ -819,10 +819,10 @@ def row_edit(ctx: Ctx, key: str, action: str, member: str = "", before: str = ""
     another: `edit_list` on the row's items, the rest of the call as it was."""
     row = ctx.rows.get(key)
     rel = (row or {}).get("relation") or {}
-    if row is None or rel.get("kind") != "row":
+    if row is None or rel.get("kind") not in ("row", "ring"):
         raise BuilderRefused("%s is not in a row the builder wrote" % ctx.label(key))
     text = ctx.texts[row["file"]]
-    target = Target("row", key, ctx.abs(row["file"]), row["line"], 1, se.digest(text))
+    target = Target(rel["kind"], key, ctx.abs(row["file"]), row["line"], 1, se.digest(text))
     member = member or key
     if member not in ctx.rows:
         raise BuilderRefused("%s is not a part or a cell of this board" % member)
@@ -856,6 +856,9 @@ def remove_edits(ctx: Ctx, key: str) -> Suggestion:
     row = ctx.rows.get(key)
     if row is None or row["status"] == "unplaced":
         raise BuilderRefused("%s is not placed by the script" % (ctx.label(key)))
+    if (row.get("relation") or {}).get("kind") in ("row", "ring"):          # a member leaves its row: the row's own items list changes
+        s = row_edit(ctx, key, "remove", key)
+        return _suggestion(ctx, "Unplace %s" % ctx.label(key), list(s.edits))
     target = _target_of(ctx, row)
     used = []
     rel = row.get("relation") or {}
@@ -871,4 +874,4 @@ def remove_edits(ctx: Ctx, key: str) -> Suggestion:
         uses = [n.lineno for n in _ast.walk(mod.tree) if isinstance(n, _ast.Name) and n.id == name and isinstance(n.ctx, _ast.Load)]
         if uses and all(l in inside for l in uses):
             edits.append(Edit("remove_constant", None, {"name": name}, None, {}, str(ctx.script)))
-    return _suggestion(ctx, "Take %s off the board" % ctx.label(key), edits)
+    return _suggestion(ctx, "Unplace %s" % ctx.label(key), edits)

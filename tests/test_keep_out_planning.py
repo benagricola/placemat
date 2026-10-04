@@ -3,13 +3,12 @@ says to stay away from keeps its distance from that part's pads on the nets it k
 those and nothing else. Tracks and vias of those nets are the part's own pad escapes and keep the netclass figure,
 as do other copper on the same nets. Pure: synthetic boards, and kicad-cli's DRC for the rule written beside the
 board."""
-import dataclasses
 import math
 
 import pytest
 
 from placemat.checks import keep_out
-from placemat.copper import Pour, Track
+from placemat.copper import Track
 from placemat.geometry import poly_distance
 from placemat.layout import Board
 from placemat.rules import ClearanceRules, Rule, rules_text
@@ -24,10 +23,6 @@ F = CopperLayer.F
 CITE = "datasheet rev B, section 10.2, layout example"
 KEEP = 1.0
 ANNOTATION = {"Pm.KeepOut": "%gmm pads=FB away=SW; %s" % (KEEP, CITE)}
-
-
-def _with(fp, **fields):
-    return dataclasses.replace(fp, fields=dict(fields))
 
 
 def _regulator(ref, cx, cy, far=8.0, fields=None):

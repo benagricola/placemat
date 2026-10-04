@@ -3,7 +3,6 @@ as it goes, a digest of what makes a variant, a rerun that continues with the
 untried seeds and the rest of the time, and one that refuses (or starts over)
 when something changed."""
 import json
-import os
 import signal
 import subprocess
 import sys
@@ -12,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from placemat import checkpoint, lock, stop
+from placemat import checkpoint, lock
 from placemat.explore import search
 from tests import explore_boards as eb
-from tests.test_stop import DRIVER, ROOT, _alive, _wait_for
+from tests.test_stop import DRIVER, ROOT, _wait_for
 
 FILE = "checkpoint.jsonl"
 

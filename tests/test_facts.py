@@ -2,7 +2,6 @@
 placemat facts --confirm records in placemat.toml's [facts] confirmed."""
 import dataclasses
 
-import pytest
 
 from placemat.board_geometry import NetClass
 from placemat.facts import facts_of, render, unconfirmed_line, unconfirmed_reasons, write_confirmed

@@ -193,3 +193,12 @@ def test_a_run_that_does_not_render_keeps_the_last_renders(tmp_path, monkeypatch
     assert all(p.read_bytes() == b"png of the last run" for p in renders)
     assert runner.generate(src, run_dir, fresh=False, quiet=True) is False                       # a run that renders
     assert not any(p.exists() for p in renders)
+
+
+def test_the_generation_environment_drops_the_kicad_project_variable(monkeypatch):
+    """pcbnew leaves KIPRJMOD set in a process that saved a board; pcb layout keeps a set value instead of using the board's folder."""
+    monkeypatch.setenv("KIPRJMOD", "")
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setenv("PLACEMAT_KEEP", "1")
+    env = runner.generation_env()
+    assert "KIPRJMOD" not in env and "DISPLAY" not in env and env["PLACEMAT_KEEP"] == "1"

@@ -2,7 +2,7 @@
 from placemat import script_edit as se, suggestions as sg
 from placemat.context import run_script
 from placemat.suggestions import Edit, Target
-from tests.suggest_support import IMPORTS, make_board, script
+from tests.suggest_support import make_board, script
 
 OUT = "from placemat import board, Cutout, Edge, Location, OnEdge, PadRef, Part, Slot\n"
 

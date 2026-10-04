@@ -5,7 +5,6 @@ import math
 
 import pytest
 
-from placemat.board_geometry import Footprint
 from placemat.values import Box, Location
 from tests.conftest import needs_breakout, needs_kicad
 

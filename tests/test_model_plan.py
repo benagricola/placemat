@@ -54,14 +54,16 @@ def _items(doc):
 def test_each_member_carries_its_models_resolved_with_a_matrix_or_a_reason(planned):
     plan, ctx, tmp = planned
     doc = preview_json.plan_json(plan, {}, None, ctx)
-    assert doc["version"] == 2
+    assert doc["version"] == 3
     ms = {m["ref"]: m for it in doc["items"] for m in it["members"]}
-    assert ms["U1"]["models"] == [{"id": "", "state": "none", "name": "", "opacity": 1.0, "why": "the footprint declares no 3D model", "matrix": None}]
+    assert ms["U1"]["models"] == [{"id": "", "state": "none", "name": "", "opacity": 1.0, "why": "no_model", "text": "", "matrix": None}]
     (emb,) = ms["C1"]["models"]
     assert emb["state"] == "ok" and emb["id"] == "e-abcd0123" and len(emb["matrix"]) == 16 and emb["name"] == "E.step"
     ok, gone, hidden = ms["R1"]["models"]
     assert ok["state"] == "ok" and len(ok["id"]) == 32 and len(ok["matrix"]) == 16
-    assert gone["state"] == "missing" and gone["matrix"] is None and "model not found: ${KIPRJMOD}/gone.step" == gone["why"]
+    assert gone["state"] == "missing" and gone["matrix"] is None and gone["why"] == "not_found" and gone["text"] == "${KIPRJMOD}/gone.step"
+    from placemat import present
+    assert present.model_why(gone) == "model not found: ${KIPRJMOD}/gone.step"
     assert hidden["state"] == "hidden" and hidden["matrix"] is None
 
 

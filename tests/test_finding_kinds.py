@@ -5,7 +5,7 @@ escape crossed, closed or walled off, or something about the setup that is
 the same every run."""
 import pytest
 
-from placemat.findings import KINDS, Finding, FindingCause as C
+from placemat.findings import KINDS, FindingCause as C
 from tests.finding_samples import finding
 from placemat.layout import Board
 from placemat.values import Edge, LinkWeight, Location, Near, PadRef, Part

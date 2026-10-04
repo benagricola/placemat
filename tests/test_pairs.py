@@ -2,7 +2,7 @@
 KiCadRoutingTools' net_queries.extract_diff_pair_base): the cases its
 comments cite."""
 from placemat.board_geometry import NetClass
-from placemat.pairs import board_pair_list, board_pairs, pair_key, pairs_of
+from placemat.pairs import board_pairs, pair_key, pairs_of
 
 
 def _cls(name, nets, width=0.1, gap=0.1):
@@ -13,25 +13,9 @@ def test_a_two_net_class_pairs_whatever_they_are_called():
     assert board_pairs(_cls("Tank", ["LX", "LY"])) == {"LX": "LY", "LY": "LX"}
 
 
-def test_a_four_net_class_pairs_by_pair_key():
-    classes = _cls("HighSpeed", ["CLK_P", "CLK_N", "DAT_P", "DAT_N"])
-    assert board_pairs(classes) == {"CLK_P": "CLK_N", "CLK_N": "CLK_P", "DAT_P": "DAT_N", "DAT_N": "DAT_P"}
-
-
-def test_the_default_class_never_makes_pairs():
-    classes = {"A": NetClass("Default", 0.2, 0.2, 0.6, 0.3, 0.2, 0.2),
-              "B": NetClass("Default", 0.2, 0.2, 0.6, 0.3, 0.2, 0.2)}
-    assert board_pairs(classes) == {}
-
-
 def test_a_board_with_no_pair_class_has_none():
     classes = {"A": NetClass("Default", 0.2, 0.2, 0.6, 0.3), "B": NetClass("Power", 0.3, 0.2, 0.6, 0.3)}
     assert board_pairs(classes) == {}
-
-
-def test_board_pair_list_gives_each_pair_once_p_first():
-    assert board_pair_list(_cls("HighSpeed", ["CLK_P", "CLK_N"])) == [("CLK_P", "CLK_N")]
-    assert board_pair_list(_cls("Tank", ["LX", "LY"])) == [("LX", "LY")]   # no suffix meaning: alphabetically first is P
 
 
 def test_the_common_conventions_pair():

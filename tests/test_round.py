@@ -8,7 +8,7 @@ import pytest
 from placemat.copper import Zone
 from placemat.layout import Board
 from placemat.values import (Freedom, CopperLayer, Disc, Edge, Fraction, Location, Net, OnBore, OnEdge, OnRim,
-                             PadRef, Part, Polar, Priority)
+                             PadRef, Part, Polar)
 from tests.fixtures import placement_findings, board_geometry, footprint
 
 SHAPES = {"j1": ("J1", 6.0, 4.0), "r1": ("R1", 2.0, 1.2), "u1": ("U1", 4.0, 4.0),

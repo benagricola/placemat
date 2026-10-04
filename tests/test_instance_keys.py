@@ -5,12 +5,11 @@ import dataclasses
 
 from placemat.refusals import Refusal
 from placemat import lock, routes
-from placemat.explore import Explore
 from placemat.layout import Board
 from placemat.values import Location, Part
 from tests.fixtures import board_geometry, footprint
 from tests.test_lock import FOCUS, _accepted, _where
-from tests.test_routes import _parts, _routed
+from tests.test_routes import _routed
 
 
 def _renumbered_lock_board():

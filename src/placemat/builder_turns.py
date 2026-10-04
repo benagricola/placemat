@@ -104,8 +104,6 @@ def turn_edits(ctx, key: str, rotation: int, with_why: bool = True) -> Suggestio
     """The edit that writes a chosen turn: `rotation=90` in the part's own call, with `why=` where it has none. A turn of 0 takes the
     keyword out (no `rotation=` at all is the part's own turn)."""
     from . import builder_intents as bi
-    from .builder_parts import modifiers_of
-    from . import script_edit as se
     row = ctx.rows.get(key)
     if row is None or row["status"] in ("unplaced",):
         raise BuilderRefused("%s is not placed by a statement of the script yet" % ctx.label(key))

@@ -3,7 +3,7 @@ by the weight of each connection, and a SHORT link with a limit is a bound."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Near, CopperLayer, Face, LinkWeight, Location, Net, Part, PadRef, Priority
+from placemat.values import Near, CopperLayer, LinkWeight, Location, Net, Part, PadRef
 from tests.fixtures import board_geometry, footprint
 
 

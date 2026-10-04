@@ -4,7 +4,6 @@ shares a layer with can be passed too close. Pure: synthetic boards."""
 import dataclasses
 import math
 
-import pytest
 
 from placemat.board_geometry import Footprint
 from placemat.layout import Board
