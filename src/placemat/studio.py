@@ -37,7 +37,7 @@ import threading
 import time
 from urllib.parse import parse_qs, urlparse
 
-from . import channel
+from . import channel, present
 from .console import console
 from .studio_diff import diff_plans, line_diff, trace, unified_diff, with_spans
 from .studio_watch import Debounce, Poller
@@ -698,13 +698,13 @@ class Studio:
                 cur.setdefault(key, value)
             rid = cur["id"]
             if kind == "board":
-                self.hub.emit("board", {k: v for k, v in ev.items() if k not in ("ev", "id")} | {"id": rid}, keep=True)
+                self.hub.emit("board", present.board({k: v for k, v in ev.items() if k not in ("ev", "id")}) | {"id": rid}, keep=True)
             elif kind == "item":
                 cur["last"] = ev["item"].get("key")
                 if cur["now"] is not None and cur["now"].get("replaying"):
                     cur["replayed"] += 1
                 cur["now"] = None
-                self.hub.emit("step", {"id": rid, "item": self._named(ev["item"]), **{k: ev[k] for k in ("ops", "cutout") if k in ev}}, keep=True)
+                self.hub.emit("step", {"id": rid, "item": self._named(present.item(ev["item"])), **{k: ev[k] for k in ("ops", "cutout") if k in ev}}, keep=True)
             elif kind == "begin":
                 info = {k: v for k, v in ev.items() if k != "ev"} | {"at": time.time()}        # when, by the server's clock
                 if info["kind"] == "total":
@@ -722,8 +722,8 @@ class Studio:
             elif kind == "cancelled":
                 self._finish_cancel()
             elif kind == "error":
-                self._fail(rid, ev["message"], file=self.name_of(ev["file"]) if ev.get("file") else "", line=ev.get("line"),
-                           source=ev.get("source"), detail=ev.get("detail", ""))
+                self._fail(rid, channel.failure_text(ev), file=self.name_of(ev["file"]) if ev.get("file") else "", line=ev.get("line"),
+                           source=ev.get("source"), detail=ev.get("traceback", ""))
             elif kind == "done":
                 if self._dirty:
                     self._cur, self._cancel_at = None, None
@@ -786,12 +786,15 @@ class Studio:
 
     def _finish(self, cur: dict, ev: dict) -> None:
         rid = cur["id"]
-        doc = ev["doc"]
+        doc = present.plan(ev["doc"])
         for item in doc["items"]:
             item["file"] = self.name_of(item["file"]) if item.get("file") else ""
         doc = with_spans(doc, cur["texts"])
-        rec = Record(rid, time.time(), cur["texts"], doc, cur["changed"], ev["timing"], ev.get("reused", ""), ev.get("notes", []),
-                     cur.get("applied", ""))
+        from . import reuse as reuse_mod
+        from .runner import stale_text
+        stale = stale_text(ev.get("stale"))
+        rec = Record(rid, time.time(), cur["texts"], doc, cur["changed"], ev["timing"], reuse_mod.summary_text(ev.get("reused")),
+                     ["the cached generation is out of date (%s): this shows the old one" % stale] if stale else [], cur.get("applied", ""))
         previous = self.history[-1] if self.history else None
         self.history.append(rec)
         self._cur, self._cancel_at, self._error = None, None, None
@@ -1066,7 +1069,7 @@ class Studio:
         if kind == "try_cancelled":
             self._end_try({"state": "cancelled", "message": "the try was stopped: %s" % (tr.get("cancel") or "cancelled")})
         elif kind == "try_error":
-            self._end_try({"state": "error", "message": "the edited script does not run: %s" % ev.get("message", ""),
+            self._end_try({"state": "error", "message": "the edited script does not run: %s" % channel.failure_text(ev),
                            "file": self.name_of(ev["file"]) if ev.get("file") else "", "line": ev.get("line")})
         else:
             from . import suggestions as sg
@@ -1077,7 +1080,7 @@ class Studio:
             texts = dict(rec.texts)
             for path, after in tr["overlay"].items():
                 texts[self.name_of(path)] = after
-            doc = ev["doc"]
+            doc = present.plan(ev["doc"])
             for item in doc["items"]:
                 item["file"] = self.name_of(item["file"]) if item.get("file") else ""
             for f in doc.get("findings", ()):
@@ -1132,6 +1135,7 @@ class Studio:
                 return
             if c is None:
                 return
+            ev = present.event(ev)
             if kind and kind.startswith("route_"):
                 return self._on_route(cid, c, ev)
             if kind == "lost":
@@ -1197,8 +1201,6 @@ class Studio:
             self.hub.emit("cmdev", {"id": cid, "n": n, "ev": ev})
             if kind in ("done", "error"):
                 self.hub.emit("cmd", self._cmd_summary(c))
-                if c.get("own_run") is not None and kind == "error":
-                    self._run_note = ev.get("message", "")
             elif c.get("own_run") is not None and kind in ("item", "begin"):
                 self.hub.emit("run_progress", {"id": c["own_run"], "item": c.get("last") or "", "n": c["items"]})
 
@@ -1214,7 +1216,7 @@ class Studio:
         if done is not None and done.get("ev") == "done":
             c.update(state="done", record=done.get("record"))
         elif done is not None:
-            c.update(state="error", message=done.get("message", ""))
+            c.update(state="error", message=channel.failure_text(done))
         else:
             c.update(state="lost", message="the command stopped without saying it was done" +
                      ((" (the last step it reported: %s)" % last) if last else ""))
@@ -1241,7 +1243,8 @@ class Studio:
         elif kind == "route_queue_end":
             r["current"] = ""                        # one stage's queue: the route is over when its command is
         elif kind == "route_off":
-            r["off"] = ev.get("why", "")
+            from .kicad import route_events
+            r["off"] = route_events.reason_text(ev.get("reason") or {})
         if len(r["log"]) < self.MAX_ROUTE_EVENTS:
             r["log"].append(ev)
         elif not r["truncated"]:
@@ -1322,7 +1325,7 @@ class Studio:
                 board = json.loads((record_path.parent / route_progress.BOARD).read_text())
             except (OSError, ValueError):
                 board = {}
-        return {"doc": route_view.route_doc(record, board), "summary": record.get("report", {}), "board": record.get("board", {})}
+        return {"doc": present.plan(route_view.route_doc(record, board)), "summary": record.get("report", {}), "board": record.get("board", {})}
 
     def route_record(self, path: str):
         """One route's replay document from its record, if it is one of this project's."""
@@ -1443,7 +1446,6 @@ class Studio:
             # the run is a command like any other: it reports over the channel (its steps reach the page as the command's
             # events), and what it leaves is its record. Its printed text is not read.
             proc = subprocess.Popen(cmd, cwd=str(self.src.board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self._run_proc = proc
             with self.lock:
                 if self._run is not None:
                     self._run["pid"] = proc.pid
@@ -1483,7 +1485,6 @@ class Studio:
         """The newest resolve against a recorded run: what moved, was added or removed among the items the run placed,
         the findings gained and lost and the score. A run records no copper or links, so those are not compared."""
         from .studio_diff import _findings, _texts
-        from collections import Counter
         with self.lock:
             b = self.history[-1] if self.history else None
         a = self.run_doc(run_id)

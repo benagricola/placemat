@@ -9,6 +9,13 @@ file. An item cites its source as "a board's session, <date>".
 - **Board builder B4** (spec `2026-10-03-studio-board-builder-design.md`):
   B0-B3 released in 0.95.0; B4 (editing an existing script) next.
 
+- **Performance push** (the user, 2026-10-03; target an order of magnitude on
+  previews and explores): fail-fast scan for items with no room and a per-step
+  candidate budget (`place.step_budget`); `--max-time`, `--step-warn`,
+  `--step-limit` on preview/run/explore and watch's line fixes; native ports
+  (net-tie cells' legal check first); the give-way leave search at large
+  reach; dead code removal. Board runs watched for slow steps.
+
 ## Next, in order
 
 Specced work first, then the loose ends.
@@ -42,11 +49,11 @@ Specced work first, then the loose ends.
 5. **Suggestions phase 7: the improve loop** (recommended in the suggestions
    work; needs a short design): instant suggestions tried on an overlay,
    kept when the score improves, before explore runs.
-6. **Step notes as data**: `Step.note` is still a log line; make it records
-   (why a part slid, stopped short or moved off its hint, vias taken, pushes,
-   pockets), give cleanup moves and swaps a cause and `moved_mm`, record a
-   cause for block slides and searched moves that have none, then remove the
-   studio's TEMPORARY parsers (noteParts, movedRows, joinVias, pushLine).
+6. **Causes for the moves a step note records** (`Step.notes` are records
+   now, `step_text.py`; the studio's parsers are gone): a cleanup move or swap
+   has a distance but no cause, and a block slide or a searched move that no
+   refusal explains has none; record one (a `why` refusal on the note) where
+   the engine knows it.
 7. **Studio: through-hole pads switch with the layer rows** of the legend.
 8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
@@ -55,11 +62,7 @@ Specced work first, then the loose ends.
     two-process release suite twice (SlotControl-physical; MCU_RP2350B-union),
     passing on rerun each time. It seeds its sampler with `hash()` and fails on
     about 7% of hash seeds with a native/Python blame difference (a pour
-    blocker), also on 0.93.0: a parity bug, with the native sweep. Likewise
-    `test_studio_builder_real` (0.95.0 release suite, while a second suite
-    ran; again in 0.96.0's): pcb failed to load a stdlib footprint; passes
-    alone. Probably another pcb process sharing pcb's package cache: isolate
-    the test's pcb cache or find what the other process changes.
+    blocker), also on 0.93.0: a parity bug, with the native sweep.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
 12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
@@ -77,6 +80,14 @@ Specced work first, then the loose ends.
     at the rip step; the "of N" total grows as each router launch's queue
     arrives; events dropped on a full queue are missing from the record too;
     a stopped route leaves a partial record listed with the finished ones.
+
+- **Dead code left by the sweep** (2026-10-03, report in the sweep's
+  scratchpad): layout.py (`gap_texts`/`VIA_BUCKET` imports, `_script_line`,
+  `_cutout_label`, write-only `_link_index`/`_flip_said`, the 0.39 lock
+  digest compat), occupancy.py (`re`, `gap_texts`, `_GAP`, `_inner_mirror`),
+  giveway `_far_ends`, native `clean9_many`/`hypot_many`, production code only
+  tests call; `settings.RENAMED` (30 entries from 0.90.0) once the notice path
+  can go. After the native sweep and give-way work leave those files.
 
 ## Open
 
@@ -317,6 +328,12 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Push on a cell member; builder fixes; dead code** (0.96.1): a push fences
+  only the member it measures and its source looks ahead for that member alone;
+  the builder's part click after a tick and Unplace; unused code and
+  `check.neck_band` removed; progress files keep step seconds; the skill's
+  shaping modules for the board; test files run one per worker.
 
 - **Step durations, one status bar, folding panels; the studio's 3D view
   (phase 1); a faster big-cell search** (0.96.0): each step's time in the

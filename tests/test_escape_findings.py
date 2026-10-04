@@ -3,7 +3,6 @@ findings of their own kinds, confirmed by the path search."""
 import dataclasses
 
 from placemat.board_geometry import Footprint
-from placemat.findings import Finding
 from placemat.layout import Board
 from placemat.settings import Settings
 from placemat.values import Box, Face, Location, Part

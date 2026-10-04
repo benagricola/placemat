@@ -44,7 +44,8 @@ def test_a_second_resolve_replays_what_did_not_change(staged):
     s = Session()
     first = _run(s, staged, 1)[-1]
     second = _run(s, staged, 2)[-1]
-    assert second["reused"] and "reused" in second["reused"]
+    assert second["reused"]["form"] in ("all", "some") and second["reused"]["source"]          # a record, not the sentence
+    assert "message" not in second
     assert {i["key"]: (i["at"], i["rotation"], i["face"]) for i in first["doc"]["items"]} == \
         {i["key"]: (i["at"], i["rotation"], i["face"]) for i in second["doc"]["items"]}
     assert first["doc"]["findings"] == second["doc"]["findings"]
@@ -85,7 +86,8 @@ def test_a_script_that_fails_is_an_error_event_with_its_line(staged, tmp_path):
     bad = staged.with_name("Bad_layout.py")
     bad.write_text("from placemat import board\n\nboard.nonsense(1)\n")
     ev = _run(Session(), bad)[-1]
-    assert ev["ev"] == "error" and ev["line"] == 3 and "nonsense" in ev["message"]
+    assert ev["ev"] == "error" and ev["line"] == 3 and ev["kind"] == "run_failure" and ev["failure"] == "script" and "nonsense" in ev["detail"]
+    assert "message" not in ev and ev["traceback"]
     bad.unlink()
 
 

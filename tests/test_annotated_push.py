@@ -359,3 +359,18 @@ def test_members_of_one_cell_do_not_pair():
     plan = b.resolve()
     assert not plan.pushes
     assert plan.step("sensor").placement is not None
+
+
+def test_a_sensitive_member_is_the_only_part_of_its_cell_the_disc_fences():
+    """The disc is reserved against the member the push measures: the cell's other members may stand inside it."""
+    m1 = footprint("M1", 10, 10, w=2, h=2, inst="m1", nets=("A", "GND"), fields={"Pm.Emits": "magnetic:3.2mT@2mm^3"})
+    u2 = footprint("U2", 1, 1, w=2, h=2, inst="sensor.u2", nets=("SIG", "GND"), cell="sensor", fields={"Pm.Limit": LIMIT})
+    u3 = footprint("U3", 15, 1, w=2, h=2, inst="sensor.u3", nets=("SIG2", "GND"), cell="sensor")
+    b = Board(board_geometry([m1, u2, u3], cells=["sensor"], width=80, height=80), edge_margin=1.0)
+    b.place(Part("m1"), at=Location(10, 10))
+    b.place(Cell("sensor"), radius=30.0, step=1.0)
+    plan = b.resolve()
+    discs = [r for r in plan.occupancy.reservations if r.source.startswith("push:sensor:")]
+    assert discs
+    for r in discs:
+        assert "U3" in r.owners and "U2" not in r.owners

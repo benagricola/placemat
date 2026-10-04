@@ -194,7 +194,7 @@ CAP_DRIVER = textwrap.dedent("""
 
 
 def test_a_capped_explore_keeps_its_variants_and_its_checkpoint_and_ends_its_workers(tmp_path):
-    proc = subprocess.Popen([sys.executable, "-c", CAP_DRIVER, str(tmp_path), "4"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([sys.executable, "-c", CAP_DRIVER, str(tmp_path), "8"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         out, err = proc.communicate(timeout=60)
     finally:
@@ -202,11 +202,11 @@ def test_a_capped_explore_keeps_its_variants_and_its_checkpoint_and_ends_its_wor
             proc.kill()
     assert proc.returncode == 143, (out, err)
     rec = json.loads(next(l for l in out.splitlines() if l.startswith("RECORD "))[len("RECORD "):])
-    assert rec["cause"] == "max_time" and rec["limit_s"] == 4.0 and rec["stage"] == "explore"
-    assert rec["explore"]["tried"] >= 1 and rec["explore"]["stopped"] == "the time cap (--max-time 4 s)"
-    assert "explore stopped by the time cap (--max-time 4 s) after" in out + err
+    assert rec["cause"] == "max_time" and rec["limit_s"] == 8.0 and rec["stage"] == "explore"
+    assert rec["explore"]["tried"] >= 1 and rec["explore"]["stopped"] == "the time cap (--max-time 8 s)"
+    assert "explore stopped by the time cap (--max-time 8 s) after" in out + err
     lines = [json.loads(l) for l in (tmp_path / "ckpt" / "checkpoint.jsonl").read_text().splitlines() if l.strip()]
-    assert any("v" in l for l in lines) and lines[-1]["stop"] == "the time cap (--max-time 4 s)"       # the variants finished, and why it stopped
+    assert any("v" in l for l in lines) and lines[-1]["stop"] == "the time cap (--max-time 8 s)"       # the variants finished, and why it stopped
     pids = [int(p) for p in (tmp_path / "pids").read_text().split()]
     assert _wait_for(lambda: not any(_alive(p) for p in pids), 10), "workers outlived the parent"
     # and the saved explore is there to continue

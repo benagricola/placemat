@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass, field
 
 from .copper import Track, Via, chamfer_cuts, polyline_tracks
-from .geometry import gap_texts, point_in_polygon, point_segment_distance, poly_distance
+from .geometry import point_in_polygon, point_segment_distance, poly_distance
 from .refusals import Code, Refusal
 from .values import Box, Edge, Location, Part
 

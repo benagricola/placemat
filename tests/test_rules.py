@@ -2,8 +2,8 @@
 the board, where its DRC reads them: a clearance inside one cell, between
 two nets, or on one net."""
 from placemat.layout import Board
-from placemat.rules import Rule, rules_text
-from placemat.values import Cell, Net, Part
+from placemat.rules import rules_text
+from placemat.values import Cell, Net
 from tests.fixtures import board_geometry, footprint
 
 

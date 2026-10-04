@@ -8,7 +8,7 @@ import pytest
 
 native = pytest.importorskip("placemat_native")
 
-from placemat.ratsnest import Anchor, Ratsnest, mst  # noqa: E402
+from placemat.ratsnest import Anchor, Ratsnest  # noqa: E402
 
 
 def _random_board(rng, weights):

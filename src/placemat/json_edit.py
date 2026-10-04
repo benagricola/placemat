@@ -178,16 +178,3 @@ def set_values(text: str, sets) -> str:
     if got != want:
         raise EditRefused("the edit would change more than the values asked for")
     return text if text != original else original
-
-
-def read_value(text: str, path):
-    """The value at `path` of the file, or None."""
-    try:
-        doc = json.loads(text)
-    except ValueError:
-        return None
-    for key in path:
-        if not isinstance(doc, dict) or key not in doc:
-            return None
-        doc = doc[key]
-    return doc

@@ -11,9 +11,8 @@ from collections import Counter, deque
 from dataclasses import dataclass
 import heapq
 import math
-import re
 
-from .geometry import (circle_polygon, gap_texts, via_ring, distance_to_boundary, point_in_polygon, point_segment_distance,
+from .geometry import (via_ring, distance_to_boundary, point_in_polygon, point_segment_distance,
                        poly_distance, polys_overlap)
 from .copper import _segment_polygon
 from .refusals import Code, Refusal

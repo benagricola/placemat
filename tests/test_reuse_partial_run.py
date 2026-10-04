@@ -1,6 +1,5 @@
 """A run that dies while resolving leaves its steps' records in the run
 folder, and the rerun replays them. On a real module (tests/real_modules.py)."""
-import json
 import signal
 
 import pytest

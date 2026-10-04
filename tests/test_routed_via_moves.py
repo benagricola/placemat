@@ -2,7 +2,6 @@
 their far ends to the new spot by octilinear legs, judged as one unit
 (docs/superpowers/specs/2026-10-01-routed-via-moves-design.md)."""
 import json
-import math
 import subprocess
 from types import SimpleNamespace
 

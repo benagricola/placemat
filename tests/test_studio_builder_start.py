@@ -1,12 +1,12 @@
 """The builder's start: which boards the start view lists, that the named board of a `.zen` that declares several is the one started, and
 that a generation failure shows the generator's log tail and writes nothing. The reader is a stand-in: these tests do not generate."""
-import json
 import time
 
 import pytest
 
 from placemat.studio import Studio
 from tests.test_studio_builder import Api
+
 
 
 def project(tmp_path):
@@ -30,9 +30,9 @@ def studio(tmp_path):
 
     def reader(request, say):
         s.requests.append(request)
-        say("generating")
+        say({"stage": "generating", "zen": "x.zen"})
         if request["name"] == "Alpha":
-            return {"ev": "error", "message": "Schematic generation failed", "tail": "error: unknown module @stdlib/x.zen\nfailed"}
+            return {"ev": "error", "kind": "run_failure", "failure": "generation", "detail": "", "tail": "error: unknown module @stdlib/x.zen\nfailed"}
         return {"ev": "board", "parts": [], "cells": [], "nets": [], "total_courtyard_area": 10.0, "copper_layers": 2,
                 "facts": {"layers": {}, "pairs": {}, "via_types": {"micro": "no", "blind": "no", "buried": "no"}, "fab_min": {}, "rise_c": 10.0,
                           "plane_mismatches": [], "via_named": [], "digest": "x"}, "confirmed": "", "rise_set": False, "rise_file": "", "fab_file": "",

@@ -156,7 +156,7 @@ def test_runs_are_named_by_hash_and_labels_are_aliases(scratch_ecosystem):
     again = run(script, render=False, drc=False, label="same-inputs")
     assert again.record.run_id == rec.record.run_id            # same inputs, same id
     assert (runs / "same-inputs").is_symlink() and (runs / "same-inputs").resolve() == (runs / rec.record.run_id).resolve()
-    from placemat.report import RunRecord, resolve_run
+    from placemat.report import resolve_run
     assert resolve_run(runs, "same-inputs") == runs / rec.record.run_id
     assert resolve_run(runs, rec.record.run_id[:6]) == runs / rec.record.run_id   # a unique prefix is enough
 

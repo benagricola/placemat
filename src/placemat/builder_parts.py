@@ -99,7 +99,8 @@ def read_outline(text: str) -> dict:
         if "fit" in kw and not (isinstance(kw["fit"], ast.Constant) and kw["fit"].value in (False, None)):
             out.update(kind="fit", shape="other", editable=False, why="a fit frame is derived from its content")
             return out
-        w, h = put("width", kw.get("width", pos[0] if pos else None)), put("height", kw.get("height", pos[1] if len(pos) > 1 else None))
+        put("width", kw.get("width", pos[0] if pos else None))
+        put("height", kw.get("height", pos[1] if len(pos) > 1 else None))
         ch, ra = put("chamfer", kw.get("chamfer")), put("radius", kw.get("radius"))
         out["shape"] = "rect_chamfer" if ch else "rect_round" if ra else "rect"
         if ch and ra:
@@ -394,24 +395,6 @@ def parts_rows(board: dict, plan: dict | None, texts: dict, base, *, script_name
         r["status"] = "searched" if rel["kind"] in ("searched", "near") else "decided"
     counts = {s: sum(1 for r in rows if r["status"] == s) for s in STATUSES}
     return {"rows": rows, "counts": counts}
-
-
-def shared_nets(board: dict, keys) -> dict:
-    """{key: how many nets it shares with the items `keys`}: what the list marks when something is selected."""
-    sel = set()
-    for k in keys:
-        for src in (board["parts"], board["cells"]):
-            for r in src:
-                if r["key"] == k:
-                    sel |= set(r["nets"])
-    out = {}
-    for src in (board["parts"], board["cells"]):
-        for r in src:
-            if r["key"] not in keys:
-                n = len(sel & set(r["nets"]))
-                if n:
-                    out[r["key"]] = n
-    return out
 
 
 _NATURAL = re.compile(r"(\d+)")

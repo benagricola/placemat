@@ -178,7 +178,7 @@ class Resolved:
     source: object
     parts: dict
     out: Path
-    stale: str = ""
+    stale: dict | None = None       # why the cached generation is out of date (runner.stale_record), None when it is not
 
 
 @contextmanager
@@ -206,7 +206,7 @@ def _resolved(script, out=None, explore=None, quiet: bool = False, progress=None
     (reuse.PartialLog), so a resolve that was stopped or died leaves them for the next one to replay."""
     from .project import fab_profile, find_board, note_views
     from .report import latest_for
-    from .runner import cached_generation, reuse_parts, scripted_board, stale_inputs
+    from .runner import cached_generation, reuse_parts, scripted_board, stale_record, stale_text
     from . import settings as settings_mod
     script = Path(script).resolve()
     src = find_board(script)
@@ -220,10 +220,10 @@ def _resolved(script, out=None, explore=None, quiet: bool = False, progress=None
     if not generated.exists():
         raise ValueError("%s has no cached generation yet: run `placemat run %s` once, then preview"
                          % (src.name, script.name))
-    stale = stale_inputs(src)
+    stale = stale_record(src)
     if stale and not quiet:
         console.say("board", "the cached generation is out of date (%s): this preview shows the old one; "
-                             "`placemat run %s` generates it again" % (stale, script.name), level="finding")
+                             "`placemat run %s` generates it again" % (stale_text(stale), script.name), level="finding")
     with settings_mod.bind(cfg):
         from . import timecap
         timecap.arm(cfg)                        # --max-time, --step-warn, --step-limit, when the command has them

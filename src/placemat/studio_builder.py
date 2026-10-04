@@ -15,12 +15,10 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
-import time
 
-from . import builder, builder_facts as bf, builder_intents as bi, builder_parts as bp, script_edit, suggestions as sg, zen_edit
+from . import builder, builder_facts as bf, builder_intents as bi, builder_parts as bp, builder_worker, channel, script_edit, suggestions as sg, zen_edit
 from .suggestions import Edit
 
-PLACEMENT_KINDS = ("offer", "search", "remove", "item")
 
 
 class BuildRefused(Exception):
@@ -36,11 +34,11 @@ def refuse(e: builder.BuilderRefused) -> BuildRefused:
 
 
 def subprocess_reader(request: dict, say):
-    """Run `builder_worker` on `request`; `say(text)` gets its progress lines. Returns the worker's last event (`board` or `error`)."""
+    """Run `builder_worker` on `request`; `say(progress)` gets its progress records. Returns the worker's last event (`board` or `error`)."""
     proc = subprocess.Popen([sys.executable, "-m", "placemat.builder_worker"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, text=True, cwd=str(Path(request["zen"]).resolve().parent))
     say.proc = proc
-    last = {"ev": "error", "message": "the board reader ended without an answer", "tail": ""}
+    last = {"ev": "error", "kind": "no_answer", "tail": ""}
     try:
         proc.stdin.write(json.dumps(request))
         proc.stdin.close()
@@ -50,7 +48,7 @@ def subprocess_reader(request: dict, say):
             except ValueError:
                 continue
             if ev.get("ev") == "progress":
-                say(ev["text"])
+                say({k: v for k, v in ev.items() if k != "ev"})
             else:
                 last = ev
         proc.wait()
@@ -66,8 +64,8 @@ class Say:
     def __init__(self, f):
         self.f = f
 
-    def __call__(self, text):
-        self.f(text)
+    def __call__(self, progress):
+        self.f(progress)
 
 
 class BuilderService:
@@ -178,7 +176,6 @@ class BuilderService:
         return out
 
     def hello(self) -> dict:
-        s = self.session
         return {"unbuilt": self.unbuilt(), "phase": self.phase, "text": self.text, "tail": self.tail,
                 "session": self.session_json(), "ready": self.record is not None,
                 "settings": {"grid_mm": self.studio.cfg.studio_builder_grid_mm, "max_fill": self.studio.cfg.studio_builder_max_fill,
@@ -244,7 +241,8 @@ class BuilderService:
         s = self.session
         request = {"zen": str(s["zen"]), "name": s["name"], "script": str(s["script"]) if s["script"].is_file() else None, "fresh": fresh}
 
-        def progress(text):
+        def progress(record):
+            text = builder_worker.progress_text(record)
             with self.studio.lock:
                 self.text = text
             self.studio.hub.emit("build", {"state": "working", "text": text})
@@ -253,13 +251,13 @@ class BuilderService:
         try:
             ev = self.reader(request, say)
         except Exception as e:                  # a reader that fails leaves the page a message, not a hang
-            ev = {"ev": "error", "message": "%s: %s" % (type(e).__name__, e), "tail": ""}
+            ev = {"ev": "error", "kind": "exception", "type": type(e).__name__, "detail": str(e), "tail": ""}
         with self.studio.lock:
             if ev.get("ev") == "board":
                 self.record = {k: v for k, v in ev.items() if k != "ev"}
                 self.phase, self.text, self.tail = "ready", "", ""
             else:
-                self.phase, self.text, self.tail = "error", ev.get("message", "the board could not be read"), ev.get("tail", "")
+                self.phase, self.text, self.tail = "error", channel.failure_text(ev) or "the board could not be read", ev.get("tail", "")
         self.studio.hub.emit("build", {"state": self.phase, "text": self.text, "tail": self.tail})
 
     def wait(self, timeout: float = 60.0) -> None:
@@ -313,7 +311,6 @@ class BuilderService:
         s = self.session
         zen = self._zen_state()
         fab_file = rec.get("fab_file") or ""
-        root = self.studio.root
         fab_scope = "none" if not fab_file else ("board" if Path(fab_file).parent.resolve() == s["board_dir"].resolve() else "root")
         confirmed = rec.get("confirmed", "")
         model = bf.facts_model(rec["facts"], zen=zen, fab={"file": self._rel(fab_file) if fab_file else ""},
@@ -326,7 +323,6 @@ class BuilderService:
                 profile = json.loads(Path(fab_file).read_text())
             except (OSError, ValueError):
                 profile = {}
-        plan = bf.fab_plan(s["board_dir"], self.studio.root, [])
         return {"model": model, "zen": zen, "fab": {"file": self._rel(fab_file) if fab_file else "", "scope": fab_scope, "profile": profile,
                                                     "says": ("a profile at %s is the default: a change for this board writes %s beside the board"
                                                              % (self._rel(fab_file), bf.FAB_PROFILE)) if fab_scope == "root" else
@@ -349,7 +345,7 @@ class BuilderService:
     def facts_apply(self, request: dict) -> dict:
         """Write a batch of facts to their homes (one apply, one log entry), regenerate the board, and read the facts back: what
         the generator did not take is in `readback`, with an undo offered by the page."""
-        rec = self.need_ready()
+        self.need_ready()
         s = self.session
         try:
             plan = bf.facts_edits(request, zen_file=str(s["zen"]), board_name=s["name"], board_dir=s["board_dir"], root=self.studio.root)
@@ -494,7 +490,7 @@ class BuilderService:
 
     def gate(self) -> dict:
         """Whether placement is open: the facts are confirmed and match the board as generated now."""
-        rec = self.need_ready()
+        self.need_ready()
         facts = self.facts()
         return facts["model"]["gate"] | {"holds": facts["model"]["gate"]["holds"], "reasons": facts["model"]["reasons"]}
 

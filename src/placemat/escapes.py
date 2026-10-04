@@ -348,7 +348,6 @@ class Escapes:
         cs = [c for c in self._corr.get(ref, ()) if c.number == number]
         if not cs:
             return True
-        box = Box.union([c.box for c in cs])
         at = self.occ.pad_location(ref, number)
         targets = self._targets(ref, number, cs[0].net, at)
         return any(self._open.get(id(c)) and self._toward(c, targets) for c in cs)

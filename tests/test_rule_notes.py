@@ -1,7 +1,6 @@
 """A board generated with no rules of its own - a module fragment declared
 with Layout() and no board config - is laid out by the stdlib's defaults:
 the run says so, since nothing else would."""
-import dataclasses
 
 from placemat.runner import rule_notes
 from tests.fixtures import board_geometry, footprint

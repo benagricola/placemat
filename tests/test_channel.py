@@ -3,8 +3,6 @@ import io
 import json
 import os
 import socket
-import subprocess
-import sys
 import threading
 import time
 
@@ -173,12 +171,14 @@ def test_the_events_are_mirrored_in_short_form_and_the_next_command_deletes_a_de
     progress = channel.sockets_dir(tmp_path).parent / "views" / "x" / "nothing"
     path = rep.progress_path
     rep.send({"ev": "begin", "kind": "total", "n": 5})
-    rep.send({"ev": "item", "item": {"key": "u1", "kind": "part", "placed": True, "note": "n" * 500}, "ops": [1] * 100})
+    notes = [{"kind": "lock_held"}, {"kind": "slid", "mm": 0.5, "units": "mm"}]
+    rep.send({"ev": "item", "item": {"key": "u1", "kind": "part", "placed": True, "notes": notes}, "ops": [1] * 100})
     rep.send({"ev": "plan", "doc": {"items": [1, 2], "findings": [3], "copper": []}})
     rep.send({"ev": "begin", "kind": "phase", "what": "scan"})          # a phase is not kept
     lines = [json.loads(x) for x in path.read_text().splitlines()]
     assert [x["ev"] for x in lines] == ["hello", "begin", "item", "plan"] and lines[0]["pid"] == os.getpid()
-    assert len(lines[2]["note"]) == 160 and "ops" not in lines[2] and lines[3] == {"ev": "plan", "items": 2, "findings": 1, "copper": 0}
+    assert lines[2]["notes"] == notes and "ops" not in lines[2] and lines[3] == {"ev": "plan", "items": 2, "findings": 1, "copper": 0}
+    assert lines[0]["format"] == channel.FORMAT
     rep.finish()
     assert path.exists() and not progress.exists()                      # a command that ended leaves its file until the next one
     # the next command of the script, the first one's pid being gone: its file is deleted, the current one kept
@@ -237,13 +237,13 @@ def test_watch_prints_a_line_per_event_until_done_and_exits_by_how_it_ended(tmp_
     t = threading.Thread(target=lambda: result.append(channel.watch(tmp_path, str(os.getpid()), False, out)))
     t.start()
     time.sleep(0.3)
-    rep.send({"ev": "item", "item": {"key": "u1", "kind": "part", "note": "placed"}})
+    rep.send({"ev": "item", "item": {"key": "u1", "kind": "part", "notes": [{"kind": "lock_held"}]}})
     rep.send({"ev": "variant", "seed": 3, "score": 12.5})
     rep.finish(tmp_path / "r.json")
     t.join(10)
     lines = out.getvalue().splitlines()
     assert result == [0] and lines[0].startswith("resolve") is False and "x_layout.py" in lines[0]
-    assert "u1 part: placed" in lines and "variant seed 3 score 12.5" in lines and lines[-1].startswith("done ")
+    assert "u1 part: held by lock" in lines and "variant seed 3 score 12.5" in lines and lines[-1].startswith("done ")
     # an error exits 1, the events as sent with --json, a command not there 2
     channel.reset()
     _, rep, entry = _start(tmp_path)
@@ -252,11 +252,12 @@ def test_watch_prints_a_line_per_event_until_done_and_exits_by_how_it_ended(tmp_
     t = threading.Thread(target=lambda: result.append(channel.watch(tmp_path, None, True, out)))
     t.start()
     time.sleep(0.3)
-    rep.error("it broke", "x_layout.py", 4)
+    rep.error("exception", "x_layout.py", 4, type="ValueError", detail="it broke")
     rep.finish()
     t.join(10)
     events = [json.loads(x) for x in out.getvalue().splitlines()]
-    assert result == [1] and events[-1]["ev"] == "error" and events[-1]["line"] == 4
+    assert result == [1] and events[-1] == {"ev": "error", "kind": "exception", "file": "x_layout.py", "line": 4, "type": "ValueError", "detail": "it broke"}
+    assert channel.describe(events[-1]) == "error: ValueError: it broke (x_layout.py:4)"
     assert channel.watch(tmp_path, "nothing", False, io.StringIO()) == 2
     assert channel.watch(tmp_path, None, False, io.StringIO()) == 0
 
@@ -266,11 +267,11 @@ def test_watch_shows_a_dead_command_with_its_last_state_and_exits_2(tmp_path):
     d.mkdir(parents=True)
     log = tmp_path / "p.jsonl"
     log.write_text(json.dumps({"ev": "hello", "pid": 999999999, "command": "preview", "script": "a_layout.py"}) + "\n" +
-                   json.dumps({"ev": "item", "key": "u7", "kind": "part", "note": "n"}) + "\n")
+                   json.dumps({"ev": "item", "key": "u7", "kind": "part", "notes": [{"kind": "lock_held"}]}) + "\n")
     (d / "999999999.json").write_text(json.dumps({"pid": 999999999, "label": "mine", "socket": str(d / "s.sock"), "progress": str(log)}))
     out = io.StringIO()
     assert channel.watch(tmp_path, "mine", False, out) == 2
-    assert "u7 part: n" in out.getvalue() and "died" in out.getvalue() and not list(d.iterdir())
+    assert "u7 part: held by lock" in out.getvalue() and "died" in out.getvalue() and not list(d.iterdir())
 
 
 def test_an_explore_tells_a_reader_the_plain_placement_each_variant_and_the_end(tmp_path):
@@ -353,7 +354,7 @@ def test_watch_lines_say_what_a_step_is_doing_and_how_long_it_has_taken():
         "ble: scanning the front or back, radius 12 mm, 0.1 s"
     assert d({"ev": "begin", "kind": "phase", "stage": "coarse", "item": "ble", "elapsed_s": 5.0, "firm_pass": 2}) == \
         "ble: coarse pass over the radius (firm pass 2), 5.0 s"
-    assert d({"ev": "item", "item": {"key": "ble", "kind": "part", "note": "moved 0.4 mm", "seconds": 31.25}}) == "ble part, 31.2 s: moved 0.4 mm"
+    assert d({"ev": "item", "item": {"key": "ble", "kind": "part", "notes": [{"kind": "required"}], "seconds": 31.25}}) == "ble part, 31.2 s: required"
     assert d({"ev": "step_warn", "item": "ble", "elapsed_s": 30.4, "bound_s": 30, "pass": "refine", "within": [2, 3]}) == \
         "ble: still working after 30.4 s (--step-warn 30 s) in the refine pass 2 of 3"
     assert d({"ev": "step_limit", "item": "ble", "elapsed_s": 60.1, "bound_s": 60, "pass": "firm pass 1"}) == \
@@ -380,3 +381,9 @@ def test_a_command_streams_phases_with_their_item_and_seconds_and_watch_reads_th
     assert not [l for l in lines if "begin begin" in l or l == "begin phase"]
     stepped = [e for e in reader.events if e.get("ev") == "begin" and e.get("kind") == "phase" and "item" in e]
     assert stepped and all(e["elapsed_s"] >= 0 and "text" not in e for e in stepped)
+
+
+def test_a_progress_file_keeps_each_steps_seconds():
+    ev = {"ev": "item", "item": {"key": "ble", "kind": "cell", "placed": True, "note": "", "seconds": 12.5, "first_seconds": None}}
+    kept = channel.compact(ev)
+    assert kept["seconds"] == 12.5 and kept["first_seconds"] is None

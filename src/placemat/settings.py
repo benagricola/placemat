@@ -30,10 +30,6 @@ DEFAULT_OUTSTANDING_KINDS = ("via_dangling", "track_dangling", "isolated_copper"
 # a bucket of their own rather than going into `other` where nobody looks.
 DEFAULT_FOOTPRINT_KINDS = ("lib_footprint_issues", "lib_footprint_mismatch",
                            "malformed_courtyard", "padstack")
-# KiCad's own stderr noise. A project ADDS to this; it never replaces it.
-DEFAULT_NOISE = (r"property\.h\(\d+\): assert",
-                 r"Debug: Adding duplicate image handler",
-                 r"swig/python detected a memory leak")
 
 FILENAME = "placemat.toml"
 
@@ -234,8 +230,6 @@ class Settings:
         "how far sense copper stays from a switch node (`--keep-out`)")
     check_rise_c: float = S(10.0, "deg C",
         "the rise a current path is sized for (`--rise`)")
-    check_neck_band: float = S(0.1, "mm",
-        "no longer read: a neck is the stretch narrower than the width its current needs; a config naming it still loads")
     check_neck_end_share: float = S(0.6, "share",
         "the share of `check.rise_c` the copper at a short neck's two ends is taken to have used (Brooks and Adam's simulated trace ends sit at 57.9 C of a 94.7 C peak); the neck is credited as short when its own conduction rise stays inside the rest. 1 turns the credit off")
     check_neck_resistivity: float = S(2.2e-8, "ohm m",
@@ -641,7 +635,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
-    "score_pair_crossing", "copper_tap_overlap", "check_neck_band", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
+    "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch"))
 # A floor of 2: below it a "group" can never be more than one part, which

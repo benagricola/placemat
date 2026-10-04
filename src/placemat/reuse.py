@@ -17,7 +17,7 @@ from .board_geometry import CellGeom, Footprint, members_of
 from .placement import Placement
 from .values import Face, Freedom, Location, Priority
 
-VERSION = 3                 # of the record's format: 2 records the items a step names (a block's members); 3 stores findings as facts
+VERSION = 4                 # of the record's format: 2 records the items a step names (a block's members); 3 stores findings as facts; 4 stores a step's notes and unplaced reasons as records
 
 
 def omitted(obj, f) -> bool:
@@ -152,18 +152,18 @@ def placement_from_json(v):
 
 def step_to_json(s) -> dict:
     return {"item": s.item, "kind": s.kind, "priority": s.priority.value if s.priority is not None else None,
-            "placement": placement_to_json(s.placement), "moved_mm": s.moved_mm, "note": s.note, "why": s.why,
+            "placement": placement_to_json(s.placement), "moved_mm": s.moved_mm, "notes": list(s.notes), "why": s.why,
             "ops": s.ops, "freedom": s.freedom.value if s.freedom is not None else None,
             "rank": s.rank, "rank_of": s.rank_of, "back_face": s.back_face, "laid": list(s.laid),
-            "unplaced": s.unplaced, "lock": s.lock, "pocket": s.pocket, "seconds": round(s.seconds, 6)}
+            "unplaced": None if s.unplaced is None else list(s.unplaced), "lock": s.lock, "pocket": s.pocket, "seconds": round(s.seconds, 6)}
 
 
 def step_from_json(d):
     from .layout import Step
     return Step(d["item"], d["kind"], Priority(d["priority"]) if d["priority"] is not None else None,
-                placement_from_json(d["placement"]), d["moved_mm"], d["note"], d["why"], d["ops"],
+                placement_from_json(d["placement"]), d["moved_mm"], tuple(d["notes"]), d["why"], d["ops"],
                 Freedom(d["freedom"]) if d["freedom"] is not None else None, d["rank"], d["rank_of"],
-                back_face=d.get("back_face", False), laid=tuple(d.get("laid", ())), unplaced=d.get("unplaced"),
+                back_face=d.get("back_face", False), laid=tuple(d.get("laid", ())), unplaced=None if d.get("unplaced") is None else tuple(d["unplaced"]),
                 lock=d.get("lock", ""), pocket=d.get("pocket"), first_seconds=d.get("seconds"))
 
 
@@ -172,21 +172,38 @@ _PART_NAMES = {"tool": "the tool version", "board": "the generated board", "sett
                "fab": "the fab profile"}
 
 
-def summary(record: dict, previous: dict | None, source: str | None) -> str:
-    """The line a run prints about what it reused, or "" with nothing to
-    reuse. `source` names where the record came from: "run 1a2b3c4d"."""
+def summary_record(record: dict, previous: dict | None, source: str | None) -> dict | None:
+    """What a resolve reused, as data, or None with nothing to reuse: `{"form": "none", "changed": [the parts of the context that
+    changed: tool, board, settings, fab; none for the script's board-wide declarations], "source"}`, `{"form": "all", "n",
+    "source"}` or `{"form": "some", "reused", "of", "first_change", "source"}`. `source` names where the record came from: "run
+    1a2b3c4d"."""
     if not previous:
-        return ""
+        return None
     n = len(record["steps"])
     if record["context"] != previous.get("context"):
         mine, theirs = record.get("parts", {}), previous.get("parts", {})
-        changed = [_PART_NAMES[k] for k in ("tool", "board", "settings", "fab") if mine.get(k) != theirs.get(k)]
-        what = " and ".join([", ".join(changed[:-1]), changed[-1]] if len(changed) > 1 else changed) if changed \
-            else "the script's board-wide declarations"
-        return "reused 0 steps: %s changed since %s" % (what, source)
+        return {"form": "none", "changed": [k for k in ("tool", "board", "settings", "fab") if mine.get(k) != theirs.get(k)], "source": source}
     if record["reused"] >= n:
-        return "reused all %d steps from %s" % (n, source)
-    return "reused %d of %d steps from %s (first change: %s)" % (record["reused"], n, source, record["first_change"])
+        return {"form": "all", "n": n, "source": source}
+    return {"form": "some", "reused": record["reused"], "of": n, "first_change": record["first_change"], "source": source}
+
+
+def summary_text(rec: dict | None) -> str:
+    """A `summary_record` as the line a run prints about what it reused, "" for none."""
+    if not rec:
+        return ""
+    if rec["form"] == "none":
+        names = [_PART_NAMES[k] for k in rec["changed"]]
+        what = " and ".join([", ".join(names[:-1]), names[-1]] if len(names) > 1 else names) if names else "the script's board-wide declarations"
+        return "reused 0 steps: %s changed since %s" % (what, rec["source"])
+    if rec["form"] == "all":
+        return "reused all %d steps from %s" % (rec["n"], rec["source"])
+    return "reused %d of %d steps from %s (first change: %s)" % (rec["reused"], rec["of"], rec["source"], rec["first_change"])
+
+
+def summary(record: dict, previous: dict | None, source: str | None) -> str:
+    """The line a run prints about what it reused, or "" with nothing to reuse."""
+    return summary_text(summary_record(record, previous, source))
 
 
 def write(path, record: dict) -> None:

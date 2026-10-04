@@ -28,7 +28,6 @@ import struct
 import subprocess
 import sys
 import tempfile
-import time
 from array import array
 from dataclasses import dataclass
 from pathlib import Path

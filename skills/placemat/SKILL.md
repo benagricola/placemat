@@ -451,8 +451,9 @@ shapes and files: `references/api.md`, "Live progress".
 - Leave a searched part's rotation out unless its turn is a fact (a
   polarised part read by assembly, a connector's mouth): the search tries
   all four.
-- Cells are rigid: place them, never their members. A cell that
-  does not fit is a capture question.
+- Cells are rigid on the board: place them, never their members. A cell
+  that does not fit is changed in its own module's layout script ("Shaping
+  modules for the board", below), or captured differently.
 - A cell drops a via only for ground and a rail it owns. A net the board
   chooses and a signal that leaves the cell end at their part; the board
   routes them.
@@ -612,6 +613,8 @@ shapes and files: `references/api.md`, "Live progress".
   pad would clear), or its ends may be placed so no clean route exists, or
   the tool may have no candidate that fits. Take them in that order:
   remove the waypoint, then look at the placement, then at the tool.
+- A placement that fails between modules is often fixed in the modules:
+  see "Shaping modules for the board".
 - Never call a route impossible from one run. Draw it the plain way (pad
   to pad, no waypoints, no offsets), run, and read the numbers.
 - `placemat layer <board> <LAYER>` draws one copper layer by net and lists
@@ -645,6 +648,37 @@ shapes and files: `references/api.md`, "Live progress".
   keep-out distance a part's datasheet draws is a fact about the part, not an
   acceptance: it is `Pm.KeepOut` on the part with the datasheet cited
   (`references/capture.md`).
+
+## Shaping modules for the board
+
+Modules are laid out on their own, before the board, so a module's shape
+is rarely the best one for the board it lands on. What fits depends on the
+modules around it, the board's outline, and the board's strong concerns:
+an RF path that must stay short, a high-current track that needs a wide
+straight run, a connector that must meet an edge. A finished board usually
+comes from many small changes to the modules, not from redesigning any of
+them.
+
+When a placement struggles (a cell unplaced, pushed far off its hint, or
+forcing long or crossing copper):
+- Look at the placing module and at the modules where it should go, not
+  only at the board script. Find what holds them apart: the refusal and its
+  blame name the parts, shapes and copper that collide.
+- Change the module's layout script by intent, in small steps: turn a
+  bypass capacitor so another module can stand right against it, move a
+  part to the other side of its IC, swap a row's order, put a part on the
+  other face, fit the module's frame (`board.rect(fit=True)`) so it carries
+  no empty margin, or move where its signals leave so they face the module
+  they meet. The module stays correct on its own: its own run still passes.
+- Preview the module, then the board, after each change, and keep the
+  changes that help. Several modules may each give a little; it is usually
+  a shape change on both sides of a gap that lets two cells meet.
+- Weigh a change against what the module was laid out for (a decoupling
+  loop, a sense line, a thermal path): a shape that fits the board but
+  breaks the module's reason is not a fix. Say what each change trades.
+- Changing a module is the normal way through a hard placement, not a last
+  resort. Prefer it to widening search reaches, accepting findings, or
+  writing coordinates.
 
 ## Gates, in order
 

@@ -1,5 +1,4 @@
 """What a run says about the steps it reused, and its record on disk."""
-import json
 
 from placemat import reuse
 
@@ -27,6 +26,18 @@ def test_a_changed_context_names_what_changed():
 
 def test_with_no_previous_record_nothing_is_said():
     assert reuse.summary(_rec(), None, None) == ""
+    assert reuse.summary_record(_rec(), None, None) is None
+
+
+def test_what_a_resolve_reused_is_a_record_and_the_line_is_made_from_it():
+    some = reuse.summary_record(_rec(reused=7, first="r2"), _rec(), "run abc123")
+    assert some == {"form": "some", "reused": 7, "of": 10, "first_change": "r2", "source": "run abc123"}
+    assert reuse.summary_record(_rec(reused=10), _rec(), "run abc123") == {"form": "all", "n": 10, "source": "run abc123"}
+    prev = _rec(context="c0", parts={"tool": "t", "board": "b0", "settings": "s", "fab": "f0"})
+    none = reuse.summary_record(_rec(context="c1"), prev, "run abc123")
+    assert none == {"form": "none", "changed": ["board", "fab"], "source": "run abc123"}
+    assert reuse.summary_text(none) == "reused 0 steps: the generated board and the fab profile changed since run abc123"
+    assert reuse.summary_text(None) == ""
 
 
 def test_a_record_round_trips_through_its_file(tmp_path):

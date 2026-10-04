@@ -4,7 +4,6 @@ against the silk clearance rule). A label with no such spot is a finding. Pure:
 synthetic boards."""
 import dataclasses
 
-import pytest
 
 from placemat.copper import Text
 from placemat.layout import Board

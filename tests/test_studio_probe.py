@@ -1,6 +1,5 @@
 """The studio's start and stop of a probe (a `placemat apply <id> --search --yes` command that reports over the live channel) and
 the probe events it keeps for the page. The process itself is a fake here; tests/test_probe_cli.py runs the real command."""
-import json
 
 import pytest
 

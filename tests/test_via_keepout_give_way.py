@@ -7,7 +7,6 @@ import subprocess
 
 import pytest
 
-from placemat.copper import Track
 from placemat.cutouts import Circle
 from placemat.geometry import polys_overlap
 from placemat.layout import Board

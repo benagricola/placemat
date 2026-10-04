@@ -3,7 +3,6 @@ where the board has them and lists the rest; without --partial one item
 that would not stand holds back all of them."""
 from types import SimpleNamespace
 
-import pytest
 
 
 class _Entry(SimpleNamespace):

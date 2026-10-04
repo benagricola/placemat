@@ -256,13 +256,6 @@ class Findings(list):
         """The findings, most serious first, each severity in the order found."""
         return sorted(self, key=lambda f: -RANK[f.severity])
 
-    def by_kind(self) -> dict:
-        """{kind: [finding, ...]} in the order they were found."""
-        out: dict = {}
-        for f in self:
-            out.setdefault(f.kind, []).append(f)
-        return out
-
 
 def summary(findings) -> str:
     """"2 critical, 1 warning, 5 notice" for the severities present, "" for none."""

@@ -2,13 +2,12 @@
 from it, a via in it, a pour over it) has its way out, and what walls a pad is named as a refusal names it."""
 import dataclasses
 
-import pytest
 
 from placemat.board_geometry import Footprint
 from placemat.layout import Board
 from placemat.settings import Settings
 from placemat.values import Box, CopperLayer, Edge, Face, Location, Net, PadRef, Part
-from tests.escape_fixtures import PD_NETS, board_with, pd_board, qfn
+from tests.escape_fixtures import pd_board
 from tests.fixtures import board_geometry, footprint, pad
 from tests.test_escape_findings import _walled_in
 

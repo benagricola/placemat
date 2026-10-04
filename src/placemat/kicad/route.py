@@ -275,10 +275,6 @@ def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
     return out
 
 
-def _shape_key(d) -> tuple:
-    return (d.GetShape(), d.GetLayer(), d.GetStart().x, d.GetStart().y, d.GetEnd().x, d.GetEnd().y, d.GetWidth())
-
-
 def remove_guards(pcb_path: str) -> int:
     """Delete the guards `guard_footprint_copper` and `guard_partial_pours`
     added from the routed copy. The guards removed."""

@@ -1,7 +1,6 @@
 """The builder's facts batch with a real generation: `pcb layout` (the Zener tool, shipped with its stdlib) runs on a two-part board in a scratch
 project, the facts are written to the .zen, fab-profile.json and placemat.toml, the board is regenerated and the facts read back from it, and
 the script made from the outline resolves. Skipped where `pcb` is not installed."""
-import json
 import shutil
 import time
 
@@ -10,6 +9,7 @@ import pytest
 from placemat.studio import Studio
 from tests.test_studio_builder import Api
 from tests.test_studio_builder import wait_phase as _wait
+
 
 pytestmark = pytest.mark.skipif(shutil.which("pcb") is None, reason="the pcb tool is not installed")
 

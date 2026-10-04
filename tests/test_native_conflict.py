@@ -16,7 +16,7 @@ placemat_native = pytest.importorskip("placemat_native")
 
 from placemat.values import Box, CopperLayer, Face, Location
 from placemat.occupancy import Occupancy, Shape
-from tests.fixtures import board_geometry, footprint, pad, rect, track
+from tests.fixtures import board_geometry, footprint, rect
 from tests.test_occupancy import occ_with
 
 

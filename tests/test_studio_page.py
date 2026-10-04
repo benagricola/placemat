@@ -8,7 +8,9 @@ import subprocess
 import pytest
 
 import placemat
+from placemat import present
 from placemat.cli import parser
+from placemat.step_text import record as R
 
 PAGE = Path(placemat.__file__).with_name("studio_page.html")
 
@@ -321,9 +323,18 @@ def test_the_page_follows_the_colour_scheme_and_draws_with_stylesheet_colours():
     assert not re.search(r'(?:fill|stroke)="#[0-9a-fA-F]{3,6}"', script)          # no colour fixed in the drawing code
 
 
+def notes_json(*notes) -> str:
+    """Notes as the page is sent them: records, each with the sentence the server made (present.notes)."""
+    return json.dumps(present.notes(list(notes)))
+
+
+RANK = R("rank", rank=7, of=24, area_mm2=81.1, area_rank=7, pins=27, pins_rank=10)
+VIAS = R("vias", facts={"nets": [{"net": "GND", "parts": [{"kind": "share", "n": 1}, {"kind": "leave", "n": 2}], "under": [], "held": []}], "fields": []})
+
+
 # ---------------------------------------------------------------- the second pass: legend, units, links, modules, severity, script list
 SETUP = r"""
-const cellItem = (key, cell, refs, x) => ({key, kind: "cell", placed: true, face: "front", rotation: 90, note: "rides X; slid 0.5 mm from its slot", how: "decided", freedom: "fixed", why: "the module's reason",
+const cellItem = (key, cell, refs, x) => ({key, kind: "cell", placed: true, face: "front", rotation: 90, note: "rides X; slid 0.5 mm from its slot", notes: @@RIDES_SLID@@, how: "decided", freedom: "fixed", why: "the module's reason",
   members: refs.map((r, i) => ({ref: r, value: "10 nF", cell, shapes: [shape("courtyard", [[x + 3 * i, 1], [x + 3 * i + 2, 1], [x + 3 * i + 2, 3]]), shape("pad", [[x + 3 * i, 1], [x + 3 * i + 1, 1], [x + 3 * i + 1, 2]])]}))});
 const emptyKeepoutStep = key => ({key, kind: "keepout", placed: true, face: "front", rotation: 0, note: "", how: "decided", freedom: "fixed", members: []});
 const LINK = {a: ["Ra", "1"], b: ["Rb", "2"], pa: [1, 1], pb: [5, 1], length: 0.812, limit: 2.5, state: "ok", kind: "SHORT", weight: 8, why: "at the pin"};
@@ -340,7 +351,7 @@ const full = (items, steps, extra = {}) => {
   send("finished", {id: 1, counts: {placed: items.length, findings: 0}, score: {total: 3}, timing: {total_s: 1, first_step_s: 0.1}, reused: "", notes: [], history: [{id: 1, at: 0, changed: [], timing: {}, counts: {}}]});
 };
 const st = (item, kind = "part", placed = true) => ({item, kind, placed, note: "", freedom: "fixed"});
-"""
+""".replace("@@RIDES_SLID@@", json.dumps(present.notes([R("rides", of="X"), R("slid", mm=0.5, units="mm")])))
 
 
 def run_more(tmp_path, tail):
@@ -464,18 +475,20 @@ out.single = ev('moduleOf(Object.assign({}, plan().items.find(i => i.key === "b"
 def test_how_a_step_was_placed_is_said_in_words(tmp_path):
     out = run_more(tmp_path, r"""
 const w = (s, it) => ev("howText(" + JSON.stringify(s) + ", " + JSON.stringify(it) + ")");
-out.rides = w({note: "rides l_match"}, null);
-out.decided = w({freedom: "fixed", note: ""}, null);
-out.edge = w({freedom: "edge", note: "slid 0.50 mm from its slot: x"}, null);
-out.searched = w({freedom: "searched", note: "rank 3/9 (4 mm2); seeded on VDD)"}, null);
+out.rides = w({notes: @@RIDES@@}, null);
+out.decided = w({freedom: "fixed", notes: []}, null);
+out.edge = w({freedom: "edge", notes: @@SLID@@}, null);
+out.searched = w({freedom: "searched", notes: @@SEEDED@@}, null);
 out.pocket = w({}, {how: "pocket"});
 out.step = els["#tab-steps"].innerHTML;
-full([item("a", 1)], [Object.assign(st("a"), {note: "rank 1/2; the whole note", why: "because"})], {findings: [{text: "a (fixed): sits close", kind: "k", at: null, item: "a", severity: "critical"}]});
+full([item("a", 1)], [Object.assign(st("a"), {note: "rank 1/2; held by lock", notes: @@WHOLE@@, why: "because"})], {findings: [{text: "a (fixed): sits close", kind: "k", at: null, item: "a", severity: "critical"}]});
 out.row = els["#tab-steps"].innerHTML;
-""")
+""".replace("@@RIDES@@", notes_json(R("rides", of="l_match"))).replace("@@SLID@@", notes_json(R("slid", mm=0.5, units="mm", why_text="x")))
+   .replace("@@SEEDED@@", notes_json(R("rank", rank=3, of=9, area_mm2=4.0, area_rank=1, pins=2, pins_rank=1), R("seeded", nets=["VDD"])))
+   .replace("@@WHOLE@@", notes_json(R("rank", rank=1, of=2, area_mm2=4.0, area_rank=1, pins=2, pins_rank=1), R("lock_held"))))
     assert out["rides"] == "rides l_match" and out["decided"] == "decided at a point" and out["edge"] == "decided along an edge, slid 0.50 mm"
     assert out["searched"] == "searched: rank 3 of 9, seeded on VDD" and out["pocket"].startswith("pocket")
-    assert 'data-info="steps"' in out["row"] and 'class="fdot critical"' in out["row"] and "the whole note" in out["row"] and 'class="full"' in out["row"]
+    assert 'data-info="steps"' in out["row"] and 'class="fdot critical"' in out["row"] and "held by lock" in out["row"] and 'class="full"' in out["row"]
 
 
 @needs_node
@@ -661,17 +674,21 @@ ev('S.face = "back"'); ev("renderBoard()"); out.back = board().innerHTML;
 
 @needs_node
 def test_the_part_card_is_in_sections_with_the_note_split_into_its_parts(tmp_path):
-    note = ("rank 20/24 (22.4 mm2, 19th of 24; 17 pins, 15th); seeded on USB_CC1, USB_CC2; moved 10.48 mm off the hint: cell X's U40 silk is 0.00 mm from cell Y's U9 mask opening (needs 0.20); "
-            "vias: 1 GND via shared, 5 left its pad, 1 dropped under cell Z's C72; push from L1: 2.5 at 3.0 mm (limit 8)")
+    notes = notes_json(
+        R("rank", rank=20, of=24, area_mm2=22.4, area_rank=19, pins=17, pins_rank=15), R("seeded", nets=["USB_CC1", "USB_CC2"]),
+        R("moved_off_hint", mm=10.48, why_text="cell X's U40 silk is 0.00 mm from cell Y's U9 mask opening (needs 0.20)"),
+        R("vias", facts={"nets": [{"net": "GND", "parts": [{"kind": "share", "n": 1}, {"kind": "leave", "n": 5}, {"kind": "drop", "n": 1}],
+                                    "under": ["cell Z's C72"], "held": []}], "fields": []}),
+        R("push", source="L1", value=2.5, at_mm=3.0, limit=8.0))
     out = run_more(tmp_path, r"""
-const it = Object.assign(cellItem("psu", "psu", ["Ra", "C2"], 1), {freedom: "searched", how: "searched", moved_mm: 10.48, note: %s, why: "", file: "x_layout.py", line: 358});
+const it = Object.assign(cellItem("psu", "psu", ["Ra", "C2"], 1), {freedom: "searched", how: "searched", moved_mm: 10.48, notes: %s, why: "", file: "x_layout.py", line: 358});
 const lone = Object.assign(cellItem("solo", "", ["R1"], 20), {kind: "part", note: "", why: ""});
 full([it, lone], [st("psu", "cell"), st("solo")], {findings: [{text: "psu: sits close", kind: "k", at: null, item: "psu", severity: "critical"}]});
 ev('selectItem("psu", {})'); flush();
 out.card = els["#card"].innerHTML;
 ev('selectItem("solo", {})'); flush();
 out.solo = els["#card"].innerHTML;
-""" % json.dumps(note))
+""" % notes)
     c = out["card"]
     assert "<span>module</span>" not in c and 'data-act="module"' in c and c.index('data-act="module"') < c.index('data-act="close"')   # the module is the item: a pill by the title
     for title in ("Placement", "Why it moved", "Vias", "Links", "Findings"):
@@ -724,10 +741,10 @@ out.board = board().innerHTML; out.steps = ev("replaySteps(plan())").map(s => [s
 @needs_node
 def test_a_step_opens_into_the_cards_sections_and_says_each_thing_once(tmp_path):
     out = run_more(tmp_path, r"""
-const note = "rank 7/24 (81.1 mm2, 7th of 24; 27 pins, 10th); seeded on USB_HV, USB_WET, VBUS, VBUS_DISCH; vias: 1 GND via shared, 2 left its pad";
-full([Object.assign(item("a", 1), {how: "searched", freedom: "searched", note})], [Object.assign(st("a"), {note, freedom: "searched"})]);
+const notes = @@NOTES@@;
+full([Object.assign(item("a", 1), {how: "searched", freedom: "searched", notes})], [Object.assign(st("a"), {notes, freedom: "searched"})]);
 out.row = els["#tab-steps"].innerHTML;
-""")
+""".replace("@@NOTES@@", notes_json(RANK, R("seeded", nets=["USB_HV", "USB_WET", "VBUS", "VBUS_DISCH"]), VIAS)))
     r = out["row"]
     assert r.count("rank 7 of 24") == 1 and ">7 of 24<" in r and 'class="chip searched">searched</span>' in r      # the pill says searched, the line the rank, the opened row the rank as a pill
     assert 'class="cst">Placement</div>' in r and 'class="cst">Vias</div>' in r and '<span class="chip net">VBUS_DISCH</span>' in r
@@ -813,13 +830,16 @@ out.after = els["#tab-steps"].innerHTML;
 @needs_node
 def test_the_note_forms_are_parsed_into_labelled_values_with_units_and_orders_one_way(tmp_path):
     out = run_more(tmp_path, r"""
-const note = "rank 8/24 (204.8 mm2, 4th of 24; 3 pins, 23rd) (script: high), required; pocket 16.5 x 22.0 at (26.6, 36.4): nothing it connects to is placed; on the line x = 26.50; slid 0.50 mm from its slot: x; stopped 19.40 mm short of the south end by: its member U8 sits in a keepout";
-const it = Object.assign(cellItem("psu", "psu", ["Ra", "C2"], 1), {freedom: "searched", how: "searched", note, why: ""});
+const notes = @@NOTES@@;
+const it = Object.assign(cellItem("psu", "psu", ["Ra", "C2"], 1), {freedom: "searched", how: "searched", notes, why: ""});
 full([it], [st("psu", "cell")]);
 ev('selectItem("psu", {})'); flush();
-out.card = els["#card"].innerHTML; out.parts = ev("noteParts(" + JSON.stringify(note) + ")");
+out.card = els["#card"].innerHTML; out.parts = ev("noteParts(" + JSON.stringify(notes) + ")");
 out.row = els["#tab-steps"].innerHTML;
-""")
+""".replace("@@NOTES@@", notes_json(
+        R("rank", rank=8, of=24, area_mm2=204.8, area_rank=4, pins=3, pins_rank=23), R("priority", source="script", value="high"), R("required"),
+        R("pocket", w_mm=16.5, h_mm=22.0, at=[26.6, 36.4]), R("where", where={"form": "line", "axis": "x", "at_mm": 26.5}),
+        R("slid", mm=0.5, units="mm", why_text="x"), R("stopped_short", mm=19.4, units="mm", toward="south", why_text="its member U8 sits in a keepout"))))
     c = out["card"]
     assert '<span class="kvv">8 of 24</span>' in c and "204.8 mm\u00b2, 4th largest" in c and "3 pins, 23rd by pin count" in c
     assert '<span class="chip prio-high">high</span> <span class="dim">from the script</span>' in c and '<span class="chip bad">required</span>' in c
@@ -1566,17 +1586,25 @@ out.pins = ev("notePins(plan())");
 
 @needs_node
 def test_why_it_moved_puts_the_cause_beside_the_distance_and_says_when_none_was_recorded(tmp_path):
+    line = R("where", where={"form": "line", "axis": "x", "at_mm": 26.5})
+    stopped = R("stopped_short", mm=19.4, units="mm", toward="south", why_text="its member U8 sits in the reservation for keepout 'under_ring_1' (no copper)")
     out = run_more(tmp_path, r"""
-const rows = (note, mm) => ev("(r => sect('Why it moved', r.length ? kvl(r) : ''))(movedRows(noteParts(" + JSON.stringify(note) + "), " + mm + "))");
-out.stopped = rows("on the line x = 26.50; stopped 19.40 mm short of the south end by: its member U8 sits in the reservation for keepout 'under_ring_1' (no copper)", 19.4);
-out.slid = rows("slid 0.50 mm from its slot: R3 courtyard overlaps R4 courtyard", 0.5);
-out.hint = rows("moved 3.20 mm off the hint: C1 courtyard overlaps U1 courtyard", 3.2);
-out.score = rows("moved 1.10 mm off the hint for a better link score", 1.1);
-out.bare = rows("rank 1/3", 19.4);
-out.slidbare = rows("block of 3 laid out from the anchor's pads; slid 2.00 mm from its slot", 2);
-out.still = rows("rank 1/3", 0);
-out.place = ev("kvl(noteRows(noteParts('on the line x = 26.50; stopped 19.40 mm short of the south end by: why')))");
-""")
+const rows = (notes, mm) => ev("(r => sect('Why it moved', r.length ? kvl(r) : ''))(movedRows(noteParts(" + JSON.stringify(notes) + "), " + mm + "))");
+out.stopped = rows(@@STOPPED@@, 19.4);
+out.slid = rows(@@SLID@@, 0.5);
+out.hint = rows(@@HINT@@, 3.2);
+out.score = rows(@@SCORE@@, 1.1);
+out.bare = rows(@@RANK@@, 19.4);
+out.slidbare = rows(@@SLIDBARE@@, 2);
+out.still = rows(@@RANK@@, 0);
+out.place = ev("kvl(noteRows(noteParts(" + JSON.stringify(@@PLACE@@) + ")))");
+""".replace("@@STOPPED@@", notes_json(line, stopped))
+   .replace("@@SLID@@", notes_json(R("slid", mm=0.5, units="mm", why_text="R3 courtyard overlaps R4 courtyard")))
+   .replace("@@HINT@@", notes_json(R("moved_off_hint", mm=3.2, why_text="C1 courtyard overlaps U1 courtyard")))
+   .replace("@@SCORE@@", notes_json(R("moved_off_hint", mm=1.1, for_score=True)))
+   .replace("@@RANK@@", notes_json(R("rank", rank=1, of=3, area_mm2=4.0, area_rank=1, pins=2, pins_rank=1)))
+   .replace("@@SLIDBARE@@", notes_json(R("block", members=3), R("slid", mm=2.0, units="mm")))
+   .replace("@@PLACE@@", notes_json(line, stopped)))
     s = out["stopped"]
     assert "Why it moved" in s and "19.40 mm</span> before the south end" in s and "reservation for keepout 'under_ring_1'" in s
     assert '<span class="kk">because</span>' in s and "no cause recorded" not in s

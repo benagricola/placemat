@@ -14,7 +14,7 @@ from placemat.copper import Track
 from placemat.kicad import write
 from placemat.layout import Board
 from placemat.settings import Settings
-from placemat.values import Bend, CopperLayer, Location, Net, PadRef, Part
+from placemat.values import Bend, CopperLayer, Net, PadRef, Part
 from tests.conftest import needs_kicad
 from tests.fixtures import board_geometry
 from tests.test_arc_bends import _pad_at

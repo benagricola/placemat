@@ -228,20 +228,26 @@ def room_lost_text(room_lost: dict) -> str:
 def where_text(w: dict) -> str:
     """Where a one-freedom item slides: {"form": "edge", "edge": "north"}, "run" (facing_deg), "rim" (word), "ring"
     (radius_mm), "spoke" (angle_deg), "line" (axis, at_mm, and `toward` or `across` as it was seeded)."""
+    head, tail = where_parts(w)
+    return head + (("; " + tail) if tail else "")
+
+
+def where_parts(w: dict) -> tuple:
+    """(where, how it was seeded): `where_text` without its "; "-joined tail; the tail is "" for all but a line."""
     form = w["form"]
     if form == "edge":
-        return "along the %s edge" % w["edge"]
+        return "along the %s edge" % w["edge"], ""
     if form == "run":
-        return "along the run facing %.0f degrees" % w["facing_deg"]
+        return "along the run facing %.0f degrees" % w["facing_deg"], ""
     if form == "rim":
-        return "round the %s" % w["word"]
+        return "round the %s" % w["word"], ""
     if form == "ring":
-        return "round the %.2f mm ring" % w["radius_mm"]
+        return "round the %.2f mm ring" % w["radius_mm"], ""
     if form == "spoke":
-        return "out along the %.0f degree spoke" % w["angle_deg"]
-    seeded = ("; as far %s as it is legal" % w["toward"]) if w.get("toward") else \
-        "; across from what it connects to" if w.get("across") else ""
-    return "on the line %s = %.2f%s" % (w["axis"], w["at_mm"], seeded)
+        return "out along the %.0f degree spoke" % w["angle_deg"], ""
+    seeded = ("as far %s as it is legal" % w["toward"]) if w.get("toward") else \
+        "across from what it connects to" if w.get("across") else ""
+    return "on the line %s = %.2f" % (w["axis"], w["at_mm"]), seeded
 
 
 def _refusal(d) -> str:
@@ -548,6 +554,11 @@ _VIA_VERBS = {"share": "shared", "move": "moved", "route": "re-routed", "leave":
 def vias_note(f: dict) -> str:
     """What carried vias did to give way, without the item's key: "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under
     U3", a clause per net, then each field a relay re-laid."""
+    return "; ".join(line for _, line, _ in via_lines(f))
+
+
+def via_lines(f: dict) -> list:
+    """`vias_note` a line at a time: [(how many vias the line starts with or None, the line, whether any were dropped)]."""
     said = []
     for net in f["nets"]:
         parts = []
@@ -558,15 +569,16 @@ def vias_note(f: dict) -> str:
                 verb += (" %.2f mm" if n == 1 else " up to %.2f mm") % part["moved_mm"]
             parts.append(("%d %s via%s %s" % (n, net["net"], "" if n == 1 else "s", verb)) if not parts else "%d %s" % (n, verb))
         held = ", ".join("%s pad %s holds %d of %d" % tuple(h) for h in net["held"])
-        said.append(", ".join(parts) + (" under %s" % ", ".join(net["under"]) if net["under"] else "")
-                    + (" (%s)" % held if held else ""))
+        said.append((net["parts"][0]["n"] if net["parts"] else None,
+                     ", ".join(parts) + (" under %s" % ", ".join(net["under"]) if net["under"] else "") + (" (%s)" % held if held else ""),
+                     any(p["kind"] == "drop" for p in net["parts"])))
     for fld in f["fields"]:
         text = "%s field in %s pad %s re-laid by %s, %d vias before, %d after" % (
             fld["net"], fld["pad"][0], fld["pad"][1], fld["way"], fld["before"], fld["after"])
         if fld["after"] < fld["want"]:
             text += " (%d drawn)" % fld["want"]
-        said.append(text + (" under %s" % ", ".join(fld["under"]) if fld["under"] else ""))
-    return "; ".join(said)
+        said.append((None, text + (" under %s" % ", ".join(fld["under"]) if fld["under"] else ""), False))
+    return said
 
 
 @renders(C.VIAS_GAVE_WAY, "item", "nets", "fields")
