@@ -100,6 +100,26 @@ def _grid(center: Location, radius: float, step: float):
     return [(d, round(center.x + dx, 6), round(center.y + dy, 6)) for d, dx, dy in _grid_offsets(radius, step)]
 
 
+class _Lattice:
+    """The points of one pass of a scan, (x, y) in `_grid`'s order: iterated, they are `_grid`'s; a native pass is handed
+    the lattice whole (`NativeSweeper.expand_grid`) and makes the points itself. `around`: (x, y, r) keeps only the points
+    within r of (x, y)."""
+    __slots__ = ("centre", "radius", "step", "around")
+
+    def __init__(self, centre: Location, radius: float, step: float, around: tuple | None = None):
+        self.centre, self.radius, self.step, self.around = centre, radius, step, around
+
+    def __iter__(self):
+        if self.around is None:
+            return ((x, y) for _, x, y in _grid(self.centre, self.radius, self.step))
+        hx, hy, r = self.around
+        return ((x, y) for _, x, y in _grid(self.centre, self.radius, self.step) if math.hypot(x - hx, y - hy) <= r + 1e-9)
+
+    def native(self) -> bool:
+        """Whether a native pass can make the points: a lattice with a step and a reach it can walk."""
+        return math.isfinite(self.radius) and math.isfinite(self.step) and self.radius >= 0 and self.step > 0
+
+
 class SpotTurns:
     """The turns a scan judges a spot at, when they depend on the spot: `turns` is every turn the
     scan prepares, `at(x, y)` the ones a spot takes, best first, and `tie(cand)` what breaks a tie
@@ -429,7 +449,10 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         # set is left alone, still used by the pure-Python `sweep` branch
         # above when `native is None`.
         if turns_at is None:
-            triples = native.expand(list(points), len(rots))
+            if isinstance(points, _Lattice) and points.native():
+                triples = native.expand_grid(points, len(rots))
+            else:
+                triples = native.expand(list(points), len(rots))
         else:
             triples = []        # each spot at its own turns, outward first: the order a first-legal pass takes them in
             for x, y in points:
@@ -580,29 +603,37 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         pts = _grid(centre, r, s)
         return pts if within is None else [p for p in pts if within(p[1], p[2])]
 
+    def lattice(centre, r, s, around=None):
+        """The points of a pass: `grid`'s, within `around` (x, y, r) of its point when that is given."""
+        if within is None:
+            return _Lattice(centre, r, s, around)
+        if around is None:
+            return ((x, y) for _, x, y in grid(centre, r, s))
+        return ((x, y) for _, x, y in grid(centre, r, s) if math.hypot(x - around[0], y - around[1]) <= around[2] + 1e-9)
+
     cfg = occ.settings
     phase = getattr(occ, "on_phase", None)             # a viewer's note of which pass a long scan is in; true: out of time (timecap.py)
     out_of_time = lambda *a, **kw: phase is not None and phase(*a, cut=True, **kw)     # true: stop here (the step's time limit)
     if score is None or radius / step < cfg.place_coarse_min_radius_steps:
         if out_of_time(Stage.FINE):
             return ScanResult(None, hint, tried, rejected, reasons, blockers)
-        legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), stop_at_first=score is None)
+        legal = sweep(lattice(hint.location, radius, step), stop_at_first=score is None)
     else:
         coarse = step * cfg.place_coarse_stride
         if out_of_time(Stage.COARSE):
             return ScanResult(None, hint, tried, rejected, reasons, blockers)
-        legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse)), False)
+        legal = sweep(lattice(hint.location, radius, coarse), False)
         if not any_counted(legal) and not spent():
             if out_of_time(Stage.COARSE_HALF):
                 return ScanResult(None, hint, tried, rejected, reasons, blockers)
-            legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse / 2)), False)
+            legal += sweep(lattice(hint.location, radius, coarse / 2), False)
         if not any_counted(legal) and not spent():
             # Nothing on either coarse lattice. The coarse pass is there to
             # save time, not to decide: the fine grid still gets its walk, so
             # a spot narrower than a coarse step is not reported as no room.
             if out_of_time(Stage.FINE):
                 return ScanResult(None, hint, tried, rejected, reasons, blockers)
-            legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), False)
+            legal += sweep(lattice(hint.location, radius, step), False)
         if legal:
             legal.sort(key=lambda k: k[:3])
             # The best coarse spots by score seed the refinement, and so do the best `accept` takes: a coarse spot
@@ -620,8 +651,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 # The fine grid is centred on a coarse candidate, which can sit at
                 # the edge of the radius: keep only what is still inside it, so
                 # "within radius of the hint" is what a script gets.
-                legal += sweep(((x, y) for _, x, y in grid(cand.location, coarse, step)
-                                if math.hypot(x - hint.location.x, y - hint.location.y) <= radius + 1e-9), False)
+                legal += sweep(lattice(cand.location, coarse, step, (hint.location.x, hint.location.y, radius)), False)
     if accept is not None and not inline:
         legal = counted(sorted(legal, key=lambda k: k[:3]), 1 if pick is None else None)
     cut = budget.measurement() if budget is not None and budget.cut else None

@@ -350,11 +350,71 @@ struct NativeSweepSeen {
     seen: HashSet<(u64, u64, usize), BuildHasherDefault<ratsnest::Fx>>,
 }
 
+thread_local! {
+    /// `placer._grid_offsets`' own cache (it keeps sixteen), by the bits of (radius, step).
+    static GRID_OFFSETS: std::cell::RefCell<HashMap<(u64, u64), std::rc::Rc<Vec<(f64, f64, f64)>>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// `placer._grid_offsets(radius, step)`: (d, dx, dy) within `radius` on a `step` grid, nearest first.
+fn grid_offsets(radius: f64, step: f64) -> std::rc::Rc<Vec<(f64, f64, f64)>> {
+    let key = (radius.to_bits(), step.to_bits());
+    if let Some(hit) = GRID_OFFSETS.with(|c| c.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let n = (radius / step + 1e-9).floor() as i64;
+    let mut pts = Vec::new();
+    for i in -n..=n {
+        for j in -n..=n {
+            let (dx, dy) = (i as f64 * step, j as f64 * step);
+            let d = exact::hypot(dx, dy);
+            if d <= radius + 1e-9 {
+                pts.push((d, dx, dy));
+            }
+        }
+    }
+    pts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let pts = std::rc::Rc::new(pts);
+    GRID_OFFSETS.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() >= 16 {
+            c.clear();
+        }
+        c.insert(key, pts.clone());
+    });
+    pts
+}
+
 #[pymethods]
 impl NativeSweepSeen {
     #[new]
     fn new() -> Self {
         NativeSweepSeen::default()
+    }
+
+    /// `expand` for the points of `placer._grid(Location(cx, cy), radius, step)`, in its order, those within
+    /// `around` = (x, y, r) of its point when that is given (`hypot <= r + 1e-9`): the lattice is made here, not
+    /// in Python and handed over a point at a time.
+    #[pyo3(signature = (cx, cy, radius, step, n_rots, around=None))]
+    fn expand_grid(&mut self, cx: f64, cy: f64, radius: f64, step: f64, n_rots: usize, around: Option<(f64, f64, f64)>)
+        -> Vec<(f64, f64, usize)> {
+        let offsets = grid_offsets(radius, step);
+        let mut out = Vec::new();
+        for &(_, dx, dy) in offsets.iter() {
+            let (x, y) = (exact::round6(cx + dx), exact::round6(cy + dy));
+            if let Some((hx, hy, r)) = around {
+                if !(exact::hypot(x - hx, y - hy) <= r + 1e-9) {
+                    continue;
+                }
+            }
+            let (kx, ky) = (x.to_bits(), y.to_bits());
+            for turn in 0..n_rots {
+                if self.seen.insert((kx, ky, turn)) {
+                    out.push((x, y, turn));
+                }
+            }
+        }
+        out
     }
 
     /// (x, y, turn) triples for every (x, y) in `points` at every turn in
@@ -412,6 +472,12 @@ fn hypot(a: f64, b: f64) -> f64 {
 #[pyfunction]
 fn clean9_many(values: Vec<f64>) -> Vec<f64> {
     values.into_iter().map(exact::clean9).collect()
+}
+
+/// `round(v, 6)` on each value, for comparing against Python in bulk.
+#[pyfunction]
+fn round6_many(values: Vec<f64>) -> Vec<f64> {
+    values.into_iter().map(exact::round6).collect()
 }
 
 /// `geometry.transform_polygon(poly, t)` with its rounding: each vertex as `Transform.apply` takes it,
@@ -1231,6 +1297,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(loop_gap, m)?)?;
     m.add_function(wrap_pyfunction!(mst, m)?)?;
     m.add_function(wrap_pyfunction!(clean9_many, m)?)?;
+    m.add_function(wrap_pyfunction!(round6_many, m)?)?;
     m.add_function(wrap_pyfunction!(transform_polygon, m)?)?;
     m.add_function(wrap_pyfunction!(hypot_many, m)?)?;
     m.add_class::<NativeFill>()?;

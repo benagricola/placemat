@@ -2715,6 +2715,11 @@ class NativeSweeper:
         (point, rotation) pair in Python."""
         return self._seen.expand(points, n_rots)
 
+    def expand_grid(self, lattice, n_rots: int) -> list:
+        """`expand` for the points of a `placer._Lattice`, made in Rust, not in Python and handed over."""
+        c = lattice.centre
+        return self._seen.expand_grid(c.x, c.y, lattice.radius, lattice.step, n_rots, lattice.around)
+
     def run(self, triples, stop_at_first: bool, scoring=None):
         """(indexes of the legal candidates, their scores, refusals) for
         (x, y, turn) triples; each refusal (bucket, count, first index,

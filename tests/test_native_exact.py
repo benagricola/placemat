@@ -54,6 +54,26 @@ def test_clean9_is_rounds_to_nine_places_bit_for_bit():
     assert not bad, bad[:5]
 
 
+def test_round6_is_rounds_to_six_places_bit_for_bit():
+    """The lattice of a scan is `round(centre + offset, 6)`: values like a centre plus a multiple of a step, and every
+    tie class at the sixth decimal."""
+    rng = random.Random(3)
+    vs = [v for v in _floats(N // 2, rng) if math.isfinite(v)]
+    for _ in range(N // 2):
+        k = rng.randrange(4)
+        if k == 0:
+            vs.append(rng.randrange(-10 ** 10, 10 ** 10) / 1e6 + rng.choice((5e-7, -5e-7)))        # a half at the sixth place
+        elif k == 1:
+            vs.append(rng.uniform(-300, 300) + rng.randrange(-400, 400) * rng.choice((0.05, 0.1, 0.25, 0.2, 0.127)))
+        elif k == 2:
+            vs.append(rng.randrange(-100000, 100000) * 0.001 + rng.randrange(-100, 100) * 0.0125)
+        else:
+            vs.append(rng.choice((0.0, -0.0, 1e-7, -1e-7, 5e-7, -5e-7, 1.5e-6, 2.5e-6, 1e300, -1e-300)))
+    got = native.round6_many(vs)
+    bad = [(v, a) for v, a in zip(vs, got) if struct.pack("<d", a) != struct.pack("<d", round(v, 6))]
+    assert not bad, bad[:5]
+
+
 def test_hypot_is_cpythons_bit_for_bit():
     rng = random.Random(2)
     xs = _floats(N, rng)
