@@ -247,8 +247,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     others = occ.obstacles(geom, region)
     seen: set = set()
     native = occ.native_sweeper(item, hint.face, rots, others, clearance) if NATIVE_SWEEP else None
-    scoring = score.native(rots, hint.face) if native is not None and not native.recheck and hasattr(score, "native") \
-        else None
+    scoring = score.native(rots, hint.face) if native is not None and (not native.recheck or native.full is not None) \
+        and hasattr(score, "native") else None
     # Carried vias that may give way (giveway.py): a pass judges the item as it is first; the
     # candidates that refuses are judged again less its carried vias, and against the board less
     # the placed items' carried vias, and the vias then share, move or drop at a cost
@@ -464,14 +464,15 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         charge(cutoff, True)
         if short and not (first_only and found):
             budget.cut = True
+        scored = scoring is not None and scores is not None       # a sweep that judged some candidates in Python scores none natively
         legal = []
-        for i, sc in zip(found, scores):
+        for i, sc in zip(found, scores if scored else [0.0] * len(found)):
             x, y, k = triples[i]
             cand = Placement(Location(x, y), rots[k], hint.face)
             if inline and refused(cand):
                 continue
             d = math.hypot(x - hint.location.x, y - hint.location.y)
-            legal.append(((sc if scoring is not None else score(cand)) if score else 0.0, d, tie(cand), cand))
+            legal.append(((sc if scored else score(cand)) if score else 0.0, d, tie(cand), cand))
             if stop_at_first:
                 break
         if gw is None or (stop_at_first and legal):

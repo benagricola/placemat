@@ -109,6 +109,8 @@ def transform_polygon(poly: Polygon, t: Transform, clean: bool = True) -> Polygo
     if not clean:
         a, b, c, d, tx, ty = t.a, t.b, t.c, t.d, t.tx, t.ty
         return tuple((a * x + b * y + tx, c * x + d * y + ty) for x, y in poly)
+    if _native is not None:
+        return tuple(_native.transform_polygon(poly, t.a, t.b, t.c, t.d, t.tx, t.ty))      # the same rounding, bit for bit
     return tuple(t.apply(p) for p in poly)
 
 
