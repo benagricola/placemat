@@ -674,12 +674,16 @@ forcing long or crossing copper):
 - Look at the placing module and at the modules where it should go, not
   only at the board script. Find what holds them apart: the refusal and its
   blame name the parts, shapes and copper that collide.
-- Change the module's layout script by intent, in small steps: turn a
-  bypass capacitor so another module can stand right against it, move a
-  part to the other side of its IC, swap a row's order, put a part on the
-  other face, fit the module's frame (`board.rect(fit=True)`) so it carries
-  no empty margin, or move where its signals leave so they face the module
-  they meet. The module stays correct on its own: its own run still passes.
+- Change the module's layout script by intent, in small steps: for a
+  member whose side or turn is a free choice (a bypass capacitor on either
+  side of its pin, a part on the other side of its IC, a part on the other
+  face, a pair that could be mirrored), add it as an alternative first and
+  let the board's search choose (see "Arrangements"); edit the module's
+  default layout only when no arrangement that keeps the module's intent
+  fits. Swap a row's order, fit the module's frame (`board.rect(fit=True)`)
+  so it carries no empty margin, or move where its signals leave so they
+  face the module they meet. The module stays correct on its own: its own
+  run still passes.
 - Preview the module, then the board, after each change, and keep the
   changes that help. Several modules may each give a little; it is usually
   a shape change on both sides of a gap that lets two cells meet.
@@ -689,6 +693,35 @@ forcing long or crossing copper):
 - Changing a module is the normal way through a hard placement, not a last
   resort. Prefer it to widening search reaches, accepting findings, or
   writing coordinates.
+
+### Arrangements
+
+A module often has two layouts that serve its own reason equally well. Declare the other one as an alternative; the module run
+proves it on the module's own terms and the board's search chooses. `api.md`, "Arrangements", has the forms, the ids, the limits
+and the record.
+
+- **Members that set the extent first.** The members that set a module's outline (a bulk capacitor, a connector, an inductor or a
+  tall part standing proud on one side) are the ones that make a module hard to place in some orientations, so they are the first
+  to consider: a turn, the other side of their partner, the other face, or a group that tucks them in. The run lists them
+  (`arrangements[].extent` in `run.json`, and an `arrangement.extent_fixed` notice for each one with no alternative). Work through
+  that list before adding alternatives elsewhere, and say in the run notes why any extent-setting member has none.
+- **When to declare one.** While laying out a module, wherever a member's side or turn is a free choice the module's own rules
+  allow. Ask of each placed member: "would the module be as correct with this on the other side or turned?" If yes, declare the
+  other way. A member whose place is a fact (a polarised part read by assembly, a connector's mouth, a part held by its datasheet's
+  figure) gets none.
+- **Every alternative keeps the module's intent.** An alternative is a relation the module is equally happy with, not a
+  compromise for a board that does not exist yet. The run proves it by the module's own links, limits, keepouts and checks, and one
+  that fails is not offered. A shape that breaks the module's reason (a decoupling loop, a sense line, a thermal path) is not an
+  alternative.
+- **Within the caps.** `place.arrangement_options_max` options per item and `place.arrangements_max` arrangements per module, the
+  product counted. Prefer a few alternatives on the members that matter, name a group for a combination that only works together
+  instead of declaring each member's options, and use `only=` for copper that exists in some arrangements.
+- **Names.** An option is named for what it does (`east`, `turned`, `back`), a group for what it is (`mirrored`), never `alt1`:
+  ids appear in the board script's `arrangements=`, in the lock, in step notes and in the studio.
+- **Reading the report.** After the module run read `run.json`'s `arrangements` and the `arrangement.refused` and
+  `arrangement.limit` findings, refused ones included. For each refused alternative read the refusals, then fix it (a `gap=`, a
+  different anchor, `only=` for a track that cannot exist there) or drop it. A module is not finished with a declared alternative
+  that is refused.
 
 ## Pin assignments are a layout lever
 

@@ -181,3 +181,18 @@ def test_a_group_may_name_a_row_member_and_re_placing_it_keeps_the_rows_standoff
     with pytest.raises(ValueError):
         b.alternative(Part("r_big"), "x", rotation=90)
     assert [s.id for s in b.arrangement_enumeration().specs] == ["default", "moved"]
+
+
+from pathlib import Path
+
+_SKILLS = Path(__file__).resolve().parent.parent / "skills/placemat"
+SKILL = (_SKILLS / "SKILL.md").read_text()
+API = (_SKILLS / "references/api.md").read_text()
+
+
+def test_the_skill_and_api_document_the_forms_and_the_report():
+    for word in ("board.alternative", "board.arrangement", "only=", "arrangement.refused", "arrangement.limit",
+                 "arrangement.extent_fixed", "place.arrangement_options_max", "place.arrangements_max"):
+        assert word in API, word
+    assert "add it as an alternative first" in SKILL and "extent" in SKILL and "arrangement.refused" in SKILL
+    assert all(ord(c) < 128 for c in SKILL + API), "ASCII only"

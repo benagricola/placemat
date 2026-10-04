@@ -1008,6 +1008,114 @@ place of its own, not a freedom. A frame edge, `board.centre`,
 `board.width` and `board.height` are refused on a fit board: the plan's
 outline is the frame once it is resolved.
 
+**Arrangements.** A module can declare alternatives to how it is laid out. The module run proves each on the module's own
+terms and writes the ones that pass into the fragment; the board's search chooses among them. A module that declares none, and a
+board that stamps only such modules, run as before. A module that adds alternatives needs its own script run again.
+
+```python
+board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST), why="bypass at VIN")
+board.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
+board.alternative(Part("r_pull"), "turned", rotation=180)
+
+board.arrangement("mirrored",
+                  Alt(Part("q1"), at=Beside(Part("u1"), Edge.EAST), rotation=180),
+                  Alt(Part("q2"), at=Beside(Part("u1"), Edge.WEST)),
+                  why="gate toward the east tab")
+```
+
+- `board.alternative(item, name, **keywords)` adds an option to the item's `place()`, which stays its default option. An option
+  takes the keywords of `place()` that say where an item goes (`at=`, `rotation=`, `rotations=`, `face=`, `radius=`, `step=`) and
+  `why=`; every keyword it does not give is the item's own, so `rotation=180` alone keeps the `at=`. The item is a part the script
+  has placed with `place()`: a part of a row, ring or block, and a cell, are refused. A searched item may have options too, as
+  each arrangement is a full resolve.
+- `board.arrangement(name, *alts, why="")` is one arrangement the script names, made of `Alt(item, **keywords)` (the keywords of
+  `alternative`). Members it does not name keep their `place()`. Use it for members whose alternatives only make sense together,
+  and for a row or a pair that moves as a unit.
+- The arrangements of a module are the default, every combination of the items' options (each item contributes its options and its
+  default), and each named group.
+- An arrangement's id is `default`, the group's name, or for a combination the `item.option` pairs in item order joined by `+`
+  (`c_in.east+r_pull.turned`). Option and group names are lower-case words, digits and `_`; `default` and a name that is also
+  another arrangement's id are refused. The id is what the lock, findings, step notes, the studio and the board's `arrangements=`
+  use. `choices` is the same as data: `{item: option}` for a combination, `{"group": name}` for a group.
+- Two arrangements that lay out the same places and copper are one: the later is dropped with an `arrangement.duplicate` notice
+  naming both.
+
+`only=` on `board.track`, `pair`, `via`, `vias`, `stitch`, `pour`, `plane` and `finger` is a sequence of arrangement ids the
+declaration exists in:
+
+```python
+board.track(Net("GATE"), [PadRef(Part("q1"), 1), PadRef(Part("u1"), 7)], only=("mirrored",))
+board.pour(Net("SRC"), ..., only=("c_in.east", "c_in.east+r_pull.turned"))
+```
+
+Without `only=` the declaration is in every arrangement; `only=("default",)` names the default. An id the module does not have, an
+empty `only=`, and a bare string are refused where the script finishes declaring, with the declaration's line. An id is matched as
+written, never as a pattern. Copper drawn from an item's pads follows the item without `only=`; `only=` is for copper that exists in
+some arrangements only. Copper fitted round or drawn from other copper that has an `only=` needs an `only=` inside that set.
+
+Limits: `place.arrangement_options_max` (default 4) options per item, its `place()` included, and `place.arrangements_max`
+(default 8) arrangements per module, the default and the groups included. A module over either is not partly accepted: the run
+lays out the default only and raises `arrangement.limit` (facts: the counts and both limits) saying to name a group for each
+combination that matters. `place.arrangements = false` lays out the default only without a finding.
+
+The module run generates once, then resolves the board once per arrangement, the default first and the rest in declared order,
+with that arrangement's options laid over the items' intents and the copper whose `only=` holds for it. Each arrangement other
+than the default is proven on a scratch board of its own:
+
+1. its resolve places every member with no critical finding, and every cell nested in the module stands where the default put it;
+2. KiCad's DRC on the scratch board has no `real` violation and no more unconnected items than the default;
+3. the design checks have no failed verdict, `board.accept` applied.
+
+Warnings, notices and measures are recorded, not refused. An arrangement that fails any step, or whose resolve or proof raises, is
+not offered: it is kept in the record with its refusals and raises `arrangement.refused` (warning), and the run goes on with the
+rest. The default is always written. An offered arrangement is written into the fragment as `placemat arrangement <escaped json>`
+texts on `User.Comments` (members' places in the fragment's frame, the arrangement's copper, its rule areas, and a digest of the
+default's places), split into numbered texts of `place.arrangement_note_chars` characters when longer. An arrangement whose note
+would leave no room in a chunk is not offered (`note_chars`).
+
+The run keeps each arrangement in `arrangements/<id>/` of its run folder: `layout.kicad_pcb`, `drc.json`, `reuse.json` (and
+`reuse.partial.jsonl` while it runs), and with `--render` the render of each arrangement that was proven, offered or not. A
+stopped run resumes each arrangement from its own record. `timing_s["arrangements"]` is the seconds for the other arrangements'
+resolves and proofs; `timing_s["resolve"]` is the default's alone.
+
+`run.json` is the default's, as before, and gains `arrangements` when the module declares any alternatives or is over a limit (in
+the second case the one entry is the default). One entry per arrangement, the default first:
+
+```json
+"arrangements": [
+  {"id": "default", "choices": {}, "offered": true, "dir": "arrangements/default",
+   "metrics": {"drc": 0, "findings": {"warning": 1}, "measures": {}},
+   "extent": [{"item": "c_bulk", "sides": ["east", "north"], "protrudes_mm": 1.8}]},
+  {"id": "mirrored", "choices": {"group": "mirrored"}, "offered": false, "dir": "arrangements/mirrored",
+   "metrics": {"drc": 2, "findings": {}, "measures": {}}, "extent": [],
+   "refused": [{"form": "drc", "bucket": "clearance", "count": 2}, {"form": "verdict", "check": "loop", "item": "c_in"}]}
+]
+```
+
+- `metrics.drc` is the number of `real` DRC violations, or null when DRC was not run; `findings` counts the arrangement's findings
+  by severity; `measures` are the inputs of the run score for that arrangement, recorded for comparison and not summed into the
+  module's score. The run's score is the default's.
+- `extent` lists the members whose box reaches the module's outline on a side: the item, the sides, and `protrudes_mm`, how far it
+  stands past the next member on its most protruding side. It is measured on the default and on each arrangement whose resolve
+  completed. A listed member with no alternative raises an `arrangement.extent_fixed` notice on a module that declares any, and on
+  one that declares none when it protrudes more than `place.extent_notice_mm`.
+- A duplicate has `offered` false, `duplicate_of` (the id it matches) and `metrics` null. An arrangement whose resolve raised has
+  `offered` false, `refused` and `metrics` null, and no `extent`; one whose proof raised has the same with its `extent`.
+- `refused` holds records, each a `form` and its facts, rendered to a sentence only where shown (`placemat run` prints one line per
+  arrangement; `arrangement.refused` carries `id` and `refused`):
+
+| `form` | Facts | Meaning |
+|---|---|---|
+| `unplaced` | `item` | a member the resolve gave no place, or a required item with no place |
+| `finding` | `cause`, `item` | a critical finding of the resolve, or items that collide where they stand |
+| `nested_cell` | `item` | a cell inside the module stands elsewhere than in the default |
+| `drc` | `bucket`, `count` | KiCad's DRC found `count` violations of that kind |
+| `unconnected` | `count`, `default` | more unconnected items than the default has |
+| `verdict` | `check`, `item` | a design check failed and is not accepted |
+| `escape` | `escape`, `part` | a declared escape cannot be laid out with its part as placed |
+| `error` | `type`, `message` | the resolve or proof raised that error |
+| `note_chars` | `chars` | `place.arrangement_note_chars` leaves no room for the note |
+
 **How a searched item finds its place.** An explicit `at=Near(...)` scans
 round its hint; a `Near(PadRef(...))` on another searched item's pad waits
 for that item, block members included, whatever the two items' tiers and
@@ -4140,6 +4248,7 @@ in a place of its own:
 | `run` | the generation, cached so a rerun skips `pcb layout` | `.placemat/generated/<board>/` |
 | `run` | what that generation was made from, to know when it is out of date | `.placemat/generated/<board>.inputs.json` |
 | `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays; `reuse.partial.jsonl` while resolving, left by a run that died), `run.json` with `status` `ok`, `failed`, `stopped`, or `running` with its `pid` while it works | `.placemat/runs/<id>/` |
+| `run` (a module with alternatives) | `arrangements/<id>/` with `layout.kicad_pcb`, `drc.json`, `reuse.json` (and `reuse.partial.jsonl` while it runs) for each arrangement, and a render of each proven one with `--render` | the run's folder |
 | `run` | `latest.json` (the last run of any board), `latest-<board>.json` (the last of each board: what a run compares with and reuses), `best.json`, and with `--label` an alias | `.placemat/runs/` |
 | `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays; `reuse.partial.jsonl` while resolving, left by a preview that was stopped) | `.placemat/views/preview/`, or `--out DIR` |
 | `studio` | `reuse.json` (what the next resolve replays) and `worker.log` | `.placemat/views/studio/` |
@@ -4151,6 +4260,8 @@ in a place of its own:
 | `layer` | the layer's SVG | `.placemat/views/layer/`, or `--out FILE` |
 | `datasheet --show --png` | the page's render | `.placemat/views/datasheet/` in the PDF's project, or `--out FILE.png` |
 | `faces` | the declared sides, into the fragment | the fragment named |
+
+A module with alternatives gains `arrangements` in `run.json`, one entry per arrangement (see "Arrangements" under Placement).
 
 `.placemat/` sits in the board's directory. `.placemat/views/` holds what a rerun
 regenerates (the `preview`, `show`, `layer` and `datasheet` images); it has a

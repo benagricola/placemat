@@ -5,6 +5,12 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Added
+
+- **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name, Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
+
 ## To 0.99.3
 
 ### Fixed
