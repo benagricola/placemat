@@ -13,7 +13,7 @@ from urllib.parse import quote, unquote
 
 from .copper import Pour, Text, Track, Via, Zone
 from .placement import Placement
-from .values import CopperLayer, Face, Location
+from .values import CopperLayer, Edge, Face, Location
 
 ARRANGEMENT_PREFIX = "placemat arrangement "
 VERSION = 1
@@ -67,9 +67,12 @@ def op_to_json(op) -> dict:
                 "clearance": _r(op.clearance), "min_thickness": _r(op.min_thickness), "solid_pads": op.solid_pads,
                 "npth_clearance": _r(op.npth_clearance)}
     if isinstance(op, Text):
-        return {"kind": "text", "text": op.text, "at": _pt(op.at), "face": op.face.value, "size": _r(op.size),
-                "thickness": _r(op.thickness), "rotation": _r(op.rotation), "hjust": op.hjust, "vjust": op.vjust,
-                "knockout": op.knockout, "mirrored": op.mirrored, "net": op.net, "layer": op.layer}
+        d = {"kind": "text", "text": op.text, "at": _pt(op.at), "face": op.face.value, "size": _r(op.size),
+             "thickness": _r(op.thickness), "rotation": _r(op.rotation), "hjust": op.hjust, "vjust": op.vjust,
+             "knockout": op.knockout, "mirrored": op.mirrored, "net": op.net, "layer": op.layer}
+        if op.side is not None:         # a label: the writer snaps its facing edge to the anchor
+            d["side"] = op.side.name
+        return d
     raise NoteError("no note form for %s" % type(op).__name__)
 
 
@@ -87,7 +90,7 @@ def op_from_json(d: dict):
                     d["min_thickness"], d["solid_pads"], d["npth_clearance"])
     if kind == "text":
         return Text(d["text"], _loc(d["at"]), Face(d["face"]), d["size"], d["thickness"], d["rotation"], d["hjust"],
-                    d["vjust"], d["knockout"], d["mirrored"], d["net"], None, d["layer"])
+                    d["vjust"], d["knockout"], d["mirrored"], d["net"], Edge[d["side"]] if "side" in d else None, d["layer"])
     raise NoteError("unknown op kind %r" % kind)
 
 

@@ -6,7 +6,7 @@ from placemat import arrangement_note as N
 from placemat.copper import Pour, Text, Track, Via, Zone
 from placemat.layout import PlacedKeepout
 from placemat.placement import Placement
-from placemat.values import CopperLayer, Face, Location
+from placemat.values import CopperLayer, Edge, Face, Location
 
 F, B = CopperLayer.F, CopperLayer.B
 OPS = [Track("VIN", F, 0.3, Location(1.0, 2.0), Location(3.5, 2.0)),
@@ -15,7 +15,8 @@ OPS = [Track("VIN", F, 0.3, Location(1.0, 2.0), Location(3.5, 2.0)),
        Via("GND", Location(2.0, 5.0), 0.2, 0.45, layers=(F, CopperLayer.IN1)),
        Pour("SRC", F, ((0.0, 0.0), (4.0, 0.0), (4.0, 3.0)), 0.2, True),
        Zone("GND", CopperLayer.IN1, ((0.0, 0.0), (9.0, 0.0), (9.0, 9.0)), 0.2, 0.2, True, 0.25),
-       Text("SW", Location(1.0, 1.0), Face.FRONT, 0.8, 0.15, 90.0, "left", "top", True, False, "", None, None)]
+       Text("SW", Location(1.0, 1.0), Face.FRONT, 0.8, 0.15, 90.0, "left", "top", True, False, "", None, None),
+       Text("RT", Location(1.0, 4.0), Face.FRONT, 1.0, 0.15, 0.0, "centre", "top", side=Edge.SOUTH)]     # a label, snapped to its side
 
 
 @pytest.mark.parametrize("op", OPS)
