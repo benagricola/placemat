@@ -280,6 +280,13 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Parallel layers in current-path; each stamp's keepout its own; saved
+  fill current** (0.99.7): current-path adds copper on parallel layers of the
+  net joined at both ends of a stretch, each scaled by its own layer's need;
+  a stamped keepout that lets nets through is named per cell so its rule
+  covers that cell only; a plane's saved fill is the fill of the saved board
+  (connectivity rebuilt before the fill).
+
 - **Studio 3D for past runs; routed runs shown routed; free UUIDs** (0.99.6):
   a run opened from its records gets its board's models and the converter
   starts where its log folder is missing; a run that routed opens on its
