@@ -19,20 +19,20 @@ F, B = CopperLayer.F, CopperLayer.B
 def buck():
     """A buck in two-pad parts: cin and the switcher close the hot loop on
     VIN/GND, the switcher and the inductor own SW, the divider senses FB."""
-    cin = footprint("C1", 10, 10, nets=("VIN", "GND"), fields={"Pm.Role": "bypass", "Pm.Loop": "hot", "Pm.I": "vin:3A"})
+    cin = footprint("C1", 10, 10, nets=("VIN", "GND"), fields={"Pm.Loop": "hot", "Pm.I": "vin:3A"})
     u = footprint("U1", 14, 13, nets=("VIN", "SW"),
-                  fields={"Pm.Role": "switcher", "Pm.Loop": "hot", "Pm.Aggressor": "true",
+                  fields={"Pm.Loop": "hot", "Pm.Aggressor": "true",
                           "Pm.I": "3A", "Pm.Pd": "0.6W", "Pm.Tjmax": "125C"})
-    l = footprint("L1", 20, 13, nets=("SW", "VOUT"), fields={"Pm.Role": "inductor", "Pm.Aggressor": "true", "Pm.I": "sw:3A"})
-    cout = footprint("C2", 26, 13, nets=("VOUT", "GND"), fields={"Pm.Role": "output"})
-    rfb = footprint("R1", 20, 20, nets=("VOUT", "FB"), fields={"Pm.Role": "sense", "Pm.Sensitive": "fb"})
+    l = footprint("L1", 20, 13, nets=("SW", "VOUT"), fields={"Pm.Aggressor": "true", "Pm.I": "sw:3A"})
+    cout = footprint("C2", 26, 13, nets=("VOUT", "GND"), fields={})
+    rfb = footprint("R1", 20, 20, nets=("VOUT", "FB"), fields={"Pm.Sensitive": "fb"})
     return cin, u, l, cout, rfb
 
 
 def test_a_parts_fields_are_read_as_typed_facts():
     cin, u, l, cout, rfb = buck()
     f = facts(board_geometry([cin, u, l, cout, rfb]))
-    assert f["U1"].role == "switcher" and f["U1"].loop == "hot" and f["U1"].aggressor
+    assert f["U1"].loop == "hot" and f["U1"].aggressor
     assert f["U1"].current_a == pytest.approx(3.0) and f["U1"].dissipation_w == pytest.approx(0.6)
     assert f["U1"].tj_max_c == pytest.approx(125.0)
     assert f["R1"].sensitive == "fb" and not f["R1"].aggressor and f["R1"].current_a is None

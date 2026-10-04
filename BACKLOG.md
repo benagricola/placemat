@@ -54,7 +54,6 @@ Specced work first, then the loose ends.
    lazily on the pure-Python path.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
-13. **Remove `Facts.role`** (unused).
 14. **The router's DRC misses a track wholly inside a filled footprint
     polygon** (the router checkout, local only).
 15. **U21 pin 14 (SCL)**: the walled check finds a channel south of its stub;

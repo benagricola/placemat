@@ -62,7 +62,6 @@ _PREFIX = {"": 1.0, "m": 1e-3, "u": 1e-6, "k": 1e3}
 @dataclass(frozen=True)
 class Facts:
     ref: str
-    role: str | None = None
     loop: str | None = None
     aggressor: bool = False
     sensitive: str | None = None        # the net the part senses, by name
@@ -278,7 +277,7 @@ def _facts_of(fp: Footprint) -> Facts:
                 currents[net.lower()] = _quantity(amps)
         else:
             current_a = _quantity(get("i"))
-    return Facts(ref=fp.ref, role=get("role"), loop=get("loop"),
+    return Facts(ref=fp.ref, loop=get("loop"),
                  aggressor=(get("aggressor") or "").lower() in ("true", "yes", "1"),
                  sensitive=get("sensitive"), current_a=current_a, currents=currents, dissipation_w=number("pd"),
                  tj_max_c=number("tjmax"), theta_ja_c_per_w=number("thetaja"), theta_jb_c_per_w=number("thetajb"))
