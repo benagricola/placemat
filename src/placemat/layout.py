@@ -2621,9 +2621,16 @@ class Board:
 
     def _snapshot(self) -> tuple:
         """What a pass over the firm items changes on the board, to put back: its attributes (a container copied), and the
-        fields of every declaration (a turn, a run, an alignment, copper's freedom)."""
+        fields of every declaration (a turn, a run, an alignment, copper's freedom), and of every row an item is placed
+        along, with the rows it is butted before or after: a row whose start is a reference finds it during the pass."""
         attrs = {k: (copy.copy(v) if isinstance(v, (dict, list, set)) else v) for k, v in self.__dict__.items()}
-        things = [(o, copy.copy(o.__dict__)) for o in list(self._intents) + list(self._copper) + list(self._links)
+        rows = []
+        for i in self._intents:
+            row = i.along.row if isinstance(getattr(i, "along", None), _RowSlot) else None
+            while isinstance(row, Row) and not any(row is r for r in rows):
+                rows.append(row)
+                row = row.anchor[1] if row.anchor is not None and row.anchor[0] in ("before", "after") else None
+        things = [(o, copy.copy(o.__dict__)) for o in list(self._intents) + list(self._copper) + list(self._links) + rows
                   if hasattr(o, "__dict__")]
         return attrs, things
 

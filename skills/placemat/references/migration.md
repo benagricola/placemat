@@ -11,6 +11,18 @@ section for each hand-written pattern a newer form replaces.
 
 - **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name, Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
 
+## To 0.99.4
+
+### Fixed
+
+- **A row placed by a reference is laid again in each firm pass.** When `place.copper_room` ran the firm items again (a
+  `Beside` part moved out of declared copper's way, or placed before the part that refused it), the run was put back as it
+  stood before the first pass except for its rows: a row whose start is a reference (`of=`, `centre=`, `end=`, `start=` a
+  reference, `before=`/`after=` such a row, `align=Along.MID/END` on an unsized board) kept the start the first pass found.
+  Its items were laid against where the anchor stood then, so a row `of=` a part that moved between the passes stood off to
+  one side of it. Such a row now finds its start again in each pass; a script with one anchored on a part the copper room
+  moves gets that row level with where the part ends up.
+
 ## To 0.99.3
 
 ### Fixed
