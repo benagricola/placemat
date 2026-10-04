@@ -411,6 +411,7 @@ def _draw_keepouts(board, plan):
         for x, y in k.poly:
             o.Append(nm(x), nm(y))
         z.SetZoneName(_keepout_zone_name(k, stack))
+        _unique_uuid(board, z)
         board.Add(z)
 
 
@@ -653,6 +654,7 @@ def _draw_track(board, op: Track):
     t.SetEnd(vec(op.end.x, op.end.y))
     if op.mid is not None:
         t.SetMid(vec(op.mid.x, op.mid.y))
+    _unique_uuid(board, t)
     board.Add(t)
 
 
@@ -682,6 +684,7 @@ def _draw_via(board, op: Via):
     v.SetDrill(nm(op.drill))
     v.SetWidth(nm(op.size))
     v.SetNetCode(_netcode(board, op.net))
+    _unique_uuid(board, v)
     board.Add(v)
 
 
@@ -715,6 +718,7 @@ def _draw_text(board, op: Text):
             t.Move(pcbnew.VECTOR2I(nm(op.at.x) - bb.GetRight(), 0))
         else:
             t.Move(pcbnew.VECTOR2I(nm(op.at.x) - bb.GetLeft(), 0))
+    _unique_uuid(board, t)
     board.Add(t)
 
 
@@ -730,6 +734,7 @@ def _draw_pour(board, op: Pour):
     sh.SetWidth(nm(op.stroke))
     sh.SetPolyShape(one)
     sh.SetNetCode(_netcode(board, op.net))
+    _unique_uuid(board, sh)
     board.Add(sh)
 
 
@@ -765,6 +770,7 @@ def _draw_zone(board, op: Zone):
             th = 2.0 * math.pi * a / n
             hole.Append(nm(hx + rr * math.cos(th)), nm(hy + rr * math.sin(th)))
         o.BooleanSubtract(hole)
+    _unique_uuid(board, z)
     board.Add(z)
     return z
 
