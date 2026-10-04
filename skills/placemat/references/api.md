@@ -3488,8 +3488,18 @@ part, then a `copper` step per net in laid order) and `GET /build?run=ID` a run'
 Runs view draws its tracks net by net as they are laid, with the net it is on and the routed and failed counts; a finished one
 replays from its record.
 
-With no `<script>` the page opens on a dialog, "Open", over the usual interface (Runs tab first; the findings layer on
-the board is off until the Findings tab is open or the legend turns it on). Its three choices: a command running now (followed live, as a
+With no `<script>` (and no `s=`, `run=` or `cmd=` in the address) the page follows the latest command of the project, the "Latest" mode:
+the command that started last while one is running, else the command or record that ended last (a command, a past run, an explore or a
+route), shown as the Runs tab's views show it. A command that starts anywhere in the project (the channel's `cmd` event, `state` "running")
+takes over; one that ends stays shown until the next starts. The studio's own search probes (`kind` "apply") do not count. A switch is held
+back, and the page offers it ("A newer run started", "Go to it"), when the viewer selected an item, opened a finding or moved the view in
+the last `[studio] follow_hold_s` seconds (10; sent in `hello` as `follow_hold_s`; 0 never holds) or has the dialog open. The header shows a
+"latest" chip beside the command's kind. A project with no command or run opens on the dialog below instead. The address's hash names the
+mode as `latest`; `s=`, `run=` and `cmd=` pin as before.
+
+The dialog, "Open", sits over the usual interface (Runs tab first; the findings layer on
+the board is off until the Findings tab is open or the legend turns it on). Its first section, "Runs", holds "Follow latest", marked
+"current" while that is the mode; choosing anything below it leaves Latest. The other choices: a command running now (followed live, as a
 background run), a past run (`GET /projectruns` lists every board's `run.json` records; `GET /runview?run=ID` serves one as a plan
 document - the run's `plan.json` when it has one, else the board it wrote with its findings placed from their facts - and resolves
 nothing) or a layout script (`POST /switch`, the only choice that starts the studio's own preview). The header title opens it again.
@@ -4382,6 +4392,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.keep` | `10` | count | resolves kept, so the page can compare any two |
 | `studio.poll_ms` | `200` | ms | how often the watched files' modification times are read |
 | `studio.explore_fps` | `2.0` | per second | how many times a second the board is redrawn for a live explore, to the best variant so far (above 0) |
+| `studio.follow_hold_s` | `10.0` | seconds | while the studio follows the latest command, a newer one that starts is not shown for this long after the viewer selected an item, opened a finding or zoomed; the page offers it instead (0 shows it at once) |
 | `studio.note_age_s` | `3600` | seconds | a note left in the studio is hidden after this long; 0 keeps it |
 | `studio.notes_keep` | `100` | count | notes kept in a board's notes file |
 | `studio.cancel_grace_ms` | `2000` | ms | a resolve asked to stop that has not stopped by then has its worker restarted |

@@ -705,3 +705,16 @@ def test_a_routes_count_is_of_the_stage_it_is_in_and_lost_events_are_counted(pro
         s._on_channel(7, ev)
     r = {c["id"]: c for c in s.commands()}[7]["route"]
     assert (r["total"], r["seen"], r["done"], r["dropped"], r["stage"]) == (3, 0, 2, 5, "main") and "in_stage" not in r
+
+
+def test_a_command_starting_over_the_channel_is_announced_at_once_and_the_hello_carries_the_follow_hold(project):
+    s = _fresh(project)
+    drain = _events(s)
+    _cmd(s, 1)
+    first = [json.loads(x) for n, x in drain() if n == "cmd"]
+    assert len(first) == 1 and first[0]["state"] == "running" and first[0]["id"] == 1 and first[0]["kind"] == "explore" and first[0]["started"] > 0
+    s._on_channel(2, {"ev": "hello", "pid": 4002, "command": "preview", "script": str(s.root / "x_layout.py"), "args": ["preview", "x_layout.py"]})
+    second = [json.loads(x) for n, x in drain() if n == "cmd"]
+    assert [c["id"] for c in second] == [2] and second[0]["kind"] == "preview" and second[0]["state"] == "running" and second[0]["started"] >= first[0]["started"]
+    hello = json.loads(s.hello()[0][1])
+    assert hello["follow_hold_s"] == 10.0 and [c["id"] for c in hello["commands"]] == [1, 2]

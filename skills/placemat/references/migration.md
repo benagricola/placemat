@@ -17,6 +17,12 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- **The studio follows the latest command of the project by default.** `placemat studio` with no script now opens on the most recent
+  command: a running preview, full run, explore or route followed live, else the one that finished last with its board and findings. A
+  command that starts switches the view to it. Choosing a command, run or script in the "Open" dialog (the header title; "Follow latest" is
+  its first entry, under "Runs") pins it; a "latest" chip in the header shows the mode. While you have selected an item, opened a finding or
+  moved the view within `[studio] follow_hold_s` seconds (default 10, 0 never holds) a newer command is offered ("A newer run started",
+  "Go to it") instead of shown. The address hash `#latest` names the mode. A project with nothing run opens on the dialog as before.
 - **`place.order = "room"` orders a tier by how many legal spots each item has left.** The default, `"freedoms"`, is the order as before
   (a slide before an item searched in two, then the rank). With `"room"` the item whose declaration leaves it the fewest spots goes first
   (a slide's length, a `Near` disc, a `Polar` band or the board's free area, less the item's size, hard-limit push discs and the keepouts that

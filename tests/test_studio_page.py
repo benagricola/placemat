@@ -2104,6 +2104,8 @@ const past = [{id: "aaaa0001", status: "ok", score: 4.2, findings: 2, at: 1, scr
 const explores = [{file: PROJ + "/a/.placemat/views/explore/e.json", script: PROJ + "/a/A_layout.py", at: 3, pid: 8, tried: 12, best: 9, baseline: 10, kept: true, focus: 2}];
 const helloPicker = (extra = {}) => send("hello", Object.assign({script: "", picker: true, root: PROJ, scripts, keep: 5, history: [], resolving: null, error: null, runs: [], run: null,
   project_runs: past, explores, routes: [], commands: []}, extra));
+// The first hello of a project with nothing run opens the dialog; the second brings what the project has run, and the dialog stays.
+const helloDialog = () => { helloPicker({project_runs: [], explores: [], commands: []}); helloPicker(); };
 const posts = () => fetched.filter(([u, o]) => o).map(([u, o]) => [u, o.body]);
 const gets = () => fetched.filter(([u, o]) => !o).map(([u]) => u);
 const click = (el, sel, data) => els[el].onclick({target: {closest: s => s === sel ? {dataset: data || {}} : null}});
@@ -2113,7 +2115,7 @@ const click = (el, sel, data) => els[el].onclick({target: {closest: s => s === s
 @needs_node
 def test_with_no_script_the_page_opens_on_a_dialog_that_chooses_what_to_look_at_and_resolves_nothing(tmp_path):
     out = run_page(tmp_path, OPENING + r"""
-helloPicker();
+helloDialog();
 send("cmd", cmd({}));
 send("cmd", cmd({id: 5, pid: 4313, command: "preview", kind: "preview", label: "", variants: 0, items: 12}));
 send("cmd", cmd({id: 6, pid: 4314, kind: "run", command: "run", state: "done", ended: clock / 1000, variants: 0}));
@@ -2137,7 +2139,7 @@ out.posts = posts();
 @needs_node
 def test_each_choice_in_the_dialog_opens_what_it_names_and_only_a_script_starts_a_resolve(tmp_path):
     out = run_page(tmp_path, OPENING + r"""
-helloPicker();
+helloDialog();
 send("cmd", cmd({}));
 click("#picker", "[data-cmd]", {cmd: "4"});
 click("#picker", "[data-runview]", {runview: "aaaa0001"});
@@ -2183,7 +2185,7 @@ def test_the_default_tab_is_runs():
 @needs_node
 def test_a_past_run_shows_its_board_and_findings_under_the_header_as_a_full_run_and_resolves_nothing(tmp_path):
     out = run_page(tmp_path, OPENING + r"""
-helloPicker();
+helloDialog();
 const doc = Object.assign({}, BOARD, {items: [item("a", 1)], steps: [{i: 0, item: "a", kind: "part", placed: true, note: "", freedom: "fixed", copper: []}], copper: [], links: [], findings: [
   {text: "a pad too close", kind: "copper", severity: "warning", at: [2, 2], item: "a", refs: [], pads: []}], unplaced: [], pocketed: [], layers: ["F.Cu"], counts: {placed: 1, findings: 1}, score: {total: 4.2}});
 ev("showRunRecord")({doc, summary: past[0]}); flush();
@@ -2465,3 +2467,227 @@ click("cu:F.Cu"); out.back = els["#visrules"].textContent;
     assert '#board .thru[data-ls="B.Cu,F.Cu"] { display: none; }' in out["both"] and "In1.Cu\"]" not in out["both"].split("thru")[-1]
     assert out["all"].count(".thru[") == 2                                                          # every row it spans is off
     assert ".thru[" not in out["back"].replace('data-ls="B.Cu,F.Cu,In1.Cu"', "")                   # F.Cu on again: the two-layer pad is back
+
+
+# ---------------------------------------------------------------- Latest: the view follows the most recent command of the project
+LATEST = OPENING + r"""
+const serve = map => { ctx.fetch = (u, o) => { fetched.push([u, o]); const r = map[u.replace(/[?&]t=x$/, "")]; return r === undefined ? Promise.reject(new Error("no " + u)) : Promise.resolve({ok: true, json: async () => r}); }; };
+const tick = () => new Promise(r => setImmediate(r));
+const detail = c => ({summary: c, events: [], plan: null, explore: null});
+const shown = () => ev("S.cmdView ? String(S.cmdView.id) : S.xv ? 'x:' + S.xv.id : null");
+const cmds = {};
+const mkcmd = (id, o) => (cmds[id] = cmd(Object.assign({id, pid: 5000 + id, kind: "preview", command: "preview", label: "", variants: 0, started: clock / 1000 - 100 + id}, o)));
+"""
+
+
+@needs_node
+def test_with_nothing_chosen_the_studio_follows_the_latest_command_and_says_so_in_the_header(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const a = mkcmd(4, {kind: "explore", command: "run"}), b = mkcmd(5, {});
+  serve({"/cmd/5": detail(b), "/cmd/4": detail(a)});
+  helloPicker({commands: [a, b]}); await tick(); flush();
+  out.on = [ev("S.latestOn"), ev("S.latestKey"), shown(), ev("S.start"), els["#picker"].hidden];                  // the newest running one, no dialog
+  out.chip = [els["#latestchip"].hidden, els["#latestchip"].textContent, els["#latestchip"].title, els["#kindchip"].textContent, els["#statustext"].textContent, els["#nothing"].hidden];
+  out.bar = els["#cmdbar"].innerHTML;
+  out.hash = ev("viewHash()");
+  out.posts = posts();
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["on"] == [True, "cmd:5", "5", False, True]
+    assert out["chip"][0] is False and "most recent command" in out["chip"][2] and "stays shown until the next starts" in out["chip"][2]
+    assert out["chip"][3:] == ["preview", "running", True]
+    assert "Following" in out["bar"] and ">Stop following<" in out["bar"]
+    assert "latest=1" in out["hash"] and "run=" not in out["hash"] and "cmd=" not in out["hash"] and "s=" not in out["hash"].replace("tab=", "")
+    assert out["posts"] == []
+
+
+@needs_node
+def test_with_no_command_running_latest_shows_what_ended_last(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const fin = mkcmd(4, {state: "done", ended: 50, started: 40}), old = mkcmd(3, {state: "done", ended: 10, started: 5});
+  const route = {file: PROJ + "/a/.placemat/route/route.json", run: "", at: 20, nets: 3, routed: 3, failed: 0, script: PROJ + "/a/A_layout.py", build: false, complete: true};
+  serve({"/cmd/4": detail(fin), ["/explore?f=" + encodeURIComponent(explores[0].file)]: {variants: [], focus: [], plain: {}, order: [], baseline: 1, best_seed: 0, script: "x"}});
+  helloPicker({commands: [old, fin], project_runs: [past[0]], explores: [], routes: [route]}); await tick(); flush();
+  out.finished = [ev("S.latestKey"), shown()];                          // a command that ended after every record
+  // only records: the newest of them, an explore here
+  ev("S.latestOn = false; S.cmds = new Map(); S.start = true");
+  ev("S.explores = " + JSON.stringify([Object.assign({}, explores[0], {at: 99})]) + "; startLatest()"); await tick(); flush();
+  out.record = [ev("S.latestKey"), ev("S.xv && S.xv.source"), shown()];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["finished"] == ["cmd:4", "4"]
+    assert out["record"][0].startswith("explore:") and out["record"][1] == "record"
+
+
+@needs_node
+def test_a_project_with_nothing_run_opens_the_dialog_as_before_and_its_latest_choice_says_so(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+helloPicker({project_runs: [], explores: [], commands: []});
+out.state = [ev("S.latestOn"), ev("S.start"), els["#picker"].hidden, els["#latestchip"].hidden, els["#statustext"].textContent];
+out.html = els["#picker"].innerHTML;
+""")
+    assert out["state"] == [False, True, False, True, "nothing open"]
+    assert "Follow latest" in out["html"] and "Nothing has run in this project yet." in out["html"] and "data-latest" not in out["html"]
+
+
+@needs_node
+def test_a_command_that_starts_takes_over_and_one_that_ends_stays_shown(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const a = mkcmd(4, {});
+  serve({"/cmd/4": detail(a)});
+  helloPicker({commands: [a]}); await tick(); flush();
+  const b = mkcmd(5, {kind: "run", command: "run", started: clock / 1000});
+  serve({"/cmd/4": detail(a), "/cmd/5": detail(b)});
+  send("cmd", b); await tick(); flush();
+  out.switched = [ev("S.latestKey"), shown(), els["#kindchip"].textContent, els["#toast"] ? els["#toast"].textContent : ""];                  // no toast: the strip says it
+  const cmdGets = () => fetched.filter(([u]) => u.startsWith("/cmd/")).length, n = cmdGets();
+  send("cmd", Object.assign({}, b, {state: "done", ended: clock / 1000 + 1})); await tick(); flush();
+  send("cmd", Object.assign({}, a, {state: "done", ended: clock / 1000 + 2})); await tick(); flush();
+  out.stays = [ev("S.latestKey"), shown(), cmdGets() === n, els["#statustext"].textContent];
+  send("cmd", mkcmd(9, {kind: "apply", command: "apply", started: clock / 1000 + 3})); await tick(); flush();       // the studio's own search is not a command of the project
+  out.apply = [ev("S.latestKey"), shown()];
+  const c = mkcmd(6, {kind: "route", command: "route", started: clock / 1000 + 4}); serve({"/cmd/6": detail(c)});
+  send("cmd", c); await tick(); flush();
+  out.third = [ev("S.latestKey"), shown()];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["switched"] == ["cmd:5", "5", "full run", ""]
+    assert out["stays"] == ["cmd:5", "5", True, "done"]
+    assert out["apply"] == ["cmd:5", "5"] and out["third"] == ["cmd:6", "6"]
+
+
+@needs_node
+def test_while_the_viewer_is_looking_at_something_a_newer_command_is_offered_not_shown(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const a = mkcmd(4, {});
+  const doc = Object.assign({}, BOARD, {items: [item("a", 1)], steps: [{i: 0, item: "a", kind: "part", placed: true, note: "", freedom: "fixed", copper: []}], copper: [], links: [], findings: [
+    {text: "a pad too close", kind: "copper", severity: "warning", at: [2, 2], item: "a", refs: ["Ra"], pads: []}], unplaced: [], pocketed: [], layers: ["F.Cu"], counts: {placed: 1, findings: 1}, score: null});
+  const withPlan = c => ({summary: c, events: [], plan: {ev: "plan", doc}, explore: null});
+  serve({"/cmd/4": withPlan(a)});
+  helloPicker({commands: [a], follow_hold_s: 10}); await tick(); flush();
+  const arrive = (id, o) => { const c = mkcmd(id, Object.assign({started: clock / 1000}, o)); serve({["/cmd/" + id]: withPlan(c)}); send("cmd", c); return c; };
+  // a selection holds it
+  ev('selectItem("a")'); clock += 3000;
+  let n = fetched.length; arrive(5, {}); await tick(); flush();
+  out.held = [ev("S.latestKey"), shown(), fetched.length === n, ev("S.latestPending && S.latestPending.key")];
+  out.bar = els["#cmdbar"].innerHTML;
+  // the button goes to it
+  els["#gonewer"].onclick(); await tick(); flush();
+  out.went = [ev("S.latestKey"), shown(), ev("S.latestPending"), ev("S.sel"), els["#cmdbar"].innerHTML.includes("newer run")];
+  // moving the view holds it, and so does opening a finding
+  ev("setView({x: 0, y: 0, w: 10, h: 10})"); clock += 9000;
+  arrive(6, {}); await tick(); flush();
+  out.zoomed = [ev("S.latestKey"), ev("S.latestPending && S.latestPending.key")];
+  clock += 2000;                                                       // 11 s after the last touch
+  arrive(7, {}); await tick(); flush();
+  out.later = [ev("S.latestKey"), shown(), ev("S.latestPending")];
+  ev("focusFinding(plan().findings[0])"); clock += 1000;
+  arrive(8, {}); await tick(); flush();
+  out.finding = [ev("S.latestKey"), ev("S.latestPending && S.latestPending.key")];
+  // the hold is the setting: 0 never holds
+  send("hello", {script: "", picker: true, root: PROJ, scripts, keep: 5, history: [], resolving: null, error: null, runs: [], run: null, project_runs: [], explores: [], routes: [], commands: Object.values(cmds), follow_hold_s: 0});
+  ev('selectItem("a")'); clock += 1000;
+  arrive(9, {}); await tick(); flush();
+  out.zero = [ev("S.latestKey")];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["held"] == ["cmd:4", "4", True, "cmd:5"]
+    assert "A newer run started" in out["bar"] and 'id="gonewer"' in out["bar"] and "preview" in out["bar"]
+    assert out["went"] == ["cmd:5", "5", None, None, False]
+    assert out["zoomed"] == ["cmd:5", "cmd:6"]
+    assert out["later"] == ["cmd:7", "7", None]
+    assert out["finding"] == ["cmd:7", "cmd:8"]
+    assert out["zero"] == ["cmd:9"]
+
+
+@needs_node
+def test_the_header_title_opens_the_dialog_with_runs_first_and_choosing_a_particular_one_leaves_latest(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const a = mkcmd(4, {kind: "explore", command: "run"});
+  serve({"/cmd/4": detail(a), "/runview?run=aaaa0001": {doc: Object.assign({}, BOARD, {items: [], steps: [], copper: [], links: [], findings: [], unplaced: [], pocketed: [], counts: {}}), summary: past[0]}});
+  helloPicker({commands: [a]}); await tick(); flush();
+  els["#brandbtn"].onclick(); flush();
+  const html = els["#picker"].innerHTML;
+  out.order = [html.indexOf(">Runs<"), html.indexOf("Running now"), html.indexOf("Past runs"), html.indexOf("Open a script")];
+  out.current = [html.includes('aria-current="true"'), html.includes('<span class="chip">current</span>'), html.includes('data-latest="1"'), /class="row cmd step latest on"/.test(html)];
+  out.title = html.includes("The most recent command in this project");
+  out.now = html.match(/<div class="l2">now [^<]*/)[0];
+  click("#picker", "[data-runview]", {runview: "aaaa0001"}); await tick(); flush();
+  out.pinned = [ev("S.latestOn"), els["#latestchip"].hidden, ev("viewHash()").includes("run=aaaa0001"), ev("viewHash()").includes("latest")];
+  els["#brandbtn"].onclick(); flush();
+  out.notCurrent = [els["#picker"].innerHTML.includes('aria-current'), els["#picker"].innerHTML.includes("current</span>")];
+  click("#picker", "[data-latest]"); flush(); await tick(); flush();
+  out.back = [ev("S.latestOn"), els["#latestchip"].hidden, ev("S.start"), shown()];
+  els["#brandbtn"].onclick(); flush(); click("#picker", "[data-script]", {script: "b/B_layout.py"}); flush();
+  out.script = [ev("S.latestOn"), els["#latestchip"].hidden, posts()];
+  console.log(JSON.stringify(out));
+})();
+""")
+    runs, running, past_, scripts_ = out["order"]
+    assert 0 < runs < running < past_ < scripts_
+    assert out["current"] == [True, True, True, True] and out["title"] is True and out["now"].startswith('<div class="l2">now explore of A_layout.py')
+    assert out["pinned"] == [False, True, True, False]
+    assert out["notCurrent"] == [False, False]
+    assert out["back"] == [True, False, False, "4"]
+    assert out["script"] == [False, True, [["/switch?t=x", '{"script":"b/B_layout.py"}']]]
+
+
+@needs_node
+def test_the_address_names_the_latest_mode_and_the_existing_addresses_still_pin(tmp_path):
+    tail = r"""
+(async () => {
+  const a = mkcmd(4, {});
+  serve({"/cmd/4": detail(a), "/runview?run=aaaa0001": {doc: Object.assign({}, BOARD, {items: [], steps: [], copper: [], links: [], findings: [], unplaced: [], pocketed: [], counts: {}}), summary: past[0]}});
+  helloPicker({commands: [a]}); await tick(); flush();
+  out.state = [ev("S.latestOn"), ev("S.start"), shown(), gets(), posts()];
+  console.log(JSON.stringify(out));
+})();
+"""
+    assert run_page(tmp_path, LATEST + tail, hash="latest")["state"] == [True, False, "4", ["/cmd/4?t=x"], []]
+    assert run_page(tmp_path, LATEST + tail, hash="latest=1&f=front")["state"][:3] == [True, False, "4"]
+    assert run_page(tmp_path, LATEST + tail, hash="")["state"][:3] == [True, False, "4"]                   # no address: the same
+    assert run_page(tmp_path, LATEST + tail, hash="run=aaaa0001")["state"][:4] == [False, False, "run:aaaa0001", ["/runview?run=aaaa0001&t=x"]]
+    assert run_page(tmp_path, LATEST + tail, hash="cmd=4")["state"][:3] == [False, False, "4"]
+    assert run_page(tmp_path, LATEST + tail, hash="s=b%2FB_layout.py")["state"][:1] == [False]
+    # a studio started on a script is not in Latest until asked, or named in the address
+    given = r"""
+(async () => {
+  const a = mkcmd(4, {});
+  serve({"/cmd/4": detail(a)});
+  send("hello", {script: "A_layout.py", title: "A", subtitle: "", scripts, keep: 5, history: [], resolving: 1, error: null, commands: [a], project_runs: [], explores: [], routes: []}); await tick(); flush();
+  out.state = [ev("S.latestOn"), shown()];
+  console.log(JSON.stringify(out));
+})();
+"""
+    assert run_page(tmp_path, LATEST + given)["state"] == [False, None]
+    assert run_page(tmp_path, LATEST + given, hash="latest")["state"] == [True, "4"]
+
+
+@needs_node
+def test_an_event_that_arrives_while_a_command_is_being_opened_is_not_lost(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const a = mkcmd(4, {}), b = mkcmd(5, {started: clock / 1000});
+  serve({"/cmd/4": detail(a)});
+  helloPicker({commands: [a]}); await tick(); flush();
+  let release; const gate = new Promise(r => { release = r; });
+  ctx.fetch = (u, o) => { fetched.push([u, o]); return gate.then(() => ({ok: true, json: async () => ({summary: b, events: [{ev: "resolve", n: 1}], plan: null, explore: null})})); };
+  send("cmd", b);                                                        // the page asks for command 5 ...
+  send("cmdev", {id: 5, n: 0, ev: {ev: "resolve", n: 1}});               // ... one event the copy has,
+  send("cmdev", {id: 5, n: 1, ev: {ev: "board", board: BOARD.board, keepouts: [], reservations: []}});     // ... one it has not
+  send("cmdev", {id: 7, n: 0, ev: {ev: "board", board: null, keepouts: [], reservations: []}});            // ... and another command's
+  release(); await tick(); await tick(); flush();
+  out.board = [shown(), ev("S.cmdView.plan.board && S.cmdView.plan.board.extent")];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["board"] == ["5", [0, 0, 40, 30]]
