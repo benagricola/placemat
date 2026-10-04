@@ -551,7 +551,7 @@ out.fetched = fetched.filter(([u, o]) => o).map(([u, o]) => o.body);
 send("switched", {script: "B_layout.py", title: "B", subtitle: "second", scripts: scripts.map(s => Object.assign({}, s, {current: s.id[0] === "b"})), keep: 5, history: [], resolving: null, error: null, runs: [], run: null});
 out.after = [els["#picker"].hidden, els["#board-title"].textContent];
 """)
-    assert out["picker"][0] is False and "Choose what to look at" in out["picker"][1] and "Running now" in out["picker"][1] and "Past runs" in out["picker"][1] and "Open a script" in out["picker"][1]
+    assert out["picker"][0] is False and "<h2>Open</h2>" in out["picker"][1] and "Running now" in out["picker"][1] and "Past runs" in out["picker"][1] and "Open a script" in out["picker"][1]
     assert "A_layout.py" in out["picker"][1] and "second" in out["picker"][1]
     assert out["title"] == "placemat studio" and out["status"] == "nothing open" and out["run"] is True
     assert out["fetched"] == ['{"script":"b/B_layout.py"}'] and out["after"] == [True, "B"]

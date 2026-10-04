@@ -590,7 +590,7 @@ svg text { user-select: none; font-family: var(--sans); }
 <body>
 <div id="infopop" role="tooltip" hidden></div>
 <header>
-  <button class="brand" id="brandbtn" aria-haspopup="dialog" aria-expanded="false" title="choose what to look at: a command running now, a past run or a layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
+  <button class="brand" id="brandbtn" aria-haspopup="dialog" aria-expanded="false" title="open a command running now, a past run or a layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
   <span class="chip kind" id="kindchip" hidden></span><span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
   <span class="pill stale" id="nativepill" hidden>native off</span>
   <div class="flds" id="runhead" hidden></div>
@@ -612,7 +612,7 @@ svg text { user-select: none; font-family: var(--sans); }
   <div id="boardwrap">
     <svg id="grid" xmlns="http://www.w3.org/2000/svg"></svg>
     <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
-    <div id="nothing" hidden><b>No board is open</b><span class="dim">Follow a command running in this project, open a past run, or open a layout script.</span><button class="tool" id="nothingpick">Choose what to look at</button></div>
+    <div id="nothing" hidden><b>No board is open</b><span class="dim">Follow a command running in this project, open a past run, or open a layout script.</span><button class="tool" id="nothingpick">Open</button></div>
     <div id="bar">
       <div class="seg" id="facebar"><button data-face="front">Front</button><button data-face="back">Back</button><button data-face="both">Both</button></div>
       <div class="seg" id="modebar" title="draw the board flat (2D) or built (3D, from the parts' real models)"><button data-mode="2d" class="on">2D</button><button data-mode="3d">3D</button></div>
@@ -965,7 +965,7 @@ function renderStatus() {
   const kc = $("#kindchip"); kc.hidden = !vs;
   if (vs) { kc.className = "chip kind kind-" + vs.kind; kc.textContent = kindWord(vs.kind); kc.title = kindTitle(vs); }
   const head = vs ? [baseName(vs.script) || "placemat studio", [vs.label, vs.pid ? "pid " + vs.pid : "", vs.run ? "run " + vs.run : ""].filter(Boolean).join(", ")]
-    : pick ? ["placemat studio", "choose what to look at"] : [(S.hello && (S.hello.title || S.hello.script)) || "placemat studio", (S.hello && S.hello.subtitle) || ""];
+    : pick ? ["placemat studio", ""] : [(S.hello && (S.hello.title || S.hello.script)) || "placemat studio", (S.hello && S.hello.subtitle) || ""];
   $("#board-title").textContent = head[0]; $("#board-sub").textContent = head[1];
   $("#nothing").hidden = !(pick && !vs && !S.start);
   const label = vs ? STATE_WORD[vs.state] : pick ? "nothing open" : S.run && S.run.regenerate ? "regenerating" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
@@ -3784,7 +3784,7 @@ function startHTML() {
     .sort((a, b) => (b.at || 0) - (a.at || 0));
   const shown = past.slice(0, 10), list = S.scripts || [];
   const sec = (title, n, body, none) => "<section><h3>" + title + ' <span class="c">' + n + "</span></h3>" + (body || '<div class="pad8 dim">' + none + "</div>") + "</section>";
-  return '<div class="box" role="dialog" aria-label="choose what to look at"><div class="bh"><h2>Choose what to look at</h2><button class="x" id="startclose" aria-label="close" title="close">&times;</button></div>' +
+  return '<div class="box" role="dialog" aria-label="open"><div class="bh"><h2>Open</h2><button class="x" id="startclose" aria-label="close" title="close">&times;</button></div>' +
     sec("Running now", running.length, running.map(rowCmd).join(""), "No placemat command is running in this project. A preview, a run, an explore or a route started here shows up as it begins.") +
     sec("Past runs", past.length, shown.map(p => p.html).join("") + (past.length > shown.length ? '<div class="pad8 dim">' + (past.length - shown.length) + " older ones are in the Runs tab.</div>" : ""), "Nothing has been recorded in this project yet.") +
     "<section><h3>Open a script <span class=\"c\">" + list.length + '</span></h3><div class="pad8 dim">Starts the studio\'s own preview of it.</div>' + (list.length ? list.map(s => scriptEntry(s, "pick")).join("") : '<div class="pad8 dim">The layout scripts are being listed ...</div>') +

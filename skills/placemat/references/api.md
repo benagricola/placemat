@@ -3467,7 +3467,7 @@ part, then a `copper` step per net in laid order) and `GET /build?run=ID` a run'
 Runs view draws its tracks net by net as they are laid, with the net it is on and the routed and failed counts; a finished one
 replays from its record.
 
-With no `<script>` the page opens on a dialog, "Choose what to look at", over the usual interface (Runs tab first; the findings layer on
+With no `<script>` the page opens on a dialog, "Open", over the usual interface (Runs tab first; the findings layer on
 the board is off until the Findings tab is open or the legend turns it on). Its three choices: a command running now (followed live, as a
 background run), a past run (`GET /projectruns` lists every board's `run.json` records; `GET /runview?run=ID` serves one as a plan
 document - the run's `plan.json` when it has one, else the board it wrote with its findings placed from their facts - and resolves
