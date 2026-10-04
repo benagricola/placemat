@@ -233,11 +233,11 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 .seg button, .tool { border: 0; background: none; padding: 6px 12px; min-height: 32px; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-#viewbar, #bodybar { display: none; }
+#viewbar, #bodybar, #spreadbar { display: none; }
 body[data-mode="3d"] #board, body[data-mode="3d"] #grid, body[data-mode="3d"] #facebar { display: none; }
-body[data-mode="3d"] #viewbar, body[data-mode="3d"] #bodybar { display: inline-flex; }
+body[data-mode="3d"] #viewbar, body[data-mode="3d"] #bodybar, body[data-mode="3d"] #spreadbar { display: inline-flex; }
 body[data-mode="3d"] #bar { flex-wrap: wrap; }                 /* 2D | 3D, the views, Fit and Key: more than a phone is wide */
-body[data-mode="3d"] #viewbar button, body[data-mode="3d"] #bodybar button { padding-left: 9px; padding-right: 9px; }
+body[data-mode="3d"] #viewbar button, body[data-mode="3d"] #bodybar button, body[data-mode="3d"] #spreadbar button { padding-left: 9px; padding-right: 9px; }
 .m3 { margin: 4px 0 8px; padding: 0 12px; font-size: 12px; }
 .m3 .row3 { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; padding: 1px 0; }
 .m3 .row3 a { cursor: pointer; color: var(--accent); }
@@ -620,6 +620,7 @@ svg text { user-select: none; font-family: var(--sans); }
       <div class="seg" id="modebar" title="draw the board flat (2D) or built (3D, from the parts' real models)"><button data-mode="2d" class="on">2D</button><button data-mode="3d">3D</button></div>
       <div class="seg" id="viewbar"><button data-v="top">Top</button><button data-v="bottom">Bottom</button><button data-v="iso" class="on">Iso</button></div>
       <div class="seg" id="bodybar"></div>
+      <div class="seg" id="spreadbar"></div>
       <button class="tool" id="fit" title="fit the board to the window; double-tap the board does the same">Fit</button>
       <button class="tool" id="keybtn">Key</button>
     </div>
@@ -3440,15 +3441,18 @@ function copperInfo(p) {
   return {origins: copperOrigins(p), n: order.length, laid: !!(S.cmdView && S.cmdView.route),
           steps: ((p && p.copper) || []).map((c, i) => ({s: laidAt.has(i) ? laidAt.get(i) : last, x: c.x != null && stepN.has(c.x) ? stepN.get(c.x) : null}))};
 }
-// The 3D view's own look, kept while the page switches between 2D and 3D: the body solid or see-through.
-S.v3 = {body: "solid"};
+// The 3D view's own look, kept while the page switches between 2D and 3D: the body solid or see-through, the layers spread apart or not.
+S.v3 = {body: "solid", spread: false};
 const BODY3D = [["solid", "Solid", "draw the board body solid"], ["see", "See-through", "draw the board body translucent, so the copper of the inner layers shows through it"]];
 function renderBar3d() {
   $("#bodybar").innerHTML = BODY3D.map(([v, name, tip]) => '<button data-body="' + v + '"' + (S.v3.body === v ? ' class="on"' : "") + ' title="' + esc(tip) + '">' + esc(name) + "</button>").join("");
+  $("#spreadbar").innerHTML = '<button data-spread=""' + (S.v3.spread ? ' class="on"' : "") + ' title="' +
+    esc(S.v3.spread ? "close the layers up again" : "pull the copper layers apart, so each stands clear of the next; the parts ride on the outer layers") + '">Spread</button>';
 }
-function applyLook3d() { if (V3) { V3.body(S.v3.body); V3.visibility(); } }
+function applyLook3d() { if (V3) { V3.body(S.v3.body); V3.spread(S.v3.spread); V3.visibility(); } }
 function set3d(o) { Object.assign(S.v3, o); renderBar3d(); applyLook3d(); }
 $("#bodybar").onclick = e => { const b = e.target.closest && e.target.closest("[data-body]"); if (b) set3d({body: b.dataset.body}); };
+$("#spreadbar").onclick = e => { if (e.target.closest && e.target.closest("[data-spread]")) set3d({spread: !S.v3.spread}); };
 renderBar3d();
 function load3d() {
   if (V3p) return V3p;

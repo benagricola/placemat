@@ -2797,6 +2797,25 @@ out.calls = calls.slice();
 
 
 @needs_node
+def test_spread_on_the_3d_bar_pulls_the_layers_apart_and_is_kept_across_views(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+ev("V3 = __fake");
+out.off = els["#spreadbar"].innerHTML;
+ev("set3d({spread: true})");
+out.on = els["#spreadbar"].innerHTML;
+out.calls = calls.filter(c => c[0] === "spread");
+calls.length = 0;
+ev("setMode('2d')"); ev("V3 = __fake"); ev("applyLook3d()");
+out.again = calls.filter(c => c[0] === "spread");
+els["#spreadbar"].onclick({target: {closest: s => s === "[data-spread]" ? {dataset: {spread: ""}} : null}});
+out.toggled = ev("S.v3.spread");
+""")
+    assert 'data-spread=""' in out["off"] and 'class="on"' not in out["off"] and 'class="on"' in out["on"]
+    assert out["calls"] == [["spread", True]] and out["again"] == [["spread", True]] and out["toggled"] is False
+    assert "(" not in re.sub(r"<[^>]*>", "", out["on"]) and 'title="' in out["on"]
+
+
+@needs_node
 def test_the_legends_copper_rows_and_their_only_buttons_act_on_the_3d_view_through_the_same_switches(tmp_path):
     out = run_more(tmp_path, THREED + r"""
 openDoc(copperDoc());

@@ -90,7 +90,7 @@ class Models3D:
             return {"started": self.proc is not None, "ready": self.ready is not None, "cli": bool(r.get("cli")), "ok": bool(test.get("ok")),
                     "message": failure_text(test["failure"]) if test.get("failure") else "", "version": test.get("version", ""), "progress": dict(self.progress),
                     "converter": CONVERTER_VERSION, "max_tris": int(self.cfg.studio_3d_max_tris), "appear_ms": int(self.cfg.studio_3d_appear_ms),
-                    "plate_mm": float(self.cfg.studio_3d_plate_mm)}
+                    "plate_mm": float(self.cfg.studio_3d_plate_mm), "spread_mm": float(self.cfg.studio_3d_spread_mm), "spread_ms": int(self.cfg.studio_3d_spread_ms)}
 
     def table(self) -> dict:
         with self.lock:

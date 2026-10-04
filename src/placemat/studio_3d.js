@@ -11,7 +11,7 @@ import { OrbitControls } from "./OrbitControls.js";
 const css = (n, d) => (getComputedStyle(document.documentElement).getPropertyValue(n) || "").trim() || d;
 const dark = () => matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
 
-import { parsePmm, upper, partSteps, plateOutline, layerStack, drawHeight, viaSpan, trackPolys, visibleRanges, copperShown, findingLayer, pickMarks } from "./viewer_core.js";
+import { parsePmm, upper, partSteps, plateOutline, layerStack, drawHeight, spreadHeight, spreadLift, viaSpan, trackPolys, visibleRanges, copperShown, findingLayer, pickMarks } from "./viewer_core.js";
 export { parsePmm };
 
 function hatch(color) {
@@ -53,7 +53,7 @@ export async function mount(host) {
     sig: "", T: 1.6, extent: [0, 0, 100, 60], assets: new Map(), loading: new Set(), groups: [], plates: [], body: null, root: new THREE.Group(),
     selKey: null, selObjs: [], animations: [], seen: new Set(), visible: true, dirty: true, k: null, theme: null, order: [], keyN: new Map(), stats: {},
     dim: false, over: false, hover: null,
-    copper: [], vias: [], stack: null, bodyMode: "solid",
+    copper: [], vias: [], stack: null, bodyMode: "solid", spreadK: 0, spreadFrom: 0, spreadTo: 0, spreadT0: 0, sheets: [],
   };
   scene.add(state.root);
   const request = () => { state.dirty = true; if (!state.raf && state.visible) state.raf = requestAnimationFrame(frame); };
@@ -111,7 +111,36 @@ export async function mount(host) {
     const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color: state.theme.body, roughness: 0.75, metalness: 0.0, side: THREE.DoubleSide}));
     mesh.userData.body = true;
     state.body = mesh; state.root.add(mesh);
+    buildSheets(outer, loops);
     bodyLook();
+  }
+  // Spread, the body fades out and each copper layer gets a sheet of its own: the board's outline at the layer's height, filled faintly
+  // and edged, so each layer reads as a plane of its own. A body cut into slabs between the layers would stack five translucent volumes over
+  // every inner layer seen at an angle and wash its copper out; one faint sheet per layer does not.
+  const SHEET_OPACITY = 0.1, SHEET_EDGE_OPACITY = 0.7;
+  function clearSheets() {
+    for (const s of state.sheets) state.root.remove(s);
+    if (state.sheets.length) { state.sheets[0].geometry.dispose(); state.sheets[0].children[0].geometry.dispose(); }
+    for (const s of state.sheets) { s.material.dispose(); s.children[0].material.dispose(); }
+    state.sheets = [];
+  }
+  function buildSheets(outer, loops) {
+    clearSheets();
+    const names = state.stack ? state.stack.layers.map(l => l.name) : [];
+    if (!outer || !names.length) return;
+    const shape = new THREE.Shape(ring(outer));
+    for (const l of loops) if (l !== outer) shape.holes.push(new THREE.Path(ring(l)));
+    const fill = new THREE.ShapeGeometry(shape, 6);
+    fill.rotateX(-Math.PI / 2);
+    const pts = [];
+    for (const l of loops) for (let i = 0; i < l.length; i++) { const a = l[i], b = l[(i + 1) % l.length]; pts.push(a[0], 0, a[1], b[0], 0, b[1]); }
+    const edge = new THREE.BufferGeometry(); edge.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    for (const name of names) {
+      const s = new THREE.Mesh(fill, new THREE.MeshBasicMaterial({color: new THREE.Color(state.theme.body), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide}));
+      s.add(new THREE.LineSegments(edge, new THREE.LineBasicMaterial({color: new THREE.Color(state.theme.edge), transparent: true, opacity: 0})));
+      s.userData.layer = name; s.visible = false; s.renderOrder = -2;
+      state.root.add(s); state.sheets.push(s);
+    }
   }
   // Solid, or see-through: the body translucent, so the inner layers' copper shows through it.
   // The body is a volume round every layer, so no order of drawing puts it rightly behind and in front of them all: it is drawn first of the
@@ -119,11 +148,18 @@ export async function mount(host) {
   // drawing's substrate colour, so the layers' colours read against it as they do in 2D (the inner layers' green would not, on green).
   const SEE_OPACITY = 0.3;
   function bodyLook() {
+    const k = state.spreadK, t = state.theme;
+    for (const s of state.sheets) {
+      s.visible = k > 0;
+      s.material.opacity = SHEET_OPACITY * k; s.children[0].material.opacity = SHEET_EDGE_OPACITY * k;
+      s.material.color.set(t.body); s.children[0].material.color.set(t.edge);
+    }
     if (!state.body) return;
-    const m = state.body.material, see = state.bodyMode === "see";
-    m.transparent = see; m.opacity = see ? SEE_OPACITY : 1; m.depthWrite = !see; m.needsUpdate = true;
-    m.color.set(see ? state.theme.substrate : state.theme.body);
-    state.body.renderOrder = see ? -1 : 0;
+    const m = state.body.material, see = state.bodyMode === "see", clear = see || k > 0;
+    m.transparent = clear; m.opacity = (see ? SEE_OPACITY : 1) * (1 - k); m.depthWrite = !clear; m.needsUpdate = true;
+    m.color.set(see ? t.substrate : t.body);
+    state.body.renderOrder = clear ? -1 : 0;
+    state.body.visible = k < 1;
     request();
   }
   // A grid under the whole scene, as the 2D view has: a part that stands off the board (a part the generator left in its staging area) is
@@ -172,7 +208,7 @@ export async function mount(host) {
   // ---- parts: instanced models, plates for the rest
   function clearParts() {
     for (const g of state.groups) { state.root.remove(g.mesh); g.mesh.dispose(); }
-    if (state.plateMesh) { state.root.remove(state.plateMesh); state.plateMesh.geometry.dispose(); state.plateMat.map.dispose(); state.plateMat.dispose(); state.plateMesh = null; }
+    if (state.plateMesh) { state.root.remove(state.plateMesh); state.plateMesh.geometry.dispose(); state.plateMat.map.dispose(); state.plateMat.dispose(); state.plateMesh = null; state.plateBase = null; }
     for (const p of state.plates) if (p.label) { state.root.remove(p.label); p.label.geometry.dispose(); p.label.material.map.dispose(); p.label.material.dispose(); }
     clearSel();
     state.groups = []; state.plates = [];
@@ -205,6 +241,7 @@ export async function mount(host) {
         const label = new THREE.Mesh(new THREE.PlaneGeometry(s, s / 4), new THREE.MeshBasicMaterial({map: labelTexture(pl.loading ? "loading" : "no model: " + pl.why, t.text), transparent: true, depthWrite: false}));
         label.rotation.x = -Math.PI / 2; label.position.set((pl.bbox[0] + pl.bbox[2]) / 2, (pl.back ? 0 : T + th) + 0.02, (pl.bbox[1] + pl.bbox[3]) / 2);
         if (pl.back) label.position.y = -th - 0.02;
+        label.userData.y0 = label.position.y;
         pl.label = label; state.root.add(label);
       }
     }
@@ -214,6 +251,7 @@ export async function mount(host) {
     geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
     state.plateMat = new THREE.MeshBasicMaterial({map: hatch(t.plate), transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false});
     state.plateMesh = new THREE.Mesh(geo, state.plateMat);
+    state.plateBase = Float32Array.from(geo.attributes.position.array);          // where each plate stands with the layers closed
     state.root.add(state.plateMesh);
   }
   // ---- copper: each layer at its height in the stackup (layerStack, from model_plan.py). One merged mesh per layer and kind: the tracks of
@@ -259,7 +297,33 @@ export async function mount(host) {
       for (let j = 0; j < S; j++) { const k = (j + 1) % S; b.idx.push(o[j], o[k], n[k], o[j], n[k], n[j]); }
     }
   }
-  const layerY = name => drawHeight(state.stack, name);
+  // ---- spread: the stack pulled apart by k (0 closed, 1 open), each layer [studio] 3d_spread_mm further from the next, the middle of the
+  // stack where it was; the parts ride on the outer layers (front parts above the top one, back parts under the bottom one).
+  const GAP = () => { const g = host.settings().spread_mm; return g > 0 ? g : 4; };
+  const layerY = name => spreadHeight(state.stack, name, state.spreadK, GAP());
+  // Everything that rides on the layers, placed for the spread now: copper, vias, marks, the parts and their plates, the layer sheets, the grid.
+  function applySpread() {
+    if (!state.stack) return;
+    for (const m of state.copper) { const l = m.userData.cu.layer; if (l) m.position.y = layerY(l) - drawHeight(state.stack, l); }
+    placeVias();
+    placeMarks();
+    const mtx = new THREE.Matrix4();
+    for (const g of state.groups) { g.entries.forEach((e, i) => g.mesh.setMatrixAt(i, matOf(e, mtx))); g.mesh.instanceMatrix.needsUpdate = true; g.mesh.computeBoundingSphere(); }
+    if (state.plateMesh && state.plateBase) {
+      const pos = state.plateMesh.geometry.attributes.position;
+      for (const pl of state.plates) { const d = partLift(pl.back); for (let v = pl.vstart; v < pl.vend; v++) pos.array[3 * v + 1] = state.plateBase[3 * v + 1] + d; }
+      pos.needsUpdate = true; state.plateMesh.geometry.computeBoundingSphere();
+      for (const pl of state.plates) if (pl.label) pl.label.position.y = pl.label.userData.y0 + partLift(pl.back);
+    }
+    for (const s of state.sheets) s.position.y = layerY(s.userData.layer);
+    if (state.grid) state.grid.position.y = -0.03 - spreadLift(state.stack, state.spreadK, GAP());
+    bodyLook();
+    if (state.selKey) applySel();
+    request();
+  }
+  const partLift = below => state.stack ? (below ? -1 : 1) * spreadLift(state.stack, state.spreadK, GAP()) : 0;
+  // a part's instance matrix where it stands now: its own, lifted with its outer layer
+  function matOf(e, out) { out.fromArray(e.matrix); out.elements[13] += partLift(e.below); return out; }
   function placeVias() {
     const names = state.stack.layers.map(l => l.name);
     for (const v of state.vias) {
@@ -519,7 +583,7 @@ export async function mount(host) {
       g.ns = g.entries.map(e => e.n);
       const mesh = new THREE.InstancedMesh(g.mat.geometry, g.mat.mat, g.entries.length);
       const mtx = new THREE.Matrix4();
-      g.entries.forEach((e, i) => { mtx.fromArray(e.matrix); mesh.setMatrixAt(i, mtx); });
+      g.entries.forEach((e, i) => { mesh.setMatrixAt(i, matOf(e, mtx)); });
       mesh.instanceMatrix.needsUpdate = true;
       mesh.userData.group = g; g.mesh = mesh; mesh.frustumCulled = false;
       mesh.computeBoundingSphere();
@@ -562,7 +626,7 @@ export async function mount(host) {
       if (!es.length) continue;
       const m = new THREE.InstancedMesh(g.mat.geometry, g.mat.mat, es.length);
       const mtx = new THREE.Matrix4();
-      es.forEach((e, i) => { mtx.fromArray(e.matrix); m.setMatrixAt(i, mtx); });
+      es.forEach((e, i) => { m.setMatrixAt(i, matOf(e, mtx)); });
       m.instanceMatrix.needsUpdate = true; m.frustumCulled = false;
       state.root.add(m); state.selObjs.push(m);
     }
@@ -584,11 +648,11 @@ export async function mount(host) {
   function selectionBox(key) {
     const b = new THREE.Box3(), v = new THREE.Vector3(), mtx = new THREE.Matrix4();
     for (const g of state.groups) for (const e of g.entries) if (e.key === key) {
-      const h = g.asset.header.bbox; mtx.fromArray(e.matrix);
+      const h = g.asset.header.bbox; matOf(e, mtx);
       for (const x of [h[0], h[3]]) for (const y of [h[1], h[4]]) for (const z of [h[2], h[5]]) b.expandByPoint(v.set(x, y, z).applyMatrix4(mtx));
     }
     const th = host.settings().plate_mm || 0.1;
-    for (const p of state.plates) if (p.key === key) { const y = p.back ? -th : state.T; b.expandByPoint(v.set(p.bbox[0], y, p.bbox[1])); b.expandByPoint(v.set(p.bbox[2], y + th, p.bbox[3])); }
+    for (const p of state.plates) if (p.key === key) { const y = (p.back ? -th : state.T) + partLift(p.back); b.expandByPoint(v.set(p.bbox[0], y, p.bbox[1])); b.expandByPoint(v.set(p.bbox[2], y + th, p.bbox[3])); }
     if (b.isEmpty()) return null;
     const size = b.getSize(new THREE.Vector3()).addScalar(0.1), center = b.getCenter(new THREE.Vector3());
     return {size, center};
@@ -676,13 +740,20 @@ export async function mount(host) {
       const ms = host.settings().appear_ms || 0, mtx = new THREE.Matrix4(), lift = new THREE.Matrix4();
       state.animations = state.animations.filter(a => {
         const t = ms ? Math.min(1, (now - a.t0) / ms) : 1, e = 1 - Math.pow(1 - t, 3);
-        mtx.fromArray(a.entry.matrix);
+        matOf(a.entry, mtx);
         lift.makeTranslation(0, (a.entry.below ? -4 : 4) * (1 - e), 0);     // a back part rises to the board from underneath
         a.group.mesh.setMatrixAt(a.i, lift.multiply(mtx));
         a.group.mesh.instanceMatrix.needsUpdate = true;
         return t < 1;
       });
       animating = state.animations.length > 0;
+    }
+    if (state.spreadK !== state.spreadTo) {                           // the layers parting or closing, eased in and out
+      const ms = host.settings().spread_ms == null ? 450 : host.settings().spread_ms, t = ms > 0 ? Math.min(1, Math.max(0, (now - state.spreadT0) / ms)) : 1;
+      const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      state.spreadK = t >= 1 ? state.spreadTo : state.spreadFrom + (state.spreadTo - state.spreadFrom) * e;
+      applySpread();
+      animating = animating || state.spreadK !== state.spreadTo;
     }
     if (state.loadingParts) {                                         // plates of models still converting pulse faintly
       const o = 0.5 + 0.25 * Math.sin(now / 350);
@@ -714,6 +785,7 @@ export async function mount(host) {
       if (sig !== state.sig) {
         const first = !state.sig;
         const before = new Set(state.seen);
+        state.stack = layerStack(plan);
         if (!state.body || (state.bodySig !== boardSig(plan))) { buildBody(plan); state.bodySig = boardSig(plan); }
         rebuild(plan, order);
         buildCopper(plan, order);
@@ -726,7 +798,7 @@ export async function mount(host) {
       }
       const fsig = (host.findings ? host.findings() : []).map(m => m.i + (m.on ? "*" : "")).join(",") + "#" + (plan.congestion ? plan.congestion.cells.length + ":" + plan.congestion.worst : "") +
         "#" + JSON.stringify(state.stack && state.stack.layers.map(l => l.name));
-      if (sig !== state.lastMarkSig || fsig !== state.marksSig) { buildMarks(plan); state.marksSig = fsig; state.lastMarkSig = sig; }
+      if (sig !== state.lastMarkSig || fsig !== state.marksSig) { buildMarks(plan); state.marksSig = fsig; state.lastMarkSig = sig; if (state.spreadK) applySpread(); }
       const prevK = state.k;
       showSteps(opts.k == null ? null : opts.k);
       if (opts.play && opts.k != null && prevK != null && opts.k > prevK && opts.k - prevK <= 3 && (host.settings().appear_ms || 0) > 0) {
@@ -750,6 +822,13 @@ export async function mount(host) {
     body(mode) { state.bodyMode = mode === "see" ? "see" : "solid"; bodyLook(); },
     // the legend's switches changed (host.off)
     visibility,
+    // pull the layers apart (true) or close them up, over [studio] 3d_spread_ms
+    spread(on) {
+      const to = on ? 1 : 0;
+      if (to === state.spreadTo) return;
+      state.spreadFrom = state.spreadK; state.spreadTo = to; state.spreadT0 = performance.now();
+      request();
+    },
     dim(on) { state.dim = on; for (const g of state.groups) g.mesh.material = on ? g.mat.dim : g.mat.mat; request(); },
     stats() { return Object.assign({}, state.stats, {tris: state.tris, loading: state.loading.size}); },
     // Bring a part's box into view (the card's "zoom"): the camera keeps its direction.
@@ -764,7 +843,7 @@ export async function mount(host) {
     canvas, three: THREE, state, camera, controls,
     dispose() { renderer.dispose(); canvas.remove(); },
   };
-  const boardSig = plan => JSON.stringify([plan.board && plan.board.loops, state.T]) + (plan.copper || []).filter(c => c.t === "via").length;
+  const boardSig = plan => JSON.stringify([plan.board && plan.board.loops, state.T, layerStack(plan).layers.map(l => l.name)]) + (plan.copper || []).filter(c => c.t === "via").length;
   theme();
   resize();
   return api;
