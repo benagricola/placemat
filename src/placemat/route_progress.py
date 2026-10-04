@@ -155,7 +155,7 @@ class RouteEvents:
 def write_record(work, board: dict, stages: list, report: dict) -> Path:
     """`route_record.json`: the board a route was made on, each stage's events in laid order and the report's result. Written whole."""
     path = Path(work) / RECORD
-    doc = {"version": 1, "board": board, "stages": stages, "report": {k: report[k] for k in ("closure", "closure_clean", "open_before", "open_after", "open_nets", "shorted", "seconds", "quick", "resumed") if k in report}}
+    doc = {"version": 1, "board": board, "stages": stages, "report": {k: report[k] for k in ("closure", "closure_clean", "open_before", "open_after", "open_nets", "shorted", "seconds", "quick", "resumed", "widths") if k in report}}
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(doc, separators=(",", ":"), default=str))
     os.replace(tmp, path)
@@ -164,7 +164,7 @@ def write_record(work, board: dict, stages: list, report: dict) -> Path:
     summary = {"nets": len(laid["order"]), "routed": sum(1 for n in laid["order"] if laid["result"][n] == "routed"),
                "failed": sum(1 for n in laid["order"] if laid["result"][n] != "routed"), "closure": doc["report"].get("closure_clean", doc["report"].get("closure")),
                "seconds": doc["report"].get("seconds"), "run": board.get("run", ""), "script": board.get("script", ""), "pcb": board.get("pcb", ""),
-               "at": round(time.time(), 1)}
+               "under_width": doc["report"].get("widths", []), "at": round(time.time(), 1)}
     (Path(work) / SUMMARY).write_text(json.dumps(summary, separators=(",", ":")))
     return path
 

@@ -707,8 +707,13 @@ def cmd_route(args) -> int:
             channel.exception(e)
             raise
         channel.finish(getattr(report, "record", None) or None)
+    short = []
+    if report.widths:
+        from .kicad.read import read_board
+        from .kicad.route_widths import stated_currents
+        short = report.findings(stated_currents(read_board(pcb)))
     if args.json:
-        console.data(json.dumps(dict(report.as_dict(), missing_rules=missing), indent=2))
+        console.data(json.dumps(dict(report.as_dict(), missing_rules=missing, finding_details=[f.detail() for f in short]), indent=2))
     else:
         console.say("route", report.summary())
         if report.resumed:
@@ -716,6 +721,8 @@ def cmd_route(args) -> int:
                         ", ".join(report.resumed))
         for breach in report.keepout_breaches:
             console.say("route", breach)
+        for f in short:
+            console.finding(f, "route")
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
             console.say("route", "%-20s %d open" % (net, n))
         console.say("route", "routed board: %s" % report.routed_pcb)

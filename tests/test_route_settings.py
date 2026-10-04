@@ -23,7 +23,7 @@ def test_the_route_command_s_layers_flag_overrides_for_one_run(tmp_path, monkeyp
     seen = {}
 
     class Report:
-        valid, keepout_breaches, open_nets, routed_pcb, resumed = True, [], {}, pcb, []
+        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths = True, [], {}, pcb, [], []
 
         def summary(self):
             return "route: stand-in"
@@ -65,7 +65,7 @@ def test_the_route_command_leaves_the_boards_plane_nets_to_their_pours(breakout_
     seen = {}
 
     class Report:
-        valid, keepout_breaches, open_nets, routed_pcb, resumed = True, [], {}, pcb, []
+        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths = True, [], {}, pcb, [], []
 
         def summary(self):
             return "stand-in"

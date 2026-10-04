@@ -17,6 +17,14 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **A route says when the router laid an island net narrower than its width.** The router retries a blocked wide route at its default
+  track width and ships the net under the width asked; the route report said nothing (a net asked 1.37 mm shipped 16.6 of 17.2 mm under
+  it, narrowest 0.16 mm, and the closure read 84.3%). The router's per-stage measurement is now read: `route.json` has `widths` (net,
+  stage, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, and the router's `max_a` for the narrowest
+  copper), the summary line ends `UNDER WIDTH: ...`, `route_summary.json` has `under_width`, `placemat watch` shows a `route_width`
+  event, and each is a `route.width` finding in the console and `run.json`. Critical when the net has a width in `[route] islands`
+  or its ampacity is under the current the parts state (`Pm.I`), warning otherwise. Nothing to change in a script; a route that
+  reports one is a route whose widths were not delivered.
 - **The studio's "native off" pill shows only when native is off.** The pill's own style overrode the page hiding it, so it showed on
   every studio, with no tooltip, whatever the native module's state; any element the page hides now stays hidden.
 

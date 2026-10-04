@@ -25,7 +25,7 @@ class FindingKind(str, Enum):
     ESCAPE_LANE = "escape_lane"         # a declared escape lane (board.escape) that another net's pad, hole or copper blocks
     PAIR_CROSSED = "pair_crossed"       # a differential pair's two halves cross: a swap or a turn uncrosses it
     SETUP = "setup"                     # the same every run of the script: an undeclared part, a layer the board lacks
-    ROUTE = "route"                     # an adopted route dropped because a part it joins moved: the router routes it again
+    ROUTE = "route"                     # an adopted route dropped because a part it joins moved; a net routed under the width it was asked
     VIAS = "vias"                       # carried vias that gave way: shared, moved, left their pad, shortened or dropped
     FAB = "fab"                         # a board rule (a net class's track, clearance or via) below the fab profile's minimum
     FACTS = "facts"                     # the board's facts do not match what `placemat facts --confirm` last confirmed
@@ -103,6 +103,7 @@ class FindingCause(str, Enum):
     SETUP_PCBNEW = (FindingKind.SETUP, "setup.pcbnew")
     SETUP_NATIVE = (FindingKind.SETUP, "setup.native")
     ROUTE_DROPPED = (FindingKind.ROUTE, "route.dropped")
+    ROUTE_WIDTH = (FindingKind.ROUTE, "route.width")
     VIAS_GAVE_WAY = (FindingKind.VIAS, "vias.gave_way")
     VIAS_DROPPED = (FindingKind.VIAS, "vias.dropped")
     FAB_MINIMUM = (FindingKind.FAB, "fab.minimum")

@@ -113,6 +113,13 @@ SAMPLES = [
      "large board; rebuild it from this checkout's native/ (uv pip install -e \".[native]\")"),
     (C.ROUTE_DROPPED, {"key": "X", "why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
      "adopted route X dropped: its end at (1.00, 2.00) no longer meets the net's other copper; the router routes it again"),
+    (C.ROUTE_WIDTH, {"net": "V", "stage": "islands", "requested_mm": 1.37, "delivered_min_mm": 0.16, "length_under_mm": 16.61,
+                     "length_mm": 17.24, "share": 0.9636, "declared": True, "max_a": 0.45, "bottleneck_mm": 0.1, "stated_a": 3.0},
+     "net V: 16.6 of 17.2 mm (96%) of its copper in the islands stage is under the 1.37 mm it was asked, narrowest 0.16 mm; its "
+     "narrowest copper carries 0.45 A at most, the design states 3 A"),
+    (C.ROUTE_WIDTH, {"net": "V", "stage": "main", "requested_mm": 0.5, "delivered_min_mm": 0.2, "length_under_mm": 3.0,
+                     "length_mm": None, "share": None, "declared": False, "max_a": None, "bottleneck_mm": None, "stated_a": None},
+     "net V: 3.0 mm of its copper in the main stage is under the 0.5 mm it was asked, narrowest 0.2 mm"),
     (C.VIAS_GAVE_WAY, {"item": "m", "nets": [{"net": "SIG", "parts": [{"kind": "move", "n": 1, "moved_mm": 0.25}],
                                               "under": ["R9"], "held": []}], "fields": []},
      "m: 1 SIG via moved 0.25 mm under R9"),

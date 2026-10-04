@@ -110,6 +110,13 @@ class RouteReport:
     # The route record (route_progress.py): the events of every stage in laid order, what the studio replays the route from; "" when
     # events are off.
     record: str = ""
+    # Copper the router laid under the width it was asked, from its per-stage summaries (route_widths.py): a record per net and stage.
+    widths: list = field(default_factory=list)
+
+    def findings(self, stated: dict | None = None) -> list:
+        """The findings of the widths (route_widths.findings_of); `stated` is {net: amps} the design states."""
+        from .route_widths import findings_of
+        return findings_of(self.widths, stated)
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -133,6 +140,9 @@ class RouteReport:
             head += "  islands: " + ", ".join("%s %d -> %d apart" % (n, a, b) for n, (a, b) in self.islands.items())
         if self.islands_missing:
             head += "  island nets not on the board: " + ", ".join(self.islands_missing)
+        if self.widths:
+            from .route_widths import brief
+            head += "  UNDER WIDTH: " + "; ".join(brief(r) for r in self.widths)
         return head
 
     def as_dict(self) -> dict:
@@ -145,7 +155,7 @@ class RouteReport:
                 "pairs": self.pairs, "plane_layers": self.plane_layers,
                 "pours_kept": list(self.pours_kept),
                 "islands": {n: list(v) for n, v in self.islands.items()}, "islands_missing": list(self.islands_missing),
-                "resumed": list(self.resumed), "record": self.record}
+                "resumed": list(self.resumed), "record": self.record, "widths": list(self.widths)}
 
 
 def plane_nets_of(pcb) -> set:
@@ -888,6 +898,11 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                          breaches, pairs.as_dict(), plane_dropped, pours,
                          {n: (before.open_nets.get(n, 0), after.open_nets.get(n, 0)) for n in sorted(islands)},
                          islands_missing, resumed)
+    from .route_widths import read_widths
+    report.widths = read_widths(work, islands)
+    if rep is not None:
+        for r in report.widths:
+            rep.send(dict(r, ev="route_width"))
     if route_progress.enabled():
         report.record = str(route_progress.write_record(work, rev.info, rev.stages, report.as_dict()))
     _HOOK = False

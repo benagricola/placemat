@@ -1,0 +1,67 @@
+{
+ "successful": 1,
+ "failed": 0,
+ "power_widths": {
+  "VBUS": {
+   "requested_mm": 1.37,
+   "length_mm": 107.83,
+   "under_mm": 53.18,
+   "under_share": 0.4932,
+   "min_mm": 0.16,
+   "by_width_mm": {
+    "0.16": 34.01,
+    "0.3": 4.27,
+    "0.3425": 10.9,
+    "0.402": 0.79,
+    "0.548": 0.21,
+    "0.644": 0.79,
+    "0.7535": 0.21,
+    "0.886": 0.79,
+    "0.959": 0.21,
+    "1.128": 0.79,
+    "1.1645": 0.21,
+    "1.37": 54.65
+   },
+   "in_run_scope": true
+  }
+ },
+ "power_trace_ampacity": [
+  {
+   "net": "VBUS",
+   "bottleneck_width_mm": 0.16,
+   "bottleneck_layer": "B.Cu",
+   "copper_oz": 1.0000000000000002,
+   "max_current_a": 0.63,
+   "max_current_ipc2152_a": 0.63,
+   "temp_rise_c": 10.0,
+   "trace_length_mm": 113.7
+  }
+ ],
+ "power_widths_run_scope": [
+  "VBUS"
+ ],
+ "power_widths_measured_on": "written board",
+ "scope": "merged",
+ "design_rules": {
+  "escalation_policy": "off",
+  "count": 1,
+  "nets": [
+   117
+  ],
+  "narrowed": [
+   {
+    "net": 117,
+    "net_name": "VBUS",
+    "kind": "track_width",
+    "requested": 1.37,
+    "delivered": 0.16,
+    "site": "power copper shipped under width",
+    "count": 1,
+    "length_mm": 53.18
+   }
+  ],
+  "min_delivered": {
+   "track_width": 0.16
+  }
+ }
+}

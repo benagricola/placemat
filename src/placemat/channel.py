@@ -229,7 +229,7 @@ def compact(ev: dict):
         return {"ev": "explore", "focus": len(ev.get("focus", ())), "baseline": ev.get("baseline"), "jobs": ev.get("jobs")}
     if kind == "route_queue":
         return {"ev": "route_queue", "nets": len(ev.get("nets", ())), "stage": ev.get("stage")}
-    if kind in ("route_stage", "route_net_end", "route_queue_end", "route_off"):
+    if kind in ("route_stage", "route_net_end", "route_queue_end", "route_off", "route_width"):
         return {k: v for k, v in ev.items() if k != "doc"}
     if kind == "variant":
         return {k: ev[k] for k in ("ev", "seed", "score", "t") if k in ev}
@@ -601,6 +601,9 @@ def describe(ev: dict) -> str:
         return "net %s: %s" % (ev.get("net"), "routed" if ev.get("ok") else "no route found")
     if kind == "route_queue_end":
         return "route: %s routed, %s failed" % (ev.get("routed"), ev.get("failed"))
+    if kind == "route_width":
+        from .kicad.route_widths import brief
+        return "under its width in %s: %s" % (ev.get("stage"), brief(ev))
     if kind == "route_off":
         from .kicad import route_events
         return "no progress for this route: %s" % route_events.reason_text(ev.get("reason") or {})
