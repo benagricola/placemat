@@ -146,6 +146,9 @@ def _back_face(n):
 
 @renders("arrangement")
 def _arrangement(n):
+    if "id" not in n:                               # nothing stood: the arrangements tried, in order
+        ids = [t["id"] for t in n["tried"]]
+        return "no arrangement has a legal spot: tried %s" % (ids[0] if len(ids) == 1 else "%s and %s" % (_list(ids[:-1]), ids[-1]))
     if n.get("default_blame") is not None:
         return "arrangement %s: the default module has no legal spot (%s)" % (n["id"], finding_text.blame_text(n["default_blame"]))
     if n.get("score") is None:

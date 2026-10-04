@@ -9819,25 +9819,34 @@ class Board:
         """A form that is not scored (a slide along an edge, a line, a run, a rim, a ring, a spoke) takes the default
         arrangement when it has a legal spot and tries the others, in order, only when it has none: `settle_one(j)` settles
         `j`, the item standing as one arrangement. What an arrangement that failed said is dropped when another stands; when
-        none does, the first one's findings stand. The step's `arrangement` note lists those tried when more than one was, or
-        one other than the default was taken."""
+        none does, the first one's findings stand and the step's refusals are every arrangement's, tagged with the one they
+        came from. The step's `arrangement` note lists those tried when more than one was, or one other than the default was
+        taken, with the default's refusal counts when it had no legal spot; when none stood it names none as taken."""
         ids = self._arrangement_ids(i)
         if len(ids) == 1:
             return settle_one(self._arranged(i, ids[0]))
         n = len(plan.findings)
-        first, first_findings, rows = None, [], []
+        first, first_findings, rows, refused, default_blame = None, [], [], [], None
         for ident in ids:
             step = settle_one(self._arranged(i, ident))
             rows.append(self._arrangement_row(ident, None, step.placement is not None))
             if step.placement is not None:
                 if ident or len(rows) > 1:
-                    step.notes = step.notes + (self._arrangement_note(ident, rows),)
+                    step.notes = step.notes + (self._arrangement_note(ident, rows, default_blame=default_blame),)
                 return step
+            said = list(plan.findings[n:])
+            if not ident:
+                counts = next((f.facts["counts"] for f in said if f.cause == C.UNPLACED_SLIDE and f.facts.get("item") == i.key),
+                              None)
+                default_blame = None if counts is None else [{"form": "counts", "counts": counts}]
+            refused += [dict(r, **({"arrangement": ident} if ident else {})) for r in step.unplaced or ()]
             if first is None:
-                first, first_findings = step, list(plan.findings[n:])
+                first, first_findings = step, said
             del plan.findings[n:]
         plan.findings.extend(first_findings)
-        first.notes = first.notes + (self._arrangement_note(ids[0], rows),)
+        if refused:
+            first.unplaced = tuple(refused)
+        first.notes = first.notes + (self._arrangement_note(None, rows),)
         return first
 
     def _scan_arrangements(self, occ, i, plan, placed, ids, **kw) -> "_Scanned":
@@ -9950,11 +9959,13 @@ class Board:
 
     @staticmethod
     def _arrangement_note(ident, rows=None, *, score=None, cost=None, default_score=None, default_blame=None) -> dict:
-        """The step's `arrangement` note, every form's: `ident` the one taken ("" the default); `rows` each arrangement tried
+        """The step's `arrangement` note, every form's: `ident` the one taken ("" the default, None when none stood); `rows` each
+        arrangement tried
         (`_arrangement_row`); `score` the one taken's, without its cost, and `cost` its `score.arrangement` (both None when the
         choice was unscored); `default_score` the default's total, given only when the default was tried and had a legal spot in
         a scored choice; `default_blame` why the default had no legal spot. What is None is left out."""
-        return step_text.record("arrangement", id=ident or "default", score=None if score is None else round(score, 3), cost=cost,
+        return step_text.record("arrangement", id=None if ident is None else ident or "default",
+                                score=None if score is None else round(score, 3), cost=cost,
                                 tried=rows, default_score=None if default_score is None else round(default_score, 3),
                                 default_blame=default_blame)
 
@@ -10197,6 +10208,7 @@ class Board:
         declared = float(i.rotation) % 360.0
         found = []
         rejected: Counter = Counter()
+        by_arrangement: dict = {}           # arrangement -> Counter of its refusals by kind
         reasons: dict = {}                  # (arrangement, reason key) -> the first refusal of that kind
         rows, scored, default_total = [], False, None
         for k, ident in enumerate(ids):
@@ -10222,6 +10234,7 @@ class Board:
                 if why is not None:
                     key = _reason_key(why)
                     rejected[key] += 1
+                    by_arrangement.setdefault(ident, Counter())[key] += 1
                     reasons.setdefault((ident, key), why)
                     continue
                 cost = (score(p) if score is not None else 0.0) + (resolution.cost if resolution is not None else 0.0)
@@ -10236,19 +10249,24 @@ class Board:
         if not found:
             plan.findings.append(self._finding(C.UNPLACED_BEARING, {
                 "item": i.key, "turns": len(turns), "counts": blame.counts_of(rejected),
-                }))
+                **({"arrangements": len(ids)} if len(ids) > 1 else {})}))
             return self._step(i, None, 0.0, unplaced=[dict(w.to_json(), **({"arrangement": a} if a else {}))
                                                       for (a, _), w in reasons.items()])
         _, k, away, rot, cost, p, chose, ident, j = min(found, key=lambda f: f[:4])
         notes = [chose] if chose else []
         notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if scored else None,
                                       arrangement=ident or None))
-        if rejected:
-            notes.append(step_text.record("refused_count", n=sum(rejected.values()), why=next(iter(reasons.values())).to_json()))
+        own = by_arrangement.get(ident)          # the refusals of the arrangement taken: the default's are its blame
+        if own:
+            notes.append(step_text.record("refused_count", n=sum(own.values()),
+                                          why=next(w for (a, _), w in reasons.items() if a == ident).to_json()))
         if len(rows) > 1 or ident:
+            default = next((r for r in rows if r["id"] == "default"), None)
+            blamed = [{"form": "counts", "counts": blame.counts_of(by_arrangement.get("", Counter()))}] \
+                if ident and default is not None and not default["legal"] else None
             notes.append(self._arrangement_note(ident, rows, score=cost if scored else None,
                                                 cost=(arr_cost if ident else 0.0) if scored else None,
-                                                default_score=default_total))
+                                                default_score=default_total, default_blame=blamed))
         if push_sources:
             notes += self._push_notes(occ, plan, j, p, push_sources)
         return self._step(j, p, 0.0, notes)

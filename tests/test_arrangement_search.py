@@ -473,8 +473,8 @@ def test_a_cell_on_an_edge_that_fits_in_no_arrangement_keeps_the_first_ones_find
     assert note["tried"] == [{"id": "default", "score": None, "legal": False}, {"id": "c_in.east", "score": None, "legal": False}]
     named = ledge(west=1.0, arrangements=("c_in.east", "default"))
     (g,) = [f for f in named.findings if f.facts.get("item") == "mod"]
-    assert g.cause == "unplaced.slide"
-    assert next(n for n in named.step("mod").notes if n["kind"] == "arrangement")["id"] == "c_in.east"
+    assert g.cause == "unplaced.slide" and g.facts["counts"] != f.facts["counts"]     # the first named arrangement's finding
+    assert "id" not in next(n for n in named.step("mod").notes if n["kind"] == "arrangement")
 
 
 def test_a_point_with_turns_notes_each_arrangements_total():
@@ -568,4 +568,63 @@ def test_a_point_with_turns_and_nothing_to_score_takes_the_first_arrangement_wit
     assert step.placement.arrangement == "c_in.east"
     note = next(n for n in step.notes if n["kind"] == "arrangement")
     assert note == {"kind": "arrangement", "id": "c_in.east", "tried": [{"id": "default", "score": None, "legal": False},
-                                                                         {"id": "c_in.east", "score": None, "legal": True}]}
+                                                                         {"id": "c_in.east", "score": None, "legal": True}],
+                    "default_blame": [{"form": "counts", "counts": [["courtyard", 1]]}]}
+
+
+# ------------------------------------------------------------------ fix round 1: what the notes of slides and points say
+
+
+def test_a_slide_that_takes_an_arrangement_says_why_the_default_did_not_stand():
+    from placemat import step_text
+    note = next(n for n in ledge().step("mod").notes if n["kind"] == "arrangement")
+    (blamed,) = note["default_blame"]
+    assert blamed["form"] == "counts" and blamed["counts"] and blamed["counts"][0][0] == "reservation"
+    said = step_text.render(note)
+    assert said.startswith("arrangement c_in.east: the default module has no legal spot (reservation x")
+
+
+def test_a_slide_where_nothing_stands_names_no_arrangement_taken_and_keeps_every_refusal():
+    from placemat import step_text
+    plan = ledge(west=1.0)
+    step = plan.step("mod")
+    note = next(n for n in step.notes if n["kind"] == "arrangement")
+    assert "id" not in note and [t["legal"] for t in note["tried"]] == [False, False]
+    assert step_text.render(note) == "no arrangement has a legal spot: tried default and c_in.east"
+    tags = [r.get("arrangement") for r in step.unplaced]
+    assert None in tags and "c_in.east" in tags                 # the default's refusals untagged, the others' tagged
+    (f,) = [f for f in plan.findings if f.facts.get("item") == "mod"]
+    assert "c_in.east" not in str(f.facts)                      # the finding is the first arrangement's
+    named = ledge(west=1.0, arrangements=("c_in.east", "default")).step("mod")
+    said = step_text.render(next(n for n in named.notes if n["kind"] == "arrangement"))
+    assert said == "no arrangement has a legal spot: tried c_in.east and default"
+
+
+def test_a_point_that_takes_an_arrangement_says_why_the_default_did_not_stand_and_counts_only_its_own_refusals():
+    from placemat import step_text
+    b = board(obstacle=OBSTACLE, partner=(60.0, 30.0))
+    b.place(Cell("mod"), at=Location(40.0, 30.0), rotations=(0,))
+    step = b.resolve().step("mod")
+    assert step.placement.arrangement == "c_in.east"
+    note = next(n for n in step.notes if n["kind"] == "arrangement")
+    assert note["default_blame"] == [{"form": "counts", "counts": [["courtyard", 1]]}]
+    assert "the default module has no legal spot (courtyard x1)" in step_text.render(note)
+    assert not [n for n in step.notes if n["kind"] == "refused_count"]        # the one refusal was the default's
+
+
+def test_an_unplaced_point_counts_every_laying_judged():
+    from placemat import finding_text
+    b = board(obstacle=(40.0, 30.0, 14.0, 6.0))
+    b.place(Cell("mod"), at=Location(40.0, 30.0), rotations=(0, 90))
+    plan = b.resolve()
+    (f,) = [f for f in plan.findings if f.cause == "unplaced.bearing"]
+    assert f.facts["turns"] == 2 and f.facts["arrangements"] == 2
+    assert finding_text.render(f.cause, f.facts).startswith("mod: no bearing of 2 tried in any of 2 arrangements leaves it legal")
+
+
+def test_a_banded_cell_pinned_to_an_arrangement_is_searched_from_its_share_of_the_band():
+    from placemat.values import Polar
+    b = board()
+    b.place(Cell("mod"), at=Polar((10.0, 20.0)), arrangements=("c_in.east",))
+    p = b.resolve().placement("mod")
+    assert p is not None and p.arrangement == "c_in.east"

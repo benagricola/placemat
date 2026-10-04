@@ -193,12 +193,15 @@ def _loc(at) -> str:
 
 def blame_text(entries: list) -> str:
     """The rejection counts of a scan (blame.blame_of) and, for each kind, the owners that caused most of them; a "pocket" entry
-    (an arrangement note's default that fits no pocket) says so."""
+    (an arrangement note's default that fits no pocket) says so, and a "counts" entry (a slide's or a point's) gives the counts."""
     from .refusals import Owner, Refusal
     parts = []
     for e in entries:
         if e["form"] == "pocket":                   # a search that never ran: no pocket fits the item (Board._no_pocket_note)
             parts.append(pocket_note(e))
+            continue
+        if e["form"] == "counts":                   # a slide's or a point's refusals by kind (blame.counts_of): no owners to name
+            parts.append(counts_text(e["counts"]))
             continue
         n = e["count"]
         if e["form"] == "vias":
@@ -330,7 +333,8 @@ def _unplaced_block(f):
 
 @renders(C.UNPLACED_BEARING, "item", "turns", "counts")
 def _unplaced_bearing(f):
-    return "%s: no bearing of %d tried leaves it legal on its point (%s)" % (f["item"], f["turns"], counts_text(f["counts"]))
+    among = " in any of %d arrangements" % f["arrangements"] if f.get("arrangements") else ""
+    return "%s: no bearing of %d tried%s leaves it legal on its point (%s)" % (f["item"], f["turns"], among, counts_text(f["counts"]))
 
 
 @renders(C.UNPLACED_RIDES, "item", "variant")
