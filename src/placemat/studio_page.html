@@ -141,9 +141,9 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #runhead[hidden] { display: none; }
 /* what gives way as the header narrows, in order: the phase, then the kind pill, then the item's name; the counters (the step's place in the
    resolve, the item's rank in the search) and the time never shrink */
-#runhead .f-steps { width: auto; flex: none; white-space: nowrap; }
-#runhead .f-phase { width: auto; flex: 0 1 auto; min-width: 0; overflow: hidden; }
-#runhead .f-item { flex: 0 1 auto; max-width: 26ch; }               /* the step's fields stay together; the bar takes what is left */
+#runhead .f-steps { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }   /* its width is set to the widest it gets */
+#runhead .f-phase { width: 13ch; flex: 0 1 13ch; min-width: 0; overflow: hidden; }
+#runhead .f-item { flex: 0 1 18ch; width: 18ch; overflow: hidden; text-overflow: ellipsis; }   /* a fixed width: a longer or shorter name moves nothing after it */
 #runhead .info { flex: none; }
 #runhead > .bar { flex: 1 1 90px; min-width: 60px; max-width: 420px; }
 @container rh (max-width: 500px) { #runhead .f-phase { display: none; } }
@@ -156,7 +156,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .flds.settled > :not(.spin):not(.f-steps):not(.f-el):not(.bar) { opacity: 0.55; }
 .row.pending.settled .sb { opacity: 0.55; }
 #runstrip .f-el { width: 2.8em; font-variant-numeric: tabular-nums; }
-#runstrip .f-steps { width: 10.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#runstrip .f-steps { width: 15em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 #runstrip .flds + .flds { margin-top: 2px; font-weight: 400; color: var(--ink); }
 #runstrip .flds > .bar { flex: 1 1 2em; min-width: 1.5em; }
 #runstrip .mini { border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 8px; font-size: 11.5px; line-height: 18px; flex: none; }
@@ -800,6 +800,7 @@ on("begin", d => {                         // the engine is starting an item, or
   const w = S.work;
   if (d.kind === "total") { w.total = d; schedule("status"); return; }
   if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: d.at ? serverMs(d.at) : Date.now(), stage: "", face: null, within: null, hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
+  if (d.firm_pass) w.firmPass = d.firm_pass;          // the firm items are placed again on each pass: the count stays at the items, the pass is said
   if (w.cur) { w.cur.stage = d.stage || ""; w.cur.face = d.face || null; w.cur.within = d.within || null; if (d.hint) w.cur.hint = d.hint; updatePending(); if (d.hint) drawWorkMark(); }
 });
 let liveTimer = null;
@@ -964,6 +965,8 @@ function workHTML(w) {
   return itemField("working");
 }
 const isSettled = w => !w.cur && !!w.last && !w.last.replaying;
+// The distinct items the resolve has settled: a firm pass places an item again, which is not a new step of the whole.
+const doneItems = p => p ? new Set((p.steps || []).map(s => s.item)).size : 0;
 function renderProgress() {
   const w = S.work, on = !!(S.resolving && w), wide = !narrow(), el = $("#runstrip"), hd = $("#runhead");
   el.hidden = wide || !(on || S.done);
@@ -975,9 +978,12 @@ function renderProgress() {
     }
     return;
   }
-  const p = plan(), n = p ? replaySteps(p).length : 0, T = workTotal(w);
-  const el_ = fmtDur(Date.now() - w.t0), steps = "step " + n + (T ? " of ~" + T : " so far"), settled = isSettled(w), work = workHTML(w);
-  const stepsTitle = "step " + n + (T ? " of about " + T : " so far") + ": the place of this step in the whole resolve (items placed, copper laid, cutouts cut); the total is what the engine knows up front";
+  const p = plan(), T = workTotal(w), n = Math.min(doneItems(p), T || Infinity);
+  const pass = w.firmPass ? ", firm pass " + w.firmPass : "";
+  const el_ = fmtDur(Date.now() - w.t0), steps = "step " + n + (T ? " of ~" + T : " so far") + pass, settled = isSettled(w), work = workHTML(w);
+  const stepsTitle = "step " + n + (T ? " of about " + T : " so far") + ": the items placed, copper laid and cutouts cut so far in the whole resolve; the total is what the engine knows up front" +
+    (pass ? ". With room kept for declared copper, the firm items are placed again on each firm pass: this is pass " + w.firmPass : "");
+  const stepsWidth = ("step " + (T || n) + " of ~" + (T || n) + (w.firmPass ? ", firm pass 8" : "")).length + "ch";   // the widest this field gets, so nothing after it moves
   $("#rs-el").textContent = el_;
   $("#rs-steps").textContent = steps; $("#rs-steps").title = stepsTitle;
   $("#progbarbox").classList.toggle("ind", !T);
@@ -987,7 +993,7 @@ function renderProgress() {
   $("#progbarbox").title = barTitle(n, T, withinOf(w.cur));
   $("#rs-work").className = "flds" + (settled ? " settled" : "");
   $("#rs-work").innerHTML = work;
-  if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-el" title="time since this resolve began">' + esc(el_) + '</span><span class="f-steps" title="' + esc(stepsTitle) + '">' + esc(steps) + "</span>" + work + infoBtn("running") + barHTML(n, T, withinOf(w.cur));
+  if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-el" title="time since this resolve began">' + esc(el_) + '</span><span class="f-steps" style="width:' + stepsWidth + '" title="' + esc(stepsTitle) + '">' + esc(steps) + "</span>" + work + infoBtn("running") + barHTML(n, T, withinOf(w.cur));
     const c = w.cur; hd.title = c ? (WHAT_WORD[c.what] || c.what) + " " + c.item + (phaseShort(c) ? ": " + phaseShort(c) : "") : "";      // what the narrow header leaves out
   }
 }

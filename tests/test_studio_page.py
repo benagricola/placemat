@@ -1224,7 +1224,7 @@ out.done = [els["#runhead"].hidden, els["#runhead"].innerHTML];
 """)
     assert out["wide"][0] is False and out["wide"][1] is True
     h = out["wide"][2]
-    assert h.startswith('<i class="spin"></i>') and "step 1 of ~30" in h and 'title="psu">psu</b>' in h and "searching" in h and "scan front/back" in h and '>0:03</span>' in h and 'data-info="running"' in h and 'title="step 1 of about 30: the place of this step in the whole resolve' in h and "7 of 18" not in h and "rank" not in h      # one counter; the rank is on the card
+    assert h.startswith('<i class="spin"></i>') and "step 1 of ~30" in h and 'title="psu">psu</b>' in h and "searching" in h and "scan front/back" in h and '>0:03</span>' in h and 'data-info="running"' in h and 'title="step 1 of about 30: the items placed, copper laid and cutouts cut so far' in h and "7 of 18" not in h and "rank" not in h      # one counter; the rank is on the card
     assert out["settled"][1] == "flds settled" and 'title="psu">psu</b>' in out["settled"][0] and "waiting" not in out["settled"][0]
     assert out["narrow"] == [True, False]
     assert out["done"][0] is False and "done in" in out["done"][1]
@@ -1827,3 +1827,18 @@ out.say = [
 """)
     assert out["say"] == ["ble: still working after 31 s in the refine pass 2 of 3", "ble: gave up after 62 s in the coarse pass",
                           "ble: still working after 40 s in the give-way pass, firm pass 2"]
+
+
+def test_the_step_count_is_the_items_done_and_a_firm_pass_is_said_not_counted(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+send("begin", {id: 1, kind: "total", items: 2, searched: 2, copper: 0, replay: 0});
+send("step", {id: 1, item: item("a", 1)});
+send("step", {id: 1, item: item("b", 2)});
+send("begin", {id: 1, kind: "begin", item: "a", what: "searched", rank: 1, of: 2, replaying: false, n: 3});
+send("begin", {id: 1, kind: "phase", stage: "scan", face: "front", firm_pass: 2});
+send("step", {id: 1, item: item("a", 1)});
+ev("renderProgress()");
+out.steps = els["#rs-steps"].textContent;
+""")
+    assert out["steps"] == "step 2 of ~2, firm pass 2"
