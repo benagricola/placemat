@@ -1670,7 +1670,19 @@ def _main(args) -> int:
             console._stream, console.colour = previous, colour
 
 
+def say_native_off(args) -> None:
+    """The console line for a command that places or routes with the native module off: said first, before the work
+    that is slow for it. Silent for JSON output and when native is in use."""
+    from .geometry import native_status
+    status = native_status()
+    if status.warns and not getattr(args, "json", False):
+        from .finding_text import native_text
+        console.say("setup", native_text(status.facts()), level="warning")
+
+
 def _dispatch(args) -> int:
+    if args.command in ("run", "preview", "route", "studio"):
+        say_native_off(args)
     return {"run": cmd_run, "lock": cmd_lock, "freeze": cmd_freeze, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "layer": cmd_layer, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets, "facts": cmd_facts,

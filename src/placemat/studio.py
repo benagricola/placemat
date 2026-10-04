@@ -1538,7 +1538,10 @@ class Studio:
         return {"t0": c.get("at", time.time()), "total": c.get("total"), "cur": c.get("now"), "replayed": c.get("replayed", 0)}
 
     def _hello_data(self) -> dict:
-        common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
+        from .geometry import native_status
+        from .finding_text import native_text
+        status = native_status()
+        common = {"native": status.facts(), "native_text": native_text(status.facts()) if status.warns else "", "now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
                   "explores": self.explores(), "routes": self.routes(), "explore_fps": self.cfg.studio_explore_fps,
                   "models3d": self.m3d.status(), "models": self.m3d.table(),
                   "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),

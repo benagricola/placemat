@@ -566,6 +566,7 @@ svg text { user-select: none; font-family: var(--sans); }
 <header>
   <button class="brand" id="brandbtn" aria-haspopup="menu" aria-expanded="false" title="switch to another layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
+  <span class="pill stale" id="nativepill" hidden>native off</span>
   <div class="flds" id="runhead" hidden></div>
   <button class="tool" id="runbtn" title="placemat run: writes the board, runs the design checks and KiCad's DRC, scores and records the run; the live view is only a preview">Full run</button>
   <button class="tool" id="resolvebtn" title="cancel what is running and resolve again now: the menu offers a full resolve from scratch">Resolve</button>
@@ -757,6 +758,7 @@ function applyHello(d) {
   S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0} : null; S.lastRun = null;
   $("#board-title").textContent = d.picker ? "placemat studio" : (d.title || d.script);
   $("#board-sub").textContent = d.picker ? (d.scripts || []).length + " found" : (d.subtitle || "");
+  const np = $("#nativepill"); np.hidden = !d.native_text; np.title = d.native_text || "";
   document.title = (d.picker ? "placemat studio" : (d.title || d.script) + " - placemat studio");
 }
 on("hello", d => { applyHello(d); schedule("all"); });
