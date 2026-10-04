@@ -628,3 +628,147 @@ def test_a_banded_cell_pinned_to_an_arrangement_is_searched_from_its_share_of_th
     b.place(Cell("mod"), at=Polar((10.0, 20.0)), arrangements=("c_in.east",))
     p = b.resolve().placement("mod")
     assert p is not None and p.arrangement == "c_in.east"
+
+
+# --- Task 3.4: riders, escape lanes, a push and a carried via are judged per arrangement; cleanup and the solve leave arranged cells
+# alone
+
+from placemat.values import Beside, Centre, PadRef, X, Y  # noqa: E402
+
+
+def test_a_rider_is_judged_against_the_arranged_cell_at_each_arrangements_scan():
+    """A part placed Beside the cell rides it: it is judged with the cell at each candidate of each arrangement's scan."""
+    b = board(partner=(60.0, 30.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    b.place(Part("r9"), at=Beside(Cell("mod"), Edge.EAST))
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east" and plan.step("r9").placement is not None
+    assert plan.box("r9").left >= plan.box("mod").right - 1e-6
+
+
+def far_doc():
+    """An arrangement that turns c_in half way round and stands it well east of u1, so the arranged cell's east edge is 3.5mm east
+    of the default's."""
+    from tests.arrangement_support import DEFAULT_C_IN, DEFAULT_U1
+    from placemat.placement import Placement
+    from placemat.values import Face
+    far = Placement(Location(14.0, 3.0), 180.0, Face.FRONT)
+    return N.document("c_in.far", {"c_in": "far"}, [("c_in", far, DEFAULT_C_IN), ("u1", DEFAULT_U1, DEFAULT_U1)], [], [], order=1)
+
+
+def test_a_rider_beside_an_arranged_cell_is_laid_beside_the_arrangements_edge():
+    """The rider is laid against the cell as the arrangement stands it, in the search and when it commits: beside c_in.far's east
+    edge, clear of the c_in it moved there."""
+    b = board(partner=(70.0, 30.0), doc=far_doc())
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    b.place(Part("r9"), at=Beside(Cell("mod"), Edge.EAST))
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.far"
+    assert plan.box("r9").left >= plan.box("mod").right - 1e-6
+    assert not [f for f in plan.findings if f.facts.get("item") == "r9"]
+
+
+def test_a_rider_is_judged_in_the_search_where_the_arrangement_lays_it():
+    """An obstacle east of where a rider beside the default would end, but within where one beside c_in.far ends: the search of
+    c_in.far must see the rider meet it and stand the cell where the rider is clear."""
+    b = board(partner=(70.0, 30.0), doc=far_doc(), obstacle=(58.0, 30.0, 1.0, 1.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    b.place(Part("r9"), at=Beside(Cell("mod"), Edge.EAST))
+    plan = b.resolve()
+    assert plan.step("r9").placement is not None and not plan.box("r9").overlaps(plan.box("obst"))
+    assert not [f for f in plan.findings if f.facts.get("item") == "r9"]
+
+
+def test_a_rider_that_meets_the_default_wherever_it_goes_does_not_stop_an_arrangement_it_fits():
+    """r9 stands 4mm west of u1's pad 1: on c_in as the default has it, clear of it in c_in.east. The riders are alone only when
+    they are in every arrangement the search may take, so the cell is searched and stands as c_in.east."""
+    b = board(partner=(60.0, 30.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    pad = PadRef(Part("mod.u1"), 1).offset(dx=-4.0)
+    b.place(Part("r9"), at=Centre(X(pad), Y(pad)))
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east" and plan.step("r9").placement is not None
+    assert not [f for f in plan.findings if f.facts.get("item") in ("mod", "r9")]
+
+
+def test_the_escape_lane_pricer_is_asked_of_each_arranged_item(monkeypatch):
+    """Lanes reserved by a cell's own members come with the arranged copper: the pricer is built for the arranged item at each scan."""
+    seen = []
+    real = Board._lane_pricer
+
+    def spy(self, occ, plan, i):
+        seen.append(getattr(i.item, "arrangement", ""))
+        return real(self, occ, plan, i)
+    monkeypatch.setattr(Board, "_lane_pricer", spy)
+    run((60.0, 30.0))
+    assert {"", "c_in.east"} <= set(seen)
+
+
+def test_a_push_is_measured_from_the_arranged_members_pad():
+    """A push weak enough that the link still takes c_in.east: what it achieved is measured from c_in's pad as that arrangement
+    stands it (east of u1), not where the default has it."""
+    b = board(partner=(60.0, 30.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    push = b.push(PadRef(Part("mod.c_in"), 1), from_=Part("r8"), falloff=2, reference=(1.0, 0.1), limit=2.0)
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east"
+    pad = plan.occupancy.pad_location("C1", "1")
+    assert push.achieved_mm is not None and abs(push.achieved_mm - pad.distance(Location(60.0, 30.0))) < 0.05
+
+
+def test_cleanup_leaves_a_placed_cell_and_its_arrangement_alone():
+    """Cleanup moves loose parts only (`_cleanup_movable` keeps cells out), so an arranged cell keeps its placement and its arrangement."""
+    b = board(partner=(60.0, 30.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    plan = b.resolve()
+    assert "mod" not in b._cleanup_movable(plan) and plan.placement("mod").arrangement == "c_in.east"
+
+
+def test_the_global_solve_reads_the_default_geometry_and_an_arranged_cell_still_resolves():
+    solving = dataclasses.replace(Settings(), solve_enabled=True)
+    assert run((60.0, 30.0), solving).placement("mod") is not None
+
+
+def test_a_carried_via_of_an_arrangement_is_in_the_search_and_the_board():
+    from placemat.copper import Via
+    plan = run((60.0, 30.0), doc=east_doc(ops=[Via("VIN", Location(9.0, 3.0), 0.3, 0.6)]))
+    assert plan.placement("mod").arrangement == "c_in.east"
+    assert [s for s in plan.occupancy.copper if s.owner == "mod" and s.kind == "through"]
+
+
+def test_a_carried_via_of_an_arrangement_gives_way_where_the_cell_stands_in_it():
+    """c_in.east carries a VIN via 4mm south of u1; a GND track on the board runs just under where it lands. The search stands the
+    cell as c_in.east and the arrangement's via gives way to the track (it moves), named for the cell."""
+    from placemat.copper import Via
+    from tests.fixtures import track
+    doc = east_doc(ops=[Via("VIN", Location(6.0, 7.0), 0.3, 0.6)])
+    g = with_arrangement(stamped_geometry(partner=(60.0, 30.0), copper=(track("GND", 36.0, 33.4, 40.5, 33.4, w=0.3),)), doc)
+    b = board(partner=(60.0, 30.0), geometry=g)
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), radius=0.0, rotations=(0,)))
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east"
+    assert [(a.home, a.kind) for a in plan.given_way] == [("mod", "move")]
+    assert next(f for f in plan.findings if f.cause.value == "vias.gave_way").facts["item"] == "mod"
+
+
+def solved_board(cleanup):
+    """`mod` and a loose r9 both searched with no place given, the global solve on: the solve seeds both, the cell's scan chooses
+    c_in.east, and (with `cleanup`) the cleanup pass moves r9."""
+    b = board(partner=(60.0, 30.0), settings=dataclasses.replace(Settings(), solve_enabled=True, cleanup_enabled=cleanup))
+    b.place(Cell("mod"))
+    b.place(Part("r9"))
+    return b.resolve()
+
+
+def test_a_cell_seeded_by_the_solve_is_scanned_in_each_arrangement():
+    plan = solved_board(cleanup=False)
+    kinds = [n["kind"] for n in plan.step("mod").notes]
+    assert "seeded_by_solve" in kinds and plan.placement("mod").arrangement == "c_in.east"
+
+
+def test_cleanup_moving_a_loose_part_leaves_the_arranged_cell_where_the_search_stood_it():
+    still, cleaned = solved_board(cleanup=False), solved_board(cleanup=True)
+    assert cleaned.cleanup["moves"] >= 1 and cleaned.placement("r9") != still.placement("r9")
+    assert cleaned.placement("mod") == still.placement("mod") and cleaned.placement("mod").arrangement == "c_in.east"
+    assert [cleaned.occupancy.pad_location(r, n) for r in ("C1", "U1") for n in ("1", "2")] == \
+        [still.occupancy.pad_location(r, n) for r in ("C1", "U1") for n in ("1", "2")]

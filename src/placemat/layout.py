@@ -7578,7 +7578,7 @@ class Board:
         occ.step_budget = SearchBudget(getattr(obj, "budget", None) or self.settings.place_step_budget) \
             if isinstance(obj, PlaceIntent) else None
         try:
-            self._riding = (obj.key, self._rider_check(occ, plan, obj)) if riders else None
+            self._riding = (obj.key, occ, plan, {}) if riders else None
             with _recording_commits(occ) as commits:
                 alone = self._riders_alone(occ, plan, obj) if riders else None
                 if alone:
@@ -9538,20 +9538,27 @@ class Board:
         rider wherever `i` goes fails here in a moment rather than after a
         scan of the whole board, as a block's satellites do. Only for an item
         searched at a known set of turns whose riders move exactly as it
-        does; else None, and the search finds out."""
+        does; else None, and the search finds out. A cell is alone only when it is in every arrangement its search may take; the
+        refusals said are the first arrangement's."""
         if i.outward or i.tangent is not None or self._locked(i) is not None:
             return None             # turned by where it lands, or by its lock: any turn at all
+        if self._pinned(i)[1] is not None:
+            return None             # an arrangement it does not offer: _settle says so
         turns = set(self._turns(i)) | {i.rotation, (i.rotation + 90) % 360}      # a pocket's two as well
         at = occ.board_box.center if occ.board_box is not None else Location(0.0, 0.0)
-        why = []
-        for face in self._faces_of(i):
-            for rot in sorted(turns):
-                laid = self._ride_turn(occ, plan, i, Placement(at, rot, face))
-                bad = None if laid is None else next(((r, g) for r, _, g in laid[1] if g), None)
-                if bad is None:
-                    return None
-                why.append([rot, Refusal(Code.RIDER, key=bad[0].key, why=bad[1])])
-        return why
+        first = None
+        for ident in self._arrangement_ids(i):
+            j = self._arranged(i, ident)
+            why = []
+            for face in self._faces_of(j):
+                for rot in sorted(turns):
+                    laid = self._ride_turn(occ, plan, j, Placement(at, rot, face))
+                    bad = None if laid is None else next(((r, g) for r, _, g in laid[1] if g), None)
+                    if bad is None:
+                        return None
+                    why.append([rot, Refusal(Code.RIDER, key=bad[0].key, why=bad[1])])
+            first = why if first is None else first
+        return first
 
     def _rider_check(self, occ: Occupancy, plan: Plan, i: PlaceIntent):
         """What a search asks of each candidate of an item that has riders:
@@ -9583,9 +9590,16 @@ class Board:
         return accept
 
     def _accept(self, i: PlaceIntent):
-        """The rider check for the item being settled now, else None."""
+        """The rider check for the item being settled now, else None: one for each arrangement the search stands it in, the
+        riders laid against the cell as that arrangement stands it."""
         riding = self.__dict__.get("_riding")
-        return riding[1] if riding is not None and riding[0] == i.key else None
+        if riding is None or riding[0] != i.key:
+            return None
+        _, occ, plan, checks = riding
+        ident = getattr(i.item, "arrangement", "")
+        if ident not in checks:
+            checks[ident] = self._rider_check(occ, plan, i)
+        return checks[ident]
 
     def _riders_dropped(self, i: PlaceIntent) -> dict:
         """{key: the ids it offers, or None} of `i`'s riders that are not laid: a cell rider whose `arrangements=` names an id it
@@ -9610,9 +9624,10 @@ class Board:
         dropped = self._riders_dropped(i)
         laid = {}
         if step.placement is not None:
-            laid = self._ride(occ, plan, i, step.placement, None, stop=False)
+            stood = self._arranged(i, step.placement.arrangement)      # the riders go with the cell as its arrangement stands it
+            laid = self._ride(occ, plan, stood, step.placement, None, stop=False)
             if any([self._labels_give_way(occ, plan, r.item, p) for r, p, *_ in laid]):
-                laid = self._ride(occ, plan, i, step.placement, None, stop=False)
+                laid = self._ride(occ, plan, stood, step.placement, None, stop=False)
             laid = {r.key: (r, p, chose, on_board, in_group) for r, p, chose, on_board, in_group in laid}
         for r in self._ride_groups[i.key]:
             if dropped.get(r.key) is not None:
@@ -9807,7 +9822,7 @@ class Board:
             notes.append(step_text.record("moved_off_hint", mm=result.moved_mm, why=None if first is None else first.to_json(),
                                         for_score=True if first is None and score else None))
         if push_sources:
-            notes += self._push_notes(occ, plan, i, result.chosen, push_sources)
+            notes += self._push_notes(occ, plan, won, result.chosen, push_sources)
         if result.cut is not None:
             plan.findings.append(self._finding(C.SETUP_STEP_BUDGET, dict(item=i.key, **result.cut), "notice"))
             notes.append(step_text.record("search_budget", **result.cut))
