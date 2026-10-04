@@ -114,7 +114,9 @@ def build(cell: CellGeom, doc: dict, nets, layers):
         item = _copper_item(op, cell.name, layers)
         if item is not None:
             items.append(item)
-    areas = tuple(_rule_area(note.keepout_from_json(d), cell.name, dx, dy, nets, layers) for d in doc["keepouts"])
+    keepouts = [note.keepout_from_json(d) for d in doc["keepouts"]]
+    areas = tuple(_rule_area(k, cell.name, dx, dy, nets, layers) for k in keepouts)
+    keepouts = tuple(dataclasses.replace(k, poly=tuple((x + dx, y + dy) for x, y in k.poly)) for k in keepouts)
     by_ref = {fp.ref: fp for fp in cell.members}
     moved = lambda attr: [transform_box(getattr(by_ref[mp.ref], attr), pose_transform(mp.default, mp.pose)) for mp in poses]
     own = [c.box for c in items if c.owner is not None]     # the cell's extents hold its own copper, as the reader's do
@@ -123,7 +125,7 @@ def build(cell: CellGeom, doc: dict, nets, layers):
         courtyard_box=Box.union(moved("courtyard_box") + own), copper_box=Box.union(own) if own else None,
         arrangements=(), arrangement=ident, poses=tuple((mp.ref, mp.pose) for mp in poses), own_copper=tuple(items),
         arrangement_problems=())
-    return Arrangement(ident, doc.get("choices", {}), tuple(poses), tuple(ops), areas, geom), None
+    return Arrangement(ident, doc.get("choices", {}), tuple(poses), tuple(ops), areas, geom, keepouts), None
 
 
 def attach(cell: CellGeom, texts, nets, layers) -> CellGeom:

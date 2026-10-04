@@ -130,6 +130,8 @@ class Arrangement:
     ops: tuple = field(compare=False)           # the module's copper for it, in this board's nets and frame (copper.Track, Via, ...)
     rule_areas: tuple = ()      # RuleArea, in this board's frame
     geom: "CellGeom" = None
+    keepouts: tuple = field(default=(), compare=False)      # the note's keepouts (layout.PlacedKeepout) as the fragment wrote their zones:
+                                                            # its own net names, in this board's frame; one per rule area (kicad/arrange.py)
 
 
 @dataclass(frozen=True)

@@ -26,7 +26,7 @@ import types
 
 from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
-from .geometry import native_status, Transform, box_polygon, circle_polygon, circle_poly_gap, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
+from .geometry import native_status, Transform, box_polygon, circle_polygon, circle_poly_gap, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, pose_transform, segments_intersect, transform_box, transform_polygon
 from . import blame, finding_text, step_text
 from .phases import Stage
 from .cutouts import EdgeWhy
@@ -1398,41 +1398,77 @@ class Board:
         inside one of the cell's members' pads of that net. Returns {cell:
         [(x, y) of each via taken out, where the generated board has it]},
         for the writer, and notes each cell's step."""
-        from .lock import _turn
-        planes = {c.net for c in self._copper if c.key.split(" ")[0] == "plane"}
-        keep_share = self.settings.place_drops_keep_share
-        out, self._drops_notes = {}, {}
+        out, self._drops_notes, self._arranged_drops_notes = {}, {}, {}
         for i in self._placements():
             if getattr(i, "drops", Drops.ALL) is Drops.ALL or i.kind != "cell":
                 continue
             cell = i.item.name
-            vias = [s for s in occ.copper if s.owner == cell and s.kind == "through" and s.net in planes]
-            fields, gone, said = {}, [], []
-            for v in vias:
-                c = v.box.center
-                for fp in i.item.members:
-                    p = next((p for p in fp.pads if p.net == v.net and any(point_in_polygon((c.x, c.y), o)
-                                                                           for o in p.outlines)), None)
-                    if p is not None:
-                        fields.setdefault((fp.ref, p.number, p.box.center, fp.rotation), []).append(c)
-                        break
-            for (ref, number, centre, rot), pts in sorted(fields.items(), key=lambda kv: (kv[0][0], kv[0][1])):
-                # the field's grid in its part's own frame, where vias() laid it
-                local = [_turn(p.x - centre.x, p.y - centre.y, -rot) for p in pts]
-                kept = _checkerboard(local) if i.drops is Drops.HALF else \
-                    _spread(local, max(1, math.ceil(keep_share * len(pts) - 1e-9)))
-                gone += [pts[k] for k in range(len(pts)) if k not in kept]
-                said.append({"ref": ref, "pad": number, "kept": len(kept), "of": len(pts)})
+            own = [s for s in occ.copper if s.owner == cell]
+            kept, gone, said = self._thin_cell_vias(i, own, i.item.members)
             self._drops_notes[i.key] = step_text.record("drops", mode=i.drops.value, fields=said)
             if not gone:
                 continue
-            def at(s):
-                return any(abs(s.box.center.x - g.x) < 1e-6 and abs(s.box.center.y - g.y) < 1e-6 for g in gone)
-            occ.copper = [s for s in occ.copper if not (s.owner == cell and s.kind in ("through", "hole") and at(s))]
+            left = {id(s) for s in kept}
+            taken = {id(s) for s in own} - left
+            occ.copper = [s for s in occ.copper if id(s) not in taken]
             occ._cells.pop(cell, None)
             occ._invalidate_native()
-            out[cell] = [(g.x, g.y) for g in gone]
+            out[cell] = gone
         return out
+
+    def _thin_cell_vias(self, i, shapes: list, members) -> tuple:
+        """(the shapes of `shapes` that cell `i`'s `drops=` keeps, [(x, y)] of each via it takes out, the notes of what each field
+        kept). `shapes` is the cell's own copper, `members` its footprints as they stand: a field is the vias of a plane() net inside
+        one of their pads of that net. A via taken out loses its ring and its hole."""
+        from .lock import _turn
+        planes = {c.net for c in self._copper if c.key.split(" ")[0] == "plane"}
+        keep_share = self.settings.place_drops_keep_share
+        vias = [s for s in shapes if s.kind == "through" and s.net in planes]
+        fields, gone, said = {}, [], []
+        for v in vias:
+            c = v.box.center
+            for fp in members:
+                p = next((p for p in fp.pads if p.net == v.net and any(point_in_polygon((c.x, c.y), o)
+                                                                       for o in p.outlines)), None)
+                if p is not None:
+                    fields.setdefault((fp.ref, p.number, p.box.center, fp.rotation), []).append(c)
+                    break
+        for (ref, number, centre, rot), pts in sorted(fields.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+            # the field's grid in its part's own frame, where vias() laid it
+            local = [_turn(p.x - centre.x, p.y - centre.y, -rot) for p in pts]
+            kept = _checkerboard(local) if i.drops is Drops.HALF else \
+                _spread(local, max(1, math.ceil(keep_share * len(pts) - 1e-9)))
+            gone += [pts[k] for k in range(len(pts)) if k not in kept]
+            said.append({"ref": ref, "pad": number, "kept": len(kept), "of": len(pts)})
+        if not gone:
+            return list(shapes), [], said
+        def at(s):
+            return any(abs(s.box.center.x - g.x) < 1e-6 and abs(s.box.center.y - g.y) < 1e-6 for g in gone)
+        return [s for s in shapes if not (s.kind in ("through", "hole") and at(s))], [(g.x, g.y) for g in gone], said
+
+    @staticmethod
+    def _record_arranged_thinned(occ, plan, i, placement) -> None:
+        """For the writer: a cell committed in an arrangement has the vias its drops= took out of the arrangement's copper in
+        plan.thinned, in place of its default's (kicad/write.py thins them once it has drawn that copper)."""
+        if i.kind != "cell" or not placement.arrangement:
+            return
+        gone = occ.arranged_gone.get((i.item.name, placement.arrangement))
+        if gone:
+            plan.thinned[i.item.name] = list(gone)
+        else:
+            plan.thinned.pop(i.item.name, None)
+
+    def _thin_arranged(self, cell, shapes: list) -> tuple:
+        """Occupancy.thin_arranged: (the shapes of arranged cell `cell`'s own copper `shapes` its `drops=` keeps, [(x, y)] of each via
+        it takes out). Its fields are found in its members' pads as the arrangement stands them, and the step's note says them."""
+        i = next((x for x in self._placements() if x.kind == "cell" and x.item.name == cell.name), None)
+        if i is None or getattr(i, "drops", Drops.ALL) is Drops.ALL:
+            return shapes, []
+        poses = dict(cell.poses)
+        members = [_posed_footprint(fp, poses[fp.ref]) if fp.ref in poses else fp for fp in cell.members]
+        kept, gone, said = self._thin_cell_vias(i, shapes, members)
+        self._arranged_drops_notes[(cell.name, cell.arrangement)] = step_text.record("drops", mode=i.drops.value, fields=said)
+        return kept, gone
 
     def _pad_ref(self, ref):
         """Validate a pad reference now; return (refdes, pad number, dx, dy).
@@ -6897,6 +6933,7 @@ class Board:
         self._flip_said = self._flip_notes(occ)     # a flipped cell's via whose inner end changes role
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
         thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
+        occ.thin_arranged = self._thin_arranged     # and an arranged cell's, from the arrangement's copper
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
         occ.plane_nets = frozenset(c.net for c in self._copper if c.key.split(" ")[0] == "plane")   # drops' nets
         occ.plane_layers = self._plane_layers()      # {layer: {net, ...}}: give way's shorten reads this
@@ -7192,6 +7229,7 @@ class Board:
                 placed.update(fp.ref for fp in obj.item.members)
             else:
                 occ.commit(obj.item, step.placement)
+                self._record_arranged_thinned(occ, plan, obj, step.placement)
                 placed.update(fp.ref for fp in members_of(obj.item))
                 self._labels_give_way(occ, plan, obj.item, step.placement, True)     # as the settle did, for a replay
                 if obj.kind == "cell":
@@ -7488,6 +7526,8 @@ class Board:
         if placement is not None and arranged and placement.arrangement != arranged:
             placement = dataclasses.replace(placement, arrangement=arranged)
         drops = self.__dict__.get("_drops_notes", {}).get(i.key)
+        if placement is not None and placement.arrangement and i.kind == "cell":     # its fields as the arrangement stands them
+            drops = self.__dict__.get("_arranged_drops_notes", {}).get((i.item.name, placement.arrangement), drops)
         if drops:
             notes.append(drops)
         if getattr(placement, "face", None) is Face.BACK:
@@ -9565,6 +9605,7 @@ class Board:
                                   step_text.record(r.faces_note) if r.faces_note else None) if x]
             plan.steps.append(self._step(r, p, 0.0, notes))
             occ.commit(r.item, p)
+            self._record_arranged_thinned(occ, plan, r, p)
 
     def _band_frame(self, occ: Occupancy, i: PlaceIntent, placed, hint: Placement | None) -> tuple:
         """(hint, band, turns, within) for a search of `i`: its radial band and the spot turns that
@@ -11073,6 +11114,14 @@ def _is_micro(span: tuple) -> bool:
     """Whether a via's span is a micro via's: an outer face and the layer
     next to it."""
     return len(span) == 2 and any(l.face is not None for l in span)
+
+
+def _posed_footprint(fp: Footprint, pose: Placement) -> Footprint:
+    """`fp` with its place and its pads moved to `pose`, where an arrangement stands it (what drops= reads of a member)."""
+    t = pose_transform(Placement(fp.location, fp.rotation, fp.face), pose)
+    pads = tuple(dataclasses.replace(p, outlines=tuple(transform_polygon(o, t) for o in p.outlines), box=transform_box(p.box, t),
+                                     anchor=None if p.anchor is None else t.apply_location(p.anchor)) for p in fp.pads)
+    return dataclasses.replace(fp, location=pose.location, rotation=pose.rotation, face=pose.face, pads=pads)
 
 
 def _checkerboard(points) -> set:
