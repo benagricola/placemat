@@ -431,7 +431,9 @@ def _blocker(f) -> str:
         return "%s pad %s (%s)" % (_who(what["who"]), what["label"], what["net"] or "no net")
     if form == "owned":
         return "%s copper %s" % (_who(what["who"]), what["net"] or "-")
-    return ("pour %s" % what["net"]) if what["net"] else "copper"
+    if form == "edge":
+        return "the board edge"
+    return ("pour %s" % what["net"]) if what.get("net") else "copper"
 
 
 def _who(w) -> str:

@@ -151,7 +151,7 @@ class Piece:
     call the copper it came from."""
     __slots__ = ("poly", "what", "left", "top", "right", "bottom", "edges")
 
-    def __init__(self, poly, what: str):
+    def __init__(self, poly, what: dict):
         self.poly, self.what = tuple(poly), what
         xs, ys = [p[0] for p in poly], [p[1] for p in poly]
         self.left, self.right, self.top, self.bottom = min(xs), max(xs), min(ys), max(ys)
@@ -609,5 +609,5 @@ def edge_pieces(loops, r: float, sag: float, box) -> list:
             if max(a[0], b[0]) < box.left - r or min(a[0], b[0]) > box.right + r \
                     or max(a[1], b[1]) < box.top - r or min(a[1], b[1]) > box.bottom + r:
                 continue
-            out.append(Piece(grown([a, b], r, sag), "the board edge"))
+            out.append(Piece(grown([a, b], r, sag), {"form": "edge"}))
     return out

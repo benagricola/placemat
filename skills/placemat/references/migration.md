@@ -24,6 +24,9 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **A fitted pour kept from its pads by the board edge no longer crashes the run.** The board edge's clearance outline carried a
+  sentence where every other blocker carries a record, so rendering the pour's "not drawn" finding raised a TypeError. It is a
+  record now (`{"form": "edge"}`), and the finding reads "the board edge leaves no way between ...".
 - **A fitted pour between searched parts keeps its room during the search.** Declared-copper room (`place.copper_room`, on since 0.95.0)
   held tracks, pairs and vias whose ends are searched parts as soon as those parts were placed, but a pour joining searched parts was
   planned only after the whole search, so a later small part could land between them ("pad ... leaves no way between pads ...; the pour is
