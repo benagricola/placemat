@@ -3,7 +3,6 @@ import types
 
 from placemat import arrangement_run as run
 from placemat.checks import Verdict
-from placemat.values import Beside, Edge, Part
 from tests.arrangement_support import module
 
 
@@ -23,6 +22,17 @@ def test_a_clean_plan_has_no_refusal_and_a_critical_finding_or_an_unplaced_item_
     assert {"form": "unplaced", "item": plan.steps[1].item} in run.plan_refusals(plan, plan)
 
 
+def test_an_unplaced_item_is_refused_once_though_its_finding_is_critical():
+    from placemat.findings import Finding, FindingCause as C
+    plan = module().resolve()
+    plan.steps[1].placement = None
+    item = plan.steps[1].item
+    plan.findings.append(Finding(C.UNPLACED_SEARCH, {"item": item, "radius_mm": 3.0, "at": [10.0, 20.0], "blame": {},
+                                                     "budget": {"judged": 5000, "share": 0.1, "limit": 5000}}))
+    assert plan.findings[-1].severity == "critical"
+    assert run.plan_refusals(plan, plan) == [{"form": "unplaced", "item": item}]
+
+
 def test_a_cell_standing_elsewhere_than_in_the_default_is_refused_by_name():
     a, b = module().resolve(), module().resolve()
     p = b.steps[0].placement
@@ -32,7 +42,7 @@ def test_a_cell_standing_elsewhere_than_in_the_default_is_refused_by_name():
     assert {"form": "nested_cell", "item": a.steps[0].item} in run.plan_refusals(b, a)
 
 
-def test_drc_buckets_and_unconnected_are_refusals_only_beyond_the_default():
+def test_drc_buckets_are_refused_outright_and_unconnected_only_beyond_the_default():
     assert run.drc_refusals(report({"clearance": 2, "track_width": 1}, 3), 3) == [
         {"form": "drc", "bucket": "clearance", "count": 2}, {"form": "drc", "bucket": "track_width", "count": 1}]
     assert run.drc_refusals(report({}, 4), 3) == [{"form": "unconnected", "count": 4, "default": 3}]

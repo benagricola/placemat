@@ -103,23 +103,24 @@ def plan_refusals(plan, default_plan) -> list:
     """What the resolve itself says against an arrangement: an item with no place, a critical finding, and a cell standing
     elsewhere than in the default (a module's nested cells are placed once, by the default: an arrangement that needs one moved is
     not offered)."""
+    from . import finding_text
+    from .findings import FindingKind
     out = []
     for s in plan.steps:
         if s.kind in ("part", "cell", "block") and s.placement is None:
             out.append({"form": "unplaced", "item": s.item})
+    unplaced = {r["item"] for r in out}
     for f in plan.findings:
         if f.severity == "critical":
-            out.append({"form": "finding", "cause": f.cause.value, "item": finding_subject(f)})
+            subject = finding_text.subject(f.cause, f.facts) or ""
+            if f.cause.kind is FindingKind.UNPLACED and subject in unplaced:
+                continue            # the unplaced record already says it
+            out.append({"form": "finding", "cause": f.cause.value, "item": subject})
     was = {s.item: s.placement for s in default_plan.steps if s.placement is not None}
     for s in plan.steps:
         if s.kind == "cell" and s.placement is not None and was.get(s.item) not in (None, s.placement):
             out.append({"form": "nested_cell", "item": s.item})
     return out
-
-
-def finding_subject(f) -> str:
-    from . import finding_text
-    return finding_text.subject(f.cause, f.facts) or ""
 
 
 def drc_refusals(report, default_unconnected: int) -> list:
