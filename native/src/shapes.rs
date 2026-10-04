@@ -169,6 +169,7 @@ pub struct ConflictConfig {
     pub drawn_gap: f64, // Occupancy._drawn_gap: for a silk/mask/body shape
     pub hole_to_hole: f64,   // BoardGeometry.hole_to_hole: two drilled holes, whatever their nets
     pub hole_clearance: f64, // BoardGeometry.hole_clearance: copper to a drilled hole
+    pub epsilon: f64,        // BoardGeometry.drc_epsilon: a copper, hole or hole-to-hole gap short of its rule by no more is clear (KiCad's sub_e)
     pub max_clearance: f64,  // the largest clearance `pair_clearance` can answer (`largest_clearance`): a pair further apart than this is clear
 }
 
@@ -270,6 +271,12 @@ pub(crate) fn may_meet(a: Kind, b: Kind) -> bool {
     true
 }
 
+/// `Occupancy.clear_limit`: the gap below which a rule of `need` is broken, `need` less the DRC epsilon (as KiCad
+/// compares a copper or hole clearance); a rule no larger than the epsilon keeps the nanometre it was judged with.
+pub fn clear_limit(need: f64, epsilon: f64) -> f64 {
+    if need > epsilon { need - epsilon } else { need - 1e-9 }
+}
+
 /// `Occupancy._conflict`: the DRC rules in occupancy terms.
 pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &ConflictConfig) -> bool {
     if s.kind == Kind::ViaBan || o.kind == Kind::ViaBan {
@@ -320,7 +327,7 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         }
         let ((sx, sy), rs) = circle(s);
         let ((ox, oy), ro) = circle(o);
-        return ((sx - ox).powi(2) + (sy - oy).powi(2)).sqrt() - rs - ro < need - 1e-9;
+        return ((sx - ox).powi(2) + (sy - oy).powi(2)).sqrt() - rs - ro < clear_limit(need, cfg.epsilon);
     }
     if s.kind == Kind::Hole || o.kind == Kind::Hole {
         // a plated hole keeps the hole clearance from the copper of another net
@@ -337,7 +344,7 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         let need = cfg.hole_clearance;
         let slack = HOLE_SLACK * (hole.bbox.2 - hole.bbox.0);
         return box_gap(hole.bbox, metal.bbox) < need + slack - 1e-9
-            && circle_distance(hole, &metal.poly) < need - 1e-9;
+            && circle_distance(hole, &metal.poly) < clear_limit(need, cfg.epsilon);
     }
     let court = |k: Kind| matches!(k, Kind::Courtyard | Kind::Keepclear);
     if court(s.kind) && court(o.kind) {
@@ -384,14 +391,15 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
             return false;
         }
         let apart = box_gap(s.bbox, o.bbox);
-        if apart >= explicit_clearance.unwrap_or(cfg.max_clearance) - 1e-9 {
+        if apart >= clear_limit(explicit_clearance.unwrap_or(cfg.max_clearance), cfg.epsilon) {
             return false;           // no clearance is larger than this: the cheap way out, before the rules are searched
         }
         let clr = cfg.pair_clearance(explicit_clearance, s, o);
-        if apart >= clr - 1e-9 {
+        let limit = clear_limit(clr, cfg.epsilon);
+        if apart >= limit {
             return false;
         }
-        return poly_distance_below(&s.poly, &o.poly, clr - 1e-9);
+        return poly_distance_below(&s.poly, &o.poly, limit);
     }
     if (s.kind == Kind::Npth && is_copperish(o.kind)) || (o.kind == Kind::Npth && is_copperish(s.kind)) {
         if polys_overlap(&s.poly, &o.poly) {
@@ -401,7 +409,7 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         let (hole, metal) = if s.kind == Kind::Npth { (s, o) } else { (o, s) };
         let slack = HOLE_SLACK * (hole.bbox.2 - hole.bbox.0);
         return need > 0.0 && box_gap(hole.bbox, metal.bbox) < need + slack - 1e-9
-            && circle_distance(hole, &metal.poly) < need - 1e-9;
+            && circle_distance(hole, &metal.poly) < clear_limit(need, cfg.epsilon);
     }
     false
 }
@@ -823,6 +831,7 @@ mod tests {
             drawn_gap: 0.2,
             hole_to_hole: 0.25,
             hole_clearance: 0.0,
+            epsilon: 1e-9,
             max_clearance: f64::INFINITY,       // the tests that add rules leave the early way out off
         }
     }
@@ -962,10 +971,34 @@ mod tests {
     fn different_net_pads_at_exactly_clearance_do_not_conflict() {
         // a's right edge at x=0.5, b's left edge at x=0.7: exactly the
         // default 0.2mm clearance apart, which the box-gap prefilter alone
-        // (>= clr - 1e-9) already rules legal, before any polygon walk.
+        // (>= the clearance less the epsilon) already rules legal, before any polygon walk.
         let a = shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "A", true);
         let b = shape(Kind::Pad, "U2", rect(1.2, 0.0, 1.0, 1.0), 1, 1, "B", true);
         assert!(!conflict(&a, &b, None, &cfg()));
+    }
+
+    #[test]
+    fn a_gap_short_of_the_clearance_by_no_more_than_the_epsilon_is_clear() {
+        // a 0.2 mm clearance, pads 0.1997 apart: short by 0.0003, under KiCad's 0.0005 epsilon
+        let a = shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "A", true);
+        let near = shape(Kind::Pad, "U2", rect(1.1997, 0.0, 1.0, 1.0), 1, 1, "B", true);
+        let nearer = shape(Kind::Pad, "U3", rect(1.1993, 0.0, 1.0, 1.0), 1, 1, "B", true);
+        let mut c = cfg();
+        assert!(conflict(&a, &near, None, &c));         // the epsilon of the other tests: a nanometre
+        c.epsilon = 0.0005;
+        assert!(!conflict(&a, &near, None, &c));
+        assert!(conflict(&a, &nearer, None, &c));       // short by 0.0007
+    }
+
+    #[test]
+    fn a_rule_no_larger_than_the_epsilon_still_asks_whether_two_things_touch() {
+        let a = shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "A", true);
+        let over = shape(Kind::Pad, "U2", rect(0.8, 0.0, 1.0, 1.0), 1, 1, "B", true);
+        let clear = shape(Kind::Pad, "U3", rect(1.01, 0.0, 1.0, 1.0), 1, 1, "B", true);
+        let mut c = cfg();
+        c.epsilon = 0.0005;
+        assert!(conflict(&a, &over, Some(1e-4), &c));
+        assert!(!conflict(&a, &clear, Some(1e-4), &c));
     }
 
     #[test]

@@ -125,6 +125,11 @@ def _pocket(n):
     return "pocket %.1f x %.1f at (%.1f, %.1f): %s" % (n["w_mm"], n["h_mm"], n["at"][0], n["at"][1], POCKET_WHY)
 
 
+@renders("pocket_scan")
+def _pocket_scan(n):
+    return "%s; no pocket fits it (%d tried), found by a scan of the whole face" % (POCKET_WHY, n["tried"])
+
+
 @renders("pocket_other_face")
 def _pocket_other_face(n):
     return "on the %s face, where the %s has no pocket it fits" % (n["face"], n["wanted"])

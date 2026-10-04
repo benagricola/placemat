@@ -5,7 +5,40 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.99.2
+
+### Changed
+
+- **The skill makes pin swaps a layout lever.** Where an IC's pins are general purpose, the agent moves a net to another pin
+  the datasheet confirms for that function (and no restriction forbids: contiguous groups, one peripheral instance, boot or
+  strapping pins, voltage domains), in the capture, naming each move and its datasheet basis. Nothing a script says changes.
+- **`row(of=)` stands against the shapes of `of`'s envelope, as `Beside` does, at one distance for the row.** The row's distance from `of`
+  was taken from the box round its envelope, so a pin 1 dot or any silk mark outside the body held every item of the row off the whole
+  side by the mark's reach. It is now taken from the envelope's own shapes (pads, mask, silk and body under a physical envelope, the
+  courtyard under a courtyard one): the row stands at the nearest distance at which every item clears the shapes it faces, applied to
+  all its items so the row keeps its line, and a mark holds the whole row off only if an item stands over it. An item that then stands
+  nearer than the box put it, and would be in the way of something already placed, is moved on out along its side to the first place the
+  collision rule allows (`place.beside_step`, up to `place.beside_reach`), and the row is taken back to the box's distance where
+  declared copper meets, as a `Beside` part is (`place.copper_room`). A row with `overhang=` and a row of items riding a searched `of`
+  are laid by the box as before. A script with a row beside a part that draws a mark outside its body gets that row nearer.
+- **Findings take KiCad's DRC epsilon; placement can with `place.drc_epsilon`.** KiCad takes the DRC epsilon (`BoardGeometry.drc_epsilon`,
+  0.0005 mm on a fresh board, read from the board) off a copper or hole clearance before comparing, and relaxes hole to hole by it; a gap
+  short of its rule by no more than that is clear. The plan's own copper (the `copper.meets` finding, "track X is 0.1596 mm from Y
+  copper (needs 0.1600)") and the escape walls now judge so always: a declared track 0.4 micrometre short of a clearance is no longer
+  reported as critical. Placement's legality (the search, the give-way quick test, the native judge, the net-tie exclusion's epsilon) keeps
+  the nanometre and the fixed 500 nm unless `[place] drc_epsilon = true`, which lets a part, lane or via stand up to the epsilon closer,
+  and so can move a layout. Silk and courtyard gaps are unchanged: KiCad takes no epsilon off those. Rebuild the native module.
+
+### Fixed
+
+- **A part nothing placed pulls is no longer left unplaced by room the pocket raster cannot see.** An item with no placed neighbour and no
+  hint took one of a few free rectangles of a raster, and was reported "no pocket fits its envelope" where a legal spot existed in room
+  that is not a free rectangle (an L, an arm narrower than the raster's cells resolve, a spot between keepouts). When no pocket takes it,
+  the item is now scanned over each face it may take, nearest the board's centre, within the step budget and the time limits; the pockets
+  stay the fast first try. A step that took a spot this way says so (`pocket_scan` note) and a finding that still fails says the scan found
+  nothing either. A board that placed every part by a pocket is unchanged. Scripts change nothing.
+
+## To 0.99.1
 
 ### New
 

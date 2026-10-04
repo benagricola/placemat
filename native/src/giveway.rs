@@ -7,7 +7,7 @@
 
 use crate::exact;
 use crate::geometry::{point_in_polygon, point_segment_distance, point_segment_distance_below, Point};
-use crate::shapes::{box_overlaps, conflict, may_meet, Blockers, Bounds, ConflictConfig, Shape, ShapeGrid};
+use crate::shapes::{box_overlaps, clear_limit, conflict, may_meet, Blockers, Bounds, ConflictConfig, Shape, ShapeGrid};
 use crate::shapes::IdSet;
 
 /// `giveway._disc_inside`: whether the disc of radius `r` round `c` lies
@@ -23,17 +23,18 @@ pub fn disc_inside(poly: &[Point], c: Point, r: f64) -> bool {
 
 /// `giveway._still_meets`'s `still`: whether a via of radius `r` centred on
 /// `c` still meets `poly`, the copper it first met: its centre in it, or
-/// nearer it than `clr` plus `r`.
-pub fn still_meets(poly: &[Point], clr: f64, r: f64, c: Point) -> bool {
+/// nearer it than `clr` less the DRC epsilon `eps`, plus `r`.
+pub fn still_meets(poly: &[Point], clr: f64, r: f64, c: Point, eps: f64) -> bool {
     if point_in_polygon(c, poly) {
         return true;
     }
     let n = poly.len();
     // a side clearly further than the limit (a micrometre more, for rounding) answers infinity: the nearest
     // side is then not near enough, as its exact distance would say
-    let limit = clr - 1e-9 + r + 1e-6;
+    let lim = clear_limit(clr, eps);
+    let limit = lim + r + 1e-6;
     let d = (0..n).map(|i| point_segment_distance_below(c, poly[i], poly[(i + 1) % n], limit)).fold(f64::INFINITY, f64::min);
-    d - r < clr - 1e-9
+    d - r < lim
 }
 
 /// `copper._segment_polygon`: a track as KiCad draws it, its two sides and
@@ -199,7 +200,7 @@ pub fn first_move(grid: &ShapeGrid, cfg: &ConflictConfig, m: &Move, offsets: &[(
         if let Some((poly, clr, r)) = m.first {
             // a centre further from the box of what it met than the clearance and the radius is neither in it
             // nor near enough (a micrometre more, for rounding): the test is spared
-            if within(first_box, to, clr + r + 1e-6) && still_meets(poly, clr, r, to) {
+            if within(first_box, to, clr + r + 1e-6) && still_meets(poly, clr, r, to, cfg.epsilon) {
                 continue;
             }
         }
@@ -253,7 +254,7 @@ mod tests {
         ConflictConfig {
             touch: 0.02, vias_block_courtyards: false, silk_clearance: 0.1, component_spacing: 0.2,
             default_clearance: 0.2, net_clearance: crate::shapes::NetMap::default(), rules: Vec::new(), gap: 1.0, drawn_gap: 0.2, hole_to_hole: 0.25,
-            hole_clearance: 0.0, max_clearance: 0.2,
+            hole_clearance: 0.0, max_clearance: 0.2, epsilon: 1e-9,
         }
     }
 
@@ -280,9 +281,9 @@ mod tests {
     #[test]
     fn a_via_still_meets_what_holds_its_centre_or_lies_within_clearance_and_radius() {
         let poly = square(0.0, 0.0, 1.0);
-        assert!(still_meets(&poly, 0.2, 0.25, (0.0, 0.0)));
-        assert!(still_meets(&poly, 0.2, 0.25, (1.4, 0.0)));      // 0.4 from the side, less 0.25 is 0.15 < 0.2
-        assert!(!still_meets(&poly, 0.2, 0.25, (1.5, 0.0)));     // 0.5 - 0.25 = 0.25 >= 0.2
+        assert!(still_meets(&poly, 0.2, 0.25, (0.0, 0.0), 1e-9));
+        assert!(still_meets(&poly, 0.2, 0.25, (1.4, 0.0), 1e-9));      // 0.4 from the side, less 0.25 is 0.15 < 0.2
+        assert!(!still_meets(&poly, 0.2, 0.25, (1.5, 0.0), 1e-9));     // 0.5 - 0.25 = 0.25 >= 0.2
     }
 
     const CAP_STEPS: usize = 8;                 // [geometry] cap_steps' default
@@ -438,14 +439,14 @@ mod tests {
             let inside_ref = point_in_polygon(p, &poly) && edges.iter().all(|&d| d >= r);
             let still_ref = point_in_polygon(p, &poly) || edges.iter().cloned().fold(f64::INFINITY, f64::min) - r < clr - 1e-9;
             assert_eq!(disc_inside(&poly, p, r), inside_ref);
-            assert_eq!(still_meets(&poly, clr, r, p), still_ref);
+            assert_eq!(still_meets(&poly, clr, r, p, 1e-9), still_ref);
             // and at the thresholds themselves
             let near = edges.iter().cloned().fold(f64::INFINITY, f64::min);
             for rr in [near, near + 1e-12, near - 1e-12] {
                 if rr > 0.0 {
                     assert_eq!(disc_inside(&poly, p, rr), point_in_polygon(p, &poly) && edges.iter().all(|&d| d >= rr));
                     let cc = near - rr + 1e-9;
-                    assert_eq!(still_meets(&poly, cc.max(0.0), rr, p),
+                    assert_eq!(still_meets(&poly, cc.max(0.0), rr, p, 1e-9),
                                point_in_polygon(p, &poly) || near - rr < cc.max(0.0) - 1e-9);
                 }
             }
@@ -478,7 +479,7 @@ mod tests {
                 assert!(!disc_inside(&poly, c, r));
             }
             if !within(b, c, clr + r + 1e-6) {
-                assert!(!still_meets(&poly, clr, r, c));
+                assert!(!still_meets(&poly, clr, r, c, 1e-9));
                 outside += 1;
             } else {
                 inside += 1;

@@ -725,12 +725,13 @@ def _still_meets(occ, g: Group, first, clearance, r: float):
         return None
     poly, clr = met
     n = len(poly)
+    limit = occ.clear_limit(clr)
 
     def still(c) -> bool:
         if point_in_polygon(c, poly):
             return True
         d = min(point_segment_distance(c, poly[i], poly[(i + 1) % n]) for i in range(n))
-        return d - r < clr - 1e-9
+        return d - r < limit
     return still
 
 
