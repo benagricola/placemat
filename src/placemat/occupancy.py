@@ -125,6 +125,21 @@ def is_label_silk(shape) -> bool:
     return shape.kind == "silk" and shape.owner.startswith("label ")
 
 
+def _rule_area_shapes(ra) -> list:
+    """The shapes a rule area already on the board stands as among the copper: a ban where it forbids vias, and, for a cell's
+    label, the text's silk - judged as its parts' silk is while the cell is searched, and moved with the cell's own copper when it
+    lands. A cell's are owned by the cell."""
+    out = []
+    if "vias" in ra.excludes:
+        out.append(ban_shape("rule area %r on the generated board" % ra.name if ra.cell is None else ra.cell, ra.polygon, ra.layers,
+                             ra.allow, "" if ra.cell is None else "rule area %r from the %s cell" % (ra.name, ra.cell)))
+    if ra.cell is not None and "parts" in ra.excludes and ra.name.startswith("label "):
+        poly = tuple(tuple(p) for p in ra.polygon)
+        out.append(Shape(ra.cell, "silk", frozenset(l.face for l in ra.layers if l.face), frozenset(), "", poly, Box.of_points(poly),
+                         ra.name[len("label "):]))
+    return out
+
+
 @dataclass(frozen=True)
 class Reservation:
     """A region nothing may sit in. `owners` are refdes that may sit in it by
@@ -540,10 +555,7 @@ class Occupancy:
         # re-transforming the original polygon would compound.
         self._cell_rule_areas: dict = {}
         for ra in geometry.rule_areas:
-            if "vias" in ra.excludes:
-                self.copper.append(ban_shape("rule area %r on the generated board" % ra.name if ra.cell is None
-                                             else ra.cell, ra.polygon, ra.layers, ra.allow,
-                                             "" if ra.cell is None else "rule area %r from the %s cell" % (ra.name, ra.cell)))
+            self.copper.extend(_rule_area_shapes(ra))
             if "parts" not in ra.excludes:
                 continue
             if ra.cell is None:
@@ -553,12 +565,6 @@ class Occupancy:
                                  courtyard=True)
             else:
                 self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
-                if ra.name.startswith("label "):
-                    # the text is the cell's silk as well: judged as its parts' silk is while the cell is
-                    # searched, and moved with the cell's own copper when it lands
-                    poly = tuple(tuple(p) for p in ra.polygon)
-                    self.copper.append(Shape(ra.cell, "silk", frozenset(l.face for l in ra.layers if l.face),
-                                             frozenset(), "", poly, Box.of_points(poly), ra.name[len("label "):]))
 
     def _copper_shapes(self, items, carried: dict) -> list:
         """The shapes of stamped copper `items`: tracks, vias and polygons. A pad travels with its footprint and a zone's fill
@@ -686,7 +692,11 @@ class Occupancy:
             shapes, gone = self.thin_arranged(item, shapes)
             # replaced, not changed in place: the empty dict is the class's
             self.arranged_gone = {**self.arranged_gone, (item.name, item.arrangement): gone}
-        return shapes
+        return shapes + [s for ra in self._arranged_areas(item) for s in _rule_area_shapes(ra)]
+
+    def _arranged_areas(self, item) -> tuple:
+        """The rule areas (keepouts, labels) of the arrangement an arranged cell stands in, in the generated board's frame."""
+        return next(a.rule_areas for a in self.geometry.cells[item.name].arrangements if a.id == item.arrangement)
 
     def _without_carried(self, item) -> ItemGeometry:
         """The item's geometry less its carried vias: what the search judges
@@ -1347,6 +1357,10 @@ class Occupancy:
         t = self._transform(geom, placement)
         tag = "cell:%s" % item.name
         self.reservations = [r for r in self.reservations if r.source != tag]
+        if item.arrangement:
+            # the arrangement's areas stand in for the stamped ones; its geometry is built in the generated board's frame, so
+            # they are moved from there
+            self._cell_rule_areas[item.name] = [[ra, tuple(ra.polygon)] for ra in self._arranged_areas(item) if "parts" in ra.excludes]
         for pair in self._cell_rule_areas.get(item.name, ()):
             ra, poly = pair
             poly = tuple(t.apply(p) for p in poly)

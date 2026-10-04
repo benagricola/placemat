@@ -128,3 +128,31 @@ def test_committed_turned_and_flipped_it_stands_as_the_cell_stamped_in_that_arra
             assert ra.face == rb.face and abs((ra.rotation - rb.rotation) % 360.0) < 1e-6
             assert abs(ra.location.x - rb.location.x) < 1e-6 and abs(ra.location.y - rb.location.y) < 1e-6
             assert pads(a.items[ref]) == pads(b.items[ref])
+
+
+def test_an_arranged_cells_label_and_via_keepout_stand_where_the_arrangement_has_them():
+    """The stamped default's label (silk and parts reservation) gives way to the arrangement's, moved with the cell; a keepout of the
+    arrangement that forbids vias bans them there too."""
+    from placemat.board_geometry import RuleArea
+    from placemat.copper import Text
+    from placemat.layout import PlacedKeepout
+    label = Text("C", Location(11.0, 5.0), Face.FRONT, 1.0, 0.15)            # under c_in where the arrangement stands it
+    k = PlacedKeepout("quiet", ((10.0, 0.0), (12.0, 0.0), (12.0, 1.0), (10.0, 1.0)), Location(11.0, 0.5), 0.0, ("vias",), None,
+                      frozenset(), frozenset(), "no vias", None, frozenset(), frozenset())
+    stamped = dataclasses.replace(stamped_geometry(), rule_areas=(
+        RuleArea("label C", "mod", ((30.5, 14.5), (31.5, 14.5), (31.5, 15.5), (30.5, 15.5)), frozenset([CopperLayer.F]),
+                 frozenset(["parts"])),))
+    g = with_arrangement(stamped, east_doc(ops=[EAST_TRACK, label], keepouts=[k]))
+    occ = Occupancy(g)
+    cell = g.cells["mod"]
+    base = occ._geometry(cell.arranged("c_in.east")).reference.location
+    occ.commit(cell, Placement(Location(50.0, 20.0), 0.0, Face.FRONT, "c_in.east"))
+    dx, dy = 50.0 - base.x, 20.0 - base.y
+    want = label.box.moved(30.0 + dx, 10.0 + dy)                            # the fragment's frame, the stamp's offset, the move
+    near = lambda b: abs(b.left - want.left) < 1e-6 and abs(b.top - want.top) < 1e-6 and abs(b.right - want.right) < 1e-6
+    silk = [s.box for s in occ.copper if s.owner == "mod" and s.kind == "silk"]
+    assert len(silk) == 1 and near(silk[0])
+    held = [Box.of_points(r.poly) for r in occ.reservations if r.why.name == "label 'C' from the mod cell"]
+    assert len(held) == 1 and near(held[0])
+    bans = [s.box for s in occ.copper if s.owner == "mod" and s.kind == "viaban"]
+    assert len(bans) == 1 and abs(bans[0].left - (40.0 + dx)) < 1e-6 and abs(bans[0].top - (10.0 + dy)) < 1e-6

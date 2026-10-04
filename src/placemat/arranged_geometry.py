@@ -6,11 +6,11 @@ import dataclasses
 
 from . import arrangement_note as note
 from .board_geometry import Arrangement, CellGeom, CopperItem, MemberPose, RuleArea, resolve_marker, stamped_net
-from .copper import Pour, Track, Via, Zone, stroked_outlines
+from .copper import Pour, Text, Track, Via, Zone, stroked_outlines
 from .geometry import pose_transform, transform_box
 from .placement import Placement
 from .settings import active
-from .values import Box, Face, Location
+from .values import Box, CopperLayer, Face, Location
 
 _TOL = 1e-3
 _MALFORMED = (KeyError, TypeError, ValueError, IndexError, AttributeError, note.NoteError)
@@ -73,8 +73,24 @@ def _rule_area(k, cell: str, dx: float, dy: float, nets, layers) -> RuleArea:
                     missing, (), allow, relaxed)
 
 
-def build(cell: CellGeom, doc: dict, nets, layers):
-    """(the Arrangement, None) for note `doc` on the stamped `cell`, or (None, the problem that keeps it from standing)."""
+_SILK = {None: None, "F.Silkscreen": CopperLayer.F, "B.Silkscreen": CopperLayer.B}
+
+
+def _label_area(op, cell: str, text_box) -> RuleArea | None:
+    """An arrangement's silk text as the board reader reads the stamped text it is written as (kicad/read.py _rule_areas): a region
+    `label <text>` of the cell that keeps parts out on its face, over the text's box (`text_box(op)`, KiCad's; else the op's own
+    estimate). None for a text off the silk."""
+    if op.layer not in _SILK:
+        return None
+    face = _SILK[op.layer] or (CopperLayer.B if op.face is Face.BACK else CopperLayer.F)
+    b = text_box(op) if text_box is not None else op.box
+    return RuleArea("label %s" % op.text, cell, ((b.left, b.top), (b.right, b.top), (b.right, b.bottom), (b.left, b.bottom)),
+                    frozenset((face,)), frozenset(("parts",)))
+
+
+def build(cell: CellGeom, doc: dict, nets, layers, text_box=None):
+    """(the Arrangement, None) for note `doc` on the stamped `cell`, or (None, the problem that keeps it from standing). `text_box`
+    gives a Text op's box as KiCad draws it (the reader's); without it the op's own estimate stands for it."""
     ident = doc.get("id", "")
     if doc.get("v") != note.VERSION:
         return None, _problem("version", ident)
@@ -115,7 +131,8 @@ def build(cell: CellGeom, doc: dict, nets, layers):
         if item is not None:
             items.append(item)
     keepouts = [note.keepout_from_json(d) for d in doc["keepouts"]]
-    areas = tuple(_rule_area(k, cell.name, dx, dy, nets, layers) for k in keepouts)
+    areas = tuple(_rule_area(k, cell.name, dx, dy, nets, layers) for k in keepouts) + \
+        tuple(a for a in (_label_area(op, cell.name, text_box) for op in ops if isinstance(op, Text)) if a is not None)
     keepouts = tuple(dataclasses.replace(k, poly=tuple((x + dx, y + dy) for x, y in k.poly)) for k in keepouts)
     by_ref = {fp.ref: fp for fp in cell.members}
     moved = lambda attr: [transform_box(getattr(by_ref[mp.ref], attr), pose_transform(mp.default, mp.pose)) for mp in poses]
@@ -128,9 +145,9 @@ def build(cell: CellGeom, doc: dict, nets, layers):
     return Arrangement(ident, doc.get("choices", {}), tuple(poses), tuple(ops), areas, geom, keepouts), None
 
 
-def attach(cell: CellGeom, texts, nets, layers) -> CellGeom:
+def attach(cell: CellGeom, texts, nets, layers, text_box=None) -> CellGeom:
     """`cell` with the arrangements its note texts carry (in the order the module run gave them), and the problems of those that
-    could not stand; the cell itself when it has no text."""
+    could not stand; the cell itself when it has no text. `text_box` as for `build`."""
     texts = list(texts)
     if not texts:
         return cell
@@ -139,7 +156,7 @@ def attach(cell: CellGeom, texts, nets, layers) -> CellGeom:
     order = lambda d: (d["order"] if isinstance(d.get("order"), int) else 0, str(d["id"]))
     for d in sorted(docs, key=order):
         try:
-            arr, problem = build(cell, d, nets, layers)
+            arr, problem = build(cell, d, nets, layers, text_box)
         except _MALFORMED:              # it parsed, but a key, kind or value is not one the note's form has
             arr, problem = None, _problem("text", d["id"])
         if arr is None:

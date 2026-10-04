@@ -18,6 +18,7 @@ from ..board_geometry import (BoardGeometry, CellGeom, CopperItem, Footprint, Ne
                               resolve_marker, split_allow, split_marker, stamped_net)
 from ..arrangement_note import ARRANGEMENT_PREFIX
 from ..arranged_geometry import attach
+from .text import text_box
 from ..rules import RULE_PREFIX, parse_rule_note
 from ..values import Box, CopperLayer, Face, Location
 
@@ -824,7 +825,8 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
         cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces, parent_of.get(name), rules)
     classes, default_clr = _netclasses(board)
     layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
-    cells = {n: (attach(c, arrangement_texts[n], frozenset(classes), layers) if arrangement_texts.get(n) else c)
+    label_box = lambda op: text_box(board, op)      # an arrangement's label measured as its stamped text would be
+    cells = {n: (attach(c, arrangement_texts[n], frozenset(classes), layers, label_box) if arrangement_texts.get(n) else c)
              for n, c in cells.items()}
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,

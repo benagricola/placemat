@@ -152,22 +152,39 @@ def test_two_arranged_stamps_of_one_module_name_their_rule_areas_apart(tmp_path,
     assert "items_not_allowed" not in report.by_type, report.by_type
 
 
-@pytest.mark.xfail(strict=True, reason="an arranged cell's own shapes hold no silk for its labels: Occupancy.copper loses the "
-                                       "stamped label's silk when the cell commits in an arrangement (Phase 2 gate finding)")
-def test_an_arranged_cells_label_is_silk_where_the_arrangement_writes_it(tmp_path, usb5v_marked):
+def _silk_boxes(board, keep) -> list:
+    """(left, top, right, bottom) of each silk text `keep(text)` takes, to 0.01 mm."""
+    import pcbnew
+    out = []
+    for d in board.GetDrawings():
+        if isinstance(d, pcbnew.PCB_TEXT) and d.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS) and keep(d):
+            bb = d.GetEffectiveShape().BBox()
+            out.append(tuple(round(pcbnew.ToMM(v), 2) for v in (bb.GetLeft(), bb.GetTop(), bb.GetRight(), bb.GetBottom())))
+    return sorted(out)
+
+
+def test_an_arranged_cells_label_is_silk_and_reserved_where_the_arrangement_writes_it(tmp_path, usb5v_marked):
+    """The label on r_rt moves with it in r_rt.apart: the occupancy holds its silk and its parts reservation where the board writes
+    it, and the board writes it where the module run's own board of the arrangement has it, relative to r_rt."""
     import pcbnew
     from placemat.kicad.write import apply_plan
-    _, _, frag, _ = usb5v_marked
+    from placemat.values import Box
+    result, _, frag, _ = usb5v_marked
     pcb, plan = _arranged_pair(tmp_path, frag)
-    held = sorted((round(s.box.left, 2), round(s.box.top, 2)) for s in plan.occupancy.copper if s.kind == "silk" and s.owner == "u5a")
+    occ = plan.occupancy
+    rounded = lambda b: tuple(round(v, 2) for v in (b.left, b.top, b.right, b.bottom))
+    held = sorted(rounded(s.box) for s in occ.copper if s.kind == "silk" and s.owner == "u5a")
+    reserved = sorted(rounded(Box.of_points(r.poly)) for r in occ.reservations if r.why.name == "label 'RT' from the u5a cell")
     apply_plan(pcb, plan)
     board = pcbnew.LoadBoard(str(pcb))
-    written = []
-    for d in board.GetDrawings():
-        if isinstance(d, pcbnew.PCB_TEXT) and d.GetLayer() == pcbnew.F_SilkS and d.GetParentGroup().GetName() == "u5a":
-            bb = d.GetEffectiveShape().BBox()
-            written.append((round(pcbnew.ToMM(bb.GetLeft()), 2), round(pcbnew.ToMM(bb.GetTop()), 2)))
-    assert written and held == sorted(written)
+    written = _silk_boxes(board, lambda d: d.GetParentGroup() is not None and d.GetParentGroup().GetName() == "u5a")
+    assert len(written) == 1 and held == written and reserved == written
+    proven = pcbnew.LoadBoard(str(result.run_dir / "arrangements" / "r_rt.apart" / "layout.kicad_pcb"))
+    at = lambda b, path: next(fp.GetPosition() for fp in b.GetFootprints() if fp.GetFieldText("Path").startswith(path))
+    here, there = at(board, "u5a.r_rt."), at(proven, "r_rt.")
+    dx, dy = pcbnew.ToMM(here.x - there.x), pcbnew.ToMM(here.y - there.y)
+    [box] = _silk_boxes(proven, lambda d: d.GetText() == "RT")
+    assert written == [tuple(round(v + d, 2) for v, d in zip(box, (dx, dy, dx, dy)))]
 
 
 def test_arranging_cells_on_the_largest_real_board_keeps_pcbnews_bindings_and_its_groups(tmp_path, usb5v, monkeypatch):
