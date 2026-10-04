@@ -96,7 +96,20 @@ native and Python answers directly; they skip themselves (not fail) when
   and the built-in `sum()` over floats (compensated since 3.12).
 - `src/board.rs`: the board's keep-in (a rectangle, a disc with its bore,
   a shaped outline, their cutouts) and the reservations, as
-  `Occupancy._edge_or_reservation_conflict` tests a body box.
+  `Occupancy._edge_or_reservation_conflict` tests a body box. The
+  outline's segments are indexed (y bins for the crossing count, a grid for
+  the segments within the margin of a box); each test gives the answer of
+  the walk over every segment, which the tests keep as the reference.
+- `src/judge.rs`: the sweep's reservation pass (the first reservation, in
+  order, that refuses a candidate, and the part it names): the reservations
+  a sweep can reach binned in a grid, a rastered rule area cleared by its
+  cells, and `geometry::Prepared` (a polygon of many points indexed, with
+  `polys_overlap`'s answer) for the rest. `judge::reference` is the pass
+  as it was first written, which the tests compare it with.
+- `src/profile.rs`: stage timers for the sweep, built in with
+  `maturin develop --release --features profile`; `placemat_native.sweep_profile()`
+  returns the seconds and counts per stage and resets them. Without the
+  feature it is empty and the timers cost nothing.
 - `src/ratsnest.rs`: `ratsnest.mst`, and a mirror of the occupancy's placed
   ratsnest for `leaf_costs`, the crossings a candidate's airwires add.
 - `src/escapes.rs`: a mirror of the placed pads' escape corridors for
