@@ -153,6 +153,12 @@ class Settings:
         "how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot")
     place_courtyard_touch: float = S(0.0, "mm",
         "how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping")
+    place_silk_margin: float = S(0.001, "mm",
+        "how much further than the board's silk clearance a place placement chooses keeps one part's silk from another's "
+        "silk and mask openings. KiCad compares silk at the clearance itself, with no DRC epsilon, on geometry rounded to "
+        "the nanometre, so silk placed at exactly the clearance and then turned off the quarter turns (a stamped cell, a "
+        "tangent turn) can come out a nanometre short. A place the script decided, and a rider's place in its group, are "
+        "judged at the board's own clearance")
     place_courtyard_polygon_share: float = S(0.98, "share",
         "a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box")
     place_conflict_reach: float = S(1.0, "mm",
@@ -265,6 +271,8 @@ class Settings:
         "copper's thermal conductivity, W/(m K)")
     check_zone_step: float = S(0.05, "mm",
         "the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step")
+    check_route_tries: int = S(4, "count",
+        "how many times the load's route between two carriers is searched, each search after the first avoiding the zone fill crossings the earlier ones measured narrow")
     check_limits: dict = S(None, "table",
         "a bound per check, e.g. `\"hot-loop\" = 20.0` (`--limit`)", factory=dict)
     parts_order_fields: tuple = S(("Lcsc", "LCSC", "Mpn", "MPN"), "list",
@@ -617,12 +625,12 @@ _ABOVE_ZERO = frozenset((
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
-    "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
+    "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_route_tries", "check_neck_resistivity", "check_neck_conductivity",
     "studio_3d_cache_mb", "studio_3d_batch", "studio_3d_batch_timeout_s", "studio_3d_model_tris", "studio_3d_max_tris", "studio_3d_plate_mm",     "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "studio_builder_grid_mm", "studio_builder_max_fill", "studio_builder_aspect", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
 _AT_LEAST_ZERO = frozenset((
-    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",

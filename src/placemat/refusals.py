@@ -97,6 +97,7 @@ class Code(str, Enum):
     CUTOUT_NOTCH = "cutout_notch"
     CUTOUT_WEB = "cutout_web"
     CUTOUT_MILLED = "cutout_milled"
+    CUTOUT_SILK = "cutout_silk"
     KEEPOUT_OFF_BOARD = "keepout_off_board"
     CUTOUT_NOWHERE = "cutout_nowhere"
     # why a track's arc does not fit, and why a Past has nothing to stand off
@@ -904,6 +905,12 @@ def _cutout_web(f):
 @renders(Code.CUTOUT_MILLED, "edge")
 def _cutout_milled(f):
     return "would be milled through %s" % f["owner"]
+
+
+@renders(Code.CUTOUT_SILK, "edge")
+def _cutout_silk(f):
+    got, want = _got_want(f)
+    return "would stand %s mm from %s's silk (the silk clearance is %s)" % (got, f["owner"], want)
 
 
 @renders(Code.KEEPOUT_OFF_BOARD, "edge")

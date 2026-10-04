@@ -18,6 +18,21 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Next, in order
 
+- **current-path: parallel layers share the current** (decided): where a
+  load's route crosses copper on several layers of its net joined at both
+  ends (plated holes or via fields), the neck is judged by the layers'
+  widths added, each scaled by its own layer's IPC-2152 constant. Today
+  one layer's narrowest disc is judged alone, so a GND pair over two
+  inner planes in parallel fails at one plane's neck.
+- **Two stamps of one module share keepout area names**: each stamp's copy
+  is `<name>_1`, so a stamped AllowRule's intersectsArea covers the other
+  cell's area too.
+- **Stale zone fill in a module run's saved board**: the saved fill is
+  older than the board's own copper (a refill changes it); it reaches
+  every parent through stamped default cells. Candidate: the .kicad_dru is
+  written after the save. Decide too whether a parent write refills cell
+  zones.
+
 Specced work first, then the loose ends.
 
 0. **A hard limit on a link** (a board's session, 2026-10-03): `board.link(...,
@@ -73,6 +88,15 @@ Specced work first, then the loose ends.
   gaps are right as they are: KiCad compares those without it.
 
 ## Open
+
+- **Part silk against the outline and cutouts.** Placement does not judge a
+  part's silk against the board outline or a cutout already cut (KiCad's
+  silk_edge_clearance): under the courtyard envelope silk can stand 0.06 mm
+  from a hole, under the physical envelope inside it. The scan's edge test is
+  native; deciding whether silk joins it is a policy call (an overhanging
+  part's silk crosses the edge by design).
+- **A box crossing a cutout at edge_margin=0.** `flat_edge_margin` becomes 0
+  and `segment_box < 0 - NM` is never true, so the crossing is not refused.
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
   keeps its 45 chamfers; a pair of arc corners needs two concentric arcs, R
@@ -311,6 +335,15 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Silk margin; cutout silk; back text mirrored; current-path planes;
+  KiCad's copper shapes; cell labels in the search** (0.99.5): placement
+  keeps `place.silk_margin` past the silk clearance so a turned stamp still
+  clears; a searched cutout keeps the silk clearance from parts' silk; text
+  on a back layer is written mirrored; current-path measures the plane over
+  a sliver of another fill (`check.route_tries`); copper findings measure
+  straight tracks and pours as KiCad does; a stamped cell's own labels are
+  judged while the cell is searched.
 
 - **Rows laid again in each firm pass** (0.99.4): a row whose start is a
   reference (`of=` and the like) found its start once, in the first firm

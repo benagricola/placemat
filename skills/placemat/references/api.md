@@ -1336,7 +1336,13 @@ touch. Copper keeps the board's hole clearance from an unplated hole,
 whichever of the two is being placed. A part's or a cell's own holes are its
 own.
 
-The silk clearance is the board's minimum silk item clearance; the component
+The silk clearance is the board's minimum silk item clearance. Where
+placement chooses the place (a search, `Beside`, a row), it keeps silk
+`place.silk_margin` (0.001 mm) wider: KiCad compares silk at the clearance
+itself on geometry rounded to the nanometre, so silk placed at exactly the
+clearance can come out a nanometre short once a stamped cell or a tangent turn
+takes it off the quarter turns. A place the script decided, and a rider's
+place in its group, are judged at the clearance itself. The component
 spacing is `courtyard.component_spacing_mm` in fab-profile.json, twice the
 courtyard excess when absent. Tracks and vias may run under a body. The
 members of a block keep these gaps from each other too. The rank measures an
@@ -1463,7 +1469,11 @@ items, in dependency order, so a slot placed from a connector waits for that
 connector. One with a freedom waits until every decided thing is down. Both
 are settled before any part is searched, so every part is placed against a
 board that already has its holes. A cutout placed from a *searched* item is
-refused, naming it.
+refused, naming it. A freedom is settled at the first spot where the hole is
+inside the board, keeps its web, mills through nothing already placed, and
+stands the board's silk clearance from every placed part's silk on either
+face (KiCad judges silk against Edge.Cuts by that clearance); a decided
+place is cut where it was put.
 
 **`side=`, not `facing=`.** `board.cutout(name).edge(side=)` is the only route
 to a hole's runs, so `board.edge(facing=)` can never return one. `side=
@@ -1647,6 +1657,10 @@ cell, inside its group, and are honoured: they move with the cell and fence the
 placer. Its labels come the same way: each silk text in the cell's group keeps
 parts off its box on its face once the cell lands (`sits in the reservation
 for label 'BOOT' from the debug cell`), so a parent need not declare them again.
+While the cell is searched each text's box is the cell's silk, judged as its
+parts' silk is against what is already placed: under the `physical` or `union`
+envelope a spot that puts it within the silk clearance of another part's silk
+or mask opening is refused, on the face the cell lands on.
 A stamped region larger than its cell costs the parent the difference: the
 cell's step says `its stamped regions keep parts off N mm2 of board beyond
 its own parts`. For a part's escape band, `board.fanout()` follows the pad
@@ -3361,7 +3375,11 @@ the fill by - the widest disc that can travel from touching the one to
 touching the other. Its width reads within about one step of the copper's;
 a neck no cell falls in reads as one step and says so. The fill's
 width is the route's there when it is narrower than the rest of the route
-by more than a step. Each two parts carrying `Pm.I` on the net
+by more than a step. The search for the widest route reads a fill no wider
+than the widest disc anywhere in it until it has measured the crossing;
+where the route it found narrows in a fill, it searches again with that
+crossing at its measured width, up to `check.route_tries` searches, so a
+plane joining the same pads is taken over a sliver of another fill. Each two parts carrying `Pm.I` on the net
 are judged at the lesser of their two currents - what can flow between
 them - by the narrowest point of the widest route from any pad of one to
 any pad of the other; the net's verdict is its worst pair, naming both ends
@@ -4472,6 +4490,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.escape_via_step` | `0.05` | mm | the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
 | `place.escape_via_reach` | `5.0` | mm | how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
 | `place.courtyard_touch` | `0.0` | mm | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
+| `place.silk_margin` | `0.001` | mm | how much further than the board's silk clearance a place placement chooses keeps one part's silk from another's silk and mask openings. KiCad compares silk at the clearance itself, with no DRC epsilon, on geometry rounded to the nanometre, so silk placed at exactly the clearance and then turned off the quarter turns (a stamped cell, a tangent turn) can come out a nanometre short. A place the script decided, and a rider's place in its group, are judged at the board's own clearance |
 | `place.courtyard_polygon_share` | `0.98` | share | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
 | `place.conflict_reach` | `1.0` | mm | how far outside a box a conflict can still reach; a floor under the largest clearance a rule asks |
 | `place.fit_room` | `10.0` | mm | on a fit frame, how far round the decided content a searched item may go |
@@ -4528,6 +4547,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.neck_resistivity` | `2.2e-08` | ohm m | copper's resistivity at the working temperature, ohm m (1.68e-8 at 20 C, 4.04e-3 per K, at 100 C) |
 | `check.neck_conductivity` | `384.0` | W/(m K) | copper's thermal conductivity, W/(m K) |
 | `check.zone_step` | `0.05` | mm | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
+| `check.route_tries` | `4` | count | how many times the load's route between two carriers is searched, each search after the first avoiding the zone fill crossings the earlier ones measured narrow |
 | `check.limits` | `{}` | table | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | list | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
 | `drc.real_kinds` | `["clearance", "shorting_items", "track_width", "annular_width", "hole_clearance", "hole_to_hole", "courtyards_overlap", "copper_edge_clearance"]` | list | which violations mean the board is not done, whatever their severity: the `real` bucket (every other kind KiCad reports as an error counts there too, except footprint issues and outstanding) |

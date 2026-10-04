@@ -8,7 +8,7 @@ import pytest
 
 from placemat.board_geometry import CopperItem
 from placemat.checks import _Fill, current_paths, ipc2221_width_mm, kwargs_from, run_checks
-from placemat.settings import Settings
+from placemat.settings import Settings, bind
 from placemat.values import Box, CopperLayer
 from tests.fixtures import board_geometry, footprint, rect, track
 
@@ -122,3 +122,37 @@ def test_the_step_is_the_setting():
          if v.check == "current-path"}["SW"]
     assert 1.2 - 0.2 - 1e-6 <= v.value <= 1.2 + 1e-6
     assert v.value != pytest.approx(1.15)                     # not the 0.05 mm step's reading
+
+
+@pytest.mark.parametrize("plane_mm", [4.0, 2.0])
+def test_a_necked_fill_is_passed_by_when_a_plane_joins_the_same_pads(plane_mm):
+    """Through-hole pads on a 3 mm fill with a sliver on the front and a
+    plane on the back: the load takes the plane, so the sliver is not the
+    route's neck. The sliver's fill comes first in the copper, so a search
+    that took the first route it found through any fill would read the
+    sliver; a 2 mm plane is narrower than the front fill away from its
+    sliver, so the search only finds the plane after measuring the front."""
+    q1 = footprint("Q1", 10, 10, nets=("GND", "SW"), through=True, fields={"Pm.I": "1A"})
+    l1 = footprint("L1", 20, 10, nets=("SW", "VOUT"), through=True, fields={"Pm.I": "1A"})
+    sliver = ((11, 8.5), (14.8, 8.5), (14.8, 9.985), (15.2, 9.985), (15.2, 8.5), (19, 8.5), (19, 11.5),
+              (15.2, 11.5), (15.2, 10.015), (14.8, 10.015), (14.8, 11.5), (11, 11.5))  # a 0.03 mm neck
+    plane = rect(15, 10, 10, plane_mm)
+    back = CopperItem("zone", "SW", frozenset([CopperLayer.B]), (plane,), Box.of_points(plane))
+    v = _sw([q1, l1], [_zone("SW", sliver), back])
+    assert v.ok is True, v.note
+    assert plane_mm - STEP - 1e-6 <= v.value <= plane_mm + 1e-6, v.note
+
+
+def test_the_route_tries_are_the_setting():
+    """With one search, the route the search found first through the front
+    fill is the one judged."""
+    q1 = footprint("Q1", 10, 10, nets=("GND", "SW"), through=True, fields={"Pm.I": "1A"})
+    l1 = footprint("L1", 20, 10, nets=("SW", "VOUT"), through=True, fields={"Pm.I": "1A"})
+    sliver = ((11, 8.5), (14.8, 8.5), (14.8, 9.985), (15.2, 9.985), (15.2, 8.5), (19, 8.5), (19, 11.5),
+              (15.2, 11.5), (15.2, 10.015), (14.8, 10.015), (14.8, 11.5), (11, 11.5))
+    plane = rect(15, 10, 10, 2.0)
+    back = CopperItem("zone", "SW", frozenset([CopperLayer.B]), (plane,), Box.of_points(plane))
+    geom = board_geometry([q1, l1], copper=[_zone("SW", sliver), back])
+    with bind(Settings(check_route_tries=1)):
+        v = {v.subject: v for v in current_paths(geom)}["SW"]
+    assert v.value == pytest.approx(STEP), v.note

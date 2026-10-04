@@ -11,6 +11,51 @@ section for each hand-written pattern a newer form replaces.
 
 - **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name, Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
 
+## To 0.99.5
+
+### Fixed
+
+- **Silk keeps `place.silk_margin` past the silk clearance.** Placement let two parts' silk stand at exactly the board's
+  silk clearance. KiCad compares silk at the clearance itself, with no DRC epsilon, on geometry rounded to the nanometre,
+  so a module whose silk was packed at the clearance and then stamped as a cell turned off the quarter turns (or a part
+  searched with tangent turns) could be reported as `silk_overlap` at 0.199999 mm against 0.2. Where placement chooses
+  the place (a search, `Beside`, a row), it now keeps silk `place.silk_margin` (0.001 mm) further from another part's
+  silk and mask openings; a refusal at the clearance reads "silk is 0.200 mm from ... (needs 0.201)". A place the script
+  decided, and a rider's place in its group, are judged at the clearance itself as before. A module whose parts were
+  placed at the silk clearance gets them up to a micrometre further apart, and a search may take another spot where
+  one stood exactly at it; lay the module out again and stamp the new fragment to clear the board's report.
+- **A searched cutout keeps the silk clearance from parts' silk.** A `Cutout` whose place is searched (`at=Near(...)`, a
+  free axis, a `Polar` with a free bearing or radius) was refused only where its box met a placed part's pads and drawn
+  graphics, so it could be cut nearer a part's silk than the board's silk clearance, and KiCad reported `silk_edge_clearance`
+  against the hole's Edge.Cuts. The search now also refuses a spot where the hole would stand nearer than the board's
+  silk clearance to a placed part's silk on either face (`cutout_silk`: "would stand 0.15 mm from U1's silk (the silk
+  clearance is 0.20)"). Such a cutout moves to the next spot of its search, a step or two further from its hint. A
+  cutout whose place the script decided is cut where it was put, as before. A part placed after a cutout is still judged
+  against it by its courtyard, body and copper only, not its silk.
+- **Text on a back layer is written mirrored.** A keepout's name drawn on B.Fab (`write.keepout_drawings`), and a text
+  given a back layer by name, were written unmirrored, which KiCad's DRC reports as `nonmirrored_text_on_back_layer`.
+  Every text placemat writes on B.Cu, B.Silkscreen, B.Mask or B.Fab is now mirrored, and one on their front twins is not.
+  A stamped cell's texts are put right as the cell is moved, so a fragment written before this fix needs no new layout.
+- **`current-path` takes the plane over a sliver of another fill.** The search for the load's widest route read every zone
+  fill and pour as passing any width, and measured only the fills on the route it happened to find first, so a route
+  through a sliver where two fills of the net meet on one layer could be judged while a plane joined the same pads: a
+  through-hole pad pair joined by inner planes read as a 0.05 mm neck. The search now reads an unmeasured fill no wider
+  than the widest disc anywhere in it, and where the route it found narrows in a fill it searches again with that crossing
+  at its measured width (`check.route_tries`, default 4). A net that failed on such a sliver is judged on its planes; the
+  verdict can still fail there, at the plane's own narrowest point between the holes of other nets.
+- **A copper finding measures a straight track and a pour as KiCad's DRC does.** It measured a track by its polygon, whose
+  round ends stand up to 1.6 micrometres outside the copper, and a pour by its outline grown by half its stroke, mitred at
+  each corner; read from the board, both by an outline KiCad grew by its arc error. Copper KiCad passes at its rule read 1
+  to 3 micrometres short of it, past the DRC epsilon, and was reported (`copper ... is 0.158 mm from ... (needs 0.160)`). A
+  finding now collides a straight track as its centreline and width and a pour as its outline and a stroke along each
+  edge, as KiCad's DRC does. An arc track is still measured by its polygon.
+- **A stamped cell's own labels are judged while the cell is searched.** The silk texts a module fragment's `board.label()`
+  stamps with its cell kept parts off their boxes only once the cell had landed, so the search could set the cell where a
+  label lay on a part already placed: KiCad then reported `silk_over_copper` and `silk_overlap`. Each text's box is now the
+  cell's silk during the search: under the `physical` or `union` envelope a spot within the silk clearance of another
+  part's silk or mask opening is refused. A cell that landed with a label on another part looks for another spot; one
+  with no room left for its labels is reported unplaced as any other.
+
 ## To 0.99.4
 
 ### Fixed

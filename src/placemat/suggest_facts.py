@@ -41,8 +41,8 @@ def intent_of(board, key: str):
 @safe(list)
 def free_sides(board, occ, plan, i, around: str, near, rotation=None, face=None) -> list:
     """The sides of the part `around` (an instance name) where item `i` may stand `Beside` it, nearest to `near` (a
-    Location) first, as Edge names ("NORTH"). Each side is judged as a firm placement is, with the item itself lifted
-    off the board where it is placed."""
+    Location) first, as Edge names ("NORTH"). Each side is judged as a firm placement is (`Board._settle`: silk at the
+    board's own clearance, `Occupancy.silk_as_drawn`), with the item itself lifted off the board where it is placed."""
     refs = {fp.ref for fp in members_of(i.item)}
     lifted = sorted(r for r in refs if r not in occ.pending and r in occ.items)
     if lifted:
@@ -55,7 +55,9 @@ def free_sides(board, occ, plan, i, around: str, near, rotation=None, face=None)
                 spec = board._beside_spec(i.key, i.item, i.kind, Beside(Part(around), side))
                 cand = dataclasses.replace(i, beside=spec, rotation=rot, face=face or (Face.FRONT if i.either else i.face))
                 p = board._beside_placement(occ, plan, cand, push=False)    # the standoff itself: judged just below
-                if occ.legal_giving_way(i.item, p, board.clearance, past_edge=False, by_corners=True)[0] is None:
+                with occ.silk_as_drawn():
+                    why = occ.legal_giving_way(i.item, p, board.clearance, past_edge=False, by_corners=True)[0]
+                if why is None:
                     found.append((p.location.distance(near) if near is not None else 0.0, side.name))
             except (ValueError, TypeError, KeyError, AttributeError, IndexError):
                 continue

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+from contextlib import contextmanager
 import math
 import types
 from dataclasses import dataclass, field
@@ -46,6 +47,10 @@ class Shape:
     ends: tuple = ()                # a track's own two endpoints, for a finding that names the segment
     arc: tuple = field(default=(), metadata={"omit_default": True})   # an arc track's mid point: its poly is the arc's, not the segment's
     circle: tuple = ()              # a via's (x, y, radius): its copper as the circle it is, for a finding
+    # a straight track's (ax, ay, bx, by, width): its copper as the segment it is, for a finding
+    segment: tuple = field(default=(), metadata={"omit_default": True})
+    # a drawn copper polygon's (outlines, stroke width, filled): its copper as KiCad's DRC collides it, for a finding
+    drawn: tuple = field(default=(), metadata={"omit_default": True})
     # A carried via (giveway.py): its ring, its hole and its tail carry its id, and `points`
     # its centre (and a tail's far end after it), moved as the shape moves. `given` names the
     # via whose giving way drew this shape.
@@ -429,7 +434,12 @@ class Occupancy:
         self.geometry = geometry
         self.envelope = self.settings.place_envelope
         self.component_spacing = component_spacing          # body to body, body to another part's pad
-        self.silk_clearance = geometry.silk_clearance       # silk to silk, silk to a mask opening
+        # silk to silk, silk to a mask opening: the board's clearance and `[place] silk_margin`. KiCad compares silk at
+        # the clearance itself on geometry rounded to the nanometre (SHAPE_SEGMENT::Collide, no DRC epsilon), so silk
+        # placed at exactly the clearance can come out a nanometre short once it is turned off the quarter turns.
+        # A place the script decided is judged at the board's own clearance (`silk_as_drawn`).
+        self.silk_clearance = geometry.silk_clearance + self.settings.place_silk_margin
+        self._silk_as_drawn = False
         # KiCad's DRC epsilon: a copper, hole or hole-to-hole gap short of its rule by no more than this is clear
         # (DRC_TEST_PROVIDER_COPPER_CLEARANCE sub_e, DRC_TEST_PROVIDER_HOLE_TO_HOLE), and how far a collision may
         # lie outside a net-tie pad and still be inside it (DRC_ENGINE::IsNetTieExclusion). A check - a finding's
@@ -543,6 +553,12 @@ class Occupancy:
                                  courtyard=True)
             else:
                 self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
+                if ra.name.startswith("label "):
+                    # the text is the cell's silk as well: judged as its parts' silk is while the cell is
+                    # searched, and moved with the cell's own copper when it lands
+                    poly = tuple(tuple(p) for p in ra.polygon)
+                    self.copper.append(Shape(ra.cell, "silk", frozenset(l.face for l in ra.layers if l.face),
+                                             frozenset(), "", poly, Box.of_points(poly), ra.name[len("label "):]))
 
     def _copper_shapes(self, items, carried: dict) -> list:
         """The shapes of stamped copper `items`: tracks, vias and polygons. A pad travels with its footprint and a zone's fill
@@ -565,10 +581,13 @@ class Occupancy:
                 at = Location(*c.anchors[0]) if c.anchors else c.box.center
                 circle = (at.x, at.y, c.width_mm / 2.0)
             tag, points = carried.get(id(c), ("", ()))
+            segment = _read_segment(c) if not tag else ()
+            drawn = (c.vertices, c.width_mm, c.filled) if c.kind == "poly" and c.vertices and not tag else ()
             for poly in c.outlines:
                 out.append(Shape(c.owner or "", "through" if c.kind == "via" else "copper",
                                  faces, c.layers, c.net, poly, Box.of_points(poly), circle=circle,
-                                 carried=tag, points=points, wire=c.kind in ("track", "via")))
+                                 carried=tag, points=points, wire=c.kind in ("track", "via"),
+                                 segment=segment, drawn=drawn))
             if c.kind == "via" and c.drill_mm:
                 at = Location(*c.anchors[0]) if c.anchors else c.box.center
                 hole = hole_shape(c.owner or "", at, c.drill_mm, c.net, layers=span)
@@ -682,7 +701,7 @@ class Occupancy:
         if geom.part_refs:
             n = len(geom.part_refs)
             name = next(o for o in geom.owners if o not in geom.part_refs and o not in self._footprint_refs)
-            parts = tuple(geom.parts[:n]) + tuple(s.box for s in shapes if s.owner == name and s.kind != "viaban")
+            parts = tuple(geom.parts[:n]) + tuple(s.box for s in shapes if s.owner == name and s.kind not in ("viaban", "silk"))
         less = dataclasses.replace(geom, shapes=shapes, parts=parts)
         cache[id(item)] = (geom, less)
         return less
@@ -996,6 +1015,21 @@ class Occupancy:
         geom = self._geometry(item)
         return transform_box(geom.reach or geom.body, self._transform(geom, placement))
 
+    def placed_silk(self, ref: str) -> tuple:
+        """A footprint's silk outlines on both faces, where it stands now, whatever the envelope claims: what the
+        board's edge (a cutout's included) keeps the silk clearance from."""
+        if not self.geometry.has_footprint(ref):
+            return ()
+        fp = self.geometry.footprint(ref)
+        if not fp.silk:
+            return ()
+        drawn = Placement(fp.location, fp.rotation, fp.face)
+        now = self.items[ref].reference
+        if now == drawn:
+            return tuple(poly for _face, poly in fp.silk)
+        t = self._transform(ItemGeometry(frozenset(), drawn, (), fp.body_box, frozenset()), now)
+        return tuple(tuple(transform_polygon(poly, t)) for _face, poly in fp.silk)
+
     def blame_owner(self, o) -> Owner:
         """What a refusal's tally names a blocking shape by: its owner, and for copper its net too - "cell logic's U3
         GND", or "via GND" for a via no part owns - so a count of copper refusals says whose copper it was. An escape's
@@ -1069,7 +1103,7 @@ class Occupancy:
             return hit[2]
         n = len(geom.part_refs)
         own = [s for s in geom.shapes if s.owner in geom.owners and s.owner not in geom.part_refs
-               and s.kind != "viaban"]
+               and s.kind not in ("viaban", "silk")]
         out = [k for k in range(n) if not self._member_let_in(r, geom.part_refs[k])]
         if r.admitted is None and r.copper:
             out += [n + j for j, s in enumerate(own[:len(geom.parts) - n]) if not (s.net and s.net in r.allow)]
@@ -1256,7 +1290,7 @@ class Occupancy:
         """A cell's geometry from its members' ({refdes: ItemGeometry}) and
         its own copper, as _geometry builds it from what is committed."""
         shapes = tuple(s for fp in item.members for s in members[fp.ref].shapes) + tuple(own)
-        mine = [s.box for s in shapes if s.owner == item.name and s.kind != "viaban"]
+        mine = [s.box for s in shapes if s.owner == item.name and s.kind not in ("viaban", "silk")]
         body = Box.union([members[fp.ref].body for fp in item.members] + mine)
         reach = Box.union([members[fp.ref].reach or members[fp.ref].body for fp in item.members] + mine)
         return ItemGeometry(frozenset(m for fp in item.members for m in members[fp.ref].owners) | {item.name},
@@ -1634,7 +1668,7 @@ class Occupancy:
                     flat_parts.append(Box.union([geom.parts[k]] + [s.box for s in mine if s.kind in flat_kinds]))
                     cu = [s.box for s in mine if s.kind in _COPPERISH]
                     copper_parts.append(Box.union(cu) if cu else None)
-                own = [s for s in geom.shapes if s.owner == name and s.kind != "viaban"]
+                own = [s for s in geom.shapes if s.owner == name and s.kind not in ("viaban", "silk")]
                 for k, s in enumerate(own):
                     flat_parts.append(geom.parts[n + k])
                     copper_parts.append(s.box if s.kind in _COPPERISH else None)
@@ -1727,6 +1761,8 @@ class Occupancy:
         native_entry = getattr(others, "_native", None)
         if native_entry is not None and self._tie_refs & geom.owners:
             native_entry = None             # a net tie's own pairs are settled in Python (see _tie_refs)
+        if native_entry is not None and self._silk_as_drawn and self.silk_clearance != self.geometry.silk_clearance:
+            native_entry = None             # the native judge holds the silk margin (see silk_as_drawn)
         if native_entry is not None:
             # The near-obstacle search itself - ShapeIndex.near() plus the
             # per-shape "close" filter plus _conflict/_drawn_conflict's own
@@ -1794,6 +1830,18 @@ class Occupancy:
                         blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
                     return why
         return None
+
+    @contextmanager
+    def silk_as_drawn(self):
+        """Judge silk at the board's own silk clearance, without `[place] silk_margin`, inside the block: for a place the
+        script decided (a fixed part, a rider's place in its group), which KiCad judges as it stands. The margin is
+        for the places placement chooses. The block's checks run in Python: the native judge holds the margin."""
+        was = self._silk_as_drawn
+        self._silk_as_drawn = True
+        try:
+            yield
+        finally:
+            self._silk_as_drawn = was
 
     def legal_giving_way(self, item, placement: Placement, clearance: float | None = None, others=None,
                          past_edge: bool = False, blame: list | None = None, by_corners: bool = False) -> tuple:
@@ -2010,7 +2058,7 @@ class Occupancy:
             return None
         pair = frozenset((s.kind, o.kind))
         if pair in (frozenset(("silk",)), frozenset(("silk", "mask"))):
-            gap = self.silk_clearance
+            gap = self.geometry.silk_clearance if self._silk_as_drawn else self.silk_clearance
         elif pair == frozenset(("silk", "body")) or pair == frozenset(("body", "npth")):
             gap = 0.0
         elif pair == frozenset(("body",)):
@@ -2652,11 +2700,58 @@ def _point_poly_distance(p, poly) -> float:
     return min(point_segment_distance(p, poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly)))
 
 
+def _read_segment(c) -> tuple:
+    """A track read from the board as (ax, ay, bx, by, width) when it is
+    straight - its own length its ends' distance; an arc's is longer - else
+    ()."""
+    if c.kind != "track" or len(c.anchors) < 2 or not c.width_mm:
+        return ()
+    (ax, ay), (bx, by) = c.anchors[0], c.anchors[1]
+    if c.length_mm and abs(c.length_mm - math.hypot(bx - ax, by - ay)) > 1e-6:
+        return ()
+    return (ax, ay, bx, by, c.width_mm)
+
+
+def _kicad_of(sh):
+    """A shape as `kicad_collide` collides it (nm): a straight track the
+    SHAPE_SEGMENT it is, a via its circle, a drawn polygon the compound
+    KiCad makes of it (EDA_SHAPE::MakeEffectiveShapes, SHAPE_T::POLY: each
+    outline a SHAPE_SIMPLE when filled, and each of its edges a SHAPE_SEGMENT
+    of the stroke's width when stroked), anything else its polygon."""
+    if sh.drawn:
+        outlines, width, filled = sh.drawn
+        parts = []
+        for outline in outlines:
+            pts = tuple((_kc.to_nm(x), _kc.to_nm(y)) for x, y in outline)
+            if filled:
+                parts.append(("p", pts))
+            if width > 0 or not filled:
+                w = _kc.to_nm(width)
+                parts += [("s",) + pts[k] + pts[(k + 1) % len(pts)] + (w,) for k in range(len(pts))]
+        return _kc.Compound(parts)
+    if sh.segment:
+        ax, ay, bx, by, w = sh.segment
+        return ("s", _kc.to_nm(ax), _kc.to_nm(ay), _kc.to_nm(bx), _kc.to_nm(by), _kc.to_nm(w))
+    if sh.circle:
+        x, y, r = sh.circle
+        return ("c", _kc.to_nm(x), _kc.to_nm(y), _kc.to_nm(r))
+    return ("p", tuple((_kc.to_nm(x), _kc.to_nm(y)) for x, y in sh.poly))
+
+
 def _copper_gap(s, o) -> float:
     """The gap between two pieces of copper, a via measured as the circle it
     is: its polygon lies a few microns outside the circle (a 16-gon's vertices,
     or a read outline's arc error), so a gap just over a clearance read as just
-    under it, where KiCad's DRC, measuring the circle, passes."""
+    under it, where KiCad's DRC, measuring the circle, passes. A straight track
+    and a drawn polygon are measured the same way, as the segment and the
+    stroked outline they are (a track's polygon's round ends and a pour's
+    mitred corners stand outside the copper too), by KiCad's own collisions
+    (`kicad_collide`, shape_collisions.cpp)."""
+    if s.segment or o.segment or s.drawn or o.drawn:
+        far = _box_gap(s.box, o.box) + 1.0          # a clearance the two collide within, so `actual` comes back
+        hit = _kc.collide(_kicad_of(s), _kicad_of(o), _kc.to_nm(far))
+        if hit is not None:
+            return hit[0] / 1e6
     if s.circle and o.circle:
         (ax, ay, ar), (bx, by, br) = s.circle, o.circle
         return max(0.0, math.hypot(ax - bx, ay - by) - ar - br)
