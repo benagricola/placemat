@@ -411,6 +411,35 @@ fn cell_at(v: f64, cell: f64) -> i64 {
     (v / cell).floor() as i64
 }
 
+/// What `ShapeGrid::any_conflict_shifted_excluding` keeps from one offset to the next.
+pub struct Blockers {
+    pairs: Vec<(usize, usize)>,          // (shape, obstacle) pairs that refused an offset, the latest first
+    scratch: Vec<Shape>,                 // each shape as last drawn, and where
+    at: Vec<Option<(f64, f64)>>,
+}
+
+impl Blockers {
+    const KEPT: usize = 6;
+
+    pub fn new(origin_shapes: &[Shape]) -> Self {
+        Blockers { pairs: Vec::new(), scratch: origin_shapes.to_vec(), at: vec![None; origin_shapes.len()] }
+    }
+
+    /// `origin_shapes[si]` shifted by `(dx, dy)`.
+    fn drawn(&mut self, origin_shapes: &[Shape], si: usize, dx: f64, dy: f64) -> &Shape {
+        if self.at[si] != Some((dx, dy)) {
+            let s0 = &origin_shapes[si];
+            let s = &mut self.scratch[si];
+            for (q, p) in s.poly.iter_mut().zip(&s0.poly) {
+                *q = (p.0 + dx, p.1 + dy);
+            }
+            s.bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
+            self.at[si] = Some((dx, dy));
+        }
+        &self.scratch[si]
+    }
+}
+
 impl ShapeGrid {
     pub fn new(shapes: Vec<Shape>) -> Self {
         let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
@@ -508,10 +537,10 @@ impl ShapeGrid {
     }
 
     /// Whether any of `origin_shapes`, shifted by `(dx, dy)`, conflicts with an obstacle outside `skip`:
-    /// `first_conflict_shifted_excluding` is_some, tested the likeliest pair first. `hint` is the pair
-    /// that refused the offset before; a refusal is only a yes or no, so which obstacle is tried first
-    /// does not change the answer, and the next offset is mostly refused by the same one. `hint` is
-    /// set to the pair that refuses this offset, left as it was when none does.
+    /// `first_conflict_shifted_excluding` is_some, tested the likeliest pairs first. `blockers` holds the
+    /// pairs that refused the offsets before, the latest first; a refusal is only a yes or no, so which
+    /// obstacle is tried first does not change the answer, and the next offset is mostly refused by one of
+    /// them. It also holds the shapes drawn at an offset, so they are drawn once and over the same storage.
     pub fn any_conflict_shifted_excluding(
         &self,
         origin_shapes: &[Shape],
@@ -520,18 +549,9 @@ impl ShapeGrid {
         explicit_clearance: Option<f64>,
         cfg: &ConflictConfig,
         skip: &HashSet<usize>,
-        hint: &mut Option<(usize, usize)>,
+        blockers: &mut Blockers,
     ) -> bool {
-        let mut moved: Vec<Option<Shape>> = vec![None; origin_shapes.len()];
-        let shifted = |si: usize, moved: &mut Vec<Option<Shape>>| {
-            if moved[si].is_none() {
-                let s0 = &origin_shapes[si];
-                let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
-                let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
-                moved[si] = Some(Shape { poly, bbox, ..s0.clone() });
-            }
-        };
-        let meets = |si: usize, oi: usize, moved: &mut Vec<Option<Shape>>| -> bool {
+        let meets = |si: usize, oi: usize, blockers: &mut Blockers| -> bool {
             let s0 = &origin_shapes[si];
             let o = &self.shapes[oi];
             if skip.contains(&oi) || !may_meet(s0.kind, o.kind) {
@@ -541,11 +561,12 @@ impl ShapeGrid {
             if !box_overlaps(o.bbox, bbox, cfg.gap_for(s0)) {
                 return false;
             }
-            shifted(si, moved);
-            conflict(moved[si].as_ref().unwrap(), o, explicit_clearance, cfg)
+            conflict(blockers.drawn(origin_shapes, si, dx, dy), o, explicit_clearance, cfg)
         };
-        if let Some((si, oi)) = *hint {
-            if meets(si, oi, &mut moved) {
+        for k in 0..blockers.pairs.len() {
+            let (si, oi) = blockers.pairs[k];
+            if meets(si, oi, blockers) {
+                blockers.pairs[..=k].rotate_right(1);       // the latest to refuse is tried first
                 return true;
             }
         }
@@ -553,8 +574,9 @@ impl ShapeGrid {
             let s0 = &origin_shapes[si];
             let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
             for oi in self.near(bbox, cfg.gap_for(s0)) {
-                if meets(si, oi, &mut moved) {
-                    *hint = Some((si, oi));
+                if meets(si, oi, blockers) {
+                    blockers.pairs.insert(0, (si, oi));
+                    blockers.pairs.truncate(Blockers::KEPT);
                     return true;
                 }
             }
@@ -967,7 +989,7 @@ mod tests {
                 shape(Kind::Hole, "V", rect(0.0, 0.0, 0.3, 0.3), 3, 0, ["A", "B"][round % 2], false),
             ];
             let (cx, cy) = (next() * 20.0, next() * 20.0);
-            let mut hint = None;
+            let mut hint = Blockers::new(&origin);
             for k in 0..400 {
                 let (dx, dy) = (cx + (k % 20) as f64 * 0.05, cy + (k / 20) as f64 * 0.05);
                 let want = grid.first_conflict_shifted_excluding(&origin, dx, dy, None, &c, &skip).is_some();

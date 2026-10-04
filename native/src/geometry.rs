@@ -61,7 +61,7 @@ pub fn point_segment_distance(p: Point, a: Point, b: Point) -> f64 {
 /// the distance is clearly past it: the libm hypot, within a unit or two in the last place of the exact
 /// one, rules out most pairs of a `min` over many without the exact hypot's cost.
 #[inline]
-fn point_segment_distance_below(p: Point, a: Point, b: Point, best: f64) -> f64 {
+pub(crate) fn point_segment_distance_below(p: Point, a: Point, b: Point, best: f64) -> f64 {
     let (ax, ay) = a;
     let (bx, by) = b;
     let (px, py) = p;
@@ -232,16 +232,13 @@ pub fn poly_distance(a: &Polygon, b: &Polygon) -> f64 {
     best
 }
 
-/// `poly_distance(a, b) < limit`, answered without the whole minimum: a pair of vertex and edge whose
+/// `poly_distance(a, b) < limit`, answered without the whole minimum (a polygon pair that overlaps is 0 apart): a pair of vertex and edge whose
 /// boxes lie further than `limit` apart cannot be the one, and the first pair under `limit` ends it.
 /// The same answer as the comparison, since a minimum is under `limit` just when one of its terms is;
 /// the boxes are held off by a micrometre more than `limit` so no rounding can flip a pair.
 pub fn poly_distance_below(a: &Polygon, b: &Polygon, limit: f64) -> bool {
     if limit <= 0.0 {
         return false;               // no distance is negative, and the overlap answers 0
-    }
-    if polys_overlap(a, b) {
-        return true;
     }
     let reach = limit + 1e-6;
     let near = |p: Point, (x0, y0, x1, y1): (f64, f64, f64, f64)| -> bool {
@@ -266,7 +263,9 @@ pub fn poly_distance_below(a: &Polygon, b: &Polygon, limit: f64) -> bool {
         }
         false
     };
-    against(a, b, bb) || against(b, a, ba)
+    // the vertices and edges first: where polygons meet, some pair is almost always under the limit, and the overlap
+    // test (which allocates) is then not needed; it still decides the polygons that cross with no vertex near
+    against(a, b, bb) || against(b, a, ba) || polys_overlap(a, b)
 }
 
 #[cfg(test)]

@@ -225,7 +225,7 @@ impl NativeObstacles {
         let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
         let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
         let mut out = Vec::new();
-        let mut hint = None;
+        let mut hint = shapes::Blockers::new(&built);
         for (i, &(dx, dy)) in offsets.iter().enumerate() {
             if !self.grid.any_conflict_shifted_excluding(&built, dx, dy, clearance, &self.cfg, &skip, &mut hint) {
                 out.push(i);

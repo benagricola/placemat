@@ -6,8 +6,8 @@
 //! chosen (docs/superpowers/specs/2026-09-30-give-way-native-move-design.md).
 
 use crate::exact;
-use crate::geometry::{point_in_polygon, point_segment_distance, Point};
-use crate::shapes::{box_overlaps, conflict, may_meet, Bounds, ConflictConfig, Shape, ShapeGrid};
+use crate::geometry::{point_in_polygon, point_segment_distance, point_segment_distance_below, Point};
+use crate::shapes::{box_overlaps, conflict, may_meet, Blockers, Bounds, ConflictConfig, Shape, ShapeGrid};
 use std::collections::HashSet;
 
 /// `giveway._disc_inside`: whether the disc of radius `r` round `c` lies
@@ -17,7 +17,8 @@ pub fn disc_inside(poly: &[Point], c: Point, r: f64) -> bool {
         return false;
     }
     let n = poly.len();
-    (0..n).all(|i| point_segment_distance(c, poly[i], poly[(i + 1) % n]) >= r)
+    // a side clearly further than `r` answers infinity, which is at least `r` as its exact distance is
+    (0..n).all(|i| point_segment_distance_below(c, poly[i], poly[(i + 1) % n], r) >= r)
 }
 
 /// `giveway._still_meets`'s `still`: whether a via of radius `r` centred on
@@ -28,7 +29,10 @@ pub fn still_meets(poly: &[Point], clr: f64, r: f64, c: Point) -> bool {
         return true;
     }
     let n = poly.len();
-    let d = (0..n).map(|i| point_segment_distance(c, poly[i], poly[(i + 1) % n])).fold(f64::INFINITY, f64::min);
+    // a side clearly further than the limit (a micrometre more, for rounding) answers infinity: the nearest
+    // side is then not near enough, as its exact distance would say
+    let limit = clr - 1e-9 + r + 1e-6;
+    let d = (0..n).map(|i| point_segment_distance_below(c, poly[i], poly[(i + 1) % n], limit)).fold(f64::INFINITY, f64::min);
     d - r < clr - 1e-9
 }
 
@@ -57,6 +61,11 @@ pub fn segment_polygon(a: Point, b: Point, width: f64, cap_steps: usize) -> Vec<
     out
 }
 
+/// Whether `c` lies within `reach` of `b` along both axes.
+fn within(b: Bounds, c: Point, reach: f64) -> bool {
+    c.0 >= b.0 - reach && c.0 <= b.2 + reach && c.1 >= b.1 - reach && c.1 <= b.3 + reach
+}
+
 fn bounds(poly: &[Point]) -> Bounds {
     let x0 = poly.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
     let x1 = poly.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
@@ -70,6 +79,45 @@ fn bounds(poly: &[Point]) -> Bounds {
 fn meets_any(s: &Shape, list: &[Shape], clearance: Option<f64>, cfg: &ConflictConfig) -> bool {
     let gap = cfg.gap_for(s);
     list.iter().any(|o| box_overlaps(o.bbox, s.bbox, gap) && may_meet(s.kind, o.kind) && conflict(s, o, clearance, cfg))
+}
+
+/// `meets_any`, the one that last refused a shape tried first (`hint`, set to the one that refuses this): a yes
+/// or no does not depend on which is asked first, and a spot next to the last is mostly refused by the same.
+fn meets_any_hinted(s: &Shape, list: &[Shape], clearance: Option<f64>, cfg: &ConflictConfig, hint: &mut Option<usize>) -> bool {
+    let gap = cfg.gap_for(s);
+    let refuses = |o: &Shape| box_overlaps(o.bbox, s.bbox, gap) && may_meet(s.kind, o.kind) && conflict(s, o, clearance, cfg);
+    if let Some(k) = *hint {
+        if refuses(&list[k]) {
+            return true;
+        }
+    }
+    match list.iter().position(refuses) {
+        Some(k) => {
+            *hint = Some(k);
+            true
+        }
+        None => false,
+    }
+}
+
+/// `meets_board`, hinted as `meets_any_hinted`.
+fn meets_board_hinted(grid: &ShapeGrid, s: &Shape, clearance: Option<f64>, cfg: &ConflictConfig, skip: &HashSet<usize>,
+                      hint: &mut Option<usize>) -> bool {
+    let refuses = |oi: usize| {
+        !skip.contains(&oi) && may_meet(s.kind, grid.shapes[oi].kind) && conflict(s, &grid.shapes[oi], clearance, cfg)
+    };
+    if let Some(oi) = *hint {
+        if box_overlaps(grid.shapes[oi].bbox, s.bbox, cfg.gap_for(s)) && refuses(oi) {
+            return true;
+        }
+    }
+    match grid.near(s.bbox, cfg.gap_for(s)).into_iter().find(|&oi| refuses(oi)) {
+        Some(oi) => {
+            *hint = Some(oi);
+            true
+        }
+        None => false,
+    }
 }
 
 /// Whether `s` meets a registered obstacle outside `skip`.
@@ -134,28 +182,38 @@ pub struct Move<'a> {
 #[allow(clippy::too_many_arguments)]
 pub fn first_move(grid: &ShapeGrid, cfg: &ConflictConfig, m: &Move, offsets: &[(f64, f64)], clearance: Option<f64>,
                   skip: &HashSet<usize>, start: usize) -> Option<usize> {
-    let mut hint = None;
+    let mut hint = Blockers::new(m.via);
+    let mut mine_hint: Vec<Option<usize>> = vec![None; m.via.len()];
+    let (mut tail_board_hint, mut tail_mine_hint) = (None, None);
+    let mut moved: Vec<Shape> = m.via.to_vec();
+    let pad_box = m.pad.map_or((0.0, 0.0, 0.0, 0.0), |(poly, _)| bounds(poly));
+    let first_box = m.first.map_or((0.0, 0.0, 0.0, 0.0), |(poly, _, _)| bounds(poly));
     'offsets: for (i, &(dx, dy)) in offsets.iter().enumerate().skip(start) {
         let to = (exact::round9(m.centre.0 + dx), exact::round9(m.centre.1 + dy));
         if let Some((poly, r)) = m.pad {
-            if !disc_inside(poly, to, r) {
-                continue;
+            if !within(pad_box, to, 0.0) || !disc_inside(poly, to, r) {
+                continue;               // a centre outside the box of the pad is outside the pad
             }
         }
         if let Some((poly, clr, r)) = m.first {
-            if still_meets(poly, clr, r, to) {
+            // a centre further from the box of what it met than the clearance and the radius is neither in it
+            // nor near enough (a micrometre more, for rounding): the test is spared
+            if within(first_box, to, clr + r + 1e-6) && still_meets(poly, clr, r, to) {
                 continue;
             }
         }
-        for s0 in m.via {
+        for (k, s0) in m.via.iter().enumerate() {
             let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
             let gap = cfg.gap_for(s0);
             if !m.mine.iter().any(|o| box_overlaps(o.bbox, bbox, gap)) {
                 continue;
             }
-            let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
-            let s = Shape { poly, bbox, ..s0.clone() };
-            if meets_any(&s, m.mine, clearance, cfg) {
+            let s = &mut moved[k];              // the shape at this offset, drawn over the copy kept for the loop
+            for (q, p) in s.poly.iter_mut().zip(&s0.poly) {
+                *q = (p.0 + dx, p.1 + dy);
+            }
+            s.bbox = bbox;
+            if meets_any_hinted(s, m.mine, clearance, cfg, &mut mine_hint[k]) {
                 continue 'offsets;
             }
         }
@@ -167,7 +225,9 @@ pub fn first_move(grid: &ShapeGrid, cfg: &ConflictConfig, m: &Move, offsets: &[(
         if let Some((proto, far, width, cap_steps)) = m.tail {
             let poly = segment_polygon(far, to, width, cap_steps);
             let s = Shape { bbox: bounds(&poly), poly, ..proto.clone() };
-            if meets_board(grid, &s, clearance, cfg, skip) || meets_any(&s, m.mine, clearance, cfg) {
+            if meets_board_hinted(grid, &s, clearance, cfg, skip, &mut tail_board_hint)
+                || meets_any_hinted(&s, m.mine, clearance, cfg, &mut tail_mine_hint)
+            {
                 continue;
             }
         }
@@ -350,6 +410,111 @@ mod tests {
             }
         }
         assert!(found > 200 && none > 100, "{found} {none}");
+    }
+
+    #[test]
+    fn the_quick_tests_answer_what_the_exact_distances_do() {
+        let mut state = 29u64;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 33) as f64) / ((1u64 << 31) as f64)
+        };
+        let (mut a, mut b, mut c, mut d) = (0, 0, 0, 0);
+        for _ in 0..30000 {
+            let n = 3 + (next() * 14.0) as usize;
+            let (cx, cy, rad) = (next() * 4.0, next() * 4.0, 0.2 + next() * 1.5);
+            let poly: Vec<Point> = (0..n).map(|i| {
+                let t = (i as f64 + next() * 0.4) * std::f64::consts::TAU / n as f64;
+                let r = rad * (0.5 + next() * 0.5);
+                (cx + r * t.cos(), cy + r * t.sin())
+            }).collect();
+            let p = (cx + (next() - 0.5) * 3.0 * rad, cy + (next() - 0.5) * 3.0 * rad);
+            let (clr, r) = (0.05 + next() * 0.4, 0.05 + next() * 0.5);
+            let edges: Vec<f64> = (0..n).map(|i| point_segment_distance(p, poly[i], poly[(i + 1) % n])).collect();
+            // the exact answers, as the functions were before the quick way out
+            let inside_ref = point_in_polygon(p, &poly) && edges.iter().all(|&d| d >= r);
+            let still_ref = point_in_polygon(p, &poly) || edges.iter().cloned().fold(f64::INFINITY, f64::min) - r < clr - 1e-9;
+            assert_eq!(disc_inside(&poly, p, r), inside_ref);
+            assert_eq!(still_meets(&poly, clr, r, p), still_ref);
+            // and at the thresholds themselves
+            let near = edges.iter().cloned().fold(f64::INFINITY, f64::min);
+            for rr in [near, near + 1e-12, near - 1e-12] {
+                if rr > 0.0 {
+                    assert_eq!(disc_inside(&poly, p, rr), point_in_polygon(p, &poly) && edges.iter().all(|&d| d >= rr));
+                    let cc = near - rr + 1e-9;
+                    assert_eq!(still_meets(&poly, cc.max(0.0), rr, p),
+                               point_in_polygon(p, &poly) || near - rr < cc.max(0.0) - 1e-9);
+                }
+            }
+            if inside_ref { a += 1 } else { b += 1 }
+            if still_ref { c += 1 } else { d += 1 }
+        }
+        assert!(a > 1000 && b > 1000 && c > 1000 && d > 1000, "{a} {b} {c} {d}");
+    }
+
+    #[test]
+    fn a_centre_outside_the_box_is_not_inside_or_near_enough() {
+        let mut state = 23u64;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 33) as f64) / ((1u64 << 31) as f64)
+        };
+        let (mut outside, mut inside) = (0, 0);
+        for _ in 0..20000 {
+            let n = 3 + (next() * 9.0) as usize;
+            let (cx, cy, rad) = (next() * 4.0, next() * 4.0, 0.2 + next() * 1.5);
+            let poly: Vec<Point> = (0..n).map(|i| {
+                let t = (i as f64 + next() * 0.4) * std::f64::consts::TAU / n as f64;
+                let r = rad * (0.5 + next() * 0.5);
+                (cx + r * t.cos(), cy + r * t.sin())
+            }).collect();
+            let c = (next() * 6.0 - 1.0, next() * 6.0 - 1.0);
+            let (clr, r) = (0.1 + next() * 0.3, 0.1 + next() * 0.4);
+            let b = bounds(&poly);
+            if !within(b, c, 0.0) {
+                assert!(!disc_inside(&poly, c, r));
+            }
+            if !within(b, c, clr + r + 1e-6) {
+                assert!(!still_meets(&poly, clr, r, c));
+                outside += 1;
+            } else {
+                inside += 1;
+            }
+        }
+        assert!(outside > 2000 && inside > 2000, "{outside} {inside}");
+    }
+
+    #[test]
+    fn a_hinted_test_answers_what_the_plain_one_does() {
+        let mut state = 31u64;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 33) as f64) / ((1u64 << 31) as f64)
+        };
+        let c = cfg();
+        let (mut yes, mut no) = (0, 0);
+        for round in 0..200 {
+            let mk = |next: &mut dyn FnMut() -> f64, n: usize| -> Vec<Shape> {
+                (0..n).map(|_| {
+                    let kind = [Kind::Pad, Kind::Copper, Kind::Through][(next() * 3.0) as usize % 3];
+                    copper(kind, square(next() * 5.0, next() * 5.0, 0.1 + next() * 0.4), ["A", "B", "C"][(next() * 3.0) as usize % 3])
+                }).collect()
+            };
+            let board = mk(&mut next, 30);
+            let mine = mk(&mut next, 12);
+            let grid = ShapeGrid::new(board);
+            let skip: HashSet<usize> = (0..30).filter(|i| i % 7 == round % 7).collect();
+            let (mut hint_mine, mut hint_board) = (None, None);
+            for _ in 0..60 {
+                let probe = copper(Kind::Copper, square(next() * 5.0, next() * 5.0, 0.1 + next() * 0.3), ["A", "B"][(next() * 2.0) as usize % 2]);
+                let want_mine = meets_any(&probe, &mine, Some(0.2), &c);
+                assert_eq!(meets_any_hinted(&probe, &mine, Some(0.2), &c, &mut hint_mine), want_mine);
+                let want_board = meets_board(&grid, &probe, Some(0.2), &c, &skip);
+                assert_eq!(meets_board_hinted(&grid, &probe, Some(0.2), &c, &skip, &mut hint_board), want_board);
+                if want_mine || want_board { yes += 1 } else { no += 1 }
+            }
+        }
+        assert!(yes > 1000 && no > 1000, "{yes} {no}");
     }
 
     #[test]
