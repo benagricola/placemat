@@ -784,7 +784,7 @@ out.start = [els["#runstrip"].hidden, els["#rs-steps"].textContent];
 send("begin", {id: 1, kind: "total", items: 24, searched: 18, copper: 6, replay: 0});
 send("step", {id: 1, item: item("a", 1)});
 send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3});
-send("begin", {id: 1, kind: "phase", text: "scanning the front or back", hint: [6, 8], radius: 12});
+send("begin", {id: 1, kind: "phase", stage: "scan", face: "either", hint: [6, 8], radius: 12});
 clock += 3200; ev("renderProgress()");
 out.prog = [els["#runstrip"].hidden, els["#rs-steps"].textContent + " | " + els["#rs-work"].innerHTML, els["#progbar"].style.width, els["#rs-el"].textContent];
 ev("renderSteps()"); out.pending = els["#tab-steps"].innerHTML; ev("renderStepNow()"); out.stepnow = els["#stepnow"].innerHTML; out.stepnow_shown = els["#stepnow"].style.display;
@@ -1053,7 +1053,7 @@ def test_a_page_that_joins_late_counts_the_resolve_from_when_it_began_by_the_ser
     out = run_page(tmp_path, r"""
 // the server says it is 5000 s on its clock; the resolve began at 4917, the item at 4996.8
 send("hello", {script: "x_layout.py", keep: 5, history: [], resolving: 1, error: null, scripts: [], now: 5000,
-  work: {t0: 4917, total: {kind: "total", items: 24, searched: 18, copper: 6, replay: 0}, replayed: 0, cur: {item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3, at: 4996.8, phase: "seeding from its connections"}}});
+  work: {t0: 4917, total: {kind: "total", items: 24, searched: 18, copper: 6, replay: 0}, replayed: 0, cur: {item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3, at: 4996.8, stage: "seeding"}}});
 send("started", {id: 1, script: "x_layout.py", at: 4917, texts: {"x_layout.py": "a\n"}, changed: [], stale_files: []});
 send("board", BOARD);
 ev("renderProgress()");
@@ -1208,7 +1208,7 @@ hello(); started(1); send("board", BOARD);
 send("begin", {id: 1, kind: "total", items: 24, searched: 18, copper: 6, replay: 0});
 send("step", {id: 1, item: item("a", 1)});
 send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3});
-send("begin", {id: 1, kind: "phase", text: "scanning the front or back", hint: [6, 8], radius: 12});
+send("begin", {id: 1, kind: "phase", stage: "scan", face: "either", hint: [6, 8], radius: 12});
 clock += 3200; ev("renderProgress()");
 out.wide = [els["#runhead"].hidden, els["#runstrip"].hidden, els["#runhead"].innerHTML, els["#runhead"].className];
 send("step", {id: 1, item: Object.assign(item("psu", 5), {key: "psu"})});
@@ -1662,11 +1662,15 @@ out.legend = els["#legend"].innerHTML.indexOf('class="fnd warning"') > 0;
 
 
 @needs_node
-def test_the_phase_pill_is_shortened_from_the_engines_own_sentences(tmp_path):
+def test_the_phase_pill_is_made_from_the_stage_and_its_numbers(tmp_path):
     out = run_more(tmp_path, r"""
-out.short = ["refining around the best spots: 3 of 9", "scanning the front or back", "seeding", "coarse pass over the board", "placing at (1, 2)"].map(s => ev("phaseShort(" + JSON.stringify(s) + ", 'searched')"));
+const phases = [{stage: "refine", within: [3, 9]}, {stage: "scan", face: "either"}, {stage: "scan", face: "back"}, {stage: "seeding"}, {stage: "coarse"},
+  {stage: "coarse_half"}, {stage: "fine"}, {stage: "give_way"}, {stage: "declared"}, {stage: ""}];
+out.short = phases.map(p => ev("phaseShort(" + JSON.stringify(Object.assign({what: "searched"}, p)) + ")"));
+out.copper = ev("phaseShort({what: 'copper', stage: ''})");
 """)
-    assert out["short"] == ["refining 3 of 9", "scan front/back", "seeding", "coarse pass", "placing"]
+    assert out["short"] == ["refining 3 of 9", "scan front/back", "scan back", "seeding", "coarse pass", "coarse pass", "fine pass", "giving way", "placing", ""]
+    assert out["copper"] == "copper batch"
 
 
 @needs_node
@@ -1756,11 +1760,11 @@ send("step", {id: 1, item: item("a", 1)});
 send("step", {id: 1, item: item("b", 5)});
 send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 1, of: 4, replaying: false, n: 2});
 const bar = () => [els["#progbar"].style.width, els["#proginn"].style.left, els["#proginn"].style.width];
-send("begin", {id: 1, kind: "phase", text: "coarse pass over the radius"});
+send("begin", {id: 1, kind: "phase", stage: "coarse"});
 ev("renderProgress()"); out.coarse = bar();
-send("begin", {id: 1, kind: "phase", text: "refining around the best spots: 3 of 5", within: [3, 5]});
+send("begin", {id: 1, kind: "phase", stage: "refine", within: [3, 5]});
 ev("renderProgress()"); out.refining = bar(); out.head = els["#runhead"].innerHTML;
-send("begin", {id: 1, kind: "phase", text: "scanning the front"});
+send("begin", {id: 1, kind: "phase", stage: "scan", face: "front"});
 ev("renderProgress()"); out.scan = bar();
 send("step", {id: 1, item: Object.assign(item("psu", 9), {key: "psu"})});
 ev("renderProgress()"); out.next = bar();
@@ -1808,3 +1812,16 @@ def test_no_label_carries_a_bracketed_explanation():
     for label in ("designators", "vias"):
         assert '"%s"' % label in text
     assert "(zoomed in)" not in text and "(ring, drill hole)" not in text and "(or double-tap" not in text
+
+
+@needs_node
+def test_a_slow_step_event_is_said_in_a_toast_with_the_item_its_seconds_and_the_pass(tmp_path):
+    out = run_more(tmp_path, r"""
+out.say = [
+  ev("slowText({ev: 'step_warn', item: 'ble', elapsed_s: 31.2, stage: 'refine', within: [2, 3], firm_pass: null})"),
+  ev("slowText({ev: 'step_limit', item: 'ble', elapsed_s: 62, stage: 'coarse', within: null, firm_pass: null})"),
+  ev("slowText({ev: 'step_warn', item: 'ble', elapsed_s: 40, stage: 'give_way', within: null, firm_pass: 2})"),
+];
+""")
+    assert out["say"] == ["ble: still working after 31 s in the refine pass 2 of 3", "ble: gave up after 62 s in the coarse pass",
+                          "ble: still working after 40 s in the give-way pass, firm pass 2"]

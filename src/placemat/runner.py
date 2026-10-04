@@ -390,6 +390,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
          resume: bool = True) -> RunResult:
     configure(quiet=quiet)
     say = console.say
+    from . import timecap
+    timecap.arm(cfg)                        # --max-time, --step-warn, --step-limit, when the command has them
     runs = src.board_dir / ".placemat" / "runs"
     from . import reuse as reuse_mod
     # The previous run's record is read now: a rerun with the same id replaces its directory.
@@ -496,9 +498,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from . import explore as explore_mod, routes as routes_mod
         stage = "explore" if explore is not None else "resolve"
         try:
-            lock_entries, explored = explore_mod.before_resolve(
-                script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
-                explore, say, run_id=rid, keep_state=True)
+            with timecap.cap_only():            # an explore's own resolves are not timed step by step
+                lock_entries, explored = explore_mod.before_resolve(
+                    script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
+                    explore, say, run_id=rid, keep_state=True)
         except (explore_mod.FocusError, ResumeRefused) as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         stage = "resolve"
@@ -528,6 +531,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             if render:
                 render_board(src.pcb, run_dir / "render.log", both_faces=True)
             raise RunFailure("placement", str(e), {"item": e.key, "tail": "board written as it stood: %s" % src.pcb})
+        timecap.placement_done()            # the placement is in hand: the cap is lifted for the stages after it
         (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
         rec.timing_s["resolve"] = round(time.time() - t0, 1)
         from .project import fab_min_findings
@@ -725,7 +729,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         s.stage = s.stage or stage
         rec.status = "stopped"
         rec.failure = {"kind": "stopped", "signal": s.name, "stage": s.stage, "elapsed_s": round(time.time() - began, 1),
-                       "explore": s.explore}
+                       "explore": s.explore, **stop.cause_fields(s)}
         kept = run_dir / "before"
         if kept.exists():                  # whatever the stop left half written: the folder as the last run left it
             shutil.rmtree(src.layout_dir, ignore_errors=True)

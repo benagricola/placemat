@@ -426,6 +426,7 @@ def render_all(notes, unplaced=None) -> str:
 
 _FORMS = {
     "no_pocket": lambda r: "no pocket fits",
+    "time_limit": lambda r: "gave up at its time limit (--step-limit)",
     "riders_alone": lambda r: finding_text.riders_alone_note(r),
     "turns": lambda r: finding_text.turns_text(r["turns"]),
     "rides": lambda r: finding_text.rides_note(r),

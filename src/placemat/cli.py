@@ -34,6 +34,17 @@ def parser() -> argparse.ArgumentParser:
                      help="carry on past decided items that collide (recorded as findings) instead of stopping "
                           "there; an item declared required=True still stops the run")
 
+    run.add_argument("--max-time", type=float, metavar="SECONDS",
+                     help="stop after SECONDS of placing, at the next point it can be resumed from (default [run] max_time_s; 0 "
+                          "is no cap). The finished steps are kept: the same command again replays them and goes on. It says how far "
+                          "it got. Wall-clock, so it depends on machine load")
+    run.add_argument("--step-warn", type=float, metavar="SECONDS",
+                     help="a step still working after SECONDS sends a live event (`placemat watch`, the studio) and gets a finding "
+                          "naming the item, its seconds and the pass it was in (default [run] step_warn_s; 0 is never)")
+    run.add_argument("--step-limit", type=float, metavar="SECONDS",
+                     help="a step still working after SECONDS gives up: it is left unplaced, or at the best spot its search had found, "
+                          "with a finding, and the placement goes on with the next item (default [run] step_limit_s; 0 is never). "
+                          "Checked between a search's passes; wall-clock, so which steps give up depends on machine load")
     run.add_argument("--explore", type=float, metavar="SECONDS",
                      help="first spend up to SECONDS trying variants of the focused items' spots and order, and "
                           "report what the best would move. A long explore: run it detached (setsid nohup placemat "
@@ -238,6 +249,17 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("--around", help="draw only round this placed part or cell (its instance name)")
     pv.add_argument("--margin", type=float, default=5.0, help="mm round --around (default 5)")
 
+    pv.add_argument("--max-time", type=float, metavar="SECONDS",
+                     help="stop after SECONDS of placing, at the next point it can be resumed from (default [run] max_time_s; 0 "
+                          "is no cap). The finished steps are kept: the same command again replays them and goes on. It says how far "
+                          "it got. Wall-clock, so it depends on machine load")
+    pv.add_argument("--step-warn", type=float, metavar="SECONDS",
+                     help="a step still working after SECONDS sends a live event (`placemat watch`, the studio) and gets a finding "
+                          "naming the item, its seconds and the pass it was in (default [run] step_warn_s; 0 is never)")
+    pv.add_argument("--step-limit", type=float, metavar="SECONDS",
+                     help="a step still working after SECONDS gives up: it is left unplaced, or at the best spot its search had found, "
+                          "with a finding, and the placement goes on with the next item (default [run] step_limit_s; 0 is never). "
+                          "Checked between a search's passes; wall-clock, so which steps give up depends on machine load")
     pv.add_argument("--explore", type=float, metavar="SECONDS",
                      help="first spend up to SECONDS trying variants of the focused items' spots and order, and "
                           "report what the best would move")
@@ -1617,6 +1639,9 @@ def main(argv=None) -> int:
     if args.format == "json":
         args.json = True
     previous = stop.install() if args.command in STOPPABLE or (args.command == "apply" and args.search) else {}
+    if previous and args.command in ("run", "preview"):         # bounded in time: the cap stops through the handlers just installed
+        from . import timecap
+        timecap.configure(args.max_time, args.step_warn, args.step_limit)
     try:
         return _main(args)
     except stop.Stopped as s:
@@ -1629,6 +1654,8 @@ def main(argv=None) -> int:
         return s.exit_code
     finally:
         stop.restore(previous)
+        from . import timecap
+        timecap.reset()
 
 
 def _main(args) -> int:

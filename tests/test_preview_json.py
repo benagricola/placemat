@@ -225,8 +225,13 @@ def test_the_engine_tells_on_begin_the_queue_each_item_it_starts_and_what_a_long
     searched = [i for i in begins if i["what"] == "searched"]
     assert searched and all(i["rank"] and i["of"] >= i["rank"] for i in searched)
     assert {"decided", "copper"} <= {i["what"] for i in begins}
-    phases = [i["text"] for k, i in seen if k == "begin" and i["kind"] == "phase"]
-    assert any(x.startswith("scanning") for x in phases) and any(x.startswith("seeding") for x in phases)
+    phases = [i for k, i in seen if k == "begin" and i["kind"] == "phase"]
+    assert all("text" not in i for i in phases)                         # a phase is a stage and its numbers; the words are made where it is read
+    assert {"scan", "seeding"} <= {i["stage"] for i in phases}
+    scan = next(i for i in phases if i["stage"] == "scan")
+    assert scan["face"] in ("front", "back", "either") and scan["radius"] > 0
+    stepped = [i for i in phases if "item" in i]                        # which step, and how long it had been going
+    assert stepped and all(i["elapsed_s"] >= 0 for i in stepped) and all(("elapsed_s" in i) == ("item" in i) for i in phases)
     hint = next(i for k, i in seen if k == "begin" and i.get("hint"))
     assert len(hint["hint"]) == 2
     order = [(k, i["item"] if k == "begin" else i) for k, i in seen if k == "step" or (k == "begin" and i["kind"] == "begin")]
@@ -288,9 +293,9 @@ def test_a_refining_phase_says_how_far_through_its_spots_it_is():
     from tests.test_reuse_replay import _board as replay_board
     seen = []
     replay_board(r2_radius=25.0).resolve(on_begin=lambda p, info: seen.append(info))
-    refining = [i for i in seen if i["kind"] == "phase" and i["text"].startswith("refining")]
-    assert refining, [i["text"] for i in seen if i["kind"] == "phase"]
+    refining = [i for i in seen if i["kind"] == "phase" and i["stage"] == "refine"]
+    assert refining, [i["stage"] for i in seen if i["kind"] == "phase"]
     for i in refining:
         k, n = i["within"]
-        assert 1 <= k <= n and i["text"].endswith("%d of %d" % (k, n))
-    assert all("within" not in i for i in seen if i["kind"] == "phase" and not i["text"].startswith("refining"))
+        assert 1 <= k <= n
+    assert all("within" not in i for i in seen if i["kind"] == "phase" and i["stage"] != "refine")

@@ -16,6 +16,7 @@ from . import giveway
 from .geometry import Transform, _rect_of, point_in_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, ShapeIndex, _reason_key
 from .refusals import Code, Refusal
+from .phases import Stage
 from .placement import Placement
 from .values import Box, Edge, Face, Location, Mid, bearing, bearing_vector, box_support
 
@@ -408,6 +409,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     held.append((cand, hit, blame))
             if spent:
                 break
+        if phase is not None and held:
+            phase(Stage.GIVE_WAY)
         for cand, _, _ in held:
             refusal = gave_way(cand, legal)
             if refusal is not None:
@@ -480,6 +483,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 tally(bucket, reason, blocker_of(blocker), count)
             return legal
         taken = set(found)
+        if phase is not None and len(taken) < len(triples):
+            phase(Stage.GIVE_WAY)
 
         def at(t):
             return Placement(Location(t[0], t[1]), rots[t[2]], hint.face)
@@ -576,20 +581,27 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         return pts if within is None else [p for p in pts if within(p[1], p[2])]
 
     cfg = occ.settings
-    phase = getattr(occ, "on_phase", None)             # a viewer's note of which pass a long scan is in
+    phase = getattr(occ, "on_phase", None)             # a viewer's note of which pass a long scan is in; true: out of time (timecap.py)
+    out_of_time = lambda *a, **kw: phase is not None and phase(*a, cut=True, **kw)     # true: stop here (the step's time limit)
     if score is None or radius / step < cfg.place_coarse_min_radius_steps:
+        if out_of_time(Stage.FINE):
+            return ScanResult(None, hint, tried, rejected, reasons, blockers)
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), stop_at_first=score is None)
     else:
         coarse = step * cfg.place_coarse_stride
-        if phase:
-            phase("coarse pass over the radius")
+        if out_of_time(Stage.COARSE):
+            return ScanResult(None, hint, tried, rejected, reasons, blockers)
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse)), False)
         if not any_counted(legal) and not spent():
+            if out_of_time(Stage.COARSE_HALF):
+                return ScanResult(None, hint, tried, rejected, reasons, blockers)
             legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse / 2)), False)
         if not any_counted(legal) and not spent():
             # Nothing on either coarse lattice. The coarse pass is there to
             # save time, not to decide: the fine grid still gets its walk, so
             # a spot narrower than a coarse step is not reported as no room.
+            if out_of_time(Stage.FINE):
+                return ScanResult(None, hint, tried, rejected, reasons, blockers)
             legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), False)
         if legal:
             legal.sort(key=lambda k: k[:3])
@@ -603,8 +615,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             for k, cand in enumerate(seeds):
                 if spent():
                     break
-                if phase:
-                    phase("refining around the best spots: %d of %d" % (k + 1, len(seeds)), within=[k + 1, len(seeds)])
+                if out_of_time(Stage.REFINE, within=[k + 1, len(seeds)]):
+                    break                       # out of time: the best spot found so far stands
                 # The fine grid is centred on a coarse candidate, which can sit at
                 # the edge of the radius: keep only what is still inside it, so
                 # "within radius of the hint" is what a script gets.

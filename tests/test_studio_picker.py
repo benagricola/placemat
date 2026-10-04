@@ -297,14 +297,14 @@ def test_a_page_that_joins_late_is_told_when_the_resolve_began_and_what_is_under
     s._cur = {"id": 4, "texts": {}, "changed": [], "t0": 0, "at": time.time() - 83.0}
     s._on_worker({"ev": "begin", "id": 4, "kind": "total", "items": 24, "searched": 18, "copper": 6, "replay": 0}, s.worker.serial)
     s._on_worker({"ev": "begin", "id": 4, "kind": "begin", "item": "psu", "what": "searched", "rank": 7, "of": 18, "replaying": False, "n": 3}, s.worker.serial)
-    s._on_worker({"ev": "begin", "id": 4, "kind": "phase", "text": "scanning the front", "hint": [1.0, 2.0]}, s.worker.serial)
+    s._on_worker({"ev": "begin", "id": 4, "kind": "phase", "stage": "scan", "face": "front", "hint": [1.0, 2.0]}, s.worker.serial)
     hello = json.loads(s.hello()[0][1])
     assert abs(hello["now"] - time.time()) < 2 and hello["resolving"] == 4
     w = hello["work"]
     assert 82.0 < hello["now"] - w["t0"] < 86.0                                       # since the resolve began, not since the page joined
-    assert w["total"]["items"] == 24 and w["cur"]["item"] == "psu" and w["cur"]["phase"] == "scanning the front" and w["cur"]["hint"] == [1.0, 2.0]
+    assert w["total"]["items"] == 24 and w["cur"]["item"] == "psu" and w["cur"]["stage"] == "scan" and w["cur"]["face"] == "front" and w["cur"]["hint"] == [1.0, 2.0]
     assert 0 <= hello["now"] - w["cur"]["at"] < 2 and w["cur"]["within"] is None
-    s._on_worker({"ev": "begin", "id": 4, "kind": "phase", "text": "refining around the best spots: 2 of 5", "within": [2, 5]}, s.worker.serial)
+    s._on_worker({"ev": "begin", "id": 4, "kind": "phase", "stage": "refine", "within": [2, 5]}, s.worker.serial)
     assert json.loads(s.hello()[0][1])["work"]["cur"]["within"] == [2, 5]               # a page that joins part-way gets how far the step is
     s._on_worker({"ev": "item", "id": 4, "item": {"key": "psu", "file": ""}}, s.worker.serial)
     assert json.loads(s.hello()[0][1])["work"]["cur"] is None
@@ -496,3 +496,18 @@ def test_the_models_a_commands_item_uses_go_to_the_converter_and_not_to_the_page
     s._on_channel(8, {"ev": "item", "item": {"key": "u1", "file": ""}, "model_jobs": [job]})
     assert got == [[job]]
     assert all("model_jobs" not in e for e in s.cmd_detail(8)["events"])
+
+
+def test_a_step_a_command_found_slow_is_kept_with_the_command_and_sent_to_the_page(project):
+    s = _fresh(project)
+    drain = _events(s)
+    _cmd(s, 1)
+    warn = {"ev": "step_warn", "item": "ble", "elapsed_s": 31.0, "pass": "refine", "stage": "refine", "within": [2, 3], "firm_pass": None, "bound_s": 30.0}
+    s._on_channel(1, warn)
+    s._on_channel(1, dict(warn, ev="step_limit", elapsed_s=61.0, bound_s=60.0))
+    [c] = s.commands()
+    assert [x["kind"] for x in c["slow"]] == ["step_warn", "step_limit"] and c["slow"][0]["item"] == "ble" and c["slow"][0]["within"] == [2, 3]
+    slow = [json.loads(t) for n, t in drain() if n == "slow"]
+    assert [x["ev"] for x in slow] == ["step_warn", "step_limit"] and slow[0]["id"] == 1 and slow[0]["command"] == "explore"
+    s._on_channel(1, {"ev": "resolve", "n": 2})
+    assert s.commands()[0]["slow"] == []                                    # a new resolve starts a new list
