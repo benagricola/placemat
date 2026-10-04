@@ -312,6 +312,13 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Numeric Centre refused; cleanup; routing replay; opt-in order by room**
+  (0.99.0): a number on a Centre axis needs coordinates=True; the 0.90.0
+  setting names, Facts.role and leftover dead code are gone; the route replay
+  carries pairs, rips at their step, stable counts, dropped events and stopped
+  routes; through-hole pads follow the legend's layers; `place.order = "room"`
+  (off by default); the studio's dialog is titled Open.
+
 - **Routing replay gaps** (unreleased, was Next 16): the pair router reports
   each pair as a net through two hooks, `diff_pair_loop.route_diff_pairs`
   (`queue`, `queue_end`) and `get_diff_pair_terminals` (`net_begin`, and
