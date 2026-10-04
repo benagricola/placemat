@@ -617,14 +617,15 @@ def test_a_via_move_past_the_board_edge_takes_the_next_spot(monkeypatch):
     assert runs[True][0][0][3] != free[True][0][0][3]       # the edge moved the choice
 
 
-def test_the_native_calls_are_not_used_where_a_net_tie_lies_near_the_move(monkeypatch):
-    """R9's pad lies beside the via: were R9 a net tie, `_conflict` could let the via meet it, which
-    the native rules do not know, so Python judges both the move and a share's tail."""
+def test_a_net_tie_near_a_move_is_judged_in_python_after_the_native_call(monkeypatch):
+    """R9's pad lies beside the via: were R9 a net tie, `_conflict` could let the via meet it, which the native
+    rules do not know. The native call judges the move without the tie's copper and Python judges each spot it
+    accepts; a share's tail is judged in Python."""
     from placemat import giveway
     monkeypatch.setattr(giveway, "_net_tie_owners", lambda occ: frozenset(["R9"]))
     runs = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
     assert runs[True][:2] == runs[False][:2]
-    assert runs[True][2] == 0
+    assert runs[True][2] >= 1
     runs = _first_move_runs(monkeypatch, _SHARES["a tail drawn"], "_NATIVE_TAIL_CLEAR", "_native_tail_clear")
     assert runs[True][:2] == runs[False][:2]
     assert runs[True][2] == 0
@@ -890,18 +891,15 @@ def test_a_via_with_a_spot_near_it_does_not_have_its_whole_reach_judged(monkeypa
 
 
 @pytest.mark.parametrize("name", sorted(_MOVES))
-@pytest.mark.parametrize("shift", (-3.0, 3.0, 5.0))
-def test_a_net_tie_takes_only_the_spots_it_reaches_from_native(monkeypatch, name, shift):
-    """With a net tie beside the via, the spots near the tie are judged in Python and the rest natively,
-    and the spot taken is the one the all-Python loop takes."""
+@pytest.mark.parametrize("tie", ("R9", "r9", "U1"))
+def test_a_net_tie_beside_a_move_does_not_change_the_spot_taken(monkeypatch, name, tie):
+    """With a net tie beside the via, the native call judges the move without its copper and Python judges what
+    it accepts: the spot taken is the one the all-Python loop takes."""
     from placemat import giveway
-    monkeypatch.setattr(giveway, "_net_tie_owners", lambda occ: frozenset(["R9"]))
-    real = giveway._tie_boxes
-    monkeypatch.setattr(giveway, "_tie_boxes", lambda *a: [b.moved(shift, 0.0) for b in real(*a)])
+    monkeypatch.setattr(giveway, "_net_tie_owners", lambda occ: frozenset([tie]))
     _with_search_chunk(monkeypatch, 8)
     runs = _first_move_runs(monkeypatch, _MOVES[name])
     assert runs[True][:2] == runs[False][:2]
-    print(name, shift, runs[True][2])
 
 
 def _resolutions(monkeypatch, make):
