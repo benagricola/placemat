@@ -1756,7 +1756,8 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
                  "fill": None if fill is None else {"width_mm": fill[0], "one_step": bool(fill[1]),
                                                     "is_neck": bool(fill[2]), "pour": bool(fill[3])},
                  "layers": [s.record() for s in shares],
-                 "basis": None if basis is None else dataclasses.asdict(basis),
+                 "basis": None if basis is None else {k: None if isinstance(v, float) and math.isinf(v) else v
+                                                      for k, v in dataclasses.asdict(basis).items()},
                  "apart": [[x, y] for x, y in apart], "unmeasured": [[x, y, why] for x, y, why in unmeasured]}
         out.append(Verdict("current-path", net, w, "mm", need, passes(worst), current_path_text(facts), facts=facts))
     return out
