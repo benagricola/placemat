@@ -9906,9 +9906,9 @@ class Board:
         with a legal spot and scans no further. Each scan has the step's budget afresh; the step's time limit stops between scans.
         `kw` are `_scan_one`'s keywords but `j`.
 
-        An explore variant (`_pick`) over more than one arrangement draws once from every arrangement's legal spots pooled, each
-        at its total as the choice compares it, on the face its arrangement's scan took; the arrangement of the spot drawn
-        stands. Over one arrangement the scan draws as it always has."""
+        An explore variant (`_pick`) over more than one arrangement draws once from every arrangement's legal spots pooled, on
+        both faces of an either-face item, each at its total as the choice compares it (`_standing_total`); the arrangement and
+        face of the spot drawn stand (`_stand_drawn`). Over one arrangement the scan draws as it always has."""
         from . import timecap
         clock = timecap.active()
         cost = self.settings.score_arrangement
@@ -9939,10 +9939,8 @@ class Board:
             r = t.result
             if r is None or r.chosen is None:
                 continue
-            if got:
-                face = r.chosen.face
-                back = self.settings.score_back_face if face is Face.BACK and j.either else 0.0
-                pool += [(c[0] + extra + back, c[1], c[2], c[3], ident, t) for c in got if c[3].face is face]
+            back = self.settings.score_back_face if j.either else 0.0
+            pool += [(c[0] + extra + (back if c[3].face is Face.BACK else 0.0), c[1], c[2], c[3], ident, t) for c in got or ()]
             if t.score is None:
                 best = (0.0, ident, t)                  # unscored: the first with a spot stands, nothing else is scanned
                 break
@@ -9952,10 +9950,20 @@ class Board:
         if pool:
             pool.sort(key=lambda c: c[:3])
             total, _, _, chosen, ident, t = draw(pool)  # explore.draw weighs by the total and the rank: the rest rides along
-            back = self.settings.score_back_face if chosen.face is Face.BACK and t.j.either else 0.0
-            t.result.chosen, t.result.score = chosen, total - (cost if ident else 0.0) - back
+            self._stand_drawn(t, chosen, total - (cost if ident else 0.0))
             best = (total, ident, t)
         return self._chosen_scan(i, tried, best, cost)
+
+    def _stand_drawn(self, t, chosen: Placement, total: float) -> None:
+        """Stand `t` (a `_Tried`) at the spot an explore drew from the pool, `total` its score with `score.back_face` and without
+        the arrangement's cost: its result becomes that face's own scan's, at the drawn spot, and its face note what that face
+        says."""
+        back = chosen.face is Face.BACK and t.j.either
+        raw = total - (self.settings.score_back_face if back else 0.0)
+        own = (t.faces or {}).get(chosen.face, t.result)
+        t.result = dataclasses.replace(own, chosen=chosen, score=raw, cut=own.cut or t.result.cut)
+        if t.j.either:
+            t.face_note = self._back_face_note(t.faces[Face.FRONT], raw) if back else None
 
     def _chosen_scan(self, i, tried, best, cost) -> "_Scanned":
         """What `_scan_arrangements` found: the winner's scan, or every arrangement's refusals merged when none has a legal spot, and
@@ -10137,13 +10145,14 @@ class Board:
         if self._on_begin is not None:
             self._phase(Stage.SCAN, face="either" if j.either else j.face.value,
                         hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
-        result, face_note = self._scan_faces(occ, j, hint, radius, clr, score, accept, reseed=reseed, turns_at=bt, within=within,
-                                             turns_on=lambda f: self._spot_turns(occ, j, placed, band, f))
-        return _Tried(j, hint, radius, result, face_note, ahead, score)
+        result, face_note, faces = self._scan_faces(occ, j, hint, radius, clr, score, accept, reseed=reseed, turns_at=bt,
+                                                    within=within, turns_on=lambda f: self._spot_turns(occ, j, placed, band, f))
+        return _Tried(j, hint, radius, result, face_note, ahead, score, faces=faces)
 
     def _scan_faces(self, occ: Occupancy, i: PlaceIntent, hint: Placement, radius: float, clr, score, accept,
                     reseed=None, turns_at=None, within=None, turns_on=None):
-        """(the scan's result, a step_text note on the face taken or None) for `i`. A fixed face is one scan. Face.EITHER
+        """(the scan's result, a step_text note on the face taken or None, {face: its own ScanResult} for each face scanned) for
+        `i`. A fixed face is one scan. Face.EITHER
         scans the front and then the back, each at its own turn of the hint (`reseed`: the targets a
         seeded hint was made from, laid again for the back's pads), and takes the back only where
         its score plus `score.back_face` is less than the front's, or the front has no legal spot.
@@ -10152,13 +10161,14 @@ class Board:
         `turns_on(face)` makes the back's: a tangent turn depends on the face, as the item is mirrored there."""
         turns, pick = self._turns(i), self._pick(i)
         if not i.either:
-            return scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
-                        turns_at=turns_at, within=within), None
+            alone = scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
+                         turns_at=turns_at, within=within)
+            return alone, None, {i.face: alone}
         cost = self.settings.score_back_face
         front = scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
                      turns_at=turns_at, within=within)
         if front.chosen is not None and score is None:
-            return front, None
+            return front, None, {Face.FRONT: front}
         if hint.face is Face.BACK:
             back_hint = hint
         elif reseed:
@@ -10170,22 +10180,26 @@ class Board:
         back_turns = turns_on(Face.BACK) if turns_at is not None and turns_on is not None else turns_at
         back = scan(occ, i.item, back_hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
                     turns_at=back_turns, within=within)
+        faces = {Face.FRONT: front, Face.BACK: back}
         if back.chosen is not None and back.score < PRUNED and (front.chosen is None or back.score + cost < front.score):
-            if front.chosen is None:
-                said = step_text.record("back_face", front_blame=blame.blame_of(front))
-            elif front.score >= PRUNED:                 # the front was cut by the floor of an earlier arrangement: no score of its own
-                said = step_text.record("back_face", back=back.score, cost=cost, front_beaten=True)
-            else:
-                said = step_text.record("back_face", back=back.score, cost=cost, front=front.score)
-            return back, said
+            return back, self._back_face_note(front, back.score), faces
         if front.chosen is not None:
-            return front, None
+            return front, None, faces
         merged = ScanResult(None, hint, front.tried + back.tried, front.rejected + back.rejected,
                             {**back.reasons, **front.reasons}, front.blockers + back.blockers,
                             cut=back.cut or front.cut,
                             # a back whose spots the floor all cut had room: it counts with the give-way cuts
                             bound=front.bound + back.bound + (1 if back.chosen is not None else 0))
-        return merged, None
+        return merged, None, faces
+
+    def _back_face_note(self, front: ScanResult, back: float) -> dict:
+        """The `back_face` note of an either-face item standing on the back at score `back`, against `front`, the front's scan."""
+        cost = self.settings.score_back_face
+        if front.chosen is None:
+            return step_text.record("back_face", front_blame=blame.blame_of(front))
+        if front.score >= PRUNED:                       # the front was cut by the floor of an earlier arrangement: no score of its own
+            return step_text.record("back_face", back=back, cost=cost, front_beaten=True)
+        return step_text.record("back_face", back=back, cost=cost, front=front.score)
 
     def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> list:
         """What each push comes to with `i` at `placement`, recorded on the plan and as the step's notes."""
@@ -10747,6 +10761,7 @@ class _Tried:
     ahead: object
     score: object
     hopeless: dict | None = None
+    faces: dict | None = None       # each face scanned -> its own ScanResult (`Board._scan_faces`)
 
 
 @dataclass
