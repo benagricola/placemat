@@ -312,6 +312,13 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **DRC epsilon in checks; pocket scan; row by real outlines; pin swaps**
+  (0.99.2): findings judge copper and hole gaps with KiCad's DRC epsilon
+  (placement opts in with place.drc_epsilon); a part no pocket takes is
+  scanned over the face; row(of=) stands against the neighbour's real
+  outline at one distance for the row; the skill lets an agent swap
+  general-purpose pins the datasheet allows.
+
 - **Pour room; track blockers; determinism; faster; follow latest; a pour
   crash** (0.99.1): a fitted pour between searched parts keeps its room; a
   "not drawn" track names every blocker along its leg; output order no longer
