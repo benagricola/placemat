@@ -15,11 +15,6 @@ section for each hand-written pattern a newer form replaces.
   (`setup.step_budget`, a notice), or, finding none, leaves the item unplaced: the `unplaced.search` finding carries
   `facts["budget"]` (`judged`, `share` of the search area covered, `limit`) and offers a higher `budget=` for the item, a searched
   suggestion. The default is high enough that no benchmark module or the core board reaches it, so nothing a script says changes.
-- **A refusal map for a long scan, off by default** (`place.refusal_map`, from `place.refusal_map_after` candidates a pass has judged one by
-  one). It reads off the shapes which of the rest of the pass a shape of the item lying across a shape of the board is certain to refuse,
-  and judges only the others; the spots found are the same ones, in the same order. The candidates it leaves out are counted under the
-  pair that refuses them, which can differ from the first refusal the judge would have found, so with it on a finding's refusal counts
-  (not its spot, its kind or its owners) can differ a little.
 
 ### Changed
 

@@ -13,7 +13,6 @@ import math
 
 from . import geometry as _geometry_module
 from . import giveway
-from . import scanmap
 from .geometry import Transform, _rect_of, point_in_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, ShapeIndex, _reason_key
 from .refusals import Code, Refusal
@@ -313,21 +312,6 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             if covers:
                 budget.covered += n
 
-    map_after = occ.settings.place_refusal_map_after
-    map_state: list = []                # [] not built yet; [None] there is none for this scan; [the RefusalMap]
-
-    def map_wanted() -> bool:
-        return occ.settings.place_refusal_map
-
-    def refusal_map():
-        """The scan's refusal map (scanmap.RefusalMap), built the first time a pass wants one: None where this
-        scan cannot have one (net ties judged apart, a pure-Python sweep with vias that may give way)."""
-        if not map_state:
-            n = int(math.floor(radius / step + 1e-9))
-            map_state.append(scanmap.for_scan(occ, item, geom, rots, hint.face, hint.location, n, step, clearance,
-                                              others, native, gw))
-        return map_state[0]
-
     least = giveway.least_cost(occ.settings, getattr(occ, "fab_via_tiers", None))
     best = score.best if score and hasattr(score, "best") else None
     bounded = best is not None and pick is None and accept is None     # a spot that cannot be the best is not asked
@@ -374,29 +358,24 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             legal.append((sc + res.cost, d, tie(cand), cand))
         return None
 
-    def sweep(points, stop_at_first: bool, mapped: bool = False) -> list:
+    def sweep(points, stop_at_first: bool) -> list:
         """Evaluate every (x, y) in `points` at every rotation; the legal
         ones as (score, distance from the hint, rotation, placement). With
         vias that may give way, the candidates refused are judged again, as
         `gave_way` does, when the pass found none it keeps (a nearest-first
         pass) or always (a scored one): a refused candidate then counts
-        under why it was refused the second time. `mapped`: past its first
-        `place.refusal_map_after` candidates the pass asks the refusal map
-        (scanmap.py) which of the rest are certainly refused."""
+        under why it was refused the second time."""
         nonlocal tried
         if budget is not None and budget.left <= 0:
             budget.cut = True
             return []
         if native is not None:
-            return native_sweep(points, stop_at_first, mapped)
+            return native_sweep(points, stop_at_first)
         legal = []
         held = []
         spent = False
-        rmap = None
-        since = 0
-        represents: dict = {}
         for x, y in points:
-            for k, rot in (enumerate(rots) if turns_at is None else ((turn_index[r], r) for r in turns_at.at(x, y))):
+            for rot in (rots if turns_at is None else turns_at.at(x, y)):
                 if (x, y, rot) in seen:
                     continue
                 if afford(1) == 0:
@@ -407,24 +386,6 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 tried += 1
                 charge(1, True)
                 blame = []
-                since += 1
-                if mapped and rmap is None and since > map_after and map_wanted():
-                    rmap = refusal_map() or False
-                if rmap:
-                    w = rmap.witness_at(k, x, y)
-                    if w >= 0:
-                        hit = occ.legal_bucket(item, cand, clearance, [], blame)       # the board's own say first
-                        if hit is None:
-                            if w not in represents:
-                                rep_blame = []
-                                rep = occ.legal_bucket(item, cand, clearance, others, rep_blame)
-                                if rep is None:
-                                    raise AssertionError("the refusal map named a candidate the judge finds legal: %r" % (cand,))
-                                represents[w] = (rep, rep_blame)
-                            rep, rep_blame = represents[w]
-                            hit, blame = rep, rep_blame
-                        tally(hit[0], hit[1], [blocker_key(b) for b in blame])
-                        continue
                 # legal_bucket: a sweep never keeps more than one example
                 # sentence per bucket (the `key not in reasons` check below),
                 # so it asks for the sentence only the first time a bucket is
@@ -455,39 +416,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 break
         return legal
 
-    board_only: list = []
-
-    def blocked_events(items: list, judge) -> list:
-        """The tallies of the candidates the refusal map names, as (position in the pass, tally arguments): the
-        board's own refusals (the edge, a reservation) as the judge says them, the others under the pair that
-        refuses them (the sweeper `judge` decodes it as it does a pair it found itself). `items` are
-        (position, pair, triple)."""
-        if not items:
-            return []
-        if not board_only:
-            board_only.append(scanmap.board_only_sweeper(occ, judge.item, hint.face, rots, native, clearance))
-        found, _, refs = board_only[0].run([t for _, _, t in items], False)
-        events = [(items[first][0], (bucket, reason, blocker_of(blocker), count))
-                  for bucket, count, first, reason, blocker in refs]
-        groups: dict = {}
-        for k in found:
-            at, pair, t = items[k]
-            g = groups.get(pair)
-            if g is None:
-                groups[pair] = [1, at, t]
-            else:
-                g[0] += 1
-        for pair, (count, at, t) in groups.items():
-            turn, si, oi = refusal_map().pairs[pair]
-            bucket, blocker, reason = judge._decode(2, (turn << 32) | si, oi, t)
-            events.append((at, (bucket, reason, blocker_of(blocker), count)))
-        return events
-
-    def native_sweep(points, stop_at_first: bool, mapped: bool = False) -> list:
+    def native_sweep(points, stop_at_first: bool) -> list:
         """The same pass, judged natively (Occupancy.native_sweeper): the same
-        legal candidates, tallies, first sentences and blockers. `mapped`: past
-        its first `place.refusal_map_after` candidates the pass asks the refusal
-        map which of the rest are certainly refused, and judges only the others."""
+        legal candidates, tallies, first sentences and blockers."""
         nonlocal tried
         # `native.expand` keeps its own (x, y, turn) seen-set (NativeSweepSeen)
         # for this scan's `native` instance, so the whole points-x-rots loop
@@ -510,22 +441,11 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         short = afford(len(triples)) < len(triples)         # the budget ends the pass early: the nearest it affords are judged
         if short:
             triples = triples[:afford(len(triples))]
-        # The candidates the refusal map names are left out of what is judged; where each stood in the pass is kept,
-        # so tallies, counts and the budget are as the pass would have made them.
-        everything, orig, blocked = len(triples), None, ()
-        if (mapped and everything > map_after and map_wanted() and not (gw is not None and first_only)
-                and (budget is None or budget.left >= 2 * everything)):
-            rmap = refusal_map()
-            if rmap is not None:
-                kept, orig, blocked = rmap.split(triples, map_after)
-                if blocked:
-                    triples = kept
-                else:
-                    orig = None
+        everything = len(triples)
         # With vias that may give way a full pass judges every candidate twice: as the item is, then, where that
         # refused it, the item less its carried vias. Every candidate legal as it is is legal less them too, so the
         # second judgment first, over all, leaves the first only the candidates it found legal.
-        less_first = (B_FIRST and gw is not None and gw.native is not None and not stop_at_first and orig is None
+        less_first = (B_FIRST and gw is not None and gw.native is not None and not stop_at_first
                       and bool(triples) and (budget is None or budget.left >= 2 * everything))
         if less_first:
             # what the item less its vias is legal at natively (the Python judgment of the net ties' pairs comes
@@ -539,9 +459,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if scoring is not None:
             score.best[0] = scoring.floor
 
-        def stood(k: int) -> int:
-            return k if orig is None else orig[k]
-        cutoff = stood(found[0]) + 1 if first_only and found else everything
+        cutoff = found[0] + 1 if first_only and found else everything
         tried += cutoff
         charge(cutoff, True)
         if short and not (first_only and found):
@@ -557,11 +475,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             if stop_at_first:
                 break
         if gw is None or (stop_at_first and legal):
-            events = [(stood(first), (bucket, reason, blocker_of(blocker), count))
-                      for bucket, count, first, reason, blocker in refusals]
-            events += blocked_events([b for b in blocked if b[0] < cutoff], native)
-            for _, what in sorted(events, key=lambda e: e[0]):
-                tally(*what)
+            for bucket, count, first, reason, blocker in refusals:
+                tally(bucket, reason, blocker_of(blocker), count)
             return legal
         taken = set(found)
 
@@ -591,8 +506,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 elif legal and stop_at_first:
                     break
             return legal
-        sub_at = [k for k in range(len(triples)) if k not in taken]
-        sub = [triples[k] for k in sub_at]
+        sub = [triples[i] for i in range(len(triples)) if i not in taken]
         if gw.native is None:
             for t in sub:
                 refusal = gave_way(at(t), legal)
@@ -624,16 +538,15 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 tally(*refusal)
                 start = j + 1
             return legal
-        part = sub[:afford(len(sub) + len(blocked))]
+        part = sub[:afford(len(sub))]
         if len(part) < len(sub):
             budget.cut = True
         sub = part
         found_b, _, refusals_b = gw.native.run(sub, False, None) if sub else ([], [], [])
-        charge(len(sub) + len(blocked))
-        events = [(stood(sub_at[first]), 0, (bucket, reason, blocker_of(blocker), count))
+        charge(len(sub))
+        events = [(first, 0, (bucket, reason, blocker_of(blocker), count))
                   for bucket, count, first, reason, blocker in refusals_b]
-        events += [(stood(sub_at[j]), 1, j) for j in found_b]
-        events += [(at_, 0, what) for at_, what in blocked_events(list(blocked), gw.native)]
+        events += [(j, 1, j) for j in found_b]
         for _, kind, what in sorted(events, key=lambda e: e[0]):
             if kind == 0:
                 tally(*what)
@@ -664,7 +577,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     cfg = occ.settings
     phase = getattr(occ, "on_phase", None)             # a viewer's note of which pass a long scan is in
     if score is None or radius / step < cfg.place_coarse_min_radius_steps:
-        legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), stop_at_first=score is None, mapped=True)
+        legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), stop_at_first=score is None)
     else:
         coarse = step * cfg.place_coarse_stride
         if phase:
@@ -676,7 +589,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             # Nothing on either coarse lattice. The coarse pass is there to
             # save time, not to decide: the fine grid still gets its walk, so
             # a spot narrower than a coarse step is not reported as no room.
-            legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), False, mapped=True)
+            legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), False)
         if legal:
             legal.sort(key=lambda k: k[:3])
             # The best coarse spots by score seed the refinement, and so do the best `accept` takes: a coarse spot

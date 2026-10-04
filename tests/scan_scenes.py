@@ -1,5 +1,5 @@
 """Random boards with an item to scan, for the tests that compare one way of judging a scan with another
-(tests/test_scan_order.py, tests/test_refusal_map.py): parts, a cell of several, carried vias that may give way,
+(tests/test_scan_order.py): parts, a cell of several, carried vias that may give way,
 reservations, courtyards or what parts draw."""
 import random
 from dataclasses import replace
