@@ -1105,6 +1105,7 @@ class Studio:
         return {k: c.get(k) for k in ("id", "pid", "command", "script", "args", "started", "state", "message", "record", "last", "items",
                                       "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe", "slow", "label")} | \
             {"kind": channel.kind_of(c.get("command", ""), c.get("args"), c.get("explore") is not None),
+             "stopped": (c.get("error") or {}).get("kind") == "stopped",          # ended on purpose (--max-time, a stop, a signal), not by a failure
              "route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results")}}
 
     def commands(self) -> list:

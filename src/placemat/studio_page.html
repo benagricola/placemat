@@ -136,6 +136,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .xv .xlist .xl.best { color: var(--good); font-weight: 600; }
 .xv .xctl button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 #cmdbar .xline { font-weight: 500; }
+#cmdbar .xline > span { display: inline-block; margin-right: 12px; white-space: nowrap; }
 .row.cmd.step .l2 { white-space: normal; overflow: visible; }
 #cmdbar .cbt { font-weight: 600; }
 .xv svg.plot { width: 100%; height: 130px; display: block; background: var(--surface2); border-radius: 8px; }
@@ -3458,13 +3459,13 @@ function rowCmd(c) {
   const dur = fmtDur((c.ended ? c.ended * 1000 : Date.now() + (S.skew || 0)) - c.started * 1000);
   const more = c.route && c.route.total ? ", net " + Math.min(c.route.total, c.route.done + c.route.failed + (c.state === "running" ? 1 : 0)) + " of " + c.route.total + ", " + c.route.done + " routed, " + c.route.failed + " failed" + (c.route.current ? ", now " + esc(c.route.current) : "")
     : c.variants ? ", " + c.variants + " variants" : c.items ? ", " + c.items + " steps" : "";
-  return '<div class="row cmd step" data-cmd="' + c.id + '" title="' + esc(kindTitle(c)) + '">' + rowStateChip(c.state, c.state) + '<div class="sb"><div class="l1">' + kindChip(c) + " <b>" + esc(baseName(c.script)) + '</b></div><div class="l2">' +
+  return '<div class="row cmd step" data-cmd="' + c.id + '" title="' + esc(kindTitle(c)) + '">' + rowStateChip(c.stopped ? "warn" : c.state, c.stopped ? "stopped" : c.state) + '<div class="sb"><div class="l1">' + kindChip(c) + " <b>" + esc(baseName(c.script)) + '</b></div><div class="l2">' +
     (c.label ? esc(c.label) + ", " : "") + "pid " + esc(c.pid) + ", " + '<span class="fx" style="--w:4ch">' + dur + "</span>" + more + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
 }
 function rowRun(r) {
   const k = {kind: "run", script: r.script, label: r.label, run: r.id};
   const bits = [r.score != null ? "score " + r.score : "", r.findings + " findings", ago(r.at)].filter(Boolean).join(", ");
-  return '<div class="row cmd step" data-runview="' + esc(r.id) + '" title="' + esc(kindTitle(k)) + '">' + rowStateChip(r.died ? "error" : r.status === "ok" ? "done" : r.status === "running" ? "running" : "error", r.died ? "died" : r.status === "ok" ? "done" : r.status) + '<div class="sb"><div class="l1">' + kindChip(k) + " <b>" + esc(baseName(r.script) || r.board || "a board") +
+  return '<div class="row cmd step" data-runview="' + esc(r.id) + '" title="' + esc(kindTitle(k)) + '">' + rowStateChip(r.died ? "error" : r.status === "ok" ? "done" : r.status === "running" ? "running" : r.status === "stopped" ? "warn" : "error", r.died ? "died" : r.status === "ok" ? "done" : r.status) + '<div class="sb"><div class="l1">' + kindChip(k) + " <b>" + esc(baseName(r.script) || r.board || "a board") +
     '</b> <span class="dim">' + esc(r.id) + '</span></div><div class="l2">' + esc(bits) + "</div></div></div>";
 }
 function rowExplore(e) {
@@ -3556,8 +3557,9 @@ const focusWord = list => list.length <= 3 ? list.join(", ") : list.slice(0, 3).
 function xvLine(X) {
   const I = xvInfo(X), fx = (w, v) => '<span class="fx" style="--w:' + w + 'ch">' + esc(v) + "</span>";
   const tip = "variants landed" + (I.seeds ? " of " + I.seeds + " seeds" : "") + ", the seed that landed last, the best score so far against the plain placement, and the time";
-  return '<span class="xline" title="' + esc(tip) + '">variants ' + fx(4, I.tried) + (I.seeds ? " of " + I.seeds : "") + ", seed " + fx(5, I.seed != null ? "#" + I.seed : "-") +
-    ", best " + fx(6, f1(I.best && I.best.score)) + " of " + fx(6, f1(I.base)) + ", " + fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) : "") + "</span>";
+  return '<span class="xline" title="' + esc(tip) + '"><span>variants ' + fx(4, I.tried) + (I.seeds ? " of " + I.seeds : "") + "</span><span>seed " + fx(5, I.seed != null ? "#" + I.seed : "-") + "</span>" +
+    "<span>best " + fx(6, f1(I.best && I.best.score)) + " of " + fx(6, f1(I.base)) + "</span><span>time " + fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) : "") + "</span>" +
+    "</span>";
 }
 // What the board shows for the explore: the focused items moved to where the shown variant put them (its own parts, turned about the
 // plain spot and carried), the plain spots (dashed), the best so far in its own colour, and where every variant put each item.
