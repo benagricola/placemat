@@ -12,7 +12,9 @@
 
 ## Global Constraints
 
-- Settings, all new, all under existing sections: `place.arrangements` (bool, default true: false lays the default only); `place.arrangement_options_max` (count, default 4, floor 1: options per item, its `place()` included); `place.arrangements_max` (count, default 8, floor 1: arrangements per module, default and groups included); `place.arrangement_note_chars` (count, default 4000, floor 1: characters per note text before it is split); `place.extent_notice_mm` (mm, default 2.0, at least 0: the protrusion above which a module with no alternatives gets `arrangement.extent_fixed`; the spec names the setting and gives no default, 2.0 is this plan's choice); `score.arrangement` (mm, default 0, at least 0: what a non-default arrangement costs the board).
+- Decided by the user (2026-10-04): notes carry each member's default place and an order field; note JSON is percent-escaped as rule notes are; `place.extent_notice_mm` defaults to 1.0; a firm cell with no legal arrangement is placed in its default with a `fixed.part` finding listing every arrangement's refusals.
+
+- Settings, all new, all under existing sections: `place.arrangements` (bool, default true: false lays the default only); `place.arrangement_options_max` (count, default 4, floor 1: options per item, its `place()` included); `place.arrangements_max` (count, default 8, floor 1: arrangements per module, default and groups included); `place.arrangement_note_chars` (count, default 4000, floor 1: characters per note text before it is split); `place.extent_notice_mm` (mm, default 1.0, at least 0: the protrusion above which a module with no alternatives gets `arrangement.extent_fixed`; the user chose 1.0); `score.arrangement` (mm, default 0, at least 0: what a non-default arrangement costs the board).
 - A module that declares no alternatives and a board that stamps only such modules: the written `layout.kicad_pcb`, every placement, lock entry and reuse step are byte-identical to before; no note is written; `CellGeom.arrangements == ()`; a `Placement` serialises as `[x, y, rotation, face]` and gains a fifth element only when `arrangement` is not `""`; `run.json` omits `arrangements` when empty. (`reuse.VERSION` goes 4 -> 5 and the settings digest changes, so the first run after the release replays nothing: accepted by the spec.)
 - Ids: option and group names are `[a-z0-9_]+`, `default` is reserved; a product id is `item.option` pairs joined by `+` in item order (`c_in.east+r_pull.turned`), a group's id is its name, the default's id is `default`.
 - `only=` is a non-empty sequence of arrangement ids, matched as written, checked when the script finishes declaring and before any resolve (`ValueError` naming file:line and the ids the module has); it is a dataclass field of the copper declaration with `omit_default` so a declaration without it digests as before.
@@ -106,7 +108,7 @@ def test_the_arrangement_settings_have_the_documented_defaults():
     assert s.place_arrangement_options_max == 4
     assert s.place_arrangements_max == 8
     assert s.place_arrangement_note_chars == 4000
-    assert s.place_extent_notice_mm == 2.0
+    assert s.place_extent_notice_mm == 1.0
     assert s.score_arrangement == 0.0
 
 
@@ -172,7 +174,7 @@ Expected: FAIL (`AttributeError: ... place_arrangements`, `AttributeError: ARRAN
         "the most arrangements a module may have, the default and the named groups included; the product of the items' options counts")
     place_arrangement_note_chars: int = S(4000, "count",
         "the characters one arrangement note text holds before it is split into numbered texts (a note rides on a User.Comments text of the fragment)")
-    place_extent_notice_mm: float = S(2.0, "mm",
+    place_extent_notice_mm: float = S(1.0, "mm",
         "how far a part may stand past the next part on a side of a module that declares no alternatives before `arrangement.extent_fixed` notes it as setting the module's extent")
 ```
 after `score_back_face` (line 367-368):
@@ -5523,7 +5525,7 @@ Where the spec is silent, ambiguous or contradicted by the code, and what this p
 
 1. **The note's `base` cannot give the stamping offset.** The spec takes the offset between the fragment's frame and the generated board's "from the members' default places (the note's `base` against the stamped footprints)", but `base` is a digest. The plan's note carries each member's default place as `from` beside its arrangement place, and `base` stays as the digest of those (Task 1.6, Task 2.1). The note also carries `order` (the module run's order of arrangements) so the stamping board can scan in the declared order, which the spec requires and the texts' order on a KiCad group cannot give.
 2. **The note's text is percent-escaped, not raw JSON.** The spec says `placemat arrangement <json>`; `rules.py:129-145` percent-escapes its note because KiCad reads braces and `$` in a text as markup, and `kicad/read.py` reads a note with `GetText()`. The plan escapes (Task 1.6). Phase 1's measurement (Task 1.9) says whether the size needs the split at 4000.
-3. **`place.extent_notice_mm` has no default in the spec**; the plan uses 2.0 mm. Also "how far it stands past the next member on that side" is read as the distance between the outermost edge on a side and the next member's edge on that side, so the end part of a chain always protrudes by about its neighbour's width; the setting is what keeps that quiet on a module with no alternatives.
+3. **`place.extent_notice_mm` has no default in the spec**; the user chose 1.0 mm (2026-10-04). Also "how far it stands past the next member on that side" is read as the distance between the outermost edge on a side and the next member's edge on that side, so the end part of a chain always protrudes by about its neighbour's width; the setting is what keeps that quiet on a module with no alternatives.
 4. **Cleanup does not move cells.** The spec says cleanup moves and swaps keep an item's arrangement; `layout.py:7286-7315` (`_cleanup_movable`) takes parts and block satellites only, so there is nothing to keep. Task 3.4 pins that with a test.
 5. **A decided cell with no legal arrangement.** The spec says both "a firm collision as it is today (the default's finding, the others' refusals under it)" and "the cell is unplaced". Today a firm item that is illegal is still placed, with a `fixed.part` finding (`layout.py:9128-9140`, `PlacementCollision` after the firm tier); the plan keeps that (Task 4.1).
 6. **Links and the proof.** The skill text says an alternative is proven "by the module's own links, limits ..."; Decision 4 (and the proof's three steps) refuse only unplaced members, critical findings, failed verdicts and `real` DRC buckets. A link past its limit (`link_over`) is a warning, so the plan records it in the arrangement's measures and does not refuse (Task 1.8).
