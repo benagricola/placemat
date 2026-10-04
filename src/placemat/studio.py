@@ -380,6 +380,8 @@ class Studio:
         self.watcher = None
         self._run = None                        # the checked run in progress: {"id", "lines"}
         self._run_cache: dict = {}              # run.json path -> (mtime, summary)
+        self._models_cache: dict = {}           # a recorded board's 3D models: (path, mtime_ns, project folder) -> _board_models
+        self._models_lock = threading.Lock()    # one board read at a time (pcbnew), whatever the request threads
         self.worker = WorkerProcess(self._on_worker, self._views() / "worker.log")
         from . import studio_3d
         self.m3d = studio_3d.Models3D(self.cfg, self._emit_3d, self._views() / "models3d.log")      # the 3D view's converter (studio_3d.py)
@@ -1318,11 +1320,16 @@ class Studio:
         out.sort(key=lambda e: -(e["at"] or 0))
         return out[:limit]
 
-    def _route_doc(self, record_path: Path, plan_path: Path | None = None):
+    def _route_doc(self, record_path: Path, plan_path: Path | None = None, pcb: Path | None = None, project_dir=None):
+        """A route's replay document; `pcb` is the board its parts' 3D models are read from (default the board the route was given)."""
         from . import route_progress, route_view
         record = route_progress.read_record(record_path)
         if record is None:
             return None
+        if pcb is None:
+            pcb = record_path.parent / "in.kicad_pcb"
+            given = (record.get("board") or {}).get("pcb")
+            project_dir = Path(given).parent if given and Path(given).parent.is_dir() else None
         board = None
         if plan_path is not None:
             try:
@@ -1334,7 +1341,9 @@ class Studio:
                 board = json.loads((record_path.parent / route_progress.BOARD).read_text())
             except (OSError, ValueError):
                 board = {}
-        return {"doc": present.plan(route_view.route_doc(record, board)), "summary": record.get("report", {}), "board": record.get("board", {})}
+        doc = route_view.route_doc(record, board)
+        self._with_models(doc, pcb, project_dir)
+        return {"doc": present.plan(doc), "summary": record.get("report", {}), "board": record.get("board", {})}
 
     def route_record(self, path: str):
         """One route's replay document from its record, if it is one of this project's."""
@@ -1351,7 +1360,66 @@ class Studio:
         if d is None or self.root.resolve() not in d.resolve().parents:
             return None
         d = d.resolve()
-        return self._route_doc(d / "route" / route_progress.RECORD, d / "plan.json" if (d / "plan.json").is_file() else None)
+        out = self._route_doc(d / "route" / route_progress.RECORD, d / "plan.json" if (d / "plan.json").is_file() else None, *self._run_board(d))
+        if out is not None and out["doc"].get("score") is None:
+            summary = self.run_summary(d / "run.json") if (d / "run.json").is_file() else None
+            if summary and summary.get("score") is not None:
+                out["doc"]["score"] = {"total": summary["score"]}          # the build is the run's: its score is the run's
+        return out
+
+    def _run_board(self, folder: Path) -> tuple:
+        """(the board a run wrote, the folder its model paths are relative to): the run keeps a copy of the board it wrote in its folder,
+        and `${KIPRJMOD}` in it names the board's own folder, which the run record gives."""
+        project_dir = None
+        try:
+            given = json.loads((folder / "run.json").read_text()).get("paths", {}).get("pcb")
+            if given and Path(given).parent.is_dir():
+                project_dir = Path(given).parent
+        except (OSError, ValueError, AttributeError):
+            pass
+        return folder / "layout.kicad_pcb", project_dir
+
+    # ------------------------------------------------------------ the 3D models of a recorded board
+    def _board_models(self, pcb: Path, project_dir=None) -> dict | None:
+        """The 3D models of a board a run or a route wrote, as model_plan gives them for a live resolve: each footprint's entries by
+        reference, the table of distinct models, the stackup and the converter's jobs. A record carries no models, so a page opening one
+        gets them from here. Kept by file and modification time; None when the board cannot be read."""
+        try:
+            key = (str(pcb), pcb.stat().st_mtime_ns, str(project_dir or ""))
+        except OSError:
+            return None
+        with self._models_lock:
+            hit = self._models_cache.get(key)
+            if hit is not None:
+                return hit
+            from .kicad.read import read_board
+            from .model_convert import find_kicad_cli
+            from .model_plan import ModelContext
+            try:
+                geometry = read_board(str(pcb))
+            except (OSError, ValueError, RuntimeError):
+                return None
+            ctx = ModelContext(pcb, [d for d in (self.cfg.studio_3d_model_dirs or "").split(os.pathsep) if d], find_kicad_cli(self.cfg.studio_3d_kicad_cli),
+                               project_dir=project_dir)
+            refs = {fp.ref: ctx.written(fp) for fp in geometry.footprints}
+            got = {"refs": refs, "table": ctx.table(), "stackup": ctx.stackup(geometry), "jobs": ctx.new_jobs(set())}
+            for old in [k for k in self._models_cache if k[0] == key[0]]:
+                del self._models_cache[old]
+            self._models_cache[key] = got
+            return got
+
+    def _with_models(self, doc: dict, pcb: Path | None, project_dir=None) -> None:
+        """Give a recorded document's members the 3D models of the board `pcb` (by reference) and queue the models for the converter, as a
+        live resolve's items do (studio_3d.py)."""
+        got = self._board_models(pcb, project_dir) if pcb is not None and pcb.is_file() else None
+        if got is None:
+            return
+        for it in doc.get("items", ()):
+            for m in it.get("members", ()):
+                if m.get("ref") in got["refs"]:
+                    m["models"] = [dict(e) for e in got["refs"][m["ref"]]]
+        doc["models"], doc["stackup"] = got["table"], got["stackup"]
+        self.m3d.submit(got["jobs"])
 
     def explore_record(self, path: str):
         """One explore's result file, if it is one of this project's."""
@@ -1593,7 +1661,9 @@ class Studio:
             from .kicad.read import read_board
             base = route_view.board_doc(read_board(str(pcb)))
         findings = RunRecord.load(folder / "run.json").findings_with_severity()
-        return {"doc": present.plan(route_view.run_doc(base, findings, summary.get("score"))), "summary": summary}
+        doc = route_view.run_doc(base, findings, summary.get("score"))
+        self._with_models(doc, *self._run_board(folder))
+        return {"doc": present.plan(doc), "summary": summary}
 
     # ------------------------------------------------------------ comparing
     @staticmethod

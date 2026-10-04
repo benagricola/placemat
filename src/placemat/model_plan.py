@@ -4,7 +4,8 @@ models and the stackup. The page applies the matrices and never recomputes the c
 process, from the footprints as the generator left them and the plan's transform to where each stands now.
 
 A `ModelContext` is made once per resolve from the board file the plan was read from. It remembers the models it has seen, so the
-studio can queue each distinct one for the converter (`jobs`)."""
+studio can queue each distinct one for the converter (`jobs`). The studio makes one too for a board a run wrote (`written`): a past run's
+record carries no models, so they are read from the run's own board, each part standing where that file has it."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,9 +17,10 @@ from .placement import Placement
 
 
 class ModelContext:
-    def __init__(self, pcb_path, model_dirs=(), kicad_cli: str | None = None):
+    def __init__(self, pcb_path, model_dirs=(), kicad_cli: str | None = None, project_dir=None):
+        """`project_dir` is the folder `${KIPRJMOD}` names: the board file's own unless given (a run's copy of a board is kept away from it)."""
         self.pcb = str(pcb_path)
-        self.project_dir = Path(self.pcb).parent
+        self.project_dir = Path(project_dir) if project_dir is not None else Path(self.pcb).parent
         self.stop = workspace_root(self.project_dir)
         self.model_dirs = tuple(d for d in model_dirs if d)
         self.kicad_cli = kicad_cli
@@ -64,15 +66,23 @@ class ModelContext:
     def members(self, plan, fp) -> list:
         """`fp`'s models for the plan document: each entry resolved, with its matrix to where the plan has put the part."""
         if not getattr(fp, "models", ()):
-            return [{"id": "", "state": "none", "name": "", "opacity": 1.0, "why": "no_model", "text": "", "matrix": None}]
+            return self._entries(fp, None, False)
         occ = plan.occupancy
         geom = occ.items[fp.ref]
         t = occ._transform(SimpleNamespace(reference=Placement(fp.location, fp.rotation, fp.face)), geom.reference)
-        flipped = geom.reference.face != fp.face
+        return self._entries(fp, t, geom.reference.face != fp.face)
+
+    def written(self, fp) -> list:
+        """`fp`'s models as `members` gives them, for a footprint of a written board: the part stands where the file has it."""
+        return self._entries(fp, None, False)
+
+    def _entries(self, fp, to, flipped: bool) -> list:
+        if not getattr(fp, "models", ()):
+            return [{"id": "", "state": "none", "name": "", "opacity": 1.0, "why": "no_model", "text": "", "matrix": None}]
         out = []
         for e in fp.models:
             d = self.entry(fp, e)
-            d["matrix"] = model_place.placement(e, location=(fp.location.x, fp.location.y), rotation=fp.rotation, face=fp.face.value, to=t,
+            d["matrix"] = model_place.placement(e, location=(fp.location.x, fp.location.y), rotation=fp.rotation, face=fp.face.value, to=to,
                                                 flipped=flipped, thickness=self.thickness) if d["id"] else None
             out.append(d)
         return out

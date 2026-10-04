@@ -887,7 +887,7 @@ row("z:1"); out.zone_off = rules();
 row("cu:In1.Cu"); out.layer_off2 = rules(); row("z:1"); out.zone_back = rules();
 """)
     assert 'data-id="z:1"' in out["rows"] and "G plane" in out["rows"] and out["rows"].index('data-id="cu:In1.Cu"') < out["rows"].index('data-id="z:1"')
-    assert 'class="plane l-In" data-z="1"' in out["board"].replace(' data-s="2"', "")
+    assert 'class="plane l-In" data-z="1"' in out["board"].replace(' data-s="2"', "").replace(' data-o="planned"', "")
     assert '[data-l="In1.Cu"]' in out["layer_off"] and '[data-z="1"]' in out["layer_off"]                    # the layer row hides its zone with it
     assert '[data-l="In1.Cu"]' not in out["layer_on"] and '[data-z="1"]' not in out["layer_on"]
     assert '[data-z="1"]' in out["zone_off"] and '[data-l="In1.Cu"]' not in out["zone_off"]               # a zone alone
@@ -1152,6 +1152,62 @@ ev("renderRuns()"); out.list = els["#tab-runs"].innerHTML;
     assert out["off"] == "no progress for this route: the router has no route_multipoint_main"
     assert 'data-route="/p/.placemat/route/route_record.json"' in out["list"] and 'data-build="ab"' in out["list"]
     assert "17 nets, 15 routed, 2 failed, closure 88.9%, 10.7 s" in out["list"] and "Recorded routes" in out["list"]
+
+
+@needs_node
+def test_copper_is_told_apart_by_where_it_came_from_the_plan_a_kept_route_or_the_router(tmp_path):
+    out = run_more(tmp_path, r"""
+const trk = (net, x, o) => Object.assign({t: "track", layer: "F.Cu", face: "front", width: 0.2, a: [x, 0], b: [x + 1, 0], net}, o || {});
+const doc = Object.assign({}, BOARD, {keepouts: [], reservations: [], items: [item("a", 1)], layers: ["F.Cu"], links: [], findings: [], unplaced: [], pocketed: [], counts: {placed: 1, findings: 0}, score: null,
+  copper: [trk("A", 1), trk("B", 3), trk("C", 5, {origin: "routed"}), {t: "via", at: [6, 0], size: 0.4, drill: 0.2, net: "C", layers: [], origin: "routed"}, {t: "text", text: "X", at: [1, 1], face: "front", size: 1}],
+  steps: [Object.assign(st("a"), {i: 0, copper: []}), Object.assign(st("track A", "copper", false), {i: 1, copper: [0]}), Object.assign(st("adopted B#1", "copper", false), {i: 2, copper: [1]}),
+          Object.assign(st("track C", "copper", false), {i: 3, copper: [2, 3], origin: "routed"})]});
+ev("showRunRecord(" + JSON.stringify({doc, summary: {id: "r1", script: "x_layout.py", label: ""}}) + ")"); flush();
+ev("renderLegend()");
+out.origins = ev("copperOrigins(plan())");
+out.legend = els["#legend"].innerHTML;
+out.board = els["#board"].innerHTML;
+out.kinds = ev("plan().steps.map(s => stepKind(s, null).word)");
+out.rules = ev('visRules(new Set(["org:routed"]))');
+const click = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
+click("org:kept"); out.after = els["#visrules"].textContent;
+out.live = [ev("routeOps({net: 'D', seg: [[0, 0, 1, 0, 'F.Cu', 0.2]], via: [[1, 0, 0.4, 0.2]]}).map(o => o.origin)"),
+            ev("(() => { const P = {steps: [], copper: []}, V = {route: {step: {}}}; return routeStep(P, V, 'D').origin; })()")];
+""")
+    assert out["origins"] == ["planned", "kept", "routed", "routed", "planned"]
+    lg = out["legend"]
+    for name, n in (("planned", 1), ("kept", 1), ("routed", 2)):
+        row = lg[lg.index('data-id="org:%s"' % name):]
+        assert row[:row.index("</div>")].endswith("<em>%d</em>" % n)
+    assert "(" not in re.sub(r"<[^>]*>|title=\"[^\"]*\"", "", lg[lg.index("<h4>Copper origin"):lg.index("<h4>Links")])        # no bracketed words in the labels
+    board = out["board"]
+    assert board.count('data-o="routed"') == 3 and board.count('data-o="kept"') == 1 and board.count('class="trk l-F rcore"') == 1    # a routed track is drawn hollow: its line and its core
+    assert out["kinds"][1:] == ["track", "kept", "routed"]
+    assert out["rules"] == '#board .copper [data-o="routed"] { display: none; }' and '#board .copper [data-o="kept"] { display: none; }' in out["after"]
+    assert out["live"] == [["routed", "routed"], "routed"]
+
+
+@needs_node
+def test_latest_and_a_past_runs_row_open_a_routed_run_as_its_build(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const route = {file: PROJ + "/a/.placemat/runs/aaaa0001/route/route_record.json", run: "aaaa0001", at: 0.5, nets: 3, routed: 3, failed: 0, script: PROJ + "/a/A_layout.py", build: true, complete: true};
+  const doc = {board: {extent: [0, 0, 10, 10], loops: [], drawn: true}, keepouts: [], reservations: [], items: [], steps: [], copper: [], layers: ["F.Cu"], links: [], findings: [], unplaced: [], pocketed: [], counts: {placed: 0, findings: 0}, score: {total: 4.2},
+               route: {nets: 3, routed: 3, failed: 0, partial: false, dropped: 0}};
+  serve({"/build?run=aaaa0001": {doc, summary: {}, board: {script: PROJ + "/a/A_layout.py"}}, "/runview?run=bbbb0002": {doc, summary: past[1]}});
+  helloPicker({project_runs: [past[0]], explores: [], routes: [route]}); await tick(); flush();
+  out.latest = [ev("S.latestKey"), shown(), gets().filter(u => u.startsWith("/build") || u.startsWith("/runview")).map(u => u.replace(/&t=x$/, ""))];
+  out.bar = els["#cmdbar"].innerHTML;
+  ev("leaveLatest(); S.routes = " + JSON.stringify([route]) + "; S.projectRuns = " + JSON.stringify(past)); fetched.length = 0;
+  ev("openRunRecord('bbbb0002')"); await tick(); flush();
+  ev("openRunRecord('aaaa0001')"); await tick(); flush();
+  out.rows = [shown(), gets().map(u => u.replace(/&t=x$/, ""))];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["latest"] == ["run:aaaa0001", "route:aaaa0001", ["/build?run=aaaa0001"]]
+    assert "Past full run aaaa0001 of A_layout.py, nothing is resolved" in out["bar"] and "route finished: 3 routed, 0 failed" in out["bar"]
+    assert out["rows"] == ["route:aaaa0001", ["/runview?run=bbbb0002", "/build?run=aaaa0001"]]          # a run that did not route opens its record
 
 
 @needs_node
