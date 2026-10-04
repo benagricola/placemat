@@ -3699,13 +3699,24 @@ Top, Bottom (mirrored, as the 2D back) and Iso; a click selects, as in 2D. A par
 body, else the box of its shapes) 0.1 mm off its face, hatched, flagged with the reason ("no model declared", "model not found: <path>", "conversion failed: ...", "loading"); the legend
 counts parts by state, lists the plates, retries failed conversions and can dim the parts that have a model.
 
+The copper is drawn too, each copper layer at its height in the board: tracks as flat ribbons with round ends, planes and pours as their
+filled outlines (the polygons the 2D view draws), pads and the parts' own copper on each layer they are on, vias as cylinders through the
+layers they join. The colours are the 2D view's layer colours; copper the router laid is drawn lighter, as the 3D form of its hollow 2D
+look. The replay shows copper as the 2D drawing does: a route's replay lays and rips each op at its step, a plan's replay shows it at its end.
+Solid | See-through on the 3D bar draws the board body solid or translucent, so the inner layers' copper shows through it; the choice is
+kept while the page switches between 2D and 3D.
+
 - **Plan document** (`version` 2, all additive): each member of an item has `models`, one entry per model of the footprint: `{id, state, name,
   opacity, why, matrix}`. `state` is `ok`, `vrml` (a VRML model with no STEP beside it, read by placemat itself), `none`, `missing` (`why` says
   `model not found: <path as written>`) or `hidden`; `id` names the model by its content (32 hex of SHA-256, or `e-` and KiCad's checksum for an
   embedded model); `matrix` is the 16 numbers, column-major, millimetres, from the model's own frame (x right, y up the footprint's page, z up out
   of the board) to the scene frame (x = board x, y up, z = board y), composed in Python from the footprint as generated, the plan's move and the
   stackup (`model_place.py`, measured against `kicad-cli pcb export glb` to a micrometre). The plan has `stackup` (`thickness`, `copper`: layer ->
-  mm) and `models`, the table of distinct models seen. A plan from an older worker has none of it and still draws in 2D.
+  mm, `layers`: each copper layer top to bottom as `{name, z, thickness}` with `z` the height of its middle in mm from the back face, read from
+  the board file's stackup by walking down through its mask, copper and dielectric rows and scaled to `thickness`; `declared`: false when the
+  file has no stackup that lists every copper layer, and the layers are spaced evenly through the thickness with the outer ones on the faces)
+  and `models`, the table of distinct models seen. A plan from an older worker has none of it and still draws in 2D; in 3D its layers are
+  spaced evenly.
 - **Routes** (token required): `GET /3d/models` (the converter's status and every model's `{state, tris, message}`), `GET /3d/model/<id>.pmm` (the
   converted mesh, immutable; the id is validated), `GET /3d/lib/<token>/<file>` (the viewer script and the vendored three.js, MIT, from a fixed
   list; the token is in the path so the modules it imports come with it), `POST /3d/retry {id?}` (forget failed conversions and queue them

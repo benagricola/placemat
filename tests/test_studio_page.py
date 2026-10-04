@@ -2747,3 +2747,50 @@ def test_an_event_that_arrives_while_a_command_is_being_opened_is_not_lost(tmp_p
 })();
 """)
     assert out["board"] == ["5", [0, 0, 40, 30]]
+
+
+# The 3D view stood in by a recorder of the calls the page makes on it.
+THREED = r"""
+const calls = [];
+ctx.__fake = new Proxy({}, {get: (o, k) => k === "stats" ? () => ({}) : (...a) => { calls.push([k].concat(a.map(x => x instanceof Set ? [...x].sort() : x))); }});
+const trk = (net, x, o) => Object.assign({t: "track", layer: "F.Cu", face: "front", width: 0.2, a: [x, 0], b: [x + 1, 0], net}, o || {});
+const copperDoc = () => Object.assign({}, BOARD, {keepouts: [], reservations: [], items: [item("a", 1)], layers: ["F.Cu", "In1.Cu", "B.Cu"], links: [], unplaced: [], pocketed: [],
+  counts: {placed: 1, findings: 0}, score: null, findings: [], congestion: null,
+  copper: [trk("A", 1), trk("B", 3, {layer: "In1.Cu", face: "inner"}), trk("C", 5, {origin: "routed", x: 3}), {t: "via", at: [6, 0], size: 0.4, drill: 0.2, net: "C", layers: [], origin: "routed"}],
+  steps: [Object.assign(st("a"), {i: 0, copper: []}), Object.assign(st("track A", "copper", false), {i: 1, copper: [0]}), Object.assign(st("adopted B#1", "copper", false), {i: 2, copper: [1]}),
+          Object.assign(st("track C", "copper", false), {i: 3, copper: [2, 3], origin: "routed"})]});
+const openDoc = doc => { ev("showRunRecord(" + JSON.stringify({doc, summary: {id: "r1", script: "x_layout.py", label: ""}}) + ")"); flush(); };
+"""
+
+
+@needs_node
+def test_the_3d_view_is_given_each_copper_ops_origin_and_the_replay_steps_that_lay_and_rip_it(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+openDoc(copperDoc());
+out.cu = ev("host3d().copper()");
+ev("renderBoard()");
+out.twoD = [ev("[...S.opStep.entries()]"), ev("S.lastStep")];
+""")
+    cu = out["cu"]
+    assert cu["origins"] == ["planned", "kept", "routed", "routed"] and cu["n"] == 4 and cu["laid"] is False
+    assert cu["steps"] == [{"s": 1, "x": None}, {"s": 2, "x": None}, {"s": 3, "x": 3}, {"s": 3, "x": None}]
+    assert out["twoD"] == [[[0, 1], [1, 2], [2, 3], [3, 3]], 3]                # the steps the 2D drawing gives the same ops
+
+
+@needs_node
+def test_the_3d_bar_switches_the_body_between_solid_and_see_through_and_keeps_it_across_views(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+ev("V3 = __fake");
+ev("set3d({body: 'see'})");
+out.state = ev("S.v3.body");
+out.bar = els["#bodybar"].innerHTML;
+ev("set3d({body: 'solid'})");
+out.bar2 = els["#bodybar"].innerHTML;
+ev("set3d({body: 'see'})"); calls.length = 0;
+ev("setMode('2d')"); ev("V3 = __fake"); ev("applyLook3d()");
+out.calls = calls.slice();
+""")
+    assert out["state"] == "see"
+    assert 'data-body="see" class="on"' in out["bar"] and 'data-body="solid" class="on"' in out["bar2"]
+    assert ["body", "see"] in out["calls"]                                      # the 3D view is brought to the page's state each time it is shown
+    assert "(" not in re.sub(r"<[^>]*>", "", out["bar"])                        # no bracketed words in the labels

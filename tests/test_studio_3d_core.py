@@ -113,3 +113,78 @@ def test_a_part_with_no_model_is_a_plate_of_its_courtyard_else_its_body_else_the
     assert out[1] == {"pts": [[10, 10], [12, 10], [12, 12], [10, 12]], "back": True}
     assert out[2] == {"pts": [[20, 20], [24, 20], [24, 21], [20, 21]], "back": True}                     # the box of its pads, on their face
     assert out[3] == {"pts": [[49.4, 49.4], [50.6, 49.4], [50.6, 50.6], [49.4, 50.6]], "back": False}      # nothing to draw: a marker at the item
+
+
+@needs_node
+def test_the_copper_layers_stand_at_the_stackups_heights_or_evenly_spaced_without_one(tmp_path):
+    out = node('''
+        import { layerStack, drawHeight } from "%s";
+        const declared = {stackup: {thickness: 1.6, declared: true, layers: [{name: "F.Cu", z: 1.5725, thickness: 0.035}, {name: "In1.Cu", z: 1.4375, thickness: 0.035},
+                          {name: "B.Cu", z: 0.0275, thickness: 0.035}]}};
+        const bare = {layers: ["B.Cu", "In2.Cu", "F.Cu", "In1.Cu"], copper: []};
+        const fromOps = {copper: [{t: "track", layer: "B.Cu"}, {t: "via", layers: []}, {t: "track", layer: "F.Cu"}, {t: "text"}]};
+        const s = layerStack(declared);
+        console.log(JSON.stringify({s, bare: layerStack(bare), ops: layerStack(fromOps), none: layerStack({}),
+          drawn: s.layers.map(l => drawHeight(s, l.name)), gone: drawHeight(s, "In7.Cu")}));
+    ''' % CORE, tmp_path)
+    assert out["s"] == {"T": 1.6, "declared": True, "layers": [{"name": "F.Cu", "z": 1.5725, "t": 0.035}, {"name": "In1.Cu", "z": 1.4375, "t": 0.035}, {"name": "B.Cu", "z": 0.0275, "t": 0.035}]}
+    assert [(l["name"], l["z"]) for l in out["bare"]["layers"]] == [("F.Cu", 1.6), ("In1.Cu", 1.0667), ("In2.Cu", 0.5333), ("B.Cu", 0)] and out["bare"]["declared"] is False
+    assert [(l["name"], l["z"]) for l in out["ops"]["layers"]] == [("F.Cu", 1.6), ("B.Cu", 0)]
+    assert out["none"]["layers"] == [] and out["none"]["T"] == 1.6
+    assert out["drawn"] == [1.6, 1.4375, 0] and out["gone"] is None          # the outer layers are drawn on the board's faces
+
+
+@needs_node
+def test_spreading_pulls_the_layers_apart_about_the_middle_and_the_parts_ride_on_the_outer_ones(tmp_path):
+    out = node('''
+        import { layerStack, spreadHeight, spreadLift } from "%s";
+        const s = layerStack({stackup: {thickness: 1.6, layers: [{name: "F.Cu", z: 1.57}, {name: "In1.Cu", z: 1.0}, {name: "In2.Cu", z: 0.6}, {name: "B.Cu", z: 0.03}]}});
+        const at = k => s.layers.map(l => +spreadHeight(s, l.name, k, 4).toFixed(4));
+        console.log(JSON.stringify({closed: at(0), half: at(0.5), open: at(1), lift: [spreadLift(s, 1, 4), spreadLift(s, 0, 4), spreadLift(layerStack({stackup: {thickness: 1, layers: [{name: "F.Cu", z: 1}]}}), 1, 4)]}));
+    ''' % CORE, tmp_path)
+    assert out["closed"] == [1.6, 1.0, 0.6, 0]
+    assert out["open"] == [7.6, 3.0, -1.4, -6.0]                 # each layer 4 mm further from the next, the middle where it was
+    assert out["half"] == [4.6, 2.0, -0.4, -3.0]
+    assert out["lift"] == [6, 0, 0]                               # front parts rise with the top layer, back parts sink with the bottom one
+
+
+@needs_node
+def test_a_track_is_a_ribbon_with_round_ends_and_an_arc_is_a_chain_of_them(tmp_path):
+    out = node('''
+        import { trackPolys } from "%s";
+        const area = p => Math.abs(p.reduce((s, q, i) => { const r = p[(i + 1) %% p.length]; return s + q[0] * r[1] - r[0] * q[1]; }, 0)) / 2;
+        const straight = trackPolys({a: [0, 0], b: [10, 0], width: 2}, 16);
+        const dot = trackPolys({a: [5, 5], b: [5, 5], width: 1}, 16);
+        const arc = trackPolys({a: [10, 0], b: [0, 10], mid: [7.0711, 7.0711], arc: [10, 0, 1], width: 0.5}, 8);
+        const far = arc.flat().map(q => Math.hypot(q[0], q[1]));
+        console.log(JSON.stringify({n: straight.length, area: area(straight[0]), xs: [Math.min(...straight[0].map(q => q[0])), Math.max(...straight[0].map(q => q[0]))],
+          ys: [Math.min(...straight[0].map(q => q[1])), Math.max(...straight[0].map(q => q[1]))], dot: dot.length && area(dot[0]), arcN: arc.length, rmin: Math.min(...far), rmax: Math.max(...far)}));
+    ''' % CORE, tmp_path)
+    assert out["n"] == 1 and out["xs"] == pytest.approx([-1, 11]) and out["ys"] == pytest.approx([-1, 1])
+    assert out["area"] == pytest.approx(20 + 3.14159, rel=0.02)            # the rectangle and the two half discs
+    assert out["dot"] == pytest.approx(3.14159 * 0.25, rel=0.03)
+    assert out["arcN"] >= 6 and out["rmin"] == pytest.approx(9.75, abs=0.02) and out["rmax"] == pytest.approx(10.25, abs=0.02)
+
+
+@needs_node
+def test_copper_at_a_replay_step_is_what_the_2d_drawing_shows(tmp_path):
+    out = node('''
+        import { visibleRanges } from "%s";
+        // three ops laid at steps 0, 2 and 3, the second ripped up again at step 4
+        const spans = [{s: 0, x: null, i0: 0, i1: 6}, {s: 2, x: 4, i0: 6, i1: 12}, {s: 3, x: null, i0: 12, i1: 18}];
+        const at = (k, laid) => visibleRanges(spans, k, 6, laid);
+        console.log(JSON.stringify({all: at(null, false), end: at(6, true), mid: at(3, false), laid: [0, 1, 3, 4, 5].map(k => at(k, true))}));
+    ''' % CORE, tmp_path)
+    assert out["all"] == [[0, 6], [12, 18]] and out["end"] == [[0, 6], [12, 18]]      # the ripped op is gone once the replay is past it
+    assert out["mid"] == []                                                          # a plan's replay draws no copper until its end, as 2D
+    assert out["laid"] == [[], [[0, 6]], [[0, 12]], [[0, 18]], [[0, 6], [12, 18]]]   # a route's replay lays and rips each op at its step
+
+
+@needs_node
+def test_a_via_spans_its_layers_and_a_through_via_the_whole_stack(tmp_path):
+    out = node('''
+        import { viaSpan } from "%s";
+        const names = ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"];
+        console.log(JSON.stringify([viaSpan({layers: []}, names), viaSpan({layers: ["In1.Cu", "F.Cu"]}, names), viaSpan({layers: ["In2.Cu", "In1.Cu"]}, names), viaSpan({layers: ["In9.Cu"]}, names)]));
+    ''' % CORE, tmp_path)
+    assert out == [["F.Cu", "B.Cu"], ["F.Cu", "In1.Cu"], ["In1.Cu", "In2.Cu"], ["F.Cu", "B.Cu"]]

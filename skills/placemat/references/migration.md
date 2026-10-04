@@ -7,6 +7,14 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **The studio's 3D view draws the copper.** Each copper layer is drawn at its height in the board, from the board file's
+  stackup (evenly spaced when the board declares none): tracks as ribbons, planes and pours as filled outlines, pads on
+  their layers and vias as cylinders through the layers they join, in the 2D view's layer colours, the router's copper
+  lighter. Solid | See-through on the 3D bar makes the board body translucent so the inner layers show. The plan
+  document's `stackup` has `layers` (each copper layer's `z`) and `declared`. Nothing in a layout script changes.
+
 ### Fixed
 
 - **The studio's 3D Play brings a back part up from below.** Each part dropped onto the board from above, so a part on the

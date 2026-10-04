@@ -11,7 +11,7 @@ import { OrbitControls } from "./OrbitControls.js";
 const css = (n, d) => (getComputedStyle(document.documentElement).getPropertyValue(n) || "").trim() || d;
 const dark = () => matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
 
-import { parsePmm, upper, partSteps, plateOutline } from "./viewer_core.js";
+import { parsePmm, upper, partSteps, plateOutline, layerStack, drawHeight, viaSpan, trackPolys, visibleRanges } from "./viewer_core.js";
 export { parsePmm };
 
 function hatch(color) {
@@ -53,6 +53,7 @@ export async function mount(host) {
     sig: "", T: 1.6, extent: [0, 0, 100, 60], assets: new Map(), loading: new Set(), groups: [], plates: [], body: null, root: new THREE.Group(),
     selKey: null, selObjs: [], animations: [], seen: new Set(), visible: true, dirty: true, k: null, theme: null, order: [], keyN: new Map(), stats: {},
     dim: false, over: false, hover: null,
+    copper: [], vias: [], stack: null, bodyMode: "solid",
   };
   scene.add(state.root);
   const request = () => { state.dirty = true; if (!state.raf && state.visible) state.raf = requestAnimationFrame(frame); };
@@ -66,9 +67,14 @@ export async function mount(host) {
       bg: css("--b3-bg", d ? "#1b2027" : "#e6e9ed"), body: css("--b3-body", d ? "#1d5a3c" : "#2f7a52"), plate: css("--b3-plate", d ? "#8f8bf0" : "#5b54c9"),
       grid: css("--b3-grid", d ? "#3a424d" : "#b9c0c9"), text: css("--b3-text", d ? "#d8dce2" : "#1b1f24"), edge: css("--b3-edge", d ? "#7fd1a0" : "#103a26"), accent: css("--accent", "#2563eb"),
     };
+    // the copper in the 2D view's layer colours (studio_page.html's tokens)
+    Object.assign(t, {cuF: css("--copper", d ? "#e8895a" : "#b45f2c"), cuB: css("--copperB", d ? "#6aa3ff" : "#2f6fb8"), cuIn: css("--copperIn", d ? "#5dc48a" : "#2e8b57"),
+      planeF: css("--plane", d ? "#b8734a" : "#c98a5e"), via: css("--via", d ? "#c47a45" : "#7d4a22")});
     state.theme = t;
     renderer.setClearColor(new THREE.Color(t.bg), 1);
     if (state.body) state.body.material.color.set(t.body);
+    for (const m of state.copper) m.material.color.copy(copperColour(m.userData.cu));
+    for (const v of state.vias) v.mesh.material.color.copy(copperColour(v.mesh.userData.cu));
     if (state.grid) state.grid.material.color.set(t.grid);
     if (state.plateMat) { state.plateMat.map.dispose(); state.plateMat.map = hatch(t.plate); state.plateMat.needsUpdate = true; }
     request();
@@ -101,6 +107,18 @@ export async function mount(host) {
     const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color: state.theme.body, roughness: 0.75, metalness: 0.0, side: THREE.DoubleSide}));
     mesh.userData.body = true;
     state.body = mesh; state.root.add(mesh);
+    bodyLook();
+  }
+  // Solid, or see-through: the body translucent, so the inner layers' copper shows through it.
+  // The body is a volume round every layer, so no order of drawing puts it rightly behind and in front of them all: it is drawn first of the
+  // translucent things, over the opaque copper inside it, and the zones' translucent fills after it.
+  const SEE_OPACITY = 0.22;
+  function bodyLook() {
+    if (!state.body) return;
+    const m = state.body.material, see = state.bodyMode === "see";
+    m.transparent = see; m.opacity = see ? SEE_OPACITY : 1; m.depthWrite = !see; m.needsUpdate = true;
+    state.body.renderOrder = see ? -1 : 0;
+    request();
   }
   // A grid under the whole scene, as the 2D view has: a part that stands off the board (a part the generator left in its staging area) is
   // seen to have nothing under it.
@@ -192,6 +210,164 @@ export async function mount(host) {
     state.plateMesh = new THREE.Mesh(geo, state.plateMat);
     state.root.add(state.plateMesh);
   }
+  // ---- copper: each layer at its height in the stackup (layerStack, from model_plan.py). One merged mesh per layer and kind: the tracks of
+  // each origin, the pads (with the parts' own copper), each zone's fill with its outline; the vias one mesh per origin, cylinders through
+  // the layers they join. The ops of a mesh are in the order they were laid, so what a replay position shows is a few index ranges
+  // (visibleRanges), as the 2D drawing shows it.
+  const LIFT = {zone: 0.01, track: 0.02, pad: 0.03, via: 0.035};   // drawn just off the layer, in this order, so coplanar copper does not fight
+  const ROUTED_LIGHTER = 0.45;                                        // the router's copper is mixed this far toward white: the 3D form of its hollow 2D look
+  const ZONE_OPACITY = 0.3, VIA_SEGS = 12;
+  function copperColour(cu) {
+    const t = state.theme, l = cu.layer;
+    const c = cu.kind === "via" ? t.via : cu.kind === "zone" ? (l === "F.Cu" ? t.planeF : l === "B.Cu" ? t.cuB : t.cuIn) : (l === "F.Cu" ? t.cuF : l === "B.Cu" ? t.cuB : t.cuIn);
+    const col = new THREE.Color(c);
+    if (cu.origin === "routed") col.lerp(new THREE.Color(0xffffff), ROUTED_LIGHTER);
+    return col;
+  }
+  // a convex outline (a track's ribbon), filled as a fan
+  function addFan(b, poly, y) {
+    const v0 = b.n;
+    for (const p of poly) b.pos.push(p[0], y, p[1]);
+    for (let i = 1; i < poly.length - 1; i++) b.idx.push(v0, v0 + i, v0 + i + 1);
+    b.n += poly.length;
+  }
+  // any outline (a pad, a zone), triangulated
+  function addPoly(b, poly, y) {
+    const tris = THREE.ShapeUtils.triangulateShape(poly.map(p => new THREE.Vector2(p[0], p[1])), []), v0 = b.n;
+    for (const p of poly) b.pos.push(p[0], y, p[1]);
+    for (const t of tris) b.idx.push(v0 + t[0], v0 + t[1], v0 + t[2]);
+    b.n += poly.length;
+  }
+  // a via: its barrel from its top layer to its bottom one and a ring at each end. Each vertex keeps the layer it belongs to (`li`) and its
+  // distance off it (`off`), so the via follows its layers wherever they are drawn (placeVias).
+  function addVia(b, op, names) {
+    const [top, bot] = viaSpan(op, names), ends = [[names.indexOf(top), LIFT.via, 1], [names.indexOf(bot), -LIFT.via, -1]];
+    const R = Math.max((op.size || 0.6) / 2, 0.02), r = Math.min(Math.max((op.drill || 0.3) / 2, 0.01), R * 0.9), cx = op.at[0], cz = op.at[1], S = VIA_SEGS;
+    const vert = (x, z, nx, ny, nz, li, off) => { b.pos.push(x, 0, z); b.nor.push(nx, ny, nz); b.li.push(li); b.off.push(off); return b.n++; };
+    const ring = [];
+    for (const [li, off] of ends) { const row = []; for (let j = 0; j < S; j++) { const a = 2 * Math.PI * j / S, c = Math.cos(a), s = Math.sin(a); row.push(vert(cx + R * c, cz + R * s, c, 0, s, li, off)); } ring.push(row); }
+    for (let j = 0; j < S; j++) { const k = (j + 1) % S; b.idx.push(ring[0][j], ring[1][j], ring[1][k], ring[0][j], ring[1][k], ring[0][k]); }
+    for (const [li, off, up] of ends) {
+      const o = [], n = [];
+      for (let j = 0; j < S; j++) { const a = 2 * Math.PI * j / S, c = Math.cos(a), s = Math.sin(a); o.push(vert(cx + R * c, cz + R * s, 0, up, 0, li, off)); n.push(vert(cx + r * c, cz + r * s, 0, up, 0, li, off)); }
+      for (let j = 0; j < S; j++) { const k = (j + 1) % S; b.idx.push(o[j], o[k], n[k], o[j], n[k], n[j]); }
+    }
+  }
+  const layerY = name => drawHeight(state.stack, name);
+  function placeVias() {
+    const names = state.stack.layers.map(l => l.name);
+    for (const v of state.vias) {
+      const pos = v.mesh.geometry.attributes.position;
+      for (let i = 0; i < v.li.length; i++) pos.array[3 * i + 1] = layerY(names[v.li[i]]) + v.off[i];
+      pos.needsUpdate = true; v.mesh.geometry.computeBoundingSphere();
+    }
+  }
+  function clearCopper() {
+    for (const m of state.copper) {
+      state.root.remove(m); m.geometry.dispose(); m.material.dispose();
+      for (const c of m.children) { c.geometry.dispose(); c.material.dispose(); }
+    }
+    state.copper = []; state.vias = [];
+  }
+  function copperMesh(b) {
+    const cu = b.cu, g = new THREE.BufferGeometry(), full = b.n > 65535 ? new Uint32Array(b.idx) : new Uint16Array(b.idx);
+    g.setAttribute("position", new THREE.Float32BufferAttribute(b.pos, 3));
+    g.setIndex(new THREE.BufferAttribute(full, 1));
+    let mat;
+    if (cu.kind === "via") { g.setAttribute("normal", new THREE.Float32BufferAttribute(b.nor, 3)); mat = new THREE.MeshStandardMaterial({color: copperColour(cu), roughness: 0.4, metalness: 0.3, side: THREE.DoubleSide}); }
+    else if (cu.kind === "zone") mat = new THREE.MeshBasicMaterial({color: copperColour(cu), transparent: true, opacity: ZONE_OPACITY, depthWrite: false, side: THREE.DoubleSide});
+    else mat = new THREE.MeshBasicMaterial({color: copperColour(cu), side: THREE.DoubleSide});
+    const m = new THREE.Mesh(g, mat);
+    m.userData.cu = Object.assign(cu, {spans: b.spans, full, shown: null, empty: false});
+    if (cu.kind === "zone") {                                   // its outline, as the 2D view strokes it
+      const y = b.pos[1], pts = [];
+      for (const p of cu.pts) pts.push(p[0], y, p[1]);
+      const lg = new THREE.BufferGeometry(); lg.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+      m.add(new THREE.LineLoop(lg, new THREE.LineBasicMaterial({color: copperColour(cu)})));
+    }
+    if (cu.kind === "via") state.vias.push({mesh: m, li: Int16Array.from(b.li), off: Float32Array.from(b.off)});
+    g.computeBoundingSphere();
+    return m;
+  }
+  function buildCopper(plan, order) {
+    clearCopper();
+    const stack = layerStack(plan), names = stack.layers.map(l => l.name);
+    state.stack = stack;
+    if (!names.length) return;
+    const info = host.copper ? host.copper() : null, ops = plan.copper || [];
+    state.cn = info ? info.n : 0; state.claid = !!(info && info.laid);
+    const stepOf = i => (info && info.steps[i]) || {s: 0, x: null};
+    const originOf = i => info ? info.origins[i] : (ops[i].origin === "routed" ? "routed" : "planned");
+    const builds = new Map();
+    const get = (key, cu) => { let b = builds.get(key); if (!b) { b = {pos: [], nor: [], li: [], off: [], idx: [], spans: [], n: 0, cu}; builds.set(key, b); } return b; };
+    const bottom = names[names.length - 1];
+    const yOf = (layer, kind) => { const h = drawHeight(stack, layer); return h == null ? null : h + (layer === bottom && names.length > 1 ? -1 : 1) * LIFT[kind]; };
+    const span = (b, st, i0) => b.spans.push({s: st.s, x: st.x, i0, i1: b.idx.length});
+    for (const i of ops.map((c, i) => i).sort((a, b) => stepOf(a).s - stepOf(b).s || a - b)) {
+      const c = ops[i], st = stepOf(i), org = originOf(i);
+      if (c.t === "track" && c.a && c.b) {
+        const y = yOf(c.layer, "track");
+        if (y == null) continue;
+        const b = get("t|" + c.layer + "|" + org, {kind: "track", layer: c.layer, origin: org}), i0 = b.idx.length;
+        for (const poly of trackPolys(c, 5)) addFan(b, poly, y);
+        span(b, st, i0);
+      } else if ((c.t === "plane" || c.t === "pour") && (c.points || []).length >= 3) {
+        const y = yOf(c.layer, "zone");
+        if (y == null) continue;
+        const b = get("z|" + i, {kind: "zone", layer: c.layer, origin: org, zone: i, pts: c.points}), i0 = b.idx.length;
+        addPoly(b, c.points, y);
+        span(b, st, i0);
+      } else if (c.t === "via" && c.at) {
+        const b = get("v|" + org, {kind: "via", origin: org}), i0 = b.idx.length;
+        addVia(b, c, names);
+        span(b, st, i0);
+      }
+    }
+    // the pads and the parts' own copper, on each layer they are on, in the order the parts were placed
+    const nOf = partSteps(order), pads = [];
+    for (const it of plan.items || []) {
+      const n = nOf.get(it.key);
+      if (n == null) continue;
+      for (const m of it.members || []) for (const s of m.shapes || []) if ((s.kind === "pad" || s.kind === "through" || s.kind === "copper") && s.poly && s.poly.length >= 3) pads.push({n, s});
+    }
+    pads.sort((a, b) => a.n - b.n);
+    for (const {n, s} of pads) {
+      let ls = s.kind === "through" ? (s.layers || []).filter(l => names.includes(l)) : [(s.layers || [])[0] || ((s.faces || [])[0] === "back" ? "B.Cu" : "F.Cu")];
+      if (s.kind === "through" && !ls.length) ls = [names[0], bottom];
+      for (const l of ls) {
+        const y = yOf(l, "pad");
+        if (y == null) continue;
+        const b = get("p|" + l, {kind: "pad", layer: l}), i0 = b.idx.length;
+        addPoly(b, s.poly, y);
+        const last = b.spans[b.spans.length - 1];
+        if (last && last.s === n && last.i1 === i0) last.i1 = b.idx.length; else b.spans.push({s: n, x: null, i0, i1: b.idx.length});
+      }
+    }
+    for (const b of builds.values()) { const m = copperMesh(b); state.copper.push(m); state.root.add(m); }
+    placeVias();
+  }
+  // Show copper at replay position k: a mesh draws its visible index ranges, one range as a draw range, several as an index made of them.
+  function applyRanges(m, ranges) {
+    const cu = m.userData.cu, key = ranges.map(r => r[0] + "-" + r[1]).join(",");
+    if (key !== cu.shown) {
+      cu.shown = key; cu.empty = !ranges.length;
+      const g = m.geometry;
+      if (ranges.length === 1 && ranges[0][0] === 0) {
+        if (g.index.array !== cu.full) g.setIndex(new THREE.BufferAttribute(cu.full, 1));
+        g.setDrawRange(0, ranges[0][1]);
+      } else if (ranges.length) {
+        const out = new cu.full.constructor(ranges.reduce((s, r) => s + r[1] - r[0], 0));
+        let at = 0;
+        for (const [a, b] of ranges) { out.set(cu.full.subarray(a, b), at); at += b - a; }
+        g.setIndex(new THREE.BufferAttribute(out, 1)); g.setDrawRange(0, Infinity);
+      }
+    }
+    m.visible = !cu.empty;
+  }
+  function showCopper(k) {
+    for (const m of state.copper) applyRanges(m, m.userData.cu.kind === "pad" ? visibleRanges(m.userData.cu.spans, k, Infinity, true) : visibleRanges(m.userData.cu.spans, k, state.cn, state.claid));
+  }
+
   const plateAt = vertex => { let lo = 0, hi = state.plates.length - 1; while (lo <= hi) { const mid = (lo + hi) >> 1, p = state.plates[mid]; if (vertex < p.vstart) hi = mid - 1; else if (vertex >= p.vend) lo = mid + 1; else return p; } return null; };
 
   function rebuild(plan, order) {
@@ -259,6 +435,7 @@ export async function mount(host) {
       state.plateMesh.geometry.setDrawRange(0, shown ? state.plates[shown - 1].vend : 0);
       for (const p of state.plates) if (p.label) p.label.visible = p.n < lim;
     }
+    showCopper(k);
     request();
   }
 
@@ -403,7 +580,8 @@ export async function mount(host) {
     }
     renderer.render(scene, camera);
     const info = renderer.info.render;
-    state.stats = {calls: info.calls, triangles: info.triangles, groups: state.groups.length, plates: state.plates.length, instances: state.groups.reduce((s, g) => s + g.mesh.count, 0), over: state.over};
+    state.stats = {calls: info.calls, triangles: info.triangles, groups: state.groups.length, plates: state.plates.length, instances: state.groups.reduce((s, g) => s + g.mesh.count, 0), over: state.over,
+      copper: state.copper.length};
     state.dirty = false;
     if (animating) request();
   }
@@ -419,13 +597,15 @@ export async function mount(host) {
       const e = plan.board && plan.board.extent;
       if (e) state.extent = e;
       const sig = (plan.items || []).map(i => i.key + ":" + (i.at || "") + ":" + i.rotation + ":" + i.face + ":" + ((i.members || []).map(m => (m.models || []).map(x => x.id + x.state).join(",")).join(";"))).join("|") +
-        "#" + order.length + "#" + Object.values(host.models() || {}).map(v => v.state[0]).join("") + "#" + state.assets.size + "#" + ((plan.board && plan.board.loops || []).length) + "#" + (plan.copper || []).filter(c => c.t === "via").length;
+        "#" + order.length + "#" + Object.values(host.models() || {}).map(v => v.state[0]).join("") + "#" + state.assets.size + "#" + ((plan.board && plan.board.loops || []).length) + "#" + (plan.copper || []).filter(c => c.t === "via").length +
+        "#" + (plan.copper || []).length + "#" + JSON.stringify((plan.stackup && plan.stackup.layers) || plan.layers || []);
       let fresh = [];
       if (sig !== state.sig) {
         const first = !state.sig;
         const before = new Set(state.seen);
         if (!state.body || (state.bodySig !== boardSig(plan))) { buildBody(plan); state.bodySig = boardSig(plan); }
         rebuild(plan, order);
+        buildCopper(plan, order);
         const gsig = state.extent.join(",") + "|" + (plan.items || []).reduce((s, i) => s + (i.at ? Math.round(i.at[0] / 5) + Math.round(i.at[1] / 5) * 7 : 0), 0) + "|" + state.theme.grid;
         if (gsig !== state.gridSig) { buildGrid(plan); state.gridSig = gsig; }
         state.sig = sig;
@@ -452,6 +632,8 @@ export async function mount(host) {
     setView(name) { state.viewName = name; setView(name); },
     fit, resize, theme,
     show(on) { state.visible = on; canvas.style.display = on ? "block" : "none"; if (on) { resize(); request(); } },
+    // "solid" or "see" (see-through: the body translucent)
+    body(mode) { state.bodyMode = mode === "see" ? "see" : "solid"; bodyLook(); },
     dim(on) { state.dim = on; for (const g of state.groups) g.mesh.material = on ? g.mat.dim : g.mat.mat; request(); },
     stats() { return Object.assign({}, state.stats, {tris: state.tris, loading: state.loading.size}); },
     // Bring a part's box into view (the card's "zoom"): the camera keeps its direction.
