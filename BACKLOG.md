@@ -336,6 +336,15 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Silk margin; cutout silk; back text mirrored; current-path planes;
+  KiCad's copper shapes; cell labels in the search** (0.99.5): placement
+  keeps `place.silk_margin` past the silk clearance so a turned stamp still
+  clears; a searched cutout keeps the silk clearance from parts' silk; text
+  on a back layer is written mirrored; current-path measures the plane over
+  a sliver of another fill (`check.route_tries`); copper findings measure
+  straight tracks and pours as KiCad does; a stamped cell's own labels are
+  judged while the cell is searched.
+
 - **Rows laid again in each firm pass** (0.99.4): a row whose start is a
   reference (`of=` and the like) found its start once, in the first firm
   pass, so after the copper room moved its anchor part it stood off to one
