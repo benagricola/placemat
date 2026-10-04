@@ -1842,3 +1842,11 @@ ev("renderProgress()");
 out.steps = els["#rs-steps"].textContent;
 """)
     assert out["steps"] == "step 2 of ~2, firm pass 2"
+
+
+def test_an_element_the_page_hides_stays_hidden_whatever_its_class_displays():
+    """The native pill is a .pill (display: inline-flex): without a [hidden] rule that beats it, `hidden` did nothing and the
+    pill showed "native off" on a studio whose native module was in use."""
+    import re
+    css = "".join(re.findall(r"<style>(.*?)</style>", PAGE.read_text(), re.S))
+    assert re.search(r"(^|\})\s*\[hidden\]\s*\{\s*display:\s*none\s*!important", css)

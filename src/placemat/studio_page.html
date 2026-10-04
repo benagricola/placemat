@@ -125,6 +125,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .xbest { fill: var(--good); fill-opacity: 0.18; stroke: var(--good); stroke-width: 0.2; pointer-events: none; }
 .xarr { stroke: var(--mark); stroke-width: 0.12; fill: none; pointer-events: none; } .xarr.best { stroke: var(--good); }
 .xdens { fill: var(--accent); fill-opacity: 0.25; pointer-events: none; }
+[hidden] { display: none !important; }       /* an element hidden by the page stays hidden whatever display its class sets */
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; background: var(--surface2); color: var(--dim); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .pill.live { background: var(--good-soft); color: var(--good); }

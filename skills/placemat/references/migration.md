@@ -15,6 +15,11 @@ section for each hand-written pattern a newer form replaces.
   placements, refusal counts, blockers and SVG: a large board's preview takes 44 s where it took 72 s, the native pass in it 9 s where it
   took 37 s. Nothing to change in a script.
 
+### Fixed
+
+- **The studio's "native off" pill shows only when native is off.** The pill's own style overrode the page hiding it, so it showed on
+  every studio, with no tooltip, whatever the native module's state; any element the page hides now stays hidden.
+
 ## To 0.97.5
 
 ### Fixed
