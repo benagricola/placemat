@@ -702,8 +702,11 @@ the swap, without asking, when all of these hold:
   it, or the pin is plain GPIO and the net is plain GPIO;
 - no other datasheet restriction is broken. Read the pin and peripheral
   chapters for: pins a peripheral needs contiguous or in one bank or group
-  (a microcontroller whose SPI or PIO pins must be consecutive), pins tied to
-  one peripheral instance (a UART's TX and RX on the same instance), boot,
+  (a programmable-IO block whose input, output or side-set pins are a base
+  pin and the consecutively numbered ones after it), signals the function
+  table offers only on certain pins (a hardware SPI or UART whose each signal
+  sits on a fixed set of pins, all from one instance, though not necessarily
+  next to each other), pins tied to one peripheral instance, boot,
   strapping or debug pins, ADC-capable, 5 V tolerant, high drive or clock
   pins, pins in a different voltage domain, and differential pairs;
 - the swap keeps every pin of the same function group together where the

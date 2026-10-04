@@ -643,11 +643,12 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         rec.metrics = metrics                 # the checks count into this same dict
         t0 = time.time()
         stage = "checks"
-        verdicts, outcomes = checks.judge(checks.run_checks(read_board(src.pcb), **checks.kwargs_from(cfg)),
-                                          plan.acceptances)
+        written = read_board(src.pcb)
+        check_kwargs = checks.kwargs_from(cfg)
+        verdicts, outcomes = checks.judge(checks.run_checks(written, **check_kwargs), plan.acceptances)
         for line in checks.record(rec, verdicts, outcomes):
             say("checks", line)
-        stale = checks.findings_of(outcomes)            # after the finding lines printed above: said here, kept in run.json
+        stale = checks.findings_of(outcomes) + checks.keep_out_findings(written, check_kwargs["keep_out_mm"])  # after the finding lines printed above: said here, kept in run.json
         plan.findings.extend(stale)
         from . import suggestions as suggestions_mod
         suggestions_mod.bind(plan.findings, board)

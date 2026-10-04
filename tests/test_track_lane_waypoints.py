@@ -161,3 +161,16 @@ def test_between_is_the_middle_of_the_gap_not_of_the_pad_centres():
     plan = b.resolve()
     xs = {round(t.start.x, 6) for t in _legs(plan)} | {round(t.end.x, 6) for t in _legs(plan)}
     assert xs == {12.0}, xs
+
+
+def test_between_two_pads_of_the_tracks_own_net_needs_no_clearance_to_them():
+    """Clearance is to each pad's net: a pad of the track's own net asks none, so a 0.4 mm gap between two
+    pads of the track's net takes a 0.2 mm track with no finding."""
+    pa = _one_pad_part("PA", "pa", "SIG", 9.0, 20.0, 2.0, 1.0)
+    pb = _one_pad_part("PB", "pb", "SIG", 11.4, 20.0, 2.0, 1.0)      # a 0.4 mm gap
+    b = Board(board_geometry([pa, pb], width=60, height=60), edge_margin=1.0)
+    mid_x = (9.0 + 11.4) / 2.0
+    b.track(Net("SIG"), [Location(mid_x, 5.0), Between(PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)),
+                         Location(mid_x, 35.0)], layer=CopperLayer.F, chamfer=0)
+    plan = b.resolve()
+    assert not any("gap between" in f for f in plan.findings), plan.findings

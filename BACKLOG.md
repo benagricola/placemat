@@ -312,6 +312,12 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Keep-out by layer; Between same-net; pin-swap example** (0.99.3): the
+  keep-out check judges only copper sharing a layer, as KiCad does, and a
+  cross-layer pair with no plane between is a `keep_out.cross_layer` notice;
+  Between() asks no clearance to a pad of the track's own net; the skill's
+  pin-swap example names programmable-IO ranges, not hardware SPI pins.
+
 - **DRC epsilon in checks; pocket scan; row by real outlines; pin swaps**
   (0.99.2): findings judge copper and hole gaps with KiCad's DRC epsilon
   (placement opts in with place.drc_epsilon); a part no pocket takes is

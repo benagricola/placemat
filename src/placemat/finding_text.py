@@ -682,6 +682,20 @@ def pass_text(f: dict) -> str:
     return pass_phrase(f.get("pass") or "settle", f.get("within"), f.get("firm_pass"))
 
 
+def _keep_out_item(i: dict, layer: str) -> str:
+    if i["kind"] == "pad":
+        return "%s pad %s (%s) on %s" % (i["owner"], i["number"], i["net"], layer)
+    return "%s %s at (%.2f, %.2f) on %s" % (i["kind"], i["net"], i["at"][0], i["at"][1], layer)
+
+
+@renders(C.KEEP_OUT_CROSS_LAYER, "net", "distance_mm", "limit_mm", "layers", "away", "pads")
+def _keep_out_cross_layer(f):
+    return ("keep-out %s: %s is %.2f mm from %s, inside the %g mm keep-out, with no plane between; KiCad's clearance "
+            "judges only copper on one layer, so this is not a failed check" % (
+                f["net"], _keep_out_item(f["away"], f["layers"][0]), f["distance_mm"],
+                _keep_out_item(f["pads"], f["layers"][1]), f["limit_mm"]))
+
+
 @renders(C.TIME_STEP_SLOW, "item", "elapsed_s", "pass")
 def _time_step_slow(f):
     past = " and ".join(t % f[k] for k, t in (("warn_s", "--step-warn %g s"), ("limit_s", "--step-limit %g s")) if f.get(k))

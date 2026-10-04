@@ -5,6 +5,22 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.99.3
+
+### Fixed
+
+- **The `keep-out` check judges only copper that shares a layer.** It measured a part's `Pm.KeepOut` distance between `away`
+  copper and `pads` copper whatever their layers, so a back-layer pad with a plane between it and a front-layer pad failed at
+  a distance KiCad's DRC, which judges clearance between items on one copper layer (a through-hole pad or a via spans its
+  layers), passes. A pair on different layers inside the distance with no plane between them is now a notice finding
+  (`keep_out.cross_layer`, in `run.json` and printed by `placemat check`), not a failure; one with a plane between is not reported.
+- **The skill's pin-swap example is corrected.** It said a microcontroller's SPI pins must be consecutive; a hardware SPI's
+  signals sit on fixed pins of one instance, not necessarily adjacent. The rule that must be consecutive is a programmable-IO
+  block's pin ranges (a base pin and the next ones in number).
+- **`Between()` asks no clearance to a pad of the track's own net.** The gap check added the clearance to each pad's net
+  even when that net was the track's own, so a gap between two pads of the track's net raised a false "not enough for a ...
+  track" note; the copper itself was drawn right.
+
 ## To 0.99.2
 
 ### Changed
