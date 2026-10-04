@@ -196,3 +196,11 @@ def test_the_skill_and_api_document_the_forms_and_the_report():
         assert word in API, word
     assert "add it as an alternative first" in SKILL and "extent" in SKILL and "arrangement.refused" in SKILL
     assert all(ord(c) < 128 for c in SKILL + API), "ASCII only"
+
+
+def test_the_skill_names_the_board_side():
+    assert "arrangements=" in SKILL and "does not edit a module's default" in SKILL
+    assert "arrangements=" in API and "arrangement.missing" in API and "arrangement.stale" in API
+    for reason in ("version", "base", "offset", "member", "net", "text"):
+        assert "| `%s` |" % reason in API, reason
+    assert all(ord(c) < 128 for c in SKILL + API), "ASCII only"

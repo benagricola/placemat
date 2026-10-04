@@ -1160,6 +1160,53 @@ default first:
 | `error` | `type`, `message` | the resolve or proof raised that error |
 | `note_chars` | `chars` | `place.arrangement_note_chars` leaves no room for the note |
 
+**On the board.** A cell stamped from a module that offered arrangements
+takes one of them. `arrangements=` on the cell's `place()` is an id or a
+sequence of ids (`"default"` is the module's own layout):
+
+```python
+board.place(cell, arrangements="mirrored")               # pinned: laid in that arrangement
+board.place(cell, arrangements=["default", "mirrored"])  # the search tries these, in this order
+board.place(cell)                                        # the default, then every arrangement the cell offers
+```
+
+- It is for a cell only: any value on a part or a block raises
+  `TypeError`, the empty sequence included. Anything that is not a
+  string or a sequence raises a `TypeError` saying `arrangements=` is an
+  id or a list of them; an empty string, or an item that is not a
+  string, raises one saying ids are text. A repeated id counts once, at
+  its first place.
+- With `place.arrangements` true a cell offers the arrangements its
+  note names. A riding cell takes its pinned arrangement with its host.
+- An id the cell does not offer leaves the cell unplaced with an
+  `arrangement.missing` finding (critical; facts `item`, `asked`,
+  `offered`). A cell with `place.arrangements` false offers only the
+  default, so a pin to any other id is missing. A rider of a cell skipped
+  for its arrangement is unplaced as a rider of an unplaced item.
+- A note that cannot stand gives an `arrangement.stale` warning for the
+  cell and each reason, naming the arrangements ignored (facts `cell`,
+  `reason`, `ids`). The cell is laid with the arrangements that remain.
+  The reasons are:
+
+| `reason` | A note is ignored because |
+|---|---|
+| `version` | it is of a version this placemat does not read |
+| `base` | it does not match its own digest of the module's default places |
+| `offset` | the cell's stamp no longer matches the module's default places |
+| `member` | it names members the cell does not have, or the cell has members it does not name |
+| `net` | it names a net the board does not have |
+| `text` | its text is not whole or does not parse (malformed) |
+
+`run.json`'s `placements[cell]` carries `"arrangement": "<id>"` when the
+cell stands in an arrangement other than the default, and not otherwise.
+
+The writer puts an arranged cell in its arrangement before it moves it
+into place. The cell's copper, keepouts (rule areas and drawings) and
+texts are replaced by the arrangement's, its carried vias are thinned
+against the arranged copper, and its zones are refilled. The cell's
+members go to the arrangement's places. `layout.kicad_pcb` then holds the
+arranged cell.
+
 **How a searched item finds its place.** An explicit `at=Near(...)` scans
 round its hint; a `Near(PadRef(...))` on another searched item's pad waits
 for that item, block members included, whatever the two items' tiers and
@@ -4112,7 +4159,8 @@ its kind.
 | `keep_out` (`keep_out.cross_layer`) | notice | a `Pm.KeepOut` pair on different copper layers inside the distance with no plane between; KiCad judges clearance only on one layer, so `keep-out` does not fail it; facts: `net`, `distance_mm`, `limit_mm`, `layers`, `away` and `pads` (kind, owner, number, net, at) |
 | `time` (`time.step_slow`) | notice | a step ran past `--step-warn` (or `--step-limit`, with no pass left to stop at); the placement is its own |
 | `time` (`time.step_limit`) | critical when the item is left unplaced, warning when it kept the best spot found | a step gave up at `--step-limit`; the next run searches it again |
-| `arrangement` (`arrangement.limit`, `arrangement.refused`, `arrangement.stale`, `arrangement.missing`) | warning | a module's alternatives over the limits, refused by the module's proof, ignored on the stamping board, or asked for and not offered |
+| `arrangement` (`arrangement.limit`, `arrangement.refused`, `arrangement.stale`) | warning | a module's alternatives over the limits, refused by the module's proof, or ignored on the stamping board |
+| `arrangement` (`arrangement.missing`) | critical | a cell's `arrangements=` names an id its module does not offer, and the cell is left unplaced |
 | `arrangement` (`arrangement.duplicate`, `arrangement.extent_fixed`) | notice | an arrangement dropped for laying out as another; a part that sets the module's extent and has no alternative |
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
@@ -4306,6 +4354,8 @@ in a place of its own:
 | `faces` | the declared sides, into the fragment | the fragment named |
 
 A module with alternatives gains `arrangements` in `run.json`, one entry per arrangement (see "Arrangements" under Placement).
+A board's `placements` entry for a cell gains `arrangement` when the
+cell stands in one other than the default.
 
 `.placemat/` sits in the board's directory. `.placemat/views/` holds what a rerun
 regenerates (the `preview`, `show`, `layer` and `datasheet` images); it has a

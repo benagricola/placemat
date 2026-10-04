@@ -742,6 +742,11 @@ module's own terms and the board's search chooses. `api.md`,
   refusals, then fix it (a `gap=`, a different anchor, `only=` for a
   track that cannot exist there) or drop it. A module is not finished
   with a declared alternative that is refused.
+- **On the board side.** `arrangements=` on a cell's `place()` pins or
+  restricts the arrangements the cell may take (one id pins it; several
+  restrict the search, in order; `"default"` holds the module's own
+  layout). The agent does not edit a module's default to hold a choice
+  `arrangements=` can hold.
 
 ## Pin assignments are a layout lever
 
