@@ -60,7 +60,8 @@ class ScanResult:
     blockers: Counter = field(default_factory=Counter)   # (kind, owner, face label) -> how often
     score: float = 0.0
     cut: dict | None = None      # set when the step's budget ended the search: `SearchBudget.measurement()` at that point
-    bound: int = 0               # candidates with room whose carried vias' giving way could not beat the score bound (`score.best`)
+    bound: int = 0               # candidates with room that the score bound (`score.best`) cut: give-way candidates here, and a face
+                                 # whose spots were all cut when Board._scan_faces merges the two faces
 
     @property
     def moved_mm(self) -> float:

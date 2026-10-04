@@ -10062,7 +10062,9 @@ class Board:
             return front, None
         merged = ScanResult(None, hint, front.tried + back.tried, front.rejected + back.rejected,
                             {**back.reasons, **front.reasons}, front.blockers + back.blockers,
-                            cut=back.cut or front.cut, bound=front.bound + back.bound)
+                            cut=back.cut or front.cut,
+                            # a back whose spots the floor all cut had room: it counts with the give-way cuts
+                            bound=front.bound + back.bound + (1 if back.chosen is not None else 0))
         return merged, None
 
     def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> list:

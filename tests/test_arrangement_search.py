@@ -331,3 +331,27 @@ def test_a_cell_whose_default_fits_no_pocket_takes_the_pocket_of_an_arrangement_
     assert p is not None and p.arrangement == "c_in.north"
     assert "mod" in plan.pocketed
     assert 57.7 < p.location.x < 66.3 and 23.7 < p.location.y < 32.3
+
+
+def test_an_arrangement_whose_front_has_no_spot_and_whose_back_is_cut_by_the_floor_is_beaten(monkeypatch):
+    from placemat import layout
+    from placemat.placer import ScanResult
+    from placemat.values import Face
+    real = layout.scan
+
+    def front_none_back_pruned(occ, item, hint, *a, **k):
+        r = real(occ, item, hint, *a, **k)
+        if getattr(item, "arrangement", "") == "c_in.east":
+            if hint.face is Face.FRONT:
+                return ScanResult(None, hint, r.tried, r.rejected, r.reasons, r.blockers)       # no legal spot on the front
+            if r.chosen is not None:
+                r.score += layout.PRUNED                # the back's plain spots all cut by the floor
+        return r
+    monkeypatch.setattr(layout, "scan", front_none_back_pruned)
+    b = board((18.0, 30.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR), face=Face.EITHER)
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == ""
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    assert next(t for t in note["tried"] if t["id"] == "c_in.east") == {"id": "c_in.east", "score": None, "legal": True,
+                                                                           "beaten": True}
