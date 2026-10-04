@@ -27,6 +27,14 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
+- **Findings take KiCad's DRC epsilon; placement can with `place.drc_epsilon`.** KiCad takes the DRC epsilon (`BoardGeometry.drc_epsilon`,
+  0.0005 mm on a fresh board, read from the board) off a copper or hole clearance before comparing, and relaxes hole to hole by it; a gap
+  short of its rule by no more than that is clear. The plan's own copper (the `copper.meets` finding, "track X is 0.1596 mm from Y
+  copper (needs 0.1600)") and the escape walls now judge so always: a declared track 0.4 micrometre short of a clearance is no longer
+  reported as critical. Placement's legality (the search, the give-way quick test, the native judge, the net-tie exclusion's epsilon) keeps
+  the nanometre and the fixed 500 nm unless `[place] drc_epsilon = true`, which lets a part, lane or via stand up to the epsilon closer,
+  and so can move a layout. Silk and courtyard gaps are unchanged: KiCad takes no epsilon off those. Rebuild the native module.
+
 - **A resolve with the native module is about 20% faster, an explore variant about 15%, and nothing in a result changes.** Hashing, the
   near-obstacle query, routed vias' spots, cutout gaps and a scan's lattice moved to or were tightened in the native module; an explore
   variant no longer binds suggestions it never shows. Rebuild the native module (`uv pip install -e ".[native]"`) to get it.

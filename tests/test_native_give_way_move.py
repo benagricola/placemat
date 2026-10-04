@@ -18,7 +18,7 @@ def _shape(kind, poly, net, owner="o"):
 
 
 def _index(shapes):
-    return placemat_native.NativeObstacles(shapes, 0.02, False, 0.1, 0.2, 0.2, {}, 1.0, 0.2, 0.25, 0.0)
+    return placemat_native.NativeObstacles(shapes, 0.02, False, 0.1, 0.2, 0.2, {}, 1.0, 0.2, 0.25, 0.0, 1e-9)
 
 
 def test_tail_clear_is_false_when_the_tail_meets_the_board_or_mine_and_true_otherwise():

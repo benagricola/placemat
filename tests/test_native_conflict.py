@@ -73,7 +73,7 @@ def _cfg_kwargs(occ: Occupancy):
                 silk_clearance=occ.silk_clearance, component_spacing=occ.component_spacing,
                 default_clearance=occ.geometry.default_clearance, net_clearance=net_clearance,
                 hole_to_hole=occ.geometry.hole_to_hole, hole_clearance=occ.geometry.hole_clearance,
-                rules=occ.rules.native())
+                epsilon=occ._eps, rules=occ.rules.native())
 
 
 def _rules():

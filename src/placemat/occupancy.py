@@ -429,6 +429,16 @@ class Occupancy:
         self.envelope = self.settings.place_envelope
         self.component_spacing = component_spacing          # body to body, body to another part's pad
         self.silk_clearance = geometry.silk_clearance       # silk to silk, silk to a mask opening
+        # KiCad's DRC epsilon: a copper, hole or hole-to-hole gap short of its rule by no more than this is clear
+        # (DRC_TEST_PROVIDER_COPPER_CLEARANCE sub_e, DRC_TEST_PROVIDER_HOLE_TO_HOLE), and how far a collision may
+        # lie outside a net-tie pad and still be inside it (DRC_ENGINE::IsNetTieExclusion). A check - a finding's
+        # measure of the plan's copper (`copper_conflicts(check=True)`) - always takes it; placement's legality only
+        # with `[place] drc_epsilon`, else the nanometre it always judged with and the fixed net-tie figure.
+        self._eps_check = geometry.drc_epsilon
+        on = self.settings.place_drc_epsilon
+        self._eps = geometry.drc_epsilon if on else 1e-9
+        self._tie_eps = geometry.drc_epsilon if on else _NET_TIE_EPSILON
+        self._eps_nm = round(self._tie_eps * 1e6)
         self._footprint_refs = frozenset(fp.ref for fp in geometry.footprints)
         # the footprints whose body and courtyard keep pads and copper out, or that a body keeps out: all but a
         # net tie drawing nothing, which is copper as a track is
@@ -867,8 +877,9 @@ class Occupancy:
         if self.__dict__.get("_escapes") is not None:
             self._escapes.remove_copper(shapes)
 
-    def copper_conflicts(self, shape: Shape) -> list[Refusal]:
-        """Every pad or copper of another net within clearance of `shape`."""
+    def copper_conflicts(self, shape: Shape, check: bool = False) -> list[Refusal]:
+        """Every pad or copper of another net within clearance of `shape`. With `check` it is a finding's measure, which
+        takes KiCad's DRC epsilon off a clearance whatever `[place] drc_epsilon` says."""
         out = []
         for owner, g in self.items.items():
             if owner in self.pending:
@@ -876,13 +887,13 @@ class Occupancy:
             for o in g.shapes:                  # its pads, and its own copper graphics (a net-tie's winding)
                 if o.kind not in ("pad", "through", "copper") or not shape.box.overlaps(o.box, gap=self._copper_reach):
                     continue
-                why = self._conflict(shape, o, None, exact=True)
+                why = self._conflict(shape, o, None, exact=True, check=check)
                 if why:
                     out.append(why)
         for o in self.copper:
             if o is shape or not shape.box.overlaps(o.box, gap=self._copper_reach):
                 continue
-            why = self._conflict(shape, o, None, exact=True)
+            why = self._conflict(shape, o, None, exact=True, check=check)
             if why:
                 out.append(why)
         return out
@@ -1359,7 +1370,7 @@ class Occupancy:
                         default_clearance=self.geometry.default_clearance, net_clearance=net_clearance,
                         gap=self._gap, drawn_gap=self._drawn_gap,
                         hole_to_hole=self.geometry.hole_to_hole, hole_clearance=self.geometry.hole_clearance,
-                        rules=self.rules.native())
+                        epsilon=self._eps, rules=self.rules.native())
             self.__dict__["_native_kwargs"] = cache
         return cache
 
@@ -2092,10 +2103,12 @@ class Occupancy:
         return self.geometry.default_clearance, None
 
     def _conflict(self, s: Shape, o: Shape, clearance: float | None, exact: bool = False,
-                  say: bool = True) -> Refusal | None:
+                  say: bool = True, check: bool = False) -> Refusal | None:
         """The DRC rules, in occupancy terms. A via under a body is legal to
         DRC and is only refused when `vias_block_courtyards` is set (a house
         rule for boards that pair through-feature cells with via-free parts).
+        `check` judges a copper, hole or hole-to-hole gap with KiCad's DRC epsilon whatever `[place] drc_epsilon` says
+        (a finding, not a legality).
         `say=False` answers a copper or hole conflict with its kind alone,
         not the facts: a refusal with a code and nothing else, for a search that only asks whether."""
         ks, ko = s.kind, o.kind
@@ -2137,7 +2150,7 @@ class Occupancy:
                 return None
             (cs, rs), (co, ro) = _circle(s), _circle(o)
             gap = math.dist(cs, co) - rs - ro
-            if gap < need - 1e-9:
+            if gap < self.clear_limit(need, check):
                 if not say:
                     return Refusal(Code.HOLE_TO_HOLE)
                 return Refusal(Code.HOLE_TO_HOLE, a=self._hole_of(s), b=self._hole_of(o), gap_mm=gap, need_mm=need)
@@ -2145,7 +2158,7 @@ class Occupancy:
         if ks == "hole" or ko == "hole":
             hole, metal = (s, o) if ks == "hole" else (o, s)
             if metal.kind in _COPPERISH:
-                return self._hole_conflict(hole, metal, say)
+                return self._hole_conflict(hole, metal, say, check)
             return None
         if ks == "courtyard" and ko == "courtyard":
             # courtyards may touch: a shared edge, to a rounding, is packing, not a collision
@@ -2184,16 +2197,17 @@ class Occupancy:
             # Two boxes this far apart hold two polygons at least as far
             # apart, so the walk round both outlines is only worth its cost
             # when the boxes themselves are close enough to fail.
-            if _box_gap(s.box, o.box) >= clr - 1e-9:
+            limit = self.clear_limit(clr, check)
+            if _box_gap(s.box, o.box) >= limit:
                 return None
             # a finding (exact) measures a via as its circle; placement keeps the polygons the
             # native judge reads, so the two agree on what is legal
             gap = _copper_gap(s, o) if exact else poly_distance(s.poly, o.poly)
-            if gap < clr - 1e-9 and self._net_tie_exclusion(s, o, clr):
+            if gap < limit and self._net_tie_exclusion(s, o, clr):
                 return None
-            if gap < clr - 1e-9 and not say:
+            if gap < limit and not say:
                 return Refusal(Code.COPPER_NEAR)
-            if gap < clr - 1e-9:
+            if gap < limit:
                 facts = {"net": s.net, "other": self._copper_of(o), "layers": self._layers_of(common), "gap_mm": gap,
                          "need_mm": clr}
                 if rule is not None:
@@ -2217,10 +2231,17 @@ class Occupancy:
             need = self.geometry.hole_clearance
             if need > 0 and _box_gap(hole.box, metal.box) < need + _HOLE_SLACK * hole.box.width - 1e-9:
                 gap = _circle_distance(hole, metal.poly)
-                if gap < need - 1e-9:
+                if gap < self.clear_limit(need, check):
                     return Refusal(Code.NPTH_NEAR, metal=self._copper_of(metal), hole=self._w(hole.owner), gap_mm=gap,
                                    need_mm=need)
         return None
+
+    def clear_limit(self, need: float, check: bool = False) -> float:
+        """The gap below which a rule of `need` mm is broken: `need` less the DRC epsilon, as KiCad compares a copper or
+        hole clearance (the epsilon a check takes, or placement's: the nanometre unless `[place] drc_epsilon`). A rule
+        no larger than the epsilon, which asks only whether two things touch (`_THROUGH_MM`), keeps the nanometre."""
+        eps = self._eps_check if check else self._eps
+        return need - eps if need > eps else need - 1e-9
 
     def vias_matter(self, item) -> bool:
         """Whether a through via can refuse `item` where they overlap: some
@@ -2244,7 +2265,7 @@ class Occupancy:
             hit = cache[id(geom)] = (geom, matters)       # the geometry is held so its id cannot be reused
         return hit[1]
 
-    def _hole_conflict(self, hole: Shape, metal: Shape, say: bool = True) -> Refusal | None:
+    def _hole_conflict(self, hole: Shape, metal: Shape, say: bool = True, check: bool = False) -> Refusal | None:
         """A plated hole against copper of another net: the board's hole
         clearance from the drill's edge to the copper, netless copper (a net
         tie's bar) included. DRC_TEST_PROVIDER_COPPER_CLEARANCE::
@@ -2265,7 +2286,7 @@ class Occupancy:
         if _box_gap(hole.box, metal.box) >= need + _HOLE_SLACK * hole.box.width - 1e-9:
             return None
         gap = _circle_distance(hole, metal.poly)
-        if gap >= need - 1e-9 or self._hole_tie_exclusion(hole, metal):
+        if gap >= self.clear_limit(need, check) or self._hole_tie_exclusion(hole, metal):
             return None
         if not say:
             return Refusal(Code.HOLE_COPPER)
@@ -2281,7 +2302,7 @@ class Occupancy:
             return False
         at = _circle(hole)[0]
         stand = dataclasses.replace(hole, layers=metal.layers & hole.layers if hole.layers else metal.layers)
-        return any(point_in_polygon(at, poly) or _point_poly_distance(at, poly) <= _NET_TIE_EPSILON
+        return any(point_in_polygon(at, poly) or _point_poly_distance(at, poly) <= self._tie_eps
                    for polys, _ in self._tie_pads(stand, metal) for poly in polys)
 
     def _layers_of(self, layers) -> list:
@@ -2371,7 +2392,7 @@ class Occupancy:
             # a track meets the tie where KiCad's segment collision puts it (DRC test of a track against an
             # item: the track's SHAPE_SEGMENT collides with the other's polygon)
             at = _kicad_segment_location(ends, other.poly) if pads else None
-            if any(point_in_polygon(at, poly) or _point_poly_distance(at, poly) <= _NET_TIE_EPSILON
+            if any(point_in_polygon(at, poly) or _point_poly_distance(at, poly) <= self._tie_eps
                    for polys, _ in pads for poly in polys):
                 return True
         return False
@@ -2455,7 +2476,7 @@ class Occupancy:
         (testSingleLayerItemAgainstItem)."""
         if clearance is None:
             clearance = self.pair_clearance(s.net, o.net, s.owner, o.owner, s.wire, o.wire)[0]
-        clr = max(0, _kc.to_nm(clearance) - _NET_TIE_EPSILON_NM)          # sub_e()
+        clr = max(0, _kc.to_nm(clearance) - self._eps_nm)          # sub_e()
         padded = s.kind in ("pad", "through") and o.kind in ("pad", "through") \
             and self.geometry.has_footprint(s.owner) and self.geometry.has_footprint(o.owner)
         for (a, ca), (b, cb) in (((s, shapes[0]), (o, shapes[1])), ((o, shapes[1]), (s, shapes[0]))):
@@ -2473,15 +2494,14 @@ class Occupancy:
         a net-tie pad of `other`'s footprint of `item`'s net - the pad's
         effective shape colliding with the point within the DRC epsilon."""
         for _, shape in self._tie_pads(item, other):
-            if _kc.collide_point(shape, at, _NET_TIE_EPSILON_NM):
+            if _kc.collide_point(shape, at, self._eps_nm):
                 return True
         return False
 
 
-# KiCad's DRC epsilon (BOARD_DESIGN_SETTINGS::GetDRCEpsilon, 0.0005 mm by default): how far a
-# collision may lie outside a net-tie pad and still be inside it
+# KiCad's DRC epsilon as a fresh board has it (BOARD_DESIGN_SETTINGS::GetDRCEpsilon, 0.0005 mm): how far a collision may
+# lie outside a net-tie pad and still be inside it, unless `[place] drc_epsilon` reads the board's
 _NET_TIE_EPSILON = 0.0005
-_NET_TIE_EPSILON_NM = 500
 
 
 def _affine_between(ref, poly):

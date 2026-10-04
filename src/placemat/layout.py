@@ -8112,7 +8112,7 @@ class Board:
             # A zone is filled by KiCad, which pulls it back round other copper.
             skip_findings = isinstance(op, Zone)
             if not skip_findings:
-                hits = occ.copper_conflicts(shape)
+                hits = occ.copper_conflicts(shape, check=True)       # a finding: KiCad's DRC epsilon, whatever placement uses
                 # and this batch's own copper planned before it, which reaches the occupancy only
                 # once the batch is done: a track of one net through a via of another, both planned
                 # together. Tracks that cross are the bridging's to settle.
@@ -8122,7 +8122,7 @@ class Board:
                     if isinstance(op, Track) and isinstance(earlier, Track) and any(
                             segments_intersect(p1, p2, q1, q2) for p1, p2 in op.chords() for q1, q2 in earlier.chords()):
                         continue
-                    why = occ._conflict(shape, o, None, exact=True)
+                    why = occ._conflict(shape, o, None, exact=True, check=True)
                     if why:
                         hits.append(why)
                 for hit in hits:
