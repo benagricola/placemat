@@ -8,7 +8,7 @@ import pytest
 from placemat.geometry import poly_distance
 from placemat.layout import Board, PlacementCollision
 from placemat.settings import Settings
-from placemat.values import Beside, CopperLayer, Edge, Location, Near, Net, PadRef, Part
+from placemat.values import Along, Beside, CopperLayer, Edge, Location, Near, Net, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 F = CopperLayer.F
@@ -215,3 +215,24 @@ def test_without_room_a_part_searched_after_the_pour_lands_where_it_cannot_be_dr
     from placemat.copper import Pour
     got = _two_searched_joined_by_a_pour(False)
     assert not any(isinstance(c, Pour) for c in got.copper) and any("not drawn" in str(f) for f in got.findings)
+
+
+def _row_of_a_part_that_moves(room):
+    """R1 stands Beside U1 on the north; with room for U1's track it moves north out of the track's way in the next pass.
+    C1 is a row of one down R1's east side, centred on it, so its start is found from where R1 stands."""
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"), excess=0.0, fab=(18.0, 19.0, 22.0, 21.0)),
+           footprint("R1", 40, 40, w=2.6, h=1, inst="r1", nets=("C", "D"), excess=0.0, fab=(38.7, 39.5, 41.3, 40.5)),
+           footprint("C1", 45, 45, w=1, h=2, inst="c1", nets=("E", "G"), excess=0.0, fab=(44.5, 44, 45.5, 46))]
+    b = _board(fps, room)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("r1"), at=Beside(Part("u1"), Edge.NORTH))
+    b.row([Part("c1")], Edge.EAST, of=Part("r1"), align=Along.MID, rotation=0)
+    b.track(Net("A"), [PadRef(Part("u1"), 1), Location(18.6, 17.4)], layer=F, why="a track north of the pad")
+    return b.resolve()
+
+
+def test_a_row_of_a_part_moved_in_the_next_pass_is_laid_against_where_it_stands_then():
+    without = _row_of_a_part_that_moves(False)
+    plan = _row_of_a_part_that_moves(True)
+    assert plan.box("r1").center.y < without.box("r1").center.y - 0.5        # R1 moved north between the passes
+    assert plan.box("c1").center.y == pytest.approx(plan.box("r1").center.y, abs=1e-4)
