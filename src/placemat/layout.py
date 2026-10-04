@@ -8961,8 +8961,18 @@ class Board:
         entry = self._locked(i)
         if entry is None:
             return None, None
-        if entry.declaration != _lock.declaration_digest(self, i) and \
-                entry.declaration != _lock.declaration_digest(self, i, ordered=False):
+        if entry.arrangement and i.kind == "cell":
+            # offers are read off the base cell: the gate may already have arranged `i`. Tested before the digest, which
+            # cannot be taken in an arrangement the cell does not offer
+            offered = self._offered(self.geometry.cells[i.key])
+            if entry.arrangement not in offered:
+                plan.findings.append(self._arrangement_missing(i.key, [entry.arrangement], ["default", *offered], source="lock"))
+                self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "arrangement_gone",
+                                                                                     "id": entry.arrangement})
+                return None, None
+        base = self._arranged(i, "")        # the declaration as the script says it, whatever the gate made of it
+        if entry.declaration != _lock.declaration_digest(self, base, arrangement=entry.arrangement) and \
+                entry.declaration != _lock.declaration_digest(self, base, ordered=False, arrangement=entry.arrangement):
             self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "declaration_changed"})
             return None, None
         spot, why = _lock.placement_of(entry, occ)
@@ -8978,6 +8988,7 @@ class Board:
         spot, _ = self._lock_spot(occ, i, plan)
         if spot is None:
             return None
+        i = self._arranged(i, spot.arrangement)        # a cell is laid in the arrangement its entry holds
         held = scan(occ, i.item, spot, 0.0, i.step, (spot.rotation,), clr, accept=self._accept(i))
         self._lock_held.add(i.key)
         if held.chosen is not None:

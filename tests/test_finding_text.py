@@ -156,7 +156,8 @@ SAMPLES = [
     (C.ARRANGEMENT_MISSING, {"item": "mod", "asked": ["c_in.west"], "offered": ["default", "c_in.east"]},
      "mod: arrangements= names c_in.west, which the module does not offer (it offers default, c_in.east)"),
     (C.ARRANGEMENT_MISSING, {"item": "mod", "asked": ["c_in.west"], "offered": ["default"], "source": "lock"},
-     "mod: arrangements= names c_in.west, which the module does not offer (it offers default)"),
+     "mod: its lock entry holds arrangement c_in.west, which the module no longer offers (it offers default); "
+     "the entry is released"),
     (C.ARRANGEMENT_EXTENT_FIXED, {"item": "c_bulk", "sides": ["east", "north"], "protrudes_mm": 1.8, "alternatives": True},
      "c_bulk sets the module's extent on the east and north sides (1.8 mm past the next part) and has no alternative"),
 ]

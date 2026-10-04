@@ -1182,6 +1182,10 @@ board.place(cell)                                        # the default, then eve
   `offered`). A cell with `place.arrangements` false offers only the
   default, so a pin to any other id is missing. A rider of a cell skipped
   for its arrangement is unplaced as a rider of an unplaced item.
+- The lock and freeze hold an arrangement (see "The lock" and "Freeze").
+  A lock entry whose arrangement the cell no longer offers is released,
+  and the cell is searched as its call says, with an
+  `arrangement.missing` warning whose facts add `source: "lock"`.
 - A note that cannot stand gives one `arrangement.stale` warning per
   ignored arrangement and reason (facts `cell`, `reason`, `ids`); `text`
   carries no ids. The cell is laid with the arrangements that remain.
@@ -4061,7 +4065,14 @@ turns), keeps its turn among the locked items, and carries a digest of the
 item's declaration. Every later run applies the lock: `held by lock` when
 the spot is legal, `lock: drifted N mm` when something now blocks it (the
 nearest legal spot round it), `lock: released - why` when the declaration
-changed or the anchor is gone, turned over or placed later. The cleanup
+changed or the anchor is gone, turned over or placed later. A cell's
+entry also holds the arrangement it stood in (`"arrangement"`, left out of
+the file for the default), and the cell is laid in it. Its digest then
+covers that arrangement's member places, so an entry whose arrangement
+now stands its members elsewhere is released as a changed declaration;
+one whose arrangement the module no longer offers is released (`lock:
+released - the module no longer offers arrangement <id>`) with an
+`arrangement.missing` warning (`source: "lock"`). The cleanup
 pass leaves a held item where it is. Commit the lock with the script; a
 run prints how many items it held, drifted and released. `placemat lock`
 lists entries and releases them. An anchor is named by its part's
@@ -4084,7 +4095,9 @@ into the script in the lock's own terms: the item's `place()` call gains
 anchor part's own frame - and `rotation=Turned(Part(<anchor>), r)`, so it
 keeps its turn of the order and turns with its anchor exactly as the lock
 held it, and its `why=` gains where the spot came from (`explore <run>:
-<score> mm, frozen <date>`). `--fixed` writes a firm
+<score> mm, frozen <date>`). A cell whose entry holds an arrangement also
+gains `arrangements="<id>"`, and its `why=` gains `; arrangement <id>`.
+`--fixed` writes a firm
 `Location(X(...), Y(...))` instead, allowed when the anchor is fixed. Only
 that call's arguments change - comments and every other line stay - and the
 script and lock are written only when the edited script places every item
@@ -4205,7 +4218,7 @@ its kind.
 | `time` (`time.step_slow`) | notice | a step ran past `--step-warn` (or `--step-limit`, with no pass left to stop at); the placement is its own |
 | `time` (`time.step_limit`) | critical when the item is left unplaced, warning when it kept the best spot found | a step gave up at `--step-limit`; the next run searches it again |
 | `arrangement` (`arrangement.limit`, `arrangement.refused`, `arrangement.stale`) | warning | a module's alternatives over the limits, refused by the module's proof, or ignored on the stamping board |
-| `arrangement` (`arrangement.missing`) | critical | a cell's `arrangements=` names an id its module does not offer, and the cell is left unplaced |
+| `arrangement` (`arrangement.missing`) | critical; warning when `source` is `"lock"` | a cell's `arrangements=` names an id its module does not offer, and the cell is left unplaced; from the lock, an entry's arrangement is no longer offered, the entry is released and the cell is searched as its call says |
 | `arrangement` (`arrangement.duplicate`, `arrangement.extent_fixed`) | notice | an arrangement dropped for laying out as another; a part that sets the module's extent and has no alternative |
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |

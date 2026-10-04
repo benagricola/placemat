@@ -88,6 +88,8 @@ def why_text(said: str, entry, date: str) -> str:
     came from - the explore run and its score when the lock kept them."""
     stamp = ("explore %s: %s mm, frozen %s" % (entry.run, entry.score, date)
              if entry.run and entry.score is not None else "explore: frozen %s" % date)
+    if entry.arrangement:
+        stamp += "; arrangement %s" % entry.arrangement
     return "%s; %s" % (said, stamp) if said else stamp
 
 
@@ -104,6 +106,16 @@ def _pad_text(board, key, ref, number) -> str:
 
 
 def frozen_args(board, key, turn, fixed: bool, entry=None, why: str = "") -> dict:
+    """The keyword arguments that put an item where its turn did (_frozen_core), and a cell's `arrangements=`
+    when its turn stood it in an arrangement other than the module's own layout."""
+    out = _frozen_core(board, key, turn, fixed, entry, why)
+    arrangement = turn["placement"].arrangement
+    if arrangement:
+        out["arrangements"] = repr(arrangement)            # the call's own keyword: the arrangement the lock held
+    return out
+
+
+def _frozen_core(board, key, turn, fixed: bool, entry=None, why: str = "") -> dict:
     """The keyword arguments that put an item where its turn did. With its
     lock entry: at its anchor pad's point plus the entry's offset in the
     anchor part's own frame, turned with the anchor as the entry's rotation

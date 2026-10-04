@@ -795,6 +795,9 @@ def _arrangement_stale(f):
 
 @renders(C.ARRANGEMENT_MISSING, "item", "asked", "offered")      # `source` ("lock") is optional, added by the lock
 def _arrangement_missing(f):
+    if f.get("source") == "lock":
+        return ("%s: its lock entry holds arrangement %s, which the module no longer offers (it offers %s); "
+                "the entry is released" % (f["item"], ", ".join(f["asked"]), ", ".join(f["offered"]) or "nothing"))
     return "%s: arrangements= names %s, which the module does not offer (it offers %s)" % (
         f["item"], ", ".join(f["asked"]), ", ".join(f["offered"]) or "nothing")
 

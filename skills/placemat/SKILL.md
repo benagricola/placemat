@@ -746,7 +746,8 @@ module's own terms and the board's search chooses. `api.md`,
   restricts the arrangements the cell may take (one id pins it; several
   restrict the search, in order; `"default"` holds the module's own
   layout). The agent does not edit a module's default to hold a choice
-  `arrangements=` can hold.
+  `arrangements=` can hold. The lock holds the arrangement an accepted
+  explore chose, and `placemat freeze` writes it into `arrangements=`.
 
 ## Pin assignments are a layout lever
 

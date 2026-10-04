@@ -277,6 +277,7 @@ _RELEASED = {
     "anchor_pad_gone": lambda r: "its anchor pad %s.%s is gone" % (r["ref"], r["pad"]),
     "no_spot_near": lambda r: "no legal spot within %.1f mm of its locked spot" % r["radius_mm"],
     "no_spot_round": lambda r: "no legal spot round its locked spot",
+    "arrangement_gone": lambda r: "the module no longer offers arrangement %s" % r["id"],
 }
 
 
