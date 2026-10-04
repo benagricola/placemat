@@ -1191,6 +1191,20 @@ class _Fill:
         self._paths[(id(entry), id(exit_))] = (entry, exit_, path)      # for neck_length; the polys kept so id() cannot be reused
         return w, self.centre(neck), w <= self.s + 1e-9
 
+    def widest_touching(self, polys) -> float | None:
+        """The width of the widest disc in the fill that reaches `polys` (as
+        `touching` reads it): no route entering or leaving the fill by that
+        copper is wider than this. None when no cell of the fill reaches it."""
+        levels = self.levels
+        lo, hi, found = 0, len(levels) - 1, None
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if self.touching(polys, levels[mid]):
+                found, lo = levels[mid], mid + 1
+            else:
+                hi = mid - 1
+        return None if found is None else 2.0 * self.radius(found)
+
     def neck_length(self, entry, exit_, need: float) -> float | None:
         """How far the route `width` found between `entry` and `exit_` runs
         through fill narrower than `need`: along its path of cells, from the
@@ -1216,41 +1230,88 @@ class _Fill:
         return total
 
 
-def _widest_from(nodes, near, sources) -> dict:
-    """{node: (the widest bottleneck of any route to it from `sources`, the
-    source it set out from, whether it passed through a zone fill, the node
-    before it on that route)}: the route current would take, judged by its
-    narrowest point. The parent lets `_neck` retrace the route to find where
-    its bottleneck lies."""
+def _crossing_key(z: int, a: int, b: int) -> tuple:
+    """The key a fill's crossing is measured under: the fill, then the copper
+    the route enters and leaves it by, in either order."""
+    return (z,) + tuple(sorted((a, b)))
+
+
+def _widest_routes(nodes, near, sources, targets, measured: dict, bounds: dict, fill_widest) -> dict:
+    """{target: (the widest bottleneck of any route to it from `sources`,
+    the route's nodes, source first)}: the route current would take, judged
+    by its narrowest point. A pad, via or track passes its own width; a fill
+    or pour passes the width `_fill_on` measured between the copper a route
+    enters and leaves it by (`measured`, keyed by `_crossing_key`); where
+    that crossing has not been measured yet, the widest disc anywhere in the
+    fill (`fill_widest(node)`) and the widest disc in it that reaches each
+    of the two where that is known (`bounds`, {(fill, copper): width},
+    `_Fill.widest_touching`) - so a route's bottleneck here is at least its
+    true one, and equal to it once every crossing on it is measured
+    (`_pairs` measures and searches again).
+
+    A route is searched as (the node before, the node): the node before
+    counts only at a fill some crossing of which from it is measured, and is
+    None elsewhere, so the search grows only with what has been measured."""
     import heapq
-    best = {i: (nodes[i][1], i, nodes[i][0] in _FILLED, None) for i in sources}
-    heap = [(-best[i][0], i) for i in sources]
+    entries: dict = {}
+    for key in measured:
+        entries.setdefault(key[0], set()).update(key[1:])
+
+    def state(prev, node):
+        return (prev, node) if prev in entries.get(node, ()) else (None, node)
+    best = {}
+    for i in sources:
+        best[(None, i)] = (nodes[i][1], None, i)
+    heap = [(-v[0], n, s) for n, (s, v) in enumerate(best.items())]
     heapq.heapify(heap)
+    tick = len(heap)
     while heap:
-        w, i = heapq.heappop(heap)
+        w, _, st = heapq.heappop(heap)
         w = -w
-        if w < best[i][0]:
+        if w < best[st][0]:
             continue
-        for j in near[i]:
-            cand = min(w, nodes[j][1])
-            if cand > best.get(j, (-1.0,))[0]:
-                best[j] = (cand, best[i][1], best[i][2] or nodes[j][0] in _FILLED, i)
-                heapq.heappush(heap, (-cand, j))
-    return best
+        prev, j = st
+        fill = nodes[j][0] in _FILLED
+        for k in near[j]:
+            if k == prev:
+                continue
+            cand = w
+            if fill:
+                got = measured.get(_crossing_key(j, prev, k)) if prev is not None else None
+                if got is not None:
+                    cand = min(cand, got[0])
+                cand = min(cand, bounds.get((j, k), math.inf))
+            if nodes[k][0] in _FILLED:
+                cand = min(cand, bounds.get((k, j), math.inf), fill_widest(k))
+            else:
+                cand = min(cand, nodes[k][1])
+            nxt = state(j, k)
+            if cand > best.get(nxt, (-1.0,))[0]:
+                best[nxt] = (cand, st, k)
+                tick += 1
+                heapq.heappush(heap, (-cand, tick, nxt))
+    out = {}
+    for t in targets:
+        got = best.get((None, t))
+        if got is None:
+            continue
+        path, st = [], (None, t)
+        while st is not None:
+            path.append(st[1])
+            st = best[st][1]
+        out[t] = (got[0], path[::-1])
+    return out
 
 
-def _neck(nodes, best, end_i: int, w: float, need_of) -> tuple:
+def _neck(nodes, path: list, w: float, need_of) -> tuple:
     """The bottleneck's point, how far the route stays narrower than the
     width the current needs - the run of consecutive track nodes around the
     bottleneck narrower than `need_of(its layers)`, stopped each way by a
     pad, via, pour or a track that wide - and the bottleneck node's own
-    layers (for the current-path check's per-layer weight)."""
-    path, i = [], end_i
-    while i is not None:
-        path.append(i)
-        i = best[i][3]
-    path.reverse()                                       # source -> target
-    pos = next(k for k, idx in enumerate(path) if abs(nodes[idx][1] - w) < 1e-6)
+    layers (for the current-path check's per-layer weight). `path` is the
+    route's nodes, source first; `w` the narrowest width of its pads, vias
+    and tracks."""
+    pos = next(k for k, idx in enumerate(path) if nodes[idx][0] not in _FILLED and abs(nodes[idx][1] - w) < 1e-6)
     neck_i = path[pos]
     need = need_of(nodes[neck_i][4])
 
@@ -1272,15 +1333,6 @@ def _neck(nodes, best, end_i: int, w: float, need_of) -> tuple:
     point = ((ends[0][0] + ends[1][0]) / 2.0, (ends[0][1] + ends[1][1]) / 2.0) if ends \
         else (nodes[neck_i][3].center.x, nodes[neck_i][3].center.y)
     return point, total, nodes[neck_i][4]
-
-
-def _route(best, end_i: int) -> list:
-    """The nodes of the route `_widest_from` found to `end_i`, source first."""
-    path, i = [], end_i
-    while i is not None:
-        path.append(i)
-        i = best[i][3]
-    return path[::-1]
 
 
 def _fill_on(nodes, path: list, fills: dict, measured: dict, step: float):
@@ -1342,6 +1394,17 @@ def _neck_credit(w: float, need: float, amps: float, length, layers, copper_mm: 
     return _Basis(length, budget > 0 and rise <= budget + 1e-12, rise, budget, longest, w, amps)
 
 
+def _meets(nodes, reading, need_of) -> bool:
+    """Whether a route's reading in `_pairs` (width, the width of its pads,
+    vias and tracks, ..., the route, its narrowest fill, whether the fill is
+    its neck) is as wide as the current needs at its neck."""
+    width, w, path, fill, narrows = reading[0], reading[1], reading[5], reading[6], reading[7]
+    if math.isinf(width):
+        return True
+    layers = fill[3] if narrows else _neck(nodes, path, w, need_of)[2]
+    return width >= need_of(layers) - 1e-9
+
+
 def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, copper_oz: float,
            zone_step: float = ZONE_STEP, measure_necks: bool = True):
     """The routes the load takes on `net`, carriers being {ref: amps}: for
@@ -1369,36 +1432,69 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
     refs = sorted(carriers)
     pairs = [(a, b) for k, a in enumerate(refs) for b in refs[k + 1:]] if len(refs) > 1 else \
         [(refs[0], None)]
-    searched, fills, measured, lengths = {}, {}, {}, {}
+    fills, measured, lengths, bounds = {}, {}, {}, {}
+    on_layers = set().union(*(n[4] for n in nodes)) or {None}
+
+    def fill_widest(z):
+        if z not in fills:
+            fills[z] = _Fill(nodes[z][2][0], zone_step)
+        levels = fills[z].levels
+        return 2.0 * fills[z].radius(levels[-1]) if len(levels) else zone_step
+    tries = max(1, int(active().check_route_tries))
     judged, unmeasured, apart = [], [], []
     for a, b in pairs:
         if not pads.get(a):
             apart.append((a, b))
             continue
-        if a not in searched:               # one search a carrier, whoever it is paired with
-            searched[a] = _widest_from(nodes, near, pads[a])
-        best = searched[a]
         ends = pads.get(b, ()) if b is not None else [i for r, ii in pads.items() if r != a for i in ii]
-        reach = []
-        for i in ends:
-            if i not in best:
-                continue
-            w, zoned = best[i][0], best[i][2]
-            fill = _fill_on(nodes, _route(best, i), fills, measured, zone_step) if zoned else None
-            narrows = fill is not None and fill[0] < w - zone_step
-            reach.append((fill[0] if narrows else w, w, nodes[i][0], nodes[best[i][1]][0], zoned, i, fill, narrows))
-        if not reach:
-            apart.append((a, b))
-            continue
-        width, w, to, start, zoned, end_i, fill, narrows = max(reach, key=lambda r: r[0])   # the widest-joined end
-        if math.isinf(width):
-            unmeasured.append((start, to, "joined only through pads and vias" if not zoned
-                               else "joined only through pads, vias and a zone fill or pour where their copper meets"))
-            continue
         amps = carriers[a] if b is None else min(carriers[a], carriers[b])
 
         def need_of(layers):
             return _need_mm(amps, rise_c, copper_oz, geometry.copper_mm, layers)
+        least = min(need_of((layer,)) for layer in on_layers)        # no route needs less than this
+        # the search reads a fill as passing any width until its crossing is measured: measure the fills on
+        # the routes it found and search again, until the widest-joined end's route is as wide as the search
+        # read it, or meets its need, or no route is left that could, or nothing new was measured
+        # (`check.route_tries` searches at most)
+        pick = None
+        for _ in range(tries):
+            before = len(measured)
+            found = _widest_routes(nodes, near, pads[a], ends, measured, bounds, fill_widest)
+            reach = []
+            # the ends widest as the search reads them first: an end it reads no wider than one already
+            # measured cannot be the widest-joined, and is left unmeasured
+            for i, (opt, path) in sorted(found.items(), key=lambda kv: -kv[1][0]):
+                if reach and max(r[0] for r in reach) >= opt - 1e-9:
+                    break
+                w = min((nodes[k][1] for k in path if nodes[k][0] not in _FILLED), default=math.inf)
+                zoned = any(nodes[k][0] in _FILLED for k in path)
+                fill = _fill_on(nodes, path, fills, measured, zone_step) if zoned else None
+                narrows = fill is not None and fill[0] < w - zone_step
+                reach.append((fill[0] if narrows else w, w, nodes[i][0], nodes[path[0]][0], zoned, path, fill,
+                              narrows))
+            if not reach:
+                break
+            got = max(reach, key=lambda r: r[0])                       # the widest-joined end
+            if pick is None or got[0] > pick[0]:
+                pick = got
+            widest = max(v for v, _ in found.values())
+            if len(measured) == before or pick[0] >= widest - 1e-9 or _meets(nodes, pick, need_of) \
+                    or widest < least - 1e-9:
+                break
+            # no route in or out of a fill by copper it was just crossed from is wider than the widest
+            # disc that reaches that copper: what keeps the next search off the other ways to that copper
+            for key in list(measured)[before:]:
+                for x in key[1:]:
+                    if (key[0], x) not in bounds:
+                        bounds[(key[0], x)] = fills[key[0]].widest_touching(nodes[x][2]) or math.inf
+        if pick is None:
+            apart.append((a, b))
+            continue
+        width, w, to, start, zoned, path, fill, narrows = pick
+        if math.isinf(width):
+            unmeasured.append((start, to, "joined only through pads and vias" if not zoned
+                               else "joined only through pads, vias and a zone fill or pour where their copper meets"))
+            continue
         if narrows:
             need = need_of(fill[3])
             length, basis = None, None
@@ -1410,7 +1506,7 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
                 basis = _neck_credit(width, need, amps, length, fill[3], geometry.copper_mm, rise_c, copper_oz)
             judged.append((width, need, amps, start, to, (fill[0], fill[2], True, fill[4]), fill[1], length, basis))
             continue
-        point, length, neck_layers = _neck(nodes, best, end_i, w, need_of)
+        point, length, neck_layers = _neck(nodes, path, w, need_of)
         need = need_of(neck_layers)
         basis = None
         if measure_necks and w < need - 1e-9:

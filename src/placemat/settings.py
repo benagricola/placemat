@@ -255,6 +255,8 @@ class Settings:
         "copper's thermal conductivity, W/(m K)")
     check_zone_step: float = S(0.05, "mm",
         "the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step")
+    check_route_tries: int = S(4, "count",
+        "how many times the load's route between two carriers is searched, each search after the first avoiding the zone fill crossings the earlier ones measured narrow")
     check_limits: dict = S(None, "table",
         "a bound per check, e.g. `\"hot-loop\" = 20.0` (`--limit`)", factory=dict)
     parts_order_fields: tuple = S(("Lcsc", "LCSC", "Mpn", "MPN"), "list",
@@ -605,7 +607,7 @@ _ABOVE_ZERO = frozenset((
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
-    "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
+    "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_route_tries", "check_neck_resistivity", "check_neck_conductivity",
     "studio_3d_cache_mb", "studio_3d_batch", "studio_3d_batch_timeout_s", "studio_3d_model_tris", "studio_3d_max_tris", "studio_3d_plate_mm",     "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "studio_builder_grid_mm", "studio_builder_max_fill", "studio_builder_aspect", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))

@@ -5,6 +5,18 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **`current-path` takes the plane over a sliver of another fill.** The search for the load's widest route read every zone
+  fill and pour as passing any width, and measured only the fills on the route it happened to find first, so a route
+  through a sliver where two fills of the net meet on one layer could be judged while a plane joined the same pads: a
+  through-hole pad pair joined by inner planes read as a 0.05 mm neck. The search now reads an unmeasured fill no wider
+  than the widest disc anywhere in it, and where the route it found narrows in a fill it searches again with that crossing
+  at its measured width (`check.route_tries`, default 4). A net that failed on such a sliver is judged on its planes; the
+  verdict can still fail there, at the plane's own narrowest point between the holes of other nets.
+
 ## To 0.99.4
 
 ### Fixed
