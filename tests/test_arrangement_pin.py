@@ -160,3 +160,32 @@ def test_a_required_riding_cell_pinned_to_an_id_not_offered_stops_the_run():
     b.place(Cell("mod"), at=Beside(Part("r9"), Edge.EAST), arrangements="c_in.west", required=True)
     with pytest.raises(CriticalUnplaced):
         b.resolve()
+
+
+def test_a_part_riding_a_cell_left_unplaced_for_its_arrangement_is_unplaced_as_a_rider():
+    from placemat.values import Beside, Edge, Near
+    b = board(g=with_arrangement(stamped_geometry(partner=(60.0, 50.0))))
+    b.place(Part("r9"), at=Near(Location(20.0, 30.0)))
+    b.place(Cell("mod"), at=Beside(Part("r9"), Edge.EAST), arrangements="c_in.west")
+    b.place(Part("r8"), at=Beside(Cell("mod"), Edge.SOUTH))
+    plan = b.resolve()
+    assert [r.key for r in b._ride_groups["r9"]] == ["mod", "r8"]
+    assert plan.placement("r9") is not None and plan.step("mod").placement is None
+    step = plan.step("r8")
+    assert step.placement is None and step.unplaced == ({"form": "rides", "rider_of": "mod"},)
+    (f,) = [f for f in plan.findings if f.cause == "unplaced.rides"]
+    assert f.facts == {"item": "r8", "variant": "rode", "rider_of": "mod"}
+    keys = [s.item for s in plan.steps]
+    assert keys.index("mod") < keys.index("r8")
+
+
+def test_a_riding_cell_left_unplaced_for_its_arrangement_steps_in_its_ride_order():
+    from placemat.values import Beside, Edge, Near
+    b = board(g=with_arrangement(stamped_geometry(partner=(60.0, 50.0))))
+    b.place(Part("r9"), at=Near(Location(20.0, 30.0)))
+    b.place(Part("r8"), at=Beside(Part("r9"), Edge.NORTH))
+    b.place(Cell("mod"), at=Beside(Part("r8"), Edge.EAST), arrangements="c_in.west")
+    plan = b.resolve()
+    assert [r.key for r in b._ride_groups["r9"]] == ["r8", "mod"]
+    keys = [s.item for s in plan.steps]
+    assert plan.placement("r8") is not None and keys.index("r8") < keys.index("mod")

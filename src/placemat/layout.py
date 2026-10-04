@@ -9416,14 +9416,15 @@ class Board:
         there, judged against `i` and those riders, then against the board as
         a firm item is (not with `board=False`). With `stop`, the list ends at
         the first rider that is not legal. A cell rider is laid as its one pinned
-        arrangement (`_pinned`), and one that names an id it does not offer is left out."""
+        arrangement (`_pinned`); the riders `_riders_dropped` names are left out."""
         view = _Riding(occ)
         group = view.move(i.item, at)
         out = []
+        dropped = self._riders_dropped(i)
         for r in self._ride_groups[i.key]:
-            r, gone = self._pinned(r)
-            if gone is not None:
-                continue                                # unplaced by _settle_riders: arrangements= names an id not offered
+            if r.key in dropped:
+                continue                                # unplaced by _settle_riders
+            r = self._pinned(r)[0]
             if isinstance(r.along, _RowSlot):
                 self._reset_rows(r.along.row)
             if r.turned is not None:
@@ -9518,31 +9519,43 @@ class Board:
         riding = self.__dict__.get("_riding")
         return riding[1] if riding is not None and riding[0] == i.key else None
 
-    def _settle_riders(self, occ: Occupancy, i: PlaceIntent, plan: Plan, step: Step) -> None:
-        """Commit `i`'s riders where they go with `i` at its step's placement,
-        a step each; or, with `i` unplaced, an unplaced step and a finding
-        each. A cell rider whose `arrangements=` names an id it does not offer
-        is unplaced with `arrangement.missing` either way."""
-        for r in self._ride_groups[i.key]:
-            plan._items[r.key] = r.item
-        gone = {}
-        for r in self._ride_groups[i.key]:
+    def _riders_dropped(self, i: PlaceIntent) -> dict:
+        """{key: the ids it offers, or None} of `i`'s riders that are not laid: a cell rider whose `arrangements=` names an id it
+        does not offer (its offered ids), and every rider that rides one of those, down the chain (None)."""
+        dropped = {}
+        for r in self._ride_groups[i.key]:              # in ride order: a rider comes after the one it rides
             offered = self._pinned(r)[1]
             if offered is not None:
-                gone[r.key] = offered
-                plan.steps.append(self._arrangement_gone(r, offered, plan))
-        if step.placement is None:
-            for r in self._ride_groups[i.key]:
-                if r.key in gone:
-                    continue
+                dropped[r.key] = offered
+            elif self._rider_of.get(r.key) in dropped:
+                dropped[r.key] = None
+        return dropped
+
+    def _settle_riders(self, occ: Occupancy, i: PlaceIntent, plan: Plan, step: Step) -> None:
+        """Commit `i`'s riders where they go with `i` at its step's placement,
+        a step each in ride order; or, with `i` unplaced, an unplaced step and
+        a finding each. A cell rider whose `arrangements=` names an id it does
+        not offer is unplaced with `arrangement.missing` either way, and the
+        riders that ride it are unplaced as riders of an unplaced item."""
+        for r in self._ride_groups[i.key]:
+            plan._items[r.key] = r.item
+        dropped = self._riders_dropped(i)
+        laid = {}
+        if step.placement is not None:
+            laid = self._ride(occ, plan, i, step.placement, None, stop=False)
+            if any([self._labels_give_way(occ, plan, r.item, p) for r, p, *_ in laid]):
+                laid = self._ride(occ, plan, i, step.placement, None, stop=False)
+            laid = {r.key: (r, p, chose, on_board, in_group) for r, p, chose, on_board, in_group in laid}
+        for r in self._ride_groups[i.key]:
+            if dropped.get(r.key) is not None:
+                plan.steps.append(self._arrangement_gone(r, dropped[r.key], plan))
+                continue
+            if r.key not in laid:
                 facts = {"item": r.key, "variant": "rode", "rider_of": self._rider_of[r.key]}
                 plan.findings.append(self._finding(C.UNPLACED_RIDES, facts))
                 plan.steps.append(self._step(r, None, 0.0, unplaced=[{"form": "rides", "rider_of": facts["rider_of"]}]))
-            return
-        laid = self._ride(occ, plan, i, step.placement, None, stop=False)
-        if any([self._labels_give_way(occ, plan, r.item, p) for r, p, *_ in laid]):
-            laid = self._ride(occ, plan, i, step.placement, None, stop=False)
-        for r, p, chose, on_board, in_group in laid:
+                continue
+            r, p, chose, on_board, in_group = laid[r.key]
             why = on_board or in_group
             if why:
                 from . import suggest_facts
