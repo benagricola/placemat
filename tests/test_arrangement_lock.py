@@ -148,3 +148,48 @@ def test_a_cell_that_offers_no_arrangement_freezes_with_no_arrangements_keyword(
     turn = {"placement": Placement(Location(10.0, 20.0), 0.0, Face.FRONT), "anchor": None}
     assert "arrangements" not in frozen_args(board(stamped_geometry(partner=(60.0, 30.0))), "mod", turn, False)
     assert "arrangements" not in frozen_args(board(stamped_geometry(partner=(60.0, 30.0))), "r8", turn, False)
+
+
+def test_the_explore_lock_digest_of_an_entry_with_no_arrangement_is_as_it_was():
+    from placemat import checkpoint
+    e = L.LockEntry("mod", ("r8", "1"), "front", (1.0, 2.0), 90.0, "front", "abc", 3, "0.99.8", "run1", 41.2)
+    was = {"key": "mod", "anchor": ["r8", "1"], "anchor_face": "front", "offset": [1.0, 2.0], "rotation": 90.0, "face": "front",
+           "declaration": "abc", "turn": 3, "release": "0.99.8", "run": "run1", "score": 41.2}
+    assert checkpoint.lock_digest([e]) == checkpoint.sha(json.dumps([was], sort_keys=True))
+    assert checkpoint.lock_digest([dataclasses.replace(e, arrangement="c_in.east")]) != checkpoint.lock_digest([e])
+
+
+def test_an_entry_with_an_arrangement_whose_key_is_now_a_part_is_released_with_a_finding():
+    g = with_arrangement(stamped_geometry(partner=(60.0, 30.0)))
+
+    def searched():
+        b = Board(g, edge_margin=0.0, keep_going=True)
+        b.rect(width=80, height=60)
+        b.place(Part("r8"), at=Near(Location(60.0, 30.0), **NEAR))
+        return b
+    b = searched()
+    (e,) = L.entries(b, b.resolve(), ["r8"])
+    e = dataclasses.replace(e, arrangement="c_in.east")
+    again = searched().resolve(lock=[e])
+    assert again.step("r8").lock == "released" and again.placement("r8") is not None
+    (f,) = [f for f in again.findings if f.cause == "arrangement.missing"]
+    assert f.severity == "warning" and f.facts == {"item": "r8", "asked": ["c_in.east"], "offered": ["default"],
+                                                   "source": "lock"}
+
+
+def test_a_locked_arranged_cell_that_drifts_keeps_its_arrangement():
+    g = with_arrangement(stamped_geometry(partner=(60.0, 30.0)))
+    b = board(g)
+    plan = b.resolve()
+    p = plan.placement("mod")
+    (e,) = L.entries(b, plan, ["mod"])
+    e = dataclasses.replace(e, anchor=None, anchor_face=None, offset=(p.location.x, p.location.y), rotation=p.rotation)
+    c1 = plan.occupancy.items["C1"].reference.location
+    blocked = with_arrangement(stamped_geometry(partner=(60.0, 30.0), obstacle=(c1.x, c1.y, 2.0, 1.0)))
+    nb = board(blocked)
+    nb.place(Part("obst"), at=Location(c1.x, c1.y))
+    again = nb.resolve(lock=[e])
+    q = again.placement("mod")
+    assert again.step("mod").lock == "drifted" and q.location != p.location
+    assert q.arrangement == "c_in.east" and again.occupancy.items["C1"].reference.rotation == 180.0
+    assert any(n["kind"] == "lock_drifted" for n in again.step("mod").notes)

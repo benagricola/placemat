@@ -8961,10 +8961,10 @@ class Board:
         entry = self._locked(i)
         if entry is None:
             return None, None
-        if entry.arrangement and i.kind == "cell":
+        if entry.arrangement:
             # offers are read off the base cell: the gate may already have arranged `i`. Tested before the digest, which
-            # cannot be taken in an arrangement the cell does not offer
-            offered = self._offered(self.geometry.cells[i.key])
+            # cannot be taken in an arrangement the cell does not offer; an item that is no longer a cell offers none
+            offered = self._offered(self.geometry.cells.get(i.key))
             if entry.arrangement not in offered:
                 plan.findings.append(self._arrangement_missing(i.key, [entry.arrangement], ["default", *offered], source="lock"))
                 self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "arrangement_gone",
