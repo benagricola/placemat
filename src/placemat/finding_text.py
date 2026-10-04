@@ -285,9 +285,19 @@ def rides_note(f: dict) -> str:
     return "rides %s, which found no place" % f["rider_of"]
 
 
+def budget_text(b: dict) -> str:
+    """What a search that spent its step budget says of how far it got: `placer.SearchBudget.measurement()`."""
+    return "the search stopped at its budget of %d candidates, with %.1f%% of the search area covered" % (
+        b["limit"], b["share"] * 100.0)
+
+
 @renders(C.UNPLACED_SEARCH, "item", "radius_mm", "at", "blame")
 def _unplaced_search(f):
-    blame = "no legal location within %.1f mm of %s (%s)" % (f["radius_mm"], _loc(f["at"]), blame_text(f["blame"]))
+    if f.get("budget"):
+        blame = "no legal location found within %.1f mm of %s (%s); %s" % (
+            f["radius_mm"], _loc(f["at"]), blame_text(f["blame"]), budget_text(f["budget"]))
+    else:
+        blame = "no legal location within %.1f mm of %s (%s)" % (f["radius_mm"], _loc(f["at"]), blame_text(f["blame"]))
     if f.get("pocket_tried") is not None:
         blame += "; no pocket took it (%d tried)" % f["pocket_tried"]
     return "%s: %s%s" % (f["item"], blame, room_lost_text(f.get("room_lost", {})))
@@ -618,6 +628,11 @@ def _setup_lookahead(f):
     return ("%s: no spot was left for %s at its limit distance from %s, so the look-ahead was dropped and %s is placed "
             "without it; the best spot for %s left %s %.2f mm short of %.1f mm" % (
                 f["item"], f["other"], f["own"], f["own"], f["own"], f["other"], f["short_mm"], f["asked_mm"]))
+
+
+@renders(C.SETUP_STEP_BUDGET, "item", "judged", "share", "limit")
+def _setup_step_budget(f):
+    return "%s: %s; it is placed at the best spot found so far" % (f["item"], budget_text(f))
 
 
 def facts_reason_text(r: dict) -> str:

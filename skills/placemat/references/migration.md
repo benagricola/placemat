@@ -7,6 +7,15 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **A step's search has a budget.** `place.step_budget` is the most candidates one searched item's step may judge, counted over all its
+  passes, both faces and the carried vias' giving way (candidates, not seconds: it does not depend on how busy the machine is), and
+  `board.place(item, ..., budget=N)` sets one item's. A step that spends it takes the best legal spot found so far and says so
+  (`setup.step_budget`, a notice), or, finding none, leaves the item unplaced: the `unplaced.search` finding carries
+  `facts["budget"]` (`judged`, `share` of the search area covered, `limit`) and offers a higher `budget=` for the item, a searched
+  suggestion. The default is high enough that no benchmark module or the core board reaches it, so nothing a script says changes.
+
 ### Changed
 
 - **The live channel, `placemat watch --json`, the studio worker's events and the router's events carry records, not sentences** (event

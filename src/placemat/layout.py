@@ -37,7 +37,7 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .placer import BandTurns, BearingTurns, BlockSpec, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Tangent, Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
@@ -317,6 +317,7 @@ class PlaceIntent:
     either: bool = field(default=False, metadata={"omit_default": True})   # face=Face.EITHER: `face` is FRONT, and the search also tries the back
     tangent: object = field(default=None, metadata={"omit_default": True})   # a Tangent: the turn at each spot comes from its bearing
     band: object = field(default=None, metadata={"omit_default": True})      # (r_min, r_max) about `about`: Polar((r_min, r_max), None)
+    budget: int | None = field(default=None, metadata={"omit_default": True})   # the candidates its search may judge, else `place.step_budget`
 
     @property
     def turns_on_point(self) -> bool:
@@ -2870,7 +2871,8 @@ class Board:
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
               radius: float | None = None, step: float | None = None, rotations=(),
               priority: Priority | None = None, required: bool = False, why: str = "",
-              drops: Drops = Drops.ALL, _standoff: float | None = None, _row_of: object = None) -> PlaceIntent:
+              drops: Drops = Drops.ALL, budget: int | None = None,
+              _standoff: float | None = None, _row_of: object = None) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
 
@@ -2898,6 +2900,9 @@ class Board:
         nothing                 seeded from its links                     -> searched, two freedoms
 
         `radius=`, `step=` and `rotations=` tune a search (seeded or Near).
+        `budget=` is how many candidates the search may judge, over all its passes and the
+        carried vias' giving way (default `place.step_budget`); a search that spends it
+        takes the best spot it found, or leaves the item unplaced, and says how far it got.
 
         `rotation=` is a number, `Turned(part, degrees)`, `Parallel(a, b, degrees)`
         (the item's x axis along the line between two points) or `Facing(pads,
@@ -2921,6 +2926,11 @@ class Board:
         radius = self.settings.place_radius if radius is None else radius
         step = self.settings.place_step if step is None else step
         geom, key, kind = self._item(item)
+        if isinstance(budget, float) and budget.is_integer():
+            budget = int(budget)                    # a probe writes its figures as numbers
+        if budget is not None and (isinstance(budget, bool) or not isinstance(budget, int) or budget < 1):
+            raise TypeError("%s: budget= is the candidates the search may judge, a whole number of at least 1, not %r"
+                            % (key, budget))
         try:
             face = Face(face)
         except ValueError:
@@ -3175,7 +3185,7 @@ class Board:
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
                              cell_pin=cell_pin, drops=drops, file=_script_site()[0], line=_script_site()[1],
                              toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either,
-                             tangent=tangent, band=band)
+                             tangent=tangent, band=band, budget=budget)
         self._intents.append(intent)
         return intent
 
@@ -4557,10 +4567,14 @@ class Board:
             spots.append(cand)
             return Refusal(Code.LOOKAHEAD_SPOT)
         step = max(j.step, self.settings.place_lookahead_step)
-        for face in self._faces_of(j):
-            turns_at = None if bt is None else self._spot_turns(occ, j, placed, band, face)
-            scan(occ, j.item, Placement(hint.location, hint.rotation, face), radius, step, self._turns(j),
-                 self.clearance, accept=record, turns_at=turns_at, within=within)
+        budget, occ.step_budget = getattr(occ, "step_budget", None), None     # the partner's own spots, not the step's search: not counted
+        try:
+            for face in self._faces_of(j):
+                turns_at = None if bt is None else self._spot_turns(occ, j, placed, band, face)
+                scan(occ, j.item, Placement(hint.location, hint.rotation, face), radius, step, self._turns(j),
+                     self.clearance, accept=record, turns_at=turns_at, within=within)
+        finally:
+            occ.step_budget = budget
         return spots, step
 
     @staticmethod
@@ -7107,6 +7121,8 @@ class Board:
         # place_one); a firm one does, and its labels have already given way in _settle.
         occ.labels_yield = bool(plan.__dict__.get("_label_parts")) and not getattr(obj.freedom, "decided", True) \
             and getattr(obj, "kind", "") != "block"
+        occ.step_budget = SearchBudget(getattr(obj, "budget", None) or self.settings.place_step_budget) \
+            if isinstance(obj, PlaceIntent) else None
         try:
             self._riding = (obj.key, self._rider_check(occ, plan, obj)) if riders else None
             with _recording_commits(occ) as commits:
@@ -7122,6 +7138,7 @@ class Board:
                     self._settle_riders(occ, obj, plan, step)
         finally:
             occ.labels_yield = False
+            occ.step_budget = None
             self._riding = None
         entry = {"step": _reuse.step_to_json(step), "commits": commits,
                  "steps": [_reuse.step_to_json(s) for s in plan.steps[n_steps:]],
@@ -9216,7 +9233,7 @@ class Board:
         if result.chosen is None:
             blamed = blame.blame_of(result)
             pocket_tried = None
-            if i.near is None and bt is None and band is None:
+            if i.near is None and bt is None and band is None and result.cut is None:
                 step, tried = self._seeded_pocket(occ, i, plan, clr, hint, score, self._turns(i),
                                                   step_text.record("seeded_no_spot", nets=seeded_nets or None, radius_mm=radius, blame=blamed))
                 if step is not None:
@@ -9228,8 +9245,11 @@ class Board:
                          radius_mm=radius, at=[hint.location.x, hint.location.y], blame=blamed, room_lost=late)
             if pocket_tried is not None:
                 facts["pocket_tried"] = pocket_tried
+            if result.cut is not None:
+                facts["budget"] = result.cut
             plan.findings.append(self._finding(C.UNPLACED_SEARCH, facts))
             return self._step(i, None, 0.0, unplaced=[w.to_json() for w in result.reasons.values()] +
+                              ([{"form": "budget", "budget": result.cut}] if result.cut is not None else []) +
                               ([{"form": "room_lost", "room_lost": late}] if finding_text.room_lost_text(late) else []))
         notes = list(seeded)
         if face_note:
@@ -9240,6 +9260,9 @@ class Board:
                                         for_score=True if first is None and score else None))
         if push_sources:
             notes += self._push_notes(occ, plan, i, result.chosen, push_sources)
+        if result.cut is not None:
+            plan.findings.append(self._finding(C.SETUP_STEP_BUDGET, dict(item=i.key, **result.cut), "notice"))
+            notes.append(step_text.record("search_budget", **result.cut))
         step = self._step(i, result.chosen, result.moved_mm, notes)
         step.back_face = bool(face_note) and result.chosen.face is Face.BACK
         return step
@@ -9291,7 +9314,8 @@ class Board:
         if front.chosen is not None:
             return front, None
         merged = ScanResult(None, hint, front.tried + back.tried, front.rejected + back.rejected,
-                            {**back.reasons, **front.reasons}, front.blockers + back.blockers)
+                            {**back.reasons, **front.reasons}, front.blockers + back.blockers,
+                            cut=back.cut or front.cut)
         return merged, None
 
     def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> list:

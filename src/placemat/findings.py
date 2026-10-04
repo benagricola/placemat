@@ -98,6 +98,7 @@ class FindingCause(str, Enum):
     SETUP_RULE_NOTE = (FindingKind.SETUP, "setup.rule_note")
     SETUP_SETTING_RENAMED = (FindingKind.SETUP, "setup.setting_renamed")
     SETUP_LOOKAHEAD = (FindingKind.SETUP, "setup.lookahead")
+    SETUP_STEP_BUDGET = (FindingKind.SETUP, "setup.step_budget")
     SETUP_PCBNEW = (FindingKind.SETUP, "setup.pcbnew")
     ROUTE_DROPPED = (FindingKind.ROUTE, "route.dropped")
     VIAS_GAVE_WAY = (FindingKind.VIAS, "vias.gave_way")

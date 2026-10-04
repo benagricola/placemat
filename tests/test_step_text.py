@@ -49,6 +49,7 @@ def test_every_kind_renders_from_its_facts():
         "label_off_board": {"was": "north", "fault": {"verdict": "outside", "margin_mm": 0.0}}, "sits_on": {"hits": ["R1"]},
         "reserved": {}, "label_moved": {"from": "north", "to": "east", "by": ["R1"]}, "turned": {"rot": 90, "of": 4, "cost": 1.5},
         "locked_order": {}, "explore_before": {"other": "u1"},
+        "search_budget": {"judged": 5000, "share": 0.1, "limit": 5000},
     }
     missing = sorted(set(step_text.RENDER) - set(sample) - {"rank", "priority", "required", "seeded_no_spot", "took_pocket", "vias", "split",
                                                           "refused", "refused_count"})

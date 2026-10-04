@@ -321,6 +321,11 @@ def _unplaced(n):
     return "UNPLACED"
 
 
+@renders("search_budget")
+def _search_budget(n):
+    return finding_text.budget_text(n) + ", and the best spot found is taken"
+
+
 # ------------------------------------------------------------------ regions and copper
 @renders("cut")
 def _cut(n):
@@ -426,6 +431,7 @@ _FORMS = {
     "rides": lambda r: finding_text.rides_note(r),
     "pocket": lambda r: finding_text.pocket_note(r),
     "room_lost": lambda r: finding_text.room_lost_text(r["room_lost"]).lstrip("; "),
+    "budget": lambda r: finding_text.budget_text(r["budget"]),
 }
 
 

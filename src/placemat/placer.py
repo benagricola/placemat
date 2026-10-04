@@ -21,6 +21,35 @@ from .values import Box, Edge, Face, Location, Mid, bearing, bearing_vector, box
 
 
 @dataclass
+class SearchBudget:
+    """What a step's searches may judge in all: `limit` candidates (`place.step_budget`, or the item's own
+    `budget=`), counted over every pass of every scan the step makes and over the judgments of the carried vias
+    that may give way. Candidates, not seconds: the count does not depend on the machine's load.
+
+    `lattice` is the candidates a fine pass over each scan's whole radius would judge, and `covered` those of
+    them judged, so `share` is how much of the search area the step covered. `cut` is set when a scan stopped
+    for want of budget."""
+    limit: int
+    judged: int = 0
+    lattice: int = 0
+    covered: int = 0
+    cut: bool = False
+
+    @property
+    def left(self) -> int:
+        return max(0, self.limit - self.judged)
+
+    @property
+    def share(self) -> float:
+        return min(1.0, self.covered / self.lattice) if self.lattice else 0.0
+
+    def measurement(self) -> dict:
+        """The step's search as a finding carries it: the candidates judged, the share of the search area
+        covered, and the budget."""
+        return {"judged": self.judged, "share": round(self.share, 4), "limit": self.limit}
+
+
+@dataclass
 class ScanResult:
     chosen: Placement | None
     hint: Placement
@@ -29,6 +58,7 @@ class ScanResult:
     reasons: dict = field(default_factory=dict)
     blockers: Counter = field(default_factory=Counter)   # (kind, owner, face label) -> how often
     score: float = 0.0
+    cut: dict | None = None      # set when the step's budget ended the search: `SearchBudget.measurement()` at that point
 
     @property
     def moved_mm(self) -> float:
@@ -56,6 +86,13 @@ def _grid_offsets(radius: float, step: float) -> tuple:
                 pts.append((d, i * step, j * step))
     pts.sort()
     return tuple(pts)
+
+
+def _grid_size(radius: float, step: float) -> int:
+    """How many points `_grid_offsets(radius, step)` holds, without making it."""
+    n = int(math.floor(radius / step + 1e-9))
+    reach = ((radius + 1e-9) / step) ** 2
+    return sum(2 * int(math.isqrt(int(reach - i * i + 1e-9))) + 1 for i in range(-n, n + 1) if reach - i * i >= -1e-9)
 
 
 def _grid(center: Location, radius: float, step: float):
@@ -254,6 +291,20 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         for b in blame_keys:
             blockers[b] += count
 
+    budget = getattr(occ, "step_budget", None)          # the step's candidates left to judge (SearchBudget), or None
+    if budget is not None:
+        budget.lattice += _grid_size(radius, step) * len(rots)
+
+    def afford(n: int) -> int:
+        """How many of `n` candidates the step's budget lets be judged: all, when it has no limit."""
+        return n if budget is None else min(n, budget.left)
+
+    def charge(n: int, covers: bool = False) -> None:
+        if budget is not None:
+            budget.judged += n
+            if covers:
+                budget.covered += n
+
     least = giveway.least_cost(occ.settings, getattr(occ, "fab_via_tiers", None))
     best = score.best if score and hasattr(score, "best") else None
     bounded = best is not None and pick is None and accept is None     # a spot that cannot be the best is not asked
@@ -266,6 +317,11 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         costs; else (bucket, reason, blocker keys). The scorer's best stays
         what a spot truly costs, so none is pruned against a cost it did not
         reach."""
+        if gw.native is None:                   # judged here, not by the pass: a judgment of its own
+            if afford(1) == 0:
+                budget.cut = True
+                return None
+            charge(1)
         blame = []
         hit = occ.legal_bucket(gw.item, cand, clearance, gw.others, blame)
         if hit is not None:
@@ -278,6 +334,10 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 best[0] = before
             if bounded and sc + least > before:
                 return None
+        if afford(1) == 0:
+            budget.cut = True
+            return None
+        charge(1)
         res = gw.resolve(cand)
         if res.why is not None:
             return _reason_key(res.why), (lambda why=res.why: why), [blocker_key(res.blocker)]
@@ -296,17 +356,25 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         pass) or always (a scored one): a refused candidate then counts
         under why it was refused the second time."""
         nonlocal tried
+        if budget is not None and budget.left <= 0:
+            budget.cut = True
+            return []
         if native is not None:
             return native_sweep(points, stop_at_first)
         legal = []
         held = []
+        spent = False
         for x, y in points:
             for rot in (rots if turns_at is None else turns_at.at(x, y)):
                 if (x, y, rot) in seen:
                     continue
+                if afford(1) == 0:
+                    budget.cut = spent = True
+                    break
                 seen.add((x, y, rot))
                 cand = Placement(Location(x, y), rot, hint.face)
                 tried += 1
+                charge(1, True)
                 blame = []
                 # legal_bucket: a sweep never keeps more than one example
                 # sentence per bucket (the `key not in reasons` check below),
@@ -328,6 +396,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     tally(hit[0], hit[1], [blocker_key(b) for b in blame])
                 else:
                     held.append((cand, hit, blame))
+            if spent:
+                break
         for cand, _, _ in held:
             refusal = gave_way(cand, legal)
             if refusal is not None:
@@ -358,10 +428,18 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if scoring is not None:
             scoring.floor = score.best[0]
         first_only = stop_at_first and not inline           # else the first `accept` counts
-        found, scores, refusals = native.run(triples, first_only, scoring)
+        short = afford(len(triples)) < len(triples)         # the budget ends the pass early: the nearest it affords are judged
+        if short:
+            triples = triples[:afford(len(triples))]
+        found, scores, refusals = native.run(triples, first_only, scoring) if triples else ([], [], [])
         if scoring is not None:
             score.best[0] = scoring.floor
-        tried += found[0] + 1 if first_only and found else len(triples)
+
+        judged = found[0] + 1 if first_only and found else len(triples)
+        tried += judged
+        charge(judged, True)
+        if short and not (first_only and found):
+            budget.cut = True
         legal = []
         for i, sc in zip(found, scores):
             x, y, k = triples[i]
@@ -377,10 +455,10 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 tally(bucket, reason, blocker_of(blocker), count)
             return legal
         taken = set(found)
-        sub = [triples[i] for i in range(len(triples)) if i not in taken]
 
         def at(t):
             return Placement(Location(t[0], t[1]), rots[t[2]], hint.face)
+        sub = [triples[i] for i in range(len(triples)) if i not in taken]
         if gw.native is None:
             for t in sub:
                 refusal = gave_way(at(t), legal)
@@ -388,15 +466,22 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     tally(*refusal)
                 elif legal and stop_at_first:
                     break
+                if budget is not None and budget.cut:
+                    break
             return legal
         if first_only:
             # nearest first: the next candidate legal less its vias, until its vias give way
             start = 0
             while start < len(sub):
-                found_b, _, refusals_b = gw.native.run(sub[start:], True, None)
+                rest = sub[start:]
+                part = rest[:afford(len(rest))]
+                found_b, _, refusals_b = gw.native.run(part, True, None) if part else ([], [], [])
+                charge(found_b[0] + 1 if found_b else len(part))
                 for bucket, count, first, reason, blocker in refusals_b:
                     tally(bucket, reason, blocker_of(blocker), count)
                 if not found_b:
+                    if len(part) < len(rest):
+                        budget.cut = True
                     break
                 j = start + found_b[0]
                 refusal = gave_way(at(sub[j]), legal)
@@ -405,7 +490,12 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 tally(*refusal)
                 start = j + 1
             return legal
-        found_b, _, refusals_b = gw.native.run(sub, False, None)
+        part = sub[:afford(len(sub))]
+        if len(part) < len(sub):
+            budget.cut = True
+        sub = part
+        found_b, _, refusals_b = gw.native.run(sub, False, None) if sub else ([], [], [])
+        charge(len(sub))
         events = [(first, 0, (bucket, reason, blocker_of(blocker), count)) for bucket, count, first, reason, blocker in refusals_b]
         events += [(j, 1, None) for j in found_b]
         for j, kind, what in sorted(events, key=lambda e: e[0]):
@@ -418,6 +508,14 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             elif legal and stop_at_first:
                 break
         return legal
+
+    def spent() -> bool:
+        """Whether the step's budget is used up, asked where another pass is wanted: none is begun then, and the
+        scan ends for want of budget."""
+        if budget is not None and budget.left <= 0:
+            budget.cut = True
+            return True
+        return False
 
     def any_counted(legal) -> bool:
         """Whether a pass found a candidate that counts: one `accept` takes too."""
@@ -436,9 +534,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if phase:
             phase("coarse pass over the radius")
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse)), False)
-        if not any_counted(legal):
+        if not any_counted(legal) and not spent():
             legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse / 2)), False)
-        if not any_counted(legal):
+        if not any_counted(legal) and not spent():
             # Nothing on either coarse lattice. The coarse pass is there to
             # save time, not to decide: the fine grid still gets its walk, so
             # a spot narrower than a coarse step is not reported as no room.
@@ -453,6 +551,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 seeds += [cand for _, _, _, cand in counted(legal, cfg.place_refine_spots)
                           if not any(cand is seed for seed in seeds)]
             for k, cand in enumerate(seeds):
+                if spent():
+                    break
                 if phase:
                     phase("refining around the best spots: %d of %d" % (k + 1, len(seeds)), within=[k + 1, len(seeds)])
                 # The fine grid is centred on a coarse candidate, which can sit at
@@ -462,8 +562,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                                 if math.hypot(x - hint.location.x, y - hint.location.y) <= radius + 1e-9), False)
     if accept is not None and not inline:
         legal = counted(sorted(legal, key=lambda k: k[:3]), 1 if pick is None else None)
+    cut = budget.measurement() if budget is not None and budget.cut else None
     if not legal:
-        return ScanResult(None, hint, tried, rejected, reasons, blockers)
+        return ScanResult(None, hint, tried, rejected, reasons, blockers, cut=cut)
     if pick is None:
         best = min(legal, key=lambda k: k[:3])
     else:                                   # explore: the caller draws among them, best first
@@ -471,7 +572,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     chosen = best[3]
     if commit:
         occ.commit(item, chosen)
-    result = ScanResult(chosen, hint, tried, rejected, reasons, blockers)
+    result = ScanResult(chosen, hint, tried, rejected, reasons, blockers, cut=cut)
     result.score = best[0]
     return result
 

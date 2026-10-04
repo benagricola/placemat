@@ -245,6 +245,7 @@ board.place(item, at=Near(PadRef(u1, 3).local(0.4, -1.2), radius=0), rotation=Tu
 board.place(cell, at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY)  # on the point, its turn searched (one freedom)
 board.place(cell, at=Polar((r_min, r_max), None, about=centre), rotations=Turns.TANGENT)  # searched in a band, turned to the tangent at each spot
 board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
+board.place(item, at=Near(Location(x, y)), radius=20, budget=5_000_000)  # a search that may judge this many candidates
 ```
 `item` is a `Part` (schematic instance), a `Cell` (a stamped group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -1017,6 +1018,18 @@ best spots (the best `place.refine_spots` by score, and, where riders
 constrain the spot, the best that they take), so a wide `radius=` costs little. A part the script places
 later is not an obstacle where the generator left it, only once it is
 placed. The step note says which of these happened.
+
+**A step's search budget.** The candidates one item's step may judge are counted over all its passes, both
+faces and the carried vias' giving way (each via's giving way counts as one candidate): `place.step_budget`, or the item's own `budget=` on `board.place`. The
+count is of candidates, not seconds, so a result does not depend on how busy the machine is. The look-ahead's scans of a partner's spots are not part of the step's search and are not
+counted. A step that spends it
+stops where it is: it takes the best legal spot found so far (a `setup.step_budget` notice says so, with the
+candidates judged, the share of the search area they covered and the budget), or, where none was found, leaves the
+item unplaced, and the `unplaced.search` finding carries the same measurement in `facts["budget"]`
+(`judged`, `share`, `limit`) and says "the search stopped at its budget". Both offer a higher budget for that
+item, a searched suggestion that finds the least `budget=` that clears the finding, starting from what covering the
+whole area would take at the rate the search went. The default is set high enough that none of the
+benchmark modules or the core board's steps reaches it; it ends a search that would run on without finding anything.
 
 **Order.** FIXED and EDGE items go down as declared. Searched items are
 ordered by the placer, re-measured after each. A cell, a block and a loose
@@ -3823,7 +3836,7 @@ its kind.
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
 | `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict) | warning | the script is incomplete or wrong |
-| `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed) | notice | placemat carried on without it |
+| `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `route` | notice | an adopted route dropped because a part it joins moved; the router routes it again |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
@@ -3937,7 +3950,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 
 | Cause | Suggestions |
 |---|---|
-| `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`) |
+| `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`); where the search spent its budget, a higher `budget=` for the item (searched) |
 | `unplaced.pocket` | place it beside a part that pulls it; a `board.link` toward a part it shares a net with; either face |
 | `unplaced.slide` | `at=OnEdge(...)` on each of the other edges |
 | `unplaced.block` | the block may turn to any of its turns; the satellite that did not fit placed on its own (out of the block's list, a bare `board.place` after it) |
@@ -3961,6 +3974,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `setup.centre_flag_default` | the keyword removed |
 | `setup.frame_reach` | the fit frame's declared width or height made the size that holds the item (not where the item reaches the origin side) |
 | `setup.web` | the board's `web=` lowered to the web it has |
+| `setup.step_budget` | a higher `budget=` for the item (searched) |
 | `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
 | `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
 | `setup.accept` | the `board.accept(...)` removed |
@@ -4099,6 +4113,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.block_gap_step` | `0.05` | mm | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | `2.0` | mm | how far a satellite may stand off its pin |
 | `place.copper_room` | `true` | bool | whether placement keeps room for the copper the script declares: a track or via declared between parts is planned provisionally, and a part standing Beside another moves out of its way. False places as before |
+| `place.step_budget` | `20000000` | count | the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area it covered. Counted, not timed: the result does not depend on how busy the machine is. A `place(budget=)` replaces it |
 | `place.firm_passes` | `8` | count | the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was refused by a firm part placed before it, with the two taken in the other order), the last one the settled run |
 | `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |
 | `place.beside_step` | `0.01` | mm | the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands |
