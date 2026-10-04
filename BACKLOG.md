@@ -94,10 +94,6 @@ Specced work first, then the loose ends.
   1e-9 tolerance, and net ties a hard-coded 500 nm; reading
   `BoardGeometry.drc_epsilon` there would remove float-noise refusals during
   placement. Changes which spots are legal: bench first.
-- **Give-way native port** (native sweep report): give-way was 181 s of a
-  400 s core profile; a multi-function port that needs its own design. The
-  converter give-way investigation reports first.
-
 ## Open
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
@@ -337,6 +333,11 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Give-way judged natively** (0.97.4): the carried-via judgment's board
+  test is one native call, judged last after the cheap tests; the step budget
+  charges a give-way resolve's judgments. Core preview give-way 60.8 -> 15.9 s,
+  whole preview 120.3 -> 71.7 s, identical output.
 
 - **Give-way search stops at the nearest window** (0.97.3): a carried via's
   move or leave search judges nearest offsets first and stops at the first
