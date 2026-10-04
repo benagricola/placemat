@@ -12,7 +12,8 @@ section for each hand-written pattern a newer form replaces.
 - **The studio's 3D view draws the copper.** Each copper layer is drawn at its height in the board, from the board file's
   stackup (evenly spaced when the board declares none): tracks as ribbons, planes and pours as filled outlines, pads on
   their layers and vias as cylinders through the layers they join, in the 2D view's layer colours, the router's copper
-  lighter. Solid | See-through on the 3D bar makes the board body translucent so the inner layers show. The plan
+  lighter. Solid | See-through on the 3D bar makes the board body translucent so the inner layers show. The legend's
+  copper layer, zone, pad, via and Copper origin rows (and their only buttons) act on both views at once. The plan
   document's `stackup` has `layers` (each copper layer's `z`) and `declared`. Nothing in a layout script changes.
 
 ### Fixed

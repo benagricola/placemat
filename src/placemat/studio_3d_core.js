@@ -139,3 +139,15 @@ export function visibleRanges(spans, k, n, laid) {
   }
   return out;
 }
+
+// Whether the legend's switches (`off`, the page's set of what is switched off) leave a copper mesh shown, as the 2D view's rules hide the
+// same copper (visRules): a layer's row takes its tracks, zones, pads and the parts' own copper; an origin's row its tracks, zones and vias;
+// a zone's row that zone; the pads row the pads; the vias row the vias.
+export function copperShown(cu, off) {
+  if (cu.layer && off.has("cu:" + cu.layer)) return false;
+  if (cu.origin && off.has("org:" + cu.origin)) return false;
+  if (cu.kind === "zone" && off.has("z:" + cu.zone)) return false;
+  if (cu.kind === "pad" && off.has("pad")) return false;
+  if (cu.kind === "via" && off.has("via")) return false;
+  return true;
+}

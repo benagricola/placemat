@@ -3703,8 +3703,10 @@ The copper is drawn too, each copper layer at its height in the board: tracks as
 filled outlines (the polygons the 2D view draws), pads and the parts' own copper on each layer they are on, vias as cylinders through the
 layers they join. The colours are the 2D view's layer colours; copper the router laid is drawn lighter, as the 3D form of its hollow 2D
 look. The replay shows copper as the 2D drawing does: a route's replay lays and rips each op at its step, a plan's replay shows it at its end.
-Solid | See-through on the 3D bar draws the board body solid or translucent, so the inner layers' copper shows through it; the choice is
-kept while the page switches between 2D and 3D.
+Solid | See-through on the 3D bar draws the board body solid or translucent (in the 2D drawing's substrate colour), so the inner layers'
+copper shows through it; the choice is kept while the page switches between 2D and 3D. The legend's switches are one set for both views:
+a copper layer's row and its only button, a zone's row, the pads and vias rows and the Copper origin rows (planned, kept, routed) hide and
+show the same copper in 3D as in 2D, and switching views keeps them.
 
 - **Plan document** (`version` 2, all additive): each member of an item has `models`, one entry per model of the footprint: `{id, state, name,
   opacity, why, matrix}`. `state` is `ok`, `vrml` (a VRML model with no STEP beside it, read by placemat itself), `none`, `missing` (`why` says

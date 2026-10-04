@@ -181,6 +181,23 @@ def test_copper_at_a_replay_step_is_what_the_2d_drawing_shows(tmp_path):
 
 
 @needs_node
+def test_the_legends_switches_hide_the_copper_they_hide_in_2d(tmp_path):
+    out = node('''
+        import { copperShown } from "%s";
+        const cus = {track: {kind: "track", layer: "In1.Cu", origin: "routed"}, zone: {kind: "zone", layer: "F.Cu", origin: "planned", zone: 4},
+                     pad: {kind: "pad", layer: "B.Cu"}, fcu: {kind: "fcu", layer: "B.Cu"}, via: {kind: "via", origin: "kept"}};
+        const offs = [[], ["cu:In1.Cu"], ["org:routed"], ["z:4"], ["cu:F.Cu"], ["org:planned"], ["pad"], ["cu:B.Cu"], ["via"], ["org:kept"], ["cu:In2.Cu", "org:planned"]];
+        console.log(JSON.stringify(offs.map(o => [o, Object.fromEntries(Object.entries(cus).map(([k, cu]) => [k, copperShown(cu, new Set(o))]))])));
+    ''' % CORE, tmp_path)
+    hidden ={tuple(o): sorted(k for k, v in shown.items() if not v) for o, shown in out}
+    assert hidden[()] == []
+    assert hidden[("cu:In1.Cu",)] == ["track"] and hidden[("org:routed",)] == ["track"]
+    assert hidden[("z:4",)] == ["zone"] and hidden[("cu:F.Cu",)] == ["zone"] and hidden[("org:planned",)] == ["zone"]
+    assert hidden[("pad",)] == ["pad"] and hidden[("cu:B.Cu",)] == ["fcu", "pad"]       # the pad switch takes pads, not a part's own copper
+    assert hidden[("via",)] == ["via"] and hidden[("org:kept",)] == ["via"] and hidden[("cu:In2.Cu", "org:planned")] == ["zone"]
+
+
+@needs_node
 def test_a_via_spans_its_layers_and_a_through_via_the_whole_stack(tmp_path):
     out = node('''
         import { viaSpan } from "%s";

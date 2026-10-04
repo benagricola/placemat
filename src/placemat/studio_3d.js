@@ -11,7 +11,7 @@ import { OrbitControls } from "./OrbitControls.js";
 const css = (n, d) => (getComputedStyle(document.documentElement).getPropertyValue(n) || "").trim() || d;
 const dark = () => matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
 
-import { parsePmm, upper, partSteps, plateOutline, layerStack, drawHeight, viaSpan, trackPolys, visibleRanges } from "./viewer_core.js";
+import { parsePmm, upper, partSteps, plateOutline, layerStack, drawHeight, viaSpan, trackPolys, visibleRanges, copperShown } from "./viewer_core.js";
 export { parsePmm };
 
 function hatch(color) {
@@ -69,10 +69,10 @@ export async function mount(host) {
     };
     // the copper in the 2D view's layer colours (studio_page.html's tokens)
     Object.assign(t, {cuF: css("--copper", d ? "#e8895a" : "#b45f2c"), cuB: css("--copperB", d ? "#6aa3ff" : "#2f6fb8"), cuIn: css("--copperIn", d ? "#5dc48a" : "#2e8b57"),
-      planeF: css("--plane", d ? "#b8734a" : "#c98a5e"), via: css("--via", d ? "#c47a45" : "#7d4a22")});
+      planeF: css("--plane", d ? "#b8734a" : "#c98a5e"), via: css("--via", d ? "#c47a45" : "#7d4a22"), substrate: css("--substrate", d ? "#1b2025" : "#fbfbf8")});
     state.theme = t;
     renderer.setClearColor(new THREE.Color(t.bg), 1);
-    if (state.body) state.body.material.color.set(t.body);
+    bodyLook();
     for (const m of state.copper) m.material.color.copy(copperColour(m.userData.cu));
     for (const v of state.vias) v.mesh.material.color.copy(copperColour(v.mesh.userData.cu));
     if (state.grid) state.grid.material.color.set(t.grid);
@@ -111,12 +111,14 @@ export async function mount(host) {
   }
   // Solid, or see-through: the body translucent, so the inner layers' copper shows through it.
   // The body is a volume round every layer, so no order of drawing puts it rightly behind and in front of them all: it is drawn first of the
-  // translucent things, over the opaque copper inside it, and the zones' translucent fills after it.
-  const SEE_OPACITY = 0.22;
+  // translucent things, over the opaque copper inside it, and the zones' translucent fills after it. See-through, it takes the 2D
+  // drawing's substrate colour, so the layers' colours read against it as they do in 2D (the inner layers' green would not, on green).
+  const SEE_OPACITY = 0.3;
   function bodyLook() {
     if (!state.body) return;
     const m = state.body.material, see = state.bodyMode === "see";
     m.transparent = see; m.opacity = see ? SEE_OPACITY : 1; m.depthWrite = !see; m.needsUpdate = true;
+    m.color.set(see ? state.theme.substrate : state.theme.body);
     state.body.renderOrder = see ? -1 : 0;
     request();
   }
@@ -215,7 +217,7 @@ export async function mount(host) {
   // the layers they join. The ops of a mesh are in the order they were laid, so what a replay position shows is a few index ranges
   // (visibleRanges), as the 2D drawing shows it.
   const LIFT = {zone: 0.01, track: 0.02, pad: 0.03, via: 0.035};   // drawn just off the layer, in this order, so coplanar copper does not fight
-  const ROUTED_LIGHTER = 0.45;                                        // the router's copper is mixed this far toward white: the 3D form of its hollow 2D look
+  const ROUTED_LIGHTER = 0.3;                                       // the router's copper is mixed this far toward white: the 3D form of its hollow 2D look
   const ZONE_OPACITY = 0.3, VIA_SEGS = 12;
   function copperColour(cu) {
     const t = state.theme, l = cu.layer;
@@ -337,7 +339,7 @@ export async function mount(host) {
       for (const l of ls) {
         const y = yOf(l, "pad");
         if (y == null) continue;
-        const b = get("p|" + l, {kind: "pad", layer: l}), i0 = b.idx.length;
+        const kind = s.kind === "copper" ? "fcu" : "pad", b = get(kind + "|" + l, {kind, layer: l}), i0 = b.idx.length;
         addPoly(b, s.poly, y);
         const last = b.spans[b.spans.length - 1];
         if (last && last.s === n && last.i1 === i0) last.i1 = b.idx.length; else b.spans.push({s: n, x: null, i0, i1: b.idx.length});
@@ -345,6 +347,7 @@ export async function mount(host) {
     }
     for (const b of builds.values()) { const m = copperMesh(b); state.copper.push(m); state.root.add(m); }
     placeVias();
+    visibility();
   }
   // Show copper at replay position k: a mesh draws its visible index ranges, one range as a draw range, several as an index made of them.
   function applyRanges(m, ranges) {
@@ -362,10 +365,19 @@ export async function mount(host) {
         g.setIndex(new THREE.BufferAttribute(out, 1)); g.setDrawRange(0, Infinity);
       }
     }
-    m.visible = !cu.empty;
+    m.visible = !cu.empty && !cu.off;
   }
   function showCopper(k) {
-    for (const m of state.copper) applyRanges(m, m.userData.cu.kind === "pad" ? visibleRanges(m.userData.cu.spans, k, Infinity, true) : visibleRanges(m.userData.cu.spans, k, state.cn, state.claid));
+    for (const m of state.copper) {
+      const cu = m.userData.cu;
+      applyRanges(m, cu.kind === "pad" || cu.kind === "fcu" ? visibleRanges(cu.spans, k, Infinity, true) : visibleRanges(cu.spans, k, state.cn, state.claid));
+    }
+  }
+  // The legend's switches, the page's own (host.off): the same set hides the same copper in 2D and 3D.
+  function visibility() {
+    const off = host.off ? host.off() : new Set();
+    for (const m of state.copper) { const cu = m.userData.cu; cu.off = !copperShown(cu, off); m.visible = !cu.empty && !cu.off; }
+    request();
   }
 
   const plateAt = vertex => { let lo = 0, hi = state.plates.length - 1; while (lo <= hi) { const mid = (lo + hi) >> 1, p = state.plates[mid]; if (vertex < p.vstart) hi = mid - 1; else if (vertex >= p.vend) lo = mid + 1; else return p; } return null; };
@@ -634,6 +646,8 @@ export async function mount(host) {
     show(on) { state.visible = on; canvas.style.display = on ? "block" : "none"; if (on) { resize(); request(); } },
     // "solid" or "see" (see-through: the body translucent)
     body(mode) { state.bodyMode = mode === "see" ? "see" : "solid"; bodyLook(); },
+    // the legend's switches changed (host.off)
+    visibility,
     dim(on) { state.dim = on; for (const g of state.groups) g.mesh.material = on ? g.mat.dim : g.mat.mat; request(); },
     stats() { return Object.assign({}, state.stats, {tris: state.tris, loading: state.loading.size}); },
     // Bring a part's box into view (the card's "zoom"): the camera keeps its direction.

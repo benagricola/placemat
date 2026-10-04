@@ -1671,7 +1671,8 @@ function visRules(off, thru = []) {
   }
   return out.join("\n");
 }
-function applyVisibility() { $("#visrules").textContent = visRules(S.off, thruSets(plan())); }
+// One set of switches for both views: the 2D drawing's rules, and the 3D view reads the same set.
+function applyVisibility() { $("#visrules").textContent = visRules(S.off, thruSets(plan())); if (V3) V3.visibility(); }
 // The findings layer is off on the board until it is asked for: it is on while the Findings tab is open and off again when the tab is left,
 // unless the viewer turned it on by hand in the legend, which keeps it on until they turn it off. That choice is kept in this browser.
 const FINDINGS_HAND = "placemat.findingsLayer";
@@ -3398,7 +3399,7 @@ const host3d = () => ({
   fetchMesh: id => fetch("/3d/model/" + encodeURIComponent(id) + ".pmm?t=" + encodeURIComponent(T)).then(r => { if (!r.ok) throw new Error("model " + r.status); return r.arrayBuffer(); }),
   select: (key, ref) => selectItem(key, ref ? {ref} : {}), selected: () => S.sel,
   hover: (key, ref, x, y) => hover3d(key, ref, x, y),
-  copper: () => copperInfo(plan()),
+  copper: () => copperInfo(plan()), off: () => S.off,
 });
 // What the 3D view needs of the copper to draw it as the 2D drawing does: each op's origin (copperOrigins), the replay position that lays
 // it (copper no step laid shows with the last) and the one that rips it up again (null: it stands), the number of positions, and whether
@@ -3416,7 +3417,7 @@ const BODY3D = [["solid", "Solid", "draw the board body solid"], ["see", "See-th
 function renderBar3d() {
   $("#bodybar").innerHTML = BODY3D.map(([v, name, tip]) => '<button data-body="' + v + '"' + (S.v3.body === v ? ' class="on"' : "") + ' title="' + esc(tip) + '">' + esc(name) + "</button>").join("");
 }
-function applyLook3d() { if (V3) V3.body(S.v3.body); }
+function applyLook3d() { if (V3) { V3.body(S.v3.body); V3.visibility(); } }
 function set3d(o) { Object.assign(S.v3, o); renderBar3d(); applyLook3d(); }
 $("#bodybar").onclick = e => { const b = e.target.closest && e.target.closest("[data-body]"); if (b) set3d({body: b.dataset.body}); };
 renderBar3d();

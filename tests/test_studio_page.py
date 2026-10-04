@@ -2794,3 +2794,27 @@ out.calls = calls.slice();
     assert 'data-body="see" class="on"' in out["bar"] and 'data-body="solid" class="on"' in out["bar2"]
     assert ["body", "see"] in out["calls"]                                      # the 3D view is brought to the page's state each time it is shown
     assert "(" not in re.sub(r"<[^>]*>", "", out["bar"])                        # no bracketed words in the labels
+
+
+@needs_node
+def test_the_legends_copper_rows_and_their_only_buttons_act_on_the_3d_view_through_the_same_switches(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+openDoc(copperDoc());
+ev("V3 = __fake"); ev("S.mode = '3d'"); ev("renderLegend()");
+const click = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
+const only = id => els["#legend"].onclick({target: {closest: s => s === "[data-only]" ? {dataset: {only: id}} : null}});
+const seen = () => { const v = calls.filter(c => c[0] === "visibility"); calls.length = 0; return [v.length, [...ev("host3d().off()")].sort()]; };
+click("org:routed"); out.routed = seen();
+click("org:routed"); out.back = seen();
+only("cu:In1.Cu"); out.only = seen();
+only("cu:In1.Cu"); out.all = seen();
+only("org:planned"); out.planned = seen();
+ev("setMode('2d')"); ev("V3 = __fake"); calls.length = 0; ev("applyLook3d()");
+out.kept = [calls.some(c => c[0] === "visibility"), [...ev("host3d().off()")].sort()];
+""")
+    base = ["findings", "labels"]                                                 # off until asked for, in 2D as in 3D
+    assert out["routed"] == [1, sorted(base + ["org:routed"])] and out["back"] == [1, base]
+    assert out["only"][0] == 1 and sorted(x for x in out["only"][1] if x.startswith("cu:")) == ["cu:B.Cu", "cu:F.Cu"]
+    assert out["all"] == [1, base]
+    assert out["planned"] == [1, sorted(base + ["org:kept", "org:routed"])]
+    assert out["kept"] == [True, sorted(base + ["org:kept", "org:routed"])]      # the switches are the page's: a change of view keeps them
