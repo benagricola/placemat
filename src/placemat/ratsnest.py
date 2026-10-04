@@ -405,15 +405,3 @@ def board_nets(pads, copper=()) -> dict:
         joined = [(i, j) for i in range(len(anchors)) for j in range(i + 1, len(anchors)) if owner[i] == owner[j]]
         out[net] = (anchors, joined)
     return out
-
-
-def from_geometry(g, weights=None) -> Ratsnest:
-    """The ratsnest of a board as read: every pad where it stands, joined by
-    the tracks, vias, pours and zones already on it."""
-    pads = [(p.owner, p.number, p.net, p.layers, p.outlines, p.box, p.airwire_end) for fp in g.footprints for p in fp.pads]
-    copper = [(c.kind, c.net, c.layers, c.outlines, c.box, c.anchors) for c in g.copper
-              if c.kind in ("track", "via", "poly", "zone")]
-    r = Ratsnest(weights)
-    for net, (anchors, joined) in sorted(board_nets(pads, copper).items()):
-        r.set_net(net, anchors, joined)
-    return r

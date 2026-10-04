@@ -45,13 +45,11 @@ def test_a_lock_holds_after_the_board_is_renumbered():
 
 
 def test_a_lock_written_with_refdes_still_holds():
-    """A lock written by 0.43-0.46: refdes anchors and the refdes digest."""
+    """A lock written by 0.43-0.46: refdes anchors."""
     b0 = __import__("tests.test_lock", fromlist=["_board"])._board()
     variant, entries = _accepted()
-    intents = {i.key: i for i in b0._placements()}
     ref_of = {fp.inst: fp.ref for fp in b0.geometry.footprints}
-    old = [dataclasses.replace(e, anchor=(ref_of[e.anchor[0]], e.anchor[1]) if e.anchor else None,
-                               declaration=lock.declaration_digest(b0, intents[e.key], legacy=True)) for e in entries]
+    old = [dataclasses.replace(e, anchor=(ref_of[e.anchor[0]], e.anchor[1]) if e.anchor else None) for e in entries]
     plan = __import__("tests.test_lock", fromlist=["_board"])._board().resolve(lock=old)
     assert _where(plan) == _where(variant)
 

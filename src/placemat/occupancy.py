@@ -13,12 +13,11 @@ from __future__ import annotations
 import dataclasses
 import functools
 import math
-import re
 from dataclasses import dataclass, field
 
 from . import geometry as _geometry_module
 from . import kicad_collide as _kc
-from .geometry import (_clean, gap_texts, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
+from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        point_in_polygon, point_segment_distance, polys_overlap, transform_box,
                        transform_polygon)
 from .outline import Outline
@@ -241,7 +240,6 @@ _BOTH = frozenset([Face.FRONT, Face.BACK])
 _THROUGH_MM = 1e-4      # copper of two nets this near is one piece to KiCad: a short, not a clearance
 # The defaults; a board's own come from `[place] conflict_gap` and
 # `[place] courtyard_touch` and are carried on the Occupancy.
-_GAP = 1.0      # how far outside a box a conflict can still reach: the largest clearance a rule asks for
 TOUCH = 0.02    # two courtyards this close are touching, not overlapping: a footprint's courtyard stroke rounds by this much
 
 

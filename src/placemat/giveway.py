@@ -1365,11 +1365,6 @@ def _chains(g: Group) -> list:
     return out
 
 
-def _far_ends(g: Group) -> list:
-    """Where the tracks of a routed via end away from it: they stay when it moves."""
-    return [far for far, _, _ in _chains(g)]
-
-
 def _rebuilt(occ, g: Group, judge: "_Judge", mine: list, chains: list, to: tuple):
     """The Tracks that join each chain's far end to `to`, drawn as a declared track is (copper.octilinear
     between the ends, its right angles chamfered), each of its layer and width, or None where one has no

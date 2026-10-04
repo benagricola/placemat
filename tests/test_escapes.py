@@ -12,10 +12,9 @@ from placemat.board_geometry import Footprint
 from placemat.layout import Board
 from placemat.placement import Placement
 from placemat.settings import Settings
-from placemat.values import Box, Face, Location, Near, Part
+from placemat.values import Box, Face, Location, Part
 from tests.fixtures import board_geometry, footprint, pad
 
-BLIND = dict(score_crossing=0.0, score_escape_closed=0.0, score_escape_walled=0.0, score_escape_crossed=0.0)
 
 
 def _row_part(ref, inst, cx, cy, nets, pitch=1.0, n=5):
@@ -109,14 +108,6 @@ def test_same_net_copper_and_the_pads_own_part_never_close_a_corridor():
     c1 = occ.geometry.footprint("C1")
     # C1's X pad right over pin 3 (X too); its X2 pad at x 32.8, touching pin 5's corridor at most
     assert Escapes(occ).closed(c1, Placement(Location(31.4, 31.5), 0.0, Face.FRONT)) == (0, 0, 0)
-
-
-def test_the_search_keeps_a_part_off_a_pads_only_corridor():
-    from placemat.escapes import Escapes
-    blind = _placed(_board(**BLIND), extra=[("c1", Near(Location(30.0, 31.6), radius=4.0))])
-    assert not Escapes(blind.occupancy).open_toward("U1", "3")          # wire alone walls pin 3 off
-    kept = _placed(_board(), extra=[("c1", Near(Location(30.0, 31.6), radius=4.0))])
-    assert Escapes(kept.occupancy).open_toward("U1", "3")
 
 
 def _ring(ref, inst, cx, cy, net_in, net_ring, gap, size=1.0):

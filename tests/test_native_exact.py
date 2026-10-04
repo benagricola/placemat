@@ -49,7 +49,7 @@ def _clean(v):
 def test_clean9_is_rounds_to_nine_places_bit_for_bit():
     rng = random.Random(1)
     vs = [v for v in _floats(N, rng) if math.isfinite(v)]
-    got = native.clean9_many(vs)
+    got = [x for x, _ in native.transform_polygon([(v, 0.0) for v in vs], 1.0, 0.0, 0.0, 1.0, 0.0, 0.0)]   # clean9(1 * v + 0 * 0 + 0)
     bad = [(v, a) for v, a in zip(vs, got) if struct.pack("<d", a) != struct.pack("<d", _clean(v))]
     assert not bad, bad[:5]
 
@@ -61,6 +61,6 @@ def test_hypot_is_cpythons_bit_for_bit():
     pairs = [(x, y) for x, y in zip(xs, ys) if math.isfinite(x) and math.isfinite(y)]
     pairs += [(3.0, 4.0), (1e-310, 1e-310), (5e-324, 0.0), (1e308, 1e308), (0.0, 0.0), (1.0, 1.0),
               (2.0 ** -1074, 2.0 ** -1073), (1.7976931348623157e308, 1.0)]
-    got = native.hypot_many([p[0] for p in pairs], [p[1] for p in pairs])
+    got = [native.hypot(x, y) for x, y in pairs]
     bad = [(x, y, g) for (x, y), g in zip(pairs, got) if struct.pack("<d", g) != struct.pack("<d", math.hypot(x, y))]
     assert not bad, bad[:5]

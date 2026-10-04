@@ -15,6 +15,9 @@ section for each hand-written pattern a newer form replaces.
   deliberate coordinate, write `Centre(30, 12, coordinates=True)`. This includes the `at=` of a `Cutout` or a keepout. The
   `setup.centre_coordinates` finding and its suggestion no longer exist; `coordinates=False` beside a reference is still the
   `setup.centre_flag_default` notice.
+- **A lock entry written by 0.43-0.46 is released once.** Its declaration digest named parts by refdes; a run no longer accepts that form,
+  so such an entry is released with "declaration changed" and the item is placed afresh (accept the run to write it again). Entries from
+  0.47 on are unaffected.
 - **The studio's opening dialog is titled "Open".** Its button and the header's tooltip say the same; the half-sentence title is gone.
 
 ## To 0.98.0

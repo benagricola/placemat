@@ -100,12 +100,6 @@ class Transform:
         return Transform(a=cos, b=sin, c=-sin, d=cos)
 
     @staticmethod
-    def rotate_about(center: Location, deg: float) -> "Transform":
-        return (Transform.translate(-center.x, -center.y)
-                .then(Transform.rotate(deg))
-                .then(Transform.translate(center.x, center.y)))
-
-    @staticmethod
     def mirror_x(center: Location) -> "Transform":
         """Mirror left/right about the vertical line through `center` (a face flip)."""
         return Transform(a=-1.0, tx=2 * center.x)

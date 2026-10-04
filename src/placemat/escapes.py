@@ -361,15 +361,6 @@ class Escapes:
     def _toward(c, targets) -> bool:
         return c.via or targets is None or any(c.direction[0] * dx + c.direction[1] * dy > 1e-9 for dx, dy in targets)
 
-    def open_toward(self, ref: str, number: str) -> bool:
-        """Whether a placed pad still has an open corridor toward what it joins."""
-        cs = [c for c in self._corr.get(ref, ()) if c.number == number]
-        if not cs:
-            return True
-        at = self.occ.pad_location(ref, number)
-        targets = self._targets(ref, number, cs[0].net, at)
-        return any(self._open.get(id(c)) and self._toward(c, targets) for c in cs)
-
     def confirmed(self) -> tuple:
         """(closed, walled): the pads the path search confirms, each as
         (ref, number, net, what closes its corridors, what it joins): walled

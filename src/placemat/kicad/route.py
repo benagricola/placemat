@@ -341,50 +341,6 @@ def _copper_layers(pcb_path: str) -> list:
     return [board.GetLayerName(l) for l in board.GetEnabledLayers().CuStack()]
 
 
-def _plane_zones(pcb_path: str) -> tuple:
-    """Every non-rule-area zone's plain data off a loaded board - layer, net,
-    whether it sits in a cell's group, and its own outline's area - plus the
-    board outline's own area, for plane_layers to judge coverage against.
-    Areas are left in pcbnew's own units: only ever compared as a ratio."""
-    from .quiet import import_pcbnew, quiet_stderr
-    pcbnew = import_pcbnew()
-    with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
-    grouped = {it.m_Uuid.AsString() for g in board.Groups() for it in g.GetItems()}
-    outline = pcbnew.SHAPE_POLY_SET()
-    board.GetBoardPolygonOutlines(outline, False)
-    zones = []
-    for i in range(board.GetAreaCount()):
-        z = board.GetArea(i)
-        if z.GetIsRuleArea():
-            continue
-        area = z.Outline().Area()
-        in_group = z.m_Uuid.AsString() in grouped
-        for layer in z.GetLayerSet().CuStack():
-            if board.IsLayerEnabled(layer):
-                zones.append({"layer": board.GetLayerName(layer), "net": z.GetNetname(),
-                             "in_group": in_group, "area": area})
-    return tuple(zones), outline.Area()
-
-
-def plane_layers(zones, board_area: float, share: float) -> list:
-    """Every inner layer whose only content is the board's own plane: a
-    zone that is not a rule area, not inside a cell's group (a stamped
-    module's own zone is kept), covering at least `share` of the board's
-    own outline. F.Cu and B.Cu never come back here - an outer layer is
-    where the router reaches a pad from, plane or not."""
-    if board_area <= 0:
-        return []
-    found = []
-    for z in zones:
-        layer = z["layer"]
-        if layer in ("F.Cu", "B.Cu") or z["in_group"] or layer in found:
-            continue
-        if z["area"] / board_area >= share:
-            found.append(layer)
-    return sorted(found)
-
-
 def resolved_layers(explicit, board_layers, layer_types) -> tuple:
     """The layers to route on, and what the default left out and why
     ({layer: role}). An explicit list (an argument only - [route] layers is

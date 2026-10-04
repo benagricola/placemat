@@ -55,13 +55,6 @@ def page_count(path) -> int:
     raise PdfError("%s: pdfinfo named no page count" % path)
 
 
-def plain_text(path, page: int | None = None) -> str:
-    argv = ["pdftotext", "-layout"]
-    if page is not None:
-        argv += ["-f", str(page), "-l", str(page)]
-    return _run(argv + [str(path), "-"], "reading text", path)
-
-
 def _stext(path, page: int) -> str:
     return _run(["mutool", "draw", "-F", "stext", "-o", "-", "-i", str(path), str(page)],
                 "reading positioned text", path)

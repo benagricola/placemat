@@ -5,9 +5,7 @@ a model off its pads, or one that matches its outline only when turned 90,
 is said."""
 import dataclasses
 
-import pytest
-
-from placemat.describe import model_check, step_box
+from placemat.describe import model_check
 from tests.fixtures import footprint
 
 
@@ -24,10 +22,6 @@ def _part(path, rot=(0.0, 0.0, 0.0), off=(0.0, 0.0, 0.0), fab=(8.0, 9.0, 12.0, 1
     # a 4 x 2 part at (10, 10): its pads at x 8.6 and 11.4, its fab outline 4 x 2
     fp = footprint("U1", 10, 10, w=4, h=2, inst="u1", fab=fab)
     return dataclasses.replace(fp, models=((str(path), off, rot, (1.0, 1.0, 1.0)),))
-
-
-def test_a_step_files_box_is_read_from_its_points(tmp_path):
-    assert step_box(_step(tmp_path, -2, -1, 2, 1)) == pytest.approx((-2, -1, 2, 1))
 
 
 def test_a_model_over_its_pads_and_outline_says_nothing(tmp_path):

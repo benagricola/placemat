@@ -24,6 +24,18 @@ sys.path.insert(0, str(ROOT / "fixtures"))
 import bench  # noqa: E402
 
 
+def _ratsnest_of(g):
+    """The ratsnest of a board as read: every pad where it stands, joined by the tracks, vias, pours and zones on it."""
+    from placemat.ratsnest import Ratsnest, board_nets
+    pads = [(p.owner, p.number, p.net, p.layers, p.outlines, p.box, p.airwire_end) for fp in g.footprints for p in fp.pads]
+    copper = [(c.kind, c.net, c.layers, c.outlines, c.box, c.anchors) for c in g.copper
+              if c.kind in ("track", "via", "poly", "zone")]
+    r = Ratsnest()
+    for net, (anchors, joined) in sorted(board_nets(pads, copper).items()):
+        r.set_net(net, anchors, joined)
+    return r
+
+
 def _pads_only(drc) -> bool:
     return all(i.get("description", "").startswith(("Pad ", "PTH pad ", "NPTH pad "))
                for u in drc.get("unconnected_items", []) for i in u.get("items", []))
@@ -33,7 +45,7 @@ def _pads_only(drc) -> bool:
 def test_the_airwires_are_kicads(pcb, tmp_path):
     from placemat.kicad.drc import run_drc
     from placemat.kicad.read import read_board
-    from placemat.ratsnest import crossings, from_geometry
+    from placemat.ratsnest import crossings
     from placemat.report import airwires_from_drc
     import shutil
     for f in pcb.parent.iterdir():          # a copy: kicad-cli leaves its .kicad_prl beside the board it checks
@@ -45,7 +57,7 @@ def test_the_airwires_are_kicads(pcb, tmp_path):
     if not _pads_only(drc):
         pytest.skip("an airwire ends at a track or via, whose reported position is not its end")
     theirs = airwires_from_drc(drc)
-    edges = from_geometry(read_board(tmp_path / pcb.name)).edges()
+    edges = _ratsnest_of(read_board(tmp_path / pcb.name)).edges()
     assert len(edges) == theirs["count"]
     assert sum(math.hypot(e.a.x - e.b.x, e.a.y - e.b.y) for e in edges) == pytest.approx(theirs["total_mm"], abs=0.01)
     ours = crossings(edges)[0]

@@ -1,7 +1,7 @@
 """Suggestions about a Centre: the flag's notice is cleared by removing the keyword."""
 from placemat import suggestions as sg
 from placemat.findings import FindingCause as C
-from tests.suggest_support import apply_and_resolve, resolve
+from tests.suggest_support import resolve
 
 PRE = '''board.place(Part("c1"), at=Location(40, 40))
 '''

@@ -25,14 +25,14 @@ import types
 
 from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
-from .geometry import native_status, Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
+from .geometry import native_status, Transform, box_polygon, circle_polygon, circle_poly_gap, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from . import blame, finding_text, step_text
 from .phases import Stage
 from .cutouts import EdgeWhy
 from .refusals import Code, Refusal, ReservedBy
 from .findings import Finding, FindingCause as C, Findings
 from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
-from .occupancy import LABEL_SOURCE, VIA_BUCKET, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
+from .occupancy import LABEL_SOURCE, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, _turned, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
@@ -1815,12 +1815,6 @@ class Board:
                 "ref": fp.ref, "net_class": nc.name, "clearance_mm": nc.clearance, "track_mm": nc.track_width,
                 "pad": p.number, "past_pad": q.number, "net": p.net, "past_net": q.net, "lane_mm": lane, "need_mm": need,
                 "short": short, "fits_mm": math.floor(lane * 100 + 1e-6) / 100}, "critical"))
-
-    def _cutout_label(self, n: int) -> str:
-        """Which hole a measurement was taken on. Named cutouts come first,
-        in declaration order, so the index names one directly."""
-        order = list(self._named_cutouts)
-        return "cutout %r" % order[n] if 0 <= n < len(order) else "an unnamed cutout"
 
     def figure(self, *, at, rotation=0.0, anchor=(0.0, 0.0), why: str = "") -> Figure:
         """A datasheet figure's frame: its point `anchor`, in the figure's own
@@ -8482,8 +8476,7 @@ class Board:
         if entry is None:
             return None, None
         if entry.declaration != _lock.declaration_digest(self, i) and \
-                entry.declaration != _lock.declaration_digest(self, i, ordered=False) and \
-                entry.declaration != _lock.declaration_digest(self, i, legacy=True):
+                entry.declaration != _lock.declaration_digest(self, i, ordered=False):
             self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "declaration_changed"})
             return None, None
         spot, why = _lock.placement_of(entry, occ)
@@ -9656,11 +9649,6 @@ def _script_site() -> tuple:
             return os.path.abspath(f.f_code.co_filename), f.f_lineno
         f = f.f_back
     return "", 0
-
-
-def _script_line() -> int:
-    """The line of the script (or test) that made the declaration being built."""
-    return _script_site()[1]
 
 
 def _run_along(board: "Board", occ: Occupancy, i: PlaceIntent) -> float:

@@ -524,12 +524,6 @@ def _step_extent(path) -> tuple | None:
     return (lo[0], lo[1], lo[2], hi[0], hi[1], hi[2])
 
 
-def step_box(path) -> tuple | None:
-    """(x0, y0, x1, y1): a STEP model's box on its own plane, in mm."""
-    e = _step_extent(path)
-    return None if e is None else (e[0], e[1], e[3], e[4])
-
-
 def _model_path(text: str, project_dir) -> Path | None:
     """The STEP file a model entry names, or None (the one resolver, models.resolve_model)."""
     from pathlib import Path

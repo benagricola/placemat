@@ -8,14 +8,14 @@ from tests.fixtures import rect
 
 def test_rotating_a_polygon_by_90_swaps_its_extents():
     poly = rect(10, 10, 4, 2)
-    t = Transform.rotate_about(Location(10, 10), 90)
+    t = Transform.translate(-10, -10).then(Transform.rotate(90)).then(Transform.translate(10, 10))
     box = Box.of_points(transform_polygon(poly, t))
     assert abs(box.width - 2) < 1e-9 and abs(box.height - 4) < 1e-9
     assert box.center == Location(10, 10)
 
 
 def test_transform_composes_rotation_then_translation():
-    t = Transform.rotate_about(Location(0, 0), 90).then(Transform.translate(5, 0))
+    t = Transform.rotate(90).then(Transform.translate(5, 0))
     x, y = t.apply((1, 0))
     # KiCad's y grows downward, so a +90 rotation sends +x to -y
     assert abs(x - 5) < 1e-9 and abs(y - (-1)) < 1e-9

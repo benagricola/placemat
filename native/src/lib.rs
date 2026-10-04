@@ -399,12 +399,6 @@ fn hypot(a: f64, b: f64) -> f64 {
     exact::hypot(a, b)
 }
 
-/// `geometry._clean` on each value, for comparing against Python in bulk.
-#[pyfunction]
-fn clean9_many(values: Vec<f64>) -> Vec<f64> {
-    values.into_iter().map(exact::clean9).collect()
-}
-
 /// `geometry.transform_polygon(poly, t)` with its rounding: each vertex as `Transform.apply` takes it,
 /// `a x + b y + tx` and `c x + d y + ty` in that order, each side through `_clean`.
 #[pyfunction]
@@ -412,12 +406,6 @@ fn transform_polygon(poly: Vec<(f64, f64)>, a: f64, b: f64, c: f64, d: f64, tx: 
     poly.into_iter()
         .map(|(x, y)| (exact::clean9(a * x + b * y + tx), exact::clean9(c * x + d * y + ty)))
         .collect()
-}
-
-/// `math.hypot` on each pair, for comparing against Python in bulk.
-#[pyfunction]
-fn hypot_many(xs: Vec<f64>, ys: Vec<f64>) -> Vec<f64> {
-    xs.into_iter().zip(ys).map(|(a, b)| exact::hypot(a, b)).collect()
 }
 
 /// `checks.py`'s `_Fill`, in Rust - see `fill` module doc. `_Fill` keeps
@@ -1220,9 +1208,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(largest_rectangle, m)?)?;
     m.add_function(wrap_pyfunction!(hypot, m)?)?;
     m.add_function(wrap_pyfunction!(mst, m)?)?;
-    m.add_function(wrap_pyfunction!(clean9_many, m)?)?;
     m.add_function(wrap_pyfunction!(transform_polygon, m)?)?;
-    m.add_function(wrap_pyfunction!(hypot_many, m)?)?;
     m.add_class::<NativeFill>()?;
     m.add_class::<NativeReach>()?;
     m.add_class::<NativeReachKeys>()?;

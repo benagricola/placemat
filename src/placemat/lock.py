@@ -76,32 +76,30 @@ def _turn(dx: float, dy: float, degrees: float) -> tuple:
 _NOT_DECIDING = frozenset(("index", "line", "file", "needs", "why", "faces_note", "priority_source"))
 
 
-def declaration_digest(board, intent, legacy: bool = False, ordered: bool = True) -> str:
+def declaration_digest(board, intent, ordered: bool = True) -> str:
     """What an entry was accepted against: the item's declaration, the links
     on its pads and its footprint's shape, each part named by its instance
     path, which a renumbering of the board does not change, and a cell's
     members in order of it, not in the order the board file lists them (a
-    re-stamped fragment lists them otherwise). `legacy`: named by refdes, as
-    0.43-0.46 wrote it; `ordered=False`: members as read, as 0.47-0.48 wrote
+    re-stamped fragment lists them otherwise). `ordered=False`: members as read, as 0.47-0.48 wrote
     it; a run still accepts both."""
     import dataclasses
     from . import reuse as _reuse
     from .board_geometry import members_of
-    names = None if legacy else {fp.ref: fp.inst for fp in board.geometry.footprints}
+    names = {fp.ref: fp.inst for fp in board.geometry.footprints}
     # a Turned rotation is declared by `turned`; `rotation` holds what it settled to, which follows its part
     skip = _NOT_DECIDING | ({"rotation"} if getattr(intent, "turned", None) is not None else set())
     said = [(f.name, _reuse.canonical(getattr(intent, f.name), parts=names)) for f in dataclasses.fields(intent)
             if f.name not in skip and not _reuse.omitted(intent, f)]
-    shape = [(fp.ref if legacy else fp.inst, round(fp.body_box.width, 4), round(fp.body_box.height, 4),
+    shape = [(fp.inst, round(fp.body_box.width, 4), round(fp.body_box.height, 4),
               round(fp.courtyard_box.width, 4), round(fp.courtyard_box.height, 4),
               sorted((p.number, p.net, round(p.box.width, 4), round(p.box.height, 4)) for p in fp.pads))
              for fp in members_of(intent.item)]
-    if ordered and not legacy:
+    if ordered:
         shape.sort(key=lambda t: t[0])
     links = _reuse.links_on(board, intent)
-    if names:
-        links = [dataclasses.replace(l, a=(names.get(l.a[0], l.a[0]), l.a[1]), b=(names.get(l.b[0], l.b[0]), l.b[1]))
-                 for l in links]
+    links = [dataclasses.replace(l, a=(names.get(l.a[0], l.a[0]), l.a[1]), b=(names.get(l.b[0], l.b[0]), l.b[1]))
+             for l in links]
     return _reuse._sha("lock", _reuse.canonical(said), _reuse.canonical(sorted(_reuse.canonical(l, parts=names)
                        for l in links)), _reuse.canonical(shape))[:16]
 

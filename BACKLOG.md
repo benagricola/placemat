@@ -67,13 +67,10 @@ Specced work first, then the loose ends.
     arrives; events dropped on a full queue are missing from the record too;
     a stopped route leaves a partial record listed with the finished ones.
 
-- **Dead code left by the sweep** (2026-10-03, report in the sweep's
-  scratchpad): layout.py (`gap_texts`/`VIA_BUCKET` imports, `_script_line`,
-  `_cutout_label`, write-only `_link_index`/`_flip_said`, the 0.39 lock
-  digest compat), occupancy.py (`re`, `gap_texts`, `_GAP`, `_inner_mirror`),
-  giveway `_far_ends`, native `clean9_many`/`hypot_many`, production code only
-  tests call; `settings.RENAMED` (30 entries from 0.90.0) once the notice path
-  can go. After the native sweep and give-way work leave those files.
+- **Dead code left by the sweep** (2026-10-03): `settings.RENAMED` (30
+  entries from 0.90.0) once the notice path can go. Rust warnings left:
+  `judge::reference`, `ShapeGrid::first_conflict_shifted_excluding` and an
+  unused `point_segment_distance` import in giveway.rs.
 
 - **Placement judges clearance with KiCad's DRC epsilon** (follow-up to the
   0.97.1 keep-out fix): occupancy's copper clearance and draw/body gaps use a

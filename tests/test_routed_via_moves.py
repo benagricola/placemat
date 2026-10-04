@@ -183,14 +183,6 @@ def test_the_native_and_the_python_judging_choose_the_same_spot(monkeypatch):
     assert (native.to, native.tracks, native.old_tracks) == (python.to, python.tracks, python.old_tracks)
 
 
-def test_a_moved_routed_via_is_still_routed_with_the_same_far_ends():
-    """The segments it left are its legs: a second item that meets it rebuilds them from the same far ends."""
-    plan = _board().resolve()
-    g = plan.occupancy.placed_groups()["m via 0"]
-    assert g.routed and len(g.legs) >= 2
-    assert sorted((round(x, 6), round(y, 6)) for x, y in giveway._far_ends(g)) == [(19.1, 20.0), (20.9, 22.2)]
-
-
 # ------------------------------------------------------------------ KiCad
 
 @needs_kicad
