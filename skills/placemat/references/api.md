@@ -628,6 +628,15 @@ board.track(Net("SENSE"), [esc[31]], layer=CopperLayer.F)
 board.track(Net("PGOOD"), [esc[30]], layer=CopperLayer.F)
 ```
 
+An escape on its own is a reservation: its risers, lanes and vias are kept
+clear while parts are placed, but nothing is written to the board, and the
+router does not see them. A pin's lane becomes copper only when a track
+begins with it (`board.track(net, [esc[pin]])`, as above); the router then
+keeps it as it keeps all input copper and routes on from where it ends. So
+to have the router take a fanout as laid out, draw each pin's lane. `vias=`
+names only the pins that drop to another layer: a pin left out gets a lane
+that ends on its own layer, for the router to continue on that layer.
+
 `board.escape(part, pins, *, turn=None, vias=(), depth=None, run=None,
 widths=None, pairs=(), chamfer=None, via_size=None, via_drill=None, why)`
 gives each pin of one row a riser (straight out
