@@ -34,7 +34,7 @@ def test_a_note_becomes_an_arrangement_of_the_stamped_cell_in_the_stamped_frame(
     assert geom.arrangement == "c_in.east" and dict(geom.poses)["C1"] == c_in.pose and geom.members == g.cells["mod"].members
     assert geom.box.center.x > g.cells["mod"].box.center.x                      # c_in moved east of u1
     (track,) = [c for c in geom.own_copper if c.kind == "track"]
-    assert track.net == "mod.VIN" and track.owner == "mod" and abs(track.anchors[0][0] - 39.0) < 1e-6   # shifted into the stamped frame
+    assert track.net == "mod.VIN" and track.owner == "mod" and abs(track.anchors[0][0] - 41.9) < 1e-6   # shifted into the stamped frame
     assert g.cells["mod"].arrangements == ()                                      # the default cell is untouched
 
 

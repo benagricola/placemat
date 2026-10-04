@@ -6,19 +6,14 @@ from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
 from placemat.layout import Board, PlacedKeepout
 from placemat.values import Cell, CopperLayer, Drops, Face, Location, Net
-from tests.arrangement_support import east_doc, kicad_cell_board
+from tests.arrangement_support import EAST_TRACK, east_doc, kicad_cell_board
 from tests.conftest import needs_kicad
 
 pytestmark = needs_kicad
 
 
-# east_doc's own track ends at (10.1, 3.0), on c_in's GND pad once c_in is turned half way round, and KiCad's save gives a track that
-# ends on a pad of another net that pad's net. A module's VIN track ends on a VIN pad: this one runs east from c_in's VIN pad (11.9, 3.0).
-EAST_TRACK = Track("VIN", CopperLayer.F, 0.3, Location(11.9, 3.0), Location(13.0, 3.0))
-
-
 def staged(tmp_path, cells=(("mod", (30.0, 10.0)),), doc=None):
-    texts = N.encode(doc or east_doc(ops=[EAST_TRACK]), 4000)
+    texts = N.encode(doc or east_doc(), 4000)
     return kicad_cell_board(tmp_path / "layout.kicad_pcb", cells, notes={c: texts for c, _ in cells})
 
 
@@ -63,7 +58,8 @@ def test_an_arranged_cell_turned_or_flipped_is_written_where_the_search_judged_i
 
 
 def test_the_group_is_intact_after_the_arrangement_deletes_its_copper(tmp_path):
-    """The bindings check CLAUDE.md asks for: delete from a group with RemoveItem then Delete, never Remove."""
+    """The saved board, loaded again, holds the cell's group whole: its items are wrapped and answer for their place. It reloads
+    from disk, so it does not show the in-process breakage CLAUDE.md warns of, which small boards do not reproduce anyway."""
     import pcbnew
     pcb = staged(tmp_path)
     plan = place(pcb, mod=dict(at=Location(40.0, 30.0), arrangements="c_in.east")).resolve()
@@ -195,7 +191,7 @@ def test_the_arrangements_zone_and_rule_area_replace_the_stamped_ones_once(tmp_p
     copper = [z for z in board.Zones() if not z.GetIsRuleArea()]
     rules = [z for z in board.Zones() if z.GetIsRuleArea()]
     assert [z.GetNetname() for z in copper] == ["mod.GND"]
-    assert [z.GetZoneName() for z in rules] == ["keepout guard [*.Cu]"]
+    assert [z.GetZoneName() for z in rules] == ["keepout guard [*.Cu]_1"]                   # pcb's suffix, as a stamped default has it
     assert all(z.m_Uuid.AsString() in in_group for z in copper + rules)
     assert copper[0].IsFilled() and copper[0].CalculateFilledArea() > 0         # drawn unfilled, filled once the cell is moved
     r = rules[0]
@@ -212,11 +208,119 @@ def test_an_arranged_keepout_that_lets_a_net_through_is_written_with_its_rule(tm
     import pcbnew
     lane = PlacedKeepout("lane", ((9.0, 5.0), (12.0, 5.0), (12.0, 6.0), (9.0, 6.0)), Location(0.0, 0.0), 0.0, ("tracks",), None,
                          frozenset({"VIN"}), frozenset(), "", None, frozenset(), frozenset())
-    pcb = staged(tmp_path, doc=east_doc(ops=[EAST_TRACK], keepouts=[lane]))
+    pcb = staged(tmp_path, doc=east_doc(keepouts=[lane]))
     plan = place(pcb, mod=dict(at=Location(40.0, 30.0), arrangements="c_in.east")).resolve()
     apply_plan(pcb, plan)
     rules = [z for z in pcbnew.LoadBoard(str(pcb)).Zones() if z.GetIsRuleArea()]
-    assert [z.GetZoneName() for z in rules] == ["keepout lane [*.Cu] {allow VIN | tracks}"]
+    assert [z.GetZoneName() for z in rules] == ["keepout lane [*.Cu] {allow VIN | tracks}_1"]
     assert not rules[0].GetDoNotAllowTracks()
     dru = (tmp_path / "layout.kicad_dru").read_text()
-    assert "keepout lane [*.Cu] {allow VIN | tracks}" in dru and "A.NetName != 'mod.VIN'" in dru
+    assert "intersectsArea('keepout lane [*.Cu] {allow VIN | tracks}_1')" in dru and "A.NetName != 'mod.VIN'" in dru
+
+
+LANE = PlacedKeepout("lane", ((9.0, 5.0), (12.0, 5.0), (12.0, 6.0), (9.0, 6.0)), Location(0.0, 0.0), 0.0, ("tracks",), None,
+                     frozenset({"VIN"}), frozenset(), "", None, frozenset(), frozenset())
+LANE_ZONE = "keepout lane [*.Cu] {allow VIN | tracks}"
+
+
+def _stamp_keepout(pcb, cell, origin, drawing=True):
+    """Give `cell` the stamped default of LANE as pcb stamps it: the rule area (named with pcb's `_1`) a little west of the
+    arrangement's, and, with `drawing`, the keepout drawing the fragment drew for it (outline and label on User.Comments)."""
+    import pcbnew
+    mm = pcbnew.FromMM
+    board = pcbnew.LoadBoard(str(pcb))
+    group = next(g for g in board.Groups() if g.GetName() == cell)
+    ox, oy = origin
+    pts = [(ox + x, oy + y) for x, y in ((5.0, 5.0), (8.0, 5.0), (8.0, 6.0), (5.0, 6.0))]
+    z = pcbnew.ZONE(board)
+    z.SetIsRuleArea(True)
+    z.SetLayerSet(pcbnew.LSET.AllCuMask(2))
+    z.SetDoNotAllowVias(True)
+    z.SetZoneName(LANE_ZONE + "_1")
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in pts:
+        o.Append(mm(x), mm(y))
+    board.Add(z)
+    group.AddItem(z)
+    if drawing:
+        sh = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_POLY)
+        sh.SetLayer(pcbnew.Cmts_User)
+        ps = pcbnew.SHAPE_POLY_SET()
+        ps.NewOutline()
+        for x, y in pts:
+            ps.Append(mm(x), mm(y))
+        sh.SetPolyShape(ps)
+        board.Add(sh)
+        group.AddItem(sh)
+        t = pcbnew.PCB_TEXT(board)
+        t.SetText("lane")
+        t.SetLayer(pcbnew.Cmts_User)
+        t.SetPosition(pcbnew.VECTOR2I(mm(ox + 6.5), mm(oy + 5.5)))
+        board.Add(t)
+        group.AddItem(t)
+    board.Save(str(pcb))
+
+
+def test_an_arranged_keepouts_drawing_replaces_the_stamped_ones(tmp_path):
+    """The fragment drew its admitting keepout as an outline and a label; arranged, the cell's drawing is the arrangement's keepout's,
+    once, where its rule area is."""
+    import pcbnew
+    pcb = staged(tmp_path, doc=east_doc(keepouts=[LANE]))
+    _stamp_keepout(pcb, "mod", (30.0, 10.0))
+    plan = place(pcb, mod=dict(at=Location(40.0, 30.0), arrangements="c_in.east")).resolve()
+    apply_plan(pcb, plan)
+    board = pcbnew.LoadBoard(str(pcb))
+    (area,) = [z for z in board.Zones() if z.GetIsRuleArea()]
+    outlines = [d for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_SHAPE) and d.GetLayer() == pcbnew.Cmts_User]
+    labels = [d for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_TEXT) and d.GetText() == "lane"]
+    assert len(outlines) == 1 and len(labels) == 1
+    ab, ob = area.GetBoundingBox(), outlines[0].GetPolyShape().BBox()
+    near = lambda a, b: abs(pcbnew.ToMM(a - b)) < 0.01
+    assert near(ab.GetLeft(), ob.GetLeft()) and near(ab.GetRight(), ob.GetRight()) and near(ab.GetTop(), ob.GetTop()) \
+        and near(ab.GetBottom(), ob.GetBottom())                            # the outline is the arranged area's, not the default's
+    c = ab.GetCenter()
+    assert near(labels[0].GetPosition().x, c.x) and near(labels[0].GetPosition().y, c.y)
+    group = next(g for g in board.Groups() if g.GetName() == "mod")
+    mine = {it.m_Uuid.AsString() for it in group.GetItems()}
+    assert outlines[0].m_Uuid.AsString() in mine and labels[0].m_Uuid.AsString() in mine
+
+
+def test_two_arranged_stamps_name_their_areas_apart_and_each_rule_names_its_own(tmp_path):
+    """pcb stamps a module's keepout as `<name>_1` in every cell; two arranged stamps must not share a name, or each cell's
+    AllowRule (`intersectsArea`) would cover the other's area too. KiCad's DRC passes A's VIN in A's lane."""
+    import json
+    import subprocess
+    import pcbnew
+    pcb = staged(tmp_path, (("mod_a", (30.0, 10.0)), ("mod_b", (30.0, 40.0))), doc=east_doc(keepouts=[LANE]))
+    _stamp_keepout(pcb, "mod_a", (30.0, 10.0), drawing=False)
+    _stamp_keepout(pcb, "mod_b", (30.0, 40.0), drawing=False)
+    b = place(pcb, mod_a=dict(at=Location(20.0, 15.0), arrangements="c_in.east"),
+              mod_b=dict(at=Location(60.0, 45.0), arrangements="c_in.east"))
+    plan = b.resolve()
+    apply_plan(pcb, plan)
+    board = pcbnew.LoadBoard(str(pcb))
+    by_cell = {g.GetName(): [it for it in g.GetItems() if isinstance(it, pcbnew.ZONE) and it.GetIsRuleArea()] for g in board.Groups()}
+    (za,), (zb,) = by_cell["mod_a"], by_cell["mod_b"]
+    assert za.GetZoneName() != zb.GetZoneName() and {za.GetZoneName(), zb.GetZoneName()} <= {LANE_ZONE + "_1", LANE_ZONE + "_2"}
+    dru = (tmp_path / "layout.kicad_dru").read_text()
+    rules = [r for r in dru.split("(rule ")[1:] if "intersectsArea" in r]
+    assert len(rules) == 2
+    for z, net in ((za, "mod_a.VIN"), (zb, "mod_b.VIN")):
+        (rule,) = [r for r in rules if "A.NetName != '%s'" % net in r]
+        assert "intersectsArea('%s')" % z.GetZoneName() in rule and rule.count("intersectsArea") == 1
+    # a track of A's VIN across A's lane: allowed there, and B's rule does not reach it
+    c = za.GetBoundingBox().GetCenter()
+    t = pcbnew.PCB_TRACK(board)
+    t.SetLayer(pcbnew.F_Cu)
+    t.SetWidth(pcbnew.FromMM(0.2))
+    t.SetStart(pcbnew.VECTOR2I(c.x - pcbnew.FromMM(1.0), c.y))
+    t.SetEnd(pcbnew.VECTOR2I(c.x + pcbnew.FromMM(1.0), c.y))
+    t.SetNet(board.FindNet("mod_a.VIN"))
+    board.Add(t)
+    board.Save(str(pcb))
+    (tmp_path / "layout.kicad_pro").write_text("{}")
+    out = tmp_path / "drc.json"
+    subprocess.run(["kicad-cli", "pcb", "drc", "--format", "json", "--output", str(out), str(pcb)], capture_output=True, timeout=120)
+    flagged = [v for v in json.loads(out.read_text())["violations"] if v["type"] == "items_not_allowed"]
+    assert flagged == []

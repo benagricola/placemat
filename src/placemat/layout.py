@@ -6934,6 +6934,8 @@ class Board:
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
         thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
         occ.thin_arranged = self._thin_arranged     # and an arranged cell's, from the arrangement's copper
+        # (the callback writes the step's drops note into Board state as the occupancy builds a geometry: valid for this one
+        # _resolve_once, whose occupancy it is; _thin_drops above reset the notes)
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
         occ.plane_nets = frozenset(c.net for c in self._copper if c.key.split(" ")[0] == "plane")   # drops' nets
         occ.plane_layers = self._plane_layers()      # {layer: {net, ...}}: give way's shorten reads this

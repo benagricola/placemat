@@ -7,7 +7,7 @@ from placemat.copper import Track, Zone
 from placemat.occupancy import Occupancy
 from placemat.placement import Placement
 from placemat.values import Box, CopperLayer, Face, Location
-from tests.arrangement_support import east_doc, stamped_geometry, with_arrangement, footprint, board_geometry
+from tests.arrangement_support import EAST_TRACK, east_doc, stamped_geometry, with_arrangement, footprint, board_geometry
 
 
 def pads(geom, owner=None):
@@ -39,7 +39,7 @@ def test_an_arranged_cells_geometry_is_its_members_moved_by_their_delta():
 
 
 def test_it_equals_the_geometry_of_a_cell_stamped_from_a_fragment_whose_default_is_that_arrangement():
-    g = with_arrangement()
+    g = with_arrangement(doc=east_doc(ops=[]))          # the members alone: the direct stamp below has no copper
     arranged = Occupancy(g)._geometry(g.cells["mod"].arranged("c_in.east"))
     fps = [footprint("C1", 41.0, 13.0, w=3, h=1.6, nets=("mod.GND", "mod.VIN"), cell="mod", inst="mod.c_in", rotation=180.0),
            footprint("U1", 36.0, 13.0, w=6, h=4, nets=("mod.VIN", "mod.OUT"), cell="mod", inst="mod.u1"),
@@ -84,9 +84,9 @@ def test_an_arranged_cells_own_copper_replaces_the_defaults_when_committed():
     base = occ._geometry(arr).reference.location
     occ.commit(cell, Placement(Location(50.0, 20.0), 0.0, Face.FRONT, "c_in.east"))
     own = [s for s in occ.copper if s.owner == "mod"]
-    assert [s.net for s in own] == ["mod.VIN"]             # the note's VIN track, from (9.0, 3.0) to (10.1, 3.0) in the fragment
+    assert [s.net for s in own] == ["mod.VIN"]             # the note's VIN track, from (11.9, 3.0) to (13.0, 3.0) in the fragment
     dx, dy = 50.0 - base.x, 20.0 - base.y
-    assert abs(own[0].box.left - (39.0 + dx)) < 0.2 and abs(own[0].box.center.y - (13.0 + dy)) < 1e-6
+    assert abs(own[0].box.left - (41.9 + dx)) < 0.2 and abs(own[0].box.center.y - (13.0 + dy)) < 1e-6
 
 
 def test_an_arranged_zone_is_left_to_the_boards_copper_and_held_no_more_often_than_the_defaults():
@@ -96,7 +96,7 @@ def test_an_arranged_zone_is_left_to_the_boards_copper_and_held_no_more_often_th
     stamped = tuple((x + 30.0, y + 10.0) for x, y in pts)
     item = CopperItem("zone", "mod.GND", frozenset([CopperLayer.F]), (stamped,), Box.of_points(stamped), None)
     g = with_arrangement(stamped_geometry(copper=(item,)),
-                         east_doc(ops=[Track("VIN", CopperLayer.F, 0.3, Location(9.0, 3.0), Location(10.1, 3.0)), zone]))
+                         east_doc(ops=[EAST_TRACK, zone]))
     cell = g.cells["mod"]
     arr = cell.arranged("c_in.east")
     assert [c.kind for c in arr.own_copper].count("zone") == 1
@@ -114,7 +114,7 @@ def test_an_arranged_zone_is_left_to_the_boards_copper_and_held_no_more_often_th
 
 
 def test_committed_turned_and_flipped_it_stands_as_the_cell_stamped_in_that_arrangement_would():
-    g = with_arrangement()
+    g = with_arrangement(doc=east_doc(ops=[]))          # the members alone: the direct stamp below has no copper
     fps = [footprint("C1", 41.0, 13.0, w=3, h=1.6, nets=("mod.GND", "mod.VIN"), cell="mod", inst="mod.c_in", rotation=180.0),
            footprint("U1", 36.0, 13.0, w=6, h=4, nets=("mod.VIN", "mod.OUT"), cell="mod", inst="mod.u1"),
            footprint("R9", 5, 5, nets=("mod.OUT", "GND"))]

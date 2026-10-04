@@ -5,7 +5,7 @@ import pytest
 from placemat.layout import Board, CriticalUnplaced
 from placemat.settings import Settings
 from placemat.values import Cell, Location, Part
-from tests.arrangement_support import stamped_geometry, with_arrangement
+from tests.arrangement_support import east_doc, stamped_geometry, with_arrangement
 
 
 def board(settings=None, g=None):
@@ -13,7 +13,7 @@ def board(settings=None, g=None):
 
 
 def test_one_id_lays_that_arrangement_and_default_holds_the_modules_own_layout():
-    b = board()
+    b = board(g=with_arrangement(doc=east_doc(ops=[])))     # no copper: the placement centres the cell's box, plan.box its members'
     b.place(Cell("mod"), at=Location(40.0, 30.0), arrangements="c_in.east")
     plan = b.resolve()
     p = plan.placement("mod")

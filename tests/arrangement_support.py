@@ -52,10 +52,14 @@ DEFAULT_U1 = Placement(Location(6.0, 3.0), 0.0, Face.FRONT)
 OBSTACLE = (43.0, 32.5, 2.0, 1.0)         # filled in the default's u1 and free in c_in.east, for a firm cell with its box centre on (40, 30)
 
 
+# c_in turned half way round at (11.0, 3.0) has its VIN pad (pad 1) at (11.9, 3.0): the track runs east from it
+EAST_TRACK = Track("VIN", CopperLayer.F, 0.3, Location(11.9, 3.0), Location(13.0, 3.0))
+
+
 def east_doc(ident="c_in.east", order=1, ops=None, keepouts=()):
     """The note of an arrangement that turns c_in half way round and stands it east of u1 (fragment frame)."""
     east = Placement(Location(11.0, 3.0), 180.0, Face.FRONT)
-    ops = [Track("VIN", CopperLayer.F, 0.3, Location(9.0, 3.0), Location(10.1, 3.0))] if ops is None else ops
+    ops = [EAST_TRACK] if ops is None else ops
     return N.document(ident, {"c_in": "east"}, [("c_in", east, DEFAULT_C_IN), ("u1", DEFAULT_U1, DEFAULT_U1)], ops,
                       list(keepouts), order=order)
 

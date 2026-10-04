@@ -9,6 +9,7 @@ created, so an unchanged plan writes an unchanged file."""
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from .quiet import import_pcbnew, quiet_stderr
@@ -387,9 +388,10 @@ def _draw_keepouts(board, plan):
         rule_area(board, k, stack)
 
 
-def rule_area(board, k, stack):
-    """A KiCad rule area for keepout `k`: its layers, the flags its excludes ask for, its outline and its zone name; added to the
-    board. A fragment's keepouts and an arrangement's (kicad/arrange.py) are both written by this."""
+def rule_area(board, k, stack, zone_name: str | None = None):
+    """A KiCad rule area for keepout `k`: its layers, the flags its excludes ask for, its outline and its zone name (`zone_name` in
+    place of `_keepout_zone_name`'s when given); added to the board. A fragment's keepouts and an arrangement's (kicad/arrange.py) are
+    both written by this."""
     z = pcbnew.ZONE(board)
     z.SetIsRuleArea(True)
     z.SetLayerSet(pcbnew.LSET.AllCuMask(board.GetCopperLayerCount()) if k.layers is None
@@ -403,7 +405,7 @@ def rule_area(board, k, stack):
     o.NewOutline()
     for x, y in k.poly:
         o.Append(nm(x), nm(y))
-    z.SetZoneName(_keepout_zone_name(k, stack))
+    z.SetZoneName(zone_name or _keepout_zone_name(k, stack))
     board.Add(z)
     return z
 
@@ -422,9 +424,11 @@ def _keepout_zone_name(k, stack) -> str:
     return name + allow_marker(k.allow, _relaxed(k)) if _relaxed(k) else name
 
 
-def allow_rules(plan, stack) -> list:
+def allow_rules(plan, stack, arranged_areas: dict | None = None) -> list:
     """An AllowRule for each keepout of the plan that lets nets through, and for each stamped cell's rule
-    area that declares such a list (it arrives with the cell: board_geometry.allow_marker)."""
+    area that declares such a list (it arrives with the cell: board_geometry.allow_marker). A cell placed in
+    an arrangement has its arrangement's areas instead, by the names they were written with:
+    `arranged_areas` is {cell: [zone name, ...]}, read off the cells' groups once they are arranged (apply_plan)."""
     from ..rules import AllowRule
     out = [AllowRule(_keepout_zone_name(k, stack), tuple(sorted(k.allow)), _relaxed(k))
            for k in plan.keepouts.values() if _relaxed(k)]
@@ -433,8 +437,14 @@ def allow_rules(plan, stack) -> list:
             for ra in plan.geometry.rule_areas if ra.cell is not None and ra.relaxed and ra.cell not in arranged]
     for name, ident in sorted(arranged.items()):        # its rule areas are the arrangement's (kicad/arrange.py)
         arr = _arrangement(plan, name, ident)
-        out += [AllowRule(_keepout_zone_name(k, stack), tuple(sorted(ra.allow)), ra.relaxed)
-                for k, ra in zip(arr.keepouts, arr.rule_areas) if ra.relaxed]
+        written = (arranged_areas or {}).get(name, ())
+        for k, ra in zip(arr.keepouts, arr.rule_areas):
+            if not ra.relaxed:
+                continue
+            base = _keepout_zone_name(k, stack)
+            for zone in written:
+                if zone == base or re.fullmatch(re.escape(base) + r"_\d+", zone):
+                    out.append(AllowRule(zone, tuple(sorted(ra.allow)), ra.relaxed))
     return out
 
 
@@ -533,31 +543,7 @@ def _draw_keepout_drawings(board, plan):
     for k in plan.keepouts.values():
         if mode == "admitting" and not _keepout_admits(k):
             continue
-        layer = _keepout_drawing_layer(k.layers)
-        sh = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_POLY)
-        sh.SetLayer(layer)
-        sh.SetFilled(False)
-        sh.SetWidth(nm(line))
-        ps = pcbnew.SHAPE_POLY_SET()
-        ps.NewOutline()
-        for x, y in k.poly:
-            ps.Append(nm(x), nm(y))
-        sh.SetPolyShape(ps)
-        _unique_uuid(board, sh)
-        board.Add(sh)
-        drawn.append(sh)
-        centre = Box.of_points(k.poly).center
-        t = pcbnew.PCB_TEXT(board)
-        t.SetText(_keepout_admits_text(k))
-        t.SetLayer(layer)
-        t.SetTextSize(pcbnew.VECTOR2I(nm(size), nm(size)))
-        t.SetTextThickness(nm(line))
-        t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
-        t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
-        t.SetPosition(vec(centre.x, centre.y))
-        _unique_uuid(board, t)
-        board.Add(t)
-        drawn.append(t)
+        drawn += keepout_drawing(board, k, _keepout_admits_text(k), line, size)
     if drawn:
         g = pcbnew.PCB_GROUP(board)
         g.SetName(_KEEPOUT_DRAWINGS_GROUP)
@@ -565,6 +551,36 @@ def _draw_keepout_drawings(board, plan):
             g.AddItem(it)
         _unique_uuid(board, g)
         board.Add(g)
+
+
+def keepout_drawing(board, k, text: str, line: float, size: float) -> list:
+    """Keepout `k` drawn for the eye: its outline and the label `text` at its centre, on the Fab or Comments layer its copper
+    layers ask for (`_keepout_drawing_layer`); added to the board. [the outline, the label]. A plan's keepouts and an
+    arrangement's (kicad/arrange.py) are both drawn by this."""
+    layer = _keepout_drawing_layer(k.layers)
+    sh = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_POLY)
+    sh.SetLayer(layer)
+    sh.SetFilled(False)
+    sh.SetWidth(nm(line))
+    ps = pcbnew.SHAPE_POLY_SET()
+    ps.NewOutline()
+    for x, y in k.poly:
+        ps.Append(nm(x), nm(y))
+    sh.SetPolyShape(ps)
+    _unique_uuid(board, sh)
+    board.Add(sh)
+    centre = Box.of_points(k.poly).center
+    t = pcbnew.PCB_TEXT(board)
+    t.SetText(text)
+    t.SetLayer(layer)
+    t.SetTextSize(pcbnew.VECTOR2I(nm(size), nm(size)))
+    t.SetTextThickness(nm(line))
+    t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
+    t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
+    t.SetPosition(vec(centre.x, centre.y))
+    _unique_uuid(board, t)
+    board.Add(t)
+    return [sh, t]
 
 
 def _draw_outline(board, plan: Plan):
@@ -964,10 +980,12 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
             if item.name in arranged:
                 from .arrange import arrange_cell       # arrange imports this module
                 base = plan.geometry.cells[item.name]   # the step's may be the arranged geometry, which offers none
-                item = arrange_cell(board, groups[item.name], base, arranged[item.name])
+                item = arrange_cell(board, groups[item.name], base, arranged[item.name], plan.occupancy.settings)
                 if item.name in plan.thinned:
                     _thin_cell(board, groups[item.name], plan.thinned[item.name])
             _move_cell(board, item, step.placement, groups)
+    arranged_areas = {name: [z.GetZoneName() for z in groups[name].GetItems() if isinstance(z, pcbnew.ZONE) and z.GetIsRuleArea()]
+                      for name in arranged}
     _given_way(board, plan, groups)
     if plan.cell_zones_under_planes == "drop":
         plan.merged_zones = _merge_cell_zones(board, plan)
@@ -992,7 +1010,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     from ..rules import write_rules
     stack = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
     write_rules(out, list(plan.rules) + keepout_rules(plan, [fp.GetReference() for fp in board.GetFootprints()],
-                                                      stack) + allow_rules(plan, stack))
+                                                      stack) + allow_rules(plan, stack, arranged_areas))
     return out
 
 
