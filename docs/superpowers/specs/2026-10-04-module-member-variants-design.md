@@ -679,3 +679,25 @@ Phase 1: a fixture module with 2 declared options per item (4 arrangements) offe
 arrangements (the other two were refused: one turned capacitor's pad meets another net's copper, in it and in the
 combination). The offered arrangement's note was 20988 characters of escaped JSON, most of it the arrangement's planned
 copper, so at place.arrangement_note_chars = 4000 it was split into 6 texts (1192 to 4000 characters each).
+
+Phases 1 to 3, timings (fixtures/bench.py --arrangements, seconds):
+
+| Run | Arrangements off | Arrangements on | Budget | Met |
+|---|---|---|---|---|
+| Module run, k = 4 arrangements | 1.7 (one arrangement) | 4.5 | at most k times the one-arrangement run | yes, 2.6x against 4x |
+| Board of cells and loose parts | 4.48 | 5.28 | on at most 1.25 times off | yes, 1.18x |
+| Small board of one firm module | - | 2.03 | small beside the board | yes |
+| Board of stamped cells only | 1.11 | 2.27 | none | about 2x |
+
+On the board, the score goes from 104491.2 to 98325.9 and 25 items are placed against 24; 3 arrangements were taken. Most of
+that gain is the one extra item: with two small-gain arrangements held back by the margin, later cells stand elsewhere, and
+one cell's default then has no legal spot while an arrangement does.
+
+Margin: place.arrangement_margin is 0.5 mm. Every value from 0.2 to 1.0 gave the same choices and scores on the board and on
+the stamped board; 0.5 sits inside that range with headroom over the 0.18 gain that sets its low end. It is not an optimum:
+2 mm and over scores 45 points lower on the board.
+
+A board of only stamped cells costs about 2x with arrangements on. Three causes:
+- each arrangement of a cell is scored with one more full scan of the board;
+- parts that tie nets together are sent to the Python legality check, not the native one;
+- an arranged cell's pours are drawn again for each arrangement.
