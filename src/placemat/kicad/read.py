@@ -780,6 +780,21 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
 FACES_PREFIX = "placemat faces "     # a User.Comments text a module fragment carries: `placemat faces outward=N quiet=S handoff=E`
 
 
+def _written_order(texts) -> list:
+    """A fragment's notes in the order it wrote them, which KiCad's group order is not: it changes between loads
+    of the same board. `kicad.write.add_notes_below` stands each a line below the one before, so they are taken
+    along the text's own downward direction, which a turn or a flip of the stamped cell keeps."""
+    import math
+
+    def key(t):
+        a = t.GetTextAngle().AsRadians()
+        p = t.GetTextPos()
+        down = p.x * math.sin(a) + p.y * math.cos(a)
+        along = p.x * math.cos(a) - p.y * math.sin(a)
+        return (round(down), round(along), t.GetText())
+    return sorted(texts, key=key)
+
+
 def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                       arc_error_nm: int = CLEAR_ERR_NM) -> BoardGeometry:
     """Build a BoardGeometry from an already-loaded pcbnew BOARD."""
@@ -820,8 +835,9 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                     k, _, v = word.partition("=")
                     if v:
                         faces[k] = v
-        rules = tuple(r for r in (parse_rule_note(it.GetText()) for it in items
-                                  if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(RULE_PREFIX)) if r)
+        # in the order the fragment wrote them, not the group's: the last rule that matches decides
+        rules = tuple(r for r in (parse_rule_note(t.GetText()) for t in _written_order(
+            [it for it in items if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(RULE_PREFIX)])) if r)
         arrangement_texts[name] = [it.GetText() for it in items
                                    if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(ARRANGEMENT_PREFIX)]
         cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces, parent_of.get(name), rules)

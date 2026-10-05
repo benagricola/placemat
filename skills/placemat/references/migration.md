@@ -34,6 +34,17 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **A stamped cell's clearance rules are read in the order its module declared them.** They were read in the
+  order KiCad gave the cell's group items, which changes between loads of the same board. Two effects:
+  - a run or a studio resolve could refuse the previous record ("the script's board-wide declarations changed")
+    and replay none of its steps, though nothing had changed;
+  - where two of a module's rules both match one pair of items (an `on=` rule and a `between=` rule over that
+    net, say), the last one decides, in placemat and in the `.kicad_dru` KiCad's DRC reads. The rule that decided
+    could be the earlier one. A module whose rules never match the same pair was judged the same either way.
+
+  The notes are now taken in the order the fragment wrote them, one under another, which a turn or a flip of the
+  cell keeps.
+
 - **A named cutout on a disc with a bore reads its own edge.** `board.cutout(name).edge(side=)` and the
   `label.cell_edge` warning took the loop of the bore (or of the previous hole) for a cutout fixed at declaration, and
   the web check against the other holes compared the cutout with itself. A script that placed against such a cutout
