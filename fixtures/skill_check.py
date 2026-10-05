@@ -5,6 +5,7 @@ docs/superpowers/skill-checks/arrangements.md."""
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 import re
 import shutil
@@ -74,6 +75,11 @@ def stage(module: str, target: pathlib.Path) -> str:
     sys.path.insert(0, str(ROOT))
     from tests import real_modules
     script = real_modules.stage(target, module)
+    from placemat import runner
+    src = runner.find_board(script)
+    # the fixture holds the module's folder only, not the files its .zen loads, so `pcb layout` cannot run here: record the
+    # cached generation as current, as the tests' runs restore it, so `placemat run` uses it
+    runner._inputs_record(src).write_text(json.dumps(runner.generator_inputs(src), indent=1, sort_keys=True))
     script.unlink()                                     # the agent writes this one
     for other in script.parent.parent.iterdir():        # the fixture folder's other modules carry hand-written scripts to copy from
         if other.is_dir() and other != script.parent:
