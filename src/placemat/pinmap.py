@@ -415,7 +415,8 @@ def study_failed(plan, error: BaseException) -> Finding:
 def plan_summary(board, plan, refs=None, settings=None) -> list:
     """Each studied group's present score and its best, with the pose and the map, for an explore's report and a longer
     study: no findings, nothing kept. A group past its wall-clock guard has no map: `slow` true, with `guard_ms`,
-    `steps` and `budget_steps`. `refs` keeps the groups holding any of those parts; `settings` replaces the
+    `steps` and `budget_steps`. `before` and `paths` are the group's airwires under the present map and the best, as a
+    `pins.remap` finding's `before` and its rotation's `paths` are, for the studio to draw. `refs` keeps the groups holding any of those parts; `settings` replaces the
     board's (a longer budget)."""
     if not has_pools(board.geometry.footprints):
         return []
@@ -448,7 +449,7 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
         out.append({"refs": list(g.refs), "present": g.present.to_json(), "best": r.breakdown.to_json(), "rotation": i,
                     "turns": _turns(inp, r.poses), "map": _map(inp, g.refs, g.present_assign, r.assign),
                     "searched": g.searched, "of": g.of, "budget_out": g.budget_out, "steps": g.steps,
-                    "budget_steps": g.budget_steps})
+                    "budget_steps": g.budget_steps, "before": _paths(g.present_paths), "paths": _paths(r.paths)})
     return out
 
 

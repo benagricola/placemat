@@ -193,3 +193,30 @@ def test_a_variant_whose_study_trips_the_guard_says_so_on_its_line(monkeypatch):
     lines = pin_map_lines({"pin_maps": maps})
     assert ("  pin map, seed 0 at 10.0 mm: U1 ran past its wall-clock guard, pins.guard_ms of 1e-09 ms, after 0 of "
             "its %d steps; no map" % g["budget_steps"]) in lines
+
+
+def test_a_studied_variant_carries_its_airwires_before_and_after_for_the_studio_to_draw():
+    b = board()
+    (g,) = pinmap.plan_summary(b, b.resolve())
+    assert g["before"] and g["paths"]
+    assert all(set(w) == {"net", "path"} and len(w["path"]) >= 2 for w in g["before"] + g["paths"])
+    assert {w["net"] for w in g["paths"]} >= {m["net"] for m in g["map"]}
+
+
+def test_the_explore_record_and_its_done_event_keep_the_pin_map_study(tmp_path, monkeypatch):
+    import json
+    from placemat import channel, explore, project
+    sent = []
+
+    class Rep:
+        def send(self, ev):
+            sent.append(ev)
+    monkeypatch.setattr(channel, "current", lambda: Rep())
+    monkeypatch.setattr(project, "find_board", lambda p: SimpleNamespace(board_dir=tmp_path))
+    result = SimpleNamespace(focus=["r1"], seconds=1.0, jobs=1, baseline=10.0, plain={}, plain_order=[], best_seed=2, best=9.0,
+                             variants=[], curve=[], ended=None, tried=3)
+    maps = [{"seed": 2, "score": 9.0, "groups": [], "seconds": 0.1}]
+    report = {"accepted": False, "pin_maps": maps}
+    explore._write_record(tmp_path / "Board_layout.py", result, report, "", None)
+    assert json.loads(open(report["record"]).read())["pin_maps"] == maps
+    assert [e["pin_maps"] for e in sent if e["ev"] == "explore_done"] == [maps]

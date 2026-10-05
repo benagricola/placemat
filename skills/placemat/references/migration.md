@@ -13,6 +13,14 @@ section for each hand-written pattern a newer form replaces.
   0.25x, 0.5x, 1x, 2x or 4x of the usual pace (the whole placement in about 8 seconds), kept per browser; a change
   during play keeps the position. Buttons either side of Play, and the Left and Right arrow keys outside a field,
   pause play and move one step; each is disabled at its end.
+- **The studio shows every pose a pin map study searched.** A `pins.remap` finding's panel has a row per pose in
+  its `rotations`: the turn, or the cell's turn for a part in a cell, weighted crossings, length, bends, total and
+  the saving against the present map, with the best and the present marked. Clicking a row draws its airwires and
+  lists its map, as Try does for the best; a second click or a new selection clears it.
+- **The studio's explore view shows the pin map study.** Each studied variant's crossings after remapping sit
+  beside its score, with `slow` or `error` when its study had one; on the variant shown, Map draws a group's
+  airwires and lists its map. The explore record and its `explore_done` event now carry `pin_maps`, and each of
+  its groups carries `before` and `paths`, its airwires under the present map and the best.
 
 ### Fixed
 

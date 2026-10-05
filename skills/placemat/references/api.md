@@ -4002,7 +4002,9 @@ The address's hash can name a script (`s=`), a past run (`run=ID`) or a running 
 is - preview, full run, explore or route - by a chip; a command summary carries `kind` (`channel.kind_of`: a run or preview given
 `--explore`, or one that has sent `explore` events, is an explore) and `label`. Following an explore shows its focus, variants landed (of
 its seeds when it has a fixed number), the seed that landed last, the baseline, the best so far and the time, and the board draws the best
-variant so far; `GET /explores` lists the recorded explores.
+variant so far; `GET /explores` lists the recorded explores. Under it, the pin map study of the best variants (the
+record's and `explore_done`'s `pin_maps`, "The pin map study"), each beside its score. A `pins.remap` finding lists every pose its
+study searched, and a row clicked draws that pose's airwires.
 
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. By default the server listens on 127.0.0.1 only. Every request
@@ -4626,7 +4628,17 @@ map with the turn to declare when another pose wins (for a part in a cell, both
 ways to take it), and the best at the present pose. `placemat apply <id>` refuses it: make the map in the `.zen` and
 the turn in the script. In the studio an advice suggestion has only Try, which
 draws the airwires before (dashed) and after (solid) and lists the map; it
-resolves and writes nothing.
+resolves and writes nothing. The finding's panel lists every pose in `rotations`,
+a row each: the turn (a part in a cell by its cell's turn), weighted crossings,
+length in mm, bends, total and the saving against the present map, with the
+best and the present pose marked. A row clicked draws that pose's airwires and
+lists its map as Try does; a second click, a Try, or a change of selection or
+run takes them away. In the studio's explore view each studied variant shows
+its groups' weighted crossings now and after remapping beside its score, `slow`
+for a group past its guard and `error` for a study that raised; on the variant
+shown, Map draws a group's airwires and lists its map. Each group of an
+explore's `pin_maps` carries `before` and `paths`, its airwires under the
+present map and the best, as a finding's `before` and a rotation's `paths` do.
 
 `placemat apply <id> --search` on a pins suggestion studies its parts again, on
 the board as the last run placed it, with `pins.probe_budget_steps` a part. A

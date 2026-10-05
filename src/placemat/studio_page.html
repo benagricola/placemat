@@ -107,6 +107,20 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .pmkey.before { border-top: 1.5px dashed var(--k-violet); }
 .pmkey.after { border-top: 2px solid var(--good); }
 .pinmap polyline { fill: none; }
+.pmrots { margin: 3px 0 4px; max-width: 100%; overflow-x: auto; font-weight: 400; }
+.pmrots table { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pmrots th { text-align: left; font-weight: 600; color: var(--ink); padding: 0 8px 2px 0; white-space: nowrap; }
+.pmrots td { padding: 1px 8px 1px 0; white-space: nowrap; }
+.pmrots tr[data-pmrot] { cursor: pointer; }
+.pmrots tr[data-pmrot]:hover td { color: var(--accent); }
+.pmrots tr.on { background: var(--accent-soft); }
+.pmrots .gain { color: var(--good); font-weight: 600; }
+.xpins { margin-top: 8px; }
+.xpin { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; padding: 3px 6px; border-radius: 6px; cursor: pointer; min-width: 0; }
+.xpin.on { background: var(--accent-soft); }
+.xpin > div { min-width: 0; overflow-wrap: anywhere; }
+.xpinh { display: flex; gap: 8px; font-variant-numeric: tabular-nums; }
+.xpin button { margin-left: 6px; }
 .pinmap .pm-before { stroke: var(--k-violet); stroke-width: 0.15; stroke-dasharray: 0.6 0.4; }
 .pinmap .pm-after { stroke: var(--good); stroke-width: 0.2; }
 .sgprobe { margin: 3px 0 4px; padding: 6px 8px; background: var(--surface2); border: 1px solid var(--line); border-radius: 6px; font-weight: 400; }
@@ -711,7 +725,7 @@ const S = {
   projectRuns: [],             // the recorded runs of every board of the project (run.json), newest first
   findingsHand: false, findingsTab: false,   // the findings layer: turned on by hand in the legend (kept in this browser), and on while the Findings tab is open
   routes: [],                  // recorded routes of this script's board (their summaries): replayed from their records
-  pinmap: null,                // the pin map suggestion whose airwires are drawn: {sid}
+  pinmap: null,                // the pin map whose airwires are drawn: {sid} a suggestion, {fi, r} a pose of finding fi
   sg: {more: new Set(), busy: null, show: null, note: null, src: false, confirm: null, found: {}, asked: new Set()},   // suggestions: the finding slots opened, a try in flight, the diff shown, what the last apply said
   try: null,                   // a try shown, not written: {id, base, suggestion, cleared, gained, lost, moved, score, applied}
   applied: [], canApply: true, // the suggestions applied here (for Undo and the history rows); false: this studio does not write
@@ -2379,7 +2393,7 @@ const arrangementRows = a => [["arrangement", a.id != null ? pill(a.id, "net") :
 const viaLine = v => v.n != null ? val(v.n, v.warn ? "warn" : "") + " " + esc(v.text) : esc(v.text);
 // A push: the source and the value there, the distance and the limit.
 const pushLine = n => "<b>" + esc(n.source) + "</b> " + esc(n.detail);
-const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + (f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + "</span>" + sgHTML(f); }));
+const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + (f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + "</span>" + sgHTML(f) + pinRotsHTML(f); }));
 function linkRows(p, refs, all) {
   const ls = (p.links || []).map((l, i) => [l, i]).filter(([l]) => refs.has(l.a[0]) || refs.has(l.b[0])).sort((a, b) => (b[0].state === "over") - (a[0].state === "over"));
   if (!ls.length) return "";
@@ -2470,6 +2484,7 @@ $("#card").onclick = e => {
   else if (act === "module") selectModule(a.dataset.id);
   else if (act === "part") { const ref = a.dataset.ref, owner = itemsOf(p).find(i => i.members.some(m => m.ref === ref)); if (owner) { S.module = null; selectItem(owner.key, {ref, zoom: true}); } }
   else if (act === "finding") { const f = (p.findings || [])[+a.dataset.fi]; if (f) focusFinding(f); }
+  else if (act === "pmrot") pinRotAct(a.dataset.pmrot);
   else if (act === "links") { S.cardLinks = !S.cardLinks; renderCard(); }
   else if (act === "link") { const l = (p.links || [])[+a.dataset.i]; if (l) zoomTo([Math.min(l.pa[0], l.pb[0]) - 1, Math.min(l.pa[1], l.pb[1]) - 1, Math.max(l.pa[0], l.pb[0]) + 1, Math.max(l.pa[1], l.pb[1]) + 1]); }
   else if (act === "src") { const it = itemMap(p).get(S.sel); if (it) openScript(it.file, it.line); }
@@ -2689,12 +2704,13 @@ function renderFindings() {
   el.innerHTML = filters + order.map(kind => {
     const list = groups.get(kind), closed = S.closedKinds.has(kind), worst = hasSev ? kind : list.some(([f]) => sevOf(f) === "critical") ? "critical" : list.some(([f]) => sevOf(f) === "notice") && !list.some(([f]) => sevOf(f) === "warning") ? "notice" : "warning";
     return '<div class="gh" data-kind="' + esc(kind) + '"><span class="dim">' + (closed ? "&#9656;" : "&#9662;") + "</span>" + esc(kind) + '<span class="ct">' + list.length + "</span></div>" +
-      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + (isUnplacedFinding(f) ? unplacedInline(f) : esc(f.text)) + srcLink(f, p) + sgHTML(f) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
+      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + (isUnplacedFinding(f) ? unplacedInline(f) : esc(f.text)) + srcLink(f, p) + sgHTML(f) + pinRotsHTML(f) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
   }).join("");
   el.onclick = e => {
     const sv = e.target.closest("[data-sev]"); if (sv) { S.sevFilter = sv.dataset.sev; S.fsel = null; renderFindings(); schedule("marks"); return; }
     const gh = e.target.closest(".gh");
     if (gh) { const k = gh.dataset.kind; if (S.closedKinds.has(k)) S.closedKinds.delete(k); else S.closedKinds.add(k); renderFindings(); return; }
+    const pr = e.target.closest("[data-pmrot]"); if (pr) { pinRotAct(pr.dataset.pmrot); return; }
     if (e.target.closest(".fixslot")) return;
     const sl = e.target.closest("[data-act=src]"); if (sl) { openScript(sl.dataset.file, +sl.dataset.line); return; }
     const ow = e.target.closest("[data-act=owner]"); if (ow) { selectOwner(ow.dataset.owner); goTab("board"); return; }
@@ -3211,7 +3227,7 @@ async function openExploreRecord(file) {
     if (S.cmdView && d.source === "build") { const r = d.doc.route; S.cmdView.route = {total: r.nets, done: r.routed, failed: r.failed, finished: true, partial: !!r.partial, dropped: r.dropped || 0, results: {}, step: {}}; }
     xvStart("record", d.file, {focus: doc.focus, plain: doc.plain, order: doc.order, baseline: doc.baseline, at: doc.at, jobs: doc.jobs, seconds: doc.seconds});
     for (const v of doc.variants || []) if (v.seed !== 0) xvAdd(v, true);
-    S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline}; S.xv.script = doc.script;
+    S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline, pin_maps: doc.pin_maps || []}; S.xv.script = doc.script;
     S.xv.base = d.doc ? d.drawn : null; S.xv.board = d.doc ? d.source : "none";
     S.xv.auto = false; S.xv.sel = S.xv.variants.findIndex(v => v.seed === doc.best_seed); xvDrawNow();
     S.xv.drawn = S.xv.variants[S.xv.sel] || S.xv.bestDrawn; looking();
@@ -3861,7 +3877,9 @@ function xvMoveParts(X, shown) {
 }
 // ---- a pin map suggestion (lever pins, how "advice"): the map is a capture change, so there is no edit to show, try or apply.
 // Its Try draws the finding's airwires before (the present map, dashed) and after (the map at the suggestion's pose) over the
-// board, and lists the map under its row; pressed again it takes them away.
+// board, and lists the map under its row; pressed again it takes them away. A `pins.remap` finding also lists every pose its
+// study searched (pinRotsHTML); a row clicked draws that pose's airwires and lists its map the same way. S.pinmap is the one
+// drawn: {sid} for a suggestion, {fi, r} for a pose of finding fi, so a Try and a pose take each other's place.
 function pinMapOf(p, sid) {
   for (const f of (p && p.findings) || []) for (const s of f.suggestions || []) if (s.id === sid && s.advice) return {f, s};
   return null;
@@ -3873,14 +3891,20 @@ function pinMapShown(hit) {
   const ss = hit.f.suggestions;
   return ss[0] === hit.s || S.sg.more.has(sgKey(hit.f));
 }
+// A pose S.pinmap names: the finding and the rotation's row, while the finding is still a pin map one with that row.
+function pinRotOf(p, sel) {
+  const f = ((p && p.findings) || [])[sel.fi], rows = f && f.cause === "pins.remap" && f.facts && f.facts.rotations;
+  return rows && rows[sel.r] ? {f, row: rows[sel.r]} : null;
+}
+const pinWire = (cls, w) => '<polyline class="' + cls + '" data-net="' + esc(w.net) + '" points="' + w.path.map(q => num(q[0]) + "," + num(q[1])).join(" ") + '"/>';
+const pinWiresSVG = (before, after) => '<g class="pinmap">' + (before || []).map(w => pinWire("pm-before", w)).join("") + (after || []).map(w => pinWire("pm-after", w)).join("") + "</g>";
 function pinMapSVG(f, s) {
   const r = (f.facts.rotations || [])[s.advice.rotation];
-  if (!r) return "";
-  const line = (cls, w) => '<polyline class="' + cls + '" data-net="' + esc(w.net) + '" points="' + w.path.map(q => num(q[0]) + "," + num(q[1])).join(" ") + '"/>';
-  return '<g class="pinmap">' + (f.facts.before || []).map(w => line("pm-before", w)).join("") + (r.paths || []).map(w => line("pm-after", w)).join("") + "</g>";
+  return r ? pinWiresSVG(f.facts.before, r.paths) : "";
 }
-function pinMapHTML(s) {
-  const a = s.advice, pin = e => esc(e.name ? e.name + ", pin " + e.pin : "pin " + e.pin);
+// A map and the turn that takes it, listed: `a` has `map` and `turns`, as a suggestion's advice, a rotation's row and an explore's group do.
+function pinMapList(a) {
+  const pin = e => esc(e.name ? e.name + ", pin " + e.pin : "pin " + e.pin);
   const turned = (a.turns || []).filter(t => t.turn_deg || t.flip);
   const rows = (a.map || []).map(m => "<tr><td>" + esc(m.ref) + "</td><td><b>" + esc(m.net) + "</b></td><td>" + pin(m.from) + "</td><td>-&gt;</td><td>" + pin(m.to) + "</td></tr>").join("");
   return '<div class="pmmap">' + (rows ? "<table>" + rows + "</table>" : "<div>the pins stay as they are</div>") +
@@ -3890,18 +3914,80 @@ function pinMapHTML(s) {
       : "<div>turn " + esc(t.ref) + " to " + esc(String(t.rotation_deg)) + " degrees" + (t.flip ? " on the " + esc(t.face) : "") + "</div>").join("") +
     '<div><span class="pmkey before"></span>airwires now<span class="pmkey after"></span>airwires after</div></div>';
 }
+const pinMapHTML = s => pinMapList(s.advice);
+// A pose as a turn from where the parts stand: a part in a cell by its cell's turn; the part named when the group has several.
+const pnDeg = v => pnum(Math.round(v * 10) / 10) + "°";
+const pinTurnWord = (turns, many) => (turns || []).map(t => [t.cell ? "cell " + t.cell : many ? t.ref : "", pnDeg(t.turn_deg), t.flip ? "flipped" : ""].filter(Boolean).join(" ")).join(", ");
+// Each pose a `pins.remap` finding's study searched, a row each: its turn, weighted crossings, length, bends, total and saving against
+// the present map. The present pose comes first; the best and the present are marked. A row is clicked to draw it (pinRotAct).
+function pinRotsHTML(f) {
+  const facts = f && f.cause === "pins.remap" && f.facts, rows = (facts && facts.rotations) || [];
+  if (!rows.length) return "";
+  const fi = ((plan() || {}).findings || []).indexOf(f); if (fi < 0) return "";
+  const many = (facts.refs || []).length > 1, was = facts.present && facts.present.total, on = S.pinmap && S.pinmap.fi === fi ? S.pinmap.r : -1;
+  const n2 = v => v == null ? "-" : pnum(Math.round(v * 100) / 100);
+  const body = rows.map((r, i) => { const save = was != null ? was - r.total : null;
+    return "<tr" + (i === on ? ' class="on"' : "") + ' data-act="pmrot" data-pmrot="' + fi + ":" + i + '" title="draw the airwires of this pose and list its map; nothing is resolved or written">' +
+      "<td>" + esc(pinTurnWord(r.turns, many)) + (i === facts.best ? " " + pill("best", "good") : "") + (i === 0 ? " " + pill("present") : "") + "</td>" +
+      "<td>" + n2(r.weighted) + "</td><td>" + (r.length_mm == null ? "-" : Number(r.length_mm).toFixed(1) + " mm") + "</td><td>" + (r.bend_deg == null ? "-" : pnDeg(r.bend_deg)) + "</td>" +
+      "<td>" + n2(r.total) + '</td><td class="' + (save > 1e-9 ? "gain" : "") + '">' + n2(save) + "</td></tr>"; }).join("");
+  return '<div class="pmrots"><table><tr><th>turn</th><th>crossings</th><th>length</th><th>bends</th><th>total</th><th>saving</th></tr>' + body + "</table>" +
+    (on >= 0 && rows[on] ? pinMapList(rows[on]) : "") + "</div>";
+}
+// A pose's row clicked: drawn, or taken away when it is the one drawn.
+function pinRotAct(key) {
+  const [fi, r] = String(key).split(":").map(Number);
+  S.pinmap = S.pinmap && S.pinmap.fi === fi && S.pinmap.r === r ? null : {fi, r, at: pinMapAt()};
+  drawPinMap(); schedule("findings", "card", "steps");
+}
 function drawPinMap() {
   const svg = typeof B !== "undefined" && B.svg; if (!svg || !svg.querySelectorAll) return;
   for (const e of svg.querySelectorAll(".pinmap")) e.remove();
-  let hit = S.pinmap && pinMapOf(plan(), S.pinmap.sid);
-  if (hit && (S.pinmap.at !== pinMapAt() || !pinMapShown(hit))) hit = S.pinmap = null;
-  if (!hit) return;
-  const g = pinMapSVG(hit.f, hit.s);
+  let g = "";
+  if (S.pinmap && S.pinmap.at !== pinMapAt()) S.pinmap = null;
+  if (S.pinmap && S.pinmap.sid != null) {
+    const hit = pinMapOf(plan(), S.pinmap.sid);
+    if (hit && pinMapShown(hit)) g = pinMapSVG(hit.f, hit.s); else S.pinmap = null;
+  } else if (S.pinmap) {
+    const hit = pinRotOf(plan(), S.pinmap);
+    if (hit) g = pinWiresSVG(hit.f.facts.before, hit.row.paths); else S.pinmap = null;
+  }
+  const X = S.xv, xg = X && X.pin && xvPinGroup(X);
+  if (X && X.pin && !xg) X.pin = null;
+  if (xg) g += pinWiresSVG(xg.before, xg.paths);
+  if (!g) return;
   for (const panel of svg.querySelectorAll(".panel")) panel.insertAdjacentHTML("beforeend", g);
+}
+// ---- an explore's pin study (explore._pin_maps): each top variant's weighted crossings after remapping and its map, beside its score.
+// It comes with the explore's end (explore_done, the record's pin_maps). On the variant shown, a group's map is offered: its
+// airwires drawn and its map listed (X.pin {seed, g}); they go when another variant is shown.
+const xvPins = X => (X.done && X.done.pin_maps) || [];
+function xvPinGroup(X) {
+  const m = X.pin && X.drawn && X.drawn.seed === X.pin.seed && xvPins(X).find(e => e.seed === X.pin.seed), g = m && m.groups[X.pin.g];
+  return g && !g.slow ? g : null;
+}
+function xvPinsHTML(X) {
+  const maps = xvPins(X); if (!maps.length) return "";
+  const shown = X.drawn, refs = g => (g.refs || []).join(" and ");
+  const rows = maps.map(m => {
+    const here = shown && shown.seed === m.seed, v = xvBySeed(m.seed) || {seed: m.seed};
+    const groups = (m.groups || []).map((g, i) => {
+      if (g.slow) return "<div>" + pill("slow", "warn") + " " + esc(refs(g) + " ran past its guard after " + g.steps + " of " + g.budget_steps + " steps, no map") + "</div>";
+      const on = here && X.pin && X.pin.seed === m.seed && X.pin.g === i;
+      return "<div>" + esc(refs(g) + " " + pnum(g.present.weighted) + " -> " + pnum(g.best.weighted) + " crossings") +
+        (here ? ' <button data-xpa="' + m.seed + ":" + i + '" class="' + (on ? "on" : "") + '" aria-pressed="' + (on ? "true" : "false") + '" title="draw the airwires before and after this map and list it">Map</button>' : "") +
+        (on ? pinMapList(g) : "") + "</div>";
+    }).join("");
+    const err = m.error ? "<div>" + pill("error", "bad") + " " + esc(m.error.type + ": " + m.error.message) + "</div>" : "";
+    return '<div class="xpin' + (here ? " on" : "") + '" data-xpin="' + m.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(m.score) + "</span></div><div>" +
+      (groups || err || "<div>no group to remap</div>") + (groups ? err : "") + "</div></div>";
+  }).join("");
+  return '<div class="xpins"><div class="cst">Pin study</div>' + rows + "</div>";
 }
 function drawExplore() {
   const svg = typeof B !== "undefined" && B.svg; if (!svg || !svg.querySelectorAll) return;
   for (const e of svg.querySelectorAll(".explore")) e.remove();
+  drawPinMap();                             // an explore's pin map goes when another variant is shown
   const X = S.xv, p = plan();
   if (!X || !p) { if (typeof B !== "undefined" && B.groups) for (const gs of B.groups.values()) for (const g of gs) if (g.dataset && g.dataset.xmv && g.removeAttribute) { g.removeAttribute("transform"); delete g.dataset.xmv; } return; }
   const plain = X.start.plain || {}, from = xvFrom(X), imap = itemMap(p), shown = X.drawn, best = X.bestDrawn;
@@ -3955,12 +4041,15 @@ function exploreHTML() {
     '<div class="xctl"><button data-xstep="-1">&lt;</button><span>' + (shown ? seedWord(shown) + " " + f1(shown.score) + ", " : "") + (at + 1) + " of " + vs.length + '</span><button data-xstep="1">&gt;</button>' +
     '<select data-xmode><option value="order"' + (X.mode === "order" ? " selected" : "") + '>by order</option><option value="score"' + (X.mode === "score" ? " selected" : "") + ">by score</option></select>" +
     '<button data-xauto="1" class="' + (X.auto ? "on" : "") + '" aria-pressed="' + (X.auto ? "true" : "false") + '" title="the board shows the best variant so far and changes when a better one lands">Follow best</button><label><input type="checkbox" data-xdens' + (X.density ? " checked" : "") + "> where it tried</label></div>" +
-    (recent ? '<div class="xlist" title="the variants that landed last, newest first, against the baseline">' + recent + "</div>" : "") + (thumbs ? '<div class="xthumbs">' + thumbs + "</div>" : "") + moves + "</div>";
+    (recent ? '<div class="xlist" title="the variants that landed last, newest first, against the baseline">' + recent + "</div>" : "") + (thumbs ? '<div class="xthumbs">' + thumbs + "</div>" : "") + xvPinsHTML(X) + moves + "</div>";
 }
 function exploreClick(e) {
   const X = S.xv; if (!X) return;
   const vs = X.variants, show = i => { X.auto = false; X.drawn = vs[i]; X.bestDrawn = xvBest(); drawExplore(); schedule("runs"); renderCmdBar(); };
   const dot = e.target.closest("[data-xs]"); if (dot) { show(+dot.dataset.xs); return; }
+  const pa = e.target.closest("[data-xpa]");
+  if (pa) { const [seed, g] = pa.dataset.xpa.split(":").map(Number); X.pin = X.pin && X.pin.seed === seed && X.pin.g === g ? null : {seed, g}; drawPinMap(); schedule("runs"); return; }
+  const pn = e.target.closest("[data-xpin]"); if (pn) { const i = vs.findIndex(v => v.seed === +pn.dataset.xpin); if (i >= 0 && vs[i] !== X.drawn) show(i); return; }
   const row = e.target.closest("[data-xr]"); if (row) { show(+row.dataset.xr); return; }
   const th = e.target.closest("[data-xt]"); if (th) { show(vs.findIndex(v => v.seed === +th.dataset.xt)); return; }
   const st = e.target.closest("[data-xstep]");

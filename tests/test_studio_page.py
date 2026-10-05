@@ -3177,3 +3177,130 @@ def test_a_pin_map_suggestion_for_a_part_in_a_cell_lists_both_ways_to_take_the_t
     o = out["open"]
     assert "turn cell logic to 180 degrees on the board, or re-lay module Mcu with U1 at 90 degrees in its frame" in o
     assert "<div>turn U1 to" not in o
+
+
+# ---------------------------------------------------------------- the poses a pin map study searched, and an explore's pin study
+PM_ROTS = r"""
+PM_FACTS.rotations = [
+  {total: 7, weighted: 3, length_mm: 12.345, bend_deg: 180, turns: [{ref: "U1", turn_deg: 0, rotation_deg: 0, face: "front", flip: false}],
+   map: [{ref: "U1", net: "SCL", from: {pin: "3", name: "GPIO1"}, to: {pin: "4", name: "GPIO2"}}], paths: [{net: "SDA", path: [[1, 1], [4, 1]]}]},
+  {total: 2.5, weighted: 0, length_mm: 10, bend_deg: 90, turns: PM_ADVICE.turns, map: PM_ADVICE.map, paths: [{net: "SDA", path: [[2, 2], [5, 2], [5, 4]]}]}];
+const rowsOf = h => (h.match(/<tr[^>]*data-pmrot="[^"]*"[^>]*>.*?<\/tr>/g) || []);
+const clickRot = key => els["#tab-findings"].onclick({target: {closest: s => s === "[data-pmrot]" ? {dataset: {pmrot: key}} : null}});
+"""
+
+
+@needs_node
+def test_a_pin_map_finding_lists_every_pose_searched_with_the_best_and_the_present_marked(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + PM_ROTS + r"""
+full([item("a", 1)], [st("a")], {findings: PM_FND});
+ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
+""")
+    rows = re.findall(r'<tr[^>]*data-pmrot="[^"]*"[^>]*>.*?</tr>', out["html"])
+    assert len(rows) == 2
+    assert 'data-pmrot="0:0"' in rows[0] and ">present<" in rows[0] and ">best<" not in rows[0]
+    assert 'data-pmrot="0:1"' in rows[1] and ">best<" in rows[1] and ">present<" not in rows[1]
+    assert "<td>3</td>" in rows[0] and "12.3 mm" in rows[0] and "180°" in rows[0] and "<td>7</td>" in rows[0] and ">2<" in rows[0]   # saving 9 - 7
+    assert "90°" in rows[1] and "10.0 mm" in rows[1] and "<td>2.5</td>" in rows[1] and ">6.5<" in rows[1]
+    for head in ("turn", "crossings", "length", "bends", "total", "saving"):
+        assert "<th>" + head + "</th>" in out["html"]
+
+
+@needs_node
+def test_a_pose_in_a_cell_is_said_as_the_cells_turn(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + PM_ROTS + r"""
+PM_FACTS.rotations[1].turns = [{ref: "U1", turn_deg: 90, rotation_deg: 90, face: "front", flip: false, cell: "logic", module: "Mcu", stamps: 1, cell_rotation_deg: 180, module_rotation_deg: 90}];
+full([item("a", 1)], [st("a")], {findings: PM_FND});
+ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
+""")
+    rows = re.findall(r'<tr[^>]*data-pmrot="[^"]*"[^>]*>.*?</tr>', out["html"])
+    assert "cell logic 90°" in rows[1]
+
+
+@needs_node
+def test_clicking_a_pose_draws_its_airwires_and_lists_its_map_and_a_second_click_or_a_new_selection_clears_it(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + PM_ROTS + PANELS + r"""
+full([item("a", 1)], [st("a")], {findings: PM_FND});
+plant(); ev("renderFindings()");
+const count = () => panels.map(p => p.html.length);
+clickRot("0:0"); flush();
+out.drawn = count(); out.svg = panels[0].html[0]; ev("renderFindings()"); out.open = els["#tab-findings"].innerHTML;
+clickRot("0:0"); flush();
+out.again = count(); ev("renderFindings()"); out.closed = els["#tab-findings"].innerHTML;
+clickRot("0:1"); flush(); out.other = panels[0].html[0];
+ev("S.sel = 'zz'; drawPinMap()"); out.moved = count(); out.state = ev("S.pinmap");
+clickRot("0:1"); flush();
+ev("sgAct")("pinmap", "s1a"); out.tryAfter = [ev("S.pinmap && S.pinmap.sid"), ev("S.pinmap && S.pinmap.fi")];
+""")
+    assert out["drawn"] == [1, 1] and out["svg"].startswith('<g class="pinmap">')
+    assert 'class="pm-before"' in out["svg"] and 'points="1,1 4,1"' in out["svg"]
+    assert re.search(r'<tr class="on"[^>]*data-pmrot="0:0"', out["open"]) and "<b>SCL</b>" in out["open"] and "GPIO1, pin 3" in out["open"]
+    assert out["again"] == [0, 0] and "<b>SCL</b>" not in out["closed"] and '<tr class="on"' not in out["closed"]
+    assert 'points="2,2 5,2 5,4"' in out["other"]
+    assert out["moved"] == [0, 0] and out["state"] is None
+    assert out["tryAfter"] == ["s1a", None]                                      # Try takes the place of a pose drawn
+
+
+EXPLORE_PINS = r"""
+const it = Object.assign(item("a", 1), {at: [2, 2], rotation: 0});
+full([it, item("b", 5)], [st("a"), st("b")]);
+ev("S.exploreFps = 100");
+const click = (el, sel, data) => els[el].onclick({target: {closest: s => s === sel ? {dataset: data || {}} : null}});
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'explore', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore", focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2}});
+const v = (seed, score, x) => ({ev: "variant", seed, score, measures: {}, placements: {a: [x, 2, 0, "front"]}, order: ["a"], t: seed});
+send("cmdev", {id: 8, n: 0, ev: v(3, 8, 6)}); send("cmdev", {id: 8, n: 0, ev: v(4, 9, 7)}); send("cmdev", {id: 8, n: 0, ev: v(5, 9.5, 8)});
+const G = {refs: ["U1"], present: {weighted: 6, total: 9}, best: {weighted: 0, total: 2.5}, rotation: 1,
+  turns: [{ref: "U1", turn_deg: 90, rotation_deg: 90, face: "front", flip: false}],
+  map: [{ref: "U1", net: "SDA", from: {pin: "12", name: "GPIO7"}, to: {pin: "14", name: "GPIO9"}}],
+  before: [{net: "SDA", path: [[1, 1], [5, 1]]}], paths: [{net: "SDA", path: [[2, 2], [5, 2], [5, 4]]}], searched: 4, of: 4, budget_out: false, steps: 10, budget_steps: 100};
+const MAPS = [{seed: 3, score: 8, groups: [G], seconds: 0.1},
+  {seed: 4, score: 9, groups: [{refs: ["U1"], slow: true, guard_ms: 500, steps: 40, budget_steps: 100}], seconds: 0.5},
+  {seed: 5, score: 9.5, groups: [], error: {type: "RuntimeError", message: "boom"}, seconds: 0.1}];
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_done", best_seed: 3, best: 8, baseline: 10, kept: false, pin_maps: MAPS}});
+const runs = () => { ev("renderRuns()"); return els["#tab-runs"].innerHTML; };
+const pinRows = h => (h.match(/<div class="xpin[^"]*" data-xpin="\d+">.*?<\/div><\/div>/g) || []);
+"""
+
+
+@needs_node
+def test_an_explores_top_variants_show_their_pin_study_beside_their_score(tmp_path):
+    out = run_more(tmp_path, EXPLORE_PINS + r"""
+ev("S.xv.auto = false; S.xv.drawn = S.xv.variants.find(v => v.seed === 4)"); out.html = runs();
+""")
+    h = out["html"]
+    assert 'data-xpin="3"' in h and 'data-xpin="4"' in h and 'data-xpin="5"' in h
+    one = h[h.index('data-xpin="3"'):h.index('data-xpin="4"')]
+    assert "#3" in one and "8.0" in one and "U1" in one and "6 -&gt; 0 crossings" in one
+    assert "data-xpa" not in one and "GPIO7" not in one                       # the map is offered on the variant shown
+    err = h[h.index('data-xpin="5"'):]
+    assert '<span class="chip bad">error</span>' in err and "RuntimeError: boom" in err
+    assert "(" not in re.sub(r"<[^>]*>", "", h[h.index('class="xpins"'):h.index("<h3>Commands")])
+
+
+@needs_node
+def test_a_slow_variant_says_slow(tmp_path):
+    out = run_more(tmp_path, EXPLORE_PINS + r"""
+out.html = runs();
+""")
+    h = out["html"]
+    slow = h[h.index('data-xpin="4"'):h.index('data-xpin="5"')]
+    assert '<span class="chip warn">slow</span>' in slow and "40 of 100 steps" in slow and "crossings" not in slow
+
+
+@needs_node
+def test_on_a_variant_with_a_pin_study_its_map_is_offered_and_draws_its_airwires(tmp_path):
+    out = run_more(tmp_path, EXPLORE_PINS + PANELS + r"""
+plant(); panels.forEach(p => { p.classList = {contains: () => false}; });
+ev("S.xv.auto = false; S.xv.drawn = S.xv.variants.find(v => v.seed === 3)"); out.html = runs();
+click("#tab-runs", "[data-xpa]", {xpa: "3:0"}); flush();
+const pm = () => panels.map(p => p.html.filter(h => h.startsWith('<g class="pinmap">')));       // the explore's own drawing shares the panels
+out.drawn = pm().map(l => l.length); out.svg = pm()[0][0]; out.open = runs();
+click("#tab-runs", "[data-xpin]", {xpin: "4"}); flush();
+out.shown = ev("S.xv.drawn.seed"); out.gone = pm().map(l => l.length); out.state = ev("S.xv.pin");
+""")
+    one = out["html"][out["html"].index('data-xpin="3"'):]
+    assert 'data-xpa="3:0"' in one
+    assert out["drawn"] == [1, 1] and 'points="1,1 5,1"' in out["svg"] and 'points="2,2 5,2 5,4"' in out["svg"]
+    assert "GPIO7, pin 12" in out["open"] and "turn U1 to 90 degrees" in out["open"] and 'aria-pressed="true"' in out["open"]
+    assert out["shown"] == 4 and out["gone"] == [0, 0] and out["state"] is None
