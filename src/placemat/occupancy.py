@@ -2248,9 +2248,9 @@ class Occupancy:
             limit = self.clear_limit(clr, check)
             if _box_gap(s.box, o.box) >= limit:
                 return None
-            # a finding (exact) measures a via as its circle; placement keeps the polygons the
-            # native judge reads, so the two agree on what is legal
-            gap = _copper_gap(s, o) if exact else poly_distance(s.poly, o.poly)
+            # a finding (exact) measures a via as its circle and a read pad as KiCad's effective shape; placement
+            # keeps the polygons the native judge reads, so the two agree on what is legal
+            gap = self._copper_gap(s, o, limit) if exact else poly_distance(s.poly, o.poly)
             if gap < limit and self._net_tie_exclusion(s, o, clr):
                 return None
             if gap < limit and not say:
@@ -2497,6 +2497,36 @@ class Occupancy:
             else:
                 return None
         return tuple(out)
+
+    def _copper_gap(self, s, o, limit: float) -> float:
+        """`_copper_gap`, with a pad or a footprint's copper graphic read from
+        KiCad measured as the effective shape KiCad's DRC collides
+        (`_read_shape`) rather than its outline: a rounded corner's outline is
+        polygonised with the arc error outside the copper, so a gap past it
+        read a few micrometres short. The outline holds the copper, so a gap
+        of `limit` or more by it is that much at least, and is not measured
+        again."""
+        gap = _copper_gap(s, o)
+        if gap >= limit:
+            return gap
+        ks, ko = self._read_shape(s), self._read_shape(o)
+        if ks is None and ko is None:
+            return gap
+        far = _box_gap(s.box, o.box) + 1.0          # a clearance the two collide within, so `actual` comes back
+        hit = _kc.collide(ks if ks is not None else _kicad_of(s), ko if ko is not None else _kicad_of(o),
+                          _kc.to_nm(far))
+        return hit[0] / 1e6 if hit is not None else gap
+
+    def _read_shape(self, sh):
+        """The SHAPE_COMPOUND KiCad's DRC collides for `sh` (`_kicad_prims`)
+        when it is a footprint's pad or copper graphic whose effective shape
+        was read and whose outline stands as `sh.poly`; else None."""
+        if not self._is_footprint_copper(sh):
+            return None
+        move, shapes = self._read_of(sh, sh.poly)
+        if move is None or not shapes:
+            return None
+        return _kc.Compound(_move_shapes(shapes, move))
 
     def _kicad_prims(self, sh, poly):
         """`sh`, a pad or a footprint's copper graphic, standing as `poly`

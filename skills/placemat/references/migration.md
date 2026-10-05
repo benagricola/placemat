@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A pad is measured as KiCad measures it.** A copper finding measured a part's pad by its outline, which rounds a
+  rounded rectangle's corners with straight edges standing up to a few micrometres outside the copper. A 0.127 mm track
+  passing a 0402 pad's rounded corner at 45 degrees read 0.126 mm from it where KiCad's DRC measured 0.129 mm, a finding
+  on a board KiCad passed. A pad, and a part's own copper drawing, read from KiCad are now measured as the shape KiCad's
+  DRC collides. Nothing in a layout script changes.
+
 ## To 0.99.10
 
 ### Fixed
