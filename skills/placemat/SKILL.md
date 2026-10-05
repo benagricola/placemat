@@ -724,6 +724,19 @@ Declare the other one as an alternative; the module run proves it on the
 module's own terms and the board's search chooses. `api.md`,
 "Arrangements", has the forms, the ids, the limits and the record.
 
+Declaring alternatives is part of laying out a module, not a later step
+for when a board struggles. A module is not finished until:
+- each member whose side or turn is a free choice (a bypass capacitor, a
+  pull-up, a series resistor) has an alternative;
+- each member that sets the extent has an alternative, or a line in the
+  script saying why it has none: `# extent: <part> <the reason>`;
+- the last run's `arrangement.extent_fixed` notices are all answered by one
+  of the two, and no declared alternative is refused.
+
+Only a part placed with its own `place()` takes an alternative; a member of
+a row, ring or block does not. Place a member whose side is free with
+`place()` beside its partner, so it can have one.
+
 - **Members that set the extent first.** The members that set a module's
   outline (a bulk capacitor, a connector, an inductor or a tall part
   standing proud on one side) are the ones that make a module hard to
@@ -735,8 +748,8 @@ module's own terms and the board's search chooses. `api.md`,
   declares any alternative, every extent member without one gets a
   notice, and `run.json`'s `arrangements[].extent` lists the members for
   each arrangement. Work through that list before adding alternatives
-  elsewhere, and say in your report of the round why any extent-setting
-  member has none.
+  elsewhere. An extent-setting member left without one gets an
+  `# extent:` line in the script giving the reason.
 - **When to declare one.** While laying out a module, wherever a
   member's side or turn is a free choice the module's own rules allow.
   Ask of each placed member: "would the module be as correct with this
