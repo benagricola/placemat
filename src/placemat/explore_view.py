@@ -1,7 +1,7 @@
 """A finished explore as the studio shows it: the board of its best variant.
 
-An explore's record (explore._write_record) keeps where each variant put the focused items, not a board. A new record names the best
-variant's own plan document (`best_plan`), which the studio shows as it is. For an older one the studio takes the board the explore's
+An explore's record (explore._write_record) keeps where each variant put the focused items, not a board. A newer explore also keeps
+the best variant's own plan document (in BEST_DIR, under the record's name), which the studio shows as it is. For an older one, the studio takes the board the explore's
 run wrote and moves the focused items on it from where that board has them to where the best variant put them:
 
 `group_focus(doc, focus, at)` gathers a written board's footprints (board_doc: one item per footprint, keyed by its instance) into one
@@ -14,6 +14,8 @@ from __future__ import annotations
 import copy
 
 from .geometry import Transform, Location
+
+BEST_DIR = "best"           # beside the records: each record's best variant's plan document, under the record's own name
 
 
 def _focus_of(key: str, focus: list) -> str | None:
