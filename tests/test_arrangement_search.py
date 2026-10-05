@@ -220,8 +220,10 @@ def test_the_reviewers_case_the_default_on_the_back_is_noted_with_the_back_face_
         assert note["default_score"] >= 2.0
     if note["id"] != "default":
         assert note["score"] + note["cost"] < note["default_score"]
-    else:
-        assert all(t["score"] is None or t["score"] >= note["score"] for t in note["tried"])
+    else:                                               # a lower one is within the margin, and the note says so
+        lower = [t for t in note["tried"] if t["score"] is not None and t["score"] < note["score"]]
+        assert all(note["score"] - t["score"] < Settings().place_arrangement_margin for t in lower)
+        assert not lower or note["within"]["id"] == min(lower, key=lambda t: t["score"])["id"]
 
 
 def test_an_arrangement_whose_front_is_pruned_and_whose_back_wins_is_noted_by_the_backs_total(monkeypatch):

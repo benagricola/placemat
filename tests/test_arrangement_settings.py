@@ -12,6 +12,7 @@ def test_the_arrangement_settings_have_the_documented_defaults():
     assert s.place_arrangement_note_chars == 4000
     assert s.place_extent_notice_mm == 1.0
     assert s.score_arrangement == 0.0
+    assert s.place_arrangement_margin == 0.5
 
 
 def test_they_are_set_from_placemat_toml(tmp_path):
