@@ -11,6 +11,7 @@ mod fill;
 mod geometry;
 mod giveway;
 mod judge;
+mod pinmap_geom;
 mod pockets;
 mod profile;
 mod ratsnest;
