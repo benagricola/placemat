@@ -1180,7 +1180,9 @@ class Polar:
     The radius may be a range, `(r_min, r_max)`: Polar((r_min, r_max), None)
     searches the band between the two radii (two freedoms), and with a
     bearing it slides out along that spoke within the range. A range is a
-    place's alone, not a cutout's or a keepout's."""
+    place's alone, not a cutout's or a keepout's. One radius and no bearing,
+    Polar(r, None), is the ring: it slides round at exactly r, and takes
+    rotations=Turns.TANGENT to face out at the bearing where it lands."""
     radius: object
     angle: object = None
     about: object = None
@@ -1196,8 +1198,12 @@ class Polar:
             if (len(self.radius) != 2 or any(isinstance(r, bool) or not isinstance(r, (int, float))
                                              for r in self.radius)
                     or not 0 <= self.radius[0] < self.radius[1]):
+                same = (len(self.radius) == 2 and self.radius[0] == self.radius[1]
+                        and not any(isinstance(r, bool) for r in self.radius))
                 raise ValueError("a Polar radius range is (r_min, r_max), distances from the centre with "
-                                 "0 <= r_min < r_max, not %r" % (self.radius,))
+                                 "0 <= r_min < r_max, not %r%s" % (
+                                     self.radius, "; for exactly one radius, Polar(r, None, about=) is the ring, "
+                                                  "and takes rotations=Turns.TANGENT" if same else ""))
             if isinstance(self.angle, Bearing):
                 raise TypeError("a Polar radius range has no radius to measure a Bearing of two points by; "
                                 "give a bearing as a number, or leave it None to search the band")
