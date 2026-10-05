@@ -577,8 +577,9 @@ def _fixed_room(f):
 @renders(C.FIXED_ROOM_UNSETTLED, "passes")
 def _fixed_room_unsettled(f):
     if "arrangements" in f:
-        return ("%s: the arrangement it took still changed between the last two of %d passes over the firm items (%s), so "
-                "what stands beside it was placed against its last pass's" % (f["item"], f["passes"], ", ".join(f["arrangements"])))
+        return ("%s: the arrangement it took still changed between the last two of %d passes over the firm items, which took %s "
+                "in turn, so what stands beside it was placed against its last pass's choice"
+                % (f["item"], f["passes"], ", ".join(f["arrangements"])))
     return ("%s: the copper still moved %s between the last two of %d passes over the firm items, so what stands beside it "
             "was placed against its last plan" % (f["copper"], "by %.3f mm" % f["moved_mm"] if f["moved_mm"] >= 0 else
                                                   "(a different number of segments)", f["passes"]))

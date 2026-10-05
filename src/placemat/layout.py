@@ -980,7 +980,8 @@ class Board:
         self._arr_unreached: dict = {}         # item key -> the arrangements a step out of time did not reach
         self._arr_choice: dict = {}            # firm cell key -> the arrangement it took ("" the default): _settle_firm_arranged
         self._arr_prev: dict = {}              # what each firm cell took in the pass before (`_Redo.arr`)
-        self._arr_unsettled: dict = {}         # firm cell key -> the ids it still changed between at the last pass
+        self._arr_taken: dict = {}             # firm cell key -> what it took in each pass before, in order
+        self._arr_unsettled: dict = {}         # firm cell key still changing at the last pass -> each id it took, in order
         self._collect_into: list | None = None  # while an explore draws over arrangements: each scan's legal candidates, best first
         self._copper: list[CopperIntent] = []
         self._pad_tracks: set = set()      # indices of the tracks whose points are all pads: their way is known before they are planned
@@ -2725,14 +2726,14 @@ class Board:
         goes on; the last one that may be run says what did not settle (`fixed.room_unsettled`). A firm cell that chose
         among its arrangements has settled only when it took the one it took in the pass before: in the first pass there is
         none before, so a run with such a cell is run again."""
-        changed = {k: [self._arr_prev[k], v] for k, v in self._arr_choice.items()
+        changed = {k: self._arr_taken.get(k, []) + [v] for k, v in self._arr_choice.items()
                    if k in self._arr_prev and self._arr_prev[k] != v}
         unsettled = any(self._arr_prev.get(k) != v for k, v in self._arr_choice.items())
         if not self._redo and fixed_copper is not None:
             rooms = self._dry_rooms(occ, plan, fixed_copper) if self._room_seed else {}
             self._room_unsettled = _rooms_moved(self._room_seed, rooms, self.settings.place_copper_room_tolerance) \
                 if self._room_seed else []
-            self._arr_unsettled = {k: sorted({a or "default" for a in ab}) for k, ab in changed.items()}
+            self._arr_unsettled = {k: list(dict.fromkeys(a or "default" for a in took)) for k, took in changed.items()}
             return
         if not self._redo:
             return
@@ -6909,7 +6910,7 @@ class Board:
         stops after its firm items when that is so, and the last one, or the first that finds everything in place, is the
         resolve (see `_redo_check`)."""
         self._room_seed, self._swaps, self._room_unsettled, self._swap_notes, self._loose = {}, [], [], {}, frozenset()
-        self._arr_prev, self._arr_unsettled = {}, {}
+        self._arr_prev, self._arr_unsettled, self._arr_taken = {}, {}, {}
         self._room_refused = {}         # copper index -> the parts placed when the room planning could not draw it
         self._firm_pass_no = None
         passes = self.settings.place_firm_passes
@@ -6917,6 +6918,7 @@ class Board:
                 (self._copper or any(getattr(i, "beside", None) is not None for i in self._intents))):
             return self._resolve_run(progress, reuse, explore, lock, routes, on_step, on_begin, partial, False)
         saved = self._snapshot()
+        taken: dict = {}            # firm cell key -> what it took in each pass that stopped, in order
         for n in range(1, passes + 1):
             self._firm_pass_no = n if n < passes else None      # a pass that stops after the firm items: the one a slow step names
             try:
@@ -6924,7 +6926,10 @@ class Board:
             except _Redo as r:
                 self._restore(saved)
                 self._room_seed, self._swaps, self._swap_notes, self._loose = r.seed, r.swaps, r.notes, r.loose
-                self._arr_prev = r.arr          # after the restore, which puts back the attributes as they stood before the passes
+                for k, v in r.arr.items():
+                    taken.setdefault(k, []).append(v)
+                # after the restore, which puts back the attributes as they stood before the passes
+                self._arr_prev, self._arr_taken = r.arr, {k: list(v) for k, v in taken.items()}
 
     def _resolve_run(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial, redo: bool) -> Plan:
         """One run of the resolve. With `redo`, what it reports while it goes is held until it is known that it will not be

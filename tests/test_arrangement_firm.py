@@ -199,10 +199,42 @@ class Alternating(Board):
         return trials
 
 
-def declared_copper_board(cls, passes=None):
+class Cycling(Board):
+    """A board whose firm cell takes c_in.a, c_in.b, the default, then c_in.a again over four passes."""
+    ORDER = ("c_in.a", "c_in.b", "", "c_in.a")
+
+    def _firm_trials(self, occ, plan, i, placed, clr, push_sources):
+        trials = super()._firm_trials(occ, plan, i, placed, clr, push_sources)
+        want = self.ORDER[(self._firm_pass_no or 4) - 1]
+        for t in trials:
+            t.score = 1.0 if t.ident == want else 10.0
+        return trials
+
+
+def counted(cls):
+    """`cls` counting the runs of its resolve in `passes`: on the class, as `_restore` puts back the instance's attributes."""
+    class Counted(cls):
+        passes = 0
+
+        def _resolve_once(self, *a, **k):
+            type(self).passes += 1
+            return super()._resolve_once(*a, **k)
+    return Counted
+
+
+def three_offered():
+    from placemat import arrangement_note as N
+    from placemat.arranged_geometry import attach
+    from tests.arrangement_support import east_doc
+    g = stamped_geometry(partner=(60.0, 30.0))
+    texts = N.encode(east_doc("c_in.a", 1), 4000) + N.encode(east_doc("c_in.b", 2), 4000)
+    return dataclasses.replace(g, cells={**g.cells, "mod": attach(g.cells["mod"], texts, frozenset(g.nets), g.layers)})
+
+
+def declared_copper_board(cls, passes=None, geometry=None, **settings):
     from placemat.values import CopperLayer, Net, PadRef
-    s = Settings() if passes is None else dataclasses.replace(Settings(), place_firm_passes=passes)
-    g = with_arrangement(stamped_geometry(partner=(60.0, 30.0)))
+    s = dataclasses.replace(Settings(), **settings, **({} if passes is None else {"place_firm_passes": passes}))
+    g = geometry or with_arrangement(stamped_geometry(partner=(60.0, 30.0)))
     b = cls(g, edge_margin=0.0, keep_going=True, settings=s)
     b.rect(width=80, height=60)
     b.place(Part("r8"), at=Location(60.0, 30.0))
@@ -212,16 +244,31 @@ def declared_copper_board(cls, passes=None):
 
 
 def test_a_choice_that_holds_settles_and_is_carried():
-    b = declared_copper_board(Board)
+    b = declared_copper_board(counted(Board), passes=4)
     plan = b.resolve()
     assert plan.placement("mod").arrangement == "c_in.east"
     assert not [f for f in plan.findings if f.cause == "fixed.room_unsettled"]
     assert b._arr_choice == {"mod": "c_in.east"}
+    assert b.passes == 2                # the first pass has no choice before it to hold: the second shows it held
+
+
+def test_a_board_whose_cells_choose_nothing_runs_the_passes_it_ran_before():
+    b = declared_copper_board(counted(Board), passes=4, place_arrangements=False)
+    plan = b.resolve()
+    assert b.passes == 1 and plan.placement("mod").arrangement == "" and b._arr_choice == {}
 
 
 def test_a_cell_whose_arrangement_alternates_keeps_the_last_pass_and_says_which_ids_alternated():
-    b = declared_copper_board(Alternating, passes=4)
+    b = declared_copper_board(counted(Alternating), passes=4)
     plan = b.resolve()
     (f,) = [f for f in plan.findings if f.cause == "fixed.room_unsettled" and f.facts.get("item") == "mod"]
-    assert sorted(f.facts["arrangements"]) == ["c_in.east", "default"] and f.facts["passes"] == 4
-    assert plan.placement("mod").arrangement in ("", "c_in.east")
+    assert f.facts["arrangements"] == ["c_in.east", "default"] and f.facts["passes"] == 4
+    assert plan.placement("mod").arrangement == "" and b.passes == 4      # the last pass's: flip 0 favours the default
+
+
+def test_a_cell_that_cycles_through_three_names_each_it_took_in_the_order_it_took_them():
+    b = declared_copper_board(counted(Cycling), passes=4, geometry=three_offered())
+    plan = b.resolve()
+    (f,) = [f for f in plan.findings if f.cause == "fixed.room_unsettled" and f.facts.get("item") == "mod"]
+    assert f.facts["arrangements"] == ["c_in.a", "c_in.b", "default"] and f.facts["passes"] == 4
+    assert plan.placement("mod").arrangement == "c_in.a" and b.passes == 4
