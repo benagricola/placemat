@@ -117,8 +117,8 @@ The study has to be quick because its value is early feedback.
 best map at any rotation saves at least `pins.gain_min` of the total.
 
 Facts: the part(s); the present total and crossings; per rotation the best
-total, crossings (against others, among studied nets, weighted), length, and
-the map (net, from pin and name, to pin and name); which constraints held
+total, crossings (against others, among studied nets, weighted), length, the
+summed bend angle, and the map (net, from pin and name, to pin and name); which constraints held
 nets in place; the combinations searched and whether the budget ran out.
 
 Rendered at the edge (finding_text): "U1: a pin map with 88 fewer weighted
