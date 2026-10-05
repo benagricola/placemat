@@ -27,6 +27,10 @@ Deliberate divergences from the cleaner:
     that lock does not make them declared copper, so the router's copper is
     taken whether locked or not. A merge joins two pieces only when both
     are locked or both are not.
+  * A net still unconnected in the routed copy keeps its router copper,
+    dangling or not: the router keeps a failed net's copper on purpose (KRT
+    cleanup_pipeline.py, protected nets, #473), as progress a later route or
+    a hand builds on. The nets kept for that are named in the result.
   * The cleaner does not check what a deletion does to connectivity. Here
     the removal is kept only if the board's unconnected count did not rise;
     otherwise the copy is left as the router wrote it and the result says
@@ -45,12 +49,14 @@ class Cleanup:
     each). `refused` is set when removing the dangling copper would have
     raised the unconnected count (`unconnected` = (before, with it removed));
     the copy is then left as the router wrote it, and the counts say what
-    was found."""
+    was found. `kept_unrouted` names the nets left unconnected whose
+    dangling router copper was kept."""
     tracks: dict = field(default_factory=dict)
     vias: dict = field(default_factory=dict)
     merged: dict = field(default_factory=dict)
     refused: bool = False
     unconnected: tuple = (0, 0)
+    kept_unrouted: list = field(default_factory=list)
 
     @property
     def removed(self) -> int:
@@ -58,12 +64,12 @@ class Cleanup:
 
     def record(self) -> dict:
         return {"tracks": dict(self.tracks), "vias": dict(self.vias), "merged": dict(self.merged),
-                "refused": self.refused, "unconnected": list(self.unconnected)}
+                "refused": self.refused, "unconnected": list(self.unconnected), "kept_unrouted": list(self.kept_unrouted)}
 
     @classmethod
     def from_record(cls, d: dict) -> "Cleanup":
         return cls(dict(d.get("tracks") or {}), dict(d.get("vias") or {}), dict(d.get("merged") or {}),
-                   bool(d.get("refused")), tuple(d.get("unconnected") or (0, 0)))
+                   bool(d.get("refused")), tuple(d.get("unconnected") or (0, 0)), list(d.get("kept_unrouted") or []))
 
 
 def _key(t) -> tuple:
@@ -96,11 +102,30 @@ def _unconnected(board) -> int:
     return cn.GetUnconnectedCount(False)
 
 
-def delete_dangling(board, mine: set, pcbnew) -> tuple:
+def unrouted_nets(board) -> set:
+    """The nets with two or more pads that are not all in one connected cluster."""
+    board.BuildConnectivity()
+    cn = board.GetConnectivity()
+    pads = {}
+    for p in board.GetPads():
+        if p.GetNetCode() > 0:
+            pads.setdefault(p.GetNetname(), []).append(p)
+    open_ = set()
+    for net, ps in pads.items():
+        if len(ps) < 2:
+            continue
+        joined = {i.m_Uuid.AsString() for i in cn.GetConnectedItems(ps[0]) if i.GetClass() == "PAD"}
+        if any(p.m_Uuid.AsString() not in joined for p in ps[1:]):
+            open_.add(net)
+    return open_
+
+
+def delete_dangling(board, mine: set, pcbnew, keep_nets=frozenset()) -> tuple:
     """TRACKS_CLEANER::deleteDanglingTracks (tracks_cleaner.cpp:275-332),
-    tracks and vias, over the items whose uuid is in `mine`. Returns
-    ({net: tracks deleted}, {net: vias deleted})."""
-    tracks, vias = Counter(), Counter()
+    tracks and vias, over the items whose uuid is in `mine`; a dangling item
+    on a net in `keep_nets` stays. Returns ({net: tracks deleted}, {net: vias
+    deleted}, the nets of `keep_nets` with a dangling item kept)."""
+    tracks, vias, kept = Counter(), Counter(), set()
     while True:
         board.BuildConnectivity()
         cn = board.GetConnectivity()
@@ -109,13 +134,16 @@ def delete_dangling(board, mine: set, pcbnew) -> tuple:
             if t.HasFlag(pcbnew.IS_DELETED) or t.m_Uuid.AsString() not in mine:
                 continue
             if cn.TestTrackEndpointDangling(t, False):
+                if t.GetNetname() in keep_nets:
+                    kept.add(t.GetNetname())
+                    continue
                 t.SetFlags(pcbnew.IS_DELETED)      # the rest of the pass sees it gone (connectivity_data.cpp:840)
                 gone.append(t)
         for t in gone:
             (vias if t.GetClass() == "PCB_VIA" else tracks)[t.GetNetname()] += 1
             board.Delete(t)
         if not gone:
-            return dict(tracks), dict(vias)
+            return dict(tracks), dict(vias), kept
 
 
 def _on_ends(track, p) -> bool:
@@ -243,16 +271,18 @@ def remove_dangling_router_copper(pcb_path: str, given_path: str) -> Cleanup:
     mine = router_copper(board, given)
     if not mine:
         return Cleanup()
+    unrouted = unrouted_nets(board)
     before = _unconnected(board)
-    tracks, vias = delete_dangling(board, mine, pcbnew)
+    tracks, vias, kept = delete_dangling(board, mine, pcbnew, unrouted)
+    kept = sorted(kept)
     if not (tracks or vias):
-        return Cleanup(unconnected=(before, before))
+        return Cleanup(unconnected=(before, before), kept_unrouted=kept)
     after = _unconnected(board)
     if after > before:
-        return Cleanup(tracks, vias, {}, True, (before, after))
-    live = {t.m_Uuid.AsString() for t in board.GetTracks()} & mine
+        return Cleanup(tracks, vias, {}, True, (before, after), kept)
+    live = {t.m_Uuid.AsString() for t in board.GetTracks() if t.GetNetname() not in unrouted} & mine
     merged = merge_collinear(board, live, pcbnew)
     after = _unconnected(board)
     with quiet_stderr():
         board.Save(pcb_path)
-    return Cleanup(tracks, vias, merged, False, (before, after))
+    return Cleanup(tracks, vias, merged, False, (before, after), kept)

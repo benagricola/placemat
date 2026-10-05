@@ -183,3 +183,37 @@ def test_a_removal_that_would_open_a_connection_is_refused(tmp_path, monkeypatch
     result = remove_dangling_router_copper(str(routed), str(given))
     assert result.refused and result.unconnected == (3, 4) and result.tracks == {"A": 5}
     assert routed.read_text() == text
+
+
+def test_the_routers_partial_copper_on_a_net_it_left_unrouted_stays(tmp_path):
+    """The router keeps the copper of a net it failed (KRT cleanup_pipeline.py,
+    protected nets, #473): progress a later route builds on. A net still
+    unconnected in the routed copy keeps its dangling router copper, and the
+    record names it."""
+    import pcbnew
+    from pcbnew import FromMM as mm, VECTOR2I as V
+    given = _board(tmp_path / "given.kicad_pcb", router=False)
+    routed = _board(tmp_path / "routed.kicad_pcb", router=True)
+    for path, partial in ((given, False), (routed, True)):
+        b = pcbnew.LoadBoard(str(path))
+        nc = pcbnew.NETINFO_ITEM(b, "C")
+        b.Add(nc)
+        fp = b.GetFootprints()[0]
+        for num, x in (("5", 50), ("6", 66)):
+            pad = pcbnew.PAD(fp)
+            pad.SetSize(V(mm(1), mm(1)))
+            pad.SetPosition(V(mm(x), mm(59)))
+            pad.SetLayerSet(pad.SMDMask())
+            pad.SetNet(nc)
+            pad.SetNumber(num)
+            fp.Add(pad)
+        if partial:
+            _track(b, nc, 50, 59, 53, 59)                 # the router's start on C, ending in nothing
+            _track(b, nc, 53, 59, 54, 58)
+        b.Save(str(path))
+    result = remove_dangling_router_copper(str(routed), str(given))
+    assert result.tracks == {"A": 5}
+    assert result.kept_unrouted == ["C"]
+    left = _router_tracks(routed)
+    assert (50.0, 59.0, 53.0, 59.0, "C", False) in left and (53.0, 59.0, 54.0, 58.0, "C", False) in left
+    assert "dangling router copper kept on 1 unrouted net(s): C" in _report(result.record()).summary()

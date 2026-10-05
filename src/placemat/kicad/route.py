@@ -122,7 +122,8 @@ class RouteReport:
     net_halo_trapped: list = field(default_factory=list)
     net_halo_facts: list = field(default_factory=list)
     # The router's dangling copper taken off the routed copy (route_cleanup.py, KiCad's TRACKS_CLEANER): Cleanup.record(),
-    # {"tracks": {net: n}, "vias": {net: n}, "merged": {net: n}, "refused": bool, "unconnected": [before, after]}.
+    # {"tracks": {net: n}, "vias": {net: n}, "merged": {net: n}, "refused": bool, "unconnected": [before, after],
+    # "kept_unrouted": [nets left unconnected whose dangling router copper was kept]}.
     dangling_removed: dict = field(default_factory=dict)
 
     def has_findings(self) -> bool:
@@ -177,6 +178,8 @@ class RouteReport:
                     tracks, vias, *d.get("unconnected", (0, 0)))
             else:
                 head += "  dangling router copper removed: %d track(s), %d via(s) on %d net(s)" % (tracks, vias, nets)
+        if d.get("kept_unrouted"):
+            head += "  dangling router copper kept on %d unrouted net(s): %s" % (len(d["kept_unrouted"]), ", ".join(d["kept_unrouted"]))
         if self.widths:
             from .route_widths import brief
             head += "  UNDER WIDTH: " + "; ".join(brief(r) for r in self.widths)
