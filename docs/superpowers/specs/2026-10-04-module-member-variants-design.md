@@ -2,6 +2,7 @@
 
 Date: 2026-10-04
 Status: approved (2026-10-04).
+Built: 2026-10-05, see Build notes.
 Source: a board's session, 2026-10-04, and the user's approval of points 1 to 3 of its proposal. Point 4 (a free
 board-level override of a member's place) is not in this spec.
 
@@ -721,3 +722,19 @@ Firm passes: the redo of the firm phase follows the settle rule above literally.
 a different arrangement from the pass before it is not settled, and on the first pass there is no pass before it. So a
 board with declared copper room (copper-room passes) and a firm cell offering several arrangements always runs at least
 2 firm passes. No board on the bench has both.
+
+Final gate (2026-10-05, fixtures/bench.py --arrangements, seconds, one run, other sessions on the machine):
+
+| Run | Arrangements off | Arrangements on | Budget | Met |
+|---|---|---|---|---|
+| Module run, k = 4 arrangements | 2.5 (one arrangement) | 8.7 | at most k times the one-arrangement run | yes, 3.5x against 4x |
+| Board of cells and loose parts | 5.16 | 6.37 | on at most 1.25 times off | yes, 1.23x |
+| Board of firm cells and loose parts | 1.53 | 2.18 | on a small multiple of off | yes, 1.4x |
+| Board of stamped cells only | 2.11 | 3.78 | none | 1.8x |
+
+Choices and scores are those of the earlier gates: the board's score is 104491.2 off and 98325.9 on with 25 items placed
+against 24 and 3 arrangements taken; the firm case is 19619.4 off and 19525.6 on with 10 of 30 cells taking an
+arrangement; the stamped board takes none. The whole-board check (30 cells, 29 given a note, each pinned to it) ran with
+the groups intact. The default bench is the same in every case on all three configurations (33 each), the full suite is
+5486 passed and 22 skipped, and 3 tests in tests/test_version.py fail only because the worktree's _version.py is main's
+0.99.14 while the branch's plugin files still say 0.99.13.
