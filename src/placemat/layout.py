@@ -25,7 +25,7 @@ import time
 import types
 
 from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
-                     pair_ops, polyline_tracks, resolve_bridges, _point_seg)
+                     pair_ops, polyline_tracks, resolve_bridges, _point_seg, _seg_seg_dist)
 from .geometry import native_status, Transform, box_polygon, circle_polygon, circle_poly_gap, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, pose_transform, segments_intersect, transform_box, transform_polygon
 from . import blame, finding_text, step_text
 from .phases import Stage
@@ -34,7 +34,7 @@ from .refusals import Code, Refusal, ReservedBy
 from .findings import Finding, FindingCause as C, Findings
 from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
 from .occupancy import LABEL_SOURCE, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
-from .cutouts import Arc, Cutouts, Path, _turned, loop_gap, signed_area
+from .cutouts import Arc, Cutouts, Path, _turned, crosses as _crosses, flatten_path_legs, inside as _in_loop, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
@@ -44,7 +44,7 @@ from .arrangements import (DEFAULT_SPEC, Alt, Enumeration, Exclusion, Group, Gro
 from .placer import BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
-from .values import (Tangent, Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Tangent, Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, LabelKey, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      PinName, Priority, X, Y, pad_key)
 from .values import Figure, FigurePoint, Reach
 
@@ -428,7 +428,8 @@ class _BesideSpec:
     envelope's own), and `align` normalised to `("along", Along)`,
     `("pads", own_key, PadRef)` - `own_key` a pad of the part being placed,
     the `PadRef` a pad of `item` (its own net when align was a bare
-    PadRef) - or `("past", own_key, Past)`, a Past over pads. `copper`:
+    PadRef) - or `("past", own_key, Past)`, a Past over pads, cutouts,
+    stretches of edge, parts and cells. `copper`:
     the standoff is measured pad copper to pad copper, not envelope to
     envelope, and `gap` is added to the pairs' clearance."""
     item: object
@@ -632,7 +633,7 @@ class CutoutHandle:
         if not self.settled:
             if kw or side is None:
                 self.edges(side, within, **kw)          # raise the same way for a bad call
-            return CutoutEdge(self.name, side, within)
+            return CutoutEdge(self.name, side, within, board=self._board)
         runs = self.edges(side, within, **kw)
         if len(runs) == 1:
             return runs[0]
@@ -996,6 +997,7 @@ class Board:
         self._copper_after: dict = {}      # copper intent index -> the intents it is planned after, and so late when they are
         self._labels: list = []
         self._label_ids: dict = {}         # label key -> (its item as the key names it, its text)
+        self._label_keys: dict = {}        # label key text -> the LabelKey board.label() returned: a Past names this board's
         self._fanouts: list = []           # (key, footprint, depth, sides or None, why)
         self._escapes: list = []           # the EscapeDecl of each board.escape() (lanes.py)
         self._escape_laid: dict = {}       # escape index -> its Layout, once its part is placed
@@ -1024,6 +1026,7 @@ class Board:
         self._groups: dict = {}             # the KiCad groups a script declared, by name (DeclaredGroup)
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
+        self._edge_loops = None             # (the outline, its cutouts' loops, _edge_loop_info's loops) as last read
         self._sized = False                 # the script has declared the board size
         self._fit = False                   # board.rect(fit=True): the frame is the placed content plus a margin
         self._fit_margin = 0.0
@@ -2423,14 +2426,26 @@ class Board:
             self._pad_ref(ref)                          # real pads, parts, cells
 
     def _check_beside_past(self, key: str, side: Edge, p: Past):
-        """A Past in Beside's align: over pads only, since a placement is
-        decided before any copper is planned; no `across=`, since `side`
-        decides that axis; and an edge on the other axis."""
+        """A Past in Beside's align: over pads, cutouts, stretches of edge, parts and cells - what has its place before
+        the part is placed. Vias and tracks are planned after every placement, a label gives way to parts placed after
+        it, and a cutout with a freedom is slid only once every firm item is down, so they are refused. No `across=`,
+        since `side` decides that axis; and an edge on the other axis."""
+        self._check_past(p, key, lane=True)
         for it in p.items:
             if isinstance(it, CopperIntent):
                 raise TypeError("%s: a placement is decided before copper is planned; Past in Beside's align "
-                                "takes pads, not %s" % (key, it.key))
-            self._pad_ref(it)                           # a real pad, checked now
+                                "takes pads, cutouts, stretches of edge, parts and cells, not %s" % (key, it.key))
+            if isinstance(it, LabelKey):
+                raise TypeError("%s: a label gives way to the parts placed after it, so its place is not known when this "
+                                "part is placed; Past in Beside's align takes pads, cutouts, stretches of edge, parts "
+                                "and cells, not %s" % (key, it))
+            if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
+                if self._cutout_free(self._named_cutouts[it.name]):
+                    raise ValueError("%s: cutout %r has a freedom, and the board slides such a hole only once every firm "
+                                     "item is down; a Beside placement is firm, so give the cutout a decided place to "
+                                     "stand this part past it" % (key, it.name))
+            elif isinstance(it, (PadRef, CellPadRef)):
+                self._pad_ref(it)                       # a real pad, checked now
         if p.across is not None:
             raise TypeError("%s: Beside's side decides where the part stands along the pads; Past in its "
                             "align takes no across=" % key)
@@ -2442,6 +2457,31 @@ class Board:
                 "NORTH or SOUTH" if upright else "EAST or WEST", p.edge.name))
         if p.lane is not None:
             self.geometry.require_net(p.lane)
+
+    def _beside_past_groups(self, occ: Occupancy, past: Past, own_net: str, own_owner) -> list:
+        """[(box, to own, to lane)] for each group of a Past in Beside's align: what the own pad's facing edge stands
+        past. The pads (a named part's or cell's included) are one group: their box, the worst clearance from the own
+        pad's net to theirs, and from theirs to the lane's net. A cutout or a stretch of edge: its box (as a track's Past
+        reads it) and the copper-to-edge clearance either way. A part's or a cell's envelope: its box, and 0."""
+        lane = self.geometry.require_net(past.lane) if past.lane is not None else None
+        edge_rule = self.geometry.edge_clearance
+        shapes, out = [], []
+        for it in past.items:
+            if isinstance(it, (PadRef, CellPadRef)):
+                shapes += _pad_shapes(self, occ, it)
+            elif isinstance(it, (Part, Cell)):
+                shapes += [sh for fp in members_of(self._item(it)[0]) for sh in occ.items[fp.ref].shapes
+                           if sh.kind in ("pad", "through")]
+                out.append((self._placed_envelope_box(occ, it), 0.0, 0.0))
+            elif isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
+                out.append((_cutout_box(self, it), edge_rule, edge_rule))
+            elif isinstance(it, Run):
+                out.append((_run_box(self, it), edge_rule, edge_rule))
+        if shapes:
+            to_own = max(self._clearance(own_net, sh.net, own_owner, sh.owner) for sh in shapes)
+            to_lane = max(self._clearance(sh.net, lane, sh.owner) for sh in shapes) if lane is not None else 0.0
+            out.insert(0, (Box.union([sh.box for sh in shapes]), to_own, to_lane))
+        return out
 
     def _check_beside_lane(self, key: str, side: Edge, lane: Lane) -> None:
         """A lane in Beside's align: this board's, and where its line is known now
@@ -2615,7 +2655,7 @@ class Board:
                 start = lo + along.fraction * (hi - lo - (own_box.right - own_box.left))
                 ox = start - own_box.left
         elif align_kind == "past":
-            # the own pad's facing edge the clearance, or a lane, past the pads' edge
+            # the own pad's facing edge its stand-off, or a lane, past each group of the items
             own_key, past = b.align[1], b.align[2]
             bare = self._bare_occupancy()
             g = bare._geometry(i.item)
@@ -2623,23 +2663,36 @@ class Board:
             own_pad = i.item.pad(own_key)
             own = Box.union([transform_box(s.box, t) for s in g.shapes
                              if s.kind in ("pad", "through") and s.label == own_pad.number])
-            shapes = [sh for ref in past.items for sh in _pad_shapes(self, occ, ref)]
-            box = Box.union([sh.box for sh in shapes])
-            off = _lane_distance(self, own_pad.net, shapes, past.lane, past.width, own_pad.owner)
+            for it in past.items:
+                if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)) and it.name not in self._settled_cutouts:
+                    # waited for, so it was refused (its finding says why), as Beside of a keepout with no place is
+                    raise ValueError("%s: cutout %r has no place, so there is nothing to stand past" % (i.key, it.name))
+            groups = self._beside_past_groups(occ, past, own_pad.net, own_pad.owner)
+            box = Box.union([gb for gb, _, _ in groups])
+            if past.lane is None:
+                dists = [(gb, to_own) for gb, to_own, _ in groups]
+            else:
+                lane = self.geometry.require_net(past.lane)
+                lw = self._width(lane, past.width)
+                c_own = self._clearance(lane, own_pad.net, None, own_pad.owner)
+                dists = [(gb, to_lane + lw + c_own) for gb, _, to_lane in groups]
             if isinstance(past.edge, Corner):
-                # the own pad's corner that faces back across the 45 stands `off` out along the
-                # diagonal from the pads' corner; the side has decided one axis, this the other
+                # the own pad's corner that faces back across the 45 stands out along the diagonal from the union's
+                # corner far enough to pass each group's corner at its distance; the side has decided one axis, this
+                # the other
                 sx, sy = past.edge.signs
                 c = _box_corner(box, past.edge)
                 qx = own.left if sx > 0 else own.right
                 qy = own.top if sy > 0 else own.bottom
-                reach = off * math.sqrt(2.0)            # sx * dx + sy * dy of the own corner off the pads'
+
+                def behind(gb):         # how far a group's corner stands behind the union's along the outward diagonal
+                    gc = _box_corner(gb, past.edge)
+                    return sx * (gc.x - c.x) + sy * (gc.y - c.y)
+                reach = max(behind(gb) + dist * math.sqrt(2.0) for gb, dist in dists)
                 if past.lane is not None:
-                    # off the lane's own point as a track's Past takes it, rounded away from the pads,
+                    # off the lane's own point as a track's Past takes it, rounded away from the items,
                     # so that rounding cannot put the lane's track nearer the own pad than its clearance
-                    lane = self.geometry.require_net(past.lane)
-                    lw = self._width(lane, past.width)
-                    d = (lw / 2.0 + max(self._clearance(sh.net, lane, sh.owner) for sh in shapes)) / math.sqrt(2.0)
+                    d = max(behind(gb) / 2.0 + (lw / 2.0 + to_lane) / math.sqrt(2.0) for gb, _, to_lane in groups)
                     px, py = _round_away(c.x + sx * d, sx), _round_away(c.y + sy * d, sy)
                     reach = (sx * (px - c.x) + sy * (py - c.y)
                              + (lw / 2.0 + self._clearance(lane, own_pad.net)) * math.sqrt(2.0))
@@ -2648,13 +2701,13 @@ class Board:
                 else:
                     oy = _round_away(c.y - qy + sy * (reach - sx * (qx + ox - c.x)), sy)
             elif past.edge is Edge.EAST:
-                ox = box.right + off - own.left
+                ox = max(gb.right + dist for gb, dist in dists) - own.left
             elif past.edge is Edge.WEST:
-                ox = box.left - off - own.right
+                ox = min(gb.left - dist for gb, dist in dists) - own.right
             elif past.edge is Edge.SOUTH:
-                oy = box.bottom + off - own.top
+                oy = max(gb.bottom + dist for gb, dist in dists) - own.top
             else:
-                oy = box.top - off - own.bottom
+                oy = min(gb.top - dist for gb, dist in dists) - own.bottom
         else:
             own_key, their = b.align[1], b.align[2]
             anchored = pad_anchored_placement(self._bare_occupancy(), i.item, own_key, Location(0.0, 0.0),
@@ -3373,7 +3426,12 @@ class Board:
             elif beside.align[0] == "lane":
                 needs.add(self._pad_ref(beside.align[2])[0])
             elif beside.align[0] == "past":
-                needs |= {self._pad_ref(ref)[0] for ref in beside.align[2].items}
+                for it in beside.align[2].items:
+                    if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
+                        if it.name not in self._settled_cutouts:
+                            needs.add(cutout_token(it.name))    # cut in the firm pass, before this part stands past it
+                    elif not isinstance(it, Run):
+                        needs.add(self._pad_ref(it)[0])         # a pad's part, a part, a cell: placed before this
         if _row_of is not None:
             needs.add(self._pad_ref(_row_of)[0])
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
@@ -5600,11 +5658,12 @@ class Board:
         for one, txt in zip(items, texts):
             if isinstance(one, (PadRef, CellPadRef)):
                 self._pad_ref(one)                             # a real pad, checked now
-                key = "label %s %s" % (self._pad_ref(one)[0], txt)
+                key = LabelKey("label %s %s" % (self._pad_ref(one)[0], txt))
             else:
-                key = "label %s %s" % (self._item(one)[1], txt)
+                key = LabelKey("label %s %s" % (self._item(one)[1], txt))
             self._label_ids[key] = (self._pad_ref(one)[0] if isinstance(one, (PadRef, CellPadRef)) else self._item(one)[1],
                                     str(txt))
+            self._label_keys[str(key)] = key
             self._labels.append((key, one, txt, Edge(side), float(gap), align, float(size), float(thickness),
                                  bool(knockout), float(rotation), why, bool(reserve), group))
             keys.append(key)
@@ -5653,6 +5712,8 @@ class Board:
                             "point; a track goes on from it, it does not come back to one" % net)
         begins = None
         lane_points = ()
+        waypoints = max(0, len(points) - 2)     # the script's own points between the ends; a lane's are not waypoints
+        script_points = len(points)             # the script's list: a lane alone is one point, whatever it stands for
         if points and isinstance(points[0], Lane):
             begins = points[0]
             decl = self._escapes[begins.index]
@@ -5750,18 +5811,23 @@ class Board:
                 cut_pts, diagonals = chamfer_cuts(pts, chamfer)
                 ops = polyline_tracks(name, layer, w, cut_pts)
             for p in corners:
-                # the lane runs past every item named, but only copper on this track's layer can be passed too close
-                on = _past_reach(self, ctx, name, w, p, intent.key, intent.index, layer)
-                if on is None:
+                # the lane runs past every item named; the verdict judges the groups a rule judges this track's
+                # layer against: the copper on it, every hole and stretch of edge
+                groups = _past_groups(self, ctx, name, p, intent.key, intent.index, layer=layer)
+                if isinstance(groups, Refusal):
                     continue
-                box, off, names = on
-                c = _box_corner(box, p.edge)
-                near = min((_point_seg(c, Location(*a), Location(*b))[0] for t in ops for a, b in t.chords()),
-                           default=math.inf)
-                if near < off - 1e-6:
+                short = []
+                for g in groups:
+                    reach = w / 2.0 + g.standoff
+                    near = _corner_near(g, p.edge, [(Location(*a), Location(*b)) for t in ops for a, b in t.chords()])
+                    if near < reach - 1e-6:
+                        short.append((reach - near, near, reach, g.names))
+                if short:
+                    _, near, reach, _ = max(short, key=lambda s: s[0])
+                    names = _distinct_names(n for *_, ns in short for n in ns)
                     ctx.notes.append(Finding(C.COPPER_CORNER, {
-                        "key": copper_id(intent), "net": name, "edge": p.edge.value, "names": list(names),
-                        "near_mm": near - w / 2.0, "need_mm": off - w / 2.0, "chamfer_mm": chamfer}, "critical"))
+                        "key": copper_id(intent), "net": name, "edge": p.edge.value, "names": names,
+                        "near_mm": near - w / 2.0, "need_mm": reach - w / 2.0, "chamfer_mm": chamfer}, "critical"))
             if chamfer > 0 and not arc:
                 # the 45 a corner's own cut emits, not a straight leg that merely
                 # happens to run between two separate corners' cuts
@@ -5795,31 +5861,128 @@ class Board:
             hits = self._through_hits(ctx, ops, bridge)
             if hits is not None:
                 ctx.note(C.COPPER_NOT_DRAWN, {"variant": "through", "key": copper_id(intent), "layer": layer.name,
-                                              "net": name, "waypoints": max(0, len(points) - 2),
+                                              "net": name, "waypoints": waypoints, "lane": begins is not None,
                                               **self._track_through_facts(ctx, hits, intent.index)})
                 return []
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge, only=self._only(only, "track"))
+        if any(isinstance(it, LabelKey) for p in points if isinstance(p, Past) for it in p.items):
+            self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         self._copper_uses[intent.index] = tuple(p.index for p in points if isinstance(p, CopperIntent))
+        self._plan_after_copper(intent, points)
         intent.declared = {"layer": layer.name, "chamfer": chamfer, "radius": arc_r, "arc": bool(arc),
-                           "waypoints": max(0, len(points) - 2) if begins is None else 0}
+                           "waypoints": waypoints, "script_points": script_points, "lane": begins is not None}
         if begins is None and len(points) >= 2 and all(isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points):
             self._pad_tracks.add(intent.index)
         return intent
 
     def _check_past(self, p: Past, what: str, lane: bool = False):
-        """A Past's vias and tracks are this board's; `lane=` only where
-        `lane` says it means something (Beside's align)."""
+        """A Past's items are this board's: its vias and tracks, its named cutouts, its labels, real parts and cells;
+        `lane=` only where `lane` says it means something (Beside's align)."""
         for it in p.items + (p.across,):
             if isinstance(it, CopperIntent) and not any(it is c for c in self._copper):
                 raise TypeError("%s: %s is copper of another board" % (what, it.key))
+            if isinstance(it, LabelKey) and self._label_keys.get(str(it)) is not it:
+                raise TypeError("%s: %s is not a label of this board; name what this board's board.label() returned"
+                                % (what, it))
+            if isinstance(it, (Part, Cell)):
+                self._item(it)                          # a real part or cell, checked now
+            if isinstance(it, CutoutHandle) and it._board is not self:
+                raise TypeError("%s: cutout %r is another board's" % (what, it.name))
+            if isinstance(it, CutoutEdge) and it.board is not None and it.board is not self:
+                raise TypeError("%s: a stretch of cutout %r is another board's (board.cutout(name).edge() of that "
+                                "board); take the stretch from this board's cutout" % (what, it.name))
+            if isinstance(it, (Cutout, CutoutEdge)) and (
+                    it.name not in self._named_cutouts or (isinstance(it, Cutout) and self._named_cutouts[it.name] != it)):
+                raise TypeError("%s: cutout %r is not one of this board's named cutouts (the Cutout given to holes=, or "
+                                "board.cutout(name)); declare the board's holes before the copper that passes them"
+                                % (what, it.name))
         for it in p.items:
-            if getattr(it, "edge", None) is not None:
+            if getattr(it, "edge", None) is not None and isinstance(it, (PadRef, CellPadRef)):
                 raise TypeError("%s: Past's items are the copper it is held off; a PadRef's edge= is a track "
                                 "point on that edge, so name the pad without it" % what)
         if p.lane is not None and not lane:
             raise TypeError("%s: Past's lane= is for Beside's align, where it leaves room for a track "
                             "between a part's pad and the items; a Past here keeps its own clearance" % what)
+
+    def _edge_loop_info(self) -> tuple:
+        """An `_EdgeLoop` for each loop of the board's edge: 0 the outline (name None), then each hole, named by its
+        cutout's name, or None for a raw path. `curved`: the loop is drawn from arcs (a disc's rim or bore, or a path
+        with an Arc leg), so its chords stand up to `geometry.arc_sag` inside the curve KiCad judges, as
+        `_report_cell_labels_at_edge` reads it. `toward`, a flag per leg: the leg is a chord of an arc whose curve
+        stands on the copper's side of it (a hole's arc bulging out of the hole, an outline's arc bulging into the
+        board), so copper by it is up to that leg's sagitta nearer the curve than the chord; `allows`, what
+        copper.edge judges each leg further by: its sagitta, `geometry.arc_sag` at the least, where `toward`, else 0.
+        Kept on the board until the edge changes: a new outline object (`_shaped`, rebuilt whenever a hole settles or
+        the outline is declared) or a cutout's loop."""
+        shape = self._shaped()
+        names = {k: n for n, k in self._cutout_loop_of.items()}
+        held = self._edge_loops
+        if held is not None and held[0] is shape and held[1] == names:
+            return held[2]
+        disc = isinstance(self._shape, Disc)
+        sag = self.settings.geometry_arc_sag
+        out = []
+        for k, loop in enumerate(shape.loops):
+            if disc and (k == 0 or (k == 1 and bool(self._shape.bore))):
+                centres = (self._shape.centre.x, self._shape.centre.y)
+                centres = [centres] * len(loop)                     # a rim or a bore: every leg a chord of its circle
+            else:
+                centres = flatten_path_legs(shape.paths[k])[1]
+            curved = any(c is not None for c in centres)
+            toward, sags = _legs_toward(loop, centres, k)
+            allows = tuple(max(sag, a) if t else 0.0 for t, a in zip(toward, sags))
+            out.append(_EdgeLoop(k, loop, curved, names.get(k), Box.of_points(loop), toward, allows,
+                                 max(allows, default=0.0)))
+        self._edge_loops = (shape, names, tuple(out))
+        return self._edge_loops[2]
+
+    def _judges_edge(self) -> bool:
+        """Whether copper is judged against this board's edge: its outline is known and is drawn. A fragment's frame
+        (`draw=False`, a module run) is never written to Edge.Cuts and its DRC judges no edge, so it is not one."""
+        return self._draw_outline and (self._shape is not None or self._outline is not None)
+
+    def _past_off_board(self, at: Location):
+        """Why a Past's point is not on the board, `EdgeWhy.OUTSIDE` or `EdgeWhy.IN_CUTOUT`, or None; None too where the
+        edge is not judged (`_judges_edge`)."""
+        if not self._judges_edge():
+            return None
+        why = self._shaped().why_not(Box(at.x, at.y, at.x, at.y), 0.0)
+        return why if why in (EdgeWhy.OUTSIDE, EdgeWhy.IN_CUTOUT) else None
+
+    def _edge_hits(self, occ: Occupancy, shape: Shape, loops: list) -> list:
+        """The loops of the board's edge (`_edge_loop_info`) that planned copper's real outline `shape` comes nearer
+        than the copper-to-edge clearance, as (the loop's index, a copper.edge finding's facts less the declaration's
+        own) each. KiCad's EDGE_CLEARANCE_CONSTRAINT, `geometry.edge_clearance` (drc_test_provider_edge_clearance.cpp
+        testAgainstEdge collides the copper's shape with each Edge.Cuts shape at the clearance less the DRC epsilon, at
+        0 a touch): `clear_limit(check=True)`, and a gap of 0 whatever the clearance. A leg that is the chord of an arc
+        bulging toward the copper (`_EdgeLoop.toward`) is judged its own sagitta further, `geometry.arc_sag` at the
+        least, since the curve KiCad judges stands up to that much nearer; a straight leg, or the chord of an arc
+        bulging away, is judged as it is. Copper wholly inside a hole or off the board is 0 from it, `inside`."""
+        need = self.geometry.edge_clearance
+        sag = self.settings.geometry_arc_sag
+        if self._shaped().why_not(shape.box, need + max([sag] + [el.most for el in loops])) is None:
+            return []                       # on the board, and every loop further off than the most any loop asks
+        out = []
+        for el in loops:
+            allows = el.allows
+            if el.k > 0:
+                most = occ.clear_limit(need + el.most, check=True)
+                if not el.box.overlaps(shape.box, gap=max(most, 0.0) + 1e-6):
+                    continue
+            gap, at, allow = _copper_loop_gap(shape, el.loop, allows)
+            limit = occ.clear_limit(need + allow, check=True)
+            inside = False
+            probe = _copper_point(shape)
+            if gap > 0.0 and (el.k == 0) != _in_loop(el.loop, Location(*probe)):
+                gap, inside, at = 0.0, True, probe          # off the board, or in a hole, touching neither edge
+            if gap > 0.0 and gap >= limit:
+                continue
+            out.append((el.k, {"obstacle": {"form": "outline"} if el.k == 0 else {"form": "cutout", "name": el.name},
+                        "inside": inside, "at": [round(at[0], 6), round(at[1], 6)], "gap_mm": round(gap, 6),
+                        "need_mm": need, "sag_mm": allow, "rule": "copper_edge_clearance",
+                        "sides": [] if el.k == 0 else _sides_past(shape, el.box)}))
+        return out
 
     def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,
              chamfer: float | None = None, via_step: float | None = None, priority: Priority = Priority.DEFAULT,
@@ -6072,7 +6235,7 @@ class Board:
                         ctx.planned_tails.append(tail)
                         ops.append(tail)
             elif isinstance(at, Past):
-                where = _past_point(self, ctx, name, s, at, intent.key, intent.index)     # s: the via's radius out
+                where = _past_point(self, ctx, name, s, at, intent.key, intent.index, via=True)     # s: the via's radius out
                 if isinstance(where, Refusal):
                     ctx.note(C.COPPER_NOT_DRAWN, {"variant": "past", "item": intent.key,
                                                   "names": _past_names(self, at), "why": where.to_json()})
@@ -6103,12 +6266,27 @@ class Board:
             ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
         intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why, only=self._only(only, "via"))
+        if isinstance(at, Past) and any(isinstance(it, LabelKey) for it in at.items):
+            self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         if isinstance(at, FreeSpot):
             # a searched spot keeps clear of the tracks declared before it, whenever those are planned: a track
             # that waits for a searched part is drawn after a decided via is, and has no way round it
             self._copper_after[intent.index] = tuple(
                 c.index for c in self._copper if c.index < intent.index and c.key.startswith("track ") and c.net != name)
+        self._plan_after_copper(intent, [at])
         return intent
+
+    def _plan_after_copper(self, intent: CopperIntent, points):
+        """`intent` is planned after the copper among `points`: a via a track ends on, and the vias and tracks a Past
+        names. Copper planned after the search (past a label, a field of vias) makes it late too
+        (`_derive_copper_freedom`), so it is not planned before what it stands on exists."""
+        deps = []
+        for p in points:
+            for it in ((p,) if not isinstance(p, Past) else p.items + (p.across,)):
+                if isinstance(it, CopperIntent):
+                    deps.append(it.index)
+        if deps:
+            self._copper_after[intent.index] = tuple(dict.fromkeys(self._copper_after.get(intent.index, ()) + tuple(deps)))
 
     def stitch(self, net, region, *, pitch: float | None = None, size: float | None = None,
                drill: float | None = None, edge: bool = False, outside: bool = False,
@@ -8785,6 +8963,11 @@ class Board:
         track_ids = {}
         for c, _ in tracks:
             track_ids.setdefault(c.net, set()).add(copper_id(c))
+        edge_loops = self._edge_loop_info() if self._judges_edge() else None     # the loops copper.edge judges
+        edge_found = {}
+        declared_of = {}
+        for c in intents:
+            declared_of.setdefault(copper_id(c), c.declared)
         laid = {}
         for op in all_ops:
             key = owner.get(id(op)) or net_key.get(getattr(op, "net", None)) or next(iter(by_key), "")
@@ -8796,6 +8979,9 @@ class Board:
             # A zone is filled by KiCad, which pulls it back round other copper.
             skip_findings = isinstance(op, Zone)
             if not skip_findings:
+                which = owner_id.get(id(op)) or (next(iter(track_ids[op.net])) if len(track_ids.get(op.net, ())) == 1 else None)
+                declared = declared_of.get(which, {}) if which else {}
+                layer = getattr(op, "layer", None)
                 hits = occ.copper_conflicts(shape, check=True)       # a finding: KiCad's DRC epsilon, whatever placement uses
                 # and this batch's own copper planned before it, which reaches the occupancy only
                 # once the batch is done: a track of one net through a via of another, both planned
@@ -8816,20 +9002,29 @@ class Board:
                     elif isinstance(op, Track) and op.mid is not None:
                         extra["arc_radius_mm"] = arc_circle(op.start, op.mid, op.end)[2]
                         extra["arc_at"] = [op.mid.x, op.mid.y]
-                    which = owner_id.get(id(op)) or (next(iter(track_ids[op.net])) if len(track_ids.get(op.net, ())) == 1 else None)
-                    declared = next((c.declared for c in intents if which and copper_id(c) == which), {})
-                    layer = getattr(op, "layer", None)
                     facts = {"key": which or "", "net": op.net, "word": type(op).__name__.lower(),
                              "layer": layer.name if layer is not None else "", "waypoints": declared.get("waypoints", 0),
-                             "chamfer_hit": isinstance(op, Track) and bool(op.chamfer_cut),
+                             "lane": declared.get("lane", False), "chamfer_hit": isinstance(op, Track) and bool(op.chamfer_cut),
                              "arc_hit": isinstance(op, Track) and op.mid is not None,
                              "chamfer_mm": declared.get("chamfer"), "radius_mm": declared.get("radius"),
                              "hit": hit.to_json(), **extra}
                     plan.findings.append(self._finding(C.COPPER_MEETS, facts))
+                if edge_loops is not None:
+                    word = "finger" if key.startswith("finger") else type(op).__name__.lower()
+                    for k, facts in self._edge_hits(occ, shape, edge_loops):
+                        facts = dict(facts, key=which or "", net=op.net, word=word,
+                                     layer=layer.name if layer is not None else "", waypoints=declared.get("waypoints", 0),
+                                     script_points=declared.get("script_points", 0))
+                        # one finding per declaration and loop: a track drawn as pieces says its worst gap once
+                        at_loop = (which or id(op), k)
+                        had = edge_found.get(at_loop)
+                        if had is None or facts["gap_mm"] - facts["sag_mm"] < had["gap_mm"] - had["sag_mm"]:
+                            edge_found[at_loop] = facts
             batch.append((op, shape))
             shapes.append(shape)
             if isinstance(op, Via):
                 shapes.append(hole_shape("", op.at, op.drill, op.net, layers=frozenset(op.layers)))   # what is placed after keeps its holes clear
+        plan.findings += [self._finding(C.COPPER_EDGE, facts) for facts in edge_found.values()]
         occ.add_copper(shapes)
         if any(c.freedom.decided for c in intents):
             ctx.fixed_tracks += [op for op in ops if isinstance(op, Track)]     # a bridge's vias are not tracks
@@ -11609,19 +11804,6 @@ def _net_clearance(board: "Board", a: str, b: str) -> float:
     return board._clearance(a, b)
 
 
-def _lane_distance(board: "Board", own: str, shapes: list, lane, width=None, own_owner=None) -> float:
-    """How far a pad of net `own` (of part `own_owner`) stands past the copper
-    of `shapes`: the worst clearance between them, or with `lane` a net, room
-    for one track of it between - the clearance from the copper to the lane,
-    the lane's width (`width`, else its track width) and the clearance from
-    the lane to the pad."""
-    if lane is None:
-        return max(board._clearance(own, sh.net, own_owner, sh.owner) for sh in shapes)
-    name = board.geometry.require_net(lane)
-    return (max(board._clearance(sh.net, name, sh.owner) for sh in shapes) + board._width(name, width)
-            + board._clearance(name, own, None, own_owner))
-
-
 def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Between) -> Location:
     """Between(a, b)'s point: the midpoint of the gap's centreline, and a
     note when the gap does not fit the track and its clearance to each
@@ -11663,19 +11845,50 @@ def _past_unplanned(ops_at: dict, it, what: str, current: int | None) -> Refusal
     return None
 
 
+def _past_name(board: "Board", it) -> dict:
+    """One of a Past's items as a finding names it, a record (finding_text.past_item renders it): a via's or track's
+    {"kind": "copper", "key"}, a pad's {"kind": "pad", "ref", "number"}, {"kind": "cutout", "name"}, a part's or a
+    cell's {"kind": "part" | "cell", "name"} by its key, {"kind": "label", "key"}, and a stretch of edge's
+    {"kind": "edge", "facing"}, the bearing its void faces."""
+    if isinstance(it, CopperIntent):
+        return {"kind": "copper", "key": it.key}
+    if isinstance(it, (PadRef, CellPadRef)):
+        return _pad_name(*board._pad_ref(it)[:2])
+    if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
+        return {"kind": "cutout", "name": it.name}
+    if isinstance(it, (Part, Cell)):
+        return {"kind": "cell" if isinstance(it, Cell) else "part", "name": board._item(it)[1]}
+    if isinstance(it, LabelKey):
+        return {"kind": "label", "key": str(it)}
+    return {"kind": "edge", "facing": it.facing}                           # a Run
+
+
+def _pad_name(ref, number) -> dict:
+    return {"kind": "pad", "ref": ref, "number": str(number)}
+
+
 def _past_names(board: "Board", p: Past) -> list:
-    """What a Past's items are called in a finding: a via's or track's key,
-    a pad's refdes and number."""
-    return [it.key if isinstance(it, CopperIntent) else "%s.%s" % board._pad_ref(it)[:2] for it in p.items]
+    """A Past's items as a finding names them (`_past_name`), in the order given."""
+    return [_past_name(board, it) for it in p.items]
+
+
+def _distinct_names(names) -> list:
+    """`names` (records) with each named once, in the order first named."""
+    out = {}
+    for n in names:
+        out.setdefault(tuple(sorted(n.items())), n)
+    return list(out.values())
 
 
 def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: str,
                  current: int | None = None, layer: CopperLayer | None = None):
     """(net, box, owner, name) for every piece of copper `p.items` names: each pad's
-    shapes, each via's ring and each track's segments, as the polygons the
-    clearance check measures. With `layer`, only the copper on that layer: a
-    pad's own layers, a via's span, a track's layer. A Refusal instead when a
-    via or track has no copper (see `_past_unplanned`)."""
+    shapes (a named part's or cell's pads included), each via's ring and each
+    track's segments, as the polygons the clearance check measures. With
+    `layer`, only the copper on that layer: a pad's own layers, a via's span, a
+    track's layer. A Refusal instead when a via or track has no copper (see
+    `_past_unplanned`) or a part or cell has no place. Items that are not
+    copper (a cutout, a stretch of edge, a label) give none."""
     out = []
     for it, name in zip(p.items, _past_names(board, p)):
         if isinstance(it, CopperIntent):
@@ -11690,32 +11903,16 @@ def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: st
                     # its polygon's box: the copper the clearance check measures, a via's ring a
                     # little outside the true circle
                     out.append((op.net, op.box, "", name))
-        else:
+        elif isinstance(it, (Part, Cell)):
+            if _unplaced(board, occ, it):
+                return Refusal(Code.PAST_ITEM_UNPLACED, item=name)
+            out += [(sh.net, sh.box, sh.owner, _pad_name(sh.owner, sh.label))
+                    for fp in members_of(board._item(it)[0]) for sh in occ.items[fp.ref].shapes
+                    if sh.kind in ("pad", "through") and (layer is None or layer in sh.layers)]
+        elif isinstance(it, (PadRef, CellPadRef)):
             out += [(sh.net, sh.box, sh.owner, name) for sh in _pad_shapes(board, occ, it)
                     if layer is None or layer in sh.layers]
     return out
-
-
-def _past_reach(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Past, what: str,
-                current: int | None = None, layer: CopperLayer | None = None):
-    """(the items' combined box, `width`/2 plus the worst clearance by net
-    pair from `net` to them): what Past's point is measured from. A Refusal
-    instead, the reason, when a via or track it names has no copper.
-
-    With `layer` it is the verdict's reach instead: (box, distance, names)
-    of the items' copper on that layer alone, or None when there is none.
-    The point's lane is taken off every item, whatever face it is on."""
-    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current, layer)
-    if isinstance(copper, Refusal):
-        return copper
-    if layer is not None:
-        if not copper:
-            return None
-        names = list(dict.fromkeys(nm for *_, nm in copper))
-        return (Box.union([c[1] for c in copper]),
-                width / 2.0 + max(_pad_clearance(board, net, c[0], c[2]) for c in copper), names)
-    return (Box.union([c[1] for c in copper]),
-            width / 2.0 + max(_pad_clearance(board, net, c[0], c[2]) for c in copper))
 
 
 def _box_corner(box: Box, corner: Corner) -> Location:
@@ -11730,41 +11927,60 @@ def _lane_dirs(corner: Corner) -> set:
 
 
 def _past_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Past, what: str,
-                current: int | None = None):
-    """Past(items, edge)'s point for copper of `net`: `width`/2 plus the
-    worst clearance by net pair off the items' combined box on `edge`,
-    across it where `across` says (default the middle of the box's side).
-    At a `Corner`, that far out from the box's corner on its outward
-    diagonal. Rounded away from the items. A Refusal instead, the reason,
-    when a via or track it names has no copper."""
-    reach = _past_reach(board, ctx, net, width, p, what, current)
-    if isinstance(reach, Refusal):
-        return reach
-    box, off = reach
+                current: int | None = None, via: bool = False):
+    """Past(items, edge)'s point for copper of `net`, `width` across (a via's size): measured off the groups of its
+    items (`_past_groups`). On an Edge, far enough out of the union of their boxes' `edge` side that it stands half
+    `width` plus each group's stand-off off that group's own side; across it where `across` says (default the middle of
+    the union's side). At a Corner, on the outward diagonal from the union's corner, far enough that a 45 through it
+    passes each group's own corner at half `width` plus its stand-off (`_corner_step`). Rounded away from the items.
+    With copper alone this is the clearance off its combined box, as it always was. A Refusal instead, the reason: a
+    via or track it names has no copper, a cutout, a part or a cell has no place, a label is not drawn, or the point
+    lands off the board or in a hole."""
+    groups = _past_groups(board, ctx, net, p, what, current, via)
+    if isinstance(groups, Refusal):
+        return groups
+    box = Box.union([g.box for g in groups])
     if isinstance(p.edge, Corner):
         sx, sy = p.edge.signs
         c = _box_corner(box, p.edge)
-        d = off / math.sqrt(2.0)
-        return Location(_round_away(c.x + sx * d, sx), _round_away(c.y + sy * d, sy))
-    upright = p.edge in (Edge.EAST, Edge.WEST)          # the side runs north-south: across is y
-    lo, hi = (box.top, box.bottom) if upright else (box.left, box.right)
-    a = p.across
-    if a is None or isinstance(a, Along):
-        across = lo + (Along.MID if a is None else a).fraction * (hi - lo)
+        d = _corner_step(groups, p.edge, c, width)
+        point = Location(_round_away(c.x + sx * d, sx), _round_away(c.y + sy * d, sy))
     else:
-        if isinstance(a, CopperIntent):
-            why = _past_unplanned(ctx.ops_at, a, what, current)
-            if why is not None:
-                return why
-        at = _edge_point(board, ctx.occ, width, a) if getattr(a, "edge", None) is not None else ctx.locate(a)
-        across = at.y if upright else at.x
-    if p.edge is Edge.EAST:
-        return Location(_round_away(box.right + off, 1), round(across, 6))
-    if p.edge is Edge.WEST:
-        return Location(_round_away(box.left - off, -1), round(across, 6))
-    if p.edge is Edge.NORTH:
-        return Location(round(across, 6), _round_away(box.top - off, -1))
-    return Location(round(across, 6), _round_away(box.bottom + off, 1))         # SOUTH
+        upright = p.edge in (Edge.EAST, Edge.WEST)          # the side runs north-south: across is y
+        lo, hi = (box.top, box.bottom) if upright else (box.left, box.right)
+        a = p.across
+        if a is None or isinstance(a, Along):
+            across = lo + (Along.MID if a is None else a).fraction * (hi - lo)
+        elif isinstance(a, (Cutout, CutoutHandle)):
+            hole = _cutout_box(board, a)
+            if hole is None:
+                return Refusal(Code.PAST_CUTOUT_UNPLACED, name=a.name)
+            across = hole.center.y if upright else hole.center.x
+        elif isinstance(a, (Part, Cell)):
+            if _unplaced(board, ctx.occ, a):
+                return Refusal(Code.PAST_ITEM_UNPLACED, item=board._item(a)[1])
+            centre = board._placed_envelope_box(ctx.occ, a).center
+            across = centre.y if upright else centre.x
+        else:
+            if isinstance(a, CopperIntent):
+                why = _past_unplanned(ctx.ops_at, a, what, current)
+                if why is not None:
+                    return why
+            at = _edge_point(board, ctx.occ, width, a) if getattr(a, "edge", None) is not None else ctx.locate(a)
+            across = at.y if upright else at.x
+        reach = [(g.box, width / 2.0 + g.standoff) for g in groups]
+        if p.edge is Edge.EAST:
+            point = Location(_round_away(max(b.right + r for b, r in reach), 1), round(across, 6))
+        elif p.edge is Edge.WEST:
+            point = Location(_round_away(min(b.left - r for b, r in reach), -1), round(across, 6))
+        elif p.edge is Edge.NORTH:
+            point = Location(round(across, 6), _round_away(min(b.top - r for b, r in reach), -1))
+        else:                                                                       # SOUTH
+            point = Location(round(across, 6), _round_away(max(b.bottom + r for b, r in reach), 1))
+    off = board._past_off_board(point)
+    if off is not None:
+        return Refusal(Code.PAST_OFF_BOARD, at=[point.x, point.y], edge=off.value, names=_past_names(board, p))
+    return point
 
 
 def _round_away(v: float, sign: int) -> float:
@@ -11773,6 +11989,311 @@ def _round_away(v: float, sign: int) -> float:
     float noise under 1e-9 mm is not rounded up."""
     q = v * 1e6
     return (math.ceil(q - 1e-3) if sign > 0 else math.floor(q + 1e-3)) / 1e6
+
+
+def _unplaced(board: "Board", occ: Occupancy, item) -> bool:
+    """Whether a Part or a Cell has no place: a member not on the occupancy, or still pending (the search found none)."""
+    return any(fp.ref not in occ.items or fp.ref in occ.pending for fp in members_of(board._item(item)[0]))
+
+
+@dataclass(frozen=True)
+class _EdgeLoop:
+    """One loop of the board's edge, as copper.edge and a Past over a cutout read it (`Board._edge_loop_info`)."""
+    k: int                  # 0 the outline, then each hole
+    loop: tuple             # its flattened points
+    curved: bool            # any leg of it is the chord of an arc
+    name: str | None        # the cutout's name; None for the outline or a raw path
+    box: Box                # its points' box
+    toward: tuple           # per leg i (point i to i + 1): a chord of an arc bulging toward the copper's side
+    allows: tuple = ()      # per leg: what copper.edge judges it further by (`Board._edge_hits`): its sagitta,
+                            # `geometry.arc_sag` at the least, where `toward`, else 0
+    most: float = 0.0       # the most of `allows`
+
+
+def _legs_toward(loop, centres, k: int) -> tuple:
+    """(for each leg of `loop`, whether it is the chord of an arc (centre in `centres`, None for a straight leg) whose
+    curve stands on the copper's side of it: inside the outline (k 0), so an arc bulging into the board; outside a hole,
+    so an arc bulging out of it; and each leg's sagitta, r - sqrt(r^2 - (c/2)^2) for a chord c of an arc of radius r,
+    0 for a straight leg). A convex corner of the outline bulges away from the copper: its chord is already the nearer
+    edge."""
+    n = len(loop)
+    assert len(centres) == n, "loop %d: %d leg centres for %d legs" % (k, len(centres), n)
+    ccw = signed_area(loop) > 0.0
+    toward, sags = [], []
+    for i, c in enumerate(centres):
+        if c is None:
+            toward.append(False)
+            sags.append(0.0)
+            continue
+        (ax, ay), (bx, by) = loop[i], loop[(i + 1) % n]
+        mx, my = (ax + bx) / 2.0, (ay + by) / 2.0
+        into = ((mx - c[0]) * -(by - ay) + (my - c[1]) * (bx - ax) > 0.0) == ccw     # the bulge, toward the loop's inside
+        toward.append(into if k == 0 else not into)
+        r = math.hypot(ax - c[0], ay - c[1])
+        half = math.hypot(bx - ax, by - ay) / 2.0
+        sags.append(r - math.sqrt(max(0.0, r * r - half * half)))
+    return tuple(toward), tuple(sags)
+
+
+@dataclass(frozen=True)
+class _PastGroup:
+    """One group of a Past's items, as its point is measured off it: its box, its stand-off from the copper passing it
+    (beyond half that copper's width), and what a finding calls its items. `legs`, for a curved cutout or stretch of
+    edge: its flattened legs, each ((ax, ay), (bx, by), what copper.edge judges it further by), which the corner verdict
+    measures from in place of the box's corner, since that corner stands outside the curve."""
+    box: Box
+    standoff: float
+    names: tuple
+    legs: tuple = ()
+
+
+def _corner_near(g: _PastGroup, corner: Corner, chords: list) -> float:
+    """How near the chords of a track pass a group's `corner`: its box corner, or for a curved group (`legs`) the part
+    of its curve in that corner's quarter of its box, each leg's allowance nearer."""
+    if not g.legs:
+        c = _box_corner(g.box, corner)
+        return min((_point_seg(c, a, b)[0] for a, b in chords), default=math.inf)
+    sx, sy = corner.signs
+    m = g.box.center
+    near = math.inf
+    for a, b, allow in g.legs:
+        piece = _clip_quarter(a, b, m, sx, sy)
+        if piece is None:
+            continue
+        pa, pb = Location(*piece[0]), Location(*piece[1])
+        near = min([near] + [_seg_seg_dist(pa, pb, ca, cb) - allow for ca, cb in chords])
+    return near
+
+
+def _clip_quarter(a, b, m: Location, sx: int, sy: int):
+    """The piece of segment a-b with sx * (x - m.x) >= 0 and sy * (y - m.y) >= 0, as two points, or None."""
+    t0, t1 = 0.0, 1.0
+    for p0, d, c, s in ((a[0], b[0] - a[0], m.x, sx), (a[1], b[1] - a[1], m.y, sy)):
+        f0, df = s * (p0 - c), s * d          # f(t) = f0 + df t >= 0
+        if abs(df) < 1e-15:
+            if f0 < -1e-9:
+                return None
+            continue
+        t = -f0 / df
+        if df > 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+    if t0 > t1:
+        return None
+    at = lambda t: (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+    return at(t0), at(t1)
+
+
+def _curve_legs(loop, allows, closed: bool) -> tuple:
+    """A curved loop's or stretch's legs, each with its allowance, as `_PastGroup.legs` holds them."""
+    pts = list(loop) + ([loop[0]] if closed else [])
+    return tuple((a, b, allow) for (a, b), allow in zip(zip(pts, pts[1:]), allows))
+
+
+def _run_box(board: "Board", run: Run) -> Box:
+    """A stretch of edge's box: its points', grown by `geometry.arc_sag` where it is curved, since its chords stand up to
+    that far inside the curve KiCad judges."""
+    box = Box.of_points(run.points)
+    return box if run.straight else box.inflate(board.settings.geometry_arc_sag)
+
+
+def _run_legs(board: "Board", run: Run) -> tuple:
+    """A curved stretch of edge's legs for the corner verdict (`_PastGroup.legs`), each `geometry.arc_sag` further, as
+    `_run_box` grows its box; none for a straight one, whose box corner is its own end."""
+    if run.straight:
+        return ()
+    return _curve_legs(run.points, [board.settings.geometry_arc_sag] * len(run.points), run.closed)
+
+
+def _cutout_legs(board: "Board", it) -> tuple:
+    """A curved cutout's legs, or a curved stretch of one's, for the corner verdict (`_PastGroup.legs`): each leg with
+    copper.edge's allowance for it (`_EdgeLoop.allows`); a stretch's as `_run_legs` reads it."""
+    k = board._cutout_loop_of.get(it.name)
+    if k is None:
+        return ()
+    if isinstance(it, CutoutEdge):
+        return _run_legs(board, CutoutHandle(board, it.name).edge(it.side, it.within))
+    el = board._edge_loop_info()[k]
+    return _curve_legs(el.loop, el.allows, True) if el.curved else ()
+
+
+def _cutout_box(board: "Board", it) -> Box | None:
+    """The box a Past reads off a cutout (a `Cutout` or `CutoutHandle`) or a stretch of one (a `CutoutEdge` promise):
+    its loop's points, grown by `geometry.arc_sag` where the loop is drawn from arcs, as `_cutout_silk` holds silk off a
+    hole; a stretch's as `_run_box` reads it. None while the cutout has no place."""
+    k = board._cutout_loop_of.get(it.name)
+    if k is None:
+        return None
+    if isinstance(it, CutoutEdge):
+        return _run_box(board, CutoutHandle(board, it.name).edge(it.side, it.within))
+    el = board._edge_loop_info()[k]
+    return el.box.inflate(board.settings.geometry_arc_sag) if el.curved else el.box
+
+
+def _past_groups(board: "Board", ctx: "_CopperContext", net: str, p: Past, what: str, current: int | None = None,
+                 via: bool = False, layer: CopperLayer | None = None):
+    """The groups a Past's point is measured off, or a Refusal, the reason there are none. The pads, vias and tracks are
+    one group: their copper's combined box, and the worst clearance by net pair from `net` to them, as Past has always
+    measured. Each cutout and each stretch of edge is a group of its own: its box (`_cutout_box`, `_run_box`) and the
+    board's copper-to-edge clearance (KiCad's EDGE_CLEARANCE_CONSTRAINT, `geometry.edge_clearance`: a cutout is an
+    Edge.Cuts loop as the outline is). A named part's or cell's pads join the copper group, and its placed envelope is a
+    group of its own at 0. A label is a group of its own: its text's box, at 0 for a track and the silk clearance for a
+    via (`via`). With `layer`, the groups a corner verdict judges for copper on that layer: the copper on it, and every
+    cutout and stretch of edge, which cut every layer; no envelope and no label."""
+    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current, layer)
+    if isinstance(copper, Refusal):
+        return copper
+    groups = []
+    if copper:
+        groups.append(_PastGroup(Box.union([c[1] for c in copper]),
+                                 max(_pad_clearance(board, net, c[0], c[2]) for c in copper),
+                                 tuple(_distinct_names(c[3] for c in copper))))
+    edge_rule = board.geometry.edge_clearance
+    for it, name in zip(p.items, _past_names(board, p)):
+        if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
+            box = _cutout_box(board, it)
+            if box is None:
+                return Refusal(Code.PAST_CUTOUT_UNPLACED, name=it.name)
+            groups.append(_PastGroup(box, edge_rule, (name,), _cutout_legs(board, it)))
+        elif isinstance(it, Run):
+            groups.append(_PastGroup(_run_box(board, it), edge_rule, (name,), _run_legs(board, it)))
+        elif layer is not None:
+            continue                # an envelope or a label: no rule judges copper against it, so no verdict does
+        elif isinstance(it, (Part, Cell)):
+            # no copper rule touches a courtyard: the envelope stands off at 0, its pads keep their clearance above
+            groups.append(_PastGroup(board._placed_envelope_box(ctx.occ, it), 0.0, (name,)))
+        elif isinstance(it, LabelKey):
+            done = ctx.plan.__dict__.get("_labelled", {}) if ctx.plan is not None else {}
+            if it not in done:
+                return Refusal(Code.PAST_LABEL_NOT_DRAWN, key=str(it))
+            # no rule between copper and silk: a track stands on the text's box; a via's ring is a mask opening, which
+            # silk keeps the silk clearance from
+            groups.append(_PastGroup(done[it][0].box, board.geometry.silk_clearance if via else 0.0, (name,)))
+    return groups
+
+
+def _corner_step(groups, corner: Corner, c: Location, width: float) -> float:
+    """How far out along each axis from `c`, the corner of the groups' union box, a point on the outward diagonal stands
+    so that a 45 through it across the diagonal passes each group's own corner at half `width` plus that group's
+    stand-off: over the groups, the most of half the group corner's offset behind `c` along the diagonal plus that reach
+    over sqrt(2). With one group its corner is `c` and this is the reach over sqrt(2), as it always was."""
+    sx, sy = corner.signs
+    out = -math.inf
+    for g in groups:
+        gc = _box_corner(g.box, corner)
+        out = max(out, (sx * (gc.x - c.x) + sy * (gc.y - c.y)) / 2.0 + (width / 2.0 + g.standoff) / math.sqrt(2.0))
+    return out
+
+
+def _seg_nearest(px: float, py: float, ax: float, ay: float, bx: float, by: float) -> tuple:
+    """The point of segment a-b nearest p."""
+    dx, dy = bx - ax, by - ay
+    n = dx * dx + dy * dy
+    t = 0.0 if n < 1e-18 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / n))
+    return ax + t * dx, ay + t * dy
+
+
+def _nearest_on(pts: list, loop, allow=None, reach: float = 0.0) -> tuple:
+    """(the least distance between the polyline `pts` (one point, two, or a polygon given closed) and the closed `loop`,
+    the point of `pts` where it is reached, the point of `loop`, the amount of `allow` taken there). With `allow`, an
+    amount per leg of the loop, the point is the one where the gap (the distance less `reach`, the copper's own half width, and
+    never under 0) less the amount is least; at a vertex of the loop the amount is the lesser of its two legs', since a
+    vertex lies on the curve a chord stands for and a straight leg's end has no curve beside it. Where a leg crosses the
+    loop: 0 and the crossing, twice. The least distance between two polylines is reached at a vertex of one of them, so
+    the vertices of each are taken against the legs of the other."""
+    ring = list(loop) + [loop[0]]
+    loop_legs = list(zip(ring, ring[1:]))
+    n = len(loop_legs)
+    legs = list(zip(pts, pts[1:])) or [(pts[0], pts[0])]
+    best, score = (math.inf, pts[0], ring[0], 0.0), math.inf
+
+    def amount(j, t):
+        if not allow:
+            return 0.0
+        if t <= 0.0:
+            return min(allow[j], allow[j - 1])
+        if t >= 1.0:
+            return min(allow[j], allow[(j + 1) % n])
+        return allow[j]
+    for (ax, ay), (bx, by) in legs:
+        for j, ((cx, cy), (dx, dy)) in enumerate(loop_legs):
+            if _crosses(ax, ay, bx, by, cx, cy, dx, dy):
+                den = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx)
+                t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / den
+                hit = (ax + t * (bx - ax), ay + t * (by - ay))
+                return 0.0, hit, hit, allow[j] if allow else 0.0
+            ex, ey = dx - cx, dy - cy
+            m = ex * ex + ey * ey
+            for p in ((ax, ay), (bx, by)):
+                t = 0.0 if m < 1e-18 else max(0.0, min(1.0, ((p[0] - cx) * ex + (p[1] - cy) * ey) / m))
+                q = (cx + t * ex, cy + t * ey)
+                d = math.hypot(p[0] - q[0], p[1] - q[1])
+                a = amount(j, t)
+                if max(0.0, d - reach) - a < score:
+                    best, score = (d, p, q, a), max(0.0, d - reach) - a
+            for t, q in ((0.0, (cx, cy)), (1.0, (dx, dy))):
+                p = _seg_nearest(q[0], q[1], ax, ay, bx, by)
+                d = math.hypot(p[0] - q[0], p[1] - q[1])
+                a = amount(j, t)
+                if max(0.0, d - reach) - a < score:
+                    best, score = (d, p, q, a), max(0.0, d - reach) - a
+    return best
+
+
+def _toward(p, q, r: float) -> tuple:
+    """`p` moved `r` toward `q`, no further than `q`: the copper's own edge on the way to the loop."""
+    d = math.hypot(q[0] - p[0], q[1] - p[1])
+    if d <= r or d < 1e-12:
+        return (q[0], q[1])
+    return (p[0] + (q[0] - p[0]) * r / d, p[1] + (q[1] - p[1]) * r / d)
+
+
+def _copper_point(shape: Shape) -> tuple:
+    """A point of planned copper, to ask which side of a loop it lies on: a via's centre, a track's start, a polygon's
+    first vertex."""
+    if shape.circle:
+        return (shape.circle[0], shape.circle[1])
+    if shape.segment:
+        return (shape.segment[0], shape.segment[1])
+    return (shape.poly[0][0], shape.poly[0][1])
+
+
+def _copper_loop_gap(shape: Shape, loop, allow=None) -> tuple:
+    """(gap, the copper's point nearest `loop`, the amount of `allow` taken there) between planned copper and one loop of
+    the board's edge; with `allow` (an amount per leg, `_nearest_on`), where the gap less the amount is least. A via is its circle and a straight track its centreline less half its width, as KiCad's shapes are;
+    anything else (a pour, an arc track) its polygon, which is 0 from a loop it covers whole (KiCad collides the filled
+    shape with the loop's edges)."""
+    if shape.circle:
+        cx, cy, r = shape.circle
+        d, _, q, a = _nearest_on([(cx, cy)], loop, allow, r)
+        return max(0.0, d - r), _toward((cx, cy), q, r), a
+    if shape.segment:
+        x1, y1, x2, y2, w = shape.segment
+        d, p, q, a = _nearest_on([(x1, y1), (x2, y2)], loop, allow, w / 2.0)
+        return max(0.0, d - w / 2.0), _toward(p, q, w / 2.0), a
+    poly = [tuple(v) for v in shape.poly]
+    if point_in_polygon(tuple(loop[0]), poly):
+        return 0.0, (loop[0][0], loop[0][1]), allow[0] if allow else 0.0
+    d, p, _, a = _nearest_on(poly + poly[:1], loop, allow)
+    return d, p, a
+
+
+def _sides_past(shape: Shape, box: Box) -> list:
+    """The sides of a cutout's box a Past could pass it on to clear `shape`, as Edge names: across a straight track's
+    run, the side its centreline lies toward first (WEST before EAST, NORTH before SOUTH where it runs through the
+    middle); for other copper, the side its box's centre lies toward."""
+    c = box.center
+    if shape.segment:
+        x1, y1, x2, y2, _ = shape.segment
+        px, py = _seg_nearest(c.x, c.y, x1, y1, x2, y2)
+        if abs(x2 - x1) >= abs(y2 - y1):                 # it runs east-west: pass the hole north or south of it
+            return ["SOUTH", "NORTH"] if py > c.y else ["NORTH", "SOUTH"]
+        return ["EAST", "WEST"] if px > c.x else ["WEST", "EAST"]
+    m = shape.box.center
+    if abs(m.x - c.x) >= abs(m.y - c.y):
+        return ["EAST" if m.x > c.x else "WEST"]
+    return ["SOUTH" if m.y > c.y else "NORTH"]
 
 
 def _stitch_region(board: "Board", ctx: "_CopperContext", region, pour_intent) -> tuple | None:

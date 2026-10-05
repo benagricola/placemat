@@ -99,18 +99,32 @@ def flatten_arc(start: tuple, arc: Arc, sag: float | None = None) -> list:
 def flatten_path(path) -> tuple:
     """A declared path as a closed polyline. The first element is the start
     point; each one after it is a point (a straight leg) or an Arc."""
+    return flatten_path_legs(path)[0]
+
+
+def flatten_path_legs(path) -> tuple:
+    """(the path as `flatten_path` gives it, the centre of the circle each of
+    its legs is a chord of, None for a straight leg): leg i runs from point i
+    to point i + 1, the last back to the first."""
     if len(path) < 3:
         raise ValueError("a closed path needs at least three points")
     start = point(path[0])
     pts = [start]
+    centres = []
     for piece in path[1:]:
         if isinstance(piece, Arc):
-            pts.extend(flatten_arc(pts[-1], piece))
+            found = circle_through(pts[-1], point(piece.via), point(piece.to))
+            more = flatten_arc(pts[-1], piece)
+            pts.extend(more)
+            centres += [found[0] if found is not None else None] * len(more)
         else:
             pts.append(point(piece))
+            centres.append(None)
     if math.hypot(pts[-1][0] - start[0], pts[-1][1] - start[1]) < NM:
-        pts.pop()                               # the close is implied, never doubled
-    return tuple(pts)
+        pts.pop()                               # the close is implied, never doubled: its leg ends on the start
+    else:
+        centres.append(None)                    # the straight leg that closes it
+    return tuple(pts), tuple(centres)
 
 
 def closes_itself(path) -> bool:

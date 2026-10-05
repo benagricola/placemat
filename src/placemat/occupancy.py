@@ -993,13 +993,16 @@ class Occupancy:
 
     def copper_conflicts(self, shape: Shape, check: bool = False) -> list[Refusal]:
         """Every pad or copper of another net within clearance of `shape`. With `check` it is a finding's measure, which
-        takes KiCad's DRC epsilon off a clearance whatever `[place] drc_epsilon` says."""
+        takes KiCad's DRC epsilon off a clearance whatever `[place] drc_epsilon` says, and judges the placed parts'
+        drilled holes as well: a plated hole of another net at the hole clearance (`_hole_conflict`) and an unplated
+        one (the NPTH branch of `_conflict`), as KiCad's DRC does. Placement's own questions keep to pads and copper."""
+        kinds = ("pad", "through", "copper", "hole", "npth") if check else ("pad", "through", "copper")
         out = []
         for owner, g in self.items.items():
             if owner in self.pending:
                 continue                        # not placed yet: its pads are nowhere
-            for o in g.shapes:                  # its pads, and its own copper graphics (a net-tie's winding)
-                if o.kind not in ("pad", "through", "copper") or not shape.box.overlaps(o.box, gap=self._copper_reach):
+            for o in g.shapes:                  # its pads, its own copper graphics (a net-tie's winding), and with check its holes
+                if o.kind not in kinds or not shape.box.overlaps(o.box, gap=self._copper_reach):
                     continue
                 why = self._conflict(shape, o, None, exact=True, check=check)
                 if why:

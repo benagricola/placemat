@@ -5,6 +5,66 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **Past passes any obstacle.** `Past(items, edge)` and `Past(items,
+  Corner.X)` take cutouts, stretches of the board edge, parts and cells,
+  and labels, as well as pads, vias and tracks. The point keeps the
+  board's copper-to-edge clearance off a hole or the edge, and stands on
+  an envelope's or a label's outline. A track that had to pass a cutout
+  with a hand-placed point can name the cutout. Past over pads, vias and
+  tracks alone resolves as before. `board.label()` returns a `LabelKey`,
+  a `str`, so scripts that use the key as text need no change. A
+  `CutoutEdge` taken from another board is refused.
+- **Copper near a hole or the edge is a finding.** Declared copper nearer
+  the outline or a cutout than the board's copper-to-edge clearance is a
+  critical `copper.edge` finding when it is planned, and copper wholly
+  inside a hole or off the board is one at gap 0; KiCad's DRC does not
+  report the latter. Copper nearer a part's drilled hole, plated or not,
+  than the hole clearance is `copper.meets`. The nearer cases were DRC
+  failures before and still are; a run now reports them itself, naming
+  the declaration, so a board that passed its findings may now show
+  these, and they count in the run score as copper findings do. The
+  copper is still drawn. A module fragment's frame is not judged.
+
+### Changed
+
+- **`past_off_board` applies to a copper-only `Past`.** A `Past` whose
+  point lands off the board or in a cutout is a `copper.not_drawn`
+  finding (`past_off_board`) for a `Past` over pads, vias and tracks too,
+  whose point was not checked against the board before. It is not judged on a
+  module fragment.
+- **A finding names a `Past`'s items as records.** The `names` fact of
+  `copper.corner` and of a `copper.not_drawn` finding's `past` variant
+  holds one record per item: `{"kind": "pad", "ref", "number"}`,
+  `{"kind": "copper", "key"}`, `{"kind": "cutout", "name"}`, `{"kind":
+  "part" | "cell", "name"}`, `{"kind": "label", "key"}` or `{"kind":
+  "edge", "facing"}`. They were text. The messages read as before.
+
+### Fixed
+
+- **Copper that stands on copper planned after the search is drawn.** A
+  track ending on a via, or a track or via whose `Past` names a via, a
+  track or a field of vias (`board.vias(net, pad)`), was planned before
+  the search when its own ends were fixed. Where that via or field was
+  planned after the search (a field always is, a via past a label is), the
+  copper was not drawn, with a `copper.not_drawn` finding saying the via
+  found no spot or was not planned by then. It now waits for the copper it
+  names.
+
+- **A stamped cell's clearance rules are read in the order its module declared them.** They were read in the
+  order KiCad gave the cell's group items, which changes between loads of the same board. Two effects:
+  - a run or a studio resolve could refuse the previous record ("the script's board-wide declarations changed")
+    and replay none of its steps, though nothing had changed;
+  - where two of a module's rules both match one pair of items (an `on=` rule and a `between=` rule over that
+    net, say), the last one decides, in placemat and in the `.kicad_dru` KiCad's DRC reads. The rule that decided
+    could be the earlier one. A module whose rules never match the same pair was judged the same either way.
+
+  The notes are now taken in the order the fragment wrote them, one under another, which a turn or a flip of the
+  cell keeps.
+
 ## To 0.99.20
 
 ### Fixed
@@ -33,17 +93,6 @@ section for each hand-written pattern a newer form replaces.
   its groups carries `before` and `paths`, its airwires under the present map and the best.
 
 ### Fixed
-
-- **A stamped cell's clearance rules are read in the order its module declared them.** They were read in the
-  order KiCad gave the cell's group items, which changes between loads of the same board. Two effects:
-  - a run or a studio resolve could refuse the previous record ("the script's board-wide declarations changed")
-    and replay none of its steps, though nothing had changed;
-  - where two of a module's rules both match one pair of items (an `on=` rule and a `between=` rule over that
-    net, say), the last one decides, in placemat and in the `.kicad_dru` KiCad's DRC reads. The rule that decided
-    could be the earlier one. A module whose rules never match the same pair was judged the same either way.
-
-  The notes are now taken in the order the fragment wrote them, one under another, which a turn or a flip of the
-  cell keeps.
 
 - **A named cutout on a disc with a bore reads its own edge.** `board.cutout(name).edge(side=)` and the
   `label.cell_edge` warning took the loop of the bore (or of the previous hole) for a cutout fixed at declaration, and

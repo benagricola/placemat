@@ -4,6 +4,8 @@ import inspect
 import re
 from pathlib import Path
 
+import pytest
+
 import placemat
 from placemat.findings import FindingCause, FindingCause as C
 from placemat import suggestions as sg
@@ -94,7 +96,9 @@ FACTS = {
     C.COPPER_KEEPOUT: {"net": "SIG", "keepout": "ant", "word": "track", "layer": "F", "layer_word": "front",
                        "excluded": "tracks", "excludes": ["parts", "tracks"], "keepout_layers": ["F", "B"]},
     C.COPPER_STITCH: {}, C.COPPER_CROSS: {"yielder": "track SIG", "yielder_net": "SIG", "other_net": "GND", "other_bridge": True},
-    C.COPPER_MEETS: TRACK, C.COPPER_NOT_DRAWN: TRACK, C.COPPER_CORNER: TRACK, C.COPPER_NOTE: dict(TRACK, variant="waypoint"),
+    C.COPPER_MEETS: TRACK, C.COPPER_EDGE: dict(TRACK, obstacle={"form": "cutout", "name": "vent"}, inside=False,
+                                                sides=["WEST", "EAST"], waypoints=0, script_points=2),
+    C.COPPER_NOT_DRAWN: TRACK, C.COPPER_CORNER: TRACK, C.COPPER_NOTE: dict(TRACK, variant="waypoint"),
     C.ESCAPE_WALLED: ESCAPE, C.ESCAPE_CLOSED: ESCAPE, C.ESCAPE_CROSSED: ESCAPE, C.ESCAPE_LANE: ESCAPE, C.PAIR_CROSSED: {},
     C.ESCAPE_VIA_UNNEEDED: dict(ESCAPE, via={"kind": "lane", "at": [1.0, 2.0], "key": ""}),
     C.SETUP_CENTRE_FLAG_DEFAULT: {"item": "c9"},
@@ -175,3 +179,20 @@ def test_the_suggestions_per_lever_setting_caps_a_lever():
     assert len([s for s in many if s.lever == "beside"]) == 3
     assert len([s for s in capped if s.lever == "beside"]) == 1
     assert [s.rank for s in many] == list(range(1, len(many) + 1))
+
+
+@pytest.mark.parametrize("cause, variant", [(C.COPPER_MEETS, "arc"), (C.COPPER_NOT_DRAWN, "through")])
+def test_a_lane_tracks_waypoints_are_dropped_from_its_lane_to_the_pad(cause, variant):
+    """A track that begins with a lane keeps the lane when its waypoints go: the pick says so, not pad to pad."""
+    texts = [p.text for p in sg.CASES[cause](dict(TRACK, variant=variant, lane=True), Settings())]
+    assert "Draw the SIG track from its lane to the pad" in texts and not any("pad to pad" in t for t in texts), texts
+    plain = [p.text for p in sg.CASES[cause](dict(TRACK, variant=variant), Settings())]
+    assert "Draw the SIG track pad to pad" in plain, plain
+
+
+def test_a_track_declared_as_a_lane_alone_is_offered_no_past_off_a_cutout():
+    """The Past goes in at index 1 of the script's list: between a lane and its end, but after a lane alone, where it
+    would be the track's end rather than a waypoint."""
+    edge = FACTS[C.COPPER_EDGE]
+    assert sg.CASES[C.COPPER_EDGE](dict(edge, lane=True), Settings())
+    assert sg.CASES[C.COPPER_EDGE](dict(edge, lane=True, script_points=1), Settings()) == []

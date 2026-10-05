@@ -605,6 +605,23 @@ def _copper_name(c: dict) -> str:
     return copper_name(c)
 
 
+def past_item(n: dict) -> str:
+    """One of a Past's items as a finding names it (layout._past_name): a via's or track's key, a pad's refdes and
+    number, "cutout NAME", a part or a cell, a label's key, "edge facing BEARING"."""
+    kind = n["kind"]
+    if kind == "pad":
+        return "%s.%s" % (n["ref"], n["number"])
+    if kind == "cutout":
+        return "cutout %s" % n["name"]
+    if kind == "edge":
+        return "edge facing %g" % n["facing"]
+    return n["name"] if kind in ("part", "cell") else n["key"]
+
+
+def _past_items(names) -> str:
+    return ", ".join(past_item(n) for n in names)
+
+
 def _unplanned(f: dict) -> str:
     return _refusal(f["why"])
 
@@ -618,7 +635,7 @@ def _not_drawn_arc(f):
 _NOT_DRAWN = {
     "via_lost": lambda f: "track %s: its end on %s is not drawn, because that via found no spot" % (
         f["track"], ", ".join(f["lost"])),
-    "past": lambda f: "%s: its point past %s is not drawn, because %s" % (f["item"], ", ".join(f["names"]), _refusal(f["why"])),
+    "past": lambda f: "%s: its point past %s is not drawn, because %s" % (f["item"], _past_items(f["names"]), _refusal(f["why"])),
     "arc": _not_drawn_arc,
     "through": lambda f: "track %s: not drawn, it would run through %s%s" % (
         f["net"], _copper_name(f["met"]), " and %d more" % (len(f["blockers"]) - 1) if len(f.get("blockers", ())) > 1 else ""),
@@ -729,7 +746,7 @@ def _copper_note(f):
 @renders(C.COPPER_CORNER, "net", "edge", "names", "near_mm", "need_mm")
 def _copper_corner(f):
     return ("track %s: the points either side of its 45 past the %s corner of %s allow no 45 through it; the track passes "
-            "that corner at %.3f mm, under the %.3f mm clearance" % (f["net"], f["edge"], ", ".join(f["names"]),
+            "that corner at %.3f mm, under the %.3f mm clearance" % (f["net"], f["edge"], _past_items(f["names"]),
                                                                        f["near_mm"], f["need_mm"]))
 
 
@@ -761,6 +778,25 @@ def _copper_meets(f):
         text += "; the arc of its corner (radius %.2f mm) at (%.2f, %.2f); a smaller radius= there keeps clear" % (
             f["arc_radius_mm"], f["arc_at"][0], f["arc_at"][1])
     return text
+
+
+@renders(C.COPPER_EDGE, "net", "word", "layer", "obstacle", "inside", "at", "gap_mm", "need_mm")
+def _copper_edge(f):
+    """Declared copper nearer the board's outline or a cutout than the copper-to-edge clearance. The curve's allowance
+    (`sag_mm`) is said only where the gap is the clearance or more, so the sentence never reads as a gap over its rule."""
+    from .values import CopperLayer
+    who = "%s %s" % (f["word"], f["net"] or "-") + (" on %s" % CopperLayer[f["layer"]].value if f["layer"] else "")
+    ob = f["obstacle"]
+    if ob["form"] == "outline":
+        where, inside = "the board's edge", "lies off the board"
+    else:
+        where = 'cutout "%s"' % ob["name"] if ob.get("name") else "a cutout"
+        inside = "lies inside " + where
+    if f["inside"]:
+        return "%s: %s" % (who, inside)
+    tail = " with %.2f mm for its curve" % f["sag_mm"] if f.get("sag_mm") and f["gap_mm"] >= f["need_mm"] else ""
+    return "%s: %.2f mm from %s at (%.2f, %.2f), under the board's %.2f mm copper-to-edge clearance%s" % (
+        who, f["gap_mm"], where, f["at"][0], f["at"][1], f["need_mm"], tail)
 
 
 @renders(C.SETUP_PCBNEW, "net", "variant")

@@ -226,10 +226,15 @@ one of its points). The rule is `EDGE_CLEARANCE_CONSTRAINT`, KiCad's
 (`drc_test_provider_edge_clearance.cpp`, `testAgainstEdge`, which collides
 the copper's shape with each Edge.Cuts shape at the clearance less
 `m_epsilon`). A loop's chords stand up to `geometry.arc_sag` inside its
-arcs, so where the loop has arcs the need is the clearance plus
-`geometry.arc_sag`, as `_cutout_silk` holds silk. The gap is compared with
-`occ.clear_limit(need, check=True)`, which takes KiCad's DRC epsilon off as
-the other copper findings do.
+arcs, so where the copper's nearest point is on an arc leg whose curve
+bulges toward the copper (a hole's arc, a concave arc of the outline) the
+need is the clearance plus that leg's sagitta, r - sqrt(r^2 - (c/2)^2) for
+a chord c of an arc of radius r, and never less than `geometry.arc_sag`
+more. A straight leg, a vertex
+next to one, and the chord of a convex arc of the outline (which already
+stands nearer the copper than its curve) are judged at the clearance. The
+gap is compared with `occ.clear_limit(need, check=True)`, which takes
+KiCad's DRC epsilon off as the other copper findings do.
 
 **Drilled holes.** A part's plated holes (`hole_shape`, kind `hole`) and
 its unplated holes (kind `npth`) are already in the occupancy, and
@@ -442,3 +447,26 @@ A paragraph after "Lane waypoints", **Copper near a hole or the edge**:
 - `FindingCause.COPPER_EDGE`, `copper.edge`.
 - `Occupancy.copper_conflicts(check=True)` judges a part's `hole` and
   `npth` shapes as well.
+
+## Build notes
+
+Gate run on the merged branch (main 0.99.19 merged in).
+
+Bench (`fixtures/bench.py --jobs 2`): default, physical and solve each better 0, worse 0, same 33; placed +0; median
+HPWL ratio 1.00 over 31 equal-placed. Seconds: default 18.5 (baseline 22.0), physical 16.2 (17.5), solve 20.2 (21.4).
+
+Full suite (`--full -n 2`): 6008 passed, 21 skipped, 5 failed.
+
+- `tests/test_bridging.py`, three tests (`test_a_track_allowed_to_bridge_passes_under_the_one_it_crosses`,
+  `test_a_crossing_nobody_may_bridge_is_a_finding_and_the_yielding_track_is_not_drawn`,
+  `test_tracks_on_different_layers_or_the_same_net_do_not_bridge`): the synthetic board's tracks start at y = 0, on the
+  outline, and now raise `copper.edge` findings the tests do not expect. The tests pass on main.
+- `tests/test_version.py` (two tests) and `tests/test_studio_probe.py::test_what_a_probe_found_is_read_from_the_store_and_shown_like_any_suggestion`:
+  the installed package and native module report 0.99.20 while the worktree's version file says 0.99.19. The probe test
+  takes the first finding of a resolve, which is the `setup.native` version-mismatch finding, and it has no
+  suggestions. All three pass once the versions agree.
+
+Tests over 2 s that were not in `tests/slow_tests.txt` were added to it (43).
+
+Core board, run on a scratch copy with the cached generation (no regeneration): `copper.edge` 0, hole `copper.meets`
+0, KiCad `copper_edge_clearance` 0. The run's DRC lists only dangling tracks and vias and silk.

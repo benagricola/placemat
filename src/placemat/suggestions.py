@@ -1080,6 +1080,12 @@ def _fitting_radius(f, text):
                  text % net, "radius")]
 
 
+def _pad_to_pad(f) -> str:
+    """What dropping a track's waypoints draws: pad to pad, or from its lane to the pad for a track that begins with a
+    lane, which keeps the lane."""
+    return "Draw the %s track from its lane to the pad" if f.get("lane") else "Draw the %s track pad to pad"
+
+
 def _drop_waypoints(f, text):
     n = f.get("waypoints", 0)
     if n < 1:
@@ -1093,7 +1099,7 @@ def copper_meets(f, settings):
     net = f["net"]
     out = []
     if f.get("word") == "track" and f.get("key"):
-        out += _drop_waypoints(f, "Draw the %s track pad to pad" % net)
+        out += _drop_waypoints(f, _pad_to_pad(f) % net)
         if f.get("layer") in ("F", "B"):
             other = "B" if f["layer"] == "F" else "F"
             out.append(_set("track", f["key"], "layer", _enum("CopperLayer.%s" % other),
@@ -1107,6 +1113,26 @@ def copper_meets(f, settings):
     return out
 
 
+@case(C.COPPER_EDGE)
+def copper_edge(f, settings):
+    """A track drawn pad to pad past a named cutout: a Past off the cutout as its one waypoint, on each side across the
+    track's run that the finding names (`sides`), the side it lies toward first. A track with waypoints already has
+    its way said, so it is offered none; nor is copper inside the hole, or near the outline. The Past goes in at index 1
+    of the script's list, so a track declared as a lane alone, where it would be the end, is offered none either."""
+    ob = f.get("obstacle") or {}
+    if f.get("word") != "track" or not f.get("key") or f.get("inside") or ob.get("form") != "cutout" \
+            or not ob.get("name") or f.get("waypoints", 0) != 0 or f.get("script_points", 0) < 2:
+        return []
+    out = []
+    for side in f.get("sides") or ():
+        value = _form("Past", {"list": [_form("board.cutout", {"str": ob["name"]})]}, _enum("Edge.%s" % side))
+        edits = (Edit("ensure_import", None, {"names": ["Edge", "Past"]}),
+                 Edit("edit_list", Target("track", f["key"]), {"arg": "points", "action": "add", "at": 1}, value,
+                      _refs_of(value)))
+        out.append(Pick("Pass cutout `%s` on its %s side with a Past waypoint" % (ob["name"], side.lower()), edits, "past"))
+    return out
+
+
 @case(C.COPPER_NOT_DRAWN)
 def copper_not_drawn(f, settings):
     net = f.get("net", "")
@@ -1114,7 +1140,7 @@ def copper_not_drawn(f, settings):
     if f.get("variant") == "arc":
         out += _fitting_radius(f, "Use a smaller radius on the %s track")
     if f.get("variant") == "through":
-        out += _drop_waypoints(f, "Draw the %s track pad to pad" % net)
+        out += _drop_waypoints(f, _pad_to_pad(f) % net)
         if f.get("layer") in ("F", "B"):
             other = "B" if f["layer"] == "F" else "F"
             out.append(_set("track", f["key"], "layer", _enum("CopperLayer.%s" % other),

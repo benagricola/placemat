@@ -926,7 +926,11 @@ def _edit_list(text, edit, ctx_for):
             raise EditRefused("%s is already in the list" % src)
         _check_expr(src)
         k = len(sources)
-        if edit.args.get("before") is not None:
+        if edit.args.get("at") is not None:
+            k = int(edit.args["at"])
+            if not 0 <= k <= len(sources):
+                raise EditRefused("the list has no place %d" % k)
+        elif edit.args.get("before") is not None:
             k = index_of(edit.args["before"])
         elif edit.args.get("after") is not None:
             k = index_of(edit.args["after"]) + 1
