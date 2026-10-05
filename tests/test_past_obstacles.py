@@ -15,8 +15,8 @@ from placemat.copper import Track, Via
 from placemat.cutouts import Circle, Slot
 from placemat.layout import Board
 from placemat.settings import Settings
-from placemat.values import (Along, Beside, Box, Cell, Centre, CopperLayer, Corner, Cutout, Edge, Face, Location, Near,
-                             Net, PadRef, Part, Past, X, Y)
+from placemat.values import (Along, Beside, Box, Cell, Centre, CopperLayer, Corner, Cutout, Edge, Face, LabelKey, Location,
+                             Near, Net, PadRef, Part, Past, X, Y)
 from tests.fixtures import board_geometry, declared_findings, footprint, pad
 
 W3A = 1.37          # a 3 A track on 1 oz outer copper at a 10 C rise (IPC-2221): the width the reported board used
@@ -286,3 +286,129 @@ BEFORE_OBSTACLES = [
 def test_past_over_copper_alone_gives_the_points_it_gave_before_obstacles():
     # BEFORE_OBSTACLES: _copper_only_points at b665cc88, the release before Past took obstacles; exactly equal
     assert _copper_only_points() == BEFORE_OBSTACLES
+
+
+# ---------------------------------------------------------------- parts, cells and labels
+def test_past_takes_a_part_a_cell_and_a_label_and_refuses_text():
+    b = _board([_part("PA", "pa", "SIG", 10.0, 10.0)])
+    key = b.label(Part("pa"), "PA")
+    for items, edge in (([Part("pa")], Edge.SOUTH), ([key], Edge.NORTH), ([PadRef(Part("pa"), 1), Part("pa"), key], Corner.NE)):
+        b.track(Net("SIG"), [Location(2.0, 2.0), Past(items, edge), Location(38.0, 2.0)], layer=CopperLayer.F)
+    with pytest.raises(TypeError, match="Past's items are .*labels"):
+        Past(["label pa PA"], Edge.EAST)          # text is not a label: what board.label() returns is
+    with pytest.raises(TypeError, match="across"):
+        Past([Part("pa")], Edge.WEST, across=key)
+    Past([key], Edge.WEST, across=Part("pa"))
+
+
+def test_a_label_key_is_still_text():
+    b = _board([_part("PA", "pa", "SIG", 10.0, 10.0)])
+    keys = b.label([Part("pa")], ["PA"])
+    assert keys == ["label pa PA"] and all(type(k) is LabelKey for k in keys)
+    k = keys[0]
+    assert "%s!" % k == "label pa PA!" and {k: 1}["label pa PA"] == 1
+    assert json.dumps({k: k}) == '{"label pa PA": "label pa PA"}' and pickle.loads(pickle.dumps(k)) == k
+
+
+def test_a_label_of_another_board_is_refused():
+    a = _board([_part("PA", "pa", "SIG", 10.0, 10.0)])
+    b = _board([_part("PA", "pa", "SIG", 10.0, 10.0)])
+    key = a.label(Part("pa"), "PA")
+    b.label(Part("pa"), "PA")                     # the same text on b: still a's key
+    with pytest.raises(TypeError, match="not a label of this board"):
+        b.track(Net("SIG"), [Location(2.0, 2.0), Past([key], Edge.NORTH), Location(38.0, 2.0)], layer=CopperLayer.F)
+
+
+def test_past_a_part_the_pads_clearance_wins_where_the_pad_reaches_nearer_its_courtyard_than_that():
+    b = _board([_part("PA", "pa", "GND", 20.0, 15.0, margin=0.0)])        # courtyard west side 19.4, pad west side 19.5
+    b.track(Net("SIG"), [Location(19.2, 5.0), Past([Part("pa")], Edge.WEST), Location(19.2, 25.0)], layer=CopperLayer.F)
+    plan = b.resolve()
+    assert _has(plan, "SIG", 19.2, 15.0), _points(plan, "SIG")             # the pad: 19.5 - 0.2 - 0.1; the courtyard 19.3
+    assert not declared_findings(plan), plan.findings
+
+
+def test_past_a_part_whose_courtyard_reaches_further_stands_on_its_envelope():
+    b = _board([_part("PA", "pa", "GND", 20.0, 15.0, margin=0.5)])        # courtyard west side 18.9
+    b.track(Net("SIG"), [Location(18.8, 5.0), Past([Part("pa")], Edge.WEST), Location(18.8, 25.0)], layer=CopperLayer.F)
+    assert _has(b.resolve(), "SIG", 18.8, 15.0)                           # 18.9 - 0.1, outside the pad's 19.2
+
+
+def test_a_past_off_a_searched_part_waits_for_it():
+    pa = _part("PA", "pa", "GND", 20.0, 15.0, margin=0.5)
+    b = Board(board_geometry([pa], width=40, height=30, extra_nets=["SIG"]), edge_margin=EDGE)
+    b.rect(width=40.0, height=30.0)
+    b.place(Part("pa"))                           # searched: the via is planned after the search, off where pa lands
+    b.via(Net("SIG"), at=Past([Part("pa")], Edge.NORTH), size=0.6)
+    plan = b.resolve()
+    env = b._placed_envelope_box(plan.occupancy, Part("pa"))
+    (v,) = _vias(plan, "SIG")
+    assert (v.at.x, v.at.y) == (pytest.approx(env.left + 0.5 * (env.right - env.left), abs=1e-6),
+                                pytest.approx(_away(env.top - 0.3, -1), abs=1e-9))
+
+
+def test_across_a_part_puts_the_point_on_its_envelopes_centre_line():
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))
+    b = _board([_part("PA", "pa", "GND", 10.0, 10.0)], holes=[vent])
+    b.via(Net("SIG"), at=Past([vent], Edge.WEST, across=Part("pa")), size=0.6)
+    (v,) = _vias(b.resolve(), "SIG")
+    assert (v.at.x, v.at.y) == (pytest.approx(18.53, abs=1e-9), pytest.approx(10.0, abs=1e-6))   # 19.25 - 0.02 - 0.4 - 0.3
+
+
+def _labelled_board():
+    b = _board([_part("PA", "pa", "GND", 20.0, 15.0)], silk_clearance=0.2)
+    return b, b.label(Part("pa"), "PA", side=Edge.NORTH)
+
+
+def test_a_track_stands_on_a_labels_box_and_a_via_keeps_the_silk_clearance():
+    b, key = _labelled_board()
+    b.track(Net("SIG"), [Location(2.0, 2.0), Past([key], Edge.NORTH), Location(38.0, 2.0)], layer=CopperLayer.F)
+    plan = b.resolve()
+    box = plan._labelled[key][0].box
+    assert _has(plan, "SIG", round(box.left + 0.5 * (box.right - box.left), 6), _away(box.top - 0.1, -1)), (box, _points(plan, "SIG"))
+    b, key = _labelled_board()
+    b.via(Net("VBUS"), at=Past([key], Edge.EAST), size=0.6)
+    plan = b.resolve()
+    box = plan._labelled[key][0].box
+    (v,) = _vias(plan, "VBUS")
+    assert (v.at.x, v.at.y) == (pytest.approx(_away(box.right + 0.3 + 0.2, 1), abs=1e-9),
+                                pytest.approx(box.top + 0.5 * (box.bottom - box.top), abs=1e-6))
+
+
+def _label_board(other: bool):
+    """tests/test_label_gives_way.py's board: a labelled connector in cell conn, and cell other placed beside it,
+    whose silk the label slides away from."""
+    size = (4.4 - 0.15) / (5 * 0.914 + 2 / 9)
+    fps = [footprint("J1", 30, 30, w=4, h=2, inst="conn.j1", nets=("A", "B"), cell="conn"),
+           footprint("P1", 25, 28, w=4, h=6, inst="conn.p1", nets=("C", "D"), cell="conn"),
+           footprint("U2", 0, 0, w=3, h=5, inst="other.u2", nets=("E", "F"), cell="other", silk_boxes=((-1.5, -2.5, 1.5, 2.5),))]
+    b = Board(board_geometry(fps, cells=["conn", "other"], width=80, height=80, silk_clearance=0.2, extra_nets=["SIG"]),
+              edge_margin=1.0, settings=dataclasses.replace(Settings(), place_envelope="physical"))
+    b.place(Cell("conn"), at=Location(27, 28))
+    key = b.label(Part("conn.j1"), "USB-C", side=Edge.NORTH, align=Along.START, knockout=True, size=size)
+    if other:
+        b.place(Cell("other"), at=Beside(Cell("conn"), Edge.EAST, align=Along.START))
+    b.via(Net("SIG"), at=Past([key], Edge.NORTH), size=0.6)
+    return b, key
+
+
+def test_a_past_off_a_label_that_gave_way_is_where_the_label_ended():
+    still, key = _label_board(other=False)
+    moved, _ = _label_board(other=True)
+    before = still.resolve()._labelled[key][0].box
+    plan = moved.resolve()
+    box = plan._labelled[key][0].box
+    assert box != before                                                   # the label slid for the other cell's silk
+    (v,) = _vias(plan, "SIG")
+    assert v.at.y == pytest.approx(_away(box.top - 0.3 - 0.2, -1), abs=1e-9)
+
+
+def test_a_past_off_a_part_that_found_no_place_or_its_label_is_not_drawn():
+    big = _part("BIG", "big", "GND", 20.0, 15.0, w=60.0, h=60.0)          # larger than the board: no place
+    b = Board(board_geometry([big], width=40, height=30, extra_nets=["SIG"]), edge_margin=EDGE)
+    b.rect(width=40.0, height=30.0)
+    b.place(Part("big"))
+    key = b.label(Part("big"), "BIG")
+    b.via(Net("SIG"), at=Past([Part("big")], Edge.WEST), size=0.6)
+    b.via(Net("SIG"), at=Past([key], Edge.WEST), size=0.6)
+    whys = sorted((f.facts["why"]["code"], f.facts["names"][0]) for f in _not_drawn(b.resolve()))
+    assert whys == [("past_item_unplaced", "big"), ("past_label_not_drawn", "label big BIG")], whys
