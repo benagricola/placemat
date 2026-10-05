@@ -285,6 +285,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Net halos while routing** (0.99.12): `route.net_halos` keeps other
+  nets' new copper a distance from a net (a switch node); placemat writes the
+  router's clearance map with the class map merged in, and a pad trapped
+  inside a halo (its copper ending short of the halo plus half a track) is a
+  `setup.net_halo` finding before the route.
+
 - **Copper findings measure a pad by its exact shape** (0.99.11): a gap
   below the rule by a pad's read outline is measured again against KiCad's
   effective pad shape, so a track past a rounded corner reads as KiCad's DRC
