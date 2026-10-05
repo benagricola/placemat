@@ -4494,6 +4494,23 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.stall_seconds` | `0.0` | seconds | end an explore this many seconds after its last improvement; 0 is off |
 | `explore.stop_hard_clear` | `false` | bool | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | `100000` | count | finished variants an explore's checkpoint records; past it a resume tries those again |
+| `pins.exit_mm` | `0.5` | mm | the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn |
+| `pins.follow_series` | `true` | bool | the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection |
+| `pins.pair_weight` | `5.0` | weight | the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1) |
+| `pins.impedance_weight` | `3.0` | weight | the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance |
+| `pins.length_weight` | `0.25` | weight | the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing) |
+| `pins.bend_weight` | `0.005` | weight | the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target |
+| `pins.rotations` | `[0.0, 90.0, 180.0, 270.0]` | degrees | the turns from where a part stands that the pin map study tries besides its present one; add 45, 135, 225 and 315 for the diagonals |
+| `pins.seeds` | `4` | count | local searches of the pin map study per pose, each with its own fixed random stream |
+| `pins.anneal_moves` | `500` | count | moves each local search of the pin map study tries |
+| `pins.anneal_start` | `1.0` | weight | the pin map study's annealing temperature at its first move, in weighted crossings: a move that costs this much is taken about one time in three (0: only moves that gain) |
+| `pins.anneal_end` | `0.02` | weight | the pin map study's annealing temperature at its last move |
+| `pins.budget_ms` | `400` | ms | the pin map study's time for each studied part: it stops there with the best map found and says so |
+| `pins.joint_combinations` | `64` | count | the most pose combinations the pin map study searches for parts it studies together, their present poses first |
+| `pins.faces` | `false` | bool | the pin map study also turns a part on the other face where its declaration lets it stand there (`face=Face.EITHER`) |
+| `pins.gain_min` | `0.05` | share | the share of the present total a better pin map must save for a `pins.remap` finding |
+| `pins.explore_top` | `3` | count | the best variants of an explore, by run score, the pin map study runs on (0: none) |
+| `pins.probe_budget_ms` | `5000` | ms | the pin map study's time for each part when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
 | `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream` |
 | `route.quick` | `true` | bool | one routing round rather than the router's full run |

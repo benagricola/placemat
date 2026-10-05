@@ -1,0 +1,32 @@
+"""The pin map study's settings: each with its default, a list of turns refused when an entry is not a number, and none
+of them able to stop a placement replaying."""
+import pytest
+
+from placemat.reuse import placement_settings
+from placemat.settings import Settings, SettingsError, load
+
+
+def test_every_pins_setting_has_its_default():
+    s = Settings()
+    assert (s.pins_exit_mm, s.pins_follow_series, s.pins_pair_weight, s.pins_impedance_weight, s.pins_length_weight,
+            s.pins_bend_weight) == (0.5, True, 5.0, 3.0, 0.25, 0.005)
+    assert (s.pins_rotations, s.pins_seeds, s.pins_anneal_moves, s.pins_anneal_start, s.pins_anneal_end) == \
+        ((0.0, 90.0, 180.0, 270.0), 4, 500, 1.0, 0.02)
+    assert (s.pins_budget_ms, s.pins_joint_combinations, s.pins_faces, s.pins_gain_min, s.pins_explore_top,
+            s.pins_probe_budget_ms) == (400, 64, False, 0.05, 3, 5000)
+
+
+def test_the_turns_are_read_from_the_toml_and_an_entry_that_is_not_a_number_is_refused(tmp_path):
+    (tmp_path / "placemat.toml").write_text("[pins]\nrotations = [0, 45, 90]\nbudget_ms = 250\n")
+    s = load(tmp_path)
+    assert s.pins_rotations == (0, 45, 90) and s.pins_budget_ms == 250
+    (tmp_path / "placemat.toml").write_text('[pins]\nrotations = [0, "ninety"]\n')
+    with pytest.raises(SettingsError, match="pins.rotations"):
+        load(tmp_path)
+    (tmp_path / "placemat.toml").write_text("[pins]\nbudget_ms = 0\n")
+    with pytest.raises(SettingsError, match="pins.budget_ms"):
+        load(tmp_path)
+
+
+def test_a_pins_setting_changes_no_placement_so_a_replay_still_holds():
+    assert "pins_budget_ms" not in placement_settings(Settings())
