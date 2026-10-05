@@ -9375,6 +9375,8 @@ class Board:
                 drawn += list(now[i][0]) + list(now[i][1])
             left = [i for i in left if i not in held]
         intents = []
+        # after the declarations' indexes, which an arrangement's left-out copper does not shorten: ctx.ops_at is keyed by index
+        base = max((c.index for c in self._copper), default=-1) + 1
         for i, e in enumerate(entries):
             key = keys[i]
             if isinstance(got[i], Refusal):
@@ -9384,7 +9386,7 @@ class Board:
             plan.adopted[key] = "held"
             ops = list(got[i][0]) + list(got[i][1])
             intents.append(CopperIntent("adopted %s" % key, e.net, Priority.DEFAULT, lambda ctx, ops=ops: ops,
-                                        (), "kept from a route", len(self._copper) + len(intents)))
+                                        (), "kept from a route", base + len(intents)))
         if intents:
             self._plan_copper(occ, ctx, intents, plan, progress)
 
@@ -11727,11 +11729,12 @@ def _op_layers(op) -> frozenset:
 
 
 def _via_intent_at(board: "Board", ctx, net: str, x: float, y: float):
-    """The copper declaration whose planned via of `net` stands at (x, y), or None."""
+    """The copper declaration whose planned via of `net` stands at (x, y), or None. `ops_at` is keyed by `CopperIntent.index`,
+    which is not the position in `board._copper` once an arrangement has left out copper its `only=` excludes."""
     for index, ops in (getattr(ctx, "ops_at", None) or {}).items():
         for op in ops:
             if isinstance(op, Via) and op.net == net and abs(op.at.x - x) < 1e-6 and abs(op.at.y - y) < 1e-6:
-                return board._copper[index]
+                return next((c for c in board._copper if c.index == index), None)
     return None
 
 
