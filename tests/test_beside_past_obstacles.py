@@ -125,6 +125,11 @@ def test_beside_stands_its_pad_past_a_stretch_of_a_cutout():
     assert _pad_box(b.resolve(), "Q", 1).left == pytest.approx(27.0 + EDGE)
 
 
+def test_beside_past_a_cutout_that_was_refused_is_refused():
+    b, _ = _settles_late(stretch=False, below=0.0)              # milled through c_in: the cutout is not cut
+    with pytest.raises(ValueError, match="nothing to stand past"):
+        b.resolve()
+
 
 def test_beside_at_a_corner_passes_each_groups_own_corner():
     near = Cutout(SQUARE, "near", at=Location(36.0, 14.0))     # box 35..37 x 13..15: its SE corner (37, 15)

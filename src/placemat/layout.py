@@ -2660,6 +2660,10 @@ class Board:
             own_pad = i.item.pad(own_key)
             own = Box.union([transform_box(s.box, t) for s in g.shapes
                              if s.kind in ("pad", "through") and s.label == own_pad.number])
+            for it in past.items:
+                if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)) and it.name not in self._settled_cutouts:
+                    # waited for, so it was refused (its finding says why), as Beside of a keepout with no place is
+                    raise ValueError("%s: cutout %r has no place, so there is nothing to stand past" % (i.key, it.name))
             groups = self._beside_past_groups(occ, past, own_pad.net, own_pad.owner)
             box = Box.union([gb for gb, _, _ in groups])
             if past.lane is None:
