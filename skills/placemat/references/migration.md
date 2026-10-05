@@ -5,6 +5,24 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A pad whose one way toward its target is pinched is an `escape.pinched` warning.** Its airwire toward its nearest
+  target is followed out to `place.approach_reach` (8 mm) on the pad's own layer. When it passes between two other
+  parts' copper (pads, planned tracks or vias) closer than the net class's track width and two clearances, every
+  other way within `place.approach_detour` (2 mm) of the airwire is closed by copper or crosses another net's airwire,
+  and widening that gap alone would open one, the finding names the pad, the two neighbours, the gap and what the
+  track needs. A termination row straddling a connector contact is the case it was made for. It is judged once on the
+  finished board and does not enter the score, so placements do not change. Scripts need no change.
+- **Lines whose pins stand in reverse order are a `pins.reversed` notice.** Two parts joined by `pins.reversed_min`
+  (3) or more lines, directly or through a series termination, where a run of a part's pins lands on the other part
+  (or on the terminations) in the reverse of its order: the notice gives the nets in each order and the crossings
+  among their straight airwires, as they stand and with the run mirrored. It says when a `Pm.PinGroup` or
+  `Pm.PinPool` holds the pins, and when the pin map study looked at the part and gave no map. A part the study gives a
+  `pins.remap` for gets no `pins.reversed`. Scripts need no change.
+
 ## To 0.99.20
 
 ### Fixed

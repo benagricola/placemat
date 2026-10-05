@@ -144,10 +144,63 @@ def _escape_via_unneeded(f):
             "the parent board's router; %s" % (f["ref"], f["pin"], f["net"], what, "/".join(f["layers"]), fix))
 
 
+def _pinch_side(n: dict) -> str:
+    """One side of a pinch: a pad as its part's pin and net, an escape's lane by its name, a track or a via by its net
+    and the cell that owns it."""
+    from .refusals import who_text
+    if n["kind"] == "pad":
+        return "%s pin %s (%s)" % (who_text([n["ref"], n["cell"]]), n["pin"], n["net"])
+    if n["kind"] == "lane":
+        return n["lane"]
+    return "%s %s%s" % (n["kind"], n["net"], " of cell %s" % n["cell"] if n["cell"] else "")
+
+
+@renders(C.ESCAPE_PINCHED, "net", "pad", "toward", "layer", "neighbours", "gap_mm", "need_mm", "track_mm", "detour_mm", "at")
+def _escape_pinched(f):
+    (ref, pin), (to_ref, to_pin) = f["pad"], f["toward"]
+    toward = "%s pin %s" % (to_ref, to_pin) if to_ref else "its net's copper"
+    a, b = f["neighbours"]
+    return ("%s pin %s (%s): its approach toward %s on %s passes between %s and %s, %.3f mm apart, under the %.3f mm a "
+            "%.3f mm track and two clearances need; within %.2f mm of the airwire every other way is closed by copper or "
+            "crosses another net's airwire" % (
+                ref, pin, f["net"], toward, f["layer"], _pinch_side(a), _pinch_side(b), f["gap_mm"], f["need_mm"],
+                f["track_mm"], f["detour_mm"]))
+
+
 @renders(C.PAIR_CROSSED, "pos", "neg", "parts")
 def _pair_crossed(f):
     return ("%s/%s cross between %s: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored "
             "180 degrees" % (f["pos"], f["neg"], ", ".join(f["parts"])))
+
+
+# ------------------------------------------------------------------ pin order
+@renders(C.PINS_REVERSED, "refs", "mirror", "mirror_also", "nets", "pins", "far", "crossings", "crossings_mirrored", "rules",
+         "studied")
+def _pins_reversed(f):
+    """Lines whose pins on one part stand in the reverse of the order their airwires from it land in (on the other
+    part's pins, or on series parts on the way): `nets` in the part's own order and in the landing order, `far` each
+    landing [ref, pad] in the landing order."""
+    (m, o), (mine, _) = f["refs"], f["nets"]
+    refs = {r for r, _ in f["far"]}
+    if len(refs) == 1:
+        far = "%s pins %s" % (f["far"][0][0], ", ".join(p for _, p in f["far"]))
+    else:
+        far = ", ".join("%s pin %s" % (r, p) for r, p in f["far"])
+    rule = f["rules"][0]
+    if rule["pool"]:
+        held = ("%s's Pm.PinGroup %s holds those pins" % (m, rule["group"]) if rule["group"]
+                else "%s's Pm.PinPool holds those pins" % m)
+        tail = (held + ", and the pin map study found no map for %s that saves pins.gain_min of its total" % m
+                if f["studied"] else held + ", so the pin map study may reorder them")
+    elif not f["rules"][1]["pool"]:
+        tail = "neither part has a Pm.PinPool holding those pins, so the pin map study does not reorder them"
+    else:
+        tail = "%s has no Pm.PinPool holding those pins, so the pin map study does not reorder them" % m
+    on = m + (" or on %s" % f["mirror_also"] if f["mirror_also"] else "")
+    return ("%s and %s: %s stand in that order along %s (pins %s) and the other way round where their airwires from %s "
+            "land (%s), so the straight airwires between %s and %s cross %d times; mirrored on %s they would cross %d "
+            "times; %s" % (m, o, ", ".join(mine), m, ", ".join(f["pins"]), m, far, m, o, f["crossings"], on,
+                           f["crossings_mirrored"], tail))
 
 
 # ------------------------------------------------------------------ setup
@@ -1121,8 +1174,10 @@ def subject(cause, facts: dict) -> str:
     if cause is C.SETUP_PINS:
         parts = [facts["ref"], facts["key"], facts["entry"], facts["name"]]
         return " ".join(v for i, v in enumerate(parts) if v and v not in parts[:i])
-    if cause is C.PINS_REMAP:
+    if cause in (C.PINS_REMAP, C.PINS_REVERSED):
         return " ".join(facts["refs"])
+    if cause is C.ESCAPE_PINCHED:
+        return "%s.%s" % tuple(facts["pad"])
     if cause is C.LINK_OVER:
         return facts["link"]
     if cause is C.ARRANGEMENT_OPTION_DEAD:
@@ -1142,6 +1197,8 @@ _PADS = {
     C.SETUP_LANE_UNUSED: lambda f: [[f["ref"], f["pin"]]],
     C.ESCAPE_VIA_UNNEEDED: lambda f: [[f["ref"], f["pin"]]],
     C.ESCAPE_CROSSED: lambda f: [[f["ref"], p] for p in f["pins"]],
+    C.ESCAPE_PINCHED: lambda f: [f["pad"]] + [[n["ref"], n["pin"]] for n in f["neighbours"] if n["kind"] == "pad"],
+    C.PINS_REVERSED: lambda f: [[f["refs"][0], p] for p in f["pins"]] + [list(x) for x in f["far"]],
 }
 
 

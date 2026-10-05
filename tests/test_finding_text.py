@@ -102,6 +102,22 @@ SAMPLES = [
                              "via": {"kind": "via", "at": [1.0, 2.0], "key": "via A#4"}},
      "U1 pin 3 (A): via A at (1.00, 2.00), on its lane's copper, is not needed: the lane reaches the frame's edge on F.Cu "
      "without it, so it can end there for the parent board's router; remove the board.via"),
+    (C.ESCAPE_PINCHED, {"net": "RST", "pad": ["J1", "4"], "toward": ["U1", "21"], "layer": "F.Cu",
+                        "neighbours": [{"kind": "pad", "ref": "R4", "cell": "terms", "pin": "2", "net": "CS_P", "lane": ""},
+                                       {"kind": "track", "ref": "", "cell": "", "pin": "", "net": "SCK_P", "lane": ""}],
+                        "gap_mm": 0.3, "need_mm": 0.381, "track_mm": 0.127, "detour_mm": 1.0, "at": [30.0, 24.25]},
+     "J1 pin 4 (RST): its approach toward U1 pin 21 on F.Cu passes between cell terms's R4 pin 2 (CS_P) and track SCK_P, "
+     "0.300 mm apart, under the 0.381 mm a 0.127 mm track and two clearances need; within 1.00 mm of the airwire every "
+     "other way is closed by copper or crosses another net's airwire"),
+    (C.PINS_REVERSED, {"refs": ["U1", "J1"], "mirror": "U1", "mirror_also": "", "nets": [["SCK", "MOSI", "DC"], ["DC", "MOSI", "SCK"]],
+                       "pins": ["22", "23", "24"], "far": [["R5", "1"], ["R6", "1"], ["R7", "1"]], "crossings": 6,
+                       "crossings_mirrored": 3, "rules": [{"ref": "U1", "pool": True, "group": "display"},
+                                                          {"ref": "J1", "pool": False, "group": ""}],
+                       "studied": True, "at": [10.0, 20.0]},
+     "U1 and J1: SCK, MOSI, DC stand in that order along U1 (pins 22, 23, 24) and the other way round where their airwires "
+     "from U1 land (R5 pin 1, R6 pin 1, R7 pin 1), so the straight airwires between U1 and J1 cross 6 times; mirrored on "
+     "U1 they would cross 3 times; U1's Pm.PinGroup display holds those pins, and the pin map study found no map for U1 "
+     "that saves pins.gain_min of its total"),
     (C.PAIR_CROSSED, {"pos": "P", "neg": "N", "parts": ["R1", "R2"]},
      "P/N cross between R1, R2: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"),
     (C.SETUP_UNDECLARED, {"item": "c1", "ref": "C1"}, "c1 (C1): no declaration places it, so it stays where the generator put it"),
