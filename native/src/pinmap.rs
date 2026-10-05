@@ -144,10 +144,27 @@ fn segments(paths: &[Vec<(f64, f64)>]) -> Vec<Seg> {
     out
 }
 
+/// The grid cells segment `s` passes through, column by column (a cell is [k, k + 1) * CELL_NM each way): in each
+/// column the cells between the segment's lowest and highest y over the column, rounded outward to the nanometre. Two
+/// segments that cross share the cell their crossing point is in, so the grid meets every crossing the whole-box scan
+/// met, and a segment's candidates, deduplicated in wire order, give the same sums.
 fn cells(s: &Seg) -> Vec<(i64, i64)> {
+    let ((ax, ay), (bx, by)) = if s[0] <= s[2] { ((s[0], s[1]), (s[2], s[3])) } else { ((s[2], s[3]), (s[0], s[1])) };
     let mut out = Vec::new();
-    for cx in s[4].div_euclid(CELL_NM)..=s[6].div_euclid(CELL_NM) {
-        for cy in s[5].div_euclid(CELL_NM)..=s[7].div_euclid(CELL_NM) {
+    for cx in ax.div_euclid(CELL_NM)..=bx.div_euclid(CELL_NM) {
+        let (lo, hi) = if ax == bx {
+            (s[5], s[7])
+        } else {
+            let (x0, x1) = (ax.max(cx * CELL_NM), bx.min((cx + 1) * CELL_NM));
+            let den = (bx - ax) as i128;
+            let at = |x: i64| -> (i64, i64) {
+                let num = (by - ay) as i128 * (x - ax) as i128;
+                (ay + num.div_euclid(den) as i64, ay - (-num).div_euclid(den) as i64)
+            };
+            let ((f0, c0), (f1, c1)) = (at(x0), at(x1));
+            (f0.min(f1), c0.max(c1))
+        };
+        for cy in lo.div_euclid(CELL_NM)..=hi.div_euclid(CELL_NM) {
             out.push((cx, cy));
         }
     }
@@ -270,6 +287,9 @@ struct Scorer<'a> {
     w: [f64; 5],
     bg: &'a Background,
     extra: Vec<(u8, Seg)>,
+    /// Per net, whether it has an end on a part of the group: only such nets' own terms, and pairs with one of them,
+    /// count in the group's total.
+    mine: Vec<bool>,
     exits: HashMap<(usize, usize), Exit>,
     wires: HashMap<(usize, Pins), Rc<NetWires>>,
     single: HashMap<(usize, Pins), (f64, f64, i64)>,
@@ -277,9 +297,10 @@ struct Scorer<'a> {
 }
 
 impl<'a> Scorer<'a> {
-    fn new(pb: &'a Problem, poses: Vec<Pose>, w: [f64; 5], bg: &'a Background) -> Scorer<'a> {
+    fn new(pb: &'a Problem, poses: Vec<Pose>, w: [f64; 5], bg: &'a Background, group_parts: &[usize]) -> Scorer<'a> {
         let extra = posed_wires(pb, &poses, &w);
-        Scorer { pb, poses, w, bg, extra, exits: HashMap::new(), wires: HashMap::new(), single: HashMap::new(), pair: HashMap::new() }
+        let mine = pb.ends.iter().map(|e| e.iter().any(|x| group_parts.contains(&x.0))).collect();
+        Scorer { pb, poses, w, bg, extra, mine, exits: HashMap::new(), wires: HashMap::new(), single: HashMap::new(), pair: HashMap::new() }
     }
 
     fn exit(&mut self, part: usize, pin: usize) -> Exit {
@@ -376,6 +397,9 @@ impl<'a> Scorer<'a> {
     fn total(&mut self, assign: &[Pins]) -> Tallies {
         let (mut weighted, mut against, mut among, mut ln, mut bd) = (0.0, 0i64, 0i64, 0.0, 0.0);
         for (n, pins) in assign.iter().enumerate() {
+            if !self.mine[n] {
+                continue;
+            }
             let (_, w, c) = self.single(n, pins);
             let nw = self.wires(n, pins);
             weighted += w;
@@ -385,6 +409,9 @@ impl<'a> Scorer<'a> {
         }
         for a in 0..assign.len() {
             for b in a + 1..assign.len() {
+                if !self.mine[a] && !self.mine[b] {
+                    continue;
+                }
                 let (w, c) = self.pair(a, &assign[a], b, &assign[b]);
                 weighted += w;
                 among += c;
@@ -393,10 +420,10 @@ impl<'a> Scorer<'a> {
         (weighted + self.w[3] * ln + self.w[4] * bd, against, among, weighted, ln, bd)
     }
 
-    fn paths(&mut self, group_parts: &[usize], assign: &[Pins]) -> Paths {
+    fn paths(&mut self, assign: &[Pins]) -> Paths {
         let mut out = Vec::new();
         for (n, pins) in assign.iter().enumerate() {
-            if (0..pins.len()).any(|k| group_parts.contains(&self.pb.ends[n][k].0)) {
+            if self.mine[n] {
                 out.push((n, self.wires(n, pins).paths.clone()));
             }
         }
@@ -415,6 +442,8 @@ impl Tally {
         Tally { assign: assign.to_vec(), value }
     }
 
+    /// The change in the total when the nets in `changes` take those pins. A move only touches nets with an end on
+    /// the group, so every pair it changes counts.
     fn delta(&self, sc: &mut Scorer, changes: &BTreeMap<usize, Pins>) -> f64 {
         let now = &self.assign;
         let moved: Vec<usize> = changes.keys().copied().collect();
@@ -589,7 +618,7 @@ fn first_map(sc: &mut Scorer, group_parts: &[usize], start: &[Pins]) -> (Vec<Pin
                 }
                 ranked.push((c, wi));
             }
-            ranked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then(a.1.cmp(&b.1)));
+            ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
             let mut chosen: Option<&Vec<usize>> = None;
             for (_, wi) in &ranked {
                 let mut trial = used.clone();
@@ -691,6 +720,27 @@ fn units(pb: &Problem, group_parts: &[usize]) -> Vec<Unit> {
     out
 }
 
+/// The window group `g` stands on, if it stands on one.
+fn window_of<'p>(pb: &'p Problem, st: &State, g: usize) -> Option<&'p Vec<usize>> {
+    let (_, members, windows) = &pb.groups[g];
+    windows.iter().find(|w| members.iter().zip(w.iter()).all(|(m, q)| *m < 0 || st.pin[*m as usize] == *q))
+}
+
+/// The pins of the empty slots of the groups on `part` (but `except`) where they stand: reserved, as the first map
+/// reserves them, so no other net takes one.
+fn gaps(pb: &Problem, st: &State, part: usize, except: usize) -> BTreeSet<usize> {
+    let mut out = BTreeSet::new();
+    for (g, gr) in pb.groups.iter().enumerate() {
+        if gr.0 != part || g == except {
+            continue;
+        }
+        if let Some(win) = window_of(pb, st, g) {
+            out.extend(gr.1.iter().zip(win.iter()).filter(|(m, _)| **m < 0).map(|(_, q)| *q));
+        }
+    }
+    out
+}
+
 fn propose(rng: &mut SplitMix64, st: &State, pb: &Problem, units: &[Unit]) -> Option<BTreeMap<usize, usize>> {
     if units.is_empty() {
         return None;
@@ -700,7 +750,8 @@ fn propose(rng: &mut SplitMix64, st: &State, pb: &Problem, units: &[Unit]) -> Op
             let mv = &pb.movable[i];
             let part = part_of(pb, i);
             let here = st.pin[i];
-            let choices: Vec<usize> = mv.2.iter().copied().filter(|&q| q != here).collect();
+            let reserved = gaps(pb, st, part, usize::MAX);
+            let choices: Vec<usize> = mv.2.iter().copied().filter(|&q| q != here && !reserved.contains(&q)).collect();
             if choices.is_empty() {
                 return None;
             }
@@ -732,13 +783,19 @@ fn propose(rng: &mut SplitMix64, st: &State, pb: &Problem, units: &[Unit]) -> Op
                 return None;
             }
             let win = wins[rng.below(wins.len())];
+            let reserved = gaps(pb, st, *gpart, g);
+            if win.iter().any(|q| reserved.contains(q)) {
+                return None;
+            }
             let mut changes = BTreeMap::new();
             for (m, &q) in members.iter().zip(win.iter()) {
                 if *m >= 0 {
                     changes.insert(*m as usize, q);
                 }
             }
-            let left: Vec<usize> = now.iter().copied().collect::<BTreeSet<usize>>()
+            // the pins it leaves, its empty slots' among them, go to the nets standing where it lands, in pin order
+            let was: Vec<usize> = window_of(pb, st, g).cloned().unwrap_or_else(|| now.clone());
+            let left: Vec<usize> = was.iter().copied().collect::<BTreeSet<usize>>()
                 .difference(&win.iter().copied().collect()).copied().collect();
             let mut sorted_win = win.clone();
             sorted_win.sort_unstable();
@@ -814,9 +871,9 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
     let mut clock = Clock { budget: pr.budget_ms, step: pr.step_ms, elapsed: 0.0, start: Instant::now() };
     let present: Vec<Pins> = pb.ends.iter().map(|e| e.iter().map(|x| x.1).collect()).collect();
     let present_poses: Vec<Pose> = pb.parts.iter().map(|p| Pose::new(p.1, p.2, 0.0, false)).collect();
-    let mut sc0 = Scorer::new(pb, present_poses.clone(), pr.w, &bg);
+    let mut sc0 = Scorer::new(pb, present_poses.clone(), pr.w, &bg, group_parts);
     let base = sc0.total(&present);
-    let base_paths = sc0.paths(group_parts, &present);
+    let base_paths = sc0.paths(&present);
     let (mut results, mut out, mut first, mut problems) = (Vec::new(), false, true, Vec::new());
     for (k, combo) in combos.iter().enumerate() {
         if clock.out() {
@@ -834,7 +891,7 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
         let sc: &mut Scorer = if k == 0 {
             &mut sc0
         } else {
-            fresh = Scorer::new(pb, poses, pr.w, &bg);
+            fresh = Scorer::new(pb, poses, pr.w, &bg, group_parts);
             &mut fresh
         };
         let (start, said) = first_map(sc, group_parts, &present);
@@ -848,7 +905,7 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
         }
         let (best, _, ran_out) = anneal(sc, group_parts, &start, pr, k, &mut clock);
         let t = sc.total(&best);
-        let paths = sc.paths(group_parts, &best);
+        let paths = sc.paths(&best);
         results.push((k, t, best, paths));
         if ran_out {
             out = true;
@@ -898,6 +955,53 @@ mod tests {
         assert_eq!(results[0].2, vec![vec![3], vec![2], vec![1], vec![0]]);
     }
 
+    fn seg(ax: i64, ay: i64, bx: i64, by: i64) -> Seg {
+        [ax, ay, bx, by, ax.min(bx), ay.min(by), ax.max(bx), ay.max(by)]
+    }
+
+    #[test]
+    fn a_long_diagonal_is_filed_only_in_the_cells_it_passes_through() {
+        // 20 mm square diagonal: 10 cells along it and their neighbours at most, not the 121 of its box
+        let got = cells(&seg(0, 0, 20_000_000, 20_000_000));
+        assert!(got.len() <= 31, "{} cells", got.len());
+        for k in 0..10 {
+            assert!(got.contains(&(k, k)));
+        }
+        let flat = cells(&seg(-1_000_000, 5_000_000, 9_000_000, 5_000_000));
+        assert_eq!(flat, (-1..=4).map(|x| (x, 2)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn the_grid_finds_every_crossing_a_full_scan_finds() {
+        let w = [5.0, 3.0, 0.7, 0.25, 0.005];
+        let mut r = SplitMix64::new(11);
+        let mut c = |lo: i64, hi: i64| lo + (r.next() % (hi - lo) as u64) as i64;
+        let mut wires = Vec::new();
+        for k in 0..300 {
+            let (ax, ay) = (c(-40_000_000, 40_000_000), c(-40_000_000, 40_000_000));
+            // some on cell lines exactly, some long
+            let ax = if k % 10 == 0 { (ax / CELL_NM) * CELL_NM } else { ax };
+            let (bx, by) = if k % 5 == 0 { (ax, ay + c(-30_000_000, 30_000_000)) } else {
+                (ax + c(-30_000_000, 30_000_000), (ay / CELL_NM) * CELL_NM)
+            };
+            wires.push(((k % 4) as u8, ax, ay, bx, by));
+        }
+        let bg = Background::new(&wires, w);
+        for _ in 0..200 {
+            let (ax, ay) = (c(-40_000_000, 40_000_000), c(-40_000_000, 40_000_000));
+            let s = seg(ax, ay, ax + c(-30_000_000, 30_000_000), ay + c(-30_000_000, 30_000_000));
+            let (mut total, mut count) = (0.0, 0i64);
+            for t in &wires {
+                if cross_nm(s[0], s[1], s[2], s[3], t.1, t.2, t.3, t.4) {
+                    total += crossing(&w, 1, t.0);
+                    count += 1;
+                }
+            }
+            let got = bg.cross(1, &[s], &[]);
+            assert_eq!((got.0.to_bits(), got.1), (total.to_bits(), count));
+        }
+    }
+
     #[test]
     fn a_quiet_net_on_a_studied_part_turns_with_it() {
         // U1's pin 2 (west) on a plane net whose other pad is due north of it
@@ -914,5 +1018,137 @@ mod tests {
         assert_eq!(ends(here), vec![[(8_300_000, 10_000_000), (8_300_000, 0)].into_iter().collect()]);
         assert_eq!(ends(turned), vec![[(11_700_000, 10_000_000), (8_300_000, 0)].into_iter().collect()]);
         assert!(posed_wires(&pb, &[Pose::new(10.0, 10.0, 180.0, false)], &[5.0, 3.0, 0.0, 0.25, 0.005]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod prop {
+    use super::*;
+
+    fn rnd(r: &mut SplitMix64, lo: f64, hi: f64) -> f64 {
+        lo + (hi - lo) * r.unit()
+    }
+
+    /// U1 (12 pins E/S/W + 1 north pin on a plane net), U2 (4 west pins); a group [n0, -, n1]; a fixed net; a net joining
+    /// U1 and U2; a multi-pad net; random anchors, kinds and background.
+    fn problem(seed: u64) -> (Problem, Vec<usize>) {
+        let mut r = SplitMix64::new(seed);
+        let mut u1 = Vec::new();
+        for i in 0..4 { u1.push(((u1.len() + 1).to_string(), 3.0, -1.5 + i as f64, 1.0, 0.0)); }
+        for i in 0..4 { u1.push(((u1.len() + 1).to_string(), 1.5 - i as f64, 3.0, 0.0, 1.0)); }
+        for i in 0..4 { u1.push(((u1.len() + 1).to_string(), -3.0, 1.5 - i as f64, -1.0, 0.0)); }
+        u1.push(("13".into(), 0.0, -3.0, 0.0, -1.0));
+        let u2: Vec<Row> = (0..4).map(|i| ((i + 1).to_string(), -2.0, -1.5 + i as f64, -1.0, 0.0)).collect();
+        let parts = vec![("U1".into(), 10.0, 10.0, 3.0, 3.0), ("U2".into(), 30.0, 12.0, 2.0, 2.0)];
+        // nets 0..5 single on U1, 6 joint U1-U2, 7 fixed on U1 pin 6, 8 multi-pad on U1, 9 single on U2
+        let mut nets = Vec::new();
+        for n in 0..10 { nets.push((format!("N{n}"), (r.below(3)) as u8)); }
+        let mut fixed = Vec::new();
+        for n in 0..10 {
+            let k = match n { 6 => 0, 8 => 3, _ => 1 };
+            fixed.push((0..k).map(|j| (rnd(&mut r, -10.0, 50.0), rnd(&mut r, -10.0, 40.0), format!("T{n}"), (j + 1).to_string())).collect::<Vec<_>>());
+        }
+        let mut joined = vec![vec![]; 10];
+        joined[8] = vec![(0, 1)];
+        let present = [0usize, 2, 3, 4, 5, 7];
+        let mut ends: Vec<Vec<(usize, usize)>> = present.iter().map(|&p| vec![(0, p)]).collect();
+        ends.push(vec![(0, 8), (1, 1)]);
+        ends.push(vec![(0, 6)]);
+        ends.push(vec![(0, 9)]);
+        ends.push(vec![(1, 0)]);
+        let all: Vec<usize> = (0..12).filter(|&p| p != 6).collect();
+        let movable = vec![
+            (0, 0, all.clone(), 0), (1, 0, all.clone(), 0),
+            (2, 0, vec![3, 5, 7, 11], -1), (3, 0, all.clone(), -1), (4, 0, all.clone(), -1), (5, 0, all.clone(), -1),
+            (6, 0, all.clone(), -1), (6, 1, vec![0, 1, 2, 3], -1), (8, 0, all.clone(), -1), (9, 0, vec![0, 1, 2, 3], -1),
+        ];
+        let groups = vec![(0, vec![0, -1, 1], vec![vec![0, 1, 2], vec![3, 4, 5], vec![8, 9, 10]])];
+        let mut wires = Vec::new();
+        for _ in 0..40 {
+            let (ax, ay) = (rnd(&mut r, -10.0, 50.0), rnd(&mut r, -10.0, 40.0));
+            let (bx, by) = (ax + rnd(&mut r, -15.0, 15.0), ay + rnd(&mut r, -15.0, 15.0));
+            wires.push((r.below(4) as u8, nm(ax), nm(ay), nm(bx), nm(by)));
+        }
+        let posed = vec![(PLANE, vec![(10.0, 7.0, "U1".into(), "13".into(), 0, 12), (rnd(&mut r, 0.0, 20.0), -5.0, "J1".into(), "1".into(), -1, -1)], vec![])];
+        let pb = Problem { parts, pins: vec![u1, u2], nets, fixed, joined, ends, wires, posed, movable, groups, margin: 0.5 };
+        (pb, vec![0, 1])
+    }
+
+    fn check_constraints(pb: &Problem, a: &[Pins]) {
+        // net 7 held on U1 pin 6; every movable on an allowed pin; one net per pin; the group whole and in order on a
+        // window, and no single on the pin of its empty slot
+        assert_eq!(a[7], vec![6]);
+        let mut seen = BTreeSet::new();
+        for (n, pins) in a.iter().enumerate() {
+            for (k, &q) in pins.iter().enumerate() {
+                assert!(seen.insert((pb.ends[n][k].0, q)), "two nets on part {} pin {q}", pb.ends[n][k].0);
+            }
+        }
+        for mv in &pb.movable {
+            assert!(mv.2.contains(&a[mv.0][mv.1]), "net {} off its allowed pins", mv.0);
+        }
+        let (_, members, wins) = &pb.groups[0];
+        let at: Vec<Option<usize>> = members.iter()
+            .map(|&m| if m >= 0 { let mv = &pb.movable[m as usize]; Some(a[mv.0][mv.1]) } else { None }).collect();
+        let win = wins.iter().find(|w| at.iter().zip(w.iter()).all(|(p, q)| p.is_none_or(|p| p == *q)));
+        let win = win.unwrap_or_else(|| panic!("group off its windows: {at:?}"));
+        for (m, q) in members.iter().zip(win.iter()) {
+            if *m < 0 {
+                assert!(!seen.contains(&(0, *q)), "a single on the group's empty slot, pin {q}");
+            }
+        }
+    }
+
+    /// After each accepted move the running total is the full rescore's, and the constraints hold: a few boards and
+    /// poses, every gain and most losses taken.
+    #[test]
+    fn the_running_total_is_a_full_rescore_after_every_move() {
+        let w = [5.0, 3.0, 0.7, 0.25, 0.005];
+        let mut accepted = 0;
+        for seed in 0..4u64 {
+            let (pb, both) = problem(seed);
+            let gp: Vec<usize> = if seed % 2 == 0 { both } else { vec![0] };
+            let bg = Background::new(&pb.wires, w);
+            let present: Vec<Pins> = pb.ends.iter().map(|e| e.iter().map(|x| x.1).collect()).collect();
+            let mut r = SplitMix64::new(seed ^ 0xABCDEF);
+            let turns = [0.0, 90.0, 180.0, 270.0, 45.0];
+            let mut poses: Vec<Pose> = pb.parts.iter().map(|p| Pose::new(p.1, p.2, 0.0, false)).collect();
+            for (p, pose) in poses.iter_mut().enumerate() {
+                *pose = Pose::new(pb.parts[p].1, pb.parts[p].2, turns[r.below(5)], r.below(2) == 1);
+            }
+            let mut sc = Scorer::new(&pb, poses.clone(), w, &bg, &gp);
+            let (start, probs) = first_map(&mut sc, &gp, &present);
+            assert!(probs.is_empty());
+            check_constraints(&pb, &start);
+            let units = units(&pb, &gp);
+            let mut tally = Tally::new(&mut sc, &start);
+            let mut st = State::new(&pb, &start);
+            for _ in 0..150 {
+                let got = match propose(&mut r, &st, &pb, &units) {
+                    Some(g) => g,
+                    None => continue,
+                };
+                let mut changes: BTreeMap<usize, Pins> = BTreeMap::new();
+                for (&m, &q) in &got {
+                    let (net, slot) = (pb.movable[m].0, pb.movable[m].1);
+                    changes.insert(net, with(&tally.assign, net, slot, q));
+                }
+                let d = tally.delta(&mut sc, &changes);
+                if d < 0.0 || r.unit() < 0.7 {
+                    tally.apply(&changes, d);
+                    st.commit(&pb, &got);
+                    accepted += 1;
+                    let full = sc.total(&tally.assign).0;
+                    let fresh = Scorer::new(&pb, poses.clone(), w, &bg, &gp).total(&tally.assign).0;
+                    assert_eq!(full.to_bits(), fresh.to_bits());
+                    assert!((tally.value - full).abs() <= 1e-9 * full.abs().max(1.0), "seed {seed}: {} vs {full}", tally.value);
+                    check_constraints(&pb, &tally.assign);
+                    for (k, mv) in pb.movable.iter().enumerate() {
+                        assert_eq!(st.pin[k], tally.assign[mv.0][mv.1]);
+                    }
+                }
+            }
+        }
+        assert!(accepted > 200, "{accepted} moves taken");
     }
 }

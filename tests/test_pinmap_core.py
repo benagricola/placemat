@@ -187,3 +187,39 @@ def test_a_pin_normal_off_the_axes_is_refused():
     pins = [[(n, x, y, 0.6, 0.8) for n, x, y, _, _ in pb.pins[0]]]
     with pytest.raises(ValueError, match="not one of the four axis directions"):
         search(replace(pb, pins=pins), [0], [[(0, 0.0, False)]], params_of(settings(), ("U1",)))
+
+
+def test_a_groups_tallies_count_only_its_own_nets_and_their_crossings(native):
+    s = settings(pins_rotations=(0.0,))
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B"]}, {"Pm.PinPool": "1-2"})
+    pads += point_pad("T1", "A", 20, 10.5) + point_pad("T2", "B", 20, 9.5)
+    alone = run(input_of(pads, {"U1": u1})[0], native, s)
+    p2, u2 = quad("U2", 50, 10, {"E": ["C", "D", "E", "F"]}, {"Pm.PinPool": "1-4"})
+    for i, n in enumerate("CDEF"):
+        p2 += point_pad("S%d" % i, n, 60, 11.5 - i)
+    beside = run(input_of(pads + p2, {"U1": u1, "U2": u2})[0], native, s)
+    assert beside.present == alone.present and alone.present.among == 1
+    assert beside.results[0].breakdown == alone.results[0].breakdown
+
+
+def test_a_net_never_takes_the_pin_of_a_groups_empty_slot(native):
+    # the bus is 1-3 with no net on 2, and S's target faces pin 2: S stays off it
+    pads, u1 = quad("U1", 10, 10, {"E": ["D", "", "F", "S"]}, {"Pm.PinPool": "1-4", "Pm.PinGroup": "bus:1-3"})
+    pads += point_pad("T1", "D", 20, 8.5) + point_pad("T2", "S", 14, 9.5) + point_pad("T3", "F", 20, 10.5)
+    inp, _ = input_of(pads, {"U1": u1})
+    r = run(inp, native, settings(pins_rotations=(0.0,))).results[0]
+    d, f, s = int(pin(r, "D")), int(pin(r, "F")), int(pin(r, "S"))
+    assert f == d + 2 and s != d + 1
+
+
+def test_an_index_out_of_range_is_refused():
+    if native_core() is None:
+        pytest.skip("the native module is not in use")
+    inp, _ = input_of(*reversed_four())
+    pb = problem_of(inp, 0.5)
+    for bad in (replace(pb, ends=[[(0, 9)]] + pb.ends[1:]), replace(pb, movable=[(7, 0, [0], -1)]),
+                replace(pb, groups=[(0, [5], [[0]])]), replace(pb, fixed=[[]] * 4, joined=[[(0, 1)]] + pb.joined[1:])):
+        with pytest.raises(ValueError, match="out of range"):
+            search(bad, [0], [[(0, 0.0, False)]], params_of(settings(), ("U1",)))
+    with pytest.raises(ValueError, match="out of range"):
+        search(pb, [3], [[(0, 0.0, False)]], params_of(settings(), ("U1",)))
