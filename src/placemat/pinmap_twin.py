@@ -23,7 +23,7 @@ poses, returns the best assignment of the movable nets to pins with its tallies:
 - search: a first map (each hard group, then each soft group, on the cheapest run of pins that leaves the rest a
   matching, then a minimum-cost matching), then per seed `moves` moves, swaps and group moves (a soft group's too)
   under annealing from `t0` down to `t1`. A group's empty slots are reserved where it stands: no single net takes
-  one. At the present pose the present map is a candidate too;
+  one. At the present pose the present map is a candidate too, when every net of it stands on a pin it may take;
 - budget: the search stops when it has taken `budget_steps` steps, a step being one move of a local search (tried
   whether or not a legal change came of it, and whether or not it was taken), checked before each move and before each
   pose. It never reads the time, so where it stops is the same on any machine and on either core;
@@ -553,9 +553,15 @@ def _matching(sc: Scorer, singles: list, used: set, assign: list) -> tuple:
     return pins, hungarian(cost)
 
 
+def legal(pb, assign: list) -> bool:
+    """Whether every movable of `assign` stands on a pin it may take."""
+    return all(assign[mv[0]][mv[1]] in mv[2] for mv in pb.movable)
+
+
 def first_map(sc: Scorer, group_parts, start: list) -> tuple:
     """(assignment, [(part, net)] that no matching places): per part, each hard group on its cheapest window that
-    leaves the singles a matching (its empty slots' pins reserved with it), then each soft group's movables whole on
+    leaves the singles a matching (its empty slots' pins reserved with it; when none does, it stays where it stands if
+    its nets may take those pins, else its first barred net is the problem), then each soft group's movables whole on
     its cheapest window that leaves the rest a matching (its target costs and `group` times the gaps there beside its
     held members, which stay on their pins; when none fits, they stay singles), then the singles by minimum-cost
     matching."""
@@ -564,7 +570,7 @@ def first_map(sc: Scorer, group_parts, start: list) -> tuple:
     problems = []
     for part in group_parts:
         singles = [k for k in range(len(pb.movable)) if _part_of(pb, k) == part and pb.movable[k][3] < 0]
-        used, changes = set(), {}
+        used, changes, barred = set(), {}, None
         for gpart, members, windows in pb.groups:
             if gpart != part:
                 continue
@@ -584,6 +590,10 @@ def first_map(sc: Scorer, group_parts, start: list) -> tuple:
                     chosen = windows[wi]
                     break
             if chosen is None:
+                barred = next((pb.movable[m] for m in members if m >= 0
+                               and assign[pb.movable[m][0]][pb.movable[m][1]] not in pb.movable[m][2]), None)
+                if barred is not None:
+                    break
                 for m in members:
                     if m >= 0:
                         mv = pb.movable[m]
@@ -593,6 +603,9 @@ def first_map(sc: Scorer, group_parts, start: list) -> tuple:
             for m, q in zip(members, chosen):
                 if m >= 0:
                     changes[m] = q
+        if barred is not None:
+            problems.append((part, barred[0]))
+            continue
         placed = set()
         for g, (gpart, _, members, windows) in enumerate(pb.soft):
             if gpart != part:
@@ -772,7 +785,7 @@ def _exp(x: float) -> float:
 def anneal(sc: Scorer, group_parts, start: list, params, combo: int, clock: Clock, present: list | None = None) -> tuple:
     """(best assignment, its total, why it stopped early: None, "budget" or "slow") from `start`, over the seeds. The
     best starts as `start`, or as `present` when that scores lower: at the present pose the study never reports a map
-    worse than the one the part has."""
+    worse than the one the part has. `search` passes `present` only when it is legal."""
     pb = sc.pb
     seeds, moves, t0, t1, seed_key = params["seeds"], params["moves"], params["t0"], params["t1"], params["seed_key"]
     best, best_v = list(start), sc.total(start)[0]
@@ -890,6 +903,7 @@ def search(pb, group_parts, combos, params) -> tuple:
     sc0 = Scorer(pb, present_poses, w, bg, group_parts)
     base = sc0.total(present)
     base_paths = sc0.paths(present)
+    present_legal = legal(pb, present)
     results, out, first, problems = [], False, True, []
     for k, combo in enumerate(combos):
         if clock.slow():
@@ -909,7 +923,7 @@ def search(pb, group_parts, combos, params) -> tuple:
                 problems.append(p)
         if said and k == 0:
             return base, base_paths, [], False, True, problems, clock.steps, False
-        at_present = all(float(turn) % 360.0 == 0.0 and not flip for _, turn, flip in combo)
+        at_present = present_legal and all(float(turn) % 360.0 == 0.0 and not flip for _, turn, flip in combo)
         best, _, stop = anneal(sc, group_parts, start, params, k, clock, present if at_present else None)
         if stop == "slow":
             return base, base_paths, [], out, first, [], clock.steps, True

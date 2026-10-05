@@ -20,6 +20,17 @@ section for each hand-written pattern a newer form replaces.
   until the resolve finished, and the page's stand-in, the layers that carry planned copper, left it out. The frame
   now names the stackup's copper layers, as the finished plan does.
 
+- **The pin map study no longer keeps nets on pins their own rules bar.** At the present pose the study offered the
+  present map as a candidate, so a map was never worse than the present one, even when the present map broke a
+  `Pm.PinAllow` or `Pm.PinDeny`. That map, being the cheapest, won, and the barred nets stayed where they were. The
+  present map is now a candidate only when every net on it stands on a pin it may take. A part whose present map
+  breaks a rule always gets a `pins.remap` finding, whatever `[pins] gain_min` asks, with the cheapest map that keeps
+  the rules, and its sentence names what that map costs ("a pin map that keeps the pin rules the present one breaks
+  exists at its present rotation, at ..."). A hard `Pm.PinGroup` whose nets stand on barred pins and that has no
+  window its nets may take is a `setup.pins` `no_legal_map` warning, and the part is not studied; before, it was
+  left where it stood. Boards whose present maps keep their rules get the same maps as before. Scripts need no
+  change.
+
 ## To 0.99.18
 
 ### New
