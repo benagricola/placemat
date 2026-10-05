@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A module's groups take part in its arrangements as units with options of their own, combined with every other item and group in one product; the run reports an option no combination can use, and the author may exclude combinations.
+**Goal:** A module's units, declared with `board.unit`, take part in its arrangements with options of their own, combined with every other item and unit in one product; the run reports an option no combination can use, and the author may exclude combinations.
 
-**Architecture:** The pure layer (`arrangements.py`) turns items with options and groups into `Unit`s, walks their product in declaration order, skips combinations in which two units move one part, and leaves out the excluded ones, keeping every 0.99.15 id. The board (`layout.py`) gains `board.group(name, *parts)`, `board.alternative(group, option, *alts)` and `board.exclude(*choices)`, orders the units by where the script declared them, and checks the declarations where the script finishes. The module run (`arrangement_run.py`) records the excluded combinations in `run.json` and raises `arrangement.option_dead` for an option refused in every combination that holds it.
+**Architecture:** The pure layer (`arrangements.py`) turns items with options and `board.unit` declarations (kept as the internal `Group` record) into `Unit`s, walks their product in declaration order, skips combinations in which two units move one part, and leaves out the excluded ones, keeping every 0.99.15 id. The board (`layout.py`) gains `board.unit(name, *members)`, `board.alternative(unit, option, *alts)` and `board.exclude(*choices)`, orders the units by where the script declared them, and checks the declarations where the script finishes. The module run (`arrangement_run.py`) records the excluded combinations in `run.json` and raises `arrangement.option_dead` for an option refused in every combination that holds it.
 
 **Tech Stack:** Python 3.12, pcbnew (KiCad 10.0.6 in the checkout's venv), pytest with xdist, node for the studio page tests.
 
@@ -12,10 +12,10 @@
 
 ## Global Constraints
 
-- Required properties: every 0.99.15 id keeps its meaning (a positional `board.arrangement`'s id is its name, an item's option is `item.option`, a combination of items is their pairs in place() order joined by `+`); a module with no groups enumerates exactly as before, in the same order; the combinations of a positional `board.arrangement` group with the items it does not move are added.
-- Decisions this plan takes where the spec is silent or contradicts itself are listed in "Spec gaps and resolutions" at the end; each is confirmed by the user before the task that carries it. The two that change behaviour most: `board.group` dispatches on its second argument (a list is the existing KiCad group), and a positional `board.arrangement` may still share members with items and other positional groups (0.99.15 allowed it), the two units never combining.
+- Required properties: every 0.99.15 id keeps its meaning (a positional `board.arrangement`'s id is its name, an item's option is `item.option`, a combination of items is their pairs in place() order joined by `+`); a module with no units enumerates exactly as before, in the same order; the combinations of a `board.arrangement` (a one-option unit) with the items it does not move are added. `board.group(name, items, why="")` is the KiCad group on the written board and is not changed.
+- Decisions this plan takes where the spec is silent or contradicts itself are listed in "Spec gaps and resolutions" at the end; each is confirmed by the user before the task that carries it. The one that changes behaviour most: a `board.arrangement` may still share members with items and other `board.arrangement`s (0.99.15 allowed it), the two units never combining.
 - Findings carry structured facts; sentences are rendered only in `finding_text.py` (findings and the console rows of the arrangement record). A function returns records, never a sentence another function parses.
-- Tunables are settings with documented defaults, never literals. This change adds no setting; it changes the docs of `place.arrangement_options_max` and `place.arrangements_max`, and `api.md`'s settings table is regenerated (`PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m placemat settings --markdown`, pasted between the markers).
+- Tunables are settings with documented defaults, never literals. This change adds no setting; it changes the docs of `place.arrangement_options_max` and `place.arrangements_max` and the default of `place.arrangements_max` (8 to 16, since a unit multiplies the count), and `api.md`'s settings table is regenerated (`PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m placemat settings --markdown`, pasted between the markers).
 - ASCII only in code, comments, tests, docs and commit messages: no em or en dashes, no unicode arrows (`->`), straight quotes, `...`.
 - Generic wording: code, docs, skill and commit messages never name a project, board, module, part number or net that uses placemat. Fixture folders and their part names may appear in test code only.
 - Commit messages carry no reference to Claude, Anthropic or a session and no Co-Authored-By line. After every commit run `git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"`; it must print nothing.
@@ -27,8 +27,8 @@
 
 ## Review Focus
 
-1. A 0.99.15 module whose positional groups share parts with each other or with an item's own alternative (`mirrored` and `rotated` over one pair; a group over a part that also has `turned`). Expected: it runs without an error, every id it had is still made, and no combination lays two options over one part. Tests: Task 1 `test_units_that_move_one_part_never_combine`, Task 2 `test_a_0_99_15_module_whose_groups_share_parts_runs_and_keeps_its_ids`.
-2. A KiCad group in a module or board script, `board.group("kept", [Part(...), ...])`, beside the new form. Expected: still written as a KiCad group, not refused on a board script, and a KiCad group passed to `board.alternative` fails loudly saying how to declare an arrangement group. Tests: Task 2 `test_a_list_of_parts_is_still_a_kicad_group_and_parts_one_by_one_are_a_unit`, `test_a_board_script_may_still_write_a_kicad_group`.
+1. A 0.99.15 module whose `board.arrangement`s share parts with each other or with an item's own alternative (`mirrored` and `rotated` over one pair; a `board.arrangement` over a part that also has `turned`). Expected: it runs without an error, every id it had is still made, and no combination lays two options over one part. Tests: Task 1 `test_units_that_move_one_part_never_combine`, Task 2 `test_a_0_99_15_module_whose_arrangements_share_parts_runs_and_keeps_its_ids`.
+2. A KiCad group in a module or board script, `board.group("kept", [Part(...), ...])`, beside `board.unit`. Expected: `board.group` is unchanged, still written as a KiCad group and not refused on a board script, and a KiCad group passed to `board.alternative` fails loudly saying a unit is declared with `board.unit`. Tests: Task 2 `test_board_group_still_writes_a_kicad_group_and_takes_no_option`, `test_a_board_script_may_still_write_a_kicad_group`.
 3. A module with many items with options (a large product) and an exclusion over two of them. Expected: the count is exact and immediate; the run does not walk the whole product to count it. Test: Task 1 `test_counting_does_not_walk_the_whole_product`.
 4. An exclusion that can never hold: two options of one unit, two units that never combine, or a combination id written as one choice. Expected: an error with the declaration's line and the module's choices, not a silent no-op. Test: Task 2 `test_a_bad_exclusion_is_an_error_with_its_line`.
 5. A combination refused where its options are each offered elsewhere; an option whose only other combination is a duplicate; an option whose refused combinations are partly excluded. Expected: no `option_dead` in the first two; in the third, the excluded combination is not counted. Tests: Task 3 `test_a_refused_combination_whose_options_stand_elsewhere_is_no_dead_option`, `test_a_duplicate_is_not_a_refusal_and_an_excluded_combination_does_not_count`.
@@ -38,17 +38,17 @@
 Modified (what changes in each):
 
 - `src/placemat/arrangements.py` - `GroupOption`, `Group` (members, alternatives, `positional`, `unit_options`, `moves`), `Exclusion`, `Choice`, `Unit`; `units`, `combinations`, `tally`; `enumerate_specs` over units with exclusions; `known_id` and `all_ids` over units. `count`, `picks` and `spec_id` go (replaced; nothing else imports them).
-- `src/placemat/layout.py` - `board.group` dispatch, `_arrangement_group`, `_kicad_group` (the existing body), `alternative` on a group, `exclude`, `_member_key`, `_group_holding`, `_refuse_taken_group`, `_unit_order`, `arrangement_units`, `_check_units` in `finish_declarations`, `refuse_board_alternatives` over the new forms, `_SITED` entries.
-- `src/placemat/arrangement_run.py` - `Prepared.units` and `.excluded`, `excluded_entries`, `option_dead_findings`, `finish` wiring, `lines` excluded state, `extent_findings` over group members.
+- `src/placemat/layout.py` - `board.unit`, `alternative` on a unit, `exclude`, `_member_key`, `_unit_holding`, `_refuse_taken_unit`, `_unit_order`, `arrangement_units`, `_check_units` in `finish_declarations`, `refuse_board_alternatives` over the new forms, `_SITED` entries.
+- `src/placemat/arrangement_run.py` - `Prepared.units` and `.excluded`, `excluded_entries`, `option_dead_findings`, `finish` wiring, `lines` excluded state, `extent_findings` over unit members.
 - `src/placemat/runner.py` - the board refusal runs before the declaration checks.
 - `src/placemat/findings.py`, `src/placemat/finding_text.py` - `arrangement.option_dead`; `arrangement.limit` gains `excluded` (facts version 2); the excluded console row; the subject of `option_dead`.
 - `src/placemat/settings.py` - the two limit settings' docs.
 - `src/placemat/studio.py`, `src/placemat/studio_page.html` - an excluded combination in a run's arrangement list.
 - `skills/placemat/SKILL.md`, `skills/placemat/references/api.md`, `skills/placemat/references/migration.md`, `docs/superpowers/skill-checks/arrangements.md`, `fixtures/skill_check.py` (docstring), the spec (build notes).
 
-Tests: new `tests/test_arrangement_units.py` (Task 1), `tests/test_arrangement_groups.py` (Task 2), `tests/test_arrangement_combine_run.py` (Task 3); edits to `tests/test_arrangement_declarations.py`, `tests/test_finding_text.py`, `tests/test_arrangement_studio.py`, `tests/test_arrangement_run.py`, `tests/slow_tests.txt`.
+Tests: new `tests/test_arrangement_units.py` (Task 1), `tests/test_arrangement_unit_declarations.py` (Task 2), `tests/test_arrangement_combine_run.py` (Task 3); edits to `tests/test_arrangement_declarations.py`, `tests/test_finding_text.py`, `tests/test_arrangement_studio.py`, `tests/test_arrangement_run.py`, `tests/slow_tests.txt`.
 
-Existing tests whose expectations change, and why (each edit is in the task that causes it): `test_arrangement_declarations.py` `test_the_arrangements_are_the_default_the_product_and_the_groups_in_declaration_order` (a group is now a unit of the product: its place in the order and its `choices` change, its id does not), `test_exactly_the_limit_is_accepted_and_one_over_is_not` (a group now counts as a unit; the facts gain `excluded`), `test_all_ids_are_the_enumerated_ids_up_to_the_cap` (the order), `test_a_group_names_the_members_it_moves_and_the_ids_are_formed_as_specified` (the order); `test_finding_text.py` the two `ARRANGEMENT_LIMIT` samples (the new fact and tail).
+Existing tests whose expectations change, and why (each edit is in the task that causes it): `test_arrangement_declarations.py` `test_the_arrangements_are_the_default_the_product_and_the_groups_in_declaration_order` (a `board.arrangement` is now a unit of the product: its place in the order and its `choices` change, its id does not), `test_exactly_the_limit_is_accepted_and_one_over_is_not` (a `board.arrangement` now counts as a unit; the facts gain `excluded`), `test_all_ids_are_the_enumerated_ids_up_to_the_cap` (the order), `test_a_group_names_the_members_it_moves_and_the_ids_are_formed_as_specified` (the order); `test_finding_text.py` the two `ARRANGEMENT_LIMIT` samples (the new fact and tail).
 
 ---
 
@@ -63,19 +63,19 @@ Existing tests whose expectations change, and why (each edit is in the task that
 - Consumes: `Option`, `DEFAULT`, `DEFAULT_SPEC` (unchanged).
 - Produces (all in `placemat.arrangements`):
   - `@dataclass(frozen=True) GroupOption(group: str, name: str, options: tuple[Option, ...], why: str = "", file: str = "", line: int = 0)`
-  - `@dataclass(frozen=True) Group(name: str, options: tuple[Option, ...] = (), why: str = "", file: str = "", line: int = 0, members: tuple[str, ...] = (), alternatives: tuple[GroupOption, ...] = ())` with property `positional -> bool` (no `members`: the 0.99.15 form), `unit_options() -> tuple[GroupOption, ...]`, `moves() -> frozenset[str]`
+  - `@dataclass(frozen=True) Group(name: str, options: tuple[Option, ...] = (), why: str = "", file: str = "", line: int = 0, members: tuple[str, ...] = (), alternatives: tuple[GroupOption, ...] = ())` the record of a unit `board.unit` declares, named `Group` internally only; property `positional -> bool` (no `members`: the 0.99.15 `board.arrangement` form), `unit_options() -> tuple[GroupOption, ...]`, `moves() -> frozenset[str]`
   - `@dataclass(frozen=True) Exclusion(choices: tuple[str, ...], why: str = "", file: str = "", line: int = 0)`
   - `@dataclass(frozen=True) Choice(unit: str, option: str, id: str, overrides: tuple)`; `@dataclass(frozen=True) Unit(name: str, choices: tuple[Choice, ...], moves: frozenset, positional: bool = False, why: str = "")`
-  - `Spec(id, pairs, overrides, group="", why="")` unchanged in shape; `pairs` are `(unit, option)`, a positional group's option named as the group, so `choices` is `{name: name}` for it.
+  - `Spec(id, pairs, overrides, group="", why="")` unchanged in shape; `pairs` are `(unit, option)`, a `board.arrangement`'s option named as the unit, so `choices` is `{name: name}` for it.
   - `Enumeration(specs, over, declared, excluded: tuple = ())`, `excluded` holding `(Spec, Exclusion)` pairs in product order.
-  - `units(order, options: dict, groups) -> list[Unit]`; `combinations(us) -> Iterator[tuple[Choice, ...]]`; `tally(us, exclusions=()) -> tuple[int, int]` (kept, excluded); `enumerate_specs(order, options, groups, max_options, max_arrangements, exclusions=()) -> Enumeration`; `known_id(ident, order, options, groups) -> bool`; `all_ids(order, options, groups, cap=64) -> list[str]`. `order` lists item keys and group names; a group it does not name follows it, in the order given.
-  - `arrangement.limit` facts gain `"excluded": int`; `"options"` is keyed by unit (items and groups).
+  - `units(order, options: dict, groups) -> list[Unit]`; `combinations(us) -> Iterator[tuple[Choice, ...]]`; `tally(us, exclusions=()) -> tuple[int, int]` (kept, excluded); `enumerate_specs(order, options, groups, max_options, max_arrangements, exclusions=()) -> Enumeration`; `known_id(ident, order, options, groups) -> bool`; `all_ids(order, options, groups, cap=64) -> list[str]`. `order` lists item keys and unit names; a unit it does not name follows it, in the order given.
+  - `arrangement.limit` facts gain `"excluded": int`; `"options"` is keyed by unit (items and `board.unit`s).
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_arrangement_units.py
-"""Units: a module's items with options and its groups combine in one product, in the order declared; a 0.99.15 group is a unit
+"""Units: a module's items with options and its units combine in one product, in the order declared; a 0.99.15 board.arrangement is a unit
 with one option that keeps its id; units that move one part never combine; exclusions leave combinations out."""
 import time
 
@@ -86,15 +86,15 @@ def opt(item, name, **kw):
     return A.Option(item, name, tuple(kw.items()))
 
 
-def group(name, members, *options):
-    """A board.group unit: `options` are (option name, [Option, ...]) pairs."""
+def unit(name, members, *options):
+    """A unit as board.unit declares it: `options` are (option name, [Option, ...]) pairs."""
     return A.Group(name, members=tuple(members),
                    alternatives=tuple(A.GroupOption(name, n, tuple(os)) for n, os in options))
 
 
-PAIR = group("pair", ["c1", "r1"], ("flat", [opt("c1", "flat", rotation=0), opt("r1", "flat", rotation=0)]),
+PAIR = unit("pair", ["c1", "r1"], ("flat", [opt("c1", "flat", rotation=0), opt("r1", "flat", rotation=0)]),
              ("upright", [opt("c1", "upright", rotation=90), opt("r1", "upright", rotation=90)]))
-CAPS = group("caps", ["c2", "c3"], ("upright", [opt("c2", "upright", rotation=90)]))
+CAPS = unit("caps", ["c2", "c3"], ("upright", [opt("c2", "upright", rotation=90)]))
 R_FAR = {"r_far": [opt("r_far", "turned", rotation=90)]}
 ARGS = (["pair", "caps", "r_far"], R_FAR, [PAIR, CAPS])
 
@@ -103,7 +103,7 @@ def ids(e):
     return [s.id for s in e.specs]
 
 
-def test_two_groups_and_an_item_combine_in_product_order_the_first_declared_changing_slowest():
+def test_two_units_and_an_item_combine_in_product_order_the_first_declared_changing_slowest():
     e = A.enumerate_specs(*ARGS, 4, 100)
     assert ids(e) == [
         "default", "r_far.turned", "caps.upright", "caps.upright+r_far.turned",
@@ -115,7 +115,7 @@ def test_two_groups_and_an_item_combine_in_product_order_the_first_declared_chan
     assert [k for k, _ in last.overrides] == ["c1", "r1", "c2", "r_far"] and last.group == ""
 
 
-def test_a_one_option_group_keeps_its_0_99_15_id_and_combines_with_the_items():
+def test_a_one_option_unit_keeps_its_0_99_15_id_and_combines_with_the_items():
     caps_upright = A.Group("caps_upright", (opt("c2", "caps_upright", rotation=90), opt("c3", "caps_upright", rotation=90)),
                            why="both capacitors stand")
     pull = {"r_pull": [opt("r_pull", "upright", rotation=90)]}
@@ -128,7 +128,7 @@ def test_a_one_option_group_keeps_its_0_99_15_id_and_combines_with_the_items():
 
 
 def test_units_that_move_one_part_never_combine():
-    """Review focus 1: two 0.99.15 groups over one pair, and a group over a part with an option of its own."""
+    """Review focus 1: two 0.99.15 board.arrangements over one pair, and one over a part with an option of its own."""
     mirrored = A.Group("mirrored", (opt("q1", "mirrored", rotation=180), opt("q2", "mirrored", rotation=180)))
     rotated = A.Group("rotated", (opt("q1", "rotated", rotation=90),))
     q2 = {"q2": [opt("q2", "turned", rotation=90)]}
@@ -158,8 +158,8 @@ def test_the_limit_counts_after_exclusions():
                          "options": {"pair": 3, "caps": 2, "r_far": 2}, "max_options": 4, "excluded": 2}
 
 
-def test_a_groups_default_counts_as_one_of_its_options():
-    wide = group("wide", ["a"], *[(n, [opt("a", n, rotation=r)]) for n, r in (("w", 90), ("x", 180), ("y", 270), ("z", 45))])
+def test_a_units_default_counts_as_one_of_its_options():
+    wide = unit("wide", ["a"], *[(n, [opt("a", n, rotation=r)]) for n, r in (("w", 90), ("x", 180), ("y", 270), ("z", 45))])
     e = A.enumerate_specs(["wide"], {}, [wide], 4, 100)
     assert e.over["variant"] == "options" and e.over["options"] == {"wide": 5} and ids(e) == ["default"]
 
@@ -185,8 +185,8 @@ def test_known_ids_and_all_ids_follow_the_product():
 Edit `tests/test_arrangement_declarations.py`. Replace the test at lines 24-33 with:
 
 ```python
-def test_the_arrangements_are_the_default_then_the_product_with_a_group_as_one_more_unit():
-    """A 0.99.15 group keeps its id; it moves c_in and r_pull, which have options of their own, so it combines with neither."""
+def test_the_arrangements_are_the_default_then_the_product_with_a_board_arrangement_as_one_more_unit():
+    """A 0.99.15 board.arrangement keeps its id; it moves c_in and r_pull, which have options of their own, so it combines with neither."""
     options = {"c_in": [opt("c_in", "east")], "r_pull": [opt("r_pull", "turned"), opt("r_pull", "back")]}
     group = A.Group("mirrored", (opt("c_in", "mirrored"), opt("r_pull", "mirrored")))
     e = A.enumerate_specs(["c_in", "r_pull"], options, [group], 4, 20)
@@ -211,7 +211,7 @@ In `test_all_ids_are_the_enumerated_ids_up_to_the_cap` (line 70) replace the cap
     assert A.all_ids(*args, cap=3) == ["default", "mirrored", "r_pull.turned"]
 ```
 
-In `test_a_group_names_the_members_it_moves_and_the_ids_are_formed_as_specified` (line 146) replace the ids assertion with:
+In `test_a_group_names_the_members_it_moves_and_the_ids_are_formed_as_specified` (line 146, a 0.99.15 test kept under its name) replace the ids assertion with:
 
 ```python
     assert ids == ["default", "mirrored", "r_pull.turned", "c_in.east", "c_in.east+r_pull.turned"]
@@ -227,10 +227,10 @@ Expected: FAIL (`AttributeError: module 'placemat.arrangements' has no attribute
 `arrangements.py` top: add `import math` after `import itertools`, and make the module docstring:
 
 ```python
-"""A module's alternative arrangements as declarations: the options an item may take, the groups, the exclusions, the ids and the
+"""A module's alternative arrangements as declarations: the options an item may take, the units, the exclusions, the ids and the
 limits.
 
-Pure: no Board, no KiCad. `Board.alternative`, `Board.group`, `Board.arrangement` and `Board.exclude` (layout.py) validate against
+Pure: no Board, no KiCad. `Board.alternative`, `Board.unit`, `Board.arrangement` and `Board.exclude` (layout.py) validate against
 the board and build the records here; `enumerate_specs` turns them into the arrangements a module run lays out, the default first."""
 ```
 
@@ -239,7 +239,7 @@ Replace `Group` (lines 45-52) with:
 ```python
 @dataclass(frozen=True)
 class GroupOption:
-    """One option of a group, `board.alternative(group, name, Alt(...), ...)`: an Option for each member it moves, named as the
+    """One option of a unit, `board.alternative(unit, name, Alt(...), ...)`: an Option for each member it moves, named as the
     option; the members it does not name keep their place()."""
     group: str
     name: str
@@ -251,16 +251,17 @@ class GroupOption:
 
 @dataclass(frozen=True)
 class Group:
-    """Members that move as one unit of a module's arrangements. `board.group(name, *members)` declares one with its `members`, and
-    `board.alternative(group, ...)` adds each of its `alternatives`. `board.arrangement(name, *alts)`, the 0.99.15 form, is a group
-    with one option named as the group, its members' options in `options`: its id is the group's name alone."""
+    """The record of a unit: members that move as one unit of a module's arrangements. (Named Group in code; every name a script
+    or a message shows says unit.) `board.unit(name, *members)` declares one with its `members`, and `board.alternative(unit, ...)`
+    adds each of its `alternatives`. `board.arrangement(name, *alts)`, the 0.99.15 form, is a unit with one option named as the
+    unit, its members' options in `options`: its id is the unit's name alone."""
     name: str
     options: tuple = ()         # the 0.99.15 form: (Option, ...), one per member its one option moves
     why: str = ""
     file: str = ""
     line: int = 0
-    members: tuple = ()         # board.group: the members' item keys
-    alternatives: tuple = ()    # board.group: (GroupOption, ...), in declaration order
+    members: tuple = ()         # board.unit: the members' item keys
+    alternatives: tuple = ()    # board.unit: (GroupOption, ...), in declaration order
 
     @property
     def positional(self) -> bool:
@@ -268,7 +269,7 @@ class Group:
         return not self.members
 
     def unit_options(self) -> tuple:
-        """Its options as GroupOption: the 0.99.15 form's one, named as the group, or board.group's."""
+        """Its options as GroupOption: the 0.99.15 form's one, named as the unit, or board.unit's."""
         if self.positional:
             return (GroupOption(self.name, self.name, self.options, self.why, self.file, self.line),)
         return self.alternatives
@@ -280,7 +281,7 @@ class Group:
 
 @dataclass(frozen=True)
 class Exclusion:
-    """`board.exclude(*choices)`: every combination holding all of `choices` (`item.option`, `group.option`, or a 0.99.15 group's
+    """`board.exclude(*choices)`: every combination holding all of `choices` (`item.option`, `unit.option`, or a 0.99.15 board.arrangement's
     name) is not laid out."""
     choices: tuple
     why: str = ""
@@ -300,23 +301,23 @@ class Choice:
 
 @dataclass(frozen=True)
 class Unit:
-    """An item with options, or a group: it contributes its default and each choice to the product."""
+    """An item with options, or a unit: it contributes its default and each choice to the product."""
     name: str
     choices: tuple              # (Choice, ...)
     moves: frozenset            # the item keys its choices move: two units that share one never combine
-    positional: bool = False    # a 0.99.15 group: alone, its arrangement keeps the group's name and why
+    positional: bool = False    # a board.arrangement: alone, its arrangement keeps the unit's name and why
     why: str = ""
 ```
 
 `Spec`'s docstring and field comments (lines 56-63):
 
 ```python
-    """One arrangement a module run lays out: its id, its choices as (unit, option) pairs (a 0.99.15 group's option is named as
-    the group), and the options to lay over the items' places, in unit order."""
+    """One arrangement a module run lays out: its id, its choices as (unit, option) pairs (a board.arrangement's option is named as
+    the unit), and the options to lay over the items' places, in unit order."""
     id: str
     pairs: tuple
     overrides: tuple            # ((item key, Option), ...)
-    group: str = ""             # a 0.99.15 group laid alone: its name
+    group: str = ""             # a board.arrangement laid alone: its name
     why: str = ""
 ```
 
@@ -335,8 +336,8 @@ Replace lines 109-173 (`spec_id` through `all_ids`) with:
 
 ```python
 def units(order, options: dict, groups) -> list:
-    """The units in `order` (item keys and group names, the first declared first), then each group `order` does not name, in the
-    order given: an item with options, or a group, each as a Unit of its choices."""
+    """The units in `order` (item keys and unit names, the first declared first), then each declared unit `order` does not name, in the
+    order given: an item with options, or a declared unit, each as a Unit of its choices."""
     by_name = {g.name: g for g in groups}
     out = []
     for name in list(order) + [g.name for g in groups if g.name not in order]:
@@ -389,7 +390,7 @@ def _spec(combo, positional: dict) -> Spec:
     pairs = tuple((c.unit, c.option) for c in combo)
     overrides = tuple(o for c in combo for o in c.overrides)
     ident = "+".join(c.id for c in combo)
-    if len(combo) == 1 and combo[0].unit in positional:          # a 0.99.15 group alone: its name and why, as in 0.99.15
+    if len(combo) == 1 and combo[0].unit in positional:          # a board.arrangement alone: its name and why, as in 0.99.15
         return Spec(ident, pairs, overrides, combo[0].unit, positional[combo[0].unit])
     return Spec(ident, pairs, overrides)
 
@@ -449,43 +450,43 @@ def all_ids(order, options: dict, groups, cap: int = 64) -> list:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_units.py tests/test_arrangement_declarations.py tests/test_arrangement_only.py tests/test_arrangement_extent.py tests/test_arrangement_resolve.py -n 2 -p no:cacheprovider -q`
-Expected: PASS. The last three are 0.99.15 tests of ids, `only=` and the resolve; they pass unchanged (the `board` they use passes item keys as `order`, and its group follows them).
+Expected: PASS. The last three are 0.99.15 tests of ids, `only=` and the resolve; they pass unchanged (the `board` they use passes item keys as `order`, and its unit follows them).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/placemat/arrangements.py tests/test_arrangement_units.py tests/test_arrangement_declarations.py
-git commit -m "Arrangements: groups are units of the product, with options of their own, and exclusions leave combinations out"
+git commit -m "Arrangements: a module's units combine in one product, with options of their own, and exclusions leave combinations out"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 Expected: the grep prints nothing.
 
 ---
 
-### Task 2: `board.group`, a group's options, `board.exclude`, and the checks where the script finishes
+### Task 2: `board.unit`, a unit's options, `board.exclude`, and the checks where the script finishes
 
 **Files:**
-- Modify: `src/placemat/layout.py:42` (imports), `:1039-1043` (`Board.__init__` fields), `:3399-3419` (`_checked_option` split into `_member_key`), `:3421-3432` (`alternative`), `:3434-3455` (`arrangement`), `:3464-3475` (`arrangement_enumeration`), `:3481-3505` (`finish_declarations`), `:3507-3520` (`refuse_board_alternatives`), `:7519-7543` (`group` becomes the dispatcher; its body moves to `_kicad_group`), `:10717-10740` (`_SITED`)
-- Modify: `src/placemat/arrangement_run.py:116-117` (`extent_findings`: the members a group moves)
+- Modify: `src/placemat/layout.py:42` (imports), `:1039-1043` (`Board.__init__` fields), `:3399-3419` (`_checked_option` split into `_member_key`), `:3421-3432` (`alternative`), `:3434-3455` (`arrangement`, and `unit` new beside it), `:3464-3475` (`arrangement_enumeration`), `:3481-3505` (`finish_declarations`), `:3507-3520` (`refuse_board_alternatives`), `:10717-10740` (`_SITED`); `board.group` (`:7519-7543`) is not touched
+- Modify: `src/placemat/arrangement_run.py:116-117` (`extent_findings`: the members a unit moves)
 - Modify: `src/placemat/runner.py:371-372` (refuse a board's alternatives before checking the declarations)
-- Test: `tests/test_arrangement_groups.py` (new); `tests/test_arrangement_declarations.py:226-227` (one more declaration in the board-script test)
+- Test: `tests/test_arrangement_unit_declarations.py` (new); `tests/test_arrangement_declarations.py:226-227` (one more declaration in the board-script test)
 
 **Interfaces:**
-- Consumes: from Task 1 `Group`, `GroupOption`, `Exclusion`, `units`, `enumerate_specs(..., exclusions)`, `known_id`, `all_ids`.
+- Consumes: from Task 1 `Group` (the unit record), `GroupOption`, `Exclusion`, `units`, `enumerate_specs(..., exclusions)`, `known_id`, `all_ids`.
 - Produces:
-  - `Board.group(name: str, *members, why: str = "")`: one list argument -> `DeclaredGroup` (KiCad group, unchanged behaviour); parts one by one -> `arrangements.Group` with `members`.
-  - `Board.alternative(item, name: str, *alts, **keywords)`: on a part -> `Option` (unchanged); on a `Group` from `board.group` -> `GroupOption`.
+  - `Board.unit(name: str, *members, why: str = "") -> arrangements.Group`: parts one by one, each a part the script placed with `place()`. `Board.group(name, items, why="")` is unchanged and returns a `DeclaredGroup`.
+  - `Board.alternative(item, name: str, *alts, **keywords)`: on a part -> `Option` (unchanged); on a `Group` from `board.unit` -> `GroupOption`.
   - `Board.exclude(*choices: str, why: str = "") -> Exclusion`.
-  - `Board._unit_order() -> list[str]`; `Board.arrangement_units() -> list[Unit]`; `Board._group_holding(key: str) -> Group | None`; `Board._exclusions: list[Exclusion]`; `Board._group_after: dict[str, int]`.
-  - `Board.finish_declarations()` raises `ValueError("<file>:<line>: ...")` for a group with no option, a group named as an item with options, and a bad exclusion.
+  - `Board._unit_order() -> list[str]`; `Board.arrangement_units() -> list[Unit]`; `Board._unit_holding(key: str) -> Group | None`; `Board._exclusions: list[Exclusion]`; `Board._group_after: dict[str, int]`.
+  - `Board.finish_declarations()` raises `ValueError("<file>:<line>: ...")` for a unit with no option, a unit named as an item with options, and a bad exclusion.
   - `arrangement_enumeration()` passes `_unit_order()` and the exclusions; its `Enumeration.excluded` holds the excluded combinations.
-  - Sites: `sites_of("alternative", "pair.upright")`, `sites_of("group", "pair")`, `sites_of("exclude", "pair.upright+caps_upright")`.
+  - Sites: `sites_of("alternative", "pair.upright")`, `sites_of("unit", "pair")`, `sites_of("exclude", "pair.upright+caps_upright")`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# tests/test_arrangement_groups.py
-"""board.group and its options, board.exclude, the units' order, and the checks made where the script finishes declaring."""
+# tests/test_arrangement_unit_declarations.py
+"""board.unit and its options, board.exclude, the units' order, and the checks made where the script finishes declaring."""
 import dataclasses
 
 import pytest
@@ -498,39 +499,42 @@ from placemat.values import Beside, CopperLayer, Edge, Location, Net, PadRef, Pa
 from tests.arrangement_support import module, parts
 from tests.fixtures import board_geometry
 
-HERE = "test_arrangement_groups.py:"
+HERE = "test_arrangement_unit_declarations.py:"
 
 
 def paired(settings=None):
     b = module(settings)
-    return b, b.group("pair", Part("c_in"), Part("r_pull"), why="the pair moves as one")
+    return b, b.unit("pair", Part("c_in"), Part("r_pull"), why="the pair moves as one")
 
 
 def declared():
-    """r_pull with its own option; a group of c_in with two options; a 0.99.15 group that moves r_pull too."""
+    """r_pull with its own option; a unit of c_in with two options; a board.arrangement that moves r_pull too."""
     b = module(dataclasses.replace(Settings(), place_arrangements_max=20))
     b.alternative(Part("r_pull"), "turned", rotation=180)
-    cap = b.group("cap", Part("c_in"), why="the bypass may stand north or south of u1")
+    cap = b.unit("cap", Part("c_in"), why="the bypass may stand north or south of u1")
     b.alternative(cap, "north", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH)))
     b.alternative(cap, "south", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.SOUTH)))
     b.arrangement("lifted", Alt(Part("r_pull"), at=Beside(Part("u1"), Edge.NORTH)), why="the pull-up north")
     return b
 
 
-def test_a_list_of_parts_is_still_a_kicad_group_and_parts_one_by_one_are_a_unit():
-    """Review focus 2."""
+def test_board_group_still_writes_a_kicad_group_and_takes_no_option():
+    """Review focus 2: board.group is unchanged; the unit is board.unit."""
     b = module()
     kept = b.group("kept", [Part("c_in"), Part("r_pull")], why="moved as one by hand")
     assert isinstance(kept, DeclaredGroup) and "kept" in b._groups and b._arr_groups == []
-    pair = b.group("pair", Part("c_in"), Part("r_pull"), why="the pair moves as one")
+    pair = b.unit("pair", Part("c_in"), Part("r_pull"), why="the pair moves as one")
     assert isinstance(pair, Group) and pair.members == ("c_in", "r_pull") and "pair" not in b._groups
-    assert len(b.sites_of("group", "pair")) == 1 and b.sites_of("group", "kept") == []
+    assert len(b.sites_of("unit", "pair")) == 1
     with pytest.raises(TypeError) as e:
         b.alternative(kept, "up", Alt(Part("c_in"), rotation=90))
+    assert "board.unit" in str(e.value)
+    with pytest.raises(TypeError) as e:
+        b.unit("listed", [Part("c_in"), Part("r_pull")])
     assert "one by one" in str(e.value)
 
 
-def test_a_groups_option_lays_its_members_and_leaves_the_rest():
+def test_a_units_option_lays_its_members_and_leaves_the_rest():
     b, pair = paired()
     up = b.alternative(pair, "up", Alt(Part("c_in"), rotation=90), why="the bypass stands")
     assert isinstance(up, GroupOption) and up.group == "pair" and up.why == "the bypass stands"
@@ -550,27 +554,27 @@ def test_a_groups_option_lays_its_members_and_leaves_the_rest():
     (lambda b, g: b.alternative(Part("u1"), "up", Alt(Part("u1"), rotation=90)), TypeError),               # an Alt on an item
     (lambda b, g: b.alternative(b.arrangement("m", Alt(Part("u1"), rotation=90)), "x", Alt(Part("u1"), rotation=180)), TypeError),
 ])
-def test_a_bad_group_option_is_refused_where_it_is_written(call, error):
+def test_a_bad_unit_option_is_refused_where_it_is_written(call, error):
     b, pair = paired()
     with pytest.raises(error):
         call(b, pair)
 
 
-def test_a_group_option_name_is_unique_within_the_group_and_a_group_name_is_taken_once():
+def test_a_unit_option_name_is_unique_within_the_unit_and_a_unit_name_is_taken_once():
     b, pair = paired()
     b.alternative(pair, "up", Alt(Part("c_in"), rotation=90))
     with pytest.raises(ValueError):
         b.alternative(pair, "up", Alt(Part("r_pull"), rotation=90))
     with pytest.raises(ValueError):
-        b.group("pair", Part("u1"))
+        b.unit("pair", Part("u1"))
     with pytest.raises(ValueError):
         b.arrangement("pair", Alt(Part("u1"), rotation=90))
 
 
-def test_a_member_is_in_one_group_and_has_no_alternative_of_its_own():
+def test_a_member_is_in_one_unit_and_has_no_alternative_of_its_own():
     b, pair = paired()
     with pytest.raises(ValueError) as e:
-        b.group("other", Part("c_in"))
+        b.unit("other", Part("c_in"))
     assert "'pair'" in str(e.value) and str(e.value).count(HERE) == 2
     with pytest.raises(ValueError) as e:
         b.alternative(Part("r_pull"), "turned", rotation=180)
@@ -581,17 +585,17 @@ def test_a_member_is_in_one_group_and_has_no_alternative_of_its_own():
     first = module()
     first.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
     with pytest.raises(ValueError) as e:
-        first.group("pair", Part("c_in"))
+        first.unit("pair", Part("c_in"))
     assert "'east'" in str(e.value) and str(e.value).count(HERE) == 2
     later = module()
     later.arrangement("lifted", Alt(Part("c_in"), rotation=90))
     with pytest.raises(ValueError) as e:
-        later.group("pair", Part("c_in"))
+        later.unit("pair", Part("c_in"))
     assert "'lifted'" in str(e.value) and str(e.value).count(HERE) == 2
 
 
-def test_a_0_99_15_module_whose_groups_share_parts_runs_and_keeps_its_ids():
-    """Review focus 1: two board.arrangement groups over one pair, and one over a part with its own alternative."""
+def test_a_0_99_15_module_whose_arrangements_share_parts_runs_and_keeps_its_ids():
+    """Review focus 1: two board.arrangements over one pair, and one over a part with its own alternative."""
     b = module()
     b.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
     b.arrangement("mirrored", Alt(Part("c_in"), rotation=180), Alt(Part("r_pull"), rotation=180))
@@ -600,7 +604,7 @@ def test_a_0_99_15_module_whose_groups_share_parts_runs_and_keeps_its_ids():
     assert [s.id for s in b.arrangement_enumeration().specs] == ["default", "rotated", "mirrored", "c_in.east"]
 
 
-def test_a_one_option_group_combines_with_the_items_it_does_not_move():
+def test_a_one_option_unit_combines_with_the_items_it_does_not_move():
     b = module()
     b.alternative(Part("r_pull"), "turned", rotation=180)
     b.arrangement("flip", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH)), why="the bypass north")
@@ -628,7 +632,7 @@ def test_units_take_their_place_in_the_order_the_script_declared_them():
     b = Board(board_geometry(parts(), width=60, height=40), edge_margin=1.0, settings=Settings())
     b.place(Part("u1"), at=Location(20, 15))
     b.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST))
-    pair = b.group("pair", Part("c_in"))
+    pair = b.unit("pair", Part("c_in"))
     b.alternative(pair, "north", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH)))
     b.place(Part("r_pull"), at=Beside(Part("u1"), Edge.EAST))
     b.alternative(Part("r_pull"), "turned", rotation=180)
@@ -685,21 +689,21 @@ def test_a_bad_exclusion_is_an_error_with_its_line(choices, words):
         assert "cap.north" in str(e.value) and "lifted" in str(e.value)        # the module's choices are listed
 
 
-def test_a_group_with_no_option_and_a_group_named_as_an_item_are_errors_where_the_script_finishes():
+def test_a_unit_with_no_option_and_a_unit_named_as_an_item_are_errors_where_the_script_finishes():
     b, _ = paired()
     with pytest.raises(ValueError) as e:
         b.finish_declarations()
     assert HERE in str(e.value) and "'pair'" in str(e.value) and "no option" in str(e.value)
     c = module()
     c.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
-    g = c.group("c_in", Part("r_pull"))
+    g = c.unit("c_in", Part("r_pull"))
     c.alternative(g, "up", Alt(Part("r_pull"), rotation=90))
     with pytest.raises(ValueError) as e:
         c.finish_declarations()
     assert HERE in str(e.value) and "'c_in'" in str(e.value)
 
 
-def test_a_member_moved_only_by_a_groups_option_gets_no_extent_notice():
+def test_a_member_moved_only_by_a_units_option_gets_no_extent_notice():
     b, pair = paired()
     b.alternative(pair, "north", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH)))
     extent = [{"item": "c_in", "sides": ["west"], "protrudes_mm": 0.4}, {"item": "r_pull", "sides": ["east"], "protrudes_mm": 0.1}]
@@ -717,14 +721,14 @@ def _scripted(tmp_path, declaration, draw=""):
 
 def test_a_board_script_may_still_write_a_kicad_group(tmp_path):
     """Review focus 2."""
-    b = _scripted(tmp_path, 'board.group("kept", [Part("c_in")])')
+    b = _scripted(tmp_path, 'board.group("kept", [Part("c_in")])')          # unchanged by this plan
     assert "kept" in b._groups and b._arr_groups == []
 
 
-def test_a_board_script_with_an_arrangement_group_fails_saying_it_is_a_modules_before_any_other_check(tmp_path):
+def test_a_board_script_with_a_unit_fails_saying_it_is_a_modules_before_any_other_check(tmp_path):
     from placemat.runner import RunFailure
     with pytest.raises(RunFailure) as e:
-        _scripted(tmp_path, 'board.group("pair", Part("c_in"))')         # no option either: the board's error comes first
+        _scripted(tmp_path, 'board.unit("pair", Part("c_in"))')            # no option either: the board's error comes first
     said = str(e.value.details.get("error", "")) + str(e.value)
     assert "module" in said and ":5:" in said and "no option" not in said, said
 ```
@@ -734,14 +738,14 @@ In `tests/test_arrangement_declarations.py`, the parametrize of `test_a_board_sc
 ```python
 @pytest.mark.parametrize("declaration", ['board.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))',
                                          'board.arrangement("east", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))',
-                                         'pair = board.group("pair", Part("c_in")); '
+                                         'pair = board.unit("pair", Part("c_in")); '
                                          'board.alternative(pair, "east", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))'])
 ```
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_groups.py tests/test_arrangement_declarations.py -n 2 -p no:cacheprovider -q`
-Expected: FAIL (`board.group("pair", Part(...), Part(...))` raises `TypeError` from the KiCad form's signature; `Board` has no `exclude`).
+Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_unit_declarations.py tests/test_arrangement_declarations.py -n 2 -p no:cacheprovider -q`
+Expected: FAIL (`Board` has no `unit` or `exclude`).
 
 - [ ] **Step 3: Implement**
 
@@ -755,8 +759,8 @@ from .arrangements import (DEFAULT_SPEC, Alt, Enumeration, Exclusion, Group, Gro
 `Board.__init__`, line 1040 becomes the first line below and two fields follow it:
 
 ```python
-        self._arr_groups: list = []         # Group: board.group() and board.arrangement(), in declaration order
-        self._group_after: dict = {}        # group name -> how many place() calls the script had made when it declared the group
+        self._arr_groups: list = []         # Group (a unit): board.unit() and board.arrangement(), in declaration order
+        self._group_after: dict = {}        # unit name -> how many place() calls the script had made when it declared the unit
         self._exclusions: list = []         # Exclusion: board.exclude(), in declaration order
 ```
 
@@ -764,18 +768,18 @@ Replace `_checked_option` (lines 3399-3419) with:
 
 ```python
     def _member_key(self, item, grouped: bool = False) -> str:
-        """The key of a part the script has placed with its own place(), which an option or a group may move. A row's or ring's
-        member is one only in a group (`grouped`)."""
+        """The key of a part the script has placed with its own place(), which an option or a unit may move. A row's or ring's
+        member is one only in a unit (`grouped`)."""
         geom, key, kind = self._item(item)
         call = self._place_calls.get(key)
         if call is None:
-            raise ValueError("%s: an alternative or a group moves a part the script has placed with place(), and the script has "
+            raise ValueError("%s: an alternative or a unit moves a part the script has placed with place(), and the script has "
                              "not placed it; a block's member has none of its own" % key)
         if kind != "part":
             raise TypeError("%s: an alternative is for a part of a module; a %s's arrangements are the ones its own module "
                             "offers (arrangements= on its place())" % (key, kind))
         if not grouped and (key in self._row_members or call[3]):
-            raise ValueError("%s is a member of a %s: an arrangement of a row is a group (board.group)"
+            raise ValueError("%s is a member of a %s: an arrangement of a row is a unit (board.unit)"
                              % (key, "row" if key in self._row_members else call[3]))
         if "+" in key:
             raise ValueError("%s: an item key with a + cannot be named in an arrangement id" % key)
@@ -796,32 +800,31 @@ Replace `alternative` and `arrangement` (lines 3421-3455) with:
 
 ```python
     def alternative(self, item, name: str, *alts, **keywords):
-        """Another way a part, or a group, may stand.
+        """Another way a part, or a unit, may stand.
 
         On a part the script has placed: an option on its `place()`, which stays its default. `keywords` are those of `place()`
         that change where an item goes (`at=`, `rotation=`, `rotations=`, `face=`, `radius=`, `step=`) and `why=`; every other
         keyword and each one not given is the item's own. An option that gives `rotation=` replaces the item's `rotations=` and
         `Turned`, and one that gives `rotations=` replaces its `rotation=`. Returns the Option.
 
-        On a group board.group declared: one option of the group, `Alt(member, **keywords)` for each member it moves (each at
+        On a unit board.unit declared: one option of the unit, `Alt(member, **keywords)` for each member it moves (each at
         most once; a member it does not name keeps its place()), and `why=`. Returns the GroupOption.
 
         The module run lays out every arrangement and offers the ones that pass its own DRC and checks; the board's search
         chooses among them."""
         if isinstance(item, DeclaredGroup):
-            raise TypeError("group %r holds its parts in one list: a KiCad group on the written board, which takes no option; "
-                            "give the parts one by one, board.group(%r, Part(...), ...), for a group of the module's "
-                            "arrangements" % (item.name, item.name))
+            raise TypeError("group %r is a KiCad group on the written board and takes no option; a set of parts that moves as one "
+                            "unit of a module's arrangements is declared with board.unit(%r, Part(...), ...)" % (item.name, item.name))
         if isinstance(item, Group):
-            return self._group_alternative(item, name, alts, keywords)
+            return self._unit_alternative(item, name, alts, keywords)
         if alts:
-            raise TypeError("%s: an item's alternative takes place() keywords, not %r: Alt(...) is for a group's option "
-                            "(board.group)" % (self._item(item)[1], alts[0]))
+            raise TypeError("%s: an item's alternative takes place() keywords, not %r: Alt(...) is for a unit's option "
+                            "(board.unit)" % (self._item(item)[1], alts[0]))
         option = self._checked_option(item, name, keywords)
-        held = self._group_holding(option.item)
+        held = self._unit_holding(option.item)
         if held is not None:
-            raise ValueError("%s:%d: %s is a member of group %r (%s:%d): a member moves with its group, so the option is the "
-                             "group's: board.alternative(%s, %r, Alt(...))" % (option.file, option.line, option.item, held.name,
+            raise ValueError("%s:%d: %s is a member of unit %r (%s:%d): a member moves with its unit, so the option is the "
+                             "unit's: board.alternative(%s, %r, Alt(...))" % (option.file, option.line, option.item, held.name,
                                                                                  held.file, held.line, held.name, name))
         if any(o.name == name for o in self._options.get(option.item, ())):
             raise ValueError("%s already has an option %r" % (option.item, name))
@@ -829,32 +832,32 @@ Replace `alternative` and `arrangement` (lines 3421-3455) with:
         self._arrangement_enum = None
         return option
 
-    def _group_alternative(self, group: Group, name: str, alts, keywords: dict) -> GroupOption:
+    def _unit_alternative(self, group: Group, name: str, alts, keywords: dict) -> GroupOption:
         g = next((x for x in self._arr_groups if x.name == group.name), None)
         if g is None or g.positional:
-            raise TypeError("board.alternative(%r, ...): %s; a group whose options are declared one by one is board.group's"
-                            % (group.name, "board.arrangement declares a group with its one option" if g is not None
-                               else "this board declares no group of that name"))
+            raise TypeError("board.alternative(%r, ...): %s; a unit whose options are declared one by one is board.unit's"
+                            % (group.name, "board.arrangement declares a unit with its one option" if g is not None
+                               else "this board declares no unit of that name"))
         extra = sorted(set(keywords) - {"why"})
         if extra:
-            raise TypeError("group %r: a group's alternative takes Alt(member, **keywords) for each member it moves, not %s"
+            raise TypeError("unit %r: a unit's alternative takes Alt(member, **keywords) for each member it moves, not %s"
                             % (g.name, ", ".join(extra)))
         check_name("option", name)
         if any(o.name == name for o in g.alternatives):
-            raise ValueError("group %r already has an option %r" % (g.name, name))
+            raise ValueError("unit %r already has an option %r" % (g.name, name))
         if not alts:
-            raise ValueError("group %r: option %r names no member: give Alt(member, **keywords) for each member it moves"
+            raise ValueError("unit %r: option %r names no member: give Alt(member, **keywords) for each member it moves"
                              % (g.name, name))
         seen, options = set(), []
         for a in alts:
             if not isinstance(a, Alt):
-                raise TypeError("group %r: option %r takes Alt(member, **keywords), not %r" % (g.name, name, a))
+                raise TypeError("unit %r: option %r takes Alt(member, **keywords), not %r" % (g.name, name, a))
             key = self._item(a.item)[1]
             if key not in g.members:
-                raise ValueError("group %r: option %r names %s, which is not a member of the group (its members: %s)"
+                raise ValueError("unit %r: option %r names %s, which is not a member of the unit (its members: %s)"
                                  % (g.name, name, key, ", ".join(g.members)))
             if key in seen:
-                raise ValueError("group %r: option %r names %s twice" % (g.name, name, key))
+                raise ValueError("unit %r: option %r names %s twice" % (g.name, name, key))
             seen.add(key)
             options.append(self._checked_option(a.item, name, a.keywords, grouped=True))
         option = GroupOption(g.name, name, tuple(options), keywords.get("why", ""), *_script_site())
@@ -863,12 +866,12 @@ Replace `alternative` and `arrangement` (lines 3421-3455) with:
         return option
 
     def arrangement(self, name: str, *alts, why: str = "") -> Group:
-        """A group of the members `alts` name, with one option: `Alt(item, **keywords)` for each (the keywords of `alternative`).
+        """A unit of the members `alts` name, with one option: `Alt(item, **keywords)` for each (the keywords of `alternative`).
         The 0.99.15 form: its id is its name, and the members it does not name keep their `place()`. It combines with every other
-        item and group except one that moves a part it moves. To give a group more than one option, declare it with
-        board.group."""
+        item and unit except one that moves a part it moves. To give a unit more than one option, declare it with
+        board.unit."""
         check_name("arrangement", name)
-        self._refuse_taken_group(name)
+        self._refuse_taken_unit(name)
         if not alts:
             raise ValueError("arrangement %r names no member: give Alt(item, **keywords) for each one it moves" % name)
         file, line = _script_site()
@@ -879,9 +882,9 @@ Replace `alternative` and `arrangement` (lines 3421-3455) with:
             o = self._checked_option(a.item, name, a.keywords, grouped=True)
             if o.item in seen:
                 raise ValueError("arrangement %r names %s twice" % (name, o.item))
-            held = self._group_holding(o.item)
+            held = self._unit_holding(o.item)
             if held is not None:
-                raise ValueError("%s:%d: arrangement %r names %s, which group %r (%s:%d) moves: a member is in one group"
+                raise ValueError("%s:%d: arrangement %r names %s, which unit %r (%s:%d) moves: a member is in one unit"
                                  % (file, line, name, o.item, held.name, held.file, held.line))
             seen.add(o.item)
             options.append(o)
@@ -891,27 +894,35 @@ Replace `alternative` and `arrangement` (lines 3421-3455) with:
         self._arrangement_enum = None
         return group
 
-    def _arrangement_group(self, name: str, members, why: str) -> Group:
+    def unit(self, name: str, *members, why: str = "") -> Group:
+        """A set of a module's parts that moves as one unit of its arrangements: `board.unit(name, Part, Part, ..., why="")`, the
+        parts given one by one, each a part the script has placed with `place()`. Its default is each member's own place();
+        `board.alternative(unit, option, Alt(...), ...)` adds each option, and it combines with every other item and unit. A
+        member is in one unit only and has no alternative of its own. Returns the unit (the arrangements.Group record).
+        (`board.group(name, [parts])` is the KiCad group on the written board and is a different call.)"""
         file, line = _script_site()
-        check_name("group", name)
-        self._refuse_taken_group(name)
+        check_name("unit", name)
+        self._refuse_taken_unit(name)
         if not members:
-            raise ValueError("group %r names no member: give the parts that move together" % name)
+            raise ValueError("unit %r names no member: give the parts that move together" % name)
+        if any(isinstance(m, (list, tuple, set, frozenset)) for m in members):
+            raise TypeError("unit %r takes its parts one by one, board.unit(%r, Part(...), ...), not in a list; a KiCad group on "
+                            "the written board is board.group" % (name, name))
         keys = []
         for m in members:
             key = self._member_key(m, grouped=True)
             if key in keys:
-                raise ValueError("group %r names %s twice" % (name, key))
+                raise ValueError("unit %r names %s twice" % (name, key))
             other = next((g for g in self._arr_groups if key in g.members or key in g.moves()), None)
             if other is not None:
-                raise ValueError("%s:%d: group %r names %s, which %s %r (%s:%d) already moves: a member is in one group"
-                                 % (file, line, name, key, "group" if other.members else "arrangement", other.name,
+                raise ValueError("%s:%d: unit %r names %s, which %s %r (%s:%d) already moves: a member is in one unit"
+                                 % (file, line, name, key, "unit" if other.members else "arrangement", other.name,
                                     other.file, other.line))
             own = self._options.get(key)
             if own:
-                raise ValueError("%s:%d: group %r names %s, which has its own alternative %r (%s:%d): a member moves with its "
-                                 "group, so give the group that option" % (file, line, name, key, own[0].name, own[0].file,
-                                                                            own[0].line))
+                raise ValueError("%s:%d: unit %r names %s, which has its own alternative %r (%s:%d): a member moves with its "
+                                 "unit, so give the unit that option" % (file, line, name, key, own[0].name, own[0].file,
+                                                                          own[0].line))
             keys.append(key)
         group = Group(name, (), why, file, line, members=tuple(keys))
         self._arr_groups.append(group)
@@ -919,23 +930,23 @@ Replace `alternative` and `arrangement` (lines 3421-3455) with:
         self._arrangement_enum = None
         return group
 
-    def _refuse_taken_group(self, name: str) -> None:
+    def _refuse_taken_unit(self, name: str) -> None:
         taken = next((g for g in self._arr_groups if g.name == name), None)
         if taken is not None:
-            raise ValueError("a group or arrangement %r is already declared (%s:%d)" % (name, taken.file, taken.line))
+            raise ValueError("a unit or arrangement %r is already declared (%s:%d)" % (name, taken.file, taken.line))
 
-    def _group_holding(self, key: str):
-        """The group board.group declared with `key` as a member, or None."""
+    def _unit_holding(self, key: str):
+        """The unit board.unit declared with `key` as a member, or None."""
         return next((g for g in self._arr_groups if key in g.members), None)
 
     def exclude(self, *choices, why: str = "") -> Exclusion:
-        """Every combination that holds all of `choices` is not laid out. A choice is `item.option`, `group.option`, or a
+        """Every combination that holds all of `choices` is not laid out. A choice is `item.option`, `unit.option`, or a
         board.arrangement's name; two or more, checked where the script finishes declaring. For combinations the author knows
         cannot stand together, so the run does not prove them, and to bring a module under `place.arrangements_max` without
         dropping an option."""
         for c in choices:
             if not isinstance(c, str):
-                raise TypeError("board.exclude takes choices as text ('item.option', 'group.option' or a group's name), "
+                raise TypeError("board.exclude takes choices as text ('item.option', 'unit.option' or a unit's name), "
                                 "not %r" % (c,))
         rule = Exclusion(tuple(choices), why, *_script_site())
         self._exclusions.append(rule)
@@ -943,8 +954,8 @@ Replace `alternative` and `arrangement` (lines 3421-3455) with:
         return rule
 
     def _unit_order(self) -> list:
-        """Item keys with options and group names, in the order the script first declared them: an item at its place(), a group at
-        its board.group or board.arrangement call. With no group: the items in place() order, as before groups combined."""
+        """Item keys with options and unit names, in the order the script first declared them: an item at its place(), a unit at
+        its board.unit or board.arrangement call. With no unit: the items in place() order, as before units combined."""
         keyed = [((i.index, 1, 0), i.key) for i in self._intents if i.key in self._options]
         keyed += [((self._group_after[g.name], 0, n), g.name) for n, g in enumerate(self._arr_groups)]
         return [k for _, k in sorted(keyed)]
@@ -974,16 +985,15 @@ and add after `finish_declarations`:
 
 ```python
     def _check_units(self) -> None:
-        """What the declarations make only once they are all in: a group with no option, a group named as an item with options,
+        """What the declarations make only once they are all in: a unit with no option, a unit named as an item with options,
         and each exclusion. Each an error of the script with its declaration's line."""
         for g in self._arr_groups:
             if not g.positional and not g.alternatives:
-                raise ValueError("%s:%d: group %r has no option: give it one with board.alternative(%s, name, Alt(...), ...), "
-                                 "or drop the group (a KiCad group on the written board takes its parts in one list: "
-                                 "board.group(name, [parts]))" % (g.file, g.line, g.name, g.name))
+                raise ValueError("%s:%d: unit %r has no option: give it one with board.alternative(%s, name, Alt(...), ...), "
+                                 "or drop the unit" % (g.file, g.line, g.name, g.name))
             if g.name in self._options:
-                raise ValueError("%s:%d: group %r has the name of an item with options of its own, so their ids would be one: "
-                                 "name the group for what it is" % (g.file, g.line, g.name))
+                raise ValueError("%s:%d: unit %r has the name of an item with options of its own, so their ids would be one: "
+                                 "name the unit for what it is" % (g.file, g.line, g.name))
         choice = {c.id: u for u in self.arrangement_units() for c in u.choices}
         for e in self._exclusions:
             where = "%s:%d: board.exclude(%s)" % (e.file, e.line, ", ".join(repr(c) for c in e.choices))
@@ -1009,28 +1019,9 @@ and add after `finish_declarations`:
 
 ```python
         sites = [(o.file, o.line, "board.alternative") for opts in self._options.values() for o in opts] + \
-            [(g.file, g.line, "board.group" if g.members else "board.arrangement") for g in self._arr_groups] + \
+            [(g.file, g.line, "board.unit" if g.members else "board.arrangement") for g in self._arr_groups] + \
             [(go.file, go.line, "board.alternative") for g in self._arr_groups for go in g.alternatives] + \
             [(e.file, e.line, "board.exclude") for e in self._exclusions]
-```
-
-`group` (lines 7519-7543): rename the existing method to `_kicad_group(self, name: str, items, why: str = "") -> "DeclaredGroup"` with its body unchanged, and put before it:
-
-```python
-    def group(self, name: str, *members, why: str = ""):
-        """Two declarations share the name.
-
-        `board.group(name, [Part, ...], why="")`, the parts in one list: a KiCad group on the written board holding them, at the
-        top level like every group placemat writes, so a hand placement moves them as one. It places nothing. Returns the
-        DeclaredGroup.
-
-        `board.group(name, Part, Part, ..., why="")`, the parts given one by one: a group of a module's members that moves as one
-        unit of its arrangements. Its default is each member's own place(); board.alternative(group, option, Alt(...), ...) adds
-        each option, and it combines with every other item and group. A member is in one group only and has no alternative of
-        its own. Returns the arrangements.Group."""
-        if len(members) == 1 and not isinstance(members[0], (Part, Cell)):
-            return self._kicad_group(name, members[0], why)
-        return self._arrangement_group(name, members, why)
 ```
 
 `_SITED` (lines 10738-10739) becomes:
@@ -1038,7 +1029,7 @@ and add after `finish_declarations`:
 ```python
     "alternative": lambda b, out, a, k: ["%s.%s" % (out.group if isinstance(out, GroupOption) else out.item, out.name)],
     "arrangement": lambda b, out, a, k: [out.name],
-    "group": lambda b, out, a, k: [out.name] if isinstance(out, Group) else [],      # a KiCad group records no site
+    "unit": lambda b, out, a, k: [out.name],
     "exclude": lambda b, out, a, k: ["+".join(out.choices)],
 ```
 
@@ -1048,7 +1039,7 @@ and add after `finish_declarations`:
     moved = set(board._options) | {k for g in board._arr_groups for k in g.moves()}
 ```
 
-`runner.py:371-372`: swap the two calls, so a board script that declares a group with no option is told first that groups are a module's:
+`runner.py:371-372`: swap the two calls, so a board script that declares a unit with no option is told first that units are a module's:
 
 ```python
         board.refuse_board_alternatives()               # an alternative on a board that is not a module
@@ -1057,18 +1048,14 @@ and add after `finish_declarations`:
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_groups.py tests/test_arrangement_units.py tests/test_arrangement_declarations.py tests/test_arrangement_only.py tests/test_arrangement_extent.py tests/test_arrangement_resolve.py tests/test_builder_golden.py -n 2 -p no:cacheprovider -q`
-Expected: PASS.
-
-Then the KiCad group's own suite, which writes a fixture board (the list form must behave as before):
-Run: `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock env PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_written_groups.py --full -n 2 -p no:cacheprovider -q`
+Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_unit_declarations.py tests/test_arrangement_units.py tests/test_arrangement_declarations.py tests/test_arrangement_only.py tests/test_arrangement_extent.py tests/test_arrangement_resolve.py tests/test_builder_golden.py -n 2 -p no:cacheprovider -q`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/placemat/layout.py src/placemat/arrangement_run.py src/placemat/runner.py tests/test_arrangement_groups.py tests/test_arrangement_declarations.py
-git commit -m "Arrangements: board.group with options, board.exclude, and units ordered as the script declares them"
+git add src/placemat/layout.py src/placemat/arrangement_run.py src/placemat/runner.py tests/test_arrangement_unit_declarations.py tests/test_arrangement_declarations.py
+git commit -m "Arrangements: board.unit with options, board.exclude, and units ordered as the script declares them"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 Expected: the grep prints nothing.
@@ -1084,7 +1071,7 @@ Expected: the grep prints nothing.
 - Test: `tests/test_arrangement_combine_run.py` (new); `tests/test_finding_text.py:167-174` (samples); `tests/test_arrangement_resolve.py:247-249` (the record it builds now also has a dead option)
 
 **Interfaces:**
-- Consumes: Task 1 `Unit`, `Choice`, `Enumeration.excluded`; Task 2 `Board.arrangement_units()`, `Board.group`, `Board.alternative(group, ...)`, `Board.exclude`.
+- Consumes: Task 1 `Unit`, `Choice`, `Enumeration.excluded`; Task 2 `Board.arrangement_units()`, `Board.unit`, `Board.alternative(unit, ...)`, `Board.exclude`.
 - Produces:
   - `FindingCause.ARRANGEMENT_OPTION_DEAD` (`arrangement.option_dead`, warning) with facts `{"unit": str, "option": str, "choice": str, "refused": [id, ...], "reasons": {id: [refusal record, ...]}}`; `finding_text.subject` gives `choice`.
   - `arrangement.limit` facts `{"variant", "arrangements", "max_arrangements", "options", "max_options", "excluded": int}`, facts version 2.
@@ -1115,13 +1102,13 @@ UNPLACED = {"form": "unplaced", "item": "r_pull"}
 
 
 def colliding(settings=None):
-    """Two groups of one part each whose `upright` stands the part north of u1, turned: each alone fits, the two together take
+    """Two units of one part each whose `upright` stands the part north of u1, turned: each alone fits, the two together take
     one spot and collide. (Without the turn, Beside would stand the second part further out.)"""
     b = module(settings)
     b.keep_going = True                 # a collision is a finding, not the end of the resolve
-    cap = b.group("cap", Part("c_in"), why="the bypass may stand upright north of u1")
+    cap = b.unit("cap", Part("c_in"), why="the bypass may stand upright north of u1")
     b.alternative(cap, "upright", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH), rotation=90))
-    pull = b.group("pull", Part("r_pull"), why="the pull-up may stand upright north of u1")
+    pull = b.unit("pull", Part("r_pull"), why="the pull-up may stand upright north of u1")
     b.alternative(pull, "upright", Alt(Part("r_pull"), at=Beside(Part("u1"), Edge.NORTH), rotation=90))
     return b
 
@@ -1360,7 +1347,7 @@ and its docstring names the `excluded` state (with `why` and `by`).
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_combine_run.py tests/test_finding_text.py tests/test_no_sentence_parsing.py tests/test_suggestion_cases.py tests/test_finding_kinds.py tests/test_arrangement_proof.py tests/test_arrangement_groups.py tests/test_arrangement_resolve.py -n 2 -p no:cacheprovider -q`
+Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_combine_run.py tests/test_finding_text.py tests/test_no_sentence_parsing.py tests/test_suggestion_cases.py tests/test_finding_kinds.py tests/test_arrangement_proof.py tests/test_arrangement_unit_declarations.py tests/test_arrangement_resolve.py -n 2 -p no:cacheprovider -q`
 Expected: PASS (`test_every_cause_has_a_sample` included).
 
 - [ ] **Step 5: Commit**
@@ -1475,7 +1462,7 @@ Append to `tests/test_arrangement_run.py`:
 ```python
 MARK = "frame_planes(FILLET, supply=None)"
 
-# The 0.99.15 form of ALTERNATIVES: r_rt's move as a one-option group, c_vcc's turn as an item's option.
+# The 0.99.15 form of ALTERNATIVES: r_rt's move as a one-option unit (board.arrangement), c_vcc's turn as an item's option.
 GROUPED = '''
 from placemat import Alt
 board.alternative(Part("c_vcc"), "turned", rotation=LYING)
@@ -1495,8 +1482,8 @@ def _member_poses(pcb) -> dict:
 
 
 def test_a_module_written_for_0_99_15_keeps_its_ids_and_places_and_gains_the_combination(tmp_path):
-    """A group laid alone lays as the same move made an item's option does, so the group form and the item form of one module
-    agree arrangement by arrangement; the group's 0.99.15 ids are made, and its combination with the item is added."""
+    """A board.arrangement laid alone lays as the same move made an item's option does, so the arrangement form and the item
+    form of one module agree arrangement by arrangement; its 0.99.15 ids are made, and its combination with the item is added."""
     items, _, _ = real_modules.run(tmp_path / "items", "usb5v", edit=with_alternatives)
     grouped, _, _ = real_modules.run(tmp_path / "grouped", "usb5v", edit=with_grouped)
     rec = json.loads((grouped.run_dir / "run.json").read_text())
@@ -1557,12 +1544,12 @@ Expected: the grep prints nothing.
 ### Task 6: Skill, api.md and the migration entry
 
 **Files:**
-- Modify: `src/placemat/settings.py:130-133` (the two limits' docs) and `skills/placemat/references/api.md` settings table (regenerated)
+- Modify: `src/placemat/settings.py:130-133` (the two limits' docs, and the default of `place.arrangements_max`, 8 to 16) and `skills/placemat/references/api.md` settings table (regenerated)
 - Modify: `skills/placemat/SKILL.md:728-795` ("Arrangements")
 - Modify: `skills/placemat/references/api.md:1023-1101` (declarations, ids, limits), `:1109-1119` (after the proof's refusal paragraph), `:1129-1160` (the record), `:1777-1799` ("Groups on the written board"), `:4395-4397` (severities)
 - Modify: `skills/placemat/references/migration.md:8-17` ("## Unreleased")
 - Modify: `docs/superpowers/skill-checks/arrangements.md:50-52`, `fixtures/skill_check.py:3` (what the transcript is read for)
-- Test: `tests/test_arrangement_declarations.py` (append)
+- Test: `tests/test_arrangement_declarations.py` (append); `tests/test_arrangement_settings.py:11` (the default is 16)
 
 **Interfaces:**
 - Consumes: the forms, ids, facts and record of Tasks 1-4, as built.
@@ -1570,18 +1557,21 @@ Expected: the grep prints nothing.
 
 - [ ] **Step 1: Write the failing test**
 
+In `tests/test_arrangement_settings.py` line 11, `assert s.place_arrangements_max == 8` becomes `assert s.place_arrangements_max == 16`
+(the next test sets `arrangements_max = 5` itself and is unchanged).
+
 Append to `tests/test_arrangement_declarations.py`:
 
 ```python
-def test_the_skill_and_api_document_groups_exclusions_and_dead_options():
+def test_the_skill_and_api_document_units_exclusions_and_dead_options():
     section = API.split("**Arrangements.**", 1)[1].split("**How a searched item finds its place.**")[0]
-    for word in ("board.group(", "board.alternative(group", "board.exclude(", "arrangement.option_dead", '"excluded"',
-                 "group.option", "never combine"):
+    for word in ("board.unit(", "board.alternative(unit", "board.exclude(", "arrangement.option_dead", '"excluded"',
+                 "unit.option", "never combine", "(default 16)"):
         assert word in section, word
-    for word in ("arrangement.option_dead", "board.exclude", "board.group", "needs no action"):
+    for word in ("arrangement.option_dead", "board.exclude", "board.unit", "needs no action"):
         assert word in SKILL, word
     unreleased = (_SKILLS / "references/migration.md").read_text().split("## Unreleased", 1)[1].split("\n## To ", 1)[0]
-    for word in ("board.group", "board.exclude", "arrangement.option_dead", "re-run", "keeps its id", "place.arrangements_max"):
+    for word in ("board.unit", "board.exclude", "arrangement.option_dead", "re-run", "keeps its id", "place.arrangements_max", "16"):
         assert word in unreleased, word
     assert unreleased.count("### Changed") == 1 and unreleased.count("### New") == 1
     assert "A bypass capacitor's alternative is a turn at its pin" in unreleased       # the entry already there is kept
@@ -1591,7 +1581,7 @@ def test_the_skill_and_api_document_groups_exclusions_and_dead_options():
 - [ ] **Step 2: Run to verify failure**
 
 Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_declarations.py -n 2 -p no:cacheprovider -q`
-Expected: FAIL on `board.group(`.
+Expected: FAIL on `board.unit(`.
 
 - [ ] **Step 3: Write the docs**
 
@@ -1599,12 +1589,12 @@ Expected: FAIL on `board.group(`.
 
 ```python
     place_arrangement_options_max: int = S(4, "count",
-        "the most options one item or group of a module may have, its default included; a module that declares more is not partly accepted: its run lays out the default only and says so")
-    place_arrangements_max: int = S(8, "count",
-        "the most arrangements a module may have, the default included: every combination of its items' and groups' options, less those board.exclude leaves out")
+        "the most options one item or unit of a module may have, its default included; a module that declares more is not partly accepted: its run lays out the default only and says so")
+    place_arrangements_max: int = S(16, "count",
+        "the most arrangements a module may have, the default included: every combination of its items' and units' options, less those board.exclude leaves out")
 ```
 
-Then regenerate the table: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m placemat settings --markdown > /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/settings.md` and paste it between `<!-- settings-table:begin -->` and `<!-- settings-table:end -->` in `api.md`.
+Then regenerate the table (the `place.arrangements_max` row now shows `16`): `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m placemat settings --markdown > /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/settings.md` and paste it between `<!-- settings-table:begin -->` and `<!-- settings-table:end -->` in `api.md`.
 
 `api.md`, "Arrangements." (lines 1032-1095). Replace the code block and the bullets from `- \`board.alternative(item, name, **keywords)\`` through the Limits paragraph (ending `` `place.arrangements = false` lays out the default only without a finding.``) with:
 
@@ -1613,7 +1603,7 @@ Then regenerate the table: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/pyt
 board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST), why="bypass at VIN")
 board.alternative(Part("r_pull"), "turned", rotation=180)
 
-pair = board.group("pair", Part("c1"), Part("r1"), why="the filter pair moves as one")
+pair = board.unit("pair", Part("c1"), Part("r1"), why="the filter pair moves as one")
 board.alternative(pair, "flat",
                   Alt(Part("c1"), rotation=0),
                   Alt(Part("r1"), at=Beside(Part("c1"), Edge.EAST)))
@@ -1637,50 +1627,49 @@ board.exclude("pair.upright", "mirrored", why="both stand in the one column")
   `at=`. The item is a part the script has placed with `place()`: a part
   of a row, ring or block, and a cell, are refused. A searched item may
   have options too, as each arrangement is a full resolve.
-- `board.group(name, *members, why="")` declares a group: parts the
-  script has placed with `place()` that move as one unit. Its default is
-  each member's own `place()`. `board.alternative(group, name, *alts,
+- `board.unit(name, *members, why="")` declares a unit: parts the
+  script has placed with `place()` that move as one. Its default is
+  each member's own `place()`. `board.alternative(unit, name, *alts,
   why="")` adds one option to it, one call per option: an `Alt(member,
   **keywords)` (the keywords of `alternative`) for each member it moves,
   each at most once; a member it does not name keeps its `place()`. A
-  group's alternative takes `Alt`s and no place keywords; an item's takes
-  keywords and no `Alt`s. Option names are unique within the group. A
-  group with no option is an error where the script finishes declaring.
-  Declare a group's options when its members only make sense moving
+  unit's alternative takes `Alt`s and no place keywords; an item's takes
+  keywords and no `Alt`s. Option names are unique within the unit. A
+  unit with no option is an error where the script finishes declaring.
+  Declare a unit's options when its members only make sense moving
   together; otherwise each member's own `alternative` gives more
-  combinations for the same declarations. With the parts in one list,
-  `board.group(name, [parts])` is the KiCad group on the written board
-  (see "Groups on the written board").
-- `board.arrangement(name, *alts, why="")` is a group of the `Alt`s'
-  members with one option, named as the group: the form 0.99.15 had. Its
+  combinations for the same declarations.
+- `board.arrangement(name, *alts, why="")` is a unit of the `Alt`s'
+  members with one option, named as the unit: the form 0.99.15 had. Its
   id is its name.
-- A part is in one group only, and a member of a `board.group` has no
-  `alternative` of its own: a second group naming it, an item's
-  alternative on a group's member, and a group naming a part that has one
+- A part is in one unit only, and a member of a `board.unit` has no
+  `alternative` of its own: a second unit naming it, an item's
+  alternative on a unit's member, and a unit naming a part that has one
   are errors at the second call, each naming both declarations. A
   `board.arrangement` may name a part that has its own alternative, or
   that another `board.arrangement` names, as in 0.99.15: two units that
   move one part never combine.
 - `board.exclude(*choices, why="")`: no combination holding all of
-  `choices` is laid out. A choice is `item.option`, `group.option`, or a
+  `choices` is laid out. A choice is `item.option`, `unit.option`, or a
   `board.arrangement`'s name. Use it for combinations that cannot stand
   together, so the run does not prove them, and to bring a module under
   `place.arrangements_max` without dropping an option. Fewer than two
   choices, a choice the module does not declare, two options of one item
-  or group, and two choices that never combine are errors where the
+  or unit, and two choices that never combine are errors where the
   script finishes declaring, with the declaration's line.
-- The units of a module are its items with options and its groups, in
-  the order the script declares them: an item at its `place()`, a group
-  at its `board.group` or `board.arrangement`. Its arrangements are the
+- The units of a module are its items with options and its
+  `board.unit`s, in the order the script declares them: an item at its
+  `place()`, a unit at its `board.unit` or `board.arrangement`. Its
+  arrangements are the
   default, then every combination of the units (each contributing its
   default and each option) in `itertools.product` order with the first
-  unit changing slowest, less the excluded ones. A module with no group
+  unit changing slowest, less the excluded ones. A module with no unit
   has its items' combinations in `place()` order, as before.
 - An arrangement's id is `default`, or its units' choices in unit order
-  joined by `+`: `item.option`, `group.option`, or a `board.arrangement`'s
+  joined by `+`: `item.option`, `unit.option`, or a `board.arrangement`'s
   name (`pair.upright+r_pull.turned`, `mirrored+r_pull.turned`). Option
-  and group names are lower-case words, digits and `_`; `default` is
-  refused, and a group may not have the name of an item with options. The
+  and unit names are lower-case words, digits and `_`; `default` is
+  refused, and a unit may not have the name of an item with options. The
   id is what the lock, findings, step notes, the studio and the board's
   `arrangements=` use. `choices` is the same as data, `{unit: option}`,
   with a `board.arrangement` as `{name: name}`.
@@ -1692,7 +1681,7 @@ and the Limits paragraph:
 
 ```markdown
 Limits: `place.arrangement_options_max` (default 4) options per item or
-group, its default included, and `place.arrangements_max` (default 8)
+unit, its default included, and `place.arrangements_max` (default 16)
 arrangements per module, the default included, counted after
 exclusions. A module over either is not partly accepted: the run lays
 out the default only and raises `arrangement.limit` (facts: the counts,
@@ -1732,7 +1721,7 @@ and after the bullet on duplicates add:
   after the laid-out ones, and `placemat run` prints each as excluded.
 ```
 
-"Groups on the written board" (lines 1789-1799): after the code block `board.group(name, items, why="")`, the sentence `writes a top-level KiCad group called \`name\` holding \`items\`, \`Part\`s,` becomes `writes a top-level KiCad group called \`name\` holding \`items\`, a list of \`Part\`s,`, and the paragraph ends with: `Parts given one by one, not in a list, declare a group of a module's arrangements instead (see "Arrangements").`
+"Groups on the written board" (lines 1789-1799): the paragraph ends with one more sentence: `A module's parts that move as one unit of its arrangements are declared with \`board.unit\` (see "Arrangements"), not here.`
 
 Severities (line 4395): the warning row becomes
 
@@ -1742,7 +1731,7 @@ Severities (line 4395): the warning row becomes
 
 `SKILL.md`, "Arrangements":
 
-- the bypass bullet's last sentence (lines 732-733), `A turn that fits only when a neighbour moves is a named group with that neighbour;`, becomes `A turn that fits only when a neighbour moves is a group (\`board.group\`) of the two, whose option turns one and moves the other;`
+- the bypass bullet's last sentence (lines 732-733), `A turn that fits only when a neighbour moves is a named group with that neighbour;`, becomes `A turn that fits only when a neighbour moves is a unit (\`board.unit\`) of the two, whose option turns one and moves the other;`
 - lines 739-746 become:
 
 ```markdown
@@ -1750,7 +1739,7 @@ Severities (line 4395): the warning row becomes
   of the two, and no option is dead (`arrangement.option_dead`).
 
 Only a part placed with its own `place()` takes an alternative. A row's
-or ring's members move together through a group (`board.group`), not by
+or ring's members move together through a unit (`board.unit`), not by
 `alternative`, and a block's members take none. Place a member whose side
 is free with `place()` beside its partner, so it can have one.
 ```
@@ -1759,16 +1748,16 @@ is free with `place()` beside its partner, so it can have one.
 
 ```markdown
 - **Within the caps.** `place.arrangement_options_max` options per item
-  or group and `place.arrangements_max` arrangements per module, every
+  or unit and `place.arrangements_max` arrangements per module, every
   combination counted. Prefer a few alternatives on the members that
-  matter. Declare a group's options (`board.group`) when its members
+  matter. Declare a unit's options (`board.unit`) when its members
   only make sense moving together; otherwise each member's own
   `alternative` gives more combinations for the same declarations.
   Leave out with `board.exclude` a combination you can see is bad,
   rather than letting the run refuse it: each refused combination costs
   a full proof. Use `only=` for copper that exists in some arrangements.
 - **Names.** An option is named for what it does (`east`, `turned`,
-  `back`, `upright`), a group for what it is (`pair`, `mirrored`), never
+  `back`, `upright`), a unit for what it is (`pair`, `mirrored`), never
   `alt1`: ids (`pair.upright+r_pull.turned`) appear in the board
   script's `arrangements=`, in the lock, in step notes and in the
   studio.
@@ -1787,14 +1776,16 @@ is free with `place()` beside its partner, so it can have one.
 `migration.md`, "## Unreleased": add to the existing "### Changed", after the bypass entry:
 
 ```markdown
-- **A module's groups combine with its other items and groups.** `board.arrangement(name, Alt(...), ...)` is now a group
+- **A module's units combine with its other items and units.** `board.arrangement(name, Alt(...), ...)` is now a unit
   with one option. It keeps its id, its name, so a lock, an `arrangements=` or an `only=` written under 0.99.15 names the
-  same arrangement; a module run now also lays it out combined with every item and group that moves none of its parts
-  (`mirrored+r_pull.turned`). The arrangements are listed in product order, so a group declared after the items comes
-  early in the list, and a board breaks a tie between two of them in that order. A group counts toward
-  `place.arrangements_max` as an item with one option does, so a module near the limit may now be over it
-  (`arrangement.limit`, which lays out the default only); `board.exclude` brings it back under. `choices` of a
-  `board.arrangement` is `{name: name}` where it was `{"group": name}`. A part in a `board.group` may not have its own
+  same arrangement; a module run now also lays it out combined with every item and unit that moves none of its parts
+  (`mirrored+r_pull.turned`). The arrangements are listed in product order, so a unit declared after the items comes
+  early in the list, and a board breaks a tie between two of them in that order. A unit counts toward
+  `place.arrangements_max` as an item with one option does, and the default of `place.arrangements_max` is now 16,
+  up from 8, since a unit multiplies the count where a `board.arrangement` added one; a project that sets its own
+  value keeps it, and a module over the limit lays out the default only (`arrangement.limit`), which `board.exclude`
+  brings it back under. `choices` of a
+  `board.arrangement` is `{name: name}` where it was `{"group": name}`. A part in a `board.unit` may not have its own
   `board.alternative`. An option refused in every arrangement that holds it now also raises `arrangement.option_dead`. A
   board needs no change; a module offers the new combinations once it is run again (a re-run writes them into its
   fragment).
@@ -1805,11 +1796,11 @@ and after it a new section:
 ```markdown
 ### New
 
-- **Groups with options, and exclusions.** `board.group(name, Part(...), Part(...), why=)` declares parts that move as one
-  unit, and `board.alternative(group, option, Alt(...), ...)` gives it each option (`group.option`).
+- **Units with options, and exclusions.** `board.unit(name, Part(...), Part(...), why=)` declares parts that move as one
+  unit, and `board.alternative(unit, option, Alt(...), ...)` gives it each option (`unit.option`).
   `board.exclude(choice, choice, ..., why=)` leaves out every combination holding all the choices; `run.json`'s
   `arrangements` lists each with its `why`. `arrangement.option_dead` (warning) names an option refused in every
-  combination that holds it. `board.group(name, [parts])`, the parts in one list, still writes a KiCad group.
+  combination that holds it.
 ```
 
 `docs/superpowers/skill-checks/arrangements.md:50-52` become:
@@ -1824,14 +1815,14 @@ and `fixtures/skill_check.py:3`'s phrase `and fixed or dropped an alternative th
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_declarations.py tests/test_settings_docs.py tests/test_skill_check.py tests/test_settings_wiring.py -n 2 -p no:cacheprovider -q`
+Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_arrangement_declarations.py tests/test_arrangement_settings.py tests/test_settings_docs.py tests/test_skill_check.py tests/test_settings_wiring.py -n 2 -p no:cacheprovider -q`
 Expected: PASS (the 0.99.15 doc tests in the file included).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/placemat/settings.py skills/placemat/SKILL.md skills/placemat/references/api.md skills/placemat/references/migration.md docs/superpowers/skill-checks/arrangements.md fixtures/skill_check.py tests/test_arrangement_declarations.py
-git commit -m "Docs: groups with options, exclusions and dead options in the skill, api.md and the migration entry"
+git add src/placemat/settings.py skills/placemat/SKILL.md skills/placemat/references/api.md skills/placemat/references/migration.md docs/superpowers/skill-checks/arrangements.md fixtures/skill_check.py tests/test_arrangement_declarations.py tests/test_arrangement_settings.py
+git commit -m "Docs: units with options, exclusions and dead options in the skill, api.md and the migration entry; arrangements_max defaults to 16"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 Expected: the grep prints nothing.
@@ -1851,7 +1842,7 @@ Expected: the grep prints nothing.
 - [ ] **Step 1: Bench**
 
 Run: `PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python fixtures/bench.py --jobs 2 | tee /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/bench.out`
-Expected: every case `same` on every config (the corpus runs no module script, so no group or exclusion is in it). Any `better` or `worse` is a regression: find it with `git bisect` over this plan's commits before going on.
+Expected: every case `same` on every config (the corpus runs no module script, so no unit or exclusion is in it). Any `better` or `worse` is a regression: find it with `git bisect` over this plan's commits before going on.
 
 - [ ] **Step 2: The full suite, once, alone**
 
@@ -1934,7 +1925,7 @@ with the date and any number that differs from the expected results filled in fr
 
 ```bash
 git add docs/superpowers/specs/2026-10-05-arrangement-groups-combine-design.md
-{ echo "Spec: build notes for arrangement groups that combine"; echo; echo "bench --jobs 2:"; grep -E "^(default|solve|physical):|^seconds:" /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/bench.out; } | git commit -F -
+{ echo "Spec: build notes for arrangement units that combine"; echo; echo "bench --jobs 2:"; grep -E "^(default|solve|physical):|^seconds:" /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/bench.out; } | git commit -F -
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 git log --format=%B main..HEAD | grep -iE "claude|anthropic|session|co-authored"
 ```
@@ -1948,17 +1939,17 @@ Follow the release procedure (suite, skill docs current, release with the migrat
 
 ## Spec gaps and resolutions
 
-Each is a decision for the user to confirm before the task that carries it.
+Resolved by the user's decisions of 2026-10-05: gaps 1 and 8 by the user's own choice, gaps 2-7 and 9 as the plan recommended. Gaps 10-12 were not part of those decisions and stay for the user to confirm before the task that carries them.
 
-1. **`board.group` already exists** (`layout.py:7519-7543`, `api.md:1789`): `board.group(name, items, why="")` writes a KiCad group on the board. The spec's `board.group(name, *members, why="")` takes the same name. The plan dispatches on the second argument: one list (or any non-`Part`, non-`Cell` single argument) is the KiCad group as before; parts one by one are an arrangement group (Task 2). Both misuses fail loudly: a KiCad group passed to `board.alternative` is a `TypeError` saying to give the parts one by one, and parts given one by one with no option are a "no option" error that names the list form. The alternative is a separate name for the new form (the spec calls it a unit, so `board.unit(...)`); that changes Task 2's `group` dispatcher and the Task 6 docs only. Recommended: keep the spec's name with the dispatch, as planned.
-2. **A 0.99.15 group that shares parts.** The spec says a member may not be in a group and have its own alternative, and lists that under "Changed"; it also says a 0.99.15 module runs unchanged with every id kept. 0.99.15 accepted a `board.arrangement` naming a part with its own alternative, and two `board.arrangement`s naming one part, and its tests do both (`test_arrangement_declarations.py:139-152`, `test_arrangement_only.py:10-14`). The plan applies the rule to `board.group` and keeps 0.99.15's freedom for `board.arrangement`: two units that move one part never combine (Tasks 1 and 2). Recommended, since the strict reading makes those modules errors.
-3. **"An exclusion that leaves out every combination holding some option" cannot happen.** An exclusion needs two or more choices, and each option's own arrangement (it alone, everything else at its default) holds one choice, so no exclusion covers it. The plan drops that check and adds two that can occur: two options of one unit, and two choices that never combine (they move one part). Each is an error at the end of declaring (Task 2).
-4. **Where an item is "first declared".** The spec orders units by where the script first declares them. For an item the plan takes its `place()`, which is what keeps a module with no group in its 0.99.15 order (the alternative call's position would reorder some). A group stands where its `board.group` or `board.arrangement` call is among the `place()` calls. A 0.99.15 module with groups therefore lists them earlier than before (a group declared after the items changes fastest); a board breaks ties in that order, so a re-run module may tie-break differently. The migration entry says so.
-5. **`choices` of a one-option group.** The spec's `{group: group}` is read as `{name: name}`: the literal key `"group"` cannot hold two groups in one combination. This changes 0.99.15's `{"group": name}` in `run.json` and in the fragment's notes. Nothing reads it back (`board_geometry.py:128`, `choices` is `compare=False` and unused); api.md and the migration entry say so.
-6. **A duplicate and `option_dead`.** A combination dropped as a duplicate is neither offered nor refused. The plan counts it as not refused, so an option whose only other combination is a duplicate is not dead (Task 3).
-7. **Where `run.json` puts the excluded ids.** The spec says the `arrangements` record "gains `excluded`". The plan adds one entry per excluded combination after the laid-out ones, with `offered: false` and `excluded: {"why", "by"}`, and no `dir` or `metrics`; the console and the studio show it as excluded (Tasks 3 and 4).
-8. **The limit and 0.99.15 modules.** A `board.arrangement` added one arrangement in 0.99.15; as a unit it now doubles the count. A 0.99.15 module near `place.arrangements_max` (8) may go over and lay out only its default. The plan keeps the default limit and says so in the migration entry; the author excludes combinations or raises the setting. Raising the default is the other option.
-9. **`arrangement.limit`'s facts and text.** The facts gain `excluded` (facts version 2). The text's tail, which told the author to name a group, now says to exclude combinations (arrangements variant) or to drop an option (options variant), since a group no longer reduces the count.
-10. **A group named as an item with options** would make their ids one (`c_in.east` for both); the spec does not say. The plan makes it an error where the script finishes declaring.
-11. **The order of a board script's errors.** `runner.py:371-372` checks the declarations before refusing a board's alternatives; with groups, a board script declaring a group with no option would be told about the option first. The plan swaps the two calls (Task 2).
+1. **Resolved: `board.unit` was chosen.** `board.group(name, items, why="")` already writes a KiCad group on the board (`layout.py:7519-7543`, `api.md:1789`), and the spec's `board.group(name, *members, why="")` took the same name. The new form is `board.unit(name, *members, why="")`; `board.group` is unchanged and there is no dispatch on its arguments. A KiCad group passed to `board.alternative` is a `TypeError` saying a unit is declared with `board.unit`; parts given to `board.unit` in a list are a `TypeError` saying to give them one by one. The record type stays `Group` inside `arrangements.py` only; every name a script, a message or a document shows says unit (Task 2).
+2. Resolved as recommended. **A 0.99.15 `board.arrangement` that shares parts.** The spec says a member may not be in a unit and have its own alternative, and lists that under "Changed"; it also says a 0.99.15 module runs unchanged with every id kept. 0.99.15 accepted a `board.arrangement` naming a part with its own alternative, and two `board.arrangement`s naming one part, and its tests do both (`test_arrangement_declarations.py:139-152`, `test_arrangement_only.py:10-14`). The plan applies the rule to `board.unit` and keeps 0.99.15's freedom for `board.arrangement`: two units that move one part never combine (Tasks 1 and 2). The strict reading would make those modules errors.
+3. Resolved as recommended. **"An exclusion that leaves out every combination holding some option" cannot happen.** An exclusion needs two or more choices, and each option's own arrangement (it alone, everything else at its default) holds one choice, so no exclusion covers it. The plan drops that check and adds two that can occur: two options of one unit, and two choices that never combine (they move one part). Each is an error at the end of declaring (Task 2).
+4. Resolved as recommended. **Where an item is "first declared".** The spec orders units by where the script first declares them. For an item the plan takes its `place()`, which is what keeps a module with no unit in its 0.99.15 order (the alternative call's position would reorder some). A unit stands where its `board.unit` or `board.arrangement` call is among the `place()` calls. A 0.99.15 module with `board.arrangement`s therefore lists them earlier than before (a unit declared after the items changes fastest); a board breaks ties in that order, so a re-run module may tie-break differently. The migration entry says so.
+5. Resolved as recommended. **`choices` of a one-option unit.** The spec's `{unit: unit}` is read as `{name: name}`: the literal key `"group"` of 0.99.15 cannot hold two units in one combination. This changes 0.99.15's `{"group": name}` in `run.json` and in the fragment's notes. Nothing reads it back (`board_geometry.py:128`, `choices` is `compare=False` and unused); api.md and the migration entry say so.
+6. Resolved as recommended. **A duplicate and `option_dead`.** A combination dropped as a duplicate is neither offered nor refused. The plan counts it as not refused, so an option whose only other combination is a duplicate is not dead (Task 3).
+7. Resolved as recommended. **Where `run.json` puts the excluded ids.** The spec says the `arrangements` record "gains `excluded`". The plan adds one entry per excluded combination after the laid-out ones, with `offered: false` and `excluded: {"why", "by"}`, and no `dir` or `metrics`; the console and the studio show it as excluded (Tasks 3 and 4).
+8. **Resolved: `place.arrangements_max` defaults to 16.** A `board.arrangement` added one arrangement in 0.99.15; as a unit it multiplies the count. The default goes from 8 to 16 (`settings.py`, Task 6), the settings table is regenerated, `tests/test_arrangement_settings.py` asserts 16, and the migration entry's "Changed" says so. A project that sets its own value keeps it; a module over the limit still lays out its default only, and the author excludes combinations or raises the setting.
+9. Resolved as recommended. **`arrangement.limit`'s facts and text.** The facts gain `excluded` (facts version 2). The text's tail, which told the author to name a group (0.99.15 wording), now says to exclude combinations (arrangements variant) or to drop an option (options variant), since a unit no longer reduces the count.
+10. **A unit named as an item with options** would make their ids one (`c_in.east` for both); the spec does not say. The plan makes it an error where the script finishes declaring.
+11. **The order of a board script's errors.** `runner.py:371-372` checks the declarations before refusing a board's alternatives; with units, a board script declaring a unit with no option would be told about the option first. The plan swaps the two calls (Task 2).
 12. **The real-module check against 0.99.15** uses the `v0.99.15` tag in a scratch worktree; `src/` is unchanged between the tag and this plan's starting commit, so the tag's run is the 0.99.15 behaviour (Task 7).
