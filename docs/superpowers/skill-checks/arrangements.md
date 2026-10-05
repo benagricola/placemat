@@ -41,7 +41,7 @@ Checked by `fixtures/skill_check.py check`:
 - no `polarised` part has one;
 - each `protruding` part has an alternative, or the script has a `# extent: <part> ...` comment line giving the
   reason it has none;
-- no option or group is named `alt` or `alt<number>`;
+- no option or unit is named `alt` or `alt<number>`;
 - no item has more options than `place.arrangement_options_max` (the item's own place counts as one).
 
 Read from the transcript:
@@ -50,7 +50,7 @@ Read from the transcript:
 - it read the run's arrangement report (`arrangements` in `run.json`, and the `arrangement.refused`,
   `arrangement.option_dead` and `arrangement.limit` findings), refused combinations included;
 - for each dead option it fixed the option or dropped it, and did not finish with one dead;
-- it declared a mirrored group where one is natural;
+- it declared a mirrored unit where one is natural;
 - it stayed within `place.arrangements_max` for the module, the product counted;
 - an extent-setting member with no alternative has its reason in the run notes, not only in a script comment.
 

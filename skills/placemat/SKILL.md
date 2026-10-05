@@ -741,8 +741,8 @@ for when a board struggles. A module is not finished until:
 
 Only a part placed with its own `place()` takes an alternative. A row's
 or ring's members move together through a unit (`board.unit`), not by
-`alternative`, and a block's members take none. Place a member whose side is free with `place()` beside its
-partner, so it can have one.
+`alternative`, and a block's members take none. Place a member whose side
+is free with `place()` beside its partner, so it can have one.
 
 - **Members that set the extent first.** The members that set a module's
   outline (a bulk capacitor, a connector, an inductor or a tall part

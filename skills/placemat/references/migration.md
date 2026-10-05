@@ -26,9 +26,9 @@ section for each hand-written pattern a newer form replaces.
   `board.unit` may not have its own `board.alternative`. A `board.arrangement` named as a part that has a
   `board.alternative` (`board.arrangement("r_pull", ...)` with `board.alternative(Part("r_pull"), ...)`) was accepted in
   0.99.15 and is now refused where the script finishes declaring, with the `board.arrangement`'s line, as the ids of the
-  two would be one; rename the `board.arrangement`. An option refused in every arrangement that holds it now also raises `arrangement.option_dead`. A
-  board needs no change; a module offers the new combinations once it is run again (a re-run writes them into its
-  fragment).
+  two would be one; rename the `board.arrangement`. An option refused in every arrangement that holds it now also raises
+  `arrangement.option_dead`. A board needs no change; a module offers the new combinations once it is run again (a
+  re-run writes them into its fragment).
 
 ### New
 

@@ -1031,7 +1031,7 @@ declaration's line.
 
 ```python
 board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST), why="bypass at VIN")
-board.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
+board.alternative(Part("c_in"), "turned", rotation=180)
 board.alternative(Part("r_pull"), "turned", rotation=180)
 
 pair = board.unit("pair", Part("c1"), Part("r1"), why="the filter pair moves as one")
@@ -1098,11 +1098,12 @@ board.exclude("pair.upright", "mirrored", why="both stand in the one column")
   `board.arrangement` call. Its arrangements are the default, then every
   combination of the units (each contributing its default and each
   option) in `itertools.product` order with the first unit changing
-  slowest, less the excluded ones. A module with no unit has its items'
-  combinations in `place()` order, as before.
+  slowest, less the excluded ones. A module with no `board.unit` or
+  `board.arrangement` has its items' combinations in `place()` order, as
+  before.
 - An arrangement's id is `default`, or its units' choices in unit order
   joined by `+`: `item.option`, `unit.option`, or a `board.arrangement`'s
-  name (`c_in.east+pair.upright`, `c_in.east+mirrored`). Option and unit
+  name (`c_in.turned+pair.upright`, `c_in.turned+mirrored`). Option and unit
   names are lower-case words, digits and `_`; `default` is refused, a
   name may be declared once, and a unit may not have the name of an item
   with options. The id is what the lock, findings, step notes, the
@@ -1117,7 +1118,7 @@ exists in:
 
 ```python
 board.track(Net("GATE"), [PadRef(Part("q1"), 1), PadRef(Part("u1"), 7)], only=("mirrored",))
-board.pour(Net("SRC"), ..., only=("c_in.east", "c_in.east+r_pull.turned"))
+board.pour(Net("SRC"), ..., only=("c_in.turned", "c_in.turned+r_pull.turned"))
 ```
 
 Without `only=` the declaration is in every arrangement;
@@ -4758,7 +4759,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.step_budget` | `20000000` | count | the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area it covered. Counted, not timed: the result does not depend on how busy the machine is. A `place(budget=)` replaces it |
 | `place.arrangements` | `true` | bool | whether a stamped cell's module arrangements (alternative layouts a module run proved) are searched; false lays every cell's default only, and a module run lays out its default only |
 | `place.arrangement_options_max` | `4` | count | the most options one item or unit of a module may have, its default included; a module that declares more is not partly accepted: its run lays out the default only and says so |
-| `place.arrangements_max` | `16` | count | the most arrangements a module may have, the default included: every combination of its items' and units' options, less those board.exclude leaves out |
+| `place.arrangements_max` | `16` | count | the most arrangements a module may have, the default included: every combination of its items' and units' options, less those `board.exclude` leaves out |
 | `place.arrangement_note_chars` | `4000` | count | the characters one arrangement note text holds before it is split into numbered texts (a note rides on a User.Comments text of the fragment) |
 | `place.extent_notice_mm` | `1.0` | mm | how far a part may stand past the next part on a side of a module that declares no alternatives before `arrangement.extent_fixed` notes it as setting the module's extent |
 | `place.arrangement_margin` | `0.5` | mm | how much better than the module's default a cell's other arrangement must score before a search takes it; within it the default stands and the step says so. It applies at a decided spot too, where a firm cell's arrangements are each scored once. Not asked when the default has no legal spot, of a cell whose `arrangements=` names its choices, or of an explore's draw |
