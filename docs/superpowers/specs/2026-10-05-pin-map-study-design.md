@@ -4,6 +4,8 @@ Approved direction (2026-10-05): a finding with a suggestion, quick enough to
 run on every preview from the first, so the agent learns the best orientation
 and pin map of a part before it lays the board round the wrong one.
 
+Built: 2026-10-05
+
 ## Goal
 
 For a part whose pins the capture says may move (an MCU's general-purpose
@@ -179,3 +181,29 @@ are reported beside it, not folded into the score.
 `pins.rotations`, `pins.seeds`,
 `pins.budget_ms`, `pins.faces`, `pins.gain_min`, `pins.explore_top`, each
 with a default and a line in the settings table.
+
+## Build notes
+
+Measured on the final branch, native core built into the worktree venv.
+
+Study time per part on the real reference board (one MCU, 56-pin QFN;
+`fixtures/pinmap_bench.py --repeat 3`, median), against `pins.budget_ms` of
+100 ms:
+
+| core   | time per part | clock ran out | present total | best total |
+|--------|---------------|---------------|---------------|------------|
+| native | 0.024 s       | no            | 1437.918      | 1271.863   |
+| Python | 0.109 s       | yes           | 1437.918      | 1271.863   |
+
+The best map saves 166.055 (11.5 percent) of the present total at the present
+rotation. The Python fallback runs out of its budget part way and still finds
+the same best.
+
+Preview hook (`_report_pin_maps` inside `Board.resolve`, native core, one
+annotated part on the whole-board fixture, three cold and warm pairs under
+load): cold 0.07-0.12 s, warm 0.03-0.04 s with one 0.10 s outlier. A warm
+cache hit saves about half, because the build and the digest are still paid.
+
+Real-board tests (`tests/test_pinmap_real.py --full`): both pass. The full
+suite passed (5693 passed, 22 skipped), and `fixtures/bench.py --jobs 2`
+matched `bench.json` in every case (33 same in each configuration).
