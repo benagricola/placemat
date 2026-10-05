@@ -36,28 +36,29 @@ never both at once.
 ## Declaring
 
 ```python
-pair = board.unit("pair", Part("c1"), Part("r1"))
+pair = board.unit("pair", Part("c1"), Part("r1"), why="the filter pair moves as one")
 board.alternative(pair, "flat",
                   Alt(Part("c1"), rotation=0),
                   Alt(Part("r1"), at=Beside(Part("c1"), Edge.EAST)))
 board.alternative(pair, "upright",
-                  Alt(Part("c1"), rotation=90, why="the pair stands in the column"),
-                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH)))
+                  Alt(Part("c1"), rotation=90),
+                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH)),
+                  why="the pair stands in the column")
 board.alternative(Part("r_far"), "turned", rotation=90)
 board.exclude("pair.upright", "r_far.turned", why="both stand in the one column")
 ```
 
-- `board.unit(name, *members)` declares a unit and its
+- `board.unit(name, *members, why="")` declares a unit and its
   members (parts the script places with `place()`). The unit's default is
   each member's own `place()`. A unit with no option is an error where
   the script finishes declaring.
-- `board.alternative(unit, option, *alts)` adds one option to the
+- `board.alternative(unit, option, *alts, why="")` adds one option to the
   unit, one call per option, as `board.alternative(item, option,
   **keywords)` does for a single item. Each `Alt(item, **keywords)` names
   a member of the unit, at most once per option; a member the option does
   not name keeps its own `place()` in that option. A unit's alternative
-  takes `Alt`s and no keywords of its own (a member's `why=` goes in its
-  `Alt`); an item's takes keywords and no `Alt`s. Option names follow
+  takes `Alt`s and `why=`, no place keywords; an item's takes keywords
+  and no `Alt`s. Option names follow
   `check_name`, unique within the unit.
 - `board.arrangement(name, *alts)`, the 0.99.15 form, is removed. A call
   raises `TypeError` naming `board.unit` with `board.alternative(unit,
@@ -136,6 +137,13 @@ finished: the option is fixed or dropped.
 
 `run.json`'s `arrangements` record gains `excluded` (the ids not laid out,
 each with the exclusion's `why`).
+
+Each entry also gains `why`, the reasons of the unit options it holds:
+`[{unit, option, why, unit_why}]` in unit order, for those the script gave
+a `why=` on the option or the unit; absent when there are none. The
+console row of an offered or refused arrangement prints them after it.
+(Amended after the final review: the reasons are kept and shown, not
+dropped.)
 
 ## The skill
 

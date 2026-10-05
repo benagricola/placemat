@@ -958,10 +958,22 @@ def arrangement_row_text(row: dict) -> str:
     if state == "written":
         return "%s: offered, written" % row["id"]
     if state == "offered":
-        return "%s: offered" % row["id"]
+        return "%s: offered%s" % (row["id"], _unit_reasons_text(row.get("reasons", ())))
     if state == "duplicate":
         return "%s: the same as %s, dropped" % (row["id"], row["same_as"])
-    return "%s: not offered: %s" % (row["id"], "; ".join(refusal_record_text(r) for r in row["refused"]))
+    return "%s: not offered: %s%s" % (row["id"], "; ".join(refusal_record_text(r) for r in row["refused"]),
+                                      _unit_reasons_text(row.get("reasons", ())))
+
+
+def _unit_reasons_text(reasons) -> str:
+    """The reasons of an arrangement's unit options (arrangement_run.reasons), after its row: ` - unit: why; unit.option: why`."""
+    parts = []
+    for r in reasons:
+        if r["unit_why"]:
+            parts.append("%s: %s" % (r["unit"], r["unit_why"]))
+        if r["why"]:
+            parts.append("%s.%s: %s" % (r["unit"], r["option"], r["why"]))
+    return " - " + "; ".join(parts) if parts else ""
 
 
 @renders(C.ARRANGEMENT_LIMIT, "variant", "arrangements", "max_arrangements", "options", "max_options", "excluded")

@@ -90,6 +90,28 @@ def test_an_excluded_combination_is_recorded_with_its_why_and_not_laid_out():
     assert arrangement_row_text(dict(rows[1], why="")) == "cap.upright+pull.upright: excluded, not laid out"
 
 
+def test_a_units_why_and_its_options_why_reach_the_record_and_the_console():
+    b = module()
+    b.alternative(Part("r_pull"), "turned", rotation=180, why="either way round")
+    cap = b.unit("cap", Part("c_in"), why="the bypass may stand north of u1")
+    b.alternative(cap, "north", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH)), why="room on the west for the input")
+    b.exclude("r_pull.turned", "cap.north", why="not wanted together")
+    prepared = run.begin(b)
+    held = [{"unit": "cap", "option": "north", "why": "room on the west for the input",
+             "unit_why": "the bypass may stand north of u1"}]
+    assert run.reasons(prepared.units, {"cap": "north"}) == held
+    assert run.reasons(prepared.units, {"r_pull": "turned"}) == []                 # an item's option: its own place() why
+    (gone,) = run.excluded_entries(prepared.excluded, prepared.units)
+    assert gone["why"] == held
+    offered = dict(entry("cap.north", {"cap": "north"}, True), why=held)
+    refused = dict(entry("cap.north", {"cap": "north"}, False, refused=[UNPLACED]), why=held)
+    rows = run.lines([DEFAULT, offered, refused, entry("r_pull.turned", {"r_pull": "turned"}, True)])
+    assert rows[1]["reasons"] == held and "reasons" not in rows[3]
+    tail = " - cap: the bypass may stand north of u1; cap.north: room on the west for the input"
+    assert arrangement_row_text(rows[1]) == "cap.north: offered" + tail
+    assert arrangement_row_text(rows[2]).endswith(tail) and arrangement_row_text(rows[3]) == "r_pull.turned: offered"
+
+
 def test_the_limit_is_counted_after_exclusions_and_its_finding_says_how_to_come_under_it():
     tight = dataclasses.replace(Settings(), place_arrangements_max=3)
     facts = colliding(tight).arrangement_limit()

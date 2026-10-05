@@ -173,11 +173,24 @@ def verdict_refusals(verdicts) -> list:
     return [{"form": "verdict", "check": v.check, "item": v.subject} for v in verdicts if v.ok is False and not v.accepted]
 
 
-def excluded_entries(excluded) -> list:
+def reasons(units, choices: dict) -> list:
+    """The reasons of the unit options an arrangement holds (its `choices`), in unit order: each one's `unit`, `option`, its
+    `why` and the unit's own (`unit_why`), for those the script gave either. (An item's option carries none: its Choice has
+    no why.)"""
+    return [{"unit": c.unit, "option": c.option, "why": c.why, "unit_why": c.unit_why}
+            for u in units for c in u.choices if choices.get(c.unit) == c.option and (c.why or c.unit_why)]
+
+
+def _with_reasons(entry: dict, units) -> dict:
+    why = reasons(units, entry["choices"])
+    return dict(entry, why=why) if why else entry
+
+
+def excluded_entries(excluded, units=()) -> list:
     """The record's entries of the combinations an exclusion leaves out, in product order: not laid out, so no folder, metrics or
     extent; `excluded` holds the exclusion's why and its choices."""
-    return [{"id": spec.id, "choices": spec.choices, "offered": False, "excluded": {"why": rule.why, "by": list(rule.choices)}}
-            for spec, rule in excluded]
+    return [_with_reasons({"id": spec.id, "choices": spec.choices, "offered": False,
+                           "excluded": {"why": rule.why, "by": list(rule.choices)}}, units) for spec, rule in excluded]
 
 
 def option_dead_findings(units, record) -> list:
@@ -370,7 +383,7 @@ def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_
     findings, texts = [], []
     for r in resolved:
         spec = r.spec
-        entry = {"id": spec.id, "choices": spec.choices, "dir": "arrangements/" + spec.id}
+        entry = _with_reasons({"id": spec.id, "choices": spec.choices, "dir": "arrangements/" + spec.id}, prepared.units)
         record.append(entry)
         if r.duplicate_of:
             entry.update(offered=False, duplicate_of=r.duplicate_of, metrics=None)
@@ -401,7 +414,7 @@ def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_
         if refused:
             entry["refused"] = refused
             findings.append(Finding(C.ARRANGEMENT_REFUSED, {"id": spec.id, "refused": refused}, "warning"))
-    record += excluded_entries(prepared.excluded)
+    record += excluded_entries(prepared.excluded, prepared.units)
     findings += option_dead_findings(prepared.units, record)
     d = _dir(run_dir, "default")
     d.mkdir(parents=True, exist_ok=True)
@@ -411,10 +424,14 @@ def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_
     return Outcome(record, findings, texts)
 
 
+def _row_reasons(entry: dict) -> dict:
+    return {"reasons": entry["why"]} if entry.get("why") else {}
+
+
 def lines(record: list) -> list:
     """One row per arrangement of the record, for the console (finding_text.arrangement_row_text): its id and `state`, written (the
     default), offered, duplicate (with `same_as`), refused (with `refused`) or excluded (with the exclusion's `why` and its
-    choices, `by`)."""
+    choices, `by`). An offered or refused row carries `reasons`, the entry's `why` (its unit options' reasons), when it has one."""
     out = []
     for a in record:
         if a.get("excluded"):
@@ -422,7 +439,7 @@ def lines(record: list) -> list:
         elif a.get("duplicate_of"):
             out.append({"id": a["id"], "state": "duplicate", "same_as": a["duplicate_of"]})
         elif a["offered"]:
-            out.append({"id": a["id"], "state": "written" if a["id"] == "default" else "offered"})
+            out.append(dict({"id": a["id"], "state": "written" if a["id"] == "default" else "offered"}, **_row_reasons(a)))
         else:
-            out.append({"id": a["id"], "state": "refused", "refused": a.get("refused", [])})
+            out.append(dict({"id": a["id"], "state": "refused", "refused": a.get("refused", [])}, **_row_reasons(a)))
     return out

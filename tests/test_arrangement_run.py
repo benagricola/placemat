@@ -180,9 +180,9 @@ MARK = "frame_planes(FILLET, supply=None)"
 GROUPED = '''
 from placemat import Alt
 board.alternative(Part("c_vcc"), "turned", rotation=LYING)
-rt = board.unit("rt", Part("r_rt"))
-board.alternative(rt, "apart", Alt(Part("r_rt"), at=Beside(Part("buck"), Edge.SOUTH, gap=0.6, align=("RT_5V", pin(RT_PIN))),
-                                   why="RT's resistor a little further south"))
+rt = board.unit("rt", Part("r_rt"), why="RT's resistor may move")
+board.alternative(rt, "apart", Alt(Part("r_rt"), at=Beside(Part("buck"), Edge.SOUTH, gap=0.6, align=("RT_5V", pin(RT_PIN)))),
+                  why="RT's resistor a little further south")
 '''
 
 
@@ -203,6 +203,8 @@ def test_a_units_option_lays_as_the_same_move_made_an_items_option_does(tmp_path
     rec = json.loads((grouped.run_dir / "run.json").read_text())
     assert [a["id"] for a in rec["arrangements"]] == ["default", "rt.apart", "c_vcc.turned", "c_vcc.turned+rt.apart"]
     assert rec["arrangements"][1]["choices"] == {"rt": "apart"}
+    reason = {"unit": "rt", "option": "apart", "why": "RT's resistor a little further south", "unit_why": "RT's resistor may move"}
+    assert [a.get("why") for a in rec["arrangements"]] == [None, [reason], None, [reason]]
     same = {"default": "default", "rt.apart": "r_rt.apart", "c_vcc.turned": "c_vcc.turned",
             "c_vcc.turned+rt.apart": "c_vcc.turned+r_rt.apart"}
     for mine, theirs in same.items():
@@ -219,6 +221,7 @@ def test_an_exclusion_is_not_laid_out_and_the_record_says_why(tmp_path):
     rec = json.loads((result.run_dir / "run.json").read_text())
     assert [a["id"] for a in rec["arrangements"] if not a.get("excluded")] == ["default", "rt.apart", "c_vcc.turned"]
     (gone,) = [a for a in rec["arrangements"] if a.get("excluded")]
+    assert gone.pop("why")[0]["unit"] == "rt"
     assert gone == {"id": "c_vcc.turned+rt.apart", "choices": {"c_vcc": "turned", "rt": "apart"}, "offered": False,
                     "excluded": {"why": "the turned capacitor and the moved resistor are not wanted together",
                                  "by": ["c_vcc.turned", "rt.apart"]}}

@@ -52,6 +52,7 @@ class GroupOption:
     group: str
     name: str
     options: tuple              # (Option, ...)
+    why: str = ""
     file: str = ""
     line: int = 0
 
@@ -64,6 +65,7 @@ class Group:
     name: str
     members: tuple = ()         # the members' item keys
     alternatives: tuple = ()    # (GroupOption, ...), in declaration order
+    why: str = ""
     file: str = ""
     line: int = 0
 
@@ -83,12 +85,14 @@ class Exclusion:
 
 @dataclass(frozen=True)
 class Choice:
-    """One choice a unit offers: its unit's and option's names, its id in a combination, and the options it lays over members'
-    places."""
+    """One choice a unit offers: its unit's and option's names, its id in a combination, the options it lays over members'
+    places, and the reasons the script gave: the option's `why` and, for a unit's option, the unit's."""
     unit: str
     option: str
     id: str
     overrides: tuple            # ((item key, Option), ...)
+    why: str = ""
+    unit_why: str = ""
 
 
 @dataclass(frozen=True)
@@ -160,8 +164,8 @@ def units(order, options: dict, groups) -> list:
     for name in list(order) + [g.name for g in groups if g.name not in order]:
         g = by_name.get(name)
         if g is not None:
-            out.append(Unit(g.name, tuple(Choice(g.name, go.name, "%s.%s" % (g.name, go.name), tuple((o.item, o) for o in go.options))
-                                          for go in g.alternatives)))
+            out.append(Unit(g.name, tuple(Choice(g.name, go.name, "%s.%s" % (g.name, go.name), tuple((o.item, o) for o in go.options),
+                                                 go.why, g.why) for go in g.alternatives)))
         elif options.get(name):
             out.append(Unit(name, tuple(Choice(name, o.name, "%s.%s" % (name, o.name), ((name, o),)) for o in options[name])))
     return out

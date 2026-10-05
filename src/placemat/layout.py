@@ -3441,7 +3441,7 @@ class Board:
         `Turned`, and one that gives `rotations=` replaces its `rotation=`. Returns the Option.
 
         On a unit board.unit declared: one option of the unit, `Alt(member, **keywords)` for each member it moves (each at
-        most once; a member it does not name keeps its place()), each Alt with its own `why=`. Returns the GroupOption.
+        most once; a member it does not name keeps its place()), and `why=`. Returns the GroupOption.
 
         The module run lays out every arrangement and offers the ones that pass its own DRC and checks; the board's search
         chooses among them."""
@@ -3469,9 +3469,10 @@ class Board:
         g = next((x for x in self._arr_groups if x.name == group.name), None)
         if g is None:
             raise TypeError("board.alternative(%r, ...): this board declares no unit of that name" % group.name)
-        if keywords:
-            raise TypeError("unit %r: a unit's alternative takes Alt(member, **keywords) for each member it moves, not %s; a "
-                            "member's why= goes in its Alt" % (g.name, ", ".join(sorted(keywords))))
+        extra = sorted(set(keywords) - {"why"})
+        if extra:
+            raise TypeError("unit %r: a unit's alternative takes Alt(member, **keywords) for each member it moves, and why=, "
+                            "not %s" % (g.name, ", ".join(extra)))
         check_name("option", name)
         if any(o.name == name for o in g.alternatives):
             raise ValueError("unit %r already has an option %r" % (g.name, name))
@@ -3490,7 +3491,7 @@ class Board:
                 raise ValueError("unit %r: option %r names %s twice" % (g.name, name, key))
             seen.add(key)
             options.append(self._checked_option(a.item, name, a.keywords, grouped=True))
-        option = GroupOption(g.name, name, tuple(options), *_script_site())
+        option = GroupOption(g.name, name, tuple(options), keywords.get("why", ""), *_script_site())
         self._arr_groups[self._arr_groups.index(g)] = dataclasses.replace(g, alternatives=g.alternatives + (option,))
         self._arrangement_enum = None
         return option
@@ -3503,8 +3504,8 @@ class Board:
                         "board.alternative(unit, option, Alt(Part(...), **keywords), ...); a unit's options combine with the "
                         "module's other items and units" % (name, name))
 
-    def unit(self, name: str, *members) -> Group:
-        """A set of a module's parts that moves as one unit of its arrangements: `board.unit(name, Part, Part, ...)`, the
+    def unit(self, name: str, *members, why: str = "") -> Group:
+        """A set of a module's parts that moves as one unit of its arrangements: `board.unit(name, Part, Part, ..., why="")`, the
         parts given one by one, each a part the script has placed with `place()`. Its default is each member's own place();
         `board.alternative(unit, option, Alt(...), ...)` adds each option, and it combines with every other item and unit. A
         member is in one unit only and has no alternative of its own. Returns the unit (the arrangements.Group record).
@@ -3532,7 +3533,7 @@ class Board:
                                  "unit, so give the unit that option" % (file, line, name, key, own[0].name, own[0].file,
                                                                           own[0].line))
             keys.append(key)
-        group = Group(name, tuple(keys), (), file, line)
+        group = Group(name, tuple(keys), (), why, file, line)
         self._arr_groups.append(group)
         self._group_after[name] = len(self._intents)
         self._arrangement_enum = None

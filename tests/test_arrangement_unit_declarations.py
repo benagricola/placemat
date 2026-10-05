@@ -16,7 +16,7 @@ HERE = "test_arrangement_unit_declarations.py:"
 
 def paired(settings=None):
     b = module(settings)
-    return b, b.unit("pair", Part("c_in"), Part("r_pull"))
+    return b, b.unit("pair", Part("c_in"), Part("r_pull"), why="the pair moves as one")
 
 
 def declared():
@@ -49,9 +49,9 @@ def test_board_group_still_writes_a_kicad_group_and_takes_no_option():
 
 def test_a_units_option_lays_its_members_and_leaves_the_rest():
     b, pair = paired()
-    up = b.alternative(pair, "up", Alt(Part("c_in"), rotation=90, why="the bypass stands"))
-    assert isinstance(up, GroupOption) and up.group == "pair" and up.name == "up"
-    assert [(o.item, o.name, o.why) for o in up.options] == [("c_in", "up", "the bypass stands")]
+    up = b.alternative(pair, "up", Alt(Part("c_in"), rotation=90), why="the bypass stands")
+    assert isinstance(up, GroupOption) and up.group == "pair" and up.name == "up" and up.why == "the bypass stands"
+    assert [(o.item, o.name) for o in up.options] == [("c_in", "up")]
     assert [s.id for s in b.arrangement_enumeration().specs] == ["default", "pair.up"]
     assert b.arrangement_enumeration().specs[1].choices == {"pair": "up"}
     assert len(b.sites_of("alternative", "pair.up")) == 1
@@ -59,7 +59,6 @@ def test_a_units_option_lays_its_members_and_leaves_the_rest():
 
 @pytest.mark.parametrize("call, error, words", [
     (lambda b, g: b.alternative(g, "up", rotation=90), TypeError, "not rotation"),                          # place keywords
-    (lambda b, g: b.alternative(g, "up", Alt(Part("c_in"), rotation=90), why="w"), TypeError, "goes in its Alt"),
     (lambda b, g: b.alternative(g, "up", Alt(Part("u1"), rotation=90)), ValueError, "not a member"),        # not a member
     (lambda b, g: b.alternative(g, "up", Alt(Part("c_in"), rotation=90), Alt(Part("c_in"), rotation=180)), ValueError,
      "names c_in twice"),

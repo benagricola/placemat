@@ -1034,13 +1034,14 @@ board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST), why="bypass at VIN")
 board.alternative(Part("c_in"), "turned", rotation=180)
 board.alternative(Part("r_pull"), "turned", rotation=180)
 
-pair = board.unit("pair", Part("c1"), Part("r1"))
+pair = board.unit("pair", Part("c1"), Part("r1"), why="the filter pair moves as one")
 board.alternative(pair, "flat",
                   Alt(Part("c1"), rotation=0),
                   Alt(Part("r1"), at=Beside(Part("c1"), Edge.EAST)))
 board.alternative(pair, "upright",
-                  Alt(Part("c1"), rotation=90, why="the filter pair stands in the column"),
-                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH)))
+                  Alt(Part("c1"), rotation=90),
+                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH)),
+                  why="the pair stands in the column")
 
 board.exclude("c_in.turned", "pair.upright", why="both stand in the one column")
 ```
@@ -1053,15 +1054,15 @@ board.exclude("c_in.turned", "pair.upright", why="both stand in the one column")
   `at=`. The item is a part the script has placed with `place()`: a part
   of a row, ring or block, and a cell, are refused. A searched item may
   have options too, as each arrangement is a full resolve.
-- `board.unit(name, *members)` declares a unit: parts the script has
-  placed with `place()` that move as one, given one by one (a list is
-  refused; `board.group` is the KiCad group on the written board). Its
-  default is each member's own `place()`. It returns the unit, which
-  `board.alternative(unit, name, *alts)` takes to add one option, one
-  call per option: an `Alt(member, **keywords)` (the keywords of
-  `alternative`, `why=` included) for each member it moves, each at most
+- `board.unit(name, *members, why="")` declares a unit: parts the
+  script has placed with `place()` that move as one, given one by one
+  (a list is refused; `board.group` is the KiCad group on the written
+  board). Its default is each member's own `place()`. It returns the
+  unit, which `board.alternative(unit, name, *alts, why="")` takes to
+  add one option, one call per option: an `Alt(member, **keywords)`
+  (the keywords of `alternative`) for each member it moves, each at most
   once; a member it does not name keeps its `place()`. A unit's
-  alternative takes `Alt`s and no keywords of its own; an item's takes
+  alternative takes `Alt`s and `why=`, no place keywords; an item's takes
   keywords and no `Alt`s. Option names are unique within the unit. A
   unit with no option is an error where the script finishes declaring.
   Declare a unit's options when its members only make sense moving
@@ -1185,9 +1186,12 @@ default first:
    "metrics": {"drc": 0, "findings": {"warning": 1}, "measures": {}},
    "extent": [{"item": "c_bulk", "sides": ["east", "north"], "protrudes_mm": 1.8}]},
   {"id": "pair.flat", "choices": {"pair": "flat"}, "offered": false, "dir": "arrangements/pair.flat",
+   "why": [{"unit": "pair", "option": "flat", "why": "", "unit_why": "the filter pair moves as one"}],
    "metrics": {"drc": 2, "findings": {}, "measures": {}}, "extent": [],
    "refused": [{"form": "drc", "bucket": "clearance", "count": 2}, {"form": "verdict", "check": "loop", "item": "c_in"}]},
   {"id": "c_in.turned+pair.upright", "choices": {"c_in": "turned", "pair": "upright"}, "offered": false,
+   "why": [{"unit": "pair", "option": "upright", "why": "the pair stands in the column",
+            "unit_why": "the filter pair moves as one"}],
    "excluded": {"why": "both stand in the one column", "by": ["c_in.turned", "pair.upright"]}}
 ]
 ```
@@ -1205,6 +1209,10 @@ default first:
   on a module that declares any, and on one that declares none, or runs
   with `place.arrangements` false, when it protrudes more than
   `place.extent_notice_mm`.
+- `why` lists the reasons of the unit options an arrangement holds, in
+  unit order: each one's `unit`, `option`, the option's `why` and the
+  unit's own (`unit_why`), for those the script gave either; absent when
+  there are none. `placemat run` prints them after the arrangement's row.
 - A combination an exclusion leaves out has `offered` false and
   `excluded`, the exclusion's `why` and its choices (`by`), and no
   `dir`, `metrics` or `extent`: it is not laid out. These entries come
