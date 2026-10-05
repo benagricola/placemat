@@ -15,6 +15,17 @@ section for each hand-written pattern a newer form replaces.
   point; `Tangent(quarters=True)` is refused on a ring. `Polar((r, r), None)` is still refused, and its message
   names `Polar(r, None)`; a script that used a narrow band for this can use the ring.
 
+### Changed
+
+- **The pin map study's budget is a count of steps, not a time.** `[pins] budget_ms` and `probe_budget_ms` are
+  retired: a placemat.toml or flag that sets either is a settings error naming its replacement. Set
+  `[pins] budget_steps` (default 3000 a part, about what 100 ms took on the native core: 0.077-0.09 s for the
+  reference board's MCU searched to 3000 steps, `fixtures/pinmap_bench.py --repeat 5 --set pins_anneal_moves=750`) and `probe_budget_steps`
+  (default 150000) instead; a step is one move of a local search. The same board now gives the same map on any
+  machine, at any load, on either core; the Python fallback takes longer to get there. `[pins] guard_ms` (default
+  10000 ms a part, 0 is off) is a safety net on the time: a study past it gives no map and a `setup.pins` warning
+  with code `study_slow`. The `pins.remap` facts carry `steps` and `budget_steps` in place of `budget_ms`.
+
 ### Fixed
 
 - **A route no longer leaves the router's dangling tails.** The router left short segments (0.01-0.11 mm) whose ends
@@ -41,14 +52,6 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
-- **The pin map study's budget is a count of steps, not a time.** `[pins] budget_ms` and `probe_budget_ms` are
-  retired: a placemat.toml or flag that sets either is a settings error naming its replacement. Set
-  `[pins] budget_steps` (default 3000 a part, about what 100 ms took on the native core: 0.077-0.09 s for the
-  reference board's MCU searched to 3000 steps, `fixtures/pinmap_bench.py --repeat 5 --set pins_anneal_moves=750`) and `probe_budget_steps`
-  (default 150000) instead; a step is one move of a local search. The same board now gives the same map on any
-  machine, at any load, on either core; the Python fallback takes longer to get there. `[pins] guard_ms` (default
-  10000 ms a part, 0 is off) is a safety net on the time: a study past it gives no map and a `setup.pins` warning
-  with code `study_slow`. The `pins.remap` facts carry `steps` and `budget_steps` in place of `budget_ms`.
 - **A `Pm.PinGroup` is soft unless marked hard.** A group's nets now move one by one, each under its own
   `Pm.PinAllow` and `Pm.PinDeny`, and the pin map study charges `[pins] group_weight` (default 4 weighted crossings
   a mm) for how far its neighbouring nets stand apart beyond the part's pin pitch, so a group stays together unless
