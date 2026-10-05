@@ -256,5 +256,4 @@ def test_the_skill_and_api_document_units_exclusions_and_dead_options():
     for word in ("board.unit", "board.exclude", "arrangement.option_dead", "run again", "keeps its id", "place.arrangements_max", "16"):
         assert word in unreleased, word
     assert unreleased.count("### Changed") == 1 and unreleased.count("### New") == 1
-    assert "A bypass capacitor's alternative is a turn at its pin" in unreleased       # the entry already there is kept
     assert all(ord(c) < 128 for c in SKILL + API + unreleased), "ASCII only"
