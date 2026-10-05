@@ -298,6 +298,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Route cleanup, ring tangent turns, deterministic pin study** (0.99.18):
+  a route removes the router's dangling copper on complete nets (KiCad's
+  TRACKS_CLEANER), never given copper; a `Polar(r, None)` ring takes
+  `Turns.TANGENT`; the pin map study stops at `pins.budget_steps`, with a
+  wall-clock guard that gives no map (`study_slow`).
+
 - **Arrangement units, soft pin groups, cell labels off the edge** (0.99.17):
   `board.unit` options combine with every item and unit, `board.exclude`,
   `arrangement.option_dead`, `only=` by membership, `board.arrangement`
