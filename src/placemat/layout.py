@@ -5750,18 +5750,25 @@ class Board:
                 cut_pts, diagonals = chamfer_cuts(pts, chamfer)
                 ops = polyline_tracks(name, layer, w, cut_pts)
             for p in corners:
-                # the lane runs past every item named, but only copper on this track's layer can be passed too close
-                on = _past_reach(self, ctx, name, w, p, intent.key, intent.index, layer)
-                if on is None:
+                # the lane runs past every item named; the verdict judges the groups a rule judges this track's
+                # layer against: the copper on it, every hole and stretch of edge
+                groups = _past_groups(self, ctx, name, p, intent.key, intent.index, layer=layer)
+                if isinstance(groups, Refusal):
                     continue
-                box, off, names = on
-                c = _box_corner(box, p.edge)
-                near = min((_point_seg(c, Location(*a), Location(*b))[0] for t in ops for a, b in t.chords()),
-                           default=math.inf)
-                if near < off - 1e-6:
+                short = []
+                for g in groups:
+                    c = _box_corner(g.box, p.edge)
+                    reach = w / 2.0 + g.standoff
+                    near = min((_point_seg(c, Location(*a), Location(*b))[0] for t in ops for a, b in t.chords()),
+                               default=math.inf)
+                    if near < reach - 1e-6:
+                        short.append((reach - near, near, reach, g.names))
+                if short:
+                    _, near, reach, _ = max(short, key=lambda s: s[0])
+                    names = list(dict.fromkeys(n for *_, ns in short for n in ns))
                     ctx.notes.append(Finding(C.COPPER_CORNER, {
-                        "key": copper_id(intent), "net": name, "edge": p.edge.value, "names": list(names),
-                        "near_mm": near - w / 2.0, "need_mm": off - w / 2.0, "chamfer_mm": chamfer}, "critical"))
+                        "key": copper_id(intent), "net": name, "edge": p.edge.value, "names": names,
+                        "near_mm": near - w / 2.0, "need_mm": reach - w / 2.0, "chamfer_mm": chamfer}, "critical"))
             if chamfer > 0 and not arc:
                 # the 45 a corner's own cut emits, not a straight leg that merely
                 # happens to run between two separate corners' cuts
@@ -11766,28 +11773,6 @@ def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: st
     return out
 
 
-def _past_reach(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Past, what: str,
-                current: int | None = None, layer: CopperLayer | None = None):
-    """(the items' combined box, `width`/2 plus the worst clearance by net
-    pair from `net` to them): what Past's point is measured from. A Refusal
-    instead, the reason, when a via or track it names has no copper.
-
-    With `layer` it is the verdict's reach instead: (box, distance, names)
-    of the items' copper on that layer alone, or None when there is none.
-    The point's lane is taken off every item, whatever face it is on."""
-    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current, layer)
-    if isinstance(copper, Refusal):
-        return copper
-    if layer is not None:
-        if not copper:
-            return None
-        names = list(dict.fromkeys(nm for *_, nm in copper))
-        return (Box.union([c[1] for c in copper]),
-                width / 2.0 + max(_pad_clearance(board, net, c[0], c[2]) for c in copper), names)
-    return (Box.union([c[1] for c in copper]),
-            width / 2.0 + max(_pad_clearance(board, net, c[0], c[2]) for c in copper))
-
-
 def _box_corner(box: Box, corner: Corner) -> Location:
     sx, sy = corner.signs
     return Location(box.right if sx > 0 else box.left, box.bottom if sy > 0 else box.top)
@@ -11900,15 +11885,16 @@ def _cutout_box(board: "Board", it) -> Box | None:
 
 
 def _past_groups(board: "Board", ctx: "_CopperContext", net: str, p: Past, what: str, current: int | None = None,
-                 via: bool = False):
+                 via: bool = False, layer: CopperLayer | None = None):
     """The groups a Past's point is measured off, or a Refusal, the reason there are none. The pads, vias and tracks are
     one group: their copper's combined box, and the worst clearance by net pair from `net` to them, as Past has always
     measured. Each cutout and each stretch of edge is a group of its own: its box (`_cutout_box`, `_run_box`) and the
     board's copper-to-edge clearance (KiCad's EDGE_CLEARANCE_CONSTRAINT, `geometry.edge_clearance`: a cutout is an
     Edge.Cuts loop as the outline is). A named part's or cell's pads join the copper group, and its placed envelope is a
     group of its own at 0. A label is a group of its own: its text's box, at 0 for a track and the silk clearance for a
-    via (`via`)."""
-    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current)
+    via (`via`). With `layer`, the groups a corner verdict judges for copper on that layer: the copper on it, and every
+    cutout and stretch of edge, which cut every layer; no envelope and no label."""
+    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current, layer)
     if isinstance(copper, Refusal):
         return copper
     groups = []
@@ -11925,6 +11911,8 @@ def _past_groups(board: "Board", ctx: "_CopperContext", net: str, p: Past, what:
             groups.append(_PastGroup(box, edge_rule, (name,)))
         elif isinstance(it, Run):
             groups.append(_PastGroup(_run_box(board, it), edge_rule, (name,)))
+        elif layer is not None:
+            continue                # an envelope or a label: no rule judges copper against it, so no verdict does
         elif isinstance(it, (Part, Cell)):
             # no copper rule touches a courtyard: the envelope stands off at 0, its pads keep their clearance above
             groups.append(_PastGroup(board._placed_envelope_box(ctx.occ, it), 0.0, (name,)))

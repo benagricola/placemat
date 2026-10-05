@@ -412,3 +412,29 @@ def test_a_past_off_a_part_that_found_no_place_or_its_label_is_not_drawn():
     b.via(Net("SIG"), at=Past([key], Edge.WEST), size=0.6)
     whys = sorted((f.facts["why"]["code"], f.facts["names"][0]) for f in _not_drawn(b.resolve()))
     assert whys == [("past_item_unplaced", "big"), ("past_label_not_drawn", "label big BIG")], whys
+
+
+# ---------------------------------------------------------------- the corner verdict
+def test_the_corner_verdict_names_the_group_a_leg_passes_too_near():
+    pa = _part("PA", "pa", "GND", 10.0, 20.0)                             # pad SE corner (10.5, 20.5), reach 0.3
+    vent = Cutout(Circle(1.5), "vent", at=Location(10.0, 23.0))          # grown box SE corner (10.77, 23.77), reach 0.5
+    b = _board([pa], holes=[vent])
+    px = _away(10.77 + 0.5 / math.sqrt(2.0), 1)
+    # due north through the point: the leg passes the hole's corner 0.354 mm off, under its 0.5; the pad's 0.62 off
+    b.track(Net("SIG"), [Location(px, 29.0), Past([PadRef(Part("pa"), 1), vent], Corner.SE), Location(px, 5.0)],
+            layer=CopperLayer.F, chamfer=0)
+    found = [f for f in b.resolve().findings if f.cause.value == "copper.corner"]
+    assert len(found) == 1 and found[0].facts["names"] == ["cutout vent"], found
+    assert found[0].facts["need_mm"] == pytest.approx(EDGE)
+
+
+@pytest.mark.parametrize("layer, names", [(CopperLayer.F, [["PA.1"]]), (CopperLayer.B, [])], ids=["front", "back"])
+def test_a_track_past_a_front_part_takes_its_point_off_the_part_and_is_judged_on_its_own_layer(layer, names):
+    b = _board([_part("PA", "pa", "GND", 20.0, 15.0)])                    # front only: pad SE (20.5, 15.5), courtyard SE (20.6, 15.6)
+    # the courtyard's corner is the union's; the pad's reach sets the step: (20.5 - 20.6 + 15.5 - 15.6) / 2 + 0.3 / sqrt(2)
+    d = max(0.1 / math.sqrt(2.0), -0.1 + 0.3 / math.sqrt(2.0))
+    px, py = _away(20.6 + d, 1), _away(15.6 + d, 1)
+    b.track(Net("SIG"), [Location(px, 29.0), Past([Part("pa")], Corner.SE), Location(px, 5.0)], layer=layer, chamfer=0)
+    plan = b.resolve()
+    assert _has(plan, "SIG", px, py), _points(plan, "SIG")               # the same point on either layer
+    assert [f.facts["names"] for f in plan.findings if f.cause.value == "copper.corner"] == names
