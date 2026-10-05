@@ -667,7 +667,14 @@ not along a board axis is refused.
   clearances count), added to the largest of: half each lane's track; half
   the inner lane's via and half the outer lane's track (the outer track
   passes the inner via); half the inner lane's track and half the outer
-  lane's via (the inner track may run on past it). Two vias are not stepped
+  lane's via (the inner track may run on past it). Two lanes that are not a
+  pair's are a little further apart: room for the router's grid snap, the
+  router's grid step over the square root of 2 (0.0707 mm at its default
+  0.1 mm; `--grid-step` in `route.router_args` sets another). The router
+  starts a route from the point of its grid nearest a lane's end, up to half
+  a step off on each axis, and refuses a leg from there that comes nearer the
+  next lane than the clearance; the room covers a lane running along a board
+  axis or at 45 to it, however the board turns the module. Two vias are not stepped
   apart by their sizes: they keep the clearance by standing apart along their
   lanes, innermost first. A lane and the via beside it keep the clearance
   wherever the via stands.
@@ -685,8 +692,9 @@ not along a board axis is refused.
   row, so it stands as near the row as it may, not a lane's depth past the
   tips: the risers are staggered from the row's turn-side end, the pad there
   at the tips and each next pad of the row, named or not, one stagger (the
-  step times the square root of 2, less the pitch along the row: 0.0526 mm
-  for a 0.32 mm step at 0.4 mm pitch) further out. A lane is where it would be
+  step times the square root of 2, less the pitch along the row: 0.1525 mm
+  for a 0.3907 mm step - a 0.16 mm track, a 0.16 mm clearance and the grid
+  snap's room - at 0.4 mm pitch) further out. A lane is where it would be
   among lanes for every pin of the row, so two escapes of one row lay their
   lanes parallel and a lane does not move when another pin is named. A named
   lane is no nearer the tips than where its riser and 45 keep the clearance
@@ -5133,7 +5141,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.plane_share` | `0.9` | share | how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing (the router's default layers come from each layer's declared role, not this) |
 | `route.turn_cost` | `20000` | cost | what the router charges a turn, per 90 degrees (a 45 half of it), against 1000 a straight grid step: the router's own default of 1000 makes a kink nearly free and its routes stair-step; 20000 measured best on a dense four-layer board (fewer than half the turns, 10% less copper, closure no worse); 1000 gives the router's own behaviour |
 | `route.smoothing` | `true` | bool | the router's own octolinear smoothing, as it defaults; false skips it |
-| `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the class stages, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused |
+| `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the class stages, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused. Its `--grid-step` also sets the room turned escape lanes leave for the router's grid snap |
 | `route.pair_router_args` | `[]` | list | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
 | `route.pair_layers` | `{}` | table | the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `"P/N"` (either order) or a net class name, its value a list of layer names (`{"USB_D_P/USB_D_N" = ["In2.Cu", "B.Cu"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used |
 | `route.net_halos` | `{}` | table | a net mapped to a halo in mm (`{"SW" = 2.0}`): every router pass keeps other nets' new copper that far from the net's copper, and the net's own new copper that far from everything, to keep coupling off a switch node. Each net is given the larger of its net class clearance and its halo in the clearance map placemat hands the router. Before the route, a pad of another net within the halo whose own copper (an escape, a via) ends inside it is a `setup.net_halo` finding: the router cannot leave it. A key that names no net on the board is a `setup.net_halo` finding and the entry is not used |

@@ -1,5 +1,5 @@
 """A real module (fixtures/fairing/mcu_fan, laid out by its current script: scripts/Mcu_layout_fans.py) whose south row fans out
-south-east in one escape, lanes 0.45 mm apart across their direction (x - y), the least a track and its clearance allow.
+south-east in one escape, lanes 0.55 mm apart in x - y, the least a track, its clearance and the router's grid snap room allow.
 The handoff pins in the fan have their way out along their own lane carried on, between the lanes beside them, with no
 room to spare. A way out judged on cells of a grid, off that line, did not find it and reported them walled in; a track
 drawn there, and KiCad's DRC on it, is the check that the way is real."""
@@ -46,5 +46,5 @@ def test_the_fans_lanes_are_laid_at_the_least_pitch(run):
         a, b = t.GetStart(), t.GetEnd()
         if abs(abs(a.x - b.x) - abs(a.y - b.y)) < 10 and a.x != b.x:                    # the 45
             lines[t.GetNetname()] = pcbnew.ToMM(a.x) - pcbnew.ToMM(a.y)
-    assert lines["GNSS_TX"] - lines["GNSS_RX"] == pytest.approx(-0.4525, abs=1e-3)
-    assert lines["GNSS_PPS"] - lines["STRAP_JTAG"] == pytest.approx(0.4525, abs=1e-3)
+    assert lines["GNSS_TX"] - lines["GNSS_RX"] == pytest.approx(-0.5525, abs=1e-3)
+    assert lines["GNSS_PPS"] - lines["STRAP_JTAG"] == pytest.approx(0.5525, abs=1e-3)

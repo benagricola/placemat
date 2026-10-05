@@ -14,6 +14,11 @@ pytestmark = needs_kicad
 
 pcbnew = pytest.importorskip("pcbnew")
 
+# The hand layout's lanes stand at the least pitch, a track and a clearance, with no room for the router's grid snap
+# (lanes.Layouter._step), and the bypass stands against them with none to spare. Laid out for a router on a fine grid,
+# the lanes keep the hand layout's pitch, so what is checked is how they pass the bypass.
+FINE_GRID = {"route_router_args": ("--grid-step", "0.001")}
+
 _run = {}
 SCRIPT = "scripts/Mcu_layout_west_fan.py"
 ROW = {"43": "LED_STATUS_DRIVE", "44": "VBUS_DISCH", "45": "USB_WET", "47": "PD_IRQ", "49": "UART_TX_CHIP"}
@@ -25,7 +30,7 @@ HAND_TOLERANCE = 0.15       # mm: the hand layout leaves a little room the least
 @pytest.fixture
 def run(tmp_path_factory):
     if not _run:
-        _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True, script=SCRIPT)
+        _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True, overrides=FINE_GRID, script=SCRIPT)
     return _run["r"]
 
 
