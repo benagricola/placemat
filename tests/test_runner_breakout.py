@@ -67,9 +67,16 @@ def scratch_ecosystem(tmp_path_factory):
     return root
 
 
-def test_a_run_generates_places_writes_and_records(scratch_ecosystem):
+@pytest.fixture(scope="module")
+def first_run(scratch_ecosystem):
+    """The first run of the scratch breakout, labelled "first"; made once for
+    the tests that read it, whichever of them runs first."""
     script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
-    rec = run(script, label="first", render=False)
+    return run(script, label="first", render=False)
+
+
+def test_a_run_generates_places_writes_and_records(scratch_ecosystem, first_run):
+    rec = first_run
     assert rec.status == "ok"
     assert (scratch_ecosystem / "breakout/layout/Breakout/layout.kicad_pcb").exists()
     out = scratch_ecosystem / "breakout/.placemat/runs/first"
@@ -82,7 +89,7 @@ def test_a_run_generates_places_writes_and_records(scratch_ecosystem):
     assert "steps" in data and any(s["item"] == "trunk_pwr" for s in data["steps"])
 
 
-def test_a_run_records_itself_as_the_best_of_its_family(scratch_ecosystem):
+def test_a_run_records_itself_as_the_best_of_its_family(scratch_ecosystem, first_run):
     """A real run, not a synthetic record: the first run of these parts is
     their best, and best.json names it under its family."""
     from placemat.report import RunRecord, best_for, family_of
