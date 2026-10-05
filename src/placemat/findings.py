@@ -35,6 +35,7 @@ class FindingKind(str, Enum):
     TIME = "time"                       # a step that ran past the time a command allows it (`--step-warn`, `--step-limit`)
     ARRANGEMENT = "arrangement"         # a module's alternative arrangements: over the limits, refused by the module run, stale on the stamping board, asked for and not offered
     ESCAPE = "escape"                   # a module's escape that does more than the module needs: a via on a lane with a way out
+    PINS = "pins"                       # a better assignment of nets to a part's pins (its Pm.PinPool) than the capture's, from the pin map study
 
     def __str__(self):
         return self.value
@@ -105,6 +106,7 @@ class FindingCause(str, Enum):
     SETUP_PCBNEW = (FindingKind.SETUP, "setup.pcbnew")
     SETUP_NATIVE = (FindingKind.SETUP, "setup.native")
     SETUP_PAIR_LAYERS = (FindingKind.SETUP, "setup.pair_layers")
+    SETUP_PINS = (FindingKind.SETUP, "setup.pins")
     SETUP_NET_HALO = (FindingKind.SETUP, "setup.net_halo")
     ROUTE_DROPPED = (FindingKind.ROUTE, "route.dropped")
     ROUTE_WIDTH = (FindingKind.ROUTE, "route.width")
@@ -123,6 +125,7 @@ class FindingCause(str, Enum):
     ARRANGEMENT_STALE = (FindingKind.ARRANGEMENT, "arrangement.stale")
     ARRANGEMENT_MISSING = (FindingKind.ARRANGEMENT, "arrangement.missing")
     ARRANGEMENT_EXTENT_FIXED = (FindingKind.ARRANGEMENT, "arrangement.extent_fixed")
+    PINS_REMAP = (FindingKind.PINS, "pins.remap")
 
     def __str__(self):
         return self.value
@@ -166,6 +169,7 @@ SEVERITY = {
     FindingKind.TIME: "notice",
     FindingKind.ARRANGEMENT: "warning",
     FindingKind.ESCAPE: "warning",
+    FindingKind.PINS: "notice",
 }
 """A kind's default severity: a classification of what the kind means, not a
 tunable. A finding of a kind that mixes causes is made with its own."""

@@ -11,6 +11,8 @@ mod fill;
 mod geometry;
 mod giveway;
 mod judge;
+mod pinmap;
+mod pinmap_geom;
 mod pockets;
 mod profile;
 mod ratsnest;
@@ -1152,6 +1154,103 @@ fn sweep(
     Ok((legal, scores, refused))
 }
 
+/// Whether every index `pinmap_search` is given points at something: the first that does not, named.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn pinmap_indexes(
+    parts: &[pinmap::Row],
+    pins: &[Vec<pinmap::Row>],
+    nets: &[(String, u8)],
+    fixed: &[Vec<(f64, f64, String, String)>],
+    joined: &[Vec<(usize, usize)>],
+    ends: &[Vec<(usize, usize)>],
+    posed: &[pinmap::Posed],
+    movable: &[(usize, usize, Vec<usize>, i64)],
+    groups: &[(usize, Vec<i64>, Vec<Vec<usize>>)],
+    group_parts: &[usize],
+    combos: &[Vec<(usize, f64, bool)>],
+) -> Result<(), String> {
+    let n = nets.len();
+    if pins.len() != parts.len() || fixed.len() != n || joined.len() != n || ends.len() != n {
+        return Err("a part's or net's array: its length".into());
+    }
+    let pin = |part: usize, q: usize| part < parts.len() && q < pins[part].len();
+    for k in 0..n {
+        if joined[k].iter().any(|&(a, b)| a >= fixed[k].len() || b >= fixed[k].len()) {
+            return Err(format!("net {k}'s joined anchor"));
+        }
+        if ends[k].iter().any(|&(p, q)| !pin(p, q)) {
+            return Err(format!("net {k}'s end"));
+        }
+    }
+    for (k, (_, pads, pairs)) in posed.iter().enumerate() {
+        if pads.iter().any(|a| a.4 >= 0 && (a.5 < 0 || !pin(a.4 as usize, a.5 as usize))) {
+            return Err(format!("posed net {k}'s pad"));
+        }
+        if pairs.iter().any(|&(a, b)| a >= pads.len() || b >= pads.len()) {
+            return Err(format!("posed net {k}'s joined pad"));
+        }
+    }
+    for (k, (net, slot, allowed, group)) in movable.iter().enumerate() {
+        if *net >= n || *slot >= ends[*net].len() {
+            return Err(format!("movable {k}'s net or slot"));
+        }
+        let part = ends[*net][*slot].0;
+        if allowed.iter().any(|&q| !pin(part, q)) || *group >= groups.len() as i64 || *group < -1 {
+            return Err(format!("movable {k}'s pin or group"));
+        }
+    }
+    for (k, (part, members, windows)) in groups.iter().enumerate() {
+        if *part >= parts.len() || members.iter().any(|&m| m < -1 || m >= movable.len() as i64) {
+            return Err(format!("group {k}'s part or member"));
+        }
+        if windows.iter().any(|w| w.len() != members.len() || w.iter().any(|&q| !pin(*part, q))) {
+            return Err(format!("group {k}'s window"));
+        }
+    }
+    if group_parts.iter().any(|&p| p >= parts.len()) || combos.iter().flatten().any(|c| c.0 >= parts.len()) {
+        return Err("a group part or a pose's part".into());
+    }
+    Ok(())
+}
+
+/// The pin map study's core (native/src/pinmap.rs): one group's study from plain arrays, as
+/// `placemat.pinmap_twin.search` gives it (`placemat.pinmap_core.search` picks one or the other). A pin's normal must be
+/// one of the four axis directions (`pinmap_input.outward` gives no other): any other is refused.
+#[pyfunction]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn pinmap_search(
+    parts: Vec<pinmap::Row>,
+    pins: Vec<Vec<pinmap::Row>>,
+    nets: Vec<(String, u8)>,
+    fixed: Vec<Vec<(f64, f64, String, String)>>,
+    joined: Vec<Vec<(usize, usize)>>,
+    ends: Vec<Vec<(usize, usize)>>,
+    wires: Vec<(u8, i64, i64, i64, i64)>,
+    posed: Vec<pinmap::Posed>,
+    movable: Vec<(usize, usize, Vec<usize>, i64)>,
+    groups: Vec<(usize, Vec<i64>, Vec<Vec<usize>>)>,
+    group_parts: Vec<usize>,
+    combos: Vec<Vec<(usize, f64, bool)>>,
+    weights: (f64, f64, f64, f64, f64),
+    params: (f64, u32, u32, f64, f64, f64, f64, u64),
+) -> PyResult<pinmap::SearchResult> {
+    pinmap_indexes(&parts, &pins, &nets, &fixed, &joined, &ends, &posed, &movable, &groups, &group_parts, &combos)
+        .map_err(|what| PyValueError::new_err(format!("{what} out of range")))?;
+    for (k, row) in pins.iter().enumerate() {
+        for (number, _, _, nx, ny) in row {
+            if ![(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)].contains(&(*nx, *ny)) {
+                return Err(PyValueError::new_err(format!(
+                    "pin {number:?} of part {k} has normal ({nx}, {ny}), not one of the four axis directions")));
+            }
+        }
+    }
+    let (pair, impedance, plane, length, bend) = weights;
+    let (margin, seeds, moves, t0, t1, budget_ms, step_ms, seed_key) = params;
+    let pb = pinmap::Problem { parts, pins, nets, fixed, joined, ends, wires, posed, movable, groups, margin };
+    let pr = pinmap::Params { w: [pair, impedance, plane, length, bend], seeds, moves, t0, t1, budget_ms, step_ms, seed_key };
+    Ok(pinmap::search(&pb, &group_parts, &combos, &pr))
+}
+
 /// The occupancy's placed ratsnest, mirrored for `leaf_costs`
 /// (native/src/ratsnest.rs). Python works out each net's tree and hands it
 /// over after every `Ratsnest.set_net`.
@@ -1296,6 +1395,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NativeSweepSeen>()?;
     m.add_class::<NativeBoard>()?;
     m.add_class::<NativeRatsnest>()?;
+    m.add_function(wrap_pyfunction!(pinmap_search, m)?)?;
     m.add_class::<NativeEscTurn>()?;
     m.add_class::<NativeScoring>()?;
     m.add_class::<NativeCleanupScoring>()?;

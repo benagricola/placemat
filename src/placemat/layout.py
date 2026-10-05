@@ -719,6 +719,7 @@ class Plan:
     group_notes: list = field(default_factory=list)               # what the write did to the board's groups, a line each
     thinned: dict = field(default_factory=dict)                   # cell -> [(x, y)]: the vias drops= took out of its fields, as generated
     given_way: list = field(default_factory=list)                 # what a stamped cell's own vias did as it was placed (giveway.Action)
+    pin_study: dict = field(default_factory=dict)                 # the pin map study's record (pinmap.study_findings): seconds, reused, groups, parts
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -1045,6 +1046,8 @@ class Board:
         self._copper_uses: dict = {}        # copper index -> the indexes of the copper intents it is drawn from or fitted round (Task 1.4)
         self._file_digests: dict = {}       # file -> digest of its text when the first declaration in it was made
         self.script_file = ""               # the layout script this board runs, set by the runner
+        self.pin_study = True               # the pin map study runs at the end of a resolve; an explore's variant boards say False
+        self.pin_study_cache = None         # where the last pin map study is kept (pinmap.py), set by the runner; None: not kept
         self.source_reader = None           # callable(path) -> text where the script ran from other than the file on disk
 
     # ------------------------------------------------------------ where declarations were made
@@ -5236,6 +5239,21 @@ class Board:
                     "via": {"kind": "lane" if lane else "via", "at": [round(x, 4), round(y, 4)],
                             "key": copper_id(intent) if intent is not None and not lane else ""}}))
 
+    def _report_pin_maps(self, plan: Plan) -> None:
+        """The pin map study (pinmap.py) on the finished board: once per resolve, never inside the search. An explore's
+        variants are studied by the explore (explore._pin_maps), on its best ones only. A study that raises leaves the
+        resolve standing: its error is on `plan.pin_study` and a `setup.pins` finding."""
+        from .pinmap_rules import has_pools
+        if not has_pools(self.geometry.footprints):     # a board without a pool does not import the study or its core
+            return
+        from . import pinmap
+        try:
+            plan.findings.extend(pinmap.plan_findings(self, plan))
+        except BaseException as e:                      # a stop or an interrupt still ends the resolve
+            if not pinmap.contained(e):
+                raise
+            plan.findings.append(pinmap.study_failed(plan, e))
+
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
         for l in self._links:
             if l.a[0] in placed and l.b[0] in placed:
@@ -7460,6 +7478,8 @@ class Board:
         self._report_undeclared(plan)
         self._report_centres(occ, plan)
         self._report_splits(plan)
+        if self._explore is None and self.pin_study:
+            self._report_pin_maps(plan)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
             text, why, sides = self._faces

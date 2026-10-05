@@ -7,6 +7,24 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **The pin map study.** A part whose capture annotates its general-purpose pins (`Pm.PinPool`, with `Pm.PinFixed`,
+  `Pm.PinAllow`, `Pm.PinDeny` and `Pm.PinGroup`; capture.md, "Pin pools") is studied at the end of every run and
+  preview: placemat looks for an assignment of its nets to those pins, at its present rotation and at each turn in
+  `[pins] rotations`, that saves weighted ratsnest crossings, airwire and turning, and says so in a `pins.remap` notice
+  whose suggestion carries the map and the turn. Nothing is written: the map is a capture change and the turn a layout
+  one. An annotation entry naming a pin or a net the part lacks, and a net that stands on a pin its own `Pm.PinAllow` or
+  `Pm.PinDeny` bars, are `setup.pins` warnings; so is a study that raised, which leaves the run standing with its error
+  on `metrics.pin_study`. An explore studies its best `[pins] explore_top` variants and reports the maps beside their
+  scores; `placemat apply <id> --search` studies a suggestion again with `[pins] probe_budget_ms` a part. Settings:
+  `[pins]`. The study runs in the native module when it is in use (`uv pip install -e ".[native]"` after updating), else
+  in Python, with the same results. A part in a cell (a stamped module instance) is studied as its cell: each pose
+  turns the whole cell, and a winning turn is taken by turning the cell on the board or re-laying the module with the
+  part turned in its frame. A net whose far end is on a part not placed keeps its pin, and below `[pins]
+  placed_share_min` of placed ends the study gives no map and says it waits on placement. Nothing in a layout script
+  changes; the first run after updating replays no steps (the findings' schemas changed).
+
 ### Changed
 
 - **A bypass capacitor's alternative is a turn at its pin.** The skill no longer offers another side of the IC for a

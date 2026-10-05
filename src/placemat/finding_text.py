@@ -182,6 +182,168 @@ def _setup_layer_lost(f):
         f["name"], f["cell"] or "board", ", ".join(f["layers"]))
 
 
+_PIN_PROBLEMS = {
+    "no_pin": "%(key)s names pin %(name)s, which %(ref)s does not have; the study runs without it",
+    "no_net": "%(key)s names net %(name)s, which no pin of %(ref)s carries; the study runs without %(entry)s",
+    "no_names": "%(key)s names %(name)s by pin name, and no pin names were read for %(ref)s: its symbol is not among "
+                "the board's libraries; the study runs without it",
+    "unreadable": "%(key)s entry %(entry)s is not name:pins; the study runs without it",
+    "not_in_pool": "%(key)s entry %(entry)s names pin %(name)s, which is not an unfixed pin of its Pm.PinPool; the study "
+                   "runs without the group",
+    "two_groups": "%(key)s entry %(entry)s names pin %(name)s, which an earlier group has; the study runs without it",
+    "no_legal_pin": "net %(name)s has no pin of the pool left that %(key)s lets it take; %(ref)s is not studied",
+    "no_legal_map": "no map gives every net a pin it may take: %(name)s has none left; %(ref)s is not studied",
+    "present_breaks": "net %(name)s stands on pin %(pin)s, against its %(rule)s; the capture breaks its own rule",
+}
+
+
+@renders(C.SETUP_PINS, "ref", "key", "entry", "code", "name")
+def _setup_pins(f):
+    if f["code"] == "study_failed":
+        return "the pin map study failed with %s: %s; this resolve has no pin map findings" % (f["type"], f["message"])
+    if f["code"] == "no_legal_pin" and f.get("held_net"):
+        return "%s: net %s may take only pin %s, which net %s holds; %s is not studied" % (
+            f["ref"], f["name"], f["held_pin"], f["held_net"], f["ref"])
+    return "%s: %s" % (f["ref"], _PIN_PROBLEMS[f["code"]] % f)
+
+
+def _weighted(n: float, how: str) -> str:
+    """'8 fewer weighted crossings', '1 more weighted crossing'."""
+    n = round(n, 1)
+    return "%g %s weighted crossing%s" % (n, how, "" if n == 1 else "s")
+
+
+def _saving(present: dict, r: dict) -> str:
+    """What a pose's best map saves against the present one, in its plainest term (weighted crossings, else airwire,
+    else turning), and what it gives up on weighted crossings or airwire to win."""
+    dw = present["weighted"] - r["weighted"]
+    dl = present["length_mm"] - r["length_mm"]
+    if dw > 1e-9:
+        won = _weighted(dw, "fewer")
+    elif dl > 1e-9:
+        won = "%.1f mm less airwire" % dl
+    else:
+        won = "%.0f degrees less turning at its pins" % (present["bend_deg"] - r["bend_deg"])
+    lost = []
+    if dw < -1e-9:
+        lost.append(_weighted(-dw, "more"))
+    if dl < -1e-9:
+        lost.append("%.1f mm more airwire" % -dl)
+    return " and ".join([won] + lost)
+
+
+def pose_text(turns: list) -> str:
+    """'90 degrees', '90 degrees on the back', or for parts studied together 'U1 at 90 degrees and U2 at 180 degrees'."""
+    def one(t):
+        return "%g degrees%s" % (t["rotation_deg"], " on the %s" % t["face"] if t["flip"] else "")
+    if len(turns) == 1:
+        return one(turns[0])
+    return " and ".join("%s at %s" % (t["ref"], one(t)) for t in turns)
+
+
+def at_pose(turns: list) -> str:
+    """'at 90 degrees' for a part turned alone, 'with cell logic turned to 90 degrees' for one studied as its cell."""
+    if not any("cell" in t for t in turns):
+        return "at " + pose_text(turns)
+    return "with " + " and ".join("cell %s turned to %g degrees" % (t["cell"], t["cell_rotation_deg"]) if "cell" in t
+                                  else "%s at %s" % (t["ref"], pose_text([t])) for t in turns)
+
+
+def _module(t: dict) -> str:
+    return "module %s" % t["module"] if t.get("module") else "the module of cell %s" % t["cell"]
+
+
+def _frame(t: dict) -> str:
+    """The frame a part's rotation in its module is given in: the module's own, or the arrangement the cell stands in."""
+    a = t.get("arrangement", "default")
+    return "its frame" if a in ("", "default") else "the frame of its arrangement %s" % a
+
+
+def cell_levers(t: dict) -> str:
+    """The two ways to take a turn of a part studied as its cell (a turn record with `cell`). The second re-lays the
+    module, so every stamp of it."""
+    every = ", which re-lays all %d of its stamps" % t["stamps"] if t.get("stamps", 1) > 1 else ""
+    return ("turn cell %s to %g degrees on the board, or keep it and re-lay %s with %s at %g degrees in %s and the "
+            "cell's other parts placed round it%s; either one means the next run re-places the board" % (
+                t["cell"], t["cell_rotation_deg"], _module(t), t["ref"], t["module_rotation_deg"], _frame(t), every))
+
+
+def levers_text(turns: list) -> str:
+    """The levers of each cell a pose turns, each named when it turns more than one."""
+    cells = [t for t in turns if "cell" in t and (t["turn_deg"] or t["flip"])]
+    if len(cells) == 1:
+        return cell_levers(cells[0])
+    return "; ".join("for cell %s, %s" % (t["cell"], cell_levers(t)) for t in cells)
+
+
+def cell_capture(t: dict) -> str:
+    """Whose capture a map of a part in a cell changes: 'module M's capture, which its 2 stamps share'."""
+    whose = "module %s's capture" % t["module"] if t.get("module") else "the capture of cell %s's module" % t["cell"]
+    return whose + (", which its %d stamps share" % t["stamps"] if t.get("stamps", 1) > 1 else "")
+
+
+def _stamp_moves(s: dict) -> str:
+    moves = "keeps its pins" if not s["moves"] else \
+        "moves pins %s" % ", ".join("%s->%s" % (m["from"], m["to"]) for m in s["moves"])
+    return "%s %s with %s at %g degrees in the module's frame" % (s["cell"], moves, s["ref"], s["module_rotation_deg"])
+
+
+def _plural(n: int, one: str, many: str) -> str:
+    return "%d %s" % (n, one if n == 1 else many)
+
+
+@renders(C.PINS_REMAP, "ref", "refs", "present", "rotations", "best", "first_map", "budget_out", "budget_ms", "searched",
+         "of", "routed", "present_breaks")
+def _pins_remap(f):
+    turns = f["rotations"][f["best"]]["turns"] if f["rotations"] else []
+    cell_of = {t["ref"]: t["cell"] for t in turns if "cell" in t}
+    if f.get("cell") and not cell_of:
+        cell_of = {f["refs"][0]: f["cell"]}
+    who = " and ".join("%s in cell %s" % (r, cell_of[r]) if r in cell_of else r for r in f["refs"])
+    if f.get("withheld"):
+        w = f["withheld"]
+        missing = w["of"] - w["placed"]
+        return ("%s: the pin map study waits on placement: %d of its %d movable nets %s no placed far end, and "
+                "pins.placed_share_min asks for %g percent with one; no map or turn is advised" % (
+                    who, missing, w["of"], "has" if missing == 1 else "have", round(w["share_min"] * 100, 1)))
+    their = "their present rotations" if len(f["refs"]) > 1 else \
+        "the cell's present rotation" if f.get("cell") else "its present rotation"
+    if not f["first_map"]:
+        return "%s: the pin map study ran out of its %g ms before a first map; pins.budget_ms sets it" % (who, f["budget_ms"])
+    rs, p = f["rotations"], f["present"]
+    here, best = rs[0], rs[f["best"]]
+    if here["total"] < p["total"] - 1e-9:
+        text = "%s: a pin map with %s exists at %s" % (who, _saving(p, here), their)
+    else:
+        text = "%s: no better pin map at %s" % (who, their)
+    if f["best"] != 0:
+        text += "; %s, %s" % (at_pose(best["turns"]), _saving(p, best))
+        if any("cell" in t and (t["turn_deg"] or t["flip"]) for t in best["turns"]):
+            text += "; to take that turn, " + levers_text(best["turns"])
+    lead = next((t for t in best["turns"] if "cell" in t and t["cell"] == f.get("cell")), None)
+    if lead is not None and any(m["ref"] == lead["ref"] for m in best["map"]):
+        text += "; the map is a change to " + cell_capture(lead)
+    if f["routed"]:
+        text += "; %d of the nets it moves %s copper now: %s" % (len(f["routed"]), "has" if len(f["routed"]) == 1 else "have",
+                                                              ", ".join(f["routed"]))
+    waiting = sorted({h["net"] for h in f.get("held", ()) if h["why"] == "unplaced"})
+    if waiting:
+        text += "; %s until %s placed: %s" % (
+            _plural(len(waiting), "net keeps its pin", "nets keep their pins"),
+            "its far end is" if len(waiting) == 1 else "their far ends are", ", ".join(waiting))
+    if f.get("stamp_maps"):
+        sm = f["stamp_maps"]
+        maps = any(s["moves"] != sm[0]["moves"] for s in sm)
+        turns = any(s["module_rotation_deg"] != sm[0]["module_rotation_deg"] for s in sm)
+        what = "different best maps and module rotations" if maps and turns else \
+            "different best maps" if maps else "different module rotations"
+        text += "; the %d stamps of %s have %s: %s" % (len(sm), _module({"module": f.get("module"), "cell": f["cell"]}),
+                                                      what, "; ".join(_stamp_moves(s) for s in sm))
+    if f["budget_out"]:
+        text += "; the study stopped at its %g ms after %d of %d poses" % (f["budget_ms"], f["searched"], f["of"])
+    return text
+
+
 @renders(C.SETUP_PAIR_LAYERS, "key", "variant", "layers", "missing", "board_layers")
 def _setup_pair_layers(f):
     if f["variant"] == "no_pair":
@@ -882,6 +1044,11 @@ def subject(cause, facts: dict) -> str:
         return "%s %s" % (facts["ref"], "/".join(facts["pins"]))
     if cause is C.PAIR_CROSSED:
         return "%s/%s" % (facts["pos"], facts["neg"])
+    if cause is C.SETUP_PINS:
+        parts = [facts["ref"], facts["key"], facts["entry"], facts["name"]]
+        return " ".join(v for i, v in enumerate(parts) if v and v not in parts[:i])
+    if cause is C.PINS_REMAP:
+        return " ".join(facts["refs"])
     if cause is C.LINK_OVER:
         return facts["link"]
     for k in _SUBJECT_KEYS:

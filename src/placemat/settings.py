@@ -17,6 +17,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import MISSING, dataclass, field, fields, replace
 import json
+import math
 from pathlib import Path
 import re
 import tomllib
@@ -52,6 +53,7 @@ SECTIONS = {
     "parts": "what a placed part must carry to be orderable",
     "drc": "how KiCad's DRC violations are sorted into buckets and judged",
     "explore": "the time-boxed search of the placer's own choices (`--explore`): variation, workers, checkpoint, stopping rules",
+    "pins": "the pin map study: what may move on a part with a `Pm.PinPool`, how a map is scored and searched, and when it is a finding",
     "route": "routing a copy of the board with KiCadRoutingTools",
     "run": "how long `placemat run` and `preview` may take: a cap on the command and on one step (off by default; a flag of the same name wins). Not part of a run's id",
     "timeout": "how long each external tool may run before it is given up on",
@@ -306,6 +308,44 @@ class Settings:
         "end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had")
     explore_checkpoint_max_variants: int = S(100000, "count",
         "finished variants an explore's checkpoint records; past it a resume tries those again")
+    pins_exit_mm: float = S(0.5, "mm",
+        "the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn")
+    pins_follow_series: bool = S(True, "bool",
+        "the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection")
+    pins_pair_weight: float = S(5.0, "weight",
+        "the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1)")
+    pins_impedance_weight: float = S(3.0, "weight",
+        "the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance")
+    pins_length_weight: float = S(0.25, "weight",
+        "the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing)")
+    pins_bend_weight: float = S(0.005, "weight",
+        "the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target")
+    pins_follow_prefixes: tuple = S(("R", "L", "FB"), "list",
+        "the pin map study follows a net on through a two-pad series part only when its reference's leading letters, in any case, equal one of these: a resistor, an inductor, a ferrite bead by default; RT1 is not followed for R, nor a two-pin connector")
+    pins_rotations: tuple = S((0.0, 90.0, 180.0, 270.0), "degrees",
+        "the turns from where a part stands that the pin map study tries besides its present one; add 45, 135, 225 and 315 for the diagonals")
+    pins_seeds: int = S(1, "count",
+        "local searches of the pin map study per pose, each with its own fixed random stream")
+    pins_anneal_moves: int = S(100, "count",
+        "moves each local search of the pin map study tries")
+    pins_anneal_start: float = S(1.0, "weight",
+        "the pin map study's annealing temperature at its first move, in weighted crossings: a move that costs this much is taken about one time in three (0: only moves that gain)")
+    pins_anneal_end: float = S(0.02, "weight",
+        "the pin map study's annealing temperature at its last move")
+    pins_budget_ms: int = S(100, "ms",
+        "the pin map study's time for each studied part: it stops there with the best map found and says so")
+    pins_joint_combinations: int = S(64, "count",
+        "the most pose combinations the pin map study searches for parts it studies together, their present poses first")
+    pins_faces: bool = S(False, "bool",
+        "the pin map study also turns a part on the other face where its declaration lets it stand there (`face=Face.EITHER`)")
+    pins_gain_min: float = S(0.05, "share",
+        "the share of the present total a better pin map must save for a `pins.remap` finding")
+    pins_placed_share_min: float = S(0.8, "share",
+        "the share of a studied group's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement")
+    pins_explore_top: int = S(3, "count",
+        "the best variants of an explore, by run score, the pin map study runs on (0: none)")
+    pins_probe_budget_ms: int = S(5000, "ms",
+        "the pin map study's time for each part when `placemat apply <id> --search` studies a `pins.remap` suggestion again")
     drc_severities: dict = S(None, "table",
         "a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC", factory=dict)
     route_router_dir: str = S("", "path",
@@ -643,7 +683,8 @@ _ABOVE_ZERO = frozenset((
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_route_tries", "check_neck_resistivity", "check_neck_conductivity",
     "studio_3d_cache_mb", "studio_3d_batch", "studio_3d_batch_timeout_s", "studio_3d_model_tris", "studio_3d_max_tris", "studio_3d_plate_mm", "studio_3d_spread_mm",     "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "studio_builder_grid_mm", "studio_builder_max_fill", "studio_builder_aspect", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
-    "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
+    "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height",
+    "pins_seeds", "pins_anneal_moves", "pins_budget_ms", "pins_joint_combinations", "pins_probe_budget_ms"))
 _AT_LEAST_ZERO = frozenset((
     "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
@@ -653,7 +694,9 @@ _AT_LEAST_ZERO = frozenset((
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
-    "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch"))
+    "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch",
+    "pins_exit_mm", "pins_pair_weight", "pins_impedance_weight", "pins_length_weight", "pins_bend_weight", "pins_anneal_start",
+    "pins_anneal_end", "pins_gain_min", "pins_placed_share_min", "pins_explore_top"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
 _AT_LEAST_TWO = frozenset(("place_split_min_group", "place_room_ratio"))
@@ -701,6 +744,16 @@ def _validate(name: str, value, path: str):
     elif "str" in text:
         if not isinstance(value, str):
             raise said("a string")
+    if name == "pins_rotations":
+        bad = [v for v in value if isinstance(v, bool) or not isinstance(v, (int, float))]
+        if bad:
+            raise SettingsError("%s: pins.rotations: every entry is a turn in degrees, not %r" % (path, bad[0]))
+        bad = [v for v in value if not math.isfinite(v)]
+        if bad or not value:
+            raise SettingsError("%s: pins.rotations: a list of at least one finite turn in degrees, not %r" % (path, list(value)))
+    if name == "pins_follow_prefixes":
+        if not all(isinstance(v, str) and v for v in value):
+            raise SettingsError("%s: pins.follow_prefixes: every entry is a reference prefix, a string of letters, not %r" % (path, list(value)))
     if name == "drc_severities":
         bad = {k: v for k, v in value.items() if v not in ("error", "warning", "ignore")}
         if bad:
@@ -856,6 +909,10 @@ def load(start, overrides=None, script=None) -> Settings:
         values[name] = value
         sources[name] = "flag"
     coerced = {name: _coerce(name, value) for name, value in values.items()}
+    start, end = (coerced.get(n, _default_of(next(f for f in fields(Settings) if f.name == n)))
+                  for n in ("pins_anneal_start", "pins_anneal_end"))
+    if end > start:
+        raise SettingsError("pins.anneal_end (%r) is above pins.anneal_start (%r)" % (end, start))
     return Settings(**coerced).with_sources(sources)
 
 

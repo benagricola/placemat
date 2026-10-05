@@ -513,7 +513,9 @@ class BoardFactory:
 
     def __call__(self):
         from .runner import scripted_board
-        return scripted_board(self.script, self.src, self.cfg, self.fab, self.keep_going, geometry=self.geometry)
+        board = scripted_board(self.script, self.src, self.cfg, self.fab, self.keep_going, geometry=self.geometry)
+        board.pin_study = False             # a variant is studied by the explore, on its best ones (`_pin_maps`)
+        return board
 
 
 # ------------------------------------------------------------ search and accept
@@ -628,6 +630,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if ck is not None and result.best_seed and (_checkpoint.read_best(ck.dir) or {}).get("seed") == result.best_seed:
         report["accept"] = accept_command(script, result.best_seed)
     if result.best_seed == 0:
+        _study(report, make_board, entries, focus, result, {0: (base, current)})
         _write_record(script, result, report, run_id, (base, current))
         if ck is not None and not keep_state:
             ck.finish()
@@ -639,6 +642,8 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         m = _move_of(key, current.placement(key), best.placement(key))
         if m:
             report["moves"].append(m)
+    # before the accept: the variants are studied under the lock they were ranked under
+    _study(report, make_board, entries, focus, result, {0: (base, current), result.best_seed: (board, best)})
     if accept:
         placed = [k for k in focus if best.placement(k) is not None]
         new = _lock.entries(board, best, placed, release, run_id, round(result.best, 1))
@@ -650,6 +655,54 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if ck is not None and not keep_state:
         ck.finish()
     return report, entries
+
+
+def _study(report, make_board, entries, focus, result, have: dict) -> None:
+    """`report["pin_maps"]` from `_pin_maps`. A stop during the study is a stop of the explore, as one during its
+    search: the report goes up with it as `.explore`, said, with nothing accepted."""
+    from . import stop
+    try:
+        report["pin_maps"] = _pin_maps(make_board, entries, focus, result, have)
+    except stop.Stopped as s:
+        report["stopped"] = s.label
+        s.explore, s.stage = report, "explore"
+        stop.say(stopped_line(report), both=False)
+        raise
+
+
+def _pin_maps(make_board, entries, focus, result, have: dict) -> list:
+    """The pin map study (pinmap.py) on the best `pins.explore_top` variants, in the explore's own order (by run score):
+    each variant's weighted crossings after remapping and its map, reported beside its score and never folded into it.
+    `have` holds plans already resolved, {seed: (board, plan)}; another variant is resolved again (a seed is
+    deterministic). Nothing is resolved for a board whose parts carry no `Pm.PinPool`. A study that raises on a variant
+    leaves the explore's result standing: that variant's entry has no groups and carries the error. Each entry's
+    `seconds` is what its resolve and its study took, after the explore's own time."""
+    import time
+    from .pinmap_rules import has_pools
+    first = have[0][0]
+    top = first.settings.pins_explore_top
+    if top <= 0 or not has_pools(first.geometry.footprints):
+        return []
+    from . import pinmap
+    out = []
+    with _context_of(make_board):
+        for seed, total, _ in result.results[:top]:
+            entry = {"seed": seed, "score": round(total, 1), "groups": []}
+            t0 = time.perf_counter()
+            try:
+                if seed in have:
+                    board, plan = have[seed]
+                else:
+                    board = make_board()
+                    plan = board.resolve(explore=Explore(seed, frozenset(focus)), lock=entries)
+                entry["groups"] = pinmap.plan_summary(board, plan)
+            except BaseException as e:                  # a stop or an interrupt still ends the explore
+                if not pinmap.contained(e):
+                    raise
+                entry["error"] = {"type": type(e).__name__, "message": str(e)}
+            entry["seconds"] = round(time.perf_counter() - t0, 3)
+            out.append(entry)
+    return out
 
 
 def _move_of(key, was, now) -> dict | None:
@@ -852,12 +905,35 @@ def _report_lines(report) -> list:
         if "arrangement" in m:
             turn += ", arrangement %s -> %s" % tuple(a or "default" for a in m["arrangement"])
         lines.append("  %s: %s%s" % (m["key"], "placed/unplaced" if m["mm"] is None else "%.2f mm" % m["mm"], turn))
+    lines += pin_map_lines(report)
     if report["accepted"]:
         lines.append("accepted: written to the lock")
     else:
         lines.append("not accepted: --accept writes it to the lock%s" % (
             ", or later: " + report["accept"] if report.get("accept") else ""))
     return lines
+
+
+def pin_map_lines(report) -> list:
+    """A line per studied group of each variant the pin map study ran on: its weighted crossings now and after
+    remapping, and the pose that takes; a variant whose study failed says so. Then the time the study took after the
+    explore's own."""
+    from .finding_text import at_pose
+    out = []
+    maps = report.get("pin_maps") or ()
+    for v in maps:
+        if v.get("error"):
+            out.append("  pin map, seed %d at %.1f mm: the study failed with %s: %s" % (
+                v["seed"], v["score"], v["error"]["type"], v["error"]["message"]))
+        for g in v["groups"]:
+            turned = [t for t in g["turns"] if t["turn_deg"] or t["flip"]]
+            out.append("  pin map, seed %d at %.1f mm: %s %g -> %g weighted crossings after remapping%s" % (
+                v["seed"], v["score"], " and ".join(g["refs"]), g["present"]["weighted"], g["best"]["weighted"],
+                ", " + at_pose(turned) if turned else ""))
+    if maps:
+        out.append("  pin map study: %d variant%s in %.2f s, after the explore's time" % (
+            len(maps), "" if len(maps) == 1 else "s", sum(v.get("seconds", 0.0) for v in maps)))
+    return out
 
 
 def lock_summary(plan) -> str:

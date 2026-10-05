@@ -366,6 +366,8 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
     from . import context as context_mod
     if context_mod._overlay:                            # a try of a suggestion: declarations' digests are of the text it ran
         board.source_reader = context_mod.read_source
+    elif src is not None:                               # a try writes nothing, the pin map study's record included
+        board.pin_study_cache = Path(src.board_dir) / ".placemat" / "pinmap" / (Path(script).stem + ".json")
     try:
         run_script(script, board)
         board.finish_declarations()                     # an only= naming no arrangement is the script's error
@@ -632,6 +634,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         if kept:
             say("adopted", kept)
         metrics["resolve_seconds"] = round(plan.seconds, 3)
+        if plan.pin_study:
+            from .pinmap import study_line
+            metrics["pin_study"] = dict(plan.pin_study)
+            say("pins", study_line(plan.pin_study))
         if previous_reuse:
             metrics["reused"] = {"steps": plan.reuse["reused"], "of": len(plan.reuse["steps"]),
                                  "from": previous_id, "first_change": plan.reuse["first_change"]}
