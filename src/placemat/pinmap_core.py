@@ -160,8 +160,8 @@ def search(pb: Problem, group_parts: list, combos: list, params: dict, native=Tr
     first_map, [(part, net)]), from the native core when it is in use (and `native`), else the Python twin."""
     core = native_core() if native else None
     if core is None:
-        raise RuntimeError("the pin map study's core is the native module's until its Python twin is in: build it with "
-                           "`uv pip install -e \".[native]\"`")
+        from . import pinmap_twin
+        return pinmap_twin.search(pb, group_parts, combos, params)
     w = params["weights"]
     return core.pinmap_search(
         pb.parts, pb.pins, pb.nets, pb.fixed, pb.joined, pb.ends, pb.wires,

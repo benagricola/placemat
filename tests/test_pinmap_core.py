@@ -11,7 +11,7 @@ from placemat.pinmap_input import build, placed_from_geometry
 from tests.fixtures import board_geometry, footprint, track
 from tests.pinmap_boards import input_of, point_pad, quad, quad_footprint, reversed_four, settings
 
-CORES = ["native"]
+CORES = ["native", "python"]
 
 
 @pytest.fixture(params=CORES)
@@ -192,14 +192,12 @@ def test_a_plane_nets_airwires_on_a_studied_part_turn_with_it(native):
     assert run(_grounded(), native, settings(pins_rotations=(0.0, 180.0))).results[1].breakdown.against == 0
 
 
-def test_a_pin_normal_off_the_axes_is_refused():
-    if native_core() is None:
-        pytest.skip("the native module is not in use")
+def test_a_pin_normal_off_the_axes_is_refused(native):
     inp, _ = input_of(*reversed_four())
     pb = problem_of(inp, 0.5)
     pins = [[(n, x, y, 0.6, 0.8) for n, x, y, _, _ in pb.pins[0]]]
     with pytest.raises(ValueError, match="not one of the four axis directions"):
-        search(replace(pb, pins=pins), [0], [[(0, 0.0, False)]], params_of(settings(), ("U1",)))
+        search(replace(pb, pins=pins), [0], [[(0, 0.0, False)]], params_of(settings(), ("U1",)), native)
 
 
 def test_a_groups_tallies_count_only_its_own_nets_and_their_crossings(native):
@@ -225,14 +223,12 @@ def test_a_net_never_takes_the_pin_of_a_groups_empty_slot(native):
     assert f == d + 2 and s != d + 1
 
 
-def test_an_index_out_of_range_is_refused():
-    if native_core() is None:
-        pytest.skip("the native module is not in use")
+def test_an_index_out_of_range_is_refused(native):
     inp, _ = input_of(*reversed_four())
     pb = problem_of(inp, 0.5)
     for bad in (replace(pb, ends=[[(0, 9)]] + pb.ends[1:]), replace(pb, movable=[(7, 0, [0], -1)]),
                 replace(pb, groups=[(0, [5], [[0]])]), replace(pb, fixed=[[]] * 4, joined=[[(0, 1)]] + pb.joined[1:])):
         with pytest.raises(ValueError, match="out of range"):
-            search(bad, [0], [[(0, 0.0, False)]], params_of(settings(), ("U1",)))
+            search(bad, [0], [[(0, 0.0, False)]], params_of(settings(), ("U1",)), native)
     with pytest.raises(ValueError, match="out of range"):
-        search(pb, [3], [[(0, 0.0, False)]], params_of(settings(), ("U1",)))
+        search(pb, [3], [[(0, 0.0, False)]], params_of(settings(), ("U1",)), native)
