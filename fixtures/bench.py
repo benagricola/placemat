@@ -254,6 +254,7 @@ ARRANGED_MODULE = "usb5v"
 """The real module the arrangement bench runs (tests/real_modules.py), with the alternatives of tests/test_arrangement_run.py."""
 STAMPS = {"u5a": (20.0, 20.0), "u5b": (70.0, 20.0), "u5c": (20.0, 70.0), "u5d": (70.0, 70.0)}
 SHARED = ("VSHUNT", "PP5V", "V3V3", "VBUS_EN")   # the module's nets from the sheet above: the stamps share them, so each links to the rest
+# GND is not shared: nearly every pad is on it and the bench declares no plane, so it would pull each stamp onto every other
 STAMPED_SIZE = (140.0, 120.0)
 ARRANGED_BASELINE = ROOT / "bench_arrangements.json"
 ARRANGED_REPEATS = 3         # each resolve of the arrangement bench is timed this many times: a single run varies by 10 to 30 percent
@@ -334,6 +335,9 @@ def bench_arrangements(module: str | None = ARRANGED_MODULE, board=None, outline
                 out["module_%s_s" % label] = round(time.perf_counter() - t0, 1)
                 if label == "k":
                     out["module_k"] = len(json.loads((result.run_dir / "run.json").read_text()).get("arrangements", [1]))
+            missing = sorted(set(SHARED) - set(read_board(frags["k"]).nets))
+            if missing:                     # a renamed net would leave the stamps unlinked and the search unscored
+                raise ValueError("the bench's shared nets are not the module's: %s" % ", ".join(missing))
             stamped = {label: read_board(stamp_fragment_as_cells(frags[label], work / ("stamped_%s.kicad_pcb" % label), STAMPS,
                                                                  SHARED))
                        for label in frags}

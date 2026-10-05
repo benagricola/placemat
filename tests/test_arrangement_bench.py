@@ -25,7 +25,8 @@ def test_the_arrangement_bench_resolves_a_board_of_noted_cells_with_arrangements
         row = out[case]
         assert row["cells"] == 2 and row["offered"] == 2, case          # each cell's note stands
         assert row["off_placed"] == row["on_placed"] == 2, case
-        assert row["off_taken"] == 0 and 0 <= row["on_taken"] <= 2, case  # off lays every cell's default
+        # off lays every cell's default; on, nothing links the cells, so the search is unscored and the default stands
+        assert row["off_taken"] == row["on_taken"] == 0, case
         assert row["off_s"] > 0 and row["on_s"] > 0, case
         assert isinstance(row["off_score"], float) and isinstance(row["on_score"], float), case
     assert out["board"]["plain_s"] > 0                                  # the same board without notes

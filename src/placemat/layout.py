@@ -10361,9 +10361,9 @@ class Board:
                                                       for (a, _), w in reasons.items()])
         margin, held = self._margin(i), None
         if margin is not None and default_total is not None:
-            kept = [f for f in found if not f[7] or default_total - f[0] >= margin]
-            held = min(((f[0], f[7]) for f in found if f[7] and f[0] < default_total and f not in kept), default=None)
-            found = kept
+            short = lambda f: f[7] and default_total - f[0] < margin      # an arrangement not the margin better than the default
+            held = min(((f[0], f[7]) for f in found if short(f) and f[0] < default_total), default=None)
+            found = [f for f in found if not short(f)]
         _, k, away, rot, cost, p, chose, ident, j = min(found, key=lambda f: f[:4])
         notes = [chose] if chose else []
         notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if scored else None,
