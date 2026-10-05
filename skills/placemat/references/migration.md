@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A past explore opens on its best variant's board in the studio.** Picking a finished explore in the Runs list, or a
+  past run that explored, left the board empty unless the studio was resolving the same script. It now opens on the
+  board of the best variant, in 2D and 3D, and the header names the explore, its best variant and its score; the
+  variant stepper draws the other variants from there. An explore now keeps the best variant's plan beside its record
+  (`.placemat/views/explore/best/`), and the record names its run. For an explore recorded before this, the studio
+  takes the board its run wrote: when the run kept the best (`--accept`), that board as it is, or its build when it
+  routed; otherwise the focused items moved to where the best put them, the other items as the run placed them, and
+  the header says so. Nothing in a layout script changes.
+
 ## To 0.99.12
 
 ### New
@@ -17,17 +30,6 @@ section for each hand-written pattern a newer form replaces.
   past the halo in its module (a longer `run=` on its `board.escape`), or give the node a smaller halo. Draw the halo
   net whole in its module, or name it in `[route] islands`: routed with the other nets, it would space them all at its
   halo, which is a `setup.net_halo` finding too.
-
-### Fixed
-
-- **A past explore opens on its best variant's board in the studio.** Picking a finished explore in the Runs list, or a
-  past run that explored, left the board empty unless the studio was resolving the same script. It now opens on the
-  board of the best variant, in 2D and 3D, and the header names the explore, its best variant and its score; the
-  variant stepper draws the other variants from there. An explore now keeps the best variant's plan beside its record
-  (`.placemat/views/explore/best/`), and the record names its run. For an explore recorded before this, the studio
-  takes the board its run wrote: when the run kept the best (`--accept`), that board as it is, or its build when it
-  routed; otherwise the focused items moved to where the best put them, the other items as the run placed them, and
-  the header says so. Nothing in a layout script changes.
 
 ## To 0.99.11
 
