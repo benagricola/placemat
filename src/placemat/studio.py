@@ -67,6 +67,17 @@ class Record:
                 "applied": self.applied}
 
 
+@dataclass(frozen=True)
+class PastView:
+    """A view the page shows in place of a resolve of this studio, whose suggestion is acted on: `kind` and `ref` as the page names it
+    ("run" and its id, "build" and the run's id, "route" and its record, "explore" and its record, "cmd" and the command's id), `noun`
+    what the refusals call it, `script` the layout script it is of ("" when it does not say)."""
+    kind: str
+    ref: str
+    noun: str
+    script: str
+
+
 class SuggestRefused(Exception):
     """A suggestion request the studio does not carry out: `status` is the HTTP status, the message a sentence for the page."""
 
@@ -817,12 +828,16 @@ class Studio:
 
     # ------------------------------------------------------------ suggestions
     # The finding's suggestions are in the plan the page was sent; these take {resolve, id}, look the suggestion up in that
-    # resolve's findings and call suggestions.apply_suggestion. The page never sends source text.
-    def _suggestion(self, rid, sid):
+    # resolve's findings and call suggestions.apply_suggestion. The page never sends source text. A past run, explore or command
+    # the page shows in place of a resolve of its own is named by {view: {kind, ref}} in place of `resolve` (_view_suggestion).
+    def _suggestion(self, rid, sid, view=None):
+        """(record, pool, finding, past): `past` is None for a resolve of this studio, else the PastView the suggestion is of."""
         from . import suggestions as sg
+        if view is not None:
+            return self._view_suggestion(view, sid)
         built = self.builder.suggestion(rid, sid)
         if built is not None:
-            return built
+            return built + (None,)
         rec = self.record(_int(str(rid)))
         if rec is None:
             raise SuggestRefused(404, "no such resolve (the last %d are kept)" % self.keep)
@@ -838,7 +853,60 @@ class Studio:
         if finding is None:
             raise SuggestRefused(404, "resolve #%d has no suggestion %r" % (rec.id, sid))
         pool = sg.from_json([s for f in findings for s in f.get("suggestions", ())]) + found
-        return rec, pool, finding
+        return rec, pool, finding, None
+
+    def _view_doc(self, kind: str, ref: str):
+        """(doc, script, noun) of a view the page shows in place of a resolve of its own, made by the call the page opened it with:
+        a recorded run (/runview), a routed run's build or a route (/build, /route), an explore's best variant (/exploreview) or a
+        command's last plan (/cmd). `noun` is what the page calls it. None when it is not there."""
+        if kind == "run":
+            v = self.run_view(ref)
+            return None if v is None else (v["doc"], v["summary"].get("script") or "", "run")
+        if kind in ("build", "route"):
+            v = self.build_record(ref) if kind == "build" else self.route_record(ref)
+            return None if v is None else (v["doc"], ((v.get("board") or {}).get("script")) or "", "run" if kind == "build" else "route")
+        if kind == "explore":
+            v = self.explore_view(ref)
+            return None if v is None or v["doc"] is None else (v["doc"], (v["record"] or {}).get("script") or "", "explore")
+        if kind == "cmd":
+            with self.lock:
+                c = self.cmds.get(_int(ref))
+                if c is None or not c.get("plan"):
+                    return None
+                noun = channel.kind_of(c.get("command", ""), c.get("args"), c.get("explore") is not None) or "command"
+                return present.plan(c["plan"].get("doc") or {}), c.get("script") or "", noun
+        return None
+
+    def _view_suggestion(self, view, sid):
+        """A suggestion of a view that is not a resolve of this studio (a past run, an explore, a command), found in the plan the view
+        shows, as `placemat apply` finds one in the plan its run kept. The record it is compared with in a try is that plan, with the
+        watched files' texts as they are now: the suggestion's digests (checked when it is shown, tried or applied) say the files it
+        edits are as the run saw them."""
+        from . import suggestions as sg
+        if not isinstance(view, dict):
+            raise SuggestRefused(400, "a view is {kind, ref}")
+        kind, ref = str(view.get("kind") or ""), str(view.get("ref") or "")
+        got = self._view_doc(kind, ref)
+        if got is None:
+            raise SuggestRefused(404, "no such %s, or it kept no plan" % {"cmd": "command", "build": "run"}.get(kind, kind or "view"))
+        doc, script, noun = got
+        findings = doc.get("findings", [])
+        finding = next((f for f in findings if any(s.get("id") == sid for s in f.get("suggestions", ()))), None)
+        if finding is None:
+            raise SuggestRefused(404, "this %s has no suggestion %r" % (noun, sid))
+        doc = dict(doc, items=[dict(it, file=self.name_of(it["file"])) if it.get("file") and os.path.isabs(it["file"]) else it
+                               for it in doc.get("items", ())])
+        texts = self.snapshot_texts()
+        label = "%s %s" % (noun, Path(ref).name if kind in ("explore", "route") else ref)
+        rec = Record(label, time.time(), texts, with_spans(doc, texts), [], {})
+        pool = sg.from_json([s for f in findings for s in f.get("suggestions", ())])
+        return rec, pool, finding, PastView(kind, ref, noun, script)
+
+    def _same_script(self, past) -> None:
+        """A try or a search of a past view's suggestion resolves the watched script: the view must be of it."""
+        if past is not None and past.script and self.script is not None and Path(past.script).resolve() != self.script.resolve():
+            raise SuggestRefused(409, "this %s is of %s, not the script this studio watches: choose it to try its suggestions"
+                                 % (past.noun, Path(past.script).name))
 
     def _found_all(self) -> list:
         """The suggestions probes found for this script (`<id>.<n>`), from the store `placemat apply` reads."""
@@ -857,10 +925,12 @@ class Studio:
             raise SuggestRefused(404, "no found suggestion %r" % sid)
         return s.to_json()
 
-    def _sg_refusal(self, e) -> SuggestRefused:
+    def _sg_refusal(self, e, past=None) -> SuggestRefused:
         from . import suggestions as sg
         status = 404 if isinstance(e, sg.UnknownSuggestion) else 422 if isinstance(e, sg.EditRefused) else 409
         files = [self.name_of(f) for f in getattr(e, "files", ()) or ()]
+        if past is not None and isinstance(e, sg.StaleSuggestion):
+            return SuggestRefused(409, "this %s's script has changed since; re-run to act on its suggestions" % past.noun, files=files)
         return SuggestRefused(status, str(e.args[0]) if isinstance(e, KeyError) and e.args else str(e), files=files)
 
     def _applied_json(self, done) -> dict:
@@ -903,14 +973,14 @@ class Studio:
         except (sg.SuggestionError, OSError, ValueError):
             return ""
 
-    def suggest_show(self, rid, sid) -> dict:
+    def suggest_show(self, rid, sid, view=None) -> dict:
         """The dry run: the unified diff and the lines it changes; nothing is written."""
         from . import suggestions as sg
-        rec, pool, finding = self._suggestion(rid, sid)
+        rec, pool, finding, past = self._suggestion(rid, sid, view)
         try:
             done = sg.apply_suggestion(pool, sid, dry_run=True)
         except sg.SuggestionError as e:
-            raise self._sg_refusal(e)
+            raise self._sg_refusal(e, past)
         out = self._applied_json(done)
         s = next(x for x in pool if x.id == sid)
         targets = []
@@ -922,11 +992,13 @@ class Studio:
         out["resolve"] = rec.id
         return out
 
-    def suggest_apply(self, rid, sid) -> dict:
+    def suggest_apply(self, rid, sid, view=None) -> dict:
         from . import suggestions as sg
         if not self.cfg.studio_apply:
             raise SuggestRefused(403, "this studio shows suggestions but does not write them ([studio] apply is false)")
-        rec, pool, finding = self._suggestion(rid, sid)
+        rec, pool, finding, past = self._suggestion(rid, sid, view)
+        if self.src is None:
+            raise SuggestRefused(409, "choose a layout script first")
         root = sg.project_root(self.src.board_dir)
         try:
             dry = sg.apply_suggestion(pool, sid, dry_run=True)
@@ -936,7 +1008,7 @@ class Studio:
                 raise SuggestRefused(422, "the edit would write %s, which this studio does not watch" % ", ".join(outside))
             done = sg.apply_suggestion(pool, sid, root=root, log=sg.log_path(self.src.board_dir))
         except sg.SuggestionError as e:
-            raise self._sg_refusal(e)
+            raise self._sg_refusal(e, past)
         with self.lock:
             self._applied_text = "applied from a suggestion: " + done.text
         out = self._applied_json(done)
@@ -989,16 +1061,17 @@ class Studio:
             tr["result"] = result
             tr["event"].set()
 
-    def suggest_try(self, rid, sid) -> dict:
+    def suggest_try(self, rid, sid, view=None) -> dict:
         """Resolve the dry-run text in the warm worker, with the edited files read from an overlay and nothing written; the answer
         is compared with the resolve the suggestion was made on. Runs only when asked, only when no resolve is running or pending,
         one at a time; a change to a watched file cancels it."""
         from . import suggestions as sg
-        rec, pool, finding = self._suggestion(rid, sid)
+        rec, pool, finding, past = self._suggestion(rid, sid, view)
         try:
             done = sg.apply_suggestion(pool, sid, dry_run=True)
         except sg.SuggestionError as e:
-            raise self._sg_refusal(e)
+            raise self._sg_refusal(e, past)
+        self._same_script(past)
         overlay = {str(p): ch.after for p, ch in done.files.items()}
         with self.lock:
             if self.script is None:
@@ -1009,7 +1082,8 @@ class Studio:
                 raise SuggestRefused(409, "another try is running")
             self._next_id += 1
             tr = self._try = {"id": self._next_id, "rid": rec.id, "event": threading.Event(), "result": None, "overlay": overlay,
-                              "finding": finding, "text": done.text, "sid": sid, "applied": self._applied_json(done)}
+                              "finding": finding, "text": done.text, "sid": sid, "applied": self._applied_json(done),
+                              "past": past, "base": rec if past is not None else None}
             if not self.worker.send({"cmd": "try", "id": tr["id"], "script": str(self.script), "overlay": overlay}):
                 self._try = None
                 raise SuggestRefused(409, "the resolve worker could not be started")
@@ -1029,12 +1103,13 @@ class Studio:
     # `probe_done` reach the page as the command's events, and the command's summary has `probe`). The studio starts it
     # (after a confirmation where every candidate resolves the whole board) and stops it (SIGTERM: the probe keeps what it
     # found and says "stopped by you").
-    def probe_start(self, rid, sid, yes: bool = False) -> dict:
+    def probe_start(self, rid, sid, yes: bool = False, view=None) -> dict:
         from . import probe, suggestions as sg
-        rec, pool, finding = self._suggestion(rid, sid)
+        rec, pool, finding, past = self._suggestion(rid, sid, view)
         s = sg.find(pool, sid)
         if s.how != "searched":
             raise SuggestRefused(422, "%s is not a searched suggestion: it has a value to apply or try" % sid)
+        self._same_script(past)
         with self.lock:
             if self.script is None:
                 raise SuggestRefused(409, "choose a layout script first")
@@ -1044,7 +1119,7 @@ class Studio:
         est = probe.estimate(s, board_dir, script, self.cfg.studio_probe_candidates, self.cfg.studio_probe_budget_s)
         if est["board_wide"] and not yes:
             return {"state": "confirm", "estimate": est, "line": probe.estimate_line(est)}
-        sg.keep(board_dir, script, "studio resolve #%d" % rec.id, pool)       # the store the command reads: the plan the page was shown
+        sg.keep(board_dir, script, "studio resolve #%d" % rec.id if past is None else "studio, " + rec.id, pool)       # the store the command reads: the plan the page was shown
         cmd = [sys.executable, "-m", "placemat", "apply", sid, "--search", "--yes", "--script", str(script)]
         try:
             proc = subprocess.Popen(cmd, cwd=str(board_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=child_env(headless=False))
@@ -1075,7 +1150,7 @@ class Studio:
                            "file": self.name_of(ev["file"]) if ev.get("file") else "", "line": ev.get("line")})
         else:
             from . import suggestions as sg
-            rec = self.record(tr["rid"])
+            rec = tr["base"] or self.record(tr["rid"])
             if rec is None:
                 self._end_try({"state": "error", "message": "the resolve this suggestion was made on is no longer kept"})
                 return
@@ -1095,7 +1170,8 @@ class Studio:
                            "finding": {"text": tr["finding"].get("text", ""), "kind": tr["finding"].get("kind", ""), "item": tr["finding"].get("item", "")},
                            "cleared": sg.cleared(tr["finding"], doc["findings"]), "gained": d["findings"]["gained"], "lost": d["findings"]["lost"],
                            "moved": len(d["moved"]), "score": d.get("score"), "compare": cmp, "doc": doc, "texts": texts,
-                           "timing": trec.timing, "applied": tr["applied"]})
+                           "timing": trec.timing, "applied": tr["applied"],
+                           **({"view": {"kind": tr["past"].kind, "ref": tr["past"].ref}} if tr["past"] is not None else {})})
 
     # ------------------------------------------------------------ the live channel
     MAX_EVENTS = 6000                           # kept for a command: what a page opening it late is given
@@ -2001,8 +2077,8 @@ def _handler(studio: Studio):
                     if url.path == "/suggest/probe/stop":
                         return self._json(studio.probe_stop())
                     if url.path == "/suggest/probe":
-                        return self._json(studio.probe_start(body.get("resolve"), str(body.get("id", "")), bool(body.get("yes"))))
-                    return self._json(call[url.path](body.get("resolve"), str(body.get("id", ""))))
+                        return self._json(studio.probe_start(body.get("resolve"), str(body.get("id", "")), bool(body.get("yes")), body.get("view")))
+                    return self._json(call[url.path](body.get("resolve"), str(body.get("id", "")), body.get("view")))
                 except SuggestRefused as e:
                     return self._send(e.status, "application/json", json.dumps({"error": str(e), **e.extra}).encode())
                 except (ValueError, TypeError, AttributeError) as e:

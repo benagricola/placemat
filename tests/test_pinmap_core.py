@@ -350,3 +350,35 @@ def test_a_study_past_its_guard_gives_no_problem_found_before_the_trip(monkeypat
     monkeypatch.setattr(pinmap_twin.time, "perf_counter", lambda: now[0])
     g = run(inp, False, settings(), guard_ms=1000.0)
     assert len(calls) == 2 and g.slow and g.results == () and g.problems == ()
+
+
+def _barred(fields=None):
+    """U1 with A and B on east pins 1 and 2, their targets due east of them, and an allow rule that bars both from
+    where they stand: the present map is the cheapest there is, and breaks the rule."""
+    f = {"Pm.PinPool": "1-6", "Pm.PinAllow": "A:5-6; B:5-6"}
+    f.update(fields or {})
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "", "", "", ""]}, f)
+    pads += point_pad("T1", "A", 20, 7.5) + point_pad("T2", "B", 20, 8.5)
+    return input_of(pads, {"U1": u1})[0]
+
+
+@pytest.mark.parametrize("group", ["", "disp:1-2", "disp!:1-2"])
+def test_at_the_present_pose_the_best_obeys_an_allow_rule_the_present_map_breaks(native, group):
+    # the present map scores lowest, but it is no candidate: the nets move onto the pins their rule allows; a soft or
+    # hard group named by the barred pins moves with them
+    inp = _barred({"Pm.PinGroup": group} if group else None)
+    assert [b[:2] for b in inp.part("U1").slots.breaks] == [("A", "1"), ("B", "2")]
+    g = run(inp, native, settings(pins_rotations=(0.0,), pins_gain_min=0.0))
+    r = g.results[0]
+    assert g.problems == ()
+    assert {pin(r, "A"), pin(r, "B")} <= {"5", "6"}
+    assert r.breakdown.total > g.present.total
+
+
+def test_a_hard_group_with_no_window_its_nets_may_take_is_reported_not_kept(native):
+    # A may take only 6 and B only 5, so the bus A, B has no run of pins in its order: no legal map
+    inp = _barred({"Pm.PinAllow": "A:6; B:5", "Pm.PinGroup": "disp!:1-2"})
+    pb = problem_of(inp, 0.5)
+    assert pb.groups[0][2] == []
+    g = run(inp, native, settings(pins_rotations=(0.0,), pins_gain_min=0.0))
+    assert g.results == () and g.problems == (("U1", "A"),)

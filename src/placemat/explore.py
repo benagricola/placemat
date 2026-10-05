@@ -765,7 +765,8 @@ def accept_best(script, directory, release: str = "", run_id: str = "", seed: in
 
 def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
     """The explore's result, kept: every variant's seed, score, measures, the focused items' placements and the order they
-    were placed in, which was kept and the run it was part of (`run_id`). Read after the command ends (the studio lists and
+    were placed in, which was kept, the run it was part of (`run_id`) and the pin map study of its best variants
+    (`pin_maps`, `_pin_maps`), which the `explore_done` event carries too. Read after the command ends (the studio lists and
     replays it); `report["record"]` names it. `shown` is (board, the best variant's plan): its plan document, with its parts'
     3D models, is kept beside the record (explore_view.BEST_DIR) for the studio to show. A courtesy: a record that cannot be
     written does not fail the explore."""
@@ -782,7 +783,8 @@ def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
         doc = {"version": 1, "script": str(Path(script).resolve()), "at": time.time(), "pid": os.getpid(), "focus": result.focus,
                "seconds": result.seconds, "jobs": result.jobs, "baseline": result.baseline, "plain": result.plain, "order": result.plain_order,
                "best_seed": result.best_seed, "best": result.best, "kept": bool(report.get("accepted")), "variants": result.variants,
-               "curve": result.curve, "found": report.get("found"), "ended": result.ended, "run": run_id}
+               "curve": result.curve, "found": report.get("found"), "ended": result.ended, "run": run_id,
+               "pin_maps": report.get("pin_maps") or []}
         path.write_text(json.dumps(doc, separators=(",", ":")))
         report["record"] = str(path)
         if shown is not None:
@@ -790,7 +792,8 @@ def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
         rep = channel.current()
         if rep is not None:
             rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline, "tried": result.tried,
-                      "kept": bool(report.get("accepted")), "record": str(path), "found": report.get("found"), "ended": result.ended})
+                      "kept": bool(report.get("accepted")), "record": str(path), "found": report.get("found"), "ended": result.ended,
+                      "pin_maps": report.get("pin_maps") or []})
     except (OSError, ValueError):
         pass
 

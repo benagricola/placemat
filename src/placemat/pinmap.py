@@ -131,8 +131,8 @@ def _breaks(inp, refs) -> list:
 
 
 def _still(breaks: list, assign: dict) -> list:
-    """The `breaks` an assignment keeps: the core may keep the present map at the present pose without checking it
-    against the rules."""
+    """The `breaks` an assignment keeps. The core offers the present map only when it keeps every rule, so a row of
+    its gives none."""
     return [b for b in breaks if (b["ref"], b["pin"]) in assign.get(b["net"], ())]
 
 
@@ -172,7 +172,8 @@ def withheld(inp, refs, settings) -> bool:
 
 def group_facts(inp, g, copper, settings) -> dict | None:
     """The facts of a group's `pins.remap` finding, or None when no pose saves `pins.gain_min` of the present total
-    (a study that ran out before a first map always has one, saying so)."""
+    (a study that ran out before a first map always has one, saying so). A group whose present map breaks a pin rule
+    (`present_breaks`) always has one: its best map moves the barred nets, whatever that costs."""
     refs = g.refs
     base = dict(_base(inp, refs, settings), present=g.present.to_json(), searched=g.searched, of=g.of,
                 budget_out=g.budget_out, first_map=g.first_map, steps=g.steps)
@@ -182,7 +183,7 @@ def group_facts(inp, g, copper, settings) -> dict | None:
         return None
     best = min(range(len(g.results)), key=lambda i: (g.results[i].breakdown.total, i))
     gain = g.present.total - g.results[best].breakdown.total
-    if gain <= 1e-9 or gain < settings.pins_gain_min * g.present.total:
+    if (gain <= 1e-9 or gain < settings.pins_gain_min * g.present.total) and not base["present_breaks"]:
         return None
     rows = []
     for r in g.results:
@@ -415,7 +416,8 @@ def study_failed(plan, error: BaseException) -> Finding:
 def plan_summary(board, plan, refs=None, settings=None) -> list:
     """Each studied group's present score and its best, with the pose and the map, for an explore's report and a longer
     study: no findings, nothing kept. A group past its wall-clock guard has no map: `slow` true, with `guard_ms`,
-    `steps` and `budget_steps`. `refs` keeps the groups holding any of those parts; `settings` replaces the
+    `steps` and `budget_steps`. `before` and `paths` are the group's airwires under the present map and the best, as a
+    `pins.remap` finding's `before` and its rotation's `paths` are, for the studio to draw. `refs` keeps the groups holding any of those parts; `settings` replaces the
     board's (a longer budget)."""
     if not has_pools(board.geometry.footprints):
         return []
@@ -448,7 +450,7 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
         out.append({"refs": list(g.refs), "present": g.present.to_json(), "best": r.breakdown.to_json(), "rotation": i,
                     "turns": _turns(inp, r.poses), "map": _map(inp, g.refs, g.present_assign, r.assign),
                     "searched": g.searched, "of": g.of, "budget_out": g.budget_out, "steps": g.steps,
-                    "budget_steps": g.budget_steps})
+                    "budget_steps": g.budget_steps, "before": _paths(g.present_paths), "paths": _paths(r.paths)})
     return out
 
 

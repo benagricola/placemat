@@ -2078,11 +2078,12 @@ class Board:
                 ". Only a named Cutout(shape, name, at=) can be referred to, not a raw path"))
         return CutoutHandle(self, name)
 
-    def _cutout_paths(self, holes) -> tuple:
+    def _cutout_paths(self, holes, before: int = 1) -> tuple:
         """`holes` as absolute paths. A raw path is already where it goes; a
         Cutout is a shape and a place, and is settled here. Named cutouts
         come first, in declaration order, so board.cutout(name) can find its
-        loop by index."""
+        loop by index. `before` is how many loops come ahead of the holes in
+        _shaped(): the board's own, and a disc's bore when it has one."""
         named_paths, raw, named = [], [], {}
         self._cutout_loop_of = {}
         for h in holes:
@@ -2095,7 +2096,7 @@ class Board:
             if isinstance(h.at, Location) and isinstance(h.at.x, (int, float)) and isinstance(h.at.y, (int, float)) \
                     and not isinstance(h.rotation, Turned):             # a Turned rotation waits for its part
                 named_paths.append(h.shape.path_at(h.at, h.rotation or 0.0))   # absolute: settled now
-                self._cutout_loop_of[h.name] = len(named_paths)                # loop 0 is the board
+                self._cutout_loop_of[h.name] = before - 1 + len(named_paths)    # ahead of the holes: the board, a disc's bore
                 self._settled_cutouts[h.name] = PlacedCutout(
                     h.name, tuple(named_paths[-1]), h.at, float(h.rotation or 0.0))
             else:
@@ -2180,7 +2181,8 @@ class Board:
         self._fit = False
         d = float(diameter)
         self.web = float(web)
-        self._shape = Disc(Location(d / 2.0, d / 2.0), d, float(hole), self._cutout_paths(holes))
+        self._shape = Disc(Location(d / 2.0, d / 2.0), d, float(hole),
+                           self._cutout_paths(holes, before=2 if hole else 1))
         self._cutouts = Cutouts()           # a disc keeps its own
         self._cached_outline = None
         self._outline = self._shape.box

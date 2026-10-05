@@ -4047,7 +4047,9 @@ The address's hash can name a script (`s=`), a past run (`run=ID`) or a running 
 is - preview, full run, explore or route - by a chip; a command summary carries `kind` (`channel.kind_of`: a run or preview given
 `--explore`, or one that has sent `explore` events, is an explore) and `label`. Following an explore shows its focus, variants landed (of
 its seeds when it has a fixed number), the seed that landed last, the baseline, the best so far and the time, and the board draws the best
-variant so far; `GET /explores` lists the recorded explores.
+variant so far; `GET /explores` lists the recorded explores. Under it, the pin map study of the best variants (the
+record's and `explore_done`'s `pin_maps`, "The pin map study"), each beside its score. A `pins.remap` finding lists every pose its
+study searched, and a row clicked draws that pose's airwires.
 
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. By default the server listens on 127.0.0.1 only. Every request
@@ -4057,7 +4059,11 @@ GET serves the page and its data, and POST only `/switch`, `/run`, `/resolve`, t
 Suggestions (`finding.suggestions` in the plan) are shown on each finding row, the card and the step rows: the best one,
 with "more (n)" for the other variants (up to `[studio] suggestions_per_lever` of one lever). Three buttons, each
 `POST {resolve, id}` with the token (the page never sends source text; the studio finds the suggestion in that
-resolve's findings):
+resolve's findings). On a past run, explore, route or command opened in place of the studio's own plan the page sends
+`{view: {kind, ref}, id}` instead (`kind` one of `run`, `build`, `route`, `explore`, `cmd`, `ref` the run id, record file
+or command id it was opened by); the studio finds the suggestion in that view's plan, a try is compared with that plan,
+and a script that changed since is refused (409, "this run's script has changed since; re-run to act on its suggestions").
+A try or a search of a view of another script than the one watched is refused (409):
 
 - Show, `POST /suggest/show`: the dry-run diff of every file the edit writes (unified diff, hunks, the lines changed, the
   declarations the edit names), opened in the script dialog with Apply and Cancel. Nothing is written.
@@ -4119,7 +4125,12 @@ shown as an error with its line, over the last good plan, marked stale.
   outline, keepouts, parts by face (the back mirrored), copper, links,
   congestion. Pan and zoom, a toggle for each layer, a face switch.
 - Each step as it settles, in placement order with its note; the slider
-  replays the placement step by step. A click on a step zooms to its item.
+  replays the placement step by step, drawing each step's copper (tracks, vias,
+  pours) from that step on, in 2D and 3D. Play runs the whole placement in
+  about 8 seconds at 1x; the speed select beside the slider sets 0.1x to 4x of
+  that pace, kept per browser. The buttons either side of Play, and the Left
+  and Right arrow keys outside a field, pause play and move one step. A click
+  on a step zooms to its item.
   The card of a cell that chose among arrangements lists each one tried,
   with its total, whether it was legal, and which was taken.
 - The findings; a click zooms to the place a finding names.
@@ -4188,7 +4199,7 @@ counts parts by state, lists the plates, retries failed conversions and can dim 
 The copper is drawn too, each copper layer at its height in the board: tracks as flat ribbons with round ends, planes and pours as their
 filled outlines (the polygons the 2D view draws), pads and the parts' own copper on each layer they are on, vias as cylinders through the
 layers they join. The colours are the 2D view's layer colours; copper the router laid is drawn lighter, as the 3D form of its hollow 2D
-look. The replay shows copper as the 2D drawing does: a route's replay lays and rips each op at its step, a plan's replay shows it at its end.
+look. The replay shows copper as the 2D drawing does: each op from the step that lays it to the one that rips it up, if any, in a plan's replay and a route's.
 Solid | See-through on the 3D bar draws the board body solid or translucent (in the 2D drawing's substrate colour), so the inner layers'
 copper shows through it; the choice is kept while the page switches between 2D and 3D. The legend's switches are one set for both views:
 a copper layer's row and its only button, a zone's row, the pads and vias rows and the Copper origin rows (planned, kept, routed) hide and
@@ -4205,7 +4216,7 @@ Spread on the 3D bar pulls the stack apart, so each copper layer stands clear of
 angle: each layer moves `3d_spread_mm` (4) further from the next over `3d_spread_ms` (450), the middle of the stack staying where it is.
 The vias stretch through the spread, the markers and the congestion sheet ride on their layers, front parts ride above the top layer and
 back parts below the bottom one. The board body fades out while the layers part, and each layer gets the board's outline at its height,
-filled faintly and edged. Spread again closes the stack; the choice is kept across views.
+edged, and filled solid or faintly as Solid | See-through says. Spread again closes the stack; the choice is kept across views.
 
 - **Plan document** (`version` 2, all additive): each member of an item has `models`, one entry per model of the footprint: `{id, state, name,
   opacity, why, matrix}`. `state` is `ok`, `vrml` (a VRML model with no STEP beside it, read by placemat itself), `none`, `missing` (`why` says
@@ -4666,7 +4677,17 @@ map with the turn to declare when another pose wins (for a part in a cell, both
 ways to take it), and the best at the present pose. `placemat apply <id>` refuses it: make the map in the `.zen` and
 the turn in the script. In the studio an advice suggestion has only Try, which
 draws the airwires before (dashed) and after (solid) and lists the map; it
-resolves and writes nothing.
+resolves and writes nothing. The finding's panel lists every pose in `rotations`,
+a row each: the turn (a part in a cell by its cell's turn), weighted crossings,
+length in mm, bends, total and the saving against the present map, with the
+best and the present pose marked. A row clicked draws that pose's airwires and
+lists its map as Try does; a second click, a Try, or a change of selection or
+run takes them away. In the studio's explore view each studied variant shows
+its groups' weighted crossings now and after remapping beside its score, `slow`
+for a group past its guard and `error` for a study that raised; on the variant
+shown, Map draws a group's airwires and lists its map. Each group of an
+explore's `pin_maps` carries `before` and `paths`, its airwires under the
+present map and the best, as a finding's `before` and a rotation's `paths` do.
 
 `placemat apply <id> --search` on a pins suggestion studies its parts again, on
 the board as the last run placed it, with `pins.probe_budget_steps` a part. A

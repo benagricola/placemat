@@ -236,7 +236,8 @@ TOGETHER_MM = 0.05          # a soft group spread less than this is together, in
 def _saving(present: dict, r: dict, before=()) -> str:
     """What a pose's best map saves against the present one: its plainest saving of weighted crossings, airwire or
     turning, and each soft group it brings together or nearer (`before`: the groups as they stand), and what it gives
-    up on weighted crossings or airwire to win. A term that grows is never said as a negative saving."""
+    up on weighted crossings or airwire to win. A term that grows is never said as a negative saving: a map that saves
+    nothing (one that keeps the pin rules the present map breaks) is said by what it costs."""
     dw = present["weighted"] - r["weighted"]
     dl = present["length_mm"] - r["length_mm"]
     db = present["bend_deg"] - r["bend_deg"]
@@ -253,13 +254,14 @@ def _saving(present: dict, r: dict, before=()) -> str:
         if g["hard"] or old is None or g["spread_mm"] >= old - 1e-9:
             continue
         won.append("group %s %s" % (g["name"], "brought together" if g["spread_mm"] < TOGETHER_MM else "nearer together"))
-    if not won:
-        won.append("%.1f less in the total" % (present["total"] - r["total"]))
     lost = []
     if dw < -1e-9:
         lost.append(_weighted(-dw, "more"))
     if dl < -1e-9:
         lost.append("%.1f mm more airwire" % -dl)
+    dt = present["total"] - r["total"]
+    if not won and (dt >= 0 or not lost):
+        won.append("%.1f %s in the total" % (abs(dt), "less" if dt >= 0 else "more"))
     return " and ".join(won + lost)
 
 
@@ -352,6 +354,9 @@ def _pins_remap(f):
     here, best = rs[0], rs[f["best"]]
     if here["total"] < p["total"] - 1e-9:
         text = "%s: a pin map with %s exists at %s" % (who, _saving(p, here, f.get("present_groups", ())), their)
+    elif f["present_breaks"]:
+        text = "%s: a pin map that keeps the pin rules the present one breaks exists at %s, at %s" % (
+            who, their, _saving(p, here, f.get("present_groups", ())))
     else:
         text = "%s: no better pin map at %s" % (who, their)
     if f["best"] != 0:

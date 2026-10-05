@@ -19,7 +19,8 @@
 //!   its ends, so a move recounts only the nets it touches.
 //! - Search: a first map (each hard group, then each soft group, on the cheapest run of pins that leaves the rest a
 //!   matching, then a minimum-cost matching), then per seed `moves` moves, swaps and group moves (a soft group's too)
-//!   under annealing from `t0` down to `t1`. The random stream is SplitMix64, the twin's.
+//!   under annealing from `t0` down to `t1`. The random stream is SplitMix64, the twin's. At the present pose the
+//!   present map is a candidate too, when every net of it stands on a pin it may take.
 //! - Budget: the search stops when it has taken `budget_steps` steps, a step being one move of a local search (tried
 //!   whether or not a legal change came of it, and whether or not it was taken), checked before each move and before
 //!   each pose. It never reads the time, so where it stops is the same on any machine and on either core.
@@ -721,11 +722,18 @@ fn matching(sc: &mut Scorer, singles: &[usize], used: &BTreeSet<usize>, assign: 
     (pins, got)
 }
 
+/// Whether every movable of `assign` stands on a pin it may take (`pinmap_twin.legal`).
+fn legal(pb: &Problem, assign: &[Pins]) -> bool {
+    pb.movable.iter().all(|mv| mv.2.contains(&assign[mv.0][mv.1]))
+}
+
+/// `pinmap_twin.first_map`: a hard group no window of which fits stays where it stands only when its nets may take
+/// those pins; else no map is legal, and its first barred net is the problem.
 fn first_map(sc: &mut Scorer, group_parts: &[usize], start: &[Pins]) -> (Vec<Pins>, Vec<(usize, usize)>) {
     let pb = sc.pb;
     let mut assign = start.to_vec();
     let mut problems = Vec::new();
-    for &part in group_parts {
+    'parts: for &part in group_parts {
         let singles: Vec<usize> = (0..pb.movable.len()).filter(|&k| part_of(pb, k) == part && pb.movable[k].3 < 0).collect();
         let mut used: BTreeSet<usize> = BTreeSet::new();
         let mut changes: BTreeMap<usize, usize> = BTreeMap::new();
@@ -758,6 +766,12 @@ fn first_map(sc: &mut Scorer, group_parts: &[usize], start: &[Pins]) -> (Vec<Pin
             }
             match chosen {
                 None => {
+                    let barred = members.iter().filter(|m| **m >= 0).map(|m| &pb.movable[*m as usize])
+                        .find(|mv| !mv.2.contains(&assign[mv.0][mv.1]));
+                    if let Some(mv) = barred {
+                        problems.push((part, mv.0));
+                        continue 'parts;
+                    }
                     for m in members.iter().filter(|m| **m >= 0) {
                         let mv = &pb.movable[*m as usize];
                         used.insert(assign[mv.0][mv.1]);
@@ -1037,7 +1051,7 @@ fn propose(rng: &mut SplitMix64, st: &State, pb: &Problem, units: &[Unit]) -> Op
 
 /// The local search from `start`: its best, the best's total, and why it stopped early, if it did. Its best starts as
 /// `start`, or as `present` when that scores lower: at the present pose the study never reports a map worse than the
-/// one the part has.
+/// one the part has. `search` passes `present` only when it is legal.
 fn anneal(sc: &mut Scorer, group_parts: &[usize], start: &[Pins], present: Option<&[Pins]>, pr: &Params, combo: usize,
           clock: &mut Clock) -> (Vec<Pins>, f64, Option<Stop>) {
     let pb = sc.pb;
@@ -1105,6 +1119,7 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
     let mut sc0 = Scorer::new(pb, present_poses.clone(), pr.w, &bg, group_parts);
     let base = sc0.total(&present);
     let base_paths = sc0.paths(&present);
+    let present_legal = legal(pb, &present);
     let (mut results, mut out, mut first, mut problems) = (Vec::new(), false, true, Vec::new());
     for (k, combo) in combos.iter().enumerate() {
         if clock.slow() {
@@ -1137,7 +1152,7 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
         if !said.is_empty() && k == 0 {
             return (base, base_paths, Vec::new(), false, true, problems, clock.steps, false);
         }
-        let at_present = combo.iter().all(|&(_, turn, flip)| turn.rem_euclid(360.0) == 0.0 && !flip);
+        let at_present = present_legal && combo.iter().all(|&(_, turn, flip)| turn.rem_euclid(360.0) == 0.0 && !flip);
         let (best, _, stop) = anneal(sc, group_parts, &start, if at_present { Some(&present) } else { None }, pr, k,
                                      &mut clock);
         if stop == Some(Stop::Slow) {
@@ -1237,6 +1252,46 @@ mod tests {
         let (base, _, results, _, _, _, _, _) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &pr);
         assert_eq!(results[0].2, vec![vec![0], vec![1], vec![2], vec![3]]);
         assert_eq!(results[0].1 .0.to_bits(), base.0.to_bits());
+    }
+
+    /// A and B on east pins 1 and 2 of six, their targets due east of them, and allowed only `allowed`: the present
+    /// map is the cheapest there is, and breaks the rule. `group` makes them a hard group, `windows` its windows.
+    fn barred(allowed: Vec<usize>, group: Option<Vec<Vec<usize>>>) -> Problem {
+        let pins = (0..6).map(|i| ((i + 1).to_string(), 1.7, -2.5 + i as f64, 1.0, 0.0)).collect();
+        let fixed = (0..2).map(|i| vec![(20.0, 7.5 + i as f64, format!("T{i}"), "1".to_string())]).collect();
+        let g = if group.is_some() { 0 } else { -1 };
+        Problem {
+            parts: vec![("U1".into(), 10.0, 10.0, 2.25, 2.25)], pins: vec![pins],
+            nets: vec![("A".into(), 0), ("B".into(), 0)], fixed, joined: vec![vec![]; 2],
+            ends: (0..2).map(|i| vec![(0, i)]).collect(), wires: vec![], posed: vec![],
+            movable: (0..2).map(|i| (i, 0, allowed.clone(), g)).collect(),
+            groups: group.map(|w| vec![(0, vec![0, 1], w)]).unwrap_or_default(), soft: vec![], margin: 0.5,
+            frames: vec![], controlled: vec![],
+        }
+    }
+
+    fn short() -> Params {
+        Params { w: [5.0, 3.0, 0.0, 0.25, 0.005, 1.0], seeds: 2, moves: 200, t0: 1.0, t1: 0.02, budget_steps: 1 << 40,
+                 guard_ms: 0.0, seed_key: 7 }
+    }
+
+    #[test]
+    fn a_present_map_that_breaks_its_rule_is_no_candidate() {
+        for group in [None, Some(vec![vec![4, 5]])] {
+            let pb = barred(vec![4, 5], group);
+            let (base, _, results, _, _, problems, _, _) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &short());
+            assert!(problems.is_empty());
+            let got: BTreeSet<usize> = results[0].2.iter().map(|p| p[0]).collect();
+            assert_eq!(got, BTreeSet::from([4, 5]));
+            assert!(results[0].1 .0 > base.0);
+        }
+    }
+
+    #[test]
+    fn a_hard_group_on_barred_pins_with_no_window_is_reported_not_kept() {
+        let pb = barred(vec![4, 5], Some(vec![]));
+        let (_, _, results, _, first, problems, _, _) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &short());
+        assert_eq!((results.len(), first, problems), (0, true, vec![(0, 0)]));
     }
 
     fn seg(ax: i64, ay: i64, bx: i64, by: i64) -> Seg {

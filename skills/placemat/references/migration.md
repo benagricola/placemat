@@ -18,6 +18,7 @@ section for each hand-written pattern a newer form replaces.
   tracks alone resolves as before. `board.label()` returns a `LabelKey`,
   a `str`, so scripts that use the key as text need no change. A
   `CutoutEdge` taken from another board is refused.
+
 - **Copper near a hole or the edge is a finding.** Declared copper nearer
   the outline or a cutout than the board's copper-to-edge clearance is a
   critical `copper.edge` finding when it is planned, and copper wholly
@@ -36,6 +37,63 @@ section for each hand-written pattern a newer form replaces.
   finding (`past_off_board`) for a `Past` over pads, vias and tracks too,
   whose point was not checked against the board before. It is not judged on a
   module fragment.
+
+## To 0.99.19
+
+### New
+
+- **The studio's replay has a speed and steps one at a time.** A select beside the slider sets play's speed to 0.1x,
+  0.25x, 0.5x, 1x, 2x or 4x of the usual pace (the whole placement in about 8 seconds), kept per browser; a change
+  during play keeps the position. Buttons either side of Play, and the Left and Right arrow keys outside a field,
+  pause play and move one step; each is disabled at its end.
+
+- **The studio shows every pose a pin map study searched.** A `pins.remap` finding's panel has a row per pose in
+  its `rotations`: the turn, or the cell's turn for a part in a cell, weighted crossings, length, bends, total and
+  the saving against the present map, with the best and the present marked. Clicking a row draws its airwires and
+  lists its map, as Try does for the best; a second click or a new selection clears it.
+
+- **The studio's explore view shows the pin map study.** Each studied variant's crossings after remapping sit
+  beside its score, with `slow` or `error` when its study had one; on the variant shown, Map draws a group's
+  airwires and lists its map. The explore record and its `explore_done` event now carry `pin_maps`, and each of
+  its groups carries `before` and `paths`, its airwires under the present map and the best.
+
+### Fixed
+
+- **A named cutout on a disc with a bore reads its own edge.** `board.cutout(name).edge(side=)` and the
+  `label.cell_edge` warning took the loop of the bore (or of the previous hole) for a cutout fixed at declaration, and
+  the web check against the other holes compared the cutout with itself. A script that placed against such a cutout
+  sat against the bore; it now sits against the cutout. A disc without a bore and the other board shapes were not
+  affected.
+
+- **The studio lists every copper layer of the board while a resolve runs.** The board's first frame carried no
+  layer list, so a layer nothing is planned on (an inner layer only the router uses) was missing from the layer list
+  until the resolve finished, and the page's stand-in, the layers that carry planned copper, left it out. The frame
+  now names the stackup's copper layers, as the finished plan does.
+
+- **The pin map study no longer keeps nets on pins their own rules bar.** At the present pose the study offered the
+  present map as a candidate, so a map was never worse than the present one, even when the present map broke a
+  `Pm.PinAllow` or `Pm.PinDeny`. That map, being the cheapest, won, and the barred nets stayed where they were. The
+  present map is now a candidate only when every net on it stands on a pin it may take. A part whose present map
+  breaks a rule always gets a `pins.remap` finding, whatever `[pins] gain_min` asks, with the cheapest map that keeps
+  the rules, and its sentence names what that map costs ("a pin map that keeps the pin rules the present one breaks
+  exists at its present rotation, at ..."). A hard `Pm.PinGroup` whose nets stand on barred pins and that has no
+  window its nets may take is a `setup.pins` `no_legal_map` warning, and the part is not studied; before, it was
+  left where it stood. Boards whose present maps keep their rules get the same maps as before. Scripts need no
+  change.
+
+- **The studio's replay draws copper at the step that laid it.** A plan's replay hid all the copper until its last
+  step, then showed it at once; each track, via and pour now shows from its own step on, in 2D and 3D, as a route's
+  replay already did.
+
+- **Solid works on the studio's spread 3D layers.** With the layers spread, Solid and See-through drew the same faint
+  layer sheets; Solid now fills each layer's sheet opaque, as it draws the closed board.
+
+- **A suggestion of a past run or explore can be shown, tried and applied in the studio.** Show, Try and Apply on a
+  finding of a run, explore, route or command opened from the Runs list (or shown by Latest) answered "no such
+  resolve (the last 10 are kept)": they looked the suggestion up among the studio's own resolves. The page now names
+  the view it shows, and the studio finds the suggestion in that view's plan, as `placemat apply` finds one in the plan
+  its run kept. A try is compared with that plan. When the script has changed since, the request is refused with
+  "this run's script has changed since; re-run to act on its suggestions". Scripts need no change.
 
 ## To 0.99.18
 
