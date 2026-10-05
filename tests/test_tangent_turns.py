@@ -207,7 +207,7 @@ def test_a_spoke_segment_slides_within_its_range():
     assert 8.0 - 0.01 <= c.distance(CENTRE) <= 14.0 + 0.01
 
 
-@pytest.mark.parametrize("radius", [(5.0, 5.0), (9.0, 4.0), (-1.0, 4.0), (1.0, 2.0, 3.0), ("a", "b")])
+@pytest.mark.parametrize("radius", [(9.0, 4.0), (-1.0, 4.0), (1.0, 2.0, 3.0), ("a", "b")])
 def test_a_bad_radius_range_is_refused(radius):
     with pytest.raises((ValueError, TypeError)):
         Polar(radius, None)
@@ -263,7 +263,7 @@ def test_a_part_in_a_band_is_turned_too():
 
 @pytest.mark.parametrize("at", [
     Location(C + 10.0, C), Pin(Part("c0.w"), C + 10.0, C), Polar(14.0, 30.0, about=CENTRE),
-    Polar(14.0, None, about=CENTRE), Polar(None, 30.0, about=CENTRE), Polar((8.0, 14.0), 30.0, about=CENTRE)])
+    Polar(None, 30.0, about=CENTRE), Polar((8.0, 14.0), 30.0, about=CENTRE)])
 def test_tangent_turns_are_refused_where_the_spot_is_not_searched(at):
     b = _board(1)
     with pytest.raises((ValueError, TypeError), match="tangent|Tangent"):
@@ -436,3 +436,80 @@ def test_either_with_a_band_from_the_centre_out_and_tangent_turns():
                 rotations=Tangent(about=CENTRE, quarters=True))
     plan = b.resolve()
     assert _placed(plan, 2) == [0, 1]
+
+
+# ------------------------------------------------------------------ on one ring
+
+RING = 15.0
+
+
+def _stand(plan, key):
+    """Where an item stands: its body centre, which is what a ring puts at the radius."""
+    return plan.occupancy.body_box(plan._items[key], plan.placement(key)).center
+
+
+def _ring_error(plan, k, centre=CENTRE):
+    """Degrees between cell `k`'s long side and the tangent at the bearing of its body centre."""
+    p1, p2 = plan.occupancy.pad_location("W%d" % k, "1"), plan.occupancy.pad_location("W%d" % k, "2")
+    along = math.degrees(math.atan2(p2.x - p1.x, p1.y - p2.y)) % 180.0
+    return _off(along * 2, ((_bearing_of(_stand(plan, "c%d" % k), centre) + 90.0) % 180.0) * 2) / 2.0
+
+
+def test_a_cell_on_a_ring_lands_at_the_radius_tangent_and_facing_out():
+    b = _board(3)
+    for k in range(3):
+        b.place(Cell("c%d" % k), at=Polar(RING, None, about=CENTRE), rotations=Turns.TANGENT)
+    plan = b.resolve()
+    assert _placed(plan, 3) == [0, 1, 2]
+    for k in range(3):
+        assert abs(_stand(plan, "c%d" % k).distance(CENTRE) - RING) < 1e-5, k
+        assert _ring_error(plan, k) < 0.01, (k, _ring_error(plan, k))
+        assert _outward(plan, k), k
+
+
+def test_parts_on_a_ring_have_their_body_centre_at_the_radius_and_face_out_at_each_bearing():
+    fps = [footprint("R%d" % k, 70.0, 10.0 + 8 * k, w=4, h=1.5, inst="r%d" % k, nets=("A%d" % k, "B%d" % k))
+           for k in range(3)]
+    b = Board(board_geometry(fps, width=80, height=80), edge_margin=0.4, keep_going=True)
+    b.disc(2 * R)
+    for k in range(3):
+        b.place(Part("r%d" % k), at=Polar(RING, None, about=CENTRE), rotations=Turns.TANGENT)
+    plan = b.resolve()
+    seen = []
+    for k in range(3):
+        c = plan.occupancy.items["R%d" % k].body.center
+        assert abs(c.distance(CENTRE) - RING) < 1e-6
+        p1, p2 = plan.occupancy.pad_location("R%d" % k, "1"), plan.occupancy.pad_location("R%d" % k, "2")
+        along = math.degrees(math.atan2(p2.x - p1.x, p1.y - p2.y)) % 180.0
+        assert _off(along * 2, ((_bearing_of(c) + 90.0) % 180.0) * 2) / 2.0 < 1e-3
+        seen.append(round(_bearing_of(c)))
+    assert len(set(seen)) == 3, seen
+
+
+def test_a_ring_measures_its_turn_about_the_tangents_centre():
+    other = Location(C + 3.0, C - 2.0)
+    b = _board(1)
+    b.place(Cell("c0"), at=Polar(RING, None, about=CENTRE), rotations=Tangent(about=other))
+    plan = b.resolve()
+    assert _placed(plan, 1) == [0]
+    assert _ring_error(plan, 0, other) < 0.01
+    assert _ring_error(plan, 0, CENTRE) > 0.5
+
+
+def test_a_back_face_cell_on_a_ring_faces_out():
+    b = _board(1)
+    b.place(Cell("c0"), at=Polar(RING, None, about=CENTRE), rotations=Turns.TANGENT, face=Face.BACK)
+    plan = b.resolve()
+    assert _placed(plan, 1) == [0]
+    assert _ring_error(plan, 0) < 0.01 and _outward(plan, 0)
+
+
+def test_a_ring_refuses_quarter_turns():
+    b = _board(1)
+    with pytest.raises(ValueError, match="quarters"):
+        b.place(Cell("c0"), at=Polar(RING, None, about=CENTRE), rotations=Tangent(quarters=True))
+
+
+def test_a_single_radius_range_points_to_the_ring():
+    with pytest.raises(ValueError, match=r"Polar\(r, None"):
+        Polar((5.0, 5.0), None)

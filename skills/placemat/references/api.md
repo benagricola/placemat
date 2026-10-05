@@ -68,6 +68,7 @@ request (SKILL.md, "When no form says it").
 | on a point, its turn (a bearing) searched, scored by links, pushes and keepouts | `at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY` | Placement (Turns) |
 | turned to face a board edge or a bearing | `board.outward_rotation(item, edge, face=)` | Faces |
 | searched in a band of radii about a point, turned to the tangent at whatever bearing it lands on | `at=Polar((r_min, r_max), None, about=centre), rotations=Turns.TANGENT` | Round boards |
+| on a ring about a point, any bearing, its body centre at the radius and turned to face out there | `at=Polar(r, None, about=centre), rotations=Turns.TANGENT` | Round boards |
 | its fine-pitch escape kept clear | `board.fanout(part, depth=)` | Placement |
 | a pin row's routes out kept clear, lanes and vias, before parts are placed | `esc = board.escape(part, pins, turn=Edge.WEST, vias=[...])` | Placement (Escape) |
 | a track along one of those lanes, through its via | `board.track(net, [esc[pin], ...])` | Placement (Escape) |
@@ -245,6 +246,7 @@ board.place(item, at=Near(Location(x, y)), radius=3.0, step=0.2, rotations=(0, 9
 board.place(item, at=Near(PadRef(u1, 3).local(0.4, -1.2), radius=0), rotation=Turned(u1, 90))  # off a pad in its part's own frame, turned with it
 board.place(cell, at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY)  # on the point, its turn searched (one freedom)
 board.place(cell, at=Polar((r_min, r_max), None, about=centre), rotations=Turns.TANGENT)  # searched in a band, turned to the tangent at each spot
+board.place(cell, at=Polar(r, None, about=centre), rotations=Turns.TANGENT)  # on a ring at exactly r, facing out at the bearing it lands on
 board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
 board.place(item, at=Near(Location(x, y)), radius=20, budget=5_000_000)  # a search that may judge this many candidates
 board.place(cell, arrangements=["default", "pair.upright"])          # a cell: the arrangements of its module the search may take
@@ -2088,8 +2090,20 @@ board.place(Cell("winding"), at=Polar((14.0, 21.0), None, about=CENTRE), rotatio
 board.place(Cell("winding2"), at=Near(Location(10, 12), radius=4), rotations=Tangent(about=CENTRE, quarters=True))
 ```
 
-It needs a searched spot - seeded from links, `Near`, or a band; a decided
-place, a point, a ring, a spoke, an edge, a rim, a `Beside`, a block and
+**On a ring.** `Polar(r, None, about=centre)` is the ring: one freedom, the
+item's body centre at exactly `r` from `centre`, sliding round. With
+`rotations=Turns.TANGENT` it faces out at the bearing it lands on, turned
+exactly (the ring tries one turn per bearing, not a bin's), and `Tangent(about=)`
+measures that bearing from another point. A single radius is written `Polar(r,
+None)`; `Polar((r, r), None)` is refused, as a band needs `r_min < r_max`.
+`Tangent(quarters=True)` is refused on a ring.
+
+```python
+board.place(Part("led"), at=Polar(16.0, None, about=CENTRE), rotations=Turns.TANGENT)
+```
+
+It needs a searched spot - seeded from links, `Near`, a band or a ring; a decided
+place, a point, a spoke, an edge, a rim, a `Beside`, a block and
 `rotation=` are refused, with `board.outward_rotation(item,
 bearing)[0]` for the turn at one bearing. The bearing of a spot is that of
 the item's body centre, cut into bins of `place.tangent_bin` degrees (10.0): a

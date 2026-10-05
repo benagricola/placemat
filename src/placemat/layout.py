@@ -3720,7 +3720,7 @@ class Board:
     def _tangent_of(key: str, kind: str, rotations, rotation, either: bool, **place) -> Tangent | None:
         """The Tangent `rotations=` names (`Turns.TANGENT` is `Tangent()`), or None. Tangent turns
         are for an item whose spot is searched - seeded from its links, round a `Near`, or in a
-        `Polar` band: the turn follows the spot, so a place that is decided or slides by its own rule
+        `Polar` band or ring: the turn follows the spot, so a place that is decided or slides by its own rule
         is refused, with what turns an item there."""
         if rotations is Turns.TANGENT:
             rotations = Tangent()
@@ -3730,7 +3730,10 @@ class Board:
             raise TypeError("%s: a block is turned by its anchor; Tangent turns are for a part or a cell" % key)
         if rotation is not None:
             raise ValueError("%s: rotation= settles the rotation; Tangent turns would override it" % key)
-        decided = sorted(k for k, v in place.items() if v is not None and k not in ("near", "band"))
+        decided = sorted(k for k, v in place.items() if v is not None and k not in ("near", "band", "radius_at"))
+        if place["radius_at"] is not None and place["angle"] is None and place["band"] is None and rotations.quarters:
+            raise ValueError("%s: a ring (Polar(r, None)) turns the item to face out at its bearing, the one turn; "
+                             "Tangent(quarters=True) offers more turns than a ring tries" % key)
         if place["band"] is not None and place["angle"] is not None:
             decided = sorted(set(decided) | {"a bearing"})
         if decided:
@@ -9164,8 +9167,17 @@ class Board:
         ideal = self._round_slot(i)
         r = max(float(i.radius_at), 1e-6)
 
+        about = centre
+        if i.tangent is not None:           # turned to face out of the tangent's centre (the ring's, unless it names one)
+            ref = i.tangent.about if i.tangent.about is not None else i.about
+            about = self.centre if ref is None else _locate(self, occ, ref)
+
         def at(angle):
-            return box_centered_placement(occ, i.item, polar_point(centre, angle, r), i.rotation, i.face)
+            point = polar_point(centre, angle, r)
+            rot = i.rotation
+            if i.tangent is not None:
+                rot = self.outward_rotation(i.item, bearing_of(point.x - about.x, point.y - about.y), i.face)[0]
+            return box_centered_placement(occ, i.item, point, rot, i.face)
         return self._slide(occ, i, plan, clr, ideal, ideal - 180.0, ideal + 180.0, at,
                            {"form": "ring", "radius_mm": r}, step=math.degrees(max(i.step, self.settings.place_freedom_min_step) / r), units="deg")
 
