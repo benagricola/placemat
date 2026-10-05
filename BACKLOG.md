@@ -298,6 +298,14 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Arrangement units, soft pin groups, cell labels off the edge** (0.99.17):
+  `board.unit` options combine with every item and unit, `board.exclude`,
+  `arrangement.option_dead`, `only=` by membership, `board.arrangement`
+  removed; `Pm.PinGroup` is soft unless `name!`, a controlled impedance's
+  length counts more, a part off the axes is studied in its own frame; a
+  searched cell keeps its labels the silk clearance off the outline and
+  cutouts, a decided cell's are `label.cell_edge`.
+
 - **The pin map study** (0.99.16): a part with a `Pm.PinPool` is studied at
   the end of every run and preview for a pin map and turn that save ratsnest
   crossings, length and bends (`pins.remap`, advice only); a part in a cell

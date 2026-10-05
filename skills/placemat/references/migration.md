@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.99.17
 
 ### New
 
@@ -4120,4 +4120,4 @@ that says what replaces it.
 | a searched cell or part pinned to `face=Face.BACK` (or `FRONT`) by hand only because one face was full | To 0.72.0 |
 | a cell or part turned by a hand-picked constant (45 or similar) to follow a circle, at a typed point | To 0.76.0 |
 | `board.size(...)`, the rectangular board form | To 0.85.0 |
-| `board.arrangement(name, Alt(...), ...)` | Unreleased |
+| `board.arrangement(name, Alt(...), ...)` | To 0.99.17 |
