@@ -268,8 +268,9 @@ def test_a_script_that_crashes_the_worker_is_a_crash_error_at_its_line_and_the_n
     try:
         s.until("hello")
         good = studio.script.read_text()
-        n = len(good.splitlines()) + 3
-        studio.script.write_text(good + "\nimport faulthandler\nfaulthandler._sigsegv()\n")
+        n = len(good.splitlines()) + 4
+        # not dumpable first (PR_SET_DUMPABLE 0): the crash writes no core and the desktop's crash reporter is not told
+        studio.script.write_text(good + "\nimport ctypes; ctypes.CDLL(None).prctl(4, 0, 0, 0, 0)\nimport faulthandler\nfaulthandler._sigsegv()\n")
         err = s.until("error", timeout=120)
         assert "crashed" in err["message"] and "SIGSEGV" in err["message"] and "Segmentation fault" in err["message"]
         assert err["file"] == studio.script.name and err["line"] == n and err["source"] == "faulthandler._sigsegv()"
