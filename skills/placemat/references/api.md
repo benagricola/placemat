@@ -4506,7 +4506,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.anneal_moves` | `100` | count | moves each local search of the pin map study tries |
 | `pins.anneal_start` | `1.0` | weight | the pin map study's annealing temperature at its first move, in weighted crossings: a move that costs this much is taken about one time in three (0: only moves that gain) |
 | `pins.anneal_end` | `0.02` | weight | the pin map study's annealing temperature at its last move |
-| `pins.budget_ms` | `50` | ms | the pin map study's time for each studied part: it stops there with the best map found and says so |
+| `pins.budget_ms` | `100` | ms | the pin map study's time for each studied part: it stops there with the best map found and says so |
 | `pins.joint_combinations` | `64` | count | the most pose combinations the pin map study searches for parts it studies together, their present poses first |
 | `pins.faces` | `false` | bool | the pin map study also turns a part on the other face where its declaration lets it stand there (`face=Face.EITHER`) |
 | `pins.gain_min` | `0.05` | share | the share of the present total a better pin map must save for a `pins.remap` finding |

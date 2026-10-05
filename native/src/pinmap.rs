@@ -820,10 +820,20 @@ fn propose(rng: &mut SplitMix64, st: &State, pb: &Problem, units: &[Unit]) -> Op
     }
 }
 
-fn anneal(sc: &mut Scorer, group_parts: &[usize], start: &[Pins], pr: &Params, combo: usize, clock: &mut Clock) -> (Vec<Pins>, f64, bool) {
+/// The local search from `start`. Its best starts as `start`, or as `present` when that scores lower: at the present
+/// pose the study never reports a map worse than the one the part has.
+fn anneal(sc: &mut Scorer, group_parts: &[usize], start: &[Pins], present: Option<&[Pins]>, pr: &Params, combo: usize,
+          clock: &mut Clock) -> (Vec<Pins>, f64, bool) {
     let pb = sc.pb;
     let mut best = start.to_vec();
     let mut best_v = sc.total(start).0;
+    if let Some(present) = present {
+        let v = sc.total(present).0;
+        if v < best_v - 1e-9 {
+            best = present.to_vec();
+            best_v = v;
+        }
+    }
     let units = units(pb, group_parts);
     let n = pr.moves.max(1) as usize;
     for s in 0..pr.seeds.max(1) as usize {
@@ -903,7 +913,9 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
         if !said.is_empty() && k == 0 {
             return (base, base_paths, Vec::new(), false, true, problems);
         }
-        let (best, _, ran_out) = anneal(sc, group_parts, &start, pr, k, &mut clock);
+        let at_present = combo.iter().all(|&(_, turn, flip)| turn.rem_euclid(360.0) == 0.0 && !flip);
+        let (best, _, ran_out) = anneal(sc, group_parts, &start, if at_present { Some(&present) } else { None }, pr, k,
+                                        &mut clock);
         let t = sc.total(&best);
         let paths = sc.paths(&best);
         results.push((k, t, best, paths));
@@ -953,6 +965,35 @@ mod tests {
         assert_eq!((base.2, out, first, problems.len()), (6, false, true, 0));
         assert_eq!(results[0].1 .2, 0);
         assert_eq!(results[0].2, vec![vec![3], vec![2], vec![1], vec![0]]);
+    }
+
+    /// A group of three on pins 2-4 whose middle net an allow rule holds on 3: its windows are 2-4 (where it stands)
+    /// and 4-6. Every net faces its target where it stands.
+    fn held_group() -> Problem {
+        let pins = (0..6).map(|i| {
+            let (nx, ny) = match i { 0 => (0.0, -1.0), 5 => (0.0, 1.0), _ => (1.0, 0.0) };
+            ((i + 1).to_string(), 1.7, -2.5 + i as f64, nx, ny)
+        }).collect();
+        let fixed = (0..4).map(|i| vec![(20.0, 7.5 + i as f64, format!("T{i}"), "1".to_string())]).collect();
+        let free = vec![0, 1, 3, 4, 5];
+        Problem {
+            parts: vec![("U1".into(), 10.0, 10.0, 2.25, 2.25)], pins: vec![pins],
+            nets: vec![("A".into(), 0), ("D".into(), 0), ("E".into(), 0), ("F".into(), 0)], fixed,
+            joined: vec![vec![]; 4], ends: (0..4).map(|i| vec![(0, i)]).collect(), wires: vec![], posed: vec![],
+            movable: vec![(0, 0, free.clone(), -1), (1, 0, free.clone(), 0), (3, 0, free, 0)],
+            groups: vec![(0, vec![1, -1, 2], vec![vec![1, 2, 3], vec![3, 4, 5]])], margin: 0.5,
+        }
+    }
+
+    #[test]
+    fn at_the_present_pose_the_best_is_never_worse_than_the_present_map() {
+        // one seed of 100 moves from the first map ends on the 4-6 window, worse than where the group stands
+        let pb = held_group();
+        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005], seeds: 1, moves: 100, t0: 1.0, t1: 0.02, budget_ms: 60000.0,
+                          step_ms: 0.0, seed_key: 15606770251161693233 };
+        let (base, _, results, _, _, _) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &pr);
+        assert_eq!(results[0].2, vec![vec![0], vec![1], vec![2], vec![3]]);
+        assert_eq!(results[0].1 .0.to_bits(), base.0.to_bits());
     }
 
     fn seg(ax: i64, ay: i64, bx: i64, by: i64) -> Seg {

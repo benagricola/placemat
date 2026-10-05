@@ -320,7 +320,7 @@ class Settings:
         "the pin map study's annealing temperature at its first move, in weighted crossings: a move that costs this much is taken about one time in three (0: only moves that gain)")
     pins_anneal_end: float = S(0.02, "weight",
         "the pin map study's annealing temperature at its last move")
-    pins_budget_ms: int = S(50, "ms",
+    pins_budget_ms: int = S(100, "ms",
         "the pin map study's time for each studied part: it stops there with the best map found and says so")
     pins_joint_combinations: int = S(64, "count",
         "the most pose combinations the pin map study searches for parts it studies together, their present poses first")
