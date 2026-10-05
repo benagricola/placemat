@@ -428,7 +428,8 @@ class _BesideSpec:
     envelope's own), and `align` normalised to `("along", Along)`,
     `("pads", own_key, PadRef)` - `own_key` a pad of the part being placed,
     the `PadRef` a pad of `item` (its own net when align was a bare
-    PadRef) - or `("past", own_key, Past)`, a Past over pads. `copper`:
+    PadRef) - or `("past", own_key, Past)`, a Past over pads, cutouts,
+    stretches of edge, parts and cells. `copper`:
     the standoff is measured pad copper to pad copper, not envelope to
     envelope, and `gap` is added to the pairs' clearance."""
     item: object
@@ -2422,14 +2423,26 @@ class Board:
             self._pad_ref(ref)                          # real pads, parts, cells
 
     def _check_beside_past(self, key: str, side: Edge, p: Past):
-        """A Past in Beside's align: over pads only, since a placement is
-        decided before any copper is planned; no `across=`, since `side`
-        decides that axis; and an edge on the other axis."""
+        """A Past in Beside's align: over pads, cutouts, stretches of edge, parts and cells - what has its place before
+        the part is placed. Vias and tracks are planned after every placement, a label gives way to parts placed after
+        it, and a cutout with a freedom is slid only once every firm item is down, so they are refused. No `across=`,
+        since `side` decides that axis; and an edge on the other axis."""
+        self._check_past(p, key, lane=True)
         for it in p.items:
             if isinstance(it, CopperIntent):
                 raise TypeError("%s: a placement is decided before copper is planned; Past in Beside's align "
-                                "takes pads, not %s" % (key, it.key))
-            self._pad_ref(it)                           # a real pad, checked now
+                                "takes pads, cutouts, stretches of edge, parts and cells, not %s" % (key, it.key))
+            if isinstance(it, LabelKey):
+                raise TypeError("%s: a label gives way to the parts placed after it, so its place is not known when this "
+                                "part is placed; Past in Beside's align takes pads, cutouts, stretches of edge, parts "
+                                "and cells, not %s" % (key, it))
+            if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
+                if self._cutout_free(self._named_cutouts[it.name]):
+                    raise ValueError("%s: cutout %r has a freedom, and the board slides such a hole only once every firm "
+                                     "item is down; a Beside placement is firm, so give the cutout a decided place to "
+                                     "stand this part past it" % (key, it.name))
+            elif isinstance(it, (PadRef, CellPadRef)):
+                self._pad_ref(it)                       # a real pad, checked now
         if p.across is not None:
             raise TypeError("%s: Beside's side decides where the part stands along the pads; Past in its "
                             "align takes no across=" % key)
@@ -2441,6 +2454,31 @@ class Board:
                 "NORTH or SOUTH" if upright else "EAST or WEST", p.edge.name))
         if p.lane is not None:
             self.geometry.require_net(p.lane)
+
+    def _beside_past_groups(self, occ: Occupancy, past: Past, own_net: str, own_owner) -> list:
+        """[(box, to own, to lane)] for each group of a Past in Beside's align: what the own pad's facing edge stands
+        past. The pads (a named part's or cell's included) are one group: their box, the worst clearance from the own
+        pad's net to theirs, and from theirs to the lane's net. A cutout or a stretch of edge: its box (as a track's Past
+        reads it) and the copper-to-edge clearance either way. A part's or a cell's envelope: its box, and 0."""
+        lane = self.geometry.require_net(past.lane) if past.lane is not None else None
+        edge_rule = self.geometry.edge_clearance
+        shapes, out = [], []
+        for it in past.items:
+            if isinstance(it, (PadRef, CellPadRef)):
+                shapes += _pad_shapes(self, occ, it)
+            elif isinstance(it, (Part, Cell)):
+                shapes += [sh for fp in members_of(self._item(it)[0]) for sh in occ.items[fp.ref].shapes
+                           if sh.kind in ("pad", "through")]
+                out.append((self._placed_envelope_box(occ, it), 0.0, 0.0))
+            elif isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
+                out.append((_cutout_box(self, it), edge_rule, edge_rule))
+            elif isinstance(it, Run):
+                out.append((_run_box(self, it), edge_rule, edge_rule))
+        if shapes:
+            to_own = max(self._clearance(own_net, sh.net, own_owner, sh.owner) for sh in shapes)
+            to_lane = max(self._clearance(sh.net, lane, sh.owner) for sh in shapes) if lane is not None else 0.0
+            out.insert(0, (Box.union([sh.box for sh in shapes]), to_own, to_lane))
+        return out
 
     def _check_beside_lane(self, key: str, side: Edge, lane: Lane) -> None:
         """A lane in Beside's align: this board's, and where its line is known now
@@ -2614,7 +2652,7 @@ class Board:
                 start = lo + along.fraction * (hi - lo - (own_box.right - own_box.left))
                 ox = start - own_box.left
         elif align_kind == "past":
-            # the own pad's facing edge the clearance, or a lane, past the pads' edge
+            # the own pad's facing edge its stand-off, or a lane, past each group of the items
             own_key, past = b.align[1], b.align[2]
             bare = self._bare_occupancy()
             g = bare._geometry(i.item)
@@ -2622,23 +2660,32 @@ class Board:
             own_pad = i.item.pad(own_key)
             own = Box.union([transform_box(s.box, t) for s in g.shapes
                              if s.kind in ("pad", "through") and s.label == own_pad.number])
-            shapes = [sh for ref in past.items for sh in _pad_shapes(self, occ, ref)]
-            box = Box.union([sh.box for sh in shapes])
-            off = _lane_distance(self, own_pad.net, shapes, past.lane, past.width, own_pad.owner)
+            groups = self._beside_past_groups(occ, past, own_pad.net, own_pad.owner)
+            box = Box.union([gb for gb, _, _ in groups])
+            if past.lane is None:
+                dists = [(gb, to_own) for gb, to_own, _ in groups]
+            else:
+                lane = self.geometry.require_net(past.lane)
+                lw = self._width(lane, past.width)
+                c_own = self._clearance(lane, own_pad.net, None, own_pad.owner)
+                dists = [(gb, to_lane + lw + c_own) for gb, _, to_lane in groups]
             if isinstance(past.edge, Corner):
-                # the own pad's corner that faces back across the 45 stands `off` out along the
-                # diagonal from the pads' corner; the side has decided one axis, this the other
+                # the own pad's corner that faces back across the 45 stands out along the diagonal from the union's
+                # corner far enough to pass each group's corner at its distance; the side has decided one axis, this
+                # the other
                 sx, sy = past.edge.signs
                 c = _box_corner(box, past.edge)
                 qx = own.left if sx > 0 else own.right
                 qy = own.top if sy > 0 else own.bottom
-                reach = off * math.sqrt(2.0)            # sx * dx + sy * dy of the own corner off the pads'
+
+                def behind(gb):         # how far a group's corner stands behind the union's along the outward diagonal
+                    gc = _box_corner(gb, past.edge)
+                    return sx * (gc.x - c.x) + sy * (gc.y - c.y)
+                reach = max(behind(gb) + dist * math.sqrt(2.0) for gb, dist in dists)
                 if past.lane is not None:
-                    # off the lane's own point as a track's Past takes it, rounded away from the pads,
+                    # off the lane's own point as a track's Past takes it, rounded away from the items,
                     # so that rounding cannot put the lane's track nearer the own pad than its clearance
-                    lane = self.geometry.require_net(past.lane)
-                    lw = self._width(lane, past.width)
-                    d = (lw / 2.0 + max(self._clearance(sh.net, lane, sh.owner) for sh in shapes)) / math.sqrt(2.0)
+                    d = max(behind(gb) / 2.0 + (lw / 2.0 + to_lane) / math.sqrt(2.0) for gb, _, to_lane in groups)
                     px, py = _round_away(c.x + sx * d, sx), _round_away(c.y + sy * d, sy)
                     reach = (sx * (px - c.x) + sy * (py - c.y)
                              + (lw / 2.0 + self._clearance(lane, own_pad.net)) * math.sqrt(2.0))
@@ -2647,13 +2694,13 @@ class Board:
                 else:
                     oy = _round_away(c.y - qy + sy * (reach - sx * (qx + ox - c.x)), sy)
             elif past.edge is Edge.EAST:
-                ox = box.right + off - own.left
+                ox = max(gb.right + dist for gb, dist in dists) - own.left
             elif past.edge is Edge.WEST:
-                ox = box.left - off - own.right
+                ox = min(gb.left - dist for gb, dist in dists) - own.right
             elif past.edge is Edge.SOUTH:
-                oy = box.bottom + off - own.top
+                oy = max(gb.bottom + dist for gb, dist in dists) - own.top
             else:
-                oy = box.top - off - own.bottom
+                oy = min(gb.top - dist for gb, dist in dists) - own.bottom
         else:
             own_key, their = b.align[1], b.align[2]
             anchored = pad_anchored_placement(self._bare_occupancy(), i.item, own_key, Location(0.0, 0.0),
@@ -3372,7 +3419,12 @@ class Board:
             elif beside.align[0] == "lane":
                 needs.add(self._pad_ref(beside.align[2])[0])
             elif beside.align[0] == "past":
-                needs |= {self._pad_ref(ref)[0] for ref in beside.align[2].items}
+                for it in beside.align[2].items:
+                    if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
+                        if it.name not in self._settled_cutouts:
+                            needs.add(cutout_token(it.name))    # cut in the firm pass, before this part stands past it
+                    elif not isinstance(it, Run):
+                        needs.add(self._pad_ref(it)[0])         # a pad's part, a part, a cell: placed before this
         if _row_of is not None:
             needs.add(self._pad_ref(_row_of)[0])
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
@@ -11661,19 +11713,6 @@ def _net_clearance(board: "Board", a: str, b: str) -> float:
     """The clearance between copper of two nets (`Board._clearance`); the
     board default when either has no net (as `_pad_clearance` falls back)."""
     return board._clearance(a, b)
-
-
-def _lane_distance(board: "Board", own: str, shapes: list, lane, width=None, own_owner=None) -> float:
-    """How far a pad of net `own` (of part `own_owner`) stands past the copper
-    of `shapes`: the worst clearance between them, or with `lane` a net, room
-    for one track of it between - the clearance from the copper to the lane,
-    the lane's width (`width`, else its track width) and the clearance from
-    the lane to the pad."""
-    if lane is None:
-        return max(board._clearance(own, sh.net, own_owner, sh.owner) for sh in shapes)
-    name = board.geometry.require_net(lane)
-    return (max(board._clearance(sh.net, name, sh.owner) for sh in shapes) + board._width(name, width)
-            + board._clearance(name, own, None, own_owner))
 
 
 def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Between) -> Location:
