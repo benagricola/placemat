@@ -280,6 +280,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **A placed cell's copper keeps its exact shapes** (0.99.10): a stamped
+  cell's straight tracks, vias and pours kept their segment, circle and
+  drawn forms when the cell was placed, so copper findings against them
+  measure as KiCad does instead of 1 to 7 um tight.
+
 - **Pair layers; escape docs; net-list guard; faster escape report**
   (0.99.9): `route.pair_layers` gives a pair (P/N or its net class) its own
   layers for the pair stage; the skill and api.md say an undrawn escape is a
