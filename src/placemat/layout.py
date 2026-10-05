@@ -5859,7 +5859,7 @@ class Board:
             hits = self._through_hits(ctx, ops, bridge)
             if hits is not None:
                 ctx.note(C.COPPER_NOT_DRAWN, {"variant": "through", "key": copper_id(intent), "layer": layer.name,
-                                              "net": name, "waypoints": waypoints,
+                                              "net": name, "waypoints": waypoints, "lane": begins is not None,
                                               **self._track_through_facts(ctx, hits, intent.index)})
                 return []
             return ops
@@ -5868,7 +5868,7 @@ class Board:
             self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         self._copper_uses[intent.index] = tuple(p.index for p in points if isinstance(p, CopperIntent))
         intent.declared = {"layer": layer.name, "chamfer": chamfer, "radius": arc_r, "arc": bool(arc),
-                           "waypoints": waypoints}
+                           "waypoints": waypoints, "lane": begins is not None}
         if begins is None and len(points) >= 2 and all(isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points):
             self._pad_tracks.add(intent.index)
         return intent
@@ -5908,10 +5908,12 @@ class Board:
         with an Arc leg), so its chords stand up to `geometry.arc_sag` inside the curve KiCad judges, as
         `_report_cell_labels_at_edge` reads it. `toward`, a flag per leg: the leg is a chord of an arc whose curve
         stands on the copper's side of it (a hole's arc bulging out of the hole, an outline's arc bulging into the
-        board), so copper by it is up to `geometry.arc_sag` nearer the curve than the chord."""
+        board), so copper by it is up to that leg's sagitta (`sags`) nearer the curve than the chord; `allows`, what
+        copper.edge judges each leg further by: its sagitta, `geometry.arc_sag` at the least, where `toward`, else 0."""
         shape = self._shaped()
         disc = isinstance(self._shape, Disc)
         names = {k: n for n, k in self._cutout_loop_of.items()}
+        sag = self.settings.geometry_arc_sag
         out = []
         for k, loop in enumerate(shape.loops):
             if disc and (k == 0 or (k == 1 and bool(self._shape.bore))):
@@ -5920,7 +5922,10 @@ class Board:
             else:
                 centres = flatten_path_legs(shape.paths[k])[1]
             curved = any(c is not None for c in centres)
-            out.append(_EdgeLoop(k, loop, curved, names.get(k), Box.of_points(loop), _legs_toward(loop, centres, k)))
+            toward, sags = _legs_toward(loop, centres, k)
+            allows = tuple(max(sag, a) if t else 0.0 for t, a in zip(toward, sags))
+            out.append(_EdgeLoop(k, loop, curved, names.get(k), Box.of_points(loop), toward, sags, allows,
+                                 max(allows, default=0.0)))
         return out
 
     def _judges_edge(self) -> bool:
@@ -5942,18 +5947,18 @@ class Board:
         own) each. KiCad's EDGE_CLEARANCE_CONSTRAINT, `geometry.edge_clearance` (drc_test_provider_edge_clearance.cpp
         testAgainstEdge collides the copper's shape with each Edge.Cuts shape at the clearance less the DRC epsilon, at
         0 a touch): `clear_limit(check=True)`, and a gap of 0 whatever the clearance. A leg that is the chord of an arc
-        bulging toward the copper (`_EdgeLoop.toward`) is judged `geometry.arc_sag` further, since the curve KiCad
-        judges stands up to that much nearer; a straight leg, or the chord of an arc bulging away, is judged as it is.
-        Copper wholly inside a hole or off the board is 0 from it, `inside`."""
+        bulging toward the copper (`_EdgeLoop.toward`) is judged its own sagitta further, `geometry.arc_sag` at the
+        least, since the curve KiCad judges stands up to that much nearer; a straight leg, or the chord of an arc
+        bulging away, is judged as it is. Copper wholly inside a hole or off the board is 0 from it, `inside`."""
         need = self.geometry.edge_clearance
         sag = self.settings.geometry_arc_sag
-        if self._shaped().why_not(shape.box, need + sag) is None:
+        if self._shaped().why_not(shape.box, need + max([sag] + [el.most for el in loops])) is None:
             return []                       # on the board, and every loop further off than the most any loop asks
         out = []
         for el in loops:
-            allows = [sag if t else 0.0 for t in el.toward]
+            allows = el.allows
             if el.k > 0:
-                most = occ.clear_limit(need + max(allows, default=0.0), check=True)
+                most = occ.clear_limit(need + el.most, check=True)
                 if not el.box.overlaps(shape.box, gap=max(most, 0.0) + 1e-6):
                     continue
             gap, at, allow = _copper_loop_gap(shape, el.loop, allows)
@@ -8977,7 +8982,7 @@ class Board:
                         extra["arc_at"] = [op.mid.x, op.mid.y]
                     facts = {"key": which or "", "net": op.net, "word": type(op).__name__.lower(),
                              "layer": layer.name if layer is not None else "", "waypoints": declared.get("waypoints", 0),
-                             "chamfer_hit": isinstance(op, Track) and bool(op.chamfer_cut),
+                             "lane": declared.get("lane", False), "chamfer_hit": isinstance(op, Track) and bool(op.chamfer_cut),
                              "arc_hit": isinstance(op, Track) and op.mid is not None,
                              "chamfer_mm": declared.get("chamfer"), "radius_mm": declared.get("radius"),
                              "hit": hit.to_json(), **extra}
@@ -11963,27 +11968,35 @@ class _EdgeLoop:
     name: str | None        # the cutout's name; None for the outline or a raw path
     box: Box                # its points' box
     toward: tuple           # per leg i (point i to i + 1): a chord of an arc bulging toward the copper's side
+    sags: tuple             # per leg: how far its arc stands off its middle (its sagitta), 0 for a straight leg
+    allows: tuple = ()      # per leg: what copper.edge judges it further by (`Board._edge_hits`)
+    most: float = 0.0       # the most of `allows`
 
 
 def _legs_toward(loop, centres, k: int) -> tuple:
-    """For each leg of `loop`, whether it is the chord of an arc (centre in `centres`, None for a straight leg) whose
+    """(for each leg of `loop`, whether it is the chord of an arc (centre in `centres`, None for a straight leg) whose
     curve stands on the copper's side of it: inside the outline (k 0), so an arc bulging into the board; outside a hole,
-    so an arc bulging out of it. A convex corner of the outline bulges away from the copper: its chord is already the
-    nearer edge."""
+    so an arc bulging out of it; and each leg's sagitta, r - sqrt(r^2 - (c/2)^2) for a chord c of an arc of radius r,
+    0 for a straight leg). A convex corner of the outline bulges away from the copper: its chord is already the nearer
+    edge."""
     n = len(loop)
     if len(centres) != n:
-        return (any(c is not None for c in centres),) * n      # not this loop's legs: every leg judged as curved
+        return (any(c is not None for c in centres),) * n, (0.0,) * n     # not this loop's legs: judged as curved
     ccw = signed_area(loop) > 0.0
-    out = []
+    toward, sags = [], []
     for i, c in enumerate(centres):
         if c is None:
-            out.append(False)
+            toward.append(False)
+            sags.append(0.0)
             continue
         (ax, ay), (bx, by) = loop[i], loop[(i + 1) % n]
         mx, my = (ax + bx) / 2.0, (ay + by) / 2.0
         into = ((mx - c[0]) * -(by - ay) + (my - c[1]) * (bx - ax) > 0.0) == ccw     # the bulge, toward the loop's inside
-        out.append(into if k == 0 else not into)
-    return tuple(out)
+        toward.append(into if k == 0 else not into)
+        r = math.hypot(ax - c[0], ay - c[1])
+        half = math.hypot(bx - ax, by - ay) / 2.0
+        sags.append(r - math.sqrt(max(0.0, r * r - half * half)))
+    return tuple(toward), tuple(sags)
 
 
 @dataclass(frozen=True)

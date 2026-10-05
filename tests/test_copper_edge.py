@@ -10,7 +10,7 @@ import pytest
 from placemat.copper import Track
 from placemat.cutouts import Circle, Slot
 from placemat.layout import Board, copper_id
-from placemat.values import CopperLayer, Corner, Cutout, Edge, Location, Net, PadRef, Part, Past, Priority
+from placemat.values import bearing_vector, CopperLayer, Corner, Cutout, Edge, Location, Net, PadRef, Part, Past, Priority
 from tests.escape_fixtures import fan_board
 from tests.fixtures import board_geometry
 from tests.suggest_support import apply_and_resolve, resolve
@@ -151,6 +151,20 @@ def test_a_convex_outline_arc_is_judged_on_its_chords_alone():
     d = 2.0 - 0.3 - 0.425
     b.via(Net("SIG"), at=Location(2.0 + d * math.cos(a), 2.0 + d * math.sin(a)), size=0.6)
     assert _edge(b.resolve()) == []
+
+
+@pytest.mark.parametrize("over, found", [(0.4 + 0.022, 1), (0.4 + 0.026, 0)])
+def test_a_large_bore_is_judged_with_its_chords_own_sag(over, found):
+    """A 50 mm bore is a 72-gon whose chords sag 25 (1 - cos 2.5) = 0.0238 mm, more than geometry.arc_sag: a via 0.422 mm
+    off a chord's middle is 0.398 mm from the circle KiCad judges, inside the clearance; 0.426 mm off is clear of it."""
+    b = Board(board_geometry([], width=80.0, height=80.0, extra_nets=["SIG"]), edge_margin=EDGE)
+    b.disc(80.0, hole=50.0)
+    ux, uy = bearing_vector(2.5)                    # a chord's middle: the 72-gon's corners are at every 5 degrees
+    rho = 25.0 * math.cos(math.radians(2.5)) + over + 0.3
+    b.via(Net("SIG"), at=Location(40.0 + ux * rho, 40.0 + uy * rho), size=0.6)
+    got = _edge(b.resolve())
+    assert len(got) == found, [str(f) for f in got]
+    assert all(f.facts["sag_mm"] == pytest.approx(25.0 * (1 - math.cos(math.radians(2.5))), abs=1e-6) for f in got)
 
 
 def test_a_track_in_two_pieces_across_one_cutout_is_one_finding():

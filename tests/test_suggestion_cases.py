@@ -4,6 +4,8 @@ import inspect
 import re
 from pathlib import Path
 
+import pytest
+
 import placemat
 from placemat.findings import FindingCause, FindingCause as C
 from placemat import suggestions as sg
@@ -177,3 +179,12 @@ def test_the_suggestions_per_lever_setting_caps_a_lever():
     assert len([s for s in many if s.lever == "beside"]) == 3
     assert len([s for s in capped if s.lever == "beside"]) == 1
     assert [s.rank for s in many] == list(range(1, len(many) + 1))
+
+
+@pytest.mark.parametrize("cause, variant", [(C.COPPER_MEETS, "arc"), (C.COPPER_NOT_DRAWN, "through")])
+def test_a_lane_tracks_waypoints_are_dropped_from_its_lane_to_the_pad(cause, variant):
+    """A track that begins with a lane keeps the lane when its waypoints go: the pick says so, not pad to pad."""
+    texts = [p.text for p in sg.CASES[cause](dict(TRACK, variant=variant, lane=True), Settings())]
+    assert "Draw the SIG track from its lane to the pad" in texts and not any("pad to pad" in t for t in texts), texts
+    plain = [p.text for p in sg.CASES[cause](dict(TRACK, variant=variant), Settings())]
+    assert "Draw the SIG track pad to pad" in plain, plain

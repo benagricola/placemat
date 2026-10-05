@@ -1080,6 +1080,12 @@ def _fitting_radius(f, text):
                  text % net, "radius")]
 
 
+def _pad_to_pad(f) -> str:
+    """What dropping a track's waypoints draws: pad to pad, or from its lane to the pad for a track that begins with a
+    lane, which keeps the lane."""
+    return "Draw the %s track from its lane to the pad" if f.get("lane") else "Draw the %s track pad to pad"
+
+
 def _drop_waypoints(f, text):
     n = f.get("waypoints", 0)
     if n < 1:
@@ -1093,7 +1099,7 @@ def copper_meets(f, settings):
     net = f["net"]
     out = []
     if f.get("word") == "track" and f.get("key"):
-        out += _drop_waypoints(f, "Draw the %s track pad to pad" % net)
+        out += _drop_waypoints(f, _pad_to_pad(f) % net)
         if f.get("layer") in ("F", "B"):
             other = "B" if f["layer"] == "F" else "F"
             out.append(_set("track", f["key"], "layer", _enum("CopperLayer.%s" % other),
@@ -1133,7 +1139,7 @@ def copper_not_drawn(f, settings):
     if f.get("variant") == "arc":
         out += _fitting_radius(f, "Use a smaller radius on the %s track")
     if f.get("variant") == "through":
-        out += _drop_waypoints(f, "Draw the %s track pad to pad" % net)
+        out += _drop_waypoints(f, _pad_to_pad(f) % net)
         if f.get("layer") in ("F", "B"):
             other = "B" if f["layer"] == "F" else "F"
             out.append(_set("track", f["key"], "layer", _enum("CopperLayer.%s" % other),

@@ -228,7 +228,9 @@ the copper's shape with each Edge.Cuts shape at the clearance less
 `m_epsilon`). A loop's chords stand up to `geometry.arc_sag` inside its
 arcs, so where the copper's nearest point is on an arc leg whose curve
 bulges toward the copper (a hole's arc, a concave arc of the outline) the
-need is the clearance plus `geometry.arc_sag`. A straight leg, a vertex
+need is the clearance plus that leg's sagitta, r - sqrt(r^2 - (c/2)^2) for
+a chord c of an arc of radius r, and never less than `geometry.arc_sag`
+more. A straight leg, a vertex
 next to one, and the chord of a convex arc of the outline (which already
 stands nearer the copper than its curve) are judged at the clearance. The
 gap is compared with `occ.clear_limit(need, check=True)`, which takes
