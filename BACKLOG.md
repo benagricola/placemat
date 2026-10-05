@@ -33,6 +33,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Open
 
+- **Hole clearance by a pad's effective shape**: the hole-to-pad check
+  (`_hole_conflict` / `_circle_distance`) still measures a pad by its read
+  outline, grown by the arc error, so a near miss on hole clearance can read
+  a few micrometres tight, as copper-to-pad did before 0.99.11.
+
 - **Part silk against the outline and cutouts.** Placement does not judge a
   part's silk against the board outline or a cutout already cut (KiCad's
   silk_edge_clearance): under the courtyard envelope silk can stand 0.06 mm
