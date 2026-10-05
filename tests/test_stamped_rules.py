@@ -91,9 +91,10 @@ def test_a_board_declaring_no_rule_over_a_cell_with_none_has_none():
 GAP = 0.12
 
 
-def _cell_board(tmp_path, notes=True):
+def _cell_board(tmp_path, notes=True, rules=(MODULE_RULE,), turn=None):
     """What a parent looks like after pcb layout stamps a fragment: a group `cell` holding two parts whose
-    pads on `cell.A` and `cell.B` stand 0.12 mm apart, and the fragment's rule note."""
+    pads on `cell.A` and `cell.B` stand 0.12 mm apart, and the fragment's rule notes for `rules`. `turn`:
+    (degrees, flip) the cell's items are turned by about a point, as a placed cell's are."""
     import pcbnew
     from placemat.kicad.write import write_rule_notes
     mm = pcbnew.FromMM
@@ -122,10 +123,17 @@ def _cell_board(tmp_path, notes=True):
         b.Add(fp)
         grp.AddItem(fp)
     if notes:
-        write_rule_notes(b, [MODULE_RULE])
+        write_rule_notes(b, list(rules))
         for d in b.GetDrawings():
             if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith(RULE_PREFIX):
                 grp.AddItem(d)
+    if turn is not None:
+        degrees, flip = turn
+        pivot = pcbnew.VECTOR2I(mm(3), mm(-4))
+        for it in grp.GetItems():
+            if flip:
+                it.Flip(pivot, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+            it.Rotate(pivot, pcbnew.EDA_ANGLE(degrees, pcbnew.DEGREES_T))
     pcb = tmp_path / "layout.kicad_pcb"
     b.Save(str(pcb))
     (tmp_path / "layout.kicad_pro").write_text("{}")
@@ -216,3 +224,59 @@ def test_a_fragments_run_writes_its_rules_into_the_board_and_a_board_run_does_no
         if notes:
             (rule,) = [parse_rule_note(n) for n in notes]
             assert rule.min_mm == 0.1 and rule.between == ("cell.A", "cell.B") and rule.why == "declared in the module"
+
+
+# --- the order a fragment's rules are read in ---------------------------------------------------------
+
+# Two rules of one fragment that both match cell.A against cell.B: the later decides, in placemat as in
+# KiCad (DRC_ENGINE::EvalRules applies every matching rule in file order, each overriding the last).
+OVERLAPPING = (Rule("clearance", 0.3, "cell.A kept wide", on="A"),
+               Rule("clearance", 0.10, "but the grid's own pair at the pitch", between=("A", "B")))
+
+
+def _group_order(monkeypatch, reverse: bool):
+    """KiCad gives a group's items in no fixed order (an unordered set of pointers): make it give them
+    as written, or reversed."""
+    import pcbnew
+    real = pcbnew.PCB_GROUP.GetItems
+    monkeypatch.setattr(pcbnew.PCB_GROUP, "GetItems",
+                        lambda self: (lambda xs: xs[::-1] if reverse else xs)(list(real(self))))
+
+
+@needs_kicad
+def test_a_fragments_rules_are_read_in_the_order_it_wrote_them_whatever_the_groups_order(tmp_path, monkeypatch):
+    from placemat.kicad.read import read_board
+    from placemat.reuse import context_key
+    pcb = _cell_board(tmp_path, rules=OVERLAPPING)
+    seen = []
+    for reverse in (False, True):
+        _group_order(monkeypatch, reverse)
+        g = read_board(pcb)
+        b = Board(g, edge_margin=1.0)
+        seen.append((g.cells["cell"].rules, [r.min_mm for r in b._rules], context_key(b)))
+        assert g.cells["cell"].rules == OVERLAPPING, reverse
+        assert b._clearance("cell.A", "cell.B", "C1", "C2") == 0.10, reverse       # the last declared decides
+    assert seen[0] == seen[1]
+
+
+@needs_kicad
+def test_a_turned_or_flipped_cell_keeps_its_rules_order(tmp_path, monkeypatch):
+    from placemat.kicad.read import read_board
+    for i, turn in enumerate(((90, False), (180, False), (270, False), (0, True), (90, True), (33, False))):
+        d = tmp_path / str(i)
+        d.mkdir()
+        pcb = _cell_board(d, rules=OVERLAPPING + (MODULE_RULE,), turn=turn)
+        for reverse in (False, True):
+            _group_order(monkeypatch, reverse)
+            assert read_board(pcb).cells["cell"].rules == OVERLAPPING + (MODULE_RULE,), (turn, reverse)
+
+
+@needs_kicad
+def test_kicad_judges_the_cell_by_the_last_declared_of_two_overlapping_rules(tmp_path, monkeypatch):
+    """The pads stand 0.12 apart: the later rule (0.10) passes them, the earlier (0.3) would not. Read in
+    the group's reversed order, the earlier rule would be written last and decide."""
+    _group_order(monkeypatch, True)
+    pcb = _cell_board(tmp_path, rules=OVERLAPPING)
+    plan = _write_parent(pcb)
+    assert [r.min_mm for r in plan.rules] == [0.3, 0.10]
+    assert _clearance_violations(pcb) == []
