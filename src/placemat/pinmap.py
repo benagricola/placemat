@@ -46,11 +46,15 @@ def _paths(paths: dict) -> list:
 
 
 def _turns(inp, poses) -> list:
+    """Each part's pose as a turn from where it stands and as the rotation to declare. A flipped pose mirrors the
+    present pads and turns them by `turn`; placemat's flip (geometry.pose_transform) mirrors and turns by the declared
+    rotation plus the present one, so the rotation that gives the studied pads is `turn - rotation`."""
     out = []
     for ref, turn, flip in poses:
         part = inp.part(ref)
         face = part.face if not flip else ("back" if part.face == "front" else "front")
-        out.append({"ref": ref, "turn_deg": round(turn, 3), "rotation_deg": round((part.rotation + turn) % 360.0, 3),
+        rotation = (turn - part.rotation) if flip else (part.rotation + turn)
+        out.append({"ref": ref, "turn_deg": round(turn, 3), "rotation_deg": round(rotation % 360.0, 3),
                     "face": face, "flip": bool(flip)})
     return out
 

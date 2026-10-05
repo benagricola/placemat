@@ -224,3 +224,37 @@ def test_settings_the_study_does_not_read_keep_the_cache():
     d = digest(inp, problems, frozenset(), s)
     assert digest(inp, problems, frozenset(), settings(pins_explore_top=7, pins_probe_budget_ms=9000)) == d
     assert digest(inp, problems, frozenset(), settings(pins_seeds=3)) != d
+
+
+def test_a_pose_on_the_other_face_is_named_as_placemat_flips_a_part_standing_at_90_degrees():
+    """The rotation reported for a flipped pose, and the advice's turn, are the ones whose declaration
+    (geometry.pose_transform from where the part stands) puts the pads where the study scored them."""
+    from placemat.geometry import pose_transform
+    from placemat.pinmap_geom import Pose
+    from placemat.placement import Placement
+    from placemat.values import Face, Location
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D"]}, {"Pm.PinPool": "1-4"}, rotation=90.0, may_flip=True)
+    for i, net in enumerate(["D", "C", "B", "A"]):
+        pads += point_pad("TP%d" % (i + 1), net, 8.5 + i, 0)
+    (f,) = study(pads, {"U1": u1}, settings(pins_faces=True))[0]
+    present = Placement(Location(10, 10), 90.0, Face.FRONT)
+    mine = [p for p in pads if p.ref == "U1"]
+
+    def declared(turn):
+        """The back-face rotation whose declaration puts U1's pads where the flipped pose `turn` has them."""
+        studied = Pose(10, 10, turn, True)
+        want = [studied.to_board(p.anchor.x - 10, p.anchor.y - 10) for p in mine]
+        for r in (0.0, 90.0, 180.0, 270.0):
+            moved = pose_transform(present, Placement(Location(10, 10), r, Face.BACK))
+            if all(moved.apply((p.anchor.x, p.anchor.y)) == pytest.approx(w, abs=1e-6) for p, w in zip(mine, want)):
+                return r
+        raise AssertionError("no declared rotation gives the studied pads")
+
+    flipped = [i for i, r in enumerate(f.facts["rotations"]) if r["turns"][0]["flip"]]
+    assert len(flipped) == 4
+    for i in flipped:
+        (t,) = f.facts["rotations"][i]["turns"]
+        assert (t["face"], t["rotation_deg"]) == ("back", declared(t["turn_deg"]))
+        advice = sg.pin_advice(f.facts, i)
+        assert advice["turns"] == [t]
+        assert "urn U1 to %g degrees on the back" % t["rotation_deg"] in sg.pin_advice_text(advice)
