@@ -119,11 +119,11 @@ request (SKILL.md, "When no form says it").
 | which end of an off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper vocabulary |
 | corners drawn as tangent arcs (a curved trace) | `board.track(..., bend=Bend.ARC)`, `radius=` | Copper vocabulary |
 | a track through the gap between two pads | `Between(PadRef(a), PadRef(b))` as a track point | Copper vocabulary (Lane waypoints) |
-| a track held the clearance off pads, vias or tracks | `Past([PadRef(...), via, track], Edge.EAST, across=)` as a track point | Copper vocabulary (Lane waypoints) |
-| a track's 45 held the clearance off a pad's corner | `Past([PadRef(...)], Corner.NE)` as a track point | Copper vocabulary (Lane waypoints) |
+| a track held the clearance off pads, vias, tracks, a cutout, the board edge, a part or a label | `Past([PadRef(...), via, track], Edge.EAST, across=)`, `Past([vent], Edge.WEST)`, `Past([board.edge(facing=Edge.WEST)], Edge.EAST)` as a track point | Copper vocabulary (Lane waypoints) |
+| a track's 45 held the clearance off a corner of pads or a cutout | `Past([PadRef(...)], Corner.NE)` as a track point | Copper vocabulary (Lane waypoints) |
 | a track meeting its pad at one edge only (a Kelvin tap) | `PadRef(part, n, edge=Edge.SOUTH, along=Along.END)` as a track point | Copper vocabulary (Lane waypoints) |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper calls |
-| a via its clearance past pads, vias or tracks, on a pad's axis | `board.via(net, at=Past([...], Edge.SOUTH, across=PadRef(...)))` | Copper calls |
+| a via its clearance past pads, vias, tracks, a cutout or a label, on a pad's axis | `board.via(net, at=Past([...], Edge.SOUTH, across=PadRef(...)))` | Copper calls |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper calls |
 | a track, via or pour on one land of a pin drawn as several | `PadRef(part, n, land=Land.LARGEST)` or `land=2` | Copper vocabulary |
 | vias in a row out from a pad, a tail joining them | `board.vias(net, along=PadRef(...), count=N)`; as a track point, its value is the farthest via | Copper calls |
@@ -881,10 +881,17 @@ them: the clearance from the pads to the net, its track width (or
 `width=`, the copper its current needs: a pour's width past a switch pin),
 and the clearance from the net to the own pad. `Beside`'s side still decides the
 other axis, so the Past's edge is on the axis the side leaves open (`EAST`
-or `WEST` beside a `NORTH` or `SOUTH` side). A placement is decided before
-any copper is planned, so the Past takes pads only - a via or a track is
-refused - and takes no `across=`. The pads' parts are placed firmly first,
-as for any firm placement. The track then takes the same line as a
+or `WEST` beside a `NORTH` or `SOUTH` side). The Past takes pads, cutouts
+with a decided place, stretches of the board edge or of a hole, and parts
+and cells: what has its place before the part does. A cutout or a stretch
+of edge holds the own pad the board's copper-to-edge clearance off (with
+`lane=`, that plus the lane's width and its clearance to the own pad); a
+part's or a cell's envelope holds it nothing off, and the part's pads
+their clearance. A via or a track is refused (a placement is decided
+before any copper is planned), a label too (it gives way to the parts
+placed after it), and a cutout with a freedom (the board slides it once
+every firm item is down). The Past takes no `across=`. What it names is
+placed or cut first, as for any firm placement. The track then takes the same line as a
 waypoint, `Past([PadRef(...)], Edge.WEST)`.
 
 With a `Corner` in place of the edge, `(own_pad, Past(pads, Corner.NE,
@@ -2556,19 +2563,25 @@ chamfers.
 middle of the gap between two pads - halfway between their facing edges,
 centred across where they face each other - resolved once both are placed: the
 gap must hold the track's own width plus its clearance to each pad's net,
-or the declaration is a finding naming both pads. `Past(items, Edge.EAST,
-across=None)` is a point the clearance off the `edge` side of some copper.
-`items` are pads (`PadRef`/`CellPadRef`), vias (what `board.via()` or
-`board.vias()` returns) and tracks (what `board.track()` returns), in any
-mix. The edge is read off their combined copper box; the offset is half the
-track's width plus the worst clearance, by net pair, from the track to any
-of them. `across=` says where the point lies across the edge: a `PadRef` or
-a via puts it on that pad's or via's centre line, an `Along` at that point
-of the box's side (default `Along.MID`, the middle). The point waits for
-its pads to be placed and its vias and tracks to be planned. A track whose
-`Past` names a via that found no spot, or a track that was not drawn, is
-not drawn, and the finding names both. Both are accepted wherever a track
-point is.
+or the declaration is a finding naming both pads. `Past(items, Edge.EAST, across=None)` is a point held off the `edge` side
+of some items. `items` are pads (`PadRef`/`CellPadRef`), vias, tracks,
+cutouts (the `Cutout` given to `holes=`, or `board.cutout(name)`),
+stretches of the board edge or of a hole (`board.edge(facing=)`,
+`board.cutout(name).edge(side=)`), parts and cells, and labels (the key
+`board.label()` returns), in any mix. Each is read as its box. The point
+stands half the track's width plus the pair's rule off each: the net-pair
+clearance from copper, the board's copper-to-edge clearance from a hole or
+the edge, nothing from a part's envelope (its pads keep their clearance)
+or a label (a via keeps the silk clearance). Off a stretch of edge the
+point is on the board's side of it. `across=` a pad, a via, a cutout, a
+part or a cell puts the point on its centre line, an `Along` at that point
+of the combined box's side. The point waits for what it names to be placed
+or planned; copper past a label is planned after the search. A `CutoutEdge`
+taken from another board is refused. A Past whose item found no place, or
+whose point lands off the board or in a cutout, is not drawn, and the
+finding says which; a module fragment's frame is not an edge, so a Past
+there is not judged against it. Both are accepted wherever a track point
+is.
 
 `Past(items, Corner.NE)` holds a 45 off a corner of the same box (`Corner`
 is `NE`, `NW`, `SE` or `SW`). The point is on the outward diagonal from
@@ -2578,7 +2591,10 @@ NE corner) passes the corner at the clearance. A corner fixes both axes, so
 it takes no `across=`. The track's legs either side of the point take that
 45 through it wherever the points either side allow one, ahead of `bend=`;
 where they do not and the track passes the corner nearer than the
-clearance, the finding names the corner.
+clearance, the finding names the corner. With several items, each item's
+corner is passed at least at its own stand-off: the point is on the
+diagonal from the combined box's corner, as far out as the item that needs
+most.
 
 ```python
 v = board.via(Net("SIG_N"), FreeSpot(near=PadRef(Part("j1"), 3)))
@@ -2607,6 +2623,33 @@ refused, naming the pad; so is `edge=` anywhere but a track point, a
 tap = PadRef(Part("r_shunt"), "V_HI", edge=Edge.SOUTH, along=Along.END)
 board.track(Net("V_HI"), [tap, Past([PadRef(Part("r_shunt"), "V_HI")], Edge.EAST, across=tap),
                             PadRef(Part("r_sense"), "V_HI")], layer=CopperLayer.F)   # out of the gap, then away
+```
+
+**Copper near a hole or the edge.** Declared copper (a track, a via, a
+pour, a finger) nearer the board's outline or a cutout than the board's
+copper-to-edge clearance is a `copper.edge` finding when it is planned,
+naming the declaration, the hole or the edge, the gap and the clearance.
+Copper wholly inside a hole, or off the board, is a `copper.edge` finding
+at gap 0: this is placemat's own check, which KiCad's DRC does not make.
+Beside a curved edge the copper is judged per arc leg: a leg that bulges
+toward the copper's nearest point is judged its own sagitta further (at
+least `geometry.arc_sag`), a straight leg or one bulging away as it is.
+One finding is raised per declaration and loop of the edge, the nearest.
+Copper nearer a part's drilled hole, plated or not, than the hole
+clearance is `copper.meets`, as a via's hole is. The copper is drawn
+either way; a `Past` off the cutout or the edge is the usual way to move
+it. A plane is not judged: KiCad's fill keeps its own clearance. A module
+fragment's frame is not an edge: it is never written to Edge.Cuts, and
+copper there is not judged against it. The run score counts `copper.edge`
+as a copper finding. The suggestion is offered only for a track with no
+waypoints, drawn past a named cutout: a `Past` off the cutout on each side
+the track's run crosses.
+
+```python
+vent = Cutout(Circle(1.5), "vent", at=Near(PadRef(Part("q1"), 2)))
+board.rect(40, 30, holes=[vent])
+board.track(Net("VBUS"), [PadRef(Part("j1"), 1), Past([vent], Edge.WEST), PadRef(Part("q1"), 2)],
+            layer=CopperLayer.B)          # half the width plus the copper-to-edge clearance west of the hole
 ```
 
 **A part's pad on another pad's edge.** The same `PadRef` is accepted as
@@ -2858,8 +2901,8 @@ no spot is not drawn, and the finding says so.
 
 **A via past copper.** `board.via(net, at=Past(items, Edge.SOUTH,
 across=PadRef(...)))` stands the via off the items' `edge` side by its
-radius plus the worst clearance, by net pair, to any of them: pads, vias
-and tracks, as a track's `Past` takes (Lane waypoints). `across=` a pad
+radius plus the worst clearance, by net pair, to any of them: the items a track's `Past` takes (Lane waypoints), with the
+silk clearance off a label. `across=` a pad
 puts it on that pad's axis. A track may end on it, and a later `Past` may
 name it, so a row of vias under a connector's contact tips and a track's
 U-turn under the vias are said without a coordinate:
@@ -3174,6 +3217,8 @@ board.label(Part("j_bus"), "BUS", side=Edge.EAST, rotation=90, why="reads along 
 board.label([SW_BOOT, SW_RUN, LED], ["BOOT", "RUN", "MCU"], side=Edge.SOUTH, knockout=True)   # one line for a row
 board.label([PadRef(J, 1), PadRef(J, 2)], ["GND", "CLK"], side=Edge.NORTH, line=J)           # pin labels clear of the part
 ```
+`board.label()` returns the label's key, a `LabelKey` (a `str`; a list of
+them for a list of items): a `Past` names it to pass the text.
 Text `gap` off `side` of the item's reach (or of one pad), on the item's
 own face (mirrored on the back), aligned `Along.MID` (also "centre"/
 "center"), `Along.START` (also "start", the west or north end of that
@@ -4662,7 +4707,7 @@ its kind.
 |---|---|---|
 | `unplaced` | critical | an item with no place is not on the board |
 | `fixed` | critical | a decided item (fixed, a cutout, a keepout) is not legal where it was put |
-| `copper` (conflicts: copper meets another net, crosses a keepout, passes a corner inside the clearance, two tracks cross and neither may bridge) | critical | the copper as declared breaks a rule |
+| `copper` (conflicts: copper meets another net or a part's drilled hole, comes nearer a hole or the board edge than the copper-to-edge clearance (`copper.edge`), crosses a keepout, passes a corner inside the clearance, two tracks cross and neither may bridge) | critical | the copper as declared breaks a rule |
 | `copper` (a declared track, via, pour or stitch not drawn) | warning | the copper the script declared is missing; a person decides whether the router can stand in |
 | `copper` (a waypoint drawn pad to pad, stitch vias outside the region left out, the side a stitch row took) | notice | placemat's own choice, said |
 | `escape_walled` | critical | a pad with no way out cannot be routed |

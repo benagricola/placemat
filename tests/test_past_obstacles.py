@@ -438,3 +438,24 @@ def test_a_track_past_a_front_part_takes_its_point_off_the_part_and_is_judged_on
     plan = b.resolve()
     assert _has(plan, "SIG", px, py), _points(plan, "SIG")               # the same point on either layer
     assert [f.facts["names"] for f in plan.findings if f.cause.value == "copper.corner"] == names
+
+
+# ---------------------------------------------------------------- the docs
+_SKILLS = Path(__file__).resolve().parents[1] / "skills/placemat"
+
+
+def test_the_skill_api_and_migration_teach_past_over_obstacles_and_copper_edge():
+    api = (_SKILLS / "references/api.md").read_text()
+    skill = (_SKILLS / "SKILL.md").read_text()
+    lane = api.split("**Lane waypoints.**", 1)[1].split("**A part's pad on another pad's edge.**", 1)[0]
+    for word in ("cutouts (the `Cutout` given to `holes=`", "board.edge(facing=)", "board.cutout(name).edge(side=)",
+                 "parts and cells", "labels", "copper-to-edge clearance", "silk clearance", "lands off the board",
+                 "**Copper near a hole or the edge.**", "`copper.edge`", "`copper.meets`"):
+        assert word in lane, word
+    assert "Past([vent], Edge.WEST)" in api and "Past([board.edge(facing=Edge.WEST)], Edge.EAST)" in api
+    assert "the Past takes pads only" not in api
+    assert "LabelKey" in api and "copper.edge" in skill and "Past([vent], Edge.WEST)" in skill
+    unreleased = (_SKILLS / "references/migration.md").read_text().split("## Unreleased", 1)[1].split("\n## To ", 1)[0]
+    for word in ("Past passes any obstacle", "past_off_board", "LabelKey", "copper.edge", "copper.meets", "run score"):
+        assert word in unreleased, word
+    assert all(ord(c) < 128 for c in api + skill + unreleased), "ASCII only"

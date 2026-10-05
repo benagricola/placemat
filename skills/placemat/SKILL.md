@@ -84,14 +84,19 @@ The forms that most often answer "placemat can't say this":
 - `at=Beside(item, side, align=)` stands a part a gap off another part, a
   cell or a keepout; `align=` fixes the other axis: an `Along`, a pad of
   any firmly placed part (level with a third part's pin), or
-  `(own_pad, Past(pads, edge, lane=Net(...), width=))` - its pad a lane
-  past other pads, as wide as the lane's current needs.
+  `(own_pad, Past(items, edge, lane=Net(...), width=))` - its pad a lane
+  past other pads, a cutout, the board edge or a part, as wide as the
+  lane's current needs.
 - `board.row(items, edge, of=Part(...), centre=PadRef(...), pitch=)`:
   items along a part's side, at a mechanical pitch, centred on a pad.
-- `Between(pad, pad)` and `Past([pads, vias, tracks], edge, across=)` are
-  track waypoints: through a gap, or the clearance off copper on a pad's or
-  via's centre line; `Past(items, Corner.NE)` holds a 45 the clearance off
-  a corner. `board.via(net, at=Past(...))` stands a via there.
+- `Between(pad, pad)` and `Past(items, edge, across=)` are track
+  waypoints: through a gap, or past what `items` name - pads, vias, tracks,
+  a cutout (`Past([vent], Edge.WEST)`), a stretch of the board edge
+  (`board.edge(facing=)`), a part or a cell, a label - each by the rule
+  between it and copper. `Past(items, Corner.NE)` holds a 45 off a corner.
+  `board.via(net, at=Past(...))` stands a via there. Copper drawn across a
+  hole or the edge is a `copper.edge` finding; a `Past` off the cutout
+  moves it.
   What `board.via()` and `board.vias(net, along=PadRef(...), count=N)`
   return is a track point (a row's farthest via); those and what
   `board.track()` returns are `Past` items in later copper.

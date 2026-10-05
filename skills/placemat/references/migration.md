@@ -5,6 +5,38 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **Past passes any obstacle.** `Past(items, edge)` and `Past(items,
+  Corner.X)` take cutouts, stretches of the board edge, parts and cells,
+  and labels, as well as pads, vias and tracks. The point keeps the
+  board's copper-to-edge clearance off a hole or the edge, and stands on
+  an envelope's or a label's outline. A track that had to pass a cutout
+  with a hand-placed point can name the cutout. Past over pads, vias and
+  tracks alone resolves as before. `board.label()` returns a `LabelKey`,
+  a `str`, so scripts that use the key as text need no change. A
+  `CutoutEdge` taken from another board is refused.
+- **Copper near a hole or the edge is a finding.** Declared copper nearer
+  the outline or a cutout than the board's copper-to-edge clearance is a
+  critical `copper.edge` finding when it is planned, and copper wholly
+  inside a hole or off the board is one at gap 0; KiCad's DRC does not
+  report the latter. Copper nearer a part's drilled hole, plated or not,
+  than the hole clearance is `copper.meets`. The nearer cases were DRC
+  failures before and still are; a run now reports them itself, naming
+  the declaration, so a board that passed its findings may now show
+  these, and they count in the run score as copper findings do. The
+  copper is still drawn. A module fragment's frame is not judged.
+
+### Changed
+
+- **`past_off_board` applies to a copper-only `Past`.** A `Past` whose
+  point lands off the board or in a cutout is a `copper.not_drawn`
+  finding (`past_off_board`) for a `Past` over pads, vias and tracks too,
+  whose point was not checked against the board before. It is not judged on a
+  module fragment.
+
 ## To 0.99.18
 
 ### New
