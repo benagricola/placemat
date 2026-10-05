@@ -395,6 +395,7 @@ a.chip.act { cursor: pointer; }
 .chip.kind-preview { --c: var(--k-teal); } .chip.kind-run { --c: var(--courtyard); } .chip.kind-explore { --c: var(--k-pink); } .chip.kind-route { --c: var(--copper); } .chip.kind-apply { --c: var(--k-violet); }
 .chip.bad, .chip.error, .chip.lost, .chip.unplaced { background: var(--bad-soft); color: var(--bad); }
 .chip.warn, .chip.refusal { background: var(--warn-soft); color: var(--warn); } .chip.good, .chip.done { background: var(--good-soft); color: var(--good); }
+.chip.notice { background: var(--accent-soft); color: var(--sev-notice); }
 .chip.net { font-family: var(--mono); font-size: 11.5px; }
 h3 { margin: 0; padding: 12px 12px 5px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); font-weight: 650; }
 h3.fold { cursor: pointer; display: flex; gap: 6px; }
@@ -2862,7 +2863,8 @@ function renderCompare() {
     const t = tr[e.key], ln = t ? t.lines.new.concat(t.lines.old.filter(n => !t.lines.new.includes(n))) : [];
     return '<div class="row' + (S.sel === e.key ? " sel" : "") + '" data-item="' + esc(e.key) + '"><span class="k">' + esc(e.key) + '</span><span class="n wrap">' + label + (t ? (ln.length ? " - declared on changed line" + (ln.length > 1 ? "s " : " ") + ln.join(", ") : " - moved by something else the change did") : "") + "</span></div>";
   };
-  if (d.moved.length) out += "<h3>Moved</h3>" + d.moved.map(m => itemRow(m, m.distance + " mm" + (m.turned ? ", turned " + deg(m.from.rotation) + " to " + deg(m.to.rotation) : "") + (m.flipped ? ", flipped to " + m.to.face : ""))).join("");
+  if (d.moved.length) out += "<h3>Moved</h3>" + d.moved.map(m => itemRow(m, m.distance + " mm" + (m.turned ? ", turned " + deg(m.from.rotation) + " to " + deg(m.to.rotation) : "") + (m.flipped ? ", flipped to " + m.to.face : "") +
+    (m.rearranged ? ", arrangement " + (m.from.arrangement || "default") + " to " + (m.to.arrangement || "default") : ""))).join("");
   if (d.added.length) out += "<h3>Added</h3>" + d.added.map(a => itemRow(a, "at " + a.at.join(", "))).join("");
   if (d.removed.length) out += "<h3>Removed</h3>" + d.removed.map(a => itemRow(a, "was at " + a.at.join(", "))).join("");
   if (d.findings.gained.length) out += "<h3>Findings gained</h3>" + d.findings.gained.map(f => '<div class="row" data-at="' + (f.at || "") + '" data-item="' + esc(f.item) + '"><span class="n del wrap">' + esc(f.text) + "</span></div>").join("");
@@ -4062,7 +4064,7 @@ function runDetail(r) {
   const f = r.failure;
   const rowsHtml = kvl(rows);
   // a module run's arrangements: offered, refused by its proof (a warning) or laid out as another one
-  const arrs = (r.arrangements || []).map(a => "<div>" + pill(a.id, a.duplicate_of ? "" : a.offered ? "good" : "warn") + " " +
+  const arrs = (r.arrangements || []).map(a => "<div>" + pill(a.id, a.duplicate_of ? "notice" : a.offered ? "good" : "warn") + " " +
     esc(a.duplicate_of ? "same as " + a.duplicate_of : a.offered ? "offered" : "refused " + a.refused) + "</div>").join("");
   return '<div class="full" style="display:block">' + sect("Result", rowsHtml === '<div class="kvl"></div>' ? "" : rowsHtml) + (arrs ? sect("Arrangements", '<div class="cl">' + arrs + "</div>") : "") + (failing ? sect("Failed checks", '<div class="cl">' + failing + "</div>") : "") +
     (f ? sect("Failure", '<div class="note">' + esc(f.message || "") + "</div>" + (f.line ? '<div class="src"><a data-act="src" data-file="' + esc(relName(f.file)) + '" data-line="' + f.line + '">' + esc(relName(f.file) + ":" + f.line) + "</a>" + (f.source ? " <code>" + esc(String(f.source).trim()) + "</code>" : "") + "</div>" : "")) : "") + "</div>";

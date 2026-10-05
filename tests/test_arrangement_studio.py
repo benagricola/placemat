@@ -121,7 +121,7 @@ o.none = runDetail({drc: {}, severities: {}, timing: {}, verdicts: [], failure: 
     assert "Arrangements" in h and "Arrangements" not in out["none"]
     assert '<span class="chip good">default</span> offered' in h
     assert '<span class="chip warn">mirrored</span> refused 2' in h                      # a refusal is a warning: yellow, never red
-    assert '<span class="chip ">c_in.same</span> same as default' in h
+    assert '<span class="chip notice">c_in.same</span> same as default' in h                # a notice: blue, not grey
     assert "chip bad" not in h
 
 
@@ -181,3 +181,25 @@ ev('S.xv.drawn = S.xv.variants[1]');
 out.html = ev("exploreHTML()");
 """)
     assert "<b>mod</b>0 mm, arrangement default -&gt; c_in.east" in out["html"]
+
+
+def test_a_cell_that_changed_arrangement_is_a_difference():
+    from placemat.studio_diff import diff_plans
+    cell = {"key": "mod", "at": [1.0, 2.0], "rotation": 0.0, "face": "front"}
+    a, b = {"items": [cell]}, {"items": [dict(cell, arrangement="c_in.east")]}
+    d = diff_plans(a, b, partial=True)
+    (m,) = d["moved"]
+    assert m["rearranged"] and not m["turned"] and m["distance"] == 0.0 and m["to"]["arrangement"] == "c_in.east"
+    assert "arrangement" not in m["from"] and not d["empty"]
+    assert diff_plans(b, b, partial=True)["moved"] == [] and diff_plans(a, a, partial=True)["empty"]
+
+
+@needs_node
+def test_the_compare_says_a_cell_changed_arrangement(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD); finish(1, ["mod"]);
+ev('setCompare({a: "run r1", b: 1, diff: {moved: [{key: "mod", from: {at: [1, 2], rotation: 0, face: "front"}, to: {at: [1, 2], rotation: 0, face: "front", arrangement: "c_in.east"}, distance: 0, turned: false, flipped: false, rearranged: true}], added: [], removed: [], copper: {added: [], removed: []}, links: [], findings: {gained: [], lost: []}, score: null, congestion: null, empty: false}, files: {}, trace: {items: {}, lines: {}}, run: "r1"})');
+ev('goTab("compare"); renderCompare()'); flush();
+out.html = els["#tab-compare"].innerHTML;
+""")
+    assert "0 mm, arrangement default to c_in.east" in out["html"]

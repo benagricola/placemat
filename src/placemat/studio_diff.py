@@ -16,7 +16,9 @@ import json
 
 
 def _state(item: dict) -> dict:
-    return {"at": item.get("at"), "rotation": item.get("rotation"), "face": item.get("face")}
+    """Where an item stands: its place, rotation, face and, for a cell in one of its module's other arrangements, that arrangement."""
+    return {"at": item.get("at"), "rotation": item.get("rotation"), "face": item.get("face"),
+            **({"arrangement": item["arrangement"]} if item.get("arrangement") else {})}
 
 
 def _distance(a, b) -> float:
@@ -78,7 +80,8 @@ def diff_plans(a: dict, b: dict, partial: bool = False) -> dict:
                               "was_unplaced": key in unplaced_a})
         elif _state(old) != _state(new):
             moved.append({"key": key, "from": _state(old), "to": _state(new), "distance": _distance(old.get("at"), new.get("at")),
-                          "turned": old.get("rotation") != new.get("rotation"), "flipped": old.get("face") != new.get("face")})
+                          "turned": old.get("rotation") != new.get("rotation"), "flipped": old.get("face") != new.get("face"),
+                          "rearranged": (old.get("arrangement") or "") != (new.get("arrangement") or "")})
     if not partial:
         for key, old in ia.items():
             if key not in ib:
