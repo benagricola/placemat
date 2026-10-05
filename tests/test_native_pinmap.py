@@ -115,9 +115,10 @@ def test_the_native_core_is_the_twin_at_the_present_pose_with_a_short_search(cas
 
 
 def test_the_native_core_is_the_twin_when_the_clock_runs_out():
-    native, python = both(input_of(*reversed_four())[0], ("U1",), settings(pins_budget_ms=40, pins_anneal_moves=500, pins_seeds=4),
-                          step_ms=1.0)
-    assert native == python and native[3] is True
+    # out in combo 2, so a twin clock that ticks at another rate stops elsewhere
+    s = settings(pins_budget_ms=150, pins_anneal_moves=500, pins_seeds=4)
+    native, python = both(input_of(*reversed_four())[0], ("U1",), s, step_ms=1.0)
+    assert native == python and native[3] is True and len(native[2]) == 3
 
 
 def random_board(seed):
