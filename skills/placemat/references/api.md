@@ -3874,7 +3874,7 @@ comparison.
 **What a run says.** `explore  N variants in S s over K focused items:
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
-With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, or `error` when its study raised) sits beside the score and does not change the ranking.
+With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part). The report's `pin_maps` (per variant `seed`, `score`, `groups`, or `error` when its study raised) sits beside the score and does not change the ranking.
 Without `--accept` nothing persists.
 
 **Stopping.** `run`, `preview` and `route` stop on SIGTERM, SIGHUP or Ctrl-C
@@ -4092,7 +4092,7 @@ airwire and a first preview and a laid board are scored alike. A pin's airwire
 leaves along its outward normal to a point `pins.exit_mm` past the courtyard's
 box, then goes the shorter way round the box to its target; a net of several
 pads is scored on its minimum spanning tree; a net through a two-pad series
-part (a reference starting with a letter in `pins.follow_prefixes`) is followed
+part (a reference whose leading letters are one of `pins.follow_prefixes`, any case) is followed
 to the far net (`pins.follow_series`). A crossing counts 1, `pins.pair_weight`
 for a differential pair's airwire, `pins.impedance_weight` for a net whose
 class names a KiCad tuning profile, `score.crossing_plane` for a plane's or a
@@ -4107,8 +4107,7 @@ searches of `pins.anneal_moves` moves and swaps under annealing. The score and
 the search run in the native module when it is in use, else in its Python
 twin, which gives the same maps (`setup.native` says when it is not). Parts
 whose movable nets meet are studied together, their poses in combination, at
-most `pins.joint_combinations`. Seeds are fixed and ties go to the lower pin,
-so a board gives the same map twice. A study stops at `pins.budget_ms` a part
+most `pins.joint_combinations`. Seeds are fixed, so a board gives the same map twice. A study stops at `pins.budget_ms` a part
 with the best found; the finding's facts say so (`budget_out`, with `searched`
 of `of` poses). The budget matters on the Python fallback, which may stop
 before it has searched every pose. What a study reads is digested and kept in
