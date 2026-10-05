@@ -21,16 +21,17 @@ def test_an_option_takes_the_place_keywords_that_say_where_and_why():
     assert "required" in str(e.value) and "rotation" in str(e.value)
 
 
-def test_the_arrangements_are_the_default_the_product_and_the_groups_in_declaration_order():
+def test_the_arrangements_are_the_default_then_the_product_with_a_board_arrangement_as_one_more_unit():
+    """A 0.99.15 board.arrangement keeps its id; it moves c_in and r_pull, which have options of their own, so it combines with neither."""
     options = {"c_in": [opt("c_in", "east")], "r_pull": [opt("r_pull", "turned"), opt("r_pull", "back")]}
     group = A.Group("mirrored", (opt("c_in", "mirrored"), opt("r_pull", "mirrored")))
     e = A.enumerate_specs(["c_in", "r_pull"], options, [group], 4, 20)
-    assert [s.id for s in e.specs] == ["default", "r_pull.turned", "r_pull.back", "c_in.east", "c_in.east+r_pull.turned",
-                                       "c_in.east+r_pull.back", "mirrored"]
+    assert [s.id for s in e.specs] == ["default", "mirrored", "r_pull.turned", "r_pull.back", "c_in.east",
+                                       "c_in.east+r_pull.turned", "c_in.east+r_pull.back"]
     assert e.over is None and e.declared == 7
-    both = e.specs[4]
+    both = e.specs[5]
     assert both.choices == {"c_in": "east", "r_pull": "turned"} and [k for k, _ in both.overrides] == ["c_in", "r_pull"]
-    assert e.specs[-1].choices == {"group": "mirrored"} and e.specs[0].choices == {}
+    assert e.specs[1].choices == {"mirrored": "mirrored"} and e.specs[1].group == "mirrored" and e.specs[0].choices == {}
 
 
 def test_exactly_the_limit_is_accepted_and_one_over_is_not():
@@ -38,8 +39,8 @@ def test_exactly_the_limit_is_accepted_and_one_over_is_not():
     assert A.enumerate_specs(["a", "b", "c"], options, [], 4, 8).over is None
     over = A.enumerate_specs(["a", "b", "c"], options, [A.Group("g", (opt("a", "g"),))], 4, 8)
     assert [s.id for s in over.specs] == ["default"]
-    assert over.over == {"variant": "arrangements", "arrangements": 9, "max_arrangements": 8,
-                         "options": {"a": 2, "b": 2, "c": 2}, "max_options": 4}
+    assert over.over == {"variant": "arrangements", "arrangements": 12, "max_arrangements": 8,       # g moves a: 8 + 4 with b and c
+                         "options": {"a": 2, "b": 2, "c": 2, "g": 2}, "max_options": 4, "excluded": 0}
 
 
 def test_an_item_over_the_option_limit_is_the_options_variant():
@@ -67,7 +68,7 @@ def test_all_ids_are_the_enumerated_ids_up_to_the_cap():
     group = A.Group("mirrored", ())
     args = (["c_in", "r_pull"], options, [group])
     assert A.all_ids(*args) == [s.id for s in A.enumerate_specs(*args, 4, 20).specs]
-    assert A.all_ids(*args, cap=3) == ["default", "r_pull.turned", "r_pull.back"]
+    assert A.all_ids(*args, cap=3) == ["default", "mirrored", "r_pull.turned"]
 
 
 from placemat import Alt
@@ -143,7 +144,7 @@ def test_a_group_names_the_members_it_moves_and_the_ids_are_formed_as_specified(
     b.arrangement("mirrored", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST), rotation=180),
                   Alt(Part("r_pull"), at=Beside(Part("u1"), Edge.WEST)), why="mirrored")
     ids = [s.id for s in b.arrangement_enumeration().specs]
-    assert ids == ["default", "r_pull.turned", "c_in.east", "c_in.east+r_pull.turned", "mirrored"]
+    assert ids == ["default", "mirrored", "r_pull.turned", "c_in.east", "c_in.east+r_pull.turned"]
     with pytest.raises(ValueError):
         b.arrangement("mirrored", Alt(Part("c_in"), rotation=90))                     # a second group of that name
     with pytest.raises(TypeError):
