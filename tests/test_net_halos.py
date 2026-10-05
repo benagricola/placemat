@@ -289,16 +289,28 @@ def test_a_pad_with_no_copper_inside_the_halo_is_trapped():
     assert len(got) == 1
     r = got[0]
     assert (r["variant"], r["net"], r["halo_mm"], r["ref"], r["number"], r["pad_net"]) == ("trapped", "SW", 2.0, "U1", "2", "FB")
-    assert r["reach_mm"] == pytest.approx(1.0) and r["short_mm"] == pytest.approx(1.0)      # its own centre, 1 mm off the SW pad
+    # its own centre, 1 mm off the SW pad; a 0.2 mm class track needs its centre 2.1 mm off
+    assert r["reach_mm"] == pytest.approx(1.0) and r["needed_mm"] == pytest.approx(2.1) and r["short_mm"] == pytest.approx(1.1)
     f = net_halos.findings(got, [], {"SW": 2.0})[0]
-    assert str(f) == ("FB pad U1.2 is inside SW's 2.00 mm halo; its copper ends 1.00 mm away, 1.00 mm short: draw its escape "
-                      "out past the halo in the module (a longer run= on its board.escape), or give SW a smaller halo")
+    assert str(f) == ("FB pad U1.2 is inside SW's 2.00 mm halo; its copper ends 1.00 mm away where a track leaving it needs "
+                      "2.10 mm, 1.10 mm short: draw its escape out past the halo in the module (a longer run= on its "
+                      "board.escape), or give SW a smaller halo")
 
 
 def test_a_pad_whose_escape_ends_inside_the_halo_is_trapped_by_what_the_escape_falls_short():
     got = net_halos.trapped(_pads_geometry(track("FB", 11.5, 10.0, 12.1, 10.0, w=0.3)), {"SW": 2.0})
     assert len(got) == 1
-    assert got[0]["reach_mm"] == pytest.approx(1.6) and got[0]["short_mm"] == pytest.approx(0.4)
+    assert got[0]["reach_mm"] == pytest.approx(1.6) and got[0]["short_mm"] == pytest.approx(0.5)
+
+
+def test_an_escape_ending_past_the_halo_but_not_half_a_track_past_it_is_still_trapped():
+    """A track leaving the end keeps its edge, not its centre, the halo from the switch net: the end needs the halo plus
+    half the class track width (0.2 mm here)."""
+    got = net_halos.trapped(_pads_geometry(track("FB", 11.5, 10.0, 12.55, 10.0, w=0.3)), {"SW": 2.0})
+    assert len(got) == 1
+    assert got[0]["reach_mm"] == pytest.approx(2.05) and got[0]["needed_mm"] == pytest.approx(2.1)
+    assert got[0]["short_mm"] == pytest.approx(0.05)
+    assert net_halos.trapped(_pads_geometry(track("FB", 11.5, 10.0, 12.65, 10.0, w=0.3)), {"SW": 2.0}) == []
 
 
 def test_a_pad_whose_escape_ends_past_the_halo_is_not_trapped():
@@ -318,7 +330,7 @@ def test_the_halo_is_judged_from_the_halo_nets_drawn_copper_too():
     escape = track("FB", 11.5, 10.0, 13.0, 10.0, w=0.3)
     beside = track("SW", 10.0, 11.0, 14.0, 11.0, w=0.4)          # its edge at y 10.8
     got = net_halos.trapped(_pads_geometry(escape, beside), {"SW": 2.0})
-    assert len(got) == 1 and got[0]["reach_mm"] == pytest.approx(0.8) and got[0]["short_mm"] == pytest.approx(1.2)
+    assert len(got) == 1 and got[0]["reach_mm"] == pytest.approx(0.8) and got[0]["short_mm"] == pytest.approx(1.3)
 
 
 def test_a_pad_outside_the_halo_or_on_another_layer_or_of_a_net_not_judged_is_left_alone():
@@ -393,7 +405,7 @@ def test_the_route_command_says_a_trapped_pad_before_the_route_once_and_json_car
     pcb = tmp_path / "layout.kicad_pcb"
     pcb.write_text("")
     facts = {"variant": "trapped", "net": "SW", "halo_mm": 2.0, "ref": "U1", "number": "2", "pad_net": "FB", "gap_mm": 0.5,
-             "reach_mm": 0.6, "short_mm": 1.4}
+             "reach_mm": 0.6, "needed_mm": 2.1, "short_mm": 1.5}
 
     def stand_in(*a, on_setup=None, **kw):
         report = RouteReport(True, 1.0, 1.0, 1, 0, {}, [], [], ["F.Cu"], 1.0, "v", {}, Path("r.kicad_pcb"), Path("r.log"), Path("."))
@@ -403,9 +415,9 @@ def test_the_route_command_says_a_trapped_pad_before_the_route_once_and_json_car
     monkeypatch.setattr(route_mod, "route_board", stand_in)
     assert cli.main(["route", str(pcb)]) == 0
     out = capsys.readouterr().out
-    line = "FB pad U1.2 is inside SW's 2.00 mm halo; its copper ends 0.60 mm away, 1.40 mm short"
+    line = "FB pad U1.2 is inside SW's 2.00 mm halo; its copper ends 0.60 mm away where a track leaving it needs 2.10 mm, 1.50 mm short"
     assert out.count(line) == 1 and out.index(line) < out.index("route full")
     assert cli.main(["route", str(pcb), "--json"]) == 0
     doc = json.loads(capsys.readouterr().out)
     assert [d["cause"] for d in doc["finding_details"]] == ["setup.net_halo"]
-    assert doc["finding_details"][0]["facts"]["short_mm"] == 1.4 and doc["net_halo_trapped"] == [facts]
+    assert doc["finding_details"][0]["facts"]["short_mm"] == 1.5 and doc["net_halo_trapped"] == [facts]

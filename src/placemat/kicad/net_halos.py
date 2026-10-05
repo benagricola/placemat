@@ -143,7 +143,8 @@ def trapped(geometry, halos: dict, judged=None) -> list:
     """Every pad of another net inside a halo whose own copper ends inside it too, as records (the facts of its
     `setup.net_halo` finding): the halo net and its halo; the pad (ref, number, its net); `gap_mm`, the pad's own gap
     to the halo net's copper; `reach_mm`, the farthest any end of the pad's copper lies from the halo net's copper on a
-    layer they share; `short_mm`, the halo less that reach. A pad is inside the halo when its copper comes nearer the
+    layer they share; `needed_mm`, the halo plus half the pad net's class track width, which a track leaving an end
+    needs between its centre and the halo net's copper; `short_mm`, needed less reach. A pad is inside the halo when its copper comes nearer the
     halo net's copper (pads, tracks, vias, drawn copper and pours) than the halo on a layer they share. `judged`: the
     nets to judge (the ones the route routes and has open), None for every net."""
     out = []
@@ -165,11 +166,13 @@ def trapped(geometry, halos: dict, judged=None) -> list:
                 for pt, layers in _ends(pad, own):
                     reach = max(reach, min((_point_distance(pt, c.outlines) for c in theirs if c.layers & layers),
                                            default=math.inf))
-                if reach >= halo - _EPS:
+                cls = geometry.netclasses.get(pad.net)
+                needed = halo + (cls.track_width if cls is not None else 0.0) / 2.0
+                if reach >= needed - _EPS:
                     continue
                 out.append({"variant": "trapped", "net": net, "halo_mm": halo, "ref": fp.ref, "number": pad.number,
                             "pad_net": pad.net, "gap_mm": round(gap, 3), "reach_mm": round(reach, 3),
-                            "short_mm": round(halo - reach, 3)})
+                            "needed_mm": round(needed, 3), "short_mm": round(needed - reach, 3)})
     return out
 
 

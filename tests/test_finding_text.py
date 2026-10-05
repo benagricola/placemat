@@ -114,9 +114,9 @@ SAMPLES = [
     (C.SETUP_PAIR_LAYERS, {"key": "Fast", "variant": "no_pair", "layers": ["B.Cu"], "missing": [], "board_layers": ["F.Cu", "B.Cu"]},
      "route.pair_layers Fast: no differential pair on this board has those two nets or that net class; the entry is not used"),
     (C.SETUP_NET_HALO, {"variant": "trapped", "net": "SW", "halo_mm": 2.0, "ref": "U3", "number": "2", "pad_net": "FB",
-                        "gap_mm": 0.4, "reach_mm": 0.6, "short_mm": 1.4},
-     "FB pad U3.2 is inside SW's 2.00 mm halo; its copper ends 0.60 mm away, 1.40 mm short: draw its escape out past the halo "
-     "in the module (a longer run= on its board.escape), or give SW a smaller halo"),
+                        "gap_mm": 0.4, "reach_mm": 0.6, "needed_mm": 2.1, "short_mm": 1.5},
+     "FB pad U3.2 is inside SW's 2.00 mm halo; its copper ends 0.60 mm away where a track leaving it needs 2.10 mm, 1.50 mm "
+     "short: draw its escape out past the halo in the module (a longer run= on its board.escape), or give SW a smaller halo"),
     (C.SETUP_NET_HALO, {"variant": "no_net", "net": "GONE", "halo_mm": 1.0},
      "route.net_halos GONE: no net of that name on this board; the entry is not used"),
     (C.SETUP_NET_HALO, {"variant": "open", "net": "SW", "halo_mm": 2.0, "open_items": 1},

@@ -188,9 +188,10 @@ def _setup_net_halo(f):
         return ("%s is open (%d item(s)) and routed with the other nets: the router spaces every net of that pass %.2f mm "
                 "from all copper, not only from %s; draw %s whole in the module, or route it alone as a `[route] islands` "
                 "net" % (f["net"], f["open_items"], f["halo_mm"], f["net"], f["net"]))
-    return ("%s pad %s.%s is inside %s's %.2f mm halo; its copper ends %.2f mm away, %.2f mm short: draw its escape out past "
-            "the halo in the module (a longer run= on its board.escape), or give %s a smaller halo" % (
-                f["pad_net"], f["ref"], f["number"], f["net"], f["halo_mm"], f["reach_mm"], f["short_mm"], f["net"]))
+    return ("%s pad %s.%s is inside %s's %.2f mm halo; its copper ends %.2f mm away where a track leaving it needs %.2f mm, "
+            "%.2f mm short: draw its escape out past the halo in the module (a longer run= on its board.escape), or give %s "
+            "a smaller halo" % (f["pad_net"], f["ref"], f["number"], f["net"], f["halo_mm"], f["reach_mm"], f["needed_mm"],
+                                f["short_mm"], f["net"]))
 
 
 @renders(C.SETUP_ACCEPT, "variant", "check", "subject")

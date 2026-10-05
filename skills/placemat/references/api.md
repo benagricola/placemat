@@ -3435,12 +3435,16 @@ open connections, lying within a halo of the halo net's copper (its pads,
 tracks, vias, drawn copper and pours, on a layer they share): the router can
 lead it out only from an end of its own copper that is already past the
 halo. The ends are the pad itself, each end of a track joined to it and each
-via on that copper; drawn copper joins but is not an end. If no end lies at
-least the halo from the halo net's copper, the pad is trapped: a
+via on that copper. Only a track or via end counts: drawn copper (a polygon)
+joins the pad to its tracks and vias but is not an end, however far it
+reaches. A track leaving an end keeps its edge the halo away, so an end
+counts as led out only at the halo plus half the pad net's class track width
+from the halo net's copper. If no end lies that far, the pad is trapped: a
 `setup.net_halo` finding, said before the route starts, with facts `variant`
 `trapped`, `net`, `halo_mm`, `ref`, `number`, `pad_net`, `gap_mm` (the pad's
 own gap to the halo net's copper), `reach_mm` (how far its farthest end
-lies from that copper) and `short_mm` (the halo less `reach_mm`); also in
+lies from that copper), `needed_mm` (the halo plus half the class track
+width) and `short_mm` (`needed_mm` less `reach_mm`); also in
 `net_halo_trapped`. The cure is in the module that draws the pad: an escape
 that runs out past the halo (a longer `run=` on its `board.escape`), or a
 smaller halo for that node. The router spaces every net of one call at the
