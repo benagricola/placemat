@@ -309,11 +309,13 @@ class Settings:
     route_smoothing: bool = S(True, "bool",
         "the router's own octolinear smoothing, as it defaults; false skips it")
     route_router_args: tuple = S((), "list",
-        "more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused")
+        "more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused")
     route_pair_router_args: tuple = S((), "list",
         "the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's")
     route_pair_layers: dict = S(None, "table",
         "the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `\"P/N\"` (either order) or a net class name, its value a list of layer names (`{\"USB_D_P/USB_D_N\" = [\"In2.Cu\", \"B.Cu\"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used", factory=dict)
+    route_net_halos: dict = S(None, "table",
+        "a net mapped to a halo in mm (`{\"SW\" = 2.0}`): every router pass keeps other nets' new copper that far from the net's copper, and the net's own new copper that far from everything, to keep coupling off a switch node. Each net is given the larger of its net class clearance and its halo in the clearance map placemat hands the router. Before the route, a pad of another net within the halo whose own copper (an escape, a via) ends inside it is a `setup.net_halo` finding: the router cannot leave it. A key that names no net on the board is a `setup.net_halo` finding and the entry is not used", factory=dict)
     route_islands: tuple = S((), "list",
         "nets with pours whose pads the pours do not reach (a pour net's small taps), `\"NET\"` or `\"NET=WIDTH\"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them")
     route_diff_pair_gap: float = S(0.0, "mm",
@@ -533,8 +535,8 @@ class Settings:
         return replace(self, sources=dict(sources))
 
 
-# `[check.limits]`, `[drc.severities]`, `[facts.boards]` and `[route.pair_layers]` are the sub-tables: each section is two words.
-_SUBTABLES = ("check.limits", "drc.severities", "facts.boards", "route.pair_layers")
+# `[check.limits]`, `[drc.severities]`, `[facts.boards]`, `[route.pair_layers]` and `[route.net_halos]` are the sub-tables: each section is two words.
+_SUBTABLES = ("check.limits", "drc.severities", "facts.boards", "route.pair_layers", "route.net_halos")
 
 
 def split_key(name: str) -> tuple:
@@ -598,7 +600,7 @@ def parse_islands(items) -> dict:
 # The router flags placemat sets on every pass: [route] router_args may not name them.
 _ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
                            "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
-                           "--max-probe-iterations", "--json-out"))
+                           "--max-probe-iterations", "--json-out", "--net-clearances"))
 
 
 # A copper layer's name as KiCad spells it: F.Cu, In1.Cu to In30.Cu, B.Cu.
@@ -698,7 +700,7 @@ def _validate(name: str, value, path: str):
                         and any(o.startswith(v.split("=", 1)[0]) and len(v.split("=", 1)[0]) > 2 for o in _ROUTER_OWNED)})
         if owned:
             raise SettingsError("%s: %s: %s is set by placemat itself (%s)" % (
-                path, dotted, ", ".join(owned), "[route] turn_cost, smoothing, islands and route --iterations name them"))
+                path, dotted, ", ".join(owned), "[route] turn_cost, smoothing, islands, net_halos and route --iterations name them"))
     if name == "route_pair_layers":
         for key, layers in value.items():
             if not (isinstance(layers, (list, tuple)) and layers and all(isinstance(l, str) for l in layers)):
@@ -707,6 +709,10 @@ def _validate(name: str, value, path: str):
             if bad:
                 raise SettingsError("%s: route.pair_layers.%s: %s is not a copper layer (F.Cu, In1.Cu to In30.Cu, B.Cu)" % (
                     path, json.dumps(key), ", ".join(bad)))
+    if name == "route_net_halos":
+        for key, halo in value.items():
+            if isinstance(halo, bool) or not isinstance(halo, (int, float)) or not halo > 0:
+                raise SettingsError("%s: route.net_halos.%s must be a halo in mm, above 0, not %r" % (path, json.dumps(key), halo))
     if name == "route_islands":
         try:
             parse_islands(value)

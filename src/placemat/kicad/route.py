@@ -115,13 +115,29 @@ class RouteReport:
     # `[route] pair_layers` as applied, {"P/N": [layer, ...]}, and the entries refused (resolve_pair_layers' records).
     pair_layers: dict = field(default_factory=dict)
     pair_layers_refused: list = field(default_factory=list)
+    # `[route] net_halos` as applied, {net: mm}; the entries naming no net on the board; the pads a halo traps
+    # (net_halos.trapped's records); and the facts of every `setup.net_halo` finding, in the order they were said.
+    net_halos: dict = field(default_factory=dict)
+    net_halos_missing: list = field(default_factory=list)
+    net_halo_trapped: list = field(default_factory=list)
+    net_halo_facts: list = field(default_factory=list)
+
+    def has_findings(self) -> bool:
+        return bool(self.widths or self.pair_layers_refused or self.net_halo_facts)
 
     def findings(self, stated: dict | None = None) -> list:
         """The findings of the widths (route_widths.findings_of; `stated` is {net: amps} the design states), then a
-        `setup.pair_layers` finding for each `[route] pair_layers` entry refused."""
+        `setup.pair_layers` finding for each `[route] pair_layers` entry refused, then the `setup.net_halo` findings
+        (`setup_findings`)."""
         from ..findings import Finding, FindingCause as C
         from .route_widths import findings_of
-        return findings_of(self.widths, stated) + [Finding(C.SETUP_PAIR_LAYERS, dict(r)) for r in self.pair_layers_refused]
+        return (findings_of(self.widths, stated) + [Finding(C.SETUP_PAIR_LAYERS, dict(r)) for r in self.pair_layers_refused]
+                + self.setup_findings())
+
+    def setup_findings(self) -> list:
+        """The `setup.net_halo` findings: the ones `route_board` hands to `on_setup` before it routes."""
+        from ..findings import Finding, FindingCause as C
+        return [Finding(C.SETUP_NET_HALO, dict(f)) for f in self.net_halo_facts]
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -145,6 +161,8 @@ class RouteReport:
             head += "  islands: " + ", ".join("%s %d -> %d apart" % (n, a, b) for n, (a, b) in self.islands.items())
         if self.islands_missing:
             head += "  island nets not on the board: " + ", ".join(self.islands_missing)
+        if self.net_halos:
+            head += "  halos: " + ", ".join("%s %g mm" % kv for kv in sorted(self.net_halos.items()))
         if self.pair_layers:
             head += "  pairs on their own layers: " + "; ".join("%s %s" % (k, ", ".join(v)) for k, v in sorted(self.pair_layers.items()))
         if self.widths:
@@ -163,7 +181,9 @@ class RouteReport:
                 "pours_kept": list(self.pours_kept),
                 "islands": {n: list(v) for n, v in self.islands.items()}, "islands_missing": list(self.islands_missing),
                 "resumed": list(self.resumed), "record": self.record, "widths": list(self.widths),
-                "pair_layers": dict(self.pair_layers), "pair_layers_refused": list(self.pair_layers_refused)}
+                "pair_layers": dict(self.pair_layers), "pair_layers_refused": list(self.pair_layers_refused),
+                "net_halos": dict(self.net_halos), "net_halos_missing": list(self.net_halos_missing),
+                "net_halo_trapped": list(self.net_halo_trapped)}
 
 
 def plane_nets_of(pcb) -> set:
@@ -455,9 +475,11 @@ def read_pairs(log: str) -> Pairs:
 
 
 def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float = 0.0, width: float = 0.0,
-                 iterations: int | None = None, probe: int | None = None) -> list:
+                 iterations: int | None = None, probe: int | None = None, clearances: Path | None = None) -> list:
     """The pair router's command line. Width and gap are the net class's
-    unless set (route_diff.py reads them from the board's project)."""
+    unless set (route_diff.py reads them from the board's project).
+    `clearances`: the per-net clearance map placemat wrote (net_halos.py);
+    None leaves the router to build its own from the net classes."""
     cmd = _launch(python, script) + [str(pcb_in), str(pcb_out), "--nets"] + list(patterns) + \
           ["--layers"] + list(layers) + ["--escalation", "off", "--keep-input-copper"] + _tuning()
     if gap:
@@ -468,6 +490,8 @@ def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float =
         cmd += ["--max-iterations", str(iterations)]
     if probe is not None:
         cmd += ["--max-probe-iterations", str(probe)]
+    if clearances is not None:
+        cmd += ["--net-clearances", str(clearances)]
     return cmd + list(active_settings().route_pair_router_args)
 
 
@@ -566,7 +590,7 @@ def rename_nets(pcb_path: str, names: dict) -> None:
 
 
 def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, cfg, iterations, probe,
-                timeout, env, events=None, pair_layers: dict | None = None) -> tuple:
+                timeout, env, events=None, pair_layers: dict | None = None, halos: dict | None = None) -> tuple:
     """Route the differential pairs `pairs` ([(p_net, n_net), ...], from
     pairs.board_pair_list): returns (the board to route the rest on,
     Pairs). No pairs comes back as it went in.
@@ -582,7 +606,11 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
     a copy where its nets are renamed to a suffix pair (pairs.pair_aliases),
     whatever they were called, and renamed back in the routed board before
     anything reads it. A net the board does not have is a ValueError,
-    before the router runs."""
+    before the router runs.
+
+    With `halos` ({net: mm}, the ones on the board) every call is given the
+    clearance map net_halos.py writes, built on the renamed copy under its
+    names."""
     from ..pairs import pair_aliases
     if not pairs:
         return pcb_in, Pairs()
@@ -600,6 +628,12 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
     shutil.copy(pcb_in, router_in)
     _copy_project(pcb_in, router_in)
     rename_nets(str(router_in), renames)
+    clearances = None
+    if halos:
+        from . import net_halos
+        clearances = net_halos.write_map(rpy, router_dir_path, router_in, sorted(renames.get(n, n) for n in names),
+                                         {renames.get(n, n): h for n, h in halos.items()}, work / net_halos.PAIR_MAP_NAME,
+                                         net_halos.ceiling(active_settings().route_pair_router_args, env), env)
     back = {new: old for old, new in renames.items()}
     back.update({base: "%s/%s" % (p, n) for base, p, n in aliases})
     if events is not None:
@@ -611,7 +645,7 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
     for i, (group_layers, group) in enumerate(groups):
         out = pcb_out if i == len(groups) - 1 else work / ("pairs_%d.kicad_pcb" % i)
         cmd = pair_command(rpy, script, board, out, tuple(alias_of[pair] for pair in group), group_layers,
-                           cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe)
+                           cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe, clearances)
         log = work / ("pairs.log" if i == 0 else "pairs_%d.log" % i)
         with open(log, "w") as f:
             f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
@@ -695,13 +729,15 @@ def _copy_project(src_pcb, dst_pcb) -> None:
 
 def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
                    iterations: int | None = None, probe: int | None = None, quick: bool = False,
-                   nets=None, widths=None) -> list:
+                   nets=None, widths=None, clearances: Path | None = None) -> list:
     """The router's command line. The search budget is the router's own
     default unless the caller sets one. A quick route is a measurement, so
     it runs one routing round (route_one_round.py). The router's own
     smoothing runs unless `[route] smoothing` is off. `nets` routes those
     alone rather than every net but the excluded; `widths` ({net: mm}) sets
-    their track widths over the netclass's."""
+    their track widths over the netclass's. `clearances` is the per-net
+    clearance map placemat wrote (net_halos.py); None leaves the router to
+    build its own from the net classes."""
     chosen = sorted(nets) if nets is not None else ["*"] + ["!" + n for n in sorted(excluded)]
     cmd = _launch(python, script) + [str(pcb_in), str(pcb_out), "--nets"] + chosen + \
           ["--layers"] + list(layers) + ["--escalation", "off"] + \
@@ -715,11 +751,13 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
         cmd += ["--max-iterations", str(iterations)]
     if probe is not None:
         cmd += ["--max-probe-iterations", str(probe)]
+    if clearances is not None:
+        cmd += ["--net-clearances", str(clearances)]
     return cmd + list(active_settings().route_router_args) + ["--json-out", str(summary)]
 
 
 def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands: dict, layers, iterations, probe,
-                  quick, timeout, env, share: float) -> tuple:
+                  quick, timeout, env, share: float, clearances: Path | None = None) -> tuple:
     """Route the island nets, one at a time: each its pads and pieces its
     pours leave apart (the router counts a net's own zones as joining what
     they reach), the other island nets' partial pours kept clear of it as
@@ -735,7 +773,7 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
         guard_partial_pours(str(inp), set(islands) - {net}, layers, share)
         width = islands[net]
         cmd = router_command(rpy, script, inp, out, set(), layers, work / ("islands%d_summary.json" % i), iterations,
-                             probe, quick, nets=[net], widths={net: width} if width else None)
+                             probe, quick, nets=[net], widths={net: width} if width else None, clearances=clearances)
         log = work / ("islands%d.log" % i)
         with open(log, "w") as f:
             f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
@@ -759,10 +797,16 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
 
 def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: str | None = None,
                 quick: bool = False, iterations: int | None = None, probe: int | None = None,
-                timeout: int | None = None, islands: dict | None = None, resume: bool = True, board_info: dict | None = None) -> RouteReport:
+                timeout: int | None = None, islands: dict | None = None, resume: bool = True, board_info: dict | None = None,
+                on_setup=None) -> RouteReport:
     """Route a copy of `pcb`. `islands` ({net: width or None}; None: the
     `[route] islands` setting) are routed first and alone, then left to their
     pours with the excluded nets.
+
+    With `[route] net_halos` on the board, every router call is given the
+    clearance map net_halos.py writes, and the pads a halo traps are judged
+    first: the `setup.net_halo` findings go to `on_setup` (a callable taking
+    the list) before the first router call, and stay on the report.
 
     The stages - the differential pairs, the islands, the main pass - are
     kept in `work` as they finish (route_state.py): a route that is stopped
@@ -838,6 +882,15 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     (work / route_progress.BOARD).write_text(json.dumps(board_doc, separators=(",", ":")))
     if rep is not None:                                  # the board the copper is drawn on, for a route with no placement in front of it
         rep.send({"ev": "route_board", "doc": board_doc})
+    from . import net_halos
+    halos, halos_missing = net_halos.on_board(cfg.route_net_halos or {}, geometry.nets)
+    trapped = net_halos.trapped(geometry, halos, judged={n for n in open0 if open0[n]}) if halos else []
+    halo_findings = net_halos.findings(trapped, halos_missing, cfg.route_net_halos or {},
+                                       net_halos.routed_with_others(halos, open0, islands))
+    if halo_findings and on_setup is not None:
+        on_setup(halo_findings)
+    clearances = net_halos.write_map(rpy, router_dir_path, pcb_in, geometry.nets, halos, work / net_halos.MAP_NAME,
+                                     net_halos.ceiling(cfg.route_router_args, env), env) if halos else None
     pair_layers, pair_layers_refused = {}, []
     if cfg.route_pair_layers:
         pair_layers, pair_layers_refused = resolve_pair_layers(
@@ -859,7 +912,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         try:
             board, pairs = route_pairs(rpy, router_dir_path, pcb_in, work, pair_list, layers, cfg,
                                        iterations, probe, timeout, dict(env, **rev.env("pairs")), events=rev,
-                                       pair_layers=pair_layers)
+                                       pair_layers=pair_layers, halos=halos)
             whole = True
         finally:
             if pair_list:
@@ -885,7 +938,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             whole = False
             try:
                 board, island_breaches = route_islands(rpy, script, router_dir_path, board, work, islands, layers, iterations,
-                                                       probe, quick, timeout, dict(env, **rev.env("islands")), cfg.route_plane_share)
+                                                       probe, quick, timeout, dict(env, **rev.env("islands")), cfg.route_plane_share,
+                                                       clearances)
                 whole = True
             finally:
                 rev.end("islands", complete=whole)
@@ -905,7 +959,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         state.drop_from("main")
         t1 = time.time()
         cmd = router_command(rpy, script, board, raw_out, excluded | pairs.routed_nets, layers, summary,
-                             iterations, probe, quick)
+                             iterations, probe, quick, clearances=clearances)
         rev.begin("main")
         rc = None
         try:
@@ -947,6 +1001,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.widths = read_widths(work, islands)
     report.pair_layers = {"%s/%s" % pair: list(ls) for pair, ls in pair_layers.items()}
     report.pair_layers_refused = pair_layers_refused
+    report.net_halos, report.net_halos_missing, report.net_halo_trapped = halos, halos_missing, trapped
+    report.net_halo_facts = [dict(f.facts) for f in halo_findings]
     if rep is not None:
         for r in report.widths:
             rep.send(dict(r, ev="route_width"))

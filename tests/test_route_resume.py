@@ -169,7 +169,7 @@ def test_pairs_are_a_stage_too(rig, monkeypatch):
     from placemat.kicad.route import Pairs
     calls = []
 
-    def stand_in(rpy, router_dir_path, pcb_in, work, pairs, layers, cfg, iterations, probe, timeout, env, events=None, pair_layers=None):
+    def stand_in(rpy, router_dir_path, pcb_in, work, pairs, layers, cfg, iterations, probe, timeout, env, events=None, pair_layers=None, halos=None):
         calls.append(1)
         out = work / "pairs.kicad_pcb"
         shutil.copy(pcb_in, out)
