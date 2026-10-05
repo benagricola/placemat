@@ -274,3 +274,17 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
                     "turns": _turns(inp, r.poses), "map": _map(inp, g.refs, g.present_assign, r.assign),
                     "searched": g.searched, "of": g.of, "budget_out": g.budget_out})
     return out
+
+
+def longer_advice(board, plan, advice: dict, budget_ms: int) -> tuple:
+    """(better advice or None, the group's summary or None): the advice's parts studied again with `budget_ms` for each
+    part (`placemat apply <id> --search`). The advice is better when its total is below the one it was given with.
+    A study that raises raises here: the caller says so."""
+    from dataclasses import replace
+    s = replace(board.settings, pins_budget_ms=budget_ms)
+    g = next((g for g in plan_summary(board, plan, refs=advice["refs"], settings=s)
+              if set(g["refs"]) == set(advice["refs"])), None)
+    if g is None or g["best"]["total"] >= advice["total"] - 1e-9:
+        return None, g
+    return {"refs": g["refs"], "rotation": g["rotation"], "turns": g["turns"], "map": g["map"],
+            "total": g["best"]["total"], "weighted": g["best"]["weighted"]}, g

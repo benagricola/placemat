@@ -1261,6 +1261,8 @@ def _search(args, board_dir, script, entry) -> int:
     from . import channel, probe, suggestions as sg
     from .settings import load
     s = next(x for x in entry["suggestions"] if x.id == args.id)
+    if s.how == "advice" and s.lever == "pins":
+        return _pin_search(args, board_dir, script, s)
     if s.how != "searched":
         console.say("apply", "%s is not a searched suggestion: apply it without --search" % s.id, level="fail")
         return 2
@@ -1309,6 +1311,45 @@ def _search(args, board_dir, script, entry) -> int:
             console.say("probe", "%s: %s (placemat apply %s)" % (found.id, found.text, found.id))
     channel.finish()
     return 0 if result.state in ("found", "limit", "budget", "none") else 1
+
+
+def _pin_search(args, board_dir, script, s) -> int:
+    """`placemat apply <id> --search` on a pin map suggestion: its parts studied again, on the board as the last run placed
+    it, with `pins.probe_budget_ms` for each part. A better map is kept as `<id>.1` beside the plan's suggestions. A study
+    that raises exits 1 with its error, and keeps nothing."""
+    from . import pinmap, suggestions as sg
+    from .previewer import resolve_like_last_run
+    from .settings import load
+    cfg = load(board_dir, script=script)
+    try:
+        board, plan, _, _ = resolve_like_last_run(script)
+    except ValueError as e:
+        console.say("probe", str(e), level="fail")
+        return 1
+    try:
+        better, g = pinmap.longer_advice(board, plan, s.advice, cfg.pins_probe_budget_ms)
+    except Exception as e:
+        error = {"type": type(e).__name__, "message": str(e)}
+        if args.json:
+            console.data(json.dumps({"id": s.id, "study": None, "found": None, "error": error}, indent=2))
+        else:
+            console.say("probe", "%s: the study failed with %s: %s" % (s.id, error["type"], error["message"]), level="fail")
+        return 1
+    found = None if better is None else sg.Suggestion(sg.pin_advice_text(better) + ", found by a longer study", (), 1,
+                                                      "pins", s.id + ".1", how="advice", advice=better)
+    if found is not None:
+        sg.add_found(board_dir, script, found)
+    if args.json:
+        console.data(json.dumps({"id": s.id, "study": g, "found": found.to_json() if found is not None else None}, indent=2))
+        return 0 if g is not None else 1
+    if g is None:
+        console.say("probe", "%s: %s is no longer studied on this board" % (s.id, " and ".join(s.advice["refs"])), level="fail")
+        return 1
+    console.say("probe", "%s: %d of %d poses at %d ms a part: best total %.1f, the suggestion's %.1f" % (
+        s.id, g["searched"], g["of"], cfg.pins_probe_budget_ms, g["best"]["total"], s.advice["total"]))
+    console.say("probe", "%s: %s; it is advice for the capture, which placemat apply does not write" % (found.id, found.text)
+                if found is not None else "no better map than %s's" % s.id)
+    return 0
 
 
 def _report_applied(args, done, verb) -> int:
