@@ -204,3 +204,11 @@ def test_the_skill_names_the_board_side():
     for reason in ("version", "base", "offset", "member", "net", "text"):
         assert "| `%s` |" % reason in API, reason
     assert all(ord(c) < 128 for c in SKILL + API), "ASCII only"
+
+
+def test_the_migration_entry_names_what_a_board_must_know():
+    text = (_SKILLS / "references/migration.md").read_text().split("## To ")[0]
+    for word in ("arrangements=", "arrangement", "re-run", "default", "place.arrangements"):
+        assert word in text, word
+    section = API.split("**Arrangements.**", 1)[1].split("**How a searched item finds its place.**")[0]
+    assert "plan.json" in section and "place.arrangement_margin" in API
