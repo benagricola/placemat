@@ -1328,7 +1328,9 @@ def _pin_search(args, board_dir, script, s) -> int:
         return 1
     try:
         better, g = pinmap.longer_advice(board, plan, s.advice, cfg.pins_probe_budget_ms)
-    except Exception as e:
+    except BaseException as e:                          # a stop or an interrupt still ends the command
+        if not pinmap.contained(e):
+            raise
         error = {"type": type(e).__name__, "message": str(e)}
         if args.json:
             console.data(json.dumps({"id": s.id, "study": None, "found": None, "error": error}, indent=2))

@@ -242,7 +242,14 @@ def plan_findings(board, plan) -> list:
     return found
 
 
-def study_failed(plan, error: Exception) -> Finding:
+def contained(error: BaseException) -> bool:
+    """Whether a study that raised `error` is a failed study rather than the end of the run: any Exception, and a panic
+    in the native core. pyo3 raises a panic as pyo3_runtime.PanicException, a BaseException that no module exposes to
+    import, so it is known by its type's name. A stop (stop.Stopped) and an interrupt are not contained."""
+    return isinstance(error, Exception) or type(error).__name__ == "PanicException"
+
+
+def study_failed(plan, error: BaseException) -> Finding:
     """A study that raised: its error kept on the plan's record (`plan.pin_study`) and said as a `setup.pins` finding.
     The study is advice; the resolve it ends stands without it."""
     plan.pin_study = {"error": {"type": type(error).__name__, "message": str(error)}}

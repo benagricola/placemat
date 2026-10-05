@@ -95,3 +95,16 @@ def test_a_group_no_longer_studied_gives_a_reason_in_json(tmp_path, monkeypatch,
     assert cli._pin_search(SimpleNamespace(json=True), tmp_path, script, s) == 1
     out = json.loads(capsys.readouterr().out)
     assert out["study"] is None and out["found"] is None and out["reason"] == "not_studied"
+
+
+def test_a_panic_in_the_native_core_exits_non_zero_with_its_error(tmp_path, monkeypatch, capsys):
+    from tests.test_pinmap_wiring import PanicException
+    b = board()
+    plan = b.resolve()
+    script, s = kept_worse(tmp_path, monkeypatch, b, plan)
+
+    def panics(*a, **k):
+        raise PanicException("index out of bounds")
+    monkeypatch.setattr("placemat.pinmap.plan_summary", panics)
+    assert cli._pin_search(SimpleNamespace(json=True), tmp_path, script, s) == 1
+    assert json.loads(capsys.readouterr().out)["error"] == {"type": "PanicException", "message": "index out of bounds"}

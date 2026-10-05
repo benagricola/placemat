@@ -5249,7 +5249,9 @@ class Board:
         from . import pinmap
         try:
             plan.findings.extend(pinmap.plan_findings(self, plan))
-        except Exception as e:                          # a stop (BaseException) still ends the resolve
+        except BaseException as e:                      # a stop or an interrupt still ends the resolve
+            if not pinmap.contained(e):
+                raise
             plan.findings.append(pinmap.study_failed(plan, e))
 
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):

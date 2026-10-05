@@ -148,3 +148,17 @@ def test_a_stop_during_the_study_stops_the_explore_with_its_report_and_accepts_n
     r = e.value.explore
     assert e.value.stage == "explore" and r["stopped"] == "SIGTERM" and r["best_seed"] == 2 and not r["accepted"]
     assert "pin_maps" not in r and not lock.path_for(script).exists()
+
+
+def test_a_panic_in_the_native_core_on_a_variant_is_said_on_its_line(monkeypatch):
+    from tests.test_pinmap_wiring import PanicException
+    b = board()
+    real = pinmap.plan_summary
+
+    def summary(board_, plan, refs=None, settings=None):
+        if board_ is not b:
+            raise PanicException("index out of bounds")
+        return real(board_, plan, refs, settings)
+    monkeypatch.setattr(pinmap, "plan_summary", summary)
+    maps = _pin_maps(board, [], frozenset({"r1"}), RESULT, {0: (b, b.resolve())})
+    assert maps[1]["error"] == {"type": "PanicException", "message": "index out of bounds"}

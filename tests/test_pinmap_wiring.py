@@ -116,3 +116,24 @@ def test_a_kept_study_that_is_not_an_object_is_not_reused(tmp_path):
         b.pin_study_cache.write_text(text)
         plan = b.resolve()
         assert plan.pin_study["reused"] is False and len(remaps(plan)) == 1
+
+
+class PanicException(BaseException):
+    """What pyo3 raises for a panic in the native core (pyo3_runtime.PanicException): a BaseException."""
+
+
+def test_a_panic_in_the_native_core_is_a_failed_study_and_an_interrupt_still_ends_the_resolve(monkeypatch):
+    import pytest
+    from placemat import pinmap
+
+    def panics(*a, **k):
+        raise PanicException("index out of bounds")
+    monkeypatch.setattr(pinmap, "study_findings", panics)
+    plan = board().resolve()
+    assert plan.pin_study == {"error": {"type": "PanicException", "message": "index out of bounds"}}
+
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(pinmap, "study_findings", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        board().resolve()

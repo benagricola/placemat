@@ -693,7 +693,9 @@ def _pin_maps(make_board, entries, focus, result, have: dict) -> list:
                     board = make_board()
                     plan = board.resolve(explore=Explore(seed, frozenset(focus)), lock=entries)
                 entry["groups"] = pinmap.plan_summary(board, plan)
-            except Exception as e:                      # a stop (BaseException) still ends the explore
+            except BaseException as e:                  # a stop or an interrupt still ends the explore
+                if not pinmap.contained(e):
+                    raise
                 entry["error"] = {"type": type(e).__name__, "message": str(e)}
             out.append(entry)
     return out
