@@ -211,4 +211,4 @@ def test_the_migration_entry_names_what_a_board_must_know():
     for word in ("arrangements=", "arrangement", "re-run", "default", "place.arrangements"):
         assert word in text, word
     section = API.split("**Arrangements.**", 1)[1].split("**How a searched item finds its place.**")[0]
-    assert "plan.json" in section and "place.arrangement_margin" in API
+    assert "plan.json" in section and "place.arrangement_margin" in section

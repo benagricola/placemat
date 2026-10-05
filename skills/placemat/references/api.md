@@ -1240,7 +1240,8 @@ default stands. When none has a legal spot the note lists those tried.
 
 **A firm cell.** A cell held at its decided spot (`Location`, `Beside` and
 the other decided forms) tries its arrangements there: each legal one is
-scored once at that spot and compared as above, the margin included. When
+scored once at that spot and compared as above, the margin included
+(not asked of a cell whose `arrangements=` names its choices). When
 none is legal the cell stands in its default, where its declaration puts
 it, or in the first arrangement `arrangements=` names when the default was
 not tried, and `fixed.part` is raised as for any firm collision; its
@@ -3996,8 +3997,10 @@ resolve from scratch, as the strip shown during a resolve has "Again".
 **Run.** The Run button runs `placemat run <script> --no-render` (the design
 checks, KiCad's DRC and the score, a run record in `.placemat/runs`) and shows
 its progress and result; the Compare panel lists the runs recorded for the
-script, from here or elsewhere, each with its score (a module run's detail lists its arrangements: offered, refused, or the same as another), DRC by kind, failed checks
-and findings by severity, and compares the newest resolve with one: items moved (a cell's changed arrangement included),
+script, from here or elsewhere, each with its score (a module run's detail
+lists its arrangements: offered, refused, or the same as another), DRC by
+kind, failed checks and findings by severity, and compares the newest
+resolve with one: items moved (a cell's changed arrangement included),
 added and removed, findings gained and lost, the score. A run records no copper
 or links, so those are not compared. `GET /runs`, `GET /runcompare?run=ID` and
 `POST /run` and `POST /resolve` (`{"fresh": bool}`: cancel and resolve again now, with no replay of unchanged steps when fresh; token required) serve them; `run_started`, `run_line` and `run_done`
