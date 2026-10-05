@@ -236,7 +236,7 @@ def test_the_skill_and_api_document_units_exclusions_and_dead_options():
         assert word in section, word
     for word in ("arrangement.option_dead", "board.exclude", "board.unit", "needs no action"):
         assert word in SKILL, word
-    unreleased = (_SKILLS / "references/migration.md").read_text().split("## Unreleased", 1)[1].split("\n## To ", 1)[0]
+    unreleased = (_SKILLS / "references/migration.md").read_text().split("## To 0.99.17", 1)[1].split("\n## To ", 1)[0]
     for word in ("board.unit", "board.exclude", "arrangement.option_dead", "Re-run", "TypeError", "board.arrangement",
                  "place.arrangements_max", "16", "only="):
         assert word in unreleased, word
