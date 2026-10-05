@@ -5309,7 +5309,7 @@ class Board:
         need = self.geometry.silk_clearance
         decided = {s.item for s in plan.steps if s.kind == "cell" and s.placement is not None
                    and s.freedom is not None and s.freedom.decided}
-        if not decided:
+        if not decided or (self._shape is None and self._outline is None):     # no outline yet: no edge to measure to
             return
         placed = {s.item for s in plan.steps if s.kind == "cell" and s.placement is not None}
 
