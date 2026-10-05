@@ -52,3 +52,12 @@ Read from the transcript:
 - it declared a mirrored group where one is natural;
 - it stayed within `place.arrangements_max` for the module, the product counted;
 - an extent-setting member with no alternative has its reason in the run notes, not only in a script comment.
+
+## Results
+
+- usbtcpc: run 1 failed (no alternatives, members in a block); the skill's
+  Arrangements wording changed. Run 2 met the transcript criteria and every
+  machine criterion but one: the bypass c_vdd has a stated `# extent:`
+  reason instead of an alternative. Transcript: `transcripts/usbtcpc.md`.
+- usb5v: not run. Fresh agents on it were stopped by an API error before
+  their first step, three times.
