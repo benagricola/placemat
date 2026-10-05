@@ -1,0 +1,176 @@
+"""The native pin map core is the Python twin: on the same arrays, seeds and counted clock, the same present score, the
+same best map per pose with the same tallies to the last bit, the same airwires, the same clock outcome."""
+import itertools
+import json
+import random
+import struct
+from types import SimpleNamespace
+
+import pytest
+
+from placemat.pinmap_core import native_core, params_of, poses_of, problem_of, search
+from tests.conftest import needs_kicad
+from tests.pinmap_boards import input_of, point_pad, quad, reversed_four, settings
+
+pytestmark = pytest.mark.skipif(native_core() is None, reason="the native module is not in use or predates the pin map core")
+
+
+def bits(x):
+    """`x` with every float as its bit pattern, so a comparison is to the last bit."""
+    if isinstance(x, float):
+        return ("f", struct.pack("<d", x).hex())
+    if isinstance(x, (list, tuple)):
+        return [bits(v) for v in x]
+    return x
+
+
+def both(inp, refs, s, step_ms=0.0):
+    pb = problem_of(inp, s.pins_exit_mm)
+    at = {p.ref: i for i, p in enumerate(inp.parts)}
+    lists = [[(at[r], t, f) for t, f in poses_of(inp.part(r), s)] for r in refs]
+    combos = [list(c) for c in itertools.islice(itertools.product(*lists), s.pins_joint_combinations)]
+    pr = params_of(s, refs, step_ms)
+    norm = lambda x: bits(json.loads(json.dumps(x)))
+    return (norm(search(pb, [at[r] for r in refs], combos, pr, native=True)),
+            norm(search(pb, [at[r] for r in refs], combos, pr, native=False)))
+
+
+def constrained():
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D", "E", ""]},
+                    {"Pm.PinPool": "1-6", "Pm.PinFixed": "1", "Pm.PinAllow": "B:2,3", "Pm.PinDeny": "C:3",
+                     "Pm.PinGroup": "bus:4-5"}, may_flip=True)
+    for i, net in enumerate("ABCDE"):
+        pads += point_pad("T%d" % i, net, 20, 12.5 - i)
+    return input_of(pads, {"U1": u1})[0]
+
+
+def joint():
+    p1, a = quad("U1", 10, 10, {"W": ["A", "B", "C"]}, {"Pm.PinPool": "1-3"}, may_flip=True)
+    p2, b = quad("U2", 20, 10, {"E": ["A", "B", "C"]}, {"Pm.PinPool": "1-3"})
+    return input_of(p1 + p2, {"U1": a, "U2": b})[0]
+
+
+def held():
+    """A bus on 2-4 whose middle net a rule holds on 3: its present place is a window, first."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "D", "E", "F", "", ""]},
+                    {"Pm.PinPool": "1-6", "Pm.PinAllow": "E:3", "Pm.PinGroup": "bus:2-4"}, may_flip=True)
+    for i, net in enumerate("ADEF"):
+        pads += point_pad("T%d" % i, net, 20, 7.5 + i)
+    return input_of(pads, {"U1": u1})[0]
+
+
+def gapped():
+    """A bus on 1-3 with no net on 2, and a net whose target faces pin 2."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["D", "", "F", "S"], "S": ["G", ""]},
+                    {"Pm.PinPool": "1-6", "Pm.PinGroup": "bus:1-3"}, may_flip=True)
+    pads += point_pad("T1", "D", 20, 8.5) + point_pad("T2", "S", 14, 9.5) + point_pad("T3", "F", 20, 10.5)
+    pads += point_pad("T4", "G", 4, 18) + point_pad("Q1", "X", 16, 4) + point_pad("Q2", "X", 17, 20)
+    return input_of(pads, {"U1": u1})[0]
+
+
+def grounded():
+    """A plane net on a studied pin, re-posed with the part, and a net crossing it at a half turn."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B"], "N": ["GND", ""]}, {"Pm.PinPool": "1-2, 4"}, may_flip=True)
+    pads += point_pad("T1", "A", -20, 10) + point_pad("T2", "B", 30, 4) + point_pad("J1", "GND", -20, 9)
+    pads += point_pad("J2", "GND", 12, -5)
+    return input_of(pads, {"U1": u1}, quiet={"GND"})[0]
+
+
+def beside():
+    """Two parts, each with its own nets: U1's group counts only its own. A board airwire crosses both."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B"]}, {"Pm.PinPool": "1-2"}, may_flip=True)
+    pads += point_pad("T1", "A", 20, 10.5) + point_pad("T2", "B", 20, 9.5)
+    p2, u2 = quad("U2", 30, 10, {"W": ["C", "D", "E", "F"]}, {"Pm.PinPool": "1-4"})
+    for i, n in enumerate("CDEF"):
+        p2 += point_pad("S%d" % i, n, 15, 8.5 + i)
+    p2 += point_pad("Q1", "X", 18, 2) + point_pad("Q2", "X", 24, 18)
+    return input_of(pads + p2, {"U1": u1, "U2": u2})[0]
+
+
+CASES = {"four": (lambda: input_of(*reversed_four())[0], ("U1",)), "constrained": (constrained, ("U1",)),
+         "joint": (joint, ("U1", "U2")), "held": (held, ("U1",)), "gapped": (gapped, ("U1",)),
+         "grounded": (grounded, ("U1",)), "beside": (beside, ("U1",))}
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize("turns", [(0.0, 90.0, 180.0, 270.0), tuple(range(0, 360, 45))])
+def test_the_native_core_is_the_twin_on_fixed_cases(case, turns):
+    make, refs = CASES[case]
+    native, python = both(make(), refs, settings(pins_rotations=turns, pins_faces=True, score_crossing_plane=0.7))
+    assert native == python
+
+
+@pytest.mark.parametrize("case", ["held", "gapped"])
+def test_the_native_core_is_the_twin_at_the_present_pose_with_a_short_search(case):
+    # one seed of 100 moves: the present map, or the first, is kept as the best where the search finds worse
+    make, refs = CASES[case]
+    for key in range(6):
+        s = settings(pins_rotations=(0.0,), pins_anneal_moves=100, pins_seeds=1)
+        inp = make()
+        pb = problem_of(inp, s.pins_exit_mm)
+        pr = dict(params_of(s, refs), seed_key=key * 0x9E3779B97F4A7C15 % (1 << 64))
+        combos = [[(0, 0.0, False)]]
+        native = bits(json.loads(json.dumps(search(pb, [0], combos, pr, native=True))))
+        assert native == bits(json.loads(json.dumps(search(pb, [0], combos, pr, native=False))))
+
+
+def test_the_native_core_is_the_twin_when_the_clock_runs_out():
+    # out in combo 2, so a twin clock that ticks at another rate stops elsewhere
+    s = settings(pins_budget_ms=150, pins_anneal_moves=500, pins_seeds=4)
+    native, python = both(input_of(*reversed_four())[0], ("U1",), s, step_ms=1.0)
+    assert native == python and native[3] is True and len(native[2]) == 3
+
+
+def random_board(seed):
+    rng = random.Random(seed)
+    nets = ["N%d" % i for i in range(rng.randint(3, 9))]
+    sides = {s: [] for s in "ESWN"}
+    for net in nets + [""] * rng.randint(1, 4):
+        sides[rng.choice("ESWN")].append(net)
+    quiet = rng.random() < 0.6
+    if quiet:
+        sides["N"].append("GND")
+    n = sum(len(v) for v in sides.values())
+    fields = {"Pm.PinPool": "1-%d" % (n - 1 if quiet else n)}
+    if rng.random() < 0.6:
+        start = rng.randint(1, n - 3 if quiet else n - 2)
+        fields["Pm.PinGroup"] = "bus:%d-%d" % (start, start + 2)
+    pads, u1 = quad("U1", 15, 15, sides, fields, body=rng.choice((4.0, 6.0)), rotation=rng.choice((0.0, 0.0, 90.0, 45.0)),
+                    may_flip=True)
+    for i, net in enumerate(nets):
+        for k in range(rng.randint(1, 3)):
+            pads += point_pad("T%d_%d" % (i, k), net, round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+    if quiet:
+        for k in range(rng.randint(1, 3)):
+            pads += point_pad("G%d" % k, "GND", round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+    for k in range(rng.randint(0, 6)):
+        pads += point_pad("Q%da" % k, "X%d" % k, round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+        pads += point_pad("Q%db" % k, "X%d" % k, round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+    netclasses = {"N2": SimpleNamespace(tuning_profile="z50")} if rng.random() < 0.5 else {}
+    partners = {"N0": "N1", "N1": "N0"} if rng.random() < 0.5 else {}
+    return input_of(pads, {"U1": u1}, quiet={"GND"} if quiet else frozenset(), partners=partners, netclasses=netclasses)[0]
+
+
+@pytest.mark.parametrize("seed", range(16))
+def test_the_native_core_is_the_twin_on_random_boards(seed):
+    inp = random_board(seed)
+    if inp is None:
+        pytest.skip("no net may move")
+    s = settings(pins_anneal_moves=150, pins_seeds=2, pins_rotations=(0.0, 90.0, 135.0, 270.0), pins_faces=True,
+                 score_crossing_plane=0.5)
+    native, python = both(inp, ("U1",), s)
+    assert native == python
+
+
+@needs_kicad
+def test_the_native_core_is_the_twin_on_the_reference_board():
+    import importlib.util
+    from pathlib import Path
+    bench = Path(__file__).resolve().parents[1] / "fixtures" / "pinmap_bench.py"
+    spec = importlib.util.spec_from_file_location("pinmap_bench", bench)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    case = mod.cases()[0]
+    native, python = both(mod.input_of(case), tuple(case["parts"]), settings(pins_seeds=1, pins_anneal_moves=100,
+                                                                            pins_faces=True))
+    assert native == python and native[2]

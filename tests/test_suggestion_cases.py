@@ -99,6 +99,12 @@ FACTS = {
     C.SETUP_UNDECLARED: {"item": "c9", "anchor": "c1"}, C.SETUP_LANE_UNUSED: ESCAPE, C.SETUP_ACCEPT: {"key": "keep-out SIG"},
     C.VIAS_DROPPED: {"item": "c4"}, C.SETUP_STEP_BUDGET: {"item": "c4", "judged": 5000, "share": 0.1, "limit": 5000},
     C.SETUP_NATIVE: {"reason": "version_mismatch", "placemat_version": "0.97.2", "native_version": "0.97.1", "detail": ""},
+    C.PINS_REMAP: {"ref": "U1", "refs": ["U1"], "best": 1, "present": {"total": 9.0},
+                   "rotations": [{"total": 6.0, "weighted": 2.0, "turns": [{"ref": "U1", "turn_deg": 0.0, "rotation_deg": 0.0,
+                                                                             "face": "front", "flip": False}],
+                                  "map": [{"ref": "U1", "net": "A", "from": {"pin": "1", "name": ""}, "to": {"pin": "2", "name": ""}}]},
+                                 {"total": 4.0, "weighted": 0.0, "turns": [{"ref": "U1", "turn_deg": 90.0, "rotation_deg": 90.0,
+                                                                             "face": "front", "flip": False}], "map": []}]},
 }
 
 
@@ -111,6 +117,8 @@ def test_every_keyword_a_builder_sets_is_a_parameter_of_the_board_method_it_edit
     seen = 0
     for case, builder in sg.CASES.items():
         for pick in builder(FACTS[case], settings) or ():
+            if pick.how == "advice":                                # no edit: a change made outside the script
+                continue
             e = pick.edits[0]
             if e.op in ("set_kwarg", "edit_list", "remove_kwarg") and e.target is not None and e.args.get("into"):
                 assert e.args["name"] in {"coordinates", "gap", "across", "at"}, (case, e.args)       # a keyword of an inner call
@@ -148,6 +156,8 @@ def test_a_number_a_builder_writes_into_a_call_is_a_named_constant():
     never stands alone as a keyword's value."""
     for case, builder in sg.CASES.items():
         for pick in builder(FACTS[case], Settings()) or ():
+            if pick.how == "advice":                                # no edit: a change made outside the script
+                continue
             e = pick.edits[0]
             if e.op != "set_kwarg" or pick.how == "searched":       # a searched figure has no value until a probe finds it
                 continue

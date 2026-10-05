@@ -372,3 +372,14 @@ def test_a_note_error_outside_the_encode_is_not_read_as_the_setting(tmp_path, mo
     monkeypatch.setattr(arrangement_note, "op_to_json", no_form)
     with pytest.raises(arrangement_note.NoteError, match="no note form"):
         finish(b, prepared, default, got[:1], tmp_path)
+
+
+def test_an_arrangement_other_than_the_default_is_resolved_without_the_pin_map_study(monkeypatch):
+    b = board()
+    seen = []
+    monkeypatch.setattr(type(b), "_report_pin_maps", lambda self, plan: seen.append(self.pin_study))
+    prepared = run.begin(b)
+    run.resolve_spec(prepared, prepared.specs[0])
+    run.resolve_spec(prepared, prepared.specs[1])
+    assert b.pin_study is True
+    assert seen == [True]                                              # the default is studied, the arrangement is not

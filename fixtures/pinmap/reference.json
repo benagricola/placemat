@@ -1,0 +1,18 @@
+{
+  "about": "The pin map study's reference boards: each a laid board of these fixtures, the plane nets its layout declares, and the pin annotations its MCU is given here for the study. The annotations live only in this file: no capture carries them.",
+  "cases": [
+    {
+      "name": "mcu-qfn56",
+      "board": "fairing/core/layout/layout.kicad_pcb",
+      "quiet": ["GND", "V3V3"],
+      "parts": {
+        "U21": {
+          "Pm.PinPool": "6-19, 21-24, 27, 38-45, 47-48",
+          "Pm.PinFixed": "8",
+          "Pm.PinAllow": "INA_ALERT:6-15",
+          "Pm.PinGroup": "i2c:13-14"
+        }
+      }
+    }
+  ]
+}

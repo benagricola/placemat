@@ -4198,6 +4198,7 @@ comparison.
 **What a run says.** `explore  N variants in S s over K focused items:
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
+With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part, or `, with cell logic turned to 90 degrees` when it turns the part's cell), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking.
 Without `--accept` nothing persists.
 
 **Stopping.** `run`, `preview` and `route` stop on SIGTERM, SIGHUP or Ctrl-C
@@ -4411,6 +4412,147 @@ moves), a line in the Notes list (who, how long ago, where; it opens when there 
 place), and a toast when one arrives. Dismiss hides a note in that browser only; a note is hidden after `[studio] note_age_s` seconds
 (0 keeps it). Nothing here changes the layout: a note is read by the user, and the script stays the only way a position is set.
 
+## The pin map study
+
+For each part whose capture gives it a `Pm.PinPool` (capture.md, "Pin pools"),
+placemat measures how much a better assignment of its movable nets to its pool
+pins would save, at its present rotation and at each turn in `pins.rotations`
+(and on the other face with `pins.faces`, where its declaration allows
+`Face.EITHER`). It runs once at the end of every run and preview, on the
+finished board, never inside the placement search, and writes nothing.
+
+**The score.** Built on placemat's ratsnest. The nets come from the pads alone:
+a laid board's tracks, vias and pours are ignored, so a routed net keeps its
+airwire and a first preview and a laid board are scored alike. A pin's airwire
+leaves along its outward normal to a point `pins.exit_mm` past the courtyard's
+box, then goes the shorter way round the box to its target; a net of several
+pads is scored on its minimum spanning tree; a net through a two-pad series
+part (a reference whose leading letters are one of `pins.follow_prefixes`, any case) is followed
+to the far net (`pins.follow_series`). A crossing counts 1, `pins.pair_weight`
+for a differential pair's airwire, `pins.impedance_weight` for a net whose
+class names a KiCad tuning profile, `score.crossing_plane` for a plane's or a
+free net's. The total is the weighted crossings against every other airwire and
+among the studied nets, plus `pins.length_weight` times the airwire length in
+mm, plus `pins.bend_weight` times the summed bend in degrees (the angle between
+a pin's outward normal and the bearing to its target).
+
+**The search.** Per pose, a first map by minimum-cost matching (each group of
+`Pm.PinGroup` on the run of pins nearest its targets), then `pins.seeds` local
+searches of `pins.anneal_moves` moves and swaps under annealing. The score and
+the search run in the native module when it is in use, else in its Python
+twin, which gives the same maps (`setup.native` says when it is not). Parts
+whose movable nets meet are studied together, their poses in combination, at
+most `pins.joint_combinations`. Seeds are fixed, so a board gives the same map twice. A study stops at `pins.budget_ms` a part
+with the best found; the finding's facts say so (`budget_out`, with `searched`
+of `of` poses). The budget matters on the Python fallback, which may stop
+before it has searched every pose. What a study reads is digested and kept in
+`.placemat/pinmap/<script>.json`; a run or a preview of an unchanged board
+reuses it. A study that raises leaves the run standing: the error is on
+`metrics.pin_study` and a `setup.pins` warning with code `study_failed` (facts
+`type`, `message`) says so, and the run has no pin map findings.
+
+**A part in a cell.** A studied part that is a member of a cell (a stamped
+module instance) is studied as the cell: each pose turns the whole cell about
+its centre, every member's pads with it, and the body its airwires go round is
+the cell's envelope (its members' courtyards and its own copper), not the
+part's courtyard. The turn is theoretical: the cell stays where it is and
+nothing is checked for collisions or DRC; only the airwires are scored. The
+part's pins leave by the envelope side their own courtyard side faces; the other
+members' pads leave by the side they are nearest; a net with every pad inside
+the cell and none that may move turns with the cell and is not studied. A pool
+net whose other end is a series member of the cell (a reference with a prefix
+of `pins.follow_prefixes`, two pads) is followed to that member's far net
+outside the cell; any other pool net whose other ends are all members of the
+cell keeps its pin (`held`, `why` `in_cell`; listed in `in_cell` as `{net,
+ref}`): the module's own run places it. A cell is studied on the face it
+stands on (`pins.faces` does not flip it). A turn is taken one of two ways: the
+cell turned on the board to `cell_rotation_deg` (each stamp turns on its own),
+or the cell kept and its module re-laid with the part at `module_rotation_deg`
+in the module's frame, the cell's other parts placed round it, which re-lays
+every stamp of the module; either one means the next run re-places the board.
+For a cell standing in an arrangement other than the module's own layout
+(`arrangement`), the rotation is in that arrangement's frame and the text says
+so. The map is a change to the module's capture, which every stamp of the
+module shares; when the stamps' best maps or their best `module_rotation_deg`
+differ, each stamp's finding says so and lists them (`stamp_maps`). The
+module's name comes from the generator's `layout.log` beside the board (the
+folder of the module's layout path); without one it is null, and the stamps are
+the cells whose members match. A cell with a member not placed is studied with
+the members it has; the missing member is listed in `unplaced_ends`. A group
+whose first part is loose and another in a cell carries that part's cell
+facts.
+
+**Parts not placed yet.** A studied net whose far end is on a part not placed
+has nothing to pull it: it keeps its pin (`held`, `why` `unplaced`) and is
+listed in `unplaced_ends`, as is a pad not placed on the far net a series part
+takes a studied net on to (with `via` and `far`). When fewer than
+`pins.placed_share_min` of a group's movable nets have a placed far end, the study gives no map or turn: the
+`pins.remap` notice says how many ends are missing and that the study waits on
+placement (`withheld`), with no suggestion.
+
+**The record.** `run.json`'s `metrics.pin_study` is `{seconds, reused, groups,
+parts}`, or `{error: {type, message}}` when the study raised. `reused` is true
+when the last study's findings were kept, and `groups` is then null. Run and
+preview print it as `pins  3 parts in 2 groups (0.41 s)`, `pins  3 parts, the
+last study reused (0.02 s)` or `pins  the study failed with <type>: <message>`.
+
+**`setup.pins`.** A warning, facts `ref`, `key`, `entry`, `code`, `name`
+(and `held_net`, `held_pin`), by `code`:
+
+| `code` | meaning |
+|---|---|
+| `no_pin`, `no_names` | an entry names a pin the part does not have, or names it by name where no pin names were read; the study runs without the entry |
+| `no_net` | an entry names a net no pin of the part carries; the study runs without the entry |
+| `unreadable` | a `Pm.PinAllow`, `Pm.PinDeny` or `Pm.PinGroup` entry is not `name:pins` |
+| `not_in_pool`, `two_groups` | a group's pin is outside the pool or fixed, or already in an earlier group; the study runs without the group |
+| `no_legal_pin`, `no_legal_map` | the constraints leave a net no pin (`held_net` and `held_pin` name the net holding its only pin); the part is not studied |
+| `present_breaks` | the net `name` stands on pin `pin`, against its own `rule` (`Pm.PinAllow` or `Pm.PinDeny`). Raised whether or not a remap is reported: the capture breaks its own rule |
+| `study_failed` | the study raised; `type` and `message` |
+
+**The finding.** `pins.remap`, a notice, when the best pose saves at least
+`pins.gain_min` of the present total. Its sentence names what each pose saves
+against the present map in the plainest term the pose wins on: weighted
+crossings, else mm of airwire, else degrees of turning; and what it gives up on
+weighted crossings or airwire to win: "U1: a pin map with 8 fewer weighted
+crossings exists at its present rotation; at 90 degrees, 11 fewer weighted
+crossings and 3.2 mm more airwire". A study that ran out of budget before a
+first map says so instead. Facts: `ref`, `refs`, `at`, `present` (the present
+map's score), `rotations` (the best map at each pose, the present pose first:
+`total`, `against`, `among` as crossing counts, `weighted`, `length_mm`,
+`bend_deg`, `turns` with `ref`, `turn_deg`, `rotation_deg`, `face` and `flip`,
+`map` as `ref`, `net`, `from` and `to` each `{pin, name}`, `routed`, `paths`
+and `breaks`), `best` (the index of the best pose), `routed` (the best pose's
+moved nets with copper on the board now: a remap means routing them again),
+`before` (the airwires now), `held` (nets a constraint keeps, with `why` set to
+`fixed`, `allow`, `unplaced` or `in_cell`), `unplaced_ends` (each studied
+net's pad on a part not placed, as `{net, ref}`, with `via` and `far` when it is
+on a series part's far net, and net `""` for a cell member not placed that
+carries none), `in_cell` (`{net, ref}`), `present_breaks`, `searched`, `of`,
+`budget_out`, `first_map` (false when the budget ran out before a first map)
+and `budget_ms`. A part in a cell adds `cell`, `module` (null when the board
+does not name it), `stamps` and `arrangement`, and the best pose's
+`cell_rotation_deg` and `module_rotation_deg`; each of its `turns` carries the
+same six, and `stamp_maps` (`cell`, `ref`, `moves` as `{from, to}` pin
+numbers, `module_rotation_deg`, by cell) when its module's stamps have
+different best maps or module rotations. A study withheld for want
+of placed ends has `withheld` (`placed`, `of`, `share_min`), `present` null and
+no `rotations`.
+
+**The suggestion** is advice (`how: "advice"`, lever `pins`, no edit): the best
+map with the turn to declare when another pose wins (for a part in a cell, both
+ways to take it), and the best at the present pose. `placemat apply <id>` refuses it: make the map in the `.zen` and
+the turn in the script. In the studio an advice suggestion has only Try, which
+draws the airwires before (dashed) and after (solid) and lists the map; it
+resolves and writes nothing.
+
+`placemat apply <id> --search` on a pins suggestion studies its parts again, on
+the board as the last run placed it, with `pins.probe_budget_ms` a part. A
+better map is kept as `<id>.1`, as advice, and `--json` gives `{id, study,
+found}`. When the study raises, the command exits 1 with the error (`--json`:
+`error` `{type, message}`, `study` and `found` null). When the parts are no
+longer studied on the board, it exits 1, and `--json` carries `reason:
+"not_studied"`.
+
 ## Findings and severities
 
 A finding is one sentence saying what a resolve could not do as declared, with a `kind` (what sort of thing
@@ -4460,7 +4602,7 @@ its kind.
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
-| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`) | warning | the script is incomplete or wrong |
+| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`, a pin annotation the pin map study runs without or a present map that breaks its own rule: `setup.pins`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `setup` (`setup.net_halo`: a pad of another net inside a `[route] net_halos` halo whose own copper ends inside it, a halo net with open connections that the main pass routes, a key that names no net) | warning | the router cannot lead the pad out; the whole pass is spaced at the halo; the entry is not used |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
@@ -4468,6 +4610,7 @@ its kind.
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
 | `needs` | notice | an if-needed fab option would have cleared a spot; the item's `unplaced` finding is the fault |
+| `pins` (`pins.remap`) | notice | the pin map study found an assignment of a part's nets to its pool pins that saves at least `pins.gain_min` of the present total, or it waits on placement (`pins.placed_share_min`); nothing is changed |
 
 `setup.native` (warning) is on every run, preview and explore where the native module is not in use, so the placement ran in pure Python:
 the same results, 5-10x slower on a large board. Facts: `reason` (`version_mismatch`, `not_installed`, `import_error`),
@@ -4613,6 +4756,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `escape.via_unneeded` | the pin taken out of the escape's `vias=`; or, for a `board.via`, the call removed (not offered where the via is assigned to a name) |
 | `setup.accept` | the `board.accept(...)` removed |
 | `vias.dropped` | none |
+| `pins.remap` | advice, not an edit (`how: "advice"`, lever `pins`): the best map with the turn to declare when another pose wins, then the best map at the present pose when that saves anything; `advice` carries `refs`, `rotation` (the index into the finding's `rotations`), `turns`, `map`, `total` and `weighted` |
 
 A suggestion's number is a figure the finding measured, or one derived from such a figure and said so in the constant's
 comment; a lever with no measurement behind it (a wider radius, a finer step) is not offered.
@@ -4845,6 +4989,25 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.stall_seconds` | `0.0` | seconds | end an explore this many seconds after its last improvement; 0 is off |
 | `explore.stop_hard_clear` | `false` | bool | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | `100000` | count | finished variants an explore's checkpoint records; past it a resume tries those again |
+| `pins.exit_mm` | `0.5` | mm | the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn |
+| `pins.follow_series` | `true` | bool | the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection |
+| `pins.pair_weight` | `5.0` | weight | the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1) |
+| `pins.impedance_weight` | `3.0` | weight | the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance |
+| `pins.length_weight` | `0.25` | weight | the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing) |
+| `pins.bend_weight` | `0.005` | weight | the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target |
+| `pins.follow_prefixes` | `["R", "L", "FB"]` | list | the pin map study follows a net on through a two-pad series part only when its reference's leading letters, in any case, equal one of these: a resistor, an inductor, a ferrite bead by default; RT1 is not followed for R, nor a two-pin connector |
+| `pins.rotations` | `[0.0, 90.0, 180.0, 270.0]` | degrees | the turns from where a part stands that the pin map study tries besides its present one; add 45, 135, 225 and 315 for the diagonals |
+| `pins.seeds` | `1` | count | local searches of the pin map study per pose, each with its own fixed random stream |
+| `pins.anneal_moves` | `100` | count | moves each local search of the pin map study tries |
+| `pins.anneal_start` | `1.0` | weight | the pin map study's annealing temperature at its first move, in weighted crossings: a move that costs this much is taken about one time in three (0: only moves that gain) |
+| `pins.anneal_end` | `0.02` | weight | the pin map study's annealing temperature at its last move |
+| `pins.budget_ms` | `100` | ms | the pin map study's time for each studied part: it stops there with the best map found and says so |
+| `pins.joint_combinations` | `64` | count | the most pose combinations the pin map study searches for parts it studies together, their present poses first |
+| `pins.faces` | `false` | bool | the pin map study also turns a part on the other face where its declaration lets it stand there (`face=Face.EITHER`) |
+| `pins.gain_min` | `0.05` | share | the share of the present total a better pin map must save for a `pins.remap` finding |
+| `pins.placed_share_min` | `0.8` | share | the share of a studied group's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement |
+| `pins.explore_top` | `3` | count | the best variants of an explore, by run score, the pin map study runs on (0: none) |
+| `pins.probe_budget_ms` | `5000` | ms | the pin map study's time for each part when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
 | `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream` |
 | `route.quick` | `true` | bool | one routing round rather than the router's full run |

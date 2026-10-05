@@ -7,13 +7,16 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **Units with options, and exclusions.** `board.unit(name, Part(...), Part(...), why=)` declares parts that move as one
+  unit, and `board.alternative(unit, option, Alt(...), ...)` gives it each option (`unit.option`).
+  `board.exclude(choice, choice, ..., why=)` leaves out every combination holding all the choices; `run.json`'s
+  `arrangements` lists each with its `why`. `arrangement.option_dead` (warning) names an option refused in every
+  combination that holds it.
+
 ### Changed
 
-- **A bypass capacitor's alternative is a turn at its pin.** The skill no longer offers another side of the IC for a
-  bypass capacitor. A module gives each bypass capacitor a turn that keeps its pad at the pin, or a `# fixed: <part>
-  <reason>` line when no turn fits between its neighbours; a turn that fits only when a neighbour moves is a unit
-  (`board.unit`) of the two. Scripts need no change; a module laid out under 0.99.15 may want a bypass alternative
-  dropped or turned.
 - **A module's units combine with its other items and units.** `board.arrangement(name, Alt(...), ...)` is now a unit
   with one option. It keeps its id, its name, so a lock, an `arrangements=` or an `only=` written under 0.99.15 names the
   same arrangement; a module run now also lays it out combined with every item and unit that moves none of its parts
@@ -30,13 +33,33 @@ section for each hand-written pattern a newer form replaces.
   `arrangement.option_dead`. A board needs no change; a module offers the new combinations once it is run again (a
   re-run writes them into its fragment).
 
+## To 0.99.16
+
 ### New
 
-- **Units with options, and exclusions.** `board.unit(name, Part(...), Part(...), why=)` declares parts that move as one
-  unit, and `board.alternative(unit, option, Alt(...), ...)` gives it each option (`unit.option`).
-  `board.exclude(choice, choice, ..., why=)` leaves out every combination holding all the choices; `run.json`'s
-  `arrangements` lists each with its `why`. `arrangement.option_dead` (warning) names an option refused in every
-  combination that holds it.
+- **The pin map study.** A part whose capture annotates its general-purpose pins (`Pm.PinPool`, with `Pm.PinFixed`,
+  `Pm.PinAllow`, `Pm.PinDeny` and `Pm.PinGroup`; capture.md, "Pin pools") is studied at the end of every run and
+  preview: placemat looks for an assignment of its nets to those pins, at its present rotation and at each turn in
+  `[pins] rotations`, that saves weighted ratsnest crossings, airwire and turning, and says so in a `pins.remap` notice
+  whose suggestion carries the map and the turn. Nothing is written: the map is a capture change and the turn a layout
+  one. An annotation entry naming a pin or a net the part lacks, and a net that stands on a pin its own `Pm.PinAllow` or
+  `Pm.PinDeny` bars, are `setup.pins` warnings; so is a study that raised, which leaves the run standing with its error
+  on `metrics.pin_study`. An explore studies its best `[pins] explore_top` variants and reports the maps beside their
+  scores; `placemat apply <id> --search` studies a suggestion again with `[pins] probe_budget_ms` a part. Settings:
+  `[pins]`. The study runs in the native module when it is in use (`uv pip install -e ".[native]"` after updating), else
+  in Python, with the same results. A part in a cell (a stamped module instance) is studied as its cell: each pose
+  turns the whole cell, and a winning turn is taken by turning the cell on the board or re-laying the module with the
+  part turned in its frame. A net whose far end is on a part not placed keeps its pin, and below `[pins]
+  placed_share_min` of placed ends the study gives no map and says it waits on placement. Nothing in a layout script
+  changes; the first run after updating replays no steps (the findings' schemas changed).
+
+### Changed
+
+- **A bypass capacitor's alternative is a turn at its pin.** The skill no longer offers another side of the IC for a
+  bypass capacitor. A module gives each bypass capacitor a turn that keeps its pad at the pin, or a `# fixed: <part>
+  <reason>` line when no turn fits between its neighbours; a turn that fits only when a neighbour moves is a named
+  group with that neighbour. Scripts need no change; a module laid out under 0.99.15 may want a bypass alternative
+  dropped or turned.
 
 ## To 0.99.15
 

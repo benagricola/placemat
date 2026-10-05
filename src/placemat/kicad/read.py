@@ -631,10 +631,12 @@ def _netclasses(board) -> tuple[dict[str, NetClass], float]:
         nc = ni.GetNetClassSlow()
         parts = [p for p in str(nc.GetName()).split(",") if p and p != "Default"]
         pair = any(p in paired for p in parts)
+        # KiCad 10 names a controlled impedance on a class as its tuning profile; an older pcbnew has none
+        profile = str(nc.GetTuningProfile()) if hasattr(nc, "HasTuningProfile") and nc.HasTuningProfile() else ""
         classes[name] = NetClass(",".join(parts) or "Default", mm(nc.GetTrackWidth()),
                                  mm(nc.GetClearance()), mm(nc.GetViaDiameter()), mm(nc.GetViaDrill()),
                                  (mm(nc.GetDiffPairWidth()) or None) if pair else None,
-                                 (mm(nc.GetDiffPairGap()) or None) if pair else None)
+                                 (mm(nc.GetDiffPairGap()) or None) if pair else None, profile)
     default = mm(board.GetDesignSettings().m_NetSettings.GetDefaultNetclass().GetClearance())
     return classes, default
 

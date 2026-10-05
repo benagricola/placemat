@@ -341,6 +341,7 @@ class NetClass:
     via_drill: float
     diff_pair_width: float | None = None     # a pair's track width, when the class says
     diff_pair_gap: float | None = None       # and its gap
+    tuning_profile: str = ""                 # the KiCad tuning profile the class names: a controlled impedance; "" for none
 
 
 @dataclass(frozen=True)

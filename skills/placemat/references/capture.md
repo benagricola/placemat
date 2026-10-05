@@ -30,6 +30,11 @@ case-insensitively; use these:
 | `Pm.Emits` | on a source: `<kind>:<value><unit>@<r>mm^<falloff>`, several joined by spaces: `magnetic:3.2mT@13.5mm^3 heat:15C@5mm^1` | the layout (a push), exposure |
 | `Pm.EmitsAt` | on a source: `x,y` in mm in the footprint's own frame, or `pad:<number>`; default the footprint's origin | the layout, exposure |
 | `Pm.Limit` | on a sensitive part: `<kind>:<value><unit>`, several joined by spaces: `magnetic:0.5mT heat:5C` | the layout (a push), exposure |
+| `Pm.PinPool` | the general-purpose pins, by pad number or by pin name, ranges as `3-8` or `GPIO1-GPIO10`: `GPIO0-GPIO21, GPIO33-GPIO48` | the pin map study |
+| `Pm.PinFixed` | pins of the pool that keep their net (straps, a crystal, in-package flash): `GPIO0, GPIO3` | the pin map study |
+| `Pm.PinAllow` | `NET:pins; NET:pins`: a net may stand only on these pins (an ADC input on the ADC pins) | the pin map study |
+| `Pm.PinDeny` | `NET:pins; ...`: a net may not stand on these pins | the pin map study |
+| `Pm.PinGroup` | `name:pins; ...`: pins that move as one block, keeping their order | the pin map study |
 | `Pm.SensesAt` | on a sensitive part: `pad:<number>`; default the body centre | the layout, exposure |
 
 `Pm.Height` is read under that exact name. It lets a layout script say the
@@ -96,6 +101,44 @@ Pm.KeepOut: <distance>mm [pads=<net>[,<net>...]] [away=<net>[,<net>...]]; <citat
   is left out of `away=`). The part's own pad against copper of a `pads=` net
   is held to the cited distance or to the gap the package puts between those
   pads, whichever is less.
+
+### Pin pools
+
+A part whose pins are general purpose (an MCU's GPIOs) says which in its
+capture, and placemat studies on every run and preview whether another
+assignment of its nets to those pins would cross less (the pin map study;
+api.md). Each annotation is a datasheet fact, cited in a comment beside it as
+the other `Pm.*` keys are:
+
+    annotations = {
+        "Pm.PinPool": "GPIO0-GPIO21, GPIO33-GPIO48",   # datasheet, pin description table: general-purpose IO
+        "Pm.PinFixed": "GPIO0, GPIO3, GPIO45, GPIO46",  # datasheet, strapping pins
+        "Pm.PinAllow": "VSENSE:GPIO1-GPIO10",           # datasheet, ADC1 channels
+        "Pm.PinGroup": "lcd:GPIO10-GPIO17",             # datasheet, parallel bus: consecutive pins in order
+    },
+
+- Pins are named by pad number or by pin name, as `PadRef` names them; a range
+  is `3-8` or `GPIO1-GPIO10` (a common name and a number, either way round).
+  Pin names need the part's symbol among the board's libraries; without it,
+  name pins by number.
+- `Pm.PinPool` lists the pins a net may move among; a part without one is not
+  studied. A net on a pin outside the pool, or on a `Pm.PinFixed` pin, stays;
+  so does a net on two pins and a plane's net. A pool pin with no net, or a net
+  that reaches nothing else, is free.
+- `Pm.PinAllow` and `Pm.PinDeny` name nets as the capture does; the last part
+  of a net's path matches, as for `Pm.KeepOut`. Entries are separated by `;`.
+- `Pm.PinGroup` pins move as one block to another run of consecutive pins of
+  the pool, in the order the pool lists them, keeping their order.
+- An entry that names a pin the part does not have, or a net it does not
+  carry, is a `setup.pins` finding naming it, and the study runs without that
+  entry. Constraints that leave a net no pin stop the part's study, with a
+  `setup.pins` finding naming the net.
+- A net that stands, as captured, on a pin its own `Pm.PinAllow` or
+  `Pm.PinDeny` bars is a `setup.pins` warning (`present_breaks`): the capture
+  contradicts itself, whether or not the study finds a better map.
+
+placemat never writes the map: it is a capture change, made here, with the
+datasheet table that allows each move named in the comment beside it.
 
 ## Sources and limits
 

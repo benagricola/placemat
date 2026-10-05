@@ -295,6 +295,13 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **The pin map study** (0.99.16): a part with a `Pm.PinPool` is studied at
+  the end of every run and preview for a pin map and turn that save ratsnest
+  crossings, length and bends (`pins.remap`, advice only); a part in a cell
+  turns with its whole cell; native core with a Python twin; explore studies
+  its best variants; `apply --search` studies longer. Also: a bypass
+  capacitor's alternative is a turn at its pin.
+
 - **Module arrangements** (0.99.15): a module declares alternative layouts
   (`board.alternative`, `board.arrangement`, `only=` copper); its run proves
   each and writes the offered ones into the fragment, and a board searches
