@@ -743,7 +743,7 @@ class Occupancy:
                                  claims=s.claims, wire=s.wire))
             else:
                 out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label,
-                                 claims=s.claims, wire=s.wire))
+                                 claims=s.claims, wire=s.wire, **_exact_moved(s, t)))
         return out
 
     def _flipped_layers(self, s: Shape) -> frozenset[CopperLayer]:
@@ -2683,6 +2683,31 @@ def _kicad_of(sh):
         x, y, r = sh.circle
         return ("c", _kc.to_nm(x), _kc.to_nm(y), _kc.to_nm(r))
     return ("p", tuple((_kc.to_nm(x), _kc.to_nm(y)) for x, y in sh.poly))
+
+
+def _exact_moved(s, t) -> dict:
+    """The forms a copper finding measures a shape by (`_kicad_of`: a
+    track's segment, a via's circle, a drawn polygon's outlines, and a
+    track's ends and arc mid point for its name), moved by `t` with its
+    polygon, as Shape fields. Left behind, a finding measures the moved
+    polygon, which a read outline holds a few micrometres outside the
+    copper."""
+    out = {}
+    if s.segment:
+        ax, ay, bx, by, w = s.segment
+        (ax, ay), (bx, by) = t.apply((ax, ay)), t.apply((bx, by))
+        out["segment"] = (ax, ay, bx, by, w)
+    if s.circle:
+        x, y, r = s.circle
+        out["circle"] = t.apply((x, y)) + (r,)
+    if s.drawn:
+        outlines, width, filled = s.drawn
+        out["drawn"] = (tuple(tuple(t.apply(p) for p in o) for o in outlines), width, filled)
+    if s.ends:
+        out["ends"] = tuple(t.apply(p) for p in s.ends)
+    if s.arc:
+        out["arc"] = t.apply(s.arc)
+    return out
 
 
 def _copper_gap(s, o) -> float:
