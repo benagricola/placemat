@@ -3874,6 +3874,7 @@ comparison.
 **What a run says.** `explore  N variants in S s over K focused items:
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
+With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, or `error` when its study raised) sits beside the score and does not change the ranking.
 Without `--accept` nothing persists.
 
 **Stopping.** `run`, `preview` and `route` stop on SIGTERM, SIGHUP or Ctrl-C
@@ -4076,6 +4077,98 @@ moves), a line in the Notes list (who, how long ago, where; it opens when there 
 place), and a toast when one arrives. Dismiss hides a note in that browser only; a note is hidden after `[studio] note_age_s` seconds
 (0 keeps it). Nothing here changes the layout: a note is read by the user, and the script stays the only way a position is set.
 
+## The pin map study
+
+For each part whose capture gives it a `Pm.PinPool` (capture.md, "Pin pools"),
+placemat measures how much a better assignment of its movable nets to its pool
+pins would save, at its present rotation and at each turn in `pins.rotations`
+(and on the other face with `pins.faces`, where its declaration allows
+`Face.EITHER`). It runs once at the end of every run and preview, on the
+finished board, never inside the placement search, and writes nothing.
+
+**The score.** Built on placemat's ratsnest. The nets come from the pads alone:
+a laid board's tracks, vias and pours are ignored, so a routed net keeps its
+airwire and a first preview and a laid board are scored alike. A pin's airwire
+leaves along its outward normal to a point `pins.exit_mm` past the courtyard's
+box, then goes the shorter way round the box to its target; a net of several
+pads is scored on its minimum spanning tree; a net through a two-pad series
+part (a reference starting with a letter in `pins.follow_prefixes`) is followed
+to the far net (`pins.follow_series`). A crossing counts 1, `pins.pair_weight`
+for a differential pair's airwire, `pins.impedance_weight` for a net whose
+class names a KiCad tuning profile, `score.crossing_plane` for a plane's or a
+free net's. The total is the weighted crossings against every other airwire and
+among the studied nets, plus `pins.length_weight` times the airwire length in
+mm, plus `pins.bend_weight` times the summed bend in degrees (the angle between
+a pin's outward normal and the bearing to its target).
+
+**The search.** Per pose, a first map by minimum-cost matching (each group of
+`Pm.PinGroup` on the run of pins nearest its targets), then `pins.seeds` local
+searches of `pins.anneal_moves` moves and swaps under annealing. The score and
+the search run in the native module when it is in use, else in its Python
+twin, which gives the same maps (`setup.native` says when it is not). Parts
+whose movable nets meet are studied together, their poses in combination, at
+most `pins.joint_combinations`. Seeds are fixed and ties go to the lower pin,
+so a board gives the same map twice. A study stops at `pins.budget_ms` a part
+with the best found; the finding's facts say so (`budget_out`, with `searched`
+of `of` poses). The budget matters on the Python fallback, which may stop
+before it has searched every pose. What a study reads is digested and kept in
+`.placemat/pinmap/<script>.json`; a run or a preview of an unchanged board
+reuses it. A study that raises leaves the run standing: the error is on
+`metrics.pin_study` and a `setup.pins` warning with code `study_failed` (facts
+`type`, `message`) says so, and the run has no pin map findings.
+
+**The record.** `run.json`'s `metrics.pin_study` is `{seconds, reused, groups,
+parts}`, or `{error: {type, message}}` when the study raised. `reused` is true
+when the last study's findings were kept, and `groups` is then null. Run and
+preview print it as `pins  3 parts in 2 groups (0.41 s)`, `pins  3 parts, the
+last study reused (0.02 s)` or `pins  the study failed with <type>: <message>`.
+
+**`setup.pins`.** A warning, facts `ref`, `key`, `entry`, `code`, `name`
+(and `held_net`, `held_pin`), by `code`:
+
+| `code` | meaning |
+|---|---|
+| `no_pin`, `no_names` | an entry names a pin the part does not have, or names it by name where no pin names were read; the study runs without the entry |
+| `no_net` | an entry names a net no pin of the part carries; the study runs without the entry |
+| `unreadable` | a `Pm.PinAllow`, `Pm.PinDeny` or `Pm.PinGroup` entry is not `name:pins` |
+| `not_in_pool`, `two_groups` | a group's pin is outside the pool or fixed, or already in an earlier group; the study runs without the group |
+| `no_legal_pin`, `no_legal_map` | the constraints leave a net no pin (`held_net` and `held_pin` name the net holding its only pin); the part is not studied |
+| `present_breaks` | the net `name` stands on pin `pin`, against its own `rule` (`Pm.PinAllow` or `Pm.PinDeny`). Raised whether or not a remap is reported: the capture breaks its own rule |
+| `study_failed` | the study raised; `type` and `message` |
+
+**The finding.** `pins.remap`, a notice, when the best pose saves at least
+`pins.gain_min` of the present total. Its sentence names what each pose saves
+against the present map in the plainest term the pose wins on: weighted
+crossings, else mm of airwire, else degrees of turning; and what it gives up on
+weighted crossings or airwire to win: "U1: a pin map with 8 fewer weighted
+crossings exists at its present rotation; at 90 degrees, 11 fewer weighted
+crossings and 3.2 mm more airwire". A study that ran out of budget before a
+first map says so instead. Facts: `ref`, `refs`, `at`, `present` (the present
+map's score), `rotations` (the best map at each pose, the present pose first:
+`total`, `against`, `among` as crossing counts, `weighted`, `length_mm`,
+`bend_deg`, `turns` with `ref`, `turn_deg`, `rotation_deg`, `face` and `flip`,
+`map` as `ref`, `net`, `from` and `to` each `{pin, name}`, `routed`, `paths`
+and `breaks`), `best` (the index of the best pose), `routed` (the best pose's
+moved nets with copper on the board now: a remap means routing them again),
+`before` (the airwires now), `held` (nets a constraint keeps, with `why` set to
+`fixed` or `allow`), `present_breaks`, `searched`, `of`, `budget_out`,
+`first_map` (false when the budget ran out before a first map) and `budget_ms`.
+
+**The suggestion** is advice (`how: "advice"`, lever `pins`, no edit): the best
+map with the turn to declare when another pose wins, and the best at the
+present pose. `placemat apply <id>` refuses it: make the map in the `.zen` and
+the turn in the script. In the studio an advice suggestion has only Try, which
+draws the airwires before (dashed) and after (solid) and lists the map; it
+resolves and writes nothing.
+
+`placemat apply <id> --search` on a pins suggestion studies its parts again, on
+the board as the last run placed it, with `pins.probe_budget_ms` a part. A
+better map is kept as `<id>.1`, as advice, and `--json` gives `{id, study,
+found}`. When the study raises, the command exits 1 with the error (`--json`:
+`error` `{type, message}`, `study` and `found` null). When the parts are no
+longer studied on the board, it exits 1, and `--json` carries `reason:
+"not_studied"`.
+
 ## Findings and severities
 
 A finding is one sentence saying what a resolve could not do as declared, with a `kind` (what sort of thing
@@ -4121,7 +4214,7 @@ its kind.
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
-| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`) | warning | the script is incomplete or wrong |
+| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`, a pin annotation the pin map study runs without or a present map that breaks its own rule: `setup.pins`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `setup` (`setup.net_halo`: a pad of another net inside a `[route] net_halos` halo whose own copper ends inside it, a halo net with open connections that the main pass routes, a key that names no net) | warning | the router cannot lead the pad out; the whole pass is spaced at the halo; the entry is not used |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
@@ -4129,6 +4222,7 @@ its kind.
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
 | `needs` | notice | an if-needed fab option would have cleared a spot; the item's `unplaced` finding is the fault |
+| `pins` (`pins.remap`) | notice | the pin map study found an assignment of a part's nets to its pool pins that saves at least `pins.gain_min` of the present total; nothing is changed |
 
 `setup.native` (warning) is on every run, preview and explore where the native module is not in use, so the placement ran in pure Python:
 the same results, 5-10x slower on a large board. Facts: `reason` (`version_mismatch`, `not_installed`, `import_error`),

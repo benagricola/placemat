@@ -731,6 +731,11 @@ Then:
   wiring: each net, the old and new pin, and the datasheet table or page that
   allows it, so firmware's pin map can follow;
 - swap a group as a group (all of an SPI's or a bus's pins, or none);
+- a part whose capture gives it a `Pm.PinPool` is studied on every run and
+  preview: a `pins.remap` notice gives a map (and a turn) that saves
+  crossings; take it as a candidate, checked against the datasheet as above
+  (capture.md, "Pin pools"). A `setup.pins` warning names a pin annotation
+  to fix.
 - preview again and keep the swap only where crossings or lengths improve
   and no new finding appears.
 

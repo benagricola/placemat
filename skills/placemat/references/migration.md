@@ -17,6 +17,18 @@ section for each hand-written pattern a newer form replaces.
   past the halo in its module (a longer `run=` on its `board.escape`), or give the node a smaller halo. Draw the halo
   net whole in its module, or name it in `[route] islands`: routed with the other nets, it would space them all at its
   halo, which is a `setup.net_halo` finding too.
+- **The pin map study.** A part whose capture annotates its general-purpose pins (`Pm.PinPool`, with `Pm.PinFixed`,
+  `Pm.PinAllow`, `Pm.PinDeny` and `Pm.PinGroup`; capture.md, "Pin pools") is studied at the end of every run and
+  preview: placemat looks for an assignment of its nets to those pins, at its present rotation and at each turn in
+  `[pins] rotations`, that saves weighted ratsnest crossings, airwire and turning, and says so in a `pins.remap` notice
+  whose suggestion carries the map and the turn. Nothing is written: the map is a capture change and the turn a layout
+  one. An annotation entry naming a pin or a net the part lacks, and a net that stands on a pin its own `Pm.PinAllow` or
+  `Pm.PinDeny` bars, are `setup.pins` warnings; so is a study that raised, which leaves the run standing with its error
+  on `metrics.pin_study`. An explore studies its best `[pins] explore_top` variants and reports the maps beside their
+  scores; `placemat apply <id> --search` studies a suggestion again with `[pins] probe_budget_ms` a part. Settings:
+  `[pins]`. The study runs in the native module when it is in use (`uv pip install -e ".[native]"` after updating), else
+  in Python, with the same results. Nothing in a layout script changes; the first run after updating replays no steps
+  (the findings' schemas changed).
 
 ## To 0.99.11
 
