@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A named cutout on a disc with a bore reads its own edge.** `board.cutout(name).edge(side=)` and the
+  `label.cell_edge` warning took the loop of the bore (or of the previous hole) for a cutout fixed at declaration, and
+  the web check against the other holes compared the cutout with itself. A script that placed against such a cutout
+  sat against the bore; it now sits against the cutout. A disc without a bore and the other board shapes were not
+  affected.
+
 ## To 0.99.18
 
 ### New
