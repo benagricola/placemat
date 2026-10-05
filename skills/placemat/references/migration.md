@@ -5,6 +5,18 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A route no longer leaves the router's dangling tails.** The router left short segments (0.01-0.11 mm) whose ends
+  both land on one other item of their net, the net's copper polygon or another track's body, and partial copper
+  ending in nothing; KiCad reports them as `track_dangling` and `via_dangling`. The routed copy now has the router's
+  dangling tracks and vias deleted, repeatedly, and the collinear pieces that leaves merged, as KiCad's cleanup does.
+  Copper the router was given (declared tracks, escape stubs, a module's or cell's own copper) is not touched. The
+  route's console line says how many went, and `route.json` and the route record carry them per net under
+  `dangling_removed`. Scripts need no change; a route's closure is unchanged, and adopted routes lose the tails.
+
 ## To 0.99.16
 
 ### New

@@ -173,7 +173,7 @@ def write_record(work, board: dict, stages: list, report: dict, complete: bool =
     """`route_record.json`: the board a route was made on, each stage's events in laid order and the report's result. Written whole. `complete`:
     the route ran to its end; a record written when a stage ends, for a route that may be stopped, is not."""
     path = Path(work) / RECORD
-    doc = {"version": 1, "complete": bool(complete), "board": board, "stages": stages, "report": {k: report[k] for k in ("closure", "closure_clean", "open_before", "open_after", "open_nets", "shorted", "seconds", "quick", "resumed", "widths") if k in report}}
+    doc = {"version": 1, "complete": bool(complete), "board": board, "stages": stages, "report": {k: report[k] for k in ("closure", "closure_clean", "open_before", "open_after", "open_nets", "shorted", "seconds", "quick", "resumed", "widths", "dangling_removed") if k in report}}
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(doc, separators=(",", ":"), default=str))
     os.replace(tmp, path)

@@ -3720,6 +3720,14 @@ in the console, `run.json` and `placemat route --json` (`finding_details`). A ne
 width is not measured per length and has `length_mm` null. Net-class and pair widths are reported only where the router records a
 narrowing of them: its pair router writes no summary.
 
+The routed copy is cleaned as KiCad's own cleanup cleans a board, over the copper the router added only: its dangling tracks and vias
+are deleted, again until none is left, and then the collinear pieces the deletions leave meeting are merged. KiCad counts a segment whose
+ends both land on one other item of its net (a copper polygon, another track's body) as connected at one end only, so the router's
+short tails there are dangling. Copper the router was given is never touched. Removal is kept only when the board's unconnected count
+does not rise; otherwise the copy is left as the router wrote it and the summary line says what was kept. `route.json` and the route
+record have `dangling_removed`: `tracks`, `vias` and `merged` per net, `refused`, and `unconnected` (before, after). The summary line
+says `dangling router copper removed: N track(s), M via(s) on K net(s)`.
+
 A footprint's own copper graphics (a net-tie's winding, a copper logo) are
 guarded in the router's input copy: a rule area over each, on its own layer,
 forbidding tracks and vias (a route through one is a keepout breach naming
