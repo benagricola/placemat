@@ -749,6 +749,7 @@ what blocks it. Only the plain search prices lanes (a part on an edge or a
 rim, or one inside a cell or block, is laid out where it lands). A lane the
 run never draws (no track begins with it) is a setup finding: its room was
 kept for nothing.
+In a module (a frame not drawn), a via on a lane, from `vias=` or a `board.via` on the lane's copper, whose lane reaches the frame's edge on its own layer without it is an `escape.via_unneeded` finding: a module names a pin in `vias=` only when its lane is walled in within the module.
 
 What the handles are:
 
@@ -4322,6 +4323,7 @@ its kind.
 | `escape_closed` | warning | the way toward what a pad joins is closed; other ways out remain |
 | `escape_crossed` | warning | two escapes cross near a pin row; the router can usually separate them |
 | `escape_lane` | warning | a declared lane is blocked by another net's pad, hole or copper |
+| `escape` (`escape.via_unneeded`) | warning | a module run only (a frame not drawn): a via on an escape lane, from `vias=` or a `board.via` on the lane's copper, whose lane reaches the frame's edge on its own layer without it; the lane can end there as a stub for the parent board's router, and the via takes room near the part. A plane or free net's via is not one. Facts: `ref`, `part`, `pin`, `net`, `layers`, `via` (`kind`: `lane` or `via`, `at`, `key`: the `board.via`'s copper key) |
 | `pair_crossed` | warning | a differential pair's halves cross |
 | `link_over` | warning | a link longer than its limit |
 | `label` | warning | a label with a part on it, or with no spot |
@@ -4486,6 +4488,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `setup.native` | none: rebuild or reinstall the native module (`uv pip install -e ".[native]"`); results are right, only slower |
 | `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
 | `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
+| `escape.via_unneeded` | the pin taken out of the escape's `vias=`; or, for a `board.via`, the call removed (not offered where the via is assigned to a name) |
 | `setup.accept` | the `board.accept(...)` removed |
 | `vias.dropped` | none |
 

@@ -90,6 +90,14 @@ SAMPLES = [
     (C.ESCAPE_WALLED, {"variant": "walled", "ref": "U1", "pin": "3", "net": "A", "by": []}, "U1 pin 3 (A): walled off by copper"),
     (C.ESCAPE_LANE, {"ref": "U1", "pin": "3", "net": "A", "blocked": [Refusal(Code.LANE_PAD, pin="4", gap_mm=0.1, need_mm=0.2).to_json()]},
      "U1 pin 3 (A): its lane is blocked by pad 4 of its own part, 0.100 mm off (needs 0.200)"),
+    (C.ESCAPE_VIA_UNNEEDED, {"ref": "U1", "part": "u1", "pin": "3", "net": "A", "layers": ["F.Cu"],
+                             "via": {"kind": "lane", "at": [1.0, 2.0], "key": ""}},
+     "U1 pin 3 (A): the via at (1.00, 2.00) that ends its lane is not needed: the lane reaches the frame's edge on F.Cu "
+     "without it, so it can end there for the parent board's router; take the pin out of the escape's vias="),
+    (C.ESCAPE_VIA_UNNEEDED, {"ref": "U1", "part": "u1", "pin": "3", "net": "A", "layers": ["F.Cu"],
+                             "via": {"kind": "via", "at": [1.0, 2.0], "key": "via A#4"}},
+     "U1 pin 3 (A): via A at (1.00, 2.00), on its lane's copper, is not needed: the lane reaches the frame's edge on F.Cu "
+     "without it, so it can end there for the parent board's router; remove the board.via"),
     (C.PAIR_CROSSED, {"pos": "P", "neg": "N", "parts": ["R1", "R2"]},
      "P/N cross between R1, R2: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"),
     (C.SETUP_UNDECLARED, {"item": "c1", "ref": "C1"}, "c1 (C1): no declaration places it, so it stays where the generator put it"),

@@ -285,6 +285,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **A past explore opens on its best variant** (0.99.13): the studio draws a
+  finished explore's best variant in 2D and 3D; new explores keep the best
+  variant's plan and name their run. Test processes that crash on purpose
+  are no longer dumpable, so no desktop crash dialog.
+
 - **Net halos while routing** (0.99.12): `route.net_halos` keeps other
   nets' new copper a distance from a net (a switch node); placemat writes the
   router's clearance map with the class map merged in, and a pad trapped

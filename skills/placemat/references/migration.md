@@ -11,6 +11,28 @@ section for each hand-written pattern a newer form replaces.
 
 - **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name, Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
 
+### New
+
+- **A via on a lane that has a way out is a finding in a module.** A module puts a via on an escape lane only when the
+  lane is walled in within the module. In a module run (a frame not drawn), a via on a lane, from `vias=` on
+  `board.escape` or a `board.via` on the lane's copper, whose lane reaches the frame's edge on its own layer without it
+  is an `escape.via_unneeded` warning naming the net, the pin and the via. Take the pin out of `vias=`, or remove the
+  `board.via` (and the track point that ends on it), so the lane ends as a stub and the parent board's router decides
+  whether it changes layer. A plane or free net's via is not one. Placements do not change.
+
+## To 0.99.13
+
+### Fixed
+
+- **A past explore opens on its best variant's board in the studio.** Picking a finished explore in the Runs list, or a
+  past run that explored, left the board empty unless the studio was resolving the same script. It now opens on the
+  board of the best variant, in 2D and 3D, and the header names the explore, its best variant and its score; the
+  variant stepper draws the other variants from there. An explore now keeps the best variant's plan beside its record
+  (`.placemat/views/explore/best/`), and the record names its run. For an explore recorded before this, the studio
+  takes the board its run wrote: when the run kept the best (`--accept`), that board as it is, or its build when it
+  routed; otherwise the focused items moved to where the best put them, the other items as the run placed them, and
+  the header says so. Nothing in a layout script changes.
+
 ## To 0.99.12
 
 ### New

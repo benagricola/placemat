@@ -627,7 +627,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if ck is not None and result.best_seed and (_checkpoint.read_best(ck.dir) or {}).get("seed") == result.best_seed:
         report["accept"] = accept_command(script, result.best_seed)
     if result.best_seed == 0:
-        _write_record(script, result, report)
+        _write_record(script, result, report, run_id, (base, current))
         if ck is not None and not keep_state:
             ck.finish()
         return report, entries
@@ -645,7 +645,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["accepted"] = True
         if ck is not None:
             ck.best_path.unlink(missing_ok=True)         # taken: it would not match the lock now
-    _write_record(script, result, report)
+    _write_record(script, result, report, run_id, (board, best))
     if ck is not None and not keep_state:
         ck.finish()
     return report, entries
@@ -709,10 +709,12 @@ def accept_best(script, directory, release: str = "", run_id: str = "", seed: in
         doc["seed"], doc["baseline"], doc["score"], len(new), "" if len(new) == 1 else "s", path.name)
 
 
-def _write_record(script, result, report) -> None:
+def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
     """The explore's result, kept: every variant's seed, score, measures, the focused items' placements and the order they
-    were placed in, and which was kept. Read after the command ends (the studio lists and replays it); `report["record"]`
-    names it. A courtesy: a record that cannot be written does not fail the explore."""
+    were placed in, which was kept and the run it was part of (`run_id`). Read after the command ends (the studio lists and
+    replays it); `report["record"]` names it. `shown` is (board, the best variant's plan): its plan document, with its parts'
+    3D models, is kept beside the record (explore_view.BEST_DIR) for the studio to show. A courtesy: a record that cannot be
+    written does not fail the explore."""
     import json
     import os
     import time
@@ -726,15 +728,39 @@ def _write_record(script, result, report) -> None:
         doc = {"version": 1, "script": str(Path(script).resolve()), "at": time.time(), "pid": os.getpid(), "focus": result.focus,
                "seconds": result.seconds, "jobs": result.jobs, "baseline": result.baseline, "plain": result.plain, "order": result.plain_order,
                "best_seed": result.best_seed, "best": result.best, "kept": bool(report.get("accepted")), "variants": result.variants,
-               "curve": result.curve, "found": report.get("found"), "ended": result.ended}
+               "curve": result.curve, "found": report.get("found"), "ended": result.ended, "run": run_id}
         path.write_text(json.dumps(doc, separators=(",", ":")))
         report["record"] = str(path)
+        if shown is not None:
+            _write_best(path, result, *shown)
         rep = channel.current()
         if rep is not None:
             rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline, "tried": result.tried,
                       "kept": bool(report.get("accepted")), "record": str(path), "found": report.get("found"), "ended": result.ended})
     except (OSError, ValueError):
         pass
+
+
+def _write_best(record, result, board, plan) -> None:
+    """The best variant's plan document beside its record (explore_view.BEST_DIR, the record's name), with its parts' 3D models and
+    the converter's jobs for them (`model_jobs`), and the run score as the explore measured it. A courtesy, as the record is."""
+    import json
+    import sys
+    from . import score as _score
+    from .channel import _model_context
+    from .explore_view import BEST_DIR
+    from .preview_json import declared_sites, plan_json
+    try:
+        ctx = _model_context(plan)
+        terms = _score.terms(result.best_measures, board.settings) if result.best_measures else {}
+        doc = plan_json(plan, declared_sites(board), {"total": round(result.best, 3), "terms": {k: round(v, 3) for k, v in terms.items() if v}}, ctx)
+        if ctx is not None:
+            doc["model_jobs"] = ctx.new_jobs(set())
+        out = record.parent / BEST_DIR / record.name
+        out.parent.mkdir(exist_ok=True)
+        out.write_text(json.dumps(doc, separators=(",", ":")))
+    except Exception as e:                                              # the record stands without it: the studio moves the run's board instead
+        print("explore: the best variant's plan was not kept: %s: %s" % (type(e).__name__, e), file=sys.stderr)
 
 
 # ------------------------------------------------------------ the runner's side

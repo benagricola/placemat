@@ -34,6 +34,7 @@ class FindingKind(str, Enum):
     KEEP_OUT = "keep_out"               # a keep-out distance that KiCad's DRC does not judge: copper on different layers
     TIME = "time"                       # a step that ran past the time a command allows it (`--step-warn`, `--step-limit`)
     ARRANGEMENT = "arrangement"         # a module's alternative arrangements: over the limits, refused by the module run, stale on the stamping board, asked for and not offered
+    ESCAPE = "escape"                   # a module's escape that does more than the module needs: a via on a lane with a way out
 
     def __str__(self):
         return self.value
@@ -88,6 +89,7 @@ class FindingCause(str, Enum):
     ESCAPE_CLOSED = (FindingKind.ESCAPE_CLOSED, "escape_closed")
     ESCAPE_WALLED = (FindingKind.ESCAPE_WALLED, "escape_walled")
     ESCAPE_LANE = (FindingKind.ESCAPE_LANE, "escape_lane")
+    ESCAPE_VIA_UNNEEDED = (FindingKind.ESCAPE, "escape.via_unneeded")
     PAIR_CROSSED = (FindingKind.PAIR_CROSSED, "pair_crossed")
     SETUP_UNDECLARED = (FindingKind.SETUP, "setup.undeclared")
     SETUP_LANE_UNUSED = (FindingKind.SETUP, "setup.lane_unused")
@@ -163,6 +165,7 @@ SEVERITY = {
     FindingKind.KEEP_OUT: "notice",
     FindingKind.TIME: "notice",
     FindingKind.ARRANGEMENT: "warning",
+    FindingKind.ESCAPE: "warning",
 }
 """A kind's default severity: a classification of what the kind means, not a
 tunable. A finding of a kind that mixes causes is made with its own."""
