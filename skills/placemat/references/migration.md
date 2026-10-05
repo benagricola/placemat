@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **The studio no longer stops on a pin map finding.** A `pins.remap` finding's poses carry `turns` as records, which the
+  page's presenter took for a placement's refusal at each rotation and failed on (`KeyError: 2` in the channel thread), so
+  the studio stopped updating. Scripts need no change.
+
 ## To 0.99.19
 
 ### New
