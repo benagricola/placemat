@@ -1,5 +1,5 @@
-"""The native pin map core is the Python twin: on the same arrays, seeds and counted clock, the same present score, the
-same best map per pose with the same tallies to the last bit, the same airwires, the same clock outcome."""
+"""The native pin map core is the Python twin: on the same arrays, seeds and step budget, the same present score, the
+same best map per pose with the same tallies to the last bit, the same airwires, the same steps and budget outcome."""
 import itertools
 import json
 import random
@@ -24,12 +24,12 @@ def bits(x):
     return x
 
 
-def both(inp, refs, s, step_ms=0.0):
+def both(inp, refs, s, guard_ms=None):
     pb = problem_of(inp, s.pins_exit_mm)
     at = {p.ref: i for i, p in enumerate(inp.parts)}
     lists = [[(at[r], t, f) for t, f in poses_of(inp.part(r), s)] for r in refs]
     combos = [list(c) for c in itertools.islice(itertools.product(*lists), s.pins_joint_combinations)]
-    pr = params_of(s, refs, step_ms)
+    pr = params_of(s, refs, guard_ms=guard_ms)
     norm = lambda x: bits(json.loads(json.dumps(x)))
     return (norm(search(pb, [at[r] for r in refs], combos, pr, native=True)),
             norm(search(pb, [at[r] for r in refs], combos, pr, native=False)))
@@ -158,11 +158,16 @@ def test_the_native_core_is_the_twin_at_the_present_pose_with_a_short_search(cas
         assert native == bits(json.loads(json.dumps(search(pb, [0], combos, pr, native=False))))
 
 
-def test_the_native_core_is_the_twin_when_the_clock_runs_out():
-    # out in combo 2, so a twin clock that ticks at another rate stops elsewhere
-    s = settings(pins_budget_ms=150, pins_anneal_moves=500, pins_seeds=4)
-    native, python = both(input_of(*reversed_four())[0], ("U1",), s, step_ms=1.0)
-    assert native == python and native[3] is True and len(native[2]) == 3
+def test_the_native_core_is_the_twin_when_the_budget_is_spent():
+    # spent part way through the third pose: a twin that counted its steps another way would stop elsewhere
+    s = settings(pins_budget_steps=4500, pins_anneal_moves=500, pins_seeds=4)
+    native, python = both(input_of(*reversed_four())[0], ("U1",), s)
+    assert native == python and native[3] is True and len(native[2]) == 3 and native[6] == 4500 and native[7] is False
+
+
+def test_both_cores_give_no_map_past_the_wall_clock_guard():
+    for core in both(input_of(*reversed_four())[0], ("U1",), settings(), guard_ms=1e-9):
+        assert core[2] == [] and core[7] is True
 
 
 def random_board(seed):

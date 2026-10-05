@@ -144,7 +144,7 @@ def test_a_board_with_no_soft_group_or_controlled_impedance_scores_to_the_bit_as
     at = {p.ref: i for i, p in enumerate(inp.parts)}
     lists = [[(at[r], t, f) for t, f in poses_of(inp.part(r), s)] for r in refs]
     combos = [list(c) for c in itertools.islice(itertools.product(*lists), s.pins_joint_combinations)]
-    base, paths, results, out, first, problems = json.loads(json.dumps(
+    base, paths, results, out, first, problems, _, _ = json.loads(json.dumps(
         search(pb, [at[r] for r in refs], combos, params_of(s, refs), native=native), default=list))
     assert all(v == 0 for t in [base] + [r[1] for r in results] for v in t[6:])
     got = [base[:6], paths, [[k, t[:6], a, p] for k, t, a, p in results], out, first, problems]

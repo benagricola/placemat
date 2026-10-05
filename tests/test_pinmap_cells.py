@@ -358,7 +358,7 @@ def test_two_cells_turned_in_one_pose_are_each_named():
            "routed": [], "paths": [], "breaks": []}
     present = dict(row, total=5.0, weighted=4.0)
     facts = {"ref": "U1", "refs": ["U1", "U2"], "present": present, "best": 1, "first_map": True, "budget_out": False,
-             "budget_ms": 200, "searched": 2, "of": 2, "routed": [], "present_breaks": [], "cell": "a", "module": "M",
+             "budget_steps": 6000, "steps": 200, "searched": 2, "of": 2, "routed": [], "present_breaks": [], "cell": "a", "module": "M",
              "stamps": 1, "rotations": [dict(row, total=5.0, weighted=4.0, turns=[]),
                                        dict(row, turns=[turn("U1", "a"), turn("U2", "b")])]}
     text = render(C.PINS_REMAP, facts)

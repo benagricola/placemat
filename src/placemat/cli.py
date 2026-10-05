@@ -1315,7 +1315,7 @@ def _search(args, board_dir, script, entry) -> int:
 
 def _pin_search(args, board_dir, script, s) -> int:
     """`placemat apply <id> --search` on a pin map suggestion: its parts studied again, on the board as the last run placed
-    it, with `pins.probe_budget_ms` for each part. A better map is kept as `<id>.1` beside the plan's suggestions. A study
+    it, with `pins.probe_budget_steps` for each part. A better map is kept as `<id>.1` beside the plan's suggestions. A study
     that raises exits 1 with its error, and keeps nothing."""
     from . import pinmap, suggestions as sg
     from .previewer import resolve_like_last_run
@@ -1327,7 +1327,7 @@ def _pin_search(args, board_dir, script, s) -> int:
         console.say("probe", str(e), level="fail")
         return 1
     try:
-        better, g = pinmap.longer_advice(board, plan, s.advice, cfg.pins_probe_budget_ms)
+        better, g = pinmap.longer_advice(board, plan, s.advice, cfg.pins_probe_budget_steps)
     except BaseException as e:                          # a stop or an interrupt still ends the command
         if not pinmap.contained(e):
             raise
@@ -1350,8 +1350,8 @@ def _pin_search(args, board_dir, script, s) -> int:
     if g is None:
         console.say("probe", "%s: %s is no longer studied on this board" % (s.id, " and ".join(s.advice["refs"])), level="fail")
         return 1
-    console.say("probe", "%s: %d of %d poses at %d ms a part: best total %.1f, the suggestion's %.1f" % (
-        s.id, g["searched"], g["of"], cfg.pins_probe_budget_ms, g["best"]["total"], s.advice["total"]))
+    console.say("probe", "%s: %d of %d poses in %d of its %d steps: best total %.1f, the suggestion's %.1f" % (
+        s.id, g["searched"], g["of"], g["steps"], g["budget_steps"], g["best"]["total"], s.advice["total"]))
     console.say("probe", "%s: %s; it is advice for the capture, which placemat apply does not write" % (found.id, found.text)
                 if found is not None else "no better map than %s's" % s.id)
     return 0

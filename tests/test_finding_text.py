@@ -175,7 +175,7 @@ SAMPLES = [
                     "held_pin": "4"},
      "U1: net A may take only pin 4, which net D holds; U1 is not studied"),
     (C.PINS_REMAP, {"ref": "U1", "refs": ["U1", "U2"], "at": [10.0, 10.0], "first_map": True, "budget_out": True,
-                    "budget_ms": 200, "searched": 9, "of": 16, "best": 1, "routed": ["A"],
+                    "budget_steps": 6000, "steps": 6000, "searched": 9, "of": 16, "best": 1, "routed": ["A"],
                     "present": {"total": 20.0, "weighted": 12.0, "length_mm": 40.0, "bend_deg": 90.0},
                     "rotations": [{"total": 19.0, "weighted": 12.0, "length_mm": 36.0, "bend_deg": 90.0,
                                    "turns": [{"ref": "U1", "turn_deg": 0.0, "rotation_deg": 0.0, "face": "front", "flip": False},
@@ -186,9 +186,9 @@ SAMPLES = [
                     "present_breaks": [{"ref": "U2", "net": "B", "pin": "7", "rule": "Pm.PinDeny"}]},
      "U1 and U2: a pin map with 4.0 mm less airwire exists at their present rotations; at U1 at 90 degrees and U2 at 180 "
      "degrees on the back, 8 fewer weighted crossings; 1 of the nets it moves has copper now: A; the study stopped at its "
-     "200 ms after 9 of 16 poses"),
+     "budget of 6000 steps after 9 of 16 poses"),
     (C.PINS_REMAP, {"ref": "U1", "refs": ["U1"], "at": [10.0, 10.0], "first_map": True, "budget_out": False,
-                    "budget_ms": 100, "searched": 4, "of": 4, "best": 2, "routed": ["A", "B"], "present_breaks": [],
+                    "budget_steps": 3000, "steps": 400, "searched": 4, "of": 4, "best": 2, "routed": ["A", "B"], "present_breaks": [],
                     "present": {"total": 20.0, "weighted": 12.0, "length_mm": 40.0, "bend_deg": 90.0},
                     "rotations": [{"total": 20.0, "weighted": 12.0, "length_mm": 40.0, "bend_deg": 90.0,
                                    "turns": [{"ref": "U1", "turn_deg": 0.0, "rotation_deg": 0.0, "face": "front", "flip": False}]},
@@ -204,6 +204,10 @@ SAMPLES = [
     (C.SETUP_PINS, {"ref": "", "key": "", "entry": "", "code": "study_failed", "name": "", "held_net": "", "held_pin": "",
                     "type": "RuntimeError", "message": "boom"},
      "the pin map study failed with RuntimeError: boom; this resolve has no pin map findings"),
+    (C.SETUP_PINS, {"ref": "U1", "key": "", "entry": "", "code": "study_slow", "name": "", "held_net": "", "held_pin": "",
+                    "refs": ["U1", "U2"], "guard_ms": 20000.0, "steps": 812, "budget_steps": 6000},
+     "U1 and U2: the pin map study ran past its wall-clock guard, pins.guard_ms of 20000 ms, after 812 of its 6000 steps; "
+     "it gives no map, since one cut short by the time is not the study's answer"),
     (C.ARRANGEMENT_LIMIT, {"variant": "arrangements", "arrangements": 12, "max_arrangements": 8,
                            "options": {"c_in": 3, "r_pull": 2, "pair": 2}, "max_options": 4, "excluded": 0},
      "this module declares 12 arrangements, over the 8 place.arrangements_max allows, so only the default is laid out; "

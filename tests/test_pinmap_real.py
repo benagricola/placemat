@@ -1,6 +1,7 @@
 """The pin map study on a real laid board with an MCU (fixtures/pinmap/reference.json, its annotations given there): the
-best map beats the present one, every pose searched inside `pins.budget_ms` on the native core, and no board item
-moves. On the Python fallback a study may run out of its budget part way; only the best map is asserted there."""
+best map beats the present one, every pose searched inside `pins.budget_steps`, and no board item moves; the native core
+and the Python fallback give the same study to the last bit at the default budget."""
+from dataclasses import replace
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -31,11 +32,25 @@ def test_on_a_real_board_the_best_map_beats_the_present_one_inside_its_budget_an
     (g,) = [g for g in study(inp, Settings()) if ref in g.refs]
     best = min(g.results, key=lambda r: r.breakdown.total)
     assert best.breakdown.total < g.present.total
-    if native_core() is not None:
-        assert g.budget_out is False and g.searched == g.of
+    assert g.budget_out is False and g.searched == g.of
     assert hashlib.sha256(pcb.read_bytes()).hexdigest() == digest
     where = lambda geometry: [(fp.ref, fp.location, fp.rotation, fp.face) for fp in geometry.footprints]
     assert where(read_board(pcb)) == where(b.board_of(case))
+
+
+@needs_kicad
+def test_on_a_real_board_the_native_core_and_the_python_fallback_give_the_same_study():
+    import pytest
+    from placemat.pinmap_core import native_core, study_group
+    if native_core() is None:
+        pytest.skip("the native module is not in use")
+    b = bench()
+    case = b.cases()[0]
+    inp = b.input_of(case)
+    s = replace(Settings(), pins_guard_ms=0.0)          # the slower core is never cut by the time here
+    native, python = (study_group(inp, tuple(sorted(case["parts"])), s, native=n) for n in (True, False))
+    key = lambda g: (g.present, g.budget_out, g.steps, g.searched, [(r.poses, r.breakdown, r.assign) for r in g.results])
+    assert key(native) == key(python)
 
 
 @needs_kicad

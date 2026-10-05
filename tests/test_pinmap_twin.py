@@ -168,7 +168,14 @@ def test_an_index_out_of_range_or_a_normal_off_the_axes_is_refused():
         pinmap_twin.search(replace(pb, pins=pins), [0], [[(0, 0.0, False)]], pr)
 
 
-def test_a_counted_clock_runs_out_after_its_budget_in_steps():
-    c = Clock(3.0, step_ms=1.0)
-    assert [c.out() for _ in range(4)] == [False, False, True, True]
+def test_the_clock_counts_steps_to_its_budget_and_its_guard_reads_the_time(monkeypatch):
+    c = Clock(3)
+    assert [c.take() for _ in range(4)] == [True, True, True, False] and c.steps == 3
+    now = [0.0]
+    monkeypatch.setattr(pinmap_twin.time, "perf_counter", lambda: now[0])
+    c, off = Clock(3, guard_ms=500.0), Clock(3)
+    now[0] = 0.4
+    assert not c.slow() and not off.slow()
+    now[0] = 0.6
+    assert c.slow() and not off.slow()
     assert isinstance(Problem([], [], [], [], [], [], [], [], [], 0.5), Problem)

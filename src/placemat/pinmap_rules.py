@@ -32,7 +32,9 @@ class Problem:
     is both entries, `name` the name, and the later is left out), no_legal_pin (a
     net that no pin may take: the part is not studied), no_legal_map (no matching places every net: the part is not
     studied), present_breaks (a net that stands on a pin its own `Pm.PinAllow` or `Pm.PinDeny` bars: the study adds
-    `pin` and `rule` to the facts), study_failed (the study raised: no part, and `type` and `message` in the facts).
+    `pin` and `rule` to the facts), study_failed (the study raised: no part, and `type` and `message` in the facts), study_slow
+    (the study of the part's group ran past its wall-clock guard and gives no map: `refs`, `guard_ms`, `steps` and
+    `budget_steps` in the facts).
     A no_legal_pin left so by another net held onto the net's only pin has no `key` or `entry`, and `held_net`
     and `held_pin` name the holder."""
     ref: str

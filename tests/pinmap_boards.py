@@ -11,8 +11,8 @@ SIDES = ("E", "S", "W", "N")
 
 
 def settings(**kw):
-    """The defaults, with a budget no test meets unless it says so."""
-    base = dict(pins_budget_ms=60000)
+    """The defaults, with a budget and a wall-clock guard no test meets unless it says so."""
+    base = dict(pins_budget_steps=10 ** 9, pins_guard_ms=0.0)
     base.update(kw)
     return replace(Settings(), **base)
 

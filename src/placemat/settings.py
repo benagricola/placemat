@@ -334,8 +334,8 @@ class Settings:
         "the pin map study's annealing temperature at its first move, in weighted crossings: a move that costs this much is taken about one time in three (0: only moves that gain)")
     pins_anneal_end: float = S(0.02, "weight",
         "the pin map study's annealing temperature at its last move")
-    pins_budget_ms: int = S(100, "ms",
-        "the pin map study's time for each studied part: it stops there with the best map found and says so")
+    pins_budget_steps: int = S(3000, "steps",
+        "the pin map study's search for each studied part, in steps (one step is one move of a local search, tried whether or not it is taken): it stops there with the best map found and says so, so a board gives the same map at any speed")
     pins_joint_combinations: int = S(64, "count",
         "the most pose combinations the pin map study searches for parts it studies together, their present poses first")
     pins_faces: bool = S(False, "bool",
@@ -346,8 +346,10 @@ class Settings:
         "the share of a studied group's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement")
     pins_explore_top: int = S(3, "count",
         "the best variants of an explore, by run score, the pin map study runs on (0: none)")
-    pins_probe_budget_ms: int = S(5000, "ms",
-        "the pin map study's time for each part when `placemat apply <id> --search` studies a `pins.remap` suggestion again")
+    pins_probe_budget_steps: int = S(150000, "steps",
+        "the pin map study's search for each part, in steps, when `placemat apply <id> --search` studies a `pins.remap` suggestion again")
+    pins_guard_ms: float = S(10000.0, "ms",
+        "a safety net on the pin map study's time for each studied part, scaled with its budget for a longer study: past it the study gives no map and says so in a `setup.pins` warning; 0 is off")
     drc_severities: dict = S(None, "table",
         "a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC", factory=dict)
     route_router_dir: str = S("", "path",
@@ -686,7 +688,7 @@ _ABOVE_ZERO = frozenset((
     "studio_3d_cache_mb", "studio_3d_batch", "studio_3d_batch_timeout_s", "studio_3d_model_tris", "studio_3d_max_tris", "studio_3d_plate_mm", "studio_3d_spread_mm",     "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "studio_builder_grid_mm", "studio_builder_max_fill", "studio_builder_aspect", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height",
-    "pins_seeds", "pins_anneal_moves", "pins_budget_ms", "pins_joint_combinations", "pins_probe_budget_ms"))
+    "pins_seeds", "pins_anneal_moves", "pins_budget_steps", "pins_joint_combinations", "pins_probe_budget_steps"))
 _AT_LEAST_ZERO = frozenset((
     "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
@@ -698,7 +700,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch",
     "pins_exit_mm", "pins_pair_weight", "pins_impedance_weight", "pins_length_weight", "pins_bend_weight", "pins_group_weight", "pins_anneal_start",
-    "pins_anneal_end", "pins_gain_min", "pins_placed_share_min", "pins_explore_top"))
+    "pins_anneal_end", "pins_gain_min", "pins_placed_share_min", "pins_explore_top", "pins_guard_ms"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
 _AT_LEAST_TWO = frozenset(("place_split_min_group", "place_room_ratio"))
@@ -808,6 +810,17 @@ _RETIRED = {
     "route_diff_pairs": "a net class's diff_pair_width/diff_pair_gap in the board's .zen",
 }
 
+# Keys retired because what they set is now counted another way: {key: what replaced it}. A time is not a count of
+# steps, so the old value is not carried over; the project is told what to set instead.
+_REPLACED = {
+    "pins_budget_ms": "pins.budget_steps, a count of the study's steps, so a board gives the same map at any speed",
+    "pins_probe_budget_ms": "pins.probe_budget_steps, a count of the study's steps, so a board gives the same map at any speed",
+}
+
+
+def _replaced(where, name: str) -> SettingsError:
+    return SettingsError("%s: %s.%s is retired; set %s" % ((where,) + split_key(name) + (_REPLACED[name],)))
+
 
 def _flatten(data: dict, path) -> dict:
     """A parsed TOML document as {attribute name: value}. Sub-tables named in
@@ -830,6 +843,8 @@ def _flatten(data: dict, path) -> dict:
                 out[join_key(full, "")] = dict(value)
                 continue
             name = join_key(section, key)
+            if name in _REPLACED:
+                raise _replaced(path, name)
             if name in _RETIRED:
                 raise SettingsError("%s: %s is retired; it named a board fact, now read from %s"
                                     % (path, full, _RETIRED[name]))
@@ -905,6 +920,8 @@ def load(start, overrides=None, script=None) -> Settings:
                 values[name] = value
                 sources[name] = "%s [scripts.%s]" % (path, json.dumps(key))
     for name, value in (overrides or {}).items():
+        if name in _REPLACED:
+            raise _replaced("flag", name)
         if name not in set(Settings.keys()):
             raise SettingsError("%s is not a setting placemat has" % name)
         _validate(name, value, "flag")

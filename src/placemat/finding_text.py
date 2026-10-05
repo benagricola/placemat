@@ -214,6 +214,10 @@ _PIN_PROBLEMS = {
 def _setup_pins(f):
     if f["code"] == "study_failed":
         return "the pin map study failed with %s: %s; this resolve has no pin map findings" % (f["type"], f["message"])
+    if f["code"] == "study_slow":
+        return ("%s: the pin map study ran past its wall-clock guard, pins.guard_ms of %g ms, after %d of its %d steps; it "
+                "gives no map, since one cut short by the time is not the study's answer" % (
+                    " and ".join(f["refs"]), f["guard_ms"], f["steps"], f["budget_steps"]))
     if f["code"] == "no_legal_pin" and f.get("held_net"):
         return "%s: net %s may take only pin %s, which net %s holds; %s is not studied" % (
             f["ref"], f["name"], f["held_pin"], f["held_net"], f["ref"])
@@ -324,7 +328,8 @@ def _plural(n: int, one: str, many: str) -> str:
     return "%d %s" % (n, one if n == 1 else many)
 
 
-@renders(C.PINS_REMAP, "ref", "refs", "present", "rotations", "best", "first_map", "budget_out", "budget_ms", "searched",
+@renders(C.PINS_REMAP, "ref", "refs", "present", "rotations", "best", "first_map", "budget_out", "budget_steps", "steps",
+         "searched",
          "of", "routed", "present_breaks")
 def _pins_remap(f):
     turns = f["rotations"][f["best"]]["turns"] if f["rotations"] else []
@@ -341,7 +346,8 @@ def _pins_remap(f):
     their = "their present rotations" if len(f["refs"]) > 1 else \
         "the cell's present rotation" if f.get("cell") else "its present rotation"
     if not f["first_map"]:
-        return "%s: the pin map study ran out of its %g ms before a first map; pins.budget_ms sets it" % (who, f["budget_ms"])
+        return "%s: the pin map study had no steps for a first map: its budget is %d steps; pins.budget_steps sets it" % (
+            who, f["budget_steps"])
     rs, p = f["rotations"], f["present"]
     here, best = rs[0], rs[f["best"]]
     if here["total"] < p["total"] - 1e-9:
@@ -376,7 +382,8 @@ def _pins_remap(f):
         text += "; the %d stamps of %s have %s: %s" % (len(sm), _module({"module": f.get("module"), "cell": f["cell"]}),
                                                       what, "; ".join(_stamp_moves(s) for s in sm))
     if f["budget_out"]:
-        text += "; the study stopped at its %g ms after %d of %d poses" % (f["budget_ms"], f["searched"], f["of"])
+        text += "; the study stopped at its budget of %d steps after %d of %d poses" % (f["budget_steps"], f["searched"],
+                                                                                         f["of"])
     return text
 
 
