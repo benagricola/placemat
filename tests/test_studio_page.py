@@ -2224,7 +2224,7 @@ els["#infopop"].hidden = true; els["#menu"].hidden = true;
 els["#brandbtn"].onclick(); flush(); ctx.document.__keys.forEach(f => f({key: "Escape"})); flush(); out.escape = ev("S.start");
 els["#brandbtn"].onclick(); flush(); click("#picker", "#startclose"); out.close = ev("S.start");
 """)
-    assert out["opened"] == ["/cmd/4?t=x", "/runview?run=aaaa0001&t=x", "/explore?f=%2Fwork%2Fproj%2Fa%2F.placemat%2Fviews%2Fexplore%2Fe.json&t=x"]
+    assert out["opened"] == ["/cmd/4?t=x", "/runview?run=aaaa0001&t=x", "/exploreview?f=%2Fwork%2Fproj%2Fa%2F.placemat%2Fviews%2Fexplore%2Fe.json&t=x"]
     assert out["posts_before"] == [] and out["posts"] == [["/switch?t=x", '{"script":"b/B_layout.py"}']] and out["start"] is False and out["hidden"] is True
     assert out["again"] == [True, False] and out["backdrop"] is False and out["escape"] is False and out["close"] is False
 
@@ -2578,7 +2578,7 @@ def test_with_no_command_running_latest_shows_what_ended_last(tmp_path):
 (async () => {
   const fin = mkcmd(4, {state: "done", ended: 50, started: 40}), old = mkcmd(3, {state: "done", ended: 10, started: 5});
   const route = {file: PROJ + "/a/.placemat/route/route.json", run: "", at: 20, nets: 3, routed: 3, failed: 0, script: PROJ + "/a/A_layout.py", build: false, complete: true};
-  serve({"/cmd/4": detail(fin), ["/explore?f=" + encodeURIComponent(explores[0].file)]: {variants: [], focus: [], plain: {}, order: [], baseline: 1, best_seed: 0, script: "x"}});
+  serve({"/cmd/4": detail(fin), ["/exploreview?f=" + encodeURIComponent(explores[0].file)]: {record: {variants: [], focus: [], plain: {}, order: [], baseline: 1, best_seed: 0, script: "x"}, file: explores[0].file, run: "", doc: null, source: "", drawn: {}, unmoved: []}});
   helloPicker({commands: [old, fin], project_runs: [past[0]], explores: [], routes: [route]}); await tick(); flush();
   out.finished = [ev("S.latestKey"), shown()];                          // a command that ended after every record
   // only records: the newest of them, an explore here
@@ -2590,6 +2590,56 @@ def test_with_no_command_running_latest_shows_what_ended_last(tmp_path):
 """)
     assert out["finished"] == ["cmd:4", "4"]
     assert out["record"][0].startswith("explore:") and out["record"][1] == "record"
+
+
+@needs_node
+def test_a_past_explore_opens_on_the_board_of_its_best_variant_and_steps_from_it_to_the_others(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const file = explores[0].file;
+  const doc = {board: {extent: [0, 0, 40, 30], loops: [], drawn: true}, keepouts: [], reservations: [], items: [item("a", 9), item("b", 5)], copper: [], layers: ["F.Cu"], links: [], findings: [], unplaced: [], pocketed: [],
+               steps: [{i: 0, item: "a", kind: "part", placed: true, notes: []}, {i: 1, item: "b", kind: "part", placed: true, notes: []}], counts: {placed: 2, findings: 0}, score: {total: 8}};
+  const record = {script: PROJ + "/a/A_layout.py", focus: ["a"], plain: {a: [1, 1, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2, seconds: 30, at: 3, best_seed: 3, best: 8, kept: false,
+    variants: [{seed: 0, score: 10, placements: {a: [1, 1, 0, "front"]}, t: 0}, {seed: 3, score: 8, placements: {a: [9, 1, 0, "front"]}, t: 1}, {seed: 4, score: 12, placements: {a: [5, 5, 90, "front"]}, t: 2}]};
+  const view = {record, file, run: "aaaa0001", doc, source: "moved", drawn: {a: [9, 1, 0, "front"]}, unmoved: [], summary: past[0]};
+  serve({["/exploreview?f=" + encodeURIComponent(file)]: view});
+  helloPicker({project_runs: [Object.assign({}, past[0], {explore: file})], explores: [], commands: []}); await tick(); flush();
+  ev("leaveLatest()"); fetched.length = 0;
+  ev("openExploreRecord(" + JSON.stringify(file) + ")"); await tick(); flush();
+  out.shown = [shown(), ev("plan().items.map(i => i.key)"), ev("S.xv.drawn.seed"), ev("S.xv.auto"), ev("xvFrom(S.xv)"), els["#kindchip"].textContent, els["#statustext"].textContent, els["#board-sub"].textContent];
+  out.bar = els["#cmdbar"].innerHTML;
+  // the board has the item where the best put it: the best is drawn as it is, another variant moves it from there
+  const g = {dataset: {}, setAttribute(k, v) { this.t = v; }, removeAttribute() { this.t = ""; }};
+  ev("B.groups = new Map()"); ctx.__g = g; ev("B.groups.set('a', [__g])");
+  ev("xvMoveParts(S.xv, xvBySeed(3))"); out.best = g.t || "";
+  ev("xvMoveParts(S.xv, xvBySeed(4))"); out.other = g.t;
+  els["#tab-runs"].onclick({target: {closest: s => s === "[data-xstep]" ? {dataset: {xstep: "1"}} : null}});
+  out.stepped = ev("S.xv.drawn.seed");
+  // a past run that explored opens as its explore, and its row says it is one
+  fetched.length = 0; ev("openRunRecord('aaaa0001')"); await tick(); flush();
+  out.byRun = gets().map(u => u.replace(/&t=x$/, ""));
+  ev("renderRuns()"); out.row = els["#tab-runs"].innerHTML;
+  // its build, when the run kept the best and routed; nothing to draw, when it left no board
+  serve({["/exploreview?f=" + encodeURIComponent(file)]: Object.assign({}, view, {source: "build", doc: Object.assign({}, doc, {route: {nets: 3, routed: 3, failed: 0, partial: false, dropped: 0}})})});
+  ev("openExploreRecord(" + JSON.stringify(file) + ")"); await tick(); flush();
+  out.build = els["#cmdbar"].innerHTML;
+  serve({["/exploreview?f=" + encodeURIComponent(file)]: Object.assign({}, view, {source: "", doc: null, run: ""})});
+  ev("openExploreRecord(" + JSON.stringify(file) + ")"); await tick(); flush();
+  out.none = [ev("S.cmdView"), ev("S.xv.base || null"), els["#cmdbar"].innerHTML];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["shown"][:5] == ["explore:" + "/work/proj/a/.placemat/views/explore/e.json", ["a", "b"], 3, False, {"a": [9, 1, 0, "front"]}]
+    assert out["shown"][5:7] == ["explore", "recorded"] and "run aaaa0001" in out["shown"][7]
+    bar = out["bar"]
+    assert "Past explore aaaa0001 of A_layout.py, nothing is resolved" in bar and "best variant" in bar and ">#3<" in bar and ">8.0<" in bar and ">10.0<" in bar
+    assert out["best"] == "" and out["other"] == "translate(5 5) rotate(-90) translate(-9 -1)"
+    assert out["stepped"] == 4
+    assert out["byRun"] == ["/exploreview?f=%2Fwork%2Fproj%2Fa%2F.placemat%2Fviews%2Fexplore%2Fe.json"]
+    row = out["row"][out["row"].index('data-runview="aaaa0001"'):]
+    assert 'kind-explore' in row[:row.index("</div></div></div>")]
+    assert "route finished: 3 routed, 0 failed" in out["build"]
+    assert out["none"][0] is None and out["none"][1] is None and 'class="xwarn"' in out["none"][2] and "kept no board" in out["none"][2]
 
 
 @needs_node
