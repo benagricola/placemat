@@ -207,7 +207,8 @@ def test_the_skill_names_the_board_side():
 
 
 def test_the_migration_entry_names_what_a_board_must_know():
-    text = (_SKILLS / "references/migration.md").read_text().split("## To ")[0]
+    doc = (_SKILLS / "references/migration.md").read_text()
+    text = doc.split("## To 0.99.15", 1)[1].split("\n## To ", 1)[0]  # the release that brought arrangements
     for word in ("arrangements=", "arrangement", "re-run", "default", "place.arrangements"):
         assert word in text, word
     section = API.split("**Arrangements.**", 1)[1].split("**How a searched item finds its place.**")[0]
