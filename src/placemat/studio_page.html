@@ -874,7 +874,7 @@ on("begin", d => {                         // the engine is starting an item, or
 });
 let liveTimer = null;
 const liveRender = () => { if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; schedule("board", "steps", "replay", "counts"); }, 300); };
-on("board", d => { if (!S.live || d.id !== S.live.id) return; S.live.board = d.board; S.live.keepouts = d.keepouts; S.live.reservations = d.reservations; if (!S.view) fit(); schedule("board"); });
+on("board", d => { if (!S.live || d.id !== S.live.id) return; S.live.board = d.board; S.live.keepouts = d.keepouts; S.live.reservations = d.reservations; S.live.layers = d.layers; if (!S.view) fit(); schedule("board"); });
 // A settled step joins a plan being built: its entry in the timeline, its item, the copper or the hole it made.
 function applyStepTo(L, d) {
   const it = d.item;
@@ -1789,6 +1789,7 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
 };
 const LAYER_FACE = l => l === "F.Cu" ? "front" : l === "B.Cu" ? "back" : "inner";
 function copperLayers(p) {
+  // The board's stackup, from the doc's `layers`. The layers that carry planned copper stand in only for an older doc that has none.
   const have = (p && p.layers && p.layers.length) ? p.layers : [...new Set(((p && p.copper) || []).map(c => c.layer).filter(Boolean))];
   return have.slice().sort((a, b) => (a === "F.Cu" ? -1 : b === "F.Cu" ? 1 : a === "B.Cu" ? 1 : b === "B.Cu" ? -1 : parseInt(a.slice(2)) - parseInt(b.slice(2))));
 }
@@ -3000,7 +3001,7 @@ function cmdEvent(ev, n) {
   const V = S.cmdView; if (!V) return;
   const P = V.plan;
   if (ev.ev === "resolve") { Object.assign(P, blankPlan()); }
-  else if (ev.ev === "board") { P.board = ev.board; P.keepouts = ev.keepouts || []; P.reservations = ev.reservations || []; if (!V.fitted) { V.fitted = true; S.view = null; lay = null; } }
+  else if (ev.ev === "board") { P.board = ev.board; P.keepouts = ev.keepouts || []; P.reservations = ev.reservations || []; P.layers = ev.layers; if (!V.fitted) { V.fitted = true; S.view = null; lay = null; } }
   else if (ev.ev === "item") { applyStepTo(P, ev); }
   else if (ev.ev === "plan") { const doc = ev.doc || {}; Object.assign(P, {items: doc.items || [], steps: doc.steps || [], copper: doc.copper || [], links: doc.links || [], congestion: doc.congestion, findings: doc.findings || [], unplaced: doc.unplaced || [],
       pocketed: doc.pocketed || [], keepouts: doc.keepouts || P.keepouts, reservations: doc.reservations || P.reservations, board: doc.board || P.board, layers: doc.layers, counts: doc.counts || P.counts, seconds: doc.seconds}); }

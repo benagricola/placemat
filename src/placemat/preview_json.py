@@ -233,9 +233,9 @@ def _cutout_loop(plan, step, loops):
 
 
 def board_json(plan) -> dict:
-    """The board as drawn under the parts: its outline, keepouts and
-    reservations. Known as soon as a resolve is under way, so a page can draw
-    it before the first part settles."""
+    """The board as drawn under the parts: its outline, keepouts,
+    reservations and the copper layers of its stackup. Known as soon as a
+    resolve is under way, so a page can draw it before the first part settles."""
     keepouts = []
     for name in sorted(plan.keepouts):
         k = plan.keepouts[name]
@@ -253,7 +253,8 @@ def board_json(plan) -> dict:
     ext = _extent(plan)
     return {"board": {"loops": [_poly(l) for l in _board_loops(plan)], "drawn": bool(plan.draw_outline),
                       "extent": [_r(ext.left), _r(ext.top), _r(ext.right), _r(ext.bottom)]},
-            "keepouts": keepouts, "reservations": reservations}
+            "keepouts": keepouts, "reservations": reservations,
+            "layers": [l.value for l in sorted(plan.geometry.layers, key=stackup_order)]}
 
 
 def plan_json(plan, sites: dict | None = None, score: dict | None = None, models=None) -> dict:
@@ -286,7 +287,6 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None, models
         "items": items, "copper": copper, "links": _links(plan),
         "congestion": _congestion(plan), "findings": _findings(plan, seen), "steps": steps, "unplaced": unplaced,
         "seconds": _secs(plan.seconds),
-        "layers": [l.value for l in sorted(plan.geometry.layers, key=stackup_order)],
         "pocketed": list(plan.pocketed),
         "counts": {"placed": sum(1 for s in plan.steps if s.placement is not None), "findings": len(plan.findings),
                    "severities": plan.findings.by_severity(), "items": len(items), "copper": len(copper), "unplaced": len(unplaced)},

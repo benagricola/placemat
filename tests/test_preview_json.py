@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from placemat.cutouts import Circle
 from placemat.layout import Board
 from placemat.preview import draw
-from placemat.preview_json import declared_sites, item_json, plan_json
+from placemat.preview_json import board_json, declared_sites, item_json, plan_json
 from placemat.values import Centre, CopperLayer, Cutout, Face, LinkWeight, Location, Net, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
@@ -312,3 +312,15 @@ def test_an_item_placed_in_an_arrangement_says_so_and_a_default_item_does_not():
     d.place(Cell("mod"), at=Location(40.0, 30.0))
     plain = d.resolve()
     assert "arrangement" not in item_json(plain, plain.step("mod"))
+
+
+def test_the_live_boards_frame_names_every_copper_layer_of_the_stackup_whether_or_not_copper_is_planned_on_it():
+    import dataclasses
+    b = _board()
+    layers = (CopperLayer.F, CopperLayer.of("In1.Cu"), CopperLayer.of("In2.Cu"), CopperLayer.of("In3.Cu"), CopperLayer.B)
+    b.geometry = dataclasses.replace(b.geometry, layers=layers)
+    plan = b.resolve()
+    assert not any(c.get("layer") == "In2.Cu" for c in plan_json(plan, declared_sites(b))["copper"])
+    want = ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "B.Cu"]
+    assert board_json(plan)["layers"] == want                  # the frame the studio is sent as a resolve starts
+    assert plan_json(plan, declared_sites(b))["layers"] == want
