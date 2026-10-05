@@ -1176,16 +1176,25 @@ def pin_advice(f: dict, i: int) -> dict:
 
 
 def pin_advice_text(advice: dict) -> str:
-    """'Move 4 nets of U1 to the pins in the map, a capture change, and turn U1 to 90 degrees'."""
-    from .finding_text import pose_text
+    """'Move 4 nets of U1 to the pins in the map, a capture change, and turn U1 to 90 degrees'. A part studied as its
+    cell: the map is a change to its module's capture, and a turn is taken by either of the cell's two levers
+    (finding_text.cell_levers)."""
+    from .finding_text import cell_capture, cell_levers, pose_text
     who = " and ".join(advice["refs"])
     n = len({(m["ref"], m["net"]) for m in advice["map"]})
     turned = [t for t in advice["turns"] if t["turn_deg"] or t["flip"]]
-    turn = "turn %s to %s" % (" and ".join(t["ref"] for t in turned), pose_text(turned)) if len(turned) == 1 else \
-        "turn %s" % pose_text(turned)
+    alone = [t for t in turned if "cell" not in t]
+    turns = []
+    if alone:
+        turns.append("turn %s to %s" % (alone[0]["ref"], pose_text(alone)) if len(alone) == 1 else "turn %s" % pose_text(alone))
+    turns += [cell_levers(t) for t in turned if "cell" in t]
+    turn = "; and ".join(turns)
     if not n:
         return turn[0].upper() + turn[1:] + "; the pins stay as they are"
-    text = "Move %d net%s of %s to the pins in the map, a capture change" % (n, "" if n == 1 else "s", who)
+    moved = {m["ref"] for m in advice["map"]}
+    cells = [t for t in advice["turns"] if "cell" in t and t["ref"] in moved]
+    capture = "a change to %s" % cell_capture(cells[0]) if cells else "a capture change"
+    text = "Move %d net%s of %s to the pins in the map, %s" % (n, "" if n == 1 else "s", who, capture)
     return text + (", and %s" % turn if turned else "")
 
 

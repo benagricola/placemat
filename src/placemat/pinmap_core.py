@@ -81,11 +81,12 @@ def problem_of(inp, margin: float) -> Problem:
     """The arrays of a StudyInput (pinmap_input)."""
     parts = [(p.ref, p.cx, p.cy, p.hw, p.hh) for p in inp.parts]
     part_at = {p.ref: i for i, p in enumerate(inp.parts)}
-    pins, pin_at = [], []
-    for p in inp.parts:
+    pins, pin_at, pin_of = [], [], {}
+    for i, p in enumerate(inp.parts):
         ordered = sorted(p.pins, key=lambda q: natural(q.number))
         pins.append([(q.number, q.x, q.y, q.nx, q.ny) for q in ordered])
         pin_at.append({q.number: k for k, q in enumerate(ordered)})
+        pin_of.update({q.key(p.ref): (i, k) for k, q in enumerate(ordered)})       # a board pad -> (part, pin)
     nets = [(n.net, KIND_CODES[n.kind]) for n in inp.nets]
     net_at = {n.net: i for i, n in enumerate(inp.nets)}
     fixed = [[(a.x, a.y, a.ref, a.number) for a in n.fixed] for n in inp.nets]
@@ -94,8 +95,7 @@ def problem_of(inp, margin: float) -> Problem:
     moving = {n.net for n in inp.posed}
     wires = [(KIND_CODES[w.kind], _nm(w.a[0]), _nm(w.a[1]), _nm(w.b[0]), _nm(w.b[1])) for w in inp.background
              if w.net not in moving]
-    posed = [(KIND_CODES[n.kind], [(a.x, a.y, a.ref, a.number, part_at.get(a.ref, -1),
-                                    pin_at[part_at[a.ref]][a.number] if a.ref in part_at else -1) for a in n.anchors],
+    posed = [(KIND_CODES[n.kind], [(a.x, a.y, a.ref, a.number) + pin_of.get((a.ref, a.number), (-1, -1)) for a in n.anchors],
               [tuple(j) for j in n.joined]) for n in inp.posed]
     movable, groups, mv_at = [], [], {}
     for pi, p in enumerate(inp.parts):
@@ -123,7 +123,7 @@ def problem_of(inp, margin: float) -> Problem:
 def poses_of(part, settings) -> list:
     """The (turn, flip) a part is studied at: its present pose first, each of `pins.rotations` as a turn from where it
     stands (mod 360, each once), then the same on the other face when `pins.faces` is true and the part may stand
-    there."""
+    there. A part studied as its cell turns the cell, on the face it stands on (build gives it no `may_flip`)."""
     turns = [0.0]
     for t in settings.pins_rotations:
         t = float(t) % 360.0
@@ -179,12 +179,18 @@ def _breakdown(t) -> Breakdown:
 def study_group(inp, refs: tuple, settings, step_ms: float = 0.0, budget_ms: float | None = None, native=True,
                 pb: Problem | None = None) -> GroupResult:
     """The study of one group of parts: every combination of their poses (the present first, at most
-    `pins.joint_combinations`), each from its first map through the local search, in the core."""
+    `pins.joint_combinations`), each from its first map through the local search, in the core. Parts studied as one
+    cell take one pose together."""
     pb = pb or problem_of(inp, settings.pins_exit_mm)
     part_at = {p.ref: i for i, p in enumerate(inp.parts)}
     group_parts = [part_at[r] for r in refs]
-    lists = [[(part_at[r], t, f) for t, f in poses_of(inp.part(r), settings)] for r in refs]
-    combos = [list(c) for c in itertools.islice(itertools.product(*lists), max(int(settings.pins_joint_combinations), 1))]
+    units: dict = {}                    # what turns as one: a cell's studied parts, else a part alone
+    for r in refs:
+        units.setdefault(inp.part(r).cell or r, []).append(r)
+    lists = [[[(part_at[r], t, f) for r in unit] for t, f in poses_of(inp.part(unit[0]), settings)]
+             for unit in units.values()]
+    combos = [sorted((x for u in c for x in u), key=lambda x: refs.index(pb.parts[x[0]][0]))
+              for c in itertools.islice(itertools.product(*lists), max(int(settings.pins_joint_combinations), 1))]
     total = 1
     for l in lists:
         total *= len(l)
@@ -206,7 +212,8 @@ def study_group(inp, refs: tuple, settings, step_ms: float = 0.0, budget_ms: flo
 
 def linked_groups(inp) -> list:
     """The studied parts in groups to study together: two parts are linked when a net may move on both (its two ends
-    free), and a group is every part linked to another of it. Sorted, each group's refs sorted."""
+    free) or they are studied as one cell, and a group is every part linked to another of it. Sorted, each group's refs
+    sorted."""
     parent = {p.ref: p.ref for p in inp.parts}
 
     def find(r):
@@ -214,8 +221,9 @@ def linked_groups(inp) -> list:
             parent[r] = parent[parent[r]]
             r = parent[r]
         return r
-    for n in inp.nets:
-        refs = sorted({r for r, _ in n.ends if n.net in inp.part(r).slots.movable})
+    links = [sorted({r for r, _ in n.ends if n.net in inp.part(r).slots.movable}) for n in inp.nets]
+    links += [sorted(p.ref for p in inp.parts if p.cell == c.name) for c in inp.cells]
+    for refs in links:
         for a, b in zip(refs, refs[1:]):
             ra, rb = find(a), find(b)
             if ra != rb:
@@ -226,7 +234,13 @@ def linked_groups(inp) -> list:
     return [tuple(g) for _, g in sorted(groups.items())]
 
 
+def movable_count(inp, refs) -> int:
+    return sum(len(inp.part(r).slots.movable) for r in refs)
+
+
 def study(inp, settings, step_ms: float = 0.0, native=True) -> list:
-    """Every group's study (GroupResult), the arrays built once for all of them."""
+    """Every group's study (GroupResult), the arrays built once for all of them; a group with no net that may move (each
+    one waiting on placement) is not searched."""
     pb = problem_of(inp, settings.pins_exit_mm)
-    return [study_group(inp, refs, settings, step_ms=step_ms, native=native, pb=pb) for refs in linked_groups(inp)]
+    return [study_group(inp, refs, settings, step_ms=step_ms, native=native, pb=pb) for refs in linked_groups(inp)
+            if movable_count(inp, refs)]

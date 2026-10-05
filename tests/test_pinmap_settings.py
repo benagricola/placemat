@@ -14,6 +14,7 @@ def test_every_pins_setting_has_its_default():
         ((0.0, 90.0, 180.0, 270.0), 1, 100, 1.0, 0.02)
     assert (s.pins_budget_ms, s.pins_joint_combinations, s.pins_faces, s.pins_gain_min, s.pins_explore_top,
             s.pins_probe_budget_ms) == (100, 64, False, 0.05, 3, 5000)
+    assert s.pins_placed_share_min == 0.8
 
 
 def test_the_turns_are_read_from_the_toml_and_an_entry_that_is_not_a_number_is_refused(tmp_path):

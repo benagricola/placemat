@@ -3007,3 +3007,21 @@ def test_pin_map_airwires_are_put_in_each_panel_and_go_with_the_selection_and_tr
     assert out["fetches"] == [] and out["note"] == "kept" and out["busy"] is None
     assert out["moved"] == [0, 0] and out["state"] is None
     assert out["again"] == [1, 1] and out["cleared"] == [0, 0]
+
+
+@needs_node
+def test_a_pin_map_suggestion_for_a_part_in_a_cell_lists_both_ways_to_take_the_turn(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + r"""
+(async () => {
+  PM_ADVICE.turns = [{ref: "U1", turn_deg: 90, rotation_deg: 90, face: "front", flip: false, cell: "logic", module: "Mcu",
+                      stamps: 1, cell_rotation_deg: 180, module_rotation_deg: 90}];
+  full([item("a", 1)], [st("a")], {findings: PM_FND});
+  await ev("sgAct")("pinmap", "s1a");
+  ev("renderFindings()");
+  out.open = els["#tab-findings"].innerHTML;
+  console.log(JSON.stringify(out));
+})();
+""")
+    o = out["open"]
+    assert "turn cell logic to 180 degrees on the board, or re-lay module Mcu with U1 at 90 degrees in its frame" in o
+    assert "<div>turn U1 to" not in o

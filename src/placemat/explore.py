@@ -918,7 +918,7 @@ def pin_map_lines(report) -> list:
     """A line per studied group of each variant the pin map study ran on: its weighted crossings now and after
     remapping, and the pose that takes; a variant whose study failed says so. Then the time the study took after the
     explore's own."""
-    from .finding_text import pose_text
+    from .finding_text import at_pose
     out = []
     maps = report.get("pin_maps") or ()
     for v in maps:
@@ -929,7 +929,7 @@ def pin_map_lines(report) -> list:
             turned = [t for t in g["turns"] if t["turn_deg"] or t["flip"]]
             out.append("  pin map, seed %d at %.1f mm: %s %g -> %g weighted crossings after remapping%s" % (
                 v["seed"], v["score"], " and ".join(g["refs"]), g["present"]["weighted"], g["best"]["weighted"],
-                ", at " + pose_text(turned) if turned else ""))
+                ", " + at_pose(turned) if turned else ""))
     if maps:
         out.append("  pin map study: %d variant%s in %.2f s, after the explore's time" % (
             len(maps), "" if len(maps) == 1 else "s", sum(v.get("seconds", 0.0) for v in maps)))

@@ -19,11 +19,11 @@ import time
 
 from .findings import Finding, FindingCause as C
 
-from .pinmap_core import study
-from .pinmap_input import PlacedPad, PlacedPart, build
+from .pinmap_input import Placed, PlacedCell, PlacedPad, PlacedPart, build, cell_modules, stamp_counts
 from .pinmap_rules import Problem, has_pools, natural
+from .values import Box
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 _NOT_READ = ("pins_explore_top", "pins_probe_budget_ms")      # `[pins]` settings the explore and the probe read, not the study
 
 
@@ -48,15 +48,48 @@ def _paths(paths: dict) -> list:
 def _turns(inp, poses) -> list:
     """Each part's pose as a turn from where it stands and as the rotation to declare. A flipped pose mirrors the
     present pads and turns them by `turn`; placemat's flip (geometry.pose_transform) mirrors and turns by the declared
-    rotation plus the present one, so the rotation that gives the studied pads is `turn - rotation`."""
+    rotation plus the present one, so the rotation that gives the studied pads is `turn - rotation`.
+
+    A part studied as its cell turns the cell, on its face, so the turn is taken one of two ways: the cell turned on the
+    board to `cell_rotation_deg`, or the module re-laid with the part at `module_rotation_deg` in the module's frame.
+    The part stands in its cell at its rotation less the cell's (layout's member placement: the cell's turn added to the
+    member's own), or, in a cell on the other face from its stamp, at the cell's less its own, which a turn takes the
+    other way."""
     out = []
     for ref, turn, flip in poses:
         part = inp.part(ref)
         face = part.face if not flip else ("back" if part.face == "front" else "front")
         rotation = (turn - part.rotation) if flip else (part.rotation + turn)
-        out.append({"ref": ref, "turn_deg": round(turn, 3), "rotation_deg": round(rotation % 360.0, 3),
-                    "face": face, "flip": bool(flip)})
+        rec = {"ref": ref, "turn_deg": round(turn, 3), "rotation_deg": round(rotation % 360.0, 3), "face": face,
+               "flip": bool(flip)}
+        if part.cell:
+            c = inp.cell(part.cell)
+            module = (c.rotation - part.rotation - turn) if c.flipped else (part.rotation - c.rotation + turn)
+            rec.update(cell=c.name, module=c.module, stamps=c.stamps, cell_rotation_deg=round((c.rotation + turn) % 360.0, 3),
+                       module_rotation_deg=round(module % 360.0, 3))
+        out.append(rec)
     return out
+
+
+def _cell_facts(inp, ref) -> dict:
+    """A part in a cell: the cell, its module's name (None when the board does not say) and how many stamps it has."""
+    part = inp.part(ref)
+    if not part.cell:
+        return {}
+    c = inp.cell(part.cell)
+    return {"cell": c.name, "module": c.module, "stamps": c.stamps}
+
+
+def _waiting(inp, refs) -> list:
+    """Each studied net's pad on a part not placed yet: {net, ref}."""
+    return [{"net": net, "ref": r} for p, net, r in inp.unplaced if p in refs]
+
+
+def placed_share(inp, refs) -> dict:
+    """{placed, of}: of the group's nets that would move, how many have a placed far end (the rest wait on placement)."""
+    placed = sum(len(inp.part(r).slots.movable) for r in refs)
+    waiting = sum(1 for r in refs for h in inp.part(r).slots.held if h.why == "unplaced")
+    return {"placed": placed, "of": placed + waiting}
 
 
 def _map(inp, refs, before: dict, after: dict) -> list:
@@ -84,17 +117,37 @@ def _still(breaks: list, assign: dict) -> list:
     return [b for b in breaks if (b["ref"], b["pin"]) in assign.get(b["net"], ())]
 
 
+def _base(inp, refs, settings) -> dict:
+    """The facts every `pins.remap` finding of a group has, its study's aside."""
+    lead = inp.part(refs[0])
+    at = lead.at or (lead.cx, lead.cy)
+    return dict({"ref": refs[0], "refs": list(refs), "at": [round(at[0], 3), round(at[1], 3)],
+                 "budget_ms": settings.pins_budget_ms * len(refs),
+                 "held": [{"ref": r, "net": h.net, "pin": h.pin, "name": inp.names.get(r, {}).get(h.pin, ""), "why": h.why}
+                          for r in refs for h in inp.part(r).slots.held],
+                 "present_breaks": _breaks(inp, refs), "unplaced_ends": _waiting(inp, refs)}, **_cell_facts(inp, refs[0]))
+
+
+def withheld_facts(inp, refs, settings) -> dict:
+    """The facts of a group whose share of movable nets with a placed far end is below `pins.placed_share_min`: no
+    study, no map, no turn; how many ends are missing."""
+    share = placed_share(inp, refs)
+    return dict(_base(inp, refs, settings), present=None, searched=0, of=0, budget_out=False, first_map=True,
+                rotations=[], best=0, routed=[], before=[],
+                withheld=dict(share, share_min=settings.pins_placed_share_min))
+
+
+def withheld(inp, refs, settings) -> bool:
+    share = placed_share(inp, refs)
+    return share["placed"] < share["of"] and share["placed"] < settings.pins_placed_share_min * share["of"]
+
+
 def group_facts(inp, g, copper, settings) -> dict | None:
     """The facts of a group's `pins.remap` finding, or None when no pose saves `pins.gain_min` of the present total
     (a study that ran out before a first map always has one, saying so)."""
     refs = g.refs
-    lead = inp.part(refs[0])
-    base = {"ref": refs[0], "refs": list(refs), "at": [round(lead.cx, 3), round(lead.cy, 3)],
-            "present": g.present.to_json(), "searched": g.searched, "of": g.of, "budget_out": g.budget_out,
-            "first_map": g.first_map, "budget_ms": settings.pins_budget_ms * len(refs),
-            "held": [{"ref": r, "net": h.net, "pin": h.pin, "name": inp.names.get(r, {}).get(h.pin, ""), "why": h.why}
-                     for r in refs for h in inp.part(r).slots.held],
-            "present_breaks": _breaks(inp, refs)}
+    base = dict(_base(inp, refs, settings), present=g.present.to_json(), searched=g.searched, of=g.of,
+                budget_out=g.budget_out, first_map=g.first_map)
     if not g.first_map:
         return dict(base, rotations=[], best=0, routed=[], before=[])
     if not g.results:
@@ -109,7 +162,40 @@ def group_facts(inp, g, copper, settings) -> dict | None:
         rows.append(dict(r.breakdown.to_json(), turns=_turns(inp, r.poses), map=moved,
                          routed=sorted({m["net"] for m in moved} & copper), paths=_paths(r.paths),
                          breaks=_still(base["present_breaks"], r.assign)))
-    return dict(base, rotations=rows, best=best, routed=rows[best]["routed"], before=_paths(g.present_paths))
+    out = dict(base, rotations=rows, best=best, routed=rows[best]["routed"], before=_paths(g.present_paths))
+    lead = next(t for t in rows[best]["turns"] if t["ref"] == refs[0])
+    if "cell" in lead:
+        out.update(cell_rotation_deg=lead["cell_rotation_deg"], module_rotation_deg=lead["module_rotation_deg"])
+    return out
+
+
+def _moves(facts: dict) -> list:
+    """The pin moves of a finding's best map on its lead part, by pin number: what a module's stamps compare."""
+    rows = facts["rotations"]
+    if not rows:
+        return []
+    return [{"from": m["from"]["pin"], "to": m["to"]["pin"]} for m in rows[facts["best"]]["map"] if m["ref"] == facts["ref"]]
+
+
+def _stamp_maps(inp, facts_of: list, kept: dict) -> None:
+    """The facts (`facts_of`) of each `pins.remap` finding of a part in a cell whose module's other studied stamps have a
+    different best map get `stamp_maps`: each stamp's cell, part and pin moves (none for a stamp with no map worth
+    having), by cell. `kept` {lead ref: facts or None} of every studied group whose lead is in a cell; a stamp that ran
+    out before a first map, or waits on placement, has no best map and is left out."""
+    by_module: dict = {}
+    for ref, facts in kept.items():
+        if facts is not None and (facts.get("withheld") or not facts["first_map"]):
+            continue
+        c = inp.cell(inp.part(ref).cell)
+        moves = _moves(facts) if facts is not None else []
+        by_module.setdefault(c.module_key, []).append({"cell": c.name, "ref": ref, "moves": moves})
+    for stamps in by_module.values():
+        if len(stamps) < 2 or all(s["moves"] == stamps[0]["moves"] for s in stamps):
+            continue
+        listed = sorted(stamps, key=lambda s: s["cell"])
+        for f in facts_of:
+            if f.get("cell") in {s["cell"] for s in listed}:
+                f["stamp_maps"] = [dict(s, moves=list(s["moves"])) for s in listed]
 
 
 def digest(inp, problems, copper, settings) -> str:
@@ -152,7 +238,7 @@ def _keep(path, d: str, findings) -> None:
 
 
 def study_findings(pads, parts, names, quiet, partners, netclasses, settings, copper=frozenset(), cache=None,
-                   step_ms: float = 0.0) -> tuple:
+                   step_ms: float = 0.0, cells=None, unplaced=()) -> tuple:
     """(findings, record) of the study of a placed board: `setup.pins` for each problem and for each net the present
     map puts on a pin its own rule bars (`present_breaks`), `pins.remap` for each group
     with a map worth having. `cache`, a path, holds the last study's digest and findings: a match is reused. `record` is
@@ -160,7 +246,7 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
     the core's clock a counted one (a test's)."""
     t0 = time.perf_counter()
     inp, problems = build(pads, parts, names, quiet, partners, netclasses, settings.pins_follow_series,
-                          tuple(settings.pins_follow_prefixes))
+                          tuple(settings.pins_follow_prefixes), cells, unplaced)
     if inp is None and not problems:
         return [], {}
     d = digest(inp, problems, copper, settings)
@@ -171,16 +257,28 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
     found = [Finding(C.SETUP_PINS, p.facts()) for p in problems]
     groups = 0
     if inp is not None:
-        results = study(inp, settings, step_ms)
-        groups = len(results)
+        from .pinmap_core import linked_groups, movable_count, problem_of, study_group
         for part in inp.parts:
             found += [Finding(C.SETUP_PINS, dict(Problem(part.ref, key, "", "present_breaks", net).facts(), pin=pin, rule=key))
                       for net, pin, key in part.slots.breaks]
-        for g in results:
-            found += [Finding(C.SETUP_PINS, Problem(ref, "", "", "no_legal_map", net).facts()) for ref, net in g.problems]
-            facts = group_facts(inp, g, copper, settings)
+        pb = problem_of(inp, settings.pins_exit_mm)
+        kept = {}
+        for refs in linked_groups(inp):
+            if withheld(inp, refs, settings):
+                facts = withheld_facts(inp, refs, settings)
+            elif not movable_count(inp, refs):
+                continue
+            else:
+                g = study_group(inp, refs, settings, step_ms=step_ms, pb=pb)
+                found += [Finding(C.SETUP_PINS, Problem(ref, "", "", "no_legal_map", net).facts()) for ref, net in g.problems]
+                facts = group_facts(inp, g, copper, settings)
+            groups += 1
+            if inp.part(refs[0]).cell:
+                kept[refs[0]] = facts
             if facts is not None:
-                found.append(Finding(C.PINS_REMAP, facts))
+                found.append(facts)
+        _stamp_maps(inp, [f for f in found if isinstance(f, dict)], kept)
+        found = [Finding(C.PINS_REMAP, f) if isinstance(f, dict) else f for f in found]
     if cache is not None:
         _keep(cache, d, found)
     return found, {"seconds": round(time.perf_counter() - t0, 3), "reused": False, "groups": groups, "parts": n_parts}
@@ -197,24 +295,44 @@ def study_line(record: dict) -> str:
                                                "" if record["groups"] == 1 else "s", record["seconds"])
 
 
-def placed_from_plan(board, plan) -> tuple:
-    """(pads, {ref: PlacedPart}) of a resolved plan: every placed part where the placement put it (its pads at their
-    airwire anchors, its courtyard's box), and whether its declaration lets it stand on the other face."""
+def placed_from_plan(board, plan) -> Placed:
+    """The Placed of a resolved plan: every placed part where the placement put it (its pads at their airwire anchors,
+    its courtyard's box), and whether its declaration lets it stand on the other face; every placed cell with its
+    members as the occupancy holds them (an arranged cell's at their arranged places), its envelope (their courtyards and
+    its own copper as committed), the rotation and face it was placed at (as stamped when the script does not place it),
+    its module and its stamps; and the pads of the parts not placed."""
     occ = plan.occupancy
     either = {i.item.ref for i in board._placements() if i.kind == "part" and i.either}
-    pads, parts = [], {}
+    pads, parts, unplaced = [], {}, []
     for ref in sorted(occ.items):
-        if ref in occ.pending or not occ.geometry.has_footprint(ref):
+        if not occ.geometry.has_footprint(ref):
             continue
         fp = occ.geometry.footprint(ref)
+        if ref in occ.pending:
+            unplaced += [(ref, p.number, p.net) for p in fp.pads if p.net and not p.no_connect]
+            continue
         nc = {p.number for p in fp.pads if p.no_connect}
         for s in occ.items[ref].shapes:
             if s.kind in ("pad", "through") and s.owner == ref:
                 pads.append(PlacedPad(ref, s.label, s.net, frozenset(s.layers), (tuple(s.poly),), s.box,
                                       occ.pad_anchor(ref, s.label), s.label in nc))
         g = occ.items[ref].reference
-        parts[ref] = PlacedPart(ref, occ.courtyard_box(ref), g.rotation, g.face.value, ref in either, dict(fp.fields))
-    return pads, parts
+        parts[ref] = PlacedPart(ref, occ.courtyard_box(ref), g.rotation, g.face.value, ref in either, dict(fp.fields),
+                                fp.cell or "")
+    modules = cell_modules(occ.geometry)
+    stamps = stamp_counts(modules)
+    cells = {}
+    for name, cg in sorted(occ.geometry.cells.items()):
+        members = tuple(sorted(fp.ref for fp in cg.members))
+        if not members or not all(r in parts for r in members):
+            continue
+        own = [s.box for s in occ.copper if s.owner == name and s.kind not in ("viaban", "silk")]
+        at = board._cell_placements.get(name)
+        rotation, face = (at.rotation, at.face.value) if at is not None else (0.0, "front")
+        module, key = modules[name]
+        cells[name] = PlacedCell(name, members, Box.union([parts[r].courtyard for r in members] + own), float(rotation),
+                                 face, face != "front", module, stamps[key], key)
+    return Placed(pads, parts, cells, tuple(unplaced))
 
 
 def plan_findings(board, plan) -> list:
@@ -223,11 +341,12 @@ def plan_findings(board, plan) -> list:
     if not has_pools(board.geometry.footprints):
         return []
     from .pairs import board_pairs
-    pads, parts = placed_from_plan(board, plan)
+    placed = placed_from_plan(board, plan)
     quiet = frozenset(board._plane_nets()) | frozenset(board._free_nets)
-    found, record = study_findings(pads, parts, board.geometry.pin_names, quiet, board_pairs(board.geometry.netclasses),
-                                   board.geometry.netclasses, board.settings, copper_nets(board.geometry, plan),
-                                   board.pin_study_cache)
+    found, record = study_findings(placed.pads, placed.parts, board.geometry.pin_names, quiet,
+                                   board_pairs(board.geometry.netclasses), board.geometry.netclasses, board.settings,
+                                   copper_nets(board.geometry, plan), board.pin_study_cache, cells=placed.cells,
+                                   unplaced=placed.unplaced)
     plan.pin_study = record
     return found
 
@@ -253,12 +372,13 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
     if not has_pools(board.geometry.footprints):
         return []
     from .pairs import board_pairs
-    from .pinmap_core import linked_groups, problem_of, study_group
+    from .pinmap_core import linked_groups, movable_count, problem_of, study_group
     settings = settings or board.settings
-    pads, parts = placed_from_plan(board, plan)
+    placed = placed_from_plan(board, plan)
     quiet = frozenset(board._plane_nets()) | frozenset(board._free_nets)
-    inp, _ = build(pads, parts, board.geometry.pin_names, quiet, board_pairs(board.geometry.netclasses),
-                   board.geometry.netclasses, settings.pins_follow_series, tuple(settings.pins_follow_prefixes))
+    inp, _ = build(placed.pads, placed.parts, board.geometry.pin_names, quiet, board_pairs(board.geometry.netclasses),
+                   board.geometry.netclasses, settings.pins_follow_series, tuple(settings.pins_follow_prefixes),
+                   placed.cells, placed.unplaced)
     if inp is None:
         return []
     pb = problem_of(inp, settings.pins_exit_mm)
@@ -266,6 +386,8 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
     for group in linked_groups(inp):
         if refs and not set(group) & set(refs):
             continue
+        if withheld(inp, group, settings) or not movable_count(inp, group):
+            continue                # it waits on placement: no map to give
         g = study_group(inp, group, settings, pb=pb)
         if not g.results:
             continue

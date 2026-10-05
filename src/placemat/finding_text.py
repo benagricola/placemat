@@ -241,11 +241,55 @@ def pose_text(turns: list) -> str:
     return " and ".join("%s at %s" % (t["ref"], one(t)) for t in turns)
 
 
+def at_pose(turns: list) -> str:
+    """'at 90 degrees' for a part turned alone, 'with cell logic turned to 90 degrees' for one studied as its cell."""
+    if not any("cell" in t for t in turns):
+        return "at " + pose_text(turns)
+    return "with " + " and ".join("cell %s turned to %g degrees" % (t["cell"], t["cell_rotation_deg"]) if "cell" in t
+                                  else "%s at %s" % (t["ref"], pose_text([t])) for t in turns)
+
+
+def _module(t: dict) -> str:
+    return "module %s" % t["module"] if t.get("module") else "the module of cell %s" % t["cell"]
+
+
+def cell_levers(t: dict) -> str:
+    """The two ways to take a turn of a part studied as its cell (a turn record with `cell`)."""
+    return ("turn cell %s to %g degrees on the board, or keep it and re-lay %s with %s at %g degrees in its frame and the "
+            "cell's other parts placed round it; either one means the next run re-places the board" % (
+                t["cell"], t["cell_rotation_deg"], _module(t), t["ref"], t["module_rotation_deg"]))
+
+
+def cell_capture(t: dict) -> str:
+    """Whose capture a map of a part in a cell changes: 'module M's capture, which its 2 stamps share'."""
+    whose = "module %s's capture" % t["module"] if t.get("module") else "the capture of cell %s's module" % t["cell"]
+    return whose + (", which its %d stamps share" % t["stamps"] if t.get("stamps", 1) > 1 else "")
+
+
+def _stamp_moves(s: dict) -> str:
+    if not s["moves"]:
+        return "%s keeps its pins" % s["cell"]
+    return "%s moves pins %s" % (s["cell"], ", ".join("%s->%s" % (m["from"], m["to"]) for m in s["moves"]))
+
+
+def _plural(n: int, one: str, many: str) -> str:
+    return "%d %s" % (n, one if n == 1 else many)
+
+
 @renders(C.PINS_REMAP, "ref", "refs", "present", "rotations", "best", "first_map", "budget_out", "budget_ms", "searched",
          "of", "routed", "present_breaks")
 def _pins_remap(f):
     who = " and ".join(f["refs"])
-    their = "its present rotation" if len(f["refs"]) == 1 else "their present rotations"
+    if f.get("cell"):
+        who += " in cell %s" % f["cell"]
+    if f.get("withheld"):
+        w = f["withheld"]
+        missing = w["of"] - w["placed"]
+        return ("%s: the pin map study waits on placement: %d of its %d movable nets %s no placed far end, and "
+                "pins.placed_share_min asks for %g percent with one; no map or turn is advised" % (
+                    who, missing, w["of"], "has" if missing == 1 else "have", round(w["share_min"] * 100, 1)))
+    their = "the cell's present rotation" if f.get("cell") else \
+        "its present rotation" if len(f["refs"]) == 1 else "their present rotations"
     if not f["first_map"]:
         return "%s: the pin map study ran out of its %g ms before a first map; pins.budget_ms sets it" % (who, f["budget_ms"])
     rs, p = f["rotations"], f["present"]
@@ -255,10 +299,26 @@ def _pins_remap(f):
     else:
         text = "%s: no better pin map at %s" % (who, their)
     if f["best"] != 0:
-        text += "; at %s, %s" % (pose_text(best["turns"]), _saving(p, best))
+        text += "; %s, %s" % (at_pose(best["turns"]), _saving(p, best))
+        levers = [cell_levers(t) for t in best["turns"] if "cell" in t and (t["turn_deg"] or t["flip"])]
+        if levers:
+            text += "; to take that turn, " + "; or for the next, ".join(levers)
+    lead = next((t for t in best["turns"] if t["ref"] == f["ref"]), None)
+    if lead is not None and "cell" in lead and best["map"]:
+        text += "; the map is a change to " + cell_capture(lead)
     if f["routed"]:
         text += "; %d of the nets it moves %s copper now: %s" % (len(f["routed"]), "has" if len(f["routed"]) == 1 else "have",
                                                               ", ".join(f["routed"]))
+    waiting = sorted({h["net"] for h in f.get("held", ()) if h["why"] == "unplaced"})
+    if waiting:
+        text += "; %s until %s placed: %s" % (
+            _plural(len(waiting), "net keeps its pin", "nets keep their pins"),
+            "its far end is" if len(waiting) == 1 else "their far ends are", ", ".join(waiting))
+    if f.get("stamp_maps"):
+        sm = f["stamp_maps"]
+        text += "; the %d stamps of %s have different best maps: %s" % (
+            len(sm), _module(dict(lead or {}, cell=f["cell"])) if lead is not None else "its module",
+            "; ".join(_stamp_moves(s) for s in sm))
     if f["budget_out"]:
         text += "; the study stopped at its %g ms after %d of %d poses" % (f["budget_ms"], f["searched"], f["of"])
     return text

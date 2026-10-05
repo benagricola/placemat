@@ -176,8 +176,8 @@ def read_rules(ref: str, fields: dict, pads, names: dict) -> tuple:
 
 @dataclass(frozen=True)
 class Held:
-    """A net a constraint keeps on its pin: `why` is fixed (`Pm.PinFixed`) or allow (`Pm.PinAllow` and `Pm.PinDeny` leave
-    it only the pin it is on)."""
+    """A net kept on its pin: `why` is fixed (`Pm.PinFixed`), allow (`Pm.PinAllow` and `Pm.PinDeny` leave it only the pin
+    it is on) or unplaced (no pad of it but this one is placed: nothing pulls it anywhere yet)."""
     net: str
     pin: str
     why: str
@@ -203,9 +203,10 @@ class PartPins:
     breaks: tuple = ()
 
 
-def part_pins(rules: PinRules, pads, connected, quiet) -> tuple:
+def part_pins(rules: PinRules, pads, connected, quiet, waiting=frozenset()) -> tuple:
     """(PartPins or None, [Problem]): `pads` the part's (pad number, net, no_connect), `connected` the nets with a pad
-    elsewhere on the board, `quiet` the plane and free nets. A pool pin with no net, with a net that reaches nothing else
+    elsewhere on the board, placed or not, `quiet` the plane and free nets, `waiting` the nets with no pad placed but
+    this part's, which keep their pins (Held "unplaced"). A pool pin with no net, with a net that reaches nothing else
     (a single-pad net, KiCad's `unconnected-(...)`) or that the capture marks unconnected is free. A net on one pool pin
     that is not fixed moves. A net on two pins, a quiet net and a net outside the pool stay, and so do their pins; so
     does a net `Pm.PinAllow` or `Pm.PinDeny` leaves only its own pin. None, with a `no_legal_pin` problem, when a net
@@ -222,6 +223,9 @@ def part_pins(rules: PinRules, pads, connected, quiet) -> tuple:
             staying |= set(pins)
         elif pins[0] in rules.fixed:
             held.append(Held(net, pins[0], "fixed"))
+            staying.add(pins[0])
+        elif net in waiting:
+            held.append(Held(net, pins[0], "unplaced"))
             staying.add(pins[0])
         else:
             movable.append(net)

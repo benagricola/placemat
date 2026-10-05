@@ -3847,7 +3847,10 @@ function pinMapHTML(s) {
   const turned = (a.turns || []).filter(t => t.turn_deg || t.flip);
   const rows = (a.map || []).map(m => "<tr><td>" + esc(m.ref) + "</td><td><b>" + esc(m.net) + "</b></td><td>" + pin(m.from) + "</td><td>-&gt;</td><td>" + pin(m.to) + "</td></tr>").join("");
   return '<div class="pmmap">' + (rows ? "<table>" + rows + "</table>" : "<div>the pins stay as they are</div>") +
-    turned.map(t => "<div>turn " + esc(t.ref) + " to " + esc(String(t.rotation_deg)) + " degrees" + (t.flip ? " on the " + esc(t.face) : "") + "</div>").join("") +
+    turned.map(t => t.cell
+      ? "<div>turn cell " + esc(t.cell) + " to " + esc(String(t.cell_rotation_deg)) + " degrees on the board, or re-lay " +
+        (t.module ? "module " + esc(t.module) : "its module") + " with " + esc(t.ref) + " at " + esc(String(t.module_rotation_deg)) + " degrees in its frame</div>"
+      : "<div>turn " + esc(t.ref) + " to " + esc(String(t.rotation_deg)) + " degrees" + (t.flip ? " on the " + esc(t.face) : "") + "</div>").join("") +
     '<div><span class="pmkey before"></span>airwires now<span class="pmkey after"></span>airwires after</div></div>';
 }
 function drawPinMap() {

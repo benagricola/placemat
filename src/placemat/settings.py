@@ -340,6 +340,8 @@ class Settings:
         "the pin map study also turns a part on the other face where its declaration lets it stand there (`face=Face.EITHER`)")
     pins_gain_min: float = S(0.05, "share",
         "the share of the present total a better pin map must save for a `pins.remap` finding")
+    pins_placed_share_min: float = S(0.8, "share",
+        "the share of a studied part's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement")
     pins_explore_top: int = S(3, "count",
         "the best variants of an explore, by run score, the pin map study runs on (0: none)")
     pins_probe_budget_ms: int = S(5000, "ms",
@@ -694,7 +696,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch",
     "pins_exit_mm", "pins_pair_weight", "pins_impedance_weight", "pins_length_weight", "pins_bend_weight", "pins_anneal_start",
-    "pins_anneal_end", "pins_gain_min", "pins_explore_top"))
+    "pins_anneal_end", "pins_gain_min", "pins_placed_share_min", "pins_explore_top"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
 _AT_LEAST_TWO = frozenset(("place_split_min_group", "place_room_ratio"))

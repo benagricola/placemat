@@ -4136,7 +4136,7 @@ comparison.
 **What a run says.** `explore  N variants in S s over K focused items:
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
-With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking.
+With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part, or `, with cell logic turned to 90 degrees` when it turns the part's cell), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking.
 Without `--accept` nothing persists.
 
 **Stopping.** `run`, `preview` and `route` stop on SIGTERM, SIGHUP or Ctrl-C
@@ -4389,6 +4389,33 @@ reuses it. A study that raises leaves the run standing: the error is on
 `metrics.pin_study` and a `setup.pins` warning with code `study_failed` (facts
 `type`, `message`) says so, and the run has no pin map findings.
 
+**A part in a cell.** A studied part that is a member of a cell (a stamped
+module instance) is studied as the cell: each pose turns the whole cell about
+its centre, every member's pads with it, and the body its airwires go round is
+the cell's envelope (its members' courtyards and its own copper), not the
+part's courtyard. The turn is theoretical: the cell stays where it is and
+nothing is checked for collisions or DRC; only the airwires are scored. The
+part's pins leave by the envelope side their own courtyard side faces; the other
+members' pads leave by the side they are nearest; a net with every pad inside
+the cell and none that may move turns with the cell and is not studied. A cell
+is studied on the face it stands on (`pins.faces` does not flip it). A turn is
+taken one of two ways: the cell turned on the board to `cell_rotation_deg` (each
+stamp turns on its own), or the cell kept and its module re-laid with the part
+at `module_rotation_deg` in the module's frame, the cell's other parts placed
+round it; either one means the next run re-places the board. The map is a
+change to the module's capture, which every stamp of the module shares; when
+the stamps' best maps differ, each stamp's finding says so and lists them
+(`stamp_maps`). The module's name comes from the generator's `layout.log`
+beside the board (the folder of the module's layout path); without one it is
+null, and the stamps are the cells whose members match.
+
+**Parts not placed yet.** A studied net whose far end is on a part not placed
+has nothing to pull it: it keeps its pin (`held`, `why` `unplaced`) and is
+listed in `unplaced_ends`. When fewer than `pins.placed_share_min` of a part's
+movable nets have a placed far end, the study gives no map or turn: the
+`pins.remap` notice says how many ends are missing and that the study waits on
+placement (`withheld`), with no suggestion.
+
 **The record.** `run.json`'s `metrics.pin_study` is `{seconds, reused, groups,
 parts}`, or `{error: {type, message}}` when the study raised. `reused` is true
 when the last study's findings were kept, and `groups` is then null. Run and
@@ -4423,12 +4450,20 @@ map's score), `rotations` (the best map at each pose, the present pose first:
 and `breaks`), `best` (the index of the best pose), `routed` (the best pose's
 moved nets with copper on the board now: a remap means routing them again),
 `before` (the airwires now), `held` (nets a constraint keeps, with `why` set to
-`fixed` or `allow`), `present_breaks`, `searched`, `of`, `budget_out`,
-`first_map` (false when the budget ran out before a first map) and `budget_ms`.
+`fixed`, `allow` or `unplaced`), `unplaced_ends` (each studied net's pad on a
+part not placed, as `{net, ref}`), `present_breaks`, `searched`, `of`,
+`budget_out`, `first_map` (false when the budget ran out before a first map)
+and `budget_ms`. A part in a cell adds `cell`, `module` (null when the board
+does not name it) and `stamps`, and the best pose's `cell_rotation_deg` and
+`module_rotation_deg`; each of its `turns` carries the same five, and
+`stamp_maps` (`cell`, `ref`, `moves` as `{from, to}` pin numbers, by cell)
+when its module's stamps have different best maps. A study withheld for want
+of placed ends has `withheld` (`placed`, `of`, `share_min`), `present` null and
+no `rotations`.
 
 **The suggestion** is advice (`how: "advice"`, lever `pins`, no edit): the best
-map with the turn to declare when another pose wins, and the best at the
-present pose. `placemat apply <id>` refuses it: make the map in the `.zen` and
+map with the turn to declare when another pose wins (for a part in a cell, both
+ways to take it), and the best at the present pose. `placemat apply <id>` refuses it: make the map in the `.zen` and
 the turn in the script. In the studio an advice suggestion has only Try, which
 draws the airwires before (dashed) and after (solid) and lists the map; it
 resolves and writes nothing.
@@ -4498,7 +4533,7 @@ its kind.
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
 | `needs` | notice | an if-needed fab option would have cleared a spot; the item's `unplaced` finding is the fault |
-| `pins` (`pins.remap`) | notice | the pin map study found an assignment of a part's nets to its pool pins that saves at least `pins.gain_min` of the present total; nothing is changed |
+| `pins` (`pins.remap`) | notice | the pin map study found an assignment of a part's nets to its pool pins that saves at least `pins.gain_min` of the present total, or it waits on placement (`pins.placed_share_min`); nothing is changed |
 
 `setup.native` (warning) is on every run, preview and explore where the native module is not in use, so the placement ran in pure Python:
 the same results, 5-10x slower on a large board. Facts: `reason` (`version_mismatch`, `not_installed`, `import_error`),
@@ -4893,6 +4928,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.joint_combinations` | `64` | count | the most pose combinations the pin map study searches for parts it studies together, their present poses first |
 | `pins.faces` | `false` | bool | the pin map study also turns a part on the other face where its declaration lets it stand there (`face=Face.EITHER`) |
 | `pins.gain_min` | `0.05` | share | the share of the present total a better pin map must save for a `pins.remap` finding |
+| `pins.placed_share_min` | `0.8` | share | the share of a studied part's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement |
 | `pins.explore_top` | `3` | count | the best variants of an explore, by run score, the pin map study runs on (0: none) |
 | `pins.probe_budget_ms` | `5000` | ms | the pin map study's time for each part when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
 | `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |

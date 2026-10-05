@@ -7,11 +7,23 @@ connectivity - never torn up - and a first preview and a laid board are scored o
 still one cluster, as KiCad has them.
 
 A net that reaches a studied pin through a two-pad series part (a termination resistor) and nothing else is followed on
-to the series part's far net, as one connection (`pins.follow_series`)."""
+to the series part's far net, as one connection (`pins.follow_series`).
+
+A studied part that is a member of a cell (a stamped module instance) is studied as the cell: its body is the cell's
+envelope, centred on the envelope's centre, and it holds every member's pads, so its poses turn the whole cell. Only the
+part's own pool pins move; its pins keep the outward normals of its own courtyard and leave by that side of the
+envelope, and the other members' pads leave by the envelope side they are nearest. A net with every pad inside the cell
+and none movable turns with the cell as a posed net of the background (its airwires straight between its pads).
+
+A part not placed yet has no place to pull toward: a studied net with no pad placed but the part's own keeps its pin
+(pinmap_rules.part_pins, `waiting`), and each studied net's pads on unplaced parts are listed (`StudyInput.unplaced`)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+from pathlib import Path
 import re
+from typing import NamedTuple
 
 from .ratsnest import Anchor, board_nets, mst
 from .values import Box, Location
@@ -44,32 +56,59 @@ class PlacedPart:
     face: str
     may_flip: bool = False
     fields: dict = field(default_factory=dict, compare=False)
+    cell: str = ""              # the cell it is a member of, if any
+
+
+@dataclass(frozen=True)
+class PlacedCell:
+    """A cell (a stamped module instance) where the placement put it: its members' refs, its envelope (the box round
+    its members' courtyards and its own copper), the rotation and face it stands at (0 and the front as stamped), whether
+    that face is the other one from its stamp's, its module's name (None when the board does not say), how many cells of
+    that module the board has, and what tells that module from another (`module_key`)."""
+    name: str
+    members: tuple
+    envelope: Box
+    rotation: float
+    face: str
+    flipped: bool = False
+    module: str | None = None
+    stamps: int = 1
+    module_key: str = ""
 
 
 @dataclass(frozen=True)
 class Pin:
-    """A studied part's pad: its anchor in the part's own frame (the courtyard box's centre, as the part stands) and the
-    outward normal of the box side it is nearest."""
+    """A studied part's pad: its anchor in the part's own frame (the body box's centre, as the part stands) and the
+    outward normal of the box side it is nearest. A cell's other members' pads are pins of the part studied as the cell:
+    `owner` and `pad` name the member and its pad, and `number` is a label unique on the part."""
     number: str
     name: str
     x: float
     y: float
     nx: float
     ny: float
+    owner: str = ""
+    pad: str = ""
+
+    def key(self, ref: str) -> tuple:
+        """(ref, pad number) of the board pad this pin is: the part's own, else the member's."""
+        return (self.owner, self.pad) if self.owner else (ref, self.number)
 
 
 @dataclass(frozen=True)
 class StudiedPart:
     ref: str
-    cx: float
+    cx: float                   # the body's centre: the courtyard box's, or the cell envelope's for a part in a cell
     cy: float
-    hw: float                   # half the courtyard box's width and height
+    hw: float                   # half the body box's width and height
     hh: float
     rotation: float
     face: str
     may_flip: bool
     pins: tuple                 # Pin, by pad number
     slots: object               # pinmap_rules.PartPins
+    cell: str = ""              # the cell it is studied as, if any
+    at: tuple = ()              # its own courtyard box's centre
 
     def pin(self, number: str) -> Pin:
         return next(p for p in self.pins if p.number == number)
@@ -115,9 +154,14 @@ class StudyInput:
     background: tuple           # Wire, every one: a posed net's at its pads' present places
     names: dict = field(default_factory=dict)      # ref -> {pad number: pin name}
     posed: tuple = ()           # PosedNet, by net
+    cells: tuple = ()           # PlacedCell of the cells studied parts are in, by name
+    unplaced: tuple = ()        # (studied part, net, unplaced part): each pad of a studied part's net not placed yet
 
     def part(self, ref: str) -> StudiedPart:
         return next(p for p in self.parts if p.ref == ref)
+
+    def cell(self, name: str):
+        return next(c for c in self.cells if c.name == name)
 
 
 _SIDES = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))     # east, south, west, north: the order a tie is broken in
@@ -158,11 +202,14 @@ def _merged(pads) -> list:
 
 
 def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dict, follow_series: bool = True,
-          follow_prefixes: tuple = ("R", "L", "FB")) -> tuple:
+          follow_prefixes: tuple = ("R", "L", "FB"), cells=None, unplaced=()) -> tuple:
     """(StudyInput or None, [Problem]): `pads` every placed pad (PlacedPad), `parts` {ref: PlacedPart} of the placed
     parts, `names` {ref: {pad number: pin name}}, `quiet` the plane and free nets, `partners` {net: its pair's other
-    half}, `netclasses` {net: NetClass}, `follow_prefixes` the reference prefixes of the series parts to follow. None when no part has a pool and a net that may move."""
+    half}, `netclasses` {net: NetClass}, `follow_prefixes` the reference prefixes of the series parts to follow, `cells`
+    {name: PlacedCell} of the placed cells, `unplaced` (ref, pad number, net) of each pad of a part not placed. None when
+    no part has a pool and a net that may move or waits on placement."""
     pads = _merged(pads)
+    cells = dict(cells or {})
     of_ref: dict = {}
     for p in pads:
         of_ref.setdefault(p.ref, []).append(p)
@@ -176,32 +223,67 @@ def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dic
     if not read:
         return None, problems
     by_net = board_nets([(p.ref, p.number, p.net, p.layers, p.outlines, p.box, p.anchor) for p in pads], copper=())
-    connected = frozenset(n for n, (anchors, _) in by_net.items() if len({(a.ref, a.number) for a in anchors}) >= 2)
-    studied = []
+    away: dict = {}                     # net -> {(ref, pad number)} of its pads on parts not placed
+    for ref, number, net in unplaced:
+        if net:
+            away.setdefault(net, set()).add((ref, number))
+    connected = frozenset(n for n in set(by_net) | set(away)
+                          if len({(a.ref, a.number) for a in by_net.get(n, ((), ()))[0]} | away.get(n, set())) >= 2)
+    slots_of = {}
     for ref, rules in read:
-        part, mine = parts[ref], of_ref.get(ref, [])
-        slots, said = part_pins(rules, [(p.number, p.net, p.no_connect) for p in mine], connected, quiet)
+        mine = of_ref.get(ref, [])
+        waiting = frozenset(n for n in away if not any(a.ref != ref for a in by_net.get(n, ((), ()))[0]))
+        slots, said = part_pins(rules, [(p.number, p.net, p.no_connect) for p in mine], connected, quiet, waiting)
         problems += said
-        if slots is None or not slots.movable:
+        if slots is None or not (slots.movable or any(h.why == "unplaced" for h in slots.held)):
             continue
-        c = part.courtyard.center
-        hw, hh = part.courtyard.width / 2.0, part.courtyard.height / 2.0
+        slots_of[ref] = slots
+    if not slots_of:
+        return None, problems
+    cell_of = {r: parts[r].cell for r in sorted(slots_of) if parts[r].cell in cells}
+    lead: dict = {}                     # cell -> the studied part that holds its other members' pads
+    for r in sorted(cell_of):
+        lead.setdefault(cell_of[r], r)
+    end_of: dict = {}                   # (ref, pad number) of a pad on a studied body -> (body, pin number)
+    studied = []
+    for ref in sorted(slots_of):
+        part, mine = parts[ref], of_ref.get(ref, [])
+        cell = cells.get(cell_of.get(ref, ""))
+        own = part.courtyard.center
+        ohw, ohh = part.courtyard.width / 2.0, part.courtyard.height / 2.0
+        body = cell.envelope if cell is not None else part.courtyard
+        c = body.center
+        hw, hh = body.width / 2.0, body.height / 2.0
         pins = []
         for p in mine:
-            x, y = p.anchor.x - c.x, p.anchor.y - c.y
-            nx, ny = outward(x, y, hw, hh)
-            pins.append(Pin(p.number, names.get(ref, {}).get(p.number, ""), x, y, nx, ny))
-        studied.append(StudiedPart(ref, c.x, c.y, hw, hh, part.rotation, part.face, part.may_flip, tuple(pins), slots))
-    if not studied:
-        return None, problems
-    on = {s.ref for s in studied}
+            nx, ny = outward(p.anchor.x - own.x, p.anchor.y - own.y, ohw, ohh)
+            pins.append(Pin(p.number, names.get(ref, {}).get(p.number, ""), p.anchor.x - c.x, p.anchor.y - c.y, nx, ny))
+            end_of[(ref, p.number)] = (ref, p.number)
+        if cell is not None and lead[cell.name] == ref:
+            for m in cell.members:
+                if m in slots_of:
+                    continue
+                for p in of_ref.get(m, []):
+                    x, y = p.anchor.x - c.x, p.anchor.y - c.y
+                    label = "%s:%s" % (m, p.number)
+                    nx, ny = outward(x, y, hw, hh)
+                    pins.append(Pin(label, "", x, y, nx, ny, m, p.number))
+                    end_of[(m, p.number)] = (ref, label)
+        studied.append(StudiedPart(ref, c.x, c.y, hw, hh, part.rotation, part.face, part.may_flip and cell is None,
+                                   tuple(pins), slots_of[ref], cell.name if cell is not None else "", (own.x, own.y)))
+    on = {r for r, _ in end_of}
+    in_cell = {s.ref for s in studied if s.cell}
     kind = lambda n: net_kind(n, quiet, partners, netclasses)
     nets, used = [], set()
     for net in sorted(by_net):
         anchors, joined = by_net[net]
         if net in quiet or not any(a.ref in on for a in anchors):
             continue
-        ends = tuple(sorted({(a.ref, a.number) for a in anchors if a.ref in on}, key=lambda e: (e[0], natural(e[1]))))
+        ends = tuple(sorted({end_of[(a.ref, a.number)] for a in anchors if a.ref in on}, key=lambda e: (e[0], natural(e[1]))))
+        bodies = {b for b, _ in ends}
+        if len(bodies) == 1 and bodies <= in_cell and all(a.ref in on for a in anchors) and net not in away and \
+                net not in slots_of[ends[0][0]].movable:
+            continue            # inside one cell and held: it turns with the cell, a posed net of the background
         keep = [i for i, a in enumerate(anchors) if a.ref not in on]
         fixed, via, far, k = _fixed(anchors, joined, keep), "", "", kind(net)
         followed = _follow(net, ends, fixed[0], of_ref, on, by_net, quiet, follow_prefixes) if follow_series else None
@@ -222,8 +304,11 @@ def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dic
             background.append(Wire(net, kind(net), (e.a.x, e.a.y), (e.b.x, e.b.y)))
         if any(a.ref in on for a in anchors):
             posed.append(PosedNet(net, kind(net), tuple(anchors), tuple(tuple(p) for p in joined)))
+    waits = tuple((s.ref, net, r) for s in studied for net in sorted({p.net for p in of_ref.get(s.ref, [])} & set(away))
+                  if net not in quiet for r in sorted({r for r, _ in away[net]}))
     return StudyInput(tuple(studied), tuple(nets), tuple(background),
-                      {s.ref: dict(names.get(s.ref, {})) for s in studied}, tuple(posed)), problems
+                      {s.ref: dict(names.get(s.ref, {})) for s in studied}, tuple(posed),
+                      tuple(cells[n] for n in sorted({s.cell for s in studied if s.cell})), waits), problems
 
 
 def _fixed(anchors, joined, keep) -> tuple:
@@ -259,13 +344,77 @@ def _follow(net, ends, fixed, of_ref, on, by_net, quiet, prefixes):
     return via, far, _fixed(anchors, joined, keep)
 
 
-def placed_from_geometry(geometry, either=frozenset()) -> tuple:
-    """(pads, {ref: PlacedPart}) of a board where its file has its parts (a laid board read from disk, a bench case).
-    Its copper is not read: the study is scored as unrouted. `either` are the parts that may stand on the other face."""
+class Placed(NamedTuple):
+    """What the study reads of a placed board: every placed pad (PlacedPad), {ref: PlacedPart} of the placed parts,
+    {name: PlacedCell} of the placed cells, and (ref, pad number, net) of each pad of a part not placed."""
+    pads: list
+    parts: dict
+    cells: dict
+    unplaced: tuple
+
+
+def placed_from_geometry(geometry, either=frozenset(), cell_rotations=None) -> Placed:
+    """The Placed of a board where its file has its parts (a laid board read from
+    disk, a bench case). Its copper is not read: the study is scored as unrouted. `either` are the parts that may stand
+    on the other face. A file does not say how its cells were turned from their stamps: `cell_rotations` {name:
+    degrees} does, and a cell it leaves out is taken to stand as stamped (0 degrees, on the front)."""
     pads, parts = [], {}
     for fp in geometry.footprints:
         for p in fp.pads:
             pads.append(PlacedPad(fp.ref, p.number, p.net, frozenset(p.layers), tuple(p.outlines), p.box, p.airwire_end,
                                   p.no_connect))
-        parts[fp.ref] = PlacedPart(fp.ref, fp.courtyard_box, fp.rotation, fp.face.value, fp.ref in either, dict(fp.fields))
-    return pads, parts
+        parts[fp.ref] = PlacedPart(fp.ref, fp.courtyard_box, fp.rotation, fp.face.value, fp.ref in either, dict(fp.fields),
+                                   fp.cell or "")
+    modules = cell_modules(geometry)
+    stamps = stamp_counts(modules)
+    turned = dict(cell_rotations or {})
+    cells = {}
+    for name, cg in sorted(geometry.cells.items()):
+        members = tuple(sorted(fp.ref for fp in cg.members))
+        if not members:
+            continue
+        module, key = modules[name]
+        cells[name] = PlacedCell(name, members, cg.courtyard_box, float(turned.get(name, 0.0)), "front", False, module,
+                                 stamps[key], key)
+    return Placed(pads, parts, cells, ())
+
+
+def stamp_counts(modules: dict) -> dict:
+    """{module key: how many cells have it}."""
+    out: dict = {}
+    for _, key in modules.values():
+        out[key] = out.get(key, 0) + 1
+    return out
+
+
+_FOUND = re.compile(r"Found module (\S+) with layout_path: (\S+)")
+
+
+def module_layouts(log_path) -> dict:
+    """{cell: its module's layout path}, from the generator's layout log (`layout.log` beside the board): its
+    `Found module <instance> with layout_path: <path>` lines, those with a path. Empty when there is no log."""
+    try:
+        text = Path(log_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    return {m.group(1): m.group(2) for m in _FOUND.finditer(text) if m.group(2) != "None"}
+
+
+def cell_modules(geometry) -> dict:
+    """{cell: (module name or None, module key)} of every cell on the board. The generator's log beside the board names
+    the module a cell was stamped from by its layout path: the name is that path's folder (the one holding `layout`),
+    the key the path. A cell the log does not name (or a board with no log) has no name, and its key is what it holds:
+    each member's place in the cell's instance path and its footprint, alike in every stamp of one module."""
+    layouts = module_layouts(Path(geometry.path).parent / "layout.log") if geometry.path else {}
+    out = {}
+    for name, cg in geometry.cells.items():
+        path = layouts.get(name)
+        if path is not None:
+            parts = [x for x in path.rstrip("/").split("/") if x]
+            folder = parts[-2] if len(parts) >= 2 and parts[-1] == "layout" else parts[-1]
+            out[name] = (folder, path)
+            continue
+        held = sorted("%s=%s" % (fp.inst[len(name) + 1:] if fp.inst.startswith(name + ".") else fp.inst, fp.lib_id)
+                      for fp in cg.members)
+        out[name] = (None, "members:" + hashlib.sha256("\n".join(held).encode()).hexdigest()[:16])
+    return out

@@ -19,8 +19,11 @@ section for each hand-written pattern a newer form replaces.
   on `metrics.pin_study`. An explore studies its best `[pins] explore_top` variants and reports the maps beside their
   scores; `placemat apply <id> --search` studies a suggestion again with `[pins] probe_budget_ms` a part. Settings:
   `[pins]`. The study runs in the native module when it is in use (`uv pip install -e ".[native]"` after updating), else
-  in Python, with the same results. Nothing in a layout script changes; the first run after updating replays no steps
-  (the findings' schemas changed).
+  in Python, with the same results. A part in a cell (a stamped module instance) is studied as its cell: each pose
+  turns the whole cell, and a winning turn is taken by turning the cell on the board or re-laying the module with the
+  part turned in its frame. A net whose far end is on a part not placed keeps its pin, and below `[pins]
+  placed_share_min` of placed ends the study gives no map and says it waits on placement. Nothing in a layout script
+  changes; the first run after updating replays no steps (the findings' schemas changed).
 
 ## To 0.99.15
 

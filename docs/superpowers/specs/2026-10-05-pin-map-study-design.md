@@ -23,7 +23,8 @@ remapping.
 ## What it is not
 
 - It does not move or turn a part. Rotations are theoretical: the part's
-  pads turn about its centre and nothing else on the board moves.
+  pads turn about its centre (a part in a cell: the cell's pads about the
+  cell's centre) and nothing else on the board moves.
 - It does not judge DRC, escapes or routability, only the ratsnest.
 - It does not write the .zen.
 - It is not a new command; it is a finding, its suggestion, and an explore
@@ -104,6 +105,73 @@ Per studied part, per rotation in `pins.rotations` (default 0, 90, 180,
 
 Deterministic for a given board: seeds are fixed, ties broken by pin number.
 
+## A part in a cell
+
+Approved 2026-10-05. A cell is a stamped module instance on a board. A
+studied part that is a member of a cell is studied as the cell: turning the
+part alone would leave out the crossings of its satellites (bypass
+capacitors, a crystal), which turn with it.
+
+- **The poses** turn the whole cell about the centre of its envelope: every
+  member's pads turn, and only the part's own pool pins move. The turn is
+  theoretical: the cell stays where it is, nothing is checked for collisions
+  or DRC, and only the airwires are scored.
+- **The body** the airwires go round is the cell's envelope (the box round
+  its members' courtyards and its own copper, as the occupancy holds them;
+  an arranged cell's members at their arranged places), not the part's
+  courtyard. The part's pins keep the outward normals of its own courtyard
+  and leave by that side of the envelope; the other members' pads leave by
+  the envelope side they are nearest.
+- **Nets inside the cell.** A net with every pad on the cell's members and
+  none that may move turns with the cell as a posed net of the background,
+  its airwires straight between its pads. A net that may move keeps its
+  ends on the members as ends of the body.
+- **The core** takes the cell as one posed body: a part whose centre and
+  box are the envelope's and whose pins are every member's pads. No change
+  to the native core or its twin. Two studied parts in one cell are two
+  bodies on the same envelope, studied together with one pose.
+- **Faces.** A cell is studied on the face it stands on; `pins.faces` does
+  not flip it. Whether a cell may stand on the back depends on its own
+  flip rules, which the study does not read.
+- **Two levers.** A winning turn is taken either way: (1) turn the cell on
+  the board to `cell_rotation_deg`, the cell's present rotation plus the
+  turn (each stamp turns on its own); (2) keep the cell and re-lay the
+  module with the part at `module_rotation_deg` in the module's frame (its
+  rotation in the cell, plus the turn; minus it for a cell on the other face
+  from its stamp), its satellites re-placed round it. Either one means the
+  next run re-places the board.
+- **One capture, several stamps.** The map is a change to the module's
+  capture, shared by every stamp of it. When the stamps of one module have
+  different best maps (by pin moves; a stamp with no map worth having keeps
+  its pins), each stamp's finding says so and lists each (`stamp_maps`).
+- **The module** is named by the generator's `layout.log` beside the board:
+  the folder of the cell's module layout path. Without a log the name is
+  null and the stamps are the cells whose members match (instance path in
+  the cell and footprint).
+- **Facts.** `cell`, `module`, `stamps`, and the best pose's
+  `cell_rotation_deg` and `module_rotation_deg`; each turn record of a part
+  in a cell carries the five. finding_text and the suggestion's advice text
+  render the two levers. Parts not in a cell keep their facts and behaviour.
+- **A laid board read from disk** (the bench, the real-board tests) does not
+  say how its cells were turned from their stamps: `placed_from_geometry`
+  takes them as given (`cell_rotations`), else as stamped.
+
+## Parts not placed yet
+
+Approved 2026-10-05. A part the placement has not placed has no position, so
+a net whose only far end is on one has nothing pulling it, and the study
+would move it for free.
+
+- A studied net with no placed pad but the part's own is held on its present
+  pin (`held`, `why: unplaced`) and never moved.
+- `unplaced_ends`: `{net, ref}` for every pad of a studied part's net on a
+  part not placed.
+- `pins.placed_share_min` (default 0.8): when fewer than that share of a
+  group's movable nets have a placed far end, the study gives no map or
+  rotation. The `pins.remap` notice is still raised, with `withheld`
+  (`placed`, `of`, `share_min`), so the agent knows the study waits on
+  placement; it has no suggestion. The setting is in the study's digest.
+
 ## Speed
 
 The study has to be quick because its value is early feedback.
@@ -179,8 +247,8 @@ are reported beside it, not folded into the score.
 `pins.exit_mm`, `pins.follow_series`, `pins.pair_weight`,
 `pins.impedance_weight`, `pins.length_weight`, `pins.bend_weight`,
 `pins.rotations`, `pins.seeds`,
-`pins.budget_ms`, `pins.faces`, `pins.gain_min`, `pins.explore_top`, each
-with a default and a line in the settings table.
+`pins.budget_ms`, `pins.faces`, `pins.gain_min`, `pins.placed_share_min`,
+`pins.explore_top`, each with a default and a line in the settings table.
 
 ## Build notes
 
@@ -198,6 +266,18 @@ Study time per part on the real reference board (one MCU, 56-pin QFN;
 The best map saves 166.055 (11.5 percent) of the present total at the present
 rotation. The Python fallback runs out of its budget part way and still finds
 the same best.
+
+Those figures turn the MCU alone. The MCU is a member of the board's cell
+`logic` (27 members), so with "A part in a cell" it is studied as the cell,
+taken as standing as stamped:
+
+| core   | time per part | clock ran out | present total | best total |
+|--------|---------------|---------------|---------------|------------|
+| native | 0.017 s       | no            | 1479.429      | 1218.404   |
+| Python | 0.111 s       | yes           | 1479.429      | 1218.404   |
+
+The best is the cell turned 90 degrees, 17.6 percent below the present total;
+at the present rotation the best map saves 204.112 (13.8 percent).
 
 Preview hook (`_report_pin_maps` inside `Board.resolve`, native core, one
 annotated part on the whole-board fixture, three cold and warm pairs under

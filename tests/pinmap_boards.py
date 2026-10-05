@@ -3,7 +3,7 @@ to, as PlacedPads and PlacedParts (pinmap_input), so the study is tested without
 from dataclasses import replace
 from math import cos, radians, sin
 
-from placemat.pinmap_input import PlacedPad, PlacedPart, build
+from placemat.pinmap_input import PlacedCell, PlacedPad, PlacedPart, build
 from placemat.settings import Settings
 from placemat.values import Box, CopperLayer, Location
 
@@ -65,9 +65,22 @@ def complete(pads, parts) -> dict:
     return parts
 
 
-def input_of(pads, parts, quiet=frozenset(), partners=None, netclasses=None, names=None, follow=True, prefixes=("R", "L", "FB")) -> tuple:
+def input_of(pads, parts, quiet=frozenset(), partners=None, netclasses=None, names=None, follow=True, prefixes=("R", "L", "FB"),
+             cells=None, unplaced=()) -> tuple:
     """`build` with every other placed part made up from its pads."""
-    return build(pads, complete(pads, parts), names or {}, frozenset(quiet), partners or {}, netclasses or {}, follow, prefixes)
+    return build(pads, complete(pads, parts), names or {}, frozenset(quiet), partners or {}, netclasses or {}, follow, prefixes,
+                 cells, unplaced)
+
+
+def in_cell(name, pads, parts: dict, members, rotation=0.0, face="front", module="M", stamps=1, module_key=None) -> tuple:
+    """(parts, {name: PlacedCell}): `members` (refs) made a cell, its envelope the box round their courtyards, each
+    member's PlacedPart naming it; `parts` completed from `pads` first."""
+    parts = complete(pads, parts)
+    for r in members:
+        parts[r] = replace(parts[r], cell=name)
+    box = Box.union([parts[r].courtyard for r in members])
+    return parts, {name: PlacedCell(name, tuple(members), box, rotation, face, face == "back", module, stamps,
+                                    module_key or module or name)}
 
 
 def reversed_four(fields=None) -> tuple:
@@ -79,7 +92,7 @@ def reversed_four(fields=None) -> tuple:
     return pads, {"U1": u1}
 
 
-def quad_footprint(ref, cx, cy, sides: dict, fields=None, inst=None):
+def quad_footprint(ref, cx, cy, sides: dict, fields=None, inst=None, cell=None):
     """`quad` as a generated board's Footprint, for a BoardGeometry (tests.fixtures.board_geometry) or a resolve."""
     from placemat.board_geometry import Footprint, PadGeom
     from placemat.values import Face
@@ -87,5 +100,5 @@ def quad_footprint(ref, cx, cy, sides: dict, fields=None, inst=None):
     pads, part = quad(ref, cx, cy, sides, fields)
     geoms = tuple(PadGeom(ref, inst, p.number, p.net, p.layers, p.outlines, p.box, False, anchor=p.anchor) for p in pads)
     body = part.courtyard.inflate(-0.25)
-    return Footprint(ref, inst, None, ref, Location(cx, cy), 0.0, Face.FRONT, body, part.courtyard, body, geoms,
+    return Footprint(ref, inst, cell, ref, Location(cx, cy), 0.0, Face.FRONT, body, part.courtyard, body, geoms,
                      fields=dict(fields or {}))

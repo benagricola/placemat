@@ -42,8 +42,9 @@ def input_of(case):
     from placemat.pairs import board_pairs
     from placemat.pinmap_input import build, placed_from_geometry
     g = board_of(case)
-    inp, _ = build(*placed_from_geometry(g), g.pin_names, frozenset(case["quiet"]), board_pairs(g.netclasses),
-                   g.netclasses)
+    placed = placed_from_geometry(g)
+    inp, _ = build(placed.pads, placed.parts, g.pin_names, frozenset(case["quiet"]), board_pairs(g.netclasses),
+                   g.netclasses, cells=placed.cells)
     return inp
 
 

@@ -50,9 +50,9 @@ def test_a_second_study_of_the_real_board_is_reused(tmp_path):
     cache = tmp_path / "pinmap.json"
 
     def studied():
-        pads, parts = placed_from_geometry(g)
-        return study_findings(pads, parts, g.pin_names, frozenset(case["quiet"]), board_pairs(g.netclasses),
-                              g.netclasses, Settings(), copper_nets(g), cache)
+        placed = placed_from_geometry(g)
+        return study_findings(placed.pads, placed.parts, g.pin_names, frozenset(case["quiet"]), board_pairs(g.netclasses),
+                              g.netclasses, Settings(), copper_nets(g), cache, cells=placed.cells)
     first, r1 = studied()
     again, r2 = studied()
     assert any(f.cause is C.PINS_REMAP for f in first)

@@ -129,7 +129,7 @@ def test_a_routed_board_scores_as_the_same_board_without_its_copper(native):
     bare = board_geometry(fps, width=40, height=40)
     present = []
     for g in (routed, bare):
-        inp, _ = build(*placed_from_geometry(g), {}, frozenset(), {}, g.netclasses)
+        inp, _ = build(*placed_from_geometry(g)[:2], {}, frozenset(), {}, g.netclasses)
         present.append(run(inp, native, settings(pins_rotations=(0.0,))).present)
     assert present[0] == present[1] and present[0].among == 1           # A still has its airwire, and it crosses B's
 
