@@ -299,3 +299,16 @@ def test_a_refining_phase_says_how_far_through_its_spots_it_is():
         k, n = i["within"]
         assert 1 <= k <= n
     assert all("within" not in i for i in seen if i["kind"] == "phase" and i["stage"] != "refine")
+
+
+def test_an_item_placed_in_an_arrangement_says_so_and_a_default_item_does_not():
+    from placemat.values import Cell
+    from tests.arrangement_support import stamped_geometry, with_arrangement
+    b = Board(with_arrangement(), edge_margin=0.0, keep_going=True)
+    b.place(Cell("mod"), at=Location(40.0, 30.0), arrangements="c_in.east")
+    plan = b.resolve()
+    assert item_json(plan, plan.step("mod"))["arrangement"] == "c_in.east"
+    d = Board(stamped_geometry(), edge_margin=0.0, keep_going=True)
+    d.place(Cell("mod"), at=Location(40.0, 30.0))
+    plain = d.resolve()
+    assert "arrangement" not in item_json(plain, plain.step("mod"))

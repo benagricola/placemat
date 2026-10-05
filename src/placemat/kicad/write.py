@@ -9,6 +9,7 @@ created, so an unchanged plan writes an unchanged file."""
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from .quiet import import_pcbnew, quiet_stderr
@@ -21,10 +22,12 @@ from ..copper import Pour, Text, Track, Via, Zone
 from ..geometry import Transform, poly_within
 from ..placement import Placement
 from ..board_geometry import (CellGeom, Footprint, allow_marker, cell_tagged, layer_marker, resolve_marker,
-                              split_allow, split_marker, stackup_order)
+                              split_allow, split_marker, stackup_order, untagged)
 from ..cutouts import closes_itself
 from .read import FACES_PREFIX
+from .text import _mirror_for_layer, text_item
 from ..rules import RULE_PREFIX, rule_note
+from ..arrangement_note import ARRANGEMENT_PREFIX
 from ..values import Box, CopperLayer, Face
 
 def nm(v: float) -> int:
@@ -33,18 +36,6 @@ def nm(v: float) -> int:
 
 def vec(x: float, y: float) -> pcbnew.VECTOR2I:
     return pcbnew.VECTOR2I(nm(x), nm(y))
-
-
-# The layers KiCad's DRC judges a text's mirroring on (drc_test_provider_text_mirroring.cpp): a text on a back one must
-# be mirrored, one on a front one must not be.
-_FRONT_TEXT_LAYERS = (pcbnew.F_Cu, pcbnew.F_SilkS, pcbnew.F_Mask, pcbnew.F_Fab)
-_BACK_TEXT_LAYERS = (pcbnew.B_Cu, pcbnew.B_SilkS, pcbnew.B_Mask, pcbnew.B_Fab)
-
-
-def _mirror_for_layer(text, default: bool = False) -> None:
-    """Mirror a text as its layer's face asks: on a back layer mirrored, on a front one not, elsewhere `default`."""
-    layer = text.GetLayer()
-    text.SetMirrored(True if layer in _BACK_TEXT_LAYERS else False if layer in _FRONT_TEXT_LAYERS else default)
 
 
 def seed_uuids(seed: int = 0x5EED):
@@ -402,22 +393,30 @@ def _draw_keepouts(board, plan):
         if want - have:
             z.SetLayerSet(_layer_set(board, tuple(sorted(want | have, key=stackup_order))))
     for k in plan.keepouts.values():
-        z = pcbnew.ZONE(board)
-        z.SetIsRuleArea(True)
-        z.SetLayerSet(pcbnew.LSET.AllCuMask(board.GetCopperLayerCount()) if k.layers is None
-                      else _layer_set(board, k.layers))
-        relaxed = _relaxed(k)
-        for name, setter in _KEEPOUT_FLAGS.items():
-            # one that admits parts allows footprints: a .kicad_dru rule forbids the rest (keepout_rules); one
-            # that lets nets through allows what they keep, and a rule forbids it to the others (allow_rules)
-            getattr(z, setter)(name in k.excludes and not (name == "parts" and _admits_parts(k)) and name not in relaxed)
-        o = z.Outline()
-        o.NewOutline()
-        for x, y in k.poly:
-            o.Append(nm(x), nm(y))
-        z.SetZoneName(_keepout_zone_name(k, stack))
-        _unique_uuid(board, z)
-        board.Add(z)
+        rule_area(board, k, stack)
+
+
+def rule_area(board, k, stack, zone_name: str | None = None):
+    """A KiCad rule area for keepout `k`: its layers, the flags its excludes ask for, its outline and its zone name (`zone_name` in
+    place of `_keepout_zone_name`'s when given); added to the board. A fragment's keepouts and an arrangement's (kicad/arrange.py) are
+    both written by this."""
+    z = pcbnew.ZONE(board)
+    z.SetIsRuleArea(True)
+    z.SetLayerSet(pcbnew.LSET.AllCuMask(board.GetCopperLayerCount()) if k.layers is None
+                  else _layer_set(board, k.layers))
+    relaxed = _relaxed(k)
+    for name, setter in _KEEPOUT_FLAGS.items():
+        # one that admits parts allows footprints: a .kicad_dru rule forbids the rest (keepout_rules); one
+        # that lets nets through allows what they keep, and a rule forbids it to the others (allow_rules)
+        getattr(z, setter)(name in k.excludes and not (name == "parts" and k.admits_parts) and name not in relaxed)
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in k.poly:
+        o.Append(nm(x), nm(y))
+    z.SetZoneName(zone_name or _keepout_zone_name(k, stack))
+    _unique_uuid(board, z)
+    board.Add(z)
+    return z
 
 
 _ALLOWED_TYPES = ("tracks", "vias", "pads")
@@ -434,21 +433,29 @@ def _keepout_zone_name(k, stack) -> str:
     return name + allow_marker(k.allow, _relaxed(k)) if _relaxed(k) else name
 
 
-def allow_rules(plan, stack) -> list:
+def allow_rules(plan, stack, arranged_areas: dict | None = None) -> list:
     """An AllowRule for each keepout of the plan that lets nets through, and for each stamped cell's rule
-    area that declares such a list (it arrives with the cell: board_geometry.allow_marker)."""
+    area that declares such a list (it arrives with the cell: board_geometry.allow_marker), named as
+    `_draw_keepouts` tags it with its cell. A cell placed in an arrangement has its arrangement's areas
+    instead, by the names they were written with: `arranged_areas` is {cell: [zone name, ...]}, read off the
+    cells' groups once `_draw_keepouts` has tagged them (apply_plan)."""
     from ..rules import AllowRule
     out = [AllowRule(_keepout_zone_name(k, stack), tuple(sorted(k.allow)), _relaxed(k))
            for k in plan.keepouts.values() if _relaxed(k)]
+    arranged = _arranged_cells(plan)
     out += [AllowRule(cell_tagged(ra.name, ra.cell), tuple(sorted(ra.allow)), ra.relaxed, ra.cell)
-            for ra in plan.geometry.rule_areas if ra.cell is not None and ra.relaxed]
+            for ra in plan.geometry.rule_areas if ra.cell is not None and ra.relaxed and ra.cell not in arranged]
+    for name, ident in sorted(arranged.items()):        # its rule areas are the arrangement's (kicad/arrange.py)
+        arr = _arrangement(plan, name, ident)
+        written = (arranged_areas or {}).get(name, ())
+        for k, ra in zip(arr.keepouts, arr.rule_areas):
+            if not ra.relaxed:
+                continue
+            base = re.escape(_keepout_zone_name(k, stack))
+            for zone in written:
+                if re.fullmatch(base + r"(_\d+)?", untagged(zone)):
+                    out.append(AllowRule(zone, tuple(sorted(ra.allow)), ra.relaxed, name))
     return out
-
-
-def _admits_parts(k) -> bool:
-    """Whether a keepout that excludes parts lets some in: by name
-    (`allow=` parts or cells) or by height (`max_height=`)."""
-    return "parts" in k.excludes and (bool(k.owners) or k.max_height is not None)
 
 
 def keepout_rules(plan, refs, stack) -> list:
@@ -458,7 +465,7 @@ def keepout_rules(plan, refs, stack) -> list:
     from ..rules import KeepoutRule
     out = []
     for k in plan.keepouts.values():
-        if not _admits_parts(k):
+        if not k.admits_parts:
             continue
         if k.barred and k.max_height is None:       # bars=: exactly the parts it names, whatever else the board holds
             forbid = tuple(sorted(r for r in set(refs) if r in k.barred))
@@ -505,7 +512,8 @@ def _unique_uuid(board, it) -> None:
     creates, so an unchanged plan writes an unchanged file - but a board
     this project already wrote once (or hand-built with the same seed) can
     already carry an unrelated item at a UUID this write's own sequence
-    lands on next; a group keyed by UUID (`keepout drawings`) would then
+    lands on next; a group keyed by UUID (`keepout drawings`, or a cell
+    whose arrangement's copper kicad/arrange.py draws into it) would then
     read that unrelated item as one of its own. `ResolveItem` (None: not
     found) is asked before `it` joins the board, so it can only find an
     EXISTING item; `ResetUuid` redraws from the same seeded generator,
@@ -546,32 +554,7 @@ def _draw_keepout_drawings(board, plan):
     for k in plan.keepouts.values():
         if mode == "admitting" and not _keepout_admits(k):
             continue
-        layer = _keepout_drawing_layer(k.layers)
-        sh = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_POLY)
-        sh.SetLayer(layer)
-        sh.SetFilled(False)
-        sh.SetWidth(nm(line))
-        ps = pcbnew.SHAPE_POLY_SET()
-        ps.NewOutline()
-        for x, y in k.poly:
-            ps.Append(nm(x), nm(y))
-        sh.SetPolyShape(ps)
-        _unique_uuid(board, sh)
-        board.Add(sh)
-        drawn.append(sh)
-        centre = Box.of_points(k.poly).center
-        t = pcbnew.PCB_TEXT(board)
-        t.SetText(_keepout_admits_text(k))
-        t.SetLayer(layer)
-        _mirror_for_layer(t)
-        t.SetTextSize(pcbnew.VECTOR2I(nm(size), nm(size)))
-        t.SetTextThickness(nm(line))
-        t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
-        t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
-        t.SetPosition(vec(centre.x, centre.y))
-        _unique_uuid(board, t)
-        board.Add(t)
-        drawn.append(t)
+        drawn += keepout_drawing(board, k, _keepout_admits_text(k), line, size)
     if drawn:
         g = pcbnew.PCB_GROUP(board)
         g.SetName(_KEEPOUT_DRAWINGS_GROUP)
@@ -579,6 +562,37 @@ def _draw_keepout_drawings(board, plan):
             g.AddItem(it)
         _unique_uuid(board, g)
         board.Add(g)
+
+
+def keepout_drawing(board, k, text: str, line: float, size: float) -> list:
+    """Keepout `k` drawn for the eye: its outline and the label `text` at its centre, on the Fab or Comments layer its copper
+    layers ask for (`_keepout_drawing_layer`); added to the board. [the outline, the label]. A plan's keepouts and an
+    arrangement's (kicad/arrange.py) are both drawn by this."""
+    layer = _keepout_drawing_layer(k.layers)
+    sh = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_POLY)
+    sh.SetLayer(layer)
+    sh.SetFilled(False)
+    sh.SetWidth(nm(line))
+    ps = pcbnew.SHAPE_POLY_SET()
+    ps.NewOutline()
+    for x, y in k.poly:
+        ps.Append(nm(x), nm(y))
+    sh.SetPolyShape(ps)
+    _unique_uuid(board, sh)
+    board.Add(sh)
+    centre = Box.of_points(k.poly).center
+    t = pcbnew.PCB_TEXT(board)
+    t.SetText(text)
+    t.SetLayer(layer)
+    _mirror_for_layer(t)
+    t.SetTextSize(pcbnew.VECTOR2I(nm(size), nm(size)))
+    t.SetTextThickness(nm(line))
+    t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
+    t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
+    t.SetPosition(vec(centre.x, centre.y))
+    _unique_uuid(board, t)
+    board.Add(t)
+    return [sh, t]
 
 
 def _draw_outline(board, plan: Plan):
@@ -664,6 +678,7 @@ def _draw_track(board, op: Track):
         t.SetMid(vec(op.mid.x, op.mid.y))
     _unique_uuid(board, t)
     board.Add(t)
+    return t
 
 
 def _via_type(span) -> int:
@@ -694,40 +709,14 @@ def _draw_via(board, op: Via):
     v.SetNetCode(_netcode(board, op.net))
     _unique_uuid(board, v)
     board.Add(v)
-
-
-_HJUST = {"left": pcbnew.GR_TEXT_H_ALIGN_LEFT, "centre": pcbnew.GR_TEXT_H_ALIGN_CENTER, "right": pcbnew.GR_TEXT_H_ALIGN_RIGHT}
-_VJUST = {"top": pcbnew.GR_TEXT_V_ALIGN_TOP, "centre": pcbnew.GR_TEXT_V_ALIGN_CENTER, "bottom": pcbnew.GR_TEXT_V_ALIGN_BOTTOM}
+    return v
 
 
 def _draw_text(board, op: Text):
-    t = pcbnew.PCB_TEXT(board)
-    t.SetText(op.text)
-    t.SetLayer(board.GetLayerID(op.layer) if op.layer else (pcbnew.B_SilkS if op.face is Face.BACK else pcbnew.F_SilkS))
-    _mirror_for_layer(t, op.mirrored)
-    t.SetTextSize(pcbnew.VECTOR2I(nm(op.size), nm(op.size)))
-    t.SetTextThickness(nm(op.thickness))
-    t.SetHorizJustify(_HJUST[op.hjust])
-    t.SetVertJustify(_VJUST[op.vjust])
-    t.SetTextAngleDegrees(op.rotation)
-    t.SetIsKnockout(op.knockout)
-    t.SetPosition(vec(op.at.x, op.at.y))
-    if op.side is not None:
-        # KiCad's box round the text (descenders, the knockout margin) reaches past the
-        # anchor: slide the text so the edge of what it draws (the glyphs, or the
-        # knockout frame) facing the item sits exactly at the anchor.
-        bb = t.GetEffectiveShape().BBox()
-        name = op.side.name
-        if name == "NORTH":
-            t.Move(pcbnew.VECTOR2I(0, nm(op.at.y) - bb.GetBottom()))
-        elif name == "SOUTH":
-            t.Move(pcbnew.VECTOR2I(0, nm(op.at.y) - bb.GetTop()))
-        elif name == "WEST":
-            t.Move(pcbnew.VECTOR2I(nm(op.at.x) - bb.GetRight(), 0))
-        else:
-            t.Move(pcbnew.VECTOR2I(nm(op.at.x) - bb.GetLeft(), 0))
+    t = text_item(board, op)
     _unique_uuid(board, t)
     board.Add(t)
+    return t
 
 
 def _draw_pour(board, op: Pour):
@@ -744,6 +733,7 @@ def _draw_pour(board, op: Pour):
     sh.SetNetCode(_netcode(board, op.net))
     _unique_uuid(board, sh)
     board.Add(sh)
+    return sh
 
 
 def _npth_circles(board, clearance: float):
@@ -960,9 +950,10 @@ def save(board, path: str):
 
 def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     pcb_path = str(pcb_path)
-    if any(isinstance(op, Zone) for op in plan.copper):
-        # KiCad reads the rules file beside a board as the board loads, and a plane's fill keeps the
-        # clearance rules the script declared: they are there before the load, not only after the save
+    arranged = _arranged_cells(plan)
+    if any(isinstance(op, Zone) for op in plan.copper) or _arranged_zones(plan, arranged):
+        # KiCad reads the rules file beside a board as the board loads, and a plane's fill (or an arrangement's zone's) keeps
+        # the clearance rules the script declared: they are there before the load, not only after the save
         from ..rules import write_rules
         write_rules(pcb_path, list(plan.rules))
     with quiet_stderr():
@@ -972,7 +963,8 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     groups = {g.GetName(): g for g in board.Groups()}
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
     for name, gone in sorted(plan.thinned.items()):
-        _thin_cell(board, groups[name], gone)
+        if name not in arranged:         # an arranged cell's are thinned from the arrangement's copper, once it is drawn
+            _thin_cell(board, groups[name], gone)
     for step in plan.steps:
         if step.placement is None or step.kind == "block":
             continue                     # copper is drawn below; a block's members have their own steps
@@ -981,6 +973,12 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
             fp = by_ref[item.ref]
             _place_footprint(fp, Placement(item.location, item.rotation, item.face), step.placement)
         elif isinstance(item, CellGeom):
+            if item.name in arranged:
+                from .arrange import arrange_cell       # arrange imports this module
+                base = plan.geometry.cells[item.name]   # the step's may be the arranged geometry, which offers none
+                item = arrange_cell(board, groups[item.name], base, arranged[item.name], plan.occupancy.settings)
+                if item.name in plan.thinned:
+                    _thin_cell(board, groups[item.name], plan.thinned[item.name])
             _move_cell(board, item, step.placement, groups)
     _given_way(board, plan, groups)
     if plan.cell_zones_under_planes == "drop":
@@ -988,10 +986,19 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     _separate_cell_zone_priorities(board, plan)
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
+    # an arranged cell's rule areas by their written names, once _draw_keepouts has tagged them as it tags a default's
+    arranged_areas = {name: [z.GetZoneName() for z in groups[name].GetItems() if isinstance(z, pcbnew.ZONE) and z.GetIsRuleArea()]
+                      for name in arranged}
     _draw_keepout_drawings(board, plan)
     if not plan.draw_outline:
         write_rule_notes(board, plan.rules)         # a fragment: its clearance rules ride with the cell
     draw_copper(board, plan.copper)
+    if _arranged_zones(plan, arranged) and not any(isinstance(op, Zone) for op in plan.copper):
+        # an arrangement's zones are drawn unfilled; draw_copper fills every zone only when the plan draws one
+        zones = [z for z in board.Zones() if not z.GetIsRuleArea() and z.GetParentGroup() is not None
+                 and z.GetParentGroup().GetName() in arranged]
+        if zones:
+            pcbnew.ZONE_FILLER(board).Fill(zones)
     _group_given_way_tracks(board, plan, groups)
     plan.group_notes = _write_groups(board, plan)
     out = str(out_path or pcb_path)
@@ -1000,12 +1007,30 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     from ..rules import write_rules
     stack = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
     write_rules(out, list(plan.rules) + keepout_rules(plan, [fp.GetReference() for fp in board.GetFootprints()],
-                                                      stack) + allow_rules(plan, stack))
+                                                      stack) + allow_rules(plan, stack, arranged_areas))
     return out
 
 
+def _arranged_cells(plan: Plan) -> dict:
+    """{cell: arrangement id} of each stamped cell the plan places in one of its module's other arrangements."""
+    return {s.item: s.placement.arrangement for s in plan.steps
+            if s.placement is not None and s.placement.arrangement and isinstance(plan._items.get(s.item), CellGeom)}
+
+
+def _arrangement(plan: Plan, cell: str, ident: str):
+    return next(a for a in plan.geometry.cells[cell].arrangements if a.id == ident)
+
+
+def _arranged_zones(plan: Plan, arranged: dict) -> bool:
+    """Whether an arranged cell's arrangement draws a zone (kicad/arrange.py draws it unfilled)."""
+    return any(isinstance(op, Zone) for name, ident in arranged.items() for op in _arrangement(plan, name, ident).ops)
+
+
+NOTE_PREFIXES = (FACES_PREFIX, RULE_PREFIX, ARRANGEMENT_PREFIX)     # a fragment's facts for the board that stamps it
+
+
 def _is_note(item) -> bool:
-    return isinstance(item, pcbnew.PCB_TEXT) and item.GetText().startswith((FACES_PREFIX, RULE_PREFIX))
+    return isinstance(item, pcbnew.PCB_TEXT) and item.GetText().startswith(NOTE_PREFIXES)
 
 
 def _delete_note(board, note) -> None:
@@ -1020,7 +1045,7 @@ def _loose_faces(item) -> bool:
 
 
 def _drop_stamped_notes(board, plan: Plan) -> None:
-    """Take a stamped fragment's notes (its faces, its clearance rules) off the board. A note is the
+    """Take a stamped fragment's notes (its faces, its clearance rules, its arrangements) off the board. A note is the
     fragment's fact for the parent, read at load (read.board_geometry_of), so it does not stay: stamped,
     it sits below the fragment's content, stays behind when the cell is turned and placed, and stretches
     the group's box across the gap. Every note goes, in a group or loose on the board. The board's own
@@ -1188,12 +1213,21 @@ def write_rule_notes(board, rules) -> list:
         if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith(RULE_PREFIX) and d.GetParentGroup() is None:
             board.Delete(d)
     texts = [rule_note(r) for r in rules if r.kind == "clearance" and r.of is None]
+    add_notes_below(board, texts, RULE_NOTES_MM)     # under the faces note
+    return texts
+
+
+FACES_NOTE_MM, RULE_NOTES_MM, ARRANGEMENT_NOTES_MM, NOTE_PITCH_MM = 1.0, 2.0, 4.0, 0.7    # each kind's first line below the drawing
+
+
+def add_notes_below(board, texts, start_mm: float) -> None:
+    """User.Comments texts in the margin below everything the board draws but its notes, left-aligned with it: never over a
+    part or the module's origin. The first stands `start_mm` below the drawing, the rest a line apart."""
     if not texts:
-        return []
-    # in the margin below everything the fragment draws, under its faces note: never over a part
+        return
     boxes = [fp.GetBoundingBox(True, True) for fp in board.GetFootprints()]
     boxes += [d.GetBoundingBox() for d in board.GetDrawings()
-              if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith((FACES_PREFIX, RULE_PREFIX)))]
+              if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith(NOTE_PREFIXES))]
     boxes += [t.GetBoundingBox() for t in board.GetTracks()] + [z.GetBoundingBox() for z in board.Zones()]
     left = min(b.GetLeft() for b in boxes) if boxes else 0
     bottom = max(b.GetBottom() for b in boxes) if boxes else 0
@@ -1205,10 +1239,9 @@ def write_rule_notes(board, rules) -> list:
         t.SetTextThickness(nm(0.1))
         t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_LEFT)
         t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_TOP)
-        t.SetPosition(pcbnew.VECTOR2I(left, bottom + nm(2.0 + 0.7 * i)))
+        t.SetPosition(pcbnew.VECTOR2I(left, bottom + nm(start_mm + NOTE_PITCH_MM * i)))
         _unique_uuid(board, t)
         board.Add(t)
-    return texts
 
 
 def write_faces(pcb_path, faces: dict) -> str:
@@ -1223,23 +1256,7 @@ def write_faces(pcb_path, faces: dict) -> str:
         for d in list(board.GetDrawings()):
             if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith("placemat faces "):
                 board.Delete(d)
-        # Below everything the module draws (courtyards included), left-aligned with it:
-        # a note in the margin, never over the module's origin or a part.
-        boxes = [fp.GetBoundingBox(True, True) for fp in board.GetFootprints()]
-        boxes += [d.GetBoundingBox() for d in board.GetDrawings() if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith((FACES_PREFIX, RULE_PREFIX)))]
-        boxes += [t.GetBoundingBox() for t in board.GetTracks()]
-        boxes += [z.GetBoundingBox() for z in board.Zones()]
-        left = min(b.GetLeft() for b in boxes) if boxes else 0
-        bottom = max(b.GetBottom() for b in boxes) if boxes else 0
-        t = pcbnew.PCB_TEXT(board)
-        t.SetText(text)
-        t.SetLayer(pcbnew.Cmts_User)
-        t.SetTextSize(pcbnew.VECTOR2I(nm(0.5), nm(0.5)))
-        t.SetTextThickness(nm(0.1))
-        t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_LEFT)
-        t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_TOP)
-        t.SetPosition(pcbnew.VECTOR2I(left, bottom + nm(1.0)))
-        board.Add(t)
+        add_notes_below(board, [text], FACES_NOTE_MM)
         seed_uuids()
         save(board, str(pcb_path))
     return text

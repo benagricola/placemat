@@ -7,8 +7,12 @@ from dataclasses import dataclass
 import functools
 import math
 import os
+from typing import TYPE_CHECKING
 
 from .values import Box, Location
+
+if TYPE_CHECKING:
+    from .placement import Placement
 
 Point = tuple[float, float]
 Polygon = tuple[Point, ...]
@@ -121,6 +125,19 @@ class Transform:
 
     def apply_location(self, p: Location) -> Location:
         return Location(*self.apply((p.x, p.y)))
+
+
+def pose_transform(reference: "Placement", placement: "Placement") -> Transform:
+    """Where an item's shapes go when it moves from `reference` to `placement`: a flip to the back mirrors about the vertical
+    axis and then turns by the rotation asked for (KiCad's own F key); adding the reference rotation rather than subtracting it
+    is what cancels the generator's own rotation out of the answer."""
+    t = Transform.translate(-reference.location.x, -reference.location.y)
+    flip = placement.face != reference.face
+    if flip:
+        t = t.then(Transform.mirror_x(Location(0, 0)))
+    turn = placement.rotation + reference.rotation if flip else placement.rotation - reference.rotation
+    t = t.then(Transform.rotate(turn))
+    return t.then(Transform.translate(placement.location.x, placement.location.y))
 
 
 def _clean(v: float) -> float:

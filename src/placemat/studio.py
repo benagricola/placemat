@@ -1477,6 +1477,8 @@ class Studio:
                "checks": {k: m.get(k) for k in ("checks_failed", "checks_unjudged", "checks_accepted") if k in m},
                "verdicts": [{"check": v.get("check"), "subject": v.get("subject"), "ok": v.get("ok"), "note": v.get("note", "")}
                             for v in (rec.verdicts or []) if v.get("ok") is False][:20],
+               "arrangements": [{"id": a["id"], "offered": a["offered"], "refused": len(a.get("refused") or ()),
+                                 **({"duplicate_of": a["duplicate_of"]} if a.get("duplicate_of") else {})} for a in (rec.arrangements or [])],
                "timing": rec.timing_s, "explore": str(kept.resolve()) if kept is not None and kept.is_file() else "",
                "failure": {"message": fail.get("message", ""), "file": fail.get("script", ""), "line": fail.get("line"), "source": fail.get("source")} if fail else None}
         self._run_cache[run_json] = (mtime, out)
@@ -1566,7 +1568,8 @@ class Studio:
             return None
         rec = RunRecord.load(path)
         summary = self.run_summary(path) or {}
-        items = [{"key": k, "at": [v["x"], v["y"]], "rotation": v["rotation"], "face": v["face"]} for k, v in rec.placements.items()]
+        items = [{"key": k, "at": [v["x"], v["y"]], "rotation": v["rotation"], "face": v["face"],
+                  **({"arrangement": v["arrangement"]} if v.get("arrangement") else {})} for k, v in rec.placements.items()]
         findings = [{"text": d["text"], "kind": d.get("kind", ""), "severity": d.get("severity", "warning"), "at": None, "item": ""}
                     for d in rec.findings_with_severity()]
         return {"items": items, "findings": findings, "unplaced": [], "score": {"total": summary["score"]} if summary.get("score") is not None else None}

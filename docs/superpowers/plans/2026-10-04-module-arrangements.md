@@ -88,7 +88,7 @@ Where the spec and the code differ, the plan follows the code and lists the diff
   - `arrangement.refused`: `{"id": str, "refused": [record]}` where a record is `{"form": "unplaced", "item": str}`, `{"form": "finding", "cause": str, "item": str}`, `{"form": "drc", "bucket": str, "count": int}`, `{"form": "unconnected", "count": int, "default": int}`, `{"form": "verdict", "check": str, "item": str}` or `{"form": "nested_cell", "item": str}`
   - `arrangement.duplicate`: `{"id": str, "same_as": str}`
   - `arrangement.stale`: `{"cell": str, "reason": "version"|"base"|"offset"|"member"|"net"|"text", "ids": [str]}`
-  - `arrangement.missing`: `{"item": str, "asked": [str], "offered": [str]}`
+  - `arrangement.missing`: `{"item": str, "asked": [str], "offered": [str], "source"?: "lock"}`
   - `arrangement.extent_fixed`: `{"item": str, "sides": [str], "protrudes_mm": float, "alternatives": bool}`
   - step note `{"kind": "arrangement", "id": str, "score"?: float, "cost"?: float, "default_score"?: float, "default_blame"?: [..], "tried": [{"id": str, "score": float|None, "legal": bool}]}`
 

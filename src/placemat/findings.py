@@ -33,6 +33,7 @@ class FindingKind(str, Enum):
     SPLIT = "split"                     # a cell whose members form two or more groups joined only by board-level nets
     KEEP_OUT = "keep_out"               # a keep-out distance that KiCad's DRC does not judge: copper on different layers
     TIME = "time"                       # a step that ran past the time a command allows it (`--step-warn`, `--step-limit`)
+    ARRANGEMENT = "arrangement"         # a module's alternative arrangements: over the limits, refused by the module run, stale on the stamping board, asked for and not offered
     ESCAPE = "escape"                   # a module's escape that does more than the module needs: a via on a lane with a way out
 
     def __str__(self):
@@ -116,6 +117,12 @@ class FindingCause(str, Enum):
     KEEP_OUT_CROSS_LAYER = (FindingKind.KEEP_OUT, "keep_out.cross_layer")
     TIME_STEP_SLOW = (FindingKind.TIME, "time.step_slow")
     TIME_STEP_LIMIT = (FindingKind.TIME, "time.step_limit")
+    ARRANGEMENT_LIMIT = (FindingKind.ARRANGEMENT, "arrangement.limit")
+    ARRANGEMENT_REFUSED = (FindingKind.ARRANGEMENT, "arrangement.refused")
+    ARRANGEMENT_DUPLICATE = (FindingKind.ARRANGEMENT, "arrangement.duplicate")
+    ARRANGEMENT_STALE = (FindingKind.ARRANGEMENT, "arrangement.stale")
+    ARRANGEMENT_MISSING = (FindingKind.ARRANGEMENT, "arrangement.missing")
+    ARRANGEMENT_EXTENT_FIXED = (FindingKind.ARRANGEMENT, "arrangement.extent_fixed")
 
     def __str__(self):
         return self.value
@@ -157,6 +164,7 @@ SEVERITY = {
     FindingKind.SPLIT: "warning",
     FindingKind.KEEP_OUT: "notice",
     FindingKind.TIME: "notice",
+    FindingKind.ARRANGEMENT: "warning",
     FindingKind.ESCAPE: "warning",
 }
 """A kind's default severity: a classification of what the kind means, not a

@@ -2,6 +2,7 @@
 
 Date: 2026-10-04
 Status: approved (2026-10-04).
+Built: 2026-10-05, see Build notes.
 Source: a board's session, 2026-10-04, and the user's approval of points 1 to 3 of its proposal. Point 4 (a free
 board-level override of a member's place) is not in this spec.
 
@@ -329,7 +330,9 @@ its arrangements too, with nothing to scan:
 3. Each legal one is scored once by the Scorer, at that placement, against what is placed when the firm item is
    laid: links to placed pads, pushes, lanes and limit pairs. Partners not yet placed contribute nothing, so a firm
    cell whose partners are searched items scores every arrangement alike and keeps the default. The lowest
-   `score + score.arrangement` wins; a tie keeps the arrangement earlier in declared order, so the default.
+   `score + score.arrangement` wins; a tie keeps the arrangement earlier in declared order, so the default. A
+   non-default arrangement must also beat the default's total by `place.arrangement_margin`, as at a searched spot,
+   when the default is legal and `arrangements=` does not name the choices.
 4. If no arrangement is legal the cell is a firm collision as it is today, and the finding is the default
    arrangement's, with the other arrangements' refusals listed under it.
 
@@ -341,8 +344,9 @@ Firm passes and declared copper room. The firm phase repeats while the dry plan 
 (`place.firm_passes`, `_Redo`). The arrangement a firm cell takes is decided inside each pass, from what that pass
 has placed and the provisional copper (`_room_seed`) it was seeded with, and the dry plan is made from the
 arrangement taken. A pass is settled when its ops are where they were and every firm cell took the arrangement it
-took in the pass before. The choice is carried between passes like the Beside swaps are (`_swaps`): the arrangement
-taken by each firm cell is part of what a run hands the next. A cell whose arrangement still changes at the last
+took in the pass before. Each pass chooses afresh; the arrangement taken by each firm cell is part of what a run
+hands the next (`_Redo.arr`), as the Beside swaps are (`_swaps`), and the next pass compares its own choice with it. A
+cell whose arrangement still changes at the last
 pass keeps that pass's, and `fixed.room_unsettled` names it with the arrangement ids that alternated. Firm items
 placed relative to the cell (`Beside` it, a rider) are placed after it is, against the arrangement it took; they do
 not influence the choice.
@@ -439,7 +443,7 @@ step does.
 
 ## Interactions
 
-- **Declared copper room.** A firm cell's arrangement is chosen in each firm pass and carried between passes (see
+- **Declared copper room.** A firm cell's arrangement is chosen in each firm pass and compared between passes (see
   "A firm cell"); the dry plans see the arrangement taken. For a searched cell, declared copper whose ends become placed (Decision 2 of the copper-room spec)
   is dry-planned from the committed arrangement's pads. The reuse digest of a firm step includes the arrangement
   it took, because the placement does.
@@ -672,3 +676,66 @@ marked.
 
 10. **Selecting by name in a board script.** A: `arrangements=` on the board's `place()`, in this change (chosen).
     B: left out until point 4 is decided.
+
+## Build notes
+
+Phase 1: a fixture module with 2 declared options per item (4 arrangements) offered one of its three non-default
+arrangements (the other two were refused: one turned capacitor's pad meets another net's copper, in it and in the
+combination). The offered arrangement's note was 20988 characters of escaped JSON, most of it the arrangement's planned
+copper, so at place.arrangement_note_chars = 4000 it was split into 6 texts (1192 to 4000 characters each).
+
+Phases 1 to 3, timings (fixtures/bench.py --arrangements, seconds):
+
+| Run | Arrangements off | Arrangements on | Budget | Met |
+|---|---|---|---|---|
+| Module run, k = 4 arrangements | 1.7 (one arrangement) | 4.5 | at most k times the one-arrangement run | yes, 2.6x against 4x |
+| Board of cells and loose parts | 4.48 | 5.28 | on at most 1.25 times off | yes, 1.18x |
+| Small board of one firm module | - | 2.03 | small beside the board | yes |
+| Board of stamped cells only | 1.11 | 2.27 | none | about 2x |
+
+On the board, the score goes from 104491.2 to 98325.9 and 25 items are placed against 24; 3 arrangements were taken. Most of
+that gain is the one extra item: with two small-gain arrangements held back by the margin, later cells stand elsewhere, and
+one cell's default then has no legal spot while an arrangement does.
+
+Margin: place.arrangement_margin is 0.5 mm. Every value from 0.2 to 1.0 gave the same choices and scores on the board and on
+the stamped board; 0.5 sits inside that range with headroom over the 0.18 gain that sets its low end. It is not an optimum:
+2 mm and over scores 45 points lower on the board.
+
+A board of only stamped cells costs about 2x with arrangements on. Three causes:
+- each arrangement of a cell is scored with one more full scan of the board;
+- parts that tie nets together are sent to the Python legality check, not the native one;
+- an arranged cell's pours are drawn again for each arrangement.
+
+Phase 4, firm cells (fixtures/bench.py --arrangements, the `firm` case, seconds, medians of 3): the generated board's 30
+cells held at their stamped places, 29 of them offering arrangements. The case's outline is the rectangle round the board's
+places plus 5 mm (the written board's outline is a different size and left every firm cell outside it, so no choice was
+ever scored).
+
+| Run | Arrangements off | Arrangements on | Budget | Met |
+|---|---|---|---|---|
+| Board of firm cells and loose parts | 1.73 | 3.17 | on a small multiple of off | yes, 1.8x |
+
+With arrangements on, 10 of the 30 firm cells took an arrangement other than their default; all 30 cells and every loose
+part were placed either way, and the score goes from 19619.4 to 19525.6. The run shared the machine with other work, so
+the seconds are approximate.
+
+Firm passes: the redo of the firm phase follows the settle rule above literally. A pass that ends with any firm cell in
+a different arrangement from the pass before it is not settled, and on the first pass there is no pass before it. So a
+board with declared copper room (copper-room passes) and a firm cell offering several arrangements always runs at least
+2 firm passes. No board on the bench has both.
+
+Final gate (2026-10-05, fixtures/bench.py --arrangements, seconds, one run, other sessions on the machine):
+
+| Run | Arrangements off | Arrangements on | Budget | Met |
+|---|---|---|---|---|
+| Module run, k = 4 arrangements | 2.5 (one arrangement) | 8.7 | at most k times the one-arrangement run | yes, 3.5x against 4x |
+| Board of cells and loose parts | 5.16 | 6.37 | on at most 1.25 times off | yes, 1.23x |
+| Board of firm cells and loose parts | 1.53 | 2.18 | on a small multiple of off | yes, 1.4x |
+| Board of stamped cells only | 2.11 | 3.78 | none | 1.8x |
+
+Choices and scores are those of the earlier gates: the board's score is 104491.2 off and 98325.9 on with 25 items placed
+against 24 and 3 arrangements taken; the firm case is 19619.4 off and 19525.6 on with 10 of 30 cells taking an
+arrangement; the stamped board takes none. The whole-board check (30 cells, 29 given a note, each pinned to it) ran with
+the groups intact. The default bench is the same in every case on all three configurations (33 each), the full suite is
+5486 passed and 22 skipped, and 3 tests in tests/test_version.py fail only because the worktree's _version.py is main's
+0.99.14 while the branch's plugin files still say 0.99.13.

@@ -30,10 +30,14 @@ class RunRecord:
     verdicts: list = field(default_factory=list)      # the design checks, as `Verdict` fields
     acceptances: list = field(default_factory=list)   # each board.accept and what it met (checks.Outcome.record)
     native: dict | None = None                       # geometry.NativeStatus.facts(): whether the native module placed this run
+    arrangements: list = field(default_factory=list)  # the module run's arrangements: id, choices, offered, metrics, dir, extent, refusals (arrangement_run.finish)
 
     def save(self, path) -> Path:
         path = Path(path)
-        path.write_text(json.dumps(asdict(self), indent=2, sort_keys=True) + "\n")
+        data = asdict(self)
+        if not data["arrangements"]:
+            del data["arrangements"]            # a module with no alternatives writes the record it always did
+        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
         return path
 
     def add_finding(self, text: str, kind: str = "", severity: str = "warning") -> None:
@@ -262,14 +266,12 @@ class Extent:
     empty: float            # 1 - (courtyard area) / (extent area)
 
 
-def extent_of(plan) -> "Extent | None":
-    """The box round every placed part as the placer claims it (its
-    courtyard, or under `[place] envelope = "physical"` its pads, mask, silk
-    and body) and the fraction of it no part covers: a fat cell shows as a
-    high number."""
+def claimed_boxes(plan) -> dict:
+    """The box each placed member claims, by instance: its courtyard, or under `[place] envelope = "physical"` its pads,
+    mask, silk and body."""
     from .board_geometry import members_of
     from .values import Box
-    boxes, area = [], 0.0
+    boxes = {}
     for step in plan.steps:
         if step.placement is None or step.kind not in ("part", "cell"):
             continue
@@ -282,11 +284,20 @@ def extent_of(plan) -> "Extent | None":
                 continue
             claimed = [s.box for s in g.shapes if s.kind != "npth"]
             if claimed:
-                part = Box.union(claimed)
-                boxes.append(part)
-                area += part.area
+                boxes[fp.inst] = Box.union(claimed)
+    return boxes
+
+
+def extent_of(plan) -> "Extent | None":
+    """The box round every placed part as the placer claims it (its
+    courtyard, or under `[place] envelope = "physical"` its pads, mask, silk
+    and body) and the fraction of it no part covers: a fat cell shows as a
+    high number."""
+    from .values import Box
+    boxes = list(claimed_boxes(plan).values())
     if not boxes:
         return None
+    area = sum(b.area for b in boxes)
     box = Box.union(boxes)
     return Extent(box.width, box.height, max(0.0, 1.0 - area / box.area) if box.area else 0.0)
 

@@ -33,6 +33,16 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Open
 
+- **A board of stamped cells only costs about 2x with arrangements on**
+  (module-arrangements build notes, 1.11 s off, 2.27 s on): each arrangement
+  of a cell is one more full scan of the board; parts that tie nets together
+  go to the Python legality check, not the native one; an arranged cell's
+  pours are drawn again for each arrangement.
+
+- **Net-tie parts send every candidate to the Python legal check**
+  (`occupancy.py`, the `_tie_refs & geom.owners` branch near line 1924): a
+  native port of that check would also help the arrangement scans above.
+
 - **Hole clearance by a pad's effective shape**: the hole-to-pad check
   (`_hole_conflict` / `_circle_distance`) still measures a pad by its read
   outline, grown by the arc error, so a near miss on hole clearance can read

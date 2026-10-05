@@ -30,6 +30,7 @@ request (SKILL.md, "When no form says it").
 | searched from its links, no position typed | `board.place(item)` | Placement |
 | one that must place, or the run stops | `board.place(item, required=True)` | Placement |
 | a cell with its pads' via fields thinned | `board.place(Cell(...), drops=Drops.HALF)` | Placement |
+| a cell held to its module's own layout, or to chosen arrangements | `board.place(cell, arrangements="default")`, `arrangements=["a", "b"]` | Placement (Arrangements) |
 | on a board edge, wherever there is room | `at=OnEdge(edge)` | Placement |
 | at a mechanical point along an edge | `at=OnEdge(edge, along=Along.MID)` | Placement |
 | at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
@@ -246,6 +247,7 @@ board.place(cell, at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY)
 board.place(cell, at=Polar((r_min, r_max), None, about=centre), rotations=Turns.TANGENT)  # searched in a band, turned to the tangent at each spot
 board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
 board.place(item, at=Near(Location(x, y)), radius=20, budget=5_000_000)  # a search that may judge this many candidates
+board.place(cell, arrangements=["default", "mirrored"])               # a cell: the arrangements of its module the search may take
 ```
 `item` is a `Part` (schematic instance), a `Cell` (a stamped group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -1017,6 +1019,254 @@ searched item on a fit board searches round what is placed so far, by
 place of its own, not a freedom. A frame edge, `board.centre`,
 `board.width` and `board.height` are refused on a fit board: the plan's
 outline is the frame once it is resolved.
+
+**Arrangements.** A module can declare alternatives to how it is laid
+out. The module run proves each on the module's own terms and writes the
+ones that pass into the fragment; the board's search chooses among them.
+A module that declares none, and a board that stamps only such modules,
+run as before. A module that adds alternatives needs its own script run
+again. Only a module's script, whose frame is not drawn, may declare
+them: a board script that does fails with a script error naming the
+declaration's line.
+
+```python
+board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST), why="bypass at VIN")
+board.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
+board.alternative(Part("r_pull"), "turned", rotation=180)
+
+board.arrangement("mirrored",
+                  Alt(Part("q1"), at=Beside(Part("u1"), Edge.EAST), rotation=180),
+                  Alt(Part("q2"), at=Beside(Part("u1"), Edge.WEST)),
+                  why="gate toward the east tab")
+```
+
+- `board.alternative(item, name, **keywords)` adds an option to the
+  item's `place()`, which stays its default option. An option takes the
+  keywords of `place()` that say where an item goes (`at=`, `rotation=`,
+  `rotations=`, `face=`, `radius=`, `step=`) and `why=`; every keyword
+  it does not give is the item's own, so `rotation=180` alone keeps the
+  `at=`. The item is a part the script has placed with `place()`: a part
+  of a row, ring or block, and a cell, are refused. A searched item may
+  have options too, as each arrangement is a full resolve.
+- `board.arrangement(name, *alts, why="")` is one arrangement the script
+  names, made of `Alt(item, **keywords)` (the keywords of
+  `alternative`). Members it does not name keep their `place()`. Use it
+  for members whose alternatives only make sense together, and for a row
+  or a pair that moves as a unit.
+- The arrangements of a module are the default, every combination of the
+  items' options (each item contributes its options and its default),
+  and each named group.
+- An arrangement's id is `default`, the group's name, or for a
+  combination the `item.option` pairs in item order joined by `+`
+  (`c_in.east+r_pull.turned`). Option and group names are lower-case
+  words, digits and `_`; `default` and a name that is also another
+  arrangement's id are refused. The id is what the lock, findings, step
+  notes, the studio and the board's `arrangements=` use. `choices` is
+  the same as data: `{item: option}` for a combination, `{"group":
+  name}` for a group.
+- Two arrangements that lay out the same places and copper are one: the
+  later is dropped with an `arrangement.duplicate` notice naming both.
+
+`only=` on `board.track`, `pair`, `via`, `vias`, `stitch`, `pour`,
+`plane` and `finger` is a sequence of arrangement ids the declaration
+exists in:
+
+```python
+board.track(Net("GATE"), [PadRef(Part("q1"), 1), PadRef(Part("u1"), 7)], only=("mirrored",))
+board.pour(Net("SRC"), ..., only=("c_in.east", "c_in.east+r_pull.turned"))
+```
+
+Without `only=` the declaration is in every arrangement;
+`only=("default",)` names the default. An empty `only=` and a bare
+string are refused at the call. An id the module does not have is
+refused where the script finishes declaring, with the declaration's
+line. An id is matched as written, never as a pattern. Copper drawn from
+an item's pads follows the item without `only=`; `only=` is for copper
+that exists in some arrangements only. Copper fitted round or drawn from
+other copper that has an `only=` needs an `only=` inside that set.
+
+Limits: `place.arrangement_options_max` (default 4) options per item,
+its `place()` included, and `place.arrangements_max` (default 8)
+arrangements per module, the default and the groups included. A module
+over either is not partly accepted: the run lays out the default only
+and raises `arrangement.limit` (facts: the counts and both limits)
+saying to name a group for each combination that matters.
+`place.arrangements = false` lays out the default only without a
+finding.
+
+The module run generates once, then resolves the board once per
+arrangement, the default first and the rest in declared order, with that
+arrangement's options laid over the items' intents and the copper whose
+`only=` holds for it. Each arrangement other than the default is proven
+on a scratch board of its own:
+
+1. its resolve places every member with no critical finding, and every
+   cell nested in the module stands where the default put it;
+2. KiCad's DRC on the scratch board has no `real` violation and no more
+   unconnected items than the default;
+3. the design checks have no failed verdict, `board.accept` applied.
+
+Warnings, notices and measures are recorded, not refused. An arrangement
+that fails any step, or whose resolve or proof raises, is not offered:
+it is kept in the record with its refusals and raises
+`arrangement.refused` (warning), and the run goes on with the rest. The
+default is always written. An offered arrangement is written into the
+fragment as `placemat arrangement <escaped json>` texts on
+`User.Comments` (members' places in the fragment's frame, the
+arrangement's copper, its rule areas, and a digest of the default's
+places), split into numbered texts of `place.arrangement_note_chars`
+characters when longer. An arrangement whose note would leave no room in
+a chunk is not offered (`note_chars`).
+
+The run keeps each arrangement in `arrangements/<id>/` of its run
+folder: `layout.kicad_pcb`, `drc.json`, `reuse.json` (and
+`reuse.partial.jsonl` while it runs), and with `--render` the render of
+each arrangement that was proven, offered or not. A stopped run resumes
+each arrangement from its own record. `timing_s["arrangements"]` is the
+seconds for the other arrangements' resolves and proofs;
+`timing_s["resolve"]` is the default's alone.
+
+`run.json` is the default's, as before, and gains `arrangements` when
+the module declares any alternatives or is over a limit (in the second
+case the one entry is the default). One entry per arrangement, the
+default first:
+
+```json
+"arrangements": [
+  {"id": "default", "choices": {}, "offered": true, "dir": "arrangements/default",
+   "metrics": {"drc": 0, "findings": {"warning": 1}, "measures": {}},
+   "extent": [{"item": "c_bulk", "sides": ["east", "north"], "protrudes_mm": 1.8}]},
+  {"id": "mirrored", "choices": {"group": "mirrored"}, "offered": false, "dir": "arrangements/mirrored",
+   "metrics": {"drc": 2, "findings": {}, "measures": {}}, "extent": [],
+   "refused": [{"form": "drc", "bucket": "clearance", "count": 2}, {"form": "verdict", "check": "loop", "item": "c_in"}]}
+]
+```
+
+- `metrics.drc` is the number of `real` DRC violations, or null when DRC
+  was not run; `findings` counts the arrangement's findings by severity;
+  `measures` are the inputs of the run score for that arrangement,
+  recorded for comparison and not summed into the module's score. The
+  run's score is the default's.
+- `extent` lists the members whose box reaches the module's outline on a
+  side: the item, the sides, and `protrudes_mm`, how far it stands past
+  the next member on its most protruding side. It is measured on the
+  default and on each arrangement whose resolve completed. A listed
+  member with no alternative raises an `arrangement.extent_fixed` notice
+  on a module that declares any, and on one that declares none, or runs
+  with `place.arrangements` false, when it protrudes more than
+  `place.extent_notice_mm`.
+- A duplicate has `offered` false, `duplicate_of` (the id it matches)
+  and `metrics` null. An arrangement whose resolve raised has `offered`
+  false, `refused` and `metrics` null, and no `extent`; one whose proof
+  raised has the same with its `extent`.
+- `refused` holds records, each a `form` and its facts, rendered to a
+  sentence only where shown (`placemat run` prints one line per
+  arrangement; `arrangement.refused` carries `id` and `refused`):
+
+| `form` | Facts | Meaning |
+|---|---|---|
+| `unplaced` | `item` | a member the resolve gave no place, or a required item with no place |
+| `finding` | `cause`, `item` | a critical finding of the resolve, or items that collide where they stand |
+| `nested_cell` | `item` | a cell inside the module stands elsewhere than in the default |
+| `drc` | `bucket`, `count` | KiCad's DRC found `count` violations of that kind |
+| `unconnected` | `count`, `default` | more unconnected items than the default has |
+| `verdict` | `check`, `item` | a design check failed and is not accepted |
+| `escape` | `escape`, `part` | a declared escape cannot be laid out with its part as placed |
+| `error` | `type`, `message` | the resolve or proof raised that error |
+| `note_chars` | `chars` | `place.arrangement_note_chars` leaves no room for the note |
+
+**On the board.** A cell stamped from a module that offered arrangements
+takes one of them. `arrangements=` on the cell's `place()` is an id or a
+sequence of ids (`"default"` is the module's own layout):
+
+```python
+board.place(cell, arrangements="mirrored")               # pinned: laid in that arrangement
+board.place(cell, arrangements=["default", "mirrored"])  # the search tries these, in this order
+board.place(cell)                                        # the default, then every arrangement the cell offers
+```
+
+- It is for a cell only: any value on a part or a block raises
+  `TypeError`, the empty sequence included. Anything that is not a
+  string or a sequence raises a `TypeError` saying `arrangements=` is an
+  id or a list of them; an empty string, or an item that is not a
+  string, raises one saying ids are text. A repeated id counts once.
+- A riding cell takes its arrangement only when it is pinned to exactly
+  one id; with several ids or none it is laid in its default.
+- An id the cell does not offer leaves the cell unplaced with an
+  `arrangement.missing` finding (critical; facts `item`, `asked`,
+  `offered`). A cell with `place.arrangements` false offers only the
+  default, so a pin to any other id is missing. A rider of a cell skipped
+  for its arrangement is unplaced as a rider of an unplaced item.
+- The lock and freeze hold an arrangement (see "The lock" and "Freeze").
+  A lock entry whose arrangement the cell no longer offers is released,
+  and the cell is searched as its call says, with an
+  `arrangement.missing` warning whose facts add `source: "lock"`.
+- A note that cannot stand gives one `arrangement.stale` warning per
+  ignored arrangement and reason (facts `cell`, `reason`, `ids`); `text`
+  carries no ids. The cell is laid with the arrangements that remain.
+  With `place.arrangements` false the board ignores the notes and raises
+  none. The reasons are:
+
+| `reason` | A note is ignored because |
+|---|---|
+| `version` | it is of a version this placemat does not read |
+| `base` | it does not match its own digest of the module's default places |
+| `offset` | the cell's stamp no longer matches the module's default places |
+| `member` | it names members the cell does not have, or the cell has members it does not name |
+| `net` | it names a net the board does not have |
+| `text` | its text is not whole or does not parse (malformed) |
+
+`run.json`'s `placements[cell]` and each settled item of `plan.json` (and of
+the `item` event) carry `"arrangement": "<id>"` when the cell stands in an
+arrangement other than the default.
+
+The writer puts an arranged cell in its arrangement before it moves it
+into place. The cell's copper, keepouts (rule areas and drawings) and
+texts are replaced by the arrangement's, its carried vias are thinned
+against the arranged copper, and its zones are refilled. The cell's
+members go to the arrangement's places.
+
+**How the board chooses.** A cell that may take more than one
+arrangement is searched in each, the default first and the others in the
+order of `arrangements=` (or the order the module offers them). Each is an
+ordinary scan of the cell as that arrangement stands it, on both faces for
+a cell placed on either. The scores are compared as the search scores a
+spot, a non-default arrangement carrying `score.arrangement` on top.
+A non-default arrangement is taken only when it beats the default by
+`place.arrangement_margin` (default 0.5 mm); within the margin the default
+stands. The margin is not asked when the default has no legal spot, of a
+cell whose `arrangements=` names its choices, or of an explore's draw.
+The step's `arrangement` note names the one taken and its score, and each
+arrangement tried with its total, whether it had a legal spot, and whether
+the best so far cut its scan short. When an arrangement scored better and
+stayed within the margin, the note says which, by how much, and that the
+default stands. When none has a legal spot the note lists those tried.
+
+**A firm cell.** A cell held at its decided spot (`Location`, `Beside` and
+the other decided forms) tries its arrangements there: each legal one is
+scored once at that spot and compared as above, the margin included
+(not asked of a cell whose `arrangements=` names its choices). When
+none is legal the cell stands in its default, where its declaration puts
+it, or in the first arrangement `arrangements=` names when the default was
+not tried, and `fixed.part` is raised as for any firm collision; its
+`arrangements` fact lists every other arrangement's refusal, each as `id`
+and `why`. Each firm pass chooses a firm cell's arrangement afresh, and
+the choice is compared with the one the pass before took. The passes
+settle only when each such cell took in a pass the arrangement it took in
+the one before, so in the first pass, which has none
+before it, a board with such a cell runs a second pass. A cell that still
+changes between the last two passes raises `fixed.room_unsettled` with
+`item`, `passes` and `arrangements`, every arrangement it took in the
+order it took them; what stands beside it was placed against its last
+pass's choice.
+
+**Time limit.** A step that gives up at `--step-limit` before it has
+scanned every arrangement of a cell raises `time.step_limit` with the
+arrangements it did not reach in `arrangements`.
+
+**Replay.** `reuse.VERSION` is 5, which records a cell's arrangement in a
+placement and in a commit. The first run after upgrading finds no record it
+can replay and searches every step; later runs replay as before.
 
 **How a searched item finds its place.** An explicit `at=Near(...)` scans
 round its hint; a `Near(PadRef(...))` on another searched item's pad waits
@@ -3724,6 +3974,8 @@ shown as an error with its line, over the last good plan, marked stale.
   congestion. Pan and zoom, a toggle for each layer, a face switch.
 - Each step as it settles, in placement order with its note; the slider
   replays the placement step by step. A click on a step zooms to its item.
+  The card of a cell that chose among arrangements lists each one tried,
+  with its total, whether it was legal, and which was taken.
 - The findings; a click zooms to the place a finding names.
 - Hover a part: name, value, cell, face, rotation, how it was placed
   (decided, searched, pocket), its note and findings, its links with their
@@ -3735,7 +3987,7 @@ shown as an error with its line, over the last good plan, marked stale.
   any two of the last `[studio] keep`): the lines of the script and of each
   changed file (unified or side by side, changed lines marked), and the
   diagram - items that moved drawn at their old place with an arrow to the
-  new one, items added and removed, copper that changed in both states,
+  new one (a cell whose arrangement changed is listed with the change), items added and removed, copper that changed in both states,
   findings gained and lost, the run score's change. The two are linked:
   selecting a changed line marks the items it moved, and selecting a moved
   item marks the changed lines of its declaration. A moved item whose own
@@ -3750,8 +4002,10 @@ resolve from scratch, as the strip shown during a resolve has "Again".
 **Run.** The Run button runs `placemat run <script> --no-render` (the design
 checks, KiCad's DRC and the score, a run record in `.placemat/runs`) and shows
 its progress and result; the Compare panel lists the runs recorded for the
-script, from here or elsewhere, each with its score, DRC by kind, failed checks
-and findings by severity, and compares the newest resolve with one: items moved,
+script, from here or elsewhere, each with its score (a module run's detail
+lists its arrangements: offered, refused, or the same as another), DRC by
+kind, failed checks and findings by severity, and compares the newest
+resolve with one: items moved (a cell's changed arrangement included),
 added and removed, findings gained and lost, the score. A run records no copper
 or links, so those are not compared. `GET /runs`, `GET /runcompare?run=ID` and
 `POST /run` and `POST /resolve` (`{"fresh": bool}`: cancel and resolve again now, with no replay of unchanged steps when fresh; token required) serve them; `run_started`, `run_line` and `run_done`
@@ -3855,8 +4109,15 @@ placemat freeze <script> ITEM ... | --all [--fixed]
 **What varies.** Only the items in focus, and only what the search chooses
 for them: a focused item draws among its better legal spots (within
 `[explore] slack` of its best, the best the likeliest), rotation with the
-spot, and two focused items next in the placement order sometimes trade
-turns (`[explore] swap`). Everything else is placed as the plain run places
+spot, and, for a cell that offers arrangements, the arrangement with it:
+the draw is over the legal spots of every arrangement pooled, on both faces
+of an either-face item, each at its total as the search compares it, and
+the margin is not asked. A variant's `placements` entry for each focused
+item is `[x, y, rotation, face, arrangement]` (`""` for the module's own
+layout; a record from before arrangements has four elements), so the
+record carries each variant's arrangement. A move in the report names an
+arrangement that changed (`arrangement default -> mirrored`). Two focused items next in the
+placement order sometimes trade turns (`[explore] swap`). Everything else is placed as the plain run places
 it. An item in focus is one searched from its links or round a `Near()`
 hint - fixed, edge, line and rim items never vary.
 
@@ -3976,7 +4237,14 @@ turns), keeps its turn among the locked items, and carries a digest of the
 item's declaration. Every later run applies the lock: `held by lock` when
 the spot is legal, `lock: drifted N mm` when something now blocks it (the
 nearest legal spot round it), `lock: released - why` when the declaration
-changed or the anchor is gone, turned over or placed later. The cleanup
+changed or the anchor is gone, turned over or placed later. A cell's
+entry also holds the arrangement it stood in (`"arrangement"`, left out of
+the file for the default), and the cell is laid in it. Its digest then
+covers that arrangement's member places, so an entry whose arrangement
+now stands its members elsewhere is released as a changed declaration;
+one whose arrangement the module no longer offers is released (`lock:
+released - the module no longer offers arrangement <id>`) with an
+`arrangement.missing` warning (`source: "lock"`). The cleanup
 pass leaves a held item where it is. Commit the lock with the script; a
 run prints how many items it held, drifted and released. `placemat lock`
 lists entries and releases them. An anchor is named by its part's
@@ -3999,7 +4267,11 @@ into the script in the lock's own terms: the item's `place()` call gains
 anchor part's own frame - and `rotation=Turned(Part(<anchor>), r)`, so it
 keeps its turn of the order and turns with its anchor exactly as the lock
 held it, and its `why=` gains where the spot came from (`explore <run>:
-<score> mm, frozen <date>`). `--fixed` writes a firm
+<score> mm, frozen <date>`). A cell whose entry holds an arrangement also
+gains `arrangements="<id>"`, and its `why=` gains `; arrangement <id>`; a
+cell locked in its default that offers arrangements gains
+`arrangements="default"`, so the frozen call does not search them again.
+`--fixed` writes a firm
 `Location(X(...), Y(...))` instead, allowed when the anchor is fixed. Only
 that call's arguments change - comments and every other line stay - and the
 script and lock are written only when the edited script places every item
@@ -4119,7 +4391,10 @@ its kind.
 | `split` | warning | a cell whose members form groups joined only by board-level nets |
 | `keep_out` (`keep_out.cross_layer`) | notice | a `Pm.KeepOut` pair on different copper layers inside the distance with no plane between; KiCad judges clearance only on one layer, so `keep-out` does not fail it; facts: `net`, `distance_mm`, `limit_mm`, `layers`, `away` and `pads` (kind, owner, number, net, at) |
 | `time` (`time.step_slow`) | notice | a step ran past `--step-warn` (or `--step-limit`, with no pass left to stop at); the placement is its own |
-| `time` (`time.step_limit`) | critical when the item is left unplaced, warning when it kept the best spot found | a step gave up at `--step-limit`; the next run searches it again |
+| `time` (`time.step_limit`) | critical when the item is left unplaced, warning when it kept the best spot found | a step gave up at `--step-limit`; the next run searches it again; for a cell, `arrangements` lists the ones it had not reached |
+| `arrangement` (`arrangement.limit`, `arrangement.refused`, `arrangement.stale`) | warning | a module's alternatives over the limits, refused by the module's proof, or ignored on the stamping board |
+| `arrangement` (`arrangement.missing`) | critical; warning when `source` is `"lock"` | a cell's `arrangements=` names an id its module does not offer, and the cell is left unplaced; from the lock, an entry's arrangement is no longer offered, the entry is released and the cell is searched as its call says |
+| `arrangement` (`arrangement.duplicate`, `arrangement.extent_fixed`) | notice | an arrangement dropped for laying out as another; a part that sets the module's extent and has no alternative |
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
@@ -4300,6 +4575,7 @@ in a place of its own:
 | `run` | the generation, cached so a rerun skips `pcb layout` | `.placemat/generated/<board>/` |
 | `run` | what that generation was made from, to know when it is out of date | `.placemat/generated/<board>.inputs.json` |
 | `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays; `reuse.partial.jsonl` while resolving, left by a run that died), `run.json` with `status` `ok`, `failed`, `stopped`, or `running` with its `pid` while it works | `.placemat/runs/<id>/` |
+| `run` (a module with alternatives) | `arrangements/<id>/` with `layout.kicad_pcb`, `drc.json`, `reuse.json` (and `reuse.partial.jsonl` while it runs) for each arrangement, and a render of each proven one with `--render` | the run's folder |
 | `run` | `latest.json` (the last run of any board), `latest-<board>.json` (the last of each board: what a run compares with and reuses), `best.json`, and with `--label` an alias | `.placemat/runs/` |
 | `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays; `reuse.partial.jsonl` while resolving, left by a preview that was stopped) | `.placemat/views/preview/`, or `--out DIR` |
 | `studio` | `reuse.json` (what the next resolve replays) and `worker.log` | `.placemat/views/studio/` |
@@ -4311,6 +4587,10 @@ in a place of its own:
 | `layer` | the layer's SVG | `.placemat/views/layer/`, or `--out FILE` |
 | `datasheet --show --png` | the page's render | `.placemat/views/datasheet/` in the PDF's project, or `--out FILE.png` |
 | `faces` | the declared sides, into the fragment | the fragment named |
+
+A module with alternatives gains `arrangements` in `run.json`, one entry per arrangement (see "Arrangements" under Placement).
+A board's `placements` entry for a cell gains `arrangement` when the
+cell stands in one other than the default.
 
 `.placemat/` sits in the board's directory. `.placemat/views/` holds what a rerun
 regenerates (the `preview`, `show`, `layer` and `datasheet` images); it has a
@@ -4415,6 +4695,12 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.copper_room` | `true` | bool | whether placement keeps room for the copper the script declares: a track or via declared between parts is planned provisionally, and a part standing Beside another moves out of its way. False places as before |
 | `place.drc_epsilon` | `false` | bool | whether placement judges a copper, hole and hole-to-hole gap as KiCad's DRC does, a gap short of its rule by no more than the board's DRC epsilon (`BoardGeometry.drc_epsilon`, 0.0005 mm on a fresh board) counting as clear, and takes the net-tie exclusion's epsilon from the board. False keeps the nanometre it judged with and the fixed 500 nm. Findings and checks always take the epsilon |
 | `place.step_budget` | `20000000` | count | the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area it covered. Counted, not timed: the result does not depend on how busy the machine is. A `place(budget=)` replaces it |
+| `place.arrangements` | `true` | bool | whether a stamped cell's module arrangements (alternative layouts a module run proved) are searched; false lays every cell's default only, and a module run lays out its default only |
+| `place.arrangement_options_max` | `4` | count | the most options one item of a module may have, its `place()` included; a module that declares more is not partly accepted: its run lays out the default only and says so |
+| `place.arrangements_max` | `8` | count | the most arrangements a module may have, the default and the named groups included; the product of the items' options counts |
+| `place.arrangement_note_chars` | `4000` | count | the characters one arrangement note text holds before it is split into numbered texts (a note rides on a User.Comments text of the fragment) |
+| `place.extent_notice_mm` | `1.0` | mm | how far a part may stand past the next part on a side of a module that declares no alternatives before `arrangement.extent_fixed` notes it as setting the module's extent |
+| `place.arrangement_margin` | `0.5` | mm | how much better than the module's default a cell's other arrangement must score before a search takes it; within it the default stands and the step says so. It applies at a decided spot too, where a firm cell's arrangements are each scored once. Not asked when the default has no legal spot, of a cell whose `arrangements=` names its choices, or of an explore's draw |
 | `place.firm_passes` | `8` | count | the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was refused by a firm part placed before it, with the two taken in the other order), the last one the settled run |
 | `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |
 | `place.beside_step` | `0.01` | mm | the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands |
@@ -4545,6 +4831,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.via_move` | `2.0` | mm | mm for each carried via that moves there |
 | `score.via_drop` | `10.0` | mm | mm for each plane drop dropped there |
 | `score.back_face` | `2.0` | mm | mm the search adds to a spot on the back face of an item placed with `face=Face.EITHER`, so an equal spot is the front's; no item with a fixed face pays it |
+| `score.arrangement` | `0.0` | mm | mm the search adds to a cell's non-default arrangement, so an equal score keeps the module's own layout; a project raises it to prefer the module's default by that much |
 | `score.push` | `10.0` | mm | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
 | `score.via_leave` | `4.0` | mm | mm for each carried via that leaves its pad there, between move and shorten |
 | `score.via_relay` | `3.0` | mm | mm for each via field re-laid there, once, between move and leave |

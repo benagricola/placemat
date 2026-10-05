@@ -14,12 +14,13 @@ import dataclasses
 import functools
 from contextlib import contextmanager
 import math
+import types
 from dataclasses import dataclass, field
 
 from . import geometry as _geometry_module
 from . import kicad_collide as _kc
 from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
-                       point_in_polygon, point_segment_distance, polys_overlap, transform_box,
+                       point_in_polygon, point_segment_distance, polys_overlap, pose_transform, transform_box,
                        transform_polygon)
 from .outline import Outline
 from .placement import Placement
@@ -122,6 +123,21 @@ def ban_shape(name: str, poly, layers, allow, tag: str = "") -> "Shape":
 def is_label_silk(shape) -> bool:
     """Whether a shape is the silk obstacle a user label's text stands as."""
     return shape.kind == "silk" and shape.owner.startswith("label ")
+
+
+def _rule_area_shapes(ra) -> list:
+    """The shapes a rule area already on the board stands as among the copper: a ban where it forbids vias, and, for a cell's
+    label, the text's silk - judged as its parts' silk is while the cell is searched, and moved with the cell's own copper when it
+    lands. A cell's are owned by the cell."""
+    out = []
+    if "vias" in ra.excludes:
+        out.append(ban_shape("rule area %r on the generated board" % ra.name if ra.cell is None else ra.cell, ra.polygon, ra.layers,
+                             ra.allow, "" if ra.cell is None else "rule area %r from the %s cell" % (ra.name, ra.cell)))
+    if ra.cell is not None and "parts" in ra.excludes and ra.name.startswith("label "):
+        poly = tuple(tuple(p) for p in ra.polygon)
+        out.append(Shape(ra.cell, "silk", frozenset(l.face for l in ra.layers if l.face), frozenset(), "", poly, Box.of_points(poly),
+                         ra.name[len("label "):]))
+    return out
 
 
 @dataclass(frozen=True)
@@ -232,6 +248,13 @@ class ItemGeometry:
     reach: Box | None = None            # everything the item physically is: pads and drawn graphics (silk), not the courtyard
     parts: tuple = ()                   # a cell's members' bodies (and its own copper): what the edge and keepouts judge
     part_refs: tuple = ()               # the members whose bodies lead `parts`, in its order; its own copper follows
+    part_at: tuple = ()                 # where each of `part_refs` stands in these coordinates (an arranged cell's members posed)
+
+    def member_at(self, ref: str):
+        """Where member `ref` stands in this geometry's coordinates, or None when it is not one of `part_refs`."""
+        if ref in self.part_refs and self.part_at:
+            return self.part_at[self.part_refs.index(ref)]
+        return None
 
 
 @dataclass(frozen=True, eq=False)
@@ -492,7 +515,7 @@ class Occupancy:
         self.items: dict[str, ItemGeometry] = {}
         self.reservations: list[Reservation] = []
         self.copper: list[Shape] = []
-        self._cells: dict[str, ItemGeometry] = {}        # a cell's geometry, until something moves
+        self._cells: dict = {}        # a cell's geometry by name, an arranged cell's by (name, arrangement), until something moves
         self._pad_location_cache: dict[tuple, Location] = {}   # (ref, number[, land]) -> Location, until a commit
         self.pending: set[str] = set()                    # owners the script will place: not obstacles where the generator left them
         # While a searched item is placed, a user label's reserved box and silk are not obstacles: the
@@ -528,32 +551,7 @@ class Occupancy:
         for fp in geometry.footprints:
             self._register(fp)
         carried = _cell_vias(geometry, self.settings.place_via_route_distance > 0)
-        for c in geometry.copper:
-            if c.kind == "pad":
-                continue          # pads travel with their footprint
-            if c.kind == "zone":
-                continue          # a fill pulls back round whatever is placed; it never blocks anything
-            faces = frozenset(l.face for l in c.layers if l.face is not None)
-            # a via of fewer layers than the board's (a fragment built with spans) is copper and a hole there alone
-            span = c.layers if c.kind == "via" and c.layers < frozenset(geometry.layers) else frozenset()
-            if c.kind == "via" and not span:
-                faces = _BOTH
-            circle = ()
-            if c.kind == "via" and c.width_mm:
-                at = Location(*c.anchors[0]) if c.anchors else c.box.center
-                circle = (at.x, at.y, c.width_mm / 2.0)
-            tag, points = carried.get(id(c), ("", ()))
-            segment = _read_segment(c) if not tag else ()
-            drawn = (c.vertices, c.width_mm, c.filled) if c.kind == "poly" and c.vertices and not tag else ()
-            for poly in c.outlines:
-                self.copper.append(Shape(c.owner or "", "through" if c.kind == "via" else "copper",
-                                         faces, c.layers, c.net, poly, Box.of_points(poly), circle=circle,
-                                         carried=tag, points=points, wire=c.kind in ("track", "via"),
-                                         segment=segment, drawn=drawn))
-            if c.kind == "via" and c.drill_mm:
-                at = Location(*c.anchors[0]) if c.anchors else c.box.center
-                hole = hole_shape(c.owner or "", at, c.drill_mm, c.net, layers=span)
-                self.copper.append(dataclasses.replace(hole, carried=tag, points=points) if tag else hole)
+        self.copper.extend(self._copper_shapes(geometry.copper, carried))
         # Rule areas the generated board already carries: a stamped cell brings
         # its module's with it. One that belongs to the board is reserved now;
         # one a cell owns has no position until that cell lands, so it waits
@@ -564,10 +562,7 @@ class Occupancy:
         # re-transforming the original polygon would compound.
         self._cell_rule_areas: dict = {}
         for ra in geometry.rule_areas:
-            if "vias" in ra.excludes:
-                self.copper.append(ban_shape("rule area %r on the generated board" % ra.name if ra.cell is None
-                                             else ra.cell, ra.polygon, ra.layers, ra.allow,
-                                             "" if ra.cell is None else "rule area %r from the %s cell" % (ra.name, ra.cell)))
+            self.copper.extend(_rule_area_shapes(ra))
             if "parts" not in ra.excludes:
                 continue
             if ra.cell is None:
@@ -577,12 +572,40 @@ class Occupancy:
                                  courtyard=True)
             else:
                 self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
-                if ra.name.startswith("label "):
-                    # the text is the cell's silk as well: judged as its parts' silk is while the cell is
-                    # searched, and moved with the cell's own copper when it lands
-                    poly = tuple(tuple(p) for p in ra.polygon)
-                    self.copper.append(Shape(ra.cell, "silk", frozenset(l.face for l in ra.layers if l.face),
-                                             frozenset(), "", poly, Box.of_points(poly), ra.name[len("label "):]))
+
+    def _copper_shapes(self, items, carried: dict) -> list:
+        """The shapes of stamped copper `items`: tracks, vias and polygons. A pad travels with its footprint and a zone's fill
+        pulls back round whatever is placed, so neither is one. A carried via and its tail are tagged from `carried`
+        (`_cell_vias`)."""
+        out = []
+        board_layers = frozenset(self.geometry.layers)
+        for c in items:
+            if c.kind == "pad":
+                continue          # pads travel with their footprint
+            if c.kind == "zone":
+                continue          # a fill pulls back round whatever is placed; it never blocks anything
+            faces = frozenset(l.face for l in c.layers if l.face is not None)
+            # a via of fewer layers than the board's (a fragment built with spans) is copper and a hole there alone
+            span = c.layers if c.kind == "via" and c.layers < board_layers else frozenset()
+            if c.kind == "via" and not span:
+                faces = _BOTH
+            circle = ()
+            if c.kind == "via" and c.width_mm:
+                at = Location(*c.anchors[0]) if c.anchors else c.box.center
+                circle = (at.x, at.y, c.width_mm / 2.0)
+            tag, points = carried.get(id(c), ("", ()))
+            segment = _read_segment(c) if not tag else ()
+            drawn = (c.vertices, c.width_mm, c.filled) if c.kind == "poly" and c.vertices and not tag else ()
+            for poly in c.outlines:
+                out.append(Shape(c.owner or "", "through" if c.kind == "via" else "copper",
+                                 faces, c.layers, c.net, poly, Box.of_points(poly), circle=circle,
+                                 carried=tag, points=points, wire=c.kind in ("track", "via"),
+                                 segment=segment, drawn=drawn))
+            if c.kind == "via" and c.drill_mm:
+                at = Location(*c.anchors[0]) if c.anchors else c.box.center
+                hole = hole_shape(c.owner or "", at, c.drill_mm, c.net, layers=span)
+                out.append(dataclasses.replace(hole, carried=tag, points=points) if tag else hole)
+        return out
 
     # ------------------------------------------------------------ geometry of a candidate
     def _register(self, fp: Footprint) -> ItemGeometry:
@@ -617,20 +640,70 @@ class Occupancy:
         return self._pristine.get(ref) or self.items[ref]
 
     def _geometry(self, item) -> ItemGeometry:
+        """The geometry of a part, or of a cell as it stands (its own layout, or the arrangement `item.arrangement` names). A cell
+        re-committed with arrangement "" keeps the arrangement it stands in; it does not revert to the module's default layout."""
         if isinstance(item, Footprint):
             return self._pristine.get(item.ref) or self.items.get(item.ref) or self._register(item)
         if isinstance(item, CellGeom):
-            if item.name in self._cells:
-                return self._cells[item.name]
-            own = self._pristine_copper.get(item.name)
-            if own is None:
-                own = [c for c in self.copper if c.owner == item.name]
-            self._cells[item.name] = self.cell_geometry(item, {fp.ref: self.geometry_of(fp.ref) for fp in item.members},
-                                                        own)
-            return self._cells[item.name]
+            key = (item.name, item.arrangement) if item.arrangement else item.name
+            hit = self._cells.get(key)
+            if hit is not None:
+                return hit
+            if item.arrangement:
+                geom = self.cell_geometry(item, self._member_geometries(item), self._arranged_own(item))
+            else:
+                own = self._pristine_copper.get(item.name)
+                if own is None:
+                    own = [c for c in self.copper if c.owner == item.name]
+                geom = self.cell_geometry(item, {fp.ref: self.geometry_of(fp.ref) for fp in item.members}, own)
+            self._cells[key] = geom
+            return geom
         if isinstance(item, WithoutCarried):
             return self._without_carried(item.item)
         raise TypeError("cannot place a %s" % type(item).__name__)
+
+    thin_arranged = None        # layout.py sets it: (arranged cell, its own shapes) -> (the shapes kept, [(x, y)] of the drops thinned)
+    arranged_gone: dict = {}    # (cell, arrangement) -> [(x, y)] where its drops= took vias out, filled as its geometry is built
+
+    @staticmethod
+    def _arranged(item, placement: Placement):
+        """`item`, or the arranged cell that `placement` names."""
+        if isinstance(item, CellGeom) and placement.arrangement and item.arrangement != placement.arrangement:
+            return item.arranged(placement.arrangement)
+        return item
+
+    def _posed(self, geom: ItemGeometry, pose: Placement) -> ItemGeometry:
+        """A member's geometry moved to `pose`, where an arrangement stands it."""
+        t = self._transform(geom, pose)
+        return ItemGeometry(geom.owners, pose, tuple(self._moved(geom, geom.shapes, pose)), transform_box(geom.body, t),
+                            geom.nets, transform_box(geom.reach or geom.body, t))
+
+    def _member_geometries(self, item) -> dict:
+        """{ref: ItemGeometry} of an arranged cell's members, each moved to its arrangement's place (as drawn: before any via
+        it carries gave way)."""
+        poses = dict(item.poses)
+        out = {}
+        for fp in item.members:
+            base = self.geometry_of(fp.ref)
+            pose = poses.get(fp.ref)
+            out[fp.ref] = base if pose is None or pose == base.reference else self._posed(base, pose)
+        return out
+
+    def _arranged_own(self, item) -> list:
+        """An arranged cell's own copper as shapes, built as the board's are in __init__, its carried vias found among them.
+        Its zone has no owner and is no shape, as the stamped default's is not: the board's copper holds that one."""
+        items = item.own_copper or ()
+        held = types.SimpleNamespace(copper=items, cells={item.name: item})
+        shapes = self._copper_shapes(items, _cell_vias(held, self.settings.place_via_route_distance > 0))
+        if self.thin_arranged is not None:
+            shapes, gone = self.thin_arranged(item, shapes)
+            # replaced, not changed in place: the empty dict is the class's
+            self.arranged_gone = {**self.arranged_gone, (item.name, item.arrangement): gone}
+        return shapes + [s for ra in self._arranged_areas(item) for s in _rule_area_shapes(ra)]
+
+    def _arranged_areas(self, item) -> tuple:
+        """The rule areas (keepouts, labels) of the arrangement an arranged cell stands in, in the generated board's frame."""
+        return next(a.rule_areas for a in self.geometry.cells[item.name].arrangements if a.id == item.arrangement)
 
     def _without_carried(self, item) -> ItemGeometry:
         """The item's geometry less its carried vias: what the search judges
@@ -680,14 +753,7 @@ class Occupancy:
 
         A cell's reference rotation is always 0, so this is identical to the
         unflipped arithmetic for a cell and nothing about cells changes."""
-        ref = geom.reference
-        t = Transform.translate(-ref.location.x, -ref.location.y)
-        flip = placement.face != ref.face
-        if flip:
-            t = t.then(Transform.mirror_x(Location(0, 0)))
-        turn = placement.rotation + ref.rotation if flip else placement.rotation - ref.rotation
-        t = t.then(Transform.rotate(turn))
-        return t.then(Transform.translate(placement.location.x, placement.location.y))
+        return pose_transform(geom.reference, placement)
 
     def _flip_layers(self, layers: frozenset[CopperLayer]) -> frozenset[CopperLayer]:
         """The layers a cell's own copper stands on once the cell is flipped:
@@ -756,27 +822,33 @@ class Occupancy:
             return self._flip_span(s.layers)
         return self._flip_layers(s.layers)
 
-    def _yard(self, ref: str) -> Shape:
-        """A part's courtyard where it stands now, as the courtyard envelope
-        would claim it (KiCad's polygon, or the box), as a `yard`: judged only
-        against another part's plated lead."""
-        g = self.items[ref]
+    def _yard(self, ref: str, at: Placement | None = None) -> Shape:
+        """A part's courtyard where it stands now, or at `at` (where an arranged cell poses it), as the courtyard envelope
+        would claim it (KiCad's polygon, or the box), as a `yard`: judged only against another part's plated lead."""
+        if at is None:
+            at = self.items[ref].reference
         cache = self.__dict__.setdefault("_yard_cache", {})
-        hit = cache.get(ref)
-        if hit is not None and hit[0] == g.reference:
-            return hit[1]
+        hit = cache.get((ref, at))
+        if hit is not None:
+            return hit
         fp = self.geometry.footprint(ref)
         ct = tuple(fp.courtyard_poly) if courtyard_drawn(fp, self.settings.place_courtyard_polygon_share) \
             else box_polygon(fp.courtyard_box)
         read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
                             frozenset())
         yard = self._moved(read, (Shape(ref, "yard", frozenset([fp.face]), frozenset(), "", ct, Box.of_points(ct)),),
-                           g.reference)[0]
-        cache[ref] = (g.reference, yard)
+                           at)[0]
+        cache[(ref, at)] = yard
         return yard
 
     def _yards_of(self, owners) -> list[Shape]:
+        """The yards of placed parts `owners`, where they stand now."""
         return [self._yard(o) for o in owners if o in self._yard_refs and o in self.items]
+
+    def _own_yards(self, geom: ItemGeometry) -> list[Shape]:
+        """An item's own yards in its geometry's coordinates: a cell's members where it stands them (an arranged cell's
+        posed), not where they were stamped."""
+        return [self._yard(o, geom.member_at(o)) for o in geom.owners if o in self._yard_refs and o in self.items]
 
     @staticmethod
     def native_module():
@@ -1096,7 +1168,10 @@ class Occupancy:
         return Refusal(Code.RESERVATION, variant="whole", by=r.why, parts=parts)
 
     def commit(self, item, placement: Placement):
-        """Record that `item` now sits at `placement`; later checks see it there."""
+        """Record that `item` now sits at `placement`; later checks see it there. A placement that names an arrangement
+        commits the cell as that arrangement stands it. Re-committing a cell with arrangement "" keeps the arrangement the
+        cell stands in; it does not revert to the module's default layout."""
+        item = self._arranged(item, placement)
         owners = self._geometry(item).owners
         self._commit(item, placement)
         if self.__dict__.get("_ratsnest") is not None:
@@ -1219,8 +1294,9 @@ class Occupancy:
         for s in shapes:
             by_owner.setdefault(carried.get(s.owner, s.owner), []).append(s)
         out = {}
+        members = self._member_geometries(item) if item.arrangement else None
         for fp in item.members:
-            m = self.items[fp.ref]
+            m = members[fp.ref] if members is not None else self.items[fp.ref]
             # the member's placement is where its own shapes went: _transform from it must move them so.
             # A flip mirrors the member's turn with it: turned by the cell's, less its own.
             flip = placement.face != geom.reference.face
@@ -1244,7 +1320,7 @@ class Occupancy:
                             Placement(body.center, 0.0, Face.FRONT), shapes, body,
                             frozenset(n for fp in item.members for n in members[fp.ref].nets), reach,
                             tuple(members[fp.ref].body for fp in item.members) + tuple(mine),
-                            tuple(fp.ref for fp in item.members))
+                            tuple(fp.ref for fp in item.members), tuple(members[fp.ref].reference for fp in item.members))
 
     def _commit(self, item, placement: Placement):
         from . import giveway
@@ -1294,6 +1370,10 @@ class Occupancy:
         t = self._transform(geom, placement)
         tag = "cell:%s" % item.name
         self.reservations = [r for r in self.reservations if r.source != tag]
+        if item.arrangement:
+            # the arrangement's areas stand in for the stamped ones; its geometry is built in the generated board's frame, so
+            # they are moved from there
+            self._cell_rule_areas[item.name] = [[ra, tuple(ra.polygon)] for ra in self._arranged_areas(item) if "parts" in ra.excludes]
         for pair in self._cell_rule_areas.get(item.name, ()):
             ra, poly = pair
             poly = tuple(t.apply(p) for p in poly)
@@ -1463,24 +1543,24 @@ class Occupancy:
                 return why
         return None
 
-    def _kicad_yard(self, ref: str):
-        """A part's courtyard where it stands now, as KiCad's DRC tests a rule area against it: the
-        courtyard polygon it draws (`Footprint.courtyard_poly`; pcbexpr_functions.cpp
-        `collidesWithArea`), as a `yard` shape. A part that draws none is not tested by KiCad; here
-        its claimed courtyard box stands in, as it does for the lead check, so a part with no
-        courtyard still keeps out of a keepout."""
+    def _kicad_yard(self, ref: str, ref_at: Placement | None = None):
+        """A part's courtyard where it stands now, or at `ref_at` (where an arranged cell poses it), as KiCad's DRC tests a
+        rule area against it: the courtyard polygon it draws (`Footprint.courtyard_poly`; pcbexpr_functions.cpp
+        `collidesWithArea`), as a `yard` shape. A part that draws none is not tested by KiCad; here its claimed courtyard
+        box stands in, as it does for the lead check, so a part with no courtyard still keeps out of a keepout."""
         fp = self.geometry.footprint(ref)
-        ref_at = self.geometry_of(ref).reference
+        if ref_at is None:
+            ref_at = self.geometry_of(ref).reference
         cache = self.__dict__.setdefault("_kicad_yard_cache", {})
-        hit = cache.get(ref)
-        if hit is not None and hit[0] == ref_at:
-            return hit[1]
+        hit = cache.get((ref, ref_at))
+        if hit is not None:
+            return hit
         ct = tuple(fp.courtyard_poly) if len(fp.courtyard_poly) >= 3 else box_polygon(fp.courtyard_box)
         read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
                             frozenset())
         yard = self._moved(read, (Shape(ref, "yard", frozenset([fp.face]), frozenset(), "", ct,
                                         Box.of_points(ct)),), ref_at)[0]
-        cache[ref] = (ref_at, yard)
+        cache[(ref, ref_at)] = yard
         return yard
 
     def origin_yards(self, geom: ItemGeometry, rotation: float, face) -> list:
@@ -1498,7 +1578,7 @@ class Occupancy:
             at = Placement(Location(0.0, 0.0), rotation, face)
             polys = []
             for ref in geom.part_refs or sorted(geom.owners):
-                y = self._kicad_yard(ref) if self.geometry.has_footprint(ref) else None
+                y = self._kicad_yard(ref, geom.member_at(ref)) if self.geometry.has_footprint(ref) else None
                 polys.append(None if y is None else self._moved(geom, (y,), at)[0].poly)
             hit = (geom, polys, [None if p is None else Box.of_points(p) for p in polys])
             cache[key] = hit
@@ -2044,7 +2124,7 @@ class Occupancy:
     def _legal_origin_shapes(self, item, geom: ItemGeometry, placement: Placement) -> list:
         """`_origin_shapes` and the item's own yards, turned and faced the
         same way: what a legality check judges."""
-        own = self._yards_of(geom.owners)
+        own = self._own_yards(geom)
         if not own:
             return self._origin_shapes(item, geom, placement)
         cache = self.__dict__.setdefault("_legal_shape_cache", {})

@@ -411,11 +411,12 @@ def _context_of(make_board):
 
 
 def _placements(plan, focus) -> dict:
-    """{key: [x, y, rotation, face] or None} for the focused items: where a variant put them."""
+    """{key: [x, y, rotation, face, arrangement] or None} for the focused items: where a variant put them, and the arrangement
+    a cell stands in ("" its module's own; a record from before arrangements has four elements)."""
     out = {}
     for key in sorted(focus):
         p = plan.placement(key)
-        out[key] = None if p is None else [round(p.location.x, 3), round(p.location.y, 3), round(p.rotation, 3), p.face.value]
+        out[key] = None if p is None else [round(p.location.x, 3), round(p.location.y, 3), round(p.rotation, 3), p.face.value, p.arrangement]
     return out
 
 
@@ -635,15 +636,9 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         board = make_board()
         best = board.resolve(explore=Explore(result.best_seed, frozenset(focus)), lock=entries)
     for key in sorted(focus):
-        was, now = current.placement(key), best.placement(key)
-        if was is None or now is None:
-            if was != now:
-                report["moves"].append({"key": key, "mm": None, "rotation": [getattr(was, "rotation", None),
-                                                                              getattr(now, "rotation", None)]})
-            continue
-        d = was.location.distance(now.location)
-        if d > 1e-6 or was.rotation != now.rotation:
-            report["moves"].append({"key": key, "mm": round(d, 3), "rotation": [was.rotation, now.rotation]})
+        m = _move_of(key, current.placement(key), best.placement(key))
+        if m:
+            report["moves"].append(m)
     if accept:
         placed = [k for k in focus if best.placement(k) is not None]
         new = _lock.entries(board, best, placed, release, run_id, round(result.best, 1))
@@ -655,6 +650,23 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if ck is not None and not keep_state:
         ck.finish()
     return report, entries
+
+
+def _move_of(key, was, now) -> dict | None:
+    """One focused item's move between the plain placement and the variant's, as the report holds it: {"key", "mm",
+    "rotation": [was, now]}, plus "arrangement": [was, now] when a cell's arrangement changed; "mm" is None when it is placed
+    in one and not the other. None when it did not move."""
+    if was is None or now is None:
+        if was == now:
+            return None
+        return {"key": key, "mm": None, "rotation": [getattr(was, "rotation", None), getattr(now, "rotation", None)]}
+    d = was.location.distance(now.location)
+    if d <= 1e-6 and was.rotation == now.rotation and was.arrangement == now.arrangement:
+        return None
+    out = {"key": key, "mm": round(d, 3), "rotation": [was.rotation, now.rotation]}
+    if was.arrangement != now.arrangement:
+        out["arrangement"] = [was.arrangement, now.arrangement]
+    return out
 
 
 def stopped_line(report) -> str:
@@ -837,6 +849,8 @@ def _report_lines(report) -> list:
     for m in report["moves"]:
         turn = "" if m["rotation"][0] == m["rotation"][1] else ", rotation %s -> %s" % tuple(
             "-" if r is None else "%g" % r for r in m["rotation"])
+        if "arrangement" in m:
+            turn += ", arrangement %s -> %s" % tuple(a or "default" for a in m["arrangement"])
         lines.append("  %s: %s%s" % (m["key"], "placed/unplaced" if m["mm"] is None else "%.2f mm" % m["mm"], turn))
     if report["accepted"]:
         lines.append("accepted: written to the lock")
