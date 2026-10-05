@@ -111,8 +111,9 @@ def extent_of(plan) -> list:
 
 def extent_findings(board, extent: list, threshold_mm: float) -> list:
     """`arrangement.extent_fixed` for each extent member with no alternative: on a module that declares any, every one; on one
-    that declares none, those standing past the next member by more than `threshold_mm` (`place.extent_notice_mm`)."""
-    declares = bool(board._options or board._arr_groups)
+    that declares none, or with `place.arrangements` off, those standing past the next member by more than `threshold_mm`
+    (`place.extent_notice_mm`)."""
+    declares = bool(board._options or board._arr_groups) and board.settings.place_arrangements
     moved = set(board._options) | {o.item for g in board._arr_groups for o in g.options}
     out = []
     for row in extent:

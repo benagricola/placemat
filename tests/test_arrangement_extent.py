@@ -50,3 +50,13 @@ def test_a_member_moved_only_by_a_group_option_gets_no_notice():
     b.arrangement("flip", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))
     extent = [{"item": "c_in", "sides": ["west"], "protrudes_mm": 0.4}, {"item": "r_pull", "sides": ["east"], "protrudes_mm": 0.1}]
     assert [f.facts["item"] for f in run.extent_findings(b, extent, 2.0)] == ["r_pull"]
+
+
+def test_with_the_switch_off_a_module_that_declares_alternatives_notes_only_what_protrudes_past_the_setting():
+    import dataclasses
+    from placemat.settings import Settings
+    b = module(dataclasses.replace(Settings(), place_arrangements=False))
+    b.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
+    extent = [{"item": "u1", "sides": ["north"], "protrudes_mm": 2.5}, {"item": "r_pull", "sides": ["east"], "protrudes_mm": 0.1}]
+    found = run.extent_findings(b, extent, 2.0)
+    assert [f.facts["item"] for f in found] == ["u1"] and found[0].facts["alternatives"] is False

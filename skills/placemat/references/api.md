@@ -1150,8 +1150,9 @@ default first:
   the next member on its most protruding side. It is measured on the
   default and on each arrangement whose resolve completed. A listed
   member with no alternative raises an `arrangement.extent_fixed` notice
-  on a module that declares any, and on one that declares none when it
-  protrudes more than `place.extent_notice_mm`.
+  on a module that declares any, and on one that declares none, or runs
+  with `place.arrangements` false, when it protrudes more than
+  `place.extent_notice_mm`.
 - A duplicate has `offered` false, `duplicate_of` (the id it matches)
   and `metrics` null. An arrangement whose resolve raised has `offered`
   false, `refused` and `metrics` null, and no `extent`; one whose proof
@@ -1201,7 +1202,8 @@ board.place(cell)                                        # the default, then eve
 - A note that cannot stand gives one `arrangement.stale` warning per
   ignored arrangement and reason (facts `cell`, `reason`, `ids`); `text`
   carries no ids. The cell is laid with the arrangements that remain.
-  The reasons are:
+  With `place.arrangements` false the board ignores the notes and raises
+  none. The reasons are:
 
 | `reason` | A note is ignored because |
 |---|---|

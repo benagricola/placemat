@@ -217,3 +217,13 @@ def test_a_pin_by_a_members_pad_with_a_local_offset_turns_the_offset_with_the_ar
     from placemat.lock import _turn
     vx, vy = _turn(1.0, 0.0, member)
     assert (pad.x + vx, pad.y + vy) == pytest.approx((60.0, 30.0), abs=1e-6)
+
+
+def test_a_stale_note_is_a_finding_only_with_the_switch_on():
+    g = with_arrangement()
+    stale = dataclasses.replace(g.cells["mod"], arrangement_problems=({"reason": "version", "ids": ["c_in.west"]},))
+    g = dataclasses.replace(g, cells={**g.cells, "mod": stale})
+    for on, want in ((True, 1), (False, 0)):
+        b = board(dataclasses.replace(Settings(), place_arrangements=on), g=g)
+        b.place(Cell("mod"), at=Location(40.0, 30.0))
+        assert len([f for f in b.resolve().findings if f.cause == "arrangement.stale"]) == want, on
