@@ -176,12 +176,13 @@ def test_with_render_each_proven_arrangement_is_rendered_in_its_folder_and_its_r
 
 MARK = "frame_planes(FILLET, supply=None)"
 
-# The 0.99.15 form of ALTERNATIVES: r_rt's move as a one-option unit (board.arrangement), c_vcc's turn as an item's option.
+# ALTERNATIVES with r_rt's move as a unit's option: c_vcc's turn stays an item's option.
 GROUPED = '''
 from placemat import Alt
 board.alternative(Part("c_vcc"), "turned", rotation=LYING)
-board.arrangement("rt_apart", Alt(Part("r_rt"), at=Beside(Part("buck"), Edge.SOUTH, gap=0.6, align=("RT_5V", pin(RT_PIN)))),
-                  why="RT's resistor a little further south")
+rt = board.unit("rt", Part("r_rt"))
+board.alternative(rt, "apart", Alt(Part("r_rt"), at=Beside(Part("buck"), Edge.SOUTH, gap=0.6, align=("RT_5V", pin(RT_PIN))),
+                                   why="RT's resistor a little further south"))
 '''
 
 
@@ -195,33 +196,32 @@ def _member_poses(pcb) -> dict:
             for fp in read_board(pcb).footprints}
 
 
-def test_a_module_written_for_0_99_15_keeps_its_ids_and_places_and_gains_the_combination(tmp_path):
-    """A board.arrangement laid alone lays as the same move made an item's option does, so the arrangement form and the item
-    form of one module agree arrangement by arrangement; its 0.99.15 ids are made, and its combination with the item is added."""
+def test_a_units_option_lays_as_the_same_move_made_an_items_option_does(tmp_path):
+    """The unit form and the item form of one module agree arrangement by arrangement: the same places, offered and dead."""
     items, _, _ = real_modules.run(tmp_path / "items", "usb5v", edit=with_alternatives)
     grouped, _, _ = real_modules.run(tmp_path / "grouped", "usb5v", edit=with_grouped)
     rec = json.loads((grouped.run_dir / "run.json").read_text())
-    assert [a["id"] for a in rec["arrangements"]] == ["default", "rt_apart", "c_vcc.turned", "c_vcc.turned+rt_apart"]
-    assert rec["arrangements"][1]["choices"] == {"rt_apart": "rt_apart"}
-    same = {"default": "default", "rt_apart": "r_rt.apart", "c_vcc.turned": "c_vcc.turned",
-            "c_vcc.turned+rt_apart": "c_vcc.turned+r_rt.apart"}
+    assert [a["id"] for a in rec["arrangements"]] == ["default", "rt.apart", "c_vcc.turned", "c_vcc.turned+rt.apart"]
+    assert rec["arrangements"][1]["choices"] == {"rt": "apart"}
+    same = {"default": "default", "rt.apart": "r_rt.apart", "c_vcc.turned": "c_vcc.turned",
+            "c_vcc.turned+rt.apart": "c_vcc.turned+r_rt.apart"}
     for mine, theirs in same.items():
         assert _member_poses(grouped.run_dir / "arrangements" / mine / "layout.kicad_pcb") == \
             _member_poses(items.run_dir / "arrangements" / theirs / "layout.kicad_pcb"), mine
-    assert [a["id"] for a in rec["arrangements"] if a["offered"]] == ["default", "rt_apart"]
+    assert [a["id"] for a in rec["arrangements"] if a["offered"]] == ["default", "rt.apart"]
     dead = [f["facts"] for f in rec["finding_details"] if f["cause"] == "arrangement.option_dead"]
-    assert [(d["choice"], d["refused"]) for d in dead] == [("c_vcc.turned", ["c_vcc.turned", "c_vcc.turned+rt_apart"])]
+    assert [(d["choice"], d["refused"]) for d in dead] == [("c_vcc.turned", ["c_vcc.turned", "c_vcc.turned+rt.apart"])]
 
 
 def test_an_exclusion_is_not_laid_out_and_the_record_says_why(tmp_path):
-    rule = '\nboard.exclude("c_vcc.turned", "rt_apart", why="the turned capacitor and the moved resistor are not wanted together")\n'
+    rule = '\nboard.exclude("c_vcc.turned", "rt.apart", why="the turned capacitor and the moved resistor are not wanted together")\n'
     result, _, _ = real_modules.run(tmp_path, "usb5v", edit=lambda t: with_grouped(t).replace(MARK, rule + MARK, 1))
     rec = json.loads((result.run_dir / "run.json").read_text())
-    assert [a["id"] for a in rec["arrangements"] if not a.get("excluded")] == ["default", "rt_apart", "c_vcc.turned"]
+    assert [a["id"] for a in rec["arrangements"] if not a.get("excluded")] == ["default", "rt.apart", "c_vcc.turned"]
     (gone,) = [a for a in rec["arrangements"] if a.get("excluded")]
-    assert gone == {"id": "c_vcc.turned+rt_apart", "choices": {"c_vcc": "turned", "rt_apart": "rt_apart"}, "offered": False,
+    assert gone == {"id": "c_vcc.turned+rt.apart", "choices": {"c_vcc": "turned", "rt": "apart"}, "offered": False,
                     "excluded": {"why": "the turned capacitor and the moved resistor are not wanted together",
-                                 "by": ["c_vcc.turned", "rt_apart"]}}
-    assert not (result.run_dir / "arrangements" / "c_vcc.turned+rt_apart").exists()
+                                 "by": ["c_vcc.turned", "rt.apart"]}}
+    assert not (result.run_dir / "arrangements" / "c_vcc.turned+rt.apart").exists()
     dead = [f["facts"] for f in rec["finding_details"] if f["cause"] == "arrangement.option_dead"]
     assert [(d["choice"], d["refused"]) for d in dead] == [("c_vcc.turned", ["c_vcc.turned"])]   # the excluded one is not counted

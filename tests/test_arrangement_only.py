@@ -10,8 +10,13 @@ F = CopperLayer.F
 def declared(b):
     b.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
     b.alternative(Part("r_pull"), "turned", rotation=180)
-    b.arrangement("mirrored", __import__("placemat").Alt(Part("c_in"), rotation=180))
+    mirrored = b.unit("mirrored", Part("u1"))
+    b.alternative(mirrored, "on", __import__("placemat").Alt(Part("u1"), rotation=180))
     return b
+
+
+def held(*ids):
+    return frozenset(ids)
 
 
 def track(b, **kw):
@@ -21,26 +26,28 @@ def track(b, **kw):
 def test_a_declaration_without_only_is_in_every_arrangement():
     b = declared(module())
     c = track(b)
-    assert c.only == () and c.applies_in("default") and c.applies_in("c_in.east")
+    assert c.only == () and c.applies_in(held()) and c.applies_in(held("c_in.east"))
 
 
 def test_only_names_the_arrangements_a_declaration_exists_in():
     b = declared(module())
-    c = track(b, only=("mirrored", "c_in.east+r_pull.turned"))
-    assert c.only == ("mirrored", "c_in.east+r_pull.turned")
-    assert c.applies_in("mirrored") and not c.applies_in("default") and not c.applies_in("c_in.east")
+    c = track(b, only=("mirrored.on", "c_in.east+r_pull.turned"))
+    assert c.only == ("mirrored.on", "c_in.east+r_pull.turned")
+    assert c.applies_in(held("mirrored.on")) and not c.applies_in(held()) and not c.applies_in(held("c_in.east"))
+    assert c.applies_in(held("c_in.east", "r_pull.turned")) and c.applies_in(held("c_in.east", "r_pull.turned", "mirrored.on"))
+    assert c.applies_in(held("r_pull.turned", "mirrored.on")) and not c.applies_in(held("r_pull.turned"))
     b.finish_declarations()
 
 
-@pytest.mark.parametrize("only", [("nope",), ("east",), ("r_pull.turned+c_in.east",)])
+@pytest.mark.parametrize("only", [("nope",), ("east",), ("r_pull.turned+c_in.east",), ("mirrored",)])
 def test_an_unknown_id_is_refused_with_the_line_and_the_ids_the_module_has(only):
     b = declared(module())
     track(b, only=only)
     with pytest.raises(ValueError) as e:
         b.finish_declarations()
     text = str(e.value)
-    assert "test_arrangement_only.py:" in text and "only=" in text and "c_in.east" in text and "mirrored" in text
-    assert "arrangements:" in text and "groups:" in text
+    assert "test_arrangement_only.py:" in text and "only=" in text
+    assert "its choices: c_in.east, r_pull.turned, mirrored.on" in text and "groups" not in text
 
 
 def test_an_empty_only_and_a_bare_string_are_refused_where_written():
@@ -55,11 +62,11 @@ def test_an_empty_only_and_a_bare_string_are_refused_where_written():
 
 def test_default_names_the_default_arrangement():
     b = declared(module())
-    assert track(b).applies_in("default")
+    assert track(b).applies_in(held())
     narrowed = track(b, only=("default",))
-    assert narrowed.applies_in("default")
-    other = track(b, only=("mirrored",))
-    assert not other.applies_in("default")
+    assert narrowed.applies_in(held()) and not narrowed.applies_in(held("c_in.east"))
+    other = track(b, only=("mirrored.on",))
+    assert not other.applies_in(held())
     b.finish_declarations()
 
 
@@ -72,20 +79,20 @@ def test_every_copper_form_takes_only():
 
 def test_only_is_in_the_reuse_digest_only_when_given():
     b = declared(module())
-    plain, narrowed = track(b), track(b, only=("mirrored",))
+    plain, narrowed = track(b), track(b, only=("mirrored.on",))
     assert "only=" not in reuse.canonical(plain) and "only=" in reuse.canonical(narrowed)
 
 
 def test_finish_declarations_is_idempotent():
     b = declared(module())
-    track(b, only=("mirrored",))
+    track(b, only=("mirrored.on",))
     b.finish_declarations()
     b.finish_declarations()
 
 
 def test_a_pour_fitted_round_a_via_that_exists_in_fewer_arrangements_is_refused():
     b = declared(module())
-    v = b.via(Net("VIN"), PadRef(Part("u1"), 1), only=("mirrored",))
+    v = b.via(Net("VIN"), PadRef(Part("u1"), 1), only=("mirrored.on",))
     b.pour(Net("VIN"), [PadRef(Part("u1"), 1), v], layer=F, swallow_pads=True)           # in every arrangement, its via in one
     with pytest.raises(ValueError) as e:
         b.finish_declarations()
@@ -177,3 +184,16 @@ def test_an_adopted_routes_copper_takes_an_index_no_kept_declaration_has(monkeyp
     assert prepared.specs[1].id == "r2.turned" and plan.adopted == {"X": "held"}
     ((kept, adopted),) = seen
     assert kept == {1} and not kept & set(adopted)
+
+
+def test_a_stitch_over_a_pour_may_name_a_combination_that_holds_the_pours_choice():
+    b = declared(module())
+    pour = b.pour(Net("VIN"), [PadRef(Part("u1"), 1), PadRef(Part("c_in"), 1)], layer=F, swallow_pads=True, only=("c_in.east",))
+    b.stitch(Net("VIN"), pour, only=("c_in.east+r_pull.turned",))                      # every arrangement it is in holds c_in.east
+    b.finish_declarations()
+    wider = declared(module())
+    pour = wider.pour(Net("VIN"), [PadRef(Part("u1"), 1), PadRef(Part("c_in"), 1)], layer=F, swallow_pads=True,
+                      only=("c_in.east+r_pull.turned",))
+    wider.stitch(Net("VIN"), pour, only=("c_in.east",))                                # also in c_in.east alone, where the pour is not
+    with pytest.raises(ValueError):
+        wider.finish_declarations()

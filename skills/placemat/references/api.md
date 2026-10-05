@@ -247,7 +247,7 @@ board.place(cell, at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY)
 board.place(cell, at=Polar((r_min, r_max), None, about=centre), rotations=Turns.TANGENT)  # searched in a band, turned to the tangent at each spot
 board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
 board.place(item, at=Near(Location(x, y)), radius=20, budget=5_000_000)  # a search that may judge this many candidates
-board.place(cell, arrangements=["default", "mirrored"])               # a cell: the arrangements of its module the search may take
+board.place(cell, arrangements=["default", "pair.upright"])          # a cell: the arrangements of its module the search may take
 ```
 `item` is a `Part` (schematic instance), a `Cell` (a stamped group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -1034,20 +1034,15 @@ board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST), why="bypass at VIN")
 board.alternative(Part("c_in"), "turned", rotation=180)
 board.alternative(Part("r_pull"), "turned", rotation=180)
 
-pair = board.unit("pair", Part("c1"), Part("r1"), why="the filter pair moves as one")
+pair = board.unit("pair", Part("c1"), Part("r1"))
 board.alternative(pair, "flat",
                   Alt(Part("c1"), rotation=0),
                   Alt(Part("r1"), at=Beside(Part("c1"), Edge.EAST)))
 board.alternative(pair, "upright",
-                  Alt(Part("c1"), rotation=90),
+                  Alt(Part("c1"), rotation=90, why="the filter pair stands in the column"),
                   Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH)))
 
-board.arrangement("mirrored",
-                  Alt(Part("q1"), at=Beside(Part("u1"), Edge.EAST), rotation=180),
-                  Alt(Part("q2"), at=Beside(Part("u1"), Edge.WEST)),
-                  why="gate toward the east tab")
-
-board.exclude("pair.upright", "mirrored", why="both stand in the one column")
+board.exclude("c_in.turned", "pair.upright", why="both stand in the one column")
 ```
 
 - `board.alternative(item, name, **keywords)` adds an option to the
@@ -1058,77 +1053,76 @@ board.exclude("pair.upright", "mirrored", why="both stand in the one column")
   `at=`. The item is a part the script has placed with `place()`: a part
   of a row, ring or block, and a cell, are refused. A searched item may
   have options too, as each arrangement is a full resolve.
-- `board.unit(name, *members, why="")` declares a unit: parts the
-  script has placed with `place()` that move as one, given one by one
-  (a list is refused; `board.group` is the KiCad group on the written
-  board). Its default is each member's own `place()`. It returns the
-  unit, which `board.alternative(unit, name, *alts, why="")` takes to
-  add one option, one call per option: an `Alt(member, **keywords)`
-  (the keywords of `alternative`) for each member it moves, each at most
+- `board.unit(name, *members)` declares a unit: parts the script has
+  placed with `place()` that move as one, given one by one (a list is
+  refused; `board.group` is the KiCad group on the written board). Its
+  default is each member's own `place()`. It returns the unit, which
+  `board.alternative(unit, name, *alts)` takes to add one option, one
+  call per option: an `Alt(member, **keywords)` (the keywords of
+  `alternative`, `why=` included) for each member it moves, each at most
   once; a member it does not name keeps its `place()`. A unit's
-  alternative takes `Alt`s and no place keywords; an item's takes
+  alternative takes `Alt`s and no keywords of its own; an item's takes
   keywords and no `Alt`s. Option names are unique within the unit. A
   unit with no option is an error where the script finishes declaring.
   Declare a unit's options when its members only make sense moving
   together; otherwise each member's own `alternative` gives more
   combinations for the same declarations. A row's or ring's members may
   be members of a unit.
-- `board.arrangement(name, *alts, why="")` is a unit of the `Alt`s'
-  members with one option, named as the unit: the form 0.99.15 had. Its
-  id is its name. It takes no further `board.alternative`.
-- A part is in one unit only, and a member of a `board.unit` has no
+- A part is in one unit only, and a member of a unit has no
   `alternative` of its own: a second unit naming it, an item's
   alternative on a unit's member, and a unit naming a part that has one
-  are errors at the second call, each naming both declarations. A
-  `board.arrangement` may name a part that has its own alternative, or
-  that another `board.arrangement` names, as in 0.99.15: two units that
-  move one part never combine.
+  are errors at the second call, each naming both declarations.
+- `board.arrangement(name, *alts)`, the 0.99.15 form, is removed: it
+  raises `TypeError` at the call. A unit with one option does what it
+  did, and combines with the module's other items and units.
 - `board.exclude(*choices, why="")`: no combination holding all of
-  `choices` is laid out. A choice is `item.option`, `unit.option`, or a
-  `board.arrangement`'s name. Use it for combinations that cannot stand
-  together, so the run does not prove them, and to bring a module under
-  `place.arrangements_max` without dropping an option. Fewer than two
-  choices, a choice twice, a choice the module does not declare (a
-  combination id is not one), two options of one item or unit, and two
-  choices that never combine are errors where the script finishes
+  `choices` is laid out. A choice is `item.option` or `unit.option`. Use
+  it for combinations that cannot stand together, so the run does not
+  prove them, and to bring a module under `place.arrangements_max`
+  without dropping an option. Fewer than two choices, a choice twice, a
+  choice the module does not declare (a combination id is not one), and
+  two options of one item or unit are errors where the script finishes
   declaring, with the declaration's line.
-- The units of a module are its items with options and its
-  `board.unit`s and `board.arrangement`s, in the order the script
-  declares them: an item at its `place()`, a unit at its `board.unit` or
-  `board.arrangement` call. Its arrangements are the default, then every
+- The units of a module are its items with options and its units, in
+  the order the script declares them: an item at its `place()`, a unit
+  at its `board.unit` call. Its arrangements are the default, then every
   combination of the units (each contributing its default and each
   option) in `itertools.product` order with the first unit changing
-  slowest, less the excluded ones. A module with no `board.unit` or
-  `board.arrangement` has its items' combinations in `place()` order, as
-  before.
+  slowest, less the excluded ones. A module with no unit has its items'
+  combinations in `place()` order, as before.
 - An arrangement's id is `default`, or its units' choices in unit order
-  joined by `+`: `item.option`, `unit.option`, or a `board.arrangement`'s
-  name (`c_in.turned+pair.upright`, `c_in.turned+mirrored`). Option and unit
-  names are lower-case words, digits and `_`; `default` is refused, a
-  name may be declared once, and a unit may not have the name of an item
-  with options. The id is what the lock, findings, step notes, the
-  studio and the board's `arrangements=` use. `choices` is the same as
-  data, `{unit: option}`, with a `board.arrangement` as `{name: name}`.
+  joined by `+`: `item.option` or `unit.option`
+  (`c_in.turned+pair.upright`). Option and unit names are lower-case
+  words, digits and `_`; `default` is refused, a name may be declared
+  once, and a unit may not have the name of an item with options. The id
+  is what the lock, findings, step notes, the studio and the board's
+  `arrangements=` use. `choices` is the same as data, `{unit: option}`.
 - Two arrangements that lay out the same places and copper are one: the
   later is dropped with an `arrangement.duplicate` notice naming both.
 
 `only=` on `board.track`, `pair`, `via`, `vias`, `stitch`, `pour`,
-`plane` and `finger` is a sequence of arrangement ids the declaration
-exists in:
+`plane` and `finger` names the arrangements the declaration exists in.
+Each entry is `default`, a choice (`item.option` or `unit.option`), or
+choices joined by `+` in unit order; the declaration exists in every
+arrangement that holds all the choices of some entry:
 
 ```python
-board.track(Net("GATE"), [PadRef(Part("q1"), 1), PadRef(Part("u1"), 7)], only=("mirrored",))
-board.pour(Net("SRC"), ..., only=("c_in.turned", "c_in.turned+r_pull.turned"))
+board.track(Net("FB"), [PadRef(Part("r1"), 2), PadRef(Part("u1"), 7)], only=("pair.upright",))
+board.pour(Net("SRC"), ..., only=("c_in.turned+r_pull.turned",))
 ```
 
-Without `only=` the declaration is in every arrangement;
-`only=("default",)` names the default. An empty `only=` and a bare
-string are refused at the call. An id the module does not have is
-refused where the script finishes declaring, with the declaration's
-line. An id is matched as written, never as a pattern. Copper drawn from
-an item's pads follows the item without `only=`; `only=` is for copper
-that exists in some arrangements only. Copper fitted round or drawn from
-other copper that has an `only=` needs an `only=` inside that set.
+The track exists in `pair.upright` and in every combination holding it,
+`r_pull.turned+pair.upright` among them; the pour only where both turns
+are taken. Without `only=` the declaration is in every arrangement;
+`only=("default",)` is the module's own layout alone. An empty `only=`
+and a bare string are refused at the call. An entry that names no
+choice of the module, names them out of unit order, or that every
+arrangement holding it is excluded, is refused where the script
+finishes declaring, with the declaration's line. Copper drawn from an
+item's pads follows the item without `only=`; `only=` is for copper that
+exists in some arrangements only. Copper fitted round or drawn from
+other copper that has an `only=` exists only where that copper does:
+each of its entries holds every choice of one of the other's.
 
 Limits: `place.arrangement_options_max` (default 4) options per item
 or unit, its default included, and `place.arrangements_max` (default 16)
@@ -1190,11 +1184,11 @@ default first:
   {"id": "default", "choices": {}, "offered": true, "dir": "arrangements/default",
    "metrics": {"drc": 0, "findings": {"warning": 1}, "measures": {}},
    "extent": [{"item": "c_bulk", "sides": ["east", "north"], "protrudes_mm": 1.8}]},
-  {"id": "mirrored", "choices": {"mirrored": "mirrored"}, "offered": false, "dir": "arrangements/mirrored",
+  {"id": "pair.flat", "choices": {"pair": "flat"}, "offered": false, "dir": "arrangements/pair.flat",
    "metrics": {"drc": 2, "findings": {}, "measures": {}}, "extent": [],
    "refused": [{"form": "drc", "bucket": "clearance", "count": 2}, {"form": "verdict", "check": "loop", "item": "c_in"}]},
-  {"id": "pair.upright+mirrored", "choices": {"pair": "upright", "mirrored": "mirrored"}, "offered": false,
-   "excluded": {"why": "both stand in the one column", "by": ["pair.upright", "mirrored"]}}
+  {"id": "c_in.turned+pair.upright", "choices": {"c_in": "turned", "pair": "upright"}, "offered": false,
+   "excluded": {"why": "both stand in the one column", "by": ["c_in.turned", "pair.upright"]}}
 ]
 ```
 
@@ -1241,8 +1235,8 @@ takes one of them. `arrangements=` on the cell's `place()` is an id or a
 sequence of ids (`"default"` is the module's own layout):
 
 ```python
-board.place(cell, arrangements="mirrored")               # pinned: laid in that arrangement
-board.place(cell, arrangements=["default", "mirrored"])  # the search tries these, in this order
+board.place(cell, arrangements="pair.upright")               # pinned: laid in that arrangement
+board.place(cell, arrangements=["default", "pair.upright"])  # the search tries these, in this order
 board.place(cell)                                        # the default, then every arrangement the cell offers
 ```
 
@@ -4178,7 +4172,7 @@ the margin is not asked. A variant's `placements` entry for each focused
 item is `[x, y, rotation, face, arrangement]` (`""` for the module's own
 layout; a record from before arrangements has four elements), so the
 record carries each variant's arrangement. A move in the report names an
-arrangement that changed (`arrangement default -> mirrored`). Two focused items next in the
+arrangement that changed (`arrangement default -> pair.upright`). Two focused items next in the
 placement order sometimes trade turns (`[explore] swap`). Everything else is placed as the plain run places
 it. An item in focus is one searched from its links or round a `Near()`
 hint - fixed, edge, line and rim items never vary.

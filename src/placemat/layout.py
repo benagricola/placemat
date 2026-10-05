@@ -40,7 +40,7 @@ from . import exposure
 from .placement import Placement
 from .settings import Settings
 from .arrangements import (DEFAULT_SPEC, Alt, Enumeration, Exclusion, Group, GroupOption, Option, Spec, check_keywords, check_name,
-                           enumerate_specs, merged_call, units)
+                           enumerate_specs, merged_call, only_holds, units)
 from .placer import BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
@@ -471,10 +471,12 @@ class CopperIntent:
     members: tuple = field(default=(), metadata={"omit_default": True})    # a fitted pour's via intents
     reach: float | Reach | None = field(default=None, metadata={"omit_default": True})   # a fitted pour's reach=: mm, or Reach.CURRENT
     declared: dict = field(default_factory=dict, metadata={"reuse": False})   # what the declaration gave, as a finding's suggestions read it
-    only: tuple = field(default=(), metadata={"omit_default": True})    # the arrangement ids it exists in; () every one (arrangements.py)
+    only: tuple = field(default=(), metadata={"omit_default": True})    # the arrangements it exists in, as only= names them; () every one (arrangements.py)
 
-    def applies_in(self, ident: str) -> bool:
-        return not self.only or ident in self.only
+    def applies_in(self, held: frozenset) -> bool:
+        """Whether it exists in an arrangement holding the choice ids `held` (arrangements.Spec.held): `only=` matches by the
+        choices an arrangement holds (arrangements.only_holds)."""
+        return only_holds(self.only, held)
 
     @property
     def rank(self):
@@ -1039,7 +1041,7 @@ class Board:
         self._sites: list = []              # the Site of each declaration: where the script made it (suggestions.bind)
         self._place_calls: dict = {}        # item key -> (the item as given, `at=`, the other place() keywords as given, "row"/"ring"/""): what an alternative lays over
         self._options: dict = {}            # item key -> [Option]: board.alternative(), in declaration order
-        self._arr_groups: list = []         # Group (a unit): board.unit() and board.arrangement(), in declaration order
+        self._arr_groups: list = []         # Group (a unit): board.unit(), in declaration order
         self._group_after: dict = {}        # unit name -> how many intents (placements, keepouts, cutouts) the script had declared when it declared the unit
         self._exclusions: list = []         # Exclusion: board.exclude(), in declaration order
         self._compound: str = ""            # "row" or "ring" while one of them declares its members
@@ -3439,7 +3441,7 @@ class Board:
         `Turned`, and one that gives `rotations=` replaces its `rotation=`. Returns the Option.
 
         On a unit board.unit declared: one option of the unit, `Alt(member, **keywords)` for each member it moves (each at
-        most once; a member it does not name keeps its place()), and `why=`. Returns the GroupOption.
+        most once; a member it does not name keeps its place()), each Alt with its own `why=`. Returns the GroupOption.
 
         The module run lays out every arrangement and offers the ones that pass its own DRC and checks; the board's search
         chooses among them."""
@@ -3465,14 +3467,11 @@ class Board:
 
     def _unit_alternative(self, group: Group, name: str, alts, keywords: dict) -> GroupOption:
         g = next((x for x in self._arr_groups if x.name == group.name), None)
-        if g is None or g.positional:
-            raise TypeError("board.alternative(%r, ...): %s; a unit whose options are declared one by one is board.unit's"
-                            % (group.name, "board.arrangement declares a unit with its one option" if g is not None
-                               else "this board declares no unit of that name"))
-        extra = sorted(set(keywords) - {"why"})
-        if extra:
-            raise TypeError("unit %r: a unit's alternative takes Alt(member, **keywords) for each member it moves, not %s"
-                            % (g.name, ", ".join(extra)))
+        if g is None:
+            raise TypeError("board.alternative(%r, ...): this board declares no unit of that name" % group.name)
+        if keywords:
+            raise TypeError("unit %r: a unit's alternative takes Alt(member, **keywords) for each member it moves, not %s; a "
+                            "member's why= goes in its Alt" % (g.name, ", ".join(sorted(keywords))))
         check_name("option", name)
         if any(o.name == name for o in g.alternatives):
             raise ValueError("unit %r already has an option %r" % (g.name, name))
@@ -3491,42 +3490,21 @@ class Board:
                 raise ValueError("unit %r: option %r names %s twice" % (g.name, name, key))
             seen.add(key)
             options.append(self._checked_option(a.item, name, a.keywords, grouped=True))
-        option = GroupOption(g.name, name, tuple(options), keywords.get("why", ""), *_script_site())
+        option = GroupOption(g.name, name, tuple(options), *_script_site())
         self._arr_groups[self._arr_groups.index(g)] = dataclasses.replace(g, alternatives=g.alternatives + (option,))
         self._arrangement_enum = None
         return option
 
-    def arrangement(self, name: str, *alts, why: str = "") -> Group:
-        """A unit of the members `alts` name, with one option: `Alt(item, **keywords)` for each (the keywords of `alternative`).
-        The 0.99.15 form: its id is its name, and the members it does not name keep their `place()`. It combines with every other
-        item and unit except one that moves a part it moves. To give a unit more than one option, declare it with
-        board.unit."""
-        check_name("arrangement", name)
-        self._refuse_taken_unit(name)
-        if not alts:
-            raise ValueError("arrangement %r names no member: give Alt(item, **keywords) for each one it moves" % name)
-        file, line = _script_site()
-        seen, options = set(), []
-        for a in alts:
-            if not isinstance(a, Alt):
-                raise TypeError("arrangement %r takes Alt(item, **keywords), not %r" % (name, a))
-            o = self._checked_option(a.item, name, a.keywords, grouped=True)
-            if o.item in seen:
-                raise ValueError("arrangement %r names %s twice" % (name, o.item))
-            held = self._unit_holding(o.item)
-            if held is not None:
-                raise ValueError("%s:%d: arrangement %r names %s, which unit %r (%s:%d) moves: a member is in one unit"
-                                 % (file, line, name, o.item, held.name, held.file, held.line))
-            seen.add(o.item)
-            options.append(o)
-        group = Group(name, tuple(options), why, file, line)
-        self._arr_groups.append(group)
-        self._group_after[name] = len(self._intents)
-        self._arrangement_enum = None
-        return group
+    def arrangement(self, name, *alts, **keywords):
+        """Removed: the 0.99.15 form of one named arrangement. A unit with one option does what it did, and combines with the
+        module's other items and units."""
+        raise TypeError("board.arrangement(%r, ...) was removed: declare the parts that move together as a unit, "
+                        "unit = board.unit(%r, Part(...), ...), and each way they stand as its option, "
+                        "board.alternative(unit, option, Alt(Part(...), **keywords), ...); a unit's options combine with the "
+                        "module's other items and units" % (name, name))
 
-    def unit(self, name: str, *members, why: str = "") -> Group:
-        """A set of a module's parts that moves as one unit of its arrangements: `board.unit(name, Part, Part, ..., why="")`, the
+    def unit(self, name: str, *members) -> Group:
+        """A set of a module's parts that moves as one unit of its arrangements: `board.unit(name, Part, Part, ...)`, the
         parts given one by one, each a part the script has placed with `place()`. Its default is each member's own place();
         `board.alternative(unit, option, Alt(...), ...)` adds each option, and it combines with every other item and unit. A
         member is in one unit only and has no alternative of its own. Returns the unit (the arrangements.Group record).
@@ -3544,18 +3522,17 @@ class Board:
             key = self._member_key(m, grouped=True)
             if key in keys:
                 raise ValueError("unit %r names %s twice" % (name, key))
-            other = next((g for g in self._arr_groups if key in g.members or key in g.moves()), None)
+            other = self._unit_holding(key)
             if other is not None:
-                raise ValueError("%s:%d: unit %r names %s, which %s %r (%s:%d) already moves: a member is in one unit"
-                                 % (file, line, name, key, "unit" if other.members else "arrangement", other.name,
-                                    other.file, other.line))
+                raise ValueError("%s:%d: unit %r names %s, which unit %r (%s:%d) already holds: a member is in one unit"
+                                 % (file, line, name, key, other.name, other.file, other.line))
             own = self._options.get(key)
             if own:
                 raise ValueError("%s:%d: unit %r names %s, which has its own alternative %r (%s:%d): a member moves with its "
                                  "unit, so give the unit that option" % (file, line, name, key, own[0].name, own[0].file,
                                                                           own[0].line))
             keys.append(key)
-        group = Group(name, (), why, file, line, members=tuple(keys))
+        group = Group(name, tuple(keys), (), file, line)
         self._arr_groups.append(group)
         self._group_after[name] = len(self._intents)
         self._arrangement_enum = None
@@ -3564,20 +3541,20 @@ class Board:
     def _refuse_taken_unit(self, name: str) -> None:
         taken = next((g for g in self._arr_groups if g.name == name), None)
         if taken is not None:
-            raise ValueError("a unit or arrangement %r is already declared (%s:%d)" % (name, taken.file, taken.line))
+            raise ValueError("a unit %r is already declared (%s:%d)" % (name, taken.file, taken.line))
 
     def _unit_holding(self, key: str):
         """The unit board.unit declared with `key` as a member, or None."""
         return next((g for g in self._arr_groups if key in g.members), None)
 
     def exclude(self, *choices, why: str = "") -> Exclusion:
-        """Every combination that holds all of `choices` is not laid out. A choice is `item.option`, `unit.option`, or a
-        board.arrangement's name; two or more, checked where the script finishes declaring. For combinations the author knows
+        """Every combination that holds all of `choices` is not laid out. A choice is `item.option` or `unit.option`; two or
+        more, checked where the script finishes declaring. For combinations the author knows
         cannot stand together, so the run does not prove them, and to bring a module under `place.arrangements_max` without
         dropping an option."""
         for c in choices:
             if not isinstance(c, str):
-                raise TypeError("board.exclude takes choices as text ('item.option', 'unit.option' or a unit's name), "
+                raise TypeError("board.exclude takes choices as text ('item.option' or 'unit.option'), "
                                 "not %r" % (c,))
         rule = Exclusion(tuple(choices), why, *_script_site())
         self._exclusions.append(rule)
@@ -3586,7 +3563,7 @@ class Board:
 
     def _unit_order(self) -> list:
         """Item keys with options and unit names, in the order the script first declared them: an item at its place(), a unit at
-        its board.unit or board.arrangement call. With no unit: the items in place() order, as before units combined."""
+        its board.unit call. With no unit: the items in place() order, as before units combined."""
         keyed = [((i.index, 1, 0), i.key) for i in self._intents if i.key in self._options]
         keyed += [((self._group_after[g.name], 0, n), g.name) for n, g in enumerate(self._arr_groups)]
         return [k for _, k in sorted(keyed)]
@@ -3624,23 +3601,26 @@ class Board:
         if self._declarations_done:
             return
         self._declarations_done = True
-        from .arrangements import all_ids, known_id
+        from .arrangements import entry_laid, known_id, only_within
         self._check_units()
         order = self._unit_order()
+        us = self.arrangement_units()
         for c in self._copper:
             for ident in c.only:
+                file, line = self._only_sites.get(c.index, ("", 0))
                 if not known_id(ident, order, self._options, self._arr_groups):
-                    file, line = self._only_sites.get(c.index, ("", 0))
-                    groups = [g.name for g in self._arr_groups]
-                    products = [i for i in all_ids(order, self._options, self._arr_groups) if i not in groups]
-                    raise ValueError("%s:%d: %s: only= names %r, which is not an arrangement of this module; it has "
-                                     "arrangements: %s; groups: %s"
-                                     % (file, line, c.key, ident, ", ".join(products), ", ".join(groups) or "none"))
+                    choices = [ch.id for u in us for ch in u.choices]
+                    raise ValueError("%s:%d: %s: only= names %r, which is not an arrangement of this module: an only= entry is "
+                                     "default, a choice or choices joined by + in the order declared; its choices: %s"
+                                     % (file, line, c.key, ident, ", ".join(choices) or "none"))
+                if not entry_laid(ident, us, tuple(self._exclusions)):
+                    raise ValueError("%s:%d: %s: only= names %r, and board.exclude leaves out every arrangement that holds it, so "
+                                     "the copper would exist in none" % (file, line, c.key, ident))
         by_index = {c.index: c for c in self._copper}
         for c in self._copper:
             for idx in self._copper_uses.get(c.index, ()):
                 m = by_index.get(idx)
-                if m is not None and m.only and (not c.only or not set(c.only) <= set(m.only)):
+                if m is not None and m.only and not only_within(c.only, m.only):
                     file, line = self._only_sites.get(c.index, self._only_sites.get(idx, ("", 0)))
                     raise ValueError("%s:%d: %s is drawn from or fitted round %s, which exists only in %s: give it an only= "
                                      "inside that set" % (file, line, c.key, m.key, ", ".join(m.only)))
@@ -3649,7 +3629,7 @@ class Board:
         """What the declarations make only once they are all in: a unit with no option, a unit named as an item with options,
         and each exclusion. Each an error of the script with its declaration's line."""
         for g in self._arr_groups:
-            if not g.positional and not g.alternatives:
+            if not g.alternatives:
                 raise ValueError("%s:%d: unit %r has no option: give it one with board.alternative(%s, name, Alt(...), ...), "
                                  "or drop the unit" % (g.file, g.line, g.name, g.name))
             if g.name in self._options:
@@ -3674,9 +3654,6 @@ class Board:
                     if u.name == v.name:
                         raise ValueError("%s: %s and %s are both options of %s, which takes one at a time, so no arrangement "
                                          "holds both" % (where, a, b, u.name))
-                    if u.moves & v.moves:
-                        raise ValueError("%s: %s and %s both move %s, so they never combine and there is nothing to exclude"
-                                         % (where, a, b, ", ".join(sorted(u.moves & v.moves))))
 
     def refuse_board_alternatives(self) -> None:
         """Raise ValueError when a board script (its outline drawn: not a module) declares alternatives. Alternatives are a
@@ -3685,7 +3662,7 @@ class Board:
         if not self._draw_outline:
             return
         sites = [(o.file, o.line, "board.alternative") for opts in self._options.values() for o in opts] + \
-            [(g.file, g.line, "board.unit" if g.members else "board.arrangement") for g in self._arr_groups] + \
+            [(g.file, g.line, "board.unit") for g in self._arr_groups] + \
             [(go.file, go.line, "board.alternative") for g in self._arr_groups for go in g.alternatives] + \
             [(e.file, e.line, "board.exclude") for e in self._exclusions]
         if not sites:
@@ -3716,7 +3693,7 @@ class Board:
                 new.needs = new.needs | self._push_needs(p.source)
             old.__dict__.clear()
             old.__dict__.update(new.__dict__)
-        kept = [c for c in self._copper if c.applies_in(spec.id)]
+        kept = [c for c in self._copper if c.applies_in(spec.held)]
         if len(kept) != len(self._copper):
             self._copper = kept
         self._laid = spec.id
@@ -10930,7 +10907,6 @@ _SITED = {
     "rule": lambda b, out, a, k: [out.why],
     "accept": lambda b, out, a, k: ["%s %s" % (out.check, out.subject)],
     "alternative": lambda b, out, a, k: ["%s.%s" % (out.group if isinstance(out, GroupOption) else out.item, out.name)],
-    "arrangement": lambda b, out, a, k: [out.name],
     "unit": lambda b, out, a, k: [out.name],
     "exclude": lambda b, out, a, k: ["+".join(out.choices)],
 }

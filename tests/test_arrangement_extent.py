@@ -1,5 +1,4 @@
 from placemat import arrangement_run as run
-from placemat.arrangements import Alt
 from placemat.values import Beside, Box, Edge, Part
 from tests.arrangement_support import module
 
@@ -43,13 +42,6 @@ def test_members_sharing_the_outermost_edge_both_reach_the_side():
     assert run.extent_from_boxes(boxes) == [
         {"item": "a", "sides": ["north", "east", "south", "west"], "protrudes_mm": 1.0},
         {"item": "b", "sides": ["south", "west"], "protrudes_mm": 1.0}]
-
-
-def test_a_member_moved_only_by_a_group_option_gets_no_notice():
-    b = module()
-    b.arrangement("flip", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))
-    extent = [{"item": "c_in", "sides": ["west"], "protrudes_mm": 0.4}, {"item": "r_pull", "sides": ["east"], "protrudes_mm": 0.1}]
-    assert [f.facts["item"] for f in run.extent_findings(b, extent, 2.0)] == ["r_pull"]
 
 
 def test_with_the_switch_off_a_module_that_declares_alternatives_notes_only_what_protrudes_past_the_setting():

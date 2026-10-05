@@ -1,6 +1,6 @@
 # tests/test_arrangement_units.py
-"""Units: a module's items with options and its units combine in one product, in the order declared; a 0.99.15 board.arrangement is a unit
-with one option that keeps its id; units that move one part never combine; exclusions leave combinations out."""
+"""Units: a module's items with options and its units combine in one product, in the order declared; exclusions leave combinations
+out."""
 import time
 
 from placemat import arrangements as A
@@ -36,33 +36,8 @@ def test_two_units_and_an_item_combine_in_product_order_the_first_declared_chang
     assert e.declared == 12 and e.over is None and e.excluded == ()
     last = e.specs[-1]
     assert last.choices == {"pair": "upright", "caps": "upright", "r_far": "turned"}
-    assert [k for k, _ in last.overrides] == ["c1", "r1", "c2", "r_far"] and last.group == ""
-
-
-def test_a_one_option_unit_keeps_its_0_99_15_id_and_combines_with_the_items():
-    caps_upright = A.Group("caps_upright", (opt("c2", "caps_upright", rotation=90), opt("c3", "caps_upright", rotation=90)),
-                           why="both capacitors stand")
-    pull = {"r_pull": [opt("r_pull", "upright", rotation=90)]}
-    e = A.enumerate_specs(["caps_upright", "r_pull"], pull, [caps_upright], 4, 100)
-    assert ids(e) == ["default", "r_pull.upright", "caps_upright", "caps_upright+r_pull.upright"]
-    alone = e.specs[2]
-    assert alone.choices == {"caps_upright": "caps_upright"} and alone.group == "caps_upright" and alone.why == "both capacitors stand"
-    assert [k for k, _ in alone.overrides] == ["c2", "c3"]
-    assert e.specs[3].group == "" and e.specs[3].choices == {"caps_upright": "caps_upright", "r_pull": "upright"}
-
-
-def test_units_that_move_one_part_never_combine():
-    """Review focus 1: two 0.99.15 board.arrangements over one pair, and one over a part with an option of its own."""
-    mirrored = A.Group("mirrored", (opt("q1", "mirrored", rotation=180), opt("q2", "mirrored", rotation=180)))
-    rotated = A.Group("rotated", (opt("q1", "rotated", rotation=90),))
-    q2 = {"q2": [opt("q2", "turned", rotation=90)]}
-    args = (["q2", "mirrored", "rotated"], q2, [mirrored, rotated])
-    e = A.enumerate_specs(*args, 4, 100)
-    assert ids(e) == ["default", "rotated", "mirrored", "q2.turned", "q2.turned+rotated"]
-    assert e.declared == 5
-    assert A.known_id("q2.turned+rotated", *args)
-    for bad in ("mirrored+rotated", "q2.turned+mirrored"):
-        assert not A.known_id(bad, *args), bad
+    assert [k for k, _ in last.overrides] == ["c1", "r1", "c2", "r_far"]
+    assert last.held == {"pair.upright", "caps.upright", "r_far.turned"}
 
 
 def test_an_exclusion_leaves_out_every_combination_holding_all_its_choices():
@@ -97,10 +72,52 @@ def test_counting_does_not_walk_the_whole_product():
     assert time.monotonic() - t0 < 1.0
 
 
-def test_known_ids_and_all_ids_follow_the_product():
-    assert A.all_ids(*ARGS) == ids(A.enumerate_specs(*ARGS, 4, 100))
-    assert A.all_ids(*ARGS, cap=3) == ["default", "r_far.turned", "caps.upright"]
+def test_known_ids_follow_the_product():
     for ok in ("default", "pair.flat", "caps.upright+r_far.turned", "pair.upright+caps.upright+r_far.turned"):
         assert A.known_id(ok, *ARGS), ok
     for bad in ("pair", "pair.sideways", "caps.upright+pair.flat", "pair.flat+pair.upright", "c1.flat", ""):
         assert not A.known_id(bad, *ARGS), bad
+
+
+def _released(tag: str):
+    """arrangements.py as `tag` released it, loaded as a module of its own, or None where git or the tag is not to hand."""
+    import importlib.util
+    import pathlib
+    import subprocess
+    import sys
+    root = pathlib.Path(__file__).resolve().parents[1]
+    got = subprocess.run(["git", "show", "%s:src/placemat/arrangements.py" % tag], cwd=root, capture_output=True, text=True)
+    if got.returncode != 0:
+        return None
+    spec = importlib.util.spec_from_loader("arrangements_" + tag.replace(".", "_"), loader=None)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod                # dataclasses look their module up while the class is made
+    try:
+        exec(compile(got.stdout, "%s:arrangements.py" % tag, "exec"), mod.__dict__)
+    finally:
+        del sys.modules[spec.name]
+    return mod
+
+
+def test_a_module_of_items_alone_enumerates_exactly_as_0_99_15_did():
+    """Ids, order, choices, overrides and the count of a module with items' options and no unit are those of the v0.99.15 tag,
+    over every shape of up to four items of up to three options."""
+    import itertools
+    import pytest
+    old = _released("v0.99.15")
+    if old is None:
+        pytest.skip("git or the v0.99.15 tag is not available")
+
+    def shape(m, sizes):
+        keys = ["i%d" % n for n in range(len(sizes))]
+        return keys, {k: [m.Option(k, "o%d" % j, (("rotation", 90 * (j + 1)),)) for j in range(n)] for k, n in zip(keys, sizes)}
+
+    def seen(e):
+        return ([(s.id, s.pairs, tuple((k, o.item, o.name, o.keywords) for k, o in s.overrides)) for s in e.specs], e.declared,
+                e.over and {k: v for k, v in e.over.items() if k != "excluded"})
+    shapes = [sizes for n in range(1, 5) for sizes in itertools.product((0, 1, 2, 3), repeat=n)]
+    for sizes in shapes:
+        for limit in (8, 16, 64):
+            then = seen(old.enumerate_specs(*shape(old, sizes), [], 4, limit))
+            now = seen(A.enumerate_specs(*shape(A, sizes), [], 4, limit))
+            assert now == then, (sizes, limit)

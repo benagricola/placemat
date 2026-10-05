@@ -21,25 +21,24 @@ def test_an_option_takes_the_place_keywords_that_say_where_and_why():
     assert "required" in str(e.value) and "rotation" in str(e.value)
 
 
-def test_the_arrangements_are_the_default_then_the_product_with_a_board_arrangement_as_one_more_unit():
-    """A 0.99.15 board.arrangement keeps its id; it moves c_in and r_pull, which have options of their own, so it combines with neither."""
+def test_the_arrangements_are_the_default_then_the_product():
     options = {"c_in": [opt("c_in", "east")], "r_pull": [opt("r_pull", "turned"), opt("r_pull", "back")]}
-    group = A.Group("mirrored", (opt("c_in", "mirrored"), opt("r_pull", "mirrored")))
-    e = A.enumerate_specs(["c_in", "r_pull"], options, [group], 4, 20)
-    assert [s.id for s in e.specs] == ["default", "mirrored", "r_pull.turned", "r_pull.back", "c_in.east",
+    e = A.enumerate_specs(["c_in", "r_pull"], options, [], 4, 20)
+    assert [s.id for s in e.specs] == ["default", "r_pull.turned", "r_pull.back", "c_in.east",
                                        "c_in.east+r_pull.turned", "c_in.east+r_pull.back"]
-    assert e.over is None and e.declared == 7
-    both = e.specs[5]
+    assert e.over is None and e.declared == 6
+    both = e.specs[4]
     assert both.choices == {"c_in": "east", "r_pull": "turned"} and [k for k, _ in both.overrides] == ["c_in", "r_pull"]
-    assert e.specs[1].choices == {"mirrored": "mirrored"} and e.specs[1].group == "mirrored" and e.specs[0].choices == {}
+    assert e.specs[0].choices == {}
 
 
 def test_exactly_the_limit_is_accepted_and_one_over_is_not():
     options = {"a": [opt("a", "x")], "b": [opt("b", "x")], "c": [opt("c", "x")]}      # 2 * 2 * 2 = 8
     assert A.enumerate_specs(["a", "b", "c"], options, [], 4, 8).over is None
-    over = A.enumerate_specs(["a", "b", "c"], options, [A.Group("g", (opt("a", "g"),))], 4, 8)
+    g = A.Group("g", ("d",), (A.GroupOption("g", "x", (opt("d", "x"),)),))
+    over = A.enumerate_specs(["a", "b", "c", "g"], options, [g], 4, 8)
     assert [s.id for s in over.specs] == ["default"]
-    assert over.over == {"variant": "arrangements", "arrangements": 12, "max_arrangements": 8,       # g moves a: 8 + 4 with b and c
+    assert over.over == {"variant": "arrangements", "arrangements": 16, "max_arrangements": 8,
                          "options": {"a": 2, "b": 2, "c": 2, "g": 2}, "max_options": 4, "excluded": 0}
 
 
@@ -51,9 +50,8 @@ def test_an_item_over_the_option_limit_is_the_options_variant():
 
 def test_an_id_is_known_as_written():
     options = {"c_in": [opt("c_in", "east")], "r.pull": [opt("r.pull", "turned")]}
-    group = A.Group("mirrored", ())
-    args = (["c_in", "r.pull"], options, [group])
-    for ok in ("default", "mirrored", "c_in.east", "r.pull.turned", "c_in.east+r.pull.turned"):
+    args = (["c_in", "r.pull"], options, [])
+    for ok in ("default", "c_in.east", "r.pull.turned", "c_in.east+r.pull.turned"):
         assert A.known_id(ok, *args), ok
     for bad in ("east", "c_in.west", "r.pull.turned+c_in.east", "c_in.east+c_in.east", "nope"):
         assert not A.known_id(bad, *args), bad
@@ -61,14 +59,6 @@ def test_an_id_is_known_as_written():
 
 def test_the_default_arrangement_has_no_overrides():
     assert A.DEFAULT_SPEC.id == "default" and A.DEFAULT_SPEC.choices == {} and A.DEFAULT_SPEC.overrides == ()
-
-
-def test_all_ids_are_the_enumerated_ids_up_to_the_cap():
-    options = {"c_in": [opt("c_in", "east")], "r_pull": [opt("r_pull", "turned"), opt("r_pull", "back")]}
-    group = A.Group("mirrored", ())
-    args = (["c_in", "r_pull"], options, [group])
-    assert A.all_ids(*args) == [s.id for s in A.enumerate_specs(*args, 4, 20).specs]
-    assert A.all_ids(*args, cap=3) == ["default", "mirrored", "r_pull.turned"]
 
 
 from placemat import Alt
@@ -137,20 +127,13 @@ def test_an_alternative_is_not_a_second_place_and_leaves_the_declarations_alone(
     assert len(b.sites_of("place", "c_in")) == 1 and len(b.sites_of("alternative", "c_in.east")) == 1
 
 
-def test_a_group_names_the_members_it_moves_and_the_ids_are_formed_as_specified():
+def test_board_arrangement_is_removed_and_names_board_unit():
     b = module()
-    b.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
-    b.alternative(Part("r_pull"), "turned", rotation=180)
-    b.arrangement("mirrored", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST), rotation=180),
-                  Alt(Part("r_pull"), at=Beside(Part("u1"), Edge.WEST)), why="mirrored")
-    ids = [s.id for s in b.arrangement_enumeration().specs]
-    assert ids == ["default", "mirrored", "r_pull.turned", "c_in.east", "c_in.east+r_pull.turned"]
-    with pytest.raises(ValueError):
-        b.arrangement("mirrored", Alt(Part("c_in"), rotation=90))                     # a second group of that name
-    with pytest.raises(TypeError):
-        b.arrangement("x", Part("c_in"))                                              # not an Alt
-    with pytest.raises(ValueError):
-        b.arrangement("y", Alt(Part("c_in"), rotation=90), Alt(Part("c_in"), rotation=180))   # a member twice
+    with pytest.raises(TypeError) as e:
+        b.arrangement("mirrored", Alt(Part("c_in"), rotation=180), why="mirrored")
+    said = str(e.value)
+    assert "removed" in said and "board.unit(" in said and "board.alternative(unit" in said
+    assert b._arr_groups == [] and [s.id for s in b.arrangement_enumeration().specs] == ["default"]
 
 
 def test_the_limits_leave_the_default_alone_and_the_switch_does_too():
@@ -166,7 +149,7 @@ def test_the_limits_leave_the_default_alone_and_the_switch_does_too():
     assert [s.id for s in off.arrangement_enumeration().specs] == ["default"] and off.arrangement_limit() is None
 
 
-def test_a_group_may_name_a_row_member_and_re_placing_it_keeps_the_rows_standoff():
+def test_a_unit_may_hold_a_row_member_and_re_placing_it_keeps_the_rows_standoff():
     from placemat.layout import Board
     from placemat.settings import Settings
     from tests.arrangement_support import parts
@@ -176,12 +159,14 @@ def test_a_group_may_name_a_row_member_and_re_placing_it_keeps_the_rows_standoff
     b.row([Part("r_free"), Part("r_big")], Edge.NORTH)
     original = b._intents[0]
     assert original.key == "r_free" and original.clearance != b.keep_in          # the row gave the shallower item its own standoff
-    group = b.arrangement("moved", Alt(Part("r_free"), rotation=90), why="turned")
-    i = b._intent_option(group.options[0])
+    moved = b.unit("moved", Part("r_free"))
+    option = b.alternative(moved, "turned", Alt(Part("r_free"), rotation=90, why="turned"))
+    i = b._intent_option(option.options[0])
     assert i.rotation == 90.0 and i.clearance == original.clearance and i.row_of == original.row_of and i.key == "r_free"
     with pytest.raises(ValueError):
         b.alternative(Part("r_big"), "x", rotation=90)
-    assert [s.id for s in b.arrangement_enumeration().specs] == ["default", "moved"]
+    b.finish_declarations()
+    assert [s.id for s in b.arrangement_enumeration().specs] == ["default", "moved.turned"]
 
 
 from pathlib import Path
@@ -192,7 +177,7 @@ API = (_SKILLS / "references/api.md").read_text()
 
 
 def test_the_skill_and_api_document_the_forms_and_the_report():
-    for word in ("board.alternative", "board.arrangement", "only=", "arrangement.refused", "arrangement.limit",
+    for word in ("board.alternative", "board.unit", "only=", "arrangement.refused", "arrangement.limit",
                  "arrangement.extent_fixed", "place.arrangement_options_max", "place.arrangements_max"):
         assert word in API, word
     assert "add it as an alternative first" in SKILL and "extent" in SKILL and "arrangement.refused" in SKILL
@@ -225,7 +210,6 @@ board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST))
 
 
 @pytest.mark.parametrize("declaration", ['board.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))',
-                                         'board.arrangement("east", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))',
                                          'pair = board.unit("pair", Part("c_in")); '
                                          'board.alternative(pair, "east", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))'])
 def test_a_board_script_that_declares_alternatives_fails_saying_they_are_a_modules(tmp_path, declaration):
@@ -248,12 +232,13 @@ def test_a_board_script_that_declares_alternatives_fails_saying_they_are_a_modul
 def test_the_skill_and_api_document_units_exclusions_and_dead_options():
     section = API.split("**Arrangements.**", 1)[1].split("**How a searched item finds its place.**")[0]
     for word in ("board.unit(", "board.alternative(unit", "board.exclude(", "arrangement.option_dead", '"excluded"',
-                 "unit.option", "never combine", "(default 16)"):
+                 "unit.option", "every\narrangement that holds all the choices", "(default 16)", "is removed"):
         assert word in section, word
     for word in ("arrangement.option_dead", "board.exclude", "board.unit", "needs no action"):
         assert word in SKILL, word
     unreleased = (_SKILLS / "references/migration.md").read_text().split("## Unreleased", 1)[1].split("\n## To ", 1)[0]
-    for word in ("board.unit", "board.exclude", "arrangement.option_dead", "run again", "keeps its id", "place.arrangements_max", "16"):
+    for word in ("board.unit", "board.exclude", "arrangement.option_dead", "Re-run", "TypeError", "board.arrangement",
+                 "place.arrangements_max", "16", "only="):
         assert word in unreleased, word
-    assert unreleased.count("### Changed") == 1 and unreleased.count("### New") == 1
+    assert unreleased.count("### Changed") == 1 and unreleased.count("### New") == 1 and unreleased.count("### Removed") == 1
     assert all(ord(c) < 128 for c in SKILL + API + unreleased), "ASCII only"

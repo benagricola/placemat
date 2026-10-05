@@ -37,20 +37,36 @@ def _part(call) -> str:
     return a.args[0].value if isinstance(a, ast.Call) and a.args and isinstance(a.args[0], ast.Constant) else ""
 
 
+def _units(tree) -> dict:
+    """variable -> unit name: each `v = board.unit("name", Part("..."), ...)` of the script."""
+    out = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            c = node.value
+            if (isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "unit" and c.args
+                    and isinstance(c.args[0], ast.Constant)):
+                out[node.targets[0].id] = c.args[0].value
+    return out
+
+
 def check(script_text: str, roles: dict) -> list:
     from placemat.settings import Settings
     cap = Settings().place_arrangement_options_max
+    unit_vars = _units(ast.parse(script_text))
     moved: dict = {}
-    names = []
+    unit_options: dict = {}             # unit name -> its option names
+    names = list(unit_vars.values())
     for c in _calls(script_text):
         if c.func.attr == "alternative" and len(c.args) >= 2 and isinstance(c.args[1], ast.Constant):
-            moved.setdefault(_part(c), []).append(c.args[1].value)
             names.append(c.args[1].value)
-        elif c.func.attr == "arrangement" and c.args and isinstance(c.args[0], ast.Constant):
-            names.append(c.args[0].value)
-            for a in c.args[1:]:
+            unit = unit_vars.get(c.args[0].id) if isinstance(c.args[0], ast.Name) else None
+            if unit is None:
+                moved.setdefault(_part(c), []).append(c.args[1].value)
+                continue
+            unit_options.setdefault(unit, []).append(c.args[1].value)
+            for a in c.args[2:]:            # a unit's option counts for each member it moves
                 if isinstance(a, ast.Call) and getattr(a.func, "id", "") == "Alt":
-                    moved.setdefault(_part(a), []).append(c.args[0].value)
+                    moved.setdefault(_part(a), []).append(c.args[1].value)
     out = []
     for part in roles.get("bypass", ()):
         if part not in moved and not re.search(r"#\s*fixed:.*\b%s\b" % re.escape(part), script_text):
@@ -67,8 +83,8 @@ def check(script_text: str, roles: dict) -> list:
             out.append("%s sets the module's extent (protruding): it needs an alternative or a '# extent:' line saying why it has none" % part)
     for n in names:
         if re.fullmatch(r"alt\d*", n):
-            out.append("%r names nothing: an option is named for what it does" % n)
-    for part, opts in moved.items():
+            out.append("%r names nothing: an option or a unit is named for what it does" % n)
+    for part, opts in list(moved.items()) + list(unit_options.items()):
         if 1 + len(opts) > cap:
             out.append("%s has %d options, over the %d the caps allow" % (part, 1 + len(opts), cap))
     return out

@@ -19,9 +19,9 @@ def colliding(settings=None):
     one spot and collide. (Without the turn, Beside would stand the second part further out.)"""
     b = module(settings)
     b.keep_going = True                 # a collision is a finding, not the end of the resolve
-    cap = b.unit("cap", Part("c_in"), why="the bypass may stand upright north of u1")
+    cap = b.unit("cap", Part("c_in"))
     b.alternative(cap, "upright", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH), rotation=90))
-    pull = b.unit("pull", Part("r_pull"), why="the pull-up may stand upright north of u1")
+    pull = b.unit("pull", Part("r_pull"))
     b.alternative(pull, "upright", Alt(Part("r_pull"), at=Beside(Part("u1"), Edge.NORTH), rotation=90))
     return b
 

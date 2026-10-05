@@ -16,17 +16,18 @@ HERE = "test_arrangement_unit_declarations.py:"
 
 def paired(settings=None):
     b = module(settings)
-    return b, b.unit("pair", Part("c_in"), Part("r_pull"), why="the pair moves as one")
+    return b, b.unit("pair", Part("c_in"), Part("r_pull"))
 
 
 def declared():
-    """r_pull with its own option; a unit of c_in with two options; a board.arrangement that moves r_pull too."""
+    """r_pull with its own option; a unit of c_in with two options; a unit of u1 with one."""
     b = module(dataclasses.replace(Settings(), place_arrangements_max=20))
     b.alternative(Part("r_pull"), "turned", rotation=180)
-    cap = b.unit("cap", Part("c_in"), why="the bypass may stand north or south of u1")
+    cap = b.unit("cap", Part("c_in"))
     b.alternative(cap, "north", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH)))
     b.alternative(cap, "south", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.SOUTH)))
-    b.arrangement("lifted", Alt(Part("r_pull"), at=Beside(Part("u1"), Edge.NORTH)), why="the pull-up north")
+    lift = b.unit("lift", Part("u1"))
+    b.alternative(lift, "up", Alt(Part("u1"), rotation=90))
     return b
 
 
@@ -35,7 +36,7 @@ def test_board_group_still_writes_a_kicad_group_and_takes_no_option():
     b = module()
     kept = b.group("kept", [Part("c_in"), Part("r_pull")], why="moved as one by hand")
     assert isinstance(kept, DeclaredGroup) and "kept" in b._groups and b._arr_groups == []
-    pair = b.unit("pair", Part("c_in"), Part("r_pull"), why="the pair moves as one")
+    pair = b.unit("pair", Part("c_in"), Part("r_pull"))
     assert isinstance(pair, Group) and pair.members == ("c_in", "r_pull") and "pair" not in b._groups
     assert len(b.sites_of("unit", "pair")) == 1
     with pytest.raises(TypeError) as e:
@@ -48,9 +49,9 @@ def test_board_group_still_writes_a_kicad_group_and_takes_no_option():
 
 def test_a_units_option_lays_its_members_and_leaves_the_rest():
     b, pair = paired()
-    up = b.alternative(pair, "up", Alt(Part("c_in"), rotation=90), why="the bypass stands")
-    assert isinstance(up, GroupOption) and up.group == "pair" and up.why == "the bypass stands"
-    assert [(o.item, o.name) for o in up.options] == [("c_in", "up")]
+    up = b.alternative(pair, "up", Alt(Part("c_in"), rotation=90, why="the bypass stands"))
+    assert isinstance(up, GroupOption) and up.group == "pair" and up.name == "up"
+    assert [(o.item, o.name, o.why) for o in up.options] == [("c_in", "up", "the bypass stands")]
     assert [s.id for s in b.arrangement_enumeration().specs] == ["default", "pair.up"]
     assert b.arrangement_enumeration().specs[1].choices == {"pair": "up"}
     assert len(b.sites_of("alternative", "pair.up")) == 1
@@ -58,6 +59,7 @@ def test_a_units_option_lays_its_members_and_leaves_the_rest():
 
 @pytest.mark.parametrize("call, error, words", [
     (lambda b, g: b.alternative(g, "up", rotation=90), TypeError, "not rotation"),                          # place keywords
+    (lambda b, g: b.alternative(g, "up", Alt(Part("c_in"), rotation=90), why="w"), TypeError, "goes in its Alt"),
     (lambda b, g: b.alternative(g, "up", Alt(Part("u1"), rotation=90)), ValueError, "not a member"),        # not a member
     (lambda b, g: b.alternative(g, "up", Alt(Part("c_in"), rotation=90), Alt(Part("c_in"), rotation=180)), ValueError,
      "names c_in twice"),
@@ -65,8 +67,7 @@ def test_a_units_option_lays_its_members_and_leaves_the_rest():
     (lambda b, g: b.alternative(g, "up"), ValueError, "names no member"),
     (lambda b, g: b.alternative(g, "Up", Alt(Part("c_in"), rotation=90)), ValueError, "lower-case"),         # not a name
     (lambda b, g: b.alternative(Part("u1"), "up", Alt(Part("u1"), rotation=90)), TypeError, "is for a unit's option"),
-    (lambda b, g: b.alternative(b.arrangement("m", Alt(Part("u1"), rotation=90)), "x", Alt(Part("u1"), rotation=180)), TypeError,
-     "board.arrangement declares a unit with its one option"),
+    (lambda b, g: b.alternative(Group("ghost", ("u1",)), "x", Alt(Part("u1"), rotation=180)), TypeError, "no unit of that name"),
 ])
 def test_a_bad_unit_option_is_refused_where_it_is_written(call, error, words):
     b, pair = paired()
@@ -82,8 +83,6 @@ def test_a_unit_option_name_is_unique_within_the_unit_and_a_unit_name_is_taken_o
         b.alternative(pair, "up", Alt(Part("r_pull"), rotation=90))
     with pytest.raises(ValueError):
         b.unit("pair", Part("u1"))
-    with pytest.raises(ValueError):
-        b.arrangement("pair", Alt(Part("u1"), rotation=90))
 
 
 def test_a_member_is_in_one_unit_and_has_no_alternative_of_its_own():
@@ -94,53 +93,80 @@ def test_a_member_is_in_one_unit_and_has_no_alternative_of_its_own():
     with pytest.raises(ValueError) as e:
         b.alternative(Part("r_pull"), "turned", rotation=180)
     assert "'pair'" in str(e.value) and str(e.value).count(HERE) == 2
-    with pytest.raises(ValueError) as e:
-        b.arrangement("lifted", Alt(Part("c_in"), rotation=90))
-    assert "'pair'" in str(e.value) and str(e.value).count(HERE) == 2
     first = module()
     first.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
     with pytest.raises(ValueError) as e:
         first.unit("pair", Part("c_in"))
     assert "'east'" in str(e.value) and str(e.value).count(HERE) == 2
-    later = module()
-    later.arrangement("lifted", Alt(Part("c_in"), rotation=90))
-    with pytest.raises(ValueError) as e:
-        later.unit("pair", Part("c_in"))
-    assert "'lifted'" in str(e.value) and str(e.value).count(HERE) == 2
 
 
-def test_a_0_99_15_module_whose_arrangements_share_parts_runs_and_keeps_its_ids():
-    """Review focus 1: two board.arrangements over one pair, and one over a part with its own alternative."""
+def _flip(b):
+    flip = b.unit("flip", Part("c_in"))
+    b.alternative(flip, "north", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH)))
+
+
+def _vin(b, **kw):
+    return b.track(Net("VIN"), [PadRef(Part("c_in"), 1), PadRef(Part("u1"), 1)], layer=CopperLayer.F, **kw)
+
+
+def test_only_matches_every_arrangement_that_holds_its_choices():
+    """An only= entry names a choice or a combination; the copper exists in every arrangement that holds all of an entry's
+    choices, and `default` is the module's own layout alone."""
     b = module()
-    b.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
-    b.arrangement("mirrored", Alt(Part("c_in"), rotation=180), Alt(Part("r_pull"), rotation=180))
-    b.arrangement("rotated", Alt(Part("c_in"), rotation=90), Alt(Part("r_pull"), rotation=90))
+    b.alternative(Part("r_pull"), "turned", rotation=180)
+    _flip(b)
+    one, both, own = _vin(b, only=("flip.north",)), _vin(b, only=("r_pull.turned+flip.north",)), _vin(b, only=("default",))
     b.finish_declarations()
-    assert [s.id for s in b.arrangement_enumeration().specs] == ["default", "rotated", "mirrored", "c_in.east"]
-
-
-def test_a_one_option_unit_combines_with_the_items_it_does_not_move():
-    b = module()
-    b.alternative(Part("r_pull"), "turned", rotation=180)
-    b.arrangement("flip", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH)), why="the bypass north")
     specs = b.arrangement_enumeration().specs
-    assert [s.id for s in specs] == ["default", "flip", "r_pull.turned", "r_pull.turned+flip"]
-    assert specs[1].group == "flip" and specs[1].why == "the bypass north"
-    assert specs[3].choices == {"r_pull": "turned", "flip": "flip"}
-    b.track(Net("VIN"), [PadRef(Part("c_in"), 1), PadRef(Part("u1"), 1)], layer=CopperLayer.F, only=("r_pull.turned+flip",))
-    b.finish_declarations()                                     # a combination id the new product makes is known to only=
+    assert [s.id for s in specs] == ["default", "flip.north", "r_pull.turned", "r_pull.turned+flip.north"]
+    assert [s.id for s in specs if one.applies_in(s.held)] == ["flip.north", "r_pull.turned+flip.north"]
+    assert [s.id for s in specs if both.applies_in(s.held)] == ["r_pull.turned+flip.north"]
+    assert [s.id for s in specs if own.applies_in(s.held)] == ["default"]
 
 
-@pytest.mark.parametrize("only", [("flip+r_pull.turned",), ("r_pull.turned+lifted",)])
-def test_only_refuses_an_id_in_the_wrong_order_or_of_units_that_never_combine(only):
+def test_copper_on_a_unit_option_is_laid_in_every_combination_that_holds_it():
     b = module()
     b.alternative(Part("r_pull"), "turned", rotation=180)
-    b.arrangement("flip", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.NORTH)))
-    b.arrangement("lifted", Alt(Part("r_pull"), at=Beside(Part("u1"), Edge.NORTH)))
-    b.track(Net("VIN"), [PadRef(Part("c_in"), 1), PadRef(Part("u1"), 1)], layer=CopperLayer.F, only=only)
+    _flip(b)
+    _vin(b, only=("flip.north",))
+    _vin(b)
+    prepared = run.begin(b)
+    kept = {}
+    for spec in prepared.specs:
+        b._restore(prepared.saved)
+        b.lay_arrangement(spec)
+        kept[spec.id] = len(b._copper)
+    assert kept == {"default": 1, "flip.north": 2, "r_pull.turned": 1, "r_pull.turned+flip.north": 2}
+
+
+@pytest.mark.parametrize("only", [("flip.north+r_pull.turned",), ("flip",), ("r_pull",)])
+def test_only_refuses_an_id_in_the_wrong_order_or_a_unit_name(only):
+    b = module()
+    b.alternative(Part("r_pull"), "turned", rotation=180)
+    _flip(b)
+    _vin(b, only=only)
     with pytest.raises(ValueError) as e:
         b.finish_declarations()
-    assert HERE in str(e.value) and "only=" in str(e.value)
+    said = str(e.value)
+    assert HERE in said and "only=" in said and "r_pull.turned, flip.north" in said and "groups" not in said, said
+
+
+def test_only_naming_an_excluded_combination_is_an_error():
+    b = declared()
+    b.exclude("r_pull.turned", "cap.north", why="both stand north")
+    _vin(b, only=("r_pull.turned+cap.north",))
+    with pytest.raises(ValueError) as e:
+        b.finish_declarations()
+    assert HERE in str(e.value) and "board.exclude" in str(e.value) and "'r_pull.turned+cap.north'" in str(e.value)
+    held = declared()
+    held.exclude("r_pull.turned", "cap.north")
+    _vin(held, only=("r_pull.turned+cap.north+lift.up", "cap.north"))
+    with pytest.raises(ValueError):
+        held.finish_declarations()                              # the first entry is held only by excluded combinations
+    fine = declared()
+    fine.exclude("r_pull.turned", "cap.north")
+    _vin(fine, only=("cap.north", "r_pull.turned"))
+    fine.finish_declarations()
 
 
 def test_units_take_their_place_in_the_order_the_script_declared_them():
@@ -168,20 +194,22 @@ def test_a_module_of_items_alone_keeps_its_order():
 def test_declared_units_make_their_product():
     b = declared()
     b.finish_declarations()
-    assert b._unit_order() == ["r_pull", "cap", "lifted"]
+    assert b._unit_order() == ["r_pull", "cap", "lift"]
     assert [s.id for s in b.arrangement_enumeration().specs] == [
-        "default", "lifted", "cap.north", "cap.north+lifted", "cap.south", "cap.south+lifted", "r_pull.turned",
-        "r_pull.turned+cap.north", "r_pull.turned+cap.south"]
+        "default", "lift.up", "cap.north", "cap.north+lift.up", "cap.south", "cap.south+lift.up", "r_pull.turned",
+        "r_pull.turned+lift.up", "r_pull.turned+cap.north", "r_pull.turned+cap.north+lift.up", "r_pull.turned+cap.south",
+        "r_pull.turned+cap.south+lift.up"]
 
 
 def test_an_exclusion_leaves_out_its_combinations_and_keeps_its_why():
     b = declared()
-    rule = b.exclude("cap.north", "lifted", why="both stand north of u1")
+    rule = b.exclude("cap.north", "lift.up", why="both stand north of u1")
     b.finish_declarations()
     e = b.arrangement_enumeration()
-    assert [(s.id, r) for s, r in e.excluded] == [("cap.north+lifted", rule)] and rule.why == "both stand north of u1"
-    assert "cap.north+lifted" not in [s.id for s in e.specs] and e.declared == 8
-    assert len(b.sites_of("exclude", "cap.north+lifted")) == 1
+    assert [(s.id, r) for s, r in e.excluded] == [("cap.north+lift.up", rule), ("r_pull.turned+cap.north+lift.up", rule)]
+    assert rule.why == "both stand north of u1"
+    assert "cap.north+lift.up" not in [s.id for s in e.specs] and e.declared == 10
+    assert len(b.sites_of("exclude", "cap.north+lift.up")) == 1
     with pytest.raises(TypeError):
         b.exclude("cap.north", 3)
 
@@ -191,7 +219,6 @@ def test_an_exclusion_leaves_out_its_combinations_and_keeps_its_why():
     (("cap.north", "cap.south"), "one at a time"),
     (("cap.north", "nope.x"), "not a choice"),
     (("cap.north+r_pull.turned", "cap.south"), "not a choice"),     # a combination id is not one choice
-    (("r_pull.turned", "lifted"), "never combine"),
     (("cap.north", "cap.north"), "cap.north twice"),
 ])
 def test_a_bad_exclusion_is_an_error_with_its_line(choices, words):
@@ -202,7 +229,7 @@ def test_a_bad_exclusion_is_an_error_with_its_line(choices, words):
         b.finish_declarations()
     assert HERE in str(e.value) and words in str(e.value)
     if words == "not a choice":
-        assert "cap.north" in str(e.value) and "lifted" in str(e.value)        # the module's choices are listed
+        assert "cap.north" in str(e.value) and "lift.up" in str(e.value)       # the module's choices are listed
 
 
 def test_a_unit_with_no_option_and_a_unit_named_as_an_item_are_errors_where_the_script_finishes():
@@ -231,7 +258,6 @@ def _unit_c_in_east(b):
 @pytest.mark.parametrize("declare", [
     lambda b: (_option_east(b), _unit_c_in_east(b)),                     # both make the choice id c_in.east
     lambda b: (_unit_c_in_east(b), _option_east(b)),                     # the item's option declared after the unit
-    lambda b: (_option_east(b), b.arrangement("c_in", Alt(Part("r_pull"), rotation=90))),
 ])
 def test_a_unit_named_as_an_item_with_options_is_refused_before_its_choices_are_read(declare):
     """A unit named as an item with options would take the item's place among the units and drop its options, and the two can

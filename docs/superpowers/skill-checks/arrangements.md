@@ -35,14 +35,16 @@ once the module is laid out.
 
 Checked by `fixtures/skill_check.py check`:
 
-- each `pullup` part has an alternative, as an `alternative` call or an `Alt` in an `arrangement`;
+- each `pullup` part has an alternative, as an `alternative` call or an `Alt` in a unit's option
+  (`board.alternative(unit, ...)`, the unit a variable a `board.unit` call was assigned to);
 - each `bypass` part has an alternative (a turn at its pin), or the script has a `# fixed: <part> ...` comment line
   giving the reason no turn fits;
 - no `polarised` part has one;
 - each `protruding` part has an alternative, or the script has a `# extent: <part> ...` comment line giving the
   reason it has none;
 - no option or unit is named `alt` or `alt<number>`;
-- no item has more options than `place.arrangement_options_max` (the item's own place counts as one).
+- no item or unit has more options than `place.arrangement_options_max` (its own place counts as one); a unit's
+  option counts as an option of each member it moves.
 
 Read from the transcript:
 

@@ -2,7 +2,7 @@
 """A module's alternative arrangements as declarations: the options an item may take, the units, the exclusions, the ids and the
 limits.
 
-Pure: no Board, no KiCad. `Board.alternative`, `Board.unit`, `Board.arrangement` and `Board.exclude` (layout.py) validate against
+Pure: no Board, no KiCad. `Board.alternative`, `Board.unit` and `Board.exclude` (layout.py) validate against
 the board and build the records here; `enumerate_specs` turns them into the arrangements a module run lays out, the default first."""
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ ALLOWED = KEYWORDS + ("why",)
 
 
 class Alt:
-    """One member's option inside `board.arrangement(name, Alt(item, **keywords), ...)`: the keywords of `board.alternative`."""
+    """What one member does in a unit's option, `board.alternative(unit, option, Alt(member, **keywords), ...)`: the keywords of an
+    item's `board.alternative`."""
     __slots__ = ("item", "keywords")
 
     def __init__(self, item, **keywords):
@@ -37,7 +38,7 @@ class Alt:
 class Option:
     """What an item does in one arrangement: the place() keywords it changes (in the order given, `why` apart)."""
     item: str                   # the item's key
-    name: str                   # the option's name, or the group's for a group's member
+    name: str                   # the option's name (a unit's option's, for a member it moves)
     keywords: tuple             # ((keyword, value), ...)
     why: str = ""
     file: str = ""
@@ -51,7 +52,6 @@ class GroupOption:
     group: str
     name: str
     options: tuple              # (Option, ...)
-    why: str = ""
     file: str = ""
     line: int = 0
 
@@ -60,36 +60,21 @@ class GroupOption:
 class Group:
     """The record of a unit: members that move as one unit of a module's arrangements. (Named Group in code; every name a script
     or a message shows says unit.) `board.unit(name, *members)` declares one with its `members`, and `board.alternative(unit, ...)`
-    adds each of its `alternatives`. `board.arrangement(name, *alts)`, the 0.99.15 form, is a unit with one option named as the
-    unit, its members' options in `options`: its id is the unit's name alone."""
+    adds each of its `alternatives`."""
     name: str
-    options: tuple = ()         # the 0.99.15 form: (Option, ...), one per member its one option moves
-    why: str = ""
+    members: tuple = ()         # the members' item keys
+    alternatives: tuple = ()    # (GroupOption, ...), in declaration order
     file: str = ""
     line: int = 0
-    members: tuple = ()         # board.unit: the members' item keys
-    alternatives: tuple = ()    # board.unit: (GroupOption, ...), in declaration order
-
-    @property
-    def positional(self) -> bool:
-        """The 0.99.15 form (board.arrangement)."""
-        return not self.members
-
-    def unit_options(self) -> tuple:
-        """Its options as GroupOption: the 0.99.15 form's one, named as the unit, or board.unit's."""
-        if self.positional:
-            return (GroupOption(self.name, self.name, self.options, self.why, self.file, self.line),)
-        return self.alternatives
 
     def moves(self) -> frozenset:
         """The item keys its options move."""
-        return frozenset(o.item for go in self.unit_options() for o in go.options)
+        return frozenset(o.item for go in self.alternatives for o in go.options)
 
 
 @dataclass(frozen=True)
 class Exclusion:
-    """`board.exclude(*choices)`: every combination holding all of `choices` (`item.option`, `unit.option`, or a 0.99.15 board.arrangement's
-    name) is not laid out."""
+    """`board.exclude(*choices)`: every combination holding all of `choices` (`item.option` or `unit.option`) is not laid out."""
     choices: tuple
     why: str = ""
     file: str = ""
@@ -111,20 +96,16 @@ class Unit:
     """An item with options, or a unit: it contributes its default and each choice to the product."""
     name: str
     choices: tuple              # (Choice, ...)
-    moves: frozenset            # the item keys its choices move: two units that share one never combine
-    positional: bool = False    # a board.arrangement: alone, its arrangement keeps the unit's name and why
-    why: str = ""
 
 
 @dataclass(frozen=True)
 class Spec:
-    """One arrangement a module run lays out: its id, its choices as (unit, option) pairs (a board.arrangement's option is named as
-    the unit), and the options to lay over the items' places, in unit order."""
+    """One arrangement a module run lays out: its id, its choices as (unit, option) pairs, the options to lay over the items'
+    places, in unit order, and the ids of the choices it holds."""
     id: str
     pairs: tuple
     overrides: tuple            # ((item key, Option), ...)
-    group: str = ""             # a board.arrangement laid alone: its name
-    why: str = ""
+    held: frozenset = frozenset()   # the choice ids (`item.option`, `unit.option`)
 
     @property
     def choices(self) -> dict:
@@ -179,24 +160,19 @@ def units(order, options: dict, groups) -> list:
     for name in list(order) + [g.name for g in groups if g.name not in order]:
         g = by_name.get(name)
         if g is not None:
-            choices = tuple(Choice(g.name, go.name, g.name if g.positional else "%s.%s" % (g.name, go.name),
-                                   tuple((o.item, o) for o in go.options)) for go in g.unit_options())
-            out.append(Unit(g.name, choices, g.moves(), g.positional, g.why if g.positional else ""))
+            out.append(Unit(g.name, tuple(Choice(g.name, go.name, "%s.%s" % (g.name, go.name), tuple((o.item, o) for o in go.options))
+                                          for go in g.alternatives)))
         elif options.get(name):
-            out.append(Unit(name, tuple(Choice(name, o.name, "%s.%s" % (name, o.name), ((name, o),)) for o in options[name]),
-                            frozenset((name,))))
+            out.append(Unit(name, tuple(Choice(name, o.name, "%s.%s" % (name, o.name), ((name, o),)) for o in options[name])))
     return out
 
 
 def combinations(us):
     """Every combination of the units' choices in `itertools.product` order over `us` (the first unit changing slowest), each a
-    tuple of the Choices taken, the empty one (the default) first. Two units that move one item never combine: a combination
-    holding both is not one."""
+    tuple of the Choices taken, the empty one (the default) first. No two units move one item (a member of a unit has no option of
+    its own and is in one unit), so every combination is one."""
     for picked in itertools.product(*[(None,) + u.choices for u in us]):
-        taken = [(u, c) for u, c in zip(us, picked) if c is not None]
-        moved = [k for u, _ in taken for k in u.moves]
-        if len(moved) == len(set(moved)):
-            yield tuple(c for _, c in taken)
+        yield tuple(c for c in picked if c is not None)
 
 
 def _excluded_by(combo, exclusions):
@@ -205,12 +181,16 @@ def _excluded_by(combo, exclusions):
     return next((e for e in exclusions if set(e.choices) <= ids), None)
 
 
+def _named(us, ids) -> list:
+    """The units, in order, that offer a choice whose id is in `ids`."""
+    return [u for u in us if any(c.id in ids for c in u.choices)]
+
+
 def tally(us, exclusions=()) -> tuple:
     """(kept, excluded): how many combinations the units make, the default included, less those an exclusion leaves out; and how
-    many the exclusions leave out. Only the units an exclusion names, or that move an item another unit moves, are walked; each of
-    their combinations stands for the product of the other units' sizes."""
-    named = {i for e in exclusions for i in e.choices}
-    walked = [u for u in us if any(c.id in named for c in u.choices) or any(v is not u and u.moves & v.moves for v in us)]
+    many the exclusions leave out. Only the units an exclusion names are walked; each of their combinations stands for the product
+    of the other units' sizes."""
+    walked = _named(us, {i for e in exclusions for i in e.choices})
     walked_names = {u.name for u in walked}
     free = math.prod(1 + len(u.choices) for u in us if u.name not in walked_names)
     kept = excluded = 0
@@ -222,13 +202,9 @@ def tally(us, exclusions=()) -> tuple:
     return kept, excluded
 
 
-def _spec(combo, positional: dict) -> Spec:
-    pairs = tuple((c.unit, c.option) for c in combo)
-    overrides = tuple(o for c in combo for o in c.overrides)
-    ident = "+".join(c.id for c in combo)
-    if len(combo) == 1 and combo[0].unit in positional:          # a board.arrangement alone: its name and why, as in 0.99.15
-        return Spec(ident, pairs, overrides, combo[0].unit, positional[combo[0].unit])
-    return Spec(ident, pairs, overrides)
+def _spec(combo) -> Spec:
+    return Spec("+".join(c.id for c in combo), tuple((c.unit, c.option) for c in combo), tuple(o for c in combo for o in c.overrides),
+                frozenset(c.id for c in combo))
 
 
 def enumerate_specs(order, options: dict, groups, max_options: int, max_arrangements: int, exclusions=()) -> Enumeration:
@@ -244,12 +220,11 @@ def enumerate_specs(order, options: dict, groups, max_options: int, max_arrangem
         facts = {"variant": "options" if wide else "arrangements", "arrangements": declared,
                  "max_arrangements": max_arrangements, "options": sizes, "max_options": max_options, "excluded": excluded}
         return Enumeration((DEFAULT_SPEC,), facts, declared)
-    positional = {u.name: u.why for u in us if u.positional}
     specs, left_out = [DEFAULT_SPEC], []
     for combo in combinations(us):
         if not combo:
             continue
-        spec, rule = _spec(combo, positional), _excluded_by(combo, exclusions)
+        spec, rule = _spec(combo), _excluded_by(combo, exclusions)
         if rule is None:
             specs.append(spec)
         else:
@@ -259,25 +234,59 @@ def enumerate_specs(order, options: dict, groups, max_options: int, max_arrangem
 
 def known_id(ident: str, order, options: dict, groups) -> bool:
     """Whether `ident` is an id this module's declarations make, as written, without enumerating the product (a module over its
-    limit still says which ids it meant): `default`, or choice ids in unit order joined by `+`, no two moving one item."""
+    limit still says which ids it meant): `default`, or choice ids in unit order joined by `+`."""
     if ident == DEFAULT:
         return True
-    where = {c.id: (n, u) for n, u in enumerate(units(order, options, groups)) for c in u.choices}
-    last, moved = -1, frozenset()
+    where = {c.id: n for n, u in enumerate(units(order, options, groups)) for c in u.choices}
+    last = -1
     for piece in ident.split("+"):              # the id as the script wrote it: text to check, not a record
-        got = where.get(piece)
-        if got is None or got[0] <= last or moved & got[1].moves:
+        n = where.get(piece)
+        if n is None or n <= last:
             return False
-        last, moved = got[0], moved | got[1].moves
+        last = n
     return True
 
 
-def all_ids(order, options: dict, groups, cap: int = 64) -> list:
-    """The ids the declarations make, for a message: the default, then the combinations in product order, at most `cap`."""
-    out = [DEFAULT]
-    for combo in combinations(units(order, options, groups)):
-        if combo:
-            out.append("+".join(c.id for c in combo))
-        if len(out) >= cap:
-            break
-    return out
+def only_entry(entry: str):
+    """The choice ids an `only=` entry names, as the script wrote it: `default` is None (the module's own layout alone), any other
+    entry a frozenset of the choices joined by `+` (a choice, or a combination)."""
+    return None if entry == DEFAULT else frozenset(entry.split("+"))
+
+
+def only_holds(only: tuple, held: frozenset) -> bool:
+    """Whether copper with `only=` exists in an arrangement holding the choice ids `held`: an empty `only=` everywhere; else the
+    arrangement holds every choice of some entry, `default` matching the module's own layout alone."""
+    if not only:
+        return True
+    for entry in only:
+        need = only_entry(entry)
+        if (not held) if need is None else need <= held:
+            return True
+    return False
+
+
+def only_within(inner: tuple, outer: tuple) -> bool:
+    """Whether every arrangement copper with `only=inner` exists in is one with `only=outer` too: each entry of `inner` holds
+    every choice of some entry of `outer` (`default` only within `default`)."""
+    if not outer:
+        return True
+    if not inner:
+        return False
+    outs = [only_entry(e) for e in outer]
+    for e in inner:
+        need = only_entry(e)
+        if not any((o is None) if need is None else (o is not None and o <= need) for o in outs):
+            return False
+    return True
+
+
+def entry_laid(entry: str, us, exclusions=()) -> bool:
+    """Whether some combination the units make holds every choice of the `only=` entry `entry` (known_id true for it) and is not
+    left out by an exclusion. Only the units the entry or an exclusion names are walked: the others can take their default."""
+    need = only_entry(entry)
+    if need is None:
+        return True
+    for combo in combinations(_named(us, need | {i for e in exclusions for i in e.choices})):
+        if need <= {c.id for c in combo} and _excluded_by(combo, exclusions) is None:
+            return True
+    return False

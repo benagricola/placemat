@@ -777,7 +777,9 @@ is free with `place()` beside its partner, so it can have one.
   gives more combinations for the same declarations. Leave out with
   `board.exclude` a combination you can see is bad, rather than letting
   the run refuse it: each refused combination costs a full proof. Use
-  `only=` for copper that exists in some arrangements.
+  `only=` for copper that exists in some arrangements: an entry names a
+  choice (`pair.upright`) or several joined by `+`, and the copper exists
+  in every combination that holds them.
 - **Names.** An option is named for what it does (`east`, `turned`,
   `back`, `upright`), a unit for what it is (`pair`, `mirrored`), never
   `alt1`: ids (`r_pull.turned+pair.upright`) appear in the board
