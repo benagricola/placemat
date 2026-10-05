@@ -36,8 +36,23 @@ section for each hand-written pattern a newer form replaces.
   finding (`past_off_board`) for a `Past` over pads, vias and tracks too,
   whose point was not checked against the board before. It is not judged on a
   module fragment.
+- **A finding names a `Past`'s items as records.** The `names` fact of
+  `copper.corner` and of a `copper.not_drawn` finding's `past` variant
+  holds one record per item: `{"kind": "pad", "ref", "number"}`,
+  `{"kind": "copper", "key"}`, `{"kind": "cutout", "name"}`, `{"kind":
+  "part" | "cell", "name"}`, `{"kind": "label", "key"}` or `{"kind":
+  "edge", "facing"}`. They were text. The messages read as before.
 
 ### Fixed
+
+- **Copper that stands on copper planned after the search is drawn.** A
+  track ending on a via, or a track or via whose `Past` names a via, a
+  track or a field of vias (`board.vias(net, pad)`), was planned before
+  the search when its own ends were fixed. Where that via or field was
+  planned after the search (a field always is, a via past a label is), the
+  copper was not drawn, with a `copper.not_drawn` finding saying the via
+  found no spot or was not planned by then. It now waits for the copper it
+  names.
 
 - **A stamped cell's clearance rules are read in the order its module declared them.** They were read in the
   order KiCad gave the cell's group items, which changes between loads of the same board. Two effects:

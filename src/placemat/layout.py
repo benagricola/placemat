@@ -25,7 +25,7 @@ import time
 import types
 
 from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
-                     pair_ops, polyline_tracks, resolve_bridges, _point_seg)
+                     pair_ops, polyline_tracks, resolve_bridges, _point_seg, _seg_seg_dist)
 from .geometry import native_status, Transform, box_polygon, circle_polygon, circle_poly_gap, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, pose_transform, segments_intersect, transform_box, transform_polygon
 from . import blame, finding_text, step_text
 from .phases import Stage
@@ -1026,6 +1026,7 @@ class Board:
         self._groups: dict = {}             # the KiCad groups a script declared, by name (DeclaredGroup)
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
+        self._edge_loops = None             # (the outline, its cutouts' loops, _edge_loop_info's loops) as last read
         self._sized = False                 # the script has declared the board size
         self._fit = False                   # board.rect(fit=True): the frame is the placed content plus a margin
         self._fit_margin = 0.0
@@ -5712,6 +5713,7 @@ class Board:
         begins = None
         lane_points = ()
         waypoints = max(0, len(points) - 2)     # the script's own points between the ends; a lane's are not waypoints
+        script_points = len(points)             # the script's list: a lane alone is one point, whatever it stands for
         if points and isinstance(points[0], Lane):
             begins = points[0]
             decl = self._escapes[begins.index]
@@ -5816,15 +5818,13 @@ class Board:
                     continue
                 short = []
                 for g in groups:
-                    c = _box_corner(g.box, p.edge)
                     reach = w / 2.0 + g.standoff
-                    near = min((_point_seg(c, Location(*a), Location(*b))[0] for t in ops for a, b in t.chords()),
-                               default=math.inf)
+                    near = _corner_near(g, p.edge, [(Location(*a), Location(*b)) for t in ops for a, b in t.chords()])
                     if near < reach - 1e-6:
                         short.append((reach - near, near, reach, g.names))
                 if short:
                     _, near, reach, _ = max(short, key=lambda s: s[0])
-                    names = list(dict.fromkeys(n for *_, ns in short for n in ns))
+                    names = _distinct_names(n for *_, ns in short for n in ns)
                     ctx.notes.append(Finding(C.COPPER_CORNER, {
                         "key": copper_id(intent), "net": name, "edge": p.edge.value, "names": names,
                         "near_mm": near - w / 2.0, "need_mm": reach - w / 2.0, "chamfer_mm": chamfer}, "critical"))
@@ -5869,8 +5869,9 @@ class Board:
         if any(isinstance(it, LabelKey) for p in points if isinstance(p, Past) for it in p.items):
             self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         self._copper_uses[intent.index] = tuple(p.index for p in points if isinstance(p, CopperIntent))
+        self._plan_after_copper(intent, points)
         intent.declared = {"layer": layer.name, "chamfer": chamfer, "radius": arc_r, "arc": bool(arc),
-                           "waypoints": waypoints, "lane": begins is not None}
+                           "waypoints": waypoints, "script_points": script_points, "lane": begins is not None}
         if begins is None and len(points) >= 2 and all(isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points):
             self._pad_tracks.add(intent.index)
         return intent
@@ -5904,17 +5905,22 @@ class Board:
             raise TypeError("%s: Past's lane= is for Beside's align, where it leaves room for a track "
                             "between a part's pad and the items; a Past here keeps its own clearance" % what)
 
-    def _edge_loop_info(self) -> list:
+    def _edge_loop_info(self) -> tuple:
         """An `_EdgeLoop` for each loop of the board's edge: 0 the outline (name None), then each hole, named by its
         cutout's name, or None for a raw path. `curved`: the loop is drawn from arcs (a disc's rim or bore, or a path
         with an Arc leg), so its chords stand up to `geometry.arc_sag` inside the curve KiCad judges, as
         `_report_cell_labels_at_edge` reads it. `toward`, a flag per leg: the leg is a chord of an arc whose curve
         stands on the copper's side of it (a hole's arc bulging out of the hole, an outline's arc bulging into the
-        board), so copper by it is up to that leg's sagitta (`sags`) nearer the curve than the chord; `allows`, what
-        copper.edge judges each leg further by: its sagitta, `geometry.arc_sag` at the least, where `toward`, else 0."""
+        board), so copper by it is up to that leg's sagitta nearer the curve than the chord; `allows`, what
+        copper.edge judges each leg further by: its sagitta, `geometry.arc_sag` at the least, where `toward`, else 0.
+        Kept on the board until the edge changes: a new outline object (`_shaped`, rebuilt whenever a hole settles or
+        the outline is declared) or a cutout's loop."""
         shape = self._shaped()
-        disc = isinstance(self._shape, Disc)
         names = {k: n for n, k in self._cutout_loop_of.items()}
+        held = self._edge_loops
+        if held is not None and held[0] is shape and held[1] == names:
+            return held[2]
+        disc = isinstance(self._shape, Disc)
         sag = self.settings.geometry_arc_sag
         out = []
         for k, loop in enumerate(shape.loops):
@@ -5926,9 +5932,10 @@ class Board:
             curved = any(c is not None for c in centres)
             toward, sags = _legs_toward(loop, centres, k)
             allows = tuple(max(sag, a) if t else 0.0 for t, a in zip(toward, sags))
-            out.append(_EdgeLoop(k, loop, curved, names.get(k), Box.of_points(loop), toward, sags, allows,
+            out.append(_EdgeLoop(k, loop, curved, names.get(k), Box.of_points(loop), toward, allows,
                                  max(allows, default=0.0)))
-        return out
+        self._edge_loops = (shape, names, tuple(out))
+        return self._edge_loops[2]
 
     def _judges_edge(self) -> bool:
         """Whether copper is judged against this board's edge: its outline is known and is drawn. A fragment's frame
@@ -6266,7 +6273,20 @@ class Board:
             # that waits for a searched part is drawn after a decided via is, and has no way round it
             self._copper_after[intent.index] = tuple(
                 c.index for c in self._copper if c.index < intent.index and c.key.startswith("track ") and c.net != name)
+        self._plan_after_copper(intent, [at])
         return intent
+
+    def _plan_after_copper(self, intent: CopperIntent, points):
+        """`intent` is planned after the copper among `points`: a via a track ends on, and the vias and tracks a Past
+        names. Copper planned after the search (past a label, a field of vias) makes it late too
+        (`_derive_copper_freedom`), so it is not planned before what it stands on exists."""
+        deps = []
+        for p in points:
+            for it in ((p,) if not isinstance(p, Past) else p.items + (p.across,)):
+                if isinstance(it, CopperIntent):
+                    deps.append(it.index)
+        if deps:
+            self._copper_after[intent.index] = tuple(dict.fromkeys(self._copper_after.get(intent.index, ()) + tuple(deps)))
 
     def stitch(self, net, region, *, pitch: float | None = None, size: float | None = None,
                drill: float | None = None, edge: bool = False, outside: bool = False,
@@ -8993,7 +9013,8 @@ class Board:
                     word = "finger" if key.startswith("finger") else type(op).__name__.lower()
                     for k, facts in self._edge_hits(occ, shape, edge_loops):
                         facts = dict(facts, key=which or "", net=op.net, word=word,
-                                     layer=layer.name if layer is not None else "", waypoints=declared.get("waypoints", 0))
+                                     layer=layer.name if layer is not None else "", waypoints=declared.get("waypoints", 0),
+                                     script_points=declared.get("script_points", 0))
                         # one finding per declaration and loop: a track drawn as pieces says its worst gap once
                         at_loop = (which or id(op), k)
                         had = edge_found.get(at_loop)
@@ -11824,25 +11845,39 @@ def _past_unplanned(ops_at: dict, it, what: str, current: int | None) -> Refusal
     return None
 
 
-def _past_name(board: "Board", it) -> str:
-    """What one of a Past's items is called in a finding: a via's or track's key, a pad's refdes and number, "cutout
-    NAME", a part or a cell by its key, a label by its key, a stretch of edge by the bearing its void faces."""
+def _past_name(board: "Board", it) -> dict:
+    """One of a Past's items as a finding names it, a record (finding_text.past_item renders it): a via's or track's
+    {"kind": "copper", "key"}, a pad's {"kind": "pad", "ref", "number"}, {"kind": "cutout", "name"}, a part's or a
+    cell's {"kind": "part" | "cell", "name"} by its key, {"kind": "label", "key"}, and a stretch of edge's
+    {"kind": "edge", "facing"}, the bearing its void faces."""
     if isinstance(it, CopperIntent):
-        return it.key
+        return {"kind": "copper", "key": it.key}
     if isinstance(it, (PadRef, CellPadRef)):
-        return "%s.%s" % board._pad_ref(it)[:2]
+        return _pad_name(*board._pad_ref(it)[:2])
     if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
-        return "cutout %s" % it.name
+        return {"kind": "cutout", "name": it.name}
     if isinstance(it, (Part, Cell)):
-        return board._item(it)[1]
+        return {"kind": "cell" if isinstance(it, Cell) else "part", "name": board._item(it)[1]}
     if isinstance(it, LabelKey):
-        return str(it)
-    return "edge facing %g" % it.facing                                     # a Run
+        return {"kind": "label", "key": str(it)}
+    return {"kind": "edge", "facing": it.facing}                           # a Run
+
+
+def _pad_name(ref, number) -> dict:
+    return {"kind": "pad", "ref": ref, "number": str(number)}
 
 
 def _past_names(board: "Board", p: Past) -> list:
-    """What a Past's items are called in a finding, in the order given."""
+    """A Past's items as a finding names them (`_past_name`), in the order given."""
     return [_past_name(board, it) for it in p.items]
+
+
+def _distinct_names(names) -> list:
+    """`names` (records) with each named once, in the order first named."""
+    out = {}
+    for n in names:
+        out.setdefault(tuple(sorted(n.items())), n)
+    return list(out.values())
 
 
 def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: str,
@@ -11871,7 +11906,7 @@ def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: st
         elif isinstance(it, (Part, Cell)):
             if _unplaced(board, occ, it):
                 return Refusal(Code.PAST_ITEM_UNPLACED, item=name)
-            out += [(sh.net, sh.box, sh.owner, "%s.%s" % (sh.owner, sh.label))
+            out += [(sh.net, sh.box, sh.owner, _pad_name(sh.owner, sh.label))
                     for fp in members_of(board._item(it)[0]) for sh in occ.items[fp.ref].shapes
                     if sh.kind in ("pad", "through") and (layer is None or layer in sh.layers)]
         elif isinstance(it, (PadRef, CellPadRef)):
@@ -11970,8 +12005,8 @@ class _EdgeLoop:
     name: str | None        # the cutout's name; None for the outline or a raw path
     box: Box                # its points' box
     toward: tuple           # per leg i (point i to i + 1): a chord of an arc bulging toward the copper's side
-    sags: tuple             # per leg: how far its arc stands off its middle (its sagitta), 0 for a straight leg
-    allows: tuple = ()      # per leg: what copper.edge judges it further by (`Board._edge_hits`)
+    allows: tuple = ()      # per leg: what copper.edge judges it further by (`Board._edge_hits`): its sagitta,
+                            # `geometry.arc_sag` at the least, where `toward`, else 0
     most: float = 0.0       # the most of `allows`
 
 
@@ -11982,8 +12017,7 @@ def _legs_toward(loop, centres, k: int) -> tuple:
     0 for a straight leg). A convex corner of the outline bulges away from the copper: its chord is already the nearer
     edge."""
     n = len(loop)
-    if len(centres) != n:
-        return (any(c is not None for c in centres),) * n, (0.0,) * n     # not this loop's legs: judged as curved
+    assert len(centres) == n, "loop %d: %d leg centres for %d legs" % (k, len(centres), n)
     ccw = signed_area(loop) > 0.0
     toward, sags = [], []
     for i, c in enumerate(centres):
@@ -12004,10 +12038,57 @@ def _legs_toward(loop, centres, k: int) -> tuple:
 @dataclass(frozen=True)
 class _PastGroup:
     """One group of a Past's items, as its point is measured off it: its box, its stand-off from the copper passing it
-    (beyond half that copper's width), and what a finding calls its items."""
+    (beyond half that copper's width), and what a finding calls its items. `legs`, for a curved cutout or stretch of
+    edge: its flattened legs, each ((ax, ay), (bx, by), what copper.edge judges it further by), which the corner verdict
+    measures from in place of the box's corner, since that corner stands outside the curve."""
     box: Box
     standoff: float
     names: tuple
+    legs: tuple = ()
+
+
+def _corner_near(g: _PastGroup, corner: Corner, chords: list) -> float:
+    """How near the chords of a track pass a group's `corner`: its box corner, or for a curved group (`legs`) the part
+    of its curve in that corner's quarter of its box, each leg's allowance nearer."""
+    if not g.legs:
+        c = _box_corner(g.box, corner)
+        return min((_point_seg(c, a, b)[0] for a, b in chords), default=math.inf)
+    sx, sy = corner.signs
+    m = g.box.center
+    near = math.inf
+    for a, b, allow in g.legs:
+        piece = _clip_quarter(a, b, m, sx, sy)
+        if piece is None:
+            continue
+        pa, pb = Location(*piece[0]), Location(*piece[1])
+        near = min([near] + [_seg_seg_dist(pa, pb, ca, cb) - allow for ca, cb in chords])
+    return near
+
+
+def _clip_quarter(a, b, m: Location, sx: int, sy: int):
+    """The piece of segment a-b with sx * (x - m.x) >= 0 and sy * (y - m.y) >= 0, as two points, or None."""
+    t0, t1 = 0.0, 1.0
+    for p0, d, c, s in ((a[0], b[0] - a[0], m.x, sx), (a[1], b[1] - a[1], m.y, sy)):
+        f0, df = s * (p0 - c), s * d          # f(t) = f0 + df t >= 0
+        if abs(df) < 1e-15:
+            if f0 < -1e-9:
+                return None
+            continue
+        t = -f0 / df
+        if df > 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+    if t0 > t1:
+        return None
+    at = lambda t: (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+    return at(t0), at(t1)
+
+
+def _curve_legs(loop, allows, closed: bool) -> tuple:
+    """A curved loop's or stretch's legs, each with its allowance, as `_PastGroup.legs` holds them."""
+    pts = list(loop) + ([loop[0]] if closed else [])
+    return tuple((a, b, allow) for (a, b), allow in zip(zip(pts, pts[1:]), allows))
 
 
 def _run_box(board: "Board", run: Run) -> Box:
@@ -12015,6 +12096,26 @@ def _run_box(board: "Board", run: Run) -> Box:
     that far inside the curve KiCad judges."""
     box = Box.of_points(run.points)
     return box if run.straight else box.inflate(board.settings.geometry_arc_sag)
+
+
+def _run_legs(board: "Board", run: Run) -> tuple:
+    """A curved stretch of edge's legs for the corner verdict (`_PastGroup.legs`), each `geometry.arc_sag` further, as
+    `_run_box` grows its box; none for a straight one, whose box corner is its own end."""
+    if run.straight:
+        return ()
+    return _curve_legs(run.points, [board.settings.geometry_arc_sag] * len(run.points), run.closed)
+
+
+def _cutout_legs(board: "Board", it) -> tuple:
+    """A curved cutout's legs, or a curved stretch of one's, for the corner verdict (`_PastGroup.legs`): each leg with
+    copper.edge's allowance for it (`_EdgeLoop.allows`); a stretch's as `_run_legs` reads it."""
+    k = board._cutout_loop_of.get(it.name)
+    if k is None:
+        return ()
+    if isinstance(it, CutoutEdge):
+        return _run_legs(board, CutoutHandle(board, it.name).edge(it.side, it.within))
+    el = board._edge_loop_info()[k]
+    return _curve_legs(el.loop, el.allows, True) if el.curved else ()
 
 
 def _cutout_box(board: "Board", it) -> Box | None:
@@ -12047,16 +12148,16 @@ def _past_groups(board: "Board", ctx: "_CopperContext", net: str, p: Past, what:
     if copper:
         groups.append(_PastGroup(Box.union([c[1] for c in copper]),
                                  max(_pad_clearance(board, net, c[0], c[2]) for c in copper),
-                                 tuple(dict.fromkeys(c[3] for c in copper))))
+                                 tuple(_distinct_names(c[3] for c in copper))))
     edge_rule = board.geometry.edge_clearance
     for it, name in zip(p.items, _past_names(board, p)):
         if isinstance(it, (Cutout, CutoutHandle, CutoutEdge)):
             box = _cutout_box(board, it)
             if box is None:
                 return Refusal(Code.PAST_CUTOUT_UNPLACED, name=it.name)
-            groups.append(_PastGroup(box, edge_rule, (name,)))
+            groups.append(_PastGroup(box, edge_rule, (name,), _cutout_legs(board, it)))
         elif isinstance(it, Run):
-            groups.append(_PastGroup(_run_box(board, it), edge_rule, (name,)))
+            groups.append(_PastGroup(_run_box(board, it), edge_rule, (name,), _run_legs(board, it)))
         elif layer is not None:
             continue                # an envelope or a label: no rule judges copper against it, so no verdict does
         elif isinstance(it, (Part, Cell)):

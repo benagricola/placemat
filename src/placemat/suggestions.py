@@ -1117,10 +1117,11 @@ def copper_meets(f, settings):
 def copper_edge(f, settings):
     """A track drawn pad to pad past a named cutout: a Past off the cutout as its one waypoint, on each side across the
     track's run that the finding names (`sides`), the side it lies toward first. A track with waypoints already has
-    its way said, so it is offered none; nor is copper inside the hole, or near the outline."""
+    its way said, so it is offered none; nor is copper inside the hole, or near the outline. The Past goes in at index 1
+    of the script's list, so a track declared as a lane alone, where it would be the end, is offered none either."""
     ob = f.get("obstacle") or {}
     if f.get("word") != "track" or not f.get("key") or f.get("inside") or ob.get("form") != "cutout" \
-            or not ob.get("name") or f.get("waypoints", 0) != 0:
+            or not ob.get("name") or f.get("waypoints", 0) != 0 or f.get("script_points", 0) < 2:
         return []
     out = []
     for side in f.get("sides") or ():

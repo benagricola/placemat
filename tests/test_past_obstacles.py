@@ -13,7 +13,8 @@ import pytest
 from placemat.board_geometry import Footprint
 from placemat.copper import Track, Via
 from placemat.cutouts import Circle, Slot
-from placemat.layout import Board
+from placemat.finding_text import past_item
+from placemat.layout import Board, _past_name
 from placemat.settings import Settings
 from placemat.values import (Along, Beside, Box, Cell, Centre, CopperLayer, Corner, Cutout, Edge, Face, LabelKey, Location,
                              Near, Net, PadRef, Part, Past, X, Y)
@@ -217,7 +218,7 @@ def test_a_past_off_a_cutout_that_found_no_place_is_not_drawn():
     b.track(Net("SIG"), [Location(5.0, 2.0), Past([vent], Edge.NORTH), Location(35.0, 2.0)], layer=CopperLayer.F)
     plan = b.resolve()
     (f,) = _not_drawn(plan)
-    assert f.facts["variant"] == "past" and f.facts["names"] == ["cutout vent"]
+    assert f.facts["variant"] == "past" and f.facts["names"] == [{"kind": "cutout", "name": "vent"}]
     assert f.facts["why"] == {"code": "past_cutout_unplaced", "name": "vent"}
     assert "cutout vent found no place" in str(f)
     assert not _points(plan, "SIG")
@@ -230,7 +231,8 @@ def test_a_past_whose_point_lands_off_the_board_is_not_drawn():
             layer=CopperLayer.F)
     plan = b.resolve()
     (f,) = _not_drawn(plan)
-    assert f.facts["why"] == {"code": "past_off_board", "at": [-0.2, 15.0], "edge": "outside", "names": ["PA.1"]}
+    assert f.facts["why"] == {"code": "past_off_board", "at": [-0.2, 15.0], "edge": "outside",
+                              "names": [{"kind": "pad", "ref": "PA", "number": "1"}]}
     assert "(-0.20, 15.00) lies off the board" in str(f)
     assert not _points(plan, "SIG")
 
@@ -410,8 +412,9 @@ def test_a_past_off_a_part_that_found_no_place_or_its_label_is_not_drawn():
     key = b.label(Part("big"), "BIG")
     b.via(Net("SIG"), at=Past([Part("big")], Edge.WEST), size=0.6)
     b.via(Net("SIG"), at=Past([key], Edge.WEST), size=0.6)
-    whys = sorted((f.facts["why"]["code"], f.facts["names"][0]) for f in _not_drawn(b.resolve()))
-    assert whys == [("past_item_unplaced", "big"), ("past_label_not_drawn", "label big BIG")], whys
+    whys = sorted(((f.facts["why"]["code"], f.facts["names"]) for f in _not_drawn(b.resolve())), key=lambda w: w[0])
+    assert whys == [("past_item_unplaced", [{"kind": "part", "name": "big"}]),
+                    ("past_label_not_drawn", [{"kind": "label", "key": "label big BIG"}])], whys
 
 
 # ---------------------------------------------------------------- the corner verdict
@@ -424,11 +427,24 @@ def test_the_corner_verdict_names_the_group_a_leg_passes_too_near():
     b.track(Net("SIG"), [Location(px, 29.0), Past([PadRef(Part("pa"), 1), vent], Corner.SE), Location(px, 5.0)],
             layer=CopperLayer.F, chamfer=0)
     found = [f for f in b.resolve().findings if f.cause.value == "copper.corner"]
-    assert len(found) == 1 and found[0].facts["names"] == ["cutout vent"], found
+    assert len(found) == 1 and found[0].facts["names"] == [{"kind": "cutout", "name": "vent"}], found
     assert found[0].facts["need_mm"] == pytest.approx(EDGE)
 
 
-@pytest.mark.parametrize("layer, names", [(CopperLayer.F, [["PA.1"]]), (CopperLayer.B, [])], ids=["front", "back"])
+def test_the_corner_verdict_measures_a_round_hole_from_its_curve():
+    """A round hole's box corner stands outside its curve: a chamfered leg that passes inside the box corner, 1.4 mm clear
+    of the hole itself, is no corner finding. Measured from the box corner it was one, 0.28 mm off."""
+    vent = Cutout(Circle(6.0), "vent", at=Location(15.0, 12.0))         # box SE corner (18.02, 15.02) grown by the sag
+    b = _board(holes=[vent])
+    b.track(Net("SIG"), [Location(25.0, 14.9), Location(18.4, 14.9), Past([vent], Corner.SE), Location(10.0, 23.0)],
+            layer=CopperLayer.F, chamfer=0.3)
+    plan = b.resolve()
+    assert any(isinstance(t, Track) and t.net == "SIG" and t.start.x == pytest.approx(18.4) for t in plan.copper)
+    assert [f.facts for f in plan.findings if f.cause.value in ("copper.corner", "copper.edge")] == []
+
+
+@pytest.mark.parametrize("layer, names", [(CopperLayer.F, [[{"kind": "pad", "ref": "PA", "number": "1"}]]),
+                                                 (CopperLayer.B, [])], ids=["front", "back"])
 def test_a_track_past_a_front_part_takes_its_point_off_the_part_and_is_judged_on_its_own_layer(layer, names):
     b = _board([_part("PA", "pa", "GND", 20.0, 15.0)])                    # front only: pad SE (20.5, 15.5), courtyard SE (20.6, 15.6)
     # the courtyard's corner is the union's; the pad's reach sets the step: (20.5 - 20.6 + 15.5 - 15.6) / 2 + 0.3 / sqrt(2)
@@ -459,3 +475,83 @@ def test_the_skill_api_and_migration_teach_past_over_obstacles_and_copper_edge()
     for word in ("Past passes any obstacle", "past_off_board", "LabelKey", "copper.edge", "copper.meets", "run score"):
         assert word in unreleased, word
     assert all(ord(c) < 128 for c in api + skill + unreleased), "ASCII only"
+
+
+# ---------------------------------------------------------------- copper that waits for late copper
+def _late_via_board():
+    """A via past a label: planned after the search, as the label gives way to every part placed after it."""
+    b = _board([_part("PA", "pa", "GND", 20.0, 15.0), _part("PB", "pb", "SIG", 6.0, 24.0)], silk_clearance=0.2)
+    key = b.label(Part("pa"), "PA", side=Edge.NORTH)
+    via = b.via(Net("SIG"), at=Past([key], Edge.EAST), size=0.6)
+    return b, via
+
+
+def _field_board():
+    """A field of vias in a pad: planned after the search, as its part's grid gives way to the items placed."""
+    b = _board([_part("PA", "pa", "GND", 20.0, 15.0, w=3.0, h=3.0), _part("PB", "pb", "SIG", 6.0, 24.0)])
+    field = b.vias(Net("GND"), PadRef(Part("pa"), 1), size=0.6, drill=0.3)
+    return b, field
+
+
+def _drawn_clean(plan, net, *, vias=0, tracks=0):
+    assert not _not_drawn(plan), [f.facts for f in _not_drawn(plan)]
+    assert len(_vias(plan, net)) == vias
+    assert len([t for t in plan.copper if isinstance(t, Track) and t.net == net]) >= tracks
+
+
+def test_a_track_that_ends_on_a_via_past_a_label_is_drawn():
+    b, via = _late_via_board()
+    b.track(Net("SIG"), [PadRef(Part("pb"), 1), via], layer=CopperLayer.F)
+    _drawn_clean(b.resolve(), "SIG", vias=1, tracks=1)
+
+
+def test_copper_past_a_via_past_a_label_is_drawn():
+    b, via = _late_via_board()
+    b.track(Net("VBUS"), [Location(2.0, 28.0), Past([via], Edge.SOUTH), Location(38.0, 28.0)], layer=CopperLayer.F)
+    b.via(Net("VBUS"), at=Past([via], Edge.NORTH), size=0.6)
+    plan = b.resolve()
+    _drawn_clean(plan, "VBUS", vias=1, tracks=1)
+    _drawn_clean(plan, "SIG", vias=1)
+
+
+def test_copper_past_a_field_of_vias_is_drawn():
+    b, field = _field_board()
+    b.track(Net("SIG"), [Location(2.0, 28.0), Past([field], Edge.SOUTH), Location(38.0, 28.0)], layer=CopperLayer.F)
+    b.via(Net("VBUS"), at=Past([field], Edge.NORTH), size=0.6)
+    plan = b.resolve()
+    _drawn_clean(plan, "SIG", tracks=1)
+    _drawn_clean(plan, "VBUS", vias=1)
+    assert _vias(plan, "GND")
+
+
+def test_a_past_names_its_items_as_records():
+    """A finding names a Past's items as records, rendered as text only in the finding's message."""
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))
+    b = _board([_part("PA", "pa", "GND", 10.0, 10.0)], holes=[vent], margin=0.0)
+    via = b.via(Net("SIG"), Location(30.0, 10.0), size=0.6)
+    key = b.label(Part("pa"), "PA")
+    names = [_past_name(b, it) for it in (vent, b.cutout("vent"), b.edge(facing=Edge.WEST),
+                                          Part("pa"), PadRef(Part("pa"), 1), key, via)]
+    assert names == [{"kind": "cutout", "name": "vent"}, {"kind": "cutout", "name": "vent"},
+                     {"kind": "edge", "facing": 270}, {"kind": "part", "name": "pa"},
+                     {"kind": "pad", "ref": "PA", "number": "1"}, {"kind": "label", "key": "label pa PA"},
+                     {"kind": "copper", "key": "via SIG"}]
+    assert [past_item(n) for n in names] == ["cutout vent", "cutout vent", "edge facing 270", "pa", "PA.1",
+                                             "label pa PA", "via SIG"]
+
+
+def test_the_edge_loops_are_read_once_until_a_cutout_changes_them():
+    """`_cutout_box` reads the board's edge loops for every cutout a Past names: they are kept on the board, and read
+    again once a hole settles or the outline is declared again."""
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, None), why="air")   # free in y: settles during the resolve
+    b = _board(holes=[vent])
+    before = b._edge_loop_info()
+    assert b._edge_loop_info() is before and len(before) == 1
+    b.via(Net("SIG"), at=Past([vent], Edge.NORTH), size=0.6)
+    plan = b.resolve()
+    c = plan.cutouts_placed["vent"].centre
+    (v,) = _vias(plan, "SIG")
+    assert v.at.y == pytest.approx(_away(c.y - 0.75 - SAG - EDGE - 0.3, -1), abs=1e-6)
+    assert len(b._edge_loop_info()) == 2
+    b.rect(width=40.0, height=30.0)
+    assert len(b._edge_loop_info()) == 1

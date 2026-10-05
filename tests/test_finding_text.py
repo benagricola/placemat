@@ -80,8 +80,8 @@ SAMPLES = [
                           "what": {"form": "unplated", "who": ["J1", ""]}},
      "pour A: J1's unplated hole is within its clearance of member U1.1 and via at (1.00, 2.00), so no pour can hold the "
      "member clear; the pour is not drawn"),
-    (C.COPPER_CORNER, {"net": "A", "edge": "NE", "names": ["R1", "R2"], "near_mm": 0.1, "need_mm": 0.2},
-     "track A: the points either side of its 45 past the NE corner of R1, R2 allow no 45 through it; the track passes that "
+    (C.COPPER_CORNER, {"net": "A", "edge": "NE", "names": [{"kind": "pad", "ref": "R1", "number": "1"}, {"kind": "edge", "facing": 270}], "near_mm": 0.1, "need_mm": 0.2},
+     "track A: the points either side of its 45 past the NE corner of R1.1, edge facing 270 allow no 45 through it; the track passes that "
      "corner at 0.100 mm, under the 0.200 mm clearance"),
     (C.COPPER_NOTE, {"variant": "waypoint", "net": "A"},
      "track A: a waypoint steers it into another net's pad; drawn pad to pad it clears, so drop the waypoint(s) unless the "

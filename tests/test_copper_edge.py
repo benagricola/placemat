@@ -203,6 +203,7 @@ def test_a_track_from_a_lane_counts_its_declared_waypoints():
     bare = b.track(Net("N45"), [esc[45]], layer=CopperLayer.F)
     bent = b.track(Net("N44"), [esc[44], Location(5.0, 5.0), Location(5.0, 2.0)], layer=CopperLayer.F)
     assert (bare.declared["waypoints"], bent.declared["waypoints"]) == (0, 1)
+    assert (bare.declared["script_points"], bent.declared["script_points"]) == (1, 3)
 
 
 IMPORTS = "from placemat import board, CopperLayer, Cutout, Edge, Location, Net, Past\nfrom placemat.cutouts import Circle\n"
@@ -220,3 +221,13 @@ def test_a_track_across_a_cutout_is_offered_a_past_off_it_on_each_side_and_the_f
     board2, plan2 = apply_and_resolve(tmp_path, plan, f.suggestions[0].id, path)
     assert 'Past([board.cutout("vent")], Edge.WEST)' in path.read_text()
     assert _edge(plan2) == []
+
+
+def test_a_loop_whose_leg_centres_do_not_match_its_legs_is_an_error():
+    """Each leg of a loop has its arc's centre or None; a count that differs is a fault in the caller, not a loop to judge
+    as curved."""
+    from placemat.layout import _legs_toward
+    square = ((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0))
+    assert _legs_toward(square, [None] * 4, 0) == ((False,) * 4, (0.0,) * 4)
+    with pytest.raises(AssertionError, match="3 leg centres for 4 legs"):
+        _legs_toward(square, [None] * 3, 0)

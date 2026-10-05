@@ -2591,10 +2591,12 @@ NE corner) passes the corner at the clearance. A corner fixes both axes, so
 it takes no `across=`. The track's legs either side of the point take that
 45 through it wherever the points either side allow one, ahead of `bend=`;
 where they do not and the track passes the corner nearer than the
-clearance, the finding names the corner. With several items, each item's
-corner is passed at least at its own stand-off: the point is on the
-diagonal from the combined box's corner, as far out as the item that needs
-most.
+clearance, the finding names the corner. The finding judges a round
+cutout or a curved stretch of edge from the quarter of its curve that
+faces the corner, not from its box's corner; the point is still measured
+off the box. With several items, each item's corner is passed at least at
+its own stand-off: the point is on the diagonal from the combined box's
+corner, as far out as the item that needs most.
 
 ```python
 v = board.via(Net("SIG_N"), FreeSpot(near=PadRef(Part("j1"), 3)))
@@ -2642,8 +2644,8 @@ it. A plane is not judged: KiCad's fill keeps its own clearance. A module
 fragment's frame is not an edge: it is never written to Edge.Cuts, and
 copper there is not judged against it. The run score counts `copper.edge`
 as a copper finding. The suggestion is offered only for a track with no
-waypoints, drawn past a named cutout: a `Past` off the cutout on each side
-the track's run crosses.
+waypoints and two ends in the script (not a lane alone), drawn past a named
+cutout: a `Past` off the cutout on each side the track's run crosses.
 
 ```python
 vent = Cutout(Circle(1.5), "vent", at=Near(PadRef(Part("q1"), 2)))
