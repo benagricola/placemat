@@ -354,7 +354,10 @@ def _unplaced_rides(f):
 
 @renders(C.FIXED_PART, "item", "freedom", "why")
 def _fixed_part(f):
-    return "%s (%s): %s" % (f["item"], f["freedom"], _refusal(f["why"]))
+    """A decided item that is not legal where it was put; a cell with several arrangements, none legal, names each other
+    arrangement's refusal after the one it stands in."""
+    others = "".join("; arrangement %s: %s" % (a["id"], _refusal(a["why"])) for a in f.get("arrangements", ()))
+    return "%s (%s): %s%s" % (f["item"], f["freedom"], _refusal(f["why"]), others)
 
 
 # ------------------------------------------------------------------ copper that is not drawn as asked

@@ -9702,14 +9702,13 @@ class Board:
         clr = self.clearance
         push_sources = self._reserve_pushes(occ, plan, i)
         if i.freedom.decided:
+            if len(self._arrangement_ids(i)) > 1:
+                return self._settle_firm_arranged(occ, i, plan, placed, clr, push_sources)
             p, chose = self._firm_placement(occ, plan, i)
             if self._on_begin is not None:
                 self._phase(Stage.DECLARED, hint=[round(p.location.x, 3), round(p.location.y, 3)])
             self._labels_give_way(occ, plan, i.item, p)     # a user's label moves, the part does not
-            # its carried vias, and those of the items placed before it, may give way (giveway.py):
-            # its commit does what this found. A decided place is judged as KiCad will: silk at the board's clearance
-            with occ.silk_as_drawn():
-                why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
+            why = self._firm_judged(occ, i, p, clr)[0]
             if why:
                 from . import suggest_facts
                 plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))
@@ -9858,6 +9857,98 @@ class Board:
         step = self._step(won, result.chosen, result.moved_mm, notes)
         step.back_face = bool(face_note) and result.chosen.face is Face.BACK
         return step
+
+    def _firm_judged(self, occ, i: PlaceIntent, p: Placement, clr) -> tuple:
+        """(refusal or None, resolution) of decided item `i` at `p`. Its carried vias, and those of the items placed before it,
+        may give way (giveway.py): its commit does what this found. A decided place is judged as KiCad will: silk at the board's
+        clearance."""
+        with occ.silk_as_drawn():
+            return occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)
+
+    def _firm_trials(self, occ, plan, i, placed, clr, push_sources) -> list:
+        """Decided cell `i` laid in each arrangement it may take (`_arrangement_ids`), in order, as `_Trial`s: the declaration laid
+        for that arranged cell (`_firm_placement`), judged as a firm item is judged (`_firm_judged`), and, when anything prices
+        them (links to placed pads, pushes, an arrangement's lanes), each legal one scored once at that placement against what is
+        placed now, unpruned, with what a via giving way costs. Partners not yet placed contribute nothing. User labels are looked
+        past here, as a searched item looks past them: the labels of the one taken give way after (`_settle_firm_arranged`)."""
+        targets = self._targets(i.item, occ, placed)
+        was = occ.labels_yield
+        occ.labels_yield = was or bool(plan.__dict__.get("_label_parts"))
+        laid = []
+        try:
+            for ident in self._arrangement_ids(i):
+                j = self._arranged(i, ident)
+                p, chose = self._firm_placement(occ, plan, j)
+                why, resolution = self._firm_judged(occ, j, p, clr)
+                laid.append((ident, j, p, chose, why, resolution, self._lane_pricer(occ, plan, j) if why is None else None))
+        finally:
+            occ.labels_yield = was
+        priced = bool(targets or push_sources or any(x[6] for x in laid))
+        out = []
+        for ident, j, p, chose, why, resolution, lanes in laid:
+            score = None
+            if why is None and priced:
+                score = self._scorer(j.item, occ, targets, prune=False, pushes=push_sources, lanes=lanes)(p) \
+                    + (resolution.cost if resolution is not None else 0.0)
+            out.append(_Trial(ident, j, p, chose, why, score))
+        return out
+
+    def _settle_firm_arranged(self, occ, i, plan, placed, clr, push_sources) -> Step:
+        """A decided cell that may take more than one arrangement, at its spot (`_firm_trials`). Each legal one is compared at its
+        total (`_total_at`: its score, `score.arrangement` for one other than the default, `score.back_face`); the lowest wins and
+        a tie keeps the one tried first. A non-default arrangement must also beat the default's total by
+        `place.arrangement_margin` (`_margin`) when the default is legal, as a searched cell's must. With nothing to score, the
+        first legal one stands. When none is legal it is a firm collision as for a cell with one arrangement: the first tried
+        (the default unless `arrangements=` names others) stands where its declaration puts it, and its `fixed.part` finding
+        carries every other arrangement's refusal under `arrangements`."""
+        cost = self.settings.score_arrangement
+        trials = self._firm_trials(occ, plan, i, placed, clr, push_sources)
+        first = trials[0]
+        if self._on_begin is not None:
+            self._phase(Stage.DECLARED, hint=[round(first.placement.location.x, 3), round(first.placement.location.y, 3)])
+        total = {t.ident: self._total_at(t.score, t.placement, t.j, cost if t.ident else 0.0) for t in trials if t.score is not None}
+        rows = [self._arrangement_row(t.ident, total.get(t.ident), t.why is None) for t in trials]
+        legal = [t for t in trials if t.why is None]
+        if not legal:
+            self._labels_give_way(occ, plan, first.j.item, first.placement)     # a user's label moves, the cell does not
+            from . import suggest_facts
+            facts = dict(suggest_facts.fixed_part(self, i), why=first.why.to_json(),
+                         arrangements=[{"id": t.ident or "default", "why": t.why.to_json()} for t in trials[1:]])
+            plan.findings.append(self._finding(C.FIXED_PART, facts))
+            notes = [first.chose, step_text.record("refused", why=first.why.to_json()), self._arrangement_note(None, rows)]
+            return self._step(first.j, first.placement, 0.0, [x for x in notes if x])
+        default = next((t for t in trials if not t.ident), None)
+        default_total = total.get("") if default is not None else None
+        margin, held, best = self._margin(i), None, None
+        for t in legal:
+            mine = total.get(t.ident)
+            if t.ident and mine is not None and margin is not None and default_total is not None \
+                    and default_total - mine < margin:
+                if mine < default_total and (held is None or mine < held[0]):
+                    held = (mine, t.ident)
+                continue
+            if best is None or (mine is not None and mine < total[best.ident]):
+                best = t
+        scored = best.score is not None
+        blamed = None
+        if best.ident and default is not None and default.why is not None:
+            blamed = [{"form": "rider", "count": 1, "reason": default.why.to_json()}]     # its one refusal, as blame_text renders it
+        note = self._arrangement_note(best.ident, rows,
+                                      score=self._total_at(best.score, best.placement, best.j, 0.0) if scored else None,
+                                      cost=(cost if best.ident else 0.0) if scored else None,
+                                      default_score=None if default_total is None or not scored
+                                      else self._total_at(default.score, default.placement, default.j, 0.0),
+                                      default_blame=blamed, within=None if best.ident else self._within(held, default_total, margin))
+        self._labels_give_way(occ, plan, best.j.item, best.placement)       # a user's label moves, the cell does not
+        notes = [best.chose]
+        if plan.__dict__.get("_label_parts"):
+            # judged past the labels: one that could not give way is a firm collision, as for a cell with one arrangement
+            why = self._firm_judged(occ, best.j, best.placement, clr)[0]
+            if why:
+                from . import suggest_facts
+                plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))
+                notes.append(step_text.record("refused", why=why.to_json()))
+        return self._step(best.j, best.placement, 0.0, [x for x in notes + [note] if x])
 
     def _first_legal(self, occ, i, plan, settle_one) -> Step:
         """A form that is not scored (a slide along an edge, a line, a run, a rim, a ring, a spoke, a pocket with no hint) takes
@@ -10014,8 +10105,12 @@ class Board:
     def _standing_total(self, t, extra: float) -> float:
         """What a scan's spot (`_Tried` with a legal spot) is compared at: its score, plus `extra` (the arrangement's cost) and
         `score.back_face` when an either-face item stands on the back."""
-        r = t.result
-        return r.score + extra + (self.settings.score_back_face if r.chosen.face is Face.BACK and t.j.either else 0.0)
+        return self._total_at(t.result.score, t.result.chosen, t.j, extra)
+
+    def _total_at(self, score: float, p: Placement, j: PlaceIntent, extra: float) -> float:
+        """`score` of item `j` standing at `p`, plus `extra` (an arrangement's cost) and `score.back_face` when an either-face item
+        stands on the back."""
+        return score + extra + (self.settings.score_back_face if p.face is Face.BACK and j.either else 0.0)
 
     def _scanned_note(self, ident, won, tried, cost, within=None) -> dict:
         """The `arrangement` note of a scan over arrangements (`_arrangement_note`): `won` the `_Tried` taken, `tried` each
@@ -10794,6 +10889,19 @@ class _Tried:
     score: object
     hopeless: dict | None = None
     faces: dict | None = None       # each face scanned -> its own ScanResult (`Board._scan_faces`)
+
+
+@dataclass
+class _Trial:
+    """One arrangement of a decided cell laid at its spot (`Board._firm_trials`): its id ("" the default), the arranged intent,
+    where its declaration puts it, the note of which pad a net named, its refusal (None when legal), and its score there (None
+    when it is not legal or nothing prices it)."""
+    ident: str
+    j: PlaceIntent
+    placement: Placement
+    chose: dict | None
+    why: object
+    score: float | None
 
 
 @dataclass
