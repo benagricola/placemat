@@ -202,3 +202,31 @@ def study_group(inp, refs: tuple, settings, step_ms: float = 0.0, budget_ms: flo
                             paths_of(ps)) for k, b, pins, ps in results)
     return GroupResult(tuple(refs), _breakdown(base), assign_of(present), paths_of(base_paths), rows, len(rows), total,
                        bool(out), bool(first), tuple((pb.parts[p][0], pb.nets[n][0]) for p, n in problems))
+
+
+def linked_groups(inp) -> list:
+    """The studied parts in groups to study together: two parts are linked when a net may move on both (its two ends
+    free), and a group is every part linked to another of it. Sorted, each group's refs sorted."""
+    parent = {p.ref: p.ref for p in inp.parts}
+
+    def find(r):
+        while parent[r] != r:
+            parent[r] = parent[parent[r]]
+            r = parent[r]
+        return r
+    for n in inp.nets:
+        refs = sorted({r for r, _ in n.ends if n.net in inp.part(r).slots.movable})
+        for a, b in zip(refs, refs[1:]):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[max(ra, rb)] = min(ra, rb)
+    groups: dict = {}
+    for r in sorted(parent):
+        groups.setdefault(find(r), []).append(r)
+    return [tuple(g) for _, g in sorted(groups.items())]
+
+
+def study(inp, settings, step_ms: float = 0.0, native=True) -> list:
+    """Every group's study (GroupResult), the arrays built once for all of them."""
+    pb = problem_of(inp, settings.pins_exit_mm)
+    return [study_group(inp, refs, settings, step_ms=step_ms, native=native, pb=pb) for refs in linked_groups(inp)]
