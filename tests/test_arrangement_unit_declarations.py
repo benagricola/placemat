@@ -56,20 +56,23 @@ def test_a_units_option_lays_its_members_and_leaves_the_rest():
     assert len(b.sites_of("alternative", "pair.up")) == 1
 
 
-@pytest.mark.parametrize("call, error", [
-    (lambda b, g: b.alternative(g, "up", rotation=90), TypeError),                                         # place keywords
-    (lambda b, g: b.alternative(g, "up", Alt(Part("u1"), rotation=90)), ValueError),                       # not a member
-    (lambda b, g: b.alternative(g, "up", Alt(Part("c_in"), rotation=90), Alt(Part("c_in"), rotation=180)), ValueError),  # twice
-    (lambda b, g: b.alternative(g, "up", Part("c_in")), TypeError),                                        # not an Alt
-    (lambda b, g: b.alternative(g, "up"), ValueError),                                                     # names no member
-    (lambda b, g: b.alternative(g, "Up", Alt(Part("c_in"), rotation=90)), ValueError),                     # not a name
-    (lambda b, g: b.alternative(Part("u1"), "up", Alt(Part("u1"), rotation=90)), TypeError),               # an Alt on an item
-    (lambda b, g: b.alternative(b.arrangement("m", Alt(Part("u1"), rotation=90)), "x", Alt(Part("u1"), rotation=180)), TypeError),
+@pytest.mark.parametrize("call, error, words", [
+    (lambda b, g: b.alternative(g, "up", rotation=90), TypeError, "not rotation"),                          # place keywords
+    (lambda b, g: b.alternative(g, "up", Alt(Part("u1"), rotation=90)), ValueError, "not a member"),        # not a member
+    (lambda b, g: b.alternative(g, "up", Alt(Part("c_in"), rotation=90), Alt(Part("c_in"), rotation=180)), ValueError,
+     "names c_in twice"),
+    (lambda b, g: b.alternative(g, "up", Part("c_in")), TypeError, "takes Alt(member"),                      # not an Alt
+    (lambda b, g: b.alternative(g, "up"), ValueError, "names no member"),
+    (lambda b, g: b.alternative(g, "Up", Alt(Part("c_in"), rotation=90)), ValueError, "lower-case"),         # not a name
+    (lambda b, g: b.alternative(Part("u1"), "up", Alt(Part("u1"), rotation=90)), TypeError, "is for a unit's option"),
+    (lambda b, g: b.alternative(b.arrangement("m", Alt(Part("u1"), rotation=90)), "x", Alt(Part("u1"), rotation=180)), TypeError,
+     "board.arrangement declares a unit with its one option"),
 ])
-def test_a_bad_unit_option_is_refused_where_it_is_written(call, error):
+def test_a_bad_unit_option_is_refused_where_it_is_written(call, error, words):
     b, pair = paired()
-    with pytest.raises(error):
+    with pytest.raises(error) as e:
         call(b, pair)
+    assert words in str(e.value), str(e.value)
 
 
 def test_a_unit_option_name_is_unique_within_the_unit_and_a_unit_name_is_taken_once():
@@ -189,6 +192,7 @@ def test_an_exclusion_leaves_out_its_combinations_and_keeps_its_why():
     (("cap.north", "nope.x"), "not a choice"),
     (("cap.north+r_pull.turned", "cap.south"), "not a choice"),     # a combination id is not one choice
     (("r_pull.turned", "lifted"), "never combine"),
+    (("cap.north", "cap.north"), "cap.north twice"),
 ])
 def test_a_bad_exclusion_is_an_error_with_its_line(choices, words):
     """Review focus 4."""
@@ -267,3 +271,12 @@ def test_a_board_script_with_a_unit_fails_saying_it_is_a_modules_before_any_othe
         _scripted(tmp_path, 'board.unit("pair", Part("c_in"))')            # no option either: the board's error comes first
     said = str(e.value.details.get("error", "")) + str(e.value)
     assert "module" in said and ":5:" in said and "no option" not in said, said
+
+
+def test_a_board_script_with_an_exclusion_alone_fails_saying_an_exclusion_is_a_modules(tmp_path):
+    from placemat.runner import RunFailure
+    with pytest.raises(RunFailure) as e:
+        _scripted(tmp_path, 'board.exclude("c_in.east", "u1.turned")')
+    said = str(e.value.details.get("error", "")) + str(e.value)
+    assert ":5:" in said and "board.exclude" in said and "module" in said, said
+    assert "declares an arrangement" not in said and "exclusion" in said, said

@@ -1039,7 +1039,7 @@ class Board:
         self._place_calls: dict = {}        # item key -> (the item as given, `at=`, the other place() keywords as given, "row"/"ring"/""): what an alternative lays over
         self._options: dict = {}            # item key -> [Option]: board.alternative(), in declaration order
         self._arr_groups: list = []         # Group (a unit): board.unit() and board.arrangement(), in declaration order
-        self._group_after: dict = {}        # unit name -> how many place() calls the script had made when it declared the unit
+        self._group_after: dict = {}        # unit name -> how many intents (placements, keepouts, cutouts) the script had declared when it declared the unit
         self._exclusions: list = []         # Exclusion: board.exclude(), in declaration order
         self._compound: str = ""            # "row" or "ring" while one of them declares its members
         self._arrangement_enum = None       # arrangements.Enumeration, cached until a declaration changes it
@@ -3658,6 +3658,9 @@ class Board:
             if len(e.choices) < 2:
                 raise ValueError("%s: an exclusion names two or more choices that cannot stand together; to drop one option, "
                                  "delete its declaration" % where)
+            twice = sorted({c for c in e.choices if e.choices.count(c) > 1})
+            if twice:
+                raise ValueError("%s: names %s twice; an exclusion names each choice once" % (where, ", ".join(twice)))
             unknown = [c for c in e.choices if c not in choice]
             if unknown:
                 raise ValueError("%s: %s is not a choice of this module; its choices: %s"
@@ -3685,9 +3688,10 @@ class Board:
         if not sites:
             return
         file, line, form = min(sites, key=lambda s: s[1])
-        raise ValueError("%s:%d: %s declares an arrangement, which only a module offers: this script draws its board's "
-                         "outline, so it lays out a board. Declare it in the module's own script, whose frame is not drawn "
-                         "(board.rect(..., draw=False))" % (file, line, form))
+        what = ("leaves out arrangements, and an exclusion belongs to a module's arrangements" if form == "board.exclude"
+                else "declares an arrangement, which only a module offers")
+        raise ValueError("%s:%d: %s %s: this script draws its board's outline, so it lays out a board. Declare it in the "
+                         "module's own script, whose frame is not drawn (board.rect(..., draw=False))" % (file, line, form, what))
 
     def arrangement_specs(self) -> tuple:
         """The arrangements a module run lays out, the default first, once the declarations are checked."""
