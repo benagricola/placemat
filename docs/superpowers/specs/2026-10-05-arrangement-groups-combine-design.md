@@ -33,26 +33,37 @@ never both at once.
 ## Declaring
 
 ```python
-board.arrangement("pair",
-                  flat=[Alt(Part("c1"), rotation=0), Alt(Part("r1"), at=Beside(Part("c1"), Edge.EAST))],
-                  upright=[Alt(Part("c1"), rotation=90), Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH))],
-                  why="the filter pair lies flat or stands")
+pair = board.group("pair", Part("c1"), Part("r1"), why="the filter pair moves as one")
+board.alternative(pair, "flat",
+                  Alt(Part("c1"), rotation=0),
+                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.EAST)))
+board.alternative(pair, "upright",
+                  Alt(Part("c1"), rotation=90),
+                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH)))
 board.alternative(Part("r_far"), "turned", rotation=90)
-board.exclude("pair.upright", "caps.upright", why="both stand in the one column")
+board.exclude("pair.upright", "caps_upright", why="both stand in the one column")
 ```
 
-- `board.arrangement(name, **options, why="")`: each keyword is an option
-  of the group, its value a sequence of `Alt(item, **keywords)`. Option
-  names follow `check_name`; `why` is not an option name.
-- `board.arrangement(name, *alts, why="")`, the 0.99.15 form, is a group
-  with one option. It is kept and now combines like any unit: a module
-  written against 0.99.15 runs unchanged, every arrangement it had keeps
-  its id (below), and the combinations of its groups with its items are
-  added.
-- The two forms do not mix in one call.
+- `board.group(name, *members, why="") -> Group` declares a unit and its
+  members (parts the script places with `place()`). The group's default is
+  each member's own `place()`. A group with no option is an error where
+  the script finishes declaring.
+- `board.alternative(group, option, *alts, why="")` adds one option to the
+  group, one call per option, as `board.alternative(item, option,
+  **keywords)` does for a single item. Each `Alt(item, **keywords)` names
+  a member of the group, at most once per option; a member the option does
+  not name keeps its own `place()` in that option. A group's alternative
+  takes `Alt`s and no place keywords; an item's takes keywords and no
+  `Alt`s. Option names follow `check_name`, unique within the group.
+- `board.arrangement(name, *alts, why="")`, the 0.99.15 form, is shorthand
+  for a group of the `Alt`s' items with one option. It is kept and now
+  combines like any unit: a module written against 0.99.15 runs unchanged,
+  every arrangement it had keeps its id (below), and the combinations of
+  its groups with its items are added.
 - A member may be in one group only, and a member of a group may not also
-  have its own `board.alternative`. Either is an error where the script
-  finishes declaring, naming the member and both declarations. (Two units
+  have its own `board.alternative`. A second group naming a member is an
+  error at `board.group`; an item's own alternative on a group member is
+  an error at whichever call comes second; each names both declarations. (Two units
   that move the same part would lay two places over it.)
 - `board.exclude(*choices, why="")`: every combination that holds all of
   `choices` is not laid out. A choice is `item.option`, `group.option`, or
@@ -127,8 +138,10 @@ again to offer the new combinations; until then its fragment carries what
 
 ## Errors
 
-- Mixed positional and keyword options in one `board.arrangement`: a
-  `TypeError` at the call.
+- A group's alternative given place keywords, or an item's given `Alt`s;
+  an `Alt` naming a part outside the group, or one member twice: a
+  `TypeError` or `ValueError` at the call.
+- A group with no option: a declaration error.
 - A member in two groups, or in a group and with its own alternative: a
   declaration error naming both declarations.
 - An exclusion naming an unknown choice, of fewer than two choices, or
@@ -155,6 +168,6 @@ again to offer the new combinations; until then its fragment carries what
 
 Under "Changed": groups combine with other items and groups; the
 positional form is a one-option group and keeps its ids; a member may not
-be in a group and have its own alternative. Under "New": group options,
+be in a group and have its own alternative. Under "New": `board.group` with options by `board.alternative`,
 `board.exclude`, `arrangement.option_dead`. A module re-run offers the new
 combinations; a board needs no change.
