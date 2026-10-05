@@ -9924,23 +9924,36 @@ class Board:
         was = occ.labels_yield
         occ.labels_yield = was or bool(plan.__dict__.get("_label_parts"))
         laid = []
+        # a Beside laid nearer than its box (`_tight`) is recorded for the arrangement taken only (`_take_tight`)
+        before = self._tight.pop(i.key, None)
         try:
             for ident in self._arrangement_ids(i):
                 j = self._arranged(i, ident)
                 p, chose = self._firm_placement(occ, plan, j)
+                tight = self._tight.pop(i.key, None)
                 why, resolution = self._firm_judged(occ, j, p, clr)
-                laid.append((ident, j, p, chose, why, resolution, self._lane_pricer(occ, plan, j) if why is None else None))
+                laid.append((ident, j, p, chose, why, resolution, self._lane_pricer(occ, plan, j) if why is None else None,
+                             tight))
         finally:
             occ.labels_yield = was
+            self._tight.pop(i.key, None)
+            if before is not None:
+                self._tight[i.key] = before
         priced = bool(targets or push_sources or any(x[6] for x in laid))
         out = []
-        for ident, j, p, chose, why, resolution, lanes in laid:
+        for ident, j, p, chose, why, resolution, lanes, tight in laid:
             score = None
             if why is None and priced:
                 score = self._scorer(j.item, occ, targets, prune=False, pushes=push_sources, lanes=lanes)(p) \
                     + (resolution.cost if resolution is not None else 0.0)
-            out.append(_Trial(ident, j, p, chose, why, score))
+            out.append(_Trial(ident, j, p, chose, why, score, tight))
         return out
+
+    def _take_tight(self, key: str, t: "_Trial") -> None:
+        """Record in `_tight` how much nearer than its box the arrangement taken was laid, as a firm item with one arrangement
+        records it while it is laid."""
+        if t.tight is not None:
+            self._tight[key] = t.tight
 
     def _settle_firm_arranged(self, occ, i, plan, placed, clr, push_sources) -> Step:
         """A decided cell that may take more than one arrangement, at its spot (`_firm_trials`). Each legal one is compared at its
@@ -9960,6 +9973,7 @@ class Board:
             stood = default or trials[0]                    # the default when it was tried, else the first `arrangements=` names
             self._declared(stood)
             self._arr_choice[i.key] = stood.ident
+            self._take_tight(i.key, stood)
             self._labels_give_way(occ, plan, stood.j.item, stood.placement)     # a user's label moves, the cell does not
             from . import suggest_facts
             facts = dict(suggest_facts.fixed_part(self, i), why=stood.why.to_json(),
@@ -9990,6 +10004,7 @@ class Board:
                                       default_blame=blamed, within=None if best.ident else self._within(held, default_total, margin))
         self._declared(best)
         self._arr_choice[i.key] = best.ident
+        self._take_tight(i.key, best)
         self._labels_give_way(occ, plan, best.j.item, best.placement)       # a user's label moves, the cell does not
         notes = [best.chose]
         if plan.__dict__.get("_label_parts"):
@@ -10959,6 +10974,7 @@ class _Trial:
     chose: dict | None
     why: object
     score: float | None
+    tight: float | None = None      # how much nearer than its box a Beside laid it (`Board._tight`), None when not nearer
 
 
 @dataclass

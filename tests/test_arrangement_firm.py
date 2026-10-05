@@ -272,3 +272,37 @@ def test_a_cell_that_cycles_through_three_names_each_it_took_in_the_order_it_too
     (f,) = [f for f in plan.findings if f.cause == "fixed.room_unsettled" and f.facts.get("item") == "mod"]
     assert f.facts["arrangements"] == ["c_in.a", "c_in.b", "default"] and f.facts["passes"] == 4
     assert plan.placement("mod").arrangement == "c_in.a" and b.passes == 4
+
+
+class DefaultTight(Board):
+    """A board whose firm cell's default, laid beside its neighbour, stands nearer than its box puts it (`_tight`), and whose other
+    arrangements do not; it records `_tight` once the cell is settled."""
+    settled_tight = None
+
+    def _firm_placement(self, occ, plan, i):
+        got = super()._firm_placement(occ, plan, i)
+        if i.key == "mod" and not getattr(i.item, "arrangement", ""):
+            self._tight[i.key] = 0.3
+        return got
+
+    def _settle_firm_arranged(self, *a, **k):
+        step = super()._settle_firm_arranged(*a, **k)
+        type(self).settled_tight = dict(self._tight)
+        return step
+
+
+def test_only_the_arrangement_taken_counts_as_standing_nearer_than_its_box():
+    b = DefaultTight(with_arrangement(stamped_geometry(partner=(60.0, 30.0))), edge_margin=0.0, keep_going=True, settings=Settings())
+    b.rect(width=80, height=60)
+    b.place(Part("r8"), at=Location(60.0, 30.0))
+    b.place(Cell("mod"), at=AT)
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east"
+    assert "mod" not in DefaultTight.settled_tight
+    held = DefaultTight(with_arrangement(stamped_geometry(partner=(18.0, 30.0))), edge_margin=0.0, keep_going=True,
+                        settings=Settings())
+    held.rect(width=80, height=60)
+    held.place(Part("r8"), at=Location(18.0, 30.0))
+    held.place(Cell("mod"), at=AT)
+    assert held.resolve().placement("mod").arrangement == ""
+    assert DefaultTight.settled_tight.get("mod") == 0.3
