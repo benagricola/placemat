@@ -7,6 +7,14 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **A ring takes `rotations=Turns.TANGENT`.** `board.place(item, at=Polar(r, None, about=centre),
+  rotations=Turns.TANGENT)` puts the item's body centre at exactly `r` from `centre`, at the bearing the search
+  settles on, turned to face out there (exactly, not in a bin). `Tangent(about=)` measures the bearing from another
+  point; `Tangent(quarters=True)` is refused on a ring. `Polar((r, r), None)` is still refused, and its message
+  names `Polar(r, None)`; a script that used a narrow band for this can use the ring.
+
 ### Fixed
 
 - **A route no longer leaves the router's dangling tails.** The router left short segments (0.01-0.11 mm) whose ends
@@ -23,11 +31,6 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
-- **A ring takes `rotations=Turns.TANGENT`.** `board.place(item, at=Polar(r, None, about=centre),
-  rotations=Turns.TANGENT)` puts the item's body centre at exactly `r` from `centre`, at the bearing the search
-  settles on, turned to face out there (exactly, not in a bin). `Tangent(about=)` measures the bearing from another
-  point; `Tangent(quarters=True)` is refused on a ring. `Polar((r, r), None)` is still refused, and its message
-  names `Polar(r, None)`; a script that used a narrow band for this can use the ring.
 - **Units with options, and exclusions.** `board.unit(name, Part(...), Part(...), why=)` declares parts that move as one
   unit, and `board.alternative(unit, option, Alt(Part(...), **keywords), ..., why=)` gives it each option
   (`unit.option`); `run.json`'s arrangement entries list the reason of every choice they hold, an item's option or a
