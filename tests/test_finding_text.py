@@ -107,7 +107,13 @@ SAMPLES = [
     (C.SETUP_NATIVE, {"in_use": False, "reason": "version_mismatch", "placemat_version": "0.98.0", "native_version": "0.97.0", "detail": ""},
      "placemat_native 0.97.0 does not match placemat 0.98.0, so the pure Python path runs: results are the same, 5-10x slower on a "
      "large board; rebuild it from this checkout's native/ (uv pip install -e \".[native]\")"),
-    (C.ROUTE_DROPPED, {"key": "X", "why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
+    (C.SETUP_PAIR_LAYERS, {"key": "D_P/D_N", "variant": "layer_missing", "layers": ["In4.Cu", "B.Cu"], "missing": ["In4.Cu"],
+                           "board_layers": ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]},
+     "route.pair_layers D_P/D_N: names In4.Cu, which this board does not have (it has F.Cu, In1.Cu, In2.Cu, B.Cu); the pair "
+     "routes on the route's own layers"),
+    (C.SETUP_PAIR_LAYERS, {"key": "Fast", "variant": "no_pair", "layers": ["B.Cu"], "missing": [], "board_layers": ["F.Cu", "B.Cu"]},
+     "route.pair_layers Fast: no differential pair on this board has those two nets or that net class; the entry is not used"),
+    (C.ROUTE_DROPPED, {"key": "X","why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
      "adopted route X dropped: its end at (1.00, 2.00) no longer meets the net's other copper; the router routes it again"),
     (C.ROUTE_WIDTH, {"net": "V", "stage": "islands", "requested_mm": 1.37, "delivered_min_mm": 0.16, "length_under_mm": 16.61,
                      "length_mm": 17.24, "share": 0.9636, "declared": True, "max_a": 0.45, "bottleneck_mm": 0.1, "stated_a": 3.0},

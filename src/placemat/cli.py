@@ -717,10 +717,10 @@ def cmd_route(args) -> int:
             raise
         channel.finish(getattr(report, "record", None) or None)
     short = []
-    if report.widths:
+    if report.widths or report.pair_layers_refused:
         from .kicad.read import read_board
         from .kicad.route_widths import stated_currents
-        short = report.findings(stated_currents(read_board(pcb)))
+        short = report.findings(stated_currents(read_board(pcb)) if report.widths else {})
     if args.json:
         console.data(json.dumps(dict(report.as_dict(), missing_rules=missing, finding_details=[f.detail() for f in short]), indent=2))
     else:

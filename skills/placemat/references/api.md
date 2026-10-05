@@ -3366,6 +3366,34 @@ no board net has, routes that pair, and names them back in the routed copy
 before its copper is read or kept. The renamed nets keep their net classes.
 Placement weighs every pair's crossings the same way, by its net class.
 
+The pair router routes every pair on the route's own layers unless
+`[route] pair_layers` names the pair, by its two nets or by its net class:
+
+```toml
+[route]
+pair_layers = {"USB_D_P/USB_D_N" = ["In2.Cu", "B.Cu"]}
+```
+
+A key is `"P/N"` (the pair's two nets, either order) or a net class name; a
+pair's own nets win over its class. The router takes one layer list per
+call, so the pair stage runs it once per distinct list, the named pairs
+first, each call on the board the one before it wrote with that call's
+copper fixed (`pairs.log`, then `pairs_1.log` and on). A layer left out is an
+obstacle to the pair, not a layer it routes on: the router lays no track on
+it and its vias clear that layer's copper. So a pair whose escape lanes end in
+vias on F.Cu, given inner and back layers, starts from those vias and cannot
+tap a lane on F.Cu. Its ends must reach one of its layers: from a pad on a
+layer left out, with no via, the pair router cannot start. The router may also
+fail to couple a pair from two vias further apart than its own pair pitch and
+route each half on its own (its single-ended fallback, still on the pair's
+layers); the report's `pairs` says which. A pair it leaves unrouted is routed
+by the main pass on the route's own layers. The report's `pair_layers` holds
+the lists applied (`{"P/N": [layer, ...]}`); an unknown layer name is refused
+when the settings load, and a key that names no pair on the board or a layer
+the board does not have is a `setup.pair_layers` finding (facts `key`,
+`variant` `no_pair` or `layer_missing`, `layers`, `missing`, `board_layers`,
+also in `pair_layers_refused`), the entry not used.
+
 A pour net whose pours do not reach every pad of it (a rail's small taps on
 the far side of a cell) is named in `[route] islands` (or `--islands
 NET[=WIDTH]`): the route then runs the router on those nets first, one at a
@@ -4045,7 +4073,7 @@ its kind.
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
-| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`) | warning | the script is incomplete or wrong |
+| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
 | `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net has a width in `[route] islands` (it carries current), or when the router's current for its narrowest copper is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a` |
@@ -4426,6 +4454,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.smoothing` | `true` | bool | the router's own octolinear smoothing, as it defaults; false skips it |
 | `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused |
 | `route.pair_router_args` | `[]` | list | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
+| `route.pair_layers` | `{}` | table | the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `"P/N"` (either order) or a net class name, its value a list of layer names (`{"USB_D_P/USB_D_N" = ["In2.Cu", "B.Cu"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used |
 | `route.islands` | `[]` | list | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
 | `route.diff_pair_gap` | `0.0` | mm | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | `0.0` | mm | mm, a pair's track width; 0 is the net class's diff pair width |
