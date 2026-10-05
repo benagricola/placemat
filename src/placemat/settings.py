@@ -321,7 +321,7 @@ class Settings:
     pins_bend_weight: float = S(0.005, "weight",
         "the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target")
     pins_follow_prefixes: tuple = S(("R", "L", "FB"), "list",
-        "the pin map study follows a net on through a two-pad series part only when its reference starts with one of these letters (a resistor, an inductor, a ferrite bead; a two-pin connector is not followed)")
+        "the pin map study follows a net on through a two-pad series part only when its reference's leading letters, in any case, equal one of these: a resistor, an inductor, a ferrite bead by default; RT1 is not followed for R, nor a two-pin connector")
     pins_rotations: tuple = S((0.0, 90.0, 180.0, 270.0), "degrees",
         "the turns from where a part stands that the pin map study tries besides its present one; add 45, 135, 225 and 315 for the diagonals")
     pins_seeds: int = S(1, "count",

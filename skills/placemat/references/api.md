@@ -4883,7 +4883,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.impedance_weight` | `3.0` | weight | the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance |
 | `pins.length_weight` | `0.25` | weight | the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing) |
 | `pins.bend_weight` | `0.005` | weight | the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target |
-| `pins.follow_prefixes` | `["R", "L", "FB"]` | list | the pin map study follows a net on through a two-pad series part only when its reference starts with one of these letters (a resistor, an inductor, a ferrite bead; a two-pin connector is not followed) |
+| `pins.follow_prefixes` | `["R", "L", "FB"]` | list | the pin map study follows a net on through a two-pad series part only when its reference's leading letters, in any case, equal one of these: a resistor, an inductor, a ferrite bead by default; RT1 is not followed for R, nor a two-pin connector |
 | `pins.rotations` | `[0.0, 90.0, 180.0, 270.0]` | degrees | the turns from where a part stands that the pin map study tries besides its present one; add 45, 135, 225 and 315 for the diagonals |
 | `pins.seeds` | `1` | count | local searches of the pin map study per pose, each with its own fixed random stream |
 | `pins.anneal_moves` | `100` | count | moves each local search of the pin map study tries |

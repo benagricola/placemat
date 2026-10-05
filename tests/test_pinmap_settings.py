@@ -44,3 +44,9 @@ def test_the_prefixes_of_the_series_parts_followed_are_a_setting(tmp_path):
     assert Settings().pins_follow_prefixes == ("R", "L", "FB")
     (tmp_path / "placemat.toml").write_text('[pins]\nfollow_prefixes = ["R"]\n')
     assert load(tmp_path).pins_follow_prefixes == ("R",)
+
+
+def test_the_prefixes_setting_says_the_leading_letters_must_equal_a_prefix_in_any_case():
+    from placemat.settings import describe
+    text = describe("pins_follow_prefixes")
+    assert "leading letters" in text and "any case" in text and "starts with" not in text

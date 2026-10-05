@@ -235,7 +235,7 @@ def _fixed(anchors, joined, keep) -> tuple:
 
 def _follow(net, ends, fixed, of_ref, on, by_net, quiet, prefixes):
     """(series part, far net, (anchors, joined)) when `net` joins one studied pin to one pad of a two-pad part not studied,
-    whose reference starts with one of `prefixes` (its leading letters) and whose other pad is on a net that is
+    whose reference's leading letters equal one of `prefixes` in any case, and whose other pad is on a net that is
     not quiet, reaches no studied part, and has other pads: that net's anchors less the series part's own. None
     otherwise."""
     if len(ends) != 1 or len(fixed) != 1:
