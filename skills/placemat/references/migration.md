@@ -15,6 +15,11 @@ section for each hand-written pattern a newer form replaces.
   sat against the bore; it now sits against the cutout. A disc without a bore and the other board shapes were not
   affected.
 
+- **The studio lists every copper layer of the board while a resolve runs.** The board's first frame carried no
+  layer list, so a layer nothing is planned on (an inner layer only the router uses) was missing from the layer list
+  until the resolve finished, and the page's stand-in, the layers that carry planned copper, left it out. The frame
+  now names the stackup's copper layers, as the finished plan does.
+
 ## To 0.99.18
 
 ### New

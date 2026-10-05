@@ -3025,3 +3025,18 @@ def test_a_pin_map_suggestion_for_a_part_in_a_cell_lists_both_ways_to_take_the_t
     o = out["open"]
     assert "turn cell logic to 180 degrees on the board, or re-lay module Mcu with U1 at 90 degrees in its frame" in o
     assert "<div>turn U1 to" not in o
+
+
+@needs_node
+def test_copper_layers_lists_every_layer_the_board_frame_names_even_one_nothing_is_drawn_on(tmp_path):
+    out = run_more(tmp_path, r"""
+hello(); started(1);
+send("board", Object.assign({}, BOARD, {layers: ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "B.Cu"]}));
+out.live = ev("copperLayers(plan())");                         // while the resolve runs: no copper yet
+send("copper", {id: 1, copper: [{t: "track", layer: "F.Cu", face: "front", width: 0.2, a: [0, 0], b: [1, 1], net: "N"}, {t: "plane", layer: "In1.Cu", face: "inner", points: [[0, 0], [4, 0], [4, 4]], net: "G"}]});
+out.drawn = ev("copperLayers(plan())");
+out.old = ev('copperLayers({copper: [{layer: "B.Cu"}, {layer: "F.Cu"}, {layer: "In1.Cu"}]})');   // an older doc without layers
+""")
+    every = ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "B.Cu"]
+    assert out["live"] == every and out["drawn"] == every
+    assert out["old"] == ["F.Cu", "In1.Cu", "B.Cu"]
