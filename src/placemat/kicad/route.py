@@ -121,6 +121,11 @@ class RouteReport:
     net_halos_missing: list = field(default_factory=list)
     net_halo_trapped: list = field(default_factory=list)
     net_halo_facts: list = field(default_factory=list)
+    # The router's dangling copper taken off the routed copy (route_cleanup.py, KiCad's TRACKS_CLEANER): Cleanup.record(),
+    # {"tracks": {net: n}, "vias": {net: n}, "merged": {net: n}, "unconnected": [before, after],
+    # "kept_unrouted": [nets left unconnected whose dangling router copper was kept],
+    # "refused_nets": [nets whose pads the dangling router copper alone joins, which keep it]}.
+    dangling_removed: dict = field(default_factory=dict)
 
     def has_findings(self) -> bool:
         return bool(self.widths or self.pair_layers_refused or self.net_halo_facts)
@@ -165,6 +170,16 @@ class RouteReport:
             head += "  halos: " + ", ".join("%s %g mm" % kv for kv in sorted(self.net_halos.items()))
         if self.pair_layers:
             head += "  pairs on their own layers: " + "; ".join("%s %s" % (k, ", ".join(v)) for k, v in sorted(self.pair_layers.items()))
+        d = self.dangling_removed or {}
+        tracks, vias = sum((d.get("tracks") or {}).values()), sum((d.get("vias") or {}).values())
+        if tracks or vias:
+            nets = len(set(d.get("tracks") or {}) | set(d.get("vias") or {}))
+            head += "  dangling router copper removed: %d track(s), %d via(s) on %d net(s)" % (tracks, vias, nets)
+        if d.get("kept_unrouted"):
+            head += "  dangling router copper kept on %d unrouted net(s): %s" % (len(d["kept_unrouted"]), ", ".join(d["kept_unrouted"]))
+        if d.get("refused_nets"):
+            head += "  dangling router copper kept on %d net(s) whose pads it alone joins: %s" % (
+                len(d["refused_nets"]), ", ".join(d["refused_nets"]))
         if self.widths:
             from .route_widths import brief
             head += "  UNDER WIDTH: " + "; ".join(brief(r) for r in self.widths)
@@ -183,7 +198,7 @@ class RouteReport:
                 "resumed": list(self.resumed), "record": self.record, "widths": list(self.widths),
                 "pair_layers": dict(self.pair_layers), "pair_layers_refused": list(self.pair_layers_refused),
                 "net_halos": dict(self.net_halos), "net_halos_missing": list(self.net_halos_missing),
-                "net_halo_trapped": list(self.net_halo_trapped)}
+                "net_halo_trapped": list(self.net_halo_trapped), "dangling_removed": dict(self.dangling_removed)}
 
 
 def plane_nets_of(pcb) -> set:
@@ -982,6 +997,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             shutil.copy(work / ("in" + ext), work / ("routed" + ext))
     remove_guards(str(pcb_out))
     fill_zones(str(pcb_out))
+    from .route_cleanup import remove_dangling_router_copper
+    cleanup = remove_dangling_router_copper(str(pcb_out), str(pcb_in))     # after the fill: KiCad tests a track end in a zone by its fill
     after = run_drc(pcb_out, work / "drc_after.json", refill_zones=False)     # filled just now
     open1 = {n: v for n, v in after.open_nets.items() if n not in counted}
     violated = _nets_in_violations(json.loads((work / "drc_after.json").read_text()))
@@ -1003,6 +1020,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.pair_layers_refused = pair_layers_refused
     report.net_halos, report.net_halos_missing, report.net_halo_trapped = halos, halos_missing, trapped
     report.net_halo_facts = [dict(f.facts) for f in halo_findings]
+    report.dangling_removed = cleanup.record()
     if rep is not None:
         for r in report.widths:
             rep.send(dict(r, ev="route_width"))

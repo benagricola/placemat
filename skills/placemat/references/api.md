@@ -3794,6 +3794,19 @@ in the console, `run.json` and `placemat route --json` (`finding_details`). A ne
 width is not measured per length and has `length_mm` null. Net-class and pair widths are reported only where the router records a
 narrowing of them: its pair router writes no summary.
 
+The routed copy is cleaned as KiCad's own cleanup cleans a board, over the copper the router added only: its dangling tracks and vias
+are deleted, again until none is left, and then the router's collinear pieces are merged. KiCad counts a segment whose ends both land
+on one other item of its net (a copper polygon, another track's body) as connected at one end only, so the router's short tails there
+are dangling. Copper the router was given is never touched: an item with a uuid or geometry of the input board's, and a router
+segment lying on a given track of its net and layer (a given track written again). A net whose pads are not all joined in the routed
+copy keeps its router copper, as progress a later route builds on; a floating fragment beside joined pads does not make a net
+unjoined, and is removed. A net whose pads the deletion would part (a track KiCad calls dangling that another of the net's tracks
+lands on) keeps all its router copper; the other nets are cleaned. `route.json` and the route record have `dangling_removed`:
+`tracks`, `vias` and `merged` per net, `unconnected` (the board's count before and after), `kept_unrouted` (the unjoined nets whose
+dangling router copper was kept) and `refused_nets` (the nets kept because the deletion would part their pads). The summary line says
+`dangling router copper removed: N track(s), M via(s) on K net(s)`, `dangling router copper kept on N unrouted net(s): NET, ...` and
+`dangling router copper kept on N net(s) whose pads it alone joins: NET, ...`.
+
 A footprint's own copper graphics (a net-tie's winding, a copper logo) are
 guarded in the router's input copy: a rule area over each, on its own layer,
 forbidding tracks and vias (a route through one is a keepout breach naming
