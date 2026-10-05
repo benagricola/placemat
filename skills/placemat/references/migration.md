@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A placed cell's copper is measured as KiCad measures it.** A cell's own pour, straight tracks and vias lost the
+  shapes a copper finding measures them by (the drawn polygon and its stroke, the track's segment, the via's circle)
+  once the cell was placed, so a finding measured their outlines, which stand a few micrometres outside the copper. A
+  track beside a stamped cell's stroked pour read 0.125 mm from it where KiCad's DRC measured 0.132 mm, a finding on a
+  board KiCad passed. They now move and mirror with the cell. Nothing in a layout script changes.
+
 ## To 0.99.9
 
 ### New
