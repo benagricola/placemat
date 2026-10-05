@@ -1,17 +1,18 @@
 # Past any obstacle
 
 Approved direction (2026-10-05), part 1: `Past(items, edge)` and
-`Past(items, Corner.X)` accept, as well as pads, vias and tracks, a cutout,
-a keepout or rule area, a part's or a cell's envelope, a stretch of the
-board edge, and a label. The point stands off each item by the clearance the
-board's rules give that pair.
+`Past(items, Corner.X)` accept a cutout, a stretch of the board edge, a
+part's or a cell's envelope, and a label, as well as pads, vias and tracks.
+The point stands off each item by the clearance the board's rules give that
+pair. Declared copper that comes nearer a hole or the board edge than the
+board's rules allow is a finding when the copper is planned.
 
 ## Goal
 
 A board declared a 3 A track on B.Cu that had to pass a round vent,
 `Cutout(Circle(1.5), "vent", at=Near(PadRef(...)))`. Past took only pads,
 vias and tracks, so the script could not say "pass the vent on its west
-side", the track was drawn across the hole, and DRC reported
+side". The track was drawn across the hole, and only DRC reported it, as
 `copper_edge_clearance` at 0.0 mm. With this change the script writes
 
 ```python
@@ -22,13 +23,15 @@ board.track(Net("VBUS"), [PadRef(Part("j1"), 1), Past([vent], Edge.WEST), PadRef
 ```
 
 and the waypoint lands half the track's width plus the board's copper-to-edge
-clearance west of the hole.
+clearance west of the hole. The run that drew the track across the hole now
+says so itself, as a `copper.edge` finding naming the track and the vent.
 
 ## What it is not
 
 - Tracks do not route round obstacles on their own. A Past is a waypoint
-  the script places; the legs between waypoints are drawn as today and are
-  judged by DRC.
+  the script places; the legs between waypoints are drawn as today. A leg
+  that cuts a hole or the edge is reported (`copper.edge`), not moved.
+- Keepouts, rule areas and seal regions are not Past items.
 - Past over pads, vias and tracks alone resolves to the same point as
   today, to the nanometre.
 - No new settings. Every stand-off is a board rule already read
@@ -50,8 +53,8 @@ layer count for the point; only the corner verdict (`copper.corner`,
 layout.py 5527) filters by the track's layer. `_refs_in` (11693) makes the
 copper wait for the items' pads and vias' pads. In `Beside`'s align,
 `_check_beside_past` (2415) allows pads only, since a placement is decided
-before any copper is planned, and `Board._beside_placement` (2561, the "past" branch at 2610) uses
-`_lane_distance` for the stand-off and `lane=`.
+before any copper is planned, and `Board._beside_placement` (2561, the
+"past" branch at 2610) uses `_lane_distance` for the stand-off and `lane=`.
 
 ## Items
 
@@ -63,8 +66,6 @@ What a script passes, and what each one contributes.
 | cutout | the `Cutout` value given to `holes=`, or `board.cutout(name)` | the hole's loop | `geometry.edge_clearance` |
 | board edge | a `Run`: `board.edge(facing=)` or one of `board.edges(facing=)` | the run's points | `geometry.edge_clearance` |
 | a stretch of a hole | a `Run` from `board.cutout(name).edge(side=)` | the run's points | `geometry.edge_clearance` |
-| keepout | what `board.keepout(...)` returns (`KeepoutIntent`) | its settled polygon | 0 |
-| rule area | `board.rule_area(name, cell=)`, new | its polygon as placed | 0 |
 | part or cell | `Part(...)`, `Cell(...)` | its placed envelope, and its pads as copper | 0 from the envelope; its pads as if named |
 | label | the key `board.label(...)` returns | the text's box | 0 for a track; `geometry.silk_clearance` for a via |
 
@@ -95,13 +96,6 @@ is grown by `geometry.arc_sag` where the loop or run has an arc, as
   (rules.py has clearance rules only) and the fab profile carries no edge
   figure, so this one number is the rule.
 - *Copper.* The net-pair clearance, as today.
-- *A keepout or rule area.* A KiCad rule area has no clearance: copper it
-  excludes may not overlap it (`drc_test_provider_disallow.cpp`;
-  `Board._check_keepouts` reads it the same way, `polys_overlap`). So the
-  copper's edge stands on the region's outline, held off it by
-  `_round_away`. A keepout that does not exclude the copper's kind, or lets
-  its net through, has no rule at all; its stand-off is also 0, so the
-  point is the same whichever it excludes.
 - *An envelope.* No copper rule touches a courtyard. The envelope stands
   off at 0, and the part's pads join the copper items, so they keep their
   net-pair clearance as if the script had named them.
@@ -110,19 +104,13 @@ is grown by `geometry.arc_sag` where the loop or run has an arc, as
   `geometry.silk_clearance` from a mask opening, so a via's `at=` stands off
   by that.
 
-A seal region is not a kind of its own: placemat has no seal declaration. A
-seal land is declared as a keepout, or arrives as a stamped cell's rule area,
-and is covered as one. A band round the rim has a box as large as the board,
-so a whole-region Past over it lands off the board (see Errors); it is
-passed by a stretch of its inner side (see Open question).
-
 **Runs.** A `Run` is a stretch of a boundary with the bearing
-(`facing`) of the side the obstacle is on: for the board edge and a hole,
-the void. Past keeps to the other side: its `Edge`, or its `Corner`'s
-outward diagonal, must point within 45 degrees of `facing + 180`.
-`Past([board.edge(facing=Edge.WEST)], Edge.EAST)` is the clearance inboard
-of the west edge; `Edge.WEST` there is a declaration error. A straight run's
-box is a line, so `across=` slides along it as along any side.
+(`facing`) of the side the void is on. Past keeps to the other side: its
+`Edge`, or its `Corner`'s outward diagonal, must point within 45 degrees of
+`facing + 180`. `Past([board.edge(facing=Edge.WEST)], Edge.EAST)` is the
+clearance inboard of the west edge; `Edge.WEST` there is a declaration
+error. A straight run's box is a line, so `across=` slides along it as along
+any side.
 
 The whole outline is not an item. Its box's sides are the board's extreme
 stretches, which `board.edge(facing=)` already names, and inboard of
@@ -132,8 +120,8 @@ stretches, which `board.edge(facing=)` already names, and inboard of
 
 Items fall into groups. Pads, vias and tracks (a part's pads included) are
 one group, measured exactly as today: their combined box and the worst
-net-pair clearance. Every other item is a group of its own: its box and its
-stand-off.
+net-pair clearance. Every other item (a cutout, a run, an envelope, a label)
+is a group of its own: its box and its stand-off.
 
 - `across=`'s `Along` reads the union of every group's box.
 - On an `Edge` the point stands far enough out to clear every group. On
@@ -152,39 +140,36 @@ the via's size for that).
 ## across= and lane=
 
 `across=` takes, as well as a `PadRef`, a via and an `Along`, a cutout, a
-keepout, a rule area, a `Part` or a `Cell`: the point lies on the centre
-line of that item's box. A `Run` and a label take none (a run's middle is
-`Along.MID` of its box already; a label has no axis worth naming). A
-`Corner` still takes no `across=`.
+`Part` or a `Cell`: the point lies on the centre line of that item's box. A
+`Run` and a label take none (a run's middle is `Along.MID` of its box
+already; a label has no axis worth naming). A `Corner` still takes no
+`across=`.
 
 `lane=` stays Beside's alone. In `Beside`'s align a Past takes pads (as
-today), cutouts, keepouts, board-edge runs, parts and cells. The own pad
-stands past them by the same per-group rule with the own pad's net in the
-track's place: copper to a cutout or a run is `edge_clearance`, to a
-keepout or an envelope 0. With `lane=` a net, each group's distance is
+today), cutouts, board-edge runs, parts and cells. The own pad stands past
+them by the same per-group rule with the own pad's net in the track's
+place: copper to a cutout or a run is `edge_clearance`, to an envelope 0.
+With `lane=` a net, each group's distance is
 `stand-off(group, lane) + lane width + clearance(lane, own pad)`, the form
 `_lane_distance` uses for pads; the Corner form in that branch takes the
-same per-group reach. Vias, tracks, rule areas and labels stay refused in
-Beside's align: copper is not planned yet, a cell's rule area moves with a
-cell that may be searched, and a label gives way to parts placed after it.
+same per-group reach. Vias, tracks and labels stay refused in Beside's
+align: copper is not planned yet, and a label gives way to parts placed
+after it.
 
 ## When each kind is resolved
 
 A Past is resolved inside the plan of the copper that holds it. Fixed
 copper is planned once the firm pass (`place_ranked(RANK_FIXED, RANK_EDGE)`,
-layout.py 7405) has put down every decided item and then every hole and
-keepout with a freedom ("holes first", layout.py 7386); copper whose owners
-include a searched part is planned after the search. The copper rooms the
-search keeps (`_rooms_after`) run the same plan, so they see the same point.
+layout.py 7405) has put down every decided item and then every hole with a
+freedom ("holes first", layout.py 7386); copper whose owners include a
+searched part is planned after the search. The copper rooms the search
+keeps (`_rooms_after`) run the same plan, so they see the same point.
 
 | kind | known | the copper waits by |
 |---|---|---|
 | cutout at a decided place | at declaration (`_settled_cutouts`) | nothing |
 | cutout with a freedom (`Near`, a free axis) | in the firm pass, before any copper | nothing: every hole is down before copper is planned |
 | board-edge run | at declaration | nothing |
-| keepout | in the firm pass; one shaped from a part (`region_of`) when that part is | the part, through `_refs_in` |
-| rule area of the generated board | at declaration | nothing |
-| rule area of a cell | when the cell is placed | the cell's members, as owners |
 | part or cell envelope | when it is placed | the item, through `_refs_in` (it already treats a Part or Cell as a ref) |
 | label | when its item is placed, and again whenever it gives way | the copper is planned after the search (`_late_copper`) |
 
@@ -192,11 +177,6 @@ Copper naming a label is planned late because a label gives way to every
 part placed after it (`_labels_give_way`), so only after the search is its
 place final. Such copper is no obstacle to the search; a label is silk, and
 nothing needs that copper to be.
-
-A cell's rule area is read where it stands: occupancy keeps a placed
-polygon only for rule areas that exclude parts (`_cell_rule_areas`,
-occupancy.py 573 and 1376). It must keep one for every rule area of the
-cell, moved by the same transform in `_commit_cell`.
 
 ## Layers
 
@@ -206,17 +186,102 @@ What the layer changes is the corner verdict (`copper.corner`), which
 judges only the groups whose rule applies on the track's layer:
 
 - a cutout and the board edge cut every layer, so always;
-- a keepout or rule area on the layers it covers (`layers=None`: all), and
-  only where it excludes the copper's kind and its net is not let through;
 - an envelope and a label never (their stand-off is 0 and no rule judges
   them against copper);
 - copper as today.
 
-So a B.Cu track past a keepout that covers F.Cu alone takes its point off
-the keepout's outline and draws no corner finding against it. A B.Cu track
-past a part on the front takes its point off the part's envelope and its
-pads' clearance, and the corner verdict judges only the pads on B.Cu (a
-through-hole pad's copper is on both).
+So a B.Cu track past a part on the front takes its point off the part's
+envelope and its pads' clearance, and the corner verdict judges only the
+pads on B.Cu (a through-hole pad's copper is on both).
+
+## Copper near a hole or the edge
+
+Declared copper that comes nearer the board's outline, a cutout or a
+drilled hole than the board's rules allow is a finding when the copper is
+planned. Today only DRC reports it, after the board is written. The copper
+is still drawn, as it is for `copper.meets` and `copper.keepout`: the
+finding names the declaration, and the script moves it.
+
+**What is judged.** Every op `_plan_copper_batch` lays (layout.py 8484):
+a track's pieces after bridging, a via, a pour (fitted or not), and a
+finger's pieces. A `Zone` (a plane) is skipped, as the loop already skips
+it for `copper.meets`: KiCad's filler pulls a zone back from the edge and
+from holes itself. The copper an adopted route draws, and the tails of
+vias that gave way, are not declared copper and are not judged here.
+
+**Where it sits.** In the loop over `all_ops` in `_plan_copper_batch`
+(layout.py 8561-8597), beside the `occ.copper_conflicts(shape, check=True)`
+call, on the same `shape = _shape_of(op)`: the copper's real outline,
+width included (a track's polygon, a via's ring, a pour's polygon grown by
+half its stroke). It runs only in that batch, so the copper rooms the
+search plans dry raise nothing.
+
+**The edge.** Each loop of `_edge_loops(occ)` (layout.py 11292): the
+outline and every cutout, named or raw. The gap is `loop_gap(shape.poly,
+loop)` (cutouts.py 312), the shortest distance between the copper's outline
+and the loop; copper that crosses the loop has gap 0, and so does copper
+wholly inside a hole or outside the outline (tested by `cutouts.inside` on
+one of its points). The rule is `EDGE_CLEARANCE_CONSTRAINT`, KiCad's
+`copper_edge_clearance`, `geometry.edge_clearance`
+(`drc_test_provider_edge_clearance.cpp`, `testAgainstEdge`, which collides
+the copper's shape with each Edge.Cuts shape at the clearance less
+`m_epsilon`). A loop's chords stand up to `geometry.arc_sag` inside its
+arcs, so where the loop has arcs the need is the clearance plus
+`geometry.arc_sag`, as `_cutout_silk` holds silk. The gap is compared with
+`occ.clear_limit(need, check=True)`, which takes KiCad's DRC epsilon off as
+the other copper findings do.
+
+**Drilled holes.** A part's plated holes (`hole_shape`, kind `hole`) and
+its unplated holes (kind `npth`) are already in the occupancy, and
+`Occupancy._conflict` already judges them against copper:
+`_hole_conflict` (occupancy.py 2396) at `HOLE_CLEARANCE_CONSTRAINT`,
+KiCad's `hole_clearance` (`geometry.hole_clearance`), skipping a plated
+hole of the copper's own net; and the NPTH branch (occupancy.py 2355),
+`npth_cuts` where they overlap and `npth_near` under the hole clearance.
+What leaves them out of the finding is `copper_conflicts`'s filter to pads
+and copper (occupancy.py 979). The check passes a part's `hole` and `npth`
+shapes as well when `check=True`; placement's own calls keep the filter.
+A via's hole is in `occ.copper` already and is judged there today. These
+hits are `copper.meets`, the cause a via's hole against copper already
+gives, with their refusal (`hole_copper`, `npth_near`, `npth_cuts`), which
+carries the hole, the gap and the need. placemat reads an NPTH as round
+(`Footprint.npth`, a centre and a drill), so KiCad's edge rule for an oval
+NPTH (`drc_test_provider_edge_clearance.cpp` 388-393, an NPTH whose drill is
+not round is an edge) does not apply here.
+
+**The finding.** `copper.edge` (`FindingCause.COPPER_EDGE`, kind
+`copper`), one per op and loop.
+
+Severity: critical, the copper kind's default. Recommended because
+`copper_edge_clearance` is one of the DRC kinds a board is judged by
+(`DEFAULT_REAL_KINDS`, settings.py 25), so the board fails on it whatever
+placemat says; the finding says so earlier and names the declaration.
+
+Facts:
+
+| fact | value |
+|---|---|
+| `key` | the declaration's `copper_id`, as `copper.meets` finds it |
+| `net` | the copper's net |
+| `word` | `track`, `via`, `pour` or `finger` |
+| `layer` | the op's layer name, `""` for a via |
+| `obstacle` | `{"form": "outline"}` or `{"form": "cutout", "name": ...}`, the name `None` for a raw hole |
+| `inside` | true when the copper lies wholly inside a hole or outside the outline |
+| `at` | the copper point nearest the loop, (x, y) |
+| `gap_mm` | the gap measured |
+| `need_mm` | `geometry.edge_clearance` |
+| `rule` | `copper_edge_clearance` |
+
+Rendered in finding_text.py beside `copper.meets`:
+
+> track VBUS on B.Cu: 0.00 mm from cutout "vent" at (18.62, 12.40), under
+> the board's 0.50 mm copper-to-edge clearance
+
+with "the board's edge" for the outline, and "lies inside cutout "vent""
+or "lies off the board" when `inside` is true. Its suggestion, like
+`copper.meets`'s, points at the declaration; for a track whose script
+names no Past for that cutout, it offers one (`Past([vent], Edge.X)` on the
+side the track's nearest point lies).
 
 ## Errors
 
@@ -224,34 +289,32 @@ Declaration errors (`TypeError`/`ValueError`, raised by `Past` or by
 `_check_past`), each naming the item:
 
 - an item of another kind: the message lists the kinds;
-- a `Cutout` that is not one of this board's named cutouts, a keepout or a
-  label of another board, a rule area name the board does not carry (the
-  message lists the names, by cell);
+- a `Cutout` that is not one of this board's named cutouts, a label of
+  another board;
 - a `Run` whose `Edge` or `Corner` points into its void, with the side that
   would stay on the board;
 - `across=` a run or a label;
-- in `Beside`'s align, a via, a track, a rule area or a label; and a
-  cutout or keepout with a freedom, since a `Beside` placement is firm and
-  goes down before the board slides its holes.
+- in `Beside`'s align, a via, a track or a label; and a cutout with a
+  freedom, since a `Beside` placement is firm and goes down before the
+  board slides its holes.
 
-Findings at plan time: the copper is not drawn, with
-`copper.not_drawn` variant `past` as today, and its `why` a new refusal:
+Findings at plan time: the copper is not drawn, with `copper.not_drawn`
+variant `past` as today, and its `why` a new refusal:
 
 | code | when | facts |
 |---|---|---|
 | `past_cutout_unplaced` | the cutout found no place (`fixed.cutout`) | `name` |
-| `past_keepout_unplaced` | the keepout has no place | `name` |
 | `past_item_unplaced` | the part or cell found no place | `item` |
 | `past_label_not_drawn` | the label was not drawn (`label.not_drawn`) | `key` |
 | `past_off_board` | the point lies off the board or in a hole | `at`, `edge`, `names` |
 
-`past_off_board` is new for every Past, copper alone included, and is what
-a whole-region Past over a band at the rim gives. Each refusal is rendered
-in refusals.py beside the four `past_*` codes there now.
+`past_off_board` is new for every Past, copper alone included. Each
+refusal is rendered in refusals.py beside the four `past_*` codes there
+now.
 
 ## Testing
 
-Synthetic boards (`tests/fixtures.board_geometry`), one file
+Synthetic boards (`tests/fixtures.board_geometry`). Past in
 `tests/test_past_obstacles.py`, each case asserting the exact point:
 
 - **Cutout.** A round hole and a slot: `Past([hole], Edge.WEST)` is
@@ -261,11 +324,6 @@ Synthetic boards (`tests/fixtures.board_geometry`), one file
 - **Board edge.** `Past([board.edge(facing=Edge.WEST)], Edge.EAST)` is
   `edge_clearance + w/2` inboard; `Edge.WEST` there is refused; a run of a
   round board's rim takes the grown box.
-- **Keepout.** A rectangle keepout: the copper's edge on its outline; one
-  shaped from a part follows the part; one not excluding tracks gives the
-  same point.
-- **Rule area.** A generated-board rule area, and a cell's rule area after
-  the cell is turned and placed.
 - **Envelope.** A part whose pad reaches nearer its courtyard than the
   clearance: the pad's clearance wins; a searched part makes the copper
   wait for it.
@@ -279,9 +337,8 @@ Synthetic boards (`tests/fixtures.board_geometry`), one file
 - **Unchanged.** Every case in `test_past_copper.py`, `test_past_corner.py`,
   `test_past_corner_layer.py` and `test_beside_lane.py` passes unchanged,
   and the bench tallies match the baseline.
-- **Layers.** A B.Cu track past an F.Cu-only keepout: the point off the
-  keepout, no corner finding; past a front part: the B.Cu pads alone judged
-  at the corner.
+- **Layers.** A B.Cu track past a front part: the point off its envelope
+  and its pads; the B.Cu pads alone judged at the corner.
 - **across=.** On a cutout's centre line, in a mix with a pad.
 - **Beside.** `align=(own_pad, Past([cutout], Edge.WEST, lane=Net(...)))`
   stands the own pad `edge_clearance + lane width + clearance` off the hole;
@@ -290,9 +347,28 @@ Synthetic boards (`tests/fixtures.board_geometry`), one file
   and facts.
 - **The reported case.** A 3 A track on B.Cu from a pad west of a 1.5 mm
   round vent placed `Near` a pad, `Past([vent], Edge.WEST)`: the point is
-  where the formula says, and KiCad's DRC on the written board reports no
-  `copper_edge_clearance`. Then on the module that reported it, as a
-  fixture, before release.
+  where the formula says, no `copper.edge` finding, and KiCad's DRC on the
+  written board reports no `copper_edge_clearance`. Then on the module that
+  reported it, as a fixture, before release.
+
+The edge check in `tests/test_copper_edge.py`:
+
+- **The reported case.** The same board with the track drawn straight
+  across the vent: one `copper.edge` finding, critical, with `key` the
+  track's, `layer` `B`, `obstacle` the cutout `vent`, `gap_mm` 0.0 and
+  `need_mm` the board's `edge_clearance`; the track is in `plan.copper`.
+- A track 0.1 mm inside the clearance from a straight outline side gives
+  the finding with that gap; one exactly at the clearance gives none.
+- A via wholly inside a cutout: `inside` true, gap 0.
+- A track near a round cutout at the clearance plus half `arc_sag`: a
+  finding (the arc's allowance), and none at the clearance plus `arc_sag`.
+- A pour, fitted and declared by points, against the outline; a plane gives
+  none.
+- A track under `hole_clearance` from a part's NPTH, and from a plated hole
+  of another net: `copper.meets` with `npth_near` and `hole_copper`; a
+  plated hole of the track's own net gives none.
+- Placement unchanged: the bench tallies match the baseline, since only the
+  checking path widens `copper_conflicts`.
 
 ## Docs
 
@@ -303,65 +379,66 @@ Edge.EAST, across=None)`" becomes:
 > of some items. `items` are pads (`PadRef`/`CellPadRef`), vias, tracks,
 > cutouts (the `Cutout` given to `holes=`, or `board.cutout(name)`),
 > stretches of the board edge or of a hole (`board.edge(facing=)`,
-> `board.cutout(name).edge(side=)`), keepouts, rule areas
-> (`board.rule_area(name, cell=)`), parts and cells, and labels (the key
+> `board.cutout(name).edge(side=)`), parts and cells, and labels (the key
 > `board.label()` returns), in any mix. Each is read as its box. The point
 > stands half the track's width plus the pair's rule off each: the net-pair
 > clearance from copper, the board's copper-to-edge clearance from a hole or
-> the edge, nothing from a keepout's or a part's outline (a part's pads keep
-> their clearance) or a label's (a via keeps the silk clearance). Off a
-> stretch of edge the point is on the board's side of it. `across=` a pad, a
-> via, a cutout, a keepout, a rule area, a part or a cell puts the point on
-> its centre line, an `Along` at that point of the combined box's side. The
-> point waits for what it names to be placed or planned; copper past a label
-> is planned after the search. A Past whose item found no place, or whose
-> point lands off the board, is not drawn, and the finding says which.
+> the edge, nothing from a part's envelope (its pads keep their clearance)
+> or a label (a via keeps the silk clearance). Off a stretch of edge the
+> point is on the board's side of it. `across=` a pad, a via, a cutout, a
+> part or a cell puts the point on its centre line, an `Along` at that point
+> of the combined box's side. The point waits for what it names to be
+> placed or planned; copper past a label is planned after the search. A
+> Past whose item found no place, or whose point lands off the board, is
+> not drawn, and the finding says which.
 
 The Corner paragraph adds that each item's corner is passed at least at its
 own stand-off. The Beside paragraph at api.md 874 replaces "the Past takes
 pads only" with the kinds Beside's align takes and why the others are
 refused. The quick-reference rows at api.md 121, 122 and 125 add
 `Past([vent], Edge.WEST)` and `Past([board.edge(facing=Edge.WEST)],
-Edge.EAST)`. `board.rule_area(name, cell=)` gets its entry under the
-keepout section.
+Edge.EAST)`.
+
+A paragraph after "Lane waypoints", **Copper near a hole or the edge**:
+
+> Declared copper (a track, a via, a pour, a finger) nearer the board's
+> outline or a cutout than the board's copper-to-edge clearance is a
+> `copper.edge` finding when it is planned, naming the declaration, the
+> hole or the edge, the gap and the clearance. Copper nearer a part's
+> drilled hole than the hole clearance is `copper.meets`, as a via's hole
+> is. The copper is drawn either way; a `Past` off the cutout or the edge
+> is the usual way to move it. A plane is not judged: KiCad's fill keeps
+> its own clearance.
+
+`copper.edge` gets its row in the findings table beside `copper.meets`.
 
 **migration.md, under "Unreleased", "New":**
 
 > - **Past passes any obstacle.** `Past(items, edge)` and `Past(items,
->   Corner.X)` take cutouts, stretches of the board edge, keepouts, rule
->   areas (`board.rule_area(name, cell=)`, new), parts and cells, and
->   labels, as well as pads, vias and tracks. The point keeps the board's
->   copper-to-edge clearance off a hole or the edge, and stands on a
->   keepout's, an envelope's or a label's outline. A track that had to pass
->   a cutout with a hand-placed point can name the cutout. A Past whose point
->   lands off the board is now a `copper.not_drawn` finding
->   (`past_off_board`). Past over pads, vias and tracks alone resolves as
->   before. `board.label()` returns a `LabelKey`, a `str`, so scripts that
->   use the key as text need no change.
+>   Corner.X)` take cutouts, stretches of the board edge, parts and cells,
+>   and labels, as well as pads, vias and tracks. The point keeps the
+>   board's copper-to-edge clearance off a hole or the edge, and stands on
+>   an envelope's or a label's outline. A track that had to pass a cutout
+>   with a hand-placed point can name the cutout. A Past whose point lands
+>   off the board is now a `copper.not_drawn` finding (`past_off_board`).
+>   Past over pads, vias and tracks alone resolves as before.
+>   `board.label()` returns a `LabelKey`, a `str`, so scripts that use the
+>   key as text need no change.
+> - **Copper near a hole or the edge is a finding.** Declared copper nearer
+>   the outline or a cutout than the board's copper-to-edge clearance is a
+>   critical `copper.edge` finding when it is planned, and copper nearer a
+>   part's drilled hole than the hole clearance is `copper.meets`. Both
+>   were DRC failures before and still are; a run now reports them itself,
+>   naming the declaration, so a board that passed its findings may now
+>   show these. The copper is still drawn.
 
 ## API changes
 
 - `values.Past.__post_init__` accepts the new kinds; its error lists them.
-- `Board.rule_area(name, cell=None) -> RuleAreaHandle`, matched on
-  `RuleArea.base` and `RuleArea.cell`.
 - `board.label()` returns `LabelKey`, a `str` subclass, so a label can be
   told from any other string in `Past`.
 - `Run` gains nothing: its `facing` already says which side the void is
   on.
-
-## Open question
-
-**A band region's inner side.** A seal land round the rim is a keepout (or
-rule area) whose box is the board's, so a whole-region Past over it is
-useless. Recommended: in this part, add `.edge(side=)` and `.edges(side=)`
-to keepout handles and `RuleAreaHandle`, returning `Run`s of the region's
-boundary as `CutoutHandle.edge(side=)` does (a promise when the region has
-no place yet, settled before any copper), with `facing` into the region,
-so `Past([seal.edge(side=Edge.EAST)], Edge.EAST)` keeps a track inboard
-of the band. Without it a band can only be passed with a `Location`.
-
-**A track's legs against a hole.** Today only DRC reports a declared track
-that comes nearer a hole or the edge than the copper-to-edge clearance;
-the planner checks legs against other copper only. Recommended: a
-separate, small change that makes it a plan-time finding, since a Past
-fixes the waypoint but not the legs either side of it.
+- `FindingCause.COPPER_EDGE`, `copper.edge`.
+- `Occupancy.copper_conflicts(check=True)` judges a part's `hole` and
+  `npth` shapes as well.
