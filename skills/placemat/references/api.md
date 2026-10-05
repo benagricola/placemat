@@ -4165,7 +4165,7 @@ Spread on the 3D bar pulls the stack apart, so each copper layer stands clear of
 angle: each layer moves `3d_spread_mm` (4) further from the next over `3d_spread_ms` (450), the middle of the stack staying where it is.
 The vias stretch through the spread, the markers and the congestion sheet ride on their layers, front parts ride above the top layer and
 back parts below the bottom one. The board body fades out while the layers part, and each layer gets the board's outline at its height,
-filled faintly and edged. Spread again closes the stack; the choice is kept across views.
+edged, and filled solid or faintly as Solid | See-through says. Spread again closes the stack; the choice is kept across views.
 
 - **Plan document** (`version` 2, all additive): each member of an item has `models`, one entry per model of the footprint: `{id, state, name,
   opacity, why, matrix}`. `state` is `ok`, `vrml` (a VRML model with no STEP beside it, read by placemat itself), `none`, `missing` (`why` says

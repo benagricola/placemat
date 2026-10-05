@@ -19,6 +19,8 @@ section for each hand-written pattern a newer form replaces.
 - **The studio's replay draws copper at the step that laid it.** A plan's replay hid all the copper until its last
   step, then showed it at once; each track, via and pour now shows from its own step on, in 2D and 3D, as a route's
   replay already did.
+- **Solid works on the studio's spread 3D layers.** With the layers spread, Solid and See-through drew the same faint
+  layer sheets; Solid now fills each layer's sheet opaque, as it draws the closed board.
 
 ## To 0.99.18
 

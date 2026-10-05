@@ -11,7 +11,7 @@ import { OrbitControls } from "./OrbitControls.js";
 const css = (n, d) => (getComputedStyle(document.documentElement).getPropertyValue(n) || "").trim() || d;
 const dark = () => matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
 
-import { parsePmm, upper, partSteps, plateOutline, layerStack, drawHeight, spreadHeight, spreadLift, viaSpan, trackPolys, visibleRanges, copperShown, findingLayer, pickMarks } from "./viewer_core.js";
+import { parsePmm, upper, partSteps, plateOutline, layerStack, drawHeight, spreadHeight, spreadLift, bodyLook as lookOf, viaSpan, trackPolys, visibleRanges, copperShown, findingLayer, pickMarks } from "./viewer_core.js";
 export { parsePmm };
 
 function hatch(color) {
@@ -114,10 +114,7 @@ export async function mount(host) {
     buildSheets(outer, loops);
     bodyLook();
   }
-  // Spread, the body fades out and each copper layer gets a sheet of its own: the board's outline at the layer's height, filled faintly
-  // and edged, so each layer reads as a plane of its own. A body cut into slabs between the layers would stack five translucent volumes over
-  // every inner layer seen at an angle and wash its copper out; one faint sheet per layer does not.
-  const SHEET_OPACITY = 0.1, SHEET_EDGE_OPACITY = 0.7;
+  // Spread, the body fades out and each copper layer gets a sheet of its own (bodyLook in studio_3d_core.js says how each is drawn).
   function clearSheets() {
     for (const s of state.sheets) state.root.remove(s);
     if (state.sheets.length) { state.sheets[0].geometry.dispose(); state.sheets[0].children[0].geometry.dispose(); }
@@ -142,24 +139,24 @@ export async function mount(host) {
       state.root.add(s); state.sheets.push(s);
     }
   }
-  // Solid, or see-through: the body translucent, so the inner layers' copper shows through it.
+  // Solid, or see-through: the body translucent, so the inner layers' copper shows through it; spread, the layers' sheets solid or faint.
   // The body is a volume round every layer, so no order of drawing puts it rightly behind and in front of them all: it is drawn first of the
-  // translucent things, over the opaque copper inside it, and the zones' translucent fills after it. See-through, it takes the 2D
-  // drawing's substrate colour, so the layers' colours read against it as they do in 2D (the inner layers' green would not, on green).
-  const SEE_OPACITY = 0.3;
+  // translucent things, over the opaque copper inside it, and the zones' translucent fills after it.
   function bodyLook() {
-    const k = state.spreadK, t = state.theme;
+    const t = state.theme, look = lookOf(state.bodyMode, state.spreadK), sh = look.sheet, b = look.body;
     for (const s of state.sheets) {
-      s.visible = k > 0;
-      s.material.opacity = SHEET_OPACITY * k; s.children[0].material.opacity = SHEET_EDGE_OPACITY * k;
-      s.material.color.set(t.body); s.children[0].material.color.set(t.edge);
+      const sm = s.material;
+      s.visible = sh.visible;
+      if (sm.transparent !== sh.transparent || sm.depthWrite !== sh.depthWrite) { sm.transparent = sh.transparent; sm.depthWrite = sh.depthWrite; sm.needsUpdate = true; }
+      sm.opacity = sh.opacity; s.children[0].material.opacity = sh.edge;
+      sm.color.set(t[sh.colour]); s.children[0].material.color.set(t.edge);
     }
     if (!state.body) return;
-    const m = state.body.material, see = state.bodyMode === "see", clear = see || k > 0;
-    m.transparent = clear; m.opacity = (see ? SEE_OPACITY : 1) * (1 - k); m.depthWrite = !clear; m.needsUpdate = true;
-    m.color.set(see ? t.substrate : t.body);
-    state.body.renderOrder = clear ? -1 : 0;
-    state.body.visible = k < 1;
+    const m = state.body.material;
+    m.transparent = b.transparent; m.opacity = b.opacity; m.depthWrite = b.depthWrite; m.needsUpdate = true;
+    m.color.set(t[b.colour]);
+    state.body.renderOrder = b.order;
+    state.body.visible = b.visible;
     request();
   }
   // A grid under the whole scene, as the 2D view has: a part that stands off the board (a part the generator left in its staging area) is

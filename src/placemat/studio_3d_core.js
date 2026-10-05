@@ -84,6 +84,18 @@ export function spreadHeight(stack, name, k, gap) {
   if (i < 0) return null;
   return drawHeight(stack, name) + k * gap * ((n - 1) / 2 - i);
 }
+// How the board body and each layer's sheet are drawn, in mode "solid" or "see" (see-through) at spread k (0 closed, 1 open). Spread, the body
+// fades out and each copper layer gets a sheet of its own: the board's outline at the layer's height, edged, so each layer reads as a plane of
+// its own: solid, the sheets are opaque, as the closed body is; see-through, they are faint. A body cut into slabs between the layers would
+// stack five translucent volumes over every inner layer seen at an angle and wash its copper out; one sheet per layer does not. See-through, the body takes the 2D drawing's substrate colour ("substrate"; "body" is the solid
+// colour), so the layers' colours read against it as they do in 2D. `order` is the body's render order: translucent, it is drawn first of the
+// translucent things, over the opaque copper inside it.
+export const SEE_OPACITY = 0.3, SHEET_OPACITY = 0.1, SHEET_EDGE_OPACITY = 0.7;
+export function bodyLook(mode, k) {
+  const see = mode === "see", clear = see || k > 0, sheet = (see ? SHEET_OPACITY : 1) * k;
+  return {body: {visible: k < 1, opacity: (see ? SEE_OPACITY : 1) * (1 - k), transparent: clear, depthWrite: !clear, colour: see ? "substrate" : "body", order: clear ? -1 : 0},
+          sheet: {visible: k > 0, opacity: sheet, edge: SHEET_EDGE_OPACITY * k, transparent: sheet < 1, depthWrite: sheet >= 1, colour: "body"}};
+}
 // How far the top layer has risen (the bottom one sunk) at spread k: front parts ride on the top layer, back parts under the bottom one.
 export const spreadLift = (stack, k, gap) => k * gap * Math.max(stack.layers.length - 1, 0) / 2;
 
