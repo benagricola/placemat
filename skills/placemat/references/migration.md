@@ -12,9 +12,10 @@ section for each hand-written pattern a newer form replaces.
 - **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name,
   Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the
   fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant
-  `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings:
-  `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`,
-  `place.extent_notice_mm`, `score.arrangement`.
+  `Layout` and explore's variants are other things. A module that declares none lays out as before, and its run may now
+  give `arrangement.extent_fixed` notices for members standing more than `place.extent_notice_mm` past the next.
+  New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`,
+  `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
 - **A board searches the arrangements of the modules it stamps.** `arrangements=` on a cell's `board.place()` is an id
   or a list of ids; with none, the search tries the module's own layout (`"default"`) and every arrangement the module
   offers, and takes another only when it beats the default by `place.arrangement_margin` (0.5 mm). A board that stamps a

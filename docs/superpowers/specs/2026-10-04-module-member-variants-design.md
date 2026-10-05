@@ -344,8 +344,9 @@ Firm passes and declared copper room. The firm phase repeats while the dry plan 
 (`place.firm_passes`, `_Redo`). The arrangement a firm cell takes is decided inside each pass, from what that pass
 has placed and the provisional copper (`_room_seed`) it was seeded with, and the dry plan is made from the
 arrangement taken. A pass is settled when its ops are where they were and every firm cell took the arrangement it
-took in the pass before. The choice is carried between passes like the Beside swaps are (`_swaps`): the arrangement
-taken by each firm cell is part of what a run hands the next. A cell whose arrangement still changes at the last
+took in the pass before. Each pass chooses afresh; the arrangement taken by each firm cell is part of what a run
+hands the next (`_Redo.arr`), as the Beside swaps are (`_swaps`), and the next pass compares its own choice with it. A
+cell whose arrangement still changes at the last
 pass keeps that pass's, and `fixed.room_unsettled` names it with the arrangement ids that alternated. Firm items
 placed relative to the cell (`Beside` it, a rider) are placed after it is, against the arrangement it took; they do
 not influence the choice.
@@ -442,7 +443,7 @@ step does.
 
 ## Interactions
 
-- **Declared copper room.** A firm cell's arrangement is chosen in each firm pass and carried between passes (see
+- **Declared copper room.** A firm cell's arrangement is chosen in each firm pass and compared between passes (see
   "A firm cell"); the dry plans see the arrangement taken. For a searched cell, declared copper whose ends become placed (Decision 2 of the copper-room spec)
   is dry-planned from the committed arrangement's pads. The reuse digest of a firm step includes the arrangement
   it took, because the placement does.

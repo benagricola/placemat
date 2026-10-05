@@ -1250,8 +1250,8 @@ none is legal the cell stands in its default, where its declaration puts
 it, or in the first arrangement `arrangements=` names when the default was
 not tried, and `fixed.part` is raised as for any firm collision; its
 `arrangements` fact lists every other arrangement's refusal, each as `id`
-and `why`. The arrangement a firm cell took is carried into the next firm
-pass. The passes settle only when each such cell took in a pass the
+and `why`. Each firm pass chooses a firm cell's arrangement afresh, and
+the choice is compared with the one the pass before took. The passes settle only when each such cell took in a pass the
 arrangement it took in the one before, so in the first pass, which has none
 before it, a board with such a cell runs a second pass. A cell that still
 changes between the last two passes raises `fixed.room_unsettled` with

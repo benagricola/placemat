@@ -733,9 +733,11 @@ for when a board struggles. A module is not finished until:
 - the last run's `arrangement.extent_fixed` notices are all answered by one
   of the two, and no declared alternative is refused.
 
-Only a part placed with its own `place()` takes an alternative; a member of
-a row, ring or block does not. Place a member whose side is free with
-`place()` beside its partner, so it can have one.
+Only a part placed with its own `place()` takes an alternative. A row's
+or ring's members move together through a named group
+(`board.arrangement`), not by `alternative`, and a block's members take
+none. Place a member whose side is free with `place()` beside its
+partner, so it can have one.
 
 - **Members that set the extent first.** The members that set a module's
   outline (a bulk capacitor, a connector, an inductor or a tall part
