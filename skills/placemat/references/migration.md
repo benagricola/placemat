@@ -5,13 +5,30 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name,
+  Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the
+  fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant
+  `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings:
+  `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`,
+  `place.extent_notice_mm`, `score.arrangement`.
+- **A board searches the arrangements of the modules it stamps.** `arrangements=` on a cell's `board.place()` is an id
+  or a list of ids; with none, the search tries the module's own layout (`"default"`) and every arrangement the module
+  offers, and takes another only when it beats the default by `place.arrangement_margin` (0.5 mm). A board that stamps a
+  module with offered arrangements therefore searches them by default, and its placements can change.
+  `arrangements="default"` holds the module's own layout, and `place.arrangements = false` turns the search off for the
+  board. A module offers arrangements only once it has been run again (a re-run writes its notes into the fragment); a
+  module run before this keeps its default alone. A firm cell tries its arrangements at its spot; with none legal it
+  stands in its default with a `fixed.part` finding listing each refusal, and one whose choice does not settle between
+  firm passes raises `fixed.room_unsettled`. The lock and `placemat freeze` hold the arrangement a cell stood in; freeze
+  writes `arrangements="default"` for a cell locked in its default that offers any, and a lock entry whose arrangement
+  is gone is released with an `arrangement.missing` warning. An explore draws among arrangements as it does among spots.
+  `reuse.VERSION` is 5, so the first run after upgrading replays nothing. New setting: `place.arrangement_margin`.
+
 ## To 0.99.14
-
-### Added
-
-- **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name, Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
-
-- **A board searches the arrangements of the modules it stamps.** `arrangements=` on a cell's `board.place()` is an id or a list of ids; with none, the search tries the module's own layout (`"default"`) and every arrangement the module offers, and takes another only when it beats the default by `place.arrangement_margin` (0.5 mm). A board that stamps a module with offered arrangements therefore searches them by default, and its placements can change. `arrangements="default"` holds the module's own layout, and `place.arrangements = false` turns the search off for the board. A module offers arrangements only once it has been run again (a re-run writes its notes into the fragment); a module run before this keeps its default alone. A firm cell tries its arrangements at its spot; with none legal it stands in its default with a `fixed.part` finding listing each refusal, and one whose choice does not settle between firm passes raises `fixed.room_unsettled`. The lock and `placemat freeze` hold the arrangement a cell stood in; freeze writes `arrangements="default"` for a cell locked in its default that offers any, and a lock entry whose arrangement is gone is released with an `arrangement.missing` warning. An explore draws among arrangements as it does among spots. `reuse.VERSION` is 5, so the first run after upgrading replays nothing. New setting: `place.arrangement_margin`.
 
 ### New
 
