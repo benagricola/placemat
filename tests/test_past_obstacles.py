@@ -241,3 +241,48 @@ def test_a_fragments_frame_is_no_edge_for_a_past():
     b.via(Net("SIG"), at=Past([PadRef(Part("pa"), 1)], Edge.WEST), size=0.6)
     (v,) = _vias(b.resolve(), "SIG")
     assert v.at.x == pytest.approx(-0.4, abs=1e-9)                        # 0.1 - 0.2 - 0.3, past the frame, drawn
+
+
+def test_a_stretch_of_another_boards_hole_is_refused():
+    def board():
+        return _board(holes=[Cutout(Circle(1.5), "vent", at=Location(20.0, None), why="air")])
+    b, other = board(), board()
+    with pytest.raises(TypeError, match="a stretch of cutout 'vent' is another board's"):
+        b.via(Net("SIG"), at=Past([other.cutout("vent").edge(side=Edge.SOUTH)], Edge.SOUTH), size=0.6)
+    b.via(Net("SIG"), at=Past([b.cutout("vent").edge(side=Edge.SOUTH)], Edge.SOUTH), size=0.6)
+
+
+# ---------------------------------------------------------------- copper alone, as before
+def _copper_only_points():
+    """Every point Past gives over pads, vias and tracks alone in one plan: vias' centres and tracks' ends, in plan
+    order."""
+    pa = _part("PA", "pa", "GND", 10.0, 10.0)
+    pb = _part("PB", "pb", "VBUS", 14.0, 12.5, w=1.2, h=0.8)
+    b = _board([pa, pb])
+    v1 = b.via(Net("GND"), at=Location(20.0, 10.0), size=0.6)
+    t1 = b.track(Net("VBUS"), [Location(20.0, 20.0), Location(26.0, 20.0)], layer=CopperLayer.F, width=0.5)
+    a, c = PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)
+    for p in (Past([a], Edge.EAST), Past([a, c], Edge.NORTH, across=c), Past([v1], Edge.SOUTH),
+              Past([t1], Corner.NE), Past([a, v1, t1], Corner.SW), Past([c, v1], Edge.WEST, across=v1),
+              Past([t1], Edge.SOUTH, across=Along.END)):
+        b.via(Net("SIG"), at=p, size=0.6)
+    b.track(Net("SIG"), [Location(2.0, 2.0), Past([a, c], Edge.WEST, across=Along.START), Location(2.0, 28.0)],
+            layer=CopperLayer.F, width=0.3)
+    b.track(Net("SIG"), [Location(30.0, 26.0), Past([t1, v1], Corner.SE), Location(38.0, 26.0)], layer=CopperLayer.B,
+            width=W3A)
+    plan = b.resolve()
+    return [(op.at.x, op.at.y) if isinstance(op, Via) else ((op.start.x, op.start.y), (op.end.x, op.end.y))
+            for op in plan.copper if isinstance(op, (Via, Track)) and op.net == "SIG"]
+
+
+BEFORE_OBSTACLES = [
+    ((2.0, 2.0), (9.15, 9.15)), ((9.15, 9.15), (9.15, 9.5)), ((9.15, 9.5), (9.15, 20.85)), ((9.15, 20.85), (2.0, 28.0)),
+    ((30.0, 26.0), (26.87579, 22.87579)), ((26.87579, 22.87579), (26.87579, 20.87579)),
+    ((26.87579, 20.87579), (32.0, 26.0)), ((32.0, 26.0), (38.0, 26.0)),
+    (11.0, 10.0), (14.0, 9.0), (20.0, 10.805878), (26.603554, 19.396446), (9.146446, 20.603554), (12.9, 10.0),
+    (26.25, 20.75)]
+
+
+def test_past_over_copper_alone_gives_the_points_it_gave_before_obstacles():
+    # BEFORE_OBSTACLES: _copper_only_points at b665cc88, the release before Past took obstacles; exactly equal
+    assert _copper_only_points() == BEFORE_OBSTACLES

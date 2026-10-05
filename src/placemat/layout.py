@@ -632,7 +632,7 @@ class CutoutHandle:
         if not self.settled:
             if kw or side is None:
                 self.edges(side, within, **kw)          # raise the same way for a bad call
-            return CutoutEdge(self.name, side, within)
+            return CutoutEdge(self.name, side, within, board=self._board)
         runs = self.edges(side, within, **kw)
         if len(runs) == 1:
             return runs[0]
@@ -5813,6 +5813,9 @@ class Board:
                 raise TypeError("%s: %s is copper of another board" % (what, it.key))
             if isinstance(it, CutoutHandle) and it._board is not self:
                 raise TypeError("%s: cutout %r is another board's" % (what, it.name))
+            if isinstance(it, CutoutEdge) and it.board is not None and it.board is not self:
+                raise TypeError("%s: a stretch of cutout %r is another board's (board.cutout(name).edge() of that "
+                                "board); take the stretch from this board's cutout" % (what, it.name))
             if isinstance(it, (Cutout, CutoutEdge)) and (
                     it.name not in self._named_cutouts or (isinstance(it, Cutout) and self._named_cutouts[it.name] != it)):
                 raise TypeError("%s: cutout %r is not one of this board's named cutouts (the Cutout given to holes=, or "

@@ -1094,10 +1094,12 @@ class Disc:
 class CutoutEdge:
     """A promise of a stretch of a named cutout's boundary, for a script that
     places something against a hole the board has not settled yet. It is
-    resolved when the item is placed, by which time the cutout is down."""
+    resolved when the item is placed, by which time the cutout is down.
+    `board` is the board that made it, so another board refuses it."""
     name: str
     side: object
     within: float = 45.0
+    board: object = field(default=None, compare=False, repr=False, metadata={"reuse": False})
 
 
 @dataclass(frozen=True)
