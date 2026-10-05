@@ -20,7 +20,7 @@ import time
 from .findings import Finding, FindingCause as C
 
 from .pinmap_core import study
-from .pinmap_input import PlacedPad, PlacedPart, build, placed_from_geometry
+from .pinmap_input import PlacedPad, PlacedPart, build
 from .pinmap_rules import Problem, has_pools, natural
 
 CACHE_VERSION = 1
@@ -184,16 +184,6 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
     if cache is not None:
         _keep(cache, d, found)
     return found, {"seconds": round(time.perf_counter() - t0, 3), "reused": False, "groups": groups, "parts": n_parts}
-
-
-def geometry_findings(geometry, settings, quiet=frozenset(), either=frozenset(), cache=None, step_ms: float = 0.0) -> tuple:
-    """`study_findings` of a board where its file has its parts (a laid board read from disk, a bench case)."""
-    if not has_pools(geometry.footprints):
-        return [], {}
-    from .pairs import board_pairs
-    pads, parts = placed_from_geometry(geometry, either)
-    return study_findings(pads, parts, geometry.pin_names, quiet, board_pairs(geometry.netclasses), geometry.netclasses,
-                          settings, copper_nets(geometry), cache, step_ms)
 
 
 def study_line(record: dict) -> str:

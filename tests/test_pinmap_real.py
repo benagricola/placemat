@@ -41,12 +41,19 @@ def test_on_a_real_board_the_best_map_beats_the_present_one_inside_its_budget_an
 @needs_kicad
 def test_a_second_study_of_the_real_board_is_reused(tmp_path):
     from placemat.findings import FindingCause as C
-    from placemat.pinmap import geometry_findings
+    from placemat.pairs import board_pairs
+    from placemat.pinmap import copper_nets, study_findings
+    from placemat.pinmap_input import placed_from_geometry
     b = bench()
     case = b.cases()[0]
     g = b.board_of(case)
     cache = tmp_path / "pinmap.json"
-    first, r1 = geometry_findings(g, Settings(), frozenset(case["quiet"]), cache=cache)
-    again, r2 = geometry_findings(g, Settings(), frozenset(case["quiet"]), cache=cache)
+
+    def studied():
+        pads, parts = placed_from_geometry(g)
+        return study_findings(pads, parts, g.pin_names, frozenset(case["quiet"]), board_pairs(g.netclasses),
+                              g.netclasses, Settings(), copper_nets(g), cache)
+    first, r1 = studied()
+    again, r2 = studied()
     assert any(f.cause is C.PINS_REMAP for f in first)
     assert (r1["reused"], r2["reused"]) == (False, True) and [str(f) for f in again] == [str(f) for f in first]
