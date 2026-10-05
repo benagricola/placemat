@@ -34,7 +34,7 @@ from .refusals import Code, Refusal, ReservedBy
 from .findings import Finding, FindingCause as C, Findings
 from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
 from .occupancy import LABEL_SOURCE, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
-from .cutouts import Cutouts, Path, _turned, loop_gap, signed_area
+from .cutouts import Arc, Cutouts, Path, _turned, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
@@ -5300,6 +5300,56 @@ class Board:
             if c.coordinates is False:
                 plan.findings.append(self._finding(C.SETUP_CENTRE_FLAG_DEFAULT, {"item": key}, "notice"))
 
+    def _report_cell_labels_at_edge(self, occ: Occupancy, plan: Plan) -> None:
+        """A cell whose place the script decided keeps its labels where they fall (a searched cell's are held off the edge,
+        `Occupancy._silk_edge_why`), and so does a cell inside it that the script does not place: each such label nearer
+        the outline or a cutout than the silk clearance, KiCad's silk_edge_clearance, is a warning naming the nearest edge.
+        The gap is measured to the flattened loop, whose chords may cut `geometry.arc_sag` inside an edge drawn from arcs:
+        that much more is kept from such an edge only."""
+        need = self.geometry.silk_clearance
+        decided = {s.item for s in plan.steps if s.kind == "cell" and s.placement is not None
+                   and s.freedom is not None and s.freedom.decided}
+        if not decided:
+            return
+        placed = {s.item for s in plan.steps if s.kind == "cell" and s.placement is not None}
+
+        def inside_decided(cell) -> bool:       # the cell, or a cell it sits in that is not placed by a step of its own
+            while cell is not None:
+                if cell in decided:
+                    return True
+                if cell in placed:
+                    return False
+                cell = self.geometry.cells[cell].parent if cell in self.geometry.cells else None
+            return False
+        shape = self._shaped()
+        disc = isinstance(self._shape, Disc)
+        sag = self.settings.geometry_arc_sag
+
+        def curved(k) -> bool:                  # the loop is drawn from arcs: a disc's rim and bore, or a path with an Arc leg
+            return (disc and (k == 0 or (k == 1 and self._shape.bore))) or any(isinstance(leg, Arc) for leg in shape.paths[k])
+        limits = [(occ.clear_limit(need) + (sag if curved(k) else 0.0)) if need > 0.0 else 1e-9
+                  for k in range(len(shape.loops))]
+        names = {k: n for n, k in self._cutout_loop_of.items()}
+        for s in occ.copper:
+            if s.kind != "silk" or not inside_decided(s.owner):
+                continue
+            short = []
+            for k, loop in enumerate(shape.loops):
+                # a label off the board, over a hole or covering one stands 0 from its edge; else the gap between the
+                # two boundaries
+                if k == 0:
+                    over = any(not point_in_polygon(p, loop) for p in s.poly)
+                else:
+                    over = any(point_in_polygon(p, loop) for p in s.poly) or any(point_in_polygon(p, s.poly) for p in loop)
+                gap = 0.0 if over else loop_gap(loop, s.poly)
+                if gap < limits[k]:
+                    short.append((gap, k))
+            if short:
+                gap, k = min(short)
+                plan.findings.append(self._finding(C.LABEL_CELL_EDGE, {
+                    "cell": s.owner, "text": s.label, "edge": "outline" if k == 0 else "cutout",
+                    "cutout": names.get(k) if k else None, "gap_mm": round(gap, 6), "need_mm": need}))
+
     def _report_undeclared(self, plan: Plan):
         """A footprint no declaration places - itself, or as a cell's or a
         block's member - stays where the generator put it: say which."""
@@ -7630,6 +7680,7 @@ class Board:
         self._report_undeclared(plan)
         self._report_centres(occ, plan)
         self._report_splits(plan)
+        self._report_cell_labels_at_edge(occ, plan)
         if self._explore is None and self.pin_study:
             self._report_pin_maps(plan)
         self._place_labels(occ, plan, placed, progress, final=True)

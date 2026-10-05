@@ -326,6 +326,7 @@ pub const INTO_BORE: u8 = 6;     // "into the bore's keep-in (%.2f mm)"
 /// `occupancy.FLAT_EDGE_MARGIN`: how far inside the edge a courtyard or body is held.
 pub const FLAT_EDGE_MARGIN: f64 = 2e-5;
 pub const COPPER_EDGE: u8 = 16;  // added to a code that refuses an item's copper, judged at the keep-in
+pub const SILK_EDGE: u8 = 32;    // added to a code that refuses a cell's own silk (a label), judged at the silk clearance
 pub const PAST_MARGIN: u8 = 7;   // "body box %s crosses the board edge margin (%.2f mm)"
 
 /// `Cutouts.why_not`.
@@ -369,6 +370,13 @@ impl Keepin {
     pub fn why_not_flat(&self, b: &B) -> Option<u8> {
         let margin = self.margin?;
         self.why_not_at(b, pmin(margin, FLAT_EDGE_MARGIN))
+    }
+
+    /// As `why_not`, for a box of silk judged at `margin` (the board's silk clearance); a board
+    /// with no edge check allows it.
+    pub fn why_not_silk(&self, b: &B, margin: f64) -> Option<u8> {
+        self.margin?;
+        self.why_not_at(b, margin)
     }
 
     /// `values.Disc.why_not`, `outline.Outline.why_not` and `Cutouts.why_not`

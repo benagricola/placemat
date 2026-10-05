@@ -985,9 +985,12 @@ fn pymax3(a: f64, b: f64, c: f64) -> f64 {
 /// `Occupancy.judged` gives them); without it every part is judged.
 /// `edges` (per turn) and `edge_parts` (per turn, beside `parts`) are what
 /// the edge judges, as `Occupancy._item_edge_why` does: the courtyard and
-/// body box, and the copper's box or None for no copper.
+/// body box, and the copper's box or None for no copper. `silk_edges` (per
+/// turn) are the boxes of a cell's own silk (its labels), judged after them
+/// at `silk_margin`, as `Occupancy._silk_edge_why` does: a = the code plus
+/// `SILK_EDGE`, b = the box, 1-based.
 #[pyfunction]
-#[pyo3(signature = (board, reservations, obstacles, origins, bodies, edges, points, clearance, stop_at_first, scoring=None, parts=None, judged=None, edge_parts=None, yards=None))]
+#[pyo3(signature = (board, reservations, obstacles, origins, bodies, edges, points, clearance, stop_at_first, scoring=None, parts=None, judged=None, edge_parts=None, yards=None, silk_edges=None, silk_margin=0.0))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn sweep(
     py: Python<'_>,
@@ -1005,8 +1008,11 @@ fn sweep(
     judged: Option<Vec<Vec<usize>>>,
     edge_parts: Option<Vec<Vec<(PyBox, Option<PyBox>)>>>,
     yards: Option<Vec<Vec<Option<Vec<Point>>>>>,
+    silk_edges: Option<Vec<Vec<PyBox>>>,
+    silk_margin: f64,
 ) -> PyResult<(Vec<usize>, Vec<f64>, Vec<(u8, i64, i64, usize, usize)>)> {
     let yards = yards.unwrap_or_default();
+    let silk_edges = silk_edges.unwrap_or_default();
     let parts = parts.unwrap_or_default();
     let edge_parts = edge_parts.unwrap_or_default();
     let mut search: Option<PyRefMut<'_, NativeScoring>> = None;
@@ -1115,6 +1121,13 @@ fn sweep(
                         })
                     };
                 }
+            }
+        }
+        if edge_hit.is_none() {
+            if let Some(silk) = silk_edges.get(turn) {
+                edge_hit = silk.iter().enumerate().find_map(|(k, s)| {
+                    board.keepin.why_not_silk(&shift(*s), silk_margin).map(|c| (c | board::SILK_EDGE, k + 1))
+                });
             }
         }
         profile::add(1, t_edge);

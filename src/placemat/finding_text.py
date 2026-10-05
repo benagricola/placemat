@@ -75,6 +75,16 @@ def _label_sits_on(f):
     return "%s: sits on %s" % (label_key(f), ", ".join(f["hits"]))
 
 
+@renders(C.LABEL_CELL_EDGE, "cell", "text", "edge", "cutout", "gap_mm", "need_mm")
+def _label_cell_edge(f):
+    """A label of a cell whose place the script decided, nearer the board edge than the silk clearance. `edge`: "outline"
+    or "cutout"; `cutout`: the cutout's name, None for the outline or an unnamed hole."""
+    where = "the board outline" if f["edge"] == "outline" else \
+        ("cutout %s" % f["cutout"] if f["cutout"] is not None else "a cutout")
+    return "cell %s label %s: %.2f mm from %s, under the %.2f mm silk clearance" % (
+        f["cell"], f["text"], f["gap_mm"], where, f["need_mm"])
+
+
 @renders(C.LABEL_NOT_DRAWN, "item", "text", "waiting")
 def _label_not_drawn(f):
     return "%s: not drawn: %s found no place" % (label_key(f), f["waiting"])

@@ -1515,6 +1515,10 @@ class Occupancy:
                 # natively and in Python alike
                 if self._corners_inside(geom, placement):
                     why = None
+            if why is None and not by_corners:
+                # a place the script decided (by_corners) keeps its labels where they fall, as a decided cutout is cut
+                # whatever silk stands by it: the label silk is judged where placement chooses the place
+                why = self._silk_edge_why(geom, placement)
             if why:
                 if blame is not None:
                     blame.append(Blocker("edge", "", frozenset()))
@@ -1713,6 +1717,48 @@ class Occupancy:
                    tuple(copper_parts))
             geom.__dict__["_edge_boxes"] = hit
         return hit
+
+    def silk_edge_boxes(self, geom: ItemGeometry) -> tuple:
+        """The boxes of a cell's own silk - the texts of its labels (`_rule_area_shapes`) - as it stands, which the edge
+        judges at the silk clearance (`silk_edge_margin`): KiCad checks silk against Edge.Cuts, the outline and every
+        cutout (drc_test_provider_edge_clearance.cpp testAgainstEdge, SILK_CLEARANCE_CONSTRAINT). Empty for a part."""
+        hit = geom.__dict__.get("_silk_edge_boxes")
+        if hit is None:
+            hit = tuple(s.box for s in geom.shapes if s.kind == "silk" and s.owner not in self._footprint_refs) \
+                if geom.part_refs else ()
+            geom.__dict__["_silk_edge_boxes"] = hit
+        return hit
+
+    def origin_silk_edge_boxes(self, geom: ItemGeometry, rotation: float, face) -> tuple:
+        """`silk_edge_boxes` turned and faced at the origin, unrounded."""
+        boxes = self.silk_edge_boxes(geom)
+        if not boxes:
+            return ()
+        cache = self.__dict__.setdefault("_silk_edge_cache", {})
+        key = (id(geom), rotation, face)
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            t = self._transform(geom, Placement(Location(0.0, 0.0), rotation, face))
+            hit = (geom, tuple(transform_box(b, t) for b in boxes))
+            cache[key] = hit
+        return hit[1]
+
+    @property
+    def silk_edge_margin(self) -> float:
+        """How far a cell's label silk is held inside the edge: the board's silk clearance less the DRC epsilon, as
+        KiCad compares it, and `geometry.arc_sag` more, since a curved edge is measured by chords that may cut inside
+        it (as `Board._cutout_silk` keeps a searched hole off placed silk)."""
+        return self.clear_limit(self.geometry.silk_clearance) + self.settings.geometry_arc_sag
+
+    def _silk_edge_why(self, geom: ItemGeometry, placement: Placement) -> Refusal | None:
+        """What the board's edge says of a cell's label silk at a placement (`silk_edge_boxes`), or None."""
+        boxes = self.origin_silk_edge_boxes(geom, placement.rotation, placement.face)
+        if not boxes:
+            return None
+        dx, dy = placement.location.x, placement.location.y
+        margin = self.silk_edge_margin
+        return next((w for w in (self._edge_why(_shift_box(b, dx, dy), margin, what="silk") for b in boxes) if w),
+                    None)
 
     def origin_edge_boxes(self, geom: ItemGeometry, rotation: float, face) -> tuple:
         """`edge_boxes` turned and faced at the origin, unrounded."""
@@ -2897,16 +2943,21 @@ def _box_gap(a: Box, b: Box) -> float:
 COPPER_EDGE = 16
 """Added to a native edge code that refuses an item's copper (judged at the keep-in) rather than its courtyard and body
 (judged against the edge itself)."""
+SILK_EDGE = 32
+"""Added to a native edge code that refuses a cell's own silk, its labels (judged at `Occupancy.silk_edge_margin`)."""
 
 
 def _ltrb(b: Box) -> tuple:
     return (b.left, b.top, b.right, b.bottom)
 
 
-def edge_refusal(code: int, body: Box, margin: float) -> Refusal:
-    """The refusal `_item_edge_why` gives for a native edge code: `margin` is the keep-in, which a copper code is judged
-    at and any other code is not."""
+def edge_refusal(code: int, body: Box, margin: float, silk_margin: float = 0.0) -> Refusal:
+    """The refusal `_item_edge_why` (or `_silk_edge_why`) gives for a native edge code: `margin` is the keep-in, which a
+    copper code is judged at and a courtyard or body code is not; a silk code is judged at `silk_margin`."""
     what = "body"
+    if code >= SILK_EDGE:
+        return Refusal(Code.EDGE, what="silk", box=[body.left, body.top, body.right, body.bottom],
+                       verdict=EDGE_OF_NATIVE[code - SILK_EDGE], margin_mm=silk_margin)
     if code >= COPPER_EDGE:
         code -= COPPER_EDGE
         what = "copper"
@@ -2935,7 +2986,7 @@ class NativeSweeper:
         geom = occ._geometry(item)
         self.geom = geom
         self.handles, self.origin, self.bodies, self.parts = [], [], [], []
-        self.edges, self.edge_parts, self.yards = [], [], []
+        self.edges, self.edge_parts, self.yards, self.silk_edges = [], [], [], []
         for rot in self.rots:
             at = Placement(Location(0.0, 0.0), rot, face)
             if leave_out:               # the item's own net ties: judged in Python, on the candidates this pass accepts
@@ -2954,6 +3005,10 @@ class NativeSweeper:
             self.edges.append((_ltrb(flat), None if copper is None else _ltrb(copper)))
             self.edge_parts.append([(_ltrb(f), None if c is None else _ltrb(c))
                                     for f, c in zip(flat_parts, copper_parts)])
+            self.silk_edges.append([_ltrb(b) for b in occ.origin_silk_edge_boxes(geom, rot, face)])
+        # only a cell with labels asks the native sweep to judge silk at the edge
+        self.silk = {"silk_edges": self.silk_edges, "silk_margin": occ.silk_edge_margin} \
+            if any(self.silk_edges) else {}
         faces = occ.standing_faces(geom, face)
         self.reservations = [i for i, r in enumerate(occ.reservations)
                              if not (r.layer is not None and r.layer.face not in faces)
@@ -3038,7 +3093,7 @@ class NativeSweeper:
                                 self.bodies, self.edges, triples, self.clearance, stop_at_first,
                                 scoring, self.parts if self.geom.parts else None,
                                 self.judged if self.geom.parts else None,
-                                self.edge_parts if self.geom.parts else None, self.yards)
+                                self.edge_parts if self.geom.parts else None, self.yards, **self.silk)
 
     def run_native(self, triples, stop_at_first: bool, scoring=None):
         """`run` less the judgment in Python of the candidates the native pass accepts (`recheck`): what the
@@ -3087,6 +3142,8 @@ class NativeSweeper:
         cand = Placement(Location(x, y), self.rots[turn], self.face)
         if kind == 0:
             def box():              # b: the member whose box the edge refused, 1-based; 0 the whole box
+                if a >= SILK_EDGE:  # b: the silk box, 1-based
+                    return _shift_box(occ.origin_silk_edge_boxes(self.geom, cand.rotation, cand.face)[b - 1], x, y)
                 flat, flat_parts, copper, copper_parts = occ._shifted_edge_boxes(self.geom, cand)
                 if a >= COPPER_EDGE:
                     return copper if b == 0 else copper_parts[b - 1]
@@ -3094,9 +3151,9 @@ class NativeSweeper:
             key = ("edge", a)
             hit = self._decoded.get(key)
             if hit is None:
-                hit = (edge_refusal(a, box(), occ.edge_margin).bucket, ("edge", "", ""))
+                hit = (edge_refusal(a, box(), occ.edge_margin, occ.silk_edge_margin).bucket, ("edge", "", ""))
                 self._decoded[key] = hit
-            return hit[0], hit[1], (lambda: edge_refusal(a, box(), occ.edge_margin))
+            return hit[0], hit[1], (lambda: edge_refusal(a, box(), occ.edge_margin, occ.silk_edge_margin))
         if kind == 1:
             r = occ.reservations[a]
             why, owner = occ.reservation_hit(r, self.geom, b - 1 if b else None)

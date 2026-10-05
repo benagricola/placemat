@@ -53,7 +53,10 @@ file. An item cites its source as "a board's session, <date>".
   silk_edge_clearance): under the courtyard envelope silk can stand 0.06 mm
   from a hole, under the physical envelope inside it. The scan's edge test is
   native; deciding whether silk joins it is a policy call (an overhanging
-  part's silk crosses the edge by design).
+  part's silk crosses the edge by design). A searched cell's label texts are
+  judged against the edge since the cell-label fix (`Occupancy.silk_edge_boxes`,
+  native `silk_edges`); a part's silk would join them there. Seen on a synthetic
+  cell: a member's silk lands on a cutout's edge under either envelope and face.
 - **A box crossing a cutout at edge_margin=0.** `flat_edge_margin` becomes 0
   and `segment_box < 0 - NM` is never true, so the crossing is not refused.
 

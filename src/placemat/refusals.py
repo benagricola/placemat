@@ -463,9 +463,9 @@ def _npth_near(f):
 
 
 def _edge_bucket(f) -> str:
-    """"edge" where the sentence says the edge (a copper box, a box test, a flat margin), else "body": the first word of
-    "body box ... is outside the board", which a scan has always counted these under."""
-    if f["what"] == "copper" or EdgeWhy(f["verdict"]) is EdgeWhy.CROSSES:
+    """"edge" where the sentence says the edge (a copper or label silk box, a box test, a flat margin), else "body": the
+    first word of "body box ... is outside the board", which a scan has always counted these under."""
+    if f["what"] in ("copper", "silk") or EdgeWhy(f["verdict"]) is EdgeWhy.CROSSES:
         return "edge"
     if EdgeWhy(f["verdict"]) in _KEEP_IN and is_flat(f["margin_mm"]):
         return "edge"
@@ -474,7 +474,7 @@ def _edge_bucket(f) -> str:
 
 @renders(Code.EDGE, _edge_bucket)
 def _edge(f):
-    label = "copper to edge: box" if f["what"] == "copper" else "body box"
+    label = {"copper": "copper to edge: box", "silk": "label silk to edge: box"}.get(f["what"], "body box")
     verdict = EdgeWhy(f["verdict"])
     if verdict is EdgeWhy.CROSSES:
         return "%s %s %s" % (label, _box(f["box"]), edge_phrase(verdict, f["margin_mm"]))
