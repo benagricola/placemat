@@ -30,7 +30,7 @@ def test_a_finding_is_its_text_and_carries_its_kind():
     assert f.startswith("link") and "over its" in f
     assert set(KINDS) == {"unplaced", "link_over", "fixed", "copper", "label", "escape_crossed", "pair_crossed",
                           "escape_closed", "escape_walled", "escape_lane", "setup", "route", "vias", "fab", "facts",
-                          "needs", "split", "time", "keep_out"}
+                          "needs", "split", "time", "keep_out", "pins"}
 
 
 def test_a_plan_takes_only_findings_that_say_their_cause():

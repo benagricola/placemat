@@ -181,7 +181,9 @@ class PartPins:
     """What may move on one studied part. `present` is every studied net's pin now (movable or held); `movable` the nets
     the search may move, each to a pin of `allowed[net]` (pool order); `free` the pool pins no studied net stands on now;
     `groups` (name, nets in order, "" for a pin with none) move whole, to one of `windows[name]`, each a run of
-    consecutive pool pins; `places[name]` is the group's pins as written, where it stands."""
+    consecutive pool pins; `places[name]` is the group's pins as written, where it stands. `breaks` (net, pin, key) are
+    the movable nets whose present pin `Pm.PinAllow` or `Pm.PinDeny` (`key`) bars them from: the capture as it stands
+    breaks its own rule."""
     ref: str
     present: dict
     movable: tuple
@@ -191,6 +193,7 @@ class PartPins:
     windows: dict
     held: tuple
     places: dict = field(default_factory=dict)
+    breaks: tuple = ()
 
 
 def part_pins(rules: PinRules, pads, connected, quiet) -> tuple:
@@ -240,6 +243,8 @@ def part_pins(rules: PinRules, pads, connected, quiet) -> tuple:
             problems.append(Problem(rules.ref, "Pm.PinAllow" if net in rules.allow else "Pm.PinDeny", "", "no_legal_pin", net))
     if problems:
         return None, problems
+    breaks = tuple((net, present[net], "Pm.PinAllow" if net in rules.allow and present[net] not in rules.allow[net]
+                    else "Pm.PinDeny") for net in movable if not legal(net, (present[net],)))
     taken = set(present.values())
     free = tuple(p for p in open_pins if p not in taken)
     by_pin = {pin: net for net, pin in present.items()}
@@ -255,4 +260,4 @@ def part_pins(rules: PinRules, pads, connected, quiet) -> tuple:
         windows[name] = tuple(wins)
     return PartPins(rules.ref, present, tuple(movable), allowed, free, tuple(groups), windows,
                     tuple(sorted(held, key=lambda h: natural(h.pin))),
-                    {name: tuple(pins) for name, pins in rules.groups}), []
+                    {name: tuple(pins) for name, pins in rules.groups}, breaks), []

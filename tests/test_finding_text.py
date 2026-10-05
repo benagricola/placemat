@@ -153,6 +153,25 @@ SAMPLES = [
     (C.TIME_STEP_LIMIT, {"item": "u1", "elapsed_s": 60.4, "limit_s": 60.0, "pass": "coarse", "within": None, "stage": "coarse",
                          "firm_pass": None, "kept": "unplaced"},
      "u1: gave up after 60.4 s in the coarse pass (--step-limit 60 s) and is left unplaced; the next run searches it again"),
+    (C.SETUP_PINS, {"ref": "U1", "key": "Pm.PinAllow", "entry": "ADC0:1-4", "code": "no_net", "name": "ADC0", "held_net": "",
+                    "held_pin": ""},
+     "U1: Pm.PinAllow names net ADC0, which no pin of U1 carries; the study runs without ADC0:1-4"),
+    (C.SETUP_PINS, {"ref": "U1", "key": "", "entry": "", "code": "no_legal_pin", "name": "A", "held_net": "D",
+                    "held_pin": "4"},
+     "U1: net A may take only pin 4, which net D holds; U1 is not studied"),
+    (C.PINS_REMAP, {"ref": "U1", "refs": ["U1", "U2"], "at": [10.0, 10.0], "first_map": True, "budget_out": True,
+                    "budget_ms": 200, "searched": 9, "of": 16, "best": 1, "routed": ["A"],
+                    "present": {"total": 20.0, "weighted": 12.0, "length_mm": 40.0, "bend_deg": 90.0},
+                    "rotations": [{"total": 19.0, "weighted": 12.0, "length_mm": 36.0, "bend_deg": 90.0,
+                                   "turns": [{"ref": "U1", "turn_deg": 0.0, "rotation_deg": 0.0, "face": "front", "flip": False},
+                                             {"ref": "U2", "turn_deg": 0.0, "rotation_deg": 0.0, "face": "front", "flip": False}]},
+                                  {"total": 8.0, "weighted": 4.0, "length_mm": 38.0, "bend_deg": 90.0,
+                                   "turns": [{"ref": "U1", "turn_deg": 90.0, "rotation_deg": 90.0, "face": "front", "flip": False},
+                                             {"ref": "U2", "turn_deg": 180.0, "rotation_deg": 180.0, "face": "back", "flip": True}]}],
+                    "present_breaks": [{"ref": "U2", "net": "B", "pin": "7", "rule": "Pm.PinDeny"}]},
+     "U1 and U2: a pin map with 4.0 mm less airwire exists at their present rotations; at U1 at 90 degrees and U2 at 180 "
+     "degrees on the back, 8 fewer; 1 of the nets it moves have copper now: A; the present map has B on U2 pin 7, against "
+     "Pm.PinDeny; the study stopped at its 200 ms after 9 of 16 poses"),
 ]
 
 

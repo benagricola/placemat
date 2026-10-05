@@ -4273,6 +4273,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
 | `setup.accept` | the `board.accept(...)` removed |
 | `vias.dropped` | none |
+| `pins.remap` | advice, not an edit (`how: "advice"`, lever `pins`): the best map with the turn to declare when another pose wins, then the best map at the present pose when that saves anything; `advice` carries `refs`, `rotation` (the index into the finding's `rotations`), `turns`, `map`, `total` and `weighted` |
 
 A suggestion's number is a figure the finding measured, or one derived from such a figure and said so in the constant's
 comment; a lever with no measurement behind it (a wider radius, a finer step) is not offered.

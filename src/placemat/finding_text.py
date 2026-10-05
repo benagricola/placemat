@@ -171,6 +171,76 @@ def _setup_layer_lost(f):
         f["name"], f["cell"] or "board", ", ".join(f["layers"]))
 
 
+_PIN_PROBLEMS = {
+    "no_pin": "%(key)s names pin %(name)s, which %(ref)s does not have; the study runs without it",
+    "no_net": "%(key)s names net %(name)s, which no pin of %(ref)s carries; the study runs without %(entry)s",
+    "no_names": "%(key)s names %(name)s by pin name, and no pin names were read for %(ref)s: its symbol is not among "
+                "the board's libraries; the study runs without it",
+    "unreadable": "%(key)s entry %(entry)s is not name:pins; the study runs without it",
+    "not_in_pool": "%(key)s entry %(entry)s names pin %(name)s, which is not an unfixed pin of its Pm.PinPool; the study "
+                   "runs without the group",
+    "two_groups": "%(key)s entry %(entry)s names pin %(name)s, which an earlier group has; the study runs without it",
+    "no_legal_pin": "net %(name)s has no pin of the pool left that %(key)s lets it take; %(ref)s is not studied",
+    "no_legal_map": "no map gives every net a pin it may take: %(name)s has none left; %(ref)s is not studied",
+}
+
+
+@renders(C.SETUP_PINS, "ref", "key", "entry", "code", "name")
+def _setup_pins(f):
+    if f["code"] == "no_legal_pin" and f.get("held_net"):
+        return "%s: net %s may take only pin %s, which net %s holds; %s is not studied" % (
+            f["ref"], f["name"], f["held_pin"], f["held_net"], f["ref"])
+    return "%s: %s" % (f["ref"], _PIN_PROBLEMS[f["code"]] % f)
+
+
+def _crossings_fewer(present: dict, r: dict, short: bool) -> str:
+    """What a pose's best map saves against the present one, in its plainest term: weighted crossings, else airwire,
+    else turning."""
+    dw = present["weighted"] - r["weighted"]
+    if dw > 1e-9:
+        return ("%g fewer" if short else "%g fewer weighted crossings") % round(dw, 1)
+    dl = present["length_mm"] - r["length_mm"]
+    if dl > 1e-9:
+        return "%.1f mm less airwire" % dl
+    return "%.0f degrees less turning at its pins" % (present["bend_deg"] - r["bend_deg"])
+
+
+def pose_text(turns: list) -> str:
+    """'90 degrees', '90 degrees on the back', or for parts studied together 'U1 at 90 degrees and U2 at 180 degrees'."""
+    def one(t):
+        return "%g degrees%s" % (t["rotation_deg"], " on the %s" % t["face"] if t["flip"] else "")
+    if len(turns) == 1:
+        return one(turns[0])
+    return " and ".join("%s at %s" % (t["ref"], one(t)) for t in turns)
+
+
+@renders(C.PINS_REMAP, "ref", "refs", "present", "rotations", "best", "first_map", "budget_out", "budget_ms", "searched",
+         "of", "routed", "present_breaks")
+def _pins_remap(f):
+    who = " and ".join(f["refs"])
+    their = "its present rotation" if len(f["refs"]) == 1 else "their present rotations"
+    if not f["first_map"]:
+        return "%s: the pin map study ran out of its %g ms before a first map; pins.budget_ms sets it" % (who, f["budget_ms"])
+    rs, p = f["rotations"], f["present"]
+    here, best = rs[0], rs[f["best"]]
+    if here["total"] < p["total"] - 1e-9:
+        text = "%s: a pin map with %s exists at %s" % (who, _crossings_fewer(p, here, False), their)
+    else:
+        text = "%s: no better pin map at %s" % (who, their)
+    if f["best"] != 0:
+        text += "; at %s, %s" % (pose_text(best["turns"]), _crossings_fewer(p, best, here["total"] < p["total"] - 1e-9))
+    if f["routed"]:
+        text += "; %d of the nets it moves have copper now: %s" % (len(f["routed"]), ", ".join(f["routed"]))
+    if f["present_breaks"]:
+        one = len(f["refs"]) == 1
+        text += "; the present map has %s" % ", ".join(
+            "%s on %spin %s, against %s" % (b["net"], "" if one else b["ref"] + " ", b["pin"], b["rule"])
+            for b in f["present_breaks"])
+    if f["budget_out"]:
+        text += "; the study stopped at its %g ms after %d of %d poses" % (f["budget_ms"], f["searched"], f["of"])
+    return text
+
+
 @renders(C.SETUP_PAIR_LAYERS, "key", "variant", "layers", "missing", "board_layers")
 def _setup_pair_layers(f):
     if f["variant"] == "no_pair":
@@ -766,6 +836,11 @@ def subject(cause, facts: dict) -> str:
         return "%s %s" % (facts["ref"], "/".join(facts["pins"]))
     if cause is C.PAIR_CROSSED:
         return "%s/%s" % (facts["pos"], facts["neg"])
+    if cause is C.SETUP_PINS:
+        parts = [facts["ref"], facts["key"], facts["entry"], facts["name"]]
+        return " ".join(v for i, v in enumerate(parts) if v and v not in parts[:i])
+    if cause is C.PINS_REMAP:
+        return " ".join(facts["refs"])
     if cause is C.LINK_OVER:
         return facts["link"]
     for k in _SUBJECT_KEYS:

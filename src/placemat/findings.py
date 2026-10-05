@@ -33,6 +33,7 @@ class FindingKind(str, Enum):
     SPLIT = "split"                     # a cell whose members form two or more groups joined only by board-level nets
     KEEP_OUT = "keep_out"               # a keep-out distance that KiCad's DRC does not judge: copper on different layers
     TIME = "time"                       # a step that ran past the time a command allows it (`--step-warn`, `--step-limit`)
+    PINS = "pins"                       # a better assignment of nets to a part's pins (its Pm.PinPool) than the capture's, from the pin map study
 
     def __str__(self):
         return self.value
@@ -102,6 +103,7 @@ class FindingCause(str, Enum):
     SETUP_PCBNEW = (FindingKind.SETUP, "setup.pcbnew")
     SETUP_NATIVE = (FindingKind.SETUP, "setup.native")
     SETUP_PAIR_LAYERS = (FindingKind.SETUP, "setup.pair_layers")
+    SETUP_PINS = (FindingKind.SETUP, "setup.pins")
     SETUP_NET_HALO = (FindingKind.SETUP, "setup.net_halo")
     ROUTE_DROPPED = (FindingKind.ROUTE, "route.dropped")
     ROUTE_WIDTH = (FindingKind.ROUTE, "route.width")
@@ -114,6 +116,7 @@ class FindingCause(str, Enum):
     KEEP_OUT_CROSS_LAYER = (FindingKind.KEEP_OUT, "keep_out.cross_layer")
     TIME_STEP_SLOW = (FindingKind.TIME, "time.step_slow")
     TIME_STEP_LIMIT = (FindingKind.TIME, "time.step_limit")
+    PINS_REMAP = (FindingKind.PINS, "pins.remap")
 
     def __str__(self):
         return self.value
@@ -155,6 +158,7 @@ SEVERITY = {
     FindingKind.SPLIT: "warning",
     FindingKind.KEEP_OUT: "notice",
     FindingKind.TIME: "notice",
+    FindingKind.PINS: "notice",
 }
 """A kind's default severity: a classification of what the kind means, not a
 tunable. A finding of a kind that mixes causes is made with its own."""

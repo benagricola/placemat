@@ -36,3 +36,17 @@ def test_on_a_real_board_the_best_map_beats_the_present_one_inside_its_budget_an
     assert hashlib.sha256(pcb.read_bytes()).hexdigest() == digest
     where = lambda geometry: [(fp.ref, fp.location, fp.rotation, fp.face) for fp in geometry.footprints]
     assert where(read_board(pcb)) == where(b.board_of(case))
+
+
+@needs_kicad
+def test_a_second_study_of_the_real_board_is_reused(tmp_path):
+    from placemat.findings import FindingCause as C
+    from placemat.pinmap import geometry_findings
+    b = bench()
+    case = b.cases()[0]
+    g = b.board_of(case)
+    cache = tmp_path / "pinmap.json"
+    first, r1 = geometry_findings(g, Settings(), frozenset(case["quiet"]), cache=cache)
+    again, r2 = geometry_findings(g, Settings(), frozenset(case["quiet"]), cache=cache)
+    assert any(f.cause is C.PINS_REMAP for f in first)
+    assert (r1["reused"], r2["reused"]) == (False, True) and [str(f) for f in again] == [str(f) for f in first]
