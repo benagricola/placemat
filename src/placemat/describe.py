@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from typing import NamedTuple
 
 from .board_geometry import part_height
 from .geometry import distance_to_boundary, polys_overlap
@@ -190,20 +191,35 @@ def parts_rows(geometry, fields=()) -> list:
             for fp in sorted(geometry.footprints, key=lambda f: f.inst)]
 
 
-def fragment_sources(log_path) -> dict:
-    """{instance: the fragment it was stamped from, or "-" when the generator
-    placed it itself}, from the generator's layout log (`layout.log` beside
-    the board): its PLACE_FP_FRAGMENT and PLACE_FP lines. A log path is the
-    instance and then the footprint's name."""
+class LayoutLog(NamedTuple):
+    """What the generator's layout log says: `fragments` {instance: the fragment group it was stamped from, or "-" when
+    the generator placed it itself}, `layouts` {module instance: its module's layout path}."""
+    fragments: dict
+    layouts: dict
+
+
+def layout_log(log_path) -> LayoutLog:
+    """The generator's layout log (`layout.log` beside the board) read: its PLACE_FP_FRAGMENT and PLACE_FP lines (a log
+    path is the instance and then the footprint's name) and its `Found module <instance> with layout_path: <path>`
+    lines, those with a path. Raises OSError when there is no log."""
     import re
-    out = {}
+    fragments, layouts = {}, {}
     for line in open(log_path, encoding="utf-8", errors="replace"):
         m = re.search(r"OPLOG PLACE_FP(_FRAGMENT)? path=(\S+)(?:.*fragment_group=(\S+))?", line)
-        if not m:
+        if m:
+            inst = m.group(2).rsplit(".", 1)[0]
+            fragments[inst] = m.group(3) if m.group(1) and m.group(3) else "-"
             continue
-        inst = m.group(2).rsplit(".", 1)[0]
-        out[inst] = m.group(3) if m.group(1) and m.group(3) else "-"
-    return out
+        m = re.search(r"Found module (\S+) with layout_path: (\S+)", line)
+        if m and m.group(2) != "None":
+            layouts[m.group(1)] = m.group(2)
+    return LayoutLog(fragments, layouts)
+
+
+def fragment_sources(log_path) -> dict:
+    """{instance: the fragment it was stamped from, or "-" when the generator placed it itself}, from the generator's
+    layout log (layout_log)."""
+    return layout_log(log_path).fragments
 
 
 def board_totals(geometry) -> dict:

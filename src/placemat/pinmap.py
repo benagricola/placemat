@@ -64,25 +64,41 @@ def _turns(inp, poses) -> list:
                "flip": bool(flip)}
         if part.cell:
             c = inp.cell(part.cell)
-            module = (c.rotation - part.rotation - turn) if c.flipped else (part.rotation - c.rotation + turn)
-            rec.update(cell=c.name, module=c.module, stamps=c.stamps, cell_rotation_deg=round((c.rotation + turn) % 360.0, 3),
-                       module_rotation_deg=round(module % 360.0, 3))
+            rec.update(_cell_facts(inp, ref), cell_rotation_deg=round((c.rotation + turn) % 360.0, 3),
+                       module_rotation_deg=module_rotation(inp, ref, turn))
         out.append(rec)
     return out
 
 
-def _cell_facts(inp, ref) -> dict:
-    """A part in a cell: the cell, its module's name (None when the board does not say) and how many stamps it has."""
+def module_rotation(inp, ref, turn: float) -> float:
+    """The rotation a part in a cell takes in its module's frame (the frame of the arrangement the cell stands in) when
+    the cell turns `turn`: its rotation less the cell's, plus the turn; in a cell on the other face from its stamp the
+    cell's less its own, less the turn."""
     part = inp.part(ref)
-    if not part.cell:
-        return {}
     c = inp.cell(part.cell)
-    return {"cell": c.name, "module": c.module, "stamps": c.stamps}
+    m = (c.rotation - part.rotation - turn) if c.flipped else (part.rotation - c.rotation + turn)
+    return round(m % 360.0, 3)
+
+
+def _celled(inp, refs):
+    """The first of a group's parts that is in a cell, or None."""
+    return next((r for r in refs if inp.part(r).cell), None)
+
+
+def _cell_facts(inp, ref) -> dict:
+    """A part in a cell: the cell, its module's name (None when the board does not say), how many stamps it has and
+    the arrangement the cell stands in."""
+    if ref is None or not inp.part(ref).cell:
+        return {}
+    c = inp.cell(inp.part(ref).cell)
+    return {"cell": c.name, "module": c.module, "stamps": c.stamps, "arrangement": c.arrangement}
 
 
 def _waiting(inp, refs) -> list:
-    """Each studied net's pad on a part not placed yet: {net, ref}."""
-    return [{"net": net, "ref": r} for p, net, r in inp.unplaced if p in refs]
+    """Each pad not placed yet of a studied net, {net, ref}, or of the far net a series part takes it on to, with `via`
+    and `far`; a cell member not placed that carries none of the nets has net ""."""
+    return [dict({"net": net, "ref": r}, **({"via": via, "far": far} if via else {}))
+            for p, net, r, via, far in inp.unplaced if p in refs]
 
 
 def placed_share(inp, refs) -> dict:
@@ -125,7 +141,9 @@ def _base(inp, refs, settings) -> dict:
                  "budget_ms": settings.pins_budget_ms * len(refs),
                  "held": [{"ref": r, "net": h.net, "pin": h.pin, "name": inp.names.get(r, {}).get(h.pin, ""), "why": h.why}
                           for r in refs for h in inp.part(r).slots.held],
-                 "present_breaks": _breaks(inp, refs), "unplaced_ends": _waiting(inp, refs)}, **_cell_facts(inp, refs[0]))
+                 "present_breaks": _breaks(inp, refs), "unplaced_ends": _waiting(inp, refs),
+                 "in_cell": [{"net": net, "ref": m} for r, net, m in inp.inside if r in refs]},
+                **_cell_facts(inp, _celled(inp, refs)))
 
 
 def withheld_facts(inp, refs, settings) -> dict:
@@ -163,34 +181,40 @@ def group_facts(inp, g, copper, settings) -> dict | None:
                          routed=sorted({m["net"] for m in moved} & copper), paths=_paths(r.paths),
                          breaks=_still(base["present_breaks"], r.assign)))
     out = dict(base, rotations=rows, best=best, routed=rows[best]["routed"], before=_paths(g.present_paths))
-    lead = next(t for t in rows[best]["turns"] if t["ref"] == refs[0])
-    if "cell" in lead:
-        out.update(cell_rotation_deg=lead["cell_rotation_deg"], module_rotation_deg=lead["module_rotation_deg"])
+    celled = _celled(inp, refs)
+    if celled is not None:
+        t = next(t for t in rows[best]["turns"] if t["ref"] == celled)
+        out.update(cell_rotation_deg=t["cell_rotation_deg"], module_rotation_deg=t["module_rotation_deg"])
     return out
 
 
-def _moves(facts: dict) -> list:
-    """The pin moves of a finding's best map on its lead part, by pin number: what a module's stamps compare."""
+def _moves(facts: dict, ref: str) -> list:
+    """The pin moves of a finding's best map on part `ref`, by pin number: what a module's stamps compare."""
     rows = facts["rotations"]
     if not rows:
         return []
-    return [{"from": m["from"]["pin"], "to": m["to"]["pin"]} for m in rows[facts["best"]]["map"] if m["ref"] == facts["ref"]]
+    return [{"from": m["from"]["pin"], "to": m["to"]["pin"]} for m in rows[facts["best"]]["map"] if m["ref"] == ref]
 
 
 def _stamp_maps(inp, facts_of: list, kept: dict) -> None:
     """The facts (`facts_of`) of each `pins.remap` finding of a part in a cell whose module's other studied stamps have a
-    different best map get `stamp_maps`: each stamp's cell, part and pin moves (none for a stamp with no map worth
-    having), by cell. `kept` {lead ref: facts or None} of every studied group whose lead is in a cell; a stamp that ran
-    out before a first map, or waits on placement, has no best map and is left out."""
+    different best map, or want the part at a different rotation in the module's frame (lever 2 re-lays every stamp),
+    get `stamp_maps`: each stamp's cell, part, pin moves and `module_rotation_deg` (no moves and the present rotation
+    for a stamp with no map worth having), by cell. `kept` {part in a cell: facts or None} of every studied group with a
+    part in a cell; a stamp that ran out before a first map, or waits on placement, has no best map and is left out."""
     by_module: dict = {}
     for ref, facts in kept.items():
         if facts is not None and (facts.get("withheld") or not facts["first_map"]):
             continue
         c = inp.cell(inp.part(ref).cell)
-        moves = _moves(facts) if facts is not None else []
-        by_module.setdefault(c.module_key, []).append({"cell": c.name, "ref": ref, "moves": moves})
+        moves = _moves(facts, ref) if facts is not None else []
+        rot = module_rotation(inp, ref, 0.0) if facts is None else \
+            next(t for t in facts["rotations"][facts["best"]]["turns"] if t["ref"] == ref)["module_rotation_deg"]
+        by_module.setdefault(c.module_key, []).append({"cell": c.name, "ref": ref, "moves": moves,
+                                                       "module_rotation_deg": rot})
     for stamps in by_module.values():
-        if len(stamps) < 2 or all(s["moves"] == stamps[0]["moves"] for s in stamps):
+        if len(stamps) < 2 or all((s["moves"], s["module_rotation_deg"]) == (stamps[0]["moves"], stamps[0]["module_rotation_deg"])
+                                  for s in stamps):
             continue
         listed = sorted(stamps, key=lambda s: s["cell"])
         for f in facts_of:
@@ -273,8 +297,9 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
                 found += [Finding(C.SETUP_PINS, Problem(ref, "", "", "no_legal_map", net).facts()) for ref, net in g.problems]
                 facts = group_facts(inp, g, copper, settings)
             groups += 1
-            if inp.part(refs[0]).cell:
-                kept[refs[0]] = facts
+            celled = _celled(inp, refs)
+            if celled is not None:
+                kept[celled] = facts
             if facts is not None:
                 found.append(facts)
         _stamp_maps(inp, [f for f in found if isinstance(f, dict)], kept)
@@ -300,7 +325,8 @@ def placed_from_plan(board, plan) -> Placed:
     its courtyard's box), and whether its declaration lets it stand on the other face; every placed cell with its
     members as the occupancy holds them (an arranged cell's at their arranged places), its envelope (their courtyards and
     its own copper as committed), the rotation and face it was placed at (as stamped when the script does not place it),
-    its module and its stamps; and the pads of the parts not placed."""
+    its module, its stamps and the arrangement it stands in (a member not placed is left out and named as missing); and
+    the pads of the parts not placed."""
     occ = plan.occupancy
     either = {i.item.ref for i in board._placements() if i.kind == "part" and i.either}
     pads, parts, unplaced = [], {}, []
@@ -323,15 +349,17 @@ def placed_from_plan(board, plan) -> Placed:
     stamps = stamp_counts(modules)
     cells = {}
     for name, cg in sorted(occ.geometry.cells.items()):
-        members = tuple(sorted(fp.ref for fp in cg.members))
-        if not members or not all(r in parts for r in members):
+        members = tuple(sorted(fp.ref for fp in cg.members if fp.ref in parts))
+        if not members:
             continue
         own = [s.box for s in occ.copper if s.owner == name and s.kind not in ("viaban", "silk")]
         at = board._cell_placements.get(name)
         rotation, face = (at.rotation, at.face.value) if at is not None else (0.0, "front")
+        arrangement = (at.arrangement if at is not None else "") or cg.arrangement or "default"
         module, key = modules[name]
         cells[name] = PlacedCell(name, members, Box.union([parts[r].courtyard for r in members] + own), float(rotation),
-                                 face, face != "front", module, stamps[key], key)
+                                 face, face != "front", module, stamps[key], key, arrangement,
+                                 tuple(sorted(fp.ref for fp in cg.members if fp.ref not in parts)))
     return Placed(pads, parts, cells, tuple(unplaced))
 
 

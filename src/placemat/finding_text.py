@@ -253,11 +253,27 @@ def _module(t: dict) -> str:
     return "module %s" % t["module"] if t.get("module") else "the module of cell %s" % t["cell"]
 
 
+def _frame(t: dict) -> str:
+    """The frame a part's rotation in its module is given in: the module's own, or the arrangement the cell stands in."""
+    a = t.get("arrangement", "default")
+    return "its frame" if a in ("", "default") else "the frame of its arrangement %s" % a
+
+
 def cell_levers(t: dict) -> str:
-    """The two ways to take a turn of a part studied as its cell (a turn record with `cell`)."""
-    return ("turn cell %s to %g degrees on the board, or keep it and re-lay %s with %s at %g degrees in its frame and the "
-            "cell's other parts placed round it; either one means the next run re-places the board" % (
-                t["cell"], t["cell_rotation_deg"], _module(t), t["ref"], t["module_rotation_deg"]))
+    """The two ways to take a turn of a part studied as its cell (a turn record with `cell`). The second re-lays the
+    module, so every stamp of it."""
+    every = ", which re-lays all %d of its stamps" % t["stamps"] if t.get("stamps", 1) > 1 else ""
+    return ("turn cell %s to %g degrees on the board, or keep it and re-lay %s with %s at %g degrees in %s and the "
+            "cell's other parts placed round it%s; either one means the next run re-places the board" % (
+                t["cell"], t["cell_rotation_deg"], _module(t), t["ref"], t["module_rotation_deg"], _frame(t), every))
+
+
+def levers_text(turns: list) -> str:
+    """The levers of each cell a pose turns, each named when it turns more than one."""
+    cells = [t for t in turns if "cell" in t and (t["turn_deg"] or t["flip"])]
+    if len(cells) == 1:
+        return cell_levers(cells[0])
+    return "; ".join("for cell %s, %s" % (t["cell"], cell_levers(t)) for t in cells)
 
 
 def cell_capture(t: dict) -> str:
@@ -267,9 +283,9 @@ def cell_capture(t: dict) -> str:
 
 
 def _stamp_moves(s: dict) -> str:
-    if not s["moves"]:
-        return "%s keeps its pins" % s["cell"]
-    return "%s moves pins %s" % (s["cell"], ", ".join("%s->%s" % (m["from"], m["to"]) for m in s["moves"]))
+    moves = "keeps its pins" if not s["moves"] else \
+        "moves pins %s" % ", ".join("%s->%s" % (m["from"], m["to"]) for m in s["moves"])
+    return "%s %s with %s at %g degrees in the module's frame" % (s["cell"], moves, s["ref"], s["module_rotation_deg"])
 
 
 def _plural(n: int, one: str, many: str) -> str:
@@ -279,17 +295,19 @@ def _plural(n: int, one: str, many: str) -> str:
 @renders(C.PINS_REMAP, "ref", "refs", "present", "rotations", "best", "first_map", "budget_out", "budget_ms", "searched",
          "of", "routed", "present_breaks")
 def _pins_remap(f):
-    who = " and ".join(f["refs"])
-    if f.get("cell"):
-        who += " in cell %s" % f["cell"]
+    turns = f["rotations"][f["best"]]["turns"] if f["rotations"] else []
+    cell_of = {t["ref"]: t["cell"] for t in turns if "cell" in t}
+    if f.get("cell") and not cell_of:
+        cell_of = {f["refs"][0]: f["cell"]}
+    who = " and ".join("%s in cell %s" % (r, cell_of[r]) if r in cell_of else r for r in f["refs"])
     if f.get("withheld"):
         w = f["withheld"]
         missing = w["of"] - w["placed"]
         return ("%s: the pin map study waits on placement: %d of its %d movable nets %s no placed far end, and "
                 "pins.placed_share_min asks for %g percent with one; no map or turn is advised" % (
                     who, missing, w["of"], "has" if missing == 1 else "have", round(w["share_min"] * 100, 1)))
-    their = "the cell's present rotation" if f.get("cell") else \
-        "its present rotation" if len(f["refs"]) == 1 else "their present rotations"
+    their = "their present rotations" if len(f["refs"]) > 1 else \
+        "the cell's present rotation" if f.get("cell") else "its present rotation"
     if not f["first_map"]:
         return "%s: the pin map study ran out of its %g ms before a first map; pins.budget_ms sets it" % (who, f["budget_ms"])
     rs, p = f["rotations"], f["present"]
@@ -300,11 +318,10 @@ def _pins_remap(f):
         text = "%s: no better pin map at %s" % (who, their)
     if f["best"] != 0:
         text += "; %s, %s" % (at_pose(best["turns"]), _saving(p, best))
-        levers = [cell_levers(t) for t in best["turns"] if "cell" in t and (t["turn_deg"] or t["flip"])]
-        if levers:
-            text += "; to take that turn, " + "; or for the next, ".join(levers)
-    lead = next((t for t in best["turns"] if t["ref"] == f["ref"]), None)
-    if lead is not None and "cell" in lead and best["map"]:
+        if any("cell" in t and (t["turn_deg"] or t["flip"]) for t in best["turns"]):
+            text += "; to take that turn, " + levers_text(best["turns"])
+    lead = next((t for t in best["turns"] if "cell" in t and t["cell"] == f.get("cell")), None)
+    if lead is not None and any(m["ref"] == lead["ref"] for m in best["map"]):
         text += "; the map is a change to " + cell_capture(lead)
     if f["routed"]:
         text += "; %d of the nets it moves %s copper now: %s" % (len(f["routed"]), "has" if len(f["routed"]) == 1 else "have",
@@ -316,9 +333,12 @@ def _pins_remap(f):
             "its far end is" if len(waiting) == 1 else "their far ends are", ", ".join(waiting))
     if f.get("stamp_maps"):
         sm = f["stamp_maps"]
-        text += "; the %d stamps of %s have different best maps: %s" % (
-            len(sm), _module(dict(lead or {}, cell=f["cell"])) if lead is not None else "its module",
-            "; ".join(_stamp_moves(s) for s in sm))
+        maps = any(s["moves"] != sm[0]["moves"] for s in sm)
+        turns = any(s["module_rotation_deg"] != sm[0]["module_rotation_deg"] for s in sm)
+        what = "different best maps and module rotations" if maps and turns else \
+            "different best maps" if maps else "different module rotations"
+        text += "; the %d stamps of %s have %s: %s" % (len(sm), _module({"module": f.get("module"), "cell": f["cell"]}),
+                                                      what, "; ".join(_stamp_moves(s) for s in sm))
     if f["budget_out"]:
         text += "; the study stopped at its %g ms after %d of %d poses" % (f["budget_ms"], f["searched"], f["of"])
     return text

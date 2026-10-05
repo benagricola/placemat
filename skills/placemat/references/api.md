@@ -4397,22 +4397,34 @@ part's courtyard. The turn is theoretical: the cell stays where it is and
 nothing is checked for collisions or DRC; only the airwires are scored. The
 part's pins leave by the envelope side their own courtyard side faces; the other
 members' pads leave by the side they are nearest; a net with every pad inside
-the cell and none that may move turns with the cell and is not studied. A cell
-is studied on the face it stands on (`pins.faces` does not flip it). A turn is
-taken one of two ways: the cell turned on the board to `cell_rotation_deg` (each
-stamp turns on its own), or the cell kept and its module re-laid with the part
-at `module_rotation_deg` in the module's frame, the cell's other parts placed
-round it; either one means the next run re-places the board. The map is a
-change to the module's capture, which every stamp of the module shares; when
-the stamps' best maps differ, each stamp's finding says so and lists them
-(`stamp_maps`). The module's name comes from the generator's `layout.log`
-beside the board (the folder of the module's layout path); without one it is
-null, and the stamps are the cells whose members match.
+the cell and none that may move turns with the cell and is not studied. A pool
+net whose other end is a series member of the cell (a reference with a prefix
+of `pins.follow_prefixes`, two pads) is followed to that member's far net
+outside the cell; any other pool net whose other ends are all members of the
+cell keeps its pin (`held`, `why` `in_cell`; listed in `in_cell` as `{net,
+ref}`): the module's own run places it. A cell is studied on the face it
+stands on (`pins.faces` does not flip it). A turn is taken one of two ways: the
+cell turned on the board to `cell_rotation_deg` (each stamp turns on its own),
+or the cell kept and its module re-laid with the part at `module_rotation_deg`
+in the module's frame, the cell's other parts placed round it, which re-lays
+every stamp of the module; either one means the next run re-places the board.
+For a cell standing in an arrangement other than the module's own layout
+(`arrangement`), the rotation is in that arrangement's frame and the text says
+so. The map is a change to the module's capture, which every stamp of the
+module shares; when the stamps' best maps or their best `module_rotation_deg`
+differ, each stamp's finding says so and lists them (`stamp_maps`). The
+module's name comes from the generator's `layout.log` beside the board (the
+folder of the module's layout path); without one it is null, and the stamps are
+the cells whose members match. A cell with a member not placed is studied with
+the members it has; the missing member is listed in `unplaced_ends`. A group
+whose first part is loose and another in a cell carries that part's cell
+facts.
 
 **Parts not placed yet.** A studied net whose far end is on a part not placed
 has nothing to pull it: it keeps its pin (`held`, `why` `unplaced`) and is
-listed in `unplaced_ends`. When fewer than `pins.placed_share_min` of a part's
-movable nets have a placed far end, the study gives no map or turn: the
+listed in `unplaced_ends`, as is a pad not placed on the far net a series part
+takes a studied net on to (with `via` and `far`). When fewer than
+`pins.placed_share_min` of a group's movable nets have a placed far end, the study gives no map or turn: the
 `pins.remap` notice says how many ends are missing and that the study waits on
 placement (`withheld`), with no suggestion.
 
@@ -4450,14 +4462,17 @@ map's score), `rotations` (the best map at each pose, the present pose first:
 and `breaks`), `best` (the index of the best pose), `routed` (the best pose's
 moved nets with copper on the board now: a remap means routing them again),
 `before` (the airwires now), `held` (nets a constraint keeps, with `why` set to
-`fixed`, `allow` or `unplaced`), `unplaced_ends` (each studied net's pad on a
-part not placed, as `{net, ref}`), `present_breaks`, `searched`, `of`,
+`fixed`, `allow`, `unplaced` or `in_cell`), `unplaced_ends` (each studied
+net's pad on a part not placed, as `{net, ref}`, with `via` and `far` when it is
+on a series part's far net, and net `""` for a cell member not placed that
+carries none), `in_cell` (`{net, ref}`), `present_breaks`, `searched`, `of`,
 `budget_out`, `first_map` (false when the budget ran out before a first map)
 and `budget_ms`. A part in a cell adds `cell`, `module` (null when the board
-does not name it) and `stamps`, and the best pose's `cell_rotation_deg` and
-`module_rotation_deg`; each of its `turns` carries the same five, and
-`stamp_maps` (`cell`, `ref`, `moves` as `{from, to}` pin numbers, by cell)
-when its module's stamps have different best maps. A study withheld for want
+does not name it), `stamps` and `arrangement`, and the best pose's
+`cell_rotation_deg` and `module_rotation_deg`; each of its `turns` carries the
+same six, and `stamp_maps` (`cell`, `ref`, `moves` as `{from, to}` pin
+numbers, `module_rotation_deg`, by cell) when its module's stamps have
+different best maps or module rotations. A study withheld for want
 of placed ends has `withheld` (`placed`, `of`, `share_min`), `present` null and
 no `rotations`.
 
@@ -4928,7 +4943,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.joint_combinations` | `64` | count | the most pose combinations the pin map study searches for parts it studies together, their present poses first |
 | `pins.faces` | `false` | bool | the pin map study also turns a part on the other face where its declaration lets it stand there (`face=Face.EITHER`) |
 | `pins.gain_min` | `0.05` | share | the share of the present total a better pin map must save for a `pins.remap` finding |
-| `pins.placed_share_min` | `0.8` | share | the share of a studied part's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement |
+| `pins.placed_share_min` | `0.8` | share | the share of a studied group's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement |
 | `pins.explore_top` | `3` | count | the best variants of an explore, by run score, the pin map study runs on (0: none) |
 | `pins.probe_budget_ms` | `5000` | ms | the pin map study's time for each part when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
 | `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |

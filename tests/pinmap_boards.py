@@ -72,15 +72,16 @@ def input_of(pads, parts, quiet=frozenset(), partners=None, netclasses=None, nam
                  cells, unplaced)
 
 
-def in_cell(name, pads, parts: dict, members, rotation=0.0, face="front", module="M", stamps=1, module_key=None) -> tuple:
+def in_cell(name, pads, parts: dict, members, rotation=0.0, face="front", module="M", stamps=1, module_key=None,
+            flipped=None, arrangement="default", missing=()) -> tuple:
     """(parts, {name: PlacedCell}): `members` (refs) made a cell, its envelope the box round their courtyards, each
     member's PlacedPart naming it; `parts` completed from `pads` first."""
     parts = complete(pads, parts)
     for r in members:
         parts[r] = replace(parts[r], cell=name)
     box = Box.union([parts[r].courtyard for r in members])
-    return parts, {name: PlacedCell(name, tuple(members), box, rotation, face, face == "back", module, stamps,
-                                    module_key or module or name)}
+    return parts, {name: PlacedCell(name, tuple(members), box, rotation, face, face == "back" if flipped is None else flipped,
+                                    module, stamps, module_key or module or name, arrangement, tuple(missing))}
 
 
 def reversed_four(fields=None) -> tuple:

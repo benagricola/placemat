@@ -177,7 +177,8 @@ def read_rules(ref: str, fields: dict, pads, names: dict) -> tuple:
 @dataclass(frozen=True)
 class Held:
     """A net kept on its pin: `why` is fixed (`Pm.PinFixed`), allow (`Pm.PinAllow` and `Pm.PinDeny` leave it only the pin
-    it is on) or unplaced (no pad of it but this one is placed: nothing pulls it anywhere yet)."""
+    it is on), unplaced (no pad of it but this one is placed: nothing pulls it anywhere yet) or in_cell (every other pad
+    of it is on another member of the part's cell)."""
     net: str
     pin: str
     why: str
@@ -203,10 +204,11 @@ class PartPins:
     breaks: tuple = ()
 
 
-def part_pins(rules: PinRules, pads, connected, quiet, waiting=frozenset()) -> tuple:
+def part_pins(rules: PinRules, pads, connected, quiet, waiting=frozenset(), inside=frozenset()) -> tuple:
     """(PartPins or None, [Problem]): `pads` the part's (pad number, net, no_connect), `connected` the nets with a pad
     elsewhere on the board, placed or not, `quiet` the plane and free nets, `waiting` the nets with no pad placed but
-    this part's, which keep their pins (Held "unplaced"). A pool pin with no net, with a net that reaches nothing else
+    this part's, which keep their pins (Held "unplaced"), `inside` the nets whose every other pad is on another member
+    of the part's cell, which keep theirs too (Held "in_cell"): the module's own run places them. A pool pin with no net, with a net that reaches nothing else
     (a single-pad net, KiCad's `unconnected-(...)`) or that the capture marks unconnected is free. A net on one pool pin
     that is not fixed moves. A net on two pins, a quiet net and a net outside the pool stay, and so do their pins; so
     does a net `Pm.PinAllow` or `Pm.PinDeny` leaves only its own pin. None, with a `no_legal_pin` problem, when a net
@@ -226,6 +228,9 @@ def part_pins(rules: PinRules, pads, connected, quiet, waiting=frozenset()) -> t
             staying.add(pins[0])
         elif net in waiting:
             held.append(Held(net, pins[0], "unplaced"))
+            staying.add(pins[0])
+        elif net in inside:
+            held.append(Held(net, pins[0], "in_cell"))
             staying.add(pins[0])
         else:
             movable.append(net)

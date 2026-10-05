@@ -108,11 +108,13 @@ def test_stamps_of_one_module_with_different_best_maps_are_said_and_each_listed(
     found, _ = study_findings(pads, parts, {}, frozenset(), {}, {}, settings(pins_rotations=(0.0,)), cells=cells)
     fa, fb = sorted((f for f in found if f.cause is C.PINS_REMAP), key=lambda f: f.facts["cell"])
     listed = [{"cell": "a", "ref": "U1", "moves": [{"from": "1", "to": "4"}, {"from": "2", "to": "3"},
-                                                    {"from": "3", "to": "2"}, {"from": "4", "to": "1"}]},
-              {"cell": "b", "ref": "U2", "moves": [{"from": "3", "to": "4"}, {"from": "4", "to": "3"}]}]
+                                                    {"from": "3", "to": "2"}, {"from": "4", "to": "1"}],
+               "module_rotation_deg": 0.0},
+              {"cell": "b", "ref": "U2", "moves": [{"from": "3", "to": "4"}, {"from": "4", "to": "3"}],
+               "module_rotation_deg": 0.0}]
     assert fa.facts["stamp_maps"] == listed and fb.facts["stamp_maps"] == listed
-    assert "the 2 stamps of module M have different best maps: a moves pins 1->4, 2->3, 3->2, 4->1; " \
-           "b moves pins 3->4, 4->3" in fa
+    assert "the 2 stamps of module M have different best maps: a moves pins 1->4, 2->3, 3->2, 4->1 with U1 at 0 " \
+           "degrees in the module's frame; b moves pins 3->4, 4->3 with U2 at 0 degrees in the module's frame" in fa
 
 
 def test_stamps_of_one_module_with_the_same_best_map_say_nothing_of_it():
@@ -231,3 +233,164 @@ def test_two_studied_parts_in_one_cell_are_studied_together_with_one_pose():
     (g,) = study(inp, settings())
     assert g.refs == ("U1", "U2") and g.of == 4
     assert all(len({t for _, t, _ in r.poses}) == 1 for r in g.results)
+
+
+# ---- the review's fixes
+
+def two_turned_stamps(rotation_b=90.0):
+    """turned_cell twice, as cells a and b of one module: the same map and turn win in both, but U2 stands at
+    `rotation_b` in its module's frame and U1 at 0, so re-laying the module cannot give both the turn they want."""
+    from dataclasses import replace
+    pads, parts = turned_cell()
+    parts = {"U1": replace(parts["U1"], rotation=0.0)}
+    more, u2 = quad("U2", 10, 40, {"W": ["A2", "B2", ""]}, {"Pm.PinPool": "1-3"})
+    for i, net in enumerate(["A2", "B2"]):
+        more += point_pad("T2%d" % i, net, 25, 39.5 + i)
+    more += two_pad("C2", "", "", 10, 44)
+    pads += more
+    parts["U2"] = replace(u2, rotation=rotation_b)
+    parts = complete(pads, parts)
+    parts, a = in_cell("a", pads, parts, ["U1", "C1"], module="Mcu", stamps=2)
+    parts, b = in_cell("b", pads, parts, ["U2", "C2"], module="Mcu", stamps=2)
+    return pads, parts, dict(a, **b)
+
+
+def test_stamps_whose_best_module_rotations_differ_are_flagged_each_with_its_rotation():
+    pads, parts, cells = two_turned_stamps()
+    found, _ = study_findings(pads, parts, {}, frozenset(), {}, {}, settings(), cells=cells)
+    fa, fb = sorted((f for f in found if f.cause is C.PINS_REMAP), key=lambda f: f.facts["cell"])
+    sm = fa.facts["stamp_maps"]
+    assert sm == fb.facts["stamp_maps"]
+    assert [(s["cell"], s["module_rotation_deg"]) for s in sm] == [("a", 180.0), ("b", 270.0)]
+    assert sm[0]["moves"] == sm[1]["moves"]
+    assert "a moves pins" in fa and "U1 at 180 degrees in the module's frame" in fa
+    assert "U2 at 270 degrees in the module's frame" in fa
+
+
+def test_the_relay_lever_says_it_relays_every_stamp():
+    pads, parts, cells = two_turned_stamps()
+    found, _ = study_findings(pads, parts, {}, frozenset(), {}, {}, settings(), cells=cells)
+    f = next(f for f in found if f.cause is C.PINS_REMAP)
+    assert "which re-lays all 2 of its stamps" in f
+    assert "which re-lays all 2 of its stamps" in sg.suggest(f.cause, f.facts)[0].text
+
+
+def series_in_cell():
+    """U1 with A and B on its east side; R1, inside U1's cell, takes A on to AX, which runs to a test point far east;
+    B runs straight to one. C1, inside the cell too, carries CAP from pool pin 3."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "CAP"]}, {"Pm.PinPool": "1-3"})
+    pads += two_pad("R1", "A", "AX", 14, 9)
+    pads += two_pad("C1", "CAP", "", 14, 12)
+    pads += point_pad("TA", "AX", 30, 11) + point_pad("TB", "B", 30, 9)
+    parts, cells = in_cell("logic", pads, {"U1": u1}, ["U1", "R1", "C1"])
+    return pads, parts, cells
+
+
+def test_a_pool_net_through_a_series_part_in_its_cell_is_followed_to_its_far_net_outside():
+    pads, parts, cells = series_in_cell()
+    inp, _ = input_of(pads, parts, cells=cells)
+    (a,) = [n for n in inp.nets if n.net == "A"]
+    assert (a.via, a.far, a.ends) == ("R1", "AX", (("U1", "1"),))
+    assert [x.ref for x in a.fixed] == ["TA"]
+    assert "AX" not in {n.net for n in inp.nets} and "A" in inp.part("U1").slots.movable
+
+
+def test_a_pool_net_whose_far_end_is_another_member_of_its_cell_keeps_its_pin_and_is_listed():
+    pads, parts, cells = series_in_cell()
+    found, _ = study_findings(pads, parts, {}, frozenset(), {}, {}, settings(pins_placed_share_min=0.0), cells=cells)
+    inp, _ = input_of(pads, parts, cells=cells)
+    assert "CAP" not in inp.part("U1").slots.movable
+    assert ("CAP", "3", "in_cell") in {(h.net, h.pin, h.why) for h in inp.part("U1").slots.held}
+    (f,) = [f for f in found if f.cause is C.PINS_REMAP]
+    assert f.facts["in_cell"] == [{"net": "CAP", "ref": "C1"}]
+
+
+def test_an_arranged_cell_names_its_arrangement_and_the_frame_of_its_rotation():
+    pads, parts = turned_cell()
+    parts, cells = in_cell("logic", pads, parts, ["U1", "C1"], rotation=90.0, module="Mcu", arrangement="east")
+    (f,) = [f for f in study_findings(pads, parts, {}, frozenset(), {}, {}, settings(), cells=cells)[0]
+            if f.cause is C.PINS_REMAP]
+    assert f.facts["arrangement"] == "east"
+    assert "with U1 at 180 degrees in the frame of its arrangement east" in f
+
+
+def test_a_cell_with_a_member_not_placed_is_still_studied_as_the_cell_and_lists_it():
+    from placemat.pinmap import plan_findings, placed_from_plan
+    b = cell_board(rotation=90.0)
+    plan = b.resolve()
+    plan.occupancy.pending.add("C1")
+    placed = placed_from_plan(b, plan)
+    assert placed.cells["c"].members == ("U1",) and placed.cells["c"].missing == ("C1",)
+    b.settings = settings(pins_rotations=(0.0,), pins_placed_share_min=0.0)
+    (f,) = [f for f in plan_findings(b, plan) if f.cause is C.PINS_REMAP]
+    assert f.facts["cell"] == "c" and {"net": "A", "ref": "C1"} in f.facts["unplaced_ends"]
+
+
+def test_a_cell_read_from_a_board_takes_its_face_from_its_members():
+    from placemat.pinmap_input import placed_from_geometry
+    from placemat.values import Face
+    from tests.fixtures import board_geometry, footprint
+    fps = [footprint("R1", 5, 5, inst="a.r", cell="a", face=Face.BACK),
+           footprint("R2", 9, 5, inst="a.s", cell="a", face=Face.BACK)]
+    c = placed_from_geometry(board_geometry(fps, cells=("a",))).cells["a"]
+    assert (c.face, c.flipped) == ("back", True)
+
+
+def test_a_group_led_by_a_loose_part_carries_the_cell_facts_of_its_member_in_a_cell():
+    pads, u0 = quad("U0", 10, 30, {"E": ["J", "K"]}, {"Pm.PinPool": "1-2"})
+    more, u1 = quad("U1", 10, 10, {"E": ["J", "L"]}, {"Pm.PinPool": "1-2"})
+    pads += more + point_pad("TK", "K", 30, 31) + point_pad("TL", "L", 30, 9)
+    parts, cells = in_cell("logic", pads, {"U0": u0, "U1": u1}, ["U1"], module="Mcu", stamps=1)
+    found, _ = study_findings(pads, parts, {}, frozenset(), {}, {}, settings(pins_gain_min=0.0), cells=cells)
+    (f,) = [f for f in found if f.cause is C.PINS_REMAP]
+    assert f.facts["refs"] == ["U0", "U1"] and f.facts["cell"] == "logic" and f.facts["module"] == "Mcu"
+    assert f.startswith("U0 and U1 in cell logic: ") and "at their present rotations" in f
+
+
+def test_two_cells_turned_in_one_pose_are_each_named():
+    from placemat.finding_text import render
+    turn = lambda ref, cell: {"ref": ref, "turn_deg": 90.0, "rotation_deg": 90.0, "face": "front", "flip": False,
+                              "cell": cell, "module": "M", "stamps": 1, "arrangement": "default",
+                              "cell_rotation_deg": 90.0, "module_rotation_deg": 90.0}
+    row = {"total": 1.0, "against": 0, "among": 0, "weighted": 0.0, "length_mm": 1.0, "bend_deg": 0.0, "map": [],
+           "routed": [], "paths": [], "breaks": []}
+    present = dict(row, total=5.0, weighted=4.0)
+    facts = {"ref": "U1", "refs": ["U1", "U2"], "present": present, "best": 1, "first_map": True, "budget_out": False,
+             "budget_ms": 200, "searched": 2, "of": 2, "routed": [], "present_breaks": [], "cell": "a", "module": "M",
+             "stamps": 1, "rotations": [dict(row, total=5.0, weighted=4.0, turns=[]),
+                                       dict(row, turns=[turn("U1", "a"), turn("U2", "b")])]}
+    text = render(C.PINS_REMAP, facts)
+    assert "for cell a, turn cell a to 90 degrees" in text and "for cell b, turn cell b to 90 degrees" in text
+    assert "for the next" not in text
+
+
+def test_a_cell_on_the_back_takes_the_turn_the_other_way_in_its_module():
+    from dataclasses import replace
+    pads, parts = turned_cell()
+    parts = {"U1": replace(parts["U1"], rotation=90.0)}
+    parts, cells = in_cell("logic", pads, parts, ["U1", "C1"], rotation=0.0, face="back", flipped=True)
+    (f,) = [f for f in study_findings(pads, parts, {}, frozenset(), {}, {}, settings(), cells=cells)[0]
+            if f.cause is C.PINS_REMAP]
+    (t,) = f.facts["rotations"][f.facts["best"]]["turns"]
+    assert t["turn_deg"] == 180.0 and (t["cell_rotation_deg"], t["module_rotation_deg"]) == (180.0, 90.0)
+
+
+def test_a_cell_turned_by_the_placer_is_studied_at_the_turn_it_took():
+    from placemat.pinmap import placed_from_plan
+    from placemat.values import Cell, Location, Turns
+    b = cell_board(rotation=0.0)
+    b._intents = [i for i in b._intents if not (i.kind == "cell")]
+    b.place(Cell("c"), at=Location(20, 22), rotations=Turns.ANY)
+    plan = b.resolve()
+    took = plan.placement("c").rotation
+    assert placed_from_plan(b, plan).cells["c"].rotation == took
+
+
+def test_one_reader_gives_the_fragments_and_the_module_layouts_of_a_layout_log(tmp_path):
+    from placemat.describe import layout_log
+    log = tmp_path / "layout.log"
+    log.write_text("INFO: OPLOG PLACE_FP_FRAGMENT path=c.u1.X x=0 y=0 fragment_group=c\n"
+                   "DEBUG: Found module c with layout_path: package://w/modules/Mcu/layout\n"
+                   "DEBUG: Found module c.u1 with layout_path: None\n")
+    got = layout_log(log)
+    assert got.fragments == {"c.u1": "c"} and got.layouts == {"c": "package://w/modules/Mcu/layout"}

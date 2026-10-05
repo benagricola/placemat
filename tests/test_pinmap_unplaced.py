@@ -54,3 +54,19 @@ def test_a_resolve_gives_the_study_the_pads_of_the_parts_it_has_not_placed():
     plan.occupancy.pending.add("R4")
     placed = placed_from_plan(b, plan)
     assert "R4" not in placed.parts and ("R4", "1", "A") in placed.unplaced
+
+
+def test_a_far_end_reached_through_a_series_part_and_not_placed_is_listed_with_the_series_part():
+    from tests.test_pinmap_finding import through_resistors
+    pads, parts = through_resistors()
+    pads = [p for p in pads if p.ref != "TP4"]
+    found, _ = study_findings(pads, complete(pads, parts), {}, frozenset(), {}, {},
+                              settings(pins_rotations=(0.0,), pins_placed_share_min=0.0),
+                              unplaced=(("TP4", "1", "A_FAR"),))
+    (f,) = [f for f in found if f.cause is C.PINS_REMAP]
+    assert {"net": "A", "ref": "TP4", "via": "R1", "far": "A_FAR"} in f.facts["unplaced_ends"]
+
+
+def test_the_share_setting_speaks_of_the_groups_nets():
+    from placemat.settings import describe
+    assert "group's movable nets" in describe("pins_placed_share_min")

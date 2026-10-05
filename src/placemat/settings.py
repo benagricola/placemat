@@ -341,7 +341,7 @@ class Settings:
     pins_gain_min: float = S(0.05, "share",
         "the share of the present total a better pin map must save for a `pins.remap` finding")
     pins_placed_share_min: float = S(0.8, "share",
-        "the share of a studied part's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement")
+        "the share of a studied group's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement")
     pins_explore_top: int = S(3, "count",
         "the best variants of an explore, by run score, the pin map study runs on (0: none)")
     pins_probe_budget_ms: int = S(5000, "ms",

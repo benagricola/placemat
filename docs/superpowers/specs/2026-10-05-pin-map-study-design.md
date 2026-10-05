@@ -124,8 +124,20 @@ capacitors, a crystal), which turn with it.
   the envelope side they are nearest.
 - **Nets inside the cell.** A net with every pad on the cell's members and
   none that may move turns with the cell as a posed net of the background,
-  its airwires straight between its pads. A net that may move keeps its
-  ends on the members as ends of the body.
+  its airwires straight between its pads. A pool net whose one other pad is
+  on a series member of the cell (two pads, a prefix of
+  `pins.follow_prefixes`) is followed to that member's far net, when the far
+  net has pads outside the cell, none on a part with a pool, and no other pad
+  on the cell: its pull is those outside pads. Any other pool net whose other
+  pads are all on the cell's members keeps its pin (`held`, `why: in_cell`,
+  listed in `in_cell` as `{net, ref}`), since the module's own run places it;
+  it does not count in `pins.placed_share_min`.
+- **Members not placed.** A cell with a member not placed is studied with
+  the members it has, and the missing member is listed in `unplaced_ends`
+  (with net `""` when it carries none of the part's nets); the share rule
+  decides whether the advice is withheld.
+- **A group led by a loose part** carries the cell facts, the capture
+  sentence and `stamp_maps` of its first part that is in a cell.
 - **The core** takes the cell as one posed body: a part whose centre and
   box are the envelope's and whose pins are every member's pads. No change
   to the native core or its twin. Two studied parts in one cell are two
@@ -138,14 +150,24 @@ capacitors, a crystal), which turn with it.
   turn (each stamp turns on its own); (2) keep the cell and re-lay the
   module with the part at `module_rotation_deg` in the module's frame (its
   rotation in the cell, plus the turn; minus it for a cell on the other face
-  from its stamp), its satellites re-placed round it. Either one means the
-  next run re-places the board.
+  from its stamp), its satellites re-placed round it. Lever 2 re-lays every
+  stamp of the module, and its text says so. Either one means the next run
+  re-places the board.
+- **An arranged cell.** A cell standing in one of its module's offered
+  arrangements has its members where that arrangement puts them, so
+  `module_rotation_deg` is in that arrangement's frame: the module's own
+  frame is not recovered from it. The facts carry `arrangement` (`default`
+  for the module's own layout) and the text names the frame when it is not
+  the default.
 - **One capture, several stamps.** The map is a change to the module's
   capture, shared by every stamp of it. When the stamps of one module have
   different best maps (by pin moves; a stamp with no map worth having keeps
-  its pins), each stamp's finding says so and lists each (`stamp_maps`).
+  its pins) or different best `module_rotation_deg` (a stamp with no map at
+  its present one), each stamp's finding says so and lists each
+  (`stamp_maps`, with each stamp's rotation).
 - **The module** is named by the generator's `layout.log` beside the board:
-  the folder of the cell's module layout path. Without a log the name is
+  the folder of the cell's module layout path. One reader of that log
+  (describe.py `layout_log`) serves this and `placemat parts --fragments`. Without a log the name is
   null and the stamps are the cells whose members match (instance path in
   the cell and footprint).
 - **Facts.** `cell`, `module`, `stamps`, and the best pose's
@@ -154,7 +176,9 @@ capacitors, a crystal), which turn with it.
   render the two levers. Parts not in a cell keep their facts and behaviour.
 - **A laid board read from disk** (the bench, the real-board tests) does not
   say how its cells were turned from their stamps: `placed_from_geometry`
-  takes them as given (`cell_rotations`), else as stamped.
+  takes them as given (`cell_rotations`), else 0. A cell's face is that of
+  its member with the most pads, and a cell on the back is taken as flipped
+  from its stamp.
 
 ## Parts not placed yet
 
@@ -165,7 +189,8 @@ would move it for free.
 - A studied net with no placed pad but the part's own is held on its present
   pin (`held`, `why: unplaced`) and never moved.
 - `unplaced_ends`: `{net, ref}` for every pad of a studied part's net on a
-  part not placed.
+  part not placed, and `{net, ref, via, far}` for one on the far net a placed
+  series part takes the net on to.
 - `pins.placed_share_min` (default 0.8): when fewer than that share of a
   group's movable nets have a placed far end, the study gives no map or
   rotation. The `pins.remap` notice is still raised, with `withheld`
@@ -278,6 +303,11 @@ taken as standing as stamped:
 
 The best is the cell turned 90 degrees, 17.6 percent below the present total;
 at the present rotation the best map saves 204.112 (13.8 percent).
+
+With in-cell nets followed or held (a pool net through a series member of
+the cell, R12, is followed to its far net outside), the present total is
+1469.776, the best at the present rotation 1231.755 and the best overall
+1205.606, the cell turned 90 degrees (18.0 percent below the present).
 
 Preview hook (`_report_pin_maps` inside `Board.resolve`, native core, one
 annotated part on the whole-board fixture, three cold and warm pairs under
