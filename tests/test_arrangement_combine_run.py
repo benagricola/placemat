@@ -100,13 +100,20 @@ def test_a_units_why_and_its_options_why_reach_the_record_and_the_console():
     held = [{"unit": "cap", "option": "north", "why": "room on the west for the input",
              "unit_why": "the bypass may stand north of u1"}]
     assert run.reasons(prepared.units, {"cap": "north"}) == held
-    assert run.reasons(prepared.units, {"r_pull": "turned"}) == []                 # an item's option: its own place() why
+    item = {"item": "r_pull", "option": "turned", "why": "either way round"}
+    assert run.reasons(prepared.units, {"r_pull": "turned"}) == [item]
+    assert run.reasons(prepared.units, {"r_pull": "turned", "cap": "north"}) == [item] + held
     (gone,) = run.excluded_entries(prepared.excluded, prepared.units)
-    assert gone["why"] == held
+    assert gone["why"] == [item] + held
     offered = dict(entry("cap.north", {"cap": "north"}, True), why=held)
     refused = dict(entry("cap.north", {"cap": "north"}, False, refused=[UNPLACED]), why=held)
-    rows = run.lines([DEFAULT, offered, refused, entry("r_pull.turned", {"r_pull": "turned"}, True)])
+    plain = module()
+    plain.alternative(Part("r_pull"), "turned", rotation=180)
+    assert run.reasons(run.begin(plain).units, {"r_pull": "turned"}) == []           # no why=: no reason, no key
+    rows = run.lines([DEFAULT, offered, refused, entry("r_pull.turned", {"r_pull": "turned"}, True),
+                      dict(entry("r_pull.turned", {"r_pull": "turned"}, True), why=[item])])
     assert rows[1]["reasons"] == held and "reasons" not in rows[3]
+    assert arrangement_row_text(rows[4]) == "r_pull.turned: offered - r_pull.turned: either way round"
     tail = " - cap: the bypass may stand north of u1; cap.north: room on the west for the input"
     assert arrangement_row_text(rows[1]) == "cap.north: offered" + tail
     assert arrangement_row_text(rows[2]).endswith(tail) and arrangement_row_text(rows[3]) == "r_pull.turned: offered"

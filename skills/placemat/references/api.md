@@ -1209,10 +1209,11 @@ default first:
   on a module that declares any, and on one that declares none, or runs
   with `place.arrangements` false, when it protrudes more than
   `place.extent_notice_mm`.
-- `why` lists the reasons of the unit options an arrangement holds, in
-  unit order: each one's `unit`, `option`, the option's `why` and the
-  unit's own (`unit_why`), for those the script gave either; absent when
-  there are none. `placemat run` prints them after the arrangement's row.
+- `why` lists the reasons of the choices an arrangement holds, in unit
+  order, for those the script gave one: an item's option as `item`,
+  `option` and `why`; a unit's option as `unit`, `option`, the option's
+  `why` and the unit's own (`unit_why`). It is absent when there are
+  none. `placemat run` prints them after the arrangement's row.
 - A combination an exclusion leaves out has `offered` false and
   `excluded`, the exclusion's `why` and its choices (`by`), and no
   `dir`, `metrics` or `extent`: it is not laid out. These entries come

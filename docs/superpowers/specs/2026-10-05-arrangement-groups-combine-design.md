@@ -138,9 +138,10 @@ finished: the option is fixed or dropped.
 `run.json`'s `arrangements` record gains `excluded` (the ids not laid out,
 each with the exclusion's `why`).
 
-Each entry also gains `why`, the reasons of the unit options it holds:
-`[{unit, option, why, unit_why}]` in unit order, for those the script gave
-a `why=` on the option or the unit; absent when there are none. The
+Each entry also gains `why`, the reasons of the choices it holds, in unit
+order, for those the script gave a `why=`: `{item, option, why}` for an
+item's option, `{unit, option, why, unit_why}` for a unit's; absent when
+there are none. The
 console row of an offered or refused arrangement prints them after it.
 (Amended after the final review: the reasons are kept and shown, not
 dropped.)

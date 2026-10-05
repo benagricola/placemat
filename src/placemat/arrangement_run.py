@@ -174,11 +174,16 @@ def verdict_refusals(verdicts) -> list:
 
 
 def reasons(units, choices: dict) -> list:
-    """The reasons of the unit options an arrangement holds (its `choices`), in unit order: each one's `unit`, `option`, its
-    `why` and the unit's own (`unit_why`), for those the script gave either. (An item's option carries none: its Choice has
-    no why.)"""
-    return [{"unit": c.unit, "option": c.option, "why": c.why, "unit_why": c.unit_why}
-            for u in units for c in u.choices if choices.get(c.unit) == c.option and (c.why or c.unit_why)]
+    """The reasons of the choices an arrangement holds (its `choices`), in unit order, for those the script gave one: an item's
+    option as `item`, `option` and `why`; a unit's option as `unit`, `option`, its `why` and the unit's own (`unit_why`)."""
+    out = []
+    for u in units:
+        for c in u.choices:
+            if choices.get(c.unit) != c.option or not (c.why or c.unit_why):
+                continue
+            out.append({"item": c.unit, "option": c.option, "why": c.why} if c.item else
+                       {"unit": c.unit, "option": c.option, "why": c.why, "unit_why": c.unit_why})
+    return out
 
 
 def _with_reasons(entry: dict, units) -> dict:

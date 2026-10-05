@@ -966,9 +966,13 @@ def arrangement_row_text(row: dict) -> str:
 
 
 def _unit_reasons_text(reasons) -> str:
-    """The reasons of an arrangement's unit options (arrangement_run.reasons), after its row: ` - unit: why; unit.option: why`."""
+    """The reasons of an arrangement's choices (arrangement_run.reasons), after its row: ` - unit: why; unit.option: why;
+    item.option: why`."""
     parts = []
     for r in reasons:
+        if "item" in r:
+            parts.append("%s.%s: %s" % (r["item"], r["option"], r["why"]))
+            continue
         if r["unit_why"]:
             parts.append("%s: %s" % (r["unit"], r["unit_why"]))
         if r["why"]:
