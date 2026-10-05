@@ -285,6 +285,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **An unneeded via on a module's escape lane is a finding** (0.99.14):
+  `escape.via_unneeded` names a via on a lane that can reach the module's
+  frame on the component face without it; the skill says a module drops to
+  another layer only where the lane is walled in.
+
 - **A past explore opens on its best variant** (0.99.13): the studio draws a
   finished explore's best variant in 2D and 3D; new explores keep the best
   variant's plan and name their run. Test processes that crash on purpose
