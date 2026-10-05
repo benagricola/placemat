@@ -670,3 +670,35 @@ def test_a_long_region_on_any_edge_stands_flush_with_it(edge):
     want = {Edge.NORTH: box.top, Edge.SOUTH: 40.0 - box.bottom, Edge.WEST: box.left, Edge.EAST: 60.0 - box.right}[edge]
     assert want == pytest.approx(0.0, abs=1e-6), (edge, box)
     assert min(box.width, box.height) == pytest.approx(2.0, abs=1e-6)
+
+
+# ------------------------------------------- a named cutout's loop on a bored disc
+def _on_slot(run, cy):
+    """Every sampled point of the run is within the slot's 3 mm of its centreline y = cy."""
+    n = 8
+    return all(abs(run.at(run.length * k / n)[0].y - cy) < 2.0 for k in range(n + 1))
+
+
+@pytest.mark.parametrize("bore", [0.0, 6.0], ids=["solid", "bored"])
+def test_a_named_cutout_on_a_disc_reads_its_own_loop(bore):
+    b = make_board()
+    b.disc(diameter=40.0, hole=bore, holes=[Cutout(SLOT_SHAPE, "ffc", at=Location(20.0, 28.0), why="cable")])
+    assert b._shaped().loops[b._cutout_loop_of["ffc"]] == Cutouts([list(SLOT)]).loops[0]
+    assert _on_slot(b.cutout("ffc").edge(side=Edge.NORTH), 28.0)
+
+
+def test_a_cutout_added_after_a_bore_on_a_disc_reads_its_own_loop():
+    b = make_board("u1")
+    b.disc(diameter=40.0, hole=6.0,
+           holes=[Cutout(SLOT_SHAPE, "ffc", at=Location(20.0, 28.0), why="cable"),
+                  Cutout(Slot(8.0, 2.0), "later", at=Polar(12.0, Fraction(0.25)), why="vent")])
+    b.place(Part("u1"), at=Location(20.0, 8.0))
+    b.resolve()
+    for name in ("ffc", "later"):
+        assert b._shaped().loops[b._cutout_loop_of[name]] == Cutouts([list(b._settled_cutouts[name].path)]).loops[0]
+
+
+def test_a_named_cutout_on_a_rectangle_reads_its_own_loop():
+    b = _with_slot()
+    assert b._shaped().loops[b._cutout_loop_of["ffc"]] == Cutouts([list(SLOT)]).loops[0]
+    assert _on_slot(b.cutout("ffc").edge(side=Edge.NORTH), 28.0)
