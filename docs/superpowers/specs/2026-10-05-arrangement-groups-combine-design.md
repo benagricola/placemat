@@ -173,3 +173,10 @@ be in a unit and have its own alternative; `place.arrangements_max` defaults
 to 16, up from 8. Under "New": `board.unit` with options by `board.alternative`,
 `board.exclude`, `arrangement.option_dead`. A module re-run offers the new
 combinations; a board needs no change.
+
+## Build notes
+
+Built 2026-10-05. The bench (`fixtures/bench.py --jobs 2`) is the same in every case on every config (33 cases each). The
+full suite (`--full`, 5788 passed, 22 skipped, none failed) passed. The usb5v fixture module with a 0.99.15 declaration (one
+`board.arrangement`, one item alternative) makes, under 0.99.15 and now, `default`, `c_vcc.turned` and `rt_apart` with the same
+places and the same offered state; now it also makes `c_vcc.turned+rt_apart`.
