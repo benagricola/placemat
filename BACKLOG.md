@@ -295,6 +295,13 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Module arrangements** (0.99.15): a module declares alternative layouts
+  (`board.alternative`, `board.arrangement`, `only=` copper); its run proves
+  each and writes the offered ones into the fragment, and a board searches
+  them for each stamped cell, taking one only when it beats the default by
+  `place.arrangement_margin`. Firm cells, the lock, freeze, explore and the
+  studio carry the arrangement.
+
 - **An unneeded via on a module's escape lane is a finding** (0.99.14):
   `escape.via_unneeded` names a via on a lane that can reach the module's
   frame on the component face without it; the skill says a module drops to
