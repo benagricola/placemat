@@ -2881,3 +2881,43 @@ out.heat = ev("host3d().heat(1.25)");
     assert out["two"] == ["findings", [0, 3]]                                     # several at one spot: listed in the findings tab, as a 2D cluster
     assert out["tip"][0] == "2 findings" and out["tip"][1].startswith("critical: ")
     assert out["heat"] == "rgb(200,20,20)"
+
+
+# ---------------------------------------------------------------- a pin map suggestion
+PINMAP = r"""
+const PM_ADVICE = {refs: ["U1"], rotation: 1, total: 2.5, weighted: 0,
+  turns: [{ref: "U1", turn_deg: 90, rotation_deg: 90, face: "front", flip: false}],
+  map: [{ref: "U1", net: "SDA", from: {pin: "12", name: "GPIO7"}, to: {pin: "14", name: "GPIO9"}}]};
+const PM_FACTS = {ref: "U1", refs: ["U1"], best: 1, present: {total: 9}, routed: [],
+  before: [{net: "SDA", path: [[1, 1], [5, 1]]}],
+  rotations: [{paths: [{net: "SDA", path: [[1, 1], [4, 1]]}], map: []}, {paths: [{net: "SDA", path: [[2, 2], [5, 2], [5, 4]]}], map: PM_ADVICE.map}]};
+const PM_FND = [{text: "U1: a pin map with 3 fewer weighted crossings exists at its present rotation", kind: "pins", severity: "notice", item: "",
+  cause: "pins.remap", facts: PM_FACTS, at: [10, 10], refs: ["U1"], pads: [],
+  suggestions: [{id: "s1a", text: "Move 1 net of U1 to the pins in the map, a capture change, and turn U1 to 90 degrees", rank: 1, lever: "pins", how: "advice", edits: [], advice: PM_ADVICE}]}];
+"""
+
+
+@needs_node
+def test_a_pin_map_suggestion_offers_try_alone_and_its_try_lists_the_map_and_draws_the_airwires_before_and_after(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: PM_FND});
+  const html = () => { ev("renderFindings()"); return els["#tab-findings"].innerHTML; };
+  out.offered = html();
+  await ev("sgAct")("pinmap", "s1a");
+  out.open = html(); out.state = ev("S.pinmap");
+  out.svg = ev("pinMapSVG(plan().findings[0], plan().findings[0].suggestions[0])");
+  await ev("sgAct")("pinmap", "s1a");
+  out.closed = html(); out.after = ev("S.pinmap");
+  console.log(JSON.stringify(out));
+})();
+""")
+    h = out["offered"]
+    assert 'data-sg="pinmap" data-sid="s1a"' in h and 'data-sg="show" data-sid="s1a"' not in h and 'data-sg="apply" data-sid="s1a"' not in h
+    assert "pmmap" not in h
+    o = out["open"]
+    assert out["state"] == {"sid": "s1a"} and "<b>SDA</b>" in o and "GPIO7, pin 12" in o and "GPIO9, pin 14" in o
+    assert "turn U1 to 90 degrees" in o and "airwires now" in o and "airwires after" in o
+    svg = out["svg"]
+    assert svg.count('class="pm-before"') == 1 and svg.count('class="pm-after"') == 1 and 'points="2,2 5,2 5,4"' in svg
+    assert out["after"] is None and "pmmap" not in out["closed"]
