@@ -138,3 +138,9 @@ def test_an_accepted_variant_replays_its_drawn_arrangement_from_the_lock(tmp_pat
     replay = seeded_board(g).resolve(lock=_lock.read(path))
     assert replay.step("mod").lock == "held"
     assert replay.placement("mod") == variant.placement("mod") and replay.placement("mod").arrangement == ""
+
+
+def test_the_margin_leaves_an_explore_drawing_among_the_arrangements_within_the_slack():
+    g = with_arrangement(stamped_geometry(partner=(60.0, 30.0)))
+    s = dataclasses.replace(Settings(), explore_spot_slack=5.0, place_arrangement_margin=1000.0)
+    assert {seeded_plan(seed, g, s)[1].placement("mod").arrangement for seed in range(1, 25)} == {"", "c_in.east"}

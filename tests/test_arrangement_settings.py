@@ -25,8 +25,13 @@ def test_they_are_set_from_placemat_toml(tmp_path):
 
 @pytest.mark.parametrize("text", [
     "[score]\narrangement = -0.1\n", "[place]\narrangements_max = 0\n", "[place]\narrangement_options_max = 0\n",
-    "[place]\narrangement_note_chars = 0\n", "[place]\nextent_notice_mm = -1\n"])
+    "[place]\narrangement_note_chars = 0\n", "[place]\nextent_notice_mm = -1\n", "[place]\narrangement_margin = -0.5\n"])
 def test_a_setting_that_cannot_work_is_refused(tmp_path, text):
     (tmp_path / "placemat.toml").write_text(text)
     with pytest.raises(SettingsError):
         S.load(tmp_path)
+
+
+def test_the_arrangement_margin_is_set_from_placemat_toml(tmp_path):
+    (tmp_path / "placemat.toml").write_text("[place]\narrangement_margin = 2.5\n")
+    assert S.load(tmp_path).place_arrangement_margin == 2.5

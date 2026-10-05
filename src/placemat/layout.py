@@ -9906,15 +9906,21 @@ class Board:
         with a legal spot and scans no further. Each scan has the step's budget afresh; the step's time limit stops between scans.
         `kw` are `_scan_one`'s keywords but `j`.
 
+        A non-default arrangement must also beat the default's total by `place.arrangement_margin` (`_margin`); the best one held
+        back by it is noted as `within`. The margin is not asked when the default had no legal spot, nor of a cell whose
+        `arrangements=` names its choices, nor of an explore's draw.
+
         An explore variant (`_pick`) over more than one arrangement draws once from every arrangement's legal spots pooled, on
         both faces of an either-face item, each at its total as the choice compares it (`_standing_total`); the arrangement and
         face of the spot drawn stand (`_stand_drawn`). Over one arrangement the scan draws as it always has."""
         from . import timecap
         clock = timecap.active()
         cost = self.settings.score_arrangement
+        margin = self._margin(i)
         self._arr_unreached.pop(i.key, None)
         draw = self._pick(i) if len(ids) > 1 else None
         tried, best, pool = [], None, []                # best: (total, ident, _Tried); pool: what `draw` draws from
+        default_total, held = None, None                # held: (total, ident) of the best arrangement the margin kept out
         for k, ident in enumerate(ids):
             if k and clock is not None and clock.gave_up:
                 self._arr_unreached[i.key] = [a or "default" for a in ids[k:]]
@@ -9945,14 +9951,33 @@ class Board:
                 best = (0.0, ident, t)                  # unscored: the first with a spot stands, nothing else is scanned
                 break
             total = self._standing_total(t, extra)
+            if not ident:
+                default_total = total
+            elif margin is not None and default_total is not None and default_total - total < margin:
+                if total < default_total and (held is None or total < held[0]):
+                    held = (total, ident)
+                continue
             if best is None or total < best[0]:
                 best = (total, ident, t)
+        within = self._within(held, default_total, margin) if best is not None and not best[1] and not pool else None
         if pool:
             pool.sort(key=lambda c: c[:3])
             total, _, _, chosen, ident, t = draw(pool)  # explore.draw weighs by the total and the rank: the rest rides along
             self._stand_drawn(t, chosen, total - (cost if ident else 0.0))
             best = (total, ident, t)
-        return self._chosen_scan(i, tried, best, cost)
+        return self._chosen_scan(i, tried, best, cost, within)
+
+    def _margin(self, i: PlaceIntent) -> float | None:
+        """`place.arrangement_margin`, or None for a cell whose `arrangements=` names its choices: the script chose among them."""
+        return None if i.arrangements else self.settings.place_arrangement_margin
+
+    @staticmethod
+    def _within(held, default_total, margin) -> dict | None:
+        """The `within` fact of an `arrangement` note: the arrangement that scored better than the default by less than the
+        margin, by how much, and the margin. `held` is (its total, its id) or None."""
+        if held is None:
+            return None
+        return {"id": held[1], "by": round(default_total - held[0], 3), "margin": margin}
 
     def _stand_drawn(self, t, chosen: Placement, total: float) -> None:
         """Stand `t` (a `_Tried`) at the spot an explore drew from the pool, `total` its score with `score.back_face` and without
@@ -9965,7 +9990,7 @@ class Board:
         if t.j.either:
             t.face_note = self._back_face_note(t.faces[Face.FRONT], raw) if back else None
 
-    def _chosen_scan(self, i, tried, best, cost) -> "_Scanned":
+    def _chosen_scan(self, i, tried, best, cost, within=None) -> "_Scanned":
         """What `_scan_arrangements` found: the winner's scan, or every arrangement's refusals merged when none has a legal spot, and
         the step's `arrangement` note when more than one arrangement was scanned or a non-default one was taken."""
         results = [(a, t.result) for a, t in tried if t.result is not None]
@@ -9983,7 +10008,7 @@ class Board:
             return _Scanned(None, [t for _, t in tried], merged, None, None, reasons)
         _, ident, won = best
         won.result.cut = won.result.cut or cut
-        note = self._scanned_note(ident, won, tried, cost) if len(tried) > 1 or ident else None
+        note = self._scanned_note(ident, won, tried, cost, within) if len(tried) > 1 or ident else None
         return _Scanned(won, [t for _, t in tried], won.result, won.face_note, note, [])
 
     def _standing_total(self, t, extra: float) -> float:
@@ -9992,11 +10017,11 @@ class Board:
         r = t.result
         return r.score + extra + (self.settings.score_back_face if r.chosen.face is Face.BACK and t.j.either else 0.0)
 
-    def _scanned_note(self, ident, won, tried, cost) -> dict:
+    def _scanned_note(self, ident, won, tried, cost, within=None) -> dict:
         """The `arrangement` note of a scan over arrangements (`_arrangement_note`): `won` the `_Tried` taken, `tried` each
         (id, `_Tried`) scanned. Each row is its total as the choice compared it (`_standing_total`). A row is `beaten`, with no
         score, when the floor of the best so far cut it: it had room but could not beat that. `default_blame` says why the
-        default had no legal spot."""
+        default had no legal spot, and `within` (`_within`) which arrangement the margin held back."""
         def beaten(t):
             r = t.result
             return t.score is not None and r is not None and (r.score >= PRUNED if r.chosen is not None else r.bound > 0)
@@ -10020,7 +10045,7 @@ class Board:
         return self._arrangement_note(ident, [row(a, t) for a, t in tried],
                                       score=self._standing_total(won, 0.0) if scored else None,
                                       cost=(cost if ident else 0.0) if scored else None, default_score=default_score,
-                                      default_blame=default_blame)
+                                      default_blame=default_blame, within=within)
 
     @staticmethod
     def _arrangement_row(ident, total, legal: bool, beaten: bool = False) -> dict:
@@ -10033,7 +10058,7 @@ class Board:
         return out
 
     @staticmethod
-    def _arrangement_note(ident, rows=None, *, score=None, cost=None, default_score=None, default_blame=None) -> dict:
+    def _arrangement_note(ident, rows=None, *, score=None, cost=None, default_score=None, default_blame=None, within=None) -> dict:
         """The step's `arrangement` note, every form's: `ident` the one taken ("" the default, None when none stood); `rows` each
         arrangement tried
         (`_arrangement_row`); `score` the one taken's, without its cost, and `cost` its `score.arrangement` (both None when the
@@ -10042,7 +10067,7 @@ class Board:
         return step_text.record("arrangement", id=None if ident is None else ident or "default",
                                 score=None if score is None else round(score, 3), cost=cost,
                                 tried=rows, default_score=None if default_score is None else round(default_score, 3),
-                                default_blame=default_blame)
+                                default_blame=default_blame, within=within)
 
     @staticmethod
     def _faces_of(i: PlaceIntent) -> tuple:
@@ -10280,8 +10305,9 @@ class Board:
         laid as the declaration lays it, kept when the item is legal there as a decided place is judged, and scored as a search
         scores a candidate (links, pushes, escape lanes, a via giving way) with its arrangement's scorer. The lowest score plus
         `score.arrangement` (for an arrangement other than the default) wins; a tie goes to the arrangement tried first, then
-        the turn nearest `rotation=`, then the smaller angle. With nothing to score, the first arrangement with a legal turn
-        stands and those after it are not laid."""
+        the turn nearest `rotation=`, then the smaller angle. A non-default arrangement must also beat the default's lowest by
+        `place.arrangement_margin` (`_margin`) when the default has a legal turn. With nothing to score, the first arrangement
+        with a legal turn stands and those after it are not laid."""
         turns = sorted({float(r) % 360.0 for r in i.rotations})
         ids = self._arrangement_ids(i)
         arr_cost = self.settings.score_arrangement
@@ -10333,6 +10359,11 @@ class Board:
                 **({"arrangements": len(ids)} if len(ids) > 1 else {})}))
             return self._step(i, None, 0.0, unplaced=[dict(w.to_json(), **({"arrangement": a} if a else {}))
                                                       for (a, _), w in reasons.items()])
+        margin, held = self._margin(i), None
+        if margin is not None and default_total is not None:
+            kept = [f for f in found if not f[7] or default_total - f[0] >= margin]
+            held = min(((f[0], f[7]) for f in found if f[7] and f[0] < default_total and f not in kept), default=None)
+            found = kept
         _, k, away, rot, cost, p, chose, ident, j = min(found, key=lambda f: f[:4])
         notes = [chose] if chose else []
         notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if scored else None,
@@ -10347,7 +10378,8 @@ class Board:
                 if ident and default is not None and not default["legal"] else None
             notes.append(self._arrangement_note(ident, rows, score=cost if scored else None,
                                                 cost=(arr_cost if ident else 0.0) if scored else None,
-                                                default_score=default_total, default_blame=blamed))
+                                                default_score=default_total, default_blame=blamed,
+                                                within=None if ident else self._within(held, default_total, margin)))
         if push_sources:
             notes += self._push_notes(occ, plan, j, p, push_sources)
         return self._step(j, p, 0.0, notes)

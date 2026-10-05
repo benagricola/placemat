@@ -186,8 +186,11 @@ def _consistent(note):
     won = rows[note["id"]]
     assert won["score"] == pytest.approx(note["score"] + note["cost"])
     scored = [t for t in note["tried"] if t["score"] is not None]
-    assert won["score"] == min(t["score"] for t in scored)
-    assert next(t for t in scored if t["score"] == won["score"])["id"] == note["id"]
+    lowest = rows[note["within"]["id"]] if "within" in note else won     # within the margin the default stands over the lowest
+    assert lowest["score"] == min(t["score"] for t in scored)
+    assert next(t for t in scored if t["score"] == lowest["score"])["id"] == lowest["id"]
+    if "within" in note:
+        assert note["id"] == "default" and won["score"] - lowest["score"] == pytest.approx(note["within"]["by"], abs=1e-3)
     if "default_score" in note:
         assert rows["default"]["score"] == pytest.approx(note["default_score"])
     assert not [t for t in note["tried"] if t["score"] is not None and t["score"] >= 1e5]
@@ -845,3 +848,49 @@ def test_riders_alone_in_every_arrangement_say_each_arrangements_refusals():
     assert "c_in.east at 0: " in finding_text.turns_text(f.facts["turns"])
     note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
     assert "id" not in note and [t["id"] for t in note["tried"]] == ["default", "c_in.east"]
+
+
+# ------------------------------------------------------------------ the margin a non-default arrangement must beat the default by
+# With the partner east at (60, 30), c_in.east scores 4.15 below the default, both free (Near) and on a point.
+def margin(mm):
+    return dataclasses.replace(Settings(), place_arrangement_margin=mm)
+
+
+def test_an_arrangement_better_by_the_margin_or_more_is_taken():
+    assert run((60.0, 30.0), margin(4.0)).placement("mod").arrangement == "c_in.east"
+
+
+def test_an_arrangement_better_by_less_than_the_margin_leaves_the_default_and_the_note_says_so():
+    from placemat import step_text
+    plan = run((60.0, 30.0), margin(4.5))
+    assert plan.placement("mod").arrangement == ""
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    assert note["id"] == "default" and note["within"] == {"id": "c_in.east", "by": pytest.approx(4.15, abs=0.01), "margin": 4.5}
+    _consistent(note)
+    assert step_text.RENDER["arrangement"](note).endswith("; c_in.east 4.15 mm better, within the 4.50 mm margin; the default stands")
+
+
+def test_the_margin_does_not_apply_when_the_default_has_no_legal_spot():
+    b = board(obstacle=OBSTACLE, settings=margin(1000.0))
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), radius=0.0, step=0.5))
+    assert b.resolve().placement("mod").arrangement == "c_in.east"
+
+
+def test_a_pinned_cell_is_chosen_without_the_margin():
+    for ids in (("c_in.east", "default"), ("default", "c_in.east")):
+        assert run((60.0, 30.0), margin(1000.0), arrangements=ids).placement("mod").arrangement == "c_in.east"
+
+
+def test_a_point_with_turns_takes_an_arrangement_only_by_the_margin():
+    def point(mm):
+        b = board(partner=(60.0, 30.0), settings=margin(mm))
+        b.place(Cell("mod"), at=Location(45.0, 30.0), rotations=(0,))
+        return b.resolve()
+    assert point(4.0).placement("mod").arrangement == "c_in.east"
+    plan = point(4.5)
+    assert plan.placement("mod").arrangement == ""
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    assert note["id"] == "default" and note["within"]["id"] == "c_in.east" and note["within"]["margin"] == 4.5
+    _consistent(note)
+    turned = next(n for n in plan.step("mod").notes if n["kind"] == "turned")
+    assert turned.get("arrangement") is None

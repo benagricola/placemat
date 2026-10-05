@@ -134,6 +134,8 @@ class Settings:
         "the characters one arrangement note text holds before it is split into numbered texts (a note rides on a User.Comments text of the fragment)")
     place_extent_notice_mm: float = S(1.0, "mm",
         "how far a part may stand past the next part on a side of a module that declares no alternatives before `arrangement.extent_fixed` notes it as setting the module's extent")
+    place_arrangement_margin: float = S(0.0, "mm",
+        "how much better than the module's default a cell's other arrangement must score before a search takes it; within it the default stands and the step says so. Not asked when the default has no legal spot, of a cell whose `arrangements=` names its choices, or of an explore's draw")
     place_firm_passes: int = S(8, "count",
         "the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was "
         "refused by a firm part placed before it, with the two taken in the other order), the last one the settled run")
@@ -637,7 +639,7 @@ _AT_LEAST_ZERO = frozenset((
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
-    "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm",
+    "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.

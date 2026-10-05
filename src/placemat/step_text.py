@@ -154,6 +154,9 @@ def _arrangement(n):
     if n.get("score") is None:
         return "arrangement %s" % n["id"]
     said = "arrangement %s: %.2f and %.2f for it" % (n["id"], n["score"], n.get("cost", 0.0))
+    if n.get("within") is not None:
+        w = n["within"]
+        return said + "; %s %.2f mm better, within the %.2f mm margin; the default stands" % (w["id"], w["by"], w["margin"])
     if n.get("default_score") is not None and n["id"] != "default":
         return said + " against %.2f as the default module stands" % n["default_score"]
     others = [t["id"] for t in n.get("tried", ()) if t["id"] != n["id"] and t["legal"]]
