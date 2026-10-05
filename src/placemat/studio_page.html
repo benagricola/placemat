@@ -139,6 +139,8 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .xv .xlist .xl.best { color: var(--good); font-weight: 600; }
 .xv .xctl button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 #cmdbar .xline { font-weight: 500; }
+#cmdbar .xnote { font-weight: 500; }
+#cmdbar .xwarn { font-weight: 500; color: var(--sev-warning); }
 #cmdbar .xline > span { display: inline-block; margin-right: 12px; white-space: nowrap; }
 .row.cmd.step .l2 { white-space: normal; overflow: visible; }
 #cmdbar .cbt { font-weight: 600; }
@@ -3100,6 +3102,8 @@ function showRunRecord(d) {
 // router left; one that did not opens with the board it wrote.
 const routedBuild = id => S.routes.find(r => r.run === id && r.build);
 async function openRunRecord(id) {
+  const ex = (S.projectRuns.find(r => r.id === id) || {}).explore;          // a run that explored opens as its explore
+  if (ex) return openExploreRecord(ex);
   const b = routedBuild(id);
   if (b) return openRoute(b.file, id);
   const my = ++S.openSeq; S.opening = null;
@@ -3127,15 +3131,22 @@ async function openCmd(id) {
     renderCmdBar(); schedule("all");
   } catch (e) { if (S.opening === op) S.opening = null; toast("could not open the command: " + e.message); }
 }
+// A past explore: the board of its best variant (the server's /exploreview: its run's build or board, or the best's own plan), with the
+// variants over it to step through. `drawn` is where that board has each focused item, so another variant is drawn moved from there.
+// One that left no board draws its variants over the studio's own plan, when it has one.
 async function openExploreRecord(file) {
   const my = ++S.openSeq; S.opening = null;
   try {
-    const doc = await getJSON("/explore?f=" + encodeURIComponent(file));
+    const d = await getJSON("/exploreview?f=" + encodeURIComponent(file));
     if (my !== S.openSeq) return;
-    S.cmdView = null;
-    xvStart("record", file, {focus: doc.focus, plain: doc.plain, order: doc.order, baseline: doc.baseline, at: doc.at, jobs: doc.jobs, seconds: doc.seconds});
+    const doc = d.record;
+    S.cmdView = d.doc ? {id: "explore:" + d.file, plan: d.doc, summary: {command: "explore", kind: "explore", script: doc.script, label: "", pid: "", run: d.run || "", record: d.summary || null},
+      next: 0, fitted: false, record: true, explore: {source: d.source, unmoved: d.unmoved || []}} : null;
+    if (S.cmdView && d.source === "build") { const r = d.doc.route; S.cmdView.route = {total: r.nets, done: r.routed, failed: r.failed, finished: true, partial: !!r.partial, dropped: r.dropped || 0, results: {}, step: {}}; }
+    xvStart("record", d.file, {focus: doc.focus, plain: doc.plain, order: doc.order, baseline: doc.baseline, at: doc.at, jobs: doc.jobs, seconds: doc.seconds});
     for (const v of doc.variants || []) if (v.seed !== 0) xvAdd(v, true);
     S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline}; S.xv.script = doc.script;
+    S.xv.base = d.doc ? d.drawn : null; S.xv.board = d.doc ? d.source : "none";
     S.xv.auto = false; S.xv.sel = S.xv.variants.findIndex(v => v.seed === doc.best_seed); xvDrawNow();
     S.xv.drawn = S.xv.variants[S.xv.sel] || S.xv.bestDrawn; looking();
     renderCmdBar(); schedule("all");
@@ -3149,7 +3160,7 @@ function renderCmdBar() {
   if (!V && !X) return;
   const what = vs.state === "recorded" ? "Past " + kindWord(vs.kind) + (V && (V.record || V.replay) && vs.run ? " " + vs.run : "") + (vs.script ? " of " + baseName(vs.script) : "") + ", nothing is resolved" :
     (vs.state === "running" ? "Following" : "Finished") + " " + (baseName(vs.script) || "a board") + (vs.pid ? ", pid " + vs.pid : "");
-  el.innerHTML = kindChip(vs) + '<span class="cbt">' + esc(what) + "</span>" + (X ? xvLine(X) : "") +
+  el.innerHTML = kindChip(vs) + '<span class="cbt">' + esc(what) + "</span>" + (X ? xvLine(X) + xvBoardNote(X, V) : "") +
     (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route, V)) + "</span>" : "") +
     (S.latestOn && S.latestPending ? '<span class="newer">A newer run started</span><button id="gonewer" title="' + esc("show " + kindTitle(S.latestPending.what)) + '">Go to it</button>' : "") +
     '<button id="cmdclose">' + (S.latestOn ? "Stop following" : S.hello && S.hello.picker ? "Close" : "Back to the studio's own view") + "</button>";
@@ -3643,7 +3654,7 @@ function rowCmd(c) {
     (c.label ? esc(c.label) + ", " : "") + "pid " + esc(c.pid) + ", " + '<span class="fx" style="--w:4ch">' + dur + "</span>" + more + (c.best != null ? ", best " + Math.round(c.best * 10) / 10 : "") + (c.message ? " - " + esc(c.message) : "") + "</div></div></div>";
 }
 function rowRun(r) {
-  const k = {kind: "run", script: r.script, label: r.label, run: r.id};
+  const k = {kind: r.explore ? "explore" : "run", script: r.script, label: r.label, run: r.id};
   const bits = [r.score != null ? "score " + r.score : "", r.findings + " findings", ago(r.at)].filter(Boolean).join(", ");
   return '<div class="row cmd step" data-runview="' + esc(r.id) + '" title="' + esc(kindTitle(k)) + '">' + rowStateChip(r.died ? "error" : r.status === "ok" ? "done" : r.status === "running" ? "running" : r.status === "stopped" ? "warn" : "error", r.died ? "died" : r.status === "ok" ? "done" : r.status) + '<div class="sb"><div class="l1">' + kindChip(k) + " <b>" + esc(baseName(r.script) || r.board || "a board") +
     '</b> <span class="dim">' + esc(r.id) + '</span></div><div class="l2">' + esc(bits) + "</div></div></div>";
@@ -3735,18 +3746,32 @@ const seedWord = v => v ? (v.seed === 0 ? "plain" : "#" + v.seed) : "-";
 const focusWord = list => list.length <= 3 ? list.join(", ") : list.slice(0, 3).join(", ") + " +" + (list.length - 3);
 // The explore in the header strip: fixed-width fields, so the line does not move as the numbers do.
 function xvLine(X) {
-  const I = xvInfo(X), fx = (w, v) => '<span class="fx" style="--w:' + w + 'ch">' + esc(v) + "</span>";
-  const tip = "variants landed" + (I.seeds ? " of " + I.seeds + " seeds" : "") + ", the seed that landed last, the best score so far against the plain placement, and the time";
-  return '<span class="xline" title="' + esc(tip) + '"><span>variants ' + fx(4, I.tried) + (I.seeds ? " of " + I.seeds : "") + "</span><span>seed " + fx(5, I.seed != null ? "#" + I.seed : "-") + "</span>" +
+  const I = xvInfo(X), fx = (w, v) => '<span class="fx" style="--w:' + w + 'ch">' + esc(v) + "</span>", rec = X.source === "record";
+  const tip = "variants landed" + (I.seeds ? " of " + I.seeds + " seeds" : "") + (rec ? ", the best variant" : ", the seed that landed last") + ", the best score so far against the plain placement, and the time";
+  return '<span class="xline" title="' + esc(tip) + '"><span>variants ' + fx(4, I.tried) + (I.seeds ? " of " + I.seeds : "") + "</span>" +
+    (rec ? "<span>best variant " + fx(5, seedWord(I.best)) + "</span>" : "<span>seed " + fx(5, I.seed != null ? "#" + I.seed : "-") + "</span>") +
     "<span>best " + fx(6, f1(I.best && I.best.score)) + " of " + fx(6, f1(I.base)) + "</span><span>time " + fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) : "") + "</span>" +
     "</span>";
 }
+// A past explore's board, when it is not the best's own: the run's board with the focused items moved to the best (the others as the run
+// placed them, its copper where it was laid), the items that could not be moved, or no board at all.
+function xvBoardNote(X, V) {
+  if (X.source !== "record") return "";
+  if (X.board === "none") return '<span class="xwarn">this explore kept no board' + (plan() ? ", its variants are drawn over the studio's own plan" : "") + "</span>";
+  const ex = V && V.explore;
+  if (!ex || ex.source !== "moved") return "";
+  const un = ex.unmoved || [];
+  return '<span class="xnote" title="' + esc("the explore kept no board of its own: the focused items are moved from the plain placement to the best's on the board its run wrote; the other items stay as the run placed them") + '">focused items moved onto the run\'s board</span>' +
+    (un.length ? '<span class="xwarn">' + esc(un.length + " not moved: " + focusWord(un)) + "</span>" : "");
+}
+// Where the board has each focused item: a past explore's board is its best variant's, a running one's the plain placement.
+const xvFrom = X => X.base || X.start.plain || {};
 // What the board shows for the explore: the focused items moved to where the shown variant put them (its own parts, turned about the
 // plain spot and carried), the plain spots (dashed), the best so far in its own colour, and where every variant put each item.
 // Copper and links stay as the plain placement had them.
 function xvMoveParts(X, shown) {
   const groups = typeof B !== "undefined" && B && B.groups; if (!groups) return;
-  const plain = X.start.plain || {};
+  const plain = xvFrom(X);
   for (const [key, gs] of groups) {
     const a = plain[key], pl = shown && shown.placements && shown.placements[key];
     const moved = a && pl && pl[3] === a[3] && (pl[0] !== a[0] || pl[1] !== a[1] || pl[2] !== a[2]);
@@ -3763,9 +3788,9 @@ function drawExplore() {
   for (const e of svg.querySelectorAll(".explore")) e.remove();
   const X = S.xv, p = plan();
   if (!X || !p) { if (typeof B !== "undefined" && B.groups) for (const gs of B.groups.values()) for (const g of gs) if (g.dataset && g.dataset.xmv && g.removeAttribute) { g.removeAttribute("transform"); delete g.dataset.xmv; } return; }
-  const plain = X.start.plain || {}, imap = itemMap(p), shown = X.drawn, best = X.bestDrawn;
+  const plain = X.start.plain || {}, from = xvFrom(X), imap = itemMap(p), shown = X.drawn, best = X.bestDrawn;
   xvMoveParts(X, shown);
-  const polys = (key, pl) => { const it = imap.get(key), a = plain[key]; if (!it || !a || !pl || pl[3] !== a[3]) return []; return it.members.flatMap(m => m.shapes.filter(s => s.kind === "courtyard" || s.kind === "body").map(s => moveShape(s.poly, a, pl))); };
+  const polys = (key, pl) => { const it = imap.get(key), a = from[key]; if (!it || !a || !pl || pl[3] !== a[3]) return []; return it.members.flatMap(m => m.shapes.filter(s => s.kind === "courtyard" || s.kind === "body").map(s => moveShape(s.poly, a, pl))); };
   for (const panel of svg.querySelectorAll(".panel")) {
     const face = panel.classList.contains("back") ? "back" : "front", o = ['<g class="explore">'];
     if (X.density) for (const v of X.variants) for (const key of Object.keys(v.placements || {})) { const pl = v.placements[key]; if (pl && pl[3] === face) o.push('<circle class="xdens" cx="' + num(pl[0]) + '" cy="' + num(pl[1]) + '" r="0.45"/>'); }
@@ -3794,7 +3819,7 @@ function exploreHTML() {
     '<polyline points="' + stairs.join(" ") + '" fill="none" stroke="var(--good)" stroke-width="1.5"/>' + dots + "</svg>";
   const order = X.mode === "score" ? vs.map((v, i) => i).sort((a, b) => vs[a].score - vs[b].score || vs[a].seed - vs[b].seed) : vs.map((v, i) => i);
   const at = Math.max(0, order.indexOf(vs.indexOf(shown)));
-  const thumb = v => { const p = plan(), e = p && p.board ? p.board.extent : [0, 0, 60, 40], polys = []; const plain = X.start.plain || {}, imap = p ? itemMap(p) : new Map();
+  const thumb = v => { const p = plan(), e = p && p.board ? p.board.extent : [0, 0, 60, 40], polys = []; const plain = xvFrom(X), imap = p ? itemMap(p) : new Map();
     for (const key of Object.keys(v.placements || {})) { const it = imap.get(key), a = plain[key], pl = v.placements[key]; if (!it || !a || !pl || pl[3] !== a[3]) continue;
       for (const m of it.members) for (const s of m.shapes) if (s.kind === "courtyard" || s.kind === "body") polys.push('<polygon points="' + polyPts(moveShape(s.poly, a, pl)) + '"/>'); }
     return '<svg viewBox="' + [e[0], e[1], e[2] - e[0], e[3] - e[1]].map(num).join(" ") + '"><rect x="' + e[0] + '" y="' + e[1] + '" width="' + (e[2] - e[0]) + '" height="' + (e[3] - e[1]) + '" fill="none" stroke="var(--line)" stroke-width="0.6"/><g fill="var(--mark)" fill-opacity="0.35" stroke="var(--mark)" stroke-width="0.4">' + polys.join("") + "</g></svg>"; };

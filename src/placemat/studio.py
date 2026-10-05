@@ -1320,8 +1320,9 @@ class Studio:
         out.sort(key=lambda e: -(e["at"] or 0))
         return out[:limit]
 
-    def _route_doc(self, record_path: Path, plan_path: Path | None = None, pcb: Path | None = None, project_dir=None):
-        """A route's replay document; `pcb` is the board its parts' 3D models are read from (default the board the route was given)."""
+    def _route_doc(self, record_path: Path, plan_path: Path | None = None, pcb: Path | None = None, project_dir=None, shape=None):
+        """A route's replay document; `pcb` is the board its parts' 3D models are read from (default the board the route was given).
+        `shape`, given, makes the board under the route over before the route is laid on it (a past explore gathers its focused items)."""
         from . import route_progress, route_view
         record = route_progress.read_record(record_path)
         if record is None:
@@ -1341,6 +1342,8 @@ class Studio:
                 board = json.loads((record_path.parent / route_progress.BOARD).read_text())
             except (OSError, ValueError):
                 board = {}
+        if shape is not None:
+            board = shape(board)
         doc = route_view.route_doc(record, board)
         self._with_models(doc, pcb, project_dir)
         return {"doc": present.plan(doc), "summary": record.get("report", {}), "board": record.get("board", {})}
@@ -1353,14 +1356,14 @@ class Studio:
             return None
         return self._route_doc(p)
 
-    def build_record(self, run: str):
-        """A run's whole build: its placement (plan.json) and then its route, from the run folder's records."""
+    def build_record(self, run: str, shape=None):
+        """A run's whole build: its placement (plan.json) and then its route, from the run folder's records. `shape` as _route_doc's."""
         from . import route_progress
         d = self.run_folder(run, record=False)
         if d is None or self.root.resolve() not in d.resolve().parents:
             return None
         d = d.resolve()
-        out = self._route_doc(d / "route" / route_progress.RECORD, d / "plan.json" if (d / "plan.json").is_file() else None, *self._run_board(d))
+        out = self._route_doc(d / "route" / route_progress.RECORD, d / "plan.json" if (d / "plan.json").is_file() else None, *self._run_board(d), shape=shape)
         if out is not None and out["doc"].get("score") is None:
             summary = self.run_summary(d / "run.json") if (d / "run.json").is_file() else None
             if summary and summary.get("score") is not None:
@@ -1464,6 +1467,8 @@ class Studio:
         for d in rec.findings_with_severity():
             sev[d["severity"]] = sev.get(d["severity"], 0) + 1
         fail = rec.failure or None
+        explored = m.get("explore") if isinstance(m.get("explore"), dict) else {}
+        kept = run_json.parent.parent.parent / "views" / "explore" / Path(str(explored.get("record") or "")).name if explored.get("record") else None
         out = {"id": run_json.parent.name, "run_id": rec.run_id, "label": rec.paths.get("label", "") if isinstance(rec.paths, dict) else "", "status": rec.status, "at": mtime,
                "board": rec.board, "script": rec.paths.get("script", "") if isinstance(rec.paths, dict) else "",
                "score": score, "findings": len(rec.findings), "severities": sev, "pid": rec.pid,
@@ -1472,7 +1477,7 @@ class Studio:
                "checks": {k: m.get(k) for k in ("checks_failed", "checks_unjudged", "checks_accepted") if k in m},
                "verdicts": [{"check": v.get("check"), "subject": v.get("subject"), "ok": v.get("ok"), "note": v.get("note", "")}
                             for v in (rec.verdicts or []) if v.get("ok") is False][:20],
-               "timing": rec.timing_s,
+               "timing": rec.timing_s, "explore": str(kept.resolve()) if kept is not None and kept.is_file() else "",
                "failure": {"message": fail.get("message", ""), "file": fail.get("script", ""), "line": fail.get("line"), "source": fail.get("source")} if fail else None}
         self._run_cache[run_json] = (mtime, out)
         return out
@@ -1665,6 +1670,105 @@ class Studio:
         self._with_models(doc, *self._run_board(folder))
         return {"doc": present.plan(doc), "summary": summary}
 
+    # ------------------------------------------------------------ a past explore
+    def explore_view(self, path: str = "", run: str = "") -> dict | None:
+        """A finished explore as the page shows it: its record (`path`, or the one the run `run` made) and the board of its best variant.
+        The board is, in turn: the run's build when the run kept the best and routed; the best variant's own plan, which a newer explore
+        keeps (explore_view.BEST_DIR); the board the run wrote, as it is when the run kept the best, else with the focused items moved
+        from the plain placement to the best's (explore_view.py). `source` says which ("build", "plan", "run", "moved"; "" and no `doc`
+        when the explore left none of them), `drawn` where the board has each focused item and `unmoved` the focused items the move could
+        not place as the best did. Nothing is resolved. None when the record is not one of this project's."""
+        from . import explore_view, route_progress
+        if run:
+            folder = self.run_folder(run)
+            path = ((self.run_summary(folder / "run.json") if folder is not None else None) or {}).get("explore") or ""
+        record = self.explore_record(path)
+        if record is None:
+            return None
+        p = Path(path).resolve()
+        focus = list(record.get("focus") or ())
+        plain = record.get("plain") or {}
+        best = next((v.get("placements") or {} for v in record.get("variants", ()) if v.get("seed") == record.get("best_seed")), None)
+        best = plain if best is None or not record.get("best_seed") else best
+        at = {k: best.get(k) for k in focus}
+        folder = self._explore_run(p, record)
+        out = {"record": record, "file": str(p), "run": folder.name if folder is not None else "", "doc": None, "source": "", "drawn": at, "unmoved": [],
+               "summary": self.run_summary(folder / "run.json") if folder is not None else None}
+        kept = bool(record.get("kept"))
+        gather = lambda board: explore_view.group_focus(board, focus, at)
+        if folder is not None and kept and (folder / "route" / route_progress.RECORD).is_file():
+            b = self.build_record(folder.name, shape=gather)
+            if b is not None:
+                return dict(out, doc=b["doc"], source="build", route=b["summary"])
+        own = p.parent / explore_view.BEST_DIR / p.name
+        if own.is_file():
+            try:
+                doc = json.loads(own.read_text())
+            except (OSError, ValueError):
+                doc = None
+            if isinstance(doc, dict):
+                self.m3d.submit(doc.pop("model_jobs", None) or [])
+                return dict(out, doc=present.plan(doc), source="plan")
+        if folder is None:
+            return out
+        if kept:
+            view = self._run_doc(folder, gather)
+            return out if view is None else dict(out, doc=present.plan(view), source="run")
+        moves = {k: (plain.get(k), best.get(k)) for k in focus if plain.get(k) != best.get(k)}
+        doc = self._run_doc(folder, lambda board: explore_view.group_focus(board, focus, plain), findings=False, score=record.get("best"))
+        if doc is None:
+            return out
+        doc, moved = explore_view.move_items(doc, moves, (doc.get("stackup") or {}).get("thickness") or 1.6)
+        drawn = {k: (best.get(k) if k in moved or k not in moves else plain.get(k)) for k in focus}
+        return dict(out, doc=present.plan(doc), source="moved", drawn=drawn, unmoved=sorted(set(moves) - set(moved)))
+
+    def _run_doc(self, folder: Path, shape, findings: bool = True, score=None) -> dict | None:
+        """A run's board as run_view gives it, made over by `shape` first; without `findings` the run's findings are left out (they are
+        of another placement), and `score` stands for the run's. None when the run kept no board."""
+        from . import route_view
+        from .report import RunRecord
+        base = None
+        try:
+            base = json.loads((folder / "plan.json").read_text()) if findings else None
+        except (OSError, ValueError):
+            pass
+        if base is None:
+            pcb = folder / "layout.kicad_pcb"
+            if not pcb.is_file():
+                return None
+            from .kicad.read import read_board
+            base = route_view.board_doc(read_board(str(pcb)))
+        summary = self.run_summary(folder / "run.json") or {}
+        found = RunRecord.load(folder / "run.json").findings_with_severity() if findings else ()
+        doc = route_view.run_doc(shape(base), found, summary.get("score") if score is None else score)
+        if not findings:
+            doc["findings"], doc["counts"] = [], dict(doc["counts"], findings=0)
+        self._with_models(doc, *self._run_board(folder))
+        return doc
+
+    def _explore_run(self, record_path: Path, record: dict) -> Path | None:
+        """The run an explore was part of: the one its record names, else the first run of its board recorded after it that names it."""
+        if record.get("run"):
+            return self.run_folder(str(record["run"]))
+        runs = record_path.parent.parent.parent / "runs"
+        at = float(record.get("at") or 0)
+        found = []
+        try:
+            for d in runs.iterdir():
+                rj = d / "run.json"
+                if d.name.startswith(".") or d.is_symlink() or not rj.is_file():
+                    continue
+                t = rj.stat().st_mtime
+                if t >= at - 1:
+                    found.append((t, d))
+        except OSError:
+            return None
+        for _, d in sorted(found)[:50]:
+            s = self.run_summary(d / "run.json")
+            if s and s.get("explore") == str(record_path):
+                return d
+        return None
+
     # ------------------------------------------------------------ comparing
     @staticmethod
     def compare(a: Record, b: Record) -> dict:
@@ -1836,6 +1940,9 @@ def _handler(studio: Studio):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            if path == "/exploreview":
+                doc = studio.explore_view(query.get("f", [""])[0], query.get("run", [""])[0])
+                return self._json(doc) if doc is not None else self._refuse(404, "no such explore record")
             if path == "/explore":
                 doc = studio.explore_record(query.get("f", [""])[0])
                 return self._json(doc) if doc is not None else self._refuse(404, "no such explore record")
