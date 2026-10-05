@@ -388,6 +388,11 @@ not a measure of how hard a step is (a candidate budget is, `place.step_budget`,
    only to the pins that must change layer. The router's own choices (net
    order, via cost, layer costs) are its flags, passed through
    `[route] router_args`; its `--help` lists them.
+   Keep other nets off a switch node with `[route] net_halos` (`{"SW" =
+   2.0}`, mm). The router cannot lead a pad out of a halo, so the module
+   that draws a pad near the node draws its escape out past the halo
+   (`board.escape(..., run=)` and the lane's track); a pad whose copper
+   still ends inside is a `setup.net_halo` finding before the route starts.
 
 **Where a change goes:**
 

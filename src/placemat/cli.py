@@ -708,16 +708,18 @@ def cmd_route(args) -> int:
         islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
         from . import channel
         channel.reporter(p)                 # the route's own socket: readers follow it net by net
+        said = (lambda fs: None) if args.json else (lambda fs: [console.finding(f, "route") for f in fs])
         try:
             report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
                                  quick=not args.full, iterations=args.iterations, islands=islands,
-                                 resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {})
+                                 resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {},
+                                 on_setup=said)
         except Exception as e:
             channel.exception(e)
             raise
         channel.finish(getattr(report, "record", None) or None)
     short = []
-    if report.widths or report.pair_layers_refused:
+    if report.has_findings():
         from .kicad.read import read_board
         from .kicad.route_widths import stated_currents
         short = report.findings(stated_currents(read_board(pcb)) if report.widths else {})
@@ -730,8 +732,10 @@ def cmd_route(args) -> int:
                         ", ".join(report.resumed))
         for breach in report.keepout_breaches:
             console.say("route", breach)
+        from .findings import FindingCause
         for f in short:
-            console.finding(f, "route")
+            if f.cause is not FindingCause.SETUP_NET_HALO:        # said before the route started
+                console.finding(f, "route")
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
             console.say("route", "%-20s %d open" % (net, n))
         console.say("route", "routed board: %s" % report.routed_pcb)

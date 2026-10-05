@@ -666,7 +666,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             except Exception as e:                  # a courtesy: the run goes on without it
                 say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
             report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
-                                 quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)})
+                                 quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)},
+                                 on_setup=lambda fs: [console.finding(f, "route") for f in fs])
             if report.resumed:
                 say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
                     ", ".join(report.resumed))
@@ -676,12 +677,14 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
             for breach in report.keepout_breaches:
                 say("route", breach, level="finding")
-            if report.widths or report.pair_layers_refused:
+            if report.has_findings():
+                from .findings import FindingCause
                 from .kicad.route_widths import stated_currents
                 short = report.findings(stated_currents(read_board(src.pcb)) if report.widths else {})
                 plan.findings.extend(short)
                 for f in short:
-                    console.finding(f, "route")
+                    if f.cause is not FindingCause.SETUP_NET_HALO:    # said before the route started
+                        console.finding(f, "route")
             if report.open_nets:
                 worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
                 say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))

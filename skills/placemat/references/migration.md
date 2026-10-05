@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A halo round a net while routing.** `[route] net_halos = {"SW" = 2.0}` gives a net a halo in mm: every router
+  pass keeps other nets' new copper that far from its copper, to keep coupling off a switch node. placemat now writes
+  the router's per-net clearance map itself, so `--net-clearances` in `[route] router_args` or `pair_router_args` is
+  refused when the settings load; drop it, and name a net that needs more room in `net_halos`. Before the route, a pad
+  of another net inside a halo whose own copper ends inside it is a `setup.net_halo` finding: draw that pad's escape out
+  past the halo in its module (a longer `run=` on its `board.escape`), or give the node a smaller halo. Draw the halo
+  net whole in its module, or name it in `[route] islands`: routed with the other nets, it would space them all at its
+  halo, which is a `setup.net_halo` finding too.
+
 ## To 0.99.11
 
 ### Fixed
