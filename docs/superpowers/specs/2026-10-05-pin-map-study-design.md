@@ -159,6 +159,10 @@ capacitors, a crystal), which turn with it.
   frame is not recovered from it. The facts carry `arrangement` (`default`
   for the module's own layout) and the text names the frame when it is not
   the default.
+- **A cell inside a cell.** A studied part's cell is its innermost one: the
+  inner cell turns about its own centre and its advice names it. The outer
+  cell is not turned with it; a member of the outer cell alone is studied
+  with the outer cell.
 - **One capture, several stamps.** The map is a change to the module's
   capture, shared by every stamp of it. When the stamps of one module have
   different best maps (by pin moves; a stamp with no map worth having keeps
