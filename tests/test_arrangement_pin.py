@@ -189,3 +189,31 @@ def test_a_riding_cell_left_unplaced_for_its_arrangement_steps_in_its_ride_order
     assert [r.key for r in b._ride_groups["r9"]] == ["r8", "mod"]
     keys = [s.item for s in plan.steps]
     assert plan.placement("r8") is not None and keys.index("r8") < keys.index("mod")
+
+
+@pytest.mark.parametrize("rotation", [0, 90])
+def test_a_pin_by_a_members_origin_lands_the_arranged_member_on_the_point(rotation):
+    from placemat.values import Pin
+    b = board(g=with_arrangement(doc=east_doc(ops=[])))
+    b.place(Cell("mod"), at=Pin(Part("mod.c_in"), 60.0, 30.0), rotation=rotation, arrangements="c_in.east")
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east"
+    at = plan.occupancy.items["C1"].reference
+    assert (at.location.x, at.location.y) == pytest.approx((60.0, 30.0), abs=1e-6)
+    assert at.rotation == pytest.approx((180.0 + rotation) % 360.0)
+
+
+@pytest.mark.parametrize("rotation", [0, 90])
+def test_a_pin_by_a_members_pad_with_a_local_offset_turns_the_offset_with_the_arranged_member(rotation):
+    """PadRef.local is in the member's own frame: c_in.east turns c_in half way round, so the offset turns with it."""
+    from placemat.values import PadRef, Pin
+    b = board(g=with_arrangement(doc=east_doc(ops=[])))
+    b.place(Cell("mod"), at=Pin(PadRef(Part("mod.c_in"), 1).local(1.0, 0.0), 60.0, 30.0), rotation=rotation,
+            arrangements="c_in.east")
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east"
+    pad = plan.occupancy.pad_location("C1", "1")
+    member = plan.occupancy.items["C1"].reference.rotation          # the member's own turn: 180 plus the cell's
+    from placemat.lock import _turn
+    vx, vy = _turn(1.0, 0.0, member)
+    assert (pad.x + vx, pad.y + vy) == pytest.approx((60.0, 30.0), abs=1e-6)

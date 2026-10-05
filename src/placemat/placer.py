@@ -1048,8 +1048,10 @@ def cell_pad_anchored_placement(occ: Occupancy, cell, owner: str, number: str, d
         # the placement it is trying: turned by the cell's rotation less its
         # own (a cell's own reference rotation is always 0, so this reduces
         # to the cell's own candidate rotation when the member is not itself
-        # turned within it), mirrored with it when the cell's face flips.
-        m = occ.items[owner].reference
+        # turned within it), mirrored with it when the cell's face flips. The
+        # member's place is the one the geometry stands it in: an arranged
+        # cell's is its arrangement's.
+        m = geom.member_at(owner)
         flip = probe.face != geom.reference.face
         turn = (probe.rotation + geom.reference.rotation - m.rotation) % 360.0 if flip \
             else m.rotation + (probe.rotation - geom.reference.rotation)
@@ -1063,10 +1065,11 @@ def cell_origin_anchored_placement(occ: Occupancy, cell, owner: str, point: Loca
                                    face: Face = Face.FRONT) -> Placement:
     """The placement that puts a cell so member `owner`'s footprint origin
     (its own anchor, a pad or not: a winding's arc centre) lands on
-    `point`, at the cell's `rotation` and `face`."""
+    `point`, at the cell's `rotation` and `face`. The origin is where the
+    cell's geometry stands the member: an arranged cell's is its arrangement's."""
     probe = Placement(Location(0.0, 0.0), rotation, face)
     geom = occ._geometry(cell)
-    at = occ._transform(geom, probe).apply_location(occ.geometry.footprint(owner).location)
+    at = occ._transform(geom, probe).apply_location(geom.member_at(owner).location)
     return Placement(Location(round(point.x - at.x, 6), round(point.y - at.y, 6)), rotation, face)
 
 
