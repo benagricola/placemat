@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A suggestion of a past run or explore can be shown, tried and applied in the studio.** Show, Try and Apply on a
+  finding of a run, explore, route or command opened from the Runs list (or shown by Latest) answered "no such
+  resolve (the last 10 are kept)": they looked the suggestion up among the studio's own resolves. The page now names
+  the view it shows, and the studio finds the suggestion in that view's plan, as `placemat apply` finds one in the plan
+  its run kept. A try is compared with that plan. When the script has changed since, the request is refused with
+  "this run's script has changed since; re-run to act on its suggestions". Scripts need no change.
+
 ## To 0.99.18
 
 ### New

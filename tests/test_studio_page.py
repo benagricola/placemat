@@ -1582,6 +1582,41 @@ def test_a_refused_apply_says_why_a_good_one_offers_undo_and_the_history_row_has
 
 
 @needs_node
+def test_a_suggestion_of_a_past_run_explore_or_command_names_the_view_not_a_resolve(tmp_path):
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: FND});
+  const shown = JSON.parse(JSON.stringify(ev("plan()")));
+  answer({"/suggest/show": {status: 200, body: DIFF}});
+  const views = [{id: "run:eeee0001", summary: {run: "eeee0001"}}, {id: "explore:/p/.placemat/views/explore/x.json", summary: {run: ""}},
+                 {id: 4, summary: {run: ""}}, {id: "route:eeee0002", summary: {run: "eeee0002"}}, {id: "route:/p/route/route.json", summary: {run: ""}}];
+  for (const v of views) { ev("S").cmdView = Object.assign({plan: shown, next: 0, fitted: false, record: true}, v); await ev("sgAct")("show", "s1a"); }
+  out.sent = fetched.filter(f => f[0] === "/suggest/show").map(f => f[1]);
+  // a try of the run's suggestion is shown in place of the run, and Back returns to the run
+  ev("S").cmdView = Object.assign({plan: shown, next: 0, fitted: false, record: true}, views[0]);
+  const doc = JSON.parse(JSON.stringify(shown)); doc.findings = []; doc.counts = {placed: 1, findings: 0};
+  const diff = {moved: [], added: [], removed: [], copper: {added: [], removed: []}, findings: {gained: [], lost: []}, score: null, congestion: null, empty: false};
+  answer({"/suggest/try": {status: 200, body: {state: "done", id: 77, base: "run eeee0001", view: {kind: "run", ref: "eeee0001"}, suggestion: {id: "s1a", text: SUG[0].text}, cleared: true, gained: [], lost: [], moved: 0, score: null,
+          compare: {a: "run eeee0001", b: 77, diff, files: {}, trace: {items: {}, lines: {}}}, doc, texts: {}, timing: {}, applied: DIFF}},
+          "/suggest/apply": {status: 200, body: Object.assign({}, DIFF, {dry_run: false, undo: true})}});
+  await ev("sgAct")("try", "s1a"); flush();
+  out.tried = [ev("S.cmdView === null"), ev("S.shownId"), ev("plan() === S.docs.get(77).doc")];
+  out.cmp = els["#tab-compare"].innerHTML;
+  await ev("sgAct")("apply", "s1a"); flush();
+  out.applied = fetched.filter(f => f[0] === "/suggest/apply").map(f => f[1]);
+  out.back = [ev("S.cmdView && S.cmdView.id"), ev("!!S.try")];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["sent"] == ['{"view":{"kind":"run","ref":"eeee0001"},"id":"s1a"}', '{"view":{"kind":"explore","ref":"/p/.placemat/views/explore/x.json"},"id":"s1a"}',
+                           '{"view":{"kind":"cmd","ref":"4"},"id":"s1a"}', '{"view":{"kind":"build","ref":"eeee0002"},"id":"s1a"}',
+                           '{"view":{"kind":"route","ref":"/p/route/route.json"},"id":"s1a"}']
+    assert out["tried"] == [True, 77, True] and "run eeee0001" in out["cmp"]
+    assert out["applied"] == ['{"view":{"kind":"run","ref":"eeee0001"},"id":"s1a"}']
+    assert out["back"] == ["run:eeee0001", False]
+
+
+@needs_node
 def test_a_hello_of_a_studio_that_does_not_write_hides_apply_and_undo(tmp_path):
     out = run_more(tmp_path, SUGGEST + r"""
 hello(); send("hello", {script: "x_layout.py", keep: 5, history: [], resolving: null, error: null, can_apply: false, applied: [{seq: 1, id: "s1a", text: "t", undone: false, files: []}]});

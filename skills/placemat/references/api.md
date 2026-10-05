@@ -4012,7 +4012,11 @@ GET serves the page and its data, and POST only `/switch`, `/run`, `/resolve`, t
 Suggestions (`finding.suggestions` in the plan) are shown on each finding row, the card and the step rows: the best one,
 with "more (n)" for the other variants (up to `[studio] suggestions_per_lever` of one lever). Three buttons, each
 `POST {resolve, id}` with the token (the page never sends source text; the studio finds the suggestion in that
-resolve's findings):
+resolve's findings). On a past run, explore, route or command opened in place of the studio's own plan the page sends
+`{view: {kind, ref}, id}` instead (`kind` one of `run`, `build`, `route`, `explore`, `cmd`, `ref` the run id, record file
+or command id it was opened by); the studio finds the suggestion in that view's plan, a try is compared with that plan,
+and a script that changed since is refused (409, "this run's script has changed since; re-run to act on its suggestions").
+A try or a search of a view of another script than the one watched is refused (409):
 
 - Show, `POST /suggest/show`: the dry-run diff of every file the edit writes (unified diff, hunks, the lines changed, the
   declarations the edit names), opened in the script dialog with Apply and Cancel. Nothing is written.
