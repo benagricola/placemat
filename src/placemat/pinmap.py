@@ -243,3 +243,34 @@ def study_failed(plan, error: Exception) -> Finding:
     The study is advice; the resolve it ends stands without it."""
     plan.pin_study = {"error": {"type": type(error).__name__, "message": str(error)}}
     return Finding(C.SETUP_PINS, dict(Problem("", "", "", "study_failed", "").facts(), **plan.pin_study["error"]))
+
+
+def plan_summary(board, plan, refs=None, settings=None) -> list:
+    """Each studied group's present score and its best, with the pose and the map, for an explore's report and a longer
+    study: no findings, nothing kept. `refs` keeps the groups holding any of those parts; `settings` replaces the
+    board's (a longer budget)."""
+    if not has_pools(board.geometry.footprints):
+        return []
+    from .pairs import board_pairs
+    from .pinmap_core import linked_groups, problem_of, study_group
+    settings = settings or board.settings
+    pads, parts = placed_from_plan(board, plan)
+    quiet = frozenset(board._plane_nets()) | frozenset(board._free_nets)
+    inp, _ = build(pads, parts, board.geometry.pin_names, quiet, board_pairs(board.geometry.netclasses),
+                   board.geometry.netclasses, settings.pins_follow_series, tuple(settings.pins_follow_prefixes))
+    if inp is None:
+        return []
+    pb = problem_of(inp, settings.pins_exit_mm)
+    out = []
+    for group in linked_groups(inp):
+        if refs and not set(group) & set(refs):
+            continue
+        g = study_group(inp, group, settings, pb=pb)
+        if not g.results:
+            continue
+        i = min(range(len(g.results)), key=lambda k: (g.results[k].breakdown.total, k))
+        r = g.results[i]
+        out.append({"refs": list(g.refs), "present": g.present.to_json(), "best": r.breakdown.to_json(), "rotation": i,
+                    "turns": _turns(inp, r.poses), "map": _map(inp, g.refs, g.present_assign, r.assign),
+                    "searched": g.searched, "of": g.of, "budget_out": g.budget_out})
+    return out

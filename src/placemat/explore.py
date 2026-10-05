@@ -629,6 +629,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if ck is not None and result.best_seed and (_checkpoint.read_best(ck.dir) or {}).get("seed") == result.best_seed:
         report["accept"] = accept_command(script, result.best_seed)
     if result.best_seed == 0:
+        report["pin_maps"] = _pin_maps(make_board, entries, focus, result, {0: (base, current)})
         _write_record(script, result, report)
         if ck is not None and not keep_state:
             ck.finish()
@@ -653,10 +654,40 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["accepted"] = True
         if ck is not None:
             ck.best_path.unlink(missing_ok=True)         # taken: it would not match the lock now
+    report["pin_maps"] = _pin_maps(make_board, entries, focus, result, {0: (base, current), result.best_seed: (board, best)})
     _write_record(script, result, report)
     if ck is not None and not keep_state:
         ck.finish()
     return report, entries
+
+
+def _pin_maps(make_board, entries, focus, result, have: dict) -> list:
+    """The pin map study (pinmap.py) on the best `pins.explore_top` variants, in the explore's own order (by run score):
+    each variant's weighted crossings after remapping and its map, reported beside its score and never folded into it.
+    `have` holds plans already resolved, {seed: (board, plan)}; another variant is resolved again (a seed is
+    deterministic). Nothing is resolved for a board whose parts carry no `Pm.PinPool`. A study that raises on a variant
+    leaves the explore's result standing: that variant's entry has no groups and carries the error."""
+    from .pinmap_rules import has_pools
+    first = have[0][0]
+    top = first.settings.pins_explore_top
+    if top <= 0 or not has_pools(first.geometry.footprints):
+        return []
+    from . import pinmap
+    out = []
+    with _context_of(make_board):
+        for seed, total, _ in result.results[:top]:
+            entry = {"seed": seed, "score": round(total, 1), "groups": []}
+            try:
+                if seed in have:
+                    board, plan = have[seed]
+                else:
+                    board = make_board()
+                    plan = board.resolve(explore=Explore(seed, frozenset(focus)), lock=entries)
+                entry["groups"] = pinmap.plan_summary(board, plan)
+            except Exception as e:                      # a stop (BaseException) still ends the explore
+                entry["error"] = {"type": type(e).__name__, "message": str(e)}
+            out.append(entry)
+    return out
 
 
 def stopped_line(report) -> str:
@@ -814,12 +845,30 @@ def _report_lines(report) -> list:
         turn = "" if m["rotation"][0] == m["rotation"][1] else ", rotation %s -> %s" % tuple(
             "-" if r is None else "%g" % r for r in m["rotation"])
         lines.append("  %s: %s%s" % (m["key"], "placed/unplaced" if m["mm"] is None else "%.2f mm" % m["mm"], turn))
+    lines += pin_map_lines(report)
     if report["accepted"]:
         lines.append("accepted: written to the lock")
     else:
         lines.append("not accepted: --accept writes it to the lock%s" % (
             ", or later: " + report["accept"] if report.get("accept") else ""))
     return lines
+
+
+def pin_map_lines(report) -> list:
+    """A line per studied group of each variant the pin map study ran on: its weighted crossings now and after
+    remapping, and the pose that takes; a variant whose study failed says so."""
+    from .finding_text import pose_text
+    out = []
+    for v in report.get("pin_maps") or ():
+        if v.get("error"):
+            out.append("  pin map, seed %d at %.1f mm: the study failed with %s: %s" % (
+                v["seed"], v["score"], v["error"]["type"], v["error"]["message"]))
+        for g in v["groups"]:
+            turned = [t for t in g["turns"] if t["turn_deg"] or t["flip"]]
+            out.append("  pin map, seed %d at %.1f mm: %s %g -> %g weighted crossings after remapping%s" % (
+                v["seed"], v["score"], " and ".join(g["refs"]), g["present"]["weighted"], g["best"]["weighted"],
+                ", at " + pose_text(turned) if turned else ""))
+    return out
 
 
 def lock_summary(plan) -> str:
