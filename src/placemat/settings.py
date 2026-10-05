@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from dataclasses import MISSING, dataclass, field, fields, replace
 import json
 from pathlib import Path
+import re
 import tomllib
 
 # The violation classes a board is judged by. A project may say otherwise.
@@ -311,6 +312,8 @@ class Settings:
         "more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused")
     route_pair_router_args: tuple = S((), "list",
         "the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's")
+    route_pair_layers: dict = S(None, "table",
+        "the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `\"P/N\"` (either order) or a net class name, its value a list of layer names (`{\"USB_D_P/USB_D_N\" = [\"In2.Cu\", \"B.Cu\"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used", factory=dict)
     route_islands: tuple = S((), "list",
         "nets with pours whose pads the pours do not reach (a pour net's small taps), `\"NET\"` or `\"NET=WIDTH\"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them")
     route_diff_pair_gap: float = S(0.0, "mm",
@@ -530,8 +533,8 @@ class Settings:
         return replace(self, sources=dict(sources))
 
 
-# `[check.limits]`, `[drc.severities]` and `[facts.boards]` are the sub-tables: each section is two words.
-_SUBTABLES = ("check.limits", "drc.severities", "facts.boards")
+# `[check.limits]`, `[drc.severities]`, `[facts.boards]` and `[route.pair_layers]` are the sub-tables: each section is two words.
+_SUBTABLES = ("check.limits", "drc.severities", "facts.boards", "route.pair_layers")
 
 
 def split_key(name: str) -> tuple:
@@ -596,6 +599,10 @@ def parse_islands(items) -> dict:
 _ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
                            "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
                            "--max-probe-iterations", "--json-out"))
+
+
+# A copper layer's name as KiCad spells it: F.Cu, In1.Cu to In30.Cu, B.Cu.
+_COPPER_LAYER = re.compile(r"^(F|B|In([1-9]|[12][0-9]|30))\.Cu$")
 
 
 class SettingsError(ValueError):
@@ -692,6 +699,14 @@ def _validate(name: str, value, path: str):
         if owned:
             raise SettingsError("%s: %s: %s is set by placemat itself (%s)" % (
                 path, dotted, ", ".join(owned), "[route] turn_cost, smoothing, islands and route --iterations name them"))
+    if name == "route_pair_layers":
+        for key, layers in value.items():
+            if not (isinstance(layers, (list, tuple)) and layers and all(isinstance(l, str) for l in layers)):
+                raise SettingsError("%s: route.pair_layers.%s must be a list of layer names, not %r" % (path, json.dumps(key), layers))
+            bad = [l for l in layers if not _COPPER_LAYER.match(l)]
+            if bad:
+                raise SettingsError("%s: route.pair_layers.%s: %s is not a copper layer (F.Cu, In1.Cu to In30.Cu, B.Cu)" % (
+                    path, json.dumps(key), ", ".join(bad)))
     if name == "route_islands":
         try:
             parse_islands(value)

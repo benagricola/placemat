@@ -7,6 +7,16 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **A differential pair can be given its own layers.** `[route] pair_layers` maps a pair, by its two nets `"P/N"` or by
+  its net class, to the copper layers the pair router may route it on, e.g. `pair_layers = {"USB_D_P/USB_D_N" =
+  ["In2.Cu", "B.Cu"]}`; every other pair keeps the route's own layers. The pair stage runs the router once per distinct
+  list, the named pairs first. A pair whose escape lanes end in vias on F.Cu, with F.Cu left out of its list, starts from
+  the vias and lays nothing on F.Cu. An unknown layer name is refused when the settings load; a key that names no pair on
+  the board, or a layer the board lacks, is a `setup.pair_layers` finding and the entry is not used. The route report has
+  `pair_layers` (the lists applied) and `pair_layers_refused`. Nothing in a layout script changes.
+
 ### Fixed
 
 - **A net list passed as one argument is refused.** `placemat route --exclude` and `placemat run --route-exclude` took an

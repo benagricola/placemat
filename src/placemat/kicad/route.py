@@ -112,11 +112,16 @@ class RouteReport:
     record: str = ""
     # Copper the router laid under the width it was asked, from its per-stage summaries (route_widths.py): a record per net and stage.
     widths: list = field(default_factory=list)
+    # `[route] pair_layers` as applied, {"P/N": [layer, ...]}, and the entries refused (resolve_pair_layers' records).
+    pair_layers: dict = field(default_factory=dict)
+    pair_layers_refused: list = field(default_factory=list)
 
     def findings(self, stated: dict | None = None) -> list:
-        """The findings of the widths (route_widths.findings_of); `stated` is {net: amps} the design states."""
+        """The findings of the widths (route_widths.findings_of; `stated` is {net: amps} the design states), then a
+        `setup.pair_layers` finding for each `[route] pair_layers` entry refused."""
+        from ..findings import Finding, FindingCause as C
         from .route_widths import findings_of
-        return findings_of(self.widths, stated)
+        return findings_of(self.widths, stated) + [Finding(C.SETUP_PAIR_LAYERS, dict(r)) for r in self.pair_layers_refused]
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -140,6 +145,8 @@ class RouteReport:
             head += "  islands: " + ", ".join("%s %d -> %d apart" % (n, a, b) for n, (a, b) in self.islands.items())
         if self.islands_missing:
             head += "  island nets not on the board: " + ", ".join(self.islands_missing)
+        if self.pair_layers:
+            head += "  pairs on their own layers: " + "; ".join("%s %s" % (k, ", ".join(v)) for k, v in sorted(self.pair_layers.items()))
         if self.widths:
             from .route_widths import brief
             head += "  UNDER WIDTH: " + "; ".join(brief(r) for r in self.widths)
@@ -155,7 +162,8 @@ class RouteReport:
                 "pairs": self.pairs, "plane_layers": self.plane_layers,
                 "pours_kept": list(self.pours_kept),
                 "islands": {n: list(v) for n, v in self.islands.items()}, "islands_missing": list(self.islands_missing),
-                "resumed": list(self.resumed), "record": self.record, "widths": list(self.widths)}
+                "resumed": list(self.resumed), "record": self.record, "widths": list(self.widths),
+                "pair_layers": dict(self.pair_layers), "pair_layers_refused": list(self.pair_layers_refused)}
 
 
 def plane_nets_of(pcb) -> set:
@@ -463,6 +471,49 @@ def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float =
     return cmd + list(active_settings().route_pair_router_args)
 
 
+def resolve_pair_layers(table: dict, pairs, classes: dict, board_layers) -> tuple:
+    """`[route] pair_layers` against the board: ({(p, n): [layer, ...]}, [refused entry, ...]). A key is a pair's two
+    nets "P/N", in either order, or the name of a net class (`classes`: {net: class name}) holding both nets of a pair; a
+    pair's own nets win over its class. The layers are put in the board's stack order (`board_layers`). An entry whose key
+    names no pair of `pairs`, or that names a layer the board does not have, is not used: a record of it is returned
+    (key, variant "no_pair" or "layer_missing", layers, missing, board_layers), the facts of its `setup.pair_layers`
+    finding."""
+    stack = list(board_layers)
+    by_nets = {}
+    by_class: dict = {}
+    for p, n in pairs:
+        by_nets["%s/%s" % (p, n)] = by_nets["%s/%s" % (n, p)] = (p, n)
+        if classes.get(p) is not None and classes.get(p) == classes.get(n):
+            by_class.setdefault(classes[p], []).append((p, n))
+    own, of_class, refused = {}, {}, []
+    for key in sorted(table):
+        layers = list(table[key])
+        named = [by_nets[key]] if key in by_nets else by_class.get(key, [])
+        missing = [l for l in dict.fromkeys(layers) if l not in stack]
+        if not named or missing:
+            refused.append({"key": key, "variant": "layer_missing" if named else "no_pair", "layers": layers,
+                            "missing": missing if named else [], "board_layers": stack})
+            continue
+        into = own if key in by_nets else of_class
+        for pair in named:
+            into[pair] = [l for l in stack if l in layers]
+    return {**of_class, **own}, refused
+
+
+def pair_layer_groups(pairs, layers, pair_layers: dict) -> list:
+    """The pair router's calls: [(layers, [(p, n), ...]), ...], one per distinct layer list. A pair `pair_layers`
+    ({(p, n): [layer, ...]}) names is routed on its own list, every other pair on `layers`; the named lists go first,
+    as they constrain their pairs most, and each call's copper is fixed for the calls after it."""
+    default = list(layers)
+    groups: dict = {}
+    for pair in pairs:
+        groups.setdefault(tuple(pair_layers.get(pair, default)), []).append(pair)
+    out = [(list(k), groups[k]) for k in sorted(groups) if list(k) != default]
+    if tuple(default) in groups:
+        out.append((default, groups[tuple(default)]))
+    return out
+
+
 def _tuning() -> list:
     """The router's turn cost, on every pass. Diverges from the router's own
     default (1000, where a 45-degree kink costs 0.05 mm of path and routes
@@ -515,10 +566,17 @@ def rename_nets(pcb_path: str, names: dict) -> None:
 
 
 def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, cfg, iterations, probe,
-                timeout, env, events=None) -> tuple:
+                timeout, env, events=None, pair_layers: dict | None = None) -> tuple:
     """Route the differential pairs `pairs` ([(p_net, n_net), ...], from
     pairs.board_pair_list): returns (the board to route the rest on,
     Pairs). No pairs comes back as it went in.
+
+    A pair `pair_layers` names ({(p, n): [layer, ...]}, resolve_pair_layers)
+    is routed on its own layers, the rest on `layers`: the pair router takes
+    one layer list per call, so it runs once per distinct list
+    (pair_layer_groups), each call on the board the one before it wrote,
+    with that call's copper locked. The first call logs to pairs.log, the
+    next to pairs_1.log and on.
 
     The router pairs nets by their suffix alone, so every pair is routed in
     a copy where its nets are renamed to a suffix pair (pairs.pair_aliases),
@@ -547,27 +605,48 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
     if events is not None:
         events.names = back                      # the router routes under the aliases: its events name the board's nets
     pcb_out = work / "pairs.kicad_pcb"
-    cmd = pair_command(rpy, script, router_in, pcb_out, tuple(a[0] for a in aliases), layers,
-                       cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe)
-    log = work / "pairs.log"
-    with open(log, "w") as f:
-        f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
-        f.flush()
-        rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
-                            timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
-    text = log.read_text(errors="replace")
-    result_pairs = read_pairs(text).renamed(back)
-    if rc != 0 or not pcb_out.exists():
-        if "matched no differential pair" in text or "No differential pairs" in text:
-            return pcb_in, Pairs()
-        tail = "\n".join(text.splitlines()[-8:])
-        raise RuntimeError("the pair router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
+    groups = pair_layer_groups(pairs, layers, pair_layers or {})
+    alias_of = {(p, n): base for base, p, n in aliases}
+    board, found = router_in, None
+    for i, (group_layers, group) in enumerate(groups):
+        out = pcb_out if i == len(groups) - 1 else work / ("pairs_%d.kicad_pcb" % i)
+        cmd = pair_command(rpy, script, board, out, tuple(alias_of[pair] for pair in group), group_layers,
+                           cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe)
+        log = work / ("pairs.log" if i == 0 else "pairs_%d.log" % i)
+        with open(log, "w") as f:
+            f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
+            f.flush()
+            rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
+                                timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
+        text = log.read_text(errors="replace")
+        if rc != 0 or not out.exists():
+            if "matched no differential pair" in text or "No differential pairs" in text:
+                continue
+            tail = "\n".join(text.splitlines()[-8:])
+            raise RuntimeError("the pair router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
+        found = _merged(found, read_pairs(text))
+        _copy_project(router_in, out)             # the next call reads the renamed nets' classes beside its board
+        lock_copper(str(out))                     # and keeps this call's copper as it stands
+        board = out
+    if found is None:
+        return pcb_in, Pairs()
+    if board != pcb_out:
+        shutil.copy(board, pcb_out)
+    result_pairs = found.renamed(back)
     rename_nets(str(pcb_out), {new: old for old, new in renames.items()})
     for ext in (".kicad_pro", ".kicad_dru"):
         if (work / ("in" + ext)).exists():
             shutil.copy(work / ("in" + ext), work / ("pairs" + ext))
     lock_copper(str(pcb_out))
     return pcb_out, result_pairs
+
+
+def _merged(a: "Pairs | None", b: Pairs) -> Pairs:
+    """Two pair router calls' outcomes as one."""
+    if a is None:
+        return b
+    return Pairs(sorted(a.coupled + b.coupled), sorted(a.partial + b.partial), sorted(a.failed + b.failed),
+                 sorted(a.single_ended + b.single_ended), a.routed_nets | b.routed_nets)
 
 
 def router_version(router_dir: str) -> str:
@@ -759,6 +838,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     (work / route_progress.BOARD).write_text(json.dumps(board_doc, separators=(",", ":")))
     if rep is not None:                                  # the board the copper is drawn on, for a route with no placement in front of it
         rep.send({"ev": "route_board", "doc": board_doc})
+    pair_layers, pair_layers_refused = {}, []
+    if cfg.route_pair_layers:
+        pair_layers, pair_layers_refused = resolve_pair_layers(
+            cfg.route_pair_layers, pair_list, {n: nc.name for n, nc in geometry.netclasses.items()}, _copper_layers(str(pcb_in)))
     d_pairs = digest(base, "pairs", pair_list)
     saved = state.result("pairs", d_pairs) if pair_list else None
     if saved is not None and (work / saved["board"]).exists():
@@ -775,7 +858,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         whole = False
         try:
             board, pairs = route_pairs(rpy, router_dir_path, pcb_in, work, pair_list, layers, cfg,
-                                       iterations, probe, timeout, dict(env, **rev.env("pairs")), events=rev)
+                                       iterations, probe, timeout, dict(env, **rev.env("pairs")), events=rev,
+                                       pair_layers=pair_layers)
             whole = True
         finally:
             if pair_list:
@@ -861,6 +945,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                          islands_missing, resumed)
     from .route_widths import read_widths
     report.widths = read_widths(work, islands)
+    report.pair_layers = {"%s/%s" % pair: list(ls) for pair, ls in pair_layers.items()}
+    report.pair_layers_refused = pair_layers_refused
     if rep is not None:
         for r in report.widths:
             rep.send(dict(r, ev="route_width"))
