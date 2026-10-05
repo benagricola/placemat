@@ -24,7 +24,8 @@ def facts(f):
                 pass
         if isinstance(f.get("where"), dict) and "form" in f["where"]:        # where a one-freedom item slides
             out["where"] = dict(out["where"], text=finding_text.where_text(f["where"]))
-        if isinstance(f.get("turns"), list):                                       # a refusal at each rotation tried
+        turns = f.get("turns")                  # a refusal at each rotation tried, [rotation, refusal, ...] each; a pin map
+        if isinstance(turns, list) and turns and all(isinstance(t, (list, tuple)) for t in turns):     # pose's are records
             out["turns_text"] = finding_text.turns_text(f["turns"])
         if isinstance(f.get("room_lost"), dict) and f["room_lost"]:
             out["room_lost"] = dict(out["room_lost"], text=finding_text.room_lost_text(f["room_lost"]).lstrip("; "))

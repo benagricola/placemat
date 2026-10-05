@@ -18,7 +18,6 @@ section for each hand-written pattern a newer form replaces.
   tracks alone resolves as before. `board.label()` returns a `LabelKey`,
   a `str`, so scripts that use the key as text need no change. A
   `CutoutEdge` taken from another board is refused.
-
 - **Copper near a hole or the edge is a finding.** Declared copper nearer
   the outline or a cutout than the board's copper-to-edge clearance is a
   critical `copper.edge` finding when it is planned, and copper wholly
@@ -37,6 +36,27 @@ section for each hand-written pattern a newer form replaces.
   finding (`past_off_board`) for a `Past` over pads, vias and tracks too,
   whose point was not checked against the board before. It is not judged on a
   module fragment.
+
+### Fixed
+
+- **A stamped cell's clearance rules are read in the order its module declared them.** They were read in the
+  order KiCad gave the cell's group items, which changes between loads of the same board. Two effects:
+  - a run or a studio resolve could refuse the previous record ("the script's board-wide declarations changed")
+    and replay none of its steps, though nothing had changed;
+  - where two of a module's rules both match one pair of items (an `on=` rule and a `between=` rule over that
+    net, say), the last one decides, in placemat and in the `.kicad_dru` KiCad's DRC reads. The rule that decided
+    could be the earlier one. A module whose rules never match the same pair was judged the same either way.
+
+  The notes are now taken in the order the fragment wrote them, one under another, which a turn or a flip of the
+  cell keeps.
+
+## To 0.99.20
+
+### Fixed
+
+- **The studio no longer stops on a pin map finding.** A `pins.remap` finding's poses carry `turns` as records, which the
+  page's presenter took for a placement's refusal at each rotation and failed on (`KeyError: 2` in the channel thread), so
+  the studio stopped updating. Scripts need no change.
 
 ## To 0.99.19
 

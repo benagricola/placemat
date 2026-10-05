@@ -25,7 +25,7 @@ def far_pieces(plan, net):
 
 def test_a_track_allowed_to_bridge_passes_under_the_one_it_crosses():
     b = make_board()
-    b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 120.0)], layer=F)
+    b.track(Net("PERMIT_B"), [(20.0, 1.0), (20.0, 119.0)], layer=F)
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True)
     plan = b.resolve()
     assert len(vias(plan, "CANH_S0")) == 2 and len(far_pieces(plan, "CANH_S0")) == 1
@@ -39,11 +39,11 @@ def test_declaration_order_does_not_change_the_result():
     def run(first_vertical):
         b = make_board()
         if first_vertical:
-            b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 120.0)], layer=F)
+            b.track(Net("PERMIT_B"), [(20.0, 1.0), (20.0, 119.0)], layer=F)
             b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True)
         else:
             b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True)
-            b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 120.0)], layer=F)
+            b.track(Net("PERMIT_B"), [(20.0, 1.0), (20.0, 119.0)], layer=F)
         return sorted(repr(o) for o in b.resolve().copper)
     assert run(True) == run(False)
 
@@ -51,7 +51,7 @@ def test_declaration_order_does_not_change_the_result():
 def test_a_crossing_nobody_may_bridge_is_a_finding_and_the_yielding_track_is_not_drawn():
     """The shorter track yields; it may not bridge, so it is left out whole rather than drawn through the other."""
     b = make_board()
-    b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 120.0)], layer=F)
+    b.track(Net("PERMIT_B"), [(20.0, 1.0), (20.0, 119.0)], layer=F)
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F)
     plan = b.resolve()
     assert not vias(plan, "CANH_S0") and not vias(plan, "PERMIT_B")
@@ -64,7 +64,7 @@ def test_a_crossing_nobody_may_bridge_is_a_finding_and_the_yielding_track_is_not
 
 def test_the_lower_priority_track_yields_when_both_may_bridge():
     b = make_board()
-    b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 40.0)], layer=F, bridge=True, priority=Priority.HIGH)
+    b.track(Net("PERMIT_B"), [(20.0, 1.0), (20.0, 40.0)], layer=F, bridge=True, priority=Priority.HIGH)
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True)      # DEFAULT, longer
     plan = b.resolve()
     assert len(vias(plan, "CANH_S0")) == 2 and not vias(plan, "PERMIT_B")
@@ -72,7 +72,7 @@ def test_the_lower_priority_track_yields_when_both_may_bridge():
 
 def test_at_equal_priority_the_shorter_track_yields():
     b = make_board()
-    b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 120.0)], layer=F, bridge=True)    # 120 long
+    b.track(Net("PERMIT_B"), [(20.0, 1.0), (20.0, 119.0)], layer=F, bridge=True)    # 118 long
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True)      # 35 long
     plan = b.resolve()
     assert len(vias(plan, "CANH_S0")) == 2 and not vias(plan, "PERMIT_B")
@@ -81,7 +81,7 @@ def test_at_equal_priority_the_shorter_track_yields():
 
 def test_fixed_copper_never_yields():
     b = make_board()
-    b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 40.0)], layer=F, bridge=True, priority=Priority.HIGH)
+    b.track(Net("PERMIT_B"), [(20.0, 1.0), (20.0, 40.0)], layer=F, bridge=True, priority=Priority.HIGH)
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True, priority=Priority.HIGH)
     plan = b.resolve()
     assert len(vias(plan, "CANH_S0")) == 2 and not vias(plan, "PERMIT_B")
@@ -89,8 +89,8 @@ def test_fixed_copper_never_yields():
 
 def test_a_track_crossing_two_others_gets_two_bridges():
     b = make_board()
-    b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 120.0)], layer=F)
-    b.track(Net("X"), [(30.0, 0.0), (30.0, 120.0)], layer=F)
+    b.track(Net("PERMIT_B"), [(20.0, 1.0), (20.0, 119.0)], layer=F)
+    b.track(Net("X"), [(30.0, 1.0), (30.0, 119.0)], layer=F)
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True)
     plan = b.resolve()
     assert len(vias(plan, "CANH_S0")) == 4 and len(far_pieces(plan, "CANH_S0")) == 2
@@ -98,8 +98,8 @@ def test_a_track_crossing_two_others_gets_two_bridges():
 
 def test_tracks_on_different_layers_or_the_same_net_do_not_bridge():
     b = make_board()
-    b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 120.0)], layer=B)
-    b.track(Net("CANH_S0"), [(25.0, 0.0), (25.0, 120.0)], layer=F)
+    b.track(Net("PERMIT_B"), [(20.0, 1.0), (20.0, 119.0)], layer=B)
+    b.track(Net("CANH_S0"), [(25.0, 1.0), (25.0, 119.0)], layer=F)
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True)
     plan = b.resolve()
     assert not vias(plan, "CANH_S0") and not declared_findings(plan)
@@ -120,7 +120,7 @@ def test_pad_referenced_points_make_a_bus_without_a_lane_object():
 
 def test_a_finger_is_cut_and_bridged_where_a_track_crosses_it():
     b = make_board()
-    b.track(Net("PERMIT_B"), [(50.0, 0.0), (50.0, 120.0)], layer=F)
+    b.track(Net("PERMIT_B"), [(50.0, 1.0), (50.0, 119.0)], layer=F)
     b.finger(Net("V48P"), layer=F, from_=Location(60.0, 43.0), to=Location(20.0, 43.0), width=6.0)
     plan = b.resolve()
     pours = [o for o in plan.copper if isinstance(o, Pour)]

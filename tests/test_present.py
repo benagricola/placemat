@@ -111,3 +111,10 @@ def test_the_events_format_is_in_the_hello_and_a_models_why_is_a_word():
     assert channel.FORMAT == 2
     assert present.model_why({"why": "not_found", "text": "${KIPRJMOD}/x.step"}) == "model not found: ${KIPRJMOD}/x.step"
     assert present.model_why({"why": "unreadable", "detail": "denied"}) == "model cannot be read: denied"
+
+
+def test_a_pin_map_poses_turns_are_records_not_a_refusal_per_rotation():
+    from placemat import present
+    pose = {"total": 2.5, "turns": [{"ref": "U1", "turn_deg": 90, "rotation_deg": 90, "face": "front", "flip": False}]}
+    out = present.facts({"rotations": [pose]})
+    assert out["rotations"][0]["turns"] == pose["turns"] and "turns_text" not in out["rotations"][0]
