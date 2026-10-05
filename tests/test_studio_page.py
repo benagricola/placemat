@@ -78,6 +78,8 @@ class FakeDate extends Date { static now() { return clock; } }
 const fakeGroup = (key, s) => { const g = {dataset: {key, s: String(s)}, style: {}, cls: new Set(["item"])};
   g.classList = {toggle(c, on) { g.cls[on ? "add" : "delete"](c); }, add(c) { g.cls.add(c); }, remove(c) { g.cls.delete(c); }}; return g; };
 const groups = html => [...html.matchAll(/<g class="item[^"]*" data-key="([^"]*)" data-s="(\d+)"/g)].map(m => fakeGroup(m[1], +m[2]));
+// the copper and the cutouts a step lays, by their tag, class and step: the elements the replay shows and hides
+const laidOps = html => [...html.matchAll(/<(\w+) class="([^"]*)"[^>]*? data-s="(\d+)"/g)].filter(m => !/^item/.test(m[2])).map(m => Object.assign(fakeGroup("", +m[3]), {tag: m[1], op: m[2]}));
 const mk = sel => new Proxy({
   innerHTML: "", textContent: "", value: "", style: {}, dataset: {}, className: "", attrs: {}, max: 0, handlers: {}, disabled: false,
   classList: {toggle() {}, add() {}, remove() {}, contains() { return false; }},
@@ -87,6 +89,7 @@ const mk = sel => new Proxy({
     if (sel !== "#board") return [];
     if (q === ".item") return groups(this.innerHTML);
     if (q === ".items") { const self = this; return [{insertAdjacentHTML(_, html) { self.innerHTML += html; this.last = groups(html).pop(); }, get lastElementChild() { return this.last; }}]; }
+    if (q === ".copper [data-s], .cutoutg") return laidOps(this.innerHTML);
     return [];
   },
   closest: () => null, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] || null; }, setPointerCapture() {},
@@ -103,6 +106,7 @@ const ctx = {
   requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, clearTimeout() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
   URLSearchParams, console,
 };
+if (process.env.PAGE_STORE) { const m = JSON.parse(process.env.PAGE_STORE); ctx.localStorage = {getItem: k => k in m ? m[k] : null, setItem: (k, v) => { m[k] = String(v); }, removeItem: k => { delete m[k]; }, m}; }   // what an earlier load kept
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), ctx);
 flush();
@@ -129,13 +133,14 @@ const finish = (id, keys) => {
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
 
-def run_page(tmp_path, tail, hash=""):
-    """Run the page's script against the DOM stub, then `tail` (JavaScript that fills `out`); `out` as a dict."""
+def run_page(tmp_path, tail, hash="", store=None):
+    """Run the page's script against the DOM stub, then `tail` (JavaScript that fills `out`); `out` as a dict. `store` is
+    the browser storage the page finds when it loads (a dict), as a reload finds what the last load kept."""
     text = PAGE.read_text()
     (tmp_path / "page.js").write_text(text[text.index("<script>") + 8:text.index("</script>")])
     (tmp_path / "run.js").write_text(PRELUDE + tail + "\nconsole.log(JSON.stringify(out));\n")
     import os
-    done = subprocess.run(["node", str(tmp_path / "run.js"), str(tmp_path / "page.js")], capture_output=True, text=True, timeout=60, env=dict(os.environ, PAGE_HASH=hash))
+    done = subprocess.run(["node", str(tmp_path / "run.js"), str(tmp_path / "page.js")], capture_output=True, text=True, timeout=60, env=dict(os.environ, PAGE_HASH=hash, **({"PAGE_STORE": json.dumps(store)} if store is not None else {})))
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout.strip().splitlines()[-1])
 
@@ -2481,6 +2486,153 @@ for (const k of [0, 1, 2, 3]) { ev("showSteps(" + k + ")"); out.visible.push(rip
     assert out["visible"] == ["none", "none", "", "none"]                                      # shown once step 2 is reached... and gone once step 3 is
 
 
+def _copper_hidden_by_css(classes):
+    """Whether the page's stylesheet hides the board's copper layer when the board has `classes`: the last rule of the
+    highest specificity among those that match decides, as the browser does."""
+    css = "".join(re.findall(r"<style>(.*?)</style>", PAGE.read_text(), re.S))
+    best = (-1, "")
+    for sels, body in re.findall(r"([^{}]+)\{([^}]*)\}", css):
+        shown = re.search(r"display:\s*(\w+)", body)
+        for sel in sels.split(","):
+            m = re.fullmatch(r"\s*#board((?:\.[\w-]+)*)\s+\.copper\s*", sel)
+            if shown and m and set(m.group(1).split(".")[1:]) <= set(classes) and len(m.group(1).split(".")) - 1 >= best[0]:
+                best = (len(m.group(1).split(".")) - 1, shown.group(1))
+    return best[1] == "none"
+
+
+REPLAY_COPPER = r"""
+const cls = new Set(); els["#board"].classList = {toggle(c, on) { cls[on ? "add" : "delete"](c); }, add(c) { cls.add(c); }, remove(c) { cls.delete(c); }, contains(c) { return cls.has(c); }};
+// a part, a track, a part, a via, a plane: the copper of each step is its own op (full() sends a track, a plane and a via)
+full([item("a", 1), item("b", 5)], [st("a"), st("b")]);
+ev('plan().steps = [{item: "a", kind: "part", placed: true, note: ""}, {item: "track N", kind: "copper", placed: false, note: "", copper: [0]}, {item: "b", kind: "part", placed: true, note: ""}, {item: "via N", kind: "copper", placed: false, note: "", copper: [2]}, {item: "pour G", kind: "copper", placed: false, note: "", copper: [1]}]');
+ev("renderBoard()"); flush();
+const ops = ev("B.byStep").flat().filter(g => g.op);
+out.n = ev("replayCount()"); out.at = [];
+for (let k = 0; k <= out.n; k++) { ev("setReplay(" + k + ")"); flush(); out.at.push({classes: [...cls].sort(), ops: [...new Set(ops.filter(g => g.style.display !== "none").map(g => g.op.split(" ")[0]))].sort()}); }
+"""
+
+
+@needs_node
+def test_copper_a_step_lays_is_drawn_from_that_step_on_and_not_before(tmp_path):
+    """Play went through the copper steps with nothing drawn, then showed all the copper at the end: the stylesheet hid the copper
+    layer while the replay was short of its end. Each op is drawn from the position after the step that laid it."""
+    out = run_more(tmp_path, REPLAY_COPPER)
+    assert out["n"] == 5
+    drawn = [[] if _copper_hidden_by_css(a["classes"]) else a["ops"] for a in out["at"]]
+    assert drawn == [[], [], ["trk"], ["trk"], ["trk", "viag"], ["plane", "trk", "viag"]]
+
+
+@needs_node
+def test_the_previous_and_next_buttons_move_one_step_and_pause_play(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+finish(1, ["a", "b", "c"]);
+const click = id => { els[id].handlers.click.forEach(f => f({})); flush(); };
+const now = () => [ev("S.replay"), !!ev("S.play")];
+click("#stepprev"); out.back = now(); out.named = els["#stepnow"].innerHTML;
+ev("setReplay(1)"); flush(); ev("togglePlay()"); clock += 400; flushOnce();
+out.playing = now();
+click("#stepnext"); out.next = now();
+clock += 2000; flushOnce(); flushOnce(); out.later = now();
+click("#stepprev"); out.prev = now();
+""")
+    assert out["back"] == [5, False]                                      # from the end, one step back
+    assert "Step 5" in out["named"] and 'class="chip escape">escape' in out["named"] and ">U1</b>" in out["named"]       # the step is named: its kind and item
+    assert out["playing"] == [2, True]
+    assert out["next"] == [3, False] and out["later"] == [3, False]       # play stopped where the step put it
+    assert out["prev"] == [2, False]
+
+
+@needs_node
+def test_the_step_buttons_are_disabled_at_the_first_and_last_step(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+finish(1, ["a", "b", "c"]);
+const click = id => { els[id].handlers.click.forEach(f => f({})); flush(); };
+const state = () => [ev("S.replay"), els["#stepprev"].disabled, els["#stepnext"].disabled];
+out.end = state();
+ev("setReplay(1)"); flush(); click("#stepprev"); out.first = state();
+click("#stepprev"); out.still = state();
+click("#stepnext"); out.mid = state();
+ev("setReplay(5)"); flush(); click("#stepnext"); out.last = state();
+""")
+    assert out["end"] == [None, False, True]
+    assert out["first"] == [0, True, False] and out["still"] == [0, True, False]
+    assert out["mid"] == [1, False, False]
+    assert out["last"] == [None, False, True]
+
+
+@needs_node
+def test_the_left_and_right_arrow_keys_step_unless_focus_is_in_a_field(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+finish(1, ["a", "b", "c"]);
+let stopped = 0;
+const key = (k, extra) => { const e = Object.assign({key: k, target: {tagName: "BODY"}, preventDefault() { stopped++; }}, extra || {}); ctx.document.__keys.forEach(f => f(e)); flush(); };
+key("ArrowLeft"); key("ArrowLeft"); key("ArrowLeft"); out.left = ev("S.replay");
+ev("togglePlay()"); clock += 400; flushOnce(); out.playing = !!ev("S.play");
+key("ArrowRight"); out.right = [ev("S.replay"), !!ev("S.play")];
+for (const target of [{tagName: "INPUT", type: "text"}, {tagName: "TEXTAREA"}, {tagName: "SELECT"}, {tagName: "INPUT", type: "range"}, {tagName: "DIV", isContentEditable: true}]) key("ArrowLeft", {target});
+key("ArrowLeft", {altKey: true}); key("ArrowRight", {ctrlKey: true}); key("ArrowRight", {metaKey: true});
+out.typed = ev("S.replay"); out.stopped = stopped;
+""")
+    assert out["left"] == 3 and out["playing"] is True
+    assert out["right"] == [5, False]                                  # one step on from where play had got to (4), and paused
+    assert out["typed"] == out["right"][0]                             # in a field, or with a modifier, the key is the field's or the browser's
+    assert out["stopped"] == 4
+
+
+@needs_node
+def test_a_speed_change_keeps_the_position_and_scales_the_pace(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+finish(1, ["a", "b", "c"]);
+out.options = els["#speed"].innerHTML; out.start = [ev("S.speed"), els["#speed"].value];
+ev("setReplay(1)"); flush(); ev("togglePlay()"); clock += 400; flushOnce();
+out.before = ev("S.replay");
+els["#speed"].handlers.change.forEach(f => f({target: {value: "0.25"}})); flushOnce();
+out.after = [ev("S.replay"), ev("S.play.k0"), ev("S.play.rate"), ev("playRate(6)")];
+clock += 1000; flushOnce(); out.second = ev("S.replay");
+clock += 1000; flushOnce(); out.third = ev("S.replay");
+ev("stopPlay()"); ev("setReplay(2)"); flush();
+els["#speed"].handlers.change.forEach(f => f({target: {value: "4"}})); flush();
+out.paused = [ev("S.replay"), !!ev("S.play"), ev("S.speed")];
+els["#speed"].handlers.change.forEach(f => f({target: {value: "9"}})); flush(); out.odd = ev("S.speed");
+""")
+    assert out["start"] == [1, "1"]
+    assert [o for o in re.findall(r">([^<]+)</option>", out["options"])] == ["0.1x", "0.25x", "0.5x", "1x", "2x", "4x"]
+    assert out["before"] == 2
+    assert out["after"][0] == 2 and out["after"][1] == 2 and out["after"][2] == pytest.approx(out["after"][3] * 0.25)
+    assert out["second"] == 2 and out["third"] == 3                       # 3 steps a second at 1x, so one step in 1.33 s at 0.25x
+    assert out["paused"] == [2, False, 4]
+    assert out["odd"] == 4                                                  # a value not offered changes nothing
+
+
+@needs_node
+def test_the_chosen_speed_is_remembered_across_a_reload_and_storage_that_fails_is_ignored(tmp_path):
+    first = run_page(tmp_path, r"""
+els["#speed"].handlers.change.forEach(f => f({target: {value: "0.5"}}));
+out.store = ctx.localStorage.m;
+""", store={})
+    again = run_page(tmp_path, r"""out.speed = [ev("S.speed"), els["#speed"].value];""", store=first["store"])
+    junk = run_page(tmp_path, r"""out.speed = ev("S.speed");""", store={"placemat.playSpeed": "fast"})
+    blocked = run_page(tmp_path, r"""
+ctx.localStorage = {getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); }};
+els["#speed"].handlers.change.forEach(f => f({target: {value: "2"}}));
+out.speed = ev("S.speed");
+""")
+    assert first["store"] == {"placemat.playSpeed": "0.5"}
+    assert again["speed"] == [0.5, "0.5"]
+    assert junk["speed"] == 1 and blocked["speed"] == 2
+
+
+def test_the_replay_bar_has_no_bracketed_labels():
+    text = PAGE.read_text()
+    bar = re.search(r'<div id="replay">.*?</div>', text).group(0)
+    assert 'id="stepprev"' in bar and 'id="stepnext"' in bar and 'id="speed"' in bar
+    assert not re.search(r">[^<]*[()\[\]][^<]*<", bar) and not re.search(r'(?:title|aria-label)="[^"]*[()\[\]]', bar)
+
+
 @needs_node
 def test_a_routes_count_is_of_its_stage_and_a_pair_is_one_net(tmp_path):
     out = run_more(tmp_path, r"""
@@ -2835,7 +2987,7 @@ ev("renderBoard()");
 out.twoD = [ev("[...S.opStep.entries()]"), ev("S.lastStep")];
 """)
     cu = out["cu"]
-    assert cu["origins"] == ["planned", "kept", "routed", "routed"] and cu["n"] == 4 and cu["laid"] is False
+    assert cu["origins"] == ["planned", "kept", "routed", "routed"] and cu["n"] == 4 and "laid" not in cu
     assert cu["steps"] == [{"s": 1, "x": None}, {"s": 2, "x": None}, {"s": 3, "x": 3}, {"s": 3, "x": None}]
     assert out["twoD"] == [[[0, 1], [1, 2], [2, 3], [3, 3]], 3]                # the steps the 2D drawing gives the same ops
 
@@ -3040,3 +3192,130 @@ out.old = ev('copperLayers({copper: [{layer: "B.Cu"}, {layer: "F.Cu"}, {layer: "
     every = ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "B.Cu"]
     assert out["live"] == every and out["drawn"] == every
     assert out["old"] == ["F.Cu", "In1.Cu", "B.Cu"]
+
+
+# ---------------------------------------------------------------- the poses a pin map study searched, and an explore's pin study
+PM_ROTS = r"""
+PM_FACTS.rotations = [
+  {total: 7, weighted: 3, length_mm: 12.345, bend_deg: 180, turns: [{ref: "U1", turn_deg: 0, rotation_deg: 0, face: "front", flip: false}],
+   map: [{ref: "U1", net: "SCL", from: {pin: "3", name: "GPIO1"}, to: {pin: "4", name: "GPIO2"}}], paths: [{net: "SDA", path: [[1, 1], [4, 1]]}]},
+  {total: 2.5, weighted: 0, length_mm: 10, bend_deg: 90, turns: PM_ADVICE.turns, map: PM_ADVICE.map, paths: [{net: "SDA", path: [[2, 2], [5, 2], [5, 4]]}]}];
+const rowsOf = h => (h.match(/<tr[^>]*data-pmrot="[^"]*"[^>]*>.*?<\/tr>/g) || []);
+const clickRot = key => els["#tab-findings"].onclick({target: {closest: s => s === "[data-pmrot]" ? {dataset: {pmrot: key}} : null}});
+"""
+
+
+@needs_node
+def test_a_pin_map_finding_lists_every_pose_searched_with_the_best_and_the_present_marked(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + PM_ROTS + r"""
+full([item("a", 1)], [st("a")], {findings: PM_FND});
+ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
+""")
+    rows = re.findall(r'<tr[^>]*data-pmrot="[^"]*"[^>]*>.*?</tr>', out["html"])
+    assert len(rows) == 2
+    assert 'data-pmrot="0:0"' in rows[0] and ">present<" in rows[0] and ">best<" not in rows[0]
+    assert 'data-pmrot="0:1"' in rows[1] and ">best<" in rows[1] and ">present<" not in rows[1]
+    assert "<td>3</td>" in rows[0] and "12.3 mm" in rows[0] and "180°" in rows[0] and "<td>7</td>" in rows[0] and ">2<" in rows[0]   # saving 9 - 7
+    assert "90°" in rows[1] and "10.0 mm" in rows[1] and "<td>2.5</td>" in rows[1] and ">6.5<" in rows[1]
+    for head in ("turn", "crossings", "length", "bends", "total", "saving"):
+        assert "<th>" + head + "</th>" in out["html"]
+
+
+@needs_node
+def test_a_pose_in_a_cell_is_said_as_the_cells_turn(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + PM_ROTS + r"""
+PM_FACTS.rotations[1].turns = [{ref: "U1", turn_deg: 90, rotation_deg: 90, face: "front", flip: false, cell: "logic", module: "Mcu", stamps: 1, cell_rotation_deg: 180, module_rotation_deg: 90}];
+full([item("a", 1)], [st("a")], {findings: PM_FND});
+ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
+""")
+    rows = re.findall(r'<tr[^>]*data-pmrot="[^"]*"[^>]*>.*?</tr>', out["html"])
+    assert "cell logic 90°" in rows[1]
+
+
+@needs_node
+def test_clicking_a_pose_draws_its_airwires_and_lists_its_map_and_a_second_click_or_a_new_selection_clears_it(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + PM_ROTS + PANELS + r"""
+full([item("a", 1)], [st("a")], {findings: PM_FND});
+plant(); ev("renderFindings()");
+const count = () => panels.map(p => p.html.length);
+clickRot("0:0"); flush();
+out.drawn = count(); out.svg = panels[0].html[0]; ev("renderFindings()"); out.open = els["#tab-findings"].innerHTML;
+clickRot("0:0"); flush();
+out.again = count(); ev("renderFindings()"); out.closed = els["#tab-findings"].innerHTML;
+clickRot("0:1"); flush(); out.other = panels[0].html[0];
+ev("S.sel = 'zz'; drawPinMap()"); out.moved = count(); out.state = ev("S.pinmap");
+clickRot("0:1"); flush();
+ev("sgAct")("pinmap", "s1a"); out.tryAfter = [ev("S.pinmap && S.pinmap.sid"), ev("S.pinmap && S.pinmap.fi")];
+""")
+    assert out["drawn"] == [1, 1] and out["svg"].startswith('<g class="pinmap">')
+    assert 'class="pm-before"' in out["svg"] and 'points="1,1 4,1"' in out["svg"]
+    assert re.search(r'<tr class="on"[^>]*data-pmrot="0:0"', out["open"]) and "<b>SCL</b>" in out["open"] and "GPIO1, pin 3" in out["open"]
+    assert out["again"] == [0, 0] and "<b>SCL</b>" not in out["closed"] and '<tr class="on"' not in out["closed"]
+    assert 'points="2,2 5,2 5,4"' in out["other"]
+    assert out["moved"] == [0, 0] and out["state"] is None
+    assert out["tryAfter"] == ["s1a", None]                                      # Try takes the place of a pose drawn
+
+
+EXPLORE_PINS = r"""
+const it = Object.assign(item("a", 1), {at: [2, 2], rotation: 0});
+full([it, item("b", 5)], [st("a"), st("b")]);
+ev("S.exploreFps = 100");
+const click = (el, sel, data) => els[el].onclick({target: {closest: s => s === sel ? {dataset: data || {}} : null}});
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'explore', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore", focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2}});
+const v = (seed, score, x) => ({ev: "variant", seed, score, measures: {}, placements: {a: [x, 2, 0, "front"]}, order: ["a"], t: seed});
+send("cmdev", {id: 8, n: 0, ev: v(3, 8, 6)}); send("cmdev", {id: 8, n: 0, ev: v(4, 9, 7)}); send("cmdev", {id: 8, n: 0, ev: v(5, 9.5, 8)});
+const G = {refs: ["U1"], present: {weighted: 6, total: 9}, best: {weighted: 0, total: 2.5}, rotation: 1,
+  turns: [{ref: "U1", turn_deg: 90, rotation_deg: 90, face: "front", flip: false}],
+  map: [{ref: "U1", net: "SDA", from: {pin: "12", name: "GPIO7"}, to: {pin: "14", name: "GPIO9"}}],
+  before: [{net: "SDA", path: [[1, 1], [5, 1]]}], paths: [{net: "SDA", path: [[2, 2], [5, 2], [5, 4]]}], searched: 4, of: 4, budget_out: false, steps: 10, budget_steps: 100};
+const MAPS = [{seed: 3, score: 8, groups: [G], seconds: 0.1},
+  {seed: 4, score: 9, groups: [{refs: ["U1"], slow: true, guard_ms: 500, steps: 40, budget_steps: 100}], seconds: 0.5},
+  {seed: 5, score: 9.5, groups: [], error: {type: "RuntimeError", message: "boom"}, seconds: 0.1}];
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_done", best_seed: 3, best: 8, baseline: 10, kept: false, pin_maps: MAPS}});
+const runs = () => { ev("renderRuns()"); return els["#tab-runs"].innerHTML; };
+const pinRows = h => (h.match(/<div class="xpin[^"]*" data-xpin="\d+">.*?<\/div><\/div>/g) || []);
+"""
+
+
+@needs_node
+def test_an_explores_top_variants_show_their_pin_study_beside_their_score(tmp_path):
+    out = run_more(tmp_path, EXPLORE_PINS + r"""
+ev("S.xv.auto = false; S.xv.drawn = S.xv.variants.find(v => v.seed === 4)"); out.html = runs();
+""")
+    h = out["html"]
+    assert 'data-xpin="3"' in h and 'data-xpin="4"' in h and 'data-xpin="5"' in h
+    one = h[h.index('data-xpin="3"'):h.index('data-xpin="4"')]
+    assert "#3" in one and "8.0" in one and "U1" in one and "6 -&gt; 0 crossings" in one
+    assert "data-xpa" not in one and "GPIO7" not in one                       # the map is offered on the variant shown
+    err = h[h.index('data-xpin="5"'):]
+    assert '<span class="chip bad">error</span>' in err and "RuntimeError: boom" in err
+    assert "(" not in re.sub(r"<[^>]*>", "", h[h.index('class="xpins"'):h.index("<h3>Commands")])
+
+
+@needs_node
+def test_a_slow_variant_says_slow(tmp_path):
+    out = run_more(tmp_path, EXPLORE_PINS + r"""
+out.html = runs();
+""")
+    h = out["html"]
+    slow = h[h.index('data-xpin="4"'):h.index('data-xpin="5"')]
+    assert '<span class="chip warn">slow</span>' in slow and "40 of 100 steps" in slow and "crossings" not in slow
+
+
+@needs_node
+def test_on_a_variant_with_a_pin_study_its_map_is_offered_and_draws_its_airwires(tmp_path):
+    out = run_more(tmp_path, EXPLORE_PINS + PANELS + r"""
+plant(); panels.forEach(p => { p.classList = {contains: () => false}; });
+ev("S.xv.auto = false; S.xv.drawn = S.xv.variants.find(v => v.seed === 3)"); out.html = runs();
+click("#tab-runs", "[data-xpa]", {xpa: "3:0"}); flush();
+const pm = () => panels.map(p => p.html.filter(h => h.startsWith('<g class="pinmap">')));       // the explore's own drawing shares the panels
+out.drawn = pm().map(l => l.length); out.svg = pm()[0][0]; out.open = runs();
+click("#tab-runs", "[data-xpin]", {xpin: "4"}); flush();
+out.shown = ev("S.xv.drawn.seed"); out.gone = pm().map(l => l.length); out.state = ev("S.xv.pin");
+""")
+    one = out["html"][out["html"].index('data-xpin="3"'):]
+    assert 'data-xpa="3:0"' in one
+    assert out["drawn"] == [1, 1] and 'points="1,1 5,1"' in out["svg"] and 'points="2,2 5,2 5,4"' in out["svg"]
+    assert "GPIO7, pin 12" in out["open"] and "turn U1 to 90 degrees" in out["open"] and 'aria-pressed="true"' in out["open"]
+    assert out["shown"] == 4 and out["gone"] == [0, 0] and out["state"] is None

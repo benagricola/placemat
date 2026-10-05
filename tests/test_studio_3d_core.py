@@ -172,12 +172,11 @@ def test_copper_at_a_replay_step_is_what_the_2d_drawing_shows(tmp_path):
         import { visibleRanges } from "%s";
         // three ops laid at steps 0, 2 and 3, the second ripped up again at step 4
         const spans = [{s: 0, x: null, i0: 0, i1: 6}, {s: 2, x: 4, i0: 6, i1: 12}, {s: 3, x: null, i0: 12, i1: 18}];
-        const at = (k, laid) => visibleRanges(spans, k, 6, laid);
-        console.log(JSON.stringify({all: at(null, false), end: at(6, true), mid: at(3, false), laid: [0, 1, 3, 4, 5].map(k => at(k, true))}));
+        const at = k => visibleRanges(spans, k, 6);
+        console.log(JSON.stringify({all: at(null), end: at(6), laid: [0, 1, 3, 4, 5].map(k => at(k))}));
     ''' % CORE, tmp_path)
     assert out["all"] == [[0, 6], [12, 18]] and out["end"] == [[0, 6], [12, 18]]      # the ripped op is gone once the replay is past it
-    assert out["mid"] == []                                                          # a plan's replay draws no copper until its end, as 2D
-    assert out["laid"] == [[], [[0, 6]], [[0, 12]], [[0, 18]], [[0, 6], [12, 18]]]   # a route's replay lays and rips each op at its step
+    assert out["laid"] == [[], [[0, 6]], [[0, 12]], [[0, 18]], [[0, 6], [12, 18]]]   # each op laid at its step and ripped at its own, a plan's or a route's
 
 
 @needs_node
@@ -226,3 +225,23 @@ def test_a_via_spans_its_layers_and_a_through_via_the_whole_stack(tmp_path):
         console.log(JSON.stringify([viaSpan({layers: []}, names), viaSpan({layers: ["In1.Cu", "F.Cu"]}, names), viaSpan({layers: ["In2.Cu", "In1.Cu"]}, names), viaSpan({layers: ["In9.Cu"]}, names)]));
     ''' % CORE, tmp_path)
     assert out == [["F.Cu", "B.Cu"], ["F.Cu", "In1.Cu"], ["In1.Cu", "In2.Cu"], ["F.Cu", "B.Cu"]]
+
+
+@needs_node
+def test_solid_makes_the_layer_sheets_opaque_when_the_layers_are_spread(tmp_path):
+    """Solid did nothing while the layers were spread: the body fades out as they part and each layer's sheet was faint whatever the
+    mode. Solid keeps the board opaque, the body closed and each layer's sheet spread; see-through keeps both faint."""
+    out = node('''
+        import { bodyLook } from "%s";
+        const look = {};
+        for (const mode of ["solid", "see"]) for (const k of [0, 0.5, 1]) look[mode + k] = bodyLook(mode, k);
+        console.log(JSON.stringify(look));
+    ''' % CORE, tmp_path)
+    solid0, see0, solid1, see1, half = out["solid0"], out["see0"], out["solid1"], out["see1"], out["solid0.5"]
+    assert solid0["body"] == {"visible": True, "opacity": 1, "transparent": False, "depthWrite": True, "colour": "body", "order": 0}
+    assert see0["body"] == {"visible": True, "opacity": 0.3, "transparent": True, "depthWrite": False, "colour": "substrate", "order": -1}
+    assert solid0["sheet"]["visible"] is False and see0["sheet"]["visible"] is False
+    assert solid1["body"]["visible"] is False and see1["body"]["visible"] is False                  # spread, the layers stand for the board
+    assert solid1["sheet"] == {"visible": True, "opacity": 1, "edge": 0.7, "transparent": False, "depthWrite": True, "colour": "body"}
+    assert see1["sheet"] == {"visible": True, "opacity": 0.1, "edge": 0.7, "transparent": True, "depthWrite": False, "colour": "body"}
+    assert half["sheet"]["opacity"] == 0.5 and half["sheet"]["transparent"] is True and half["body"]["opacity"] == 0.5     # parting, each fades
