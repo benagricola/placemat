@@ -1107,6 +1107,25 @@ def copper_meets(f, settings):
     return out
 
 
+@case(C.COPPER_EDGE)
+def copper_edge(f, settings):
+    """A track drawn pad to pad past a named cutout: a Past off the cutout as its one waypoint, on each side across the
+    track's run that the finding names (`sides`), the side it lies toward first. A track with waypoints already has
+    its way said, so it is offered none; nor is copper inside the hole, or near the outline."""
+    ob = f.get("obstacle") or {}
+    if f.get("word") != "track" or not f.get("key") or f.get("inside") or ob.get("form") != "cutout" \
+            or not ob.get("name") or f.get("waypoints", 0) != 0:
+        return []
+    out = []
+    for side in f.get("sides") or ():
+        value = _form("Past", {"list": [_form("board.cutout", {"str": ob["name"]})]}, _enum("Edge.%s" % side))
+        edits = (Edit("ensure_import", None, {"names": ["Edge", "Past"]}),
+                 Edit("edit_list", Target("track", f["key"]), {"arg": "points", "action": "add", "at": 1}, value,
+                      _refs_of(value)))
+        out.append(Pick("Pass cutout `%s` on its %s side with a Past waypoint" % (ob["name"], side.lower()), edits, "past"))
+    return out
+
+
 @case(C.COPPER_NOT_DRAWN)
 def copper_not_drawn(f, settings):
     net = f.get("net", "")

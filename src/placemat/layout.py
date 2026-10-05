@@ -34,7 +34,7 @@ from .refusals import Code, Refusal, ReservedBy
 from .findings import Finding, FindingCause as C, Findings
 from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
 from .occupancy import LABEL_SOURCE, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
-from .cutouts import Arc, Cutouts, Path, _turned, loop_gap, signed_area
+from .cutouts import Arc, Cutouts, Path, _turned, crosses as _crosses, inside as _in_loop, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
@@ -5929,6 +5929,36 @@ class Board:
         why = self._shaped().why_not(Box(at.x, at.y, at.x, at.y), 0.0)
         return why if why in (EdgeWhy.OUTSIDE, EdgeWhy.IN_CUTOUT) else None
 
+    def _edge_hits(self, occ: Occupancy, shape: Shape, loops: list) -> list:
+        """The loops of the board's edge `shape` (planned copper's real outline) comes nearer than the copper-to-edge
+        clearance, as a copper.edge finding's facts each, less the declaration's own. KiCad's EDGE_CLEARANCE_CONSTRAINT,
+        `geometry.edge_clearance` (drc_test_provider_edge_clearance.cpp testAgainstEdge collides the copper's shape with
+        each Edge.Cuts shape at the clearance less the DRC epsilon, at 0 a touch): `clear_limit(check=True)`, and a gap of
+        0 whatever the clearance. A loop drawn from arcs is judged `geometry.arc_sag` further, since its chords stand that
+        far inside the curve KiCad judges. Copper wholly inside a hole or off the board is 0 from it, `inside`."""
+        need = self.geometry.edge_clearance
+        sag = self.settings.geometry_arc_sag
+        if self._shaped().why_not(shape.box, need + sag) is None:
+            return []                       # on the board, and every loop further off than the most any loop asks
+        out = []
+        for k, loop, curved, name in loops:
+            allow = sag if curved else 0.0
+            limit = occ.clear_limit(need + allow, check=True)
+            if k > 0 and not Box.of_points(loop).overlaps(shape.box, gap=max(limit, 0.0) + 1e-6):
+                continue
+            gap, at = _copper_loop_gap(shape, loop)
+            inside = False
+            probe = _copper_point(shape)
+            if gap > 0.0 and (k == 0) != _in_loop(loop, Location(*probe)):
+                gap, inside, at = 0.0, True, probe          # off the board, or in a hole, touching neither edge
+            if gap > 0.0 and gap >= limit:
+                continue
+            out.append({"obstacle": {"form": "outline"} if k == 0 else {"form": "cutout", "name": name},
+                        "inside": inside, "at": [round(at[0], 6), round(at[1], 6)], "gap_mm": round(gap, 6),
+                        "need_mm": need, "sag_mm": allow, "rule": "copper_edge_clearance",
+                        "sides": [] if k == 0 else _sides_past(shape, Box.of_points(loop))})
+        return out
+
     def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,
              chamfer: float | None = None, via_step: float | None = None, priority: Priority = Priority.DEFAULT,
              bridge: bool = False, only=None, why: str = ""):
@@ -8895,6 +8925,10 @@ class Board:
         track_ids = {}
         for c, _ in tracks:
             track_ids.setdefault(c.net, set()).add(copper_id(c))
+        edge_loops = self._edge_loop_info() if self._judges_edge() else None     # the loops copper.edge judges
+        declared_of = {}
+        for c in intents:
+            declared_of.setdefault(copper_id(c), c.declared)
         laid = {}
         for op in all_ops:
             key = owner.get(id(op)) or net_key.get(getattr(op, "net", None)) or next(iter(by_key), "")
@@ -8906,6 +8940,9 @@ class Board:
             # A zone is filled by KiCad, which pulls it back round other copper.
             skip_findings = isinstance(op, Zone)
             if not skip_findings:
+                which = owner_id.get(id(op)) or (next(iter(track_ids[op.net])) if len(track_ids.get(op.net, ())) == 1 else None)
+                declared = declared_of.get(which, {}) if which else {}
+                layer = getattr(op, "layer", None)
                 hits = occ.copper_conflicts(shape, check=True)       # a finding: KiCad's DRC epsilon, whatever placement uses
                 # and this batch's own copper planned before it, which reaches the occupancy only
                 # once the batch is done: a track of one net through a via of another, both planned
@@ -8926,9 +8963,6 @@ class Board:
                     elif isinstance(op, Track) and op.mid is not None:
                         extra["arc_radius_mm"] = arc_circle(op.start, op.mid, op.end)[2]
                         extra["arc_at"] = [op.mid.x, op.mid.y]
-                    which = owner_id.get(id(op)) or (next(iter(track_ids[op.net])) if len(track_ids.get(op.net, ())) == 1 else None)
-                    declared = next((c.declared for c in intents if which and copper_id(c) == which), {})
-                    layer = getattr(op, "layer", None)
                     facts = {"key": which or "", "net": op.net, "word": type(op).__name__.lower(),
                              "layer": layer.name if layer is not None else "", "waypoints": declared.get("waypoints", 0),
                              "chamfer_hit": isinstance(op, Track) and bool(op.chamfer_cut),
@@ -8936,6 +8970,12 @@ class Board:
                              "chamfer_mm": declared.get("chamfer"), "radius_mm": declared.get("radius"),
                              "hit": hit.to_json(), **extra}
                     plan.findings.append(self._finding(C.COPPER_MEETS, facts))
+                if edge_loops is not None:
+                    word = "finger" if key.startswith("finger") else type(op).__name__.lower()
+                    for facts in self._edge_hits(occ, shape, edge_loops):
+                        plan.findings.append(self._finding(C.COPPER_EDGE, dict(
+                            facts, key=which or "", net=op.net, word=word,
+                            layer=layer.name if layer is not None else "", waypoints=declared.get("waypoints", 0))))
             batch.append((op, shape))
             shapes.append(shape)
             if isinstance(op, Via):
@@ -11980,6 +12020,97 @@ def _corner_step(groups, corner: Corner, c: Location, width: float) -> float:
         gc = _box_corner(g.box, corner)
         out = max(out, (sx * (gc.x - c.x) + sy * (gc.y - c.y)) / 2.0 + (width / 2.0 + g.standoff) / math.sqrt(2.0))
     return out
+
+
+def _seg_nearest(px: float, py: float, ax: float, ay: float, bx: float, by: float) -> tuple:
+    """The point of segment a-b nearest p."""
+    dx, dy = bx - ax, by - ay
+    n = dx * dx + dy * dy
+    t = 0.0 if n < 1e-18 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / n))
+    return ax + t * dx, ay + t * dy
+
+
+def _nearest_on(pts: list, loop) -> tuple:
+    """(the least distance between the polyline `pts` (one point, two, or a polygon given closed) and the closed `loop`,
+    the point of `pts` where it is reached, the point of `loop`). Where a leg crosses the loop: 0 and the crossing, twice.
+    The least distance between two polylines is reached at a vertex of one of them, so the vertices of each are taken
+    against the legs of the other."""
+    ring = list(loop) + [loop[0]]
+    loop_legs = list(zip(ring, ring[1:]))
+    legs = list(zip(pts, pts[1:])) or [(pts[0], pts[0])]
+    best = (math.inf, pts[0], ring[0])
+    for (ax, ay), (bx, by) in legs:
+        for (cx, cy), (dx, dy) in loop_legs:
+            if _crosses(ax, ay, bx, by, cx, cy, dx, dy):
+                den = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx)
+                t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / den
+                hit = (ax + t * (bx - ax), ay + t * (by - ay))
+                return 0.0, hit, hit
+            for p in ((ax, ay), (bx, by)):
+                q = _seg_nearest(p[0], p[1], cx, cy, dx, dy)
+                d = math.hypot(p[0] - q[0], p[1] - q[1])
+                if d < best[0]:
+                    best = (d, p, q)
+            for q in ((cx, cy), (dx, dy)):
+                p = _seg_nearest(q[0], q[1], ax, ay, bx, by)
+                d = math.hypot(p[0] - q[0], p[1] - q[1])
+                if d < best[0]:
+                    best = (d, p, q)
+    return best
+
+
+def _toward(p, q, r: float) -> tuple:
+    """`p` moved `r` toward `q`, no further than `q`: the copper's own edge on the way to the loop."""
+    d = math.hypot(q[0] - p[0], q[1] - p[1])
+    if d <= r or d < 1e-12:
+        return (q[0], q[1])
+    return (p[0] + (q[0] - p[0]) * r / d, p[1] + (q[1] - p[1]) * r / d)
+
+
+def _copper_point(shape: Shape) -> tuple:
+    """A point of planned copper, to ask which side of a loop it lies on: a via's centre, a track's start, a polygon's
+    first vertex."""
+    if shape.circle:
+        return (shape.circle[0], shape.circle[1])
+    if shape.segment:
+        return (shape.segment[0], shape.segment[1])
+    return (shape.poly[0][0], shape.poly[0][1])
+
+
+def _copper_loop_gap(shape: Shape, loop) -> tuple:
+    """(gap, the copper's point nearest `loop`) between planned copper and one loop of the board's edge. A via is its
+    circle and a straight track its centreline less half its width, as KiCad's shapes are; anything else (a pour, an arc
+    track) its polygon, which is 0 from a loop it covers whole (KiCad collides the filled shape with the loop's edges)."""
+    if shape.circle:
+        cx, cy, r = shape.circle
+        d, _, q = _nearest_on([(cx, cy)], loop)
+        return max(0.0, d - r), _toward((cx, cy), q, r)
+    if shape.segment:
+        x1, y1, x2, y2, w = shape.segment
+        d, p, q = _nearest_on([(x1, y1), (x2, y2)], loop)
+        return max(0.0, d - w / 2.0), _toward(p, q, w / 2.0)
+    poly = [tuple(v) for v in shape.poly]
+    if point_in_polygon(tuple(loop[0]), poly):
+        return 0.0, (loop[0][0], loop[0][1])
+    d, p, _ = _nearest_on(poly + poly[:1], loop)
+    return d, p
+
+
+def _sides_past(shape: Shape, box: Box) -> list:
+    """The sides of a cutout's box a Past could pass it on to clear `shape`, as Edge names: across a straight track's
+    run, the side its centreline lies toward first (WEST before EAST, NORTH before SOUTH where it runs through the
+    middle); for other copper, the side its box's centre lies toward."""
+    c = box.center
+    if shape.segment:
+        x1, y1, x2, y2, _ = shape.segment
+        px, py = _seg_nearest(c.x, c.y, x1, y1, x2, y2)
+        if abs(x2 - x1) >= abs(y2 - y1):                 # it runs east-west: pass the hole north or south of it
+            return ["SOUTH", "NORTH"] if py > c.y else ["NORTH", "SOUTH"]
+        return ["EAST", "WEST"] if px > c.x else ["WEST", "EAST"]
+    m = shape.box.center
+    if abs(m.x - c.x) >= abs(m.y - c.y):
+        return ["EAST" if m.x > c.x else "WEST"]
+    return ["SOUTH" if m.y > c.y else "NORTH"]
 
 
 def _stitch_region(board: "Board", ctx: "_CopperContext", region, pour_intent) -> tuple | None:

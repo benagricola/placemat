@@ -758,6 +758,26 @@ def _copper_meets(f):
     return text
 
 
+@renders(C.COPPER_EDGE, "net", "word", "layer", "obstacle", "inside", "at", "gap_mm", "need_mm")
+def _copper_edge(f):
+    """Declared copper nearer the board's outline or a cutout than the copper-to-edge clearance. The curve's allowance
+    (`sag_mm`) is said only where the gap is the clearance or more, so the sentence never reads as a gap over its rule."""
+    from .values import CopperLayer
+    who = "%s %s" % (f["word"], f["net"] or "-") + (" on %s" % CopperLayer[f["layer"]].value if f["layer"] else "")
+    ob = f["obstacle"]
+    if ob["form"] == "outline":
+        where, inside = "the board's edge", "lies off the board"
+    else:
+        where = 'cutout "%s"' % ob["name"] if ob.get("name") else "a cutout"
+        inside = "lies inside " + where
+    if f["inside"]:
+        return "%s: %s" % (who, inside)
+    tail = " with %.2f mm for its curve" % f["sag_mm"] if f.get("sag_mm") and f["gap_mm"] >= f["need_mm"] else ""
+    return "%s: %.2f mm from %s at (%.2f, %.2f), under the board's %.2f mm copper-to-edge clearance%s" % (
+        who, f["gap_mm"], where, f["at"][0], f["at"][1], f["need_mm"], tail)
+
+
+
 @renders(C.SETUP_PCBNEW, "net", "variant")
 def _setup_pcbnew(f):
     return "pour %s: reach%s needs KiCad's pcbnew at plan time, for its polygon booleans; the pour is not drawn" % (

@@ -4820,6 +4820,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `copper.keepout` | `Net(...)` added to the keepout's `allow=`; the keepout kept off the layer the copper is on (`layers=`); the keepout forbidding only what the copper is not (`excludes=`) |
 | `copper.cross` | `bridge=True` on the track that yields; `priority=Priority.HIGH` on it where the other track may bridge |
 | `copper.meets` | the track's waypoints dropped (pad to pad); the other layer |
+| `copper.edge` | for a track drawn pad to pad past a named cutout, a `Past` off the cutout as its one waypoint, on each side across the track's run, the side it lies toward first |
 | `copper.not_drawn` | for an arc that did not fit, the radius that fits the leg (the radius times the leg's length over what its arcs take, a named constant saying so); for a track through an item, its waypoints dropped or the other layer |
 | `copper.corner`, `copper.stitch` | none |
 | `copper.note` | the waypoints dropped, for a waypoint that steers a track into a pad |

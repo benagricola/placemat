@@ -62,6 +62,16 @@ SAMPLES = [
     (C.COPPER_MEETS, {"net": "A", "hit": NEAR, "chamfer_at": [1.0, 2.0]},
      "copper A: R1 pad A is 0.05 mm from B copper on F.Cu (needs 0.20); the 45 of its chamfer at (1.00, 2.00); "
      "a smaller chamfer= there keeps clear"),
+    (C.COPPER_EDGE, {"key": "track VBUS#3", "net": "VBUS", "word": "track", "layer": "B",
+                     "obstacle": {"form": "cutout", "name": "vent"}, "inside": False, "at": [18.62, 12.4], "gap_mm": 0.0,
+                     "need_mm": 0.5, "sag_mm": 0.02, "rule": "copper_edge_clearance", "sides": ["WEST", "EAST"],
+                     "waypoints": 0},
+     'track VBUS on B.Cu: 0.00 mm from cutout "vent" at (18.62, 12.40), under the board\'s 0.50 mm copper-to-edge clearance'),
+    (C.COPPER_EDGE, {"key": "via SIG#1", "net": "SIG", "word": "via", "layer": "", "obstacle": {"form": "outline"},
+                     "inside": False, "at": [0.71, 3.0], "gap_mm": 0.41, "need_mm": 0.4, "sag_mm": 0.02,
+                     "rule": "copper_edge_clearance", "sides": [], "waypoints": 0},
+     "via SIG: 0.41 mm from the board's edge at (0.71, 3.00), under the board's 0.40 mm copper-to-edge clearance with "
+     "0.02 mm for its curve"),
     (C.COPPER_NOT_DRAWN, {"variant": "via_lost", "track": "A", "lost": ["via A"]},
      "track A: its end on via A is not drawn, because that via found no spot"),
     (C.COPPER_NOT_DRAWN, {"variant": "through", "net": "A", "met": {"form": "via", "net": "B"}},

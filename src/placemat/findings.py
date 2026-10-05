@@ -17,7 +17,7 @@ class FindingKind(str, Enum):
     UNPLACED = "unplaced"               # a part, cell or block the resolve could not place
     LINK_OVER = "link_over"             # a link longer than its limit
     FIXED = "fixed"                     # a decided item (fixed, a cutout, a keepout) not legal where it was put
-    COPPER = "copper"                   # planned copper that meets another net, crosses a keepout, or cannot bridge
+    COPPER = "copper"                   # planned copper that meets another net, a hole or the edge, crosses a keepout, or cannot bridge
     LABEL = "label"                     # a label with a part on it
     ESCAPE_CROSSED = "escape_crossed"   # two escapes from one part's pins cross near its pin row
     ESCAPE_CLOSED = "escape_closed"     # a pad's last route toward what it connects to is closed
@@ -79,6 +79,7 @@ class FindingCause(str, Enum):
     COPPER_KEEPOUT = (FindingKind.COPPER, "copper.keepout")
     COPPER_CROSS = (FindingKind.COPPER, "copper.cross")
     COPPER_MEETS = (FindingKind.COPPER, "copper.meets")
+    COPPER_EDGE = (FindingKind.COPPER, "copper.edge")
     COPPER_NOT_DRAWN = (FindingKind.COPPER, "copper.not_drawn")
     COPPER_CORNER = (FindingKind.COPPER, "copper.corner")
     COPPER_NOTE = (FindingKind.COPPER, "copper.note")
