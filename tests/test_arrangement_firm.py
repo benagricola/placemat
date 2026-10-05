@@ -11,16 +11,19 @@ from tests.arrangement_support import OBSTACLE, stamped_geometry, with_arrangeme
 AT = Location(40.0, 30.0)
 
 
-def firm(partner=None, searched_partner=False, settings=None, ids=None, doc=None, obstacle=None):
-    g = with_arrangement(stamped_geometry(partner=partner, obstacle=obstacle), doc)
+def firm(partner=None, searched_partner=False, settings=None, ids=None, doc=None, obstacle=None, at=AT, geometry=None, board=None):
+    g = geometry or with_arrangement(stamped_geometry(partner=partner, obstacle=obstacle), doc)
     b = Board(g, edge_margin=0.0, keep_going=True, settings=settings or Settings())
     b.rect(width=80, height=60)
     if obstacle is not None:
         b.place(Part("obst"), at=Location(obstacle[0], obstacle[1]))
     if partner is not None:
         (b.place(Part("r8")) if searched_partner else b.place(Part("r8"), at=Location(*partner)))
-    b.place(Cell("mod"), at=AT, **({"arrangements": ids} if ids else {}))
-    return b.resolve()
+    b.place(Cell("mod"), at=at, **({"arrangements": ids} if ids else {}))
+    plan = b.resolve()
+    if board is not None:
+        board.append(b)
+    return plan
 
 
 def note_of(plan):
@@ -133,3 +136,54 @@ def test_a_label_that_does_not_give_way_is_a_firm_collision(monkeypatch):
     (f,) = [f for f in plan.findings if f.cause == "fixed.part"]
     assert f.facts["item"] == "mod" and plan.placement("mod").arrangement == "c_in.east"
     assert [n["kind"] for n in plan.step("mod").notes][-2:] == ["refused", "arrangement"]
+
+
+def test_the_arrangement_taken_is_recorded_for_the_next_firm_pass():
+    boards = []
+    firm(partner=(60.0, 30.0), board=boards)
+    firm(partner=(18.0, 30.0), board=boards)
+    firm(obstacle=(40.0, 30.0, 12.0, 8.0), board=boards)
+    assert [b._arr_choice for b in boards] == [{"mod": "c_in.east"}, {"mod": ""}, {"mod": ""}]
+
+
+def two_offered(obstacle):
+    from placemat import arrangement_note as N
+    from placemat.arranged_geometry import attach
+    from tests.arrangement_support import east_doc
+    g = stamped_geometry(obstacle=obstacle)
+    texts = N.encode(east_doc("c_in.b", 2), 4000) + N.encode(east_doc("c_in.a", 1), 4000)
+    return dataclasses.replace(g, cells={**g.cells, "mod": attach(g.cells["mod"], texts, frozenset(g.nets), g.layers)})
+
+
+def test_with_none_legal_the_cell_stands_in_its_default_when_it_was_tried_else_in_the_first_named():
+    over = (40.0, 30.0, 12.0, 8.0)
+    plan = firm(obstacle=over, ids=("c_in.east", "default"))
+    (f,) = [f for f in plan.findings if f.cause == "fixed.part" and f.facts["item"] == "mod"]
+    assert plan.placement("mod").arrangement == "" and [a["id"] for a in f.facts["arrangements"]] == ["c_in.east"]
+    named = firm(obstacle=over, ids=("c_in.b", "c_in.a"), geometry=two_offered(over))
+    (g,) = [f for f in named.findings if f.cause == "fixed.part" and f.facts["item"] == "mod"]
+    assert named.placement("mod").arrangement == "c_in.b" and [a["id"] for a in g.facts["arrangements"]] == ["c_in.a"]
+
+
+def test_the_declared_phase_shows_where_the_cell_stands_and_in_which_arrangement():
+    seen = []
+    b = Board(with_arrangement(stamped_geometry(partner=(60.0, 30.0))), edge_margin=0.0, keep_going=True)
+    b.rect(width=80, height=60)
+    b.place(Part("r8"), at=Location(60.0, 30.0))
+    b.place(Cell("mod"), at=AT)
+    plan = b.resolve(on_begin=lambda plan, info: seen.append(info))
+    (ev,) = [e for e in seen if e.get("kind") == "phase" and e.get("stage") == "declared" and e.get("item") == "mod"]
+    p = plan.placement("mod")
+    assert ev["hint"] == [p.location.x, p.location.y] and ev["arrangement"] == "c_in.east"
+
+
+def test_a_firm_cell_beside_a_part_or_on_an_edge_lays_each_arrangement_as_its_declaration_lays_it():
+    from placemat.values import Beside, Edge, OnEdge
+    # beside r8 both stand and c_in.east scores lower; on the east edge the default's u1 crosses it by 0.1 mm, as the same cell
+    # with no arrangements does, and c_in.east, with c_in outermost, does not
+    for at, legal in ((Beside(Part("r8"), Edge.WEST), [True, True]), (OnEdge(Edge.EAST, along=30.0), [False, True])):
+        plan = firm(partner=(60.0, 30.0), at=at)
+        east, default = (firm(partner=(60.0, 30.0), at=at, ids=one) for one in ("c_in.east", "default"))
+        assert plan.placement("mod") == east.placement("mod") and plan.box("mod") == east.box("mod"), at
+        assert east.placement("mod").location != default.placement("mod").location, at
+        assert [(t["id"], t["legal"]) for t in note_of(plan)["tried"]] == list(zip(["default", "c_in.east"], legal)), at

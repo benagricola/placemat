@@ -978,6 +978,7 @@ class Board:
         self._room: dict = {}               # key -> room.measure's record, taken when the first searched item is reached
         self._waited: dict = {}                # item key -> the linked partner it waited for
         self._arr_unreached: dict = {}         # item key -> the arrangements a step out of time did not reach
+        self._arr_choice: dict = {}            # firm cell key -> the arrangement it took ("" the default): _settle_firm_arranged
         self._collect_into: list | None = None  # while an explore draws over arrangements: each scan's legal candidates, best first
         self._copper: list[CopperIntent] = []
         self._pad_tracks: set = set()      # indices of the tracks whose points are all pads: their way is known before they are planned
@@ -9898,26 +9899,26 @@ class Board:
         total (`_total_at`: its score, `score.arrangement` for one other than the default, `score.back_face`); the lowest wins and
         a tie keeps the one tried first. A non-default arrangement must also beat the default's total by
         `place.arrangement_margin` (`_margin`) when the default is legal, as a searched cell's must. With nothing to score, the
-        first legal one stands. When none is legal it is a firm collision as for a cell with one arrangement: the first tried
-        (the default unless `arrangements=` names others) stands where its declaration puts it, and its `fixed.part` finding
-        carries every other arrangement's refusal under `arrangements`."""
+        first legal one stands. When none is legal it is a firm collision as for a cell with one arrangement: the default stands
+        where its declaration puts it (the first `arrangements=` names when it does not name the default), and its `fixed.part`
+        finding carries every other arrangement's refusal under `arrangements`. The one taken is recorded in `_arr_choice`."""
         cost = self.settings.score_arrangement
         trials = self._firm_trials(occ, plan, i, placed, clr, push_sources)
-        first = trials[0]
-        if self._on_begin is not None:
-            self._phase(Stage.DECLARED, hint=[round(first.placement.location.x, 3), round(first.placement.location.y, 3)])
         total = {t.ident: self._total_at(t.score, t.placement, t.j, cost if t.ident else 0.0) for t in trials if t.score is not None}
         rows = [self._arrangement_row(t.ident, total.get(t.ident), t.why is None) for t in trials]
         legal = [t for t in trials if t.why is None]
-        if not legal:
-            self._labels_give_way(occ, plan, first.j.item, first.placement)     # a user's label moves, the cell does not
-            from . import suggest_facts
-            facts = dict(suggest_facts.fixed_part(self, i), why=first.why.to_json(),
-                         arrangements=[{"id": t.ident or "default", "why": t.why.to_json()} for t in trials[1:]])
-            plan.findings.append(self._finding(C.FIXED_PART, facts))
-            notes = [first.chose, step_text.record("refused", why=first.why.to_json()), self._arrangement_note(None, rows)]
-            return self._step(first.j, first.placement, 0.0, [x for x in notes if x])
         default = next((t for t in trials if not t.ident), None)
+        if not legal:
+            stood = default or trials[0]                    # the default when it was tried, else the first `arrangements=` names
+            self._declared(stood)
+            self._arr_choice[i.key] = stood.ident
+            self._labels_give_way(occ, plan, stood.j.item, stood.placement)     # a user's label moves, the cell does not
+            from . import suggest_facts
+            facts = dict(suggest_facts.fixed_part(self, i), why=stood.why.to_json(),
+                         arrangements=[{"id": t.ident or "default", "why": t.why.to_json()} for t in trials if t is not stood])
+            plan.findings.append(self._finding(C.FIXED_PART, facts))
+            notes = [stood.chose, step_text.record("refused", why=stood.why.to_json()), self._arrangement_note(None, rows)]
+            return self._step(stood.j, stood.placement, 0.0, [x for x in notes if x])
         default_total = total.get("") if default is not None else None
         margin, held, best = self._margin(i), None, None
         for t in legal:
@@ -9939,6 +9940,8 @@ class Board:
                                       default_score=None if default_total is None or not scored
                                       else self._total_at(default.score, default.placement, default.j, 0.0),
                                       default_blame=blamed, within=None if best.ident else self._within(held, default_total, margin))
+        self._declared(best)
+        self._arr_choice[i.key] = best.ident
         self._labels_give_way(occ, plan, best.j.item, best.placement)       # a user's label moves, the cell does not
         notes = [best.chose]
         if plan.__dict__.get("_label_parts"):
@@ -9949,6 +9952,12 @@ class Board:
                 plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))
                 notes.append(step_text.record("refused", why=why.to_json()))
         return self._step(best.j, best.placement, 0.0, [x for x in notes + [note] if x])
+
+    def _declared(self, t: "_Trial") -> None:
+        """Tell a viewer the firm cell stands at its declared spot: where, and in which arrangement ("default" for its own)."""
+        if self._on_begin is not None:
+            self._phase(Stage.DECLARED, hint=[round(t.placement.location.x, 3), round(t.placement.location.y, 3)],
+                        arrangement=t.ident or "default")
 
     def _first_legal(self, occ, i, plan, settle_one) -> Step:
         """A form that is not scored (a slide along an edge, a line, a run, a rim, a ring, a spoke, a pocket with no hint) takes

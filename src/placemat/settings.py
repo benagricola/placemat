@@ -136,7 +136,7 @@ class Settings:
     place_extent_notice_mm: float = S(1.0, "mm",
         "how far a part may stand past the next part on a side of a module that declares no alternatives before `arrangement.extent_fixed` notes it as setting the module's extent")
     place_arrangement_margin: float = S(0.5, "mm",
-        "how much better than the module's default a cell's other arrangement must score before a search takes it; within it the default stands and the step says so. Not asked when the default has no legal spot, of a cell whose `arrangements=` names its choices, or of an explore's draw")
+        "how much better than the module's default a cell's other arrangement must score before a search takes it; within it the default stands and the step says so. It applies at a decided spot too, where a firm cell's arrangements are each scored once. Not asked when the default has no legal spot, of a cell whose `arrangements=` names its choices, or of an explore's draw")
     place_firm_passes: int = S(8, "count",
         "the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was "
         "refused by a firm part placed before it, with the two taken in the other order), the last one the settled run")

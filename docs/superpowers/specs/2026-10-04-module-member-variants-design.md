@@ -329,7 +329,9 @@ its arrangements too, with nothing to scan:
 3. Each legal one is scored once by the Scorer, at that placement, against what is placed when the firm item is
    laid: links to placed pads, pushes, lanes and limit pairs. Partners not yet placed contribute nothing, so a firm
    cell whose partners are searched items scores every arrangement alike and keeps the default. The lowest
-   `score + score.arrangement` wins; a tie keeps the arrangement earlier in declared order, so the default.
+   `score + score.arrangement` wins; a tie keeps the arrangement earlier in declared order, so the default. A
+   non-default arrangement must also beat the default's total by `place.arrangement_margin`, as at a searched spot,
+   when the default is legal and `arrangements=` does not name the choices.
 4. If no arrangement is legal the cell is a firm collision as it is today, and the finding is the default
    arrangement's, with the other arrangements' refusals listed under it.
 
