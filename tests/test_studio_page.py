@@ -2916,8 +2916,44 @@ def test_a_pin_map_suggestion_offers_try_alone_and_its_try_lists_the_map_and_dra
     assert 'data-sg="pinmap" data-sid="s1a"' in h and 'data-sg="show" data-sid="s1a"' not in h and 'data-sg="apply" data-sid="s1a"' not in h
     assert "pmmap" not in h
     o = out["open"]
-    assert out["state"] == {"sid": "s1a"} and "<b>SDA</b>" in o and "GPIO7, pin 12" in o and "GPIO9, pin 14" in o
+    assert out["state"]["sid"] == "s1a" and "<b>SDA</b>" in o and "GPIO7, pin 12" in o and "GPIO9, pin 14" in o
     assert "turn U1 to 90 degrees" in o and "airwires now" in o and "airwires after" in o
     svg = out["svg"]
     assert svg.count('class="pm-before"') == 1 and svg.count('class="pm-after"') == 1 and 'points="2,2 5,2 5,4"' in svg
     assert out["after"] is None and "pmmap" not in out["closed"]
+
+
+PANELS = r"""
+const mkPanel = () => ({html: [], insertAdjacentHTML(w, h) { this.html.push(h); }});
+const panels = [mkPanel(), mkPanel()];
+const plant = () => { ev("B").svg = {
+  querySelectorAll: q => q === ".panel" ? panels : q === ".pinmap" ? panels.flatMap(p => p.html.map((h, i) => ({remove() { p.html.splice(p.html.indexOf(h), 1); }}))) : [],
+  classList: {toggle() {}}}; };
+"""
+
+
+@needs_node
+def test_pin_map_airwires_are_put_in_each_panel_and_go_with_the_selection_and_try_fetches_nothing(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + PANELS + r"""
+(async () => {
+  full([item("a", 1)], [st("a")], {findings: PM_FND});
+  plant(); ev("renderFindings()");
+  const count = () => panels.map(p => p.html.length);
+  ctx.fetch = (u, o) => { fetched.push([u.split("?")[0], o && o.body]); return Promise.resolve({ok: true, status: 200, json: async () => ({})}); };
+  const n0 = fetched.length;
+  ev("S.sg.note = 'kept'");
+  await ev("sgAct")("pinmap", "s1a");
+  out.drawn = count(); out.html = panels[0].html[0]; out.fetches = fetched.slice(n0).map(f => f[0]); out.note = ev("S.sg.note"); out.busy = ev("S.sg.busy");
+  ev("S.sel = 'zz'; drawPinMap()");
+  out.moved = count(); out.state = ev("S.pinmap");
+  await ev("sgAct")("pinmap", "s1a");
+  out.again = count();
+  ev("drawPinMap(); S.pinmap = null; drawPinMap()");
+  out.cleared = count();
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["drawn"] == [1, 1] and out["html"].startswith('<g class="pinmap">')
+    assert out["fetches"] == [] and out["note"] == "kept" and out["busy"] is None
+    assert out["moved"] == [0, 0] and out["state"] is None
+    assert out["again"] == [1, 1] and out["cleared"] == [0, 0]

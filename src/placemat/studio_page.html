@@ -3296,6 +3296,11 @@ async function sgPost(path, body) {
 const sgFind = sid => { for (const f of (plan() || {}).findings || []) for (const s of f.suggestions || []) if (s.id === sid) return s; return null; };
 function sgNote(kind, text, extra) { S.sg.note = Object.assign({kind, text}, extra); schedule("sgbar"); }
 async function sgAct(kind, sid) {
+  if (kind === "pinmap") {                  // a display toggle: no request, and the note and a try in flight stay as they are
+    S.pinmap = S.pinmap && S.pinmap.sid === sid ? null : {sid, at: pinMapAt()};
+    drawPinMap(); schedule("findings", "card", "steps");
+    return;
+  }
   const s = sgFind(sid), rid = S.shownId, g = S.sg;
   if (g.busy) return;
   g.note = null;
@@ -3317,9 +3322,6 @@ async function sgAct(kind, sid) {
     g.show = null; g.src = false; S.scriptOpen = false;
     if (S.try) leaveTry();
     sgNote("applied", r.data.text);
-  } else if (kind === "pinmap") {
-    S.pinmap = S.pinmap && S.pinmap.sid === sid ? null : {sid};
-    drawPinMap(); schedule("findings", "card", "steps");
   } else if (kind === "search") {
     await sgSearch(sid, false);
   } else if (kind === "probeyes" || kind === "probego") {
@@ -3781,6 +3783,13 @@ function pinMapOf(p, sid) {
   for (const f of (p && p.findings) || []) for (const s of f.suggestions || []) if (s.id === sid && s.advice) return {f, s};
   return null;
 }
+// What the airwires belong to: the run shown and the selection. When it changes, or the suggestion's row is no longer drawn
+// (its slot folded, its finding gone), the airwires go.
+const pinMapAt = () => [S.shownId, S.sel, S.selRef, S.selRegion && S.selRegion.kind, S.selRegion && S.selRegion.id].join("|");
+function pinMapShown(hit) {
+  const ss = hit.f.suggestions;
+  return ss[0] === hit.s || S.sg.more.has(sgKey(hit.f));
+}
 function pinMapSVG(f, s) {
   const r = (f.facts.rotations || [])[s.advice.rotation];
   if (!r) return "";
@@ -3798,7 +3807,8 @@ function pinMapHTML(s) {
 function drawPinMap() {
   const svg = typeof B !== "undefined" && B.svg; if (!svg || !svg.querySelectorAll) return;
   for (const e of svg.querySelectorAll(".pinmap")) e.remove();
-  const hit = S.pinmap && pinMapOf(plan(), S.pinmap.sid);
+  let hit = S.pinmap && pinMapOf(plan(), S.pinmap.sid);
+  if (hit && (S.pinmap.at !== pinMapAt() || !pinMapShown(hit))) hit = S.pinmap = null;
   if (!hit) return;
   const g = pinMapSVG(hit.f, hit.s);
   for (const panel of svg.querySelectorAll(".panel")) panel.insertAdjacentHTML("beforeend", g);
