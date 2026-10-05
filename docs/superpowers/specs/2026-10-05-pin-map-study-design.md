@@ -50,6 +50,15 @@ the study runs without that entry.
 
 Built on `ratsnest.py`, placemat's port of KiCad's ratsnest.
 
+- **Scored as unrouted.** The ratsnest joins pads already connected by
+  copper into one cluster with no airwire between them (`board_nets`), so on
+  a laid board a routed net has no airwire to move and crossings against
+  routed nets read as none. The study therefore builds its ratsnest from the
+  pads alone (`board_nets(pads, copper=())`): tracks, vias and pours are not
+  torn up, only ignored, and a first preview and a laid board are scored on
+  the same terms. The finding says how many of the moved nets have copper
+  today, since a remap means routing them again.
+
 - **Airwires round the body.** A studied part's body is an obstacle. A pin's
   airwire leaves along the pin's outward normal to a point just past the
   courtyard (`pins.exit_mm` beyond it), then takes the shortest way round the
@@ -116,7 +125,8 @@ The study has to be quick because its value is early feedback.
 `pins.remap`, severity notice, one per studied part (or joint group) when the
 best map at any rotation saves at least `pins.gain_min` of the total.
 
-Facts: the part(s); the present total and crossings; per rotation the best
+Facts: the part(s); the present total and crossings; the moved nets that
+have copper on the board now; per rotation the best
 total, crossings (against others, among studied nets, weighted), length, the
 summed bend angle, and the map (net, from pin and name, to pin and name); which constraints held
 nets in place; the combinations searched and whether the budget ran out.
@@ -157,6 +167,8 @@ are reported beside it, not folded into the score.
 - Determinism: the same board gives the same map and total twice.
 - Speed: on the reference boards the study finishes inside `pins.budget_ms`,
   and a repeated run reuses its result.
+- A routed board: a net joined by copper still gets its airwire in the
+  study, and the score matches the same board with its copper removed.
 - A real fixture board with an MCU: the study's best map beats the present
   one, and no board item moves.
 
