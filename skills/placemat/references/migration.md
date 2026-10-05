@@ -11,6 +11,49 @@ section for each hand-written pattern a newer form replaces.
 
 - **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name, Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
 
+## To 0.99.9
+
+### New
+
+- **A differential pair can be given its own layers.** `[route] pair_layers` maps a pair, by its two nets `"P/N"` or by
+  its net class, to the copper layers the pair router may route it on, e.g. `pair_layers = {"USB_D_P/USB_D_N" =
+  ["In2.Cu", "B.Cu"]}`; every other pair keeps the route's own layers. The pair stage runs the router once per distinct
+  list, the named pairs first. A pair whose escape lanes end in vias on F.Cu, with F.Cu left out of its list, starts from
+  the vias and lays nothing on F.Cu. An unknown layer name is refused when the settings load; a key that names no pair on
+  the board, or a layer the board lacks, is a `setup.pair_layers` finding and the entry is not used. The route report has
+  `pair_layers` (the lists applied) and `pair_layers_refused`. Nothing in a layout script changes.
+
+### Fixed
+
+- **A net list passed as one argument is refused.** `placemat route --exclude` and `placemat run --route-exclude` took an
+  argument holding several names separated by spaces (a shell variable left unsplit, as zsh leaves `$list`) as one net
+  name, so the router was told to leave out a net no board has and routed every net. Such an argument now stops the
+  command, saying to pass each net as its own argument.
+
+## To 0.99.8
+
+### New
+
+- **The studio's 3D view draws the copper.** Each copper layer is drawn at its height in the board, from the board file's
+  stackup (evenly spaced when the board declares none): tracks as ribbons, planes and pours as filled outlines, pads on
+  their layers and vias as cylinders through the layers they join, in the 2D view's layer colours, the router's copper
+  lighter. Solid | See-through on the 3D bar makes the board body translucent so the inner layers show. The legend's
+  copper layer, zone, pad, via and Copper origin rows (and their only buttons) act on both views at once. Findings are
+  markers at their place and layer in their severity's colour, selected by a click as in 2D, and congestion is a
+  translucent sheet on the top layer; the Marks rows switch both. Spread on the 3D bar pulls the layers apart
+  (`[studio] 3d_spread_mm`, `3d_spread_ms`), the parts riding on the outer layers and the vias stretching. The plan
+  document's `stackup` has `layers` (each copper layer's `z`) and `declared`. Nothing in a layout script changes.
+
+### Fixed
+
+- **The studio's 3D Play brings a back part up from below.** Each part dropped onto the board from above, so a part on the
+  back face fell through the board to its underside. A part whose model stands under the board's mid-plane now rises to
+  the underside.
+- **The board outline, the declared groups and a relayed via also take a free UUID.** 0.99.6 gave written copper and
+  rule areas a UUID no item on the board has; the outline's Edge.Cuts items, the groups a script declares and a via a
+  via field relays were still added without the check, so on a board placemat had written before they could take the
+  UUID of an item from the last write and pull it out of its group on reload.
+
 ## To 0.99.7
 
 ### Fixed

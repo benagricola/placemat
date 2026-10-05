@@ -15,6 +15,19 @@ from placemat.step_text import record as R
 PAGE = Path(placemat.__file__).with_name("studio_page.html")
 
 
+def test_a_filled_warning_mark_is_yellow_in_both_themes_and_warning_text_keeps_its_own_colour():
+    text = PAGE.read_text()
+    marks = re.findall(r"--sev-warning-mark:\s*(#[0-9a-f]{6})", text)
+    assert len(marks) == 2                                                       # light and dark
+    for c in marks:
+        r, g, b = (int(c[i:i + 2], 16) for i in (1, 3, 5))
+        assert r > 220 and g > 180 and b < 60, c                                 # reads yellow, not brown
+    assert ".fa { --fc: var(--sev-warning-mark);" in text and "background: var(--sev-warning-mark)" in text[text.index(".fdot {"):]
+    assert "color: var(--sev-warning)" in text[text.index(".sev {"):]          # text stays the darker token
+    viewer = Path(placemat.__file__).with_name("studio_3d.js").read_text()
+    assert 'css("--sev-warning-mark"' in viewer and 'css("--sev-warning"' not in viewer
+
+
 def test_the_page_ships_in_the_package_and_loads_nothing_from_outside():
     text = PAGE.read_text()
     assert text.lstrip().lower().startswith("<!doctype html>")
@@ -2747,3 +2760,124 @@ def test_an_event_that_arrives_while_a_command_is_being_opened_is_not_lost(tmp_p
 })();
 """)
     assert out["board"] == ["5", [0, 0, 40, 30]]
+
+
+# The 3D view stood in by a recorder of the calls the page makes on it.
+THREED = r"""
+const calls = [];
+ctx.__fake = new Proxy({}, {get: (o, k) => k === "stats" ? () => ({}) : (...a) => { calls.push([k].concat(a.map(x => x instanceof Set ? [...x].sort() : x))); }});
+const trk = (net, x, o) => Object.assign({t: "track", layer: "F.Cu", face: "front", width: 0.2, a: [x, 0], b: [x + 1, 0], net}, o || {});
+const copperDoc = () => Object.assign({}, BOARD, {keepouts: [], reservations: [], items: [item("a", 1)], layers: ["F.Cu", "In1.Cu", "B.Cu"], links: [], unplaced: [], pocketed: [],
+  counts: {placed: 1, findings: 0}, score: null, findings: [], congestion: null,
+  copper: [trk("A", 1), trk("B", 3, {layer: "In1.Cu", face: "inner"}), trk("C", 5, {origin: "routed", x: 3}), {t: "via", at: [6, 0], size: 0.4, drill: 0.2, net: "C", layers: [], origin: "routed"}],
+  steps: [Object.assign(st("a"), {i: 0, copper: []}), Object.assign(st("track A", "copper", false), {i: 1, copper: [0]}), Object.assign(st("adopted B#1", "copper", false), {i: 2, copper: [1]}),
+          Object.assign(st("track C", "copper", false), {i: 3, copper: [2, 3], origin: "routed"})]});
+const openDoc = doc => { ev("showRunRecord(" + JSON.stringify({doc, summary: {id: "r1", script: "x_layout.py", label: ""}}) + ")"); flush(); };
+"""
+
+
+@needs_node
+def test_the_3d_view_is_given_each_copper_ops_origin_and_the_replay_steps_that_lay_and_rip_it(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+openDoc(copperDoc());
+out.cu = ev("host3d().copper()");
+ev("renderBoard()");
+out.twoD = [ev("[...S.opStep.entries()]"), ev("S.lastStep")];
+""")
+    cu = out["cu"]
+    assert cu["origins"] == ["planned", "kept", "routed", "routed"] and cu["n"] == 4 and cu["laid"] is False
+    assert cu["steps"] == [{"s": 1, "x": None}, {"s": 2, "x": None}, {"s": 3, "x": 3}, {"s": 3, "x": None}]
+    assert out["twoD"] == [[[0, 1], [1, 2], [2, 3], [3, 3]], 3]                # the steps the 2D drawing gives the same ops
+
+
+@needs_node
+def test_the_3d_bar_switches_the_body_between_solid_and_see_through_and_keeps_it_across_views(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+ev("V3 = __fake");
+ev("set3d({body: 'see'})");
+out.state = ev("S.v3.body");
+out.bar = els["#bodybar"].innerHTML;
+ev("set3d({body: 'solid'})");
+out.bar2 = els["#bodybar"].innerHTML;
+ev("set3d({body: 'see'})"); calls.length = 0;
+ev("setMode('2d')"); ev("V3 = __fake"); ev("applyLook3d()");
+out.calls = calls.slice();
+""")
+    assert out["state"] == "see"
+    assert 'data-body="see" class="on"' in out["bar"] and 'data-body="solid" class="on"' in out["bar2"]
+    assert ["body", "see"] in out["calls"]                                      # the 3D view is brought to the page's state each time it is shown
+    assert "(" not in re.sub(r"<[^>]*>", "", out["bar"])                        # no bracketed words in the labels
+
+
+@needs_node
+def test_spread_on_the_3d_bar_pulls_the_layers_apart_and_is_kept_across_views(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+ev("V3 = __fake");
+out.off = els["#spreadbar"].innerHTML;
+ev("set3d({spread: true})");
+out.on = els["#spreadbar"].innerHTML;
+out.calls = calls.filter(c => c[0] === "spread");
+calls.length = 0;
+ev("setMode('2d')"); ev("V3 = __fake"); ev("applyLook3d()");
+out.again = calls.filter(c => c[0] === "spread");
+els["#spreadbar"].onclick({target: {closest: s => s === "[data-spread]" ? {dataset: {spread: ""}} : null}});
+out.toggled = ev("S.v3.spread");
+""")
+    assert 'data-spread=""' in out["off"] and 'class="on"' not in out["off"] and 'class="on"' in out["on"]
+    assert out["calls"] == [["spread", True]] and out["again"] == [["spread", True]] and out["toggled"] is False
+    assert "(" not in re.sub(r"<[^>]*>", "", out["on"]) and 'title="' in out["on"]
+
+
+@needs_node
+def test_the_legends_copper_rows_and_their_only_buttons_act_on_the_3d_view_through_the_same_switches(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+openDoc(copperDoc());
+ev("V3 = __fake"); ev("S.mode = '3d'"); ev("renderLegend()");
+const click = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
+const only = id => els["#legend"].onclick({target: {closest: s => s === "[data-only]" ? {dataset: {only: id}} : null}});
+const seen = () => { const v = calls.filter(c => c[0] === "visibility"); calls.length = 0; return [v.length, [...ev("host3d().off()")].sort()]; };
+click("org:routed"); out.routed = seen();
+click("org:routed"); out.back = seen();
+only("cu:In1.Cu"); out.only = seen();
+only("cu:In1.Cu"); out.all = seen();
+only("org:planned"); out.planned = seen();
+ev("setMode('2d')"); ev("V3 = __fake"); calls.length = 0; ev("applyLook3d()");
+out.kept = [calls.some(c => c[0] === "visibility"), [...ev("host3d().off()")].sort()];
+""")
+    base = ["findings", "labels"]                                                 # off until asked for, in 2D as in 3D
+    assert out["routed"] == [1, sorted(base + ["org:routed"])] and out["back"] == [1, base]
+    assert out["only"][0] == 1 and sorted(x for x in out["only"][1] if x.startswith("cu:")) == ["cu:B.Cu", "cu:F.Cu"]
+    assert out["all"] == [1, base]
+    assert out["planned"] == [1, sorted(base + ["org:kept", "org:routed"])]
+    assert out["kept"] == [True, sorted(base + ["org:kept", "org:routed"])]      # the switches are the page's: a change of view keeps them
+
+
+@needs_node
+def test_the_3d_view_gets_each_placed_finding_with_its_severity_and_layer_and_a_click_on_one_selects_it_as_in_2d(tmp_path):
+    out = run_more(tmp_path, THREED + r"""
+const back = Object.assign(item("b", 9), {face: "back"});
+const f = (o) => Object.assign({kind: "clearance", severity: "warning", at: null, item: "", refs: [], pads: [], cause: null, facts: {}, suggestions: [], text: "t"}, o);
+const doc = Object.assign(copperDoc(), {items: [item("a", 1), back], findings: [
+  f({at: [3, 4], facts: {layer: "In1.Cu"}, severity: "critical", refs: ["Ra"]}),
+  f({refs: ["Rb"]}),
+  f({}),
+  f({item: "a", severity: "notice"})]});
+openDoc(doc);
+ev("V3 = __fake");
+out.marks = ev("host3d().findings()");
+ev("host3d().selectFindings([1])"); flush();
+out.one = [ev("S.sel"), ev("S.focusIdx"), ev("S.fsel")];
+out.marks2 = ev("host3d().findings()").filter(m => m.on).map(m => m.i);
+ev("host3d().selectFindings([0, 3])"); flush();
+out.two = [ev("S.tab"), [...ev("S.fsel")]];
+out.tip = ev("findingTip3d([0, 3])");
+out.heat = ev("host3d().heat(1.25)");
+""")
+    marks = {m["i"]: m for m in out["marks"]}
+    assert sorted(marks) == [0, 1, 3]                                             # the one that names no place is not drawn
+    assert marks[0]["sev"] == "critical" and marks[0]["at"] == [3, 4] and marks[0]["layers"] == ["In1.Cu"] and marks[0]["face"] == "front"
+    assert marks[1]["face"] == "back" and marks[1]["layers"] == [] and marks[3]["sev"] == "notice"
+    assert out["one"][0] == "b" and out["one"][1] == 1 and out["one"][2] is None and out["marks2"] == [1]
+    assert out["two"] == ["findings", [0, 3]]                                     # several at one spot: listed in the findings tab, as a 2D cluster
+    assert out["tip"][0] == "2 findings" and out["tip"][1].startswith("critical: ")
+    assert out["heat"] == "rgb(200,20,20)"

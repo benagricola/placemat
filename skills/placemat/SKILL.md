@@ -382,6 +382,12 @@ not a measure of how hard a step is (a candidate budget is, `place.step_budget`,
    into the script as `board.track()` calls. To keep what the router found,
    `placemat route <script> --adopt NET ...` stores it relative to its pads
    (api.md, "Keeping routed copper").
+   Before routing a dense pin row, lay its fanout with `board.escape()` and
+   draw each lane with `board.track(net, [esc[pin]])`: an undrawn escape is
+   only a placement reservation and the router never sees it. Give `vias=`
+   only to the pins that must change layer. The router's own choices (net
+   order, via cost, layer costs) are its flags, passed through
+   `[route] router_args`; its `--help` lists them.
 
 **Where a change goes:**
 

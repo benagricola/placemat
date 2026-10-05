@@ -556,11 +556,21 @@ def cmd_freeze(args) -> int:
     return 0 if report["frozen"] or not report["refused"] else 1
 
 
+def _net_names(names, flag: str) -> list:
+    """`names` as given to `flag`, refused when one holds whitespace: a net name has none, so it is several names the
+    shell passed as one argument (an unsplit variable)."""
+    for n in names:
+        if any(c.isspace() for c in n):
+            raise SystemExit("%s: %r is one argument holding several names; pass each net as its own argument "
+                             "(in zsh, ${=list} or an array)" % (flag, n))
+    return list(names)
+
+
 def cmd_run(args) -> int:
     from .runner import run
     result = run(args.script, label=args.label, fresh=args.fresh, render=not args.no_render,
                  drc=not args.no_drc, quiet=args.quiet or args.json, verbose=args.verbose,
-                 route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude,
+                 route=args.route, route_quick=not args.route_full, route_exclude=_net_names(args.route_exclude, "--route-exclude"),
                  keep_going=args.keep_going, overrides=overrides_from(args), reuse=not args.no_reuse,
                  explore=_explore_options(args), resume=not args.no_resume)
     if args.json:
@@ -667,6 +677,7 @@ def cmd_drc(args) -> int:
 def cmd_route(args) -> int:
     from .kicad.route import route_board
     from .project import find_board
+    _net_names(args.exclude, "--exclude")
     p = Path(args.pcb)
     if getattr(args, "partial", False) and not (args.adopt or args.adopt_all):
         console.say("route", "--partial keeps an open net's islands when adopting: give --adopt NET ... or --adopt-all")
@@ -706,10 +717,10 @@ def cmd_route(args) -> int:
             raise
         channel.finish(getattr(report, "record", None) or None)
     short = []
-    if report.widths:
+    if report.widths or report.pair_layers_refused:
         from .kicad.read import read_board
         from .kicad.route_widths import stated_currents
-        short = report.findings(stated_currents(read_board(pcb)))
+        short = report.findings(stated_currents(read_board(pcb)) if report.widths else {})
     if args.json:
         console.data(json.dumps(dict(report.as_dict(), missing_rules=missing, finding_details=[f.detail() for f in short]), indent=2))
     else:

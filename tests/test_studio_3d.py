@@ -112,6 +112,7 @@ def test_models_are_converted_in_the_background_and_the_page_is_told_each_one_an
     assert names[0] == "models3d" and names.count("model") == 2 and "models" in names
     st = m.status()
     assert st["ready"] and st["ok"] and st["cli"] and st["version"] == "10.0"
+    assert st["spread_mm"] == 4.0 and st["spread_ms"] == 450                   # how far apart the layers stand when spread, and how fast they part
     assert m.submit([{"id": "1" * 32, "kind": "file", "path": str(a)}]) == 0                    # known: not queued again
 
 

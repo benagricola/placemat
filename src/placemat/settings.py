@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from dataclasses import MISSING, dataclass, field, fields, replace
 import json
 from pathlib import Path
+import re
 import tomllib
 
 # The violation classes a board is judged by. A project may say otherwise.
@@ -323,6 +324,8 @@ class Settings:
         "more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused")
     route_pair_router_args: tuple = S((), "list",
         "the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's")
+    route_pair_layers: dict = S(None, "table",
+        "the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `\"P/N\"` (either order) or a net class name, its value a list of layer names (`{\"USB_D_P/USB_D_N\" = [\"In2.Cu\", \"B.Cu\"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used", factory=dict)
     route_islands: tuple = S((), "list",
         "nets with pours whose pads the pours do not reach (a pour net's small taps), `\"NET\"` or `\"NET=WIDTH\"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them")
     route_diff_pair_gap: float = S(0.0, "mm",
@@ -498,6 +501,10 @@ class Settings:
         "a part arriving in the 3D view drops in and fades over this long; 0 shows it at once")
     studio_3d_plate_mm: float = S(0.1, "mm",
         "how far the plate of a part with no 3D model stands off its face")
+    studio_3d_spread_mm: float = S(4.0, "mm",
+        "the 3D view's Spread: how much further apart each copper layer stands from the next when the stack is pulled apart")
+    studio_3d_spread_ms: int = S(450, "ms",
+        "the 3D view's Spread: how long the layers take to part and close; 0 moves them at once")
     studio_builder_grid_mm: float = S(0.5, "mm",
         "the board builder: a dragged outline dimension or vertex snaps to this step, and a suggested size is rounded up to it")
     studio_builder_max_fill: float = S(0.5, "share",
@@ -540,8 +547,8 @@ class Settings:
         return replace(self, sources=dict(sources))
 
 
-# `[check.limits]`, `[drc.severities]` and `[facts.boards]` are the sub-tables: each section is two words.
-_SUBTABLES = ("check.limits", "drc.severities", "facts.boards")
+# `[check.limits]`, `[drc.severities]`, `[facts.boards]` and `[route.pair_layers]` are the sub-tables: each section is two words.
+_SUBTABLES = ("check.limits", "drc.severities", "facts.boards", "route.pair_layers")
 
 
 def split_key(name: str) -> tuple:
@@ -608,6 +615,10 @@ _ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-c
                            "--max-probe-iterations", "--json-out"))
 
 
+# A copper layer's name as KiCad spells it: F.Cu, In1.Cu to In30.Cu, B.Cu.
+_COPPER_LAYER = re.compile(r"^(F|B|In([1-9]|[12][0-9]|30))\.Cu$")
+
+
 class SettingsError(ValueError):
     """A placemat.toml that cannot be obeyed. A setting that quietly does
     nothing reads as though it is in force, so this is never a warning."""
@@ -628,11 +639,11 @@ _ABOVE_ZERO = frozenset((
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_route_tries", "check_neck_resistivity", "check_neck_conductivity",
-    "studio_3d_cache_mb", "studio_3d_batch", "studio_3d_batch_timeout_s", "studio_3d_model_tris", "studio_3d_max_tris", "studio_3d_plate_mm",     "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "studio_builder_grid_mm", "studio_builder_max_fill", "studio_builder_aspect", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
+    "studio_3d_cache_mb", "studio_3d_batch", "studio_3d_batch_timeout_s", "studio_3d_model_tris", "studio_3d_max_tris", "studio_3d_plate_mm", "studio_3d_spread_mm",     "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "studio_builder_grid_mm", "studio_builder_max_fill", "studio_builder_aspect", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
 _AT_LEAST_ZERO = frozenset((
-    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
@@ -702,6 +713,14 @@ def _validate(name: str, value, path: str):
         if owned:
             raise SettingsError("%s: %s: %s is set by placemat itself (%s)" % (
                 path, dotted, ", ".join(owned), "[route] turn_cost, smoothing, islands and route --iterations name them"))
+    if name == "route_pair_layers":
+        for key, layers in value.items():
+            if not (isinstance(layers, (list, tuple)) and layers and all(isinstance(l, str) for l in layers)):
+                raise SettingsError("%s: route.pair_layers.%s must be a list of layer names, not %r" % (path, json.dumps(key), layers))
+            bad = [l for l in layers if not _COPPER_LAYER.match(l)]
+            if bad:
+                raise SettingsError("%s: route.pair_layers.%s: %s is not a copper layer (F.Cu, In1.Cu to In30.Cu, B.Cu)" % (
+                    path, json.dumps(key), ", ".join(bad)))
     if name == "route_islands":
         try:
             parse_islands(value)

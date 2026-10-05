@@ -628,6 +628,15 @@ board.track(Net("SENSE"), [esc[31]], layer=CopperLayer.F)
 board.track(Net("PGOOD"), [esc[30]], layer=CopperLayer.F)
 ```
 
+An escape on its own is a reservation: its risers, lanes and vias are kept
+clear while parts are placed, but nothing is written to the board, and the
+router does not see them. A pin's lane becomes copper only when a track
+begins with it (`board.track(net, [esc[pin]])`, as above); the router then
+keeps it as it keeps all input copper and routes on from where it ends. So
+to have the router take a fanout as laid out, draw each pin's lane. `vias=`
+names only the pins that drop to another layer: a pin left out gets a lane
+that ends on its own layer, for the router to continue on that layer.
+
 `board.escape(part, pins, *, turn=None, vias=(), depth=None, run=None,
 widths=None, pairs=(), chamfer=None, via_size=None, via_drill=None, why)`
 gives each pin of one row a riser (straight out
@@ -3558,6 +3567,34 @@ no board net has, routes that pair, and names them back in the routed copy
 before its copper is read or kept. The renamed nets keep their net classes.
 Placement weighs every pair's crossings the same way, by its net class.
 
+The pair router routes every pair on the route's own layers unless
+`[route] pair_layers` names the pair, by its two nets or by its net class:
+
+```toml
+[route]
+pair_layers = {"USB_D_P/USB_D_N" = ["In2.Cu", "B.Cu"]}
+```
+
+A key is `"P/N"` (the pair's two nets, either order) or a net class name; a
+pair's own nets win over its class. The router takes one layer list per
+call, so the pair stage runs it once per distinct list, the named pairs
+first, each call on the board the one before it wrote with that call's
+copper fixed (`pairs.log`, then `pairs_1.log` and on). A layer left out is an
+obstacle to the pair, not a layer it routes on: the router lays no track on
+it and its vias clear that layer's copper. So a pair whose escape lanes end in
+vias on F.Cu, given inner and back layers, starts from those vias and cannot
+tap a lane on F.Cu. Its ends must reach one of its layers: from a pad on a
+layer left out, with no via, the pair router cannot start. The router may also
+fail to couple a pair from two vias further apart than its own pair pitch and
+route each half on its own (its single-ended fallback, still on the pair's
+layers); the report's `pairs` says which. A pair it leaves unrouted is routed
+by the main pass on the route's own layers. The report's `pair_layers` holds
+the lists applied (`{"P/N": [layer, ...]}`); an unknown layer name is refused
+when the settings load, and a key that names no pair on the board or a layer
+the board does not have is a `setup.pair_layers` finding (facts `key`,
+`variant` `no_pair` or `layer_missing`, `layers`, `missing`, `board_layers`,
+also in `pair_layers_refused`), the entry not used.
+
 A pour net whose pours do not reach every pad of it (a rail's small taps on
 the far side of a cell) is named in `[route] islands` (or `--islands
 NET[=WIDTH]`): the route then runs the router on those nets first, one at a
@@ -3900,13 +3937,39 @@ Top, Bottom (mirrored, as the 2D back) and Iso; a click selects, as in 2D. A par
 body, else the box of its shapes) 0.1 mm off its face, hatched, flagged with the reason ("no model declared", "model not found: <path>", "conversion failed: ...", "loading"); the legend
 counts parts by state, lists the plates, retries failed conversions and can dim the parts that have a model.
 
+The copper is drawn too, each copper layer at its height in the board: tracks as flat ribbons with round ends, planes and pours as their
+filled outlines (the polygons the 2D view draws), pads and the parts' own copper on each layer they are on, vias as cylinders through the
+layers they join. The colours are the 2D view's layer colours; copper the router laid is drawn lighter, as the 3D form of its hollow 2D
+look. The replay shows copper as the 2D drawing does: a route's replay lays and rips each op at its step, a plan's replay shows it at its end.
+Solid | See-through on the 3D bar draws the board body solid or translucent (in the 2D drawing's substrate colour), so the inner layers'
+copper shows through it; the choice is kept while the page switches between 2D and 3D. The legend's switches are one set for both views:
+a copper layer's row and its only button, a zone's row, the pads and vias rows and the Copper origin rows (planned, kept, routed) hide and
+show the same copper in 3D as in 2D, and switching views keeps them.
+
+The Marks rows act on 3D too. Each finding placed on the board (where it says, else at the pad or part it names) is a marker at its place
+and on the copper layer its facts name, else on the face of the part it is about, in its severity's colour (`--sev-critical`,
+`--sev-warning-mark`, `--sev-notice`: a warning is yellow in both themes, the fill token of the 2D finding areas and counts too, while warning text keeps `--sev-warning`); a click on a marker selects it as a click on a 2D finding area does (one finding is looked at: the
+selection and the card follow; several on one spot are listed in the Findings tab), and hovering one lists what it says. Congestion is a
+translucent sheet lying on the top layer, under its copper, cell by cell in the 2D overlay's colours with the most congested cell ringed:
+the map is of every routing layer together, as 2D draws it under both faces. Both are hidden while a replay is under way, as in 2D.
+
+Spread on the 3D bar pulls the stack apart, so each copper layer stands clear of the next and the inner ones can be told apart from an
+angle: each layer moves `3d_spread_mm` (4) further from the next over `3d_spread_ms` (450), the middle of the stack staying where it is.
+The vias stretch through the spread, the markers and the congestion sheet ride on their layers, front parts ride above the top layer and
+back parts below the bottom one. The board body fades out while the layers part, and each layer gets the board's outline at its height,
+filled faintly and edged. Spread again closes the stack; the choice is kept across views.
+
 - **Plan document** (`version` 2, all additive): each member of an item has `models`, one entry per model of the footprint: `{id, state, name,
   opacity, why, matrix}`. `state` is `ok`, `vrml` (a VRML model with no STEP beside it, read by placemat itself), `none`, `missing` (`why` says
   `model not found: <path as written>`) or `hidden`; `id` names the model by its content (32 hex of SHA-256, or `e-` and KiCad's checksum for an
   embedded model); `matrix` is the 16 numbers, column-major, millimetres, from the model's own frame (x right, y up the footprint's page, z up out
   of the board) to the scene frame (x = board x, y up, z = board y), composed in Python from the footprint as generated, the plan's move and the
   stackup (`model_place.py`, measured against `kicad-cli pcb export glb` to a micrometre). The plan has `stackup` (`thickness`, `copper`: layer ->
-  mm) and `models`, the table of distinct models seen. A plan from an older worker has none of it and still draws in 2D.
+  mm, `layers`: each copper layer top to bottom as `{name, z, thickness}` with `z` the height of its middle in mm from the back face, read from
+  the board file's stackup by walking down through its mask, copper and dielectric rows and scaled to `thickness`; `declared`: false when the
+  file has no stackup that lists every copper layer, and the layers are spaced evenly through the thickness with the outer ones on the faces)
+  and `models`, the table of distinct models seen. A plan from an older worker has none of it and still draws in 2D; in 3D its layers are
+  spaced evenly.
 - **Routes** (token required): `GET /3d/models` (the converter's status and every model's `{state, tris, message}`), `GET /3d/model/<id>.pmm` (the
   converted mesh, immutable; the id is validated), `GET /3d/lib/<token>/<file>` (the viewer script and the vendored three.js, MIT, from a fixed
   list; the token is in the path so the modules it imports come with it), `POST /3d/retry {id?}` (forget failed conversions and queue them
@@ -3920,7 +3983,7 @@ counts parts by state, lists the plates, retries failed conversions and can dim 
   `.wrl`). Meshes are cached by content in the user's cache folder, shared by every project: `~/.cache/placemat/models` (`studio_3d_cache_dir`),
   `studio_3d_cache_mb` (512) bound with the least recently used removed first, a converter version in each file name.
 - **Settings** (`[studio]`): `3d_kicad_cli`, `3d_model_dirs`, `3d_cache_dir`, `3d_cache_mb`, `3d_batch`, `3d_batch_timeout_s`, `3d_model_tris`,
-  `3d_max_tris` (past it the parts are drawn as plates and the view says so), `3d_appear_ms`, `3d_plate_mm`.
+  `3d_max_tris` (past it the parts are drawn as plates and the view says so), `3d_appear_ms`, `3d_plate_mm`, `3d_spread_mm`, `3d_spread_ms`.
 - Other commands' streamed `item` events carry the same `models` and an extra `model_jobs` (for the studio's converter, not the page), so a
   command opened in the Runs view can be watched in 3D.
 - A record carries no models: `GET /runview`, `/build` and `/route` give each member the models of the board the run or route wrote (the
@@ -4225,7 +4288,7 @@ its kind.
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
-| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`) | warning | the script is incomplete or wrong |
+| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
 | `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net has a width in `[route] islands` (it carries current), or when the router's current for its narrowest copper is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a` |
@@ -4617,6 +4680,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.smoothing` | `true` | bool | the router's own octolinear smoothing, as it defaults; false skips it |
 | `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused |
 | `route.pair_router_args` | `[]` | list | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
+| `route.pair_layers` | `{}` | table | the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `"P/N"` (either order) or a net class name, its value a list of layer names (`{"USB_D_P/USB_D_N" = ["In2.Cu", "B.Cu"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used |
 | `route.islands` | `[]` | list | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
 | `route.diff_pair_gap` | `0.0` | mm | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | `0.0` | mm | mm, a pair's track width; 0 is the net class's diff pair width |
@@ -4704,6 +4768,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.3d_max_tris` | `4000000` | count | triangles the 3D view draws at most; past it the parts are drawn as plates and the view says so |
 | `studio.3d_appear_ms` | `200` | ms | a part arriving in the 3D view drops in and fades over this long; 0 shows it at once |
 | `studio.3d_plate_mm` | `0.1` | mm | how far the plate of a part with no 3D model stands off its face |
+| `studio.3d_spread_mm` | `4.0` | mm | the 3D view's Spread: how much further apart each copper layer stands from the next when the stack is pulled apart |
+| `studio.3d_spread_ms` | `450` | ms | the 3D view's Spread: how long the layers take to part and close; 0 moves them at once |
 | `studio.builder_grid_mm` | `0.5` | mm | the board builder: a dragged outline dimension or vertex snaps to this step, and a suggested size is rounded up to it |
 | `studio.builder_max_fill` | `0.5` | share | the board builder: the most of one face the parts' courtyards may fill in a suggested board size (above 0, at most 1); the outline dialog's fill field overrides it for one board. The one measured board is filled 0.33 per face on average |
 | `studio.builder_aspect` | `1.0` | ratio | the board builder: the width over the height a suggested rectangle takes before the user changes it |
