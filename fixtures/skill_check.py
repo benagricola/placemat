@@ -1,6 +1,6 @@
 """The skill check for arrangements: an agent given only the updated skill and a fixture module with no layout script lays it out; this
 stages the module, prints the task, and checks what can be checked of the script it wrote. The rest (it ran the module, read the
-arrangement report, and fixed or dropped an alternative the run refused) is read from the transcript against the list in
+arrangement report, and fixed or dropped an option the run found dead) is read from the transcript against the list in
 docs/superpowers/skill-checks/arrangements.md."""
 from __future__ import annotations
 

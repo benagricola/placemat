@@ -128,9 +128,9 @@ class Settings:
     place_arrangements: bool = S(True, "bool",
         "whether a stamped cell's module arrangements (alternative layouts a module run proved) are searched; false lays every cell's default only, and a module run lays out its default only")
     place_arrangement_options_max: int = S(4, "count",
-        "the most options one item of a module may have, its `place()` included; a module that declares more is not partly accepted: its run lays out the default only and says so")
-    place_arrangements_max: int = S(8, "count",
-        "the most arrangements a module may have, the default and the named groups included; the product of the items' options counts")
+        "the most options one item or unit of a module may have, its default included; a module that declares more is not partly accepted: its run lays out the default only and says so")
+    place_arrangements_max: int = S(16, "count",
+        "the most arrangements a module may have, the default included: every combination of its items' and units' options, less those board.exclude leaves out")
     place_arrangement_note_chars: int = S(4000, "count",
         "the characters one arrangement note text holds before it is split into numbered texts (a note rides on a User.Comments text of the fragment)")
     place_extent_notice_mm: float = S(1.0, "mm",

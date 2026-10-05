@@ -732,24 +732,23 @@ for when a board struggles. A module is not finished until:
   or a line in the script saying why it has none: `# fixed: <part> <the
   reason>` (no turn fits between its neighbours). A bypass capacitor never
   moves to another side of its IC: away from its pin it no longer bypasses.
-  A turn that fits only when a neighbour moves is a named group with that
-  neighbour;
+  A turn that fits only when a neighbour moves is a unit (`board.unit`)
+  of the two, whose option turns one and moves the other;
 - each member that sets the extent has an alternative, or a line in the
   script saying why it has none: `# extent: <part> <the reason>`;
 - the last run's `arrangement.extent_fixed` notices are all answered by one
-  of the two, and no declared alternative is refused.
+  of the two, and no option is dead (`arrangement.option_dead`).
 
 Only a part placed with its own `place()` takes an alternative. A row's
-or ring's members move together through a named group
-(`board.arrangement`), not by `alternative`, and a block's members take
-none. Place a member whose side is free with `place()` beside its
+or ring's members move together through a unit (`board.unit`), not by
+`alternative`, and a block's members take none. Place a member whose side is free with `place()` beside its
 partner, so it can have one.
 
 - **Members that set the extent first.** The members that set a module's
   outline (a bulk capacitor, a connector, an inductor or a tall part
   standing proud on one side) are the ones that make a module hard to
   place in some orientations, so they are the first to consider: a turn,
-  the other side of their partner, the other face, or a group that tucks
+  the other side of their partner, the other face, or a unit that tucks
   them in. For a module with no alternatives yet, the list is the run's
   `arrangement.extent_fixed` notices, which name only the members
   protruding more than `place.extent_notice_mm`. Once the module
@@ -771,21 +770,29 @@ partner, so it can have one.
   A shape that breaks the module's reason (a decoupling loop, a sense
   line, a thermal path) is not an alternative.
 - **Within the caps.** `place.arrangement_options_max` options per item
-  and `place.arrangements_max` arrangements per module, the product
-  counted. Prefer a few alternatives on the members that matter, name a
-  group for a combination that only works together instead of declaring
-  each member's options, and use `only=` for copper that exists in some
-  arrangements.
+  or unit and `place.arrangements_max` arrangements per module, every
+  combination counted. Prefer a few alternatives on the members that
+  matter. Declare a unit's options (`board.unit`) when its members only
+  make sense moving together; otherwise each member's own `alternative`
+  gives more combinations for the same declarations. Leave out with
+  `board.exclude` a combination you can see is bad, rather than letting
+  the run refuse it: each refused combination costs a full proof. Use
+  `only=` for copper that exists in some arrangements.
 - **Names.** An option is named for what it does (`east`, `turned`,
-  `back`), a group for what it is (`mirrored`), never `alt1`: ids appear
-  in the board script's `arrangements=`, in the lock, in step notes and
-  in the studio.
+  `back`, `upright`), a unit for what it is (`pair`, `mirrored`), never
+  `alt1`: ids (`r_pull.turned+pair.upright`) appear in the board
+  script's `arrangements=`, in the lock, in step notes and in the
+  studio.
 - **Reading the report.** After the module run read `run.json`'s
-  `arrangements` and the `arrangement.refused` and `arrangement.limit`
-  findings, refused ones included. For each refused alternative read the
-  refusals, then fix it (a `gap=`, a different anchor, `only=` for a
-  track that cannot exist there) or drop it. A module is not finished
-  with a declared alternative that is refused.
+  `arrangements` and the `arrangement.refused`,
+  `arrangement.option_dead` and `arrangement.limit` findings. A refused
+  combination is expected where two options cannot stand together, and
+  needs no action when each option is offered in some other
+  combination; exclude it when you can see why. An
+  `arrangement.option_dead` names an option refused in every
+  combination that holds it: read its refusals, then fix the option (a
+  `gap=`, a different anchor, `only=` for a track that cannot exist
+  there) or drop it. A module is not finished with a dead option.
 - **On the board side.** `arrangements=` on a cell's `place()` pins or
   restricts the arrangements the cell may take (one id pins it; several
   restrict the search, in order; `"default"` holds the module's own

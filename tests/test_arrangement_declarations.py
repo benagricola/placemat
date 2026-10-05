@@ -243,3 +243,18 @@ def test_a_board_script_that_declares_alternatives_fails_saying_they_are_a_modul
     path.write_text(_BOARD_SCRIPT.format(draw=", draw=False", declaration=declaration))      # a module: its frame is not drawn
     b = scripted_board(path, None, Settings(), FabProfile(), True, geometry=board_geometry(parts(), width=60, height=40))
     assert len(b.arrangement_specs()) == 2
+
+
+def test_the_skill_and_api_document_units_exclusions_and_dead_options():
+    section = API.split("**Arrangements.**", 1)[1].split("**How a searched item finds its place.**")[0]
+    for word in ("board.unit(", "board.alternative(unit", "board.exclude(", "arrangement.option_dead", '"excluded"',
+                 "unit.option", "never combine", "(default 16)"):
+        assert word in section, word
+    for word in ("arrangement.option_dead", "board.exclude", "board.unit", "needs no action"):
+        assert word in SKILL, word
+    unreleased = (_SKILLS / "references/migration.md").read_text().split("## Unreleased", 1)[1].split("\n## To ", 1)[0]
+    for word in ("board.unit", "board.exclude", "arrangement.option_dead", "run again", "keeps its id", "place.arrangements_max", "16"):
+        assert word in unreleased, word
+    assert unreleased.count("### Changed") == 1 and unreleased.count("### New") == 1
+    assert "A bypass capacitor's alternative is a turn at its pin" in unreleased       # the entry already there is kept
+    assert all(ord(c) < 128 for c in SKILL + API + unreleased), "ASCII only"

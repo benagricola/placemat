@@ -1034,10 +1034,20 @@ board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST), why="bypass at VIN")
 board.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))
 board.alternative(Part("r_pull"), "turned", rotation=180)
 
+pair = board.unit("pair", Part("c1"), Part("r1"), why="the filter pair moves as one")
+board.alternative(pair, "flat",
+                  Alt(Part("c1"), rotation=0),
+                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.EAST)))
+board.alternative(pair, "upright",
+                  Alt(Part("c1"), rotation=90),
+                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH)))
+
 board.arrangement("mirrored",
                   Alt(Part("q1"), at=Beside(Part("u1"), Edge.EAST), rotation=180),
                   Alt(Part("q2"), at=Beside(Part("u1"), Edge.WEST)),
                   why="gate toward the east tab")
+
+board.exclude("pair.upright", "mirrored", why="both stand in the one column")
 ```
 
 - `board.alternative(item, name, **keywords)` adds an option to the
@@ -1048,22 +1058,56 @@ board.arrangement("mirrored",
   `at=`. The item is a part the script has placed with `place()`: a part
   of a row, ring or block, and a cell, are refused. A searched item may
   have options too, as each arrangement is a full resolve.
-- `board.arrangement(name, *alts, why="")` is one arrangement the script
-  names, made of `Alt(item, **keywords)` (the keywords of
-  `alternative`). Members it does not name keep their `place()`. Use it
-  for members whose alternatives only make sense together, and for a row
-  or a pair that moves as a unit.
-- The arrangements of a module are the default, every combination of the
-  items' options (each item contributes its options and its default),
-  and each named group.
-- An arrangement's id is `default`, the group's name, or for a
-  combination the `item.option` pairs in item order joined by `+`
-  (`c_in.east+r_pull.turned`). Option and group names are lower-case
-  words, digits and `_`; `default` and a name that is also another
-  arrangement's id are refused. The id is what the lock, findings, step
-  notes, the studio and the board's `arrangements=` use. `choices` is
-  the same as data: `{item: option}` for a combination, `{"group":
-  name}` for a group.
+- `board.unit(name, *members, why="")` declares a unit: parts the
+  script has placed with `place()` that move as one, given one by one
+  (a list is refused; `board.group` is the KiCad group on the written
+  board). Its default is each member's own `place()`. It returns the
+  unit, which `board.alternative(unit, name, *alts, why="")` takes to
+  add one option, one call per option: an `Alt(member, **keywords)`
+  (the keywords of `alternative`) for each member it moves, each at most
+  once; a member it does not name keeps its `place()`. A unit's
+  alternative takes `Alt`s and no place keywords; an item's takes
+  keywords and no `Alt`s. Option names are unique within the unit. A
+  unit with no option is an error where the script finishes declaring.
+  Declare a unit's options when its members only make sense moving
+  together; otherwise each member's own `alternative` gives more
+  combinations for the same declarations. A row's or ring's members may
+  be members of a unit.
+- `board.arrangement(name, *alts, why="")` is a unit of the `Alt`s'
+  members with one option, named as the unit: the form 0.99.15 had. Its
+  id is its name. It takes no further `board.alternative`.
+- A part is in one unit only, and a member of a `board.unit` has no
+  `alternative` of its own: a second unit naming it, an item's
+  alternative on a unit's member, and a unit naming a part that has one
+  are errors at the second call, each naming both declarations. A
+  `board.arrangement` may name a part that has its own alternative, or
+  that another `board.arrangement` names, as in 0.99.15: two units that
+  move one part never combine.
+- `board.exclude(*choices, why="")`: no combination holding all of
+  `choices` is laid out. A choice is `item.option`, `unit.option`, or a
+  `board.arrangement`'s name. Use it for combinations that cannot stand
+  together, so the run does not prove them, and to bring a module under
+  `place.arrangements_max` without dropping an option. Fewer than two
+  choices, a choice twice, a choice the module does not declare (a
+  combination id is not one), two options of one item or unit, and two
+  choices that never combine are errors where the script finishes
+  declaring, with the declaration's line.
+- The units of a module are its items with options and its
+  `board.unit`s and `board.arrangement`s, in the order the script
+  declares them: an item at its `place()`, a unit at its `board.unit` or
+  `board.arrangement` call. Its arrangements are the default, then every
+  combination of the units (each contributing its default and each
+  option) in `itertools.product` order with the first unit changing
+  slowest, less the excluded ones. A module with no unit has its items'
+  combinations in `place()` order, as before.
+- An arrangement's id is `default`, or its units' choices in unit order
+  joined by `+`: `item.option`, `unit.option`, or a `board.arrangement`'s
+  name (`c_in.east+pair.upright`, `c_in.east+mirrored`). Option and unit
+  names are lower-case words, digits and `_`; `default` is refused, a
+  name may be declared once, and a unit may not have the name of an item
+  with options. The id is what the lock, findings, step notes, the
+  studio and the board's `arrangements=` use. `choices` is the same as
+  data, `{unit: option}`, with a `board.arrangement` as `{name: name}`.
 - Two arrangements that lay out the same places and copper are one: the
   later is dropped with an `arrangement.duplicate` notice naming both.
 
@@ -1085,13 +1129,13 @@ an item's pads follows the item without `only=`; `only=` is for copper
 that exists in some arrangements only. Copper fitted round or drawn from
 other copper that has an `only=` needs an `only=` inside that set.
 
-Limits: `place.arrangement_options_max` (default 4) options per item,
-its `place()` included, and `place.arrangements_max` (default 8)
-arrangements per module, the default and the groups included. A module
-over either is not partly accepted: the run lays out the default only
-and raises `arrangement.limit` (facts: the counts and both limits)
-saying to name a group for each combination that matters.
-`place.arrangements = false` lays out the default only without a
+Limits: `place.arrangement_options_max` (default 4) options per item
+or unit, its default included, and `place.arrangements_max` (default 16)
+arrangements per module, the default included, counted after
+exclusions. A module over either is not partly accepted: the run lays
+out the default only and raises `arrangement.limit` (facts: the counts,
+both limits, and `excluded`, how many combinations the exclusions left
+out). `place.arrangements = false` lays out the default only without a
 finding.
 
 The module run generates once, then resolves the board once per
@@ -1118,6 +1162,15 @@ places), split into numbered texts of `place.arrangement_note_chars`
 characters when longer. An arrangement whose note would leave no room in
 a chunk is not offered (`note_chars`).
 
+A combination is refused where two options cannot stand together; it
+needs no action when each option is offered in some other combination.
+An option refused in every combination that holds it, excluded ones not
+counted, raises `arrangement.option_dead` (warning). Its facts are
+`unit`, `option`, `choice` (the option as an id names it), `refused`
+(the ids) and `reasons` (each id's refusals, as `arrangement.refused`
+gives them). The board is never offered such an option: fix it or drop
+it.
+
 The run keeps each arrangement in `arrangements/<id>/` of its run
 folder: `layout.kicad_pcb`, `drc.json`, `reuse.json` (and
 `reuse.partial.jsonl` while it runs), and with `--render` the render of
@@ -1136,9 +1189,11 @@ default first:
   {"id": "default", "choices": {}, "offered": true, "dir": "arrangements/default",
    "metrics": {"drc": 0, "findings": {"warning": 1}, "measures": {}},
    "extent": [{"item": "c_bulk", "sides": ["east", "north"], "protrudes_mm": 1.8}]},
-  {"id": "mirrored", "choices": {"group": "mirrored"}, "offered": false, "dir": "arrangements/mirrored",
+  {"id": "mirrored", "choices": {"mirrored": "mirrored"}, "offered": false, "dir": "arrangements/mirrored",
    "metrics": {"drc": 2, "findings": {}, "measures": {}}, "extent": [],
-   "refused": [{"form": "drc", "bucket": "clearance", "count": 2}, {"form": "verdict", "check": "loop", "item": "c_in"}]}
+   "refused": [{"form": "drc", "bucket": "clearance", "count": 2}, {"form": "verdict", "check": "loop", "item": "c_in"}]},
+  {"id": "pair.upright+mirrored", "choices": {"pair": "upright", "mirrored": "mirrored"}, "offered": false,
+   "excluded": {"why": "both stand in the one column", "by": ["pair.upright", "mirrored"]}}
 ]
 ```
 
@@ -1155,6 +1210,11 @@ default first:
   on a module that declares any, and on one that declares none, or runs
   with `place.arrangements` false, when it protrudes more than
   `place.extent_notice_mm`.
+- A combination an exclusion leaves out has `offered` false and
+  `excluded`, the exclusion's `why` and its choices (`by`), and no
+  `dir`, `metrics` or `extent`: it is not laid out. These entries come
+  after the laid-out ones. `placemat run` prints each as excluded and
+  the studio lists each as a notice.
 - A duplicate has `offered` false, `duplicate_of` (the id it matches)
   and `metrics` null. An arrangement whose resolve raised has `offered`
   false, `refused` and `metrics` null, and no `extent`; one whose proof
@@ -1796,7 +1856,8 @@ moves): a `Cell` is refused, it is a group of its own. A name another group
 or cell has, or a part already in a declared group (or named twice), is
 refused where it is declared; a part of a cell the script places whole is
 refused before the search (group the cell). The run says `groups  <name>
-written: N part(s) (<why>)`.
+written: N part(s) (<why>)`. A module's parts that move as one unit of its
+arrangements are declared with `board.unit` (see "Arrangements"), not here.
 
 **Layers a fragment's board does not have.** A module fragment is a two-layer
 board, and KiCad saves a zone on the layers its board has: a keepout declared
@@ -4392,7 +4453,7 @@ its kind.
 | `keep_out` (`keep_out.cross_layer`) | notice | a `Pm.KeepOut` pair on different copper layers inside the distance with no plane between; KiCad judges clearance only on one layer, so `keep-out` does not fail it; facts: `net`, `distance_mm`, `limit_mm`, `layers`, `away` and `pads` (kind, owner, number, net, at) |
 | `time` (`time.step_slow`) | notice | a step ran past `--step-warn` (or `--step-limit`, with no pass left to stop at); the placement is its own |
 | `time` (`time.step_limit`) | critical when the item is left unplaced, warning when it kept the best spot found | a step gave up at `--step-limit`; the next run searches it again; for a cell, `arrangements` lists the ones it had not reached |
-| `arrangement` (`arrangement.limit`, `arrangement.refused`, `arrangement.stale`) | warning | a module's alternatives over the limits, refused by the module's proof, or ignored on the stamping board |
+| `arrangement` (`arrangement.limit`, `arrangement.refused`, `arrangement.option_dead`, `arrangement.stale`) | warning | a module's alternatives over the limits, refused by the module's proof, an option refused in every combination, or ignored on the stamping board |
 | `arrangement` (`arrangement.missing`) | critical; warning when `source` is `"lock"` | a cell's `arrangements=` names an id its module does not offer, and the cell is left unplaced; from the lock, an entry's arrangement is no longer offered, the entry is released and the cell is searched as its call says |
 | `arrangement` (`arrangement.duplicate`, `arrangement.extent_fixed`) | notice | an arrangement dropped for laying out as another; a part that sets the module's extent and has no alternative |
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
@@ -4696,8 +4757,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.drc_epsilon` | `false` | bool | whether placement judges a copper, hole and hole-to-hole gap as KiCad's DRC does, a gap short of its rule by no more than the board's DRC epsilon (`BoardGeometry.drc_epsilon`, 0.0005 mm on a fresh board) counting as clear, and takes the net-tie exclusion's epsilon from the board. False keeps the nanometre it judged with and the fixed 500 nm. Findings and checks always take the epsilon |
 | `place.step_budget` | `20000000` | count | the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area it covered. Counted, not timed: the result does not depend on how busy the machine is. A `place(budget=)` replaces it |
 | `place.arrangements` | `true` | bool | whether a stamped cell's module arrangements (alternative layouts a module run proved) are searched; false lays every cell's default only, and a module run lays out its default only |
-| `place.arrangement_options_max` | `4` | count | the most options one item of a module may have, its `place()` included; a module that declares more is not partly accepted: its run lays out the default only and says so |
-| `place.arrangements_max` | `8` | count | the most arrangements a module may have, the default and the named groups included; the product of the items' options counts |
+| `place.arrangement_options_max` | `4` | count | the most options one item or unit of a module may have, its default included; a module that declares more is not partly accepted: its run lays out the default only and says so |
+| `place.arrangements_max` | `16` | count | the most arrangements a module may have, the default included: every combination of its items' and units' options, less those board.exclude leaves out |
 | `place.arrangement_note_chars` | `4000` | count | the characters one arrangement note text holds before it is split into numbered texts (a note rides on a User.Comments text of the fragment) |
 | `place.extent_notice_mm` | `1.0` | mm | how far a part may stand past the next part on a side of a module that declares no alternatives before `arrangement.extent_fixed` notes it as setting the module's extent |
 | `place.arrangement_margin` | `0.5` | mm | how much better than the module's default a cell's other arrangement must score before a search takes it; within it the default stands and the step says so. It applies at a decided spot too, where a firm cell's arrangements are each scored once. Not asked when the default has no legal spot, of a cell whose `arrangements=` names its choices, or of an explore's draw |

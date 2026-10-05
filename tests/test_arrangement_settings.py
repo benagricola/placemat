@@ -8,7 +8,7 @@ def test_the_arrangement_settings_have_the_documented_defaults():
     s = Settings()
     assert s.place_arrangements is True
     assert s.place_arrangement_options_max == 4
-    assert s.place_arrangements_max == 8
+    assert s.place_arrangements_max == 16
     assert s.place_arrangement_note_chars == 4000
     assert s.place_extent_notice_mm == 1.0
     assert s.score_arrangement == 0.0

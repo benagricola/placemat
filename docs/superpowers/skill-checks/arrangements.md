@@ -47,9 +47,9 @@ Checked by `fixtures/skill_check.py check`:
 Read from the transcript:
 
 - the agent ran the module;
-- it read the run's arrangement report (`arrangements` in `run.json`, and the `arrangement.refused` and
-  `arrangement.limit` findings), refused alternatives included;
-- for each refused alternative it fixed the alternative or dropped it, and did not finish with one refused;
+- it read the run's arrangement report (`arrangements` in `run.json`, and the `arrangement.refused`,
+  `arrangement.option_dead` and `arrangement.limit` findings), refused combinations included;
+- for each dead option it fixed the option or dropped it, and did not finish with one dead;
 - it declared a mirrored group where one is natural;
 - it stayed within `place.arrangements_max` for the module, the product counted;
 - an extent-setting member with no alternative has its reason in the run notes, not only in a script comment.

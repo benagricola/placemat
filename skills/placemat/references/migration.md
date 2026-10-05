@@ -11,9 +11,32 @@ section for each hand-written pattern a newer form replaces.
 
 - **A bypass capacitor's alternative is a turn at its pin.** The skill no longer offers another side of the IC for a
   bypass capacitor. A module gives each bypass capacitor a turn that keeps its pad at the pin, or a `# fixed: <part>
-  <reason>` line when no turn fits between its neighbours; a turn that fits only when a neighbour moves is a named
-  group with that neighbour. Scripts need no change; a module laid out under 0.99.15 may want a bypass alternative
+  <reason>` line when no turn fits between its neighbours; a turn that fits only when a neighbour moves is a unit
+  (`board.unit`) of the two. Scripts need no change; a module laid out under 0.99.15 may want a bypass alternative
   dropped or turned.
+- **A module's units combine with its other items and units.** `board.arrangement(name, Alt(...), ...)` is now a unit
+  with one option. It keeps its id, its name, so a lock, an `arrangements=` or an `only=` written under 0.99.15 names the
+  same arrangement; a module run now also lays it out combined with every item and unit that moves none of its parts
+  (`c_in.east+mirrored`). The arrangements are listed in product order, so a unit declared after the items comes early
+  in the list, and a board breaks a tie between two of them in that order. A unit counts toward
+  `place.arrangements_max` as an item with one option does, and the default of `place.arrangements_max` is now 16, up
+  from 8, since a unit multiplies the count where a `board.arrangement` added one; a project that sets its own value
+  keeps it, and a module over the limit lays out the default only (`arrangement.limit`), which `board.exclude` brings it
+  back under. `choices` of a `board.arrangement` is `{name: name}` where it was `{"group": name}`. A part in a
+  `board.unit` may not have its own `board.alternative`. A `board.arrangement` named as a part that has a
+  `board.alternative` (`board.arrangement("r_pull", ...)` with `board.alternative(Part("r_pull"), ...)`) was accepted in
+  0.99.15 and is now refused where the script finishes declaring, with the `board.arrangement`'s line, as the ids of the
+  two would be one; rename the `board.arrangement`. An option refused in every arrangement that holds it now also raises `arrangement.option_dead`. A
+  board needs no change; a module offers the new combinations once it is run again (a re-run writes them into its
+  fragment).
+
+### New
+
+- **Units with options, and exclusions.** `board.unit(name, Part(...), Part(...), why=)` declares parts that move as one
+  unit, and `board.alternative(unit, option, Alt(...), ...)` gives it each option (`unit.option`).
+  `board.exclude(choice, choice, ..., why=)` leaves out every combination holding all the choices; `run.json`'s
+  `arrangements` lists each with its `why`. `arrangement.option_dead` (warning) names an option refused in every
+  combination that holds it.
 
 ## To 0.99.15
 
