@@ -131,8 +131,8 @@ def _breaks(inp, refs) -> list:
 
 
 def _still(breaks: list, assign: dict) -> list:
-    """The `breaks` an assignment keeps: the core may keep the present map at the present pose without checking it
-    against the rules."""
+    """The `breaks` an assignment keeps. The core offers the present map only when it keeps every rule, so a row of
+    its gives none."""
     return [b for b in breaks if (b["ref"], b["pin"]) in assign.get(b["net"], ())]
 
 
@@ -172,7 +172,8 @@ def withheld(inp, refs, settings) -> bool:
 
 def group_facts(inp, g, copper, settings) -> dict | None:
     """The facts of a group's `pins.remap` finding, or None when no pose saves `pins.gain_min` of the present total
-    (a study that ran out before a first map always has one, saying so)."""
+    (a study that ran out before a first map always has one, saying so). A group whose present map breaks a pin rule
+    (`present_breaks`) always has one: its best map moves the barred nets, whatever that costs."""
     refs = g.refs
     base = dict(_base(inp, refs, settings), present=g.present.to_json(), searched=g.searched, of=g.of,
                 budget_out=g.budget_out, first_map=g.first_map, steps=g.steps)
@@ -182,7 +183,7 @@ def group_facts(inp, g, copper, settings) -> dict | None:
         return None
     best = min(range(len(g.results)), key=lambda i: (g.results[i].breakdown.total, i))
     gain = g.present.total - g.results[best].breakdown.total
-    if gain <= 1e-9 or gain < settings.pins_gain_min * g.present.total:
+    if (gain <= 1e-9 or gain < settings.pins_gain_min * g.present.total) and not base["present_breaks"]:
         return None
     rows = []
     for r in g.results:

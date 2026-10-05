@@ -160,18 +160,25 @@ def test_a_present_map_that_breaks_a_rule_is_named_in_the_facts_and_is_a_setup_w
     assert f.facts["rotations"][0]["breaks"] == []
 
 
-def test_a_present_map_that_breaks_a_rule_is_reported_when_no_remap_is():
-    """A and B leave in the order their targets lie, so no map saves anything, and A stands on a pin its rule bars."""
+def test_a_present_map_that_breaks_a_rule_is_reported_with_the_map_that_keeps_it_though_that_costs_more():
+    """A and B leave in the order their targets lie, so no map saves anything, and A stands on a pin its rule bars: the
+    map that moves A off it is the finding, whatever it costs and whatever pins.gain_min asks."""
     pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "", ""]}, {"Pm.PinPool": "1-4", "Pm.PinAllow": "A:2-4"})
     pads += point_pad("T1", "A", 20, 8.5) + point_pad("T2", "B", 20, 9.5)
-    found, _ = study(pads, {"U1": u1}, settings(pins_rotations=(0.0,)))
-    assert [f.cause for f in found] == [C.SETUP_PINS]
+    found, _ = study(pads, {"U1": u1}, settings(pins_rotations=(0.0,), pins_gain_min=0.5))
+    assert [f.cause for f in found] == [C.SETUP_PINS, C.PINS_REMAP]
     assert found[0].facts["code"] == "present_breaks" and (found[0].facts["pin"], found[0].facts["rule"]) == ("1", "Pm.PinAllow")
     assert found[0] == "U1: net A stands on pin 1, against its Pm.PinAllow; the capture breaks its own rule"
+    f = found[1]
+    row = f.facts["rotations"][0]
+    assert row["breaks"] == [] and row["total"] > f.facts["present"]["total"]
+    assert ("A", "1") in [(m["net"], m["from"]["pin"]) for m in row["map"]]
+    assert str(f).startswith("U1: a pin map that keeps the pin rules the present one breaks exists at its present "
+                             "rotation, at "), str(f)
 
 
 def test_a_pose_whose_best_is_the_present_map_carries_the_rule_it_breaks():
-    """The core may keep the present map at the present pose without checking it against the rules: that row says so."""
+    """A row that keeps the present map keeps the rule it breaks, and says so (the core no longer offers such a map)."""
     from dataclasses import replace
     from placemat.pinmap import group_facts
     from placemat.pinmap_core import Breakdown, study as core_study
