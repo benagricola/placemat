@@ -3610,6 +3610,54 @@ island net had apart before and after (`islands` in the report); the
 island nets count in the closure, and `--adopt NET` keeps their routes like
 any other net's.
 
+A net that should keep other nets' copper further off than its class
+clearance, such as a switch node, gets a halo in `[route] net_halos`:
+
+```toml
+[route]
+net_halos = {"SW" = 2.0}
+```
+
+The router takes a per-net clearance map and spaces two nets at the larger
+of their two values; left to itself it builds the map from the board's net
+classes. With a halo on the board the route writes the map instead
+(`net_clearances.json` in its work folder, `pairs_net_clearances.json` for
+the pair stage, whose nets it renames): the router's own class map, built by
+the router's own function, with each halo net at the larger of its class
+clearance and its halo. A `--clearance-ceiling` in `route.router_args` (or
+`route.pair_router_args`) caps the class entries as the router caps its own,
+not the halos. Every router pass gets the map, so other nets' new copper
+keeps the halo from the halo net's copper, and the halo net's own new copper
+keeps it from everything; `--net-clearances` in the router args is refused
+when the settings load. The report has `net_halos` (the entries applied) and
+the summary line ends `halos: SW 2 mm`. Before the first router call the
+route judges every pad of another net that the route routes and that has
+open connections, lying within a halo of the halo net's copper (its pads,
+tracks, vias, drawn copper and pours, on a layer they share): the router can
+lead it out only from an end of its own copper that is already past the
+halo. The ends are the pad itself, each end of a track joined to it and each
+via on that copper. Only a track or via end counts: drawn copper (a polygon)
+joins the pad to its tracks and vias but is not an end, however far it
+reaches. A track leaving an end keeps its edge the halo away, so an end
+counts as led out only at the halo plus half the pad net's class track width
+from the halo net's copper. If no end lies that far, the pad is trapped: a
+`setup.net_halo` finding, said before the route starts, with facts `variant`
+`trapped`, `net`, `halo_mm`, `ref`, `number`, `pad_net`, `gap_mm` (the pad's
+own gap to the halo net's copper), `reach_mm` (how far its farthest end
+lies from that copper), `needed_mm` (the halo plus half the class track
+width) and `short_mm` (`needed_mm` less `reach_mm`); also in
+`net_halo_trapped`. The cure is in the module that draws the pad: an escape
+that runs out past the halo (a longer `run=` on its `board.escape`), or a
+smaller halo for that node. The router spaces every net of one call at the
+largest clearance among the nets it routes, so a halo net with open
+connections routed by the main pass would space all of them at its halo: that
+is a `setup.net_halo` finding with `variant` `open` and `open_items`. A halo
+net drawn whole in its module, or named in `[route] islands` and routed alone
+first, is not. A key that names no net on the board is a `setup.net_halo`
+finding with `variant` `no_net` (`net_halos_missing` in the report), the entry
+not used; a halo that is not a number above 0 is refused when the settings
+load.
+
 A wide route the router cannot lay is retried at its default track width (its "neck-down"), so a width asked for is not a width
 delivered. The route reads the router's own measurement of the copper it shipped from each stage's summary (`power_widths`,
 `design_rules.narrowed`, `power_trace_ampacity`; `power_widths` only in a stage given a width, so an island net's) and keeps `widths` in
@@ -4290,6 +4338,7 @@ its kind.
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
 | `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
+| `setup` (`setup.net_halo`: a pad of another net inside a `[route] net_halos` halo whose own copper ends inside it, a halo net with open connections that the main pass routes, a key that names no net) | warning | the router cannot lead the pad out; the whole pass is spaced at the halo; the entry is not used |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
 | `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net has a width in `[route] islands` (it carries current), or when the router's current for its narrowest copper is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a` |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
@@ -4678,9 +4727,10 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.plane_share` | `0.9` | share | how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing (the router's default layers come from each layer's declared role, not this) |
 | `route.turn_cost` | `20000` | cost | what the router charges a turn, per 90 degrees (a 45 half of it), against 1000 a straight grid step: the router's own default of 1000 makes a kink nearly free and its routes stair-step; 20000 measured best on a dense four-layer board (fewer than half the turns, 10% less copper, closure no worse); 1000 gives the router's own behaviour |
 | `route.smoothing` | `true` | bool | the router's own octolinear smoothing, as it defaults; false skips it |
-| `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused |
+| `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused |
 | `route.pair_router_args` | `[]` | list | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
 | `route.pair_layers` | `{}` | table | the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `"P/N"` (either order) or a net class name, its value a list of layer names (`{"USB_D_P/USB_D_N" = ["In2.Cu", "B.Cu"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used |
+| `route.net_halos` | `{}` | table | a net mapped to a halo in mm (`{"SW" = 2.0}`): every router pass keeps other nets' new copper that far from the net's copper, and the net's own new copper that far from everything, to keep coupling off a switch node. Each net is given the larger of its net class clearance and its halo in the clearance map placemat hands the router. Before the route, a pad of another net within the halo whose own copper (an escape, a via) ends inside it is a `setup.net_halo` finding: the router cannot leave it. A key that names no net on the board is a `setup.net_halo` finding and the entry is not used |
 | `route.islands` | `[]` | list | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
 | `route.diff_pair_gap` | `0.0` | mm | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | `0.0` | mm | mm, a pair's track width; 0 is the net class's diff pair width |

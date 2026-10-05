@@ -116,6 +116,15 @@ SAMPLES = [
      "routes on the route's own layers"),
     (C.SETUP_PAIR_LAYERS, {"key": "Fast", "variant": "no_pair", "layers": ["B.Cu"], "missing": [], "board_layers": ["F.Cu", "B.Cu"]},
      "route.pair_layers Fast: no differential pair on this board has those two nets or that net class; the entry is not used"),
+    (C.SETUP_NET_HALO, {"variant": "trapped", "net": "SW", "halo_mm": 2.0, "ref": "U3", "number": "2", "pad_net": "FB",
+                        "gap_mm": 0.4, "reach_mm": 0.6, "needed_mm": 2.1, "short_mm": 1.5},
+     "FB pad U3.2 is inside SW's 2.00 mm halo; its copper ends 0.60 mm away where a track leaving it needs 2.10 mm, 1.50 mm "
+     "short: draw its escape out past the halo in the module (a longer run= on its board.escape), or give SW a smaller halo"),
+    (C.SETUP_NET_HALO, {"variant": "no_net", "net": "GONE", "halo_mm": 1.0},
+     "route.net_halos GONE: no net of that name on this board; the entry is not used"),
+    (C.SETUP_NET_HALO, {"variant": "open", "net": "SW", "halo_mm": 2.0, "open_items": 1},
+     "SW is open (1 item(s)) and routed with the other nets: the router spaces every net of that pass 2.00 mm from all "
+     "copper, not only from SW; draw SW whole in the module, or route it alone as a `[route] islands` net"),
     (C.ROUTE_DROPPED, {"key": "X","why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
      "adopted route X dropped: its end at (1.00, 2.00) no longer meets the net's other copper; the router routes it again"),
     (C.ROUTE_WIDTH, {"net": "V", "stage": "islands", "requested_mm": 1.37, "delivered_min_mm": 0.16, "length_under_mm": 16.61,

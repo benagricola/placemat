@@ -11,6 +11,39 @@ section for each hand-written pattern a newer form replaces.
 
 - **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name, Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant `Layout` and explore's variants are other things. A module that declares none is unchanged. New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`, `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
 
+## To 0.99.12
+
+### New
+
+- **A halo round a net while routing.** `[route] net_halos = {"SW" = 2.0}` gives a net a halo in mm: every router
+  pass keeps other nets' new copper that far from its copper, to keep coupling off a switch node. placemat now writes
+  the router's per-net clearance map itself, so `--net-clearances` in `[route] router_args` or `pair_router_args` is
+  refused when the settings load; drop it, and name a net that needs more room in `net_halos`. Before the route, a pad
+  of another net inside a halo whose own copper ends inside it is a `setup.net_halo` finding: draw that pad's escape out
+  past the halo in its module (a longer `run=` on its `board.escape`), or give the node a smaller halo. Draw the halo
+  net whole in its module, or name it in `[route] islands`: routed with the other nets, it would space them all at its
+  halo, which is a `setup.net_halo` finding too.
+
+## To 0.99.11
+
+### Fixed
+
+- **A pad is measured as KiCad measures it.** A copper finding measured a part's pad by its outline, which rounds a
+  rounded rectangle's corners with straight edges standing up to a few micrometres outside the copper. A 0.127 mm track
+  passing a 0402 pad's rounded corner at 45 degrees read 0.126 mm from it where KiCad's DRC measured 0.129 mm, a finding
+  on a board KiCad passed. A pad, and a part's own copper drawing, read from KiCad are now measured as the shape KiCad's
+  DRC collides. Nothing in a layout script changes.
+
+## To 0.99.10
+
+### Fixed
+
+- **A placed cell's copper is measured as KiCad measures it.** A cell's own pour, straight tracks and vias lost the
+  shapes a copper finding measures them by (the drawn polygon and its stroke, the track's segment, the via's circle)
+  once the cell was placed, so a finding measured their outlines, which stand a few micrometres outside the copper. A
+  track beside a stamped cell's stroked pour read 0.125 mm from it where KiCad's DRC measured 0.132 mm, a finding on a
+  board KiCad passed. They now move and mirror with the cell. Nothing in a layout script changes.
+
 ## To 0.99.9
 
 ### New

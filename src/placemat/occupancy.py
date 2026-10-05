@@ -802,7 +802,7 @@ class Occupancy:
                                  claims=s.claims, wire=s.wire))
             else:
                 out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label,
-                                 claims=s.claims, wire=s.wire))
+                                 claims=s.claims, wire=s.wire, **_exact_moved(s, t)))
         return out
 
     def _flipped_layers(self, s: Shape) -> frozenset[CopperLayer]:
@@ -2315,9 +2315,9 @@ class Occupancy:
             limit = self.clear_limit(clr, check)
             if _box_gap(s.box, o.box) >= limit:
                 return None
-            # a finding (exact) measures a via as its circle; placement keeps the polygons the
-            # native judge reads, so the two agree on what is legal
-            gap = _copper_gap(s, o) if exact else poly_distance(s.poly, o.poly)
+            # a finding (exact) measures a via as its circle and a read pad as KiCad's effective shape; placement
+            # keeps the polygons the native judge reads, so the two agree on what is legal
+            gap = self._copper_gap(s, o, limit) if exact else poly_distance(s.poly, o.poly)
             if gap < limit and self._net_tie_exclusion(s, o, clr):
                 return None
             if gap < limit and not say:
@@ -2565,6 +2565,36 @@ class Occupancy:
                 return None
         return tuple(out)
 
+    def _copper_gap(self, s, o, limit: float) -> float:
+        """`_copper_gap`, with a pad or a footprint's copper graphic read from
+        KiCad measured as the effective shape KiCad's DRC collides
+        (`_read_shape`) rather than its outline: a rounded corner's outline is
+        polygonised with the arc error outside the copper, so a gap past it
+        read a few micrometres short. The outline holds the copper, so a gap
+        of `limit` or more by it is that much at least, and is not measured
+        again."""
+        gap = _copper_gap(s, o)
+        if gap >= limit:
+            return gap
+        ks, ko = self._read_shape(s), self._read_shape(o)
+        if ks is None and ko is None:
+            return gap
+        far = _box_gap(s.box, o.box) + 1.0          # a clearance the two collide within, so `actual` comes back
+        hit = _kc.collide(ks if ks is not None else _kicad_of(s), ko if ko is not None else _kicad_of(o),
+                          _kc.to_nm(far))
+        return hit[0] / 1e6 if hit is not None else gap
+
+    def _read_shape(self, sh):
+        """The SHAPE_COMPOUND KiCad's DRC collides for `sh` (`_kicad_prims`)
+        when it is a footprint's pad or copper graphic whose effective shape
+        was read and whose outline stands as `sh.poly`; else None."""
+        if not self._is_footprint_copper(sh):
+            return None
+        move, shapes = self._read_of(sh, sh.poly)
+        if move is None or not shapes:
+            return None
+        return _kc.Compound(_move_shapes(shapes, move))
+
     def _kicad_prims(self, sh, poly):
         """`sh`, a pad or a footprint's copper graphic, standing as `poly`
         (its outline there), as the SHAPE_COMPOUND KiCad's DRC collides: the
@@ -2750,6 +2780,31 @@ def _kicad_of(sh):
         x, y, r = sh.circle
         return ("c", _kc.to_nm(x), _kc.to_nm(y), _kc.to_nm(r))
     return ("p", tuple((_kc.to_nm(x), _kc.to_nm(y)) for x, y in sh.poly))
+
+
+def _exact_moved(s, t) -> dict:
+    """The forms a copper finding measures a shape by (`_kicad_of`: a
+    track's segment, a via's circle, a drawn polygon's outlines, and a
+    track's ends and arc mid point for its name), moved by `t` with its
+    polygon, as Shape fields. Left behind, a finding measures the moved
+    polygon, which a read outline holds a few micrometres outside the
+    copper."""
+    out = {}
+    if s.segment:
+        ax, ay, bx, by, w = s.segment
+        (ax, ay), (bx, by) = t.apply((ax, ay)), t.apply((bx, by))
+        out["segment"] = (ax, ay, bx, by, w)
+    if s.circle:
+        x, y, r = s.circle
+        out["circle"] = t.apply((x, y)) + (r,)
+    if s.drawn:
+        outlines, width, filled = s.drawn
+        out["drawn"] = (tuple(tuple(t.apply(p) for p in o) for o in outlines), width, filled)
+    if s.ends:
+        out["ends"] = tuple(t.apply(p) for p in s.ends)
+    if s.arc:
+        out["arc"] = t.apply(s.arc)
+    return out
 
 
 def _copper_gap(s, o) -> float:

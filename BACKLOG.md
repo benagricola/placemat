@@ -33,6 +33,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Open
 
+- **Hole clearance by a pad's effective shape**: the hole-to-pad check
+  (`_hole_conflict` / `_circle_distance`) still measures a pad by its read
+  outline, grown by the arc error, so a near miss on hole clearance can read
+  a few micrometres tight, as copper-to-pad did before 0.99.11.
+
 - **Part silk against the outline and cutouts.** Placement does not judge a
   part's silk against the board outline or a cutout already cut (KiCad's
   silk_edge_clearance): under the courtyard envelope silk can stand 0.06 mm
@@ -279,6 +284,22 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Net halos while routing** (0.99.12): `route.net_halos` keeps other
+  nets' new copper a distance from a net (a switch node); placemat writes the
+  router's clearance map with the class map merged in, and a pad trapped
+  inside a halo (its copper ending short of the halo plus half a track) is a
+  `setup.net_halo` finding before the route.
+
+- **Copper findings measure a pad by its exact shape** (0.99.11): a gap
+  below the rule by a pad's read outline is measured again against KiCad's
+  effective pad shape, so a track past a rounded corner reads as KiCad's DRC
+  reads it.
+
+- **A placed cell's copper keeps its exact shapes** (0.99.10): a stamped
+  cell's straight tracks, vias and pours kept their segment, circle and
+  drawn forms when the cell was placed, so copper findings against them
+  measure as KiCad does instead of 1 to 7 um tight.
 
 - **Pair layers; escape docs; net-list guard; faster escape report**
   (0.99.9): `route.pair_layers` gives a pair (P/N or its net class) its own
