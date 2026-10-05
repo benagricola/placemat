@@ -19,12 +19,15 @@ import time
 
 from .findings import Finding, FindingCause as C
 
+from .pinmap_core import budget_of
 from .pinmap_input import Placed, PlacedCell, PlacedPad, PlacedPart, build, cell_modules, stamp_counts
 from .pinmap_rules import Problem, has_pools, natural
 from .values import Box
 
 CACHE_VERSION = 3
-_NOT_READ = ("pins_explore_top", "pins_probe_budget_ms")      # `[pins]` settings the explore and the probe read, not the study
+# `[pins]` settings a kept result does not depend on: the explore's and the probe's, and the wall-clock guard (a study
+# that trips it is never kept, so a kept result is always complete)
+_NOT_READ = ("pins_explore_top", "pins_probe_budget_steps", "pins_guard_ms")
 
 
 def copper_nets(geometry, plan=None) -> frozenset:
@@ -138,7 +141,7 @@ def _base(inp, refs, settings) -> dict:
     lead = inp.part(refs[0])
     at = lead.at or (lead.cx, lead.cy)
     return dict({"ref": refs[0], "refs": list(refs), "at": [round(at[0], 3), round(at[1], 3)],
-                 "budget_ms": settings.pins_budget_ms * len(refs),
+                 "budget_steps": budget_of(settings, refs),
                  "held": [{"ref": r, "net": h.net, "pin": h.pin, "name": inp.names.get(r, {}).get(h.pin, ""), "why": h.why}
                           for r in refs for h in inp.part(r).slots.held],
                  "present_breaks": _breaks(inp, refs), "unplaced_ends": _waiting(inp, refs),
@@ -150,9 +153,16 @@ def withheld_facts(inp, refs, settings) -> dict:
     """The facts of a group whose share of movable nets with a placed far end is below `pins.placed_share_min`: no
     study, no map, no turn; how many ends are missing."""
     share = placed_share(inp, refs)
-    return dict(_base(inp, refs, settings), present=None, searched=0, of=0, budget_out=False, first_map=True,
+    return dict(_base(inp, refs, settings), present=None, searched=0, of=0, budget_out=False, first_map=True, steps=0,
                 rotations=[], best=0, routed=[], before=[],
                 withheld=dict(share, share_min=settings.pins_placed_share_min))
+
+
+def slow_facts(g) -> dict:
+    """The facts of a `setup.pins` `study_slow` warning: the group's study ran past its wall-clock guard (`guard_ms`)
+    after `steps` of its `budget_steps`, and gives no map."""
+    return dict(Problem(g.refs[0], "", "", "study_slow", "").facts(), refs=list(g.refs), guard_ms=g.guard_ms,
+                steps=g.steps, budget_steps=g.budget_steps)
 
 
 def withheld(inp, refs, settings) -> bool:
@@ -165,7 +175,7 @@ def group_facts(inp, g, copper, settings) -> dict | None:
     (a study that ran out before a first map always has one, saying so)."""
     refs = g.refs
     base = dict(_base(inp, refs, settings), present=g.present.to_json(), searched=g.searched, of=g.of,
-                budget_out=g.budget_out, first_map=g.first_map)
+                budget_out=g.budget_out, first_map=g.first_map, steps=g.steps)
     if not g.first_map:
         return dict(base, rotations=[], best=0, routed=[], before=[])
     if not g.results:
@@ -263,12 +273,12 @@ def _keep(path, d: str, findings) -> None:
 
 
 def study_findings(pads, parts, names, quiet, partners, netclasses, settings, copper=frozenset(), cache=None,
-                   step_ms: float = 0.0, cells=None, unplaced=()) -> tuple:
+                   cells=None, unplaced=()) -> tuple:
     """(findings, record) of the study of a placed board: `setup.pins` for each problem and for each net the present
     map puts on a pin its own rule bars (`present_breaks`), `pins.remap` for each group
-    with a map worth having. `cache`, a path, holds the last study's digest and findings: a match is reused. `record` is
-    what a run keeps: {"seconds", "reused", "groups", "parts"}, empty when nothing was studied. `step_ms` above 0 makes
-    the core's clock a counted one (a test's)."""
+    with a map worth having, and `setup.pins` `study_slow` for each group past its wall-clock guard (no map). `cache`, a
+    path, holds the last study's digest and findings: a match is reused; a study with a group past its guard is not
+    kept. `record` is what a run keeps: {"seconds", "reused", "groups", "parts"}, empty when nothing was studied."""
     t0 = time.perf_counter()
     inp, problems = build(pads, parts, names, quiet, partners, netclasses, settings.pins_follow_series,
                           tuple(settings.pins_follow_prefixes), cells, unplaced)
@@ -280,7 +290,7 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
     if hit is not None:
         return hit, {"seconds": round(time.perf_counter() - t0, 3), "reused": True, "groups": None, "parts": n_parts}
     found = [Finding(C.SETUP_PINS, p.facts()) for p in problems]
-    groups = 0
+    groups, slow = 0, False
     if inp is not None:
         from .pinmap_core import linked_groups, movable_count, problem_of, study_group
         for part in inp.parts:
@@ -294,7 +304,12 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
             elif not movable_count(inp, refs):
                 continue
             else:
-                g = study_group(inp, refs, settings, step_ms=step_ms, pb=pb)
+                g = study_group(inp, refs, settings, pb=pb)
+                if g.slow:
+                    found.append(Finding(C.SETUP_PINS, slow_facts(g)))
+                    groups += 1
+                    slow = True
+                    continue
                 found += [Finding(C.SETUP_PINS, Problem(ref, "", "", "no_legal_map", net).facts()) for ref, net in g.problems]
                 facts = group_facts(inp, g, copper, settings)
             groups += 1
@@ -305,7 +320,7 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
                 found.append(facts)
         _stamp_maps(inp, [f for f in found if isinstance(f, dict)], kept)
         found = [Finding(C.PINS_REMAP, f) if isinstance(f, dict) else f for f in found]
-    if cache is not None:
+    if cache is not None and not slow:
         _keep(cache, d, found)
     return found, {"seconds": round(time.perf_counter() - t0, 3), "reused": False, "groups": groups, "parts": n_parts}
 
@@ -399,7 +414,8 @@ def study_failed(plan, error: BaseException) -> Finding:
 
 def plan_summary(board, plan, refs=None, settings=None) -> list:
     """Each studied group's present score and its best, with the pose and the map, for an explore's report and a longer
-    study: no findings, nothing kept. `refs` keeps the groups holding any of those parts; `settings` replaces the
+    study: no findings, nothing kept. A group past its wall-clock guard has no map: `slow` true, with `guard_ms`,
+    `steps` and `budget_steps`. `refs` keeps the groups holding any of those parts; `settings` replaces the
     board's (a longer budget)."""
     if not has_pools(board.geometry.footprints):
         return []
@@ -421,25 +437,31 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
         if withheld(inp, group, settings) or not movable_count(inp, group):
             continue                # it waits on placement: no map to give
         g = study_group(inp, group, settings, pb=pb)
-        if not g.results:
+        if g.slow:
+            out.append({"refs": list(g.refs), "slow": True, "guard_ms": g.guard_ms, "steps": g.steps,
+                        "budget_steps": g.budget_steps})
             continue
+        if not g.results:
+            continue                # no matching: no map to give
         i = min(range(len(g.results)), key=lambda k: (g.results[k].breakdown.total, k))
         r = g.results[i]
         out.append({"refs": list(g.refs), "present": g.present.to_json(), "best": r.breakdown.to_json(), "rotation": i,
                     "turns": _turns(inp, r.poses), "map": _map(inp, g.refs, g.present_assign, r.assign),
-                    "searched": g.searched, "of": g.of, "budget_out": g.budget_out})
+                    "searched": g.searched, "of": g.of, "budget_out": g.budget_out, "steps": g.steps,
+                    "budget_steps": g.budget_steps})
     return out
 
 
-def longer_advice(board, plan, advice: dict, budget_ms: int) -> tuple:
-    """(better advice or None, the group's summary or None): the advice's parts studied again with `budget_ms` for each
-    part (`placemat apply <id> --search`). The advice is better when its total is below the one it was given with.
-    A study that raises raises here: the caller says so."""
+def longer_advice(board, plan, advice: dict, budget_steps: int) -> tuple:
+    """(better advice or None, the group's summary or None): the advice's parts studied again with `budget_steps` for
+    each part (`placemat apply <id> --search`), its wall-clock guard scaled with it. The advice is better when its total
+    is below the one it was given with. A study that raises raises here: the caller says so."""
     from dataclasses import replace
-    s = replace(board.settings, pins_budget_ms=budget_ms)
+    was = board.settings
+    s = replace(was, pins_budget_steps=budget_steps, pins_guard_ms=was.pins_guard_ms * budget_steps / was.pins_budget_steps)
     g = next((g for g in plan_summary(board, plan, refs=advice["refs"], settings=s)
               if set(g["refs"]) == set(advice["refs"])), None)
-    if g is None or g["best"]["total"] >= advice["total"] - 1e-9:
+    if g is None or g.get("slow") or g["best"]["total"] >= advice["total"] - 1e-9:
         return None, g
     return {"refs": g["refs"], "rotation": g["rotation"], "turns": g["turns"], "map": g["map"],
             "total": g["best"]["total"], "weighted": g["best"]["weighted"]}, g

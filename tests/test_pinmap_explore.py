@@ -179,3 +179,17 @@ def test_the_time_the_study_takes_after_the_explore_is_kept_with_each_variant_an
     assert maps[1]["seconds"] > maps[0]["seconds"]                  # seed 2 is resolved again, seed 0 is not
     lines = pin_map_lines({"pin_maps": maps})
     assert lines[-1] == "  pin map study: 3 variants in %.2f s, after the explore's time" % sum(m["seconds"] for m in maps)
+
+
+def test_a_variant_whose_study_trips_the_guard_says_so_on_its_line(monkeypatch):
+    from dataclasses import replace
+    b = board()
+    real = pinmap.plan_summary
+    monkeypatch.setattr(pinmap, "plan_summary", lambda board_, plan, refs=None, settings=None: real(
+        board_, plan, refs, replace(board_.settings, pins_guard_ms=1e-9)))
+    maps = _pin_maps(board, [], frozenset({"r1"}), RESULT, {0: (b, b.resolve())})
+    (g,) = maps[0]["groups"]
+    assert (g["refs"], g["slow"], g["guard_ms"], g["steps"]) == (["U1"], True, 1e-9, 0) and "best" not in g
+    lines = pin_map_lines({"pin_maps": maps})
+    assert ("  pin map, seed 0 at 10.0 mm: U1 ran past its wall-clock guard, pins.guard_ms of 1e-09 ms, after 0 of "
+            "its %d steps; no map" % g["budget_steps"]) in lines

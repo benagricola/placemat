@@ -1315,8 +1315,9 @@ def _search(args, board_dir, script, entry) -> int:
 
 def _pin_search(args, board_dir, script, s) -> int:
     """`placemat apply <id> --search` on a pin map suggestion: its parts studied again, on the board as the last run placed
-    it, with `pins.probe_budget_ms` for each part. A better map is kept as `<id>.1` beside the plan's suggestions. A study
-    that raises exits 1 with its error, and keeps nothing."""
+    it, with `pins.probe_budget_steps` for each part. A better map is kept as `<id>.1` beside the plan's suggestions. A study
+    that raises exits 1 with its error, and keeps nothing; so does one past its wall-clock guard (`pins.guard_ms`,
+    scaled with the budget), saying so."""
     from . import pinmap, suggestions as sg
     from .previewer import resolve_like_last_run
     from .settings import load
@@ -1327,7 +1328,7 @@ def _pin_search(args, board_dir, script, s) -> int:
         console.say("probe", str(e), level="fail")
         return 1
     try:
-        better, g = pinmap.longer_advice(board, plan, s.advice, cfg.pins_probe_budget_ms)
+        better, g = pinmap.longer_advice(board, plan, s.advice, cfg.pins_probe_budget_steps)
     except BaseException as e:                          # a stop or an interrupt still ends the command
         if not pinmap.contained(e):
             raise
@@ -1341,17 +1342,25 @@ def _pin_search(args, board_dir, script, s) -> int:
                                                       "pins", s.id + ".1", how="advice", advice=better)
     if found is not None:
         sg.add_found(board_dir, script, found)
+    slow = g is not None and g.get("slow")
     if args.json:
         record = {"id": s.id, "study": g, "found": found.to_json() if found is not None else None}
         if g is None:
             record["reason"] = "not_studied"
+        elif slow:
+            record["reason"] = "slow"
         console.data(json.dumps(record, indent=2))
-        return 0 if g is not None else 1
+        return 0 if g is not None and not slow else 1
     if g is None:
         console.say("probe", "%s: %s is no longer studied on this board" % (s.id, " and ".join(s.advice["refs"])), level="fail")
         return 1
-    console.say("probe", "%s: %d of %d poses at %d ms a part: best total %.1f, the suggestion's %.1f" % (
-        s.id, g["searched"], g["of"], cfg.pins_probe_budget_ms, g["best"]["total"], s.advice["total"]))
+    if slow:
+        console.say("probe", "%s: the study of %s ran past its wall-clock guard, pins.guard_ms of %g ms, after %d of its %d "
+                    "steps; no map is given" % (s.id, " and ".join(g["refs"]), g["guard_ms"], g["steps"],
+                                                g["budget_steps"]), level="fail")
+        return 1
+    console.say("probe", "%s: %d of %d poses in %d of its %d steps: best total %.1f, the suggestion's %.1f" % (
+        s.id, g["searched"], g["of"], g["steps"], g["budget_steps"], g["best"]["total"], s.advice["total"]))
     console.say("probe", "%s: %s; it is advice for the capture, which placemat apply does not write" % (found.id, found.text)
                 if found is not None else "no better map than %s's" % s.id)
     return 0

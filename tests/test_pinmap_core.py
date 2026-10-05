@@ -21,8 +21,8 @@ def native(request):
     return request.param == "native"
 
 
-def run(inp, native, s=None, refs=("U1",), step_ms=0.0, budget_ms=None):
-    return study_group(inp, refs, s or settings(), step_ms=step_ms, budget_ms=budget_ms, native=native)
+def run(inp, native, s=None, refs=("U1",), budget_steps=None, guard_ms=None):
+    return study_group(inp, refs, s or settings(), budget_steps=budget_steps, guard_ms=guard_ms, native=native)
 
 
 def best(g):
@@ -111,13 +111,44 @@ def test_the_same_board_gives_the_same_maps_and_totals(native):
     assert [(r.poses, r.breakdown, r.assign) for r in a.results] == [(r.poses, r.breakdown, r.assign) for r in b.results]
 
 
-def test_a_clock_out_before_the_first_map_says_so_and_one_out_later_keeps_the_best_found(native):
+def test_a_budget_of_no_steps_gives_no_first_map_and_one_spent_later_keeps_the_best_found(native):
     inp, _ = input_of(*reversed_four())
-    s = settings(pins_anneal_moves=500, pins_seeds=4)                   # 64 questions a pose: more than the budget
-    g = run(inp, native, s, step_ms=1.0, budget_ms=0.5)                 # out at the first question
-    assert (g.first_map, g.budget_out, g.results) == (False, True, ())
-    g = run(inp, native, s, step_ms=1.0, budget_ms=40)                  # out after 40 questions
-    assert g.first_map and g.budget_out and 1 <= len(g.results) < 4 and g.searched == len(g.results) and g.of == 4
+    s = settings(pins_anneal_moves=500, pins_seeds=4)                   # 2000 steps a pose
+    g = run(inp, native, s, budget_steps=0)
+    assert (g.first_map, g.budget_out, g.results, g.steps) == (False, True, (), 0)
+    g = run(inp, native, s, budget_steps=2500)                          # spent in the second pose
+    assert g.first_map and g.budget_out and len(g.results) == g.searched == 2 and g.of == 4 and g.steps == 2500
+
+
+def test_a_study_inside_its_budget_takes_a_step_for_each_move_of_each_search(native):
+    inp, _ = input_of(*reversed_four())
+    g = run(inp, native, settings(pins_anneal_moves=70, pins_seeds=3))
+    assert not g.budget_out and g.searched == g.of == 4 and g.steps == 4 * 3 * 70 and not g.slow
+
+
+def test_the_python_core_gives_the_same_best_map_however_slow_its_clock(monkeypatch):
+    # every read of the time a second after the last: a run that stopped at a time would stop at its first look
+    from placemat import pinmap_twin
+    inp, _ = input_of(*reversed_four())
+    s = settings(pins_budget_steps=150, pins_guard_ms=0.0)              # spent part way through the second pose
+    key = lambda g: (g.budget_out, g.steps, [(r.poses, r.breakdown, r.assign) for r in g.results])
+    want = run(inp, False, s)
+    now = [0.0]
+
+    def slow():
+        now[0] += 1.0
+        return now[0]
+    monkeypatch.setattr(pinmap_twin.time, "perf_counter", slow)
+    a, b = run(inp, False, s), run(inp, False, s)
+    assert key(a) == key(b) == key(want)
+    assert want.budget_out and want.steps == 150 and len(want.results) == 2
+
+
+def test_a_study_past_its_wall_clock_guard_gives_no_map(native):
+    inp, _ = input_of(*reversed_four())
+    g = run(inp, native, settings(), guard_ms=1e-9)
+    assert g.slow and g.results == () and g.searched == 0
+    assert not run(inp, native, settings(), guard_ms=0.0).slow          # 0 is off
 
 
 def test_a_routed_board_scores_as_the_same_board_without_its_copper(native):
@@ -300,3 +331,22 @@ def test_a_part_laid_at_45_degrees_and_flipped_mirrors_its_pads_as_they_stand(na
     a = next(r for r in laid.results if r.poses == (("U1", 90.0, True),)).breakdown
     b = next(r for r in square.results if r.poses == (("U1", 45.0, True),)).breakdown
     assert (a.against, a.among) == (b.against, b.among) and a.total == pytest.approx(b.total, abs=1e-6)
+
+
+def test_a_study_past_its_guard_gives_no_problem_found_before_the_trip(monkeypatch):
+    # the second pose's first map says a net has no pin; the guard trips before the third pose
+    from placemat import pinmap_twin
+    inp, _ = input_of(*reversed_four())
+    real, calls, now = pinmap_twin.first_map, [], [0.0]
+
+    def first_map(sc, group_parts, start):
+        calls.append(1)
+        got, problems = real(sc, group_parts, start)
+        if len(calls) == 2:
+            now[0] = 10.0
+            problems = problems + [(0, 0)]
+        return got, problems
+    monkeypatch.setattr(pinmap_twin, "first_map", first_map)
+    monkeypatch.setattr(pinmap_twin.time, "perf_counter", lambda: now[0])
+    g = run(inp, False, settings(), guard_ms=1000.0)
+    assert len(calls) == 2 and g.slow and g.results == () and g.problems == ()

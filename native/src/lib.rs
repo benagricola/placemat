@@ -1267,7 +1267,7 @@ fn pinmap_search(
     group_parts: Vec<usize>,
     combos: Vec<Vec<(usize, f64, bool)>>,
     weights: (f64, f64, f64, f64, f64, f64),
-    params: (f64, u32, u32, f64, f64, f64, f64, u64),
+    params: (f64, u32, u32, f64, f64, u64, f64, u64),
 ) -> PyResult<pinmap::SearchResult> {
     pinmap_indexes(&parts, &pins, &nets, &fixed, &joined, &ends, &posed, &movable, &groups, &soft, &frames, &controlled,
                    &group_parts, &combos)
@@ -1281,11 +1281,11 @@ fn pinmap_search(
         }
     }
     let (pair, impedance, plane, length, bend, group) = weights;
-    let (margin, seeds, moves, t0, t1, budget_ms, step_ms, seed_key) = params;
+    let (margin, seeds, moves, t0, t1, budget_steps, guard_ms, seed_key) = params;
     let pb = pinmap::Problem { parts, pins, nets, fixed, joined, ends, wires, posed, movable, groups, soft, margin, frames,
                                controlled };
-    let pr = pinmap::Params { w: [pair, impedance, plane, length, bend, group], seeds, moves, t0, t1, budget_ms, step_ms,
-                              seed_key };
+    let pr = pinmap::Params { w: [pair, impedance, plane, length, bend, group], seeds, moves, t0, t1, budget_steps,
+                              guard_ms, seed_key };
     Ok(pinmap::search(&pb, &group_parts, &combos, &pr))
 }
 

@@ -336,10 +336,41 @@ would move it for free.
 
 The study has to be quick because its value is early feedback.
 
-- A per-part time budget, `pins.budget_ms` (default set by the bench, aimed
-  at a few hundred ms), and a cap on the rotation combinations a joint study
-  searches; the study stops at the budget with the best found, and says how
-  many combinations it searched.
+- A per-part budget in steps, `pins.budget_steps` (default 3000), and a cap
+  on the rotation combinations a joint study searches; the study stops at the
+  budget with the best found, and says how many combinations it searched and
+  how many steps it took. One step is one move of a local search: one
+  iteration of the annealing loop, counted whether or not a legal change came
+  of it and whether or not it was taken. The first map and the scoring of a
+  pose are not steps. The budget is checked before each move and before each
+  pose, and never reads the time, so where the study stops, and the best it
+  has found by then, is the same on any machine, at any load and on either
+  core: the native core and the Python twin count steps identically and give
+  bit-identical results; Python takes longer.
+- The default is calibrated on the reference board: 3000 steps over its four
+  poses (the default settings but `pins.anneal_moves` 750, one seed: 4 x 750
+  steps) took the native core 0.085-0.09 s median under a load average of
+  about 6, and 0.077 s under about 3.5, about what the old 100 ms allowed.
+  To reproduce: `fixtures/pinmap_bench.py --repeat 5 --set
+  pins_anneal_moves=750`. With every step in one pose (`pins.anneal_moves`
+  100000, `pins.budget_steps` 3000) the same took 0.069 s; 100 ms was then
+  about 5000 steps. The probe's
+  `pins.probe_budget_steps` (150000) is the same 50 times over, as 5000 ms
+  was 100 ms. Replaced settings: `pins.budget_ms` and `pins.probe_budget_ms`
+  are refused with a settings error naming their replacements (a time does
+  not convert to a count, so nothing is carried over).
+- A wall-clock guard, `pins.guard_ms` (default 10000 ms a part, scaled with
+  the budget for a longer study; 0 is off), is a safety net against a
+  runaway study stalling a preview. It is read every 32 moves and before each
+  pose. 10 s is about 10 times the Python fallback's time for a full default
+  budget on the reference board (1.2-1.3 s under load) and about 100 times
+  the native core's. Past it the study gives no map and raises a
+  `setup.pins` warning with code `study_slow` (facts `refs`, `guard_ms`,
+  `steps`, `budget_steps`) and no `no_legal_map` problems: a map cut short by
+  the time would differ from run to run, so it is never presented as the
+  answer. Such a study is not kept for reuse, so the guard is not part of the
+  digest. `placemat apply <id> --search` says so and exits 1 (`--json`:
+  `reason: "slow"`), and an explore's report line for the group says so.
 - It runs after a run's or preview's placement, once, on the final board,
   never inside the placement search.
 - A digest of what the study reads (the studied parts' pads and nets, the
@@ -382,7 +413,11 @@ are reported beside it, not folded into the score.
 - A part with no `Pm.PinPool`: not studied, no finding.
 - Constraints that leave no legal map (a net allowed nowhere free): a
   `setup.pins` finding naming the net and the rule; the part is not studied.
-- A budget too short to finish the first map: the finding says so.
+- A budget too short to finish the first map: the finding says so. With the
+  budget in steps this needs a budget of 0, which the settings refuse; the
+  first map is never cut short.
+- A study past its wall-clock guard: a `setup.pins` `study_slow` warning and
+  no map.
 
 ## Testing
 
@@ -395,8 +430,11 @@ are reported beside it, not folded into the score.
   rotation in `pins.rotations` wins on the bend term; with only quarter
   turns listed, no 45 degree result is reported.
 - Determinism: the same board gives the same map and total twice.
-- Speed: on the reference boards the study finishes inside `pins.budget_ms`,
-  and a repeated run reuses its result.
+- Speed: on the reference boards the study finishes inside
+  `pins.budget_steps`, and a repeated run reuses its result.
+- Determinism: the Python twin under a slowed clock gives the same best map
+  as at full speed; the native core and the twin give the same study on the
+  reference board at the default budget.
 - A routed board: a net joined by copper still gets its airwire in the
   study, and the score matches the same board with its copper removed.
 - A real fixture board with an MCU: the study's best map beats the present
@@ -408,7 +446,7 @@ are reported beside it, not folded into the score.
 `pins.impedance_weight`, `pins.length_weight`, `pins.bend_weight`,
 `pins.group_weight`,
 `pins.rotations`, `pins.seeds`,
-`pins.budget_ms`, `pins.faces`, `pins.gain_min`, `pins.placed_share_min`,
+`pins.budget_steps`, `pins.probe_budget_steps`, `pins.guard_ms`, `pins.faces`, `pins.gain_min`, `pins.placed_share_min`,
 `pins.explore_top`, each with a default and a line in the settings table.
 
 ## Build notes
@@ -466,3 +504,16 @@ has found by then, varies from run to run.
 Real-board tests (`tests/test_pinmap_real.py --full`): both pass. The full
 suite passed (5693 passed, 22 skipped), and `fixtures/bench.py --jobs 2`
 matched `bench.json` in every case (33 same in each configuration).
+
+Steps in place of a time (`fixtures/pinmap_bench.py --repeat 5`, median, the
+MCU alone, default settings; another session's load on the machine, load
+average about 7):
+
+| core   | time per part | steps         | budget spent | present total | best total |
+|--------|---------------|---------------|--------------|---------------|------------|
+| native | 0.020 s       | 400 of 3000   | no           | 1469.776      | 1204.322   |
+| Python | 0.241 s       | 400 of 3000   | no           | 1469.776      | 1204.322   |
+
+Both cores now search every pose and give the same best on every run; the
+Python fallback no longer stops part way at a time, so it takes about twice
+as long as before (0.107 s) and finds the native core's best each time.

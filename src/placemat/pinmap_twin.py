@@ -22,9 +22,13 @@ poses, returns the best assignment of the movable nets to pins with its tallies:
   placing of its ends, so a move recounts only the nets it touches;
 - search: a first map (each hard group, then each soft group, on the cheapest run of pins that leaves the rest a
   matching, then a minimum-cost matching), then per seed `moves` moves, swaps and group moves (a soft group's too)
-  under annealing from `t0` down to `t1`, checking the
-  clock every 32 moves and between poses. A group's empty slots are reserved where it stands: no single net takes
-  one. At the present pose the present map is a candidate too."""
+  under annealing from `t0` down to `t1`. A group's empty slots are reserved where it stands: no single net takes
+  one. At the present pose the present map is a candidate too;
+- budget: the search stops when it has taken `budget_steps` steps, a step being one move of a local search (tried
+  whether or not a legal change came of it, and whether or not it was taken), checked before each move and before each
+  pose. It never reads the time, so where it stops is the same on any machine and on either core;
+- guard: a safety net on the time, `guard_ms` (0 is off), read every 32 moves and before each pose. Past it the study
+  gives no map (`slow`): a map cut short by the time would differ from run to run."""
 from __future__ import annotations
 
 import math
@@ -66,19 +70,25 @@ def stream_seed(seed_key: int, combo: int, seed: int) -> int:
 
 
 class Clock:
-    """A budget in milliseconds. With `step_ms` above 0 it is a counted clock: each question advances it by that much
-    (a test's, and the same in both twins); otherwise it reads the time."""
+    """The search's budget in steps (one step: one move of a local search) and its wall-clock guard in ms (0 is off)."""
 
-    def __init__(self, budget_ms: float, step_ms: float = 0.0):
-        self.budget, self.step, self.elapsed = budget_ms, step_ms, 0.0
+    def __init__(self, budget_steps: int, guard_ms: float = 0.0):
+        self.budget, self.guard, self.steps = budget_steps, guard_ms, 0
         self.start = time.perf_counter()
 
-    def out(self) -> bool:
-        if self.step > 0:
-            self.elapsed += self.step
-        else:
-            self.elapsed = (time.perf_counter() - self.start) * 1000.0
-        return self.elapsed >= self.budget
+    def take(self) -> bool:
+        """Whether a step is left: if so it is taken."""
+        if self.steps >= self.budget:
+            return False
+        self.steps += 1
+        return True
+
+    def spent(self) -> bool:
+        return self.steps >= self.budget
+
+    def slow(self) -> bool:
+        """Whether the guard is on and the time is past it."""
+        return self.guard > 0 and (time.perf_counter() - self.start) * 1000.0 >= self.guard
 
 
 def total_order(x: float) -> int:
@@ -760,9 +770,9 @@ def _exp(x: float) -> float:
 
 
 def anneal(sc: Scorer, group_parts, start: list, params, combo: int, clock: Clock, present: list | None = None) -> tuple:
-    """(best assignment, its total, whether the clock ran out) from `start`, over the seeds. The best starts as `start`,
-    or as `present` when that scores lower: at the present pose the study never reports a map worse than the one the
-    part has."""
+    """(best assignment, its total, why it stopped early: None, "budget" or "slow") from `start`, over the seeds. The
+    best starts as `start`, or as `present` when that scores lower: at the present pose the study never reports a map
+    worse than the one the part has."""
     pb = sc.pb
     seeds, moves, t0, t1, seed_key = params["seeds"], params["moves"], params["t0"], params["t1"], params["seed_key"]
     best, best_v = list(start), sc.total(start)[0]
@@ -777,8 +787,10 @@ def anneal(sc: Scorer, group_parts, start: list, params, combo: int, clock: Cloc
         rng = SplitMix64(stream_seed(seed_key, combo, s))
         tally, st = Tally(sc, start), _State(pb, start)
         for k in range(n):
-            if k % 32 == 0 and clock.out():
-                return best, best_v, True
+            if k % 32 == 0 and clock.slow():
+                return best, best_v, "slow"
+            if not clock.take():
+                return best, best_v, "budget"
             temp = t0 * (t1 / t0) ** (k / span) if t0 > 0 and t1 > 0 else 0.0
             got = _propose(rng, st, pb, units)
             if got is None:
@@ -793,7 +805,7 @@ def anneal(sc: Scorer, group_parts, start: list, params, combo: int, clock: Cloc
                 st.commit(got)
                 if tally.value < best_v - 1e-9:
                     best, best_v = list(tally.assign), tally.value
-    return best, best_v, False
+    return best, best_v, None
 
 
 def _indexes(pb, group_parts, combos) -> str | None:
@@ -858,8 +870,9 @@ def _as_native(pb):
 
 def search(pb, group_parts, combos, params) -> tuple:
     """The study of one group, as the native core's `pinmap_search` returns it: (present tallies, present paths,
-    [(combo, tallies, assignment, paths)], budget_out, first_map, [(part, net)] no matching placed). An index out of
-    range, or a pin normal off the four axes, is refused with ValueError, as the native core refuses it."""
+    [(combo, tallies, assignment, paths)], budget_out, first_map, [(part, net)] no matching placed, steps taken, slow).
+    A study past its guard (`slow`) gives no poses and no problems. An index out of range, or a pin normal off the four axes, is refused
+    with ValueError, as the native core refuses it."""
     what = _indexes(pb, group_parts, combos)
     if what is not None:
         raise ValueError("%s out of range" % what)
@@ -871,7 +884,7 @@ def search(pb, group_parts, combos, params) -> tuple:
     pb = _as_native(pb)
     w = tuple(float(x) for x in params["weights"])
     bg = Background(pb.wires, w)
-    clock = Clock(params["budget_ms"], params["step_ms"])
+    clock = Clock(params["budget_steps"], params["guard_ms"])
     present = [tuple(q for _, q in e) for e in pb.ends]
     present_poses = [Pose(p[1], p[2], _frame(pb, k)) for k, p in enumerate(pb.parts)]
     sc0 = Scorer(pb, present_poses, w, bg, group_parts)
@@ -879,7 +892,9 @@ def search(pb, group_parts, combos, params) -> tuple:
     base_paths = sc0.paths(present)
     results, out, first, problems = [], False, True, []
     for k, combo in enumerate(combos):
-        if clock.out():
+        if clock.slow():
+            return base, base_paths, [], out, first, [], clock.steps, True
+        if clock.spent():
             out = True
             if k == 0:
                 first = False
@@ -893,11 +908,13 @@ def search(pb, group_parts, combos, params) -> tuple:
             if p not in problems:
                 problems.append(p)
         if said and k == 0:
-            return base, base_paths, [], False, True, problems
+            return base, base_paths, [], False, True, problems, clock.steps, False
         at_present = all(float(turn) % 360.0 == 0.0 and not flip for _, turn, flip in combo)
-        best, _, ran_out = anneal(sc, group_parts, start, params, k, clock, present if at_present else None)
+        best, _, stop = anneal(sc, group_parts, start, params, k, clock, present if at_present else None)
+        if stop == "slow":
+            return base, base_paths, [], out, first, [], clock.steps, True
         results.append((k, sc.total(best), [list(x) for x in best], sc.paths(best)))
-        if ran_out:
+        if stop == "budget":
             out = True
             break
-    return base, base_paths, results, out, first, problems
+    return base, base_paths, results, out, first, problems, clock.steps, False

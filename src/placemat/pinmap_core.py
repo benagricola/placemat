@@ -111,6 +111,10 @@ class GroupResult:
     first_map: bool
     problems: tuple = ()        # (ref, net) a matching could not place
     present_groups: tuple = ()  # Landing of each group as it stands
+    steps: int = 0              # the steps the search took (one step: one move of a local search)
+    budget_steps: int = 0       # the steps it had
+    slow: bool = False          # past its wall-clock guard: no poses, no map
+    guard_ms: float = 0.0       # the guard it had (0 is off)
 
 
 def problem_of(inp, margin: float) -> Problem:
@@ -185,13 +189,25 @@ def seed_key(refs) -> int:
     return int.from_bytes(hashlib.sha256(",".join(refs).encode()).digest()[:8], "little")
 
 
-def params_of(settings, refs, step_ms: float = 0.0, budget_ms: float | None = None) -> dict:
+def budget_of(settings, refs, budget_steps: int | None = None) -> int:
+    """A group's budget in steps: `pins.budget_steps` for each of its parts, unless given."""
+    return int(settings.pins_budget_steps * len(refs) if budget_steps is None else budget_steps)
+
+
+def guard_of(settings, refs, budget_steps: int | None = None) -> float:
+    """A group's wall-clock guard in ms: `pins.guard_ms` for each of its parts, scaled with a budget given in place of
+    `pins.budget_steps` (a longer study is given a longer guard); 0 is off."""
+    return float(settings.pins_guard_ms) * budget_of(settings, refs, budget_steps) / float(settings.pins_budget_steps)
+
+
+def params_of(settings, refs, budget_steps: int | None = None, guard_ms: float | None = None) -> dict:
     return {"weights": (settings.pins_pair_weight, settings.pins_impedance_weight, settings.score_crossing_plane,
                         settings.pins_length_weight, settings.pins_bend_weight, settings.pins_group_weight),
             "seeds": int(settings.pins_seeds), "moves": int(settings.pins_anneal_moves),
             "t0": float(settings.pins_anneal_start), "t1": float(settings.pins_anneal_end),
-            "budget_ms": float(settings.pins_budget_ms * len(refs) if budget_ms is None else budget_ms),
-            "step_ms": float(step_ms), "seed_key": seed_key(refs)}
+            "budget_steps": budget_of(settings, refs, budget_steps),
+            "guard_ms": float(guard_of(settings, refs, budget_steps) if guard_ms is None else guard_ms),
+            "seed_key": seed_key(refs)}
 
 
 def native_core():
@@ -202,7 +218,8 @@ def native_core():
 
 def search(pb: Problem, group_parts: list, combos: list, params: dict, native=True) -> tuple:
     """The one entry point: (present breakdown, present paths, [(combo, breakdown, assignment, paths)], budget_out,
-    first_map, [(part, net)]), from the native core when it is in use (and `native`), else the Python twin."""
+    first_map, [(part, net)], steps taken, slow), from the native core when it is in use (and `native`), else the
+    Python twin."""
     core = native_core() if native else None
     if core is None:
         from . import pinmap_twin
@@ -215,8 +232,8 @@ def search(pb: Problem, group_parts: list, combos: list, params: dict, native=Tr
         [(p, float(pitch), [tuple(m) for m in ms], [list(x) for x in ws]) for p, pitch, ms, ws in pb.soft],
         [float(f) for f in pb.frames] or [0.0] * len(pb.parts), [bool(c) for c in pb.controlled] or [False] * len(pb.nets),
         list(group_parts), [[(p, float(t), bool(f)) for p, t, f in c] for c in combos],
-        tuple(w), (pb.margin, params["seeds"], params["moves"], params["t0"], params["t1"], params["budget_ms"],
-                   params["step_ms"], params["seed_key"]))
+        tuple(w), (pb.margin, params["seeds"], params["moves"], params["t0"], params["t1"], params["budget_steps"],
+                   params["guard_ms"], params["seed_key"]))
 
 
 def _breakdown(t) -> Breakdown:
@@ -248,11 +265,12 @@ def landings(inp, refs, assign: dict, weight: float) -> tuple:
     return tuple(out)
 
 
-def study_group(inp, refs: tuple, settings, step_ms: float = 0.0, budget_ms: float | None = None, native=True,
+def study_group(inp, refs: tuple, settings, budget_steps: int | None = None, guard_ms: float | None = None, native=True,
                 pb: Problem | None = None) -> GroupResult:
     """The study of one group of parts: every combination of their poses (the present first, at most
-    `pins.joint_combinations`), each from its first map through the local search, in the core. Parts studied as one
-    cell take one pose together."""
+    `pins.joint_combinations`), each from its first map through the local search, in the core, until it has taken its
+    budget of steps (`budget_steps`, else `pins.budget_steps` a part). Parts studied as one cell take one pose
+    together. Past its wall-clock guard (`guard_ms`, else guard_of) it gives no poses (`slow`)."""
     pb = pb or problem_of(inp, settings.pins_exit_mm)
     part_at = {p.ref: i for i, p in enumerate(inp.parts)}
     group_parts = [part_at[r] for r in refs]
@@ -266,8 +284,8 @@ def study_group(inp, refs: tuple, settings, step_ms: float = 0.0, budget_ms: flo
     total = 1
     for l in lists:
         total *= len(l)
-    base, base_paths, results, out, first, problems = search(pb, group_parts, combos, params_of(settings, refs, step_ms,
-                                                                                                  budget_ms), native)
+    params = params_of(settings, refs, budget_steps, guard_ms)
+    base, base_paths, results, out, first, problems, steps, slow = search(pb, group_parts, combos, params, native)
 
     def assign_of(pins) -> dict:
         return {pb.nets[n][0]: tuple((pb.parts[pb.ends[n][k][0]][0], pb.pins[pb.ends[n][k][0]][q][0])
@@ -285,7 +303,7 @@ def study_group(inp, refs: tuple, settings, step_ms: float = 0.0, budget_ms: flo
     here = assign_of(present)
     return GroupResult(tuple(refs), _breakdown(base), here, paths_of(base_paths), tuple(rows), len(rows), total,
                        bool(out), bool(first), tuple((pb.parts[p][0], pb.nets[n][0]) for p, n in problems),
-                       landings(inp, refs, here, w))
+                       landings(inp, refs, here, w), int(steps), params["budget_steps"], bool(slow), params["guard_ms"])
 
 
 def linked_groups(inp) -> list:
@@ -316,9 +334,9 @@ def movable_count(inp, refs) -> int:
     return sum(len(inp.part(r).slots.movable) for r in refs)
 
 
-def study(inp, settings, step_ms: float = 0.0, native=True) -> list:
+def study(inp, settings, native=True) -> list:
     """Every group's study (GroupResult), the arrays built once for all of them; a group with no net that may move (each
     one waiting on placement) is not searched."""
     pb = problem_of(inp, settings.pins_exit_mm)
-    return [study_group(inp, refs, settings, step_ms=step_ms, native=native, pb=pb) for refs in linked_groups(inp)
+    return [study_group(inp, refs, settings, native=native, pb=pb) for refs in linked_groups(inp)
             if movable_count(inp, refs)]

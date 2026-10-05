@@ -4501,10 +4501,19 @@ and whole-group moves under annealing. The score and
 the search run in the native module when it is in use, else in its Python
 twin, which gives the same maps (`setup.native` says when it is not). Parts
 whose movable nets meet are studied together, their poses in combination, at
-most `pins.joint_combinations`. Seeds are fixed, so a board gives the same map twice. A study stops at `pins.budget_ms` a part
+most `pins.joint_combinations`. Seeds are fixed, so a board gives the same map twice. A study stops at `pins.budget_steps` a part
 with the best found; the finding's facts say so (`budget_out`, with `searched`
-of `of` poses). The budget matters on the Python fallback, which may stop
-before it has searched every pose. What a study reads is digested and kept in
+of `of` poses and `steps` of `budget_steps`). A step is one move of a local
+search, tried whether or not it is taken. The budget is a count, never a time,
+so a board gives the same map on any machine, at any load, on either core; the
+Python fallback takes longer to get there. A wall-clock guard,
+`pins.guard_ms` a part (10000 ms, 0 is off; scaled with the budget for
+`--search`), stops a runaway study: past it the study gives no map, and a
+`setup.pins` warning with code `study_slow` (facts `refs`, `guard_ms`, `steps`,
+`budget_steps`) says so, and the group gives no `no_legal_map` problem. A study
+that tripped the guard is not kept for reuse, so a kept result is always
+complete and the guard is not part of its digest.
+What a study reads is digested and kept in
 `.placemat/pinmap/<script>.json`; a run or a preview of an unchanged board
 reuses it. A study that raises leaves the run standing: the error is on
 `metrics.pin_study` and a `setup.pins` warning with code `study_failed` (facts
@@ -4569,6 +4578,7 @@ last study reused (0.02 s)` or `pins  the study failed with <type>: <message>`.
 | `no_legal_pin`, `no_legal_map` | the constraints leave a net no pin (`held_net` and `held_pin` name the net holding its only pin); the part is not studied |
 | `present_breaks` | the net `name` stands on pin `pin`, against its own `rule` (`Pm.PinAllow` or `Pm.PinDeny`). Raised whether or not a remap is reported: the capture breaks its own rule |
 | `study_failed` | the study raised; `type` and `message` |
+| `study_slow` | the study of the part's group ran past `pins.guard_ms` and gives no map; `refs`, `guard_ms`, `steps` taken and `budget_steps` |
 
 **The finding.** `pins.remap`, a notice, when the best pose saves at least
 `pins.gain_min` of the present total. Its sentence names what each pose saves
@@ -4579,8 +4589,8 @@ crossings exists at its present rotation; at 90 degrees, 11 fewer weighted
 crossings and 3.2 mm more airwire". A soft group the best map leaves split, 0.05 mm or more, is named with its
 spread ("group lcd ends split, 0.7 mm beyond its pin pitch"), and a map that
 closes a soft group up says so ("group lcd brought together", or "nearer
-together"). A study that ran out of budget
-before a first map says so instead. Facts: `ref`, `refs`, `at`, `present` (the present
+together"). A study given no steps (a budget of 0, which only a direct call of
+the core can give) says so instead. Facts: `ref`, `refs`, `at`, `present` (the present
 map's score), `rotations` (the best map at each pose, the present pose first:
 `total`, `against`, `among` as crossing counts, `weighted`, `length_mm`,
 `bend_deg`, `impedance_length_mm` (the controlled impedances' share of the
@@ -4596,8 +4606,8 @@ moved nets with copper on the board now: a remap means routing them again),
 net's pad on a part not placed, as `{net, ref}`, with `via` and `far` when it is
 on a series part's far net, and net `""` for a cell member not placed that
 carries none), `in_cell` (`{net, ref}`), `present_breaks`, `searched`, `of`,
-`budget_out`, `first_map` (false when the budget ran out before a first map)
-and `budget_ms`. A part in a cell adds `cell`, `module` (null when the board
+`budget_out`, `first_map` (false when the budget had no step for a first map),
+`steps` (the steps taken) and `budget_steps`. A part in a cell adds `cell`, `module` (null when the board
 does not name it), `stamps` and `arrangement`, and the best pose's
 `cell_rotation_deg` and `module_rotation_deg`; each of its `turns` carries the
 same six, and `stamp_maps` (`cell`, `ref`, `moves` as `{from, to}` pin
@@ -4614,12 +4624,16 @@ draws the airwires before (dashed) and after (solid) and lists the map; it
 resolves and writes nothing.
 
 `placemat apply <id> --search` on a pins suggestion studies its parts again, on
-the board as the last run placed it, with `pins.probe_budget_ms` a part. A
+the board as the last run placed it, with `pins.probe_budget_steps` a part. A
 better map is kept as `<id>.1`, as advice, and `--json` gives `{id, study,
 found}`. When the study raises, the command exits 1 with the error (`--json`:
 `error` `{type, message}`, `study` and `found` null). When the parts are no
 longer studied on the board, it exits 1, and `--json` carries `reason:
-"not_studied"`.
+"not_studied"`. When the study runs past its wall-clock guard (`pins.guard_ms`
+a part, scaled with the longer budget), it gives no map, says so with the steps
+taken, exits 1 and keeps nothing; `--json` carries `reason: "slow"` and a
+`study` of `{refs, slow, guard_ms, steps, budget_steps}`. In an explore's
+report such a group's line says it ran past the guard, with no map.
 
 ## Findings and severities
 
@@ -5070,13 +5084,14 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.anneal_moves` | `100` | count | moves each local search of the pin map study tries |
 | `pins.anneal_start` | `1.0` | weight | the pin map study's annealing temperature at its first move, in weighted crossings: a move that costs this much is taken about one time in three (0: only moves that gain) |
 | `pins.anneal_end` | `0.02` | weight | the pin map study's annealing temperature at its last move |
-| `pins.budget_ms` | `100` | ms | the pin map study's time for each studied part: it stops there with the best map found and says so |
+| `pins.budget_steps` | `3000` | steps | the pin map study's search for each studied part, in steps (one step is one move of a local search, tried whether or not it is taken): it stops there with the best map found and says so, so a board gives the same map at any speed |
 | `pins.joint_combinations` | `64` | count | the most pose combinations the pin map study searches for parts it studies together, their present poses first |
 | `pins.faces` | `false` | bool | the pin map study also turns a part on the other face where its declaration lets it stand there (`face=Face.EITHER`) |
 | `pins.gain_min` | `0.05` | share | the share of the present total a better pin map must save for a `pins.remap` finding |
 | `pins.placed_share_min` | `0.8` | share | the share of a studied group's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement |
 | `pins.explore_top` | `3` | count | the best variants of an explore, by run score, the pin map study runs on (0: none) |
-| `pins.probe_budget_ms` | `5000` | ms | the pin map study's time for each part when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
+| `pins.probe_budget_steps` | `150000` | steps | the pin map study's search for each part, in steps, when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
+| `pins.guard_ms` | `10000.0` | ms | a safety net on the pin map study's time for each studied part, scaled with its budget for a longer study: past it the study gives no map and says so in a `setup.pins` warning; 0 is off |
 | `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream` |
 | `route.quick` | `true` | bool | one routing round rather than the router's full run |

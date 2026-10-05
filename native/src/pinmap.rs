@@ -19,8 +19,12 @@
 //!   its ends, so a move recounts only the nets it touches.
 //! - Search: a first map (each hard group, then each soft group, on the cheapest run of pins that leaves the rest a
 //!   matching, then a minimum-cost matching), then per seed `moves` moves, swaps and group moves (a soft group's too)
-//!   under annealing from `t0` down to `t1`, the clock
-//!   checked every 32 moves and between poses. The random stream is SplitMix64, the twin's.
+//!   under annealing from `t0` down to `t1`. The random stream is SplitMix64, the twin's.
+//! - Budget: the search stops when it has taken `budget_steps` steps, a step being one move of a local search (tried
+//!   whether or not a legal change came of it, and whether or not it was taken), checked before each move and before
+//!   each pose. It never reads the time, so where it stops is the same on any machine and on either core.
+//! - Guard: a safety net on the time, `guard_ms` (0 is off), read every 32 moves and before each pose. Past it the
+//!   study gives no map (`slow`): a map cut short by the time would differ from run to run.
 
 use crate::exact::hypot;
 use crate::pinmap_geom::{bend, exit_of, length, route, End, Exit, Pose};
@@ -80,8 +84,8 @@ pub struct Params {
     pub moves: u32,
     pub t0: f64,
     pub t1: f64,
-    pub budget_ms: f64,
-    pub step_ms: f64,
+    pub budget_steps: u64,
+    pub guard_ms: f64,
     pub seed_key: u64,
 }
 
@@ -115,22 +119,40 @@ pub fn stream_seed(seed_key: u64, combo: usize, seed: usize) -> u64 {
     seed_key ^ ((combo as u64) << 32) ^ (seed as u64)
 }
 
+/// `pinmap_twin.Clock`: the search's budget in steps (one step: one move of a local search) and its wall-clock guard
+/// in ms (0 is off).
 struct Clock {
-    budget: f64,
-    step: f64,
-    elapsed: f64,
+    budget: u64,
+    guard: f64,
+    steps: u64,
     start: Instant,
 }
 
 impl Clock {
-    fn out(&mut self) -> bool {
-        if self.step > 0.0 {
-            self.elapsed += self.step;
-        } else {
-            self.elapsed = self.start.elapsed().as_secs_f64() * 1000.0;
+    /// Whether a step is left: if so it is taken.
+    fn take(&mut self) -> bool {
+        if self.steps >= self.budget {
+            return false;
         }
-        self.elapsed >= self.budget
+        self.steps += 1;
+        true
     }
+
+    fn spent(&self) -> bool {
+        self.steps >= self.budget
+    }
+
+    /// Whether the guard is on and the time is past it.
+    fn slow(&self) -> bool {
+        self.guard > 0.0 && self.start.elapsed().as_secs_f64() * 1000.0 >= self.guard
+    }
+}
+
+/// Why a local search stopped before its last move.
+#[derive(PartialEq)]
+enum Stop {
+    Budget,
+    Slow,
 }
 
 fn one(w: &[f64; 6], k: u8) -> f64 {
@@ -1013,10 +1035,11 @@ fn propose(rng: &mut SplitMix64, st: &State, pb: &Problem, units: &[Unit]) -> Op
     }
 }
 
-/// The local search from `start`. Its best starts as `start`, or as `present` when that scores lower: at the present
-/// pose the study never reports a map worse than the one the part has.
+/// The local search from `start`: its best, the best's total, and why it stopped early, if it did. Its best starts as
+/// `start`, or as `present` when that scores lower: at the present pose the study never reports a map worse than the
+/// one the part has.
 fn anneal(sc: &mut Scorer, group_parts: &[usize], start: &[Pins], present: Option<&[Pins]>, pr: &Params, combo: usize,
-          clock: &mut Clock) -> (Vec<Pins>, f64, bool) {
+          clock: &mut Clock) -> (Vec<Pins>, f64, Option<Stop>) {
     let pb = sc.pb;
     let mut best = start.to_vec();
     let mut best_v = sc.total(start).0;
@@ -1034,8 +1057,11 @@ fn anneal(sc: &mut Scorer, group_parts: &[usize], start: &[Pins], present: Optio
         let mut tally = Tally::new(sc, start);
         let mut st = State::new(pb, start);
         for k in 0..n {
-            if k % 32 == 0 && clock.out() {
-                return (best, best_v, true);
+            if k % 32 == 0 && clock.slow() {
+                return (best, best_v, Some(Stop::Slow));
+            }
+            if !clock.take() {
+                return (best, best_v, Some(Stop::Budget));
             }
             let temp = if pr.t0 > 0.0 && pr.t1 > 0.0 {
                 pr.t0 * (pr.t1 / pr.t0).powf(k as f64 / (n.saturating_sub(1).max(1)) as f64)
@@ -1062,16 +1088,17 @@ fn anneal(sc: &mut Scorer, group_parts: &[usize], start: &[Pins], present: Optio
             }
         }
     }
-    (best, best_v, false)
+    (best, best_v, None)
 }
 
-pub type SearchResult = (Tallies, Paths, Vec<(usize, Tallies, Vec<Pins>, Paths)>, bool, bool, Vec<(usize, usize)>);
+pub type SearchResult =
+    (Tallies, Paths, Vec<(usize, Tallies, Vec<Pins>, Paths)>, bool, bool, Vec<(usize, usize)>, u64, bool);
 
 /// `pinmap_twin.search`: (present tallies, present paths, [(combo, tallies, assignment, paths)], budget_out, first_map,
-/// [(part, net)] no matching placed).
+/// [(part, net)] no matching placed, steps taken, slow). A study past its guard (`slow`) gives no poses and no problems.
 pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bool)>], pr: &Params) -> SearchResult {
     let bg = Background::new(&pb.wires, pr.w);
-    let mut clock = Clock { budget: pr.budget_ms, step: pr.step_ms, elapsed: 0.0, start: Instant::now() };
+    let mut clock = Clock { budget: pr.budget_steps, guard: pr.guard_ms, steps: 0, start: Instant::now() };
     let present: Vec<Pins> = pb.ends.iter().map(|e| e.iter().map(|x| x.1).collect()).collect();
     let present_poses: Vec<Pose> =
         pb.parts.iter().enumerate().map(|(k, p)| Pose::new(p.1, p.2, frame(pb, k), false)).collect();
@@ -1080,7 +1107,10 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
     let base_paths = sc0.paths(&present);
     let (mut results, mut out, mut first, mut problems) = (Vec::new(), false, true, Vec::new());
     for (k, combo) in combos.iter().enumerate() {
-        if clock.out() {
+        if clock.slow() {
+            return (base, base_paths, Vec::new(), out, first, Vec::new(), clock.steps, true);
+        }
+        if clock.spent() {
             out = true;
             if k == 0 {
                 first = false;
@@ -1105,20 +1135,23 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
             }
         }
         if !said.is_empty() && k == 0 {
-            return (base, base_paths, Vec::new(), false, true, problems);
+            return (base, base_paths, Vec::new(), false, true, problems, clock.steps, false);
         }
         let at_present = combo.iter().all(|&(_, turn, flip)| turn.rem_euclid(360.0) == 0.0 && !flip);
-        let (best, _, ran_out) = anneal(sc, group_parts, &start, if at_present { Some(&present) } else { None }, pr, k,
-                                        &mut clock);
+        let (best, _, stop) = anneal(sc, group_parts, &start, if at_present { Some(&present) } else { None }, pr, k,
+                                     &mut clock);
+        if stop == Some(Stop::Slow) {
+            return (base, base_paths, Vec::new(), out, first, Vec::new(), clock.steps, true);
+        }
         let t = sc.total(&best);
         let paths = sc.paths(&best);
         results.push((k, t, best, paths));
-        if ran_out {
+        if stop == Some(Stop::Budget) {
             out = true;
             break;
         }
     }
-    (base, base_paths, results, out, first, problems)
+    (base, base_paths, results, out, first, problems, clock.steps, false)
 }
 
 #[cfg(test)]
@@ -1154,12 +1187,26 @@ mod tests {
     #[test]
     fn four_nets_in_reverse_order_are_uncrossed() {
         let pb = reversed_four();
-        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005, 1.0], seeds: 3, moves: 400, t0: 1.0, t1: 0.02, budget_ms: 60000.0,
-                          step_ms: 0.0, seed_key: 7 };
-        let (base, _, results, out, first, problems) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &pr);
+        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005, 1.0], seeds: 3, moves: 400, t0: 1.0, t1: 0.02, budget_steps: 1 << 40,
+                          guard_ms: 0.0, seed_key: 7 };
+        let (base, _, results, out, first, problems, _, _) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &pr);
         assert_eq!((base.2, out, first, problems.len()), (6, false, true, 0));
         assert_eq!(results[0].1 .2, 0);
         assert_eq!(results[0].2, vec![vec![3], vec![2], vec![1], vec![0]]);
+    }
+
+    #[test]
+    fn the_search_stops_at_its_budget_in_steps_and_gives_no_map_past_its_guard() {
+        let pb = reversed_four();
+        let combos = [vec![(0, 0.0, false)], vec![(0, 90.0, false)]];
+        let pr = |budget_steps, guard_ms| Params { w: [5.0, 3.0, 0.0, 0.25, 0.005, 1.0], seeds: 2, moves: 50, t0: 1.0,
+                                                  t1: 0.02, budget_steps, guard_ms, seed_key: 7 };
+        let (_, _, results, out, _, _, steps, slow) = search(&pb, &[0], &combos, &pr(1 << 40, 0.0));
+        assert_eq!((results.len(), out, steps, slow), (2, false, 200, false));
+        let (_, _, results, out, _, _, steps, slow) = search(&pb, &[0], &combos, &pr(130, 0.0));
+        assert_eq!((results.len(), out, steps, slow), (2, true, 130, false));
+        let (_, _, results, _, _, _, _, slow) = search(&pb, &[0], &combos, &pr(1 << 40, 1e-9));
+        assert_eq!((results.len(), slow), (0, true));
     }
 
     /// A group of three on pins 2-4 whose middle net an allow rule holds on 3: its windows are 2-4 (where it stands)
@@ -1185,9 +1232,9 @@ mod tests {
     fn at_the_present_pose_the_best_is_never_worse_than_the_present_map() {
         // one seed of 100 moves from the first map ends on the 4-6 window, worse than where the group stands
         let pb = held_group();
-        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005, 1.0], seeds: 1, moves: 100, t0: 1.0, t1: 0.02, budget_ms: 60000.0,
-                          step_ms: 0.0, seed_key: 15606770251161693233 };
-        let (base, _, results, _, _, _) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &pr);
+        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005, 1.0], seeds: 1, moves: 100, t0: 1.0, t1: 0.02, budget_steps: 1 << 40,
+                          guard_ms: 0.0, seed_key: 15606770251161693233 };
+        let (base, _, results, _, _, _, _, _) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &pr);
         assert_eq!(results[0].2, vec![vec![0], vec![1], vec![2], vec![3]]);
         assert_eq!(results[0].1 .0.to_bits(), base.0.to_bits());
     }

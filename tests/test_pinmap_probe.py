@@ -1,4 +1,4 @@
-"""`placemat apply <id> --search` on a pin map suggestion studies its parts again with `pins.probe_budget_ms` a part,
+"""`placemat apply <id> --search` on a pin map suggestion studies its parts again with `pins.probe_budget_steps` a part,
 on the board as the last run placed it, and keeps a better map as `<id>.1`."""
 import json
 from types import SimpleNamespace
@@ -22,7 +22,7 @@ def kept_worse(tmp_path, monkeypatch, b, plan):
     script.write_text("")
     sg.keep(tmp_path, script, "run 1", [s])
     monkeypatch.setattr(previewer, "resolve_like_last_run", lambda path: (b, plan, None, "1"))
-    monkeypatch.setattr(settings_mod, "load", lambda *a, **k: settings(pins_probe_budget_ms=1000))
+    monkeypatch.setattr(settings_mod, "load", lambda *a, **k: settings(pins_probe_budget_steps=30000))
     return script, s
 
 
@@ -30,9 +30,9 @@ def test_a_longer_study_offers_a_map_only_when_it_beats_the_one_suggested():
     b = board()
     plan = b.resolve()
     s = advice_of(plan)
-    assert longer_advice(b, plan, s.advice, 2000)[0] is None             # this board has nothing better to find
+    assert longer_advice(b, plan, s.advice, 60000)[0] is None             # this board has nothing better to find
     worse = dict(s.advice, total=s.advice["total"] + 1.0)
-    better, g = longer_advice(b, plan, worse, 2000)
+    better, g = longer_advice(b, plan, worse, 60000)
     assert better["total"] == g["best"]["total"] < worse["total"] and better["map"] == s.advice["map"]
 
 
@@ -108,3 +108,30 @@ def test_a_panic_in_the_native_core_exits_non_zero_with_its_error(tmp_path, monk
     monkeypatch.setattr("placemat.pinmap.plan_summary", panics)
     assert cli._pin_search(SimpleNamespace(json=True), tmp_path, script, s) == 1
     assert json.loads(capsys.readouterr().out)["error"] == {"type": "PanicException", "message": "index out of bounds"}
+
+
+def _tripped(tmp_path, monkeypatch):
+    from dataclasses import replace
+    b = board()
+    plan = b.resolve()
+    script, s = kept_worse(tmp_path, monkeypatch, b, plan)
+    b.settings = replace(b.settings, pins_guard_ms=1e-9)
+    return script, s
+
+
+def test_a_longer_study_past_its_guard_says_so_and_keeps_nothing(tmp_path, monkeypatch, capsys):
+    script, s = _tripped(tmp_path, monkeypatch)
+    assert cli._pin_search(SimpleNamespace(json=False), tmp_path, script, s) == 1
+    seen = capsys.readouterr()
+    assert "s1a: the study of U1 ran past its wall-clock guard, pins.guard_ms of " in seen.out + seen.err
+    assert "; no map is given" in seen.out + seen.err
+    kept = sg.recall(tmp_path, script)[str(script.resolve())]["suggestions"]
+    assert [x.id for x in kept] == ["s1a"]
+
+
+def test_a_longer_study_past_its_guard_gives_its_reason_in_json(tmp_path, monkeypatch, capsys):
+    script, s = _tripped(tmp_path, monkeypatch)
+    assert cli._pin_search(SimpleNamespace(json=True), tmp_path, script, s) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["reason"] == "slow" and out["found"] is None and out["study"]["slow"] is True
+    assert out["study"]["steps"] == 0 and out["study"]["budget_steps"] == 30000

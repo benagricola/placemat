@@ -11,8 +11,8 @@ from placemat.pinmap import study_findings
 from tests.pinmap_boards import complete, point_pad, quad, reversed_four, settings
 
 
-def study(pads, parts, s=None, copper=frozenset(), cache=None, step_ms=0.0):
-    return study_findings(pads, complete(pads, parts), {}, frozenset(), {}, {}, s or settings(), copper, cache, step_ms)
+def study(pads, parts, s=None, copper=frozenset(), cache=None):
+    return study_findings(pads, complete(pads, parts), {}, frozenset(), {}, {}, s or settings(), copper, cache)
 
 
 def test_a_better_map_is_a_notice_with_its_facts_and_its_sentence():
@@ -61,11 +61,24 @@ def test_the_moved_nets_with_copper_now_are_named():
     assert f.facts["routed"] == ["A"] and f.endswith("; 1 of the nets it moves has copper now: A")
 
 
-def test_a_budget_too_short_for_a_first_map_says_so():
-    found, _ = study(*reversed_four(), settings(pins_budget_ms=50), step_ms=100.0)        # out at the first question
+def test_a_study_past_its_wall_clock_guard_is_a_warning_with_no_map_and_is_not_kept(tmp_path):
+    cache = tmp_path / "pinmap.json"
+    found, _ = study(*reversed_four(), settings(pins_rotations=(0.0,), pins_guard_ms=0.001, pins_budget_steps=500),
+                     cache=cache)
     (f,) = found
-    assert f == "U1: the pin map study ran out of its 50 ms before a first map; pins.budget_ms sets it"
-    assert sg.suggest(f.cause, f.facts) == []
+    assert (f.cause, f.severity, f.facts["code"]) == (C.SETUP_PINS, "warning", "study_slow")
+    assert (f.facts["guard_ms"], f.facts["steps"], f.facts["budget_steps"]) == (0.001, 0, 500)
+    assert f == ("U1: the pin map study ran past its wall-clock guard, pins.guard_ms of 0.001 ms, after 0 of its 500 "
+                 "steps; it gives no map, since one cut short by the time is not the study's answer")
+    _, again = study(*reversed_four(), settings(pins_rotations=(0.0,)), cache=cache)
+    assert again["reused"] is False
+
+
+def test_a_spent_budget_is_said_in_steps():
+    found, _ = study(*reversed_four(), settings(pins_rotations=(0.0,), pins_budget_steps=30))
+    (f,) = found
+    assert (f.facts["budget_out"], f.facts["steps"], f.facts["budget_steps"]) == (True, 30, 30)
+    assert f.endswith("; the study stopped at its budget of 30 steps after 1 of 1 poses")
 
 
 def test_the_suggestion_carries_the_map_and_the_turn_and_writes_nothing(tmp_path):
@@ -222,8 +235,10 @@ def test_settings_the_study_does_not_read_keep_the_cache():
     inp, problems = input_of(*reversed_four())
     s = settings()
     d = digest(inp, problems, frozenset(), s)
-    assert digest(inp, problems, frozenset(), settings(pins_explore_top=7, pins_probe_budget_ms=9000)) == d
+    assert digest(inp, problems, frozenset(), settings(pins_explore_top=7, pins_probe_budget_steps=9000)) == d
     assert digest(inp, problems, frozenset(), settings(pins_seeds=3)) != d
+    assert digest(inp, problems, frozenset(), settings(pins_budget_steps=77)) != d
+    assert digest(inp, problems, frozenset(), settings(pins_guard_ms=77.0)) == d          # a kept result is complete
 
 
 def test_a_pose_on_the_other_face_is_named_as_placemat_flips_a_part_standing_at_90_degrees():
