@@ -212,3 +212,30 @@ def test_the_migration_entry_names_what_a_board_must_know():
         assert word in text, word
     section = API.split("**Arrangements.**", 1)[1].split("**How a searched item finds its place.**")[0]
     assert "plan.json" in section and "place.arrangement_margin" in section
+
+
+_BOARD_SCRIPT = """from placemat import board, Alt, Beside, Edge, Location, Part
+board.rect(60, 40{draw})
+board.place(Part("u1"), at=Location(20, 15))
+board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST))
+{declaration}
+"""
+
+
+@pytest.mark.parametrize("declaration", ['board.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))',
+                                         'board.arrangement("east", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))'])
+def test_a_board_script_that_declares_alternatives_fails_saying_they_are_a_modules(tmp_path, declaration):
+    from placemat.project import FabProfile
+    from placemat.runner import RunFailure, scripted_board
+    from placemat.settings import Settings
+    from tests.arrangement_support import parts
+    from tests.fixtures import board_geometry
+    path = tmp_path / "layout.py"
+    path.write_text(_BOARD_SCRIPT.format(draw="", declaration=declaration))
+    with pytest.raises(RunFailure) as e:
+        scripted_board(path, None, Settings(), FabProfile(), True, geometry=board_geometry(parts(), width=60, height=40))
+    said = str(e.value.details.get("error", "")) + str(e.value)
+    assert "module" in said and ":5:" in said, said
+    path.write_text(_BOARD_SCRIPT.format(draw=", draw=False", declaration=declaration))      # a module: its frame is not drawn
+    b = scripted_board(path, None, Settings(), FabProfile(), True, geometry=board_geometry(parts(), width=60, height=40))
+    assert len(b.arrangement_specs()) == 2

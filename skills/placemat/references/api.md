@@ -1025,7 +1025,9 @@ out. The module run proves each on the module's own terms and writes the
 ones that pass into the fragment; the board's search chooses among them.
 A module that declares none, and a board that stamps only such modules,
 run as before. A module that adds alternatives needs its own script run
-again.
+again. Only a module's script, whose frame is not drawn, may declare
+them: a board script that does fails with a script error naming the
+declaration's line.
 
 ```python
 board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST), why="bypass at VIN")

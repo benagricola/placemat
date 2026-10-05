@@ -3504,6 +3504,21 @@ class Board:
                     raise ValueError("%s:%d: %s is drawn from or fitted round %s, which exists only in %s: give it an only= "
                                      "inside that set" % (file, line, c.key, m.key, ", ".join(m.only)))
 
+    def refuse_board_alternatives(self) -> None:
+        """Raise ValueError when a board script (its outline drawn: not a module) declares alternatives. Alternatives are a
+        module's: its run proves each one and a board that stamps it chooses among them. A run calls this once the script has
+        declared everything."""
+        if not self._draw_outline:
+            return
+        sites = [(o.file, o.line, "board.alternative") for opts in self._options.values() for o in opts] + \
+            [(g.file, g.line, "board.arrangement") for g in self._arr_groups]
+        if not sites:
+            return
+        file, line, form = min(sites, key=lambda s: s[1])
+        raise ValueError("%s:%d: %s declares an arrangement, which only a module offers: this script draws its board's "
+                         "outline, so it lays out a board. Declare it in the module's own script, whose frame is not drawn "
+                         "(board.rect(..., draw=False))" % (file, line, form))
+
     def arrangement_specs(self) -> tuple:
         """The arrangements a module run lays out, the default first, once the declarations are checked."""
         self.finish_declarations()
