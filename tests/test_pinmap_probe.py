@@ -73,3 +73,25 @@ def test_a_study_that_raises_gives_its_error_as_fields_in_json(tmp_path, monkeyp
     assert cli._pin_search(SimpleNamespace(json=True), tmp_path, script, s) == 1
     out = json.loads(capsys.readouterr().out)
     assert out["error"] == {"type": "RuntimeError", "message": "no room"} and out["found"] is None
+
+
+def test_a_group_no_longer_studied_exits_non_zero_in_text(tmp_path, monkeypatch, capsys):
+    b = board()
+    plan = b.resolve()
+    script, s = kept_worse(tmp_path, monkeypatch, b, plan)
+    monkeypatch.setattr("placemat.pinmap.plan_summary", lambda *a, **k: [])
+    assert cli._pin_search(SimpleNamespace(json=False), tmp_path, script, s) == 1
+    seen = capsys.readouterr()
+    assert "no longer studied on this board" in seen.out + seen.err
+    kept = sg.recall(tmp_path, script)[str(script.resolve())]["suggestions"]
+    assert [x.id for x in kept] == ["s1a"]
+
+
+def test_a_group_no_longer_studied_gives_a_reason_in_json(tmp_path, monkeypatch, capsys):
+    b = board()
+    plan = b.resolve()
+    script, s = kept_worse(tmp_path, monkeypatch, b, plan)
+    monkeypatch.setattr("placemat.pinmap.plan_summary", lambda *a, **k: [])
+    assert cli._pin_search(SimpleNamespace(json=True), tmp_path, script, s) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["study"] is None and out["found"] is None and out["reason"] == "not_studied"

@@ -1340,7 +1340,10 @@ def _pin_search(args, board_dir, script, s) -> int:
     if found is not None:
         sg.add_found(board_dir, script, found)
     if args.json:
-        console.data(json.dumps({"id": s.id, "study": g, "found": found.to_json() if found is not None else None}, indent=2))
+        record = {"id": s.id, "study": g, "found": found.to_json() if found is not None else None}
+        if g is None:
+            record["reason"] = "not_studied"
+        console.data(json.dumps(record, indent=2))
         return 0 if g is not None else 1
     if g is None:
         console.say("probe", "%s: %s is no longer studied on this board" % (s.id, " and ".join(s.advice["refs"])), level="fail")
