@@ -65,14 +65,21 @@ Built on `ratsnest.py`, placemat's port of KiCad's ratsnest.
 - **Weights.** A crossing counts 1, `pins.pair_weight` where either airwire is
   a differential pair's, `pins.impedance_weight` where either is in a net
   class with a controlled impedance. Settings, not literals.
+- **Bends.** For each studied net, the angle between its pin's outward
+  normal and the bearing from the exit point to its target, in degrees: 0
+  for a pin that faces its target, 180 for one that must turn back. This is
+  what favours a 45 degree turn when targets lie on a diagonal: crossings do
+  not change, but the tracks can leave straighter.
 - **Total.** Weighted crossings against every other airwire plus crossings
   among the studied nets, plus `pins.length_weight` times the total airwire
-  length in millimetres.
+  length in millimetres, plus `pins.bend_weight` times the summed bend
+  angles.
 
 ## The search
 
-Per studied part, per rotation (0, 90, 180, 270; the other face when
-`pins.faces` is true and the part may stand there):
+Per studied part, per rotation in `pins.rotations` (default 0, 90, 180,
+270; add 45, 135, 225, 315 for the diagonals), and on the other face when
+`pins.faces` is true and the part may stand there:
 
 1. A first map by assignment: each movable net to the free allowed pin whose
    exit point is nearest its target, solved as a minimum-cost matching that
@@ -144,6 +151,9 @@ are reported beside it, not folded into the score.
   studying them one at a time on a case built for it.
 - The body obstacle: a net whose target is behind the part is scored round
   the body, and the best map never sends it out the far side.
+- Bends: with targets on a diagonal and crossings equal, a 45 degree
+  rotation in `pins.rotations` wins on the bend term; with only quarter
+  turns listed, no 45 degree result is reported.
 - Determinism: the same board gives the same map and total twice.
 - Speed: on the reference boards the study finishes inside `pins.budget_ms`,
   and a repeated run reuses its result.
@@ -153,6 +163,7 @@ are reported beside it, not folded into the score.
 ## Settings
 
 `pins.exit_mm`, `pins.follow_series`, `pins.pair_weight`,
-`pins.impedance_weight`, `pins.length_weight`, `pins.seeds`,
+`pins.impedance_weight`, `pins.length_weight`, `pins.bend_weight`,
+`pins.rotations`, `pins.seeds`,
 `pins.budget_ms`, `pins.faces`, `pins.gain_min`, `pins.explore_top`, each
 with a default and a line in the settings table.
