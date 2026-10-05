@@ -5987,6 +5987,7 @@ class Board:
         intent = self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners, only=self._only(only, "stitch"))
         if pour_intent is not None:
             self._copper_after[intent.index] = (pour_intent.index,)
+            self._copper_uses[intent.index] = (pour_intent.index,)     # its only= must lie inside the pour's
         return intent
 
     def _stitch_outside(self, ctx, name: str, poly, turn: float, off: float, step: float, wanted, size: float,

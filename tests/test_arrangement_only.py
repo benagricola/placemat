@@ -92,6 +92,20 @@ def test_a_pour_fitted_round_a_via_that_exists_in_fewer_arrangements_is_refused(
     assert "via" in str(e.value) and "only" in str(e.value)
 
 
+def test_a_stitch_over_a_pour_that_exists_in_fewer_arrangements_is_refused():
+    b = declared(module())
+    pour = b.pour(Net("VIN"), [PadRef(Part("u1"), 1), PadRef(Part("c_in"), 1)], layer=F, swallow_pads=True, only=("c_in.east",))
+    b.stitch(Net("VIN"), pour)                                                          # in every arrangement, its pour in one
+    with pytest.raises(ValueError) as e:
+        b.finish_declarations()
+    assert "stitch" in str(e.value) and "only" in str(e.value)
+    held = declared(module())
+    pour = held.pour(Net("VIN"), [PadRef(Part("u1"), 1), PadRef(Part("c_in"), 1)], layer=F, swallow_pads=True,
+                     only=("c_in.east",))
+    held.stitch(Net("VIN"), pour, only=("c_in.east",))
+    held.finish_declarations()
+
+
 def _module_with_only_copper_before_a_lane_via(trailing):
     """A module (a frame not drawn) with a QFN escaping west and a part `r5` that may turn; a track that exists in the default only
     is declared before a board via at the end of pin 30's lane, which `escape.via_unneeded` names by its key. `trailing` declares
