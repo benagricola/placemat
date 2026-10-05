@@ -191,3 +191,21 @@ def test_an_unplated_hole_over_a_corridor_and_its_via_spot_walls_the_pad_in_the_
     assert Escapes(occ).closed(h1, Placement(Location(30.0, 31.6), 0.0, Face.FRONT)) == (0, 0, 1)
     assert Escapes(occ, mirror=False).closed(h1, Placement(Location(30.0, 31.6), 0.0, Face.FRONT)) == (0, 0, 1)
     assert Escapes(occ).closed(h1, Placement(Location(30.0, 36.0), 0.0, Face.FRONT)) == (0, 0, 0)
+
+
+def test_a_pads_own_copper_is_its_whole_chain_each_piece_once():
+    """A pad on G with 200 short G tracks chained east from it (each overlaps the next), a G track apart from the chain and
+    an H track touching it: the pad's own copper is the 200, each once."""
+    from placemat.escapes import Escapes
+    from tests.fixtures import track
+    body = Box(9.0, 29.0, 10.0, 31.0)
+    u1 = Footprint("U1", "u1", None, "U1", Location(10.0, 30.0), 0.0, Face.FRONT, body, body.inflate(0.1), body,
+                   (pad("U1", "u1", 1, "G", 10.0, 30.0, 0.6, 0.6),))
+    chain = [track("G", 10.0 + 0.2 * k, 30.0, 10.2 + 0.2 * k, 30.0, w=0.2) for k in range(200)]
+    apart, other = track("G", 20.0, 45.0, 30.0, 45.0, w=0.2), track("H", 30.0, 30.0, 30.0, 35.0, w=0.2)
+    b = Board(board_geometry([u1], copper=chain + [apart, other], width=60, height=60), edge_margin=1.0, keep_going=True)
+    b.place(Part("u1"), at=Location(10.0, 30.0))
+    occ = b.resolve().occupancy
+    own = Escapes(occ)._own_copper("U1", "1", "G")
+    assert len(own) == len({id(s) for s in own}) == 200
+    assert all(s.net == "G" and 9.5 < s.box.center.x < 50.5 and abs(s.box.center.y - 30.0) < 0.2 for s in own)

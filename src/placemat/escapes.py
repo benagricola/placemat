@@ -491,13 +491,15 @@ class Escapes:
         far as it goes, on the pad's layers."""
         mine = [p for p in self._blockers.get(ref, ()) if p.label == number]
         chain: list = []
+        seen: set = set()                   # id() of each piece in the chain: a pour's pieces make the chain long
         todo = list(mine)
         while todo:
             at = todo.pop()
             for s in self._bgrid.near(at.box):
-                if (s.net == net and s.kind in ("copper", "through") and not self.occ.geometry.has_footprint(s.owner)
-                        and not any(s is c for c in chain) and any(s.layers & p.layers for p in mine)
+                if (id(s) not in seen and s.net == net and s.kind in ("copper", "through")
+                        and not self.occ.geometry.has_footprint(s.owner) and any(s.layers & p.layers for p in mine)
                         and s.box.overlaps(at.box) and polys_overlap(s.poly, at.poly)):
+                    seen.add(id(s))
                     chain.append(s)
                     todo.append(s)
         return chain
