@@ -170,8 +170,22 @@ SAMPLES = [
                                              {"ref": "U2", "turn_deg": 180.0, "rotation_deg": 180.0, "face": "back", "flip": True}]}],
                     "present_breaks": [{"ref": "U2", "net": "B", "pin": "7", "rule": "Pm.PinDeny"}]},
      "U1 and U2: a pin map with 4.0 mm less airwire exists at their present rotations; at U1 at 90 degrees and U2 at 180 "
-     "degrees on the back, 8 fewer; 1 of the nets it moves have copper now: A; the present map has B on U2 pin 7, against "
-     "Pm.PinDeny; the study stopped at its 200 ms after 9 of 16 poses"),
+     "degrees on the back, 8 fewer weighted crossings; 1 of the nets it moves has copper now: A; the study stopped at its "
+     "200 ms after 9 of 16 poses"),
+    (C.PINS_REMAP, {"ref": "U1", "refs": ["U1"], "at": [10.0, 10.0], "first_map": True, "budget_out": False,
+                    "budget_ms": 100, "searched": 4, "of": 4, "best": 2, "routed": ["A", "B"], "present_breaks": [],
+                    "present": {"total": 20.0, "weighted": 12.0, "length_mm": 40.0, "bend_deg": 90.0},
+                    "rotations": [{"total": 20.0, "weighted": 12.0, "length_mm": 40.0, "bend_deg": 90.0,
+                                   "turns": [{"ref": "U1", "turn_deg": 0.0, "rotation_deg": 0.0, "face": "front", "flip": False}]},
+                                  {"total": 20.0, "weighted": 12.0, "length_mm": 40.0, "bend_deg": 90.0,
+                                   "turns": [{"ref": "U1", "turn_deg": 90.0, "rotation_deg": 90.0, "face": "front", "flip": False}]},
+                                  {"total": 15.0, "weighted": 13.0, "length_mm": 20.0, "bend_deg": 120.0,
+                                   "turns": [{"ref": "U1", "turn_deg": 180.0, "rotation_deg": 180.0, "face": "front", "flip": False}]}]},
+     "U1: no better pin map at its present rotation; at 180 degrees, 20.0 mm less airwire and 1 more weighted crossing; "
+     "2 of the nets it moves have copper now: A, B"),
+    (C.SETUP_PINS, {"ref": "U1", "key": "Pm.PinDeny", "entry": "", "code": "present_breaks", "name": "A", "held_net": "",
+                    "held_pin": "", "pin": "1", "rule": "Pm.PinDeny"},
+     "U1: net A stands on pin 1, against its Pm.PinDeny; the capture breaks its own rule"),
 ]
 
 

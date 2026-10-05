@@ -24,7 +24,8 @@ class Problem:
     for the part), no_net (no pin of the part carries the net), unreadable (the entry is not `name:pins`), not_in_pool
     (a group's pin outside the pool, or on a fixed pin), two_groups (a pin already in an earlier group), no_legal_pin (a
     net that no pin may take: the part is not studied), no_legal_map (no matching places every net: the part is not
-    studied). A no_legal_pin left so by another net held onto the net's only pin has no `key` or `entry`, and `held_net`
+    studied), present_breaks (a net that stands on a pin its own `Pm.PinAllow` or `Pm.PinDeny` bars: the study adds
+    `pin` and `rule` to the facts). A no_legal_pin left so by another net held onto the net's only pin has no `key` or `entry`, and `held_net`
     and `held_pin` name the holder."""
     ref: str
     key: str

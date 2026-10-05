@@ -182,6 +182,7 @@ _PIN_PROBLEMS = {
     "two_groups": "%(key)s entry %(entry)s names pin %(name)s, which an earlier group has; the study runs without it",
     "no_legal_pin": "net %(name)s has no pin of the pool left that %(key)s lets it take; %(ref)s is not studied",
     "no_legal_map": "no map gives every net a pin it may take: %(name)s has none left; %(ref)s is not studied",
+    "present_breaks": "net %(name)s stands on pin %(pin)s, against its %(rule)s; the capture breaks its own rule",
 }
 
 
@@ -193,16 +194,29 @@ def _setup_pins(f):
     return "%s: %s" % (f["ref"], _PIN_PROBLEMS[f["code"]] % f)
 
 
-def _crossings_fewer(present: dict, r: dict, short: bool) -> str:
-    """What a pose's best map saves against the present one, in its plainest term: weighted crossings, else airwire,
-    else turning."""
+def _weighted(n: float, how: str) -> str:
+    """'8 fewer weighted crossings', '1 more weighted crossing'."""
+    n = round(n, 1)
+    return "%g %s weighted crossing%s" % (n, how, "" if n == 1 else "s")
+
+
+def _saving(present: dict, r: dict) -> str:
+    """What a pose's best map saves against the present one, in its plainest term (weighted crossings, else airwire,
+    else turning), and what it gives up on weighted crossings or airwire to win."""
     dw = present["weighted"] - r["weighted"]
-    if dw > 1e-9:
-        return ("%g fewer" if short else "%g fewer weighted crossings") % round(dw, 1)
     dl = present["length_mm"] - r["length_mm"]
-    if dl > 1e-9:
-        return "%.1f mm less airwire" % dl
-    return "%.0f degrees less turning at its pins" % (present["bend_deg"] - r["bend_deg"])
+    if dw > 1e-9:
+        won = _weighted(dw, "fewer")
+    elif dl > 1e-9:
+        won = "%.1f mm less airwire" % dl
+    else:
+        won = "%.0f degrees less turning at its pins" % (present["bend_deg"] - r["bend_deg"])
+    lost = []
+    if dw < -1e-9:
+        lost.append(_weighted(-dw, "more"))
+    if dl < -1e-9:
+        lost.append("%.1f mm more airwire" % -dl)
+    return " and ".join([won] + lost)
 
 
 def pose_text(turns: list) -> str:
@@ -224,18 +238,14 @@ def _pins_remap(f):
     rs, p = f["rotations"], f["present"]
     here, best = rs[0], rs[f["best"]]
     if here["total"] < p["total"] - 1e-9:
-        text = "%s: a pin map with %s exists at %s" % (who, _crossings_fewer(p, here, False), their)
+        text = "%s: a pin map with %s exists at %s" % (who, _saving(p, here), their)
     else:
         text = "%s: no better pin map at %s" % (who, their)
     if f["best"] != 0:
-        text += "; at %s, %s" % (pose_text(best["turns"]), _crossings_fewer(p, best, here["total"] < p["total"] - 1e-9))
+        text += "; at %s, %s" % (pose_text(best["turns"]), _saving(p, best))
     if f["routed"]:
-        text += "; %d of the nets it moves have copper now: %s" % (len(f["routed"]), ", ".join(f["routed"]))
-    if f["present_breaks"]:
-        one = len(f["refs"]) == 1
-        text += "; the present map has %s" % ", ".join(
-            "%s on %spin %s, against %s" % (b["net"], "" if one else b["ref"] + " ", b["pin"], b["rule"])
-            for b in f["present_breaks"])
+        text += "; %d of the nets it moves %s copper now: %s" % (len(f["routed"]), "has" if len(f["routed"]) == 1 else "have",
+                                                              ", ".join(f["routed"]))
     if f["budget_out"]:
         text += "; the study stopped at its %g ms after %d of %d poses" % (f["budget_ms"], f["searched"], f["of"])
     return text

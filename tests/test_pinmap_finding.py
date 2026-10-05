@@ -58,7 +58,7 @@ def test_an_entry_the_study_runs_without_is_a_setup_warning():
 
 def test_the_moved_nets_with_copper_now_are_named():
     (f,) = study(*reversed_four(), settings(pins_rotations=(0.0,)), copper=frozenset({"A", "Z"}))[0]
-    assert f.facts["routed"] == ["A"] and f.endswith("; 1 of the nets it moves have copper now: A")
+    assert f.facts["routed"] == ["A"] and f.endswith("; 1 of the nets it moves has copper now: A")
 
 
 def test_a_budget_too_short_for_a_first_map_says_so():
@@ -138,11 +138,23 @@ def test_series_parts_are_followed_only_when_their_prefix_is_in_the_setting():
     assert found == []
 
 
-def test_a_present_map_that_breaks_a_rule_is_named_in_the_facts():
+def test_a_present_map_that_breaks_a_rule_is_named_in_the_facts_and_is_a_setup_warning():
     found, _ = study(*reversed_four({"Pm.PinPool": "1-4", "Pm.PinDeny": "A:1"}), settings(pins_rotations=(0.0,)))
-    (f,) = found
+    (warn,) = [f for f in found if f.cause is C.SETUP_PINS]
+    (f,) = [f for f in found if f.cause is C.PINS_REMAP]
+    assert warn == "U1: net A stands on pin 1, against its Pm.PinDeny; the capture breaks its own rule"
     assert f.facts["present_breaks"] == [{"ref": "U1", "net": "A", "pin": "1", "rule": "Pm.PinDeny"}]
-    assert f.facts["rotations"][0]["breaks"] == [] and f.endswith("; the present map has A on pin 1, against Pm.PinDeny")
+    assert f.facts["rotations"][0]["breaks"] == []
+
+
+def test_a_present_map_that_breaks_a_rule_is_reported_when_no_remap_is():
+    """A and B leave in the order their targets lie, so no map saves anything, and A stands on a pin its rule bars."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "", ""]}, {"Pm.PinPool": "1-4", "Pm.PinAllow": "A:2-4"})
+    pads += point_pad("T1", "A", 20, 8.5) + point_pad("T2", "B", 20, 9.5)
+    found, _ = study(pads, {"U1": u1}, settings(pins_rotations=(0.0,)))
+    assert [f.cause for f in found] == [C.SETUP_PINS]
+    assert found[0].facts["code"] == "present_breaks" and (found[0].facts["pin"], found[0].facts["rule"]) == ("1", "Pm.PinAllow")
+    assert found[0] == "U1: net A stands on pin 1, against its Pm.PinAllow; the capture breaks its own rule"
 
 
 def test_a_pose_whose_best_is_the_present_map_carries_the_rule_it_breaks():
@@ -164,3 +176,51 @@ def test_a_net_held_off_its_only_legal_pin_names_the_net_that_holds_it():
     found, _ = study(*reversed_four({"Pm.PinPool": "1-4", "Pm.PinFixed": "4", "Pm.PinAllow": "A:4"}),
                      settings(pins_rotations=(0.0,)))
     assert "U1: net A may take only pin 4, which net D holds; U1 is not studied" in found
+
+
+def test_a_saving_exactly_at_the_gain_min_is_reported():
+    from dataclasses import replace
+    from placemat.pinmap import group_facts
+    from placemat.pinmap_core import Breakdown, study as core_study
+    from tests.pinmap_boards import input_of
+    s = settings(pins_rotations=(0.0,), pins_gain_min=0.25)
+    inp, _ = input_of(*reversed_four())
+    (g,) = core_study(inp, s)
+    g = replace(g, present=Breakdown(8.0, 0, 0, 0.0, 0.0, 0.0),
+                results=(replace(g.results[0], breakdown=Breakdown(6.0, 0, 0, 0.0, 0.0, 0.0)),))
+    assert group_facts(inp, g, frozenset(), s) is not None
+    assert group_facts(inp, g, frozenset(), replace(s, pins_gain_min=0.2501)) is None
+
+
+@pytest.mark.parametrize("kept", ["{not json", '{"version": 0, "digest": "x", "findings": []}'])
+def test_a_cache_that_cannot_be_read_or_is_of_another_version_is_studied_again(tmp_path, kept):
+    from placemat import pinmap
+    cache = tmp_path / "pinmap.json"
+    s = settings(pins_rotations=(0.0,))
+    first, _ = study(*reversed_four(), s, cache=cache)
+    doc = json.loads(cache.read_text())
+    if kept.startswith("{\"version"):
+        doc["version"] = pinmap.CACHE_VERSION + 1
+        cache.write_text(json.dumps(doc))
+    else:
+        cache.write_text(kept)
+    again, record = study(*reversed_four(), s, cache=cache)
+    assert record["reused"] is False and [str(f) for f in again] == [str(f) for f in first]
+    assert json.loads(cache.read_text())["version"] == pinmap.CACHE_VERSION
+
+
+def test_a_cache_that_cannot_be_written_leaves_the_findings(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+    found, record = study(*reversed_four(), settings(pins_rotations=(0.0,)), cache=blocker / "pinmap.json")
+    assert [f.cause for f in found] == [C.PINS_REMAP] and record["reused"] is False
+
+
+def test_settings_the_study_does_not_read_keep_the_cache():
+    from placemat.pinmap import digest
+    from tests.pinmap_boards import input_of
+    inp, problems = input_of(*reversed_four())
+    s = settings()
+    d = digest(inp, problems, frozenset(), s)
+    assert digest(inp, problems, frozenset(), settings(pins_explore_top=7, pins_probe_budget_ms=9000)) == d
+    assert digest(inp, problems, frozenset(), settings(pins_seeds=3)) != d

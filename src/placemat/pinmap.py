@@ -24,6 +24,7 @@ from .pinmap_input import build, placed_from_geometry
 from .pinmap_rules import Problem, natural
 
 CACHE_VERSION = 1
+_NOT_READ = ("pins_explore_top", "pins_probe_budget_ms")      # `[pins]` settings the explore and the probe read, not the study
 
 
 def has_pools(footprints) -> bool:
@@ -116,7 +117,8 @@ def digest(inp, problems, copper, settings) -> str:
     """What a study's result depends on: the input, the problems, the nets with copper, the `[pins]` settings and the
     plane weight, the release and the findings' schemas."""
     from . import __version__, finding_text, reuse
-    keys = {k: v for k, v in json.loads(settings.json()).items() if k.startswith("pins_") or k == "score_crossing_plane"}
+    keys = {k: v for k, v in json.loads(settings.json()).items()
+            if (k.startswith("pins_") and k not in _NOT_READ) or k == "score_crossing_plane"}
     text = "\0".join([str(CACHE_VERSION), __version__, finding_text.schemas_digest(), reuse.canonical(inp),
                       reuse.canonical(list(problems)), ",".join(sorted(copper)), json.dumps(keys, sort_keys=True)])
     return hashlib.sha256(text.encode()).hexdigest()
@@ -140,14 +142,18 @@ def _keep(path, d: str, findings) -> None:
     from . import reuse
     from .checkpoint import write_atomic
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_atomic(path, json.dumps({"version": CACHE_VERSION, "digest": d,
-                                   "findings": [reuse.finding_to_json(f) for f in findings]}, separators=(",", ":")))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(path, json.dumps({"version": CACHE_VERSION, "digest": d,
+                                       "findings": [reuse.finding_to_json(f) for f in findings]}, separators=(",", ":")))
+    except OSError:                         # a cache that cannot be written is not kept; the study's findings stand
+        pass
 
 
 def study_findings(pads, parts, names, quiet, partners, netclasses, settings, copper=frozenset(), cache=None,
                    step_ms: float = 0.0) -> tuple:
-    """(findings, record) of the study of a placed board: `setup.pins` for each problem, `pins.remap` for each group
+    """(findings, record) of the study of a placed board: `setup.pins` for each problem and for each net the present
+    map puts on a pin its own rule bars (`present_breaks`), `pins.remap` for each group
     with a map worth having. `cache`, a path, holds the last study's digest and findings: a match is reused. `record` is
     what a run keeps: {"seconds", "reused", "groups", "parts"}, empty when nothing was studied. `step_ms` above 0 makes
     the core's clock a counted one (a test's)."""
@@ -166,6 +172,9 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
     if inp is not None:
         results = study(inp, settings, step_ms)
         groups = len(results)
+        for part in inp.parts:
+            found += [Finding(C.SETUP_PINS, dict(Problem(part.ref, key, "", "present_breaks", net).facts(), pin=pin, rule=key))
+                      for net, pin, key in part.slots.breaks]
         for g in results:
             found += [Finding(C.SETUP_PINS, Problem(ref, "", "", "no_legal_map", net).facts()) for ref, net in g.problems]
             facts = group_facts(inp, g, copper, settings)
