@@ -309,12 +309,6 @@ def prove(prepared, resolved, default_plan, *, generated, cfg, fab, arr_dir, def
     return Proof(not refused, refused, metrics)
 
 
-def members_doc(prepared, plan, default_plan, spec, texts_chars: int) -> list:
-    """The note texts of an offered arrangement: arrangement_note.encode of `members_document`. Raises
-    arrangement_note.NoteError when `texts_chars` leaves no room for a chunk."""
-    return note.encode(members_document(prepared, plan, default_plan, spec), texts_chars)
-
-
 def members_document(prepared, plan, default_plan, spec) -> dict:
     """The note's document of an offered arrangement: every loose member's place in the fragment's frame, the copper this
     arrangement planned (the faces text is the default's), and the rule areas it declares."""
