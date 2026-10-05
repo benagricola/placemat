@@ -298,6 +298,14 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Studio replay and pin views, pin rules kept, fixes** (0.99.19): replay
+  draws copper at the step that lays it, with a speed select and step
+  back/on; 3D Solid fills spread layers; a pin map finding's rotations are a
+  table and an explore's variants show their pin study; Show/Try/Apply work
+  on a past run's suggestions; the live frame carries every copper layer; the
+  pin map study's best always keeps Pm.PinAllow/PinDeny; a named cutout on a
+  bored disc reads its own loop.
+
 - **Route cleanup, ring tangent turns, deterministic pin study** (0.99.18):
   a route removes the router's dangling copper on complete nets (KiCad's
   TRACKS_CLEANER), never given copper; a `Polar(r, None)` ring takes
