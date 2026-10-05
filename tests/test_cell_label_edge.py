@@ -148,3 +148,38 @@ def test_a_searched_cell_has_no_such_warning():
     b.rect(width=SIZE, height=SIZE, holes=[Cutout(Circle(3.0), "vent", at=Location(20.0, 23.5), why="air")])
     b.place(Cell("panel"), at=Near(Location(20.0, 20.0), radius=8.0))
     assert not _edge_findings(b.resolve())
+
+
+def test_a_decided_cell_whose_label_covers_a_small_cutout_is_a_warning():
+    """The hole lies wholly under the label: no corner of the label is in the hole, and their outlines do not meet."""
+    b = Board(_geometry(CopperLayer.F), edge_margin=0.5)
+    b.rect(width=SIZE, height=SIZE, holes=[Cutout(Circle(0.4), "pin", at=Location(20.0, 22.5), why="a peg")])
+    b.place(Cell("panel"), at=Location(20.0, 20.0))       # the label spans (19..21, 22..23)
+    (f,) = _edge_findings(b.resolve())
+    assert (f.facts["edge"], f.facts["cutout"], f.facts["gap_mm"]) == ("cutout", "pin", 0.0)
+
+
+def test_a_decided_cell_whose_label_keeps_the_clearance_from_a_straight_outline_has_no_warning():
+    """0.21 mm off a straight edge passes KiCad's 0.20 mm: the arc sag is kept only from an edge drawn from arcs."""
+    b = Board(_geometry(CopperLayer.F), edge_margin=0.5)
+    b.rect(width=SIZE, height=SIZE)
+    b.place(Cell("panel"), at=Location(20.0, 36.79))      # the label's south edge 0.21 mm off the outline
+    assert not _edge_findings(b.resolve())
+
+
+def test_the_label_of_a_cell_inside_a_decided_cell_is_reported_too():
+    """An inner cell the script does not place stays where the generator put it, inside the decided outer cell: its label
+    by a cutout is a warning naming the inner cell."""
+    fps = [footprint("U1", 8, 10, w=3, h=2, cell="outer", inst="outer.u1", nets=("A", "B")),
+           footprint("U2", 12, 10, w=3, h=2, cell="outer", inst="outer.u2", nets=("B", "C")),
+           footprint("U3", 30, 16, w=3, h=2, cell="inner", inst="outer.inner.u3", nets=("C", "D"))]
+    g = board_geometry(fps, cells=["outer", "inner"], width=SIZE, height=SIZE, silk_clearance=SILK)
+    g = dataclasses.replace(g, cells={**g.cells, "inner": dataclasses.replace(g.cells["inner"], parent="outer")},
+                            rule_areas=(RuleArea("label IN", "inner", ((29.0, 18.0), (31.0, 18.0), (31.0, 19.0),
+                                                                       (29.0, 19.0)),
+                                                 frozenset([CopperLayer.F]), frozenset(["parts"])),))
+    b = Board(g, edge_margin=0.5)
+    b.rect(width=SIZE, height=SIZE, holes=[Cutout(Circle(3.0), "vent", at=Location(30.0, 20.5), why="air")])
+    b.place(Cell("outer"), at=Location(10.0, 30.0))
+    (f,) = _edge_findings(b.resolve())
+    assert (f.facts["cell"], f.facts["text"], f.facts["cutout"]) == ("inner", "IN", "vent")

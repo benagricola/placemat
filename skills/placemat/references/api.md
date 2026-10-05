@@ -1727,8 +1727,10 @@ or mask opening is refused, on the face the cell lands on. Under any envelope a
 searched spot also keeps each text's box the board's silk clearance inside the
 outline and off every cutout, which is what KiCad checks silk to the board edge
 against (`label silk to edge: box ...` in the scan's refusals). A cell whose
-place the script decided keeps its texts where they fall; a text nearer the
-outline or a cutout than the silk clearance is a `label.cell_edge` warning
+place the script decided keeps its texts where they fall, as does a cell
+inside it that the script does not place; a text nearer the outline or a
+cutout than the silk clearance, or over or covering a cutout, is a
+`label.cell_edge` warning
 naming the cell, the text, the edge (the outline, or the cutout by name), the
 gap and the clearance.
 A stamped region larger than its cell costs the parent the difference: the
