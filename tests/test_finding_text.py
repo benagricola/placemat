@@ -51,6 +51,9 @@ SAMPLES = [
     (C.FIXED_ROOM_UNSETTLED, {"copper": "track SIG", "moved_mm": 0.2, "passes": 4},
      "track SIG: the copper still moved by 0.200 mm between the last two of 4 passes over the firm items, so what stands beside "
      "it was placed against its last plan"),
+    (C.FIXED_ROOM_UNSETTLED, {"item": "mod", "arrangements": ["c_in.east", "default"], "passes": 4},
+     "mod: the arrangement it took still changed between the last two of 4 passes over the firm items (c_in.east, default), "
+     "so what stands beside it was placed against its last pass's"),
     (C.COPPER_KEEPOUT, {"word": "track", "net": "A", "keepout": "ant", "why": "an antenna"},
      "track A crosses keepout 'ant' (an antenna): a track goes exactly where it is put, so move it, reshape it, or name its "
      "net in the keepout's allow="),

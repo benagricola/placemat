@@ -187,3 +187,41 @@ def test_a_firm_cell_beside_a_part_or_on_an_edge_lays_each_arrangement_as_its_de
         assert plan.placement("mod") == east.placement("mod") and plan.box("mod") == east.box("mod"), at
         assert east.placement("mod").location != default.placement("mod").location, at
         assert [(t["id"], t["legal"]) for t in note_of(plan)["tried"]] == list(zip(["default", "c_in.east"], legal)), at
+
+
+class Alternating(Board):
+    """A board whose firm cell scores the arrangements the other way round on each pass: a choice that never settles."""
+    def _firm_trials(self, occ, plan, i, placed, clr, push_sources):
+        trials = super()._firm_trials(occ, plan, i, placed, clr, push_sources)
+        flip = (self._firm_pass_no or 4) % 2         # the last pass has no number: 4, the passes declared_copper_board is given
+        for t in trials:
+            t.score = 10.0 if (t.ident == "") == bool(flip) else 1.0
+        return trials
+
+
+def declared_copper_board(cls, passes=None):
+    from placemat.values import CopperLayer, Net, PadRef
+    s = Settings() if passes is None else dataclasses.replace(Settings(), place_firm_passes=passes)
+    g = with_arrangement(stamped_geometry(partner=(60.0, 30.0)))
+    b = cls(g, edge_margin=0.0, keep_going=True, settings=s)
+    b.rect(width=80, height=60)
+    b.place(Part("r8"), at=Location(60.0, 30.0))
+    b.place(Cell("mod"), at=AT)
+    b.track(Net("mod.VIN"), [PadRef(Part("r8"), 1), PadRef(Part("mod.u1"), 1)], layer=CopperLayer.F)
+    return b
+
+
+def test_a_choice_that_holds_settles_and_is_carried():
+    b = declared_copper_board(Board)
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east"
+    assert not [f for f in plan.findings if f.cause == "fixed.room_unsettled"]
+    assert b._arr_choice == {"mod": "c_in.east"}
+
+
+def test_a_cell_whose_arrangement_alternates_keeps_the_last_pass_and_says_which_ids_alternated():
+    b = declared_copper_board(Alternating, passes=4)
+    plan = b.resolve()
+    (f,) = [f for f in plan.findings if f.cause == "fixed.room_unsettled" and f.facts.get("item") == "mod"]
+    assert sorted(f.facts["arrangements"]) == ["c_in.east", "default"] and f.facts["passes"] == 4
+    assert plan.placement("mod").arrangement in ("", "c_in.east")

@@ -979,6 +979,8 @@ class Board:
         self._waited: dict = {}                # item key -> the linked partner it waited for
         self._arr_unreached: dict = {}         # item key -> the arrangements a step out of time did not reach
         self._arr_choice: dict = {}            # firm cell key -> the arrangement it took ("" the default): _settle_firm_arranged
+        self._arr_prev: dict = {}              # what each firm cell took in the pass before (`_Redo.arr`)
+        self._arr_unsettled: dict = {}         # firm cell key -> the ids it still changed between at the last pass
         self._collect_into: list | None = None  # while an explore draws over arrangements: each scan's legal candidates, best first
         self._copper: list[CopperIntent] = []
         self._pad_tracks: set = set()      # indices of the tracks whose points are all pads: their way is known before they are planned
@@ -2720,11 +2722,17 @@ class Board:
         placed part's pad, the Beside parts standing nearer than the box put them that it names (or all of them, when it
         names none) go back to the box's standoff; and where the copper is not where the last run planned it, the firm
         items are placed against these plans. A run that has none of this to change
-        goes on; the last one that may be run says what did not settle (`fixed.room_unsettled`)."""
+        goes on; the last one that may be run says what did not settle (`fixed.room_unsettled`). A firm cell that chose
+        among its arrangements has settled only when it took the one it took in the pass before: in the first pass there is
+        none before, so a run with such a cell is run again."""
+        changed = {k: [self._arr_prev[k], v] for k, v in self._arr_choice.items()
+                   if k in self._arr_prev and self._arr_prev[k] != v}
+        unsettled = any(self._arr_prev.get(k) != v for k, v in self._arr_choice.items())
         if not self._redo and fixed_copper is not None:
             rooms = self._dry_rooms(occ, plan, fixed_copper) if self._room_seed else {}
             self._room_unsettled = _rooms_moved(self._room_seed, rooms, self.settings.place_copper_room_tolerance) \
                 if self._room_seed else []
+            self._arr_unsettled = {k: sorted({a or "default" for a in ab}) for k, ab in changed.items()}
             return
         if not self._redo:
             return
@@ -2742,12 +2750,12 @@ class Board:
             if not relaxed and conflicted:
                 relaxed = frozenset(self._tight) - loose        # a squeeze no part is named for: every part nearer than the box
             moved = _rooms_moved(seed, rooms, self.settings.place_copper_room_tolerance) if seed else []
-            if relaxed or moved or (conflicted and not seed):
-                raise _Redo(rooms, swaps + fresh, notes, loose | relaxed)
+            if relaxed or moved or unsettled or (conflicted and not seed):
+                raise _Redo(rooms, swaps + fresh, notes, loose | relaxed, self._arr_choice)
             self._room_unsettled = moved
         if fresh or (fixed_copper is None and frozenset(self._beside_hint) - loose):
             # before the firm collisions are judged: the parts a refused one is aligned with, nearer than the box, go back to it
-            raise _Redo(seed, swaps + fresh, notes, loose | frozenset(self._beside_hint))
+            raise _Redo(seed, swaps + fresh, notes, loose | frozenset(self._beside_hint), self._arr_choice)
 
     def _room_context(self, occ: Occupancy, plan: Plan, ctx) -> "_CopperContext":
         """A copper context to plan declared copper in without drawing it: what the real one knows, copied."""
@@ -6901,6 +6909,7 @@ class Board:
         stops after its firm items when that is so, and the last one, or the first that finds everything in place, is the
         resolve (see `_redo_check`)."""
         self._room_seed, self._swaps, self._room_unsettled, self._swap_notes, self._loose = {}, [], [], {}, frozenset()
+        self._arr_prev, self._arr_unsettled = {}, {}
         self._room_refused = {}         # copper index -> the parts placed when the room planning could not draw it
         self._firm_pass_no = None
         passes = self.settings.place_firm_passes
@@ -6915,6 +6924,7 @@ class Board:
             except _Redo as r:
                 self._restore(saved)
                 self._room_seed, self._swaps, self._swap_notes, self._loose = r.seed, r.swaps, r.notes, r.loose
+                self._arr_prev = r.arr          # after the restore, which puts back the attributes as they stood before the passes
 
     def _resolve_run(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial, redo: bool) -> Plan:
         """One run of the resolve. With `redo`, what it reports while it goes is held until it is known that it will not be
@@ -6933,6 +6943,7 @@ class Board:
         return plan
 
     def _resolve_once(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial=None):
+        self._arr_choice = {}               # what the firm cells take in this pass (`_settle_firm_arranged`)
         self._check_groups()                # what a declared group may hold, before the search
         self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
         self._part_keep_outs()              # the clearances the parts' Pm.KeepOut ask of other nets' copper; refuses one with no citation
@@ -7351,6 +7362,9 @@ class Board:
         for key, moved in self._room_unsettled:
             plan.findings.append(self._finding(C.FIXED_ROOM_UNSETTLED, {
                 "copper": key, "moved_mm": moved, "passes": self.settings.place_firm_passes}))
+        for key, ids in sorted(self._arr_unsettled.items()):
+            plan.findings.append(self._finding(C.FIXED_ROOM_UNSETTLED, {
+                "item": key, "arrangements": ids, "passes": self.settings.place_firm_passes}))
         if self.settings.place_copper_room:
             occ.rooms_apply = True          # the search keeps clear of what declared copper will be
             room_ctx = self._room_context(occ, plan, ctx)
@@ -10929,9 +10943,10 @@ class _Scanned:
 class _Redo(Exception):
     """A run of the resolve that stops after its firm items, for the next to place them against what it found."""
 
-    def __init__(self, seed: dict, swaps: list, notes: dict, loose: frozenset):
+    def __init__(self, seed: dict, swaps: list, notes: dict, loose: frozenset, arr: dict | None = None):
         super().__init__("the firm items are placed again")
         self.seed, self.swaps, self.notes, self.loose = seed, swaps, notes, loose
+        self.arr = dict(arr or {})          # the arrangement each firm cell took in this run ("" the default)
 
 
 class _Out:

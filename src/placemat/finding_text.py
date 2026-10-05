@@ -574,8 +574,11 @@ def _fixed_room(f):
                                           " (net %s)" % f["net"] if f["net"] else ""))
 
 
-@renders(C.FIXED_ROOM_UNSETTLED, "copper", "moved_mm", "passes")
+@renders(C.FIXED_ROOM_UNSETTLED, "passes")
 def _fixed_room_unsettled(f):
+    if "arrangements" in f:
+        return ("%s: the arrangement it took still changed between the last two of %d passes over the firm items (%s), so "
+                "what stands beside it was placed against its last pass's" % (f["item"], f["passes"], ", ".join(f["arrangements"])))
     return ("%s: the copper still moved %s between the last two of %d passes over the firm items, so what stands beside it "
             "was placed against its last plan" % (f["copper"], "by %.3f mm" % f["moved_mm"] if f["moved_mm"] >= 0 else
                                                   "(a different number of segments)", f["passes"]))
@@ -921,3 +924,7 @@ def pocket_took_text(p: dict) -> str:
 @renders(C.SETUP_CENTRE_FLAG_DEFAULT, "item")
 def _setup_centre_flag_default(f):
     return "%s: coordinates=False is the default: leave it out" % f["item"]
+
+
+# ------------------------------------------------------------------ schema versions of causes whose facts have changed
+FACTS_V[C.FIXED_ROOM_UNSETTLED] = 2     # a firm cell whose arrangement did not settle: item and arrangements, not copper
