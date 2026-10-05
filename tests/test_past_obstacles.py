@@ -1,0 +1,243 @@
+"""Past(items, edge) over any obstacle: cutouts, stretches of the board edge or of a hole, parts' and cells'
+envelopes, and labels, as well as pads, vias and tracks. Each item is read as its box; the point stands half the
+track's width (a via's radius) plus the pair's rule off each: the net-pair clearance from copper, the copper-to-edge
+clearance from a hole or the edge, nothing from an envelope or (for a track) a label. Pure: synthetic boards."""
+import dataclasses
+import json
+import math
+import pickle
+from pathlib import Path
+
+import pytest
+
+from placemat.board_geometry import Footprint
+from placemat.copper import Track, Via
+from placemat.cutouts import Circle, Slot
+from placemat.layout import Board
+from placemat.settings import Settings
+from placemat.values import (Along, Beside, Box, Cell, Centre, CopperLayer, Corner, Cutout, Edge, Face, Location, Near,
+                             Net, PadRef, Part, Past, X, Y)
+from tests.fixtures import board_geometry, declared_findings, footprint, pad
+
+W3A = 1.37          # a 3 A track on 1 oz outer copper at a 10 C rise (IPC-2221): the width the reported board used
+SAG = 0.02          # the setting geometry.arc_sag's default
+EDGE = 0.4          # tests.fixtures.board_geometry's copper-to-edge clearance
+
+
+def _part(ref, inst, net, cx, cy, w=1.0, h=1.0, margin=0.0, face=Face.FRONT):
+    """A one-pad part whose body is the pad grown by `margin`, its courtyard 0.1 mm further."""
+    p = pad(ref, inst, 1, net, cx, cy, w, h, face=face)
+    body = Box(cx - w / 2 - margin, cy - h / 2 - margin, cx + w / 2 + margin, cy + h / 2 + margin)
+    return Footprint(ref, inst, None, ref, Location(cx, cy), 0.0, face, body, body.inflate(0.1), body, (p,))
+
+
+def _board(parts=(), holes=(), width=40.0, height=30.0, margin=EDGE, keep_going=False, draw=None, **geom):
+    g = board_geometry(list(parts), width=width, height=height, extra_nets=["VBUS", "SIG", "GND"], **geom)
+    b = Board(g, edge_margin=margin, keep_going=keep_going)
+    b.rect(width=width, height=height, holes=list(holes), draw=draw)
+    for fp in parts:
+        b.place(Part(fp.inst), at=fp.location, face=fp.face)
+    return b
+
+
+def _points(plan, net):
+    return [p for t in plan.copper if isinstance(t, Track) and t.net == net for p in ((t.start.x, t.start.y), (t.end.x, t.end.y))]
+
+
+def _has(plan, net, x, y):
+    return any(abs(px - x) < 1e-6 and abs(py - y) < 1e-6 for px, py in _points(plan, net))
+
+
+def _vias(plan, net):
+    return [op for op in plan.copper if isinstance(op, Via) and op.net == net]
+
+
+def _away(v, sign):
+    """placemat's rounding of a Past point: to 1e-6 mm, away from the items."""
+    q = v * 1e6
+    return (math.ceil(q - 1e-3) if sign > 0 else math.floor(q + 1e-3)) / 1e6
+
+
+def _not_drawn(plan):
+    return [f for f in plan.findings if f.cause.value == "copper.not_drawn"]
+
+
+# ---------------------------------------------------------------- declarations
+def test_past_takes_a_cutout_a_stretch_of_a_hole_and_a_stretch_of_the_board_edge():
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))
+    b = _board(holes=[vent])
+    for items, edge in (([vent], Edge.WEST), ([b.cutout("vent")], Edge.NORTH),
+                        ([b.cutout("vent").edge(side=Edge.WEST)], Edge.WEST), ([b.edge(facing=Edge.WEST)], Edge.EAST),
+                        ([vent, b.edge(facing=Edge.NORTH)], Corner.SE)):
+        b.track(Net("SIG"), [Location(2.0, 2.0), Past(items, edge), Location(38.0, 2.0)], layer=CopperLayer.F)
+
+
+def test_an_item_of_another_kind_is_refused_naming_the_kinds():
+    with pytest.raises(TypeError, match="cutouts .*stretches of the board edge"):
+        Past([Location(1.0, 2.0)], Edge.EAST)
+
+
+def test_a_cutout_that_is_not_this_boards_is_refused():
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))
+    b = _board(holes=[vent])
+    stray = Cutout(Circle(1.5), "stray", at=Location(5.0, 5.0))
+    with pytest.raises(TypeError, match="'stray' is not one of this board's named cutouts"):
+        b.track(Net("SIG"), [Location(2.0, 2.0), Past([stray], Edge.WEST), Location(2.0, 28.0)], layer=CopperLayer.F)
+    other = _board(holes=[Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))])
+    with pytest.raises(TypeError, match="another board"):
+        b.track(Net("SIG"), [Location(2.0, 2.0), Past([other.cutout("vent")], Edge.WEST), Location(2.0, 28.0)],
+                layer=CopperLayer.F)
+
+
+def test_past_off_a_stretch_of_edge_keeps_to_the_boards_side():
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))
+    b = _board(holes=[vent])
+    west = b.edge(facing=Edge.WEST)
+    Past([west], Edge.EAST)
+    Past([west], Corner.NE)                     # its diagonal is 45 degrees off EAST: still the board's side
+    with pytest.raises(ValueError, match="its edge is EAST"):
+        Past([west], Edge.WEST)
+    with pytest.raises(ValueError, match="its edge is EAST"):
+        Past([west], Corner.NW)
+    with pytest.raises(ValueError, match="its edge is WEST"):
+        Past([b.cutout("vent").edge(side=Edge.WEST)], Edge.EAST)      # east of the hole's west side is the hole
+
+
+def test_across_takes_a_cutout_and_not_a_stretch_of_edge():
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))
+    b = _board(holes=[vent])
+    Past([vent], Edge.WEST, across=vent)
+    Past([vent], Edge.WEST, across=b.cutout("vent"))
+    with pytest.raises(TypeError, match="across"):
+        Past([vent], Edge.WEST, across=b.edge(facing=Edge.WEST))
+
+
+# ---------------------------------------------------------------- cutouts
+def test_past_a_round_cutout_stands_the_edge_clearance_and_the_arc_allowance_off_its_box():
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))      # box x 19.25..20.75, y 14.25..15.75
+    b = _board(holes=[vent])
+    b.track(Net("VBUS"), [Location(20.0, 5.0), Past([vent], Edge.WEST), Location(20.0, 25.0)], layer=CopperLayer.B,
+            width=W3A)
+    plan = b.resolve()
+    # 19.25 - 0.02 (the arc's chords) - 0.4 (copper to edge) - 0.685 (half the track) = 18.145, on the hole's centre line
+    assert _has(plan, "VBUS", 18.145, 15.0), _points(plan, "VBUS")
+    assert not declared_findings(plan), plan.findings
+
+
+def test_board_cutout_and_a_stretch_of_the_hole_name_the_hole():
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))
+    b = _board(holes=[vent])
+    b.track(Net("VBUS"), [Location(20.0, 5.0), Past([b.cutout("vent")], Edge.WEST), Location(20.0, 25.0)],
+            layer=CopperLayer.B, width=W3A)
+    b.via(Net("SIG"), at=Past([b.cutout("vent").edge(side=Edge.EAST)], Edge.EAST), size=0.6)
+    plan = b.resolve()
+    assert _has(plan, "VBUS", 18.145, 15.0), _points(plan, "VBUS")
+    (v,) = _vias(plan, "SIG")
+    # the east stretch's box: its eastmost point 20.75 grown by 0.02; 0.4 + the via's 0.3 radius; centred, as the arc is
+    assert (v.at.x, v.at.y) == (pytest.approx(21.47, abs=1e-9), pytest.approx(15.0, abs=1e-6))
+
+
+def test_past_a_slot_north_of_it():
+    slot = Cutout(Slot(4.0, 1.5), "slot", at=Location(20.0, 15.0))     # box x 18..22, y 14.25..15.75
+    b = _board(holes=[slot])
+    b.track(Net("VBUS"), [Location(10.0, 13.145), Past([slot], Edge.NORTH), Location(30.0, 13.145)],
+            layer=CopperLayer.B, width=W3A)
+    plan = b.resolve()
+    assert _has(plan, "VBUS", 20.0, 13.145), _points(plan, "VBUS")       # 14.25 - 0.02 - 0.4 - 0.685
+
+
+def test_past_a_cutout_with_a_freedom_resolves_where_it_settled():
+    vent = Cutout(Circle(1.5), "vent", at=Location(20.0, None), why="air")   # free in y: the board slides it
+    b = _board(holes=[vent])
+    b.via(Net("SIG"), at=Past([vent], Edge.NORTH), size=0.6)
+    b.via(Net("VBUS"), at=Past([b.cutout("vent").edge(side=Edge.SOUTH)], Edge.SOUTH), size=0.6)  # a promise until it settles
+    plan = b.resolve()
+    c = plan.cutouts_placed["vent"].centre
+    (v,), (w,) = _vias(plan, "SIG"), _vias(plan, "VBUS")
+    assert v.at.x == pytest.approx(c.x, abs=1e-6) and v.at.y == pytest.approx(_away(c.y - 0.75 - SAG - EDGE - 0.3, -1), abs=1e-6)
+    assert w.at.x == pytest.approx(c.x, abs=1e-6) and w.at.y == pytest.approx(_away(c.y + 0.75 + SAG + EDGE + 0.3, 1), abs=1e-6)
+
+
+# ---------------------------------------------------------------- the board edge
+def test_past_the_board_edge_stands_inboard_by_the_edge_clearance():
+    b = _board()
+    b.track(Net("SIG"), [Location(0.5, 2.0), Past([b.edge(facing=Edge.WEST)], Edge.EAST), Location(0.5, 28.0)],
+            layer=CopperLayer.F)
+    plan = b.resolve()
+    assert _has(plan, "SIG", 0.5, 15.0), _points(plan, "SIG")             # 0 + 0.4 + 0.1, the middle of the west side
+
+
+def test_past_a_curved_stretch_of_a_round_board_takes_its_box_grown_by_the_arc_allowance():
+    b = Board(board_geometry([], width=40.0, height=40.0, extra_nets=["SIG"]), edge_margin=EDGE)
+    b.disc(30.0)
+    rim = b.edge(facing=Edge.WEST)
+    box = Box.of_points(rim.points)
+    b.via(Net("SIG"), at=Past([rim], Edge.EAST), size=0.6)
+    (v,) = _vias(b.resolve(), "SIG")
+    assert v.at.x == pytest.approx(_away(box.right + SAG + EDGE + 0.3, 1), abs=1e-9)
+    assert v.at.y == pytest.approx(box.top + 0.5 * (box.bottom - box.top), abs=1e-6)
+
+
+# ---------------------------------------------------------------- items mixed
+def test_on_an_edge_the_outer_group_sets_the_point_and_across_a_cutout_its_centre_line():
+    def plan_of(across):
+        pa = _part("PA", "pa", "GND", 20.0, 10.0)                         # pad box 19.5..20.5, 9.5..10.5
+        b = _board([pa], holes=[Cutout(Circle(1.5), "vent", at=Location(20.0, 15.0))])
+        vent = b._named_cutouts["vent"]
+        b.via(Net("SIG"), at=Past([PadRef(Part("pa"), 1), vent], Edge.WEST, across=vent if across else None), size=0.6)
+        (v,) = _vias(b.resolve(), "SIG")
+        return v.at
+    # the pad: 19.5 - 0.2 - 0.3 = 19.0; the hole: 19.25 - 0.02 - 0.4 - 0.3 = 18.53, further out
+    on_hole = plan_of(True)
+    assert (on_hole.x, on_hole.y) == (pytest.approx(18.53, abs=1e-9), pytest.approx(15.0, abs=1e-6))
+    middle = plan_of(False)                                               # the middle of the union, 9.5..15.77
+    assert (middle.x, middle.y) == (pytest.approx(18.53, abs=1e-9), pytest.approx(12.635, abs=1e-6))
+
+
+def test_at_a_corner_each_groups_corner_is_passed_at_least_at_its_own_stand_off():
+    pa = _part("PA", "pa", "GND", 20.0, 15.0)                             # pad NE corner (20.5, 14.5), reach 0.3 + 0.2
+    vent = Cutout(Circle(1.5), "vent", at=Location(24.0, 15.0))          # grown box NE corner (24.77, 14.23), reach 0.3 + 0.4
+    b = _board([pa], holes=[vent])
+    b.via(Net("SIG"), at=Past([PadRef(Part("pa"), 1), vent], Corner.NE), size=0.6)
+    (v,) = _vias(b.resolve(), "SIG")
+    # the union's NE corner is the hole's; the pad's corner stands 4.54 mm behind it along the diagonal, so the
+    # hole's reach sets the point: 0.7 / sqrt(2) out on each axis
+    d = 0.7 / math.sqrt(2.0)
+    assert (v.at.x, v.at.y) == (pytest.approx(_away(24.77 + d, 1), abs=1e-9), pytest.approx(_away(14.23 - d, -1), abs=1e-9))
+    for cx, cy, reach in ((20.5, 14.5, 0.5), (24.77, 14.23, 0.7)):        # a 45 through it passes each corner at its reach
+        assert ((v.at.x - cx) - (v.at.y - cy)) / math.sqrt(2.0) >= reach - 1e-6
+
+
+# ---------------------------------------------------------------- not drawn
+def test_a_past_off_a_cutout_that_found_no_place_is_not_drawn():
+    pa = _part("PA", "pa", "GND", 20.0, 15.0)
+    # placed over the part it is placed by: refused (it would mill the part), so it has no place
+    vent = Cutout(Circle(1.5), "vent", at=Centre(X(Part("pa")), Y(Part("pa"))), why="air")
+    b = _board([pa], holes=[vent], keep_going=True)
+    b.track(Net("SIG"), [Location(5.0, 2.0), Past([vent], Edge.NORTH), Location(35.0, 2.0)], layer=CopperLayer.F)
+    plan = b.resolve()
+    (f,) = _not_drawn(plan)
+    assert f.facts["variant"] == "past" and f.facts["names"] == ["cutout vent"]
+    assert f.facts["why"] == {"code": "past_cutout_unplaced", "name": "vent"}
+    assert "cutout vent found no place" in str(f)
+    assert not _points(plan, "SIG")
+
+
+def test_a_past_whose_point_lands_off_the_board_is_not_drawn():
+    pa = _part("PA", "pa", "GND", 0.6, 15.0)                              # pad west side at x = 0.1
+    b = _board([pa], margin=0.0)
+    b.track(Net("SIG"), [Location(5.0, 10.0), Past([PadRef(Part("pa"), 1)], Edge.WEST), Location(5.0, 20.0)],
+            layer=CopperLayer.F)
+    plan = b.resolve()
+    (f,) = _not_drawn(plan)
+    assert f.facts["why"] == {"code": "past_off_board", "at": [-0.2, 15.0], "edge": "outside", "names": ["PA.1"]}
+    assert "(-0.20, 15.00) lies off the board" in str(f)
+    assert not _points(plan, "SIG")
+
+
+def test_a_fragments_frame_is_no_edge_for_a_past():
+    pa = _part("PA", "pa", "GND", 0.6, 15.0)
+    b = _board([pa], margin=0.0, draw=False)                              # a module's frame: never written to Edge.Cuts
+    b.via(Net("SIG"), at=Past([PadRef(Part("pa"), 1)], Edge.WEST), size=0.6)
+    (v,) = _vias(b.resolve(), "SIG")
+    assert v.at.x == pytest.approx(-0.4, abs=1e-9)                        # 0.1 - 0.2 - 0.3, past the frame, drawn

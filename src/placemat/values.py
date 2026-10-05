@@ -881,32 +881,47 @@ class Between:
 
 
 _PAST_COPPER = ("via", "vias", "track")       # the first word of a copper declaration's key Past may name
+_PAST_KINDS = ("pads (PadRef, CellPadRef), vias, tracks, cutouts (the Cutout given to holes=, or board.cutout(name)), "
+               "and stretches of the board edge or of a hole (board.edge(facing=), board.cutout(name).edge(side=))")
+_CORNER_BEARING = {"NE": 45.0, "SE": 135.0, "SW": 225.0, "NW": 315.0}     # a Corner's outward diagonal, as a bearing
+
+
+def _past_keeps_to_the_board(run, edge) -> None:
+    """A Past off a stretch of edge stands on the board's side of it: its Edge, or its Corner's outward diagonal, points
+    within 45 degrees of the bearing away from the stretch's void (a Run's `facing` plus 180; a CutoutEdge's `side`,
+    since its run faces back into the hole). Raises ValueError naming the sides that would."""
+    away = bearing(run.side) if isinstance(run, CutoutEdge) else (float(run.facing) + 180.0) % 360.0
+    toward = bearing(edge) if isinstance(edge, Edge) else _CORNER_BEARING[edge.value]
+    if abs((toward - away + 180.0) % 360.0 - 180.0) <= 45.0 + 1e-9:
+        return
+    sides = [e.name for e in Edge if abs((bearing(e) - away + 180.0) % 360.0 - 180.0) <= 45.0 + 1e-9]
+    raise ValueError("Past off a stretch of edge stands on the board's side of it: this stretch's void lies at bearing %g, "
+                     "so its edge is %s (or a Corner within 45 degrees of that), not %s"
+                     % ((away + 180.0) % 360.0, " or ".join(sides), edge.name))
 
 
 @dataclass(frozen=True)
 class Past:
-    """A point the clearance off the `edge` side of some copper:
-    `Past([PadRef(a), PadRef(b)], Edge.EAST)`. `items` are pads
-    (`PadRef`/`CellPadRef`), vias (what `board.via()` or `board.vias()`
-    returns) and tracks (what `board.track()` returns), in any mix; the edge
-    is read off their combined copper box, and the offset is the worst
-    clearance by net pair from what stands at the point.
+    """A point held off the `edge` side of some items: `Past([PadRef(a), vent], Edge.EAST)`. `items` are pads
+    (`PadRef`/`CellPadRef`), vias (what `board.via()` or `board.vias()` returns), tracks (what `board.track()` returns),
+    cutouts (the `Cutout` given to `holes=`, or `board.cutout(name)`) and stretches of the board edge or of a hole
+    (`board.edge(facing=)`, `board.cutout(name).edge(side=)`), in any mix. Each is read as its box; the point stands far
+    enough out to keep the pair's rule from each: the worst clearance by net pair from the pads, vias and tracks together,
+    the board's copper-to-edge clearance from a hole or the edge. Off a stretch of edge the point is on the board's side
+    of it.
 
-    `across` sets where the point lies across `edge`: on a pad's or a via's
-    centre line, or at an `Along` of the box's side (default the middle).
+    `across` sets where the point lies across `edge`: on a pad's, a via's or a cutout's centre line, or at an `Along` of
+    the combined box's side (default the middle).
 
-    `edge` may be a `Corner` instead: the point is on the outward diagonal
-    from that corner of the box, the clearance off it, so a 45 through it
-    across the diagonal passes the corner at the clearance. A corner fixes
+    `edge` may be a `Corner` instead: the point is on the outward diagonal from that corner of the combined box, far
+    enough out that a 45 through it across the diagonal passes each item's corner at least at its rule. A corner fixes
     the point on both axes, so it takes no `across`.
 
-    As a track waypoint the point is half the track's width further out; as
-    a via's `at=`, the via's radius. In `Beside`'s align pair, `lane=` a net
-    leaves room for one track of it between the items and the part's pad,
-    `width=` wide (default the net's track width): the copper its current
-    needs.
+    As a track waypoint the point is half the track's width further out; as a via's `at=`, the via's radius. In
+    `Beside`'s align pair, `lane=` a net leaves room for one track of it between the items and the part's pad, `width=`
+    wide (default the net's track width): the copper its current needs.
 
-    Resolved when every pad is placed and every via and track planned."""
+    Resolved when every pad is placed, every via and track planned and every cutout cut."""
     items: tuple
     edge: object
     across: object = field(default=None, metadata={"omit_default": True})
@@ -914,10 +929,11 @@ class Past:
     width: float | None = field(default=None, metadata={"omit_default": True})
 
     def __post_init__(self):
-        from .layout import CopperIntent
+        from .layout import CopperIntent, CutoutHandle
+        from .outline import Run
         object.__setattr__(self, "items", tuple(self.items))
         if not self.items:
-            raise ValueError("Past needs at least one pad, via or track")
+            raise ValueError("Past needs at least one item: %s" % _PAST_KINDS)
         if not isinstance(self.edge, (Edge, Corner)):
             raise TypeError("Past's edge is an Edge or a Corner, not %r" % (self.edge,))
         if isinstance(self.edge, Corner) and self.across is not None:
@@ -925,14 +941,18 @@ class Past:
         for it in self.items:
             if isinstance(it, CopperIntent):
                 if it.key.split(" ")[0] not in _PAST_COPPER:
-                    raise TypeError("Past's items are pads, vias and tracks; %s is neither a via nor a track"
-                                    % it.key)
-            elif not isinstance(it, (PadRef, CellPadRef)):
-                raise TypeError("Past's items are pads (PadRef, CellPadRef), vias and tracks, not %r" % (it,))
+                    raise TypeError("Past's items are %s; %s is neither a via nor a track" % (_PAST_KINDS, it.key))
+            elif isinstance(it, (Run, CutoutEdge)):
+                _past_keeps_to_the_board(it, self.edge)
+            elif not isinstance(it, (PadRef, CellPadRef, Cutout, CutoutHandle)):
+                raise TypeError("Past's items are %s, not %r" % (_PAST_KINDS, it))
         a = self.across
-        if not (a is None or isinstance(a, (PadRef, CellPadRef, Along))
+        if isinstance(a, (Run, CutoutEdge)):
+            raise TypeError("Past's across= is a centre line to lie on, and a stretch of edge has none (its middle is "
+                            "Along.MID); give a pad, a via, a cutout or an Along")
+        if not (a is None or isinstance(a, (PadRef, CellPadRef, Along, Cutout, CutoutHandle))
                 or (isinstance(a, CopperIntent) and a.key.split(" ")[0] == "via")):
-            raise TypeError("Past's across is a PadRef, a via or Along.START/MID/END, not %r" % (a,))
+            raise TypeError("Past's across is a PadRef, a via, a cutout or Along.START/MID/END, not %r" % (a,))
         if self.lane is not None and not isinstance(self.lane, Net):
             raise TypeError("Past's lane is a Net, not %r" % (self.lane,))
         if self.width is not None and self.lane is None:

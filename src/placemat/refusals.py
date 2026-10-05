@@ -107,6 +107,8 @@ class Code(str, Enum):
     PAST_NOT_PLANNED = "past_not_planned"
     PAST_NO_VIA = "past_no_via"
     PAST_NO_TRACK = "past_no_track"
+    PAST_CUTOUT_UNPLACED = "past_cutout_unplaced"
+    PAST_OFF_BOARD = "past_off_board"
     # where a via may stand, asked of the board as it was read (queries.py)
     Q_OFF_BOARD = "q_off_board"
     Q_EDGE = "q_edge"
@@ -884,6 +886,17 @@ def _past_no_via(f):
 @renders(Code.PAST_NO_TRACK, "copper")
 def _past_no_track(f):
     return "that track is not drawn"
+
+
+@renders(Code.PAST_CUTOUT_UNPLACED, "copper")
+def _past_cutout_unplaced(f):
+    return "cutout %s found no place" % f["name"]
+
+
+@renders(Code.PAST_OFF_BOARD, "copper")
+def _past_off_board(f):
+    return "its point (%.2f, %.2f) lies %s" % (f["at"][0], f["at"][1],
+                                               "in a cutout" if f["edge"] == "in_cutout" else "off the board")
 
 
 # ------------------------------------------------------------------ a hole or a region put where it may not go
