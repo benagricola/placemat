@@ -244,9 +244,10 @@ def test_a_note_the_setting_leaves_no_room_for_refuses_its_arrangement_with_a_fi
     entry = out.record[1]
     assert entry["id"] == "r_pull.turned" and entry["offered"] is False
     assert entry["refused"] == [{"form": "note_chars", "chars": 1}] and out.texts == []
-    (f,) = out.findings
+    f, dead = out.findings
     assert f.cause == "arrangement.refused" and f.facts["id"] == "r_pull.turned" and f.severity == "warning"
     assert "place.arrangement_note_chars" in str(f)
+    assert dead.cause == "arrangement.option_dead" and dead.facts["refused"] == ["r_pull.turned"]
 
 
 def test_the_console_rows_of_the_record():

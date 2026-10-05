@@ -165,13 +165,22 @@ SAMPLES = [
                          "firm_pass": None, "kept": "unplaced"},
      "u1: gave up after 60.4 s in the coarse pass (--step-limit 60 s) and is left unplaced; the next run searches it again"),
     (C.ARRANGEMENT_LIMIT, {"variant": "arrangements", "arrangements": 12, "max_arrangements": 8,
-                           "options": {"c_in": 3, "r_pull": 2}, "max_options": 4},
+                           "options": {"c_in": 3, "r_pull": 2, "pair": 2}, "max_options": 4, "excluded": 0},
      "this module declares 12 arrangements, over the 8 place.arrangements_max allows, so only the default is laid out; "
-     "name a group (board.arrangement) for each combination that matters"),
+     "leave out the combinations that do not matter with board.exclude"),
+    (C.ARRANGEMENT_LIMIT, {"variant": "arrangements", "arrangements": 10, "max_arrangements": 8,
+                           "options": {"c_in": 3, "r_pull": 2, "pair": 2}, "max_options": 4, "excluded": 2},
+     "this module declares 10 arrangements once its exclusions leave out 2, over the 8 place.arrangements_max allows, so only "
+     "the default is laid out; leave out the combinations that do not matter with board.exclude"),
     (C.ARRANGEMENT_LIMIT, {"variant": "options", "arrangements": 6, "max_arrangements": 8,
-                           "options": {"c_in": 5}, "max_options": 4},
-     "c_in has 5 options, over the 4 place.arrangement_options_max allows, so only the default is laid out; "
-     "name a group (board.arrangement) for each combination that matters"),
+                           "options": {"c_in": 5}, "max_options": 4, "excluded": 0},
+     "c_in has 5 options, over the 4 place.arrangement_options_max allows, so only the default is laid out; drop one"),
+    (C.ARRANGEMENT_OPTION_DEAD, {"unit": "pair", "option": "upright", "choice": "pair.upright",
+                                 "refused": ["pair.upright", "pair.upright+r_far.turned"],
+                                 "reasons": {"pair.upright": [{"form": "drc", "bucket": "clearance", "count": 2}],
+                                             "pair.upright+r_far.turned": [{"form": "unplaced", "item": "r_far"}]}},
+     "pair.upright is refused in every arrangement that holds it, so the board is never offered it: pair.upright for DRC "
+     "clearance x2; pair.upright+r_far.turned for r_far is not placed; fix it or drop it"),
     (C.ARRANGEMENT_REFUSED, {"id": "mirrored", "refused": [{"form": "drc", "bucket": "clearance", "count": 2},
                                                            {"form": "verdict", "check": "hot-loop", "item": "c_in"}]},
      "arrangement mirrored is not offered: DRC clearance x2; hot-loop c_in failed"),

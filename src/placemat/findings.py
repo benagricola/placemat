@@ -123,6 +123,7 @@ class FindingCause(str, Enum):
     ARRANGEMENT_STALE = (FindingKind.ARRANGEMENT, "arrangement.stale")
     ARRANGEMENT_MISSING = (FindingKind.ARRANGEMENT, "arrangement.missing")
     ARRANGEMENT_EXTENT_FIXED = (FindingKind.ARRANGEMENT, "arrangement.extent_fixed")
+    ARRANGEMENT_OPTION_DEAD = (FindingKind.ARRANGEMENT, "arrangement.option_dead")
 
     def __str__(self):
         return self.value
