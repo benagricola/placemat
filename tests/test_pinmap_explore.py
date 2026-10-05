@@ -71,3 +71,80 @@ def test_an_explore_reports_the_study_of_its_best_variant_first(tmp_path):
     maps = report["pin_maps"]
     assert len(maps) == 3 and maps[0]["seed"] == report["best_seed"] and maps[0]["score"] == round(report["best"], 1)
     assert all(m["groups"] and m["groups"][0]["refs"] == ["U1"] for m in maps)
+
+
+# seeds 0-7 of `_searched_board` rank 2, 6, 5 first: the best is not seed 0, and the other two are resolved again
+SEEDS = range(0, 8)
+
+
+class _Counting:
+    """`_searched_board`, counting the boards made in this process (a worker counts its own)."""
+
+    def __init__(self):
+        self.made = 0
+
+    def __call__(self):
+        self.made += 1
+        return _searched_board()
+
+
+def _spied(monkeypatch, make=None):
+    from placemat import explore
+    calls = []
+    real = explore._pin_maps
+
+    def spy(make_board, entries, focus, result, have):
+        before = make.made if make else 0
+        out = real(make_board, entries, focus, result, have)
+        calls.append({"entries": list(entries), "seeds": sorted(have), "made": (make.made if make else 0) - before})
+        return out
+    monkeypatch.setattr(explore, "_pin_maps", spy)
+    return calls
+
+
+def test_the_best_variant_is_studied_on_the_plan_the_search_resolved_for_it(tmp_path, monkeypatch):
+    make = _Counting()
+    calls = _spied(monkeypatch, make)
+    report, _ = search(make, tmp_path / "Board_layout.py", seconds=60, jobs=1, seeds=SEEDS)
+    assert report["best_seed"] == 2 and [m["seed"] for m in report["pin_maps"]] == [2, 6, 5]
+    assert calls == [{"entries": [], "seeds": [0, 2], "made": 2}]
+
+
+def test_with_accept_the_variants_are_studied_under_the_lock_they_were_ranked_under(tmp_path, monkeypatch):
+    from placemat import lock
+    script = tmp_path / "Board_layout.py"
+    calls = _spied(monkeypatch)
+    report, entries = search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, accept=True)
+    assert report["accepted"] and entries and lock.path_for(script).exists()
+    assert [c["entries"] for c in calls] == [[]]
+    assert [m["seed"] for m in report["pin_maps"]] == [2, 6, 5]
+
+
+def test_pins_explore_top_sets_how_many_variants_are_studied():
+    from dataclasses import replace
+    for top, seeds, resolved in ((0, [], 0), (1, [0], 0), (2, [0, 2], 1)):
+        b = board()
+        b.settings = replace(b.settings, pins_explore_top=top)
+        made = []
+
+        def make():
+            made.append(1)
+            return board()
+        maps = _pin_maps(make, [], frozenset({"r1"}), RESULT, {0: (b, b.resolve())})
+        assert [m["seed"] for m in maps] == seeds and len(made) == resolved
+
+
+def test_a_stop_during_the_study_stops_the_explore_with_its_report_and_accepts_nothing(tmp_path, monkeypatch):
+    import signal
+    import pytest
+    from placemat import lock, stop
+
+    def stopped(*a, **kw):
+        raise stop.Stopped(signal.SIGTERM)
+    monkeypatch.setattr(pinmap, "plan_summary", stopped)
+    script = tmp_path / "Board_layout.py"
+    with pytest.raises(stop.Stopped) as e:
+        search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, accept=True)
+    r = e.value.explore
+    assert e.value.stage == "explore" and r["stopped"] == "SIGTERM" and r["best_seed"] == 2 and not r["accepted"]
+    assert "pin_maps" not in r and not lock.path_for(script).exists()

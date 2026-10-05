@@ -629,7 +629,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if ck is not None and result.best_seed and (_checkpoint.read_best(ck.dir) or {}).get("seed") == result.best_seed:
         report["accept"] = accept_command(script, result.best_seed)
     if result.best_seed == 0:
-        report["pin_maps"] = _pin_maps(make_board, entries, focus, result, {0: (base, current)})
+        _study(report, make_board, entries, focus, result, {0: (base, current)})
         _write_record(script, result, report)
         if ck is not None and not keep_state:
             ck.finish()
@@ -647,6 +647,8 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         d = was.location.distance(now.location)
         if d > 1e-6 or was.rotation != now.rotation:
             report["moves"].append({"key": key, "mm": round(d, 3), "rotation": [was.rotation, now.rotation]})
+    # before the accept: the variants are studied under the lock they were ranked under
+    _study(report, make_board, entries, focus, result, {0: (base, current), result.best_seed: (board, best)})
     if accept:
         placed = [k for k in focus if best.placement(k) is not None]
         new = _lock.entries(board, best, placed, release, run_id, round(result.best, 1))
@@ -654,11 +656,23 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["accepted"] = True
         if ck is not None:
             ck.best_path.unlink(missing_ok=True)         # taken: it would not match the lock now
-    report["pin_maps"] = _pin_maps(make_board, entries, focus, result, {0: (base, current), result.best_seed: (board, best)})
     _write_record(script, result, report)
     if ck is not None and not keep_state:
         ck.finish()
     return report, entries
+
+
+def _study(report, make_board, entries, focus, result, have: dict) -> None:
+    """`report["pin_maps"]` from `_pin_maps`. A stop during the study is a stop of the explore, as one during its
+    search: the report goes up with it as `.explore`, said, with nothing accepted."""
+    from . import stop
+    try:
+        report["pin_maps"] = _pin_maps(make_board, entries, focus, result, have)
+    except stop.Stopped as s:
+        report["stopped"] = s.label
+        s.explore, s.stage = report, "explore"
+        stop.say(stopped_line(report), both=False)
+        raise
 
 
 def _pin_maps(make_board, entries, focus, result, have: dict) -> list:
