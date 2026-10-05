@@ -280,6 +280,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Pair layers; escape docs; net-list guard; faster escape report**
+  (0.99.9): `route.pair_layers` gives a pair (P/N or its net class) its own
+  layers for the pair stage; the skill and api.md say an undrawn escape is a
+  reservation the router never sees; route --exclude refuses one argument
+  holding several nets; a pad's own copper chain is checked by an id set.
+
 - **Studio 3D copper, see-through, spread layers; back parts rise in Play;
   more free UUIDs** (0.99.8): the 3D view draws each copper layer at its
   stackup height with a see-through board, shares the legend's copper
