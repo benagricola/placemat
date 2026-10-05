@@ -347,9 +347,14 @@ The study has to be quick because its value is early feedback.
   has found by then, is the same on any machine, at any load and on either
   core: the native core and the Python twin count steps identically and give
   bit-identical results; Python takes longer.
-- The default is calibrated on the reference board
-  (`fixtures/pinmap_bench.py`): 3000 steps over its four poses took the
-  native core 0.085-0.09 s, about what the old 100 ms allowed. The probe's
+- The default is calibrated on the reference board: 3000 steps over its four
+  poses (the default settings but `pins.anneal_moves` 750, one seed: 4 x 750
+  steps) took the native core 0.085-0.09 s median under a load average of
+  about 6, and 0.077 s under about 3.5, about what the old 100 ms allowed.
+  To reproduce: `fixtures/pinmap_bench.py --repeat 5 --set
+  pins_anneal_moves=750`. With every step in one pose (`pins.anneal_moves`
+  100000, `pins.budget_steps` 3000) the same took 0.069 s; 100 ms was then
+  about 5000 steps. The probe's
   `pins.probe_budget_steps` (150000) is the same 50 times over, as 5000 ms
   was 100 ms. Replaced settings: `pins.budget_ms` and `pins.probe_budget_ms`
   are refused with a settings error naming their replacements (a time does
@@ -361,9 +366,11 @@ The study has to be quick because its value is early feedback.
   budget on the reference board (1.2-1.3 s under load) and about 100 times
   the native core's. Past it the study gives no map and raises a
   `setup.pins` warning with code `study_slow` (facts `refs`, `guard_ms`,
-  `steps`, `budget_steps`): a map cut short by the time would differ from run
-  to run, so it is never presented as the answer. Such a study is not kept
-  for reuse.
+  `steps`, `budget_steps`) and no `no_legal_map` problems: a map cut short by
+  the time would differ from run to run, so it is never presented as the
+  answer. Such a study is not kept for reuse, so the guard is not part of the
+  digest. `placemat apply <id> --search` says so and exits 1 (`--json`:
+  `reason: "slow"`), and an explore's report line for the group says so.
 - It runs after a run's or preview's placement, once, on the final board,
   never inside the placement search.
 - A digest of what the study reads (the studied parts' pads and nets, the

@@ -108,3 +108,30 @@ def test_a_panic_in_the_native_core_exits_non_zero_with_its_error(tmp_path, monk
     monkeypatch.setattr("placemat.pinmap.plan_summary", panics)
     assert cli._pin_search(SimpleNamespace(json=True), tmp_path, script, s) == 1
     assert json.loads(capsys.readouterr().out)["error"] == {"type": "PanicException", "message": "index out of bounds"}
+
+
+def _tripped(tmp_path, monkeypatch):
+    from dataclasses import replace
+    b = board()
+    plan = b.resolve()
+    script, s = kept_worse(tmp_path, monkeypatch, b, plan)
+    b.settings = replace(b.settings, pins_guard_ms=1e-9)
+    return script, s
+
+
+def test_a_longer_study_past_its_guard_says_so_and_keeps_nothing(tmp_path, monkeypatch, capsys):
+    script, s = _tripped(tmp_path, monkeypatch)
+    assert cli._pin_search(SimpleNamespace(json=False), tmp_path, script, s) == 1
+    seen = capsys.readouterr()
+    assert "s1a: the study of U1 ran past its wall-clock guard, pins.guard_ms of " in seen.out + seen.err
+    assert "; no map is given" in seen.out + seen.err
+    kept = sg.recall(tmp_path, script)[str(script.resolve())]["suggestions"]
+    assert [x.id for x in kept] == ["s1a"]
+
+
+def test_a_longer_study_past_its_guard_gives_its_reason_in_json(tmp_path, monkeypatch, capsys):
+    script, s = _tripped(tmp_path, monkeypatch)
+    assert cli._pin_search(SimpleNamespace(json=True), tmp_path, script, s) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["reason"] == "slow" and out["found"] is None and out["study"]["slow"] is True
+    assert out["study"]["steps"] == 0 and out["study"]["budget_steps"] == 30000

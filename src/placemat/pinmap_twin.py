@@ -871,7 +871,7 @@ def _as_native(pb):
 def search(pb, group_parts, combos, params) -> tuple:
     """The study of one group, as the native core's `pinmap_search` returns it: (present tallies, present paths,
     [(combo, tallies, assignment, paths)], budget_out, first_map, [(part, net)] no matching placed, steps taken, slow).
-    A study past its guard (`slow`) gives no poses. An index out of range, or a pin normal off the four axes, is refused
+    A study past its guard (`slow`) gives no poses and no problems. An index out of range, or a pin normal off the four axes, is refused
     with ValueError, as the native core refuses it."""
     what = _indexes(pb, group_parts, combos)
     if what is not None:
@@ -893,7 +893,7 @@ def search(pb, group_parts, combos, params) -> tuple:
     results, out, first, problems = [], False, True, []
     for k, combo in enumerate(combos):
         if clock.slow():
-            return base, base_paths, [], out, first, problems, clock.steps, True
+            return base, base_paths, [], out, first, [], clock.steps, True
         if clock.spent():
             out = True
             if k == 0:
@@ -912,7 +912,7 @@ def search(pb, group_parts, combos, params) -> tuple:
         at_present = all(float(turn) % 360.0 == 0.0 and not flip for _, turn, flip in combo)
         best, _, stop = anneal(sc, group_parts, start, params, k, clock, present if at_present else None)
         if stop == "slow":
-            return base, base_paths, [], out, first, problems, clock.steps, True
+            return base, base_paths, [], out, first, [], clock.steps, True
         results.append((k, sc.total(best), [list(x) for x in best], sc.paths(best)))
         if stop == "budget":
             out = True

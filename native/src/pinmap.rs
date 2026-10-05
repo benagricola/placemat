@@ -1095,7 +1095,7 @@ pub type SearchResult =
     (Tallies, Paths, Vec<(usize, Tallies, Vec<Pins>, Paths)>, bool, bool, Vec<(usize, usize)>, u64, bool);
 
 /// `pinmap_twin.search`: (present tallies, present paths, [(combo, tallies, assignment, paths)], budget_out, first_map,
-/// [(part, net)] no matching placed, steps taken, slow). A study past its guard (`slow`) gives no poses.
+/// [(part, net)] no matching placed, steps taken, slow). A study past its guard (`slow`) gives no poses and no problems.
 pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bool)>], pr: &Params) -> SearchResult {
     let bg = Background::new(&pb.wires, pr.w);
     let mut clock = Clock { budget: pr.budget_steps, guard: pr.guard_ms, steps: 0, start: Instant::now() };
@@ -1108,7 +1108,7 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
     let (mut results, mut out, mut first, mut problems) = (Vec::new(), false, true, Vec::new());
     for (k, combo) in combos.iter().enumerate() {
         if clock.slow() {
-            return (base, base_paths, Vec::new(), out, first, problems, clock.steps, true);
+            return (base, base_paths, Vec::new(), out, first, Vec::new(), clock.steps, true);
         }
         if clock.spent() {
             out = true;
@@ -1141,7 +1141,7 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
         let (best, _, stop) = anneal(sc, group_parts, &start, if at_present { Some(&present) } else { None }, pr, k,
                                      &mut clock);
         if stop == Some(Stop::Slow) {
-            return (base, base_paths, Vec::new(), out, first, problems, clock.steps, true);
+            return (base, base_paths, Vec::new(), out, first, Vec::new(), clock.steps, true);
         }
         let t = sc.total(&best);
         let paths = sc.paths(&best);

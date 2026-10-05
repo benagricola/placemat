@@ -21,7 +21,8 @@ section for each hand-written pattern a newer form replaces.
 
 - **The pin map study's budget is a count of steps, not a time.** `[pins] budget_ms` and `probe_budget_ms` are
   retired: a placemat.toml or flag that sets either is a settings error naming its replacement. Set
-  `[pins] budget_steps` (default 3000 a part, about what 100 ms took on the native core) and `probe_budget_steps`
+  `[pins] budget_steps` (default 3000 a part, about what 100 ms took on the native core: 0.077-0.09 s for the
+  reference board's MCU searched to 3000 steps, `fixtures/pinmap_bench.py --repeat 5 --set pins_anneal_moves=750`) and `probe_budget_steps`
   (default 150000) instead; a step is one move of a local search. The same board now gives the same map on any
   machine, at any load, on either core; the Python fallback takes longer to get there. `[pins] guard_ms` (default
   10000 ms a part, 0 is off) is a safety net on the time: a study past it gives no map and a `setup.pins` warning

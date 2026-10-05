@@ -1194,4 +1194,5 @@ def _setup_centre_flag_default(f):
 # ------------------------------------------------------------------ schema versions of causes whose facts have changed
 FACTS_V[C.FIXED_ROOM_UNSETTLED] = 2     # a firm cell whose arrangement did not settle: item and arrangements, not copper
 FACTS_V[C.ARRANGEMENT_LIMIT] = 2        # excluded: how many combinations the module's exclusions leave out
-FACTS_V[C.PINS_REMAP] = 2               # controlled impedances' length, groups' spread, cohesion and landing
+FACTS_V[C.PINS_REMAP] = 3               # 2: controlled impedances' length, groups' spread, cohesion and landing;
+                                        # 3: steps and budget_steps in place of budget_ms

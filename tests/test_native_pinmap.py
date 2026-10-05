@@ -165,9 +165,16 @@ def test_the_native_core_is_the_twin_when_the_budget_is_spent():
     assert native == python and native[3] is True and len(native[2]) == 3 and native[6] == 4500 and native[7] is False
 
 
-def test_both_cores_give_no_map_past_the_wall_clock_guard():
+def test_both_cores_give_no_map_and_no_problem_past_the_wall_clock_guard():
     for core in both(input_of(*reversed_four())[0], ("U1",), settings(), guard_ms=1e-9):
-        assert core[2] == [] and core[7] is True
+        assert core[2] == [] and core[5] == [] and core[7] is True
+
+
+def test_the_native_core_is_the_twin_when_a_joint_groups_budget_is_spent_part_way_through_a_pose():
+    # two parts, 125 steps each: 250 in all, 100 a pose, so the third pose stops after 50 of its moves
+    s = settings(pins_budget_steps=125, pins_anneal_moves=50, pins_seeds=2)
+    native, python = both(joint(), ("U1", "U2"), s)
+    assert native == python and native[3] is True and len(native[2]) == 3 and native[6] == 250
 
 
 def random_board(seed):

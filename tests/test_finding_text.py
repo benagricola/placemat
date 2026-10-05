@@ -275,3 +275,8 @@ def test_a_reservation_is_named_by_what_made_it():
     assert str(ReservedBy("label", "j1 IN", item="j1")) == "label j1 IN"
     assert str(ReservedBy("fanout", "U1", side="north")) == "fanout of U1 (north side)"
     assert str(ReservedBy("push", "M1", "why", limit=0.3, radius_mm=29.7)) == "push from M1 (limit 0.3 at 29.7 mm): why"
+
+
+def test_the_pin_remap_facts_are_schema_3_since_the_budget_became_steps():
+    from placemat.finding_text import facts_version
+    assert facts_version(C.PINS_REMAP) == 3

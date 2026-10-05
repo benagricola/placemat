@@ -25,7 +25,9 @@ from .pinmap_rules import Problem, has_pools, natural
 from .values import Box
 
 CACHE_VERSION = 3
-_NOT_READ = ("pins_explore_top", "pins_probe_budget_steps")      # `[pins]` settings the explore and the probe read, not the study
+# `[pins]` settings a kept result does not depend on: the explore's and the probe's, and the wall-clock guard (a study
+# that trips it is never kept, so a kept result is always complete)
+_NOT_READ = ("pins_explore_top", "pins_probe_budget_steps", "pins_guard_ms")
 
 
 def copper_nets(geometry, plan=None) -> frozenset:
@@ -303,12 +305,12 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
                 continue
             else:
                 g = study_group(inp, refs, settings, pb=pb)
-                found += [Finding(C.SETUP_PINS, Problem(ref, "", "", "no_legal_map", net).facts()) for ref, net in g.problems]
                 if g.slow:
                     found.append(Finding(C.SETUP_PINS, slow_facts(g)))
                     groups += 1
                     slow = True
                     continue
+                found += [Finding(C.SETUP_PINS, Problem(ref, "", "", "no_legal_map", net).facts()) for ref, net in g.problems]
                 facts = group_facts(inp, g, copper, settings)
             groups += 1
             celled = _celled(inp, refs)
@@ -412,7 +414,8 @@ def study_failed(plan, error: BaseException) -> Finding:
 
 def plan_summary(board, plan, refs=None, settings=None) -> list:
     """Each studied group's present score and its best, with the pose and the map, for an explore's report and a longer
-    study: no findings, nothing kept. `refs` keeps the groups holding any of those parts; `settings` replaces the
+    study: no findings, nothing kept. A group past its wall-clock guard has no map: `slow` true, with `guard_ms`,
+    `steps` and `budget_steps`. `refs` keeps the groups holding any of those parts; `settings` replaces the
     board's (a longer budget)."""
     if not has_pools(board.geometry.footprints):
         return []
@@ -434,8 +437,12 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
         if withheld(inp, group, settings) or not movable_count(inp, group):
             continue                # it waits on placement: no map to give
         g = study_group(inp, group, settings, pb=pb)
+        if g.slow:
+            out.append({"refs": list(g.refs), "slow": True, "guard_ms": g.guard_ms, "steps": g.steps,
+                        "budget_steps": g.budget_steps})
+            continue
         if not g.results:
-            continue                # past its guard, or no matching: no map to give
+            continue                # no matching: no map to give
         i = min(range(len(g.results)), key=lambda k: (g.results[k].breakdown.total, k))
         r = g.results[i]
         out.append({"refs": list(g.refs), "present": g.present.to_json(), "best": r.breakdown.to_json(), "rotation": i,
@@ -454,7 +461,7 @@ def longer_advice(board, plan, advice: dict, budget_steps: int) -> tuple:
     s = replace(was, pins_budget_steps=budget_steps, pins_guard_ms=was.pins_guard_ms * budget_steps / was.pins_budget_steps)
     g = next((g for g in plan_summary(board, plan, refs=advice["refs"], settings=s)
               if set(g["refs"]) == set(advice["refs"])), None)
-    if g is None or g["best"]["total"] >= advice["total"] - 1e-9:
+    if g is None or g.get("slow") or g["best"]["total"] >= advice["total"] - 1e-9:
         return None, g
     return {"refs": g["refs"], "rotation": g["rotation"], "turns": g["turns"], "map": g["map"],
             "total": g["best"]["total"], "weighted": g["best"]["weighted"]}, g

@@ -238,7 +238,7 @@ def test_settings_the_study_does_not_read_keep_the_cache():
     assert digest(inp, problems, frozenset(), settings(pins_explore_top=7, pins_probe_budget_steps=9000)) == d
     assert digest(inp, problems, frozenset(), settings(pins_seeds=3)) != d
     assert digest(inp, problems, frozenset(), settings(pins_budget_steps=77)) != d
-    assert digest(inp, problems, frozenset(), settings(pins_guard_ms=77.0)) != d
+    assert digest(inp, problems, frozenset(), settings(pins_guard_ms=77.0)) == d          # a kept result is complete
 
 
 def test_a_pose_on_the_other_face_is_named_as_placemat_flips_a_part_standing_at_90_degrees():

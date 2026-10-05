@@ -4483,7 +4483,9 @@ Python fallback takes longer to get there. A wall-clock guard,
 `pins.guard_ms` a part (10000 ms, 0 is off; scaled with the budget for
 `--search`), stops a runaway study: past it the study gives no map, and a
 `setup.pins` warning with code `study_slow` (facts `refs`, `guard_ms`, `steps`,
-`budget_steps`) says so. A study that tripped the guard is not kept for reuse.
+`budget_steps`) says so, and the group gives no `no_legal_map` problem. A study
+that tripped the guard is not kept for reuse, so a kept result is always
+complete and the guard is not part of its digest.
 What a study reads is digested and kept in
 `.placemat/pinmap/<script>.json`; a run or a preview of an unchanged board
 reuses it. A study that raises leaves the run standing: the error is on
@@ -4600,7 +4602,11 @@ better map is kept as `<id>.1`, as advice, and `--json` gives `{id, study,
 found}`. When the study raises, the command exits 1 with the error (`--json`:
 `error` `{type, message}`, `study` and `found` null). When the parts are no
 longer studied on the board, it exits 1, and `--json` carries `reason:
-"not_studied"`.
+"not_studied"`. When the study runs past its wall-clock guard (`pins.guard_ms`
+a part, scaled with the longer budget), it gives no map, says so with the steps
+taken, exits 1 and keeps nothing; `--json` carries `reason: "slow"` and a
+`study` of `{refs, slow, guard_ms, steps, budget_steps}`. In an explore's
+report such a group's line says it ran past the guard, with no map.
 
 ## Findings and severities
 

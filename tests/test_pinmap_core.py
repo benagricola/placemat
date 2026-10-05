@@ -331,3 +331,22 @@ def test_a_part_laid_at_45_degrees_and_flipped_mirrors_its_pads_as_they_stand(na
     a = next(r for r in laid.results if r.poses == (("U1", 90.0, True),)).breakdown
     b = next(r for r in square.results if r.poses == (("U1", 45.0, True),)).breakdown
     assert (a.against, a.among) == (b.against, b.among) and a.total == pytest.approx(b.total, abs=1e-6)
+
+
+def test_a_study_past_its_guard_gives_no_problem_found_before_the_trip(monkeypatch):
+    # the second pose's first map says a net has no pin; the guard trips before the third pose
+    from placemat import pinmap_twin
+    inp, _ = input_of(*reversed_four())
+    real, calls, now = pinmap_twin.first_map, [], [0.0]
+
+    def first_map(sc, group_parts, start):
+        calls.append(1)
+        got, problems = real(sc, group_parts, start)
+        if len(calls) == 2:
+            now[0] = 10.0
+            problems = problems + [(0, 0)]
+        return got, problems
+    monkeypatch.setattr(pinmap_twin, "first_map", first_map)
+    monkeypatch.setattr(pinmap_twin.time, "perf_counter", lambda: now[0])
+    g = run(inp, False, settings(), guard_ms=1000.0)
+    assert len(calls) == 2 and g.slow and g.results == () and g.problems == ()
