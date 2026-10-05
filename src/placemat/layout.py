@@ -6952,12 +6952,15 @@ class Board:
             try:
                 return self._resolve_run(progress, reuse, explore, lock, routes, on_step, on_begin, partial, n < passes)
             except _Redo as r:
+                prev = self._arr_prev
                 self._restore(saved)
                 self._room_seed, self._swaps, self._swap_notes, self._loose = r.seed, r.swaps, r.notes, r.loose
                 for k, v in r.arr.items():
                     taken.setdefault(k, []).append(v)
-                # after the restore, which puts back the attributes as they stood before the passes
-                self._arr_prev, self._arr_taken = r.arr, {k: list(v) for k, v in taken.items()}
+                # after the restore, which puts back the attributes as they stood before the passes. A pass that stopped
+                # before it reached a firm cell (a Beside redo ends one before the firm collisions) leaves that cell what
+                # it took before, so the next pass is compared with it
+                self._arr_prev, self._arr_taken = {**prev, **r.arr}, {k: list(v) for k, v in taken.items()}
 
     def _resolve_run(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial, redo: bool) -> Plan:
         """One run of the resolve. With `redo`, what it reports while it goes is held until it is known that it will not be

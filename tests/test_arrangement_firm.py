@@ -306,3 +306,21 @@ def test_only_the_arrangement_taken_counts_as_standing_nearer_than_its_box():
     held.place(Cell("mod"), at=AT)
     assert held.resolve().placement("mod").arrangement == ""
     assert DefaultTight.settled_tight.get("mod") == 0.3
+
+
+class EarlyRedo(Board):
+    """A board whose second firm pass ends before its firm cell is reached, as a Beside redo before the firm collisions ends one:
+    the arrangement choice it hands on names no cell."""
+    def _redo_check(self, occ, plan, fixed_copper):
+        from placemat.layout import _Redo
+        if self._firm_pass_no == 2 and fixed_copper is None:
+            raise _Redo(self._room_seed, self._swaps, self._swap_notes, self._loose, {})
+        return super()._redo_check(occ, plan, fixed_copper)
+
+
+def test_a_cell_a_pass_did_not_reach_is_compared_with_what_it_took_before():
+    b = declared_copper_board(counted(EarlyRedo), passes=5)
+    plan = b.resolve()
+    assert plan.placement("mod").arrangement == "c_in.east"
+    assert not [f for f in plan.findings if f.cause == "fixed.room_unsettled"]
+    assert b.passes == 3                # the third pass took what the first did: settled
