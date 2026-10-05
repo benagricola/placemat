@@ -4,15 +4,15 @@
 
 **Goal:** For a part whose capture gives it a `Pm.PinPool`, placemat measures how many weighted ratsnest crossings a better assignment of nets to its pins would save, at its present rotation and at each turn in `pins.rotations`, and says so in a `pins.remap` notice whose advice suggestion carries the map and the turn; an explore reports the same study of its best variants beside their scores. Nothing is written to the board or the capture.
 
-**Architecture:** Five pure modules carry the study: `pinmap_rules` (the annotations, as pad numbers, and what may move), `pinmap_geom` (exit points, the way round the courtyard box, bends, poses), `pinmap_input` (the studied parts, their nets and the other airwires, from the pads alone through `ratsnest.board_nets(pads, copper=())`), `pinmap_score` (weighted crossings, length and bend, with a grid of the other airwires and memoised per-net costs so a move recounts only the nets it touches) and `pinmap_search` (a minimum-cost matching seed, then moves, swaps and group moves under annealing, per pose, for parts studied alone or together). `pinmap` turns a placed board into findings and facts, keeps the last study under a digest, and is called once at the end of a resolve (`Board._report_pin_maps`), by the explore on its best variants (`explore._pin_maps`) and by `placemat apply <id> --search`. The finding renders in `finding_text`, the suggestion is a new `how: "advice"` kind with an `advice` record and no edit, and the studio draws the airwires before and after from the finding's facts.
+**Architecture:** The study's hot path is a native core: `native/src/pinmap.rs` (crossing counts against a 2 mm grid of the other airwires, the weighted score with per-net and per-pair memos so a move recounts only the nets it touches, and the move/swap/group-move annealing search with its seeds and clock) over `native/src/pinmap_geom.rs` (exit points, the way round the courtyard box, bends, poses), exposed as `placemat_native.pinmap_search`. It takes the study as plain arrays (parts, pins, nets with their fixed anchors and end slots, the other airwires in nm, movables with their allowed pins, groups with their windows, pose combinations) and returns the best map per pose with its tallies and airwires. `pinmap_core` builds those arrays and is the one entry point, picking the native core when `geometry.native_status()` has the module in use and else its Python twin (`pinmap_geom.py`, `pinmap_twin.py`), which gives the same answers bit for bit. Around it, in Python: `pinmap_rules` (the annotations), `pinmap_input` (the studied parts, their nets and the other airwires from the pads alone, `ratsnest.board_nets(pads, copper=())`), and `pinmap` (findings, facts, the digest cache), called once at the end of a resolve, by the explore on its best variants, and by `placemat apply <id> --search`. The finding renders in `finding_text`, its suggestion is a new `how: "advice"` kind with an `advice` record and no edit, and the studio draws the airwires before and after from the finding's facts.
 
-**Tech Stack:** Python 3.12, pcbnew (KiCad 10.0.6 in the checkout's venv: `NETCLASS.GetTuningProfile`), pytest with xdist, node for the studio page tests, and - only if the bench says so - the `placemat_native` Rust module (pyo3 0.29).
+**Tech Stack:** Python 3.12; Rust in `native/` (pyo3 0.29, built by `uv pip install -e ".[native]"`, used only when its version is placemat's: `geometry.native_status()`); pcbnew (KiCad 10.0.6 in the checkout's venv: `NETCLASS.GetTuningProfile`); pytest with xdist; node for the studio page tests.
 
 **Spec:** `docs/superpowers/specs/2026-10-05-pin-map-study-design.md` (approved 2026-10-05; binding). Read it with this plan.
 
 ## Global Constraints
 
-- The spec's settings, each with a default and a line in api.md's generated settings table: `pins.exit_mm`, `pins.follow_series`, `pins.pair_weight`, `pins.impedance_weight`, `pins.length_weight`, `pins.bend_weight`, `pins.rotations` (default 0, 90, 180, 270), `pins.seeds`, `pins.budget_ms` (provisional 400 until Task 15 sets it from the bench), `pins.faces`, `pins.gain_min`, `pins.explore_top`. Tunables the plan adds because a number must not be a literal: `pins.anneal_moves`, `pins.anneal_start`, `pins.anneal_end`, `pins.joint_combinations` (the spec's cap on a joint study's rotation combinations) and `pins.probe_budget_ms` (the probe's longer budget). A crossing with a plane's or a free net's airwire weighs the existing `score.crossing_plane`.
+- The spec's settings, each with a default and a line in api.md's generated settings table: `pins.exit_mm`, `pins.follow_series`, `pins.pair_weight`, `pins.impedance_weight`, `pins.length_weight`, `pins.bend_weight`, `pins.rotations` (default 0, 90, 180, 270), `pins.seeds`, `pins.budget_ms` (provisional 400 until Task 6 sets it, with `pins.anneal_moves` and `pins.seeds`, from the bench), `pins.faces`, `pins.gain_min`, `pins.explore_top`. Tunables the plan adds because a number must not be a literal: `pins.anneal_moves`, `pins.anneal_start`, `pins.anneal_end`, `pins.joint_combinations` (the spec's cap on a joint study's rotation combinations) and `pins.probe_budget_ms` (the probe's longer budget). A crossing with a plane's or a free net's airwire weighs the existing `score.crossing_plane`.
 - `pins.remap` is a notice (kind `pins`); `setup.pins` is a `setup` finding at that kind's warning. A part with no `Pm.PinPool` is not studied and gives no finding.
 - Nothing writes the .zen. Nothing moves a board item. The study never runs inside the placement search: once per resolve at its end, never on an explore's variants except through `explore._pin_maps`.
 - Scored as unrouted: the study's nets come from the pads alone, `board_nets(pads, copper=())`; tracks, vias and pours are ignored for connectivity, never torn up.
@@ -27,43 +27,45 @@
 - pcbnew: delete board items with `board.Delete(item)` after `group.RemoveItem(item)`, never `board.Remove`. No task here writes through pcbnew.
 - Defer to upstream: the ratsnest (`ratsnest.py`) is KiCad's `RN_NET` ported; the study builds on it unchanged. The airwire model round the body and the bend term are placemat's own, and are named so in their docstrings.
 - The new finding causes change `finding_text.schemas_digest()`, so the first run after this release replays no steps (the reuse context holds the digest). That is expected; nothing else in the reuse record changes.
+- The native core is the primary path; the Python twin is the fallback where the native module is not in use, and both give the same maps and tallies on the same arrays (Task 7's tests). Native code follows the module's existing patterns: logic in `native/src/<name>.rs`, a thin `#[pyfunction]` in `lib.rs`, CPython's arithmetic copied where Python's answer must be met (`exact::hypot`, `clean9`, plain sums, CPython's `radians`/`degrees`), Rust unit tests with `nice cargo test --release`, and no new clippy warning in the pin map files.
 - `SCRATCH=/tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad` is exported in the shell that runs the plan.
 
 ## Review Focus
 
 Inputs the spec implies and no task's own feature tests reach, most likely to bite first. Each has its test in the task named.
 
-1. A net on two pins of the studied part (two pins tied, a power net written into the pool): it stays, its pins are offered to no other net, and it never appears in a map. Tests: Task 2 (`test_a_net_on_two_pins_of_the_pool_stays_where_it_is`), Task 8 (`test_a_net_on_two_pins_of_the_part_stays_and_is_not_in_the_map`).
+1. A net on two pins of the studied part (two pins tied, a power net written into the pool): it stays, its pins are offered to no other net, and it never appears in a map. Tests: Task 2 (`test_a_net_on_two_pins_of_the_pool_stays_where_it_is`), Task 9 (`test_a_net_on_two_pins_of_the_part_stays_and_is_not_in_the_map`).
 2. Annotations that name pins by name on a board whose pin names were not read (the part's symbol is not among the generator inputs): one `setup.pins` per entry saying the names were not read, not one per name of a range; pad numbers still read. Test: Task 2 (`test_names_on_a_part_whose_pin_names_were_not_read_are_one_problem_per_entry_and_numbers_still_read`).
-3. `pins.rotations` written loosely (360, -90, a turn twice, 0 left out): the present pose is studied first and each turn once. Test: Task 6 (`test_the_present_pose_comes_first_and_each_turn_is_studied_once_however_the_turns_are_written`).
-4. A part standing off-axis (45 degrees) or with its pins under its body (a BGA): it is studied without error, each pin leaving by the box side it is nearest, and the poses are named from where it stands. Test: Task 8 (`test_a_part_at_45_degrees_with_its_pins_under_its_body_is_studied_and_its_poses_named_from_where_it_stands`).
-5. A target pad under the studied part's body (a part on the other face beneath it): its airwire goes straight from the exit point, not round the body. Test: Task 3 (`test_a_target_inside_the_body_is_reached_straight`).
+3. `pins.rotations` written loosely (360, -90, a turn twice, 0 left out): the present pose is studied first and each turn once. Test: Task 5 (`test_the_present_pose_comes_first_and_each_turn_is_studied_once_however_the_turns_are_written`).
+4. A part standing off-axis (45 degrees) or with its pins under its body (a BGA): it is studied without error, each pin leaving by the box side it is nearest, and the poses are named from where it stands. Test: Task 9 (`test_a_part_at_45_degrees_with_its_pins_under_its_body_is_studied_and_its_poses_named_from_where_it_stands`).
+5. A target pad under the studied part's body (a part on the other face beneath it): its airwire goes straight from the exit point, not round the body. Tests: Task 4 (the Rust `a_target_in_sight_is_straight_and_one_behind_goes_round_the_shorter_way`, its third case) and Task 7 (`test_a_target_inside_the_body_is_reached_straight`).
 
 ## File Structure
 
 New, one responsibility each:
 
 - `src/placemat/pinmap_rules.py` - pure: the five annotations read into `PinRules` (pad numbers, pool order kept), `Problem` records for what is left out, and `part_pins` -> `PartPins` (what moves, where it may go, what is held, group windows).
-- `src/placemat/pinmap_geom.py` - pure geometry: `Pose`, `outward`, `Exit`/`exit_of`, `through`, `round_body`, `route`, `length`, `bend`.
-- `src/placemat/pinmap_input.py` - the study's input as data: `PlacedPad`, `PlacedPart`, `Pin`, `StudiedPart`, `StudyNet`, `Wire`, `StudyInput`; `build` (pads alone, series parts followed, crossing classes) and `placed_from_geometry`.
-- `src/placemat/pinmap_score.py` - `Weights`, `Breakdown`, `Background` (the other airwires on a 2 mm grid), `NetWires`, `Scorer` (memoised per net and per pair), `Tally` (incremental delta).
-- `src/placemat/pinmap_search.py` - `Clock`, `poses_of`, `hungarian`, `first_map`, the move proposer, `anneal`, `study_group`, `linked_groups`, `study`; `PoseResult`, `GroupResult`.
+- `src/placemat/pinmap_input.py` - the study's input as data: `PlacedPad`, `PlacedPart`, `Pin`, `StudiedPart`, `StudyNet`, `Wire`, `StudyInput`; `build` (pads alone, series parts followed, crossing classes, each pin's `outward` normal) and `placed_from_geometry`.
+- `native/src/pinmap_geom.rs` - the airwire model in Rust: `Pose`, `Exit`, `exit_of`, `through`, `round_body`, `route`, `length`, `bend`.
+- `native/src/pinmap.rs` - the native core: background grid, segment crossings, `Scorer` with its memos, `Tally`, `hungarian`, first map, the proposer, `anneal`, `search`; SplitMix64 and the clock.
+- `src/placemat/pinmap_core.py` - the core's arrays (`Problem`, `problem_of`), poses, parameters, the one entry point (`search`: native or twin), `study_group`, and from Task 8 `linked_groups` and `study`.
+- `src/placemat/pinmap_geom.py`, `src/placemat/pinmap_twin.py` - the Python twin of the two Rust files, line for line.
 - `src/placemat/pinmap.py` - the edge to placemat: facts, digest and cache, `study_findings`, `geometry_findings`, `placed_from_plan`, `plan_findings`, `study_line`, `plan_summary`, `longer_advice`.
 - `tests/pinmap_boards.py` - synthetic placed boards for the study's tests.
-- `fixtures/pinmap/reference.json`, `fixtures/pinmap_bench.py` - the reference boards (annotations live only here) and the speed bench.
-- `native/src/pinmap.rs` - only if Task 14 runs: the crossing counts in Rust.
+- `fixtures/pinmap/reference.json`, `fixtures/pinmap_bench.py` - the reference board (its annotations live only here) and the bench.
 
 Modified:
 
 - `settings.py` (the `[pins]` section), `reuse.py` (`pins_` settings change no placement).
 - `board_geometry.py` (`NetClass.tuning_profile`), `kicad/read.py` (read it).
+- `native/src/lib.rs` (`mod pinmap_geom;`, `mod pinmap;`, `pinmap_search`).
 - `findings.py` (kind `pins`, causes `pins.remap`, `setup.pins`), `finding_text.py` (their sentences, `pose_text`, subjects), `suggestions.py` (`advice` on `Pick` and `Suggestion`, `how: "advice"`, the builder, binding and apply).
 - `occupancy.py` (`courtyard_box`), `layout.py` (`Plan.pin_study`, `Board.pin_study`, `Board.pin_study_cache`, `_report_pin_maps`), `runner.py` (the cache path, the record and the console line), `explore.py` (`BoardFactory`, `_pin_maps`, `pin_map_lines`), `previewer.py` (the console line), `cli.py` (`_pin_search`).
 - `studio_page.html` (the advice suggestion's Try, its map and the airwires).
 - Docs: `skills/placemat/references/capture.md`, `api.md`, `migration.md`, `skills/placemat/SKILL.md`.
 - Tests touched: `tests/test_finding_kinds.py`, `tests/test_suggestion_cases.py`, `tests/test_studio_page.py`, `tests/slow_tests.txt`.
 
-Task order: 1 settings; 2-7 the pure study; 8 finding and suggestion; 9 run and preview; 10 explore; 11 probe; 12 studio; 13-15 bench, native (conditional), defaults; 16 docs.
+Task order: 1 settings; 2 constraints; 3 the input; 4 the airwire model in Rust; 5 the native core and the entry point; 6 bench the native core and set the defaults (or stop); 7 the Python twin and its agreement with the native core; 8 joint study; 9 finding and suggestion; 10 run and preview; 11 explore; 12 longer study; 13 studio; 14 docs.
 
 ---
 
@@ -647,285 +649,9 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-### Task 3: The airwire model - exit points, the way round the body, bends, poses
+### Task 3: The study's input from the pads alone
 
-**Files:**
-- Create: `src/placemat/pinmap_geom.py`
-- Test: `tests/test_pinmap_geom.py`
-
-**Interfaces:**
-- Consumes: nothing from earlier tasks (pure geometry; the turn convention is `geometry.Transform.rotate`'s: counter-clockwise on screen with y down, `x' = cos*x + sin*y`, `y' = -sin*x + cos*y`).
-- Produces:
-  - `Pose(cx, cy, turn=0.0, flip=False)` frozen; `.vector(x, y)`, `.to_board(x, y)`, `.to_local(x, y)` (all tuples).
-  - `outward(x, y, hw, hh) -> (nx, ny)` one of `(1,0)`, `(0,1)`, `(-1,0)`, `(0,-1)`; ties go east, south, west, north.
-  - `Exit(ref, at, local, normal, side, pose, hw, hh, margin)` frozen; `exit_of(ref, pose, x, y, normal, hw, hh, margin) -> Exit`.
-  - `through(p, q, hw, hh) -> bool`, `round_body(e: Exit, target) -> list`, `route(a, b) -> tuple[tuple]` (each end an `Exit` or a point), `length(path) -> float`, `bend(normal, at, target) -> float` (degrees).
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `tests/test_pinmap_geom.py`:
-
-```python
-"""The pin map study's airwire model: a pin leaves along its outward normal to a point past the courtyard, then goes the
-shorter way round the courtyard's box to its target; the bend is the angle between the normal and the bearing to the
-target; a pose turns the part about its centre, and mirrors it for the other face."""
-import pytest
-
-from placemat.pinmap_geom import Pose, bend, exit_of, outward, route, through
-
-HW = HH = 2.0           # a 4 mm square body
-
-
-def east_exit(pose=Pose(10, 10), y=0.5):
-    return exit_of("U1", pose, 2.0, y, (1.0, 0.0), HW, HH, 0.5)
-
-
-def test_a_pin_faces_the_side_of_the_box_it_is_nearest_ties_going_east_south_west_north():
-    assert outward(1.7, 0.2, HW, HH) == (1.0, 0.0)
-    assert outward(0.2, 1.7, HW, HH) == (0.0, 1.0)
-    assert outward(-1.7, 0.0, HW, HH) == (-1.0, 0.0)
-    assert outward(0.0, -1.7, HW, HH) == (0.0, -1.0)
-    assert outward(1.7, 1.7, HW, HH) == (1.0, 0.0)                  # a corner pin: east before south
-
-
-def test_the_exit_point_is_the_margin_past_the_box_on_the_pins_side():
-    e = east_exit()
-    assert e.at == (12.5, 10.5) and e.normal == (1.0, 0.0) and e.side == 0
-
-
-def test_a_target_in_sight_is_reached_straight():
-    assert route(east_exit(), (20.0, 10.5)) == ((12.5, 10.5), (20.0, 10.5))
-    assert route(east_exit(), (10.0, 30.0)) == ((12.5, 10.5), (10.0, 30.0))
-
-
-def test_a_target_behind_the_part_is_reached_round_its_body_the_shorter_way_and_never_through_it():
-    path = route(east_exit(), (0.0, 10.0))
-    assert path == ((12.5, 10.5), (12.5, 12.5), (7.5, 12.5), (0.0, 10.0))         # south of it: nearer the pin
-    path = route(east_exit(y=-0.5), (0.0, 10.0))
-    assert path == ((12.5, 9.5), (12.5, 7.5), (7.5, 7.5), (0.0, 10.0))           # north of it
-    for p, q in zip(path, path[1:]):
-        assert not through((p[0] - 10, p[1] - 10), (q[0] - 10, q[1] - 10), HW, HH)
-
-
-def test_a_target_inside_the_body_is_reached_straight():
-    assert route(east_exit(), (9.0, 10.0)) == ((12.5, 10.5), (9.0, 10.0))
-
-
-def test_a_quarter_turn_takes_an_east_pin_north_and_the_other_face_takes_it_west():
-    e = east_exit(Pose(10, 10, 90.0))
-    assert e.at == pytest.approx((10.5, 7.5)) and e.normal == (0.0, -1.0)
-    e = east_exit(Pose(10, 10, 0.0, True))
-    assert e.at == pytest.approx((7.5, 10.5)) and e.normal == (-1.0, 0.0)
-
-
-def test_an_airwire_between_two_studied_pins_goes_round_both_bodies():
-    a = east_exit(Pose(10, 10))
-    b = exit_of("U2", Pose(30, 10), 2.0, 0.5, (1.0, 0.0), HW, HH, 0.5)     # U2's pin faces away from U1
-    path = route(a, b)
-    assert path[0] == a.at and path[-1] == b.at
-    assert (32.5, 12.5) in path                                        # round U2's south-east corner to its exit
-    for p, q in zip(path, path[1:]):
-        assert not through((p[0] - 30, p[1] - 10), (q[0] - 30, q[1] - 10), HW, HH)
-        assert not through((p[0] - 10, p[1] - 10), (q[0] - 10, q[1] - 10), HW, HH)
-
-
-def test_the_bend_is_the_angle_from_the_normal_to_the_target():
-    assert bend((1.0, 0.0), (12.5, 10.5), (20.0, 10.5)) == 0.0
-    assert bend((1.0, 0.0), (12.5, 10.5), (12.5, 20.0)) == pytest.approx(90.0)
-    assert bend((1.0, 0.0), (12.5, 10.0), (0.0, 10.0)) == pytest.approx(180.0)
-    assert bend((1.0, 0.0), (12.5, 10.0), (20.0, 2.5)) == pytest.approx(45.0)
-```
-
-- [ ] **Step 2: Run them to watch them fail**
-
-Run: `.venv/bin/python -m pytest tests/test_pinmap_geom.py -q -n 2`
-Expected: FAIL with `ModuleNotFoundError: No module named 'placemat.pinmap_geom'`.
-
-- [ ] **Step 3: Write the module**
-
-Create `src/placemat/pinmap_geom.py`:
-
-```python
-"""The pin map study's airwire model, as pure geometry (millimetres, y down, KiCad's turn: counter-clockwise on screen).
-
-A studied part's body is its courtyard's box. A pin's airwire leaves along the pin's outward normal - the side of the box
-it is nearest - to its exit point, `margin` past the box, then takes the shorter way round the box grown by `margin` to
-its target, corner to corner, until the target is in sight. A target inside the body's box (a part under it, on the
-other face) is reached straight. The bend at a pin is the angle between its outward normal and the bearing from its exit
-point to its target: 0 facing it, 180 turning back.
-
-The part's own frame is the board's moved to the courtyard box's centre, as the part stands; a `Pose` turns it about that
-centre (and mirrors it left to right first, for the other face) to ask where the pads would be at another rotation."""
-from __future__ import annotations
-
-from dataclasses import dataclass
-import math
-
-_EPS = 1e-9
-_SIDES = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))     # east, south, west, north: the order a tie is broken in
-
-
-def _clean(v: float) -> float:
-    r = round(v, 9)
-    return 0.0 if r == 0 else r
-
-
-@dataclass(frozen=True)
-class Pose:
-    """A studied part's body turned `turn` degrees about (cx, cy), mirrored left to right first when `flip`."""
-    cx: float
-    cy: float
-    turn: float = 0.0
-    flip: bool = False
-
-    def _cs(self):
-        r = math.radians(self.turn)
-        return math.cos(r), math.sin(r)
-
-    def vector(self, x: float, y: float) -> tuple:
-        """A direction in the part's own frame, in the board's."""
-        if self.flip:
-            x = -x
-        c, s = self._cs()
-        return (_clean(c * x + s * y), _clean(-s * x + c * y))
-
-    def to_board(self, x: float, y: float) -> tuple:
-        vx, vy = self.vector(x, y)
-        return (_clean(self.cx + vx), _clean(self.cy + vy))
-
-    def to_local(self, x: float, y: float) -> tuple:
-        dx, dy = x - self.cx, y - self.cy
-        c, s = self._cs()
-        lx, ly = c * dx - s * dy, s * dx + c * dy
-        return (-lx if self.flip else lx, ly)
-
-
-def outward(x: float, y: float, hw: float, hh: float) -> tuple:
-    """The outward normal of the box side nearest a pin at (x, y) in the part's frame, the box being (-hw, -hh) to (hw, hh);
-    ties go east, south, west, north."""
-    gaps = (hw - x, hh - y, x + hw, y + hh)
-    return _SIDES[min(range(4), key=lambda k: (gaps[k], k))]
-
-
-@dataclass(frozen=True)
-class Exit:
-    """Where a studied pin's airwire leaves its part: `at` in the board's frame, `local` in the part's, `normal` (the
-    board's frame) and `side` (0 east, 1 south, 2 west, 3 north) of the box it leaves by, and the body it goes round."""
-    ref: str
-    at: tuple
-    local: tuple
-    normal: tuple
-    side: int
-    pose: Pose
-    hw: float
-    hh: float
-    margin: float
-
-
-def exit_of(ref: str, pose: Pose, x: float, y: float, normal: tuple, hw: float, hh: float, margin: float) -> Exit:
-    """The exit of a pin at (x, y) in the part's frame with outward `normal` (its frame), at `pose`."""
-    side = _SIDES.index(normal)
-    lx, ly = ((hw + margin, y), (x, hh + margin), (-hw - margin, y), (x, -hh - margin))[side]
-    return Exit(ref, pose.to_board(lx, ly), (lx, ly), pose.vector(*normal), side, pose, hw, hh, margin)
-
-
-def through(p: tuple, q: tuple, hw: float, hh: float) -> bool:
-    """Whether segment p-q passes through the inside of the box (-hw, -hh)-(hw, hh); along its edge or touching a corner
-    is not through."""
-    x0, y0 = p
-    dx, dy = q[0] - x0, q[1] - y0
-    t0, t1 = 0.0, 1.0
-    for pp, qq in ((-dx, x0 + hw), (dx, hw - x0), (-dy, y0 + hh), (dy, hh - y0)):
-        if abs(pp) < 1e-15:
-            if qq <= _EPS:
-                return False
-            continue
-        r = qq / pp
-        if pp < 0:
-            t0 = max(t0, r)
-        else:
-            t1 = min(t1, r)
-        if t1 - t0 <= _EPS:
-            return False
-    mx, my = x0 + dx * (t0 + t1) / 2, y0 + dy * (t0 + t1) / 2
-    return -hw + _EPS < mx < hw - _EPS and -hh + _EPS < my < hh - _EPS
-
-
-def _length(points) -> float:
-    return sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:]))
-
-
-def round_body(e: Exit, target: tuple) -> list:
-    """The way from exit `e` to `target` (board frame) round e's body: [e.at, corners..., target], board frame."""
-    t = e.pose.to_local(*target)
-    hw, hh = e.hw, e.hh
-    if (-hw < t[0] < hw and -hh < t[1] < hh) or not through(e.local, t, hw, hh):
-        return [e.at, target]
-    w, h = hw + e.margin, hh + e.margin
-    corners = ((w, -h), (w, h), (-w, h), (-w, -h))         # north-east, south-east, south-west, north-west
-    after = {0: 1, 1: 2, 2: 3, 3: 0}                          # the corner reached first going clockwise from side k
-    best = None
-    for step in (1, -1):
-        k = after[e.side] if step == 1 else (after[e.side] - 1) % 4
-        local = [e.local]
-        for _ in range(4):
-            c = corners[k]
-            local.append(c)
-            if not through(c, t, hw, hh):
-                break
-            k = (k + step) % 4
-        local.append(t)
-        n = _length(local)
-        if best is None or n < best[0] - _EPS:
-            best = (n, local)
-    pts = [e.at] + [e.pose.to_board(*c) for c in best[1][1:-1]] + [target]
-    return pts
-
-
-def route(a, b) -> tuple:
-    """An airwire's path from `a` to `b`, each an Exit (a studied pin) or a point: round the body of each end that is
-    an Exit, the second end's from the last turn the first one's path makes."""
-    pa = a.at if isinstance(a, Exit) else a
-    pb = b.at if isinstance(b, Exit) else b
-    pts = round_body(a, pb) if isinstance(a, Exit) else [pa, pb]
-    if isinstance(b, Exit):
-        back = round_body(b, pts[-2])
-        pts = pts[:-1] + list(reversed(back))[1:]
-    return tuple(tuple(p) for p in pts)
-
-
-def length(path) -> float:
-    return _length(path)
-
-
-def bend(normal: tuple, at: tuple, target: tuple) -> float:
-    """Degrees between a pin's outward `normal` and the bearing from its exit point `at` to `target`."""
-    dx, dy = target[0] - at[0], target[1] - at[1]
-    d = math.hypot(dx, dy)
-    if d <= _EPS:
-        return 0.0
-    cos = max(-1.0, min(1.0, (normal[0] * dx + normal[1] * dy) / d))
-    return math.degrees(math.acos(cos))
-```
-
-- [ ] **Step 4: Run the tests to watch them pass**
-
-Run: `.venv/bin/python -m pytest tests/test_pinmap_geom.py -q -n 2`
-Expected: PASS (8 tests).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/placemat/pinmap_geom.py tests/test_pinmap_geom.py
-git commit -m "Pin map study: an airwire leaves past the courtyard and goes round the body, with its bend"
-git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
-```
-
----
-
-### Task 4: Scoring, part 1 - the study's input from the pads alone
-
-The first half of the scoring: what the score is computed over. A laid board is scored as unrouted - its nets are built from the pads alone, `board_nets(pads, copper=())` - so a routed net keeps its airwire. Series parts are followed, and each net gets its crossing class, a controlled impedance read from the net class's KiCad 10 tuning profile.
+What the core (Task 5) is fed, as data. A laid board is scored as unrouted - its nets are built from the pads alone, `board_nets(pads, copper=())` - so a routed net keeps its airwire (the score's half of that test is in Task 5). Series parts are followed; each net gets its crossing class, a controlled impedance read from the net class's KiCad 10 tuning profile; each pin its outward normal. This stays Python: it runs once per study, not in the search.
 
 **Files:**
 - Modify: `src/placemat/board_geometry.py` (`NetClass`)
@@ -936,12 +662,12 @@ The first half of the scoring: what the score is computed over. A laid board is 
 - Modify: `tests/slow_tests.txt`
 
 **Interfaces:**
-- Consumes: `ratsnest.board_nets(pads, copper=())` (pads as `(ref, number, net, layers, outlines, box, anchor)`), `ratsnest.mst(net, anchors, joined)`, `ratsnest.Anchor`; Task 2's `read_rules`, `part_pins`, `natural`; Task 3's `outward`; `Settings` (Task 1) in the test helpers.
+- Consumes: `ratsnest.board_nets(pads, copper=())` (pads as `(ref, number, net, layers, outlines, box, anchor)`), `ratsnest.mst(net, anchors, joined)`, `ratsnest.Anchor`; Task 2's `read_rules`, `part_pins`, `natural`; `Settings` (Task 1) in the test helpers.
 - Produces:
   - `NetClass.tuning_profile: str = ""`.
   - `PlacedPad(ref, number, net, layers, outlines, box, anchor, no_connect=False)`, `PlacedPart(ref, courtyard, rotation, face, may_flip=False, fields={})`.
   - `Pin(number, name, x, y, nx, ny)`, `StudiedPart(ref, cx, cy, hw, hh, rotation, face, may_flip, pins, slots)` with `.pin(number)`, `StudyNet(net, kind, fixed, joined, ends, via="", far="")`, `Wire(net, kind, a, b)`, `StudyInput(parts, nets, background, names)` with `.part(ref)`.
-  - `KINDS = ("plain", "impedance", "pair", "plane")`, `net_kind(net, quiet, partners, netclasses) -> str`.
+  - `KINDS = ("plain", "impedance", "pair", "plane")`, `net_kind(net, quiet, partners, netclasses) -> str`, `outward(x, y, hw, hh) -> (nx, ny)` (the side of the courtyard box a pin is nearest; ties go east, south, west, north).
   - `build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dict, follow_series=True) -> (StudyInput | None, [Problem])`.
   - `placed_from_geometry(geometry, either=frozenset()) -> (pads, {ref: PlacedPart})`.
   - Test helpers in `tests/pinmap_boards.py`: `settings(**kw)`, `pad`, `quad`, `two_pad`, `point_pad`, `complete`, `input_of`, `reversed_four`, `quad_footprint`.
@@ -1045,7 +771,7 @@ a net followed through a series part, each net's crossing class, and the other a
 import pytest
 
 from placemat.board_geometry import NetClass
-from placemat.pinmap_input import build, net_kind, placed_from_geometry
+from placemat.pinmap_input import build, net_kind, outward, placed_from_geometry
 from placemat.ratsnest import board_nets
 from tests.fixtures import board_geometry, footprint, track
 from tests.pinmap_boards import input_of, point_pad, quad, quad_footprint, reversed_four, two_pad
@@ -1105,6 +831,14 @@ def test_a_nets_crossing_class_is_plane_pair_impedance_or_plain():
     assert net_kind("P", set(), {"P": "N"}, classes) == "pair"
     assert net_kind("Z", set(), {}, classes) == "impedance"
     assert net_kind("P", set(), {}, classes) == "plain"
+
+
+def test_a_pin_faces_the_side_of_the_box_it_is_nearest_ties_going_east_south_west_north():
+    assert outward(1.7, 0.2, 2.0, 2.0) == (1.0, 0.0)
+    assert outward(0.2, 1.7, 2.0, 2.0) == (0.0, 1.0)
+    assert outward(-1.7, 0.0, 2.0, 2.0) == (-1.0, 0.0)
+    assert outward(0.0, -1.7, 2.0, 2.0) == (0.0, -1.0)
+    assert outward(1.7, 1.7, 2.0, 2.0) == (1.0, 0.0)                  # a corner pin: east before south
 ```
 
 Create `tests/test_pinmap_netclass.py`:
@@ -1207,7 +941,6 @@ from dataclasses import dataclass, field
 from .ratsnest import Anchor, board_nets, mst
 from .values import Box, Location
 
-from .pinmap_geom import outward
 from .pinmap_rules import natural, part_pins, read_rules
 
 KINDS = ("plain", "impedance", "pair", "plane")      # a net's crossing class, weakest of the signal ones first
@@ -1299,6 +1032,16 @@ class StudyInput:
 
     def part(self, ref: str) -> StudiedPart:
         return next(p for p in self.parts if p.ref == ref)
+
+
+_SIDES = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))     # east, south, west, north: the order a tie is broken in
+
+
+def outward(x: float, y: float, hw: float, hh: float) -> tuple:
+    """The outward normal of the box side nearest a pin at (x, y) in the part's frame, the box being (-hw, -hh) to (hw, hh);
+    ties go east, south, west, north."""
+    gaps = (hw - x, hh - y, x + hw, y + hh)
+    return _SIDES[min(range(4), key=lambda k: (gaps[k], k))]
 
 
 def net_kind(net: str, quiet, partners: dict, netclasses: dict) -> str:
@@ -1437,7 +1180,7 @@ def placed_from_geometry(geometry, either=frozenset()) -> tuple:
 - [ ] **Step 6: Run the tests to watch them pass**
 
 Run: `.venv/bin/python -m pytest tests/test_pinmap_input.py -q -n 2` and `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock .venv/bin/python -m pytest tests/test_pinmap_netclass.py -q --full`
-Expected: PASS (5 and 1 tests).
+Expected: PASS (6 and 1 tests).
 
 - [ ] **Step 7: Commit**
 
@@ -1449,182 +1192,1409 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-### Task 5: Scoring, part 2 - weighted crossings, length, bend and the incremental recount
+### Task 4: The airwire model, in Rust
+
+**Decision: the airwire model goes into the native core.** Where the time goes, measured while planning on the reference board (Task 6's fixture; a QFN-56 with 23 movable nets) with the whole study in Python: 1.3 s for 4 poses of 4 seeds of 200 moves, of which the crossing counts (background and net against net) took about 70%, the minimum spanning trees and the bookkeeping most of the rest, and the airwire geometry (exit points, the way round the body, bends) about 4%. With the counts moved to Rust, every move that puts a net on a pin it has not stood on asks the geometry for that net's new airwires inside the search's inner loop; left in Python, each of those thousands of questions would be a call from Rust back into Python, costing more than the geometry itself. So the model is written in Rust here, for the core (Task 5), and its Python twin comes with the core's twin (Task 7). The pin's outward normal is input, not search: it stays in Python (`pinmap_input.outward`, Task 3).
 
 **Files:**
-- Create: `src/placemat/pinmap_score.py`
-- Test: `tests/test_pinmap_score.py`
+- Create: `native/src/pinmap_geom.rs`
+- Modify: `native/src/lib.rs` (`mod pinmap_geom;`)
+- Test: the Rust unit tests in `native/src/pinmap_geom.rs`
 
 **Interfaces:**
-- Consumes: `ratsnest.Anchor`, `ratsnest.mst`, `ratsnest._cross_nm(ax, ay, bx, by, cx, cy, dx, dy)` and `ratsnest._nm(v)` (KiCad's nanometre rounding and proper-crossing test); Task 3's `bend`, `exit_of`, `length`, `route`; Task 4's `StudyInput`, `StudyNet`, `Wire`; settings `pins_pair_weight`, `pins_impedance_weight`, `score_crossing_plane`, `pins_length_weight`, `pins_bend_weight`, `pins_exit_mm`.
+- Consumes: `crate::exact::{clean9, hypot}` (CPython's `round(v, 9)` as `geometry._clean` takes it, and CPython's `math.hypot`, bit for bit).
+- Produces (Rust, `pub`): `Pose { cx, cy, turn, flip }` with `Pose::new`, `vector`, `to_board`, `to_local`; `Exit { at, local, normal, side, pose, hw, hh, margin }`; `exit_of(pose, x, y, normal, hw, hh, margin) -> Exit`; `through(p, q, hw, hh) -> bool`; `length(&[(f64, f64)]) -> f64`; `round_body(&Exit, target) -> Vec<(f64, f64)>`; `End::{Exit, Point}`; `route(&End, &End) -> Vec<(f64, f64)>`; `bend(normal, at, target) -> f64`.
+
+Exactness rules, which the Python twin (Task 7) follows the other way round so the two agree to the last bit: positions go through `clean9` where `geometry._clean` rounds; distances use `exact::hypot`; a turn in radians is `x * (pi / 180)` (CPython's `radians`) and an angle in degrees `(180 / pi) * x` (CPython's `degrees`); sums are plain `+=` in order (never `sum()`, which CPython compensates).
+
+- [ ] **Step 1: Write the module with its tests failing**
+
+Create `native/src/pinmap_geom.rs` with only its test module (the tests at the end of the file below, from `#[cfg(test)]` on), and in `native/src/lib.rs` add `mod pinmap_geom;` to the module list between `mod judge;` and `mod pockets;`.
+
+Run: `cd native && nice cargo test --release --lib pinmap_geom; cd ..`
+Expected: FAIL to compile: `cannot find function exit_of in this scope` and the like.
+
+- [ ] **Step 2: The model**
+
+Replace `native/src/pinmap_geom.rs` with:
+
+```rust
+//! The pin map study's airwire model (`placemat.pinmap_geom`, its Python twin), for the native core (pinmap.rs), which
+//! asks it for every net a move puts on a pin it has not stood on before.
+//!
+//! A studied part's body is its courtyard's box. A pin's airwire leaves along the pin's outward normal - the side of the
+//! box it is nearest - to its exit point, `margin` past the box, then takes the shorter way round the box grown by
+//! `margin` to its target, corner to corner, until the target is in sight. A target inside the body's box is reached
+//! straight. The bend at a pin is the angle between its outward normal and the bearing from its exit point to its
+//! target. A `Pose` turns the part's own frame (the board's, moved to the courtyard box's centre) about that centre,
+//! counter-clockwise on screen with y down, mirrored left to right first for the other face.
+//!
+//! Every value is Python's: `clean9` is `geometry._clean`, `hypot` CPython's, angles go through CPython's `radians`
+//! (`x * (pi / 180)`) and `degrees` (`(180 / pi) * x`), and sums are plain, in order.
+
+use crate::exact::{clean9, hypot};
+
+const EPS: f64 = 1e-9;
+const SIDES: [(f64, f64); 4] = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)]; // east, south, west, north
+const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0; // CPython's degToRad
+const RAD_TO_DEG: f64 = 180.0 / std::f64::consts::PI; // and its radToDeg
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pose {
+    pub cx: f64,
+    pub cy: f64,
+    pub turn: f64,
+    pub flip: bool,
+}
+
+impl Pose {
+    pub fn new(cx: f64, cy: f64, turn: f64, flip: bool) -> Pose {
+        Pose { cx, cy, turn, flip }
+    }
+
+    fn cs(&self) -> (f64, f64) {
+        let r = self.turn * DEG_TO_RAD;
+        (r.cos(), r.sin())
+    }
+
+    /// A direction in the part's own frame, in the board's.
+    pub fn vector(&self, x: f64, y: f64) -> (f64, f64) {
+        let x = if self.flip { -x } else { x };
+        let (c, s) = self.cs();
+        (clean9(c * x + s * y), clean9(-s * x + c * y))
+    }
+
+    pub fn to_board(self, x: f64, y: f64) -> (f64, f64) {
+        let (vx, vy) = self.vector(x, y);
+        (clean9(self.cx + vx), clean9(self.cy + vy))
+    }
+
+    pub fn to_local(self, x: f64, y: f64) -> (f64, f64) {
+        let (dx, dy) = (x - self.cx, y - self.cy);
+        let (c, s) = self.cs();
+        let lx = c * dx - s * dy;
+        let ly = s * dx + c * dy;
+        (if self.flip { -lx } else { lx }, ly)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Exit {
+    pub at: (f64, f64),
+    pub local: (f64, f64),
+    pub normal: (f64, f64),
+    pub side: usize,
+    pub pose: Pose,
+    pub hw: f64,
+    pub hh: f64,
+    pub margin: f64,
+}
+
+/// The exit of a pin at (x, y) in the part's frame with outward `normal` (its frame), at `pose`.
+pub fn exit_of(pose: Pose, x: f64, y: f64, normal: (f64, f64), hw: f64, hh: f64, margin: f64) -> Exit {
+    let side = SIDES.iter().position(|s| *s == normal).unwrap_or(0);
+    let local = [(hw + margin, y), (x, hh + margin), (-hw - margin, y), (x, -hh - margin)][side];
+    Exit { at: pose.to_board(local.0, local.1), local, normal: pose.vector(normal.0, normal.1), side, pose, hw, hh, margin }
+}
+
+/// Whether segment p-q passes through the inside of the box (-hw, -hh)-(hw, hh).
+pub fn through(p: (f64, f64), q: (f64, f64), hw: f64, hh: f64) -> bool {
+    let (x0, y0) = p;
+    let (dx, dy) = (q.0 - x0, q.1 - y0);
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    for (pp, qq) in [(-dx, x0 + hw), (dx, hw - x0), (-dy, y0 + hh), (dy, hh - y0)] {
+        if pp.abs() < 1e-15 {
+            if qq <= EPS {
+                return false;
+            }
+            continue;
+        }
+        let r = qq / pp;
+        if pp < 0.0 {
+            if r > t0 {
+                t0 = r;
+            }
+        } else if r < t1 {
+            t1 = r;
+        }
+        if t1 - t0 <= EPS {
+            return false;
+        }
+    }
+    let mx = x0 + dx * (t0 + t1) / 2.0;
+    let my = y0 + dy * (t0 + t1) / 2.0;
+    -hw + EPS < mx && mx < hw - EPS && -hh + EPS < my && my < hh - EPS
+}
+
+/// A path's length, segment by segment in order.
+pub fn length(points: &[(f64, f64)]) -> f64 {
+    let mut total = 0.0;
+    for w in points.windows(2) {
+        total += hypot(w[1].0 - w[0].0, w[1].1 - w[0].1);
+    }
+    total
+}
+
+/// The way from exit `e` to `target` (board frame) round e's body: [e.at, corners..., target].
+pub fn round_body(e: &Exit, target: (f64, f64)) -> Vec<(f64, f64)> {
+    let t = e.pose.to_local(target.0, target.1);
+    let (hw, hh) = (e.hw, e.hh);
+    if (-hw < t.0 && t.0 < hw && -hh < t.1 && t.1 < hh) || !through(e.local, t, hw, hh) {
+        return vec![e.at, target];
+    }
+    let (w, h) = (hw + e.margin, hh + e.margin);
+    let corners = [(w, -h), (w, h), (-w, h), (-w, -h)]; // north-east, south-east, south-west, north-west
+    let after = [1usize, 2, 3, 0];
+    let mut best: Option<(f64, Vec<(f64, f64)>)> = None;
+    for step in [1i64, -1] {
+        let mut k = if step == 1 { after[e.side] } else { (after[e.side] + 3) % 4 };
+        let mut local = vec![e.local];
+        for _ in 0..4 {
+            let c = corners[k];
+            local.push(c);
+            if !through(c, t, hw, hh) {
+                break;
+            }
+            k = ((k as i64 + step + 4) % 4) as usize;
+        }
+        local.push(t);
+        let n = length(&local);
+        let better = match &best {
+            None => true,
+            Some((b, _)) => n < *b - EPS,
+        };
+        if better {
+            best = Some((n, local));
+        }
+    }
+    let local = best.map(|b| b.1).unwrap_or_default();
+    let mut pts = vec![e.at];
+    for c in &local[1..local.len() - 1] {
+        pts.push(e.pose.to_board(c.0, c.1));
+    }
+    pts.push(target);
+    pts
+}
+
+/// One end of an airwire: a studied pin's exit, or a point.
+#[derive(Clone, Copy, Debug)]
+pub enum End {
+    Exit(Exit),
+    Point((f64, f64)),
+}
+
+impl End {
+    fn at(&self) -> (f64, f64) {
+        match self {
+            End::Exit(e) => e.at,
+            End::Point(p) => *p,
+        }
+    }
+}
+
+/// An airwire's path from `a` to `b`: round the body of each end that is an exit, the second end's from the last turn
+/// the first one's path makes.
+pub fn route(a: &End, b: &End) -> Vec<(f64, f64)> {
+    let (pa, pb) = (a.at(), b.at());
+    let mut pts = match a {
+        End::Exit(e) => round_body(e, pb),
+        End::Point(_) => vec![pa, pb],
+    };
+    if let End::Exit(e) = b {
+        let back = round_body(e, pts[pts.len() - 2]);
+        pts.pop();
+        pts.extend(back.iter().rev().skip(1));
+    }
+    pts
+}
+
+/// Degrees between a pin's outward `normal` and the bearing from its exit point `at` to `target`.
+pub fn bend(normal: (f64, f64), at: (f64, f64), target: (f64, f64)) -> f64 {
+    let (dx, dy) = (target.0 - at.0, target.1 - at.1);
+    let d = hypot(dx, dy);
+    if d <= EPS {
+        return 0.0;
+    }
+    let cos = ((normal.0 * dx + normal.1 * dy) / d).clamp(-1.0, 1.0);
+    RAD_TO_DEG * cos.acos()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn east(pose: Pose, y: f64) -> Exit {
+        exit_of(pose, 2.0, y, (1.0, 0.0), 2.0, 2.0, 0.5)
+    }
+
+    #[test]
+    fn a_target_in_sight_is_straight_and_one_behind_goes_round_the_shorter_way() {
+        let e = east(Pose::new(10.0, 10.0, 0.0, false), 0.5);
+        assert_eq!(e.at, (12.5, 10.5));
+        assert_eq!(route(&End::Exit(e), &End::Point((20.0, 10.5))), vec![(12.5, 10.5), (20.0, 10.5)]);
+        assert_eq!(route(&End::Exit(e), &End::Point((0.0, 10.0))), vec![(12.5, 10.5), (12.5, 12.5), (7.5, 12.5), (0.0, 10.0)]);
+        assert_eq!(route(&End::Exit(e), &End::Point((9.0, 10.0))), vec![(12.5, 10.5), (9.0, 10.0)]);
+    }
+
+    #[test]
+    fn a_quarter_turn_takes_an_east_pin_north_and_a_flip_takes_it_west() {
+        let e = east(Pose::new(10.0, 10.0, 90.0, false), 0.5);
+        assert_eq!((e.at, e.normal), ((10.5, 7.5), (0.0, -1.0)));
+        let e = east(Pose::new(10.0, 10.0, 0.0, true), 0.5);
+        assert_eq!((e.at, e.normal), ((7.5, 10.5), (-1.0, 0.0)));
+    }
+
+    #[test]
+    fn the_bend_is_the_angle_from_the_normal_to_the_target() {
+        assert_eq!(bend((1.0, 0.0), (12.5, 10.5), (20.0, 10.5)), 0.0);
+        assert!((bend((1.0, 0.0), (12.5, 10.0), (0.0, 10.0)) - 180.0).abs() < 1e-9);
+        assert!((bend((1.0, 0.0), (12.5, 10.0), (20.0, 2.5)) - 45.0).abs() < 1e-9);
+    }
+}
+```
+
+- [ ] **Step 3: Run the tests to watch them pass**
+
+Run: `cd native && nice cargo test --release --lib pinmap_geom; cd ..`
+Expected: PASS (3 tests). (`dead_code` warnings until Task 5 uses the module are expected; nothing is exported to Python yet.)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add native/src/pinmap_geom.rs native/src/lib.rs
+git commit -m "Native: the pin map study's airwire model, round the body, with its bend"
+git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
+```
+
+---
+
+### Task 5: The native core - crossing counts, the score, the annealing search
+
+**Files:**
+- Create: `native/src/pinmap.rs`
+- Modify: `native/src/lib.rs` (`mod pinmap;`, the `pinmap_search` pyfunction, its registration)
+- Create: `src/placemat/pinmap_core.py` (the arrays, the poses, the one entry point, `study_group`)
+- Test: the Rust unit tests in `native/src/pinmap.rs`; `tests/test_pinmap_core.py`
+
+**Interfaces:**
+- Consumes: Task 4's `pinmap_geom.rs`; `crate::ratsnest::{mst, cross_nm, nm}` (KiCad's tree with its tie order, the proper-crossing test and nanometre rounding, already ported); `crate::exact::hypot`; Task 3's `StudyInput` (`parts` with `slots`, `nets`, `background`); Task 2's `natural`; settings `pins_*` and `score_crossing_plane`; `geometry._native` (set only when `native_status()` finds the module's version is placemat's).
 - Produces:
-  - `Weights(pair, impedance, plane, length, bend)` with `Weights.of(settings)` and `.crossing(kind_a, kind_b) -> float`.
-  - `Breakdown(total, against, among, weighted, length_mm, bend_deg)` with `.to_json()`.
-  - `CELL_NM = 2_000_000`; `_segments(paths) -> tuple` of `(ax, ay, bx, by, minx, miny, maxx, maxy)` in nm; `segments_crossing(a, b) -> int`.
-  - `Background(wires, weights)` with `.cross(net, kind, segs) -> (weighted, count)`.
-  - `NetWires(paths, length, bend, box, segs)`.
-  - `Scorer(inp, poses: {ref: Pose}, weights, background, margin)` with `.exit(ref, number)`, `.wires(net, ends)`, `.single(net, ends) -> (cost, weighted, count)`, `.pair(a, ea, b, eb) -> (weighted, count)`, `.total(assign) -> Breakdown`. An assignment is `{net: ends}`, `ends` a tuple of `(ref, pad number)` sorted by ref then `natural(number)`.
-  - `Tally(scorer, assign)` with `.value`, `.assign`, `.delta(changes) -> float`, `.apply(changes, d)`.
+  - `placemat_native.pinmap_search(parts, pins, nets, fixed, joined, ends, wires, movable, groups, group_parts, combos, weights, params)` where `weights = (pair, impedance, plane, length, bend)` and `params = (margin, seeds, moves, t0, t1, budget_ms, step_ms, seed_key)`; it returns `(present, present_paths, results, budget_out, first_map, problems)`: `present` the tallies `(total, against, among, weighted, length, bend)`, `present_paths` `[(net, [path, ...])]` for the group's nets, `results` `[(combo, tallies, assignment, paths)]` (an assignment is a pin index per end slot per net), `problems` `[(part, net)]` no matching placed.
+  - `pinmap_core.Problem(parts, pins, nets, fixed, joined, ends, wires, movable, groups, margin)`; `KIND_CODES`; `problem_of(inp, margin) -> Problem`; `poses_of(part, settings) -> list[(turn, flip)]`; `seed_key(refs) -> int`; `params_of(settings, refs, step_ms=0.0, budget_ms=None) -> dict`; `native_core()`; `search(pb, group_parts, combos, params, native=True) -> tuple` (the one entry point; until Task 7 it refuses to run without the native module); `Breakdown(total, against, among, weighted, length_mm, bend_deg)` with `.to_json()`; `PoseResult(poses, breakdown, assign, paths)`; `GroupResult(refs, present, present_assign, present_paths, results, searched, of, budget_out, first_map, problems)`; `study_group(inp, refs, settings, step_ms=0.0, budget_ms=None, native=True, pb=None) -> GroupResult`.
 
-The routed-board test the spec adds is here (`test_a_routed_board_scores_as_the_same_board_without_its_copper`): a net joined by copper still gets its airwire, and the score equals the same board's with its copper removed.
+The arrays (all plain lists, as pyo3 takes them): `parts` (ref, cx, cy, hw, hh); `pins` per part (number, x, y, nx, ny) in natural pad order, x and y in the part's own frame; `nets` (name, kind code 0 plain, 1 pair, 2 impedance, 3 plane); per net `fixed` anchors (x, y, ref, number), `joined` index pairs of them and `ends` (part, pin) one per end slot; `wires` (kind, ax, ay, bx, by) in nm; `movable` (net, slot, allowed pins, group or -1); `groups` (part, member movables or -1, windows of pins); `group_parts` the parts searched; `combos` the pose combinations, each [(part, turn, flip)], the present one first, capped by Python at `pins.joint_combinations`.
 
-- [ ] **Step 1: Write the failing tests**
+The algorithm (the Python twin, Task 7, is the same line for line):
 
-Create `tests/test_pinmap_score.py`:
+- Score of an assignment: per net in index order its background crossings (weighted, counted) and its airwires' length and bend; then per pair of nets (a < b) their crossings. `total = weighted + length_weight * length + bend_weight * bend`. A net's airwires: `ratsnest::mst` over its fixed anchors then its ends at their exit points (as (x, y, ref, number)); each tree edge routed with `pinmap_geom::route`; each studied end's bend the smallest over its tree edges; length and bend summed in order. Memoised per (net, pins), per (net, net, pins, pins); a move's price is `Tally::delta` over the nets it touches.
+- Background: the other airwires on a 2 mm grid (`CELL_NM = 2_000_000`), a plane's left out when `score.crossing_plane` is 0; a segment's candidates taken in wire order.
+- First map, per part of the group: each group placed on the cheapest window (summed distance from each member's exit point to its nearest fixed anchor, ties by window order) that still leaves the other movables a matching; then the other movables by `hungarian`, ties to the lower pin. A part no matching places keeps its pins and gives `(part, net)`.
+- Search, per seed: SplitMix64 seeded `seed_key ^ (combo << 32) ^ seed`; `moves` steps; at step k the temperature is `t0 * (t1 / t0) ** (k / max(moves - 1, 1))`; a unit (a single movable, or a group with windows) is drawn; a single moves to a free allowed pin or swaps with an ungrouped movable that may take its pin; a group moves to another window, the ungrouped movables standing there taking the pins it left, in pin order; a change is taken when it gains more than 1e-12 or when a draw falls below `exp(-d / temperature)`; the best is kept when it beats the best by 1e-9.
+- Clock: asked between poses and every 32 steps; `step_ms > 0` makes it a counted clock (each question adds `step_ms`), for tests and for the twins to agree on where a study stops.
+
+- [ ] **Step 1: Write the Rust tests first and watch them fail to build**
+
+Create `native/src/pinmap.rs` holding only the test module at the end of the file below (from `#[cfg(test)]` on), and in `native/src/lib.rs` add `mod pinmap;` between `mod judge;` and `mod pinmap_geom;`.
+
+Run: `cd native && nice cargo test --release --lib pinmap::; cd ..`
+Expected: FAIL to compile: `cannot find type Problem`, `cannot find function hungarian`.
+
+- [ ] **Step 2: The core**
+
+Replace `native/src/pinmap.rs` with:
+
+```rust
+//! The pin map study's core (`placemat.pinmap_core`; its Python twin is `placemat.pinmap_twin`, which this mirrors line
+//! for line so the two give the same answers). It takes a study as plain arrays and, for the parts of one group and each
+//! combination of their poses, returns the best assignment of the movable nets to pins with its tallies.
+//!
+//! - Score: weighted crossings of the studied nets' airwires against the board's other airwires (on a 2 mm grid) and
+//!   among themselves, plus `length` times their length in mm, plus `bend` times their summed bend in degrees. A net's
+//!   airwires are the minimum spanning tree of its pads (`ratsnest::mst`), each studied pin at its exit point and each
+//!   airwire to one taken round the body (pinmap_geom.rs).
+//! - Incremental: a net's airwires, its crossings with the background and with each other net are kept per placing of
+//!   its ends, so a move recounts only the nets it touches.
+//! - Search: a first map (each group on the cheapest run of pins that leaves the rest a matching, then a minimum-cost
+//!   matching), then per seed `moves` moves, swaps and group moves under annealing from `t0` down to `t1`, the clock
+//!   checked every 32 moves and between poses. The random stream is SplitMix64, the twin's.
+
+use crate::exact::hypot;
+use crate::pinmap_geom::{bend, exit_of, length, route, End, Exit, Pose};
+use crate::ratsnest::{cross_nm, mst, nm};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::rc::Rc;
+use std::time::Instant;
+
+pub const CELL_NM: i64 = 2_000_000; // pinmap_twin.CELL_NM
+const PAIR: u8 = 1;
+const IMPEDANCE: u8 = 2;
+const PLANE: u8 = 3;
+
+/// (ax, ay, bx, by, minx, miny, maxx, maxy) in whole nanometres.
+pub type Seg = [i64; 8];
+/// (total, against, among, weighted, length, bend).
+pub type Tallies = (f64, i64, i64, f64, f64, f64);
+pub type Paths = Vec<(usize, Vec<Vec<(f64, f64)>>)>;
+
+/// A part (ref, cx, cy, hw, hh), or a pin (number, x, y, nx, ny).
+pub type Row = (String, f64, f64, f64, f64);
+
+/// A study as `pinmap_core.Problem` holds it.
+pub struct Problem {
+    pub parts: Vec<Row>,
+    pub pins: Vec<Vec<Row>>,
+    pub nets: Vec<(String, u8)>,
+    pub fixed: Vec<Vec<(f64, f64, String, String)>>,
+    pub joined: Vec<Vec<(usize, usize)>>,
+    pub ends: Vec<Vec<(usize, usize)>>,
+    pub wires: Vec<(u8, i64, i64, i64, i64)>,
+    pub movable: Vec<(usize, usize, Vec<usize>, i64)>,
+    pub groups: Vec<(usize, Vec<i64>, Vec<Vec<usize>>)>,
+    pub margin: f64,
+}
+
+/// (pair, impedance, plane, length, bend) weights and the search's own figures.
+pub struct Params {
+    pub w: [f64; 5],
+    pub seeds: u32,
+    pub moves: u32,
+    pub t0: f64,
+    pub t1: f64,
+    pub budget_ms: f64,
+    pub step_ms: f64,
+    pub seed_key: u64,
+}
+
+pub struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    pub fn new(seed: u64) -> SplitMix64 {
+        SplitMix64 { state: seed }
+    }
+
+    pub fn next(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        (self.next() % n as u64) as usize
+    }
+
+    fn unit(&mut self) -> f64 {
+        (self.next() >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
+    }
+}
+
+pub fn stream_seed(seed_key: u64, combo: usize, seed: usize) -> u64 {
+    seed_key ^ ((combo as u64) << 32) ^ (seed as u64)
+}
+
+struct Clock {
+    budget: f64,
+    step: f64,
+    elapsed: f64,
+    start: Instant,
+}
+
+impl Clock {
+    fn out(&mut self) -> bool {
+        if self.step > 0.0 {
+            self.elapsed += self.step;
+        } else {
+            self.elapsed = self.start.elapsed().as_secs_f64() * 1000.0;
+        }
+        self.elapsed >= self.budget
+    }
+}
+
+fn one(w: &[f64; 5], k: u8) -> f64 {
+    match k {
+        PAIR => w[0],
+        IMPEDANCE => w[1],
+        _ => 1.0,
+    }
+}
+
+/// What a crossing of classes `a` and `b` counts.
+pub fn crossing(w: &[f64; 5], a: u8, b: u8) -> f64 {
+    if a == PLANE || b == PLANE {
+        return w[2];
+    }
+    let (x, y) = (one(w, a), one(w, b));
+    if x >= y { x } else { y }
+}
+
+fn segments(paths: &[Vec<(f64, f64)>]) -> Vec<Seg> {
+    let mut out = Vec::new();
+    for path in paths {
+        for p in path.windows(2) {
+            let (ax, ay, bx, by) = (nm(p[0].0), nm(p[0].1), nm(p[1].0), nm(p[1].1));
+            out.push([ax, ay, bx, by, ax.min(bx), ay.min(by), ax.max(bx), ay.max(by)]);
+        }
+    }
+    out
+}
+
+fn cells(s: &Seg) -> Vec<(i64, i64)> {
+    let mut out = Vec::new();
+    for cx in s[4].div_euclid(CELL_NM)..=s[6].div_euclid(CELL_NM) {
+        for cy in s[5].div_euclid(CELL_NM)..=s[7].div_euclid(CELL_NM) {
+            out.push((cx, cy));
+        }
+    }
+    out
+}
+
+struct Background {
+    w: [f64; 5],
+    kinds: Vec<u8>,
+    segs: Vec<Seg>,
+    grid: HashMap<(i64, i64), Vec<usize>>,
+}
+
+impl Background {
+    fn new(wires: &[(u8, i64, i64, i64, i64)], w: [f64; 5]) -> Background {
+        let kept: Vec<&(u8, i64, i64, i64, i64)> = wires.iter().filter(|x| !(x.0 == PLANE && w[2] <= 0.0)).collect();
+        let segs: Vec<Seg> = kept.iter().map(|x| [x.1, x.2, x.3, x.4, x.1.min(x.3), x.2.min(x.4), x.1.max(x.3), x.2.max(x.4)]).collect();
+        let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+        for (k, s) in segs.iter().enumerate() {
+            for c in cells(s) {
+                grid.entry(c).or_default().push(k);
+            }
+        }
+        Background { w, kinds: kept.iter().map(|x| x.0).collect(), segs, grid }
+    }
+
+    fn cross(&self, kind: u8, segs: &[Seg]) -> (f64, i64) {
+        let (mut total, mut count) = (0.0, 0i64);
+        for s in segs {
+            let mut near: BTreeSet<usize> = BTreeSet::new();
+            for c in cells(s) {
+                if let Some(v) = self.grid.get(&c) {
+                    near.extend(v.iter().copied());
+                }
+            }
+            for k in near {
+                let t = &self.segs[k];
+                if t[6] < s[4] || s[6] < t[4] || t[7] < s[5] || s[7] < t[5] {
+                    continue;
+                }
+                if cross_nm(s[0], s[1], s[2], s[3], t[0], t[1], t[2], t[3]) {
+                    total += crossing(&self.w, kind, self.kinds[k]);
+                    count += 1;
+                }
+            }
+        }
+        (total, count)
+    }
+}
+
+pub fn segments_crossing(a: &[Seg], b: &[Seg]) -> i64 {
+    let mut n = 0;
+    for s in a {
+        for t in b {
+            if s[6] < t[4] || t[6] < s[4] || s[7] < t[5] || t[7] < s[5] {
+                continue;
+            }
+            if cross_nm(s[0], s[1], s[2], s[3], t[0], t[1], t[2], t[3]) {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+struct NetWires {
+    paths: Vec<Vec<(f64, f64)>>,
+    length: f64,
+    bend: f64,
+    segs: Vec<Seg>,
+    bbox: [i64; 4],
+}
+
+type Pins = Vec<usize>;
+
+struct Scorer<'a> {
+    pb: &'a Problem,
+    poses: Vec<Pose>,
+    w: [f64; 5],
+    bg: &'a Background,
+    exits: HashMap<(usize, usize), Exit>,
+    wires: HashMap<(usize, Pins), Rc<NetWires>>,
+    single: HashMap<(usize, Pins), (f64, f64, i64)>,
+    pair: HashMap<(usize, Pins, usize, Pins), (f64, i64)>,
+}
+
+impl<'a> Scorer<'a> {
+    fn new(pb: &'a Problem, poses: Vec<Pose>, w: [f64; 5], bg: &'a Background) -> Scorer<'a> {
+        Scorer { pb, poses, w, bg, exits: HashMap::new(), wires: HashMap::new(), single: HashMap::new(), pair: HashMap::new() }
+    }
+
+    fn exit(&mut self, part: usize, pin: usize) -> Exit {
+        if let Some(e) = self.exits.get(&(part, pin)) {
+            return *e;
+        }
+        let (_, _, _, hw, hh) = self.pb.parts[part];
+        let (_, x, y, nx, ny) = self.pb.pins[part][pin];
+        let e = exit_of(self.poses[part], x, y, (nx, ny), hw, hh, self.pb.margin);
+        self.exits.insert((part, pin), e);
+        e
+    }
+
+    fn wires(&mut self, net: usize, pins: &Pins) -> Rc<NetWires> {
+        if let Some(hit) = self.wires.get(&(net, pins.clone())) {
+            return hit.clone();
+        }
+        let pb = self.pb;
+        let fixed = &pb.fixed[net];
+        let mut anchors: Vec<(f64, f64, String, String)> = fixed.clone();
+        let mut exits = Vec::new();
+        for (slot, &pin) in pins.iter().enumerate() {
+            let part = pb.ends[net][slot].0;
+            let e = self.exit(part, pin);
+            exits.push(e);
+            anchors.push((e.at.0, e.at.1, pb.parts[part].0.clone(), pb.pins[part][pin].0.clone()));
+        }
+        let first = fixed.len();
+        let end_of = |i: usize| if i >= first { End::Exit(exits[i - first]) } else { End::Point((anchors[i].0, anchors[i].1)) };
+        let mut paths = Vec::new();
+        let mut bends: BTreeMap<usize, f64> = BTreeMap::new();
+        for (i, j) in mst(&anchors, &pb.joined[net]) {
+            paths.push(route(&end_of(i), &end_of(j)));
+            for (me, other) in [(i, j), (j, i)] {
+                if me >= first {
+                    let e = exits[me - first];
+                    let d = bend(e.normal, e.at, (anchors[other].0, anchors[other].1));
+                    let v = bends.entry(me).or_insert(d);
+                    if d < *v {
+                        *v = d;
+                    }
+                }
+            }
+        }
+        let mut ln = 0.0;
+        for p in &paths {
+            ln += length(p);
+        }
+        let mut bd = 0.0;
+        for v in bends.values() {
+            bd += *v;
+        }
+        let segs = segments(&paths);
+        let bbox = if segs.is_empty() {
+            [0, 0, 0, 0]
+        } else {
+            [segs.iter().map(|s| s[4]).min().unwrap(), segs.iter().map(|s| s[5]).min().unwrap(),
+             segs.iter().map(|s| s[6]).max().unwrap(), segs.iter().map(|s| s[7]).max().unwrap()]
+        };
+        let hit = Rc::new(NetWires { paths, length: ln, bend: bd, segs, bbox });
+        self.wires.insert((net, pins.clone()), hit.clone());
+        hit
+    }
+
+    fn single(&mut self, net: usize, pins: &Pins) -> (f64, f64, i64) {
+        if let Some(hit) = self.single.get(&(net, pins.clone())) {
+            return *hit;
+        }
+        let nw = self.wires(net, pins);
+        let (weighted, count) = self.bg.cross(self.pb.nets[net].1, &nw.segs);
+        let hit = (weighted + self.w[3] * nw.length + self.w[4] * nw.bend, weighted, count);
+        self.single.insert((net, pins.clone()), hit);
+        hit
+    }
+
+    fn pair(&mut self, a: usize, ea: &Pins, b: usize, eb: &Pins) -> (f64, i64) {
+        let (a, ea, b, eb) = if b < a { (b, eb, a, ea) } else { (a, ea, b, eb) };
+        let key = (a, ea.clone(), b, eb.clone());
+        if let Some(hit) = self.pair.get(&key) {
+            return *hit;
+        }
+        let (wa, wb) = (self.wires(a, ea), self.wires(b, eb));
+        let (ba, bb) = (wa.bbox, wb.bbox);
+        let hit = if ba[2] < bb[0] || bb[2] < ba[0] || ba[3] < bb[1] || bb[3] < ba[1] {
+            (0.0, 0)
+        } else {
+            let n = segments_crossing(&wa.segs, &wb.segs);
+            (n as f64 * crossing(&self.w, self.pb.nets[a].1, self.pb.nets[b].1), n)
+        };
+        self.pair.insert(key, hit);
+        hit
+    }
+
+    fn total(&mut self, assign: &[Pins]) -> Tallies {
+        let (mut weighted, mut against, mut among, mut ln, mut bd) = (0.0, 0i64, 0i64, 0.0, 0.0);
+        for (n, pins) in assign.iter().enumerate() {
+            let (_, w, c) = self.single(n, pins);
+            let nw = self.wires(n, pins);
+            weighted += w;
+            against += c;
+            ln += nw.length;
+            bd += nw.bend;
+        }
+        for a in 0..assign.len() {
+            for b in a + 1..assign.len() {
+                let (w, c) = self.pair(a, &assign[a], b, &assign[b]);
+                weighted += w;
+                among += c;
+            }
+        }
+        (weighted + self.w[3] * ln + self.w[4] * bd, against, among, weighted, ln, bd)
+    }
+
+    fn paths(&mut self, group_parts: &[usize], assign: &[Pins]) -> Paths {
+        let mut out = Vec::new();
+        for (n, pins) in assign.iter().enumerate() {
+            if (0..pins.len()).any(|k| group_parts.contains(&self.pb.ends[n][k].0)) {
+                out.push((n, self.wires(n, pins).paths.clone()));
+            }
+        }
+        out
+    }
+}
+
+struct Tally {
+    assign: Vec<Pins>,
+    value: f64,
+}
+
+impl Tally {
+    fn new(sc: &mut Scorer, assign: &[Pins]) -> Tally {
+        let value = sc.total(assign).0;
+        Tally { assign: assign.to_vec(), value }
+    }
+
+    fn delta(&self, sc: &mut Scorer, changes: &BTreeMap<usize, Pins>) -> f64 {
+        let now = &self.assign;
+        let moved: Vec<usize> = changes.keys().copied().collect();
+        let mut d = 0.0;
+        for &n in &moved {
+            d += sc.single(n, &changes[&n]).0 - sc.single(n, &now[n]).0;
+        }
+        for &n in &moved {
+            for m in 0..now.len() {
+                if changes.contains_key(&m) {
+                    continue;
+                }
+                d += sc.pair(n, &changes[&n], m, &now[m]).0 - sc.pair(n, &now[n], m, &now[m]).0;
+            }
+        }
+        for (i, &n) in moved.iter().enumerate() {
+            for &m in &moved[i + 1..] {
+                d += sc.pair(n, &changes[&n], m, &changes[&m]).0 - sc.pair(n, &now[n], m, &now[m]).0;
+            }
+        }
+        d
+    }
+
+    fn apply(&mut self, changes: &BTreeMap<usize, Pins>, d: f64) {
+        for (n, pins) in changes {
+            self.assign[*n] = pins.clone();
+        }
+        self.value += d;
+    }
+}
+
+/// `pinmap_twin.hungarian`: each row's column, or None when every assignment meets an infinite cost.
+pub fn hungarian(cost: &[Vec<f64>]) -> Option<Vec<usize>> {
+    let n = cost.len();
+    if n == 0 {
+        return Some(Vec::new());
+    }
+    let m = cost[0].len();
+    let a: Vec<Vec<f64>> = cost.iter().map(|row| row.iter().map(|&c| if c < 1e12 { c } else { 1e12 }).collect()).collect();
+    let (mut u, mut v) = (vec![0.0f64; n + 1], vec![0.0f64; m + 1]);
+    let (mut p, mut way) = (vec![0usize; m + 1], vec![0usize; m + 1]);
+    for i in 1..=n {
+        p[0] = i;
+        let mut j0 = 0usize;
+        let mut minv = vec![f64::INFINITY; m + 1];
+        let mut used = vec![false; m + 1];
+        loop {
+            used[j0] = true;
+            let (i0, mut delta, mut j1) = (p[j0], f64::INFINITY, 0usize);
+            for j in 1..=m {
+                if !used[j] {
+                    let cur = a[i0 - 1][j - 1] - u[i0] - v[j];
+                    if cur < minv[j] {
+                        minv[j] = cur;
+                        way[j] = j0;
+                    }
+                    if minv[j] < delta {
+                        delta = minv[j];
+                        j1 = j;
+                    }
+                }
+            }
+            for j in 0..=m {
+                if used[j] {
+                    u[p[j]] += delta;
+                    v[j] -= delta;
+                } else {
+                    minv[j] -= delta;
+                }
+            }
+            j0 = j1;
+            if p[j0] == 0 {
+                break;
+            }
+        }
+        loop {
+            let j1 = way[j0];
+            p[j0] = p[j1];
+            j0 = j1;
+            if j0 == 0 {
+                break;
+            }
+        }
+    }
+    let mut out = vec![0usize; n];
+    for j in 1..=m {
+        if p[j] != 0 {
+            out[p[j] - 1] = j - 1;
+        }
+    }
+    for i in 0..n {
+        if cost[i][out[i]] == f64::INFINITY {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+fn with(assign: &[Pins], net: usize, slot: usize, pin: usize) -> Pins {
+    let mut pins = assign[net].clone();
+    pins[slot] = pin;
+    pins
+}
+
+fn part_of(pb: &Problem, mv: usize) -> usize {
+    pb.ends[pb.movable[mv].0][pb.movable[mv].1].0
+}
+
+fn target_cost(sc: &mut Scorer, mv: usize, pin: usize, assign: &[Pins]) -> f64 {
+    let pb = sc.pb;
+    let (net, slot) = (pb.movable[mv].0, pb.movable[mv].1);
+    let e = sc.exit(part_of(pb, mv), pin);
+    let mut pts: Vec<(f64, f64)> = pb.fixed[net].iter().map(|a| (a.0, a.1)).collect();
+    if pts.is_empty() {
+        for (k, &q) in assign[net].iter().enumerate() {
+            if k != slot {
+                pts.push(sc.exit(pb.ends[net][k].0, q).at);
+            }
+        }
+    }
+    let mut best: Option<f64> = None;
+    for (x, y) in pts {
+        let d = hypot(e.at.0 - x, e.at.1 - y);
+        if best.is_none() || d < best.unwrap() {
+            best = Some(d);
+        }
+    }
+    best.unwrap_or(0.0)
+}
+
+fn matching(sc: &mut Scorer, singles: &[usize], used: &BTreeSet<usize>, assign: &[Pins]) -> (Vec<usize>, Option<Vec<usize>>) {
+    let pb = sc.pb;
+    let pins: Vec<usize> = singles.iter().flat_map(|&k| pb.movable[k].2.iter().copied()).collect::<BTreeSet<usize>>()
+        .difference(used).copied().collect();
+    if pins.len() < singles.len() {
+        return (pins, None);
+    }
+    let mut cost = Vec::new();
+    for &k in singles {
+        let mut row = Vec::new();
+        for &q in &pins {
+            row.push(if pb.movable[k].2.contains(&q) { target_cost(sc, k, q, assign) } else { f64::INFINITY });
+        }
+        cost.push(row);
+    }
+    let got = hungarian(&cost);
+    (pins, got)
+}
+
+fn first_map(sc: &mut Scorer, group_parts: &[usize], start: &[Pins]) -> (Vec<Pins>, Vec<(usize, usize)>) {
+    let pb = sc.pb;
+    let mut assign = start.to_vec();
+    let mut problems = Vec::new();
+    for &part in group_parts {
+        let singles: Vec<usize> = (0..pb.movable.len()).filter(|&k| part_of(pb, k) == part && pb.movable[k].3 < 0).collect();
+        let mut used: BTreeSet<usize> = BTreeSet::new();
+        let mut changes: BTreeMap<usize, usize> = BTreeMap::new();
+        for (gpart, members, windows) in &pb.groups {
+            if *gpart != part {
+                continue;
+            }
+            let mut ranked: Vec<(f64, usize)> = Vec::new();
+            for (wi, win) in windows.iter().enumerate() {
+                if win.iter().any(|q| used.contains(q)) {
+                    continue;
+                }
+                let mut c = 0.0;
+                for (m, &q) in members.iter().zip(win.iter()) {
+                    if *m >= 0 {
+                        c += target_cost(sc, *m as usize, q, &assign);
+                    }
+                }
+                ranked.push((c, wi));
+            }
+            ranked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then(a.1.cmp(&b.1)));
+            let mut chosen: Option<&Vec<usize>> = None;
+            for (_, wi) in &ranked {
+                let mut trial = used.clone();
+                trial.extend(windows[*wi].iter().copied());
+                if matching(sc, &singles, &trial, &assign).1.is_some() {
+                    chosen = Some(&windows[*wi]);
+                    break;
+                }
+            }
+            match chosen {
+                None => {
+                    for m in members.iter().filter(|m| **m >= 0) {
+                        let mv = &pb.movable[*m as usize];
+                        used.insert(assign[mv.0][mv.1]);
+                    }
+                }
+                Some(win) => {
+                    used.extend(win.iter().copied());
+                    for (m, &q) in members.iter().zip(win.iter()) {
+                        if *m >= 0 {
+                            changes.insert(*m as usize, q);
+                        }
+                    }
+                }
+            }
+        }
+        if !singles.is_empty() {
+            let (pins, got) = matching(sc, &singles, &used, &assign);
+            match got {
+                None => {
+                    let bad = singles.iter().copied().find(|&k| !pins.iter().any(|q| pb.movable[k].2.contains(q))).unwrap_or(singles[0]);
+                    problems.push((part, pb.movable[bad].0));
+                    continue;
+                }
+                Some(got) => {
+                    for (k, j) in singles.iter().zip(got.iter()) {
+                        changes.insert(*k, pins[*j]);
+                    }
+                }
+            }
+        }
+        for (k, q) in changes {
+            let (net, slot) = (pb.movable[k].0, pb.movable[k].1);
+            assign[net] = with(&assign, net, slot, q);
+        }
+    }
+    (assign, problems)
+}
+
+struct State {
+    pin: Vec<usize>,
+    who: HashMap<(usize, usize), usize>,
+}
+
+impl State {
+    fn new(pb: &Problem, assign: &[Pins]) -> State {
+        let pin: Vec<usize> = pb.movable.iter().map(|mv| assign[mv.0][mv.1]).collect();
+        let mut who = HashMap::new();
+        for (k, &q) in pin.iter().enumerate() {
+            who.insert((part_of(pb, k), q), k);
+        }
+        State { pin, who }
+    }
+
+    fn commit(&mut self, pb: &Problem, changes: &BTreeMap<usize, usize>) {
+        for &k in changes.keys() {
+            let key = (part_of(pb, k), self.pin[k]);
+            if self.who.get(&key) == Some(&k) {
+                self.who.remove(&key);
+            }
+        }
+        for (&k, &q) in changes {
+            self.pin[k] = q;
+            self.who.insert((part_of(pb, k), q), k);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Unit {
+    Movable(usize),
+    Group(usize),
+}
+
+fn units(pb: &Problem, group_parts: &[usize]) -> Vec<Unit> {
+    let mut out = Vec::new();
+    for &part in group_parts {
+        for k in 0..pb.movable.len() {
+            if pb.movable[k].3 < 0 && part_of(pb, k) == part {
+                out.push(Unit::Movable(k));
+            }
+        }
+        for (g, gr) in pb.groups.iter().enumerate() {
+            if gr.0 == part && !gr.2.is_empty() {
+                out.push(Unit::Group(g));
+            }
+        }
+    }
+    out
+}
+
+fn propose(rng: &mut SplitMix64, st: &State, pb: &Problem, units: &[Unit]) -> Option<BTreeMap<usize, usize>> {
+    if units.is_empty() {
+        return None;
+    }
+    match units[rng.below(units.len())] {
+        Unit::Movable(i) => {
+            let mv = &pb.movable[i];
+            let part = part_of(pb, i);
+            let here = st.pin[i];
+            let choices: Vec<usize> = mv.2.iter().copied().filter(|&q| q != here).collect();
+            if choices.is_empty() {
+                return None;
+            }
+            let to = choices[rng.below(choices.len())];
+            let mut out = BTreeMap::new();
+            match st.who.get(&(part, to)) {
+                None => {
+                    out.insert(i, to);
+                    Some(out)
+                }
+                Some(&other) => {
+                    if pb.movable[other].3 < 0 && pb.movable[other].2.contains(&here) {
+                        out.insert(i, to);
+                        out.insert(other, here);
+                        Some(out)
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+        Unit::Group(g) => {
+            let (gpart, members, windows) = &pb.groups[g];
+            let now: Vec<usize> = members.iter().filter(|m| **m >= 0).map(|m| st.pin[*m as usize]).collect();
+            let wins: Vec<&Vec<usize>> = windows.iter()
+                .filter(|w| members.iter().zip(w.iter()).filter(|(m, _)| **m >= 0).map(|(_, q)| *q).collect::<Vec<usize>>() != now)
+                .collect();
+            if wins.is_empty() {
+                return None;
+            }
+            let win = wins[rng.below(wins.len())];
+            let mut changes = BTreeMap::new();
+            for (m, &q) in members.iter().zip(win.iter()) {
+                if *m >= 0 {
+                    changes.insert(*m as usize, q);
+                }
+            }
+            let left: Vec<usize> = now.iter().copied().collect::<BTreeSet<usize>>()
+                .difference(&win.iter().copied().collect()).copied().collect();
+            let mut sorted_win = win.clone();
+            sorted_win.sort_unstable();
+            let taken: Vec<usize> = sorted_win.into_iter()
+                .filter(|q| match st.who.get(&(*gpart, *q)) {
+                    Some(&o) => !members.contains(&(o as i64)),
+                    None => false,
+                })
+                .collect();
+            if taken.len() > left.len() {
+                return None;
+            }
+            for (q, r) in taken.iter().zip(left.iter()) {
+                let other = st.who[&(*gpart, *q)];
+                if pb.movable[other].3 >= 0 || !pb.movable[other].2.contains(r) {
+                    return None;
+                }
+                changes.insert(other, *r);
+            }
+            Some(changes)
+        }
+    }
+}
+
+fn anneal(sc: &mut Scorer, group_parts: &[usize], start: &[Pins], pr: &Params, combo: usize, clock: &mut Clock) -> (Vec<Pins>, f64, bool) {
+    let pb = sc.pb;
+    let mut best = start.to_vec();
+    let mut best_v = sc.total(start).0;
+    let units = units(pb, group_parts);
+    let n = pr.moves.max(1) as usize;
+    for s in 0..pr.seeds.max(1) as usize {
+        let mut rng = SplitMix64::new(stream_seed(pr.seed_key, combo, s));
+        let mut tally = Tally::new(sc, start);
+        let mut st = State::new(pb, start);
+        for k in 0..n {
+            if k % 32 == 0 && clock.out() {
+                return (best, best_v, true);
+            }
+            let temp = if pr.t0 > 0.0 && pr.t1 > 0.0 {
+                pr.t0 * (pr.t1 / pr.t0).powf(k as f64 / (n.saturating_sub(1).max(1)) as f64)
+            } else {
+                0.0
+            };
+            let got = match propose(&mut rng, &st, pb, &units) {
+                Some(g) => g,
+                None => continue,
+            };
+            let mut changes: BTreeMap<usize, Pins> = BTreeMap::new();
+            for (&m, &q) in &got {
+                let (net, slot) = (pb.movable[m].0, pb.movable[m].1);
+                changes.insert(net, with(&tally.assign, net, slot, q));
+            }
+            let d = tally.delta(sc, &changes);
+            if d < -1e-12 || (temp > 0.0 && rng.unit() < (-d / temp).exp()) {
+                tally.apply(&changes, d);
+                st.commit(pb, &got);
+                if tally.value < best_v - 1e-9 {
+                    best = tally.assign.clone();
+                    best_v = tally.value;
+                }
+            }
+        }
+    }
+    (best, best_v, false)
+}
+
+pub type SearchResult = (Tallies, Paths, Vec<(usize, Tallies, Vec<Pins>, Paths)>, bool, bool, Vec<(usize, usize)>);
+
+/// `pinmap_twin.search`: (present tallies, present paths, [(combo, tallies, assignment, paths)], budget_out, first_map,
+/// [(part, net)] no matching placed).
+pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bool)>], pr: &Params) -> SearchResult {
+    let bg = Background::new(&pb.wires, pr.w);
+    let mut clock = Clock { budget: pr.budget_ms, step: pr.step_ms, elapsed: 0.0, start: Instant::now() };
+    let present: Vec<Pins> = pb.ends.iter().map(|e| e.iter().map(|x| x.1).collect()).collect();
+    let present_poses: Vec<Pose> = pb.parts.iter().map(|p| Pose::new(p.1, p.2, 0.0, false)).collect();
+    let mut sc0 = Scorer::new(pb, present_poses.clone(), pr.w, &bg);
+    let base = sc0.total(&present);
+    let base_paths = sc0.paths(group_parts, &present);
+    let (mut results, mut out, mut first, mut problems) = (Vec::new(), false, true, Vec::new());
+    for (k, combo) in combos.iter().enumerate() {
+        if clock.out() {
+            out = true;
+            if k == 0 {
+                first = false;
+            }
+            break;
+        }
+        let mut poses = present_poses.clone();
+        for &(part, turn, flip) in combo {
+            poses[part] = Pose::new(pb.parts[part].1, pb.parts[part].2, turn, flip);
+        }
+        let mut fresh;
+        let sc: &mut Scorer = if k == 0 {
+            &mut sc0
+        } else {
+            fresh = Scorer::new(pb, poses, pr.w, &bg);
+            &mut fresh
+        };
+        let (start, said) = first_map(sc, group_parts, &present);
+        for p in &said {
+            if !problems.contains(p) {
+                problems.push(*p);
+            }
+        }
+        if !said.is_empty() && k == 0 {
+            return (base, base_paths, Vec::new(), false, true, problems);
+        }
+        let (best, _, ran_out) = anneal(sc, group_parts, &start, pr, k, &mut clock);
+        let t = sc.total(&best);
+        let paths = sc.paths(group_parts, &best);
+        results.push((k, t, best, paths));
+        if ran_out {
+            out = true;
+            break;
+        }
+    }
+    (base, base_paths, results, out, first, problems)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splitmix_is_the_published_stream() {
+        let mut r = SplitMix64::new(1234567);
+        assert_eq!(r.next(), 6457827717110365317);
+        assert_eq!(r.next(), 3203168211198807973);
+    }
+
+    #[test]
+    fn the_matching_is_the_cheapest_and_refuses_what_cannot_be_matched() {
+        assert_eq!(hungarian(&[vec![4.0, 1.0, 3.0], vec![2.0, 0.0, 5.0], vec![3.0, 2.0, 2.0]]), Some(vec![1, 0, 2]));
+        assert_eq!(hungarian(&[vec![1.0, f64::INFINITY], vec![2.0, f64::INFINITY]]), None);
+    }
+
+    fn reversed_four() -> Problem {
+        // U1 with A-D on its east side north to south; their test points due east in the opposite order
+        let pins = (0..4).map(|i| ((i + 1).to_string(), 1.7, -1.5 + i as f64, 1.0, 0.0)).collect();
+        let fixed = (0..4).map(|i| vec![(20.0, 11.5 - i as f64, format!("TP{}", 4 - i), "1".to_string())]).collect();
+        Problem {
+            parts: vec![("U1".into(), 10.0, 10.0, 2.25, 2.25)], pins: vec![pins],
+            nets: vec![("A".into(), 0), ("B".into(), 0), ("C".into(), 0), ("D".into(), 0)], fixed,
+            joined: vec![vec![]; 4], ends: (0..4).map(|i| vec![(0, i)]).collect(), wires: vec![],
+            movable: (0..4).map(|i| (i, 0, vec![0, 1, 2, 3], -1)).collect(), groups: vec![], margin: 0.5,
+        }
+    }
+
+    #[test]
+    fn four_nets_in_reverse_order_are_uncrossed() {
+        let pb = reversed_four();
+        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005], seeds: 3, moves: 400, t0: 1.0, t1: 0.02, budget_ms: 60000.0,
+                          step_ms: 0.0, seed_key: 7 };
+        let (base, _, results, out, first, problems) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &pr);
+        assert_eq!((base.2, out, first, problems.len()), (6, false, true, 0));
+        assert_eq!(results[0].1 .2, 0);
+        assert_eq!(results[0].2, vec![vec![3], vec![2], vec![1], vec![0]]);
+    }
+}
+```
+
+Run: `cd native && nice cargo test --release --lib pinmap; cd ..`
+Expected: PASS (6 tests: 3 of the core, 3 of the geometry).
+
+- [ ] **Step 3: Expose it to Python**
+
+In `native/src/lib.rs`, before the line `/// The occupancy's placed ratsnest, mirrored for \`leaf_costs\``, add:
+
+```rust
+/// The pin map study's core (native/src/pinmap.rs): one group's study from plain arrays, as
+/// `placemat.pinmap_twin.search` gives it (`placemat.pinmap_core.search` picks one or the other).
+#[pyfunction]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn pinmap_search(
+    parts: Vec<pinmap::Row>,
+    pins: Vec<Vec<pinmap::Row>>,
+    nets: Vec<(String, u8)>,
+    fixed: Vec<Vec<(f64, f64, String, String)>>,
+    joined: Vec<Vec<(usize, usize)>>,
+    ends: Vec<Vec<(usize, usize)>>,
+    wires: Vec<(u8, i64, i64, i64, i64)>,
+    movable: Vec<(usize, usize, Vec<usize>, i64)>,
+    groups: Vec<(usize, Vec<i64>, Vec<Vec<usize>>)>,
+    group_parts: Vec<usize>,
+    combos: Vec<Vec<(usize, f64, bool)>>,
+    weights: (f64, f64, f64, f64, f64),
+    params: (f64, u32, u32, f64, f64, f64, f64, u64),
+) -> pinmap::SearchResult {
+    let (pair, impedance, plane, length, bend) = weights;
+    let (margin, seeds, moves, t0, t1, budget_ms, step_ms, seed_key) = params;
+    let pb = pinmap::Problem { parts, pins, nets, fixed, joined, ends, wires, movable, groups, margin };
+    let pr = pinmap::Params { w: [pair, impedance, plane, length, bend], seeds, moves, t0, t1, budget_ms, step_ms, seed_key };
+    pinmap::search(&pb, &group_parts, &combos, &pr)
+}
+
+```
+
+(pyo3 takes a tuple of at most 12 items as one argument: hence two.) After `    m.add_class::<NativeRatsnest>()?;` add:
+
+```rust
+    m.add_function(wrap_pyfunction!(pinmap_search, m)?)?;
+```
+
+Run: `cd native && nice cargo clippy --release 2>&1 | grep -A3 "src/pinmap"; cd ..`
+Expected: nothing (no new warning in the pin map files).
+
+- [ ] **Step 4: Write the Python side's failing tests**
+
+Create `tests/test_pinmap_core.py`:
 
 ```python
-"""The pin map study's score: weighted crossings against the other airwires and among the studied nets, length and bend;
-the background asked only near a path; a move's price recounting only the nets it touches; and a routed board scored as
-the same board without its copper."""
-import random
-
+"""The pin map study's core, through its one entry point (pinmap_core.study_group): the score of the present map, a
+first map by minimum-cost matching, then moves, swaps and group moves under the constraints, per pose; deterministic;
+stopped by its clock with the best found. Each test runs on every core in CORES: the native one (skipped when the
+native module is not in use) and, from the Python twin's task on, the twin."""
 import pytest
 
-from placemat.pinmap_geom import Pose
-from placemat.pinmap_input import Wire, build, placed_from_geometry
-from placemat.pinmap_score import Background, Scorer, Tally, Weights
+from placemat.pinmap_core import native_core, poses_of, problem_of, study_group
+from placemat.pinmap_input import build, placed_from_geometry
 from tests.fixtures import board_geometry, footprint, track
 from tests.pinmap_boards import input_of, point_pad, quad, quad_footprint, reversed_four, settings
 
-
-def scorer_of(inp, s=None, poses=None):
-    s = s or settings()
-    w = Weights.of(s)
-    poses = poses or {p.ref: Pose(p.cx, p.cy) for p in inp.parts}
-    return Scorer(inp, poses, w, Background(inp.background, w), s.pins_exit_mm)
+CORES = ["native"]
 
 
-def present(inp):
-    return {n.net: n.ends for n in inp.nets}
+@pytest.fixture(params=CORES)
+def native(request):
+    if request.param == "native" and native_core() is None:
+        pytest.skip("the native module is not in use")
+    return request.param == "native"
 
 
-def test_a_crossing_counts_one_more_for_a_pair_or_a_controlled_impedance_and_the_plane_weight_for_a_plane():
-    w = Weights(pair=5.0, impedance=3.0, plane=0.25)
-    assert w.crossing("plain", "plain") == 1.0
-    assert w.crossing("plain", "pair") == 5.0 and w.crossing("impedance", "plain") == 3.0
-    assert w.crossing("pair", "impedance") == 5.0
-    assert w.crossing("plane", "pair") == 0.25
+def run(inp, native, s=None, refs=("U1",), step_ms=0.0, budget_ms=None):
+    return study_group(inp, refs, s or settings(), step_ms=step_ms, budget_ms=budget_ms, native=native)
 
 
-def test_the_background_counts_the_wires_a_path_crosses_and_not_its_own_net_or_a_weightless_plane():
-    w = Weights(pair=5.0, plane=0.0)
-    bg = Background([Wire("X", "plain", (5, 0), (5, 10)), Wire("P", "pair", (7, 0), (7, 10)),
-                     Wire("A", "plain", (6, 0), (6, 10)), Wire("G", "plane", (8, 0), (8, 10))], w)
-    from placemat.pinmap_score import _segments
-    segs = _segments([((0.0, 5.0), (10.0, 5.0))])
-    assert bg.cross("A", "plain", segs) == (6.0, 2)            # X at 1, P at 5; its own net and the plane not counted
+def best(g):
+    return min(g.results, key=lambda r: r.breakdown.total)
 
 
-def test_four_nets_in_reverse_order_cross_six_times_until_they_trade_pins():
+def pin(result, net, ref="U1"):
+    return dict(result.assign[net])[ref]
+
+
+def test_four_nets_in_reverse_order_cross_six_times_and_are_uncrossed_at_the_present_rotation(native):
     inp, _ = input_of(*reversed_four())
-    s = scorer_of(inp)
-    now = s.total(present(inp))
-    assert (now.among, now.against) == (6, 0) and now.weighted == 6.0
-    swapped = dict(present(inp), A=(("U1", "4"),), D=(("U1", "1"),), B=(("U1", "3"),), C=(("U1", "2"),))
-    better = s.total(swapped)
-    assert better.among == 0 and better.total < now.total
-    w = Weights.of(settings())
-    assert better.total == pytest.approx(w.length * better.length_mm + w.bend * better.bend_deg)
+    g = run(inp, native, settings(pins_rotations=(0.0,)))
+    r = g.results[0]
+    assert (g.present.among, g.present.against, g.present.weighted) == (6, 0, 6.0)
+    assert r.breakdown.among == 0 and [pin(r, n) for n in "ABCD"] == ["4", "3", "2", "1"]
+    s = settings()
+    assert r.breakdown.total == pytest.approx(s.pins_length_weight * r.breakdown.length_mm
+                                              + s.pins_bend_weight * r.breakdown.bend_deg)
 
 
-def test_a_move_is_priced_by_recounting_the_nets_it_touches_as_the_whole_total_would():
-    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C"], "S": ["D", "E", ""], "W": ["F", "", ""]},
-                    {"Pm.PinPool": "1-9"})
-    rng = random.Random(1)
-    for i, net in enumerate("ABCDEF"):
-        pads += point_pad("T%d" % i, net, rng.uniform(0, 25), rng.uniform(0, 25))
-    pads += point_pad("Q1", "X", 0, 0) + point_pad("Q2", "X", 25, 25)
+def test_each_constraint_holds_fixed_allow_deny_and_a_group_kept_whole_and_in_order(native):
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D", "E", ""]},
+                    {"Pm.PinPool": "1-6", "Pm.PinFixed": "1", "Pm.PinAllow": "B:2,3", "Pm.PinDeny": "C:3",
+                     "Pm.PinGroup": "bus:4-5"})
+    for i, net in enumerate(["A", "B", "C", "D", "E"]):
+        pads += point_pad("T%d" % i, net, 20, 12.5 - i)                 # every target in reverse order
     inp, _ = input_of(pads, {"U1": u1})
-    s = scorer_of(inp)
-    tally = Tally(s, present(inp))
-    pins = [str(n) for n in range(1, 10)]
-    for _ in range(40):
-        a, b = rng.sample(sorted(tally.assign), 2)
-        change = {a: tally.assign[b], b: tally.assign[a]} if rng.random() < 0.5 else {a: (("U1", rng.choice(pins)),)}
-        d = tally.delta(change)
-        after = dict(tally.assign, **change)
-        assert d == pytest.approx(s.total(after).total - s.total(tally.assign).total, abs=1e-9)
-        tally.apply(change, d)
-    assert tally.value == pytest.approx(s.total(tally.assign).total, abs=1e-6)
+    g = run(inp, native, settings(pins_rotations=(0.0,)))
+    r = g.results[0]
+    assert pin(r, "A") == "1" and pin(r, "B") in ("2", "3") and pin(r, "C") != "3"
+    d, e = int(pin(r, "D")), int(pin(r, "E"))
+    assert e == d + 1                                                   # the group moved whole, in its order
+    assert r.breakdown.total < g.present.total
 
 
-def test_a_net_of_several_pads_is_scored_on_its_tree_with_the_studied_pin_at_its_exit():
+def test_a_net_whose_target_is_behind_the_part_is_moved_to_the_side_that_faces_it(native):
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", ""], "W": ["", ""]}, {"Pm.PinPool": "1-4"})
+    pads += point_pad("T1", "A", 0, 10)
+    inp, _ = input_of(pads, {"U1": u1})
+    g = run(inp, native, settings(pins_rotations=(0.0,)))
+    assert pin(g.results[0], "A") in ("3", "4")
+    assert g.present.length_mm > g.results[0].breakdown.length_mm + 4.0     # the way round the body is gone
+    (before,) = g.present_paths["A"]
+    assert len(before) == 4                                             # exit, two corners, target
+
+
+def test_a_net_of_several_pads_is_scored_on_its_tree_with_the_studied_pin_at_its_exit(native):
     pads, u1 = quad("U1", 10, 10, {"E": ["A", ""]}, {"Pm.PinPool": "1-2"})
     pads += point_pad("T1", "A", 20, 9.5) + point_pad("T2", "A", 30, 9.5)
     inp, _ = input_of(pads, {"U1": u1})
-    nw = scorer_of(inp).wires("A", (("U1", "1"),))
-    assert sorted(tuple(sorted(p)) for p in nw.paths) == [((12.75, 9.5), (20.0, 9.5)), ((20.0, 9.5), (30.0, 9.5))]
-    assert nw.length == pytest.approx(17.25) and nw.bend == 0.0
+    g = run(inp, native, settings(pins_rotations=(0.0,)))
+    assert sorted(tuple(sorted(p)) for p in g.present_paths["A"]) == [((12.75, 9.5), (20.0, 9.5)), ((20.0, 9.5), (30.0, 9.5))]
+    assert g.present.length_mm == pytest.approx(17.25) and g.present.bend_deg == 0.0
 
 
-def test_a_routed_board_scores_as_the_same_board_without_its_copper():
+def test_a_diagonal_turn_wins_on_the_bend_when_it_is_listed_and_is_not_reported_when_it_is_not(native):
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", ""]}, {"Pm.PinPool": "1-2"})
+    pads += point_pad("T1", "A", 22, -2)
+    inp, _ = input_of(pads, {"U1": u1})
+    eighths = run(inp, native, settings(pins_rotations=tuple(range(0, 360, 45))))
+    b = best(eighths)
+    assert b.poses == (("U1", 45.0, False),) and b.breakdown.bend_deg < 5.0
+    quarters = run(inp, native)
+    assert {p[1] for r in quarters.results for p in r.poses} == {0.0, 90.0, 180.0, 270.0}
+
+
+def test_the_other_face_is_studied_only_when_asked_and_the_part_may_stand_there(native):
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", ""]}, {"Pm.PinPool": "1-2"}, may_flip=True)
+    pads += point_pad("T1", "A", 22, 10)
+    inp, _ = input_of(pads, {"U1": u1})
+    assert poses_of(inp.parts[0], settings()) == [(0.0, False), (90.0, False), (180.0, False), (270.0, False)]
+    assert (90.0, True) in poses_of(inp.parts[0], settings(pins_faces=True))
+    g = run(inp, native, settings(pins_faces=True))
+    assert g.of == 8 and any(p[2] for r in g.results for p in r.poses)
+
+
+def test_the_present_pose_comes_first_and_each_turn_is_studied_once_however_the_turns_are_written():
+    inp, _ = input_of(*reversed_four())
+    assert poses_of(inp.parts[0], settings(pins_rotations=(360, -90, 90.0, 90))) == [(0.0, False), (270.0, False), (90.0, False)]
+
+
+def test_the_same_board_gives_the_same_maps_and_totals(native):
+    inp, _ = input_of(*reversed_four())
+    a, b = run(inp, native), run(inp, native)
+    assert [(r.poses, r.breakdown, r.assign) for r in a.results] == [(r.poses, r.breakdown, r.assign) for r in b.results]
+
+
+def test_a_clock_out_before_the_first_map_says_so_and_one_out_later_keeps_the_best_found(native):
+    inp, _ = input_of(*reversed_four())
+    s = settings(pins_anneal_moves=500, pins_seeds=4)                   # 64 questions a pose: more than the budget
+    g = run(inp, native, s, step_ms=1.0, budget_ms=0.5)                 # out at the first question
+    assert (g.first_map, g.budget_out, g.results) == (False, True, ())
+    g = run(inp, native, s, step_ms=1.0, budget_ms=40)                  # out after 40 questions
+    assert g.first_map and g.budget_out and 1 <= len(g.results) < 4 and g.searched == len(g.results) and g.of == 4
+
+
+def test_a_routed_board_scores_as_the_same_board_without_its_copper(native):
     fps = [quad_footprint("U1", 10, 10, {"E": ["A", "B"]}, {"Pm.PinPool": "1-2"}),
            footprint("R1", 20, 10.5, w=2, h=1, inst="r1", nets=("A", "N1")),
            footprint("R2", 20, 9.5, w=2, h=1, inst="r2", nets=("B", "N2"))]
     a1, r1 = fps[0].pads[0].airwire_end, fps[1].pads[0].airwire_end
     routed = board_geometry(fps, copper=[track("A", a1.x, a1.y, r1.x, r1.y)], width=40, height=40)
     bare = board_geometry(fps, width=40, height=40)
-    totals = []
+    present = []
     for g in (routed, bare):
         inp, _ = build(*placed_from_geometry(g), {}, frozenset(), {}, g.netclasses)
-        totals.append(scorer_of(inp).total(present(inp)))
-    assert totals[0] == totals[1] and totals[0].among == 1        # A still has its airwire, and it crosses B's
+        present.append(run(inp, native, settings(pins_rotations=(0.0,))).present)
+    assert present[0] == present[1] and present[0].among == 1           # A still has its airwire, and it crosses B's
+
+
+def test_the_core_takes_the_study_as_plain_arrays():
+    inp, _ = input_of(*reversed_four({"Pm.PinPool": "1-4", "Pm.PinGroup": "ab:1-2"}))
+    pb = problem_of(inp, 0.5)
+    assert pb.parts == [("U1", 10.0, 10.0, 2.25, 2.25)] and [p[0] for p in pb.pins[0]] == ["1", "2", "3", "4"]
+    assert pb.nets == [("A", 0), ("B", 0), ("C", 0), ("D", 0)] and pb.ends == [[(0, 0)], [(0, 1)], [(0, 2)], [(0, 3)]]
+    assert pb.movable == [(0, 0, [0, 1, 2, 3], 0), (1, 0, [0, 1, 2, 3], 0), (2, 0, [0, 1, 2, 3], -1), (3, 0, [0, 1, 2, 3], -1)]
+    assert pb.groups == [(0, [0, 1], [[0, 1], [1, 2], [2, 3]])]
+    assert pb.fixed[0] == [(20.0, 11.5, "TP4", "1")] and pb.wires == []
 ```
 
-- [ ] **Step 2: Run them to watch them fail**
+- [ ] **Step 5: Build the module and watch the tests fail**
 
-Run: `.venv/bin/python -m pytest tests/test_pinmap_score.py -q -n 2`
-Expected: FAIL with `ModuleNotFoundError: No module named 'placemat.pinmap_score'`.
+Run: `uv pip install -e ".[native]"` (it builds the module from this checkout, so its version is placemat's and `geometry.native_status()` takes it), then `.venv/bin/python -c "from placemat.geometry import native_status; print(native_status().facts())"`.
+Expected: `in_use: True`.
 
-- [ ] **Step 3: Write the module**
+Run: `.venv/bin/python -m pytest tests/test_pinmap_core.py -q -n 2`
+Expected: FAIL with `ModuleNotFoundError: No module named 'placemat.pinmap_core'`.
 
-Create `src/placemat/pinmap_score.py`:
+- [ ] **Step 6: The entry point**
+
+Create `src/placemat/pinmap_core.py`:
 
 ```python
-"""The pin map study's score of one assignment of nets to pins, at one pose of each studied part.
-
-Total = weighted crossings of the studied nets' airwires against every other airwire, plus weighted crossings among the
-studied nets, plus `pins.length_weight` times their airwire length in mm, plus `pins.bend_weight` times their summed bend
-angles in degrees. A studied net's airwires are the minimum spanning tree of its pads (ratsnest.mst), each studied pin
-taken at its exit point and each airwire to one taken round the body (pinmap_geom.route).
-
-A crossing counts 1, `pins.pair_weight` where either airwire is a differential pair's, `pins.impedance_weight` where either
-is in a controlled-impedance class (the larger where both apply), and `score.crossing_plane` where either is a plane's or
-a free net's, as the run score weighs those.
-
-Incremental: the other airwires are bucketed once on a 2 mm grid (`Background`), and a net's airwires, its crossings
-with the background and its crossings with each other studied net are worked out once per placing of its ends and kept
-(`Scorer`), so a move recounts only the nets it touches (`Tally`)."""
+"""The pin map study's core, as one entry point: a study as plain arrays (`Problem`), searched by the native core
+(native/src/pinmap.rs, `placemat_native.pinmap_search`) when the native module is in use, else by its Python twin
+(pinmap_twin.py), which gives the same answers. Around it: the arrays from a StudyInput, the poses a part is studied at,
+and the core's answer turned back into names (`study_group`)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import itertools
 
-from .ratsnest import Anchor, _cross_nm, _nm, mst
+from . import geometry as _geometry
+from .pinmap_rules import natural
+from .ratsnest import _nm
 
-from .pinmap_geom import bend, exit_of, length, route
+KIND_CODES = {"plain": 0, "pair": 1, "impedance": 2, "plane": 3}
 
 
 @dataclass(frozen=True)
-class Weights:
-    pair: float = 1.0
-    impedance: float = 1.0
-    plane: float = 0.0
-    length: float = 0.0
-    bend: float = 0.0
-
-    @staticmethod
-    def of(settings) -> "Weights":
-        return Weights(settings.pins_pair_weight, settings.pins_impedance_weight, settings.score_crossing_plane,
-                       settings.pins_length_weight, settings.pins_bend_weight)
-
-    def _one(self, kind: str) -> float:
-        return self.pair if kind == "pair" else self.impedance if kind == "impedance" else 1.0
-
-    def crossing(self, a: str, b: str) -> float:
-        """What a crossing of an airwire of class `a` with one of class `b` counts."""
-        if a == "plane" or b == "plane":
-            return self.plane
-        return max(self._one(a), self._one(b))
+class Problem:
+    """A study as the core takes it. `parts` (ref, cx, cy, hw, hh) and `pins` per part (number, x, y, nx, ny) in
+    natural pad order; `nets` (name, kind code), and per net its `fixed` anchors (x, y, ref, number), `joined` pairs of
+    them and its `ends` (part, pin) as they stand, one per end slot; `wires` the other airwires (kind code, ax, ay, bx,
+    by) in nm; `movable` (net, slot, allowed pins, group or -1); `groups` (part, member movables or -1, windows of
+    pins); `margin` the exit distance."""
+    parts: list
+    pins: list
+    nets: list
+    fixed: list
+    joined: list
+    ends: list
+    wires: list
+    movable: list
+    groups: list
+    margin: float
 
 
 @dataclass(frozen=True)
@@ -1643,436 +2613,66 @@ class Breakdown:
                 "weighted": round(self.weighted, 3), "length_mm": round(self.length_mm, 3), "bend_deg": round(self.bend_deg, 1)}
 
 
-CELL_NM = 2_000_000      # ratsnest's grid (2 mm), in whole nanometres
-
-
-def _cells_nm(s):
-    """The grid cells a segment's box (whole nanometres) touches."""
-    for cx in range(s[4] // CELL_NM, s[6] // CELL_NM + 1):
-        for cy in range(s[5] // CELL_NM, s[7] // CELL_NM + 1):
-            yield cx, cy
-
-
-class Background:
-    """The board's other airwires on a 2 mm grid. `cross(net, kind, segs)` is the weighted count and the count of their
-    crossings with a net's segments (`_segments`), each segment's candidates taken in wire order; a plane's wire is left
-    out when `score.crossing_plane` is 0, as it weighs nothing."""
-
-    def __init__(self, wires, weights: Weights):
-        self.weights = weights
-        self.wires = [w for w in wires if not (w.kind == "plane" and weights.plane <= 0)]
-        self.segs = _segments([(w.a, w.b) for w in self.wires])
-        self.grid: dict = {}
-        for k, s in enumerate(self.segs):
-            for c in _cells_nm(s):
-                self.grid.setdefault(c, []).append(k)
-
-    def cross(self, net: str, kind: str, segs) -> tuple:
-        total, count = 0.0, 0
-        for s in segs:
-            near = set()
-            for c in _cells_nm(s):
-                near.update(self.grid.get(c, ()))
-            for k in sorted(near):
-                t = self.segs[k]
-                if t[6] < s[4] or s[6] < t[4] or t[7] < s[5] or s[7] < t[5]:
-                    continue
-                w = self.wires[k]
-                if w.net != net and _cross_nm(s[0], s[1], s[2], s[3], t[0], t[1], t[2], t[3]):
-                    total += self.weights.crossing(kind, w.kind)
-                    count += 1
-        return total, count
-
-
-@dataclass(frozen=True)
-class NetWires:
-    """One studied net's airwires: their paths, length, summed bend over its studied ends, the box round them (nm),
-    and their segments in whole nanometres, each with its own box, for the crossing tests."""
-    paths: tuple
-    length: float
-    bend: float
-    box: tuple
-    segs: tuple
-
-
-def _segments(paths) -> tuple:
-    out = []
-    for path in paths:
-        for p, q in zip(path, path[1:]):
-            ax, ay, bx, by = _nm(p[0]), _nm(p[1]), _nm(q[0]), _nm(q[1])
-            out.append((ax, ay, bx, by, min(ax, bx), min(ay, by), max(ax, bx), max(ay, by)))
-    return tuple(out)
-
-
-def _box(segs) -> tuple:
-    if not segs:
-        return (0, 0, 0, 0)
-    return (min(s[4] for s in segs), min(s[5] for s in segs), max(s[6] for s in segs), max(s[7] for s in segs))
-
-
-def segments_crossing(a, b) -> int:
-    """How many times two nets' segments (`_segments`) cross."""
-    n = 0
-    for s in a:
-        for t in b:
-            if s[6] < t[4] or t[6] < s[4] or s[7] < t[5] or t[7] < s[5]:
-                continue
-            if _cross_nm(s[0], s[1], s[2], s[3], t[0], t[1], t[2], t[3]):
-                n += 1
-    return n
-
-
-class Scorer:
-    """Scores assignments at one set of poses: `poses` {ref: Pose} for every studied part (the parts not being turned at
-    their present one). An assignment is {net: ends}, ends a tuple of (ref, pad number) sorted as StudyNet.ends is."""
-
-    def __init__(self, inp, poses: dict, weights: Weights, background: Background, margin: float):
-        self.inp, self.poses, self.w, self.bg, self.margin = inp, poses, weights, background, margin
-        self.parts = {p.ref: p for p in inp.parts}
-        self.nets = {n.net: n for n in inp.nets}
-        self._exits: dict = {}
-        self._wires: dict = {}
-        self._single: dict = {}
-        self._pair: dict = {}
-
-    def exit(self, ref: str, number: str):
-        k = (ref, number)
-        e = self._exits.get(k)
-        if e is None:
-            part = self.parts[ref]
-            pin = part.pin(number)
-            e = exit_of(ref, self.poses[ref], pin.x, pin.y, (pin.nx, pin.ny), part.hw, part.hh, self.margin)
-            self._exits[k] = e
-        return e
-
-    def wires(self, net: str, ends: tuple) -> NetWires:
-        k = (net, ends)
-        hit = self._wires.get(k)
-        if hit is not None:
-            return hit
-        n = self.nets[net]
-        anchors = list(n.fixed)
-        exits = [self.exit(r, num) for r, num in ends]
-        anchors += [Anchor(r, num, e.at[0], e.at[1]) for (r, num), e in zip(ends, exits)]
-        index = {id(a): i for i, a in enumerate(anchors)}
-        first = len(n.fixed)
-        end_of = lambda i: exits[i - first] if i >= first else (anchors[i].x, anchors[i].y)
-        paths, bends = [], {}
-        for edge in mst(net, anchors, n.joined):
-            i, j = index[id(edge.a)], index[id(edge.b)]
-            a, b = end_of(i), end_of(j)
-            paths.append(route(a, b))
-            for me, other in ((i, j), (j, i)):
-                if me >= first:
-                    e = exits[me - first]
-                    to = anchors[other]
-                    d = bend(e.normal, e.at, (to.x, to.y))
-                    bends[me] = min(bends.get(me, d), d)
-        paths = tuple(paths)
-        segs = _segments(paths)
-        hit = NetWires(paths, sum(length(p) for p in paths), sum(bends[k] for k in sorted(bends)), _box(segs), segs)
-        self._wires[k] = hit
-        return hit
-
-    def single(self, net: str, ends: tuple) -> tuple:
-        """(cost, weighted, count) of one net alone: its crossings with the background, weighted and counted, plus its
-        length and bend weighted."""
-        k = (net, ends)
-        hit = self._single.get(k)
-        if hit is None:
-            nw = self.wires(net, ends)
-            kind = self.nets[net].kind
-            weighted, count = self.bg.cross(net, kind, nw.segs)
-            hit = (weighted + self.w.length * nw.length + self.w.bend * nw.bend, weighted, count)
-            self._single[k] = hit
-        return hit
-
-    def pair(self, a: str, ea: tuple, b: str, eb: tuple) -> tuple:
-        """(weighted, count) of the crossings between two studied nets' airwires."""
-        if b < a:
-            a, ea, b, eb = b, eb, a, ea
-        k = (a, ea, b, eb)
-        hit = self._pair.get(k)
-        if hit is None:
-            wa, wb = self.wires(a, ea), self.wires(b, eb)
-            if wa.box[2] < wb.box[0] or wb.box[2] < wa.box[0] or wa.box[3] < wb.box[1] or wb.box[3] < wa.box[1]:
-                hit = (0.0, 0)
-            else:
-                n = segments_crossing(wa.segs, wb.segs)
-                hit = (n * self.w.crossing(self.nets[a].kind, self.nets[b].kind), n)
-            self._pair[k] = hit
-        return hit
-
-    def total(self, assign: dict) -> Breakdown:
-        names = sorted(assign)
-        weighted, against, among, ln, bd = 0.0, 0, 0, 0.0, 0.0
-        for n in names:
-            _, w, c = self.single(n, assign[n])
-            nw = self.wires(n, assign[n])
-            weighted += w
-            against += c
-            ln += nw.length
-            bd += nw.bend
-        for i, a in enumerate(names):
-            for b in names[i + 1:]:
-                w, c = self.pair(a, assign[a], b, assign[b])
-                weighted += w
-                among += c
-        return Breakdown(weighted + self.w.length * ln + self.w.bend * bd, against, among, weighted, ln, bd)
-
-
-class Tally:
-    """An assignment being searched, and its total kept as moves are made: `delta` prices a change to some nets' ends
-    by recounting only those nets, against the background and against every other net; `apply` makes it."""
-
-    def __init__(self, scorer: Scorer, assign: dict):
-        self.s = scorer
-        self.assign = dict(assign)
-        self.names = sorted(self.assign)
-        self.value = scorer.total(self.assign).total
-
-    def delta(self, changes: dict) -> float:
-        s, now = self.s, self.assign
-        moved = sorted(changes)
-        d = 0.0
-        for n in moved:
-            d += s.single(n, changes[n])[0] - s.single(n, now[n])[0]
-        for n in moved:
-            for m in self.names:
-                if m in changes:
-                    continue
-                d += s.pair(n, changes[n], m, now[m])[0] - s.pair(n, now[n], m, now[m])[0]
-        for i, n in enumerate(moved):
-            for m in moved[i + 1:]:
-                d += s.pair(n, changes[n], m, changes[m])[0] - s.pair(n, now[n], m, now[m])[0]
-        return d
-
-    def apply(self, changes: dict, d: float) -> None:
-        self.assign.update(changes)
-        self.value += d
-```
-
-- [ ] **Step 4: Run the tests to watch them pass**
-
-Run: `.venv/bin/python -m pytest tests/test_pinmap_score.py tests/test_pinmap_input.py -q -n 2`
-Expected: PASS (6 and 5 tests).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/placemat/pinmap_score.py tests/test_pinmap_score.py
-git commit -m "Pin map study: weighted crossings, length and bend, a move recounting only the nets it touches"
-git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
-```
-
----
-
-### Task 6: The search - first map, local search, groups, poses, determinism, the clock
-
-**Files:**
-- Create: `src/placemat/pinmap_search.py`
-- Test: `tests/test_pinmap_search.py`
-
-**Interfaces:**
-- Consumes: Task 2's `Problem`, `natural`, `PartPins` (via `StudiedPart.slots`); Task 3's `Pose`; Task 5's `Background`, `Breakdown`, `Scorer`, `Tally`, `Weights`; settings `pins_rotations`, `pins_faces`, `pins_seeds`, `pins_anneal_moves`, `pins_anneal_start`, `pins_anneal_end`, `pins_budget_ms`, `pins_joint_combinations`, `pins_exit_mm`.
-- Produces:
-  - `Clock(ms, now=time.perf_counter)` with `.out()`.
-  - `PoseResult(poses: tuple[(ref, turn, flip)], breakdown, assign)`, `GroupResult(refs, present, present_assign, results, searched, of, budget_out, first_map, problems=())`.
-  - `poses_of(part, settings) -> list[(turn, flip)]` (present first, each turn once, mod 360).
-  - `hungarian(cost) -> list | None`.
-  - `first_map(scorer, inp, refs, assign) -> (assign, [Problem])`.
-  - `anneal(scorer, inp, refs, start, settings, seed_key, clock) -> (best, value, ran_out)`.
-  - `study_group(inp, refs: tuple, settings, background, clock=None) -> GroupResult` (the clock defaults to `pins.budget_ms` times the group's parts; combinations capped at `pins.joint_combinations`, the present ones first).
-
-Determinism: every random stream is `random.Random("<refs>|<pose>|<seed>")` (string seeds are hashed with SHA-512 by `random`, so they do not depend on `PYTHONHASHSEED`), sets are iterated sorted, and ties go to the lower pin. A clock that runs out stops between moves (checked every 32) or between poses; such a study keeps the best found and is not deterministic, which the facts say (`budget_out`).
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `tests/test_pinmap_search.py`:
-
-```python
-"""The pin map study's search: a first map by minimum-cost matching, then a local search of moves, swaps and group moves
-under the constraints, per pose; deterministic; stopped by its clock with the best found."""
-import itertools
-
-import pytest
-
-from placemat.pinmap_score import Background, Weights
-from placemat.pinmap_search import Clock, hungarian, poses_of, study_group
-from tests.pinmap_boards import input_of, point_pad, quad, reversed_four, settings
-
-
-def run(inp, s=None, refs=("U1",), clock=None):
-    s = s or settings()
-    return study_group(inp, refs, s, Background(inp.background, Weights.of(s)), clock)
-
-
-def best(g):
-    return min(g.results, key=lambda r: r.breakdown.total)
-
-
-def pin(result, net, ref="U1"):
-    return dict(result.assign[net])[ref]
-
-
-def test_the_matching_is_the_cheapest_and_refuses_what_cannot_be_matched():
-    inf = float("inf")
-    assert hungarian([[4, 1, 3], [2, 0, 5], [3, 2, 2]]) == [1, 0, 2]
-    assert hungarian([[1, 2, 3], [1, 2, 3]]) == [0, 1]
-    assert hungarian([[1, inf], [2, inf]]) is None
-    assert hungarian([]) == []
-
-
-def test_four_nets_in_reverse_order_are_uncrossed_at_the_present_rotation():
-    inp, _ = input_of(*reversed_four())
-    g = run(inp, settings(pins_rotations=(0.0,)))
-    r = g.results[0]
-    assert g.present.among == 6 and r.breakdown.among == 0
-    assert [pin(r, n) for n in "ABCD"] == ["4", "3", "2", "1"]
-
-
-def test_each_constraint_holds_fixed_allow_deny_and_a_group_kept_whole_and_in_order():
-    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D", "E", ""]},
-                    {"Pm.PinPool": "1-6", "Pm.PinFixed": "1", "Pm.PinAllow": "B:2,3", "Pm.PinDeny": "C:3",
-                     "Pm.PinGroup": "bus:4-5"})
-    for i, net in enumerate(["A", "B", "C", "D", "E"]):
-        pads += point_pad("T%d" % i, net, 20, 12.5 - i)                 # every target in reverse order
-    inp, _ = input_of(pads, {"U1": u1})
-    g = run(inp, settings(pins_rotations=(0.0,)))
-    r = g.results[0]
-    assert pin(r, "A") == "1" and pin(r, "B") in ("2", "3") and pin(r, "C") != "3"
-    d, e = int(pin(r, "D")), int(pin(r, "E"))
-    assert e == d + 1                                                   # the group moved whole, in its order
-    assert r.breakdown.total < g.present.total
-
-
-def test_a_net_whose_target_is_behind_the_part_is_moved_to_the_side_that_faces_it():
-    pads, u1 = quad("U1", 10, 10, {"E": ["A", ""], "W": ["", ""]}, {"Pm.PinPool": "1-4"})
-    pads += point_pad("T1", "A", 0, 10)
-    inp, _ = input_of(pads, {"U1": u1})
-    g = run(inp, settings(pins_rotations=(0.0,)))
-    assert pin(g.results[0], "A") in ("3", "4")
-    assert g.present.length_mm > g.results[0].breakdown.length_mm + 4.0   # the way round the body is gone
-
-
-def test_a_diagonal_turn_wins_on_the_bend_when_it_is_listed_and_is_not_reported_when_it_is_not():
-    pads, u1 = quad("U1", 10, 10, {"E": ["A", ""]}, {"Pm.PinPool": "1-2"})
-    pads += point_pad("T1", "A", 22, -2)
-    inp, _ = input_of(pads, {"U1": u1})
-    eighths = run(inp, settings(pins_rotations=tuple(range(0, 360, 45))))
-    b = best(eighths)
-    assert b.poses == (("U1", 45.0, False),) and b.breakdown.bend_deg < 5.0
-    quarters = run(inp, settings())
-    assert {p[1] for r in quarters.results for p in r.poses} == {0.0, 90.0, 180.0, 270.0}
-
-
-def test_the_other_face_is_studied_only_when_asked_and_the_part_may_stand_there():
-    pads, u1 = quad("U1", 10, 10, {"E": ["A", ""]}, {"Pm.PinPool": "1-2"}, may_flip=True)
-    pads += point_pad("T1", "A", 22, 10)
-    inp, _ = input_of(pads, {"U1": u1})
-    assert poses_of(inp.parts[0], settings()) == [(0.0, False), (90.0, False), (180.0, False), (270.0, False)]
-    assert (90.0, True) in poses_of(inp.parts[0], settings(pins_faces=True))
-    g = run(inp, settings(pins_faces=True))
-    assert g.of == 8 and any(p[2] for r in g.results for p in r.poses)
-
-
-def test_the_same_board_gives_the_same_maps_and_totals():
-    inp, _ = input_of(*reversed_four())
-    a, b = run(inp), run(inp)
-    assert [(r.poses, r.breakdown, r.assign) for r in a.results] == [(r.poses, r.breakdown, r.assign) for r in b.results]
-
-
-def test_a_clock_out_before_the_first_map_says_so_and_one_out_later_keeps_the_best_found():
-    inp, _ = input_of(*reversed_four())
-    g = run(inp, clock=Clock(0, now=itertools.count().__next__))
-    assert (g.first_map, g.budget_out, g.results) == (False, True, ())
-    ticks = itertools.count()
-    g = run(inp, clock=Clock(40_000, now=lambda: next(ticks)))           # the clock reads 0, 1, 2 ... seconds
-    assert g.first_map and g.budget_out and 1 <= len(g.results) < 4 and g.searched == len(g.results) and g.of == 4
-
-
-def test_the_present_pose_comes_first_and_each_turn_is_studied_once_however_the_turns_are_written():
-    inp, _ = input_of(*reversed_four())
-    assert poses_of(inp.parts[0], settings(pins_rotations=(360, -90, 90.0, 90))) == [(0.0, False), (270.0, False), (90.0, False)]
-```
-
-- [ ] **Step 2: Run them to watch them fail**
-
-Run: `.venv/bin/python -m pytest tests/test_pinmap_search.py -q -n 2`
-Expected: FAIL with `ModuleNotFoundError: No module named 'placemat.pinmap_search'`.
-
-- [ ] **Step 3: Write the module**
-
-Create `src/placemat/pinmap_search.py`:
-
-```python
-"""The pin map study's search: per studied part (or parts studied together), per pose - each rotation in
-`pins.rotations`, and the other face when `pins.faces` is true and the part may stand there - the best assignment of its
-movable nets to its pins.
-
-1. A first map: each group placed whole on the run of pool pins nearest its nets' targets, then each other net on the
-   free allowed pin whose exit point is nearest its target, as a minimum-cost matching (crossings ignored).
-2. A local search from it: moves (a net to a free pin), swaps (two nets) and group moves (a group to another run, the
-   nets standing there taking the pins it left), each priced by `pinmap_score.Tally`, under a short annealing schedule
-   (`pins.anneal_moves` moves from `pins.anneal_start` down to `pins.anneal_end`), once per seed of `pins.seeds`.
-
-Deterministic for a given board: the random streams are seeded from the parts, the pose and the seed number, and ties
-go to the lower pin number. A clock (`pins.budget_ms` for each part of the group) stops the search between moves with the
-best found; a study the clock stopped says so, and is deterministic only while the budget is not reached."""
-from __future__ import annotations
-
-from dataclasses import dataclass
-import itertools
-import math
-import random
-import time
-
-from .pinmap_geom import Pose
-from .pinmap_rules import Problem, natural
-from .pinmap_score import Background, Breakdown, Scorer, Tally, Weights
-
-_INF = float("inf")
-
-
-class Clock:
-    """A budget in milliseconds from now; `now` is replaceable for a test."""
-
-    def __init__(self, ms: float, now=time.perf_counter):
-        self.now = now
-        self.end = now() + ms / 1000.0
-
-    def out(self) -> bool:
-        return self.now() >= self.end
-
-
 @dataclass(frozen=True)
 class PoseResult:
-    """The best assignment found at one pose of each part of a group: `poses` ((ref, turn, flip), ...), its score, and
-    `assign` {net: ends} for every studied net."""
+    """The best found at one pose of each part of a group: `poses` ((ref, turn, flip), ...), its score, `assign`
+    {net: ends ((ref, pad number), ...)} for every studied net, and `paths` {net: [path, ...]} of the group's nets."""
     poses: tuple
     breakdown: Breakdown
     assign: dict
+    paths: dict
 
 
 @dataclass(frozen=True)
 class GroupResult:
-    """One group's study: the present score, the best result per pose combination searched (the present poses first),
-    how many combinations were searched of how many, whether the clock ran out, whether it ran out before a first map,
-    and the problems found (a net no matching could place)."""
     refs: tuple
     present: Breakdown
     present_assign: dict
+    present_paths: dict
     results: tuple
     searched: int
     of: int
     budget_out: bool
     first_map: bool
-    problems: tuple = ()
+    problems: tuple = ()        # (ref, net) a matching could not place
+
+
+def problem_of(inp, margin: float) -> Problem:
+    """The arrays of a StudyInput (pinmap_input)."""
+    parts = [(p.ref, p.cx, p.cy, p.hw, p.hh) for p in inp.parts]
+    part_at = {p.ref: i for i, p in enumerate(inp.parts)}
+    pins, pin_at = [], []
+    for p in inp.parts:
+        ordered = sorted(p.pins, key=lambda q: natural(q.number))
+        pins.append([(q.number, q.x, q.y, q.nx, q.ny) for q in ordered])
+        pin_at.append({q.number: k for k, q in enumerate(ordered)})
+    nets = [(n.net, KIND_CODES[n.kind]) for n in inp.nets]
+    net_at = {n.net: i for i, n in enumerate(inp.nets)}
+    fixed = [[(a.x, a.y, a.ref, a.number) for a in n.fixed] for n in inp.nets]
+    joined = [list(n.joined) for n in inp.nets]
+    ends = [[(part_at[r], pin_at[part_at[r]][num]) for r, num in n.ends] for n in inp.nets]
+    wires = [(KIND_CODES[w.kind], _nm(w.a[0]), _nm(w.a[1]), _nm(w.b[0]), _nm(w.b[1])) for w in inp.background]
+    movable, groups, mv_at = [], [], {}
+    for pi, p in enumerate(inp.parts):
+        slots = p.slots
+        group_of = {n: g for g, (_, gnets) in enumerate(slots.groups) for n in gnets if n}
+        first_group = len(groups)
+        for net in slots.movable:
+            ni = net_at[net]
+            slot = next(k for k, (r, _) in enumerate(ends[ni]) if r == pi)
+            mv_at[(pi, net)] = len(movable)
+            movable.append((ni, slot, [pin_at[pi][q] for q in slots.allowed[net]],
+                            first_group + group_of[net] if net in group_of else -1))
+        for name, gnets in slots.groups:
+            groups.append((pi, [mv_at[(pi, n)] if n else -1 for n in gnets],
+                           [[pin_at[pi][q] for q in w] for w in slots.windows.get(name, ())]))
+    return Problem(parts, pins, nets, fixed, joined, ends, wires, movable, groups, margin)
 
 
 def poses_of(part, settings) -> list:
     """The (turn, flip) a part is studied at: its present pose first, each of `pins.rotations` as a turn from where it
-    stands, then the same on the other face when `pins.faces` is true and the part may stand there."""
+    stands (mod 360, each once), then the same on the other face when `pins.faces` is true and the part may stand
+    there."""
     turns = [0.0]
     for t in settings.pins_rotations:
         t = float(t) % 360.0
@@ -2084,15 +2684,1038 @@ def poses_of(part, settings) -> list:
     return out
 
 
-def hungarian(cost) -> list:
-    """The minimum-cost assignment of every row to a different column (rows <= columns), as each row's column, or None
-    when no assignment avoids an infinite cost. Ties go to the lower column (Kuhn-Munkres with potentials)."""
+def seed_key(refs) -> int:
+    """The study's random streams' key: from the parts' refs, so a board gives the same map every time."""
+    return int.from_bytes(hashlib.sha256(",".join(refs).encode()).digest()[:8], "little")
+
+
+def params_of(settings, refs, step_ms: float = 0.0, budget_ms: float | None = None) -> dict:
+    return {"weights": (settings.pins_pair_weight, settings.pins_impedance_weight, settings.score_crossing_plane,
+                        settings.pins_length_weight, settings.pins_bend_weight),
+            "seeds": int(settings.pins_seeds), "moves": int(settings.pins_anneal_moves),
+            "t0": float(settings.pins_anneal_start), "t1": float(settings.pins_anneal_end),
+            "budget_ms": float(settings.pins_budget_ms * len(refs) if budget_ms is None else budget_ms),
+            "step_ms": float(step_ms), "seed_key": seed_key(refs)}
+
+
+def native_core():
+    """The native core when the native module is in use and has it, else None."""
+    native = _geometry._native
+    return native if native is not None and hasattr(native, "pinmap_search") else None
+
+
+def search(pb: Problem, group_parts: list, combos: list, params: dict, native=True) -> tuple:
+    """The one entry point: (present breakdown, present paths, [(combo, breakdown, assignment, paths)], budget_out,
+    first_map, [(part, net)]), from the native core when it is in use (and `native`), else the Python twin."""
+    core = native_core() if native else None
+    if core is None:
+        raise RuntimeError("the pin map study's core is the native module's until its Python twin is in: build it with "
+                           "`uv pip install -e \".[native]\"`")
+    w = params["weights"]
+    return core.pinmap_search(
+        pb.parts, pb.pins, pb.nets, pb.fixed, pb.joined, pb.ends, pb.wires,
+        [(n, s, list(a), g) for n, s, a, g in pb.movable], [(p, list(m), [list(x) for x in ws]) for p, m, ws in pb.groups],
+        list(group_parts), [[(p, float(t), bool(f)) for p, t, f in c] for c in combos],
+        tuple(w), (pb.margin, params["seeds"], params["moves"], params["t0"], params["t1"], params["budget_ms"],
+                   params["step_ms"], params["seed_key"]))
+
+
+def _breakdown(t) -> Breakdown:
+    return Breakdown(t[0], int(t[1]), int(t[2]), t[3], t[4], t[5])
+
+
+def study_group(inp, refs: tuple, settings, step_ms: float = 0.0, budget_ms: float | None = None, native=True,
+                pb: Problem | None = None) -> GroupResult:
+    """The study of one group of parts: every combination of their poses (the present first, at most
+    `pins.joint_combinations`), each from its first map through the local search, in the core."""
+    pb = pb or problem_of(inp, settings.pins_exit_mm)
+    part_at = {p.ref: i for i, p in enumerate(inp.parts)}
+    group_parts = [part_at[r] for r in refs]
+    lists = [[(part_at[r], t, f) for t, f in poses_of(inp.part(r), settings)] for r in refs]
+    combos = [list(c) for c in itertools.islice(itertools.product(*lists), max(int(settings.pins_joint_combinations), 1))]
+    total = 1
+    for l in lists:
+        total *= len(l)
+    base, base_paths, results, out, first, problems = search(pb, group_parts, combos, params_of(settings, refs, step_ms,
+                                                                                                  budget_ms), native)
+
+    def assign_of(pins) -> dict:
+        return {pb.nets[n][0]: tuple((pb.parts[pb.ends[n][k][0]][0], pb.pins[pb.ends[n][k][0]][q][0])
+                                     for k, q in enumerate(qs)) for n, qs in enumerate(pins)}
+
+    def paths_of(ps) -> dict:
+        return {pb.nets[n][0]: [[tuple(p) for p in path] for path in paths] for n, paths in ps}
+    present = [[q for _, q in pb.ends[n]] for n in range(len(pb.nets))]
+    rows = tuple(PoseResult(tuple((pb.parts[p][0], t, f) for p, t, f in combos[k]), _breakdown(b), assign_of(pins),
+                            paths_of(ps)) for k, b, pins, ps in results)
+    return GroupResult(tuple(refs), _breakdown(base), assign_of(present), paths_of(base_paths), rows, len(rows), total,
+                       bool(out), bool(first), tuple((pb.parts[p][0], pb.nets[n][0]) for p, n in problems))
+```
+
+- [ ] **Step 7: Run the tests to watch them pass**
+
+Run: `.venv/bin/python -m pytest tests/test_pinmap_core.py tests/test_pinmap_input.py tests/test_pinmap_rules.py tests/test_native_import.py tests/test_native_status.py -q -n 2`
+Expected: PASS (11 core tests on the native core; none skipped).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add native/src/pinmap.rs native/src/lib.rs src/placemat/pinmap_core.py tests/test_pinmap_core.py
+git commit -m "Native: the pin map study's core - crossing counts, the score and the annealing search from plain arrays"
+git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
+```
+
+---
+
+### Task 6: Bench the native core on the reference board, and set the defaults or stop
+
+**Files:**
+- Create: `fixtures/pinmap/reference.json` (the reference case: a laid fixture board, its plane nets, and its MCU's pin annotations - which live only here)
+- Create: `fixtures/pinmap_bench.py`
+- Test: `tests/test_pinmap_real.py`
+- Modify (if the rule says set): `src/placemat/settings.py` (the defaults of `pins_anneal_moves`, `pins_seeds`, `pins_budget_ms`), `tests/test_pinmap_settings.py`, `skills/placemat/references/api.md` (the generated settings table), `tests/slow_tests.txt`
+
+**Interfaces:**
+- Consumes: Task 5's `pinmap_core.problem_of`, `study_group`, `native_core`; Task 3's `build`, `placed_from_geometry`; `kicad.read.read_board`; `pairs.board_pairs`.
+- Produces: `fixtures/pinmap_bench.py` with `annotated(geometry, parts)`, `cases()`, `board_of(case)`, `input_of(case)`, `run_case(case, settings, repeat) -> dict`, `main(argv)`; the measurements in `$SCRATCH/pinmap-bench.txt`; the shipped defaults (or a stop).
+
+The reference board is a laid board among the existing fixtures (the path in `reference.json`) whose 56-pin MCU carries 23 signal nets on its general-purpose pins and five unconnected pins, with nets routed already (so the "scored as unrouted" path is exercised). The annotations were chosen from the pads' nets as read while planning: pool pads 6-19, 21-24, 27, 38-45, 47-48; pad 8 (a strap) fixed; one net allowed only on pads 6-15; the two-wire bus pair a group; the ground and the 3.3 V net are its plane nets.
+
+- [ ] **Step 1: The reference case and the bench**
+
+Create `fixtures/pinmap/reference.json`:
+
+```json
+{
+  "about": "The pin map study's reference boards: each a laid board of these fixtures, the plane nets its layout declares, and the pin annotations its MCU is given here for the study. The annotations live only in this file: no capture carries them.",
+  "cases": [
+    {
+      "name": "mcu-qfn56",
+      "board": "fairing/core/layout/layout.kicad_pcb",
+      "quiet": ["GND", "V3V3"],
+      "parts": {
+        "U21": {
+          "Pm.PinPool": "6-19, 21-24, 27, 38-45, 47-48",
+          "Pm.PinFixed": "8",
+          "Pm.PinAllow": "INA_ALERT:6-15",
+          "Pm.PinGroup": "i2c:13-14"
+        }
+      }
+    }
+  ]
+}
+```
+
+Create `fixtures/pinmap_bench.py`:
+
+```python
+"""The pin map study's speed and result on the reference boards (fixtures/pinmap/reference.json): each case's laid board
+read as its file has it, its parts given the fixture's pin annotations (no capture carries them), and the study's core
+run on each annotated part, `--repeat` times. Prints, per case, the median seconds per studied part against
+`pins.budget_ms`, whether the native core ran, whether the clock ran out, and the present and best totals; with
+`--long`, the best a long search finds too, the mark the default search effort is judged against.
+
+    flock <realboard lock> .venv/bin/python fixtures/pinmap_bench.py [--repeat N] [--long] [--set pins_key=value ...]
+
+Real boards: run it alone, under the lock the other real-board runs take."""
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import json
+import pathlib
+import statistics
+import sys
+import time
+
+HERE = pathlib.Path(__file__).resolve().parent
+REFERENCE = HERE / "pinmap" / "reference.json"
+
+
+def annotated(geometry, parts: dict):
+    """The board with the fixture's annotations added to its parts' fields."""
+    fps = tuple(dataclasses.replace(fp, fields=dict(fp.fields, **parts[fp.ref])) if fp.ref in parts else fp
+                for fp in geometry.footprints)
+    return dataclasses.replace(geometry, footprints=fps)
+
+
+def cases() -> list:
+    return json.loads(REFERENCE.read_text())["cases"]
+
+
+def board_of(case):
+    from placemat.kicad.read import read_board
+    return annotated(read_board(HERE / case["board"]), case["parts"])
+
+
+def input_of(case):
+    """The case's board read and annotated, as the study's input."""
+    from placemat.pairs import board_pairs
+    from placemat.pinmap_input import build, placed_from_geometry
+    g = board_of(case)
+    inp, _ = build(*placed_from_geometry(g), g.pin_names, frozenset(case["quiet"]), board_pairs(g.netclasses),
+                   g.netclasses)
+    return inp
+
+
+def run_case(case, settings, repeat: int) -> dict:
+    """The study of each of the case's annotated parts, `repeat` times: the median seconds a part, and the last run's
+    present and best totals, the best pose and whether the clock ran out."""
+    from placemat.pinmap_core import native_core, problem_of, study_group
+    inp = input_of(case)
+    pb = problem_of(inp, settings.pins_exit_mm)
+    times, out = [], {}
+    for _ in range(repeat):
+        t0 = time.perf_counter()
+        groups = [study_group(inp, (ref,), settings, pb=pb) for ref in sorted(case["parts"])]
+        times.append((time.perf_counter() - t0) / len(groups))
+        g = groups[0]
+        best = min(g.results, key=lambda r: r.breakdown.total) if g.results else None
+        out = {"present": round(g.present.total, 3), "best": round(best.breakdown.total, 3) if best else None,
+               "pose": [t for _, t, _ in best.poses] if best else None, "budget_out": g.budget_out,
+               "native": native_core() is not None}
+    return dict(out, seconds_per_part=round(statistics.median(times), 3))
+
+
+def _value(text: str):
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--repeat", type=int, default=3)
+    ap.add_argument("--long", action="store_true", help="also run a long search (4 seeds of 4000 moves, no clock)")
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="a setting, e.g. pins_anneal_moves=200")
+    args = ap.parse_args(argv)
+    from placemat.settings import Settings
+    over = {k: _value(v) for k, v in (s.split("=", 1) for s in args.set)}
+    if "pins_rotations" in over:
+        over["pins_rotations"] = tuple(over["pins_rotations"])
+    settings = dataclasses.replace(Settings(), **over)
+    for case in cases():
+        got = run_case(case, settings, args.repeat)
+        line = "%s: %.3f s a part (budget %d ms, native %s), present %s, best %s at %s, clock ran out: %s" % (
+            case["name"], got["seconds_per_part"], settings.pins_budget_ms, got["native"], got.get("present"),
+            got.get("best"), got.get("pose"), got.get("budget_out"))
+        if args.long:
+            long = dataclasses.replace(settings, pins_seeds=4, pins_anneal_moves=4000, pins_budget_ms=10 ** 7)
+            line += "; long search best %s" % run_case(case, long, 1).get("best")
+        print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+- [ ] **Step 2: Write the real-board test and watch it fail**
+
+Create `tests/test_pinmap_real.py`:
+
+```python
+"""The pin map study on a real laid board with an MCU (fixtures/pinmap/reference.json, its annotations given there): the
+best map beats the present one inside `pins.budget_ms`, and no board item moves."""
+import hashlib
+import importlib.util
+from pathlib import Path
+
+from placemat.settings import Settings
+from tests.conftest import needs_kicad
+
+BENCH = Path(__file__).resolve().parents[1] / "fixtures" / "pinmap_bench.py"
+
+
+def bench():
+    spec = importlib.util.spec_from_file_location("pinmap_bench", BENCH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@needs_kicad
+def test_on_a_real_board_the_best_map_beats_the_present_one_inside_its_budget_and_nothing_moves():
+    from placemat.kicad.read import read_board
+    from placemat.pinmap_core import study
+    b = bench()
+    case = b.cases()[0]
+    pcb = b.HERE / case["board"]
+    digest = hashlib.sha256(pcb.read_bytes()).hexdigest()
+    inp = b.input_of(case)
+    (g,) = study(inp, Settings())
+    best = min(g.results, key=lambda r: r.breakdown.total)
+    assert best.breakdown.total < g.present.total and g.budget_out is False and g.searched == g.of
+    assert hashlib.sha256(pcb.read_bytes()).hexdigest() == digest
+    where = lambda geometry: [(fp.ref, fp.location, fp.rotation, fp.face) for fp in geometry.footprints]
+    assert where(read_board(pcb)) == where(b.board_of(case))
+```
+
+Run: `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock .venv/bin/python -m pytest tests/test_pinmap_real.py -q`
+Expected: FAIL on `g.budget_out is False`: the provisional effort (500 moves, 4 seeds, four poses) takes longer than the provisional 400 ms.
+
+- [ ] **Step 3: Measure the native core against a long search**
+
+Run each line, one at a time, appending to `$SCRATCH/pinmap-bench.txt`:
+
+```bash
+L=/tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock
+flock $L .venv/bin/python fixtures/pinmap_bench.py --repeat 1 --long --set pins_budget_ms=600000 | tee -a $SCRATCH/pinmap-bench.txt
+for m s in 100 1 100 2 200 2 500 2 500 4; do
+  flock $L .venv/bin/python fixtures/pinmap_bench.py --repeat 3 --set pins_budget_ms=600000 --set pins_anneal_moves=$m --set pins_seeds=$s \
+    | sed "s/^/moves $m seeds $s: /" | tee -a $SCRATCH/pinmap-bench.txt
+done
+```
+
+(The `for m s in` pairs loop is zsh's, the user's shell. Every line must say `native True`; if one says `native False`, the module is not in use - rebuild it as in Task 5 Step 5 - and measure again.)
+
+Expected, as measured while planning (native core, this machine; yours will differ a little): present total 1437.9; long search (4000 moves, 4 seeds) best 1247.2; and
+
+| moves, seeds | seconds a part | best total |
+|---|---|---|
+| 100, 1 | 0.12 | 1271.9 |
+| 100, 2 | 0.21 | 1271.9 |
+| 200, 2 | 0.32 | 1270.1 |
+| 500, 2 | 0.52 | 1262.1 |
+| 500, 4 | 0.69 | 1252.5 |
+
+(For comparison, the same search in Python took 0.45 s at 100, 1 and 1.14 s at 200, 2: the native core is about four to five times faster, with the same maps.)
+
+- [ ] **Step 4: Decide**
+
+From `$SCRATCH/pinmap-bench.txt`:
+
+1. The effort `(M, N)` is the cheapest (moves, seeds) whose best total is within 2% of the long search's best (at or under 1.02 times it).
+2. The budget `B` is that effort's seconds a part times 1.5, in milliseconds, rounded up to a multiple of 50 (headroom for a machine slower than this one).
+3. The core meets the budget when `B` is at most 500 ms (the spec aims it at a few hundred ms).
+
+Write the decision as the last line of `$SCRATCH/pinmap-bench.txt`: `decision: set moves <M> seeds <N> budget <B>` or `decision: stop`.
+
+With the planning numbers: within 2% means at or under 1272.1, so `(100, 1)` at 0.12 s; `B = 200`; it meets the budget: set.
+
+**If the decision is `stop`:** do not change the settings and do not go on to Task 7. Commit only `fixtures/pinmap/reference.json` and `fixtures/pinmap_bench.py`, with Step 7's message, and report the table, the long search's best and the cheapest effort's seconds a part to the user, saying the native core does not meet a few hundred ms within 2% of a long search on the reference board.
+
+- [ ] **Step 5: Set the defaults**
+
+In `src/placemat/settings.py`, replace the first argument of `S(...)` in `pins_anneal_moves: int = S(500, "count", ...)` with `M`, in `pins_seeds: int = S(4, "count", ...)` with `N`, and in `pins_budget_ms: int = S(400, "ms", ...)` with `B`; nothing else in those lines changes. With the planning numbers the three lines start:
+
+```python
+    pins_seeds: int = S(1, "count",
+    pins_anneal_moves: int = S(100, "count",
+    pins_budget_ms: int = S(200, "ms",
+```
+
+In `tests/test_pinmap_settings.py`, in `test_every_pins_setting_has_its_default`, change the expected `pins_seeds`, `pins_anneal_moves` and `pins_budget_ms` to `N`, `M` and `B` (with the planning numbers: `((0.0, 90.0, 180.0, 270.0), 1, 100, 1.0, 0.02)` and `(200, 64, False, 0.05, 3, 5000)`).
+
+Regenerate the api.md table with Task 1's Step 4 command.
+
+Add to `tests/slow_tests.txt`:
+
+```
+tests/test_pinmap_real.py::test_on_a_real_board_the_best_map_beats_the_present_one_inside_its_budget_and_nothing_moves
+```
+
+- [ ] **Step 6: Run the tests to watch them pass**
+
+Run: `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock .venv/bin/python -m pytest tests/test_pinmap_real.py -q` and `.venv/bin/python -m pytest tests/test_pinmap_settings.py tests/test_settings_docs.py tests/test_pinmap_core.py -q -n 2`
+Expected: PASS. (The core tests that time a clock give their own effort, so a smaller default does not change them.) If the real-board test fails on `budget_out`, this machine was busier than when it was measured: measure the chosen effort again (Step 3, that line only) and recompute `B`; do not raise `B` past what a measurement supports.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add fixtures/pinmap/reference.json fixtures/pinmap_bench.py tests/test_pinmap_real.py src/placemat/settings.py tests/test_pinmap_settings.py skills/placemat/references/api.md tests/slow_tests.txt
+{ echo "Bench: the pin map study's native core on the reference board, and its defaults"; echo; grep -E "^(mcu|moves|decision)" $SCRATCH/pinmap-bench.txt; } | git commit -F -
+git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
+```
+
+---
+
+### Task 7: The Python twin of the native core
+
+The study must run where the native module is not in use (`geometry.native_status()` says why: not installed, a version mismatch, `PLACEMAT_NATIVE=0`), as every native path in placemat does. The twin is the same algorithm on the same arrays, written so the two agree to the last bit: plain sums in order, CPython's `math.hypot` (which `exact::hypot` copies), `math.radians` and `math.degrees`, the same SplitMix64 stream, the same counted clock. Its tests follow the project's "native X is the Python X" tests (`tests/test_native_mst.py`): the same inputs through both, compared exactly.
+
+**Files:**
+- Create: `src/placemat/pinmap_geom.py` (the airwire model's twin)
+- Create: `src/placemat/pinmap_twin.py` (the core's twin)
+- Modify: `src/placemat/pinmap_core.py` (`search` falls back to the twin)
+- Modify: `tests/test_pinmap_core.py` (`CORES` gains "python")
+- Test: `tests/test_pinmap_geom.py`, `tests/test_pinmap_twin.py`, `tests/test_native_pinmap.py`
+
+**Interfaces:**
+- Consumes: Task 5's `Problem`, `search`, `params_of`, `poses_of`, `problem_of`, `native_core`; `ratsnest.mst`, `ratsnest._cross_nm`, `ratsnest._nm`, `ratsnest.Anchor`.
+- Produces: `pinmap_geom.Pose`, `Exit`, `exit_of`, `through`, `round_body`, `route`, `length`, `bend` (Python, the Rust model's twin); `pinmap_twin.SplitMix64`, `stream_seed`, `Clock(budget_ms, step_ms=0.0)`, `crossing(w, a, b)`, `segments(paths)`, `Background`, `segments_crossing`, `Scorer`, `Tally`, `hungarian`, `first_map`, `anneal`, `search(pb, group_parts, combos, params)` (returns what `placemat_native.pinmap_search` returns); `pinmap_core.search(..., native=False)` and any call without the native module go to the twin.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `tests/test_pinmap_geom.py`:
+
+```python
+"""The pin map study's airwire model: a pin leaves along its outward normal to a point past the courtyard, then goes the
+shorter way round the courtyard's box to its target; the bend is the angle between the normal and the bearing to the
+target; a pose turns the part about its centre, and mirrors it for the other face."""
+import pytest
+
+from placemat.pinmap_geom import Pose, bend, exit_of, route, through
+
+HW = HH = 2.0           # a 4 mm square body
+
+
+def east_exit(pose=Pose(10, 10), y=0.5):
+    return exit_of("U1", pose, 2.0, y, (1.0, 0.0), HW, HH, 0.5)
+
+
+def test_the_exit_point_is_the_margin_past_the_box_on_the_pins_side():
+    e = east_exit()
+    assert e.at == (12.5, 10.5) and e.normal == (1.0, 0.0) and e.side == 0
+
+
+def test_a_target_in_sight_is_reached_straight():
+    assert route(east_exit(), (20.0, 10.5)) == ((12.5, 10.5), (20.0, 10.5))
+    assert route(east_exit(), (10.0, 30.0)) == ((12.5, 10.5), (10.0, 30.0))
+
+
+def test_a_target_behind_the_part_is_reached_round_its_body_the_shorter_way_and_never_through_it():
+    path = route(east_exit(), (0.0, 10.0))
+    assert path == ((12.5, 10.5), (12.5, 12.5), (7.5, 12.5), (0.0, 10.0))         # south of it: nearer the pin
+    path = route(east_exit(y=-0.5), (0.0, 10.0))
+    assert path == ((12.5, 9.5), (12.5, 7.5), (7.5, 7.5), (0.0, 10.0))           # north of it
+    for p, q in zip(path, path[1:]):
+        assert not through((p[0] - 10, p[1] - 10), (q[0] - 10, q[1] - 10), HW, HH)
+
+
+def test_a_target_inside_the_body_is_reached_straight():
+    assert route(east_exit(), (9.0, 10.0)) == ((12.5, 10.5), (9.0, 10.0))
+
+
+def test_a_quarter_turn_takes_an_east_pin_north_and_the_other_face_takes_it_west():
+    e = east_exit(Pose(10, 10, 90.0))
+    assert e.at == pytest.approx((10.5, 7.5)) and e.normal == (0.0, -1.0)
+    e = east_exit(Pose(10, 10, 0.0, True))
+    assert e.at == pytest.approx((7.5, 10.5)) and e.normal == (-1.0, 0.0)
+
+
+def test_an_airwire_between_two_studied_pins_goes_round_both_bodies():
+    a = east_exit(Pose(10, 10))
+    b = exit_of("U2", Pose(30, 10), 2.0, 0.5, (1.0, 0.0), HW, HH, 0.5)     # U2's pin faces away from U1
+    path = route(a, b)
+    assert path[0] == a.at and path[-1] == b.at
+    assert (32.5, 12.5) in path                                        # round U2's south-east corner to its exit
+    for p, q in zip(path, path[1:]):
+        assert not through((p[0] - 30, p[1] - 10), (q[0] - 30, q[1] - 10), HW, HH)
+        assert not through((p[0] - 10, p[1] - 10), (q[0] - 10, q[1] - 10), HW, HH)
+
+
+def test_the_bend_is_the_angle_from_the_normal_to_the_target():
+    assert bend((1.0, 0.0), (12.5, 10.5), (20.0, 10.5)) == 0.0
+    assert bend((1.0, 0.0), (12.5, 10.5), (12.5, 20.0)) == pytest.approx(90.0)
+    assert bend((1.0, 0.0), (12.5, 10.0), (0.0, 10.0)) == pytest.approx(180.0)
+    assert bend((1.0, 0.0), (12.5, 10.0), (20.0, 2.5)) == pytest.approx(45.0)
+```
+
+Create `tests/test_pinmap_twin.py`:
+
+```python
+"""The Python twin of the pin map study's core, its own parts: the random stream, the crossing weights, the background
+grid, the matching, the incremental tally (a move priced as the whole total would price it) and the counted clock."""
+import random
+
+import pytest
+
+from placemat.pinmap_core import Problem, problem_of
+from placemat.pinmap_geom import Pose
+from placemat.pinmap_twin import Background, Clock, Scorer, SplitMix64, Tally, crossing, hungarian, segments
+from tests.pinmap_boards import input_of, point_pad, quad, settings
+
+W = (5.0, 3.0, 0.25, 0.25, 0.005)           # pair, impedance, plane, length, bend
+
+
+def test_the_random_stream_is_splitmix64():
+    r = SplitMix64(1234567)
+    assert (r.next(), r.next()) == (6457827717110365317, 3203168211198807973)
+    assert 0 <= r.unit() < 1 and 0 <= r.below(7) < 7
+
+
+def test_a_crossing_counts_one_more_for_a_pair_or_a_controlled_impedance_and_the_plane_weight_for_a_plane():
+    assert crossing(W, 0, 0) == 1.0
+    assert crossing(W, 0, 1) == 5.0 and crossing(W, 2, 0) == 3.0 and crossing(W, 1, 2) == 5.0
+    assert crossing(W, 3, 1) == 0.25
+
+
+def test_the_background_counts_the_wires_a_path_crosses_and_drops_a_weightless_plane():
+    nm = lambda v: int(round(v * 1e6))
+    wires = [(0, nm(5), 0, nm(5), nm(10)), (1, nm(7), 0, nm(7), nm(10)), (3, nm(8), 0, nm(8), nm(10))]
+    segs = segments([((0.0, 5.0), (10.0, 5.0))])
+    assert Background(wires, (5.0, 3.0, 0.0, 0.0, 0.0)).cross(0, segs) == (6.0, 2)
+    assert Background(wires, (5.0, 3.0, 0.5, 0.0, 0.0)).cross(0, segs) == (6.5, 3)
+
+
+def test_the_matching_is_the_cheapest_and_refuses_what_cannot_be_matched():
+    inf = float("inf")
+    assert hungarian([[4, 1, 3], [2, 0, 5], [3, 2, 2]]) == [1, 0, 2]
+    assert hungarian([[1, 2, 3], [1, 2, 3]]) == [0, 1]
+    assert hungarian([[1, inf], [2, inf]]) is None
+    assert hungarian([]) == []
+
+
+def test_a_move_is_priced_by_recounting_the_nets_it_touches_as_the_whole_total_would():
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C"], "S": ["D", "E", ""], "W": ["F", "", ""]}, {"Pm.PinPool": "1-9"})
+    rng = random.Random(1)
+    for i, net in enumerate("ABCDEF"):
+        pads += point_pad("T%d" % i, net, rng.uniform(0, 25), rng.uniform(0, 25))
+    pads += point_pad("Q1", "X", 0, 0) + point_pad("Q2", "X", 25, 25)
+    pb = problem_of(input_of(pads, {"U1": u1})[0], 0.5)
+    sc = Scorer(pb, [Pose(10.0, 10.0)], W, Background(pb.wires, W))
+    tally = Tally(sc, [tuple(q for _, q in e) for e in pb.ends])
+    for _ in range(40):
+        a, b = rng.sample(range(len(pb.nets)), 2)
+        change = {a: tally.assign[b], b: tally.assign[a]} if rng.random() < 0.5 else {a: (rng.randrange(9),)}
+        d = tally.delta(change)
+        after = list(tally.assign)
+        for n, pins in change.items():
+            after[n] = pins
+        assert d == pytest.approx(sc.total(after)[0] - sc.total(tally.assign)[0], abs=1e-9)
+        tally.apply(change, d)
+    assert tally.value == pytest.approx(sc.total(tally.assign)[0], abs=1e-6)
+
+
+def test_a_counted_clock_runs_out_after_its_budget_in_steps():
+    c = Clock(3.0, step_ms=1.0)
+    assert [c.out() for _ in range(4)] == [False, False, True, True]
+    assert isinstance(Problem([], [], [], [], [], [], [], [], [], 0.5), Problem)
+```
+
+Create `tests/test_native_pinmap.py`:
+
+```python
+"""The native pin map core is the Python twin: on the same arrays, seeds and counted clock, the same present score, the
+same best map per pose with the same tallies to the last bit, the same airwires, the same clock outcome."""
+import itertools
+import json
+import random
+
+import pytest
+
+from placemat.pinmap_core import native_core, params_of, poses_of, problem_of, search
+from tests.pinmap_boards import input_of, point_pad, quad, reversed_four, settings
+
+pytestmark = pytest.mark.skipif(native_core() is None, reason="the native module is not in use or predates the pin map core")
+
+
+def both(inp, refs, s, step_ms=0.0):
+    pb = problem_of(inp, s.pins_exit_mm)
+    at = {p.ref: i for i, p in enumerate(inp.parts)}
+    lists = [[(at[r], t, f) for t, f in poses_of(inp.part(r), s)] for r in refs]
+    combos = [list(c) for c in itertools.islice(itertools.product(*lists), s.pins_joint_combinations)]
+    pr = params_of(s, refs, step_ms)
+    norm = lambda x: json.loads(json.dumps(x))
+    return (norm(search(pb, [at[r] for r in refs], combos, pr, native=True)),
+            norm(search(pb, [at[r] for r in refs], combos, pr, native=False)))
+
+
+def constrained():
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D", "E", ""]},
+                    {"Pm.PinPool": "1-6", "Pm.PinFixed": "1", "Pm.PinAllow": "B:2,3", "Pm.PinDeny": "C:3",
+                     "Pm.PinGroup": "bus:4-5"})
+    for i, net in enumerate("ABCDE"):
+        pads += point_pad("T%d" % i, net, 20, 12.5 - i)
+    return input_of(pads, {"U1": u1})[0]
+
+
+def joint():
+    p1, a = quad("U1", 10, 10, {"W": ["A", "B", "C"]}, {"Pm.PinPool": "1-3"})
+    p2, b = quad("U2", 20, 10, {"E": ["A", "B", "C"]}, {"Pm.PinPool": "1-3"})
+    return input_of(p1 + p2, {"U1": a, "U2": b})[0]
+
+
+@pytest.mark.parametrize("case, refs", [("four", ("U1",)), ("constrained", ("U1",)), ("joint", ("U1", "U2"))])
+@pytest.mark.parametrize("turns", [(0.0, 90.0, 180.0, 270.0), tuple(range(0, 360, 45))])
+def test_the_native_core_is_the_twin_on_fixed_cases(case, refs, turns):
+    inp = {"four": lambda: input_of(*reversed_four())[0], "constrained": constrained, "joint": joint}[case]()
+    native, python = both(inp, refs, settings(pins_rotations=turns, pins_faces=True))
+    assert native == python
+
+
+def test_the_native_core_is_the_twin_when_the_clock_runs_out():
+    native, python = both(input_of(*reversed_four())[0], ("U1",), settings(pins_budget_ms=40, pins_anneal_moves=500, pins_seeds=4),
+                          step_ms=1.0)
+    assert native == python and native[3] is True
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_the_native_core_is_the_twin_on_random_boards(seed):
+    rng = random.Random(seed)
+    nets = ["N%d" % i for i in range(rng.randint(3, 9))]
+    sides = {s: [] for s in "ESWN"}
+    for net in nets + [""] * rng.randint(0, 4):
+        sides[rng.choice("ESWN")].append(net)
+    pads, u1 = quad("U1", 15, 15, sides, {"Pm.PinPool": "1-%d" % (len(nets) + sum(1 for v in sides.values() for n in v if not n))},
+                    body=rng.choice((4.0, 6.0)))
+    for i, net in enumerate(nets):
+        for k in range(rng.randint(1, 3)):
+            pads += point_pad("T%d_%d" % (i, k), net, round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+    for k in range(rng.randint(0, 6)):
+        pads += point_pad("Q%da" % k, "X%d" % k, round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+        pads += point_pad("Q%db" % k, "X%d" % k, round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+    inp, _ = input_of(pads, {"U1": u1})
+    native, python = both(inp, ("U1",), settings(pins_anneal_moves=150, pins_seeds=2))
+    assert native == python
+```
+
+In `tests/test_pinmap_core.py`, replace `CORES = ["native"]` with `CORES = ["native", "python"]`.
+
+- [ ] **Step 2: Run them to watch them fail**
+
+Run: `.venv/bin/python -m pytest tests/test_pinmap_geom.py tests/test_pinmap_twin.py tests/test_native_pinmap.py tests/test_pinmap_core.py -q -n 2`
+Expected: FAIL with `ModuleNotFoundError: No module named 'placemat.pinmap_geom'` (and `pinmap_twin`), and every `[python]` core test with the RuntimeError Task 5's `search` raises without its twin.
+
+- [ ] **Step 3: The airwire model's twin**
+
+Create `src/placemat/pinmap_geom.py`:
+
+```python
+"""The pin map study's airwire model, as pure geometry (millimetres, y down, KiCad's turn: counter-clockwise on screen).
+
+A studied part's body is its courtyard's box. A pin's airwire leaves along the pin's outward normal - the side of the box
+it is nearest - to its exit point, `margin` past the box, then takes the shorter way round the box grown by `margin` to
+its target, corner to corner, until the target is in sight. A target inside the body's box (a part under it, on the
+other face) is reached straight. The bend at a pin is the angle between its outward normal and the bearing from its exit
+point to its target: 0 facing it, 180 turning back.
+
+The part's own frame is the board's moved to the courtyard box's centre, as the part stands; a `Pose` turns it about that
+centre (and mirrors it left to right first, for the other face) to ask where the pads would be at another rotation."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+
+_EPS = 1e-9
+_SIDES = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))     # east, south, west, north: the order a tie is broken in
+
+
+def _clean(v: float) -> float:
+    r = round(v, 9)
+    return 0.0 if r == 0 else r
+
+
+@dataclass(frozen=True)
+class Pose:
+    """A studied part's body turned `turn` degrees about (cx, cy), mirrored left to right first when `flip`."""
+    cx: float
+    cy: float
+    turn: float = 0.0
+    flip: bool = False
+
+    def _cs(self):
+        r = math.radians(self.turn)
+        return math.cos(r), math.sin(r)
+
+    def vector(self, x: float, y: float) -> tuple:
+        """A direction in the part's own frame, in the board's."""
+        if self.flip:
+            x = -x
+        c, s = self._cs()
+        return (_clean(c * x + s * y), _clean(-s * x + c * y))
+
+    def to_board(self, x: float, y: float) -> tuple:
+        vx, vy = self.vector(x, y)
+        return (_clean(self.cx + vx), _clean(self.cy + vy))
+
+    def to_local(self, x: float, y: float) -> tuple:
+        dx, dy = x - self.cx, y - self.cy
+        c, s = self._cs()
+        lx, ly = c * dx - s * dy, s * dx + c * dy
+        return (-lx if self.flip else lx, ly)
+
+
+@dataclass(frozen=True)
+class Exit:
+    """Where a studied pin's airwire leaves its part: `at` in the board's frame, `local` in the part's, `normal` (the
+    board's frame) and `side` (0 east, 1 south, 2 west, 3 north) of the box it leaves by, and the body it goes round."""
+    ref: str
+    at: tuple
+    local: tuple
+    normal: tuple
+    side: int
+    pose: Pose
+    hw: float
+    hh: float
+    margin: float
+
+
+def exit_of(ref: str, pose: Pose, x: float, y: float, normal: tuple, hw: float, hh: float, margin: float) -> Exit:
+    """The exit of a pin at (x, y) in the part's frame with outward `normal` (its frame), at `pose`."""
+    side = _SIDES.index(normal)
+    lx, ly = ((hw + margin, y), (x, hh + margin), (-hw - margin, y), (x, -hh - margin))[side]
+    return Exit(ref, pose.to_board(lx, ly), (lx, ly), pose.vector(*normal), side, pose, hw, hh, margin)
+
+
+def through(p: tuple, q: tuple, hw: float, hh: float) -> bool:
+    """Whether segment p-q passes through the inside of the box (-hw, -hh)-(hw, hh); along its edge or touching a corner
+    is not through."""
+    x0, y0 = p
+    dx, dy = q[0] - x0, q[1] - y0
+    t0, t1 = 0.0, 1.0
+    for pp, qq in ((-dx, x0 + hw), (dx, hw - x0), (-dy, y0 + hh), (dy, hh - y0)):
+        if abs(pp) < 1e-15:
+            if qq <= _EPS:
+                return False
+            continue
+        r = qq / pp
+        if pp < 0:
+            t0 = max(t0, r)
+        else:
+            t1 = min(t1, r)
+        if t1 - t0 <= _EPS:
+            return False
+    mx, my = x0 + dx * (t0 + t1) / 2, y0 + dy * (t0 + t1) / 2
+    return -hw + _EPS < mx < hw - _EPS and -hh + _EPS < my < hh - _EPS
+
+
+def _length(points) -> float:
+    """The path's length, summed segment by segment in order (a plain sum: the native twin adds the same way)."""
+    total = 0.0
+    for a, b in zip(points, points[1:]):
+        total += math.hypot(b[0] - a[0], b[1] - a[1])
+    return total
+
+
+def round_body(e: Exit, target: tuple) -> list:
+    """The way from exit `e` to `target` (board frame) round e's body: [e.at, corners..., target], board frame."""
+    t = e.pose.to_local(*target)
+    hw, hh = e.hw, e.hh
+    if (-hw < t[0] < hw and -hh < t[1] < hh) or not through(e.local, t, hw, hh):
+        return [e.at, target]
+    w, h = hw + e.margin, hh + e.margin
+    corners = ((w, -h), (w, h), (-w, h), (-w, -h))         # north-east, south-east, south-west, north-west
+    after = {0: 1, 1: 2, 2: 3, 3: 0}                          # the corner reached first going clockwise from side k
+    best = None
+    for step in (1, -1):
+        k = after[e.side] if step == 1 else (after[e.side] - 1) % 4
+        local = [e.local]
+        for _ in range(4):
+            c = corners[k]
+            local.append(c)
+            if not through(c, t, hw, hh):
+                break
+            k = (k + step) % 4
+        local.append(t)
+        n = _length(local)
+        if best is None or n < best[0] - _EPS:
+            best = (n, local)
+    pts = [e.at] + [e.pose.to_board(*c) for c in best[1][1:-1]] + [target]
+    return pts
+
+
+def route(a, b) -> tuple:
+    """An airwire's path from `a` to `b`, each an Exit (a studied pin) or a point: round the body of each end that is
+    an Exit, the second end's from the last turn the first one's path makes."""
+    pa = a.at if isinstance(a, Exit) else a
+    pb = b.at if isinstance(b, Exit) else b
+    pts = round_body(a, pb) if isinstance(a, Exit) else [pa, pb]
+    if isinstance(b, Exit):
+        back = round_body(b, pts[-2])
+        pts = pts[:-1] + list(reversed(back))[1:]
+    return tuple(tuple(p) for p in pts)
+
+
+def length(path) -> float:
+    return _length(path)
+
+
+def bend(normal: tuple, at: tuple, target: tuple) -> float:
+    """Degrees between a pin's outward `normal` and the bearing from its exit point `at` to `target`."""
+    dx, dy = target[0] - at[0], target[1] - at[1]
+    d = math.hypot(dx, dy)
+    if d <= _EPS:
+        return 0.0
+    cos = max(-1.0, min(1.0, (normal[0] * dx + normal[1] * dy) / d))
+    return math.degrees(math.acos(cos))
+```
+
+- [ ] **Step 4: The core's twin**
+
+Create `src/placemat/pinmap_twin.py`:
+
+```python
+"""The pin map study's core in Python: the twin of the native core (native/src/pinmap.rs), used when the native module is
+not in use. Same algorithm, same arrays, same answers: every float is added in the same order, the random stream is the
+same SplitMix64, `math.hypot` is CPython's (which the native side copies bit for bit), and the angles go through
+`math.radians` and `math.degrees` as CPython defines them.
+
+It takes a study as plain arrays (pinmap_core.Problem) and, for the parts of one group and each combination of their
+poses, returns the best assignment of the movable nets to pins with its tallies:
+
+- score: weighted crossings of the studied nets' airwires against the board's other airwires (a 2 mm grid of them)
+  and among themselves, plus `length` times their length in mm, plus `bend` times their summed bend in degrees. A
+  net's airwires are the minimum spanning tree of its pads (ratsnest.mst), each studied pin at its exit point and
+  each airwire to one taken round the body (pinmap_geom.route);
+- incremental: a net's airwires, its crossings with the background and its crossings with each other net are kept per
+  placing of its ends, so a move recounts only the nets it touches;
+- search: a first map (each group on the cheapest run of pins that leaves the rest a matching, then a minimum-cost
+  matching), then per seed `moves` moves, swaps and group moves under annealing from `t0` down to `t1`, checking the
+  clock every 32 moves and between poses."""
+from __future__ import annotations
+
+import math
+
+from .pinmap_geom import Pose, bend, exit_of, length, route
+from .ratsnest import Anchor, _cross_nm, _nm, mst
+
+_INF = float("inf")
+CELL_NM = 2_000_000          # the background's grid, 2 mm, in whole nanometres
+PLAIN, PAIR, IMPEDANCE, PLANE = 0, 1, 2, 3
+_MASK = (1 << 64) - 1
+
+
+class SplitMix64:
+    """The random stream both twins draw from (Steele, Lea and Flood's SplitMix64)."""
+
+    def __init__(self, seed: int):
+        self.state = seed & _MASK
+
+    def next(self) -> int:
+        self.state = (self.state + 0x9E3779B97F4A7C15) & _MASK
+        z = self.state
+        z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & _MASK
+        z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & _MASK
+        return z ^ (z >> 31)
+
+    def below(self, n: int) -> int:
+        return self.next() % n
+
+    def unit(self) -> float:
+        return (self.next() >> 11) * (1.0 / (1 << 53))
+
+
+def stream_seed(seed_key: int, combo: int, seed: int) -> int:
+    return (seed_key ^ (combo << 32) ^ seed) & _MASK
+
+
+class Clock:
+    """A budget in milliseconds. With `step_ms` above 0 it is a counted clock: each question advances it by that much
+    (a test's, and the same in both twins); otherwise it reads the time."""
+
+    def __init__(self, budget_ms: float, step_ms: float = 0.0):
+        import time
+        self.budget, self.step, self.elapsed = budget_ms, step_ms, 0.0
+        self.start = time.perf_counter()
+
+    def out(self) -> bool:
+        import time
+        if self.step > 0:
+            self.elapsed += self.step
+        else:
+            self.elapsed = (time.perf_counter() - self.start) * 1000.0
+        return self.elapsed >= self.budget
+
+
+def crossing(w, a: int, b: int) -> float:
+    """What a crossing of classes `a` and `b` counts: `w` (pair, impedance, plane, length, bend)."""
+    if a == PLANE or b == PLANE:
+        return w[2]
+    x = w[0] if a == PAIR else w[1] if a == IMPEDANCE else 1.0
+    y = w[0] if b == PAIR else w[1] if b == IMPEDANCE else 1.0
+    return x if x >= y else y
+
+
+def segments(paths) -> list:
+    """Each path's segments in whole nanometres with their boxes: (ax, ay, bx, by, minx, miny, maxx, maxy)."""
+    out = []
+    for path in paths:
+        for p, q in zip(path, path[1:]):
+            ax, ay, bx, by = _nm(p[0]), _nm(p[1]), _nm(q[0]), _nm(q[1])
+            out.append((ax, ay, bx, by, min(ax, bx), min(ay, by), max(ax, bx), max(ay, by)))
+    return out
+
+
+def _box4(s):
+    return (min(s[0], s[2]), min(s[1], s[3]), max(s[0], s[2]), max(s[1], s[3]))
+
+
+class Background:
+    """The board's other airwires, (kind, ax, ay, bx, by) in nm, on a 2 mm grid; a plane's are left out when they weigh
+    nothing."""
+
+    def __init__(self, wires, w):
+        self.w = w
+        self.wires = [x for x in wires if not (x[0] == PLANE and w[2] <= 0)]
+        self.boxes = [_box4(x[1:]) for x in self.wires]
+        self.grid: dict = {}
+        for k, b in enumerate(self.boxes):
+            for cx in range(b[0] // CELL_NM, b[2] // CELL_NM + 1):
+                for cy in range(b[1] // CELL_NM, b[3] // CELL_NM + 1):
+                    self.grid.setdefault((cx, cy), []).append(k)
+
+    def cross(self, kind: int, segs) -> tuple:
+        total, count = 0.0, 0
+        for s in segs:
+            near = set()
+            for cx in range(s[4] // CELL_NM, s[6] // CELL_NM + 1):
+                for cy in range(s[5] // CELL_NM, s[7] // CELL_NM + 1):
+                    near.update(self.grid.get((cx, cy), ()))
+            for k in sorted(near):
+                t = self.boxes[k]
+                if t[2] < s[4] or s[6] < t[0] or t[3] < s[5] or s[7] < t[1]:
+                    continue
+                x = self.wires[k]
+                if _cross_nm(s[0], s[1], s[2], s[3], x[1], x[2], x[3], x[4]):
+                    total += crossing(self.w, kind, x[0])
+                    count += 1
+        return total, count
+
+
+def segments_crossing(a, b) -> int:
+    n = 0
+    for s in a:
+        for t in b:
+            if s[6] < t[4] or t[6] < s[4] or s[7] < t[5] or t[7] < s[5]:
+                continue
+            if _cross_nm(s[0], s[1], s[2], s[3], t[0], t[1], t[2], t[3]):
+                n += 1
+    return n
+
+
+class Scorer:
+    """Scores assignments at one set of poses. An assignment is a list, per net, of a tuple of pin indexes, one per end
+    slot (the part of slot k is `ends[net][k][0]`)."""
+
+    def __init__(self, pb, poses: list, w, bg: Background):
+        self.pb, self.poses, self.w, self.bg = pb, poses, w, bg
+        self._exits: dict = {}
+        self._wires: dict = {}
+        self._single: dict = {}
+        self._pair: dict = {}
+
+    def exit(self, part: int, pin: int):
+        k = (part, pin)
+        e = self._exits.get(k)
+        if e is None:
+            ref, _, _, hw, hh = self.pb.parts[part]
+            _, x, y, nx, ny = self.pb.pins[part][pin]
+            e = exit_of(ref, self.poses[part], x, y, (nx, ny), hw, hh, self.pb.margin)
+            self._exits[k] = e
+        return e
+
+    def wires(self, net: int, pins: tuple):
+        k = (net, pins)
+        hit = self._wires.get(k)
+        if hit is not None:
+            return hit
+        pb = self.pb
+        fixed = pb.fixed[net]
+        anchors = [Anchor(r, num, x, y) for x, y, r, num in fixed]
+        exits = []
+        for slot, pin in enumerate(pins):
+            part = pb.ends[net][slot][0]
+            e = self.exit(part, pin)
+            exits.append(e)
+            anchors.append(Anchor(pb.parts[part][0], pb.pins[part][pin][0], e.at[0], e.at[1]))
+        index = {id(a): i for i, a in enumerate(anchors)}
+        first = len(fixed)
+        paths, bends = [], {}
+        for edge in mst(pb.nets[net][0], anchors, pb.joined[net]):
+            i, j = index[id(edge.a)], index[id(edge.b)]
+            a = exits[i - first] if i >= first else (anchors[i].x, anchors[i].y)
+            b = exits[j - first] if j >= first else (anchors[j].x, anchors[j].y)
+            paths.append(route(a, b))
+            for me, other in ((i, j), (j, i)):
+                if me >= first:
+                    e = exits[me - first]
+                    d = bend(e.normal, e.at, (anchors[other].x, anchors[other].y))
+                    bends[me] = min(bends.get(me, d), d)
+        ln = 0.0
+        for p in paths:
+            ln += length(p)
+        bd = 0.0
+        for me in sorted(bends):
+            bd += bends[me]
+        segs = segments(paths)
+        box = (min(s[4] for s in segs), min(s[5] for s in segs), max(s[6] for s in segs), max(s[7] for s in segs)) \
+            if segs else (0, 0, 0, 0)
+        hit = (paths, ln, bd, segs, box)
+        self._wires[k] = hit
+        return hit
+
+    def single(self, net: int, pins: tuple) -> tuple:
+        k = (net, pins)
+        hit = self._single.get(k)
+        if hit is None:
+            _, ln, bd, segs, _ = self.wires(net, pins)
+            weighted, count = self.bg.cross(self.pb.nets[net][1], segs)
+            hit = (weighted + self.w[3] * ln + self.w[4] * bd, weighted, count)
+            self._single[k] = hit
+        return hit
+
+    def pair(self, a: int, ea: tuple, b: int, eb: tuple) -> tuple:
+        if b < a:
+            a, ea, b, eb = b, eb, a, ea
+        k = (a, ea, b, eb)
+        hit = self._pair.get(k)
+        if hit is None:
+            wa, wb = self.wires(a, ea), self.wires(b, eb)
+            ba, bb = wa[4], wb[4]
+            if ba[2] < bb[0] or bb[2] < ba[0] or ba[3] < bb[1] or bb[3] < ba[1]:
+                hit = (0.0, 0)
+            else:
+                n = segments_crossing(wa[3], wb[3])
+                hit = (n * crossing(self.w, self.pb.nets[a][1], self.pb.nets[b][1]), n)
+            self._pair[k] = hit
+        return hit
+
+    def total(self, assign: list) -> tuple:
+        """(total, against, among, weighted, length, bend)."""
+        weighted, against, among, ln, bd = 0.0, 0, 0, 0.0, 0.0
+        for n, pins in enumerate(assign):
+            _, w, c = self.single(n, pins)
+            _, l, b, _, _ = self.wires(n, pins)
+            weighted += w
+            against += c
+            ln += l
+            bd += b
+        for a in range(len(assign)):
+            for b in range(a + 1, len(assign)):
+                w, c = self.pair(a, assign[a], b, assign[b])
+                weighted += w
+                among += c
+        return (weighted + self.w[3] * ln + self.w[4] * bd, against, among, weighted, ln, bd)
+
+
+class Tally:
+    def __init__(self, scorer: Scorer, assign: list):
+        self.s, self.assign = scorer, list(assign)
+        self.value = scorer.total(self.assign)[0]
+
+    def delta(self, changes: dict) -> float:
+        s, now = self.s, self.assign
+        moved = sorted(changes)
+        d = 0.0
+        for n in moved:
+            d += s.single(n, changes[n])[0] - s.single(n, now[n])[0]
+        for n in moved:
+            for m in range(len(now)):
+                if m in changes:
+                    continue
+                d += s.pair(n, changes[n], m, now[m])[0] - s.pair(n, now[n], m, now[m])[0]
+        for i, n in enumerate(moved):
+            for m in moved[i + 1:]:
+                d += s.pair(n, changes[n], m, changes[m])[0] - s.pair(n, now[n], m, now[m])[0]
+        return d
+
+    def apply(self, changes: dict, d: float) -> None:
+        for n, pins in changes.items():
+            self.assign[n] = pins
+        self.value += d
+
+
+def hungarian(cost) -> list | None:
+    """The minimum-cost assignment of every row to a different column (rows <= columns), or None when every assignment
+    meets an infinite cost. Kuhn-Munkres with potentials; ties go to the lower column."""
     n = len(cost)
     if n == 0:
         return []
     m = len(cost[0])
-    big = 1e12
-    a = [[min(c, big) for c in row] for row in cost]
+    a = [[c if c < 1e12 else 1e12 for c in row] for row in cost]
     u, v, p, way = [0.0] * (n + 1), [0.0] * (m + 1), [0] * (m + 1), [0] * (m + 1)
     for i in range(1, n + 1):
         p[0] = i
@@ -2128,236 +3751,277 @@ def hungarian(cost) -> list:
     for j in range(1, m + 1):
         if p[j]:
             out[p[j] - 1] = j - 1
-    if any(cost[i][out[i]] == _INF for i in range(n)):
-        return None
+    for i in range(n):
+        if cost[i][out[i]] == _INF:
+            return None
     return out
 
 
-class _State:
-    """Which pin each movable net of each part of the group stands on, and which net each pin holds."""
-
-    def __init__(self, inp, refs, assign):
-        self.inp, self.refs = inp, refs
-        self.pin = {r: {} for r in refs}
-        self.who = {r: {} for r in refs}
-        for net, ends in assign.items():
-            for r, num in ends:
-                if r in self.pin and net in inp.part(r).slots.movable:
-                    self.pin[r][net] = num
-                    self.who[r][num] = net
-
-    def ends(self, assign, net, ref, number) -> tuple:
-        """`net`'s ends with its end on `ref` moved to `number`."""
-        return tuple(sorted(((r, number if r == ref else n) for r, n in assign[net]), key=lambda e: (e[0], natural(e[1]))))
-
-    def move(self, ref, changes: dict, assign) -> dict:
-        """{net: ends} for `changes` {net: new pin} on `ref`."""
-        return {net: self.ends(assign, net, ref, pin) for net, pin in changes.items()}
-
-    def commit(self, ref, changes: dict) -> None:
-        for net, pin in changes.items():
-            old = self.pin[ref].get(net)
-            if old is not None and self.who[ref].get(old) == net:
-                del self.who[ref][old]
-        for net, pin in changes.items():
-            self.pin[ref][net] = pin
-            self.who[ref][pin] = net
+def _with(assign: list, net: int, slot: int, pin: int) -> tuple:
+    pins = list(assign[net])
+    pins[slot] = pin
+    return tuple(pins)
 
 
-def _group_of(slots, net):
-    for name, nets in slots.groups:
-        if net in nets:
-            return name
-    return None
-
-
-def _target_cost(scorer, part, net, pin, assign) -> float:
-    """How far `pin`'s exit point is from what `net` heads for: its nearest anchor on another part, else the other
-    studied ends' exit points."""
-    e = scorer.exit(part.ref, pin)
-    n = scorer.nets[net]
-    pts = [(a.x, a.y) for a in n.fixed] or [scorer.exit(r, num).at for r, num in assign[net] if r != part.ref]
+def _target_cost(sc: Scorer, mv, pin: int, assign: list) -> float:
+    """How far `pin`'s exit point is from what the movable `mv` (net, slot, allowed, group) heads for: its nearest
+    anchor on another part, else the exit points of its other ends."""
+    pb = sc.pb
+    net, slot = mv[0], mv[1]
+    part = pb.ends[net][slot][0]
+    e = sc.exit(part, pin)
+    pts = [(x, y) for x, y, _, _ in pb.fixed[net]]
     if not pts:
-        return 0.0
-    return min(math.hypot(e.at[0] - x, e.at[1] - y) for x, y in pts)
+        pts = [sc.exit(pb.ends[net][k][0], q).at for k, q in enumerate(assign[net]) if k != slot]
+    best = None
+    for x, y in pts:
+        d = math.hypot(e.at[0] - x, e.at[1] - y)
+        if best is None or d < best:
+            best = d
+    return 0.0 if best is None else best
 
 
-def first_map(scorer, inp, refs, assign) -> tuple:
-    """(assignment, [Problem]): every movable net of the group's parts placed by the first map. Each group takes the
-    cheapest run of pins that still leaves the other nets a matching; then the other nets are matched. A part whose nets
-    no matching can place keeps its present pins and gives a `no_legal_map` problem naming a net it could not place."""
-    assign = dict(assign)
+def first_map(sc: Scorer, group_parts, assign: list) -> tuple:
+    """(assignment, [(part, net)] that no matching places)."""
+    pb = sc.pb
+    assign = list(assign)
     problems = []
-    for ref in refs:
-        part = inp.part(ref)
-        slots = part.slots
-        grouped = {n for _, nets in slots.groups for n in nets if n}
-        singles = [n for n in slots.movable if n not in grouped]
-        cost_of = lambda n, p: _target_cost(scorer, part, n, p, assign) if p in slots.allowed[n] else _INF
+    for part in group_parts:
+        mvs = [k for k, mv in enumerate(pb.movable) if pb.ends[mv[0]][mv[1]][0] == part]
+        singles = [k for k in mvs if pb.movable[k][3] < 0]
+        cost_of = lambda k, pin: _target_cost(sc, pb.movable[k], pin, assign) if pin in pb.movable[k][2] else _INF
 
         def matching(used):
-            pins = sorted({p for n in singles for p in slots.allowed[n]} - used, key=natural)
+            pins = sorted({q for k in singles for q in pb.movable[k][2]} - used)
             if len(pins) < len(singles):
                 return pins, None
-            return pins, hungarian([[cost_of(n, p) for p in pins] for n in singles])
+            return pins, hungarian([[cost_of(k, q) for q in pins] for k in singles])
         used, changes = set(), {}
-        for name, nets in slots.groups:
-            wins = sorted(((sum(_target_cost(scorer, part, n, p, assign) for n, p in zip(nets, w) if n), k, w)
-                           for k, w in enumerate(slots.windows.get(name, ())) if not used & set(w)))
-            win = next((w for _, _, w in wins if matching(used | set(w))[1] is not None), None)
-            if win is None:
-                win = tuple(slots.present[n] for n in nets if n)
-                used |= set(win)
+        for g, (gpart, members, windows) in enumerate(pb.groups):
+            if gpart != part:
                 continue
-            used |= set(win)
-            changes.update({n: p for n, p in zip(nets, win) if n})
+            ranked = []
+            for wi, win in enumerate(windows):
+                if used & set(win):
+                    continue
+                c = 0.0
+                for m, q in zip(members, win):
+                    if m >= 0:
+                        c += _target_cost(sc, pb.movable[m], q, assign)
+                ranked.append((c, wi))
+            ranked.sort()
+            chosen = None
+            for _, wi in ranked:
+                if matching(used | set(windows[wi]))[1] is not None:
+                    chosen = windows[wi]
+                    break
+            if chosen is None:
+                used |= {assign[pb.movable[m][0]][pb.movable[m][1]] for m in members if m >= 0}
+                continue
+            used |= set(chosen)
+            for m, q in zip(members, chosen):
+                if m >= 0:
+                    changes[m] = q
         if singles:
             pins, got = matching(used)
             if got is None:
-                bad = next((n for n in singles if not any(p in slots.allowed[n] for p in pins)), singles[0])
-                problems.append(Problem(ref, "", "", "no_legal_map", bad))
+                bad = next((k for k in singles if not any(q in pb.movable[k][2] for q in pins)), singles[0])
+                problems.append((part, pb.movable[bad][0]))
                 continue
-            changes.update({n: pins[j] for n, j in zip(singles, got)})
-        for net, pin in changes.items():
-            assign[net] = tuple(sorted(((r, pin if r == ref else num) for r, num in assign[net]),
-                                       key=lambda e: (e[0], natural(e[1]))))
+            for k, j in zip(singles, got):
+                changes[k] = pins[j]
+        for k in sorted(changes):
+            net, slot = pb.movable[k][0], pb.movable[k][1]
+            assign[net] = _with(assign, net, slot, changes[k])
     return assign, problems
 
 
-def _propose(rng, state, inp, refs, assign):
-    """A random legal change, as (ref, {net: new pin}), or None."""
-    units = []
-    for ref in refs:
-        slots = inp.part(ref).slots
-        grouped = {n for _, nets in slots.groups for n in nets if n}
-        units += [(ref, "net", n) for n in slots.movable if n not in grouped]
-        units += [(ref, "group", name) for name, _ in slots.groups if slots.windows.get(name)]
+class _State:
+    """Which pin each movable stands on, and which movable each pin of each part holds."""
+
+    def __init__(self, pb, assign):
+        self.pb = pb
+        self.pin = [assign[mv[0]][mv[1]] for mv in pb.movable]
+        self.who = {}
+        for k, mv in enumerate(pb.movable):
+            self.who[(pb.ends[mv[0]][mv[1]][0], self.pin[k])] = k
+
+    def commit(self, changes: dict) -> None:
+        pb = self.pb
+        for k in changes:
+            part = pb.ends[pb.movable[k][0]][pb.movable[k][1]][0]
+            if self.who.get((part, self.pin[k])) == k:
+                del self.who[(part, self.pin[k])]
+        for k, q in changes.items():
+            self.pin[k] = q
+            self.who[(pb.ends[pb.movable[k][0]][pb.movable[k][1]][0], q)] = k
+
+
+def _units(pb, group_parts) -> list:
+    out = []
+    for part in group_parts:
+        out += [("m", k) for k, mv in enumerate(pb.movable) if mv[3] < 0 and pb.ends[mv[0]][mv[1]][0] == part]
+        out += [("g", g) for g, gr in enumerate(pb.groups) if gr[0] == part and gr[2]]
+    return out
+
+
+def _propose(rng: SplitMix64, st: _State, pb, units) -> dict | None:
+    """A random legal change, {movable: new pin}, or None."""
     if not units:
         return None
-    ref, what, name = units[rng.randrange(len(units))]
-    slots = inp.part(ref).slots
-    pin_of, who = state.pin[ref], state.who[ref]
-    if what == "net":
-        here = pin_of[name]
-        choices = [p for p in slots.allowed[name] if p != here]
+    what, i = units[rng.below(len(units))]
+    if what == "m":
+        mv = pb.movable[i]
+        part = pb.ends[mv[0]][mv[1]][0]
+        here = st.pin[i]
+        choices = [q for q in mv[2] if q != here]
         if not choices:
             return None
-        to = choices[rng.randrange(len(choices))]
-        other = who.get(to)
+        to = choices[rng.below(len(choices))]
+        other = st.who.get((part, to))
         if other is None:
-            return ref, {name: to}
-        if _group_of(slots, other) is None and here in slots.allowed.get(other, ()):
-            return ref, {name: to, other: here}
+            return {i: to}
+        if pb.movable[other][3] < 0 and here in pb.movable[other][2]:
+            return {i: to, other: here}
         return None
-    nets = dict(slots.groups)[name]
-    now = tuple(pin_of[n] for n in nets if n)
-    wins = [w for w in slots.windows[name] if tuple(p for n, p in zip(nets, w) if n) != now]
+    gpart, members, windows = pb.groups[i]
+    now = tuple(st.pin[m] for m in members if m >= 0)
+    wins = [w for w in windows if tuple(q for m, q in zip(members, w) if m >= 0) != now]
     if not wins:
         return None
-    win = wins[rng.randrange(len(wins))]
-    changes = {n: p for n, p in zip(nets, win) if n}
-    left = sorted(set(now) - set(win), key=natural)
-    taken = [p for p in sorted(win, key=natural) if who.get(p) is not None and who[p] not in nets]
+    win = wins[rng.below(len(wins))]
+    changes = {m: q for m, q in zip(members, win) if m >= 0}
+    left = sorted(set(now) - set(win))
+    taken = [q for q in sorted(win) if st.who.get((gpart, q)) is not None and st.who[(gpart, q)] not in members]
     if len(taken) > len(left):
         return None
-    for p, q in zip(taken, left):
-        other = who[p]
-        if _group_of(slots, other) is not None or q not in slots.allowed.get(other, ()):
+    for q, r in zip(taken, left):
+        other = st.who[(gpart, q)]
+        if pb.movable[other][3] >= 0 or r not in pb.movable[other][2]:
             return None
-        changes[other] = q
-    return ref, changes
+        changes[other] = r
+    return changes
 
 
-def anneal(scorer, inp, refs, start: dict, settings, seed_key: str, clock) -> tuple:
-    """(best assignment, its total, whether the clock ran out) from `start`, over `pins.seeds` seeds."""
-    best, best_v, out = dict(start), scorer.total(start).total, False
-    n = max(int(settings.pins_anneal_moves), 1)
-    t0, t1 = settings.pins_anneal_start, settings.pins_anneal_end
-    for s in range(max(int(settings.pins_seeds), 1)):
-        rng = random.Random("%s|%d" % (seed_key, s))
-        tally, state = Tally(scorer, start), _State(inp, refs, start)
+def anneal(sc: Scorer, group_parts, start: list, params, combo: int, clock: Clock) -> tuple:
+    """(best assignment, its total, whether the clock ran out) from `start`, over the seeds."""
+    pb = sc.pb
+    seeds, moves, t0, t1, seed_key = params["seeds"], params["moves"], params["t0"], params["t1"], params["seed_key"]
+    best, best_v = list(start), sc.total(start)[0]
+    units = _units(pb, group_parts)
+    n = max(moves, 1)
+    for s in range(max(seeds, 1)):
+        rng = SplitMix64(stream_seed(seed_key, combo, s))
+        tally, st = Tally(sc, start), _State(pb, start)
         for k in range(n):
             if k % 32 == 0 and clock.out():
                 return best, best_v, True
             temp = t0 * (t1 / t0) ** (k / max(n - 1, 1)) if t0 > 0 and t1 > 0 else 0.0
-            got = _propose(rng, state, inp, refs, tally.assign)
+            got = _propose(rng, st, pb, units)
             if got is None:
                 continue
-            ref, pins = got
-            changes = state.move(ref, pins, tally.assign)
+            changes = {}
+            for m in sorted(got):
+                net, slot = pb.movable[m][0], pb.movable[m][1]
+                changes[net] = _with(tally.assign, net, slot, got[m])
             d = tally.delta(changes)
-            if d < -1e-12 or (temp > 0 and rng.random() < math.exp(-d / temp)):
+            if d < -1e-12 or (temp > 0 and rng.unit() < math.exp(-d / temp)):
                 tally.apply(changes, d)
-                state.commit(ref, pins)
+                st.commit(got)
                 if tally.value < best_v - 1e-9:
-                    best, best_v = dict(tally.assign), tally.value
-    return best, best_v, out
+                    best, best_v = list(tally.assign), tally.value
+    return best, best_v, False
 
 
-def study_group(inp, refs: tuple, settings, background: Background, clock=None) -> GroupResult:
-    """The study of one group of parts: every combination of their poses (the present first, at most
-    `pins.joint_combinations`), each from its first map through the local search."""
-    weights = Weights.of(settings)
-    clock = clock or Clock(settings.pins_budget_ms * len(refs))
-    present_poses = {p.ref: Pose(p.cx, p.cy) for p in inp.parts}
-    present = {n.net: n.ends for n in inp.nets}
-    scorer0 = Scorer(inp, present_poses, weights, background, settings.pins_exit_mm)
-    base = scorer0.total(present)
-    lists = [[(r, t, f) for t, f in poses_of(inp.part(r), settings)] for r in refs]
-    combos = list(itertools.islice(itertools.product(*lists), max(int(settings.pins_joint_combinations), 1)))
-    total = 1
-    for l in lists:
-        total *= len(l)
-    results, problems, out, first = [], [], False, True
+def _paths(sc: Scorer, group_parts, assign: list) -> list:
+    out = []
+    for n, pins in enumerate(assign):
+        if any(sc.pb.ends[n][k][0] in group_parts for k in range(len(pins))):
+            out.append((n, [list(p) for p in sc.wires(n, pins)[0]]))
+    return out
+
+
+def search(pb, group_parts, combos, params) -> tuple:
+    """The study of one group, as the native core's `pinmap_search` returns it: (present breakdown, present paths,
+    [(combo, breakdown, assignment, paths)], budget_out, first_map, [(part, net)])."""
+    w = params["weights"]
+    bg = Background(pb.wires, w)
+    clock = Clock(params["budget_ms"], params["step_ms"])
+    present = [tuple(q for _, q in pb.ends[n]) for n in range(len(pb.nets))]
+    present_poses = [Pose(p[1], p[2]) for p in pb.parts]
+    sc0 = Scorer(pb, present_poses, w, bg)
+    base = sc0.total(present)
+    base_paths = _paths(sc0, group_parts, present)
+    results, out, first, problems = [], False, True, []
     for k, combo in enumerate(combos):
         if clock.out():
             out = True
             if k == 0:
                 first = False
             break
-        poses = dict(present_poses)
-        for r, t, f in combo:
-            p = inp.part(r)
-            poses[r] = Pose(p.cx, p.cy, t, f)
-        scorer = scorer0 if k == 0 else Scorer(inp, poses, weights, background, settings.pins_exit_mm)
-        start, said = first_map(scorer, inp, refs, present)
-        if said:
-            problems += [p for p in said if p not in problems]
-            if k == 0:
-                return GroupResult(tuple(refs), base, present, (), 0, len(combos), False, True, tuple(problems))
-        key = "%s|%s" % (",".join(refs), ";".join("%s:%g:%d" % c for c in combo))
-        best, _, ran_out = anneal(scorer, inp, refs, start, settings, key, clock)
-        results.append(PoseResult(tuple(combo), scorer.total(best), best))
+        poses = list(present_poses)
+        for part, turn, flip in combo:
+            poses[part] = Pose(pb.parts[part][1], pb.parts[part][2], turn, flip)
+        sc = sc0 if k == 0 else Scorer(pb, poses, w, bg)
+        start, said = first_map(sc, group_parts, present)
+        for p in said:
+            if p not in problems:
+                problems.append(p)
+        if said and k == 0:
+            return base, base_paths, [], False, True, problems
+        best, _, ran_out = anneal(sc, group_parts, start, params, k, clock)
+        results.append((k, sc.total(best), [list(x) for x in best], _paths(sc, group_parts, best)))
         if ran_out:
             out = True
             break
-    return GroupResult(tuple(refs), base, present, tuple(results), len(results), total, out, first, tuple(problems))
+    return base, base_paths, results, out, first, problems
 ```
 
-- [ ] **Step 4: Run the tests to watch them pass**
+In `src/placemat/pinmap_core.py`, in `search`, replace:
 
-Run: `.venv/bin/python -m pytest tests/test_pinmap_search.py -q -n 2`
-Expected: PASS (9 tests).
+```python
+    core = native_core() if native else None
+    if core is None:
+        raise RuntimeError("the pin map study's core is the native module's until its Python twin is in: build it with "
+                           "`uv pip install -e \".[native]\"`")
+```
 
-- [ ] **Step 5: Commit**
+with:
+
+```python
+    core = native_core() if native else None
+    if core is None:
+        from . import pinmap_twin
+        return pinmap_twin.search(pb, group_parts, combos, params)
+```
+
+- [ ] **Step 5: Run the tests to watch them pass, with the module and without it**
+
+Run: `.venv/bin/python -m pytest tests/test_pinmap_geom.py tests/test_pinmap_twin.py tests/test_native_pinmap.py tests/test_pinmap_core.py -q -n 2`
+Expected: PASS: 7, 6, 19 and 22 tests (`test_native_pinmap` compares 12 random boards, six fixed cases at quarter and eighth turns with both faces, and a study the counted clock stops; while planning every one agreed exactly).
+
+Run: `PLACEMAT_NATIVE=0 .venv/bin/python -m pytest tests/test_pinmap_core.py tests/test_native_pinmap.py -q -n 2`
+Expected: PASS, the `[native]` cases and `test_native_pinmap` skipped: the study runs on the twin alone.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/placemat/pinmap_search.py tests/test_pinmap_search.py
-git commit -m "Pin map study: a matching seed, then moves, swaps and group moves under annealing, per pose"
+git add src/placemat/pinmap_geom.py src/placemat/pinmap_twin.py src/placemat/pinmap_core.py tests/test_pinmap_geom.py tests/test_pinmap_twin.py tests/test_native_pinmap.py tests/test_pinmap_core.py
+git commit -m "Pin map study: the Python twin of the native core, the same answers on the same arrays"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
 ---
 
-### Task 7: Joint study of linked parts
+### Task 8: Joint study of linked parts
 
 **Files:**
-- Modify: `src/placemat/pinmap_search.py` (append `linked_groups`, `study`)
+- Modify: `src/placemat/pinmap_core.py` (append `linked_groups`, `study`)
 - Test: `tests/test_pinmap_joint.py`
 
 **Interfaces:**
-- Consumes: Task 6's `study_group`, `Background`, `Weights`.
-- Produces: `linked_groups(inp) -> list[tuple[str, ...]]` (parts joined by a net that may move on both, sorted); `study(inp, settings, clock_for=None, background=None) -> list[GroupResult]` (one per group; `clock_for(refs)` makes a test's clock).
+- Consumes: Task 5's `study_group`, `problem_of`; the core takes a group of parts and their pose combinations already (Task 5).
+- Produces: `pinmap_core.linked_groups(inp) -> list[tuple[str, ...]]` (parts joined by a net that may move on both, sorted); `pinmap_core.study(inp, settings, step_ms=0.0, native=True) -> list[GroupResult]` (one per group, the arrays built once).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2366,9 +4030,19 @@ Create `tests/test_pinmap_joint.py`:
 ```python
 """Parts whose movable nets connect to each other's are studied together: their poses searched in combination (at most
 `pins.joint_combinations`), both ends of a shared net free."""
-from placemat.pinmap_score import Background, Weights
-from placemat.pinmap_search import linked_groups, study, study_group
+import pytest
+
+from placemat.pinmap_core import linked_groups, native_core, study, study_group
 from tests.pinmap_boards import input_of, point_pad, quad, settings
+
+CORES = ["native", "python"]
+
+
+@pytest.fixture(params=CORES)
+def native(request):
+    if request.param == "native" and native_core() is None:
+        pytest.skip("the native module is not in use")
+    return request.param == "native"
 
 
 def facing_away():
@@ -2390,22 +4064,20 @@ def test_parts_sharing_a_net_that_may_move_on_both_are_one_group_and_a_held_link
     assert linked_groups(inp) == [("U1",), ("U2",)]                    # A is fixed on U1: only U2's end moves
 
 
-def test_a_joint_study_beats_studying_each_part_alone():
+def test_a_joint_study_beats_studying_each_part_alone(native):
     inp = facing_away()
     s = settings(pins_length_weight=0.1)
-    bg = Background(inp.background, Weights.of(s))
     best = lambda g: min(r.breakdown.total for r in g.results)
-    joint = study_group(inp, ("U1", "U2"), s, bg)
-    alone = [study_group(inp, (r,), s, bg) for r in ("U1", "U2")]
+    joint = study_group(inp, ("U1", "U2"), s, native=native)
+    alone = [study_group(inp, (r,), s, native=native) for r in ("U1", "U2")]
     assert best(joint) < min(best(g) for g in alone)
     win = min(joint.results, key=lambda r: r.breakdown.total)
     assert win.poses == (("U1", 180.0, False), ("U2", 180.0, False))
-    assert [g.refs for g in study(inp, s)] == [("U1", "U2")]
+    assert [g.refs for g in study(inp, s, native=native)] == [("U1", "U2")]
 
 
-def test_a_joint_study_searches_at_most_the_combinations_it_is_allowed():
-    inp = facing_away()
-    g = study_group(inp, ("U1", "U2"), settings(pins_joint_combinations=5), Background(inp.background, Weights()))
+def test_a_joint_study_searches_at_most_the_combinations_it_is_allowed(native):
+    g = study_group(facing_away(), ("U1", "U2"), settings(pins_joint_combinations=5), native=native)
     assert (g.searched, g.of) == (5, 16)
     assert g.results[0].poses == (("U1", 0.0, False), ("U2", 0.0, False))
 ```
@@ -2413,11 +4085,11 @@ def test_a_joint_study_searches_at_most_the_combinations_it_is_allowed():
 - [ ] **Step 2: Run them to watch them fail**
 
 Run: `.venv/bin/python -m pytest tests/test_pinmap_joint.py -q -n 2`
-Expected: FAIL with `ImportError: cannot import name 'linked_groups' from 'placemat.pinmap_search'`.
+Expected: FAIL with `ImportError: cannot import name 'linked_groups' from 'placemat.pinmap_core'`.
 
 - [ ] **Step 3: Append the grouping and the study of every group**
 
-Append to `src/placemat/pinmap_search.py`:
+Append to `src/placemat/pinmap_core.py`:
 
 ```python
 
@@ -2444,33 +4116,28 @@ def linked_groups(inp) -> list:
     return [tuple(g) for _, g in sorted(groups.items())]
 
 
-def study(inp, settings, clock_for=None, background=None) -> list:
-    """Every group's study (GroupResult), on one `background` (bucketed here when not given). `clock_for(refs)`, when
-    given, makes each group's clock (a test's); else each has `pins.budget_ms` for each of its parts."""
-    background = background or Background(inp.background, Weights.of(settings))
-    out = []
-    for refs in linked_groups(inp):
-        clock = clock_for(refs) if clock_for is not None else None
-        out.append(study_group(inp, refs, settings, background, clock))
-    return out
+def study(inp, settings, step_ms: float = 0.0, native=True) -> list:
+    """Every group's study (GroupResult), the arrays built once for all of them."""
+    pb = problem_of(inp, settings.pins_exit_mm)
+    return [study_group(inp, refs, settings, step_ms=step_ms, native=native, pb=pb) for refs in linked_groups(inp)]
 ```
 
 - [ ] **Step 4: Run the tests to watch them pass**
 
-Run: `.venv/bin/python -m pytest tests/test_pinmap_joint.py tests/test_pinmap_search.py -q -n 2`
-Expected: PASS (3 and 9 tests). The joint case: two parts 10 mm apart, each with three shared nets on the side facing away from the other; alone, each turn still leaves the other's body to go round; together both turn 180 degrees.
+Run: `.venv/bin/python -m pytest tests/test_pinmap_joint.py tests/test_pinmap_core.py -q -n 2`
+Expected: PASS (5 joint cases on both cores; the joint case is two parts 10 mm apart with three shared nets each on the side facing away: alone, each turn still leaves the other's body to go round; together both turn 180 degrees).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/placemat/pinmap_search.py tests/test_pinmap_joint.py
+git add src/placemat/pinmap_core.py tests/test_pinmap_joint.py
 git commit -m "Pin map study: parts whose movable nets meet are studied together, their poses in combination"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
 ---
 
-### Task 8: The finding and the suggestion - `pins.remap`, `setup.pins`, advice, facts, cache
+### Task 9: The finding and the suggestion - `pins.remap`, `setup.pins`, advice, facts, cache
 
 **Files:**
 - Modify: `src/placemat/findings.py` (kind `PINS`, causes `SETUP_PINS`, `PINS_REMAP`, `SEVERITY`)
@@ -2482,12 +4149,12 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 - Test: `tests/test_pinmap_finding.py`
 
 **Interfaces:**
-- Consumes: Tasks 2-7 (`build`, `placed_from_geometry`, `Pose`, `Background`, `Scorer`, `Weights`, `study`, `natural`, `Clock`); `reuse.canonical`, `reuse.finding_to_json`, `reuse.finding_from_json`; `checkpoint.write_atomic`; `finding_text.schemas_digest`; `pairs.board_pairs`.
+- Consumes: Tasks 2-8 (`build`, `placed_from_geometry`, `pinmap_core.study` and its `GroupResult` (`present`, `present_assign`, `present_paths`, `results` of `PoseResult(poses, breakdown, assign, paths)`, `searched`, `of`, `budget_out`, `first_map`, `problems` as (ref, net)), `Problem`, `natural`); `reuse.canonical`, `reuse.finding_to_json`, `reuse.finding_from_json`; `checkpoint.write_atomic`; `finding_text.schemas_digest`; `pairs.board_pairs`.
 - Produces:
   - `FindingKind.PINS = "pins"` (severity notice); `FindingCause.SETUP_PINS = "setup.pins"`, `FindingCause.PINS_REMAP = "pins.remap"`.
   - `finding_text.pose_text(turns: list) -> str`.
   - `Suggestion.advice: dict | None`, `Pick.advice: dict | None`, `how == "advice"`; `suggestions.pin_advice(facts, i) -> dict`, `suggestions.pin_advice_text(advice) -> str`.
-  - `pinmap.CACHE_VERSION`, `has_pools(footprints) -> bool`, `copper_nets(geometry, plan=None) -> frozenset`, `group_facts(inp, g, background, copper, settings) -> dict | None`, `digest(inp, problems, copper, settings) -> str`, `study_findings(pads, parts, names, quiet, partners, netclasses, settings, copper=frozenset(), cache=None, clock_for=None) -> (list[Finding], dict)`, `geometry_findings(geometry, settings, quiet=frozenset(), either=frozenset(), cache=None, clock_for=None) -> (list[Finding], dict)`.
+  - `pinmap.CACHE_VERSION`, `has_pools(footprints) -> bool`, `copper_nets(geometry, plan=None) -> frozenset`, `group_facts(inp, g, copper, settings) -> dict | None`, `digest(inp, problems, copper, settings) -> str`, `study_findings(pads, parts, names, quiet, partners, netclasses, settings, copper=frozenset(), cache=None, step_ms=0.0) -> (list[Finding], dict)`, `geometry_findings(geometry, settings, quiet=frozenset(), either=frozenset(), cache=None, step_ms=0.0) -> (list[Finding], dict)` (`step_ms` above 0 gives the core a counted clock, for a test).
   - The `pins.remap` facts (all JSON): `ref`, `refs`, `at`, `present` (a `Breakdown.to_json()`), `rotations` (per pose searched, the present one first: the breakdown's fields plus `turns` [{`ref`, `turn_deg`, `rotation_deg`, `face`, `flip`}], `map` [{`ref`, `net`, `from`: {`pin`, `name`}, `to`: {`pin`, `name`}}], `routed` (the moved nets with copper now), `paths` [{`net`, `path`: [[x, y], ...]}]), `best` (index), `routed`, `before` (paths at the present map), `held` [{`ref`, `net`, `pin`, `name`, `why`}], `searched`, `of`, `budget_out`, `first_map`, `budget_ms`.
   - The `setup.pins` facts: `Problem.facts()` - `ref`, `key`, `entry`, `code`, `name`.
 
@@ -2499,7 +4166,6 @@ Create `tests/test_pinmap_finding.py`:
 """The pin map study's finding: a `pins.remap` notice when a map saves `pins.gain_min` of the present total, its facts
 as data and its sentence rendered from them; a `setup.pins` warning for an entry the study ran without; the suggestion
 that carries the map and the turn and writes nothing; and a study reused when what it reads has not changed."""
-import itertools
 import json
 
 import pytest
@@ -2507,12 +4173,11 @@ import pytest
 from placemat import suggestions as sg
 from placemat.findings import FindingCause as C, FindingKind
 from placemat.pinmap import study_findings
-from placemat.pinmap_search import Clock
 from tests.pinmap_boards import complete, point_pad, quad, reversed_four, settings
 
 
-def study(pads, parts, s=None, copper=frozenset(), cache=None, clock_for=None):
-    return study_findings(pads, complete(pads, parts), {}, frozenset(), {}, {}, s or settings(), copper, cache, clock_for)
+def study(pads, parts, s=None, copper=frozenset(), cache=None, step_ms=0.0):
+    return study_findings(pads, complete(pads, parts), {}, frozenset(), {}, {}, s or settings(), copper, cache, step_ms)
 
 
 def test_a_better_map_is_a_notice_with_its_facts_and_its_sentence():
@@ -2562,8 +4227,7 @@ def test_the_moved_nets_with_copper_now_are_named():
 
 
 def test_a_budget_too_short_for_a_first_map_says_so():
-    found, _ = study(*reversed_four(), settings(pins_budget_ms=50),
-                     clock_for=lambda refs: Clock(0, now=itertools.count().__next__))
+    found, _ = study(*reversed_four(), settings(pins_budget_ms=50), step_ms=100.0)        # out at the first question
     (f,) = found
     assert f == "U1: the pin map study ran out of its 50 ms before a first map; pins.budget_ms sets it"
     assert sg.suggest(f.cause, f.facts) == []
@@ -2620,6 +4284,29 @@ def test_a_part_at_45_degrees_with_its_pins_under_its_body_is_studied_and_its_po
     assert f.facts["rotations"][0]["total"] < f.facts["present"]["total"]
 ```
 
+Append to `tests/test_pinmap_real.py` (the reference board studied twice through the cache; the spec's "a repeated run reuses its result"):
+
+```python
+@needs_kicad
+def test_a_second_study_of_the_real_board_is_reused(tmp_path):
+    from placemat.findings import FindingCause as C
+    from placemat.pinmap import geometry_findings
+    b = bench()
+    case = b.cases()[0]
+    g = b.board_of(case)
+    cache = tmp_path / "pinmap.json"
+    first, r1 = geometry_findings(g, Settings(), frozenset(case["quiet"]), cache=cache)
+    again, r2 = geometry_findings(g, Settings(), frozenset(case["quiet"]), cache=cache)
+    assert any(f.cause is C.PINS_REMAP for f in first)
+    assert (r1["reused"], r2["reused"]) == (False, True) and [str(f) for f in again] == [str(f) for f in first]
+```
+
+and add its id to `tests/slow_tests.txt`:
+
+```
+tests/test_pinmap_real.py::test_a_second_study_of_the_real_board_is_reused
+```
+
 In `tests/test_finding_kinds.py`, in `test_a_finding_is_its_text_and_carries_its_kind`, replace:
 
 ```python
@@ -2662,7 +4349,7 @@ and in both `test_every_keyword_a_builder_sets_is_a_parameter_of_the_board_metho
 - [ ] **Step 2: Run them to watch them fail**
 
 Run: `.venv/bin/python -m pytest tests/test_pinmap_finding.py tests/test_finding_kinds.py tests/test_suggestion_cases.py -q -n 2`
-Expected: FAIL with `ModuleNotFoundError: No module named 'placemat.pinmap'`, the kinds set lacking `pins`, and `AttributeError: PINS_REMAP`.
+Expected: FAIL with `ModuleNotFoundError: No module named 'placemat.pinmap'`, the kinds set lacking `pins`, and `AttributeError: PINS_REMAP`. (The real-board reuse test fails the same way: `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock .venv/bin/python -m pytest tests/test_pinmap_real.py -q --full`.)
 
 - [ ] **Step 3: The kind and the causes**
 
@@ -2905,7 +4592,8 @@ Create `src/placemat/pinmap.py`:
 ```python
 """The pin map study, end to end: from a placed board to its `pins.remap` and `setup.pins` findings.
 
-For each part whose capture gives it a `Pm.PinPool` (pinmap_rules), the study (pinmap_search) finds how many weighted
+For each part whose capture gives it a `Pm.PinPool` (pinmap_rules), the study (pinmap_core: the native core, or its
+Python twin) finds how many weighted
 ratsnest crossings a better assignment of its nets to its pins would save, at its present rotation and at each pose in
 `pins.rotations`; when the best saves at least `pins.gain_min` of the present total it is a `pins.remap` notice, whose
 facts carry every pose's best map and the airwires before and after (finding_text renders the sentence; the suggestion
@@ -2923,11 +4611,9 @@ import time
 
 from .findings import Finding, FindingCause as C
 
-from .pinmap_geom import Pose
+from .pinmap_core import study
 from .pinmap_input import build, placed_from_geometry
-from .pinmap_rules import natural
-from .pinmap_score import Background, Scorer, Weights
-from .pinmap_search import study
+from .pinmap_rules import Problem, natural
 
 CACHE_VERSION = 1
 
@@ -2950,12 +4636,8 @@ def _rounded(path) -> list:
     return [[round(x, 3), round(y, 3)] for x, y in path]
 
 
-def _paths(scorer, refs, assign) -> list:
-    out = []
-    for net in sorted(assign):
-        if any(r in refs for r, _ in assign[net]):
-            out += [{"net": net, "path": _rounded(p)} for p in scorer.wires(net, assign[net]).paths]
-    return out
+def _paths(paths: dict) -> list:
+    return [{"net": net, "path": _rounded(p)} for net in sorted(paths) for p in paths[net]]
 
 
 def _turns(inp, poses) -> list:
@@ -2982,13 +4664,11 @@ def _map(inp, refs, before: dict, after: dict) -> list:
     return sorted(out, key=lambda m: (m["ref"], natural(m["from"]["pin"]), m["net"]))
 
 
-def group_facts(inp, g, background, copper, settings) -> dict | None:
+def group_facts(inp, g, copper, settings) -> dict | None:
     """The facts of a group's `pins.remap` finding, or None when no pose saves `pins.gain_min` of the present total
     (a study that ran out before a first map always has one, saying so)."""
     refs = g.refs
     lead = inp.part(refs[0])
-    weights = Weights.of(settings)
-    present_poses = {p.ref: Pose(p.cx, p.cy) for p in inp.parts}
     base = {"ref": refs[0], "refs": list(refs), "at": [round(lead.cx, 3), round(lead.cy, 3)],
             "present": g.present.to_json(), "searched": g.searched, "of": g.of, "budget_out": g.budget_out,
             "first_map": g.first_map, "budget_ms": settings.pins_budget_ms * len(refs),
@@ -3004,16 +4684,10 @@ def group_facts(inp, g, background, copper, settings) -> dict | None:
         return None
     rows = []
     for r in g.results:
-        poses = dict(present_poses)
-        for ref, turn, flip in r.poses:
-            p = inp.part(ref)
-            poses[ref] = Pose(p.cx, p.cy, turn, flip)
-        scorer = Scorer(inp, poses, weights, background, settings.pins_exit_mm)
         moved = _map(inp, refs, g.present_assign, r.assign)
         rows.append(dict(r.breakdown.to_json(), turns=_turns(inp, r.poses), map=moved,
-                         routed=sorted({m["net"] for m in moved} & copper), paths=_paths(scorer, refs, r.assign)))
-    before = _paths(Scorer(inp, present_poses, weights, background, settings.pins_exit_mm), refs, g.present_assign)
-    return dict(base, rotations=rows, best=best, routed=rows[best]["routed"], before=before)
+                         routed=sorted({m["net"] for m in moved} & copper), paths=_paths(r.paths)))
+    return dict(base, rotations=rows, best=best, routed=rows[best]["routed"], before=_paths(g.present_paths))
 
 
 def digest(inp, problems, copper, settings) -> str:
@@ -3050,10 +4724,11 @@ def _keep(path, d: str, findings) -> None:
 
 
 def study_findings(pads, parts, names, quiet, partners, netclasses, settings, copper=frozenset(), cache=None,
-                   clock_for=None) -> tuple:
+                   step_ms: float = 0.0) -> tuple:
     """(findings, record) of the study of a placed board: `setup.pins` for each problem, `pins.remap` for each group
     with a map worth having. `cache`, a path, holds the last study's digest and findings: a match is reused. `record` is
-    what a run keeps: {"seconds", "reused", "groups", "parts"}, empty when nothing was studied."""
+    what a run keeps: {"seconds", "reused", "groups", "parts"}, empty when nothing was studied. `step_ms` above 0 makes
+    the core's clock a counted one (a test's)."""
     t0 = time.perf_counter()
     inp, problems = build(pads, parts, names, quiet, partners, netclasses, settings.pins_follow_series)
     if inp is None and not problems:
@@ -3066,12 +4741,11 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
     found = [Finding(C.SETUP_PINS, p.facts()) for p in problems]
     groups = 0
     if inp is not None:
-        background = Background(inp.background, Weights.of(settings))
-        results = study(inp, settings, clock_for, background)
+        results = study(inp, settings, step_ms)
         groups = len(results)
         for g in results:
-            found += [Finding(C.SETUP_PINS, p.facts()) for p in g.problems]
-            facts = group_facts(inp, g, background, copper, settings)
+            found += [Finding(C.SETUP_PINS, Problem(ref, "", "", "no_legal_map", net).facts()) for ref, net in g.problems]
+            facts = group_facts(inp, g, copper, settings)
             if facts is not None:
                 found.append(Finding(C.PINS_REMAP, facts))
     if cache is not None:
@@ -3079,32 +4753,32 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
     return found, {"seconds": round(time.perf_counter() - t0, 3), "reused": False, "groups": groups, "parts": n_parts}
 
 
-def geometry_findings(geometry, settings, quiet=frozenset(), either=frozenset(), cache=None, clock_for=None) -> tuple:
+def geometry_findings(geometry, settings, quiet=frozenset(), either=frozenset(), cache=None, step_ms: float = 0.0) -> tuple:
     """`study_findings` of a board where its file has its parts (a laid board read from disk, a bench case)."""
     if not has_pools(geometry.footprints):
         return [], {}
     from .pairs import board_pairs
     pads, parts = placed_from_geometry(geometry, either)
     return study_findings(pads, parts, geometry.pin_names, quiet, board_pairs(geometry.netclasses), geometry.netclasses,
-                          settings, copper_nets(geometry), cache, clock_for)
+                          settings, copper_nets(geometry), cache, step_ms)
 ```
 
 - [ ] **Step 7: Run the tests to watch them pass**
 
 Run: `.venv/bin/python -m pytest tests/test_pinmap_finding.py tests/test_finding_kinds.py tests/test_suggestion_cases.py tests/test_no_sentence_parsing.py tests/test_apply_suggestion.py tests/test_finding_severity.py -q -n 2`
-Expected: PASS (`test_no_sentence_parsing` checks the new causes have renderers and versions; `test_suggestion_cases` that the api.md table names `pins.remap`).
+Expected: PASS (`test_no_sentence_parsing` checks the new causes have renderers and versions; `test_suggestion_cases` that the api.md table names `pins.remap`). Then `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock .venv/bin/python -m pytest tests/test_pinmap_real.py -q --full`: PASS (2 tests).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/placemat/findings.py src/placemat/finding_text.py src/placemat/suggestions.py src/placemat/pinmap.py skills/placemat/references/api.md tests/test_pinmap_finding.py tests/test_finding_kinds.py tests/test_suggestion_cases.py
+git add src/placemat/findings.py src/placemat/finding_text.py src/placemat/suggestions.py src/placemat/pinmap.py skills/placemat/references/api.md tests/test_pinmap_finding.py tests/test_pinmap_real.py tests/slow_tests.txt tests/test_finding_kinds.py tests/test_suggestion_cases.py
 git commit -m "Pin map study: a pins.remap notice with its map as facts, an advice suggestion that writes nothing, setup.pins for what it runs without"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
 ---
 
-### Task 9: Wiring into run and preview - once, at the end of a resolve, with digest reuse
+### Task 10: Wiring into run and preview - once, at the end of a resolve, with digest reuse
 
 **Files:**
 - Modify: `src/placemat/occupancy.py` (`Occupancy.courtyard_box`)
@@ -3116,10 +4790,10 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 - Test: `tests/test_pinmap_wiring.py`
 
 **Interfaces:**
-- Consumes: Task 8's `study_findings`, `copper_nets`, `has_pools`; `Occupancy.pad_anchor`, `Occupancy._transform`, `Occupancy.items`, `Occupancy.pending`; `Board._placements()`, `Board._plane_nets()`, `Board._free_nets`; `pairs.board_pairs`; `context._overlay`.
+- Consumes: Task 9's `study_findings`, `copper_nets`, `has_pools`; `Occupancy.pad_anchor`, `Occupancy._transform`, `Occupancy.items`, `Occupancy.pending`; `Board._placements()`, `Board._plane_nets()`, `Board._free_nets`; `pairs.board_pairs`; `context._overlay`.
 - Produces: `Occupancy.courtyard_box(ref) -> Box`; `Plan.pin_study: dict` ({"seconds", "reused", "groups", "parts"}, `{}` when nothing was studied); `Board.pin_study: bool = True`; `Board.pin_study_cache: Path | None = None`; `pinmap.placed_from_plan(board, plan) -> (pads, parts)`, `pinmap.plan_findings(board, plan) -> list[Finding]`, `pinmap.study_line(record) -> str`; `run.json` `metrics.pin_study`; the console line `pins  <study_line>` in run and preview.
 
-The hook sits after `_report_splits` and before `suggestions.bind` in `_resolve_once`, so the study's findings get their suggestion ids with the rest, are in the plan the studio is sent (`channel.reporter(...).plan`), and are in the reuse-free part of the plan (they are not step findings, so no replay record carries them). It runs when `self._explore is None` (a variant with a seed is never studied there) and `self.pin_study` (an explore's own boards, made by `BoardFactory`, say False: Task 10 studies the best of them). A try of a suggestion (`context._overlay` set) studies without keeping a record, as a try writes nothing.
+The hook sits after `_report_splits` and before `suggestions.bind` in `_resolve_once`, so the study's findings get their suggestion ids with the rest, are in the plan the studio is sent (`channel.reporter(...).plan`), and are in the reuse-free part of the plan (they are not step findings, so no replay record carries them). It runs when `self._explore is None` (a variant with a seed is never studied there) and `self.pin_study` (an explore's own boards, made by `BoardFactory`, say False: Task 11 studies the best of them). A try of a suggestion (`context._overlay` set) studies without keeping a record, as a try writes nothing.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3437,7 +5111,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-### Task 10: The explore hook - the best variants studied, reported beside their scores
+### Task 11: The explore hook - the best variants studied, reported beside their scores
 
 **Files:**
 - Modify: `src/placemat/pinmap.py` (append `plan_summary`)
@@ -3445,7 +5119,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 - Test: `tests/test_pinmap_explore.py`
 
 **Interfaces:**
-- Consumes: Task 9's `placed_from_plan`, `has_pools`; Task 7's `linked_groups`, `study_group`; Task 8's `_turns`, `_map`; `finding_text.pose_text`; `explore.Explore`, `explore._context_of`, `ExploreResult.results` (rows `(seed, score, measures)`, best first).
+- Consumes: Task 10's `placed_from_plan`, `has_pools`; Task 8's `pinmap_core.linked_groups`; Task 5's `study_group`, `problem_of`; Task 9's `_turns`, `_map`; `finding_text.pose_text`; `explore.Explore`, `explore._context_of`, `ExploreResult.results` (rows `(seed, score, measures)`, best first).
 - Produces: `pinmap.plan_summary(board, plan, refs=None, settings=None) -> list[dict]` (per group: `refs`, `present`, `best` (breakdowns as JSON), `rotation` (the best pose's index), `turns`, `map`, `searched`, `of`, `budget_out`); `explore._pin_maps(make_board, entries, focus, result, have) -> list[dict]` (per variant: `seed`, `score`, `groups`); `report["pin_maps"]` in the explore report (`metrics.explore` in `run.json`); `explore.pin_map_lines(report) -> list[str]`, printed under the explore's line.
 
 The variants stay ranked by run score; the study's numbers are reported beside the score and never added to it. Seed 0 is the plan `search` already resolved (`current`), the best seed the one it resolves for the moves (`best`); any other of the top `pins.explore_top` is resolved again here (a seed is deterministic). Nothing is resolved when no part carries a pool.
@@ -3508,7 +5182,7 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
     if not has_pools(board.geometry.footprints):
         return []
     from .pairs import board_pairs
-    from .pinmap_search import linked_groups, study_group
+    from .pinmap_core import linked_groups, problem_of, study_group
     settings = settings or board.settings
     pads, parts = placed_from_plan(board, plan)
     quiet = frozenset(board._plane_nets()) | frozenset(board._free_nets)
@@ -3516,12 +5190,12 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
                    board.geometry.netclasses, settings.pins_follow_series)
     if inp is None:
         return []
-    background = Background(inp.background, Weights.of(settings))
+    pb = problem_of(inp, settings.pins_exit_mm)
     out = []
     for group in linked_groups(inp):
         if refs and not set(group) & set(refs):
             continue
-        g = study_group(inp, group, settings, background)
+        g = study_group(inp, group, settings, pb=pb)
         if not g.results:
             continue
         i = min(range(len(g.results)), key=lambda k: (g.results[k].breakdown.total, k))
@@ -3642,7 +5316,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-### Task 11: A longer study from `placemat apply <id> --search`
+### Task 12: A longer study from `placemat apply <id> --search`
 
 The spec's "the probe can run the study with a larger budget": the command a probe already is. `placemat apply <id> --search` on a `pins` advice suggestion resolves the board as the last run placed it, studies the suggestion's parts with `pins.probe_budget_ms` a part, and keeps a better map as `<id>.1` beside the plan's suggestions (`suggestions.add_found`), where `placemat apply` and the studio find it - as advice, which `apply` refuses to write.
 
@@ -3652,7 +5326,7 @@ The spec's "the probe can run the study with a larger budget": the command a pro
 - Test: `tests/test_pinmap_probe.py`
 
 **Interfaces:**
-- Consumes: Task 10's `plan_summary`; Task 8's `suggestions.pin_advice_text`, `Suggestion(advice=...)`; `previewer.resolve_like_last_run(script) -> (board, plan, src, run_id)`; `suggestions.add_found`, `suggestions.recall`, `suggestions.keep`; `settings.load`.
+- Consumes: Task 11's `plan_summary`; Task 9's `suggestions.pin_advice_text`, `Suggestion(advice=...)`; `previewer.resolve_like_last_run(script) -> (board, plan, src, run_id)`; `suggestions.add_found`, `suggestions.recall`, `suggestions.keep`; `settings.load`.
 - Produces: `pinmap.longer_advice(board, plan, advice, budget_ms) -> (dict | None, dict | None)`; `cli._pin_search(args, board_dir, script, s) -> int`; the found suggestion `<id>.1` (`how: "advice"`, lever `pins`, text ending `, found by a longer study`).
 
 - [ ] **Step 1: Write the failing tests**
@@ -3794,16 +5468,16 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-### Task 12: Studio - the map and the airwires before and after
+### Task 13: Studio - the map and the airwires before and after
 
-The page already has what it needs: the plan JSON carries each finding's `facts` (with `before` and each pose's `paths`) and its suggestions' JSON (with `advice`), and `/suggest/show`, `/try` and `/apply` refuse an advice suggestion through `apply_suggestion` (Task 8). This task is the page alone: an advice suggestion is a third kind in `SG_KINDS` whose one button, Try, draws the airwires and lists the map, and writes and resolves nothing.
+The page already has what it needs: the plan JSON carries each finding's `facts` (with `before` and each pose's `paths`) and its suggestions' JSON (with `advice`), and `/suggest/show`, `/try` and `/apply` refuse an advice suggestion through `apply_suggestion` (Task 9). This task is the page alone: an advice suggestion is a third kind in `SG_KINDS` whose one button, Try, draws the airwires and lists the map, and writes and resolves nothing.
 
 **Files:**
 - Modify: `src/placemat/studio_page.html` (CSS, `S.pinmap`, `SG_KINDS.advice`, `sgKind`, `sgRow`, `sgAct`, `pinMapOf`, `pinMapSVG`, `pinMapHTML`, `drawPinMap`, `render`)
 - Test: `tests/test_studio_page.py` (append)
 
 **Interfaces:**
-- Consumes: the finding JSON `{cause: "pins.remap", facts: {before, rotations: [{paths, map, ...}]}, suggestions: [{id, how: "advice", lever: "pins", advice: {rotation, turns, map, ...}}]}` (Task 8); the page's `plan()`, `esc`, `num`, `B.svg`, `schedule`, `render`.
+- Consumes: the finding JSON `{cause: "pins.remap", facts: {before, rotations: [{paths, map, ...}]}, suggestions: [{id, how: "advice", lever: "pins", advice: {rotation, turns, map, ...}}]}` (Task 9); the page's `plan()`, `esc`, `num`, `B.svg`, `schedule`, `render`.
 - Produces: `S.pinmap: {sid} | null`; `pinMapSVG(f, s) -> string` (a `<g class="pinmap">` of `polyline.pm-before` and `polyline.pm-after`); `pinMapHTML(s) -> string`; `drawPinMap()`.
 
 Colours: the before airwires dashed in `--k-violet`, the after ones solid in `--good`, in both themes through the stylesheet's tokens; no red, yellow or grey (none of them is an error or a warning).
@@ -3969,658 +5643,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-### Task 13: Bench - a reference board with an MCU and a pool, measured against the budget
-
-**Files:**
-- Create: `fixtures/pinmap/reference.json` (the reference case: a laid fixture board, its plane nets, and its MCU's pin annotations - which live only here)
-- Create: `fixtures/pinmap_bench.py`
-- Test: `tests/test_pinmap_real.py` (written and watched failing here; committed by Task 15 once the defaults let it pass)
-
-**Interfaces:**
-- Consumes: Task 8's `pinmap.geometry_findings`; `kicad.read.read_board`; `Settings`.
-- Produces: `fixtures/pinmap_bench.py` with `annotated(geometry, parts)`, `cases()`, `board_of(case)`, `best_of(found)`, `run_case(case, settings, repeat)`, `main(argv)`; the measurements in `$SCRATCH/pinmap-bench.txt` that Tasks 14 and 15 read.
-
-The reference board is a laid board among the existing fixtures (the path in `reference.json`) whose 56-pin MCU carries 23 signal nets on its general-purpose pins and five unconnected pins, with nets routed already (so the study's "scored as unrouted" path is exercised). The annotations below were chosen from the pads' nets as read while planning: pool pads 6-19, 21-24, 27, 38-45, 47-48; pad 8 (a strap) fixed; one net allowed only on pads 6-15; the two-wire bus pair a group; the ground and the 3.3 V net are its plane nets.
-
-- [ ] **Step 1: The reference case and the bench**
-
-Create `fixtures/pinmap/reference.json`:
-
-```json
-{
-  "about": "The pin map study's reference boards: each a laid board of these fixtures, the plane nets its layout declares, and the pin annotations its MCU is given here for the study. The annotations live only in this file: no capture carries them.",
-  "cases": [
-    {
-      "name": "mcu-qfn56",
-      "board": "fairing/core/layout/layout.kicad_pcb",
-      "quiet": ["GND", "V3V3"],
-      "parts": {
-        "U21": {
-          "Pm.PinPool": "6-19, 21-24, 27, 38-45, 47-48",
-          "Pm.PinFixed": "8",
-          "Pm.PinAllow": "INA_ALERT:6-15",
-          "Pm.PinGroup": "i2c:13-14"
-        }
-      }
-    }
-  ]
-}
-```
-
-Create `fixtures/pinmap_bench.py`:
-
-```python
-"""The pin map study's speed and result on the reference boards (fixtures/pinmap/reference.json): each case's laid board
-read as its file has it, its parts given the fixture's pin annotations (no capture carries them), and the study run as
-a run runs it, `--repeat` times. Prints, per case, the median seconds per studied part against `pins.budget_ms`, whether
-the clock ran out, and the present and best totals; with `--long`, the best a long search finds too, the mark the
-default search effort is judged against.
-
-    flock <realboard lock> .venv/bin/python fixtures/pinmap_bench.py [--repeat N] [--long] [--set pins_key=value ...]
-
-Real boards: run it alone, under the lock the other real-board runs take."""
-from __future__ import annotations
-
-import argparse
-import dataclasses
-import json
-import pathlib
-import statistics
-import sys
-import time
-
-HERE = pathlib.Path(__file__).resolve().parent
-REFERENCE = HERE / "pinmap" / "reference.json"
-
-
-def annotated(geometry, parts: dict):
-    """The board with the fixture's annotations added to its parts' fields."""
-    fps = tuple(dataclasses.replace(fp, fields=dict(fp.fields, **parts[fp.ref])) if fp.ref in parts else fp
-                for fp in geometry.footprints)
-    return dataclasses.replace(geometry, footprints=fps)
-
-
-def cases() -> list:
-    return json.loads(REFERENCE.read_text())["cases"]
-
-
-def board_of(case):
-    from placemat.kicad.read import read_board
-    return annotated(read_board(HERE / case["board"]), case["parts"])
-
-
-def best_of(found) -> dict:
-    """{"present", "best", "budget_out", "pose"} of the first `pins.remap` finding, or {} for none."""
-    f = next((f for f in found if f.cause.value == "pins.remap"), None)
-    if f is None:
-        return {}
-    r = f.facts["rotations"][f.facts["best"]] if f.facts["rotations"] else {}
-    return {"present": f.facts["present"]["total"], "best": r.get("total"), "budget_out": f.facts["budget_out"],
-            "pose": [t["rotation_deg"] for t in r.get("turns", ())]}
-
-
-def run_case(case, settings, repeat: int) -> dict:
-    from placemat.pinmap import geometry_findings
-    g = board_of(case)
-    times, out = [], {}
-    for _ in range(repeat):
-        t0 = time.perf_counter()
-        found, record = geometry_findings(g, settings, frozenset(case["quiet"]))
-        times.append(time.perf_counter() - t0)
-        out = best_of(found)
-    parts = max(record.get("parts") or 1, 1)
-    return dict(out, seconds_per_part=round(statistics.median(times) / parts, 3))
-
-
-def _value(text: str):
-    try:
-        return json.loads(text)
-    except ValueError:
-        return text
-
-
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--repeat", type=int, default=3)
-    ap.add_argument("--long", action="store_true", help="also run a long search (4 seeds of 4000 moves, no clock)")
-    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="a setting, e.g. pins_anneal_moves=200")
-    args = ap.parse_args(argv)
-    from placemat.settings import Settings
-    over = {k: _value(v) for k, v in (s.split("=", 1) for s in args.set)}
-    if "pins_rotations" in over:
-        over["pins_rotations"] = tuple(over["pins_rotations"])
-    settings = dataclasses.replace(Settings(), **over)
-    for case in cases():
-        got = run_case(case, settings, args.repeat)
-        line = "%s: %.3f s a part (budget %d ms), present %s, best %s at %s, clock ran out: %s" % (
-            case["name"], got["seconds_per_part"], settings.pins_budget_ms, got.get("present"), got.get("best"),
-            got.get("pose"), got.get("budget_out"))
-        if args.long:
-            long = dataclasses.replace(settings, pins_seeds=4, pins_anneal_moves=4000, pins_budget_ms=10 ** 7)
-            line += "; long search best %s" % run_case(case, long, 1).get("best")
-        print(line)
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-```
-
-- [ ] **Step 2: Write the real-board test and watch it fail**
-
-Create `tests/test_pinmap_real.py`:
-
-```python
-"""The pin map study on a real laid board with an MCU (fixtures/pinmap/reference.json, its annotations given there): the
-best map beats the present one inside `pins.budget_ms`, a second study of the same board is reused, and no board item
-moves."""
-import hashlib
-import importlib.util
-from pathlib import Path
-
-from placemat.findings import FindingCause as C
-from placemat.settings import Settings
-from tests.conftest import needs_kicad
-
-BENCH = Path(__file__).resolve().parents[1] / "fixtures" / "pinmap_bench.py"
-
-
-def bench():
-    spec = importlib.util.spec_from_file_location("pinmap_bench", BENCH)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-@needs_kicad
-def test_on_a_real_board_the_best_map_beats_the_present_one_inside_its_budget_is_reused_and_nothing_moves(tmp_path):
-    from placemat.kicad.read import read_board
-    from placemat.pinmap import geometry_findings
-    b = bench()
-    case = b.cases()[0]
-    pcb = b.HERE / case["board"]
-    digest = hashlib.sha256(pcb.read_bytes()).hexdigest()
-    g = b.board_of(case)
-    cache = tmp_path / "pinmap.json"
-    found, record = geometry_findings(g, Settings(), frozenset(case["quiet"]), cache=cache)
-    (f,) = [f for f in found if f.cause is C.PINS_REMAP]
-    assert f.facts["rotations"][f.facts["best"]]["total"] < f.facts["present"]["total"]
-    assert f.facts["budget_out"] is False and record["reused"] is False
-    again, record = geometry_findings(g, Settings(), frozenset(case["quiet"]), cache=cache)
-    assert record["reused"] is True and [str(x) for x in again] == [str(x) for x in found]
-    assert hashlib.sha256(pcb.read_bytes()).hexdigest() == digest
-    where = lambda geometry: [(fp.ref, fp.location, fp.rotation, fp.face) for fp in geometry.footprints]
-    assert where(read_board(pcb)) == where(g)
-```
-
-Run: `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock .venv/bin/python -m pytest tests/test_pinmap_real.py -q`
-Expected: FAIL on `assert f.facts["budget_out"] is False`: at the provisional 400 ms the Python study stops before its four poses are searched. (The rest of the test - a better map, reuse, nothing moved - is checked once the budget fits.)
-
-- [ ] **Step 3: Measure the search effort against a long search**
-
-Run each line, one at a time, and append its output to `$SCRATCH/pinmap-bench.txt`:
-
-```bash
-L=/tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock
-flock $L .venv/bin/python fixtures/pinmap_bench.py --repeat 1 --long --set pins_budget_ms=600000 | tee -a $SCRATCH/pinmap-bench.txt
-for e in "100 1" "100 2" "200 2" "500 2" "500 4"; do set -- $e
-  flock $L .venv/bin/python fixtures/pinmap_bench.py --repeat 3 --set pins_budget_ms=600000 --set pins_anneal_moves=$1 --set pins_seeds=$2 \
-    | sed "s/^/moves $1 seeds $2: /" | tee -a $SCRATCH/pinmap-bench.txt
-done
-```
-
-Expected (measured while planning, pure Python, this machine; your numbers will differ a little):
-
-| moves, seeds | seconds a part | best total |
-|---|---|---|
-| 100, 1 | 0.42 | 1286.3 |
-| 100, 2 | 0.64 | 1274.7 |
-| 200, 2 | 0.99 | 1274.5 |
-| 500, 4 | 2.24 | 1264.2 |
-| long (4000, 4) | - | about 1248 |
-
-(present total 1437.9; the best pose was the present rotation.)
-
-- [ ] **Step 4: Decide**
-
-From `$SCRATCH/pinmap-bench.txt`:
-
-1. The effort is the cheapest (moves, seeds) whose best total is within 2% of the long search's best.
-2. If that effort takes more than 0.5 s a part (the spec aims the budget at a few hundred ms), the Python search is over budget on the reference board: Task 14 (native) runs, then Step 3 is run again with the native module in use (`.venv/bin/python -c "from placemat.geometry import native_status; print(native_status().facts())"` shows `in_use: True`), appending to the same file, and 1 is applied to the new numbers.
-3. If no effort within 2% takes 0.5 s a part or less even then, the effort is the one with the lowest best total among those that do.
-4. Write the decision as two lines at the end of `$SCRATCH/pinmap-bench.txt`: `effort: moves <M> seeds <N>` and `native: yes|no`.
-
-With the planning numbers, (500, 4) is the cheapest within 2% (1264.2 against 1248) at 2.24 s, so Task 14 runs; were the native module not to help, rule 3 would give (100, 1) at 0.42 s.
-
-- [ ] **Step 5: Commit the reference case and the bench (the test waits for Task 15)**
-
-```bash
-git add fixtures/pinmap/reference.json fixtures/pinmap_bench.py
-{ echo "Bench: the pin map study's reference board and its speed bench"; echo; grep -E "^(mcu|moves)" $SCRATCH/pinmap-bench.txt; } | git commit -F -
-git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
-```
-
----
-
-### Task 14: The inner crossing update in the native module (only if Task 13 says so)
-
-Run this task only when `$SCRATCH/pinmap-bench.txt` ends with `native: yes`. Otherwise skip to Task 15.
-
-The two questions the search asks by the thousand move to Rust: what a net's segments cross among the background wires (`Background.cross`), and how many times two nets' segments cross (`segments_crossing`). The answers are the Python ones exactly: segments arrive in whole nanometres, `cross_nm` is `ratsnest._cross_nm`'s port already in `native/src/ratsnest.rs`, and each segment's candidates are taken in wire order so the weighted sums add up in the same order.
-
-**Files:**
-- Create: `native/src/pinmap.rs`
-- Modify: `native/src/lib.rs` (`mod pinmap;`, `NativeWires`, `segments_crossing`, registration)
-- Modify: `src/placemat/pinmap_score.py` (`Background` and `segments_crossing` use the native module when it has them)
-- Test: the Rust unit test in `native/src/pinmap.rs`; `tests/test_native_pinmap.py`
-
-**Interfaces:**
-- Consumes: `crate::ratsnest::cross_nm` (pub); Task 5's `Background`, `segments_crossing`, `_segments`, `Weights`, `CELL_NM`.
-- Produces: `placemat_native.NativeWires(wires: list[(net, kind)], segs: list[(ax, ay, bx, by)], weights: (pair, impedance, plane))` with `.cross(net, kind, segs) -> (float, int)`; `placemat_native.segments_crossing(a, b) -> int`; `Background.mirror` (None in pure Python).
-
-- [ ] **Step 1: Write the Rust test first and watch it fail to build**
-
-Create `native/src/pinmap.rs` with only its test module:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_wire_across_a_segment_counts_and_its_own_net_does_not() {
-        let w = Wires::new(vec![("X".into(), "plain".into()), ("A".into(), "plain".into()), ("P".into(), "pair".into())],
-                           vec![(5_000_000, 0, 5_000_000, 10_000_000), (6_000_000, 0, 6_000_000, 10_000_000),
-                                (7_000_000, 0, 7_000_000, 10_000_000)], (5.0, 3.0, 0.0));
-        assert_eq!(w.cross("A", "plain", &[(0, 5_000_000, 10_000_000, 5_000_000)]), (6.0, 2));
-        assert_eq!(segments_crossing(&[(0, 0, 10, 10)], &[(0, 10, 10, 0), (20, 20, 30, 30)]), 1);
-    }
-}
-```
-
-In `native/src/lib.rs`, add `mod pinmap;` to the module list, between `mod judge;` and `mod pockets;`.
-
-Run: `cd native && nice cargo test --release --lib pinmap; cd ..`
-Expected: FAIL to compile: `cannot find struct, variant or union type Wires`.
-
-- [ ] **Step 2: The counts in Rust**
-
-Replace `native/src/pinmap.rs` with:
-
-```rust
-//! The pin map study's crossing counts (`placemat.pinmap_score`), for the two questions its search asks by the
-//! thousand: what a studied net's segments cross among the board's other airwires (`Wires::cross`), and how many times
-//! two studied nets' segments cross (`segments_crossing`). Segments arrive in whole nanometres, as Python rounds them,
-//! and each segment's candidate wires are taken in wire order, so a weighted sum adds up as Python's does.
-
-use crate::ratsnest::cross_nm;
-use std::collections::HashMap;
-
-pub const CELL_NM: i64 = 2_000_000; // pinmap_score.CELL_NM
-
-/// A segment, its ends in whole nanometres.
-pub type Seg = (i64, i64, i64, i64);
-
-fn bounds(s: &Seg) -> (i64, i64, i64, i64) {
-    (s.0.min(s.2), s.1.min(s.3), s.0.max(s.2), s.1.max(s.3))
-}
-
-/// Python's floor division of a coordinate by the cell.
-fn cell(v: i64) -> i64 {
-    v.div_euclid(CELL_NM)
-}
-
-/// pinmap_score.Weights' classes: plain 0, pair 1, impedance 2, plane 3.
-pub fn kind_code(kind: &str) -> u8 {
-    match kind {
-        "pair" => 1,
-        "impedance" => 2,
-        "plane" => 3,
-        _ => 0,
-    }
-}
-
-pub struct Wires {
-    nets: Vec<String>,
-    kinds: Vec<u8>,
-    segs: Vec<Seg>,
-    boxes: Vec<(i64, i64, i64, i64)>,
-    grid: HashMap<(i64, i64), Vec<usize>>,
-    pair: f64,
-    impedance: f64,
-    plane: f64,
-}
-
-impl Wires {
-    /// `wires` (net, crossing class) and `segs` one each, `weights` (pair, impedance, plane).
-    pub fn new(wires: Vec<(String, String)>, segs: Vec<Seg>, weights: (f64, f64, f64)) -> Self {
-        let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
-        let boxes: Vec<(i64, i64, i64, i64)> = segs.iter().map(bounds).collect();
-        for (k, b) in boxes.iter().enumerate() {
-            for cx in cell(b.0)..=cell(b.2) {
-                for cy in cell(b.1)..=cell(b.3) {
-                    grid.entry((cx, cy)).or_default().push(k);
-                }
-            }
-        }
-        Wires {
-            nets: wires.iter().map(|(n, _)| n.clone()).collect(),
-            kinds: wires.iter().map(|(_, k)| kind_code(k)).collect(),
-            segs,
-            boxes,
-            grid,
-            pair: weights.0,
-            impedance: weights.1,
-            plane: weights.2,
-        }
-    }
-
-    fn one(&self, k: u8) -> f64 {
-        match k {
-            1 => self.pair,
-            2 => self.impedance,
-            _ => 1.0,
-        }
-    }
-
-    /// `Weights.crossing`.
-    fn crossing(&self, a: u8, b: u8) -> f64 {
-        if a == 3 || b == 3 {
-            return self.plane;
-        }
-        let (x, y) = (self.one(a), self.one(b));
-        if x >= y { x } else { y }
-    }
-
-    /// `Background.cross`: (weighted count, count) of the wires of other nets that `segs` cross.
-    pub fn cross(&self, net: &str, kind: &str, segs: &[Seg]) -> (f64, i64) {
-        let k = kind_code(kind);
-        let mut total = 0.0;
-        let mut count = 0i64;
-        for s in segs {
-            let b = bounds(s);
-            let mut near: Vec<usize> = Vec::new();
-            for cx in cell(b.0)..=cell(b.2) {
-                for cy in cell(b.1)..=cell(b.3) {
-                    if let Some(v) = self.grid.get(&(cx, cy)) {
-                        near.extend_from_slice(v);
-                    }
-                }
-            }
-            near.sort_unstable();
-            near.dedup();
-            for i in near {
-                let t = self.boxes[i];
-                if t.2 < b.0 || b.2 < t.0 || t.3 < b.1 || b.3 < t.1 || self.nets[i] == net {
-                    continue;
-                }
-                let w = self.segs[i];
-                if cross_nm(s.0, s.1, s.2, s.3, w.0, w.1, w.2, w.3) {
-                    total += self.crossing(k, self.kinds[i]);
-                    count += 1;
-                }
-            }
-        }
-        (total, count)
-    }
-}
-
-/// `pinmap_score.segments_crossing`: how many times two nets' segments cross.
-pub fn segments_crossing(a: &[Seg], b: &[Seg]) -> i64 {
-    let mut n = 0i64;
-    for s in a {
-        let sb = bounds(s);
-        for t in b {
-            let tb = bounds(t);
-            if sb.2 < tb.0 || tb.2 < sb.0 || sb.3 < tb.1 || tb.3 < sb.1 {
-                continue;
-            }
-            if cross_nm(s.0, s.1, s.2, s.3, t.0, t.1, t.2, t.3) {
-                n += 1;
-            }
-        }
-    }
-    n
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_wire_across_a_segment_counts_and_its_own_net_does_not() {
-        let w = Wires::new(vec![("X".into(), "plain".into()), ("A".into(), "plain".into()), ("P".into(), "pair".into())],
-                           vec![(5_000_000, 0, 5_000_000, 10_000_000), (6_000_000, 0, 6_000_000, 10_000_000),
-                                (7_000_000, 0, 7_000_000, 10_000_000)], (5.0, 3.0, 0.0));
-        assert_eq!(w.cross("A", "plain", &[(0, 5_000_000, 10_000_000, 5_000_000)]), (6.0, 2));
-        assert_eq!(segments_crossing(&[(0, 0, 10, 10)], &[(0, 10, 10, 0), (20, 20, 30, 30)]), 1);
-    }
-}
-```
-
-Run: `cd native && nice cargo test --release --lib pinmap; cd ..`
-Expected: PASS (1 test).
-
-- [ ] **Step 3: Expose them to Python**
-
-In `native/src/lib.rs`, before `/// The occupancy's placed ratsnest, mirrored for \`leaf_costs\``, add:
-
-```rust
-/// The pin map study's other airwires (native/src/pinmap.rs): what a studied net's segments cross.
-#[pyclass]
-struct NativeWires {
-    inner: pinmap::Wires,
-}
-
-#[pymethods]
-impl NativeWires {
-    #[new]
-    fn new(wires: Vec<(String, String)>, segs: Vec<pinmap::Seg>, weights: (f64, f64, f64)) -> Self {
-        NativeWires { inner: pinmap::Wires::new(wires, segs, weights) }
-    }
-
-    /// (weighted count, count) of the crossings of `segs` (a net of crossing class `kind`) with the other nets' wires.
-    fn cross(&self, net: &str, kind: &str, segs: Vec<pinmap::Seg>) -> (f64, i64) {
-        self.inner.cross(net, kind, &segs)
-    }
-}
-
-/// How many times two studied nets' segments cross (pinmap_score.segments_crossing).
-#[pyfunction]
-fn segments_crossing(a: Vec<pinmap::Seg>, b: Vec<pinmap::Seg>) -> i64 {
-    pinmap::segments_crossing(&a, &b)
-}
-
-```
-
-and after `    m.add_class::<NativeRatsnest>()?;` add:
-
-```rust
-    m.add_class::<NativeWires>()?;
-    m.add_function(wrap_pyfunction!(segments_crossing, m)?)?;
-```
-
-- [ ] **Step 4: Write the parity test**
-
-Create `tests/test_native_pinmap.py`:
-
-```python
-"""The native pin map crossing counts are pinmap_score's: the same counts and the same weighted sums, in wire order."""
-import random
-
-import pytest
-
-native = pytest.importorskip("placemat_native")
-if not hasattr(native, "NativeWires"):
-    pytest.skip("the native module was built before the pin map study", allow_module_level=True)
-
-from placemat import geometry  # noqa: E402
-from placemat.pinmap_input import Wire  # noqa: E402
-from placemat.pinmap_score import Background, Weights, _segments, segments_crossing  # noqa: E402
-
-
-def _python(fn):
-    was = geometry._native
-    geometry._native = None
-    try:
-        return fn()
-    finally:
-        geometry._native = was
-
-
-@pytest.mark.parametrize("seed", range(20))
-def test_the_counts_are_the_pythons(seed):
-    rng = random.Random(seed)
-    kinds = ("plain", "pair", "impedance", "plane")
-    pt = lambda: (round(rng.uniform(-5, 30), 3), round(rng.uniform(-5, 30), 3))
-    wires = [Wire(rng.choice("ABCDE"), rng.choice(kinds), pt(), pt()) for _ in range(rng.randint(1, 80))]
-    w = Weights(pair=5.0, impedance=3.0, plane=rng.choice((0.0, 0.5)))
-    paths = [_segments([tuple(pt() for _ in range(rng.randint(2, 5)))]) for _ in range(10)]
-    py, nat = _python(lambda: Background(wires, w)), Background(wires, w)
-    assert py.mirror is None and nat.mirror is not None
-    for segs in paths:
-        net, kind = rng.choice("ABCDEX"), rng.choice(kinds)
-        assert nat.cross(net, kind, segs) == py.cross(net, kind, segs)
-    assert segments_crossing(paths[0], paths[1]) == _python(lambda: segments_crossing(paths[0], paths[1]))
-```
-
-- [ ] **Step 5: Build the module and watch the parity test fail**
-
-Run: `uv pip install -e ".[native]"` then `.venv/bin/python -m pytest tests/test_native_pinmap.py -q -n 2`
-Expected: FAIL with `AttributeError: 'Background' object has no attribute 'mirror'` (Python does not ask the native module yet).
-
-- [ ] **Step 6: Python asks the native module**
-
-In `src/placemat/pinmap_score.py`:
-
-After `from dataclasses import dataclass` add:
-
-```python
-
-from . import geometry as _geometry
-```
-
-Replace `Background`'s docstring ending `out when \`score.crossing_plane\` is 0, as it weighs nothing."""` with:
-
-```python
-    out when `score.crossing_plane` is 0, as it weighs nothing. The native module answers it when it has `NativeWires`,
-    the same way and in the same order."""
-```
-
-Replace:
-
-```python
-        self.segs = _segments([(w.a, w.b) for w in self.wires])
-        self.grid: dict = {}
-```
-
-with:
-
-```python
-        self.segs = _segments([(w.a, w.b) for w in self.wires])
-        native = _geometry._native
-        self.mirror = None
-        if native is not None and hasattr(native, "NativeWires"):
-            self.mirror = native.NativeWires([(w.net, w.kind) for w in self.wires], [s[:4] for s in self.segs],
-                                             (weights.pair, weights.impedance, weights.plane))
-            return
-        self.grid: dict = {}
-```
-
-Replace:
-
-```python
-    def cross(self, net: str, kind: str, segs) -> tuple:
-        total, count = 0.0, 0
-```
-
-with:
-
-```python
-    def cross(self, net: str, kind: str, segs) -> tuple:
-        if self.mirror is not None:
-            return self.mirror.cross(net, kind, [s[:4] for s in segs])
-        total, count = 0.0, 0
-```
-
-In `segments_crossing`, make the first lines after the docstring:
-
-```python
-    native = _geometry._native
-    if native is not None and hasattr(native, "segments_crossing"):
-        return native.segments_crossing([s[:4] for s in a], [s[:4] for s in b])
-```
-
-- [ ] **Step 7: Run the tests to watch them pass**
-
-Run: `.venv/bin/python -m pytest tests/test_native_pinmap.py tests/test_pinmap_score.py tests/test_pinmap_search.py tests/test_pinmap_joint.py tests/test_pinmap_finding.py -q -n 2` and `cd native && cargo clippy --release -- -D warnings; cd ..`
-Expected: PASS, and clippy clean.
-
-- [ ] **Step 8: Measure again, and keep the port only if it pays**
-
-Run Task 13's Step 3 again (the same lines), appending to `$SCRATCH/pinmap-bench.txt` under a line `native:`.
-If the seconds a part at the chosen effort did not fall, revert this task (`git checkout -- native src/placemat/pinmap_score.py && rm native/src/pinmap.rs tests/test_native_pinmap.py`) and note `native: no gain` in the file. Otherwise:
-
-```bash
-git add native/src/pinmap.rs native/src/lib.rs src/placemat/pinmap_score.py tests/test_native_pinmap.py
-{ echo "Native: the pin map study's crossing counts"; echo; grep -E "^(mcu|moves|native)" $SCRATCH/pinmap-bench.txt | tail -8; } | git commit -F -
-git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
-```
-
----
-
-### Task 15: The defaults from the bench
-
-**Files:**
-- Modify: `src/placemat/settings.py` (the defaults of `pins_anneal_moves`, `pins_seeds`, `pins_budget_ms`)
-- Modify: `tests/test_pinmap_settings.py` (the defaults it asserts)
-- Modify: `skills/placemat/references/api.md` (the generated settings table)
-- Modify: `tests/slow_tests.txt`
-- Test: `tests/test_pinmap_real.py` (from Task 13)
-
-**Interfaces:**
-- Consumes: `$SCRATCH/pinmap-bench.txt` (Task 13, and Task 14 if it ran): the effort line and the seconds a part at that effort with the module that will ship (native when Task 14 was kept).
-- Produces: the shipped defaults.
-
-- [ ] **Step 1: Set the effort and the budget**
-
-From the last measurement of the chosen effort: `M` and `N` are its moves and seeds; `B` is its seconds a part times 1.5, in milliseconds, rounded up to a multiple of 50 (the 1.5 is headroom for a slower machine than this one; the budget must not cut the reference board short). For example, an effort measured at 0.30 s a part gives `B = 450`.
-
-In `src/placemat/settings.py`, replace the first argument of `S(...)` in `pins_anneal_moves: int = S(500, "count", ...)` with `M`, in `pins_seeds: int = S(4, "count", ...)` with `N` and in `pins_budget_ms: int = S(400, "ms", ...)` with `B`; nothing else in those lines changes.
-
-In `tests/test_pinmap_settings.py`, in `test_every_pins_setting_has_its_default`, change the expected `pins_seeds`, `pins_anneal_moves` and `pins_budget_ms` to the same three numbers.
-
-Regenerate the api.md table with Task 1's Step 4 command.
-
-- [ ] **Step 2: Run the real-board test to watch it pass**
-
-Run: `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock .venv/bin/python -m pytest tests/test_pinmap_real.py -q`
-Expected: PASS: the best map beats the present one, the clock did not run out, the second study is reused, and the board file and every part's place are as read.
-
-If it fails on `budget_out`, the budget is too tight for this machine's load: take the measurement again (Task 13 Step 3 for the chosen effort only) and recompute `B`. Do not raise the budget past what the measurement supports.
-
-- [ ] **Step 3: The real-board test is a slow one**
-
-Add to `tests/slow_tests.txt`:
-
-```
-tests/test_pinmap_real.py::test_on_a_real_board_the_best_map_beats_the_present_one_inside_its_budget_is_reused_and_nothing_moves
-```
-
-Run: `.venv/bin/python -m pytest tests/test_pinmap_settings.py tests/test_settings_docs.py -q -n 2`
-Expected: PASS.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add src/placemat/settings.py tests/test_pinmap_settings.py skills/placemat/references/api.md tests/slow_tests.txt tests/test_pinmap_real.py
-{ echo "Pin map study: its search effort and budget from the bench"; echo; grep -E "^(effort|native)" $SCRATCH/pinmap-bench.txt; grep -E "^moves" $SCRATCH/pinmap-bench.txt | tail -5; } | git commit -F -
-git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
-```
-
----
-
-### Task 16: Docs - capture.md, api.md, the skill, migration
+### Task 14: Docs - capture.md, api.md, the skill, migration
 
 **Files:**
 - Modify: `skills/placemat/references/capture.md` (the annotation table; a section "Pin pools")
@@ -4629,7 +5652,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 - Modify: `skills/placemat/references/migration.md` (a "### New" entry under "## Unreleased")
 
 **Interfaces:**
-- Consumes: the behaviour of Tasks 1-15 as built; the settings table is already generated (Tasks 1 and 15), the suggestions case row is in (Task 8).
+- Consumes: the behaviour of Tasks 1-13 as built; the settings table is already generated (Tasks 1 and 6), the suggestions case row is in (Task 9).
 - Produces: documentation only.
 
 - [ ] **Step 1: capture.md - the annotations**
@@ -4733,7 +5756,9 @@ between a pin's outward normal and the bearing to its target).
 
 **The search.** Per pose, a first map by minimum-cost matching (each group of
 `Pm.PinGroup` on the run of pins nearest its targets), then `pins.seeds` local
-searches of `pins.anneal_moves` moves and swaps under annealing. Parts whose
+searches of `pins.anneal_moves` moves and swaps under annealing. The score and
+the search run in the native module when it is in use, else in its Python
+twin, which gives the same maps (`setup.native` says when it is not). Parts whose
 movable nets meet are studied together, their poses in combination, at most
 `pins.joint_combinations`. Seeds are fixed and ties go to the lower pin, so a
 board gives the same map twice; a study stops at `pins.budget_ms` a part with
@@ -4788,11 +5813,9 @@ In `skills/placemat/SKILL.md`, in "## Pin assignments are a layout lever", after
 
 - [ ] **Step 4: migration.md - the entry**
 
-In `skills/placemat/references/migration.md`, under `## Unreleased` (create the section above the newest `## To ...` if it is not there), add a `### New` subsection above any `### Fixed`:
+In `skills/placemat/references/migration.md`, add this bullet at the end of the `### New` list under `## Unreleased` (at HEAD when this plan was written, that list exists and holds the net halos entry; if it does not, create `## Unreleased` above the newest `## To ...` and `### New` above any `### Fixed` in it):
 
 ```markdown
-### New
-
 - **The pin map study.** A part whose capture annotates its general-purpose pins (`Pm.PinPool`, with `Pm.PinFixed`,
   `Pm.PinAllow`, `Pm.PinDeny` and `Pm.PinGroup`; capture.md, "Pin pools") is studied at the end of every run and
   preview: placemat looks for an assignment of its nets to those pins, at its present rotation and at each turn in
@@ -4800,8 +5823,9 @@ In `skills/placemat/references/migration.md`, under `## Unreleased` (create the 
   whose suggestion carries the map and the turn. Nothing is written: the map is a capture change and the turn a layout
   one. An annotation entry naming a pin or a net the part lacks is a `setup.pins` warning. An explore reports the study
   of its best variants beside their scores; `placemat apply <id> --search` studies again with a longer budget. Settings:
-  `[pins]`. Nothing in a layout script changes; the first run after updating replays no steps (the findings' schemas
-  changed).
+  `[pins]`. The study runs in the native module when it is in use (`uv pip install -e ".[native]"` after updating), else
+  in Python, with the same results. Nothing in a layout script changes; the first run after updating replays no steps
+  (the findings' schemas changed).
 ```
 
 - [ ] **Step 5: Check the docs**
@@ -4809,7 +5833,7 @@ In `skills/placemat/references/migration.md`, under `## Unreleased` (create the 
 Run: `.venv/bin/python -m pytest tests/test_settings_docs.py tests/test_suggestion_cases.py -q -n 2`
 Expected: PASS.
 
-Run: `grep -nP "[\x{2013}\x{2014}\x{2192}\x{2018}\x{2019}\x{201C}\x{201D}\x{2026}]" skills/placemat/SKILL.md skills/placemat/references/capture.md skills/placemat/references/api.md skills/placemat/references/migration.md src/placemat/pinmap*.py`
+Run: `grep -nP "[\x{2013}\x{2014}\x{2192}\x{2018}\x{2019}\x{201C}\x{201D}\x{2026}]" skills/placemat/SKILL.md skills/placemat/references/capture.md skills/placemat/references/api.md skills/placemat/references/migration.md src/placemat/pinmap*.py native/src/pinmap*.rs`
 Expected: no line the change added (ASCII only).
 
 - [ ] **Step 6: Commit**
@@ -4822,7 +5846,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 - [ ] **Step 7: The whole suite**
 
-Run: `.venv/bin/python -m pytest -n 2 -q 2>&1 | tail -5`, then `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock .venv/bin/python -m pytest -n 2 -q --full tests/test_pinmap_real.py tests/test_pinmap_netclass.py`
+Run: `.venv/bin/python -m pytest -n 2 -q 2>&1 | tail -5`, then `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock .venv/bin/python -m pytest -n 2 -q --full tests/test_pinmap_real.py tests/test_pinmap_netclass.py`, and `PLACEMAT_NATIVE=0 .venv/bin/python -m pytest -n 2 -q tests/test_pinmap_*.py` (the study on its Python twin)
 Expected: no failures.
 
 ---
@@ -4831,10 +5855,12 @@ Expected: no failures.
 
 Done while writing; recorded here for the reviewer.
 
-**Spec coverage.** Constraints (pool, fixed, allow, deny, group; number, name, range; `setup.pins` for a pin or net the part lacks; no legal map): Task 2, Task 6 (`no_legal_map`), Task 8. Scored as unrouted: Task 4 (`board_nets(pads, copper=())`), Task 5 (the routed-board test). Airwires round the body: Task 3. Multi-pad nets on the tree: Task 5. Series parts: Task 4. Weights (pair, impedance, plane): Tasks 4-5. Bends: Tasks 3, 5, 6 (the diagonal test). Total: Task 5. The search (matching seed, moves and swaps, groups whole, annealing, seeds, determinism, ties by pin number, rotations, faces): Task 6. Joint study and its cap: Tasks 6-7. Speed (budget per part, once after placement, digest reuse, incremental counts, native if the bench says so): Tasks 5, 6, 9, 13-15. The finding, its facts (moved nets with copper now included) and its sentence: Task 8. The suggestion (lever `pins`, map and rotation, `try` previews nothing): Tasks 8 and 12. Studio before/after drawing: Task 12. The probe with a larger budget: Task 11. Explore: Task 10. Errors (no pool, no legal map, budget too short): Tasks 2, 6, 8. Testing list: known optimal map (Task 6), each constraint (Task 6), group whole and in order (Task 6), joint beats one at a time (Task 7), body obstacle (Task 6), bends with and without 45 (Task 6), determinism (Task 6), speed and reuse on the reference board (Tasks 13, 15), routed board (Task 5), real fixture board beats the present map and nothing moves (Tasks 13, 15). Settings with defaults and table lines: Tasks 1, 15. Docs: Task 16.
+**Spec coverage.** Constraints (pool, fixed, allow, deny, group; number, name, range; `setup.pins` for a pin or net the part lacks; no legal map): Tasks 2, 5 (`no_legal_map` from the matching), 9. Scored as unrouted: Task 3 (`board_nets(pads, copper=())`), Task 5 (the routed-board score test). Airwires round the body: Task 4 (Rust), Task 7 (Python twin). Multi-pad nets on the tree, series parts: Tasks 3 and 5. Weights (pair, impedance, plane): Tasks 3 and 5. Bends: Tasks 4, 5 (the diagonal test). Total: Task 5. The search (matching seed, moves and swaps, groups whole, annealing, seeds, determinism, ties by pin number, rotations, faces): Task 5, twinned in Task 7. Joint study and its cap: Tasks 5 and 8. Speed (budget per part, incremental counts on a grid, the native module, once after placement, digest reuse): Tasks 5, 6, 9, 10. The finding, its facts (moved nets with copper now included) and its sentence: Task 9. The suggestion (lever `pins`, map and rotation, `try` previews nothing): Tasks 9 and 13. Studio before/after drawing: Task 13. The probe with a larger budget: Task 12. Explore: Task 11. Errors (no pool, no legal map, budget too short): Tasks 2, 5, 9. Testing list: known optimal map, each constraint, group whole and in order, body obstacle, bends with and without 45, determinism (Task 5, both cores from Task 7); joint beats one at a time (Task 8); speed on the reference board (Task 6) and reuse (Task 9); routed board (Task 5); real fixture board beats the present map and nothing moves (Task 6). Native and Python agree on fixed seeds: Task 7. Settings with defaults and table lines: Tasks 1, 6. Docs: Task 14.
 
-**Placeholders.** The only values not fixed in this plan are the three defaults Task 15 takes from the bench (`pins_anneal_moves`, `pins_seeds`, `pins_budget_ms`), as the spec asks ("default set by the bench"); the measurement, the rule and the edit are spelled out. Task 14 runs only on the bench's word.
+**Placeholders.** The only values not fixed in this plan are the three defaults Task 6 takes from the bench (`pins_anneal_moves`, `pins_seeds`, `pins_budget_ms`), as the spec asks ("default set by the bench"); the measurement, the rule, the planning-time numbers and the edit are spelled out, and the stop branch says what to report.
 
-**Type consistency.** Names checked across tasks: `Problem.facts()`, `PinRules`, `PartPins.present/movable/allowed/free/groups/windows/held`, `read_rules`, `part_pins`, `natural`; `Pose`, `Exit`, `exit_of`, `route`, `bend`, `outward`, `through`; `PlacedPad`, `PlacedPart`, `StudyInput.part`, `StudyNet.ends/fixed/joined/kind/via/far`, `Wire`, `build`, `placed_from_geometry`, `net_kind`; `Weights.of`, `Breakdown.to_json`, `Background.cross(net, kind, segs)`, `_segments`, `segments_crossing`, `Scorer.exit/wires/single/pair/total`, `Tally.delta/apply/value/assign`; `Clock`, `poses_of`, `hungarian`, `first_map`, `anneal`, `study_group`, `GroupResult.refs/present/present_assign/results/searched/of/budget_out/first_map/problems`, `PoseResult.poses/breakdown/assign`, `linked_groups`, `study`; `pinmap.has_pools/copper_nets/group_facts/digest/study_findings/geometry_findings/study_line/placed_from_plan/plan_findings/plan_summary/longer_advice`; `suggestions.pin_advice/pin_advice_text`; `finding_text.pose_text`; `Board.pin_study/pin_study_cache`, `Plan.pin_study`, `Occupancy.courtyard_box`; `explore._pin_maps/pin_map_lines`; `cli._pin_search`. The code in Tasks 2-12 was run while planning against a copy of the tree (all 66 of the study's tests and the touched suites passing; the real-board test failing on its budget as Task 13 expects).
+**Type consistency.** Names checked across tasks: `Problem.facts()` (rules), `PinRules`, `PartPins.present/movable/allowed/free/groups/windows/held`, `read_rules`, `part_pins`, `natural`; `PlacedPad`, `PlacedPart`, `StudyInput.part`, `StudyNet`, `Wire`, `build`, `placed_from_geometry`, `net_kind`, `outward`; Rust `pinmap_geom::{Pose, Exit, exit_of, through, length, round_body, End, route, bend}` and `pinmap::{Row, Problem, Params, SplitMix64, stream_seed, crossing, segments_crossing, hungarian, Tallies, Paths, SearchResult, search}`; `placemat_native.pinmap_search(parts, pins, nets, fixed, joined, ends, wires, movable, groups, group_parts, combos, weights, params)`; `pinmap_core.Problem` (the arrays), `KIND_CODES`, `problem_of`, `poses_of`, `seed_key`, `params_of`, `native_core`, `search`, `Breakdown`, `PoseResult(poses, breakdown, assign, paths)`, `GroupResult(refs, present, present_assign, present_paths, results, searched, of, budget_out, first_map, problems)`, `study_group`, `linked_groups`, `study`; `pinmap_geom.py` and `pinmap_twin.py` mirroring the Rust names; `pinmap.has_pools/copper_nets/group_facts/digest/study_findings/geometry_findings/study_line/placed_from_plan/plan_findings/plan_summary/longer_advice`; `suggestions.pin_advice/pin_advice_text`; `finding_text.pose_text`; `Board.pin_study/pin_study_cache`, `Plan.pin_study`, `Occupancy.courtyard_box`; `explore._pin_maps/pin_map_lines`; `cli._pin_search`.
+
+**Run while planning.** On a copy of the tree with the native module built into a scratch venv: the Rust tests (6), every pin map test on both cores (124 with the touched suites), the 19 native-against-twin comparisons agreeing exactly (one first disagreement, in the last bit of a bend, came from taking degrees as `x / (pi / 180)`; CPython's is `(180 / pi) * x`, which the Rust now uses), the reference board's maps the same on both cores, and the real-board test failing on its budget at the provisional defaults and passing at the bench's. Every find/replace anchor in the plan was checked to occur once in the current HEAD.
 
 **Review Focus.** Each of the five lines has its test in the task named there.
