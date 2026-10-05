@@ -27,4 +27,11 @@ def test_a_real_explore_ended_by_a_stall_is_complete_and_keeps_its_curve(tmp_pat
     record = json.loads(kept[0].read_text())
     assert record["ended"]["rule"] == "stall_count" and record["curve"] == ex["curve"] and record["found"] == ex["found"]
     assert all({"i", "t", "score", "best"} <= set(v) for v in record["variants"])
+    assert record["run"] == doc["run_id"] == run_dir.name                                          # the run it was part of
+    best = json.loads((kept[0].parent / "best" / kept[0].name).read_text())                       # the best variant's own plan, for the studio
+    assert best["items"] and best["score"]["total"] == round(record["best"], 3) and isinstance(best["model_jobs"], list)
+    placed = {it["key"]: it for it in best["items"]}
+    for key, pl in next(v for v in record["variants"] if v["seed"] == record["best_seed"])["placements"].items():
+        if pl is not None:
+            assert placed[key]["at"] == [round(pl[0], 3), round(pl[1], 3)] and placed[key]["face"] == pl[3]
     assert not (mod / ".placemat" / "explore" / "UsbC_layout" / "checkpoint.jsonl").exists()
