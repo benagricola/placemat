@@ -241,3 +241,17 @@ def test_arranging_cells_on_the_largest_real_board_keeps_pcbnews_bindings_and_it
     in_process = contents(held.pop("board"))
     assert in_process["u5"]["FOOTPRINT"] == len(g.cell("u5").members) and in_process["u5"]["PCB_VIA"] > 0
     assert contents(pcbnew.LoadBoard(str(pcb))) == in_process
+
+
+def test_a_firm_cell_of_the_same_module_is_placed_and_records_its_arrangement(tmp_path, usb5v):
+    from placemat.kicad.read import read_board
+    from placemat.layout import Board
+    from placemat.values import Cell, Location
+    result, rec, frag, offered = usb5v
+    stamped = stamp_fragment_as_cell(frag, tmp_path / "stamped.kicad_pcb", "mod", (40.0, 20.0))
+    b = Board(read_board(stamped), edge_margin=0.0, keep_going=True)
+    b.rect(width=140, height=120)
+    b.place(Cell("mod"), at=Location(70.0, 60.0))
+    plan = b.resolve()
+    assert plan.step("mod").placement is not None
+    assert plan.placement("mod").arrangement in ("",) + b.geometry.cell("mod").offered()

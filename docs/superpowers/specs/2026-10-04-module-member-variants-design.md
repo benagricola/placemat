@@ -703,3 +703,21 @@ A board of only stamped cells costs about 2x with arrangements on. Three causes:
 - each arrangement of a cell is scored with one more full scan of the board;
 - parts that tie nets together are sent to the Python legality check, not the native one;
 - an arranged cell's pours are drawn again for each arrangement.
+
+Phase 4, firm cells (fixtures/bench.py --arrangements, the `firm` case, seconds, medians of 3): the generated board's 30
+cells held at their stamped places, 29 of them offering arrangements. The case's outline is the rectangle round the board's
+places plus 5 mm (the written board's outline is a different size and left every firm cell outside it, so no choice was
+ever scored).
+
+| Run | Arrangements off | Arrangements on | Budget | Met |
+|---|---|---|---|---|
+| Board of firm cells and loose parts | 1.73 | 3.17 | on a small multiple of off | yes, 1.8x |
+
+With arrangements on, 10 of the 30 firm cells took an arrangement other than their default; all 30 cells and every loose
+part were placed either way, and the score goes from 19619.4 to 19525.6. The run shared the machine with other work, so
+the seconds are approximate.
+
+Firm passes: the redo of the firm phase follows the settle rule above literally. A pass that ends with any firm cell in
+a different arrangement from the pass before it is not settled, and on the first pass there is no pass before it. So a
+board with declared copper room (copper-room passes) and a firm cell offering several arrangements always runs at least
+2 firm passes. No board on the bench has both.

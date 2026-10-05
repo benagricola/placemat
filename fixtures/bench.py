@@ -257,6 +257,7 @@ SHARED = ("VSHUNT", "PP5V", "V3V3", "VBUS_EN")   # the module's nets from the sh
 # GND is not shared: nearly every pad is on it and the bench declares no plane, so it would pull each stamp onto every other
 STAMPED_SIZE = (140.0, 120.0)
 ARRANGED_BASELINE = ROOT / "bench_arrangements.json"
+FIRM_MARGIN = 5.0          # mm round the firm case's places: room for an arrangement that reaches past its default
 ARRANGED_REPEATS = 3         # each resolve of the arrangement bench is timed this many times: a single run varies by 10 to 30 percent
 
 
@@ -297,6 +298,16 @@ def _arranged_case(plain, g, outline, firm: bool, repeats: int) -> tuple:
     return row, r["plan"]
 
 
+def _round_places(g):
+    """An outline for `g` (a board with stamped places): the rectangle round its footprints plus FIRM_MARGIN, so a cell held at
+    its stamped place stands inside it and its arrangements are judged and scored there. (the written board's outline is a
+    different size, and would leave every firm cell outside it)"""
+    boxes = [fp.box for fp in g.footprints]
+    lo_x, lo_y = min(b.left for b in boxes) - FIRM_MARGIN, min(b.top for b in boxes) - FIRM_MARGIN
+    hi_x, hi_y = max(b.right for b in boxes) + FIRM_MARGIN, max(b.bottom for b in boxes) + FIRM_MARGIN
+    return lambda b: b.outline([(lo_x, lo_y), (hi_x, lo_y), (hi_x, hi_y), (lo_x, hi_y)])
+
+
 def _own_copper(plan, cell) -> int:
     """The copper shapes `cell` (a CellGeom, arranged or not) holds of its own in `plan`'s occupancy: its tracks and each piece of
     its pours."""
@@ -312,8 +323,9 @@ def bench_arrangements(module: str | None = ARRANGED_MODULE, board=None, outline
     and in the first arrangement offered (`default_copper`, `arranged_copper`). None skips both.
     `board`: a generated board of stamped cells (default the whole-board fixture's), each cell with two or more members given a
     synthetic note (tests/arrangement_support.synthetic_notes_for), resolved with every cell free (`board`) and at its stamped
-    place (`firm`), each as the board without notes and with notes, arrangements off and on. `outline` is the board's outline as
-    points; by default the fixture's written board's. Each resolve runs `repeats` times and its seconds are the median.
+    place (`firm`), each as the board without notes and with notes, arrangements off and on. `outline` is the free case's outline as
+    points; by default the fixture's written board's. The firm case's outline is the rectangle round the board's places
+    (_round_places), so its cells stand inside it. Each resolve runs `repeats` times and its seconds are the median.
 
     Budgets: a module run at most about k times the default's; a board's resolve at most 25 percent longer than the same board
     without arrangements."""
@@ -360,8 +372,8 @@ def bench_arrangements(module: str | None = ARRANGED_MODULE, board=None, outline
             edge = lambda b: b.outline(written.board_polygon[0], holes=written.board_polygon[1:])
         else:
             edge = lambda b: b.outline(list(outline))
-        for key, firm in (("board", False), ("firm", True)):
-            out[key] = _arranged_case(plain, g, edge, firm, repeats)[0]
+        out["board"] = _arranged_case(plain, g, edge, False, repeats)[0]
+        out["firm"] = _arranged_case(plain, g, _round_places(g), True, repeats)[0]
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return out
