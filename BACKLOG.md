@@ -285,6 +285,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Copper findings measure a pad by its exact shape** (0.99.11): a gap
+  below the rule by a pad's read outline is measured again against KiCad's
+  effective pad shape, so a track past a rounded corner reads as KiCad's DRC
+  reads it.
+
 - **A placed cell's copper keeps its exact shapes** (0.99.10): a stamped
   cell's straight tracks, vias and pours kept their segment, circle and
   drawn forms when the cell was placed, so copper findings against them
