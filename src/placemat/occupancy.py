@@ -1545,11 +1545,9 @@ class Occupancy:
 
     def _kicad_yard(self, ref: str, ref_at: Placement | None = None):
         """A part's courtyard where it stands now, or at `ref_at` (where an arranged cell poses it), as KiCad's DRC tests a
-        rule area against it: the
-        courtyard polygon it draws (`Footprint.courtyard_poly`; pcbexpr_functions.cpp
-        `collidesWithArea`), as a `yard` shape. A part that draws none is not tested by KiCad; here
-        its claimed courtyard box stands in, as it does for the lead check, so a part with no
-        courtyard still keeps out of a keepout."""
+        rule area against it: the courtyard polygon it draws (`Footprint.courtyard_poly`; pcbexpr_functions.cpp
+        `collidesWithArea`), as a `yard` shape. A part that draws none is not tested by KiCad; here its claimed courtyard
+        box stands in, as it does for the lead check, so a part with no courtyard still keeps out of a keepout."""
         fp = self.geometry.footprint(ref)
         if ref_at is None:
             ref_at = self.geometry_of(ref).reference
