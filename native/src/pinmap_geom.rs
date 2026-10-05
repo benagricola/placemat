@@ -71,7 +71,9 @@ pub struct Exit {
 
 /// The exit of a pin at (x, y) in the part's frame with outward `normal` (its frame), at `pose`.
 pub fn exit_of(pose: Pose, x: f64, y: f64, normal: (f64, f64), hw: f64, hh: f64, margin: f64) -> Exit {
-    let side = SIDES.iter().position(|s| *s == normal).unwrap_or(0);
+    let side = SIDES.iter().position(|s| *s == normal);
+    debug_assert!(side.is_some(), "the normal {normal:?} is not an axis");
+    let side = side.unwrap_or(0); // pinmap_search refuses such a normal before it gets here
     let local = [(hw + margin, y), (x, hh + margin), (-hw - margin, y), (x, -hh - margin)][side];
     Exit { at: pose.to_board(local.0, local.1), local, normal: pose.vector(normal.0, normal.1), side, pose, hw, hh, margin }
 }
@@ -228,5 +230,44 @@ mod tests {
         assert_eq!(bend((1.0, 0.0), (12.5, 10.5), (20.0, 10.5)), 0.0);
         assert!((bend((1.0, 0.0), (12.5, 10.0), (0.0, 10.0)) - 180.0).abs() < 1e-9);
         assert!((bend((1.0, 0.0), (12.5, 10.0), (20.0, 2.5)) - 45.0).abs() < 1e-9);
+        assert!((bend((1.0, 0.0), (12.5, 10.0), (12.5, 20.0)) - 90.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_pin_on_each_side_exits_past_that_side() {
+        let p = Pose::new(10.0, 10.0, 0.0, false);
+        let s = exit_of(p, 0.5, 2.0, (0.0, 1.0), 2.0, 2.0, 0.5);
+        let w = exit_of(p, -2.0, -0.5, (-1.0, 0.0), 2.0, 2.0, 0.5);
+        let n = exit_of(p, -0.5, -2.0, (0.0, -1.0), 2.0, 2.0, 0.5);
+        assert_eq!((s.at, s.normal, s.side), ((10.5, 12.5), (0.0, 1.0), 1));
+        assert_eq!((w.at, w.normal, w.side), ((7.5, 9.5), (-1.0, 0.0), 2));
+        assert_eq!((n.at, n.normal, n.side), ((9.5, 7.5), (0.0, -1.0), 3));
+    }
+
+    #[test]
+    fn a_pin_north_of_the_centre_goes_round_the_north_corners() {
+        let e = east(Pose::new(10.0, 10.0, 0.0, false), -0.5);
+        assert_eq!(route(&End::Exit(e), &End::Point((0.0, 10.0))), vec![(12.5, 9.5), (12.5, 7.5), (7.5, 7.5), (0.0, 10.0)]);
+    }
+
+    #[test]
+    fn a_flip_then_a_quarter_turn_takes_an_east_pin_south() {
+        let e = east(Pose::new(10.0, 10.0, 90.0, true), 0.5);
+        assert_eq!((e.at, e.normal), ((10.5, 12.5), (0.0, 1.0)));
+    }
+
+    #[test]
+    fn an_airwire_between_two_exits_goes_round_both_bodies() {
+        let a = exit_of(Pose::new(10.0, 10.0, 0.0, false), -2.0, 0.0, (-1.0, 0.0), 2.0, 2.0, 0.5);
+        let b = exit_of(Pose::new(20.0, 10.0, 0.0, false), 2.0, 0.0, (1.0, 0.0), 2.0, 2.0, 0.5);
+        assert_eq!(route(&End::Exit(a), &End::Exit(b)),
+                   vec![(7.5, 10.0), (7.5, 7.5), (12.5, 7.5), (22.5, 7.5), (22.5, 10.0)]);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "not an axis")]
+    fn a_normal_off_the_axes_is_refused() {
+        exit_of(Pose::new(0.0, 0.0, 0.0, false), 1.0, 1.0, (0.6, 0.8), 2.0, 2.0, 0.5);
     }
 }

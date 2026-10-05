@@ -99,11 +99,22 @@ class Wire:
 
 
 @dataclass(frozen=True)
+class PosedNet:
+    """A background net with a pad on a studied part (a plane's, on the part's ground pins): its pads (`anchors`) and
+    the pairs of them that touch, so the study can work out its airwires again when the part turns."""
+    net: str
+    kind: str
+    anchors: tuple
+    joined: tuple
+
+
+@dataclass(frozen=True)
 class StudyInput:
     parts: tuple                # StudiedPart, by ref
     nets: tuple                 # StudyNet, by net
-    background: tuple           # Wire
+    background: tuple           # Wire, every one: a posed net's at its pads' present places
     names: dict = field(default_factory=dict)      # ref -> {pad number: pin name}
+    posed: tuple = ()           # PosedNet, by net
 
     def part(self, ref: str) -> StudiedPart:
         return next(p for p in self.parts if p.ref == ref)
@@ -202,15 +213,17 @@ def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dic
             k = max(k, kind(far), key=KINDS.index)
         nets.append(StudyNet(net, k, fixed[0], fixed[1], ends, via, far))
     studied_nets = {n.net for n in nets}
-    background = []
+    background, posed = [], []
     for net in sorted(by_net):
         if net in studied_nets or net in used:
             continue
         anchors, joined = by_net[net]
         for e in mst(net, anchors, joined):
             background.append(Wire(net, kind(net), (e.a.x, e.a.y), (e.b.x, e.b.y)))
+        if any(a.ref in on for a in anchors):
+            posed.append(PosedNet(net, kind(net), tuple(anchors), tuple(tuple(p) for p in joined)))
     return StudyInput(tuple(studied), tuple(nets), tuple(background),
-                      {s.ref: dict(names.get(s.ref, {})) for s in studied}), problems
+                      {s.ref: dict(names.get(s.ref, {})) for s in studied}, tuple(posed)), problems
 
 
 def _fixed(anchors, joined, keep) -> tuple:

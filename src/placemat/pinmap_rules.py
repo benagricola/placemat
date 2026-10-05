@@ -6,7 +6,7 @@ names a pin the part does not have, or a net it does not carry, is left out and 
 reports as a `setup.pins` finding. Pure: it reads a part's fields, its pads' numbers and nets, and the board's pin names."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 
 from .checks import _net_named
@@ -181,7 +181,7 @@ class PartPins:
     """What may move on one studied part. `present` is every studied net's pin now (movable or held); `movable` the nets
     the search may move, each to a pin of `allowed[net]` (pool order); `free` the pool pins no studied net stands on now;
     `groups` (name, nets in order, "" for a pin with none) move whole, to one of `windows[name]`, each a run of
-    consecutive pool pins."""
+    consecutive pool pins; `places[name]` is the group's pins as written, where it stands."""
     ref: str
     present: dict
     movable: tuple
@@ -190,6 +190,7 @@ class PartPins:
     groups: tuple
     windows: dict
     held: tuple
+    places: dict = field(default_factory=dict)
 
 
 def part_pins(rules: PinRules, pads, connected, quiet) -> tuple:
@@ -253,4 +254,5 @@ def part_pins(rules: PinRules, pads, connected, quiet) -> tuple:
         groups.append((name, nets))
         windows[name] = tuple(wins)
     return PartPins(rules.ref, present, tuple(movable), allowed, free, tuple(groups), windows,
-                    tuple(sorted(held, key=lambda h: natural(h.pin)))), []
+                    tuple(sorted(held, key=lambda h: natural(h.pin))),
+                    {name: tuple(pins) for name, pins in rules.groups}), []

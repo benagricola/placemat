@@ -11,6 +11,7 @@ mod fill;
 mod geometry;
 mod giveway;
 mod judge;
+mod pinmap;
 mod pinmap_geom;
 mod pockets;
 mod profile;
@@ -1153,6 +1154,42 @@ fn sweep(
     Ok((legal, scores, refused))
 }
 
+/// The pin map study's core (native/src/pinmap.rs): one group's study from plain arrays, as
+/// `placemat.pinmap_twin.search` gives it (`placemat.pinmap_core.search` picks one or the other). A pin's normal must be
+/// one of the four axis directions (`pinmap_input.outward` gives no other): any other is refused.
+#[pyfunction]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn pinmap_search(
+    parts: Vec<pinmap::Row>,
+    pins: Vec<Vec<pinmap::Row>>,
+    nets: Vec<(String, u8)>,
+    fixed: Vec<Vec<(f64, f64, String, String)>>,
+    joined: Vec<Vec<(usize, usize)>>,
+    ends: Vec<Vec<(usize, usize)>>,
+    wires: Vec<(u8, i64, i64, i64, i64)>,
+    posed: Vec<pinmap::Posed>,
+    movable: Vec<(usize, usize, Vec<usize>, i64)>,
+    groups: Vec<(usize, Vec<i64>, Vec<Vec<usize>>)>,
+    group_parts: Vec<usize>,
+    combos: Vec<Vec<(usize, f64, bool)>>,
+    weights: (f64, f64, f64, f64, f64),
+    params: (f64, u32, u32, f64, f64, f64, f64, u64),
+) -> PyResult<pinmap::SearchResult> {
+    for (k, row) in pins.iter().enumerate() {
+        for (number, _, _, nx, ny) in row {
+            if ![(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)].contains(&(*nx, *ny)) {
+                return Err(PyValueError::new_err(format!(
+                    "pin {number:?} of part {k} has normal ({nx}, {ny}), not one of the four axis directions")));
+            }
+        }
+    }
+    let (pair, impedance, plane, length, bend) = weights;
+    let (margin, seeds, moves, t0, t1, budget_ms, step_ms, seed_key) = params;
+    let pb = pinmap::Problem { parts, pins, nets, fixed, joined, ends, wires, posed, movable, groups, margin };
+    let pr = pinmap::Params { w: [pair, impedance, plane, length, bend], seeds, moves, t0, t1, budget_ms, step_ms, seed_key };
+    Ok(pinmap::search(&pb, &group_parts, &combos, &pr))
+}
+
 /// The occupancy's placed ratsnest, mirrored for `leaf_costs`
 /// (native/src/ratsnest.rs). Python works out each net's tree and hands it
 /// over after every `Ratsnest.set_net`.
@@ -1297,6 +1334,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NativeSweepSeen>()?;
     m.add_class::<NativeBoard>()?;
     m.add_class::<NativeRatsnest>()?;
+    m.add_function(wrap_pyfunction!(pinmap_search, m)?)?;
     m.add_class::<NativeEscTurn>()?;
     m.add_class::<NativeScoring>()?;
     m.add_class::<NativeCleanupScoring>()?;
