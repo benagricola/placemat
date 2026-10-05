@@ -186,6 +186,9 @@ SAMPLES = [
     (C.SETUP_PINS, {"ref": "U1", "key": "Pm.PinDeny", "entry": "", "code": "present_breaks", "name": "A", "held_net": "",
                     "held_pin": "", "pin": "1", "rule": "Pm.PinDeny"},
      "U1: net A stands on pin 1, against its Pm.PinDeny; the capture breaks its own rule"),
+    (C.SETUP_PINS, {"ref": "", "key": "", "entry": "", "code": "study_failed", "name": "", "held_net": "", "held_pin": "",
+                    "type": "RuntimeError", "message": "boom"},
+     "the pin map study failed with RuntimeError: boom; this resolve has no pin map findings"),
 ]
 
 

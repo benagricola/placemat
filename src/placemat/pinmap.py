@@ -21,15 +21,10 @@ from .findings import Finding, FindingCause as C
 
 from .pinmap_core import study
 from .pinmap_input import PlacedPad, PlacedPart, build, placed_from_geometry
-from .pinmap_rules import Problem, natural
+from .pinmap_rules import Problem, has_pools, natural
 
 CACHE_VERSION = 1
 _NOT_READ = ("pins_explore_top", "pins_probe_budget_ms")      # `[pins]` settings the explore and the probe read, not the study
-
-
-def has_pools(footprints) -> bool:
-    """Whether any part carries a `Pm.PinPool`: a board with none is not studied, and nothing is read for it."""
-    return any(k.lower() == "pm.pinpool" and (v or "").strip() for fp in footprints for k, v in fp.fields.items())
 
 
 def copper_nets(geometry, plan=None) -> frozenset:
@@ -130,6 +125,8 @@ def _cached(path, d: str):
         doc = json.loads(Path(path).read_text())
     except (OSError, ValueError):
         return None
+    if not isinstance(doc, dict):
+        return None
     if doc.get("version") != CACHE_VERSION or doc.get("digest") != d:
         return None
     try:
@@ -197,6 +194,8 @@ def geometry_findings(geometry, settings, quiet=frozenset(), either=frozenset(),
 
 def study_line(record: dict) -> str:
     """What a run or a preview says of the study, from its record."""
+    if record.get("error"):
+        return "the study failed with %s: %s" % (record["error"]["type"], record["error"]["message"])
     if record.get("reused"):
         return "%d part%s, the last study reused (%.2f s)" % (record["parts"], "" if record["parts"] == 1 else "s",
                                                                 record["seconds"])
@@ -208,7 +207,7 @@ def placed_from_plan(board, plan) -> tuple:
     """(pads, {ref: PlacedPart}) of a resolved plan: every placed part where the placement put it (its pads at their
     airwire anchors, its courtyard's box), and whether its declaration lets it stand on the other face."""
     occ = plan.occupancy
-    either = {i.item.ref for i in board._placements() if i.kind == "part" and getattr(i, "either", False)}
+    either = {i.item.ref for i in board._placements() if i.kind == "part" and i.either}
     pads, parts = [], {}
     for ref in sorted(occ.items):
         if ref in occ.pending or not occ.geometry.has_footprint(ref):
@@ -237,3 +236,10 @@ def plan_findings(board, plan) -> list:
                                    board.pin_study_cache)
     plan.pin_study = record
     return found
+
+
+def study_failed(plan, error: Exception) -> Finding:
+    """A study that raised: its error kept on the plan's record (`plan.pin_study`) and said as a `setup.pins` finding.
+    The study is advice; the resolve it ends stands without it."""
+    plan.pin_study = {"error": {"type": type(error).__name__, "message": str(error)}}
+    return Finding(C.SETUP_PINS, dict(Problem("", "", "", "study_failed", "").facts(), **plan.pin_study["error"]))

@@ -5,18 +5,18 @@ from placemat.explore import Explore
 from placemat.findings import FindingCause as C
 from placemat.layout import Board
 from placemat.pinmap import study_line
-from placemat.values import Location, Part
+from placemat.values import Face, Location, Part
 from tests.fixtures import board_geometry, footprint
 from tests.pinmap_boards import quad_footprint, settings
 
 
-def board(fields=None, **kw):
+def board(fields=None, face=Face.FRONT, u1_at=Location(10, 10), **kw):
     """U1 with nets A-D on its east side, north to south, and four resistors east of it in the opposite order."""
     fps = [quad_footprint("U1", 10, 10, {"E": ["A", "B", "C", "D"]}, {"Pm.PinPool": "1-4"} if fields is None else fields)]
     for i, net in enumerate(["D", "C", "B", "A"]):
         fps.append(footprint("R%d" % (i + 1), 25, 7 + 2 * i, w=2, h=1, inst="r%d" % (i + 1), nets=(net, "G%d" % i)))
     b = Board(board_geometry(fps, width=40, height=30), edge_margin=1.0, settings=settings(pins_rotations=(0.0,)), **kw)
-    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("u1"), at=u1_at, face=face)
     for i in range(4):
         b.place(Part("r%d" % (i + 1)), at=Location(25, 7 + 2 * i))
     return b
@@ -82,3 +82,37 @@ def test_an_explore_worker_board_is_not_studied(monkeypatch):
     from placemat import explore, runner
     monkeypatch.setattr(runner, "scripted_board", lambda *a, **k: board())
     assert explore.BoardFactory(None, None, None, None, False, None)().pin_study is False
+
+
+def test_a_study_that_fails_leaves_the_resolve_standing_and_says_so(monkeypatch):
+    from placemat import pinmap
+
+    def broken(*a, **k):
+        raise RuntimeError("boom")
+    expected = board().resolve()
+    monkeypatch.setattr(pinmap, "study_findings", broken)
+    plan = board().resolve()
+    keys = ["u1", "r1", "r2", "r3", "r4"]
+    assert [plan.placement(k) for k in keys] == [expected.placement(k) for k in keys]
+    (f,) = [f for f in plan.findings if f.cause is C.SETUP_PINS]
+    assert (f.facts["code"], f.facts["type"], f.facts["message"]) == ("study_failed", "RuntimeError", "boom")
+    assert plan.pin_study == {"error": {"type": "RuntimeError", "message": "boom"}}
+    assert "RuntimeError: boom" in study_line(plan.pin_study)
+    assert remaps(plan) == []
+
+
+def test_a_part_that_may_stand_on_either_face_is_studied_as_one_that_may_flip():
+    from placemat.pinmap import placed_from_plan
+    b = board(face=Face.EITHER, u1_at=None)          # an either-face part's spot is searched
+    plan = b.resolve()
+    parts = placed_from_plan(b, plan)[1]
+    assert parts["U1"].may_flip and not parts["R1"].may_flip
+
+
+def test_a_kept_study_that_is_not_an_object_is_not_reused(tmp_path):
+    for text in ("[]", "1"):
+        b = board()
+        b.pin_study_cache = tmp_path / "layout.json"
+        b.pin_study_cache.write_text(text)
+        plan = b.resolve()
+        assert plan.pin_study["reused"] is False and len(remaps(plan)) == 1

@@ -188,6 +188,8 @@ _PIN_PROBLEMS = {
 
 @renders(C.SETUP_PINS, "ref", "key", "entry", "code", "name")
 def _setup_pins(f):
+    if f["code"] == "study_failed":
+        return "the pin map study failed with %s: %s; this resolve has no pin map findings" % (f["type"], f["message"])
     if f["code"] == "no_legal_pin" and f.get("held_net"):
         return "%s: net %s may take only pin %s, which net %s holds; %s is not studied" % (
             f["ref"], f["name"], f["held_pin"], f["held_net"], f["ref"])

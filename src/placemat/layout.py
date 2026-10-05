@@ -4937,9 +4937,16 @@ class Board:
 
     def _report_pin_maps(self, plan: Plan) -> None:
         """The pin map study (pinmap.py) on the finished board: once per resolve, never inside the search. An explore's
-        variants are studied by the explore (explore._pin_maps), on its best ones only."""
+        variants are studied by the explore (explore._pin_maps), on its best ones only. A study that raises leaves the
+        resolve standing: its error is on `plan.pin_study` and a `setup.pins` finding."""
+        from .pinmap_rules import has_pools
+        if not has_pools(self.geometry.footprints):     # a board without a pool does not import the study or its core
+            return
         from . import pinmap
-        plan.findings.extend(pinmap.plan_findings(self, plan))
+        try:
+            plan.findings.extend(pinmap.plan_findings(self, plan))
+        except Exception as e:                          # a stop (BaseException) still ends the resolve
+            plan.findings.append(pinmap.study_failed(plan, e))
 
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
         for l in self._links:

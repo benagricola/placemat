@@ -16,6 +16,11 @@ SHOWN = {"pm.pinpool": "Pm.PinPool", "pm.pinfixed": "Pm.PinFixed", "pm.pinallow"
 _TAIL = re.compile(r"^(.*?)(\d+)$")
 
 
+def has_pools(footprints) -> bool:
+    """Whether any part carries a `Pm.PinPool`: a board with none is not studied, and nothing is read for it."""
+    return any(k.lower() == "pm.pinpool" and (v or "").strip() for fp in footprints for k, v in fp.fields.items())
+
+
 @dataclass(frozen=True)
 class Problem:
     """An annotation entry the study runs without, or a part it cannot study: the facts of a `setup.pins` finding. `key`
@@ -25,7 +30,8 @@ class Problem:
     (a group's pin outside the pool, or on a fixed pin), two_groups (a pin already in an earlier group), no_legal_pin (a
     net that no pin may take: the part is not studied), no_legal_map (no matching places every net: the part is not
     studied), present_breaks (a net that stands on a pin its own `Pm.PinAllow` or `Pm.PinDeny` bars: the study adds
-    `pin` and `rule` to the facts). A no_legal_pin left so by another net held onto the net's only pin has no `key` or `entry`, and `held_net`
+    `pin` and `rule` to the facts), study_failed (the study raised: no part, and `type` and `message` in the facts).
+    A no_legal_pin left so by another net held onto the net's only pin has no `key` or `entry`, and `held_net`
     and `held_pin` name the holder."""
     ref: str
     key: str
