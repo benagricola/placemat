@@ -35,3 +35,11 @@ def test_each_departure_is_named():
     assert any("extent" in f or "protruding" in f for f in m.check(GOOD.replace('board.alternative(Part("bulk_b"), "tucked", rotation=90)\n', ""), ROLES))
     ok = GOOD.replace('board.alternative(Part("bulk_b"), "tucked", rotation=90)\n', "# extent: bulk_b is a fact of its datasheet figure\n")
     assert m.check(ok, ROLES) == []
+
+
+def test_a_bypass_with_no_room_to_turn_passes_with_a_stated_reason():
+    m = load()
+    no_turn = GOOD.replace('board.alternative(Part("c_hf1"), "south", at=Beside(Part("u1"), Edge.SOUTH))\n', "")
+    assert any("bypass" in f for f in m.check(no_turn, ROLES))
+    assert m.check(no_turn + "# fixed: c_hf1 no turn fits between u1's pin and r_pull\n", ROLES) == []
+    assert any("bypass" in f for f in m.check(no_turn + "# extent: c_hf1 a reason of the wrong kind\n", ROLES))

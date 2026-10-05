@@ -698,9 +698,9 @@ forcing long or crossing copper):
   only at the board script. Find what holds them apart: the refusal and its
   blame name the parts, shapes and copper that collide.
 - Change the module's layout script by intent, in small steps: for a
-  member whose side or turn is a free choice (a bypass capacitor on either
-  side of its pin, a part on the other side of its IC, a part on the other
-  face, a pair that could be mirrored), add it as an alternative first and
+  member whose side or turn is a free choice (a bypass capacitor turned at
+  its pin, a part on the other side of its IC, a part on the other face, a
+  pair that could be mirrored), add it as an alternative first and
   let the board's search choose (see "Arrangements"); edit the module's
   default layout only when no arrangement that keeps the module's intent
   fits. Swap a row's order, fit the module's frame (`board.rect(fit=True)`)
@@ -726,8 +726,14 @@ module's own terms and the board's search chooses. `api.md`,
 
 Declaring alternatives is part of laying out a module, not a later step
 for when a board struggles. A module is not finished until:
-- each member whose side or turn is a free choice (a bypass capacitor, a
-  pull-up, a series resistor) has an alternative;
+- each member whose side or turn is a free choice (a pull-up, a series
+  resistor) has an alternative;
+- each bypass capacitor has a turn that keeps its pad at the pin it serves,
+  or a line in the script saying why it has none: `# fixed: <part> <the
+  reason>` (no turn fits between its neighbours). A bypass capacitor never
+  moves to another side of its IC: away from its pin it no longer bypasses.
+  A turn that fits only when a neighbour moves is a named group with that
+  neighbour;
 - each member that sets the extent has an alternative, or a line in the
   script saying why it has none: `# extent: <part> <the reason>`;
 - the last run's `arrangement.extent_fixed` notices are all answered by one

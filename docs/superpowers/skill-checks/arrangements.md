@@ -35,8 +35,9 @@ once the module is laid out.
 
 Checked by `fixtures/skill_check.py check`:
 
-- each `bypass` and `pullup` part has an alternative, as an `alternative` call or an `Alt` in an
-  `arrangement`;
+- each `pullup` part has an alternative, as an `alternative` call or an `Alt` in an `arrangement`;
+- each `bypass` part has an alternative (a turn at its pin), or the script has a `# fixed: <part> ...` comment line
+  giving the reason no turn fits;
 - no `polarised` part has one;
 - each `protruding` part has an alternative, or the script has a `# extent: <part> ...` comment line giving the
   reason it has none;
@@ -58,6 +59,9 @@ Read from the transcript:
 - usbtcpc: run 1 failed (no alternatives, members in a block); the skill's
   Arrangements wording changed. Run 2 met the transcript criteria and every
   machine criterion but one: the bypass c_vdd has a stated `# extent:`
-  reason instead of an alternative. Transcript: `transcripts/usbtcpc.md`.
+  reason instead of an alternative. The rule changed after it: a bypass
+  capacitor's alternative is a turn at its pin, and one with no room to
+  turn takes a `# fixed:` line; under that rule its reason holds in the
+  default, but a flat turn fits in the `r_irq.back` arrangement as a group. Transcript: `transcripts/usbtcpc.md`.
 - usb5v: not run. Fresh agents on it were stopped by an API error before
   their first step, three times.

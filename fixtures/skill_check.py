@@ -52,10 +52,13 @@ def check(script_text: str, roles: dict) -> list:
                 if isinstance(a, ast.Call) and getattr(a.func, "id", "") == "Alt":
                     moved.setdefault(_part(a), []).append(c.args[0].value)
     out = []
-    for role, what in (("bypass", "a bypass"), ("pullup", "a pull-up")):
-        for part in roles.get(role, ()):
-            if part not in moved:
-                out.append("%s (%s) has no alternative: %s whose side or turn is free gets one" % (part, role, what))
+    for part in roles.get("bypass", ()):
+        if part not in moved and not re.search(r"#\s*fixed:.*\b%s\b" % re.escape(part), script_text):
+            out.append("%s (bypass) has no alternative: a bypass gets a turn at its pin, or a '# fixed:' line saying why "
+                       "none fits" % part)
+    for part in roles.get("pullup", ()):
+        if part not in moved:
+            out.append("%s (pullup) has no alternative: a pull-up whose side or turn is free gets one" % part)
     for part in roles.get("polarised", ()):
         if part in moved:
             out.append("%s is polarised: its place is a fact and it gets no alternative" % part)

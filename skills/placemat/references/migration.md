@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A bypass capacitor's alternative is a turn at its pin.** The skill no longer offers another side of the IC for a
+  bypass capacitor. A module gives each bypass capacitor a turn that keeps its pad at the pin, or a `# fixed: <part>
+  <reason>` line when no turn fits between its neighbours; a turn that fits only when a neighbour moves is a named
+  group with that neighbour. Scripts need no change; a module laid out under 0.99.15 may want a bypass alternative
+  dropped or turned.
+
 ## To 0.99.15
 
 ### New
