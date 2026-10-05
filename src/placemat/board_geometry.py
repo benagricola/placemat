@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import re
 
+from .placement import Placement
 from .values import Box, CopperLayer, Face, Location, Net, Part, Cell as CellRef, pad_key
 
 Polygon = tuple[tuple[float, float], ...]
@@ -112,6 +113,28 @@ class Footprint:
 
 
 @dataclass(frozen=True)
+class MemberPose:
+    """One member of a cell as an arrangement stands it: its place in the generated board's frame, and the place it was stamped at."""
+    ref: str
+    inst: str                   # the instance path within the module, as the note names it
+    pose: "Placement"
+    default: "Placement"
+
+
+@dataclass(frozen=True)
+class Arrangement:
+    """One arrangement a module run proved, read from its note for the cell that was stamped: `geom` is the cell as it stands in it."""
+    id: str
+    choices: dict = field(compare=False)
+    members: tuple              # MemberPose, one per member
+    ops: tuple = field(compare=False)           # the module's copper for it, in this board's nets and frame (copper.Track, Via, ...)
+    rule_areas: tuple = ()      # RuleArea, in this board's frame: its keepouts' (in `keepouts` order), then its labels'
+    geom: "CellGeom" = None
+    keepouts: tuple = field(default=(), compare=False)      # the note's keepouts (layout.PlacedKeepout) as the fragment wrote their zones:
+                                                            # its own net names, in this board's frame; one per rule area (kicad/arrange.py)
+
+
+@dataclass(frozen=True)
 class CellGeom:
     name: str
     members: tuple[Footprint, ...]
@@ -122,6 +145,27 @@ class CellGeom:
     faces: dict = field(default_factory=dict)   # the cell's declared sides: outward, quiet, handoff (N/S/E/W at rotation 0)
     parent: str | None = None   # the group this cell's group sits in (a module sheet's), if any
     rules: tuple = ()           # the clearance rules its fragment declared (rules.Rule), as the fragment names things
+    arrangements: tuple = field(default=(), compare=False)         # Arrangement of the module's other offered arrangements (arranged_geometry.attach)
+    arrangement: str = ""                                          # "" the module's own layout; else the id this geometry stands for
+    poses: tuple = field(default=(), compare=False)                # an arranged cell: ((ref, Placement), ...) of its members in the generated board's frame
+    own_copper: tuple | None = field(default=None, compare=False)  # an arranged cell: its own CopperItems, in place of the board's for the cell
+    arrangement_problems: tuple = field(default=(), compare=False)  # notes that could not stand: {"reason", "ids"} (arrangement.stale)
+
+    def offered(self) -> tuple:
+        return tuple(a.id for a in self.arrangements)
+
+    def arranged(self, ident: str = "") -> "CellGeom":
+        """The cell as arrangement `ident` stands it; the cell itself for "", "default" and the arrangement it stands in. An arranged
+        cell holds no arrangements of its own: the others are the base cell's to answer (board.geometry.cells)."""
+        if ident in ("", "default", self.arrangement):
+            return self
+        for a in self.arrangements:
+            if a.id == ident:
+                return a.geom
+        if self.arrangement:
+            raise KeyError("cell %s as arrangement %r has no arrangement %r; the cell's own geometry offers them"
+                           % (self.name, self.arrangement, ident))
+        raise KeyError("cell %s has no arrangement %r; it offers %s" % (self.name, ident, ", ".join(("default",) + self.offered())))
 
     def member(self, suffix: str) -> Footprint:
         for fp in self.members:
@@ -215,7 +259,12 @@ def cell_tagged(name: str, cell: str) -> str:
     .kicad_dru rule over one cell's copy (rules.AllowRule, `intersectsArea` by name) would cover every other
     copy too; the tag makes each name the cell's own. A board that is itself stamped later appends its `_1`
     after the tag, and its parent retags it."""
-    return _CELL_TAG.sub("", name) + " @<%s>" % cell
+    return untagged(name) + " @<%s>" % cell
+
+
+def untagged(name: str) -> str:
+    """A rule area's name without the cell tag `cell_tagged` gave it (and any `_N` stamped after the tag)."""
+    return _CELL_TAG.sub("", name)
 
 
 def split_allow(name: str) -> tuple:

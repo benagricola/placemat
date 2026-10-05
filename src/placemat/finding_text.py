@@ -123,6 +123,17 @@ def _escape_lane(f):
     return "%s pin %s (%s): its lane is blocked by %s" % (f["ref"], f["pin"], f["net"], "; ".join(_refusal(b) for b in f["blocked"]))
 
 
+@renders(C.ESCAPE_VIA_UNNEEDED, "ref", "pin", "net", "layers", "via")
+def _escape_via_unneeded(f):
+    via, (x, y) = f["via"], f["via"]["at"]
+    if via["kind"] == "lane":
+        what, fix = "the via at (%.2f, %.2f) that ends its lane" % (x, y), "take the pin out of the escape's vias="
+    else:
+        what, fix = "via %s at (%.2f, %.2f), on its lane's copper," % (f["net"], x, y), "remove the board.via"
+    return ("%s pin %s (%s): %s is not needed: the lane reaches the frame's edge on %s without it, so it can end there for "
+            "the parent board's router; %s" % (f["ref"], f["pin"], f["net"], what, "/".join(f["layers"]), fix))
+
+
 @renders(C.PAIR_CROSSED, "pos", "neg", "parts")
 def _pair_crossed(f):
     return ("%s/%s cross between %s: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored "
@@ -297,10 +308,17 @@ def _loc(at) -> str:
 
 
 def blame_text(entries: list) -> str:
-    """The rejection counts of a scan (blame.blame_of) and, for each kind, the owners that caused most of them."""
+    """The rejection counts of a scan (blame.blame_of) and, for each kind, the owners that caused most of them; a "pocket" entry
+    (an arrangement note's default that fits no pocket) says so, and a "counts" entry (a slide's or a point's) gives the counts."""
     from .refusals import Owner, Refusal
     parts = []
     for e in entries:
+        if e["form"] == "pocket":                   # a search that never ran: no pocket fits the item (Board._no_pocket_note)
+            parts.append(pocket_note(e))
+            continue
+        if e["form"] == "counts":                   # a slide's or a point's refusals by kind (blame.counts_of): no owners to name
+            parts.append(counts_text(e["counts"]))
+            continue
         n = e["count"]
         if e["form"] == "vias":
             parts.append("vias that could not give way x%d" % n)
@@ -377,8 +395,9 @@ def pocket_note(f: dict) -> str:
 
 
 def turns_text(turns: list) -> str:
-    """"0: ...; 90: ...": a refusal at each rotation tried."""
-    return "; ".join("%g: %s" % (rot, _refusal(why)) for rot, why in turns)
+    """"0: ...; 90: ...": a refusal at each rotation tried. A turn tagged with an arrangement ([rotation, refusal, id]) says it
+    first: "c_in.east at 0: ..."."""
+    return "; ".join(("%s at " % t[2] if len(t) > 2 else "") + "%g: %s" % (t[0], _refusal(t[1])) for t in turns)
 
 
 def block_alone_note(f: dict) -> str:
@@ -431,7 +450,8 @@ def _unplaced_block(f):
 
 @renders(C.UNPLACED_BEARING, "item", "turns", "counts")
 def _unplaced_bearing(f):
-    return "%s: no bearing of %d tried leaves it legal on its point (%s)" % (f["item"], f["turns"], counts_text(f["counts"]))
+    among = " in any of %d arrangements" % f["arrangements"] if f.get("arrangements") else ""
+    return "%s: no bearing of %d tried%s leaves it legal on its point (%s)" % (f["item"], f["turns"], among, counts_text(f["counts"]))
 
 
 @renders(C.UNPLACED_RIDES, "item", "variant")
@@ -441,7 +461,10 @@ def _unplaced_rides(f):
 
 @renders(C.FIXED_PART, "item", "freedom", "why")
 def _fixed_part(f):
-    return "%s (%s): %s" % (f["item"], f["freedom"], _refusal(f["why"]))
+    """A decided item that is not legal where it was put; a cell with several arrangements, none legal, names each other
+    arrangement's refusal after the one it stands in."""
+    others = "".join("; arrangement %s: %s" % (a["id"], _refusal(a["why"])) for a in f.get("arrangements", ()))
+    return "%s (%s): %s%s" % (f["item"], f["freedom"], _refusal(f["why"]), others)
 
 
 # ------------------------------------------------------------------ copper that is not drawn as asked
@@ -658,8 +681,12 @@ def _fixed_room(f):
                                           " (net %s)" % f["net"] if f["net"] else ""))
 
 
-@renders(C.FIXED_ROOM_UNSETTLED, "copper", "moved_mm", "passes")
+@renders(C.FIXED_ROOM_UNSETTLED, "passes")
 def _fixed_room_unsettled(f):
+    if "arrangements" in f:
+        return ("%s: the arrangement it took still changed between the last two of %d passes over the firm items, which took %s "
+                "in turn, so what stands beside it was placed against its last pass's choice"
+                % (f["item"], f["passes"], ", ".join(f["arrangements"])))
     return ("%s: the copper still moved %s between the last two of %d passes over the firm items, so what stands beside it "
             "was placed against its last plan" % (f["copper"], "by %.3f mm" % f["moved_mm"] if f["moved_mm"] >= 0 else
                                                   "(a different number of segments)", f["passes"]))
@@ -812,7 +839,96 @@ def _time_step_slow(f):
 def _time_step_limit(f):
     left = ("left unplaced" if f["kept"] == "unplaced" else "placed at the best legal spot its search had found by then")
     return "%s: gave up after %.1f s in the %s (--step-limit %g s) and is %s; the next run searches it again" % (
-        f["item"], f["elapsed_s"], pass_text(f), f["limit_s"], left)
+        f["item"], f["elapsed_s"], pass_text(f), f["limit_s"], left) + (
+        "; arrangements not reached: " + ", ".join(f["arrangements"]) if f.get("arrangements") else "")
+
+
+# ------------------------------------------------------------------ arrangements
+def refusal_record_text(r: dict) -> str:
+    """One reason an arrangement is not offered (arrangement_run.prove)."""
+    form = r["form"]
+    if form == "unplaced":
+        return "%s is not placed" % r["item"]
+    if form == "finding":
+        return "%s (%s)" % (r["cause"], r["item"]) if r.get("item") else r["cause"]
+    if form == "drc":
+        return "DRC %s x%d" % (r["bucket"], r["count"])
+    if form == "unconnected":
+        return "%d unconnected, the default has %d" % (r["count"], r["default"])
+    if form == "verdict":
+        return "%s %s failed" % (r["check"], r["item"])
+    if form == "nested_cell":
+        return "%s, a cell inside the module, stands elsewhere than in the default" % r["item"]
+    if form == "escape":
+        if r.get("escape"):
+            return "%s cannot be laid out with %s as placed" % (r["escape"], r["part"])
+        return "a declared escape cannot be laid out with its part as placed"
+    if form == "error":
+        return "its resolve or proof raised %s: %s" % (r["type"], r["message"])
+    if form == "note_chars":
+        return "place.arrangement_note_chars = %d leaves no room for its note" % r["chars"]
+    return form
+
+
+def arrangement_row_text(row: dict) -> str:
+    """One console line of the module run's arrangements (arrangement_run.lines)."""
+    state = row["state"]
+    if state == "written":
+        return "%s: offered, written" % row["id"]
+    if state == "offered":
+        return "%s: offered" % row["id"]
+    if state == "duplicate":
+        return "%s: the same as %s, dropped" % (row["id"], row["same_as"])
+    return "%s: not offered: %s" % (row["id"], "; ".join(refusal_record_text(r) for r in row["refused"]))
+
+
+@renders(C.ARRANGEMENT_LIMIT, "variant", "arrangements", "max_arrangements", "options", "max_options")
+def _arrangement_limit(f):
+    tail = "so only the default is laid out; name a group (board.arrangement) for each combination that matters"
+    if f["variant"] == "options":
+        item, n = max(f["options"].items(), key=lambda kv: (kv[1], kv[0]))
+        return "%s has %d options, over the %d place.arrangement_options_max allows, %s" % (item, n, f["max_options"], tail)
+    return "this module declares %d arrangements, over the %d place.arrangements_max allows, %s" % (
+        f["arrangements"], f["max_arrangements"], tail)
+
+
+@renders(C.ARRANGEMENT_REFUSED, "id", "refused")
+def _arrangement_refused(f):
+    return "arrangement %s is not offered: %s" % (f["id"], "; ".join(refusal_record_text(r) for r in f["refused"]))
+
+
+@renders(C.ARRANGEMENT_DUPLICATE, "id", "same_as")
+def _arrangement_duplicate(f):
+    return "arrangement %s lays out exactly as %s and is dropped" % (f["id"], f["same_as"])
+
+
+_STALE_WHY = {"version": "its note is of a version this placemat does not read",
+              "base": "a note does not match its own digest of the module's default places",
+              "offset": "the cell's stamp no longer matches the module's default places",
+              "member": "the note names members the cell does not have, or the cell has members the note does not",
+              "net": "the note names a net this board does not have",
+              "text": "its note text is not whole or does not parse"}
+
+
+@renders(C.ARRANGEMENT_STALE, "cell", "reason", "ids")
+def _arrangement_stale(f):
+    ids = ", ".join(f["ids"]) or "its arrangements"
+    return "%s: arrangement %s is ignored: %s" % (f["cell"], ids, _STALE_WHY.get(f["reason"], f["reason"]))
+
+
+@renders(C.ARRANGEMENT_MISSING, "item", "asked", "offered")      # `source` ("lock") is optional, added by the lock
+def _arrangement_missing(f):
+    if f.get("source") == "lock":
+        return ("%s: its lock entry holds arrangement %s, which the module no longer offers (it offers %s); "
+                "the entry is released" % (f["item"], ", ".join(f["asked"]), ", ".join(f["offered"]) or "nothing"))
+    return "%s: arrangements= names %s, which the module does not offer (it offers %s)" % (
+        f["item"], ", ".join(f["asked"]), ", ".join(f["offered"]) or "nothing")
+
+
+@renders(C.ARRANGEMENT_EXTENT_FIXED, "item", "sides", "protrudes_mm", "alternatives")
+def _arrangement_extent_fixed(f):
+    return "%s sets the module's extent on the %s side%s (%.1f mm past the next part) and has no alternative" % (
+        f["item"], " and ".join(f["sides"]), "s" if len(f["sides"]) > 1 else "", f["protrudes_mm"])
 
 
 def facts_reason_text(r: dict) -> str:
@@ -842,7 +958,7 @@ def subject(cause, facts: dict) -> str:
     """What a finding is about, from its facts: the item, the label, the link, the cell or the net it names, with the pin
     where it is about one. Two findings of one cause about different things differ in it, and one finding keeps its
     subject across resolves, so a try is judged by whether the finding it was for is gone."""
-    if cause in (C.ESCAPE_CLOSED, C.ESCAPE_WALLED, C.ESCAPE_LANE, C.SETUP_LANE_UNUSED):
+    if cause in (C.ESCAPE_CLOSED, C.ESCAPE_WALLED, C.ESCAPE_LANE, C.SETUP_LANE_UNUSED, C.ESCAPE_VIA_UNNEEDED):
         return "%s.%s" % (facts.get("ref") or facts.get("part", ""), facts.get("pin", ""))
     if cause is C.ESCAPE_CROSSED:
         return "%s %s" % (facts["ref"], "/".join(facts["pins"]))
@@ -868,6 +984,7 @@ _PADS = {
     C.ESCAPE_WALLED: lambda f: [[f["ref"], f["pin"]]],
     C.ESCAPE_LANE: lambda f: [[f["ref"], f["pin"]]],
     C.SETUP_LANE_UNUSED: lambda f: [[f["ref"], f["pin"]]],
+    C.ESCAPE_VIA_UNNEEDED: lambda f: [[f["ref"], f["pin"]]],
     C.ESCAPE_CROSSED: lambda f: [[f["ref"], p] for p in f["pins"]],
 }
 
@@ -921,3 +1038,7 @@ def pocket_took_text(p: dict) -> str:
 @renders(C.SETUP_CENTRE_FLAG_DEFAULT, "item")
 def _setup_centre_flag_default(f):
     return "%s: coordinates=False is the default: leave it out" % f["item"]
+
+
+# ------------------------------------------------------------------ schema versions of causes whose facts have changed
+FACTS_V[C.FIXED_ROOM_UNSETTLED] = 2     # a firm cell whose arrangement did not settle: item and arrangements, not copper

@@ -139,7 +139,28 @@ def _pocket_other_face(n):
 def _back_face(n):
     if n.get("front_blame") is not None:
         return "on the back face: the front has no legal spot (%s)" % finding_text.blame_text(n["front_blame"])
+    if n.get("front_beaten"):
+        return "on the back face: %.2f and %.2f for the back face; the front could not beat the best so far" % (n["back"], n["cost"])
     return "on the back face: %.2f and %.2f for the back face against %.2f on the front" % (n["back"], n["cost"], n["front"])
+
+
+@renders("arrangement")
+def _arrangement(n):
+    if "id" not in n:                               # nothing stood: the arrangements tried, in order
+        ids = [t["id"] for t in n["tried"]]
+        return "no arrangement has a legal spot: tried %s" % (ids[0] if len(ids) == 1 else "%s and %s" % (_list(ids[:-1]), ids[-1]))
+    if n.get("default_blame") is not None:
+        return "arrangement %s: the default module has no legal spot (%s)" % (n["id"], finding_text.blame_text(n["default_blame"]))
+    if n.get("score") is None:
+        return "arrangement %s" % n["id"]
+    said = "arrangement %s: %.2f and %.2f for it" % (n["id"], n["score"], n.get("cost", 0.0))
+    if n.get("within") is not None:
+        w = n["within"]
+        return said + "; %s %.2f mm better, within the %.2f mm margin; the default stands" % (w["id"], w["by"], w["margin"])
+    if n.get("default_score") is not None and n["id"] != "default":
+        return said + " against %.2f as the default module stands" % n["default_score"]
+    others = [t["id"] for t in n.get("tried", ()) if t["id"] != n["id"] and t["legal"]]
+    return said + (", the lowest of it and %s" % _list(others) if others else "")
 
 
 @renders("lookahead_dropped")
@@ -259,6 +280,7 @@ _RELEASED = {
     "anchor_pad_gone": lambda r: "its anchor pad %s.%s is gone" % (r["ref"], r["pad"]),
     "no_spot_near": lambda r: "no legal spot within %.1f mm of its locked spot" % r["radius_mm"],
     "no_spot_round": lambda r: "no legal spot round its locked spot",
+    "arrangement_gone": lambda r: "the module no longer offers arrangement %s" % r["id"],
 }
 
 
@@ -445,10 +467,19 @@ _FORMS = {
     "pocket": lambda r: finding_text.pocket_note(r),
     "room_lost": lambda r: finding_text.room_lost_text(r["room_lost"]).lstrip("; "),
     "budget": lambda r: finding_text.budget_text(r["budget"]),
+    "arrangement_missing": lambda r: "arrangements= names %s; the cell offers %s" % (", ".join(r["asked"]), ", ".join(r["offered"])),
 }
 
 
 def unplaced_text(reasons) -> str:
     """The reasons an item has no place, "; "-separated: each a refusal (`Refusal.to_json()`, it has a "code") or a record with a
     "form" (and no "code") for what the finding's own facts state."""
-    return "; ".join(_refusal(r) if "code" in r else _FORMS[r["form"]](r) for r in reasons or ())
+    return "; ".join(_tagged(r) if "code" in r else _FORMS[r["form"]](r) for r in reasons or ())
+
+
+def _tagged(r: dict) -> str:
+    """A refusal record, said with the arrangement it came from when it carries one (a search over arrangements tags each)."""
+    if "arrangement" not in r:
+        return _refusal(r)
+    r = dict(r)
+    return "as %s: %s" % (r.pop("arrangement"), _refusal(r))

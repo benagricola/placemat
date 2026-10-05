@@ -100,6 +100,7 @@ def item_json(plan, step, sites: dict | None = None, models=None) -> dict:
         "key": step.item, "kind": step.kind, "placed": p is not None, "members": members,
         "at": None if p is None else _pt(p.location), "rotation": None if p is None else _r(p.rotation),
         "face": None if p is None else p.face.value,
+        **({"arrangement": p.arrangement} if p is not None and p.arrangement else {}),      # a cell in one of its module's other arrangements
         "freedom": step.freedom.value if step.freedom is not None else None,
         "priority": step.priority.value if step.priority is not None else None,
         "how": _how(plan, step), "notes": list(step.notes), "unplaced": None if step.unplaced is None else list(step.unplaced), "why": step.why,

@@ -33,6 +33,16 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Open
 
+- **A board of stamped cells only costs about 2x with arrangements on**
+  (module-arrangements build notes, 1.11 s off, 2.27 s on): each arrangement
+  of a cell is one more full scan of the board; parts that tie nets together
+  go to the Python legality check, not the native one; an arranged cell's
+  pours are drawn again for each arrangement.
+
+- **Net-tie parts send every candidate to the Python legal check**
+  (`occupancy.py`, the `_tie_refs & geom.owners` branch near line 1924): a
+  native port of that check would also help the arrangement scans above.
+
 - **Hole clearance by a pad's effective shape**: the hole-to-pad check
   (`_hole_conflict` / `_circle_distance`) still measures a pad by its read
   outline, grown by the arc error, so a near miss on hole clearance can read
@@ -284,6 +294,29 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Module arrangements** (0.99.15): a module declares alternative layouts
+  (`board.alternative`, `board.arrangement`, `only=` copper); its run proves
+  each and writes the offered ones into the fragment, and a board searches
+  them for each stamped cell, taking one only when it beats the default by
+  `place.arrangement_margin`. Firm cells, the lock, freeze, explore and the
+  studio carry the arrangement.
+
+- **An unneeded via on a module's escape lane is a finding** (0.99.14):
+  `escape.via_unneeded` names a via on a lane that can reach the module's
+  frame on the component face without it; the skill says a module drops to
+  another layer only where the lane is walled in.
+
+- **A past explore opens on its best variant** (0.99.13): the studio draws a
+  finished explore's best variant in 2D and 3D; new explores keep the best
+  variant's plan and name their run. Test processes that crash on purpose
+  are no longer dumpable, so no desktop crash dialog.
+
+- **Net halos while routing** (0.99.12): `route.net_halos` keeps other
+  nets' new copper a distance from a net (a switch node); placemat writes the
+  router's clearance map with the class map merged in, and a pad trapped
+  inside a halo (its copper ending short of the halo plus half a track) is a
+  `setup.net_halo` finding before the route.
 
 - **Copper findings measure a pad by its exact shape** (0.99.11): a gap
   below the rule by a pad's read outline is measured again against KiCad's

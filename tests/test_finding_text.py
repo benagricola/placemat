@@ -51,6 +51,9 @@ SAMPLES = [
     (C.FIXED_ROOM_UNSETTLED, {"copper": "track SIG", "moved_mm": 0.2, "passes": 4},
      "track SIG: the copper still moved by 0.200 mm between the last two of 4 passes over the firm items, so what stands beside "
      "it was placed against its last plan"),
+    (C.FIXED_ROOM_UNSETTLED, {"item": "mod", "arrangements": ["c_in.a", "c_in.b", "default"], "passes": 4},
+     "mod: the arrangement it took still changed between the last two of 4 passes over the firm items, which took c_in.a, "
+     "c_in.b, default in turn, so what stands beside it was placed against its last pass's choice"),
     (C.COPPER_KEEPOUT, {"word": "track", "net": "A", "keepout": "ant", "why": "an antenna"},
      "track A crosses keepout 'ant' (an antenna): a track goes exactly where it is put, so move it, reshape it, or name its "
      "net in the keepout's allow="),
@@ -87,6 +90,14 @@ SAMPLES = [
     (C.ESCAPE_WALLED, {"variant": "walled", "ref": "U1", "pin": "3", "net": "A", "by": []}, "U1 pin 3 (A): walled off by copper"),
     (C.ESCAPE_LANE, {"ref": "U1", "pin": "3", "net": "A", "blocked": [Refusal(Code.LANE_PAD, pin="4", gap_mm=0.1, need_mm=0.2).to_json()]},
      "U1 pin 3 (A): its lane is blocked by pad 4 of its own part, 0.100 mm off (needs 0.200)"),
+    (C.ESCAPE_VIA_UNNEEDED, {"ref": "U1", "part": "u1", "pin": "3", "net": "A", "layers": ["F.Cu"],
+                             "via": {"kind": "lane", "at": [1.0, 2.0], "key": ""}},
+     "U1 pin 3 (A): the via at (1.00, 2.00) that ends its lane is not needed: the lane reaches the frame's edge on F.Cu "
+     "without it, so it can end there for the parent board's router; take the pin out of the escape's vias="),
+    (C.ESCAPE_VIA_UNNEEDED, {"ref": "U1", "part": "u1", "pin": "3", "net": "A", "layers": ["F.Cu"],
+                             "via": {"kind": "via", "at": [1.0, 2.0], "key": "via A#4"}},
+     "U1 pin 3 (A): via A at (1.00, 2.00), on its lane's copper, is not needed: the lane reaches the frame's edge on F.Cu "
+     "without it, so it can end there for the parent board's router; remove the board.via"),
     (C.PAIR_CROSSED, {"pos": "P", "neg": "N", "parts": ["R1", "R2"]},
      "P/N cross between R1, R2: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"),
     (C.SETUP_UNDECLARED, {"item": "c1", "ref": "C1"}, "c1 (C1): no declaration places it, so it stays where the generator put it"),
@@ -189,6 +200,28 @@ SAMPLES = [
     (C.SETUP_PINS, {"ref": "", "key": "", "entry": "", "code": "study_failed", "name": "", "held_net": "", "held_pin": "",
                     "type": "RuntimeError", "message": "boom"},
      "the pin map study failed with RuntimeError: boom; this resolve has no pin map findings"),
+    (C.ARRANGEMENT_LIMIT, {"variant": "arrangements", "arrangements": 12, "max_arrangements": 8,
+                           "options": {"c_in": 3, "r_pull": 2}, "max_options": 4},
+     "this module declares 12 arrangements, over the 8 place.arrangements_max allows, so only the default is laid out; "
+     "name a group (board.arrangement) for each combination that matters"),
+    (C.ARRANGEMENT_LIMIT, {"variant": "options", "arrangements": 6, "max_arrangements": 8,
+                           "options": {"c_in": 5}, "max_options": 4},
+     "c_in has 5 options, over the 4 place.arrangement_options_max allows, so only the default is laid out; "
+     "name a group (board.arrangement) for each combination that matters"),
+    (C.ARRANGEMENT_REFUSED, {"id": "mirrored", "refused": [{"form": "drc", "bucket": "clearance", "count": 2},
+                                                           {"form": "verdict", "check": "hot-loop", "item": "c_in"}]},
+     "arrangement mirrored is not offered: DRC clearance x2; hot-loop c_in failed"),
+    (C.ARRANGEMENT_DUPLICATE, {"id": "c_in.same", "same_as": "default"},
+     "arrangement c_in.same lays out exactly as default and is dropped"),
+    (C.ARRANGEMENT_STALE, {"cell": "mod", "reason": "base", "ids": ["c_in.east"]},
+     "mod: arrangement c_in.east is ignored: a note does not match its own digest of the module's default places"),
+    (C.ARRANGEMENT_MISSING, {"item": "mod", "asked": ["c_in.west"], "offered": ["default", "c_in.east"]},
+     "mod: arrangements= names c_in.west, which the module does not offer (it offers default, c_in.east)"),
+    (C.ARRANGEMENT_MISSING, {"item": "mod", "asked": ["c_in.west"], "offered": ["default"], "source": "lock"},
+     "mod: its lock entry holds arrangement c_in.west, which the module no longer offers (it offers default); "
+     "the entry is released"),
+    (C.ARRANGEMENT_EXTENT_FIXED, {"item": "c_bulk", "sides": ["east", "north"], "protrudes_mm": 1.8, "alternatives": True},
+     "c_bulk sets the module's extent on the east and north sides (1.8 mm past the next part) and has no alternative"),
 ]
 
 

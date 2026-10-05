@@ -50,6 +50,8 @@ def test_every_kind_renders_from_its_facts():
         "reserved": {}, "label_moved": {"from": "north", "to": "east", "by": ["R1"]}, "turned": {"rot": 90, "of": 4, "cost": 1.5},
         "locked_order": {}, "explore_before": {"other": "u1"},
         "search_budget": {"judged": 5000, "share": 0.1, "limit": 5000},
+        "arrangement": {"id": "c_in.east", "score": 41.2, "cost": 0.0, "default_score": 44.9,
+                        "tried": [{"id": "default", "score": 44.9, "legal": True}, {"id": "c_in.east", "score": 41.2, "legal": True}]},
     }
     missing = sorted(set(step_text.RENDER) - set(sample) - {"rank", "priority", "required", "seeded_no_spot", "took_pocket", "vias", "split",
                                                           "refused", "refused_count"})
@@ -58,6 +60,9 @@ def test_every_kind_renders_from_its_facts():
         text = render(record(kind, **facts))
         assert isinstance(text, str) and text, kind
         json.dumps(record(kind, **facts))
+    blame = [{"form": "rider", "count": 1, "reason": {"code": "via_ban", "ban": "keepout k", "net": "GND", "at": [1.0, 2.0]}}]
+    assert step_text.RENDER["arrangement"](record("arrangement", id="m.east", default_blame=blame)).startswith(
+        "arrangement m.east: the default module has no legal spot (")
 
 
 def test_nothing_a_step_says_is_kept_as_a_sentence():

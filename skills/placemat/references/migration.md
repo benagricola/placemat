@@ -9,14 +9,6 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
-- **A halo round a net while routing.** `[route] net_halos = {"SW" = 2.0}` gives a net a halo in mm: every router
-  pass keeps other nets' new copper that far from its copper, to keep coupling off a switch node. placemat now writes
-  the router's per-net clearance map itself, so `--net-clearances` in `[route] router_args` or `pair_router_args` is
-  refused when the settings load; drop it, and name a net that needs more room in `net_halos`. Before the route, a pad
-  of another net inside a halo whose own copper ends inside it is a `setup.net_halo` finding: draw that pad's escape out
-  past the halo in its module (a longer `run=` on its `board.escape`), or give the node a smaller halo. Draw the halo
-  net whole in its module, or name it in `[route] islands`: routed with the other nets, it would space them all at its
-  halo, which is a `setup.net_halo` finding too.
 - **The pin map study.** A part whose capture annotates its general-purpose pins (`Pm.PinPool`, with `Pm.PinFixed`,
   `Pm.PinAllow`, `Pm.PinDeny` and `Pm.PinGroup`; capture.md, "Pin pools") is studied at the end of every run and
   preview: placemat looks for an assignment of its nets to those pins, at its present rotation and at each turn in
@@ -29,6 +21,67 @@ section for each hand-written pattern a newer form replaces.
   `[pins]`. The study runs in the native module when it is in use (`uv pip install -e ".[native]"` after updating), else
   in Python, with the same results. Nothing in a layout script changes; the first run after updating replays no steps
   (the findings' schemas changed).
+
+## To 0.99.15
+
+### New
+
+- **A module declares alternative arrangements.** `board.alternative(item, name, ...)`, `board.arrangement(name,
+  Alt(...), ...)` and `only=` on the copper forms; the module run proves each and writes the offered ones into the
+  fragment, so a script that wants them runs its module again. The word is "arrangement": a `.zen`'s per-variant
+  `Layout` and explore's variants are other things. A module that declares none lays out as before, and its run may now
+  give `arrangement.extent_fixed` notices for members standing more than `place.extent_notice_mm` past the next.
+  New settings: `place.arrangements`, `place.arrangement_options_max`, `place.arrangements_max`,
+  `place.arrangement_note_chars`, `place.extent_notice_mm`, `score.arrangement`.
+- **A board searches the arrangements of the modules it stamps.** `arrangements=` on a cell's `board.place()` is an id
+  or a list of ids; with none, the search tries the module's own layout (`"default"`) and every arrangement the module
+  offers, and takes another only when it beats the default by `place.arrangement_margin` (0.5 mm). A board that stamps a
+  module with offered arrangements therefore searches them by default, and its placements can change.
+  `arrangements="default"` holds the module's own layout, and `place.arrangements = false` turns the search off for the
+  board. A module offers arrangements only once it has been run again (a re-run writes its notes into the fragment); a
+  module run before this keeps its default alone. A firm cell tries its arrangements at its spot; with none legal it
+  stands in its default with a `fixed.part` finding listing each refusal, and one whose choice does not settle between
+  firm passes raises `fixed.room_unsettled`. The lock and `placemat freeze` hold the arrangement a cell stood in; freeze
+  writes `arrangements="default"` for a cell locked in its default that offers any, and a lock entry whose arrangement
+  is gone is released with an `arrangement.missing` warning. An explore draws among arrangements as it does among spots.
+  `reuse.VERSION` is 5, so the first run after upgrading replays nothing. New setting: `place.arrangement_margin`.
+
+## To 0.99.14
+
+### New
+
+- **A via on a lane that has a way out is a finding in a module.** A module puts a via on an escape lane only when the
+  lane is walled in within the module. In a module run (a frame not drawn), a via on a lane, from `vias=` on
+  `board.escape` or a `board.via` on the lane's copper, whose lane reaches the frame's edge on its own layer without it
+  is an `escape.via_unneeded` warning naming the net, the pin and the via. Take the pin out of `vias=`, or remove the
+  `board.via` (and the track point that ends on it), so the lane ends as a stub and the parent board's router decides
+  whether it changes layer. A plane or free net's via is not one. Placements do not change.
+
+## To 0.99.13
+
+### Fixed
+
+- **A past explore opens on its best variant's board in the studio.** Picking a finished explore in the Runs list, or a
+  past run that explored, left the board empty unless the studio was resolving the same script. It now opens on the
+  board of the best variant, in 2D and 3D, and the header names the explore, its best variant and its score; the
+  variant stepper draws the other variants from there. An explore now keeps the best variant's plan beside its record
+  (`.placemat/views/explore/best/`), and the record names its run. For an explore recorded before this, the studio
+  takes the board its run wrote: when the run kept the best (`--accept`), that board as it is, or its build when it
+  routed; otherwise the focused items moved to where the best put them, the other items as the run placed them, and
+  the header says so. Nothing in a layout script changes.
+
+## To 0.99.12
+
+### New
+
+- **A halo round a net while routing.** `[route] net_halos = {"SW" = 2.0}` gives a net a halo in mm: every router
+  pass keeps other nets' new copper that far from its copper, to keep coupling off a switch node. placemat now writes
+  the router's per-net clearance map itself, so `--net-clearances` in `[route] router_args` or `pair_router_args` is
+  refused when the settings load; drop it, and name a net that needs more room in `net_halos`. Before the route, a pad
+  of another net inside a halo whose own copper ends inside it is a `setup.net_halo` finding: draw that pad's escape out
+  past the halo in its module (a longer `run=` on its `board.escape`), or give the node a smaller halo. Draw the halo
+  net whole in its module, or name it in `[route] islands`: routed with the other nets, it would space them all at its
+  halo, which is a `setup.net_halo` finding too.
 
 ## To 0.99.11
 

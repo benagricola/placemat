@@ -12,6 +12,7 @@ placements, copper ops and findings for the writer and the run record."""
 from __future__ import annotations
 
 import collections
+import collections.abc
 import contextlib
 import copy
 import dataclasses
@@ -25,7 +26,7 @@ import types
 
 from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
-from .geometry import native_status, Transform, box_polygon, circle_polygon, circle_poly_gap, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
+from .geometry import native_status, Transform, box_polygon, circle_polygon, circle_poly_gap, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, pose_transform, segments_intersect, transform_box, transform_polygon
 from . import blame, finding_text, step_text
 from .phases import Stage
 from .cutouts import EdgeWhy
@@ -38,6 +39,7 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
+from .arrangements import DEFAULT_SPEC, Alt, Enumeration, Group, Option, Spec, check_keywords, check_name, enumerate_specs, merged_call
 from .placer import BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
@@ -319,6 +321,7 @@ class PlaceIntent:
     tangent: object = field(default=None, metadata={"omit_default": True})   # a Tangent: the turn at each spot comes from its bearing
     band: object = field(default=None, metadata={"omit_default": True})      # (r_min, r_max) about `about`: Polar((r_min, r_max), None)
     budget: int | None = field(default=None, metadata={"omit_default": True})   # the candidates its search may judge, else `place.step_budget`
+    arrangements: tuple = field(default=(), metadata={"omit_default": True})   # arrangements=: the arrangement ids a cell may take, in the order tried; () every one it offers
 
     @property
     def stands_off(self) -> tuple | None:
@@ -393,6 +396,12 @@ class PlacedKeepout:
     admitted: frozenset = frozenset()   # the parts owners admits by height alone, a subset of owners
     barred: frozenset = frozenset()     # the parts a bars= keepout keeps out; every other part is in owners
 
+    @property
+    def admits_parts(self) -> bool:
+        """Whether a keepout that excludes parts lets some in: by name (`allow=` parts or cells) or by height (`max_height=`).
+        Its rule area is written allowing footprints (kicad/write.py), and a custom rule forbids the rest."""
+        return "parts" in self.excludes and (bool(self.owners) or self.max_height is not None)
+
 
 @dataclass
 class KeepoutIntent:
@@ -461,6 +470,10 @@ class CopperIntent:
     members: tuple = field(default=(), metadata={"omit_default": True})    # a fitted pour's via intents
     reach: float | Reach | None = field(default=None, metadata={"omit_default": True})   # a fitted pour's reach=: mm, or Reach.CURRENT
     declared: dict = field(default_factory=dict, metadata={"reuse": False})   # what the declaration gave, as a finding's suggestions read it
+    only: tuple = field(default=(), metadata={"omit_default": True})    # the arrangement ids it exists in; () every one (arrangements.py)
+
+    def applies_in(self, ident: str) -> bool:
+        return not self.only or ident in self.only
 
     @property
     def rank(self):
@@ -965,6 +978,12 @@ class Board:
         self._rank_note: dict = {}
         self._room: dict = {}               # key -> room.measure's record, taken when the first searched item is reached
         self._waited: dict = {}                # item key -> the linked partner it waited for
+        self._arr_unreached: dict = {}         # item key -> the arrangements a step out of time did not reach
+        self._arr_choice: dict = {}            # firm cell key -> the arrangement it took ("" the default): _settle_firm_arranged
+        self._arr_prev: dict = {}              # what each firm cell took in the pass before (`_Redo.arr`)
+        self._arr_taken: dict = {}             # firm cell key -> what it took in each pass before, in order
+        self._arr_unsettled: dict = {}         # firm cell key still changing at the last pass -> each id it took, in order
+        self._collect_into: list | None = None  # while an explore draws over arrangements: each scan's legal candidates, best first
         self._copper: list[CopperIntent] = []
         self._pad_tracks: set = set()      # indices of the tracks whose points are all pads: their way is known before they are planned
         self._pad_vias: list = []          # (pad ref, net, drill, size, span) of each via declared at a pad: its part carries it
@@ -1017,6 +1036,14 @@ class Board:
         self._outline_decl: str = ""        # which of rect, disc, outline the script declared the board with
         self._centres: list = []            # (item key, the Centre it was placed at): what a Centre's flag is judged by
         self._sites: list = []              # the Site of each declaration: where the script made it (suggestions.bind)
+        self._place_calls: dict = {}        # item key -> (the item as given, `at=`, the other place() keywords as given, "row"/"ring"/""): what an alternative lays over
+        self._options: dict = {}            # item key -> [Option]: board.alternative(), in declaration order
+        self._arr_groups: list = []         # Group: board.arrangement(), in declaration order
+        self._compound: str = ""            # "row" or "ring" while one of them declares its members
+        self._arrangement_enum = None       # arrangements.Enumeration, cached until a declaration changes it
+        self._declarations_done = False
+        self._only_sites: dict = {}         # copper index -> (file, line) of an `only=` (Task 1.4)
+        self._copper_uses: dict = {}        # copper index -> the indexes of the copper intents it is drawn from or fitted round (Task 1.4)
         self._file_digests: dict = {}       # file -> digest of its text when the first declaration in it was made
         self.script_file = ""               # the layout script this board runs, set by the runner
         self.pin_study = True               # the pin map study runs at the end of a resolve; an explore's variant boards say False
@@ -1380,41 +1407,80 @@ class Board:
         inside one of the cell's members' pads of that net. Returns {cell:
         [(x, y) of each via taken out, where the generated board has it]},
         for the writer, and notes each cell's step."""
-        from .lock import _turn
-        planes = {c.net for c in self._copper if c.key.split(" ")[0] == "plane"}
-        keep_share = self.settings.place_drops_keep_share
-        out, self._drops_notes = {}, {}
+        out, self._drops_notes, self._arranged_drops_notes = {}, {}, {}
         for i in self._placements():
             if getattr(i, "drops", Drops.ALL) is Drops.ALL or i.kind != "cell":
                 continue
             cell = i.item.name
-            vias = [s for s in occ.copper if s.owner == cell and s.kind == "through" and s.net in planes]
-            fields, gone, said = {}, [], []
-            for v in vias:
-                c = v.box.center
-                for fp in i.item.members:
-                    p = next((p for p in fp.pads if p.net == v.net and any(point_in_polygon((c.x, c.y), o)
-                                                                           for o in p.outlines)), None)
-                    if p is not None:
-                        fields.setdefault((fp.ref, p.number, p.box.center, fp.rotation), []).append(c)
-                        break
-            for (ref, number, centre, rot), pts in sorted(fields.items(), key=lambda kv: (kv[0][0], kv[0][1])):
-                # the field's grid in its part's own frame, where vias() laid it
-                local = [_turn(p.x - centre.x, p.y - centre.y, -rot) for p in pts]
-                kept = _checkerboard(local) if i.drops is Drops.HALF else \
-                    _spread(local, max(1, math.ceil(keep_share * len(pts) - 1e-9)))
-                gone += [pts[k] for k in range(len(pts)) if k not in kept]
-                said.append({"ref": ref, "pad": number, "kept": len(kept), "of": len(pts)})
+            own = [s for s in occ.copper if s.owner == cell]
+            kept, gone, said = self._thin_cell_vias(i, own, i.item.members)
             self._drops_notes[i.key] = step_text.record("drops", mode=i.drops.value, fields=said)
             if not gone:
                 continue
-            def at(s):
-                return any(abs(s.box.center.x - g.x) < 1e-6 and abs(s.box.center.y - g.y) < 1e-6 for g in gone)
-            occ.copper = [s for s in occ.copper if not (s.owner == cell and s.kind in ("through", "hole") and at(s))]
+            left = {id(s) for s in kept}
+            taken = {id(s) for s in own} - left
+            occ.copper = [s for s in occ.copper if id(s) not in taken]
             occ._cells.pop(cell, None)
             occ._invalidate_native()
-            out[cell] = [(g.x, g.y) for g in gone]
+            out[cell] = gone
         return out
+
+    def _thin_cell_vias(self, i, shapes: list, members) -> tuple:
+        """(the shapes of `shapes` that cell `i`'s `drops=` keeps, [(x, y)] of each via it takes out, the notes of what each field
+        kept). `shapes` is the cell's own copper, `members` its footprints as they stand: a field is the vias of a plane() net inside
+        one of their pads of that net. A via taken out loses its ring and its hole."""
+        from .lock import _turn
+        planes = {c.net for c in self._copper if c.key.split(" ")[0] == "plane"}
+        keep_share = self.settings.place_drops_keep_share
+        vias = [s for s in shapes if s.kind == "through" and s.net in planes]
+        fields, gone, said = {}, [], []
+        for v in vias:
+            c = v.box.center
+            for fp in members:
+                p = next((p for p in fp.pads if p.net == v.net and any(point_in_polygon((c.x, c.y), o)
+                                                                       for o in p.outlines)), None)
+                if p is not None:
+                    fields.setdefault((fp.ref, p.number, p.box.center, fp.rotation), []).append(c)
+                    break
+        for (ref, number, centre, rot), pts in sorted(fields.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+            # the field's grid in its part's own frame, where vias() laid it
+            local = [_turn(p.x - centre.x, p.y - centre.y, -rot) for p in pts]
+            kept = _checkerboard(local) if i.drops is Drops.HALF else \
+                _spread(local, max(1, math.ceil(keep_share * len(pts) - 1e-9)))
+            gone += [pts[k] for k in range(len(pts)) if k not in kept]
+            said.append({"ref": ref, "pad": number, "kept": len(kept), "of": len(pts)})
+        if not gone:
+            return list(shapes), [], said
+        def at(s):
+            return any(abs(s.box.center.x - g.x) < 1e-6 and abs(s.box.center.y - g.y) < 1e-6 for g in gone)
+        return [s for s in shapes if not (s.kind in ("through", "hole") and at(s))], [(g.x, g.y) for g in gone], said
+
+    @staticmethod
+    def _record_arranged_thinned(occ, plan, i, placement) -> None:
+        """For the writer: a cell committed in an arrangement has the vias its drops= took out of the arrangement's copper in
+        plan.thinned, in place of its default's (kicad/write.py thins them once it has drawn that copper)."""
+        if i.kind == "cell" and placement.arrangement:
+            Board._record_thinned(occ, plan, i.item.name, placement.arrangement)
+
+    @staticmethod
+    def _record_thinned(occ, plan, cell: str, arrangement: str) -> None:
+        gone = occ.arranged_gone.get((cell, arrangement))
+        if gone:
+            plan.thinned[cell] = list(gone)
+        else:
+            plan.thinned.pop(cell, None)
+
+    def _thin_arranged(self, cell, shapes: list) -> tuple:
+        """Occupancy.thin_arranged: (the shapes of arranged cell `cell`'s own copper `shapes` its `drops=` keeps, [(x, y)] of each via
+        it takes out). Its fields are found in its members' pads as the arrangement stands them, and the step's note says them."""
+        i = next((x for x in self._placements() if x.kind == "cell" and x.item.name == cell.name), None)
+        if i is None or getattr(i, "drops", Drops.ALL) is Drops.ALL:
+            return shapes, []
+        poses = dict(cell.poses)
+        members = [_posed_footprint(fp, poses[fp.ref]) if fp.ref in poses else fp for fp in cell.members]
+        kept, gone, said = self._thin_cell_vias(i, shapes, members)
+        self._arranged_drops_notes[(cell.name, cell.arrangement)] = step_text.record("drops", mode=i.drops.value, fields=said)
+        return kept, gone
 
     def _pad_ref(self, ref):
         """Validate a pad reference now; return (refdes, pad number, dx, dy).
@@ -2660,11 +2726,17 @@ class Board:
         placed part's pad, the Beside parts standing nearer than the box put them that it names (or all of them, when it
         names none) go back to the box's standoff; and where the copper is not where the last run planned it, the firm
         items are placed against these plans. A run that has none of this to change
-        goes on; the last one that may be run says what did not settle (`fixed.room_unsettled`)."""
+        goes on; the last one that may be run says what did not settle (`fixed.room_unsettled`). A firm cell that chose
+        among its arrangements has settled only when it took the one it took in the pass before: in the first pass there is
+        none before, so a run with such a cell is run again."""
+        changed = {k: self._arr_taken.get(k, []) + [v] for k, v in self._arr_choice.items()
+                   if k in self._arr_prev and self._arr_prev[k] != v}
+        unsettled = any(self._arr_prev.get(k) != v for k, v in self._arr_choice.items())
         if not self._redo and fixed_copper is not None:
             rooms = self._dry_rooms(occ, plan, fixed_copper) if self._room_seed else {}
             self._room_unsettled = _rooms_moved(self._room_seed, rooms, self.settings.place_copper_room_tolerance) \
                 if self._room_seed else []
+            self._arr_unsettled = {k: list(dict.fromkeys(a or "default" for a in took)) for k, took in changed.items()}
             return
         if not self._redo:
             return
@@ -2682,12 +2754,12 @@ class Board:
             if not relaxed and conflicted:
                 relaxed = frozenset(self._tight) - loose        # a squeeze no part is named for: every part nearer than the box
             moved = _rooms_moved(seed, rooms, self.settings.place_copper_room_tolerance) if seed else []
-            if relaxed or moved or (conflicted and not seed):
-                raise _Redo(rooms, swaps + fresh, notes, loose | relaxed)
+            if relaxed or moved or unsettled or (conflicted and not seed):
+                raise _Redo(rooms, swaps + fresh, notes, loose | relaxed, self._arr_choice)
             self._room_unsettled = moved
         if fresh or (fixed_copper is None and frozenset(self._beside_hint) - loose):
             # before the firm collisions are judged: the parts a refused one is aligned with, nearer than the box, go back to it
-            raise _Redo(seed, swaps + fresh, notes, loose | frozenset(self._beside_hint))
+            raise _Redo(seed, swaps + fresh, notes, loose | frozenset(self._beside_hint), self._arr_choice)
 
     def _room_context(self, occ: Occupancy, plan: Plan, ctx) -> "_CopperContext":
         """A copper context to plan declared copper in without drawing it: what the real one knows, copied."""
@@ -2971,8 +3043,8 @@ class Board:
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
               radius: float | None = None, step: float | None = None, rotations=(),
               priority: Priority | None = None, required: bool = False, why: str = "",
-              drops: Drops = Drops.ALL, budget: int | None = None,
-              _standoff: float | None = None, _row_of: object = None) -> PlaceIntent:
+              drops: Drops = Drops.ALL, budget: int | None = None, arrangements=None,
+              _standoff: float | None = None, _row_of: object = None, _declare: bool = True) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
 
@@ -3004,6 +3076,11 @@ class Board:
         carried vias' giving way (default `place.step_budget`); a search that spends it
         takes the best spot it found, or leaves the item unplaced, and says how far it got.
 
+        `arrangements=` (a cell only) is an arrangement id its module offers, or a list of them
+        in the order tried; "default" is the module's own layout. Without it the cell may take
+        any arrangement it offers. An id it does not offer leaves the cell unplaced, with
+        `arrangement.missing` naming the ids it offers.
+
         `rotation=` is a number, `Turned(part, degrees)`, `Parallel(a, b, degrees)`
         (the item's x axis along the line between two points) or `Facing(pads,
         edge)` (the right-angle turn where those pads' row points at the edge;
@@ -3023,6 +3100,9 @@ class Board:
         and adds `score.back_face` to a back spot. A position that is decided or
         along an edge, a block, and a turn that depends on the face are refused.
         """
+        raw = {"rotation": rotation, "face": face, "radius": radius, "step": step, "rotations": rotations, "priority": priority,
+               "required": required, "why": why, "drops": drops, "budget": budget, "_standoff": _standoff, "_row_of": _row_of}
+        given_at = at
         radius = self.settings.place_radius if radius is None else radius
         step = self.settings.place_step if step is None else step
         geom, key, kind = self._item(item)
@@ -3046,7 +3126,19 @@ class Board:
                             % (key, drops)) from None
         if drops is not Drops.ALL and kind != "cell":
             raise TypeError("%s: drops= thins a cell's via fields; a %s carries none of its own" % (key, kind))
-        if any(i.key == key for i in self._intents):
+        ids = ()
+        if arrangements is not None:
+            if kind != "cell":
+                raise TypeError("%s: arrangements= selects among a cell's arrangements; a %s has none" % (key, kind))
+            if isinstance(arrangements, str):
+                ids = (arrangements,)
+            elif isinstance(arrangements, collections.abc.Sequence):
+                ids = tuple(dict.fromkeys(arrangements))        # a repeated id once, in its first place
+            else:
+                raise TypeError("%s: arrangements= is an arrangement id or a list of them, not %r" % (key, arrangements))
+            if not all(isinstance(a, str) and a for a in ids):
+                raise TypeError("%s: arrangements= names arrangements by their ids, as text, not %r" % (key, arrangements))
+        if _declare and any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
         center = edge = along = near = about = run = band = None
         rim = angle = radius_at = None
@@ -3167,7 +3259,7 @@ class Board:
             at = None
         elif isinstance(at, (Location, Centre, tuple)):
             _centre_toward = at if isinstance(at, Centre) else None
-            if isinstance(at, Centre):
+            if isinstance(at, Centre) and _declare:
                 self._centres.append((key, at))
             free = _free_axis(at)
             if free is not None:
@@ -3285,9 +3377,175 @@ class Board:
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
                              cell_pin=cell_pin, drops=drops, file=_script_site()[0], line=_script_site()[1],
                              toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either,
-                             tangent=tangent, band=band, budget=budget)
-        self._intents.append(intent)
+                             tangent=tangent, band=band, budget=budget, arrangements=ids)
+        if _declare:
+            self._intents.append(intent)
+            self._place_calls[key] = (item, given_at, raw, self._compound)
+            self._arrangement_enum = None
         return intent
+
+    # ------------------------------------------------------------ arrangements
+    @staticmethod
+    def _refuse_coordinates(key: str, at) -> None:
+        """An alternative is a relation, as the default is: no number as a coordinate."""
+        def numeric(v):
+            return isinstance(v, (int, float)) and not isinstance(v, bool)
+        if isinstance(at, Near):
+            Board._refuse_coordinates(key, at.location)
+            return
+        bad = (isinstance(at, (Location, Centre)) and (numeric(at.x) or numeric(at.y))) or \
+              (isinstance(at, tuple) and any(numeric(v) for v in at))
+        if bad:
+            raise TypeError("%s: an alternative is a relation (Beside, Pin, a turn), as the default is; %r names a coordinate"
+                            % (key, at))
+
+    def _checked_option(self, item, name: str, keywords: dict, *, grouped: bool = False) -> Option:
+        site = _script_site()
+        geom, key, kind = self._item(item)
+        call = self._place_calls.get(key)
+        if call is None:
+            raise ValueError("%s: board.alternative() adds an option to an item's place(), and the script has not placed it; "
+                             "a block's member has none of its own: name a group of them" % key)
+        if kind != "part":
+            raise TypeError("%s: an alternative is for a part of a module; a %s's arrangements are the ones its own module "
+                            "offers (arrangements= on its place())" % (key, kind))
+        if not grouped and (key in self._row_members or call[3]):
+            raise ValueError("%s is a member of a %s: an arrangement of a row is a named group (board.arrangement)"
+                             % (key, "row" if key in self._row_members else call[3]))
+        if "+" in key:
+            raise ValueError("%s: an item key with a + cannot be named in an arrangement id" % key)
+        check_name("option", name)
+        check_keywords(key, keywords)
+        self._refuse_coordinates(key, keywords.get("at"))
+        option = Option(key, name, tuple((k, v) for k, v in keywords.items() if k != "why"), keywords.get("why", ""), *site)
+        self._intent_option(option)         # built now: a bad keyword or a bad relation is refused where it is written
+        return option
+
+    def alternative(self, item, name: str, **keywords) -> Option:
+        """Another way an item the script has placed may stand: an option on that item's `place()`, which stays its default.
+        `keywords` are those of `place()` that change where an item goes (`at=`, `rotation=`, `rotations=`, `face=`, `radius=`,
+        `step=`) and `why=`; every other keyword and each one not given is the item's own. An option that gives `rotation=`
+        replaces the item's `rotations=` and `Turned`, and one that gives `rotations=` replaces its `rotation=`. The module run
+        lays out every arrangement and offers the ones that pass its own DRC and checks; the board's search chooses among them."""
+        option = self._checked_option(item, name, keywords)
+        if any(o.name == name for o in self._options.get(option.item, ())):
+            raise ValueError("%s already has an option %r" % (option.item, name))
+        self._options.setdefault(option.item, []).append(option)
+        self._arrangement_enum = None
+        return option
+
+    def arrangement(self, name: str, *alts, why: str = "") -> Group:
+        """One arrangement the script names, made of the options of the members it moves, `Alt(item, **keywords)` each (the
+        keywords of `alternative`); the members not named keep their `place()`. For members whose alternatives only make sense
+        together, and for a row or a pair that moves as a unit."""
+        check_name("arrangement", name)
+        if any(g.name == name for g in self._arr_groups):
+            raise ValueError("arrangement %r is already declared" % name)
+        if not alts:
+            raise ValueError("arrangement %r names no member: give Alt(item, **keywords) for each one it moves" % name)
+        seen, options = set(), []
+        for a in alts:
+            if not isinstance(a, Alt):
+                raise TypeError("arrangement %r takes Alt(item, **keywords), not %r" % (name, a))
+            o = self._checked_option(a.item, name, a.keywords, grouped=True)
+            if o.item in seen:
+                raise ValueError("arrangement %r names %s twice" % (name, o.item))
+            seen.add(o.item)
+            options.append(o)
+        group = Group(name, tuple(options), why, *_script_site())
+        self._arr_groups.append(group)
+        self._arrangement_enum = None
+        return group
+
+    def _intent_option(self, option: Option) -> "PlaceIntent":
+        """The PlaceIntent an option makes of its item: the item's own `place()` call with the option laid over it, built
+        without being declared."""
+        item, at, raw, _ = self._place_calls[option.item]
+        call = merged_call(at, raw, option)
+        return Board.place.__wrapped__(self, item, call.pop("at"), _declare=False, **call)
+
+    def arrangement_enumeration(self) -> Enumeration:
+        """The arrangements this module offers, the default first (`place.arrangements` false, or no declaration: the default
+        alone). Over a limit: the default alone, with the facts of `arrangement.limit` (`arrangement_limit`)."""
+        if self._arrangement_enum is None:
+            if not self.settings.place_arrangements or not (self._options or self._arr_groups):
+                self._arrangement_enum = Enumeration((DEFAULT_SPEC,), None, 1)
+            else:
+                order = [i.key for i in sorted(self._intents, key=lambda i: i.index) if i.key in self._options]
+                self._arrangement_enum = enumerate_specs(order, self._options, self._arr_groups,
+                                                         self.settings.place_arrangement_options_max,
+                                                         self.settings.place_arrangements_max)
+        return self._arrangement_enum
+
+    def arrangement_limit(self) -> dict | None:
+        """The facts of `arrangement.limit` when the declarations pass a limit, else None."""
+        return self.arrangement_enumeration().over
+
+    def finish_declarations(self) -> None:
+        """Called once the script has declared everything and before any resolve: the checks that need every declaration in.
+        An `only=` names arrangements of this module; copper fitted round or drawn from other copper exists wherever that does."""
+        if self._declarations_done:
+            return
+        self._declarations_done = True
+        from .arrangements import all_ids, known_id
+        order = [i.key for i in sorted(self._intents, key=lambda i: i.index) if i.key in self._options]
+        for c in self._copper:
+            for ident in c.only:
+                if not known_id(ident, order, self._options, self._arr_groups):
+                    file, line = self._only_sites.get(c.index, ("", 0))
+                    groups = [g.name for g in self._arr_groups]
+                    products = [i for i in all_ids(order, self._options, self._arr_groups) if i not in groups]
+                    raise ValueError("%s:%d: %s: only= names %r, which is not an arrangement of this module; it has "
+                                     "arrangements: %s; groups: %s"
+                                     % (file, line, c.key, ident, ", ".join(products), ", ".join(groups) or "none"))
+        by_index = {c.index: c for c in self._copper}
+        for c in self._copper:
+            for idx in self._copper_uses.get(c.index, ()):
+                m = by_index.get(idx)
+                if m is not None and m.only and (not c.only or not set(c.only) <= set(m.only)):
+                    file, line = self._only_sites.get(c.index, self._only_sites.get(idx, ("", 0)))
+                    raise ValueError("%s:%d: %s is drawn from or fitted round %s, which exists only in %s: give it an only= "
+                                     "inside that set" % (file, line, c.key, m.key, ", ".join(m.only)))
+
+    def refuse_board_alternatives(self) -> None:
+        """Raise ValueError when a board script (its outline drawn: not a module) declares alternatives. Alternatives are a
+        module's: its run proves each one and a board that stamps it chooses among them. A run calls this once the script has
+        declared everything."""
+        if not self._draw_outline:
+            return
+        sites = [(o.file, o.line, "board.alternative") for opts in self._options.values() for o in opts] + \
+            [(g.file, g.line, "board.arrangement") for g in self._arr_groups]
+        if not sites:
+            return
+        file, line, form = min(sites, key=lambda s: s[1])
+        raise ValueError("%s:%d: %s declares an arrangement, which only a module offers: this script draws its board's "
+                         "outline, so it lays out a board. Declare it in the module's own script, whose frame is not drawn "
+                         "(board.rect(..., draw=False))" % (file, line, form))
+
+    def arrangement_specs(self) -> tuple:
+        """The arrangements a module run lays out, the default first, once the declarations are checked."""
+        self.finish_declarations()
+        return self.arrangement_enumeration().specs
+
+    _laid = DEFAULT_SPEC.id          # the arrangement the board's declarations are laid as
+
+    def lay_arrangement(self, spec: Spec) -> None:
+        """Put the board's declarations as arrangement `spec` has them: each option of `spec` laid over its item's
+        PlaceIntent, which keeps its place in the declaration order, its line and the pushes made on it; and only the copper
+        that exists in `spec`. Called on a board `_restore` has put back; `resolve()` lays the default."""
+        for key, option in spec.overrides:
+            old = next(i for i in self._intents if i.key == key)
+            new = self._intent_option(option)
+            new.index, new.line, new.file = old.index, old.line, old.file
+            new.pushes = old.pushes
+            for p in old.pushes:
+                new.needs = new.needs | self._push_needs(p.source)
+            old.__dict__.clear()
+            old.__dict__.update(new.__dict__)
+        kept = [c for c in self._copper if c.applies_in(spec.id)]
+        if len(kept) != len(self._copper):
+            self._copper = kept
+        self._laid = spec.id
 
     @staticmethod
     def _refuse_either(key: str, kind: str, rotation, **decided) -> None:
@@ -3583,9 +3841,13 @@ class Board:
         ref = base.standoff + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
         clears = [ref - {"centre": d / 2.0, "outer": 0.0, "inner": d}[line] for d in depths]
         row.line = line.value          # the plain value: what a declaration digest wrote before Line existed
-        for n, (item, r, c) in enumerate(zip(items, rots, clears)):
-            along = row.centres[n] if row.start is not None else _RowSlot(row, n)
-            self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why, _row_of=of)
+        self._compound = "row"
+        try:
+            for n, (item, r, c) in enumerate(zip(items, rots, clears)):
+                along = row.centres[n] if row.start is not None else _RowSlot(row, n)
+                self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why, _row_of=of)
+        finally:
+            self._compound = ""
         return row
 
     def _check_row_pitch(self, items, keys, rots, along_axis: bool, pitch: float, gap: float) -> None:
@@ -3650,8 +3912,12 @@ class Board:
             angles.append(angle)
             rots.append(given[k] if given is not None else self.outward_rotation(item, angle)[0])
             depths.append(thick)
-        for item, a, r in zip(items, angles, rots):
-            self.place(item, at=(OnRim(a) if radius is None else Polar(radius, a, about=centre)), rotation=r, why=why)
+        self._compound = "ring"
+        try:
+            for item, a, r in zip(items, angles, rots):
+                self.place(item, at=(OnRim(a) if radius is None else Polar(radius, a, about=centre)), rotation=r, why=why)
+        finally:
+            self._compound = ""
         return Ring(float(radius) if radius is not None else None, angles,
                     max(depths) if depths else 0.0, list(items), [self._item(it)[1] for it in items])
 
@@ -3705,11 +3971,15 @@ class Board:
             s0 = run.project(_as_point(start) if isinstance(start, (tuple, Location)) else start) + first_half
         alongs, _ = walk(s0)
         keys = []
-        for k, (item, along) in enumerate(zip(items, alongs)):
-            rot = given[k] if given is not None else self.outward_rotation(item, run.at(along)[1])[0]
-            self.place(item, at=OnEdge(run, along=along), rotation=rot,
-                       _standoff=(-float(overhang) if overhang else self.keep_in), why=why)
-            keys.append(self._item(item)[1])
+        self._compound = "row"
+        try:
+            for k, (item, along) in enumerate(zip(items, alongs)):
+                rot = given[k] if given is not None else self.outward_rotation(item, run.at(along)[1])[0]
+                self.place(item, at=OnEdge(run, along=along), rotation=rot,
+                           _standoff=(-float(overhang) if overhang else self.keep_in), why=why)
+                keys.append(self._item(item)[1])
+        finally:
+            self._compound = ""
         return RunRow(run, alongs, max((c.height for c in claims), default=0.0), total, list(items), keys)
 
 
@@ -4074,6 +4344,9 @@ class Board:
             ways = self._reserve_ways(occ, decl)
             try:
                 laid = self._escape_layout(occ, decl)
+            except EscapeError as e:
+                e.escape, e.part = e.escape or decl.key, e.part or decl.part.inst
+                raise
             finally:
                 occ.remove_copper(ways)
             self._escape_laid[decl.index] = laid
@@ -4206,11 +4479,15 @@ class Board:
                              "disc that formula asks for has no finite radius" % (falloff, r_ref, v_ref, limit))
         p = Push(from_, float(falloff), float(r_ref), float(v_ref), float(limit), target_pad_key, owner, why)
         intent.pushes = intent.pushes + (p,)
-        needs = {self._pad_ref(r)[0] for r in _refs_in([from_])}
-        if isinstance(from_, str):
-            needs.add(cutout_token(from_))   # a keepout settles like a hole: waited for the same way
-        intent.needs = intent.needs | needs
+        intent.needs = intent.needs | self._push_needs(from_)
         return p
+
+    def _push_needs(self, source) -> set:
+        """What a push from `source` places first: its part, or its keepout."""
+        needs = {self._pad_ref(r)[0] for r in _refs_in([source])}
+        if isinstance(source, str):
+            needs.add(cutout_token(source))   # a keepout settles like a hole: waited for the same way
+        return needs
 
     def free_net(self, net):
         """A net whose length on this board does not matter (its off-board
@@ -4934,6 +5211,33 @@ class Board:
         for ref, number, net, by in esc.handoffs_walled():
             plan.findings.append(self._finding(C.ESCAPE_WALLED, dict(
                 suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant="handoff")))
+        if not self._draw_outline:
+            self._report_vias_unneeded(occ, plan, esc)
+
+    def _report_vias_unneeded(self, occ: Occupancy, plan: Plan, esc) -> None:
+        """A module's via on an escape lane that the lane does not need (`Escapes.vias_unneeded`): the lane reaches the
+        frame's edge on its own layer without it, so it ends there and the parent board's router decides whether it changes
+        layer. A finding per via, naming whether `vias=` on the escape put it there or a `board.via` did."""
+        from . import suggest_facts
+        pins = list(dict.fromkeys((d.ref, n) for d in self._escapes if d.index in self._escape_laid for n in d.pins))
+        if not pins:
+            return
+        ctx = self.__dict__.get("_escape_ctx")
+        lane_intents = {id(v) for d in self._escapes for v in d.via_intents.values()}
+        for ref, number, net, layers, vias in esc.vias_unneeded(pins, occ.board_box):
+            seen = set()
+            for v in vias:
+                x, y = (v.circle[0], v.circle[1]) if v.circle else (v.box.center.x, v.box.center.y)
+                if (round(x, 4), round(y, 4)) in seen:
+                    continue                # a lane's via is reserved and drawn at one spot
+                seen.add((round(x, 4), round(y, 4)))
+                intent = _via_intent_at(self, ctx, net, x, y)
+                lane = bool(v.lane) or (intent is not None and id(intent) in lane_intents)
+                plan.findings.append(self._finding(C.ESCAPE_VIA_UNNEEDED, {
+                    "ref": ref, "part": suggest_facts.inst_of(self, ref), "pin": number, "net": net,
+                    "layers": [l.value for l in CopperLayer if l in layers],
+                    "via": {"kind": "lane" if lane else "via", "at": [round(x, 4), round(y, 4)],
+                            "key": copper_id(intent) if intent is not None and not lane else ""}}))
 
     def _report_pin_maps(self, plan: Plan) -> None:
         """The pin map study (pinmap.py) on the finished board: once per resolve, never inside the search. An explore's
@@ -4983,7 +5287,20 @@ class Board:
                                          step.placement.rotation, step.placement.face)
 
     # ------------------------------------------------------------ copper
-    def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False, extra_owners=frozenset()):
+    def _only(self, only, form: str) -> tuple:
+        """The arrangement ids a copper declaration exists in: a non-empty sequence of ids, or None for every arrangement."""
+        if only is None:
+            return ()
+        if isinstance(only, str) or not hasattr(only, "__iter__"):
+            raise TypeError("%s: only= is a sequence of arrangement ids, only=(%r,) for one; got %r" % (form, only, only))
+        ids = tuple(only)
+        if not ids:
+            raise ValueError("%s: only= is empty, so the declaration would exist in no arrangement; leave it out for every one" % form)
+        if not all(isinstance(i, str) for i in ids) or len(set(ids)) != len(ids):
+            raise TypeError("%s: only= is a sequence of distinct arrangement ids, not %r" % (form, only))
+        return ids
+
+    def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False, extra_owners=frozenset(), only=()):
         """A copper declaration. WHEN it is planned is not asked here: it is
         derived in resolve(), once every placement is declared, because at
         declaration time a part placed later is invisible. `extra_owners`
@@ -4992,8 +5309,10 @@ class Board:
         name = self.geometry.require_net(net)
         pads = tuple(self._pad_ref(r) for r in refs)
         ci = CopperIntent(key, name, priority, plan, tuple(refs), why, len(self._copper), bridge,
-                          frozenset(owner for owner, *_ in pads) | extra_owners)
+                          frozenset(owner for owner, *_ in pads) | extra_owners, only=only)
         self._copper.append(ci)
+        if only:
+            self._only_sites[ci.index] = _script_site()
         return ci
 
     def faces(self, *, outward: Edge | None = None, quiet: Edge | None = None, handoff: Edge | None = None, why: str = ""):
@@ -5087,7 +5406,7 @@ class Board:
 
     def track(self, net, points, *, layer: CopperLayer, width: float | None = None,
               chamfer: float | None = None, bend: Bend | None = None, radius: float | None = None,
-              priority: Priority = Priority.DEFAULT, bridge: bool = False, why: str = ""):
+              priority: Priority = Priority.DEFAULT, bridge: bool = False, only=None, why: str = ""):
         """Track segments through `points` in order, on one layer. A point is
         a Location, a pad reference, a Mid, a `Between(PadRef(a), PadRef(b))`
         (the centreline of the gap between two pads), a `Past(items, edge)`
@@ -5271,7 +5590,8 @@ class Board:
                                               **self._track_through_facts(ctx, hits, intent.index)})
                 return []
             return ops
-        intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
+        intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge, only=self._only(only, "track"))
+        self._copper_uses[intent.index] = tuple(p.index for p in points if isinstance(p, CopperIntent))
         intent.declared = {"layer": layer.name, "chamfer": chamfer, "radius": arc_r, "arc": bool(arc),
                            "waypoints": max(0, len(points) - 2) if begins is None else 0}
         if begins is None and len(points) >= 2 and all(isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points):
@@ -5294,7 +5614,7 @@ class Board:
 
     def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,
              chamfer: float | None = None, via_step: float | None = None, priority: Priority = Priority.DEFAULT,
-             bridge: bool = False, why: str = ""):
+             bridge: bool = False, only=None, why: str = ""):
         """Two nets drawn together at `gap` along one centreline. `path`
         starts and ends with a (P pad, N pad) tuple; the points between, two
         or more, are the centreline. Width and gap default to the P net's class. Corners
@@ -5352,11 +5672,11 @@ class Board:
                     return []
             return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
                             via_step, chamfer, self._clearance(p_name, n_name), sfaces, efaces)
-        return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge)
+        return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge, only=self._only(only, "pair"))
 
     def vias(self, net, pad=None, *, along=None, count: int | None = None, pitch: float | None = None,
              size: float | None = None, drill: float | None = None,
-             inset: float = 0.0, layers=None, priority: Priority = Priority.DEFAULT, why: str = ""):
+             inset: float = 0.0, layers=None, priority: Priority = Priority.DEFAULT, only=None, why: str = ""):
         """Vias of `net` at a pad, one of two ways.
 
         `pad` (a `PadRef`/`CellPadRef`): the pad filled with a square grid
@@ -5440,7 +5760,7 @@ class Board:
                 ctx.via_at[intent.index] = vias[-1].at      # a track may end on the row's farthest via
                 return vias + [tail]
             # "via row": a track may end on it, as on one via()
-            intent = self._copper_intent("via row %s" % name, net, priority, plan, _refs_in([along]), why)
+            intent = self._copper_intent("via row %s" % name, net, priority, plan, _refs_in([along]), why, only=self._only(only, "vias"))
             return intent
         owner, number, _, _ = self._pad_ref(pad)
         k = len(self._pad_fields)
@@ -5474,7 +5794,7 @@ class Board:
                     ctx.planned_tails.append(a.tail)
                     ops.append(a.tail)
             return ops
-        intent = self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why)
+        intent = self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why, only=self._only(only, "vias"))
         self._late_copper.add(intent.index)         # planned after the search: its part's grid gives way as items are placed
         return intent
 
@@ -5511,7 +5831,7 @@ class Board:
         return out, None
 
     def via(self, net, at, *, drill: float | None = None, size: float | None = None, layers=None,
-            priority: Priority = Priority.DEFAULT, why: str = ""):
+            priority: Priority = Priority.DEFAULT, only=None, why: str = ""):
         """A via of `net`. `at` is a position, a `FreeSpot` near a pad (the
         nearest point a via can stand and be reached, found when the pad is
         placed), or a `Past(items, edge)` (the via's radius plus its
@@ -5573,18 +5893,18 @@ class Board:
             ctx.planned_vias.append(via)        # a later FreeSpot in this batch sees it
             ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
-        intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why)
+        intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why, only=self._only(only, "via"))
         if isinstance(at, FreeSpot):
             # a searched spot keeps clear of the tracks declared before it, whenever those are planned: a track
             # that waits for a searched part is drawn after a decided via is, and has no way round it
             self._copper_after[intent.index] = tuple(
-                c.index for c in self._copper[:intent.index] if c.key.startswith("track ") and c.net != name)
+                c.index for c in self._copper if c.index < intent.index and c.key.startswith("track ") and c.net != name)
         return intent
 
     def stitch(self, net, region, *, pitch: float | None = None, size: float | None = None,
                drill: float | None = None, edge: bool = False, outside: bool = False,
                hole_to_edge: float | None = None, sides=None, layers=None,
-               priority: Priority = Priority.DEFAULT, why: str = ""):
+               priority: Priority = Priority.DEFAULT, only=None, why: str = ""):
         """Stitching vias of `net` over `region` - a `Cell`, the
         `CopperIntent` `board.pour()` returns, or a keepout's name - `pitch`
         apart (by default the via-to-via rule: the larger of the via's own
@@ -5695,9 +6015,10 @@ class Board:
             if not vias:
                 ctx.note(C.COPPER_STITCH, {"variant": "none", "net": name, "pitch_mm": step})
             return vias
-        intent = self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners)
+        intent = self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners, only=self._only(only, "stitch"))
         if pour_intent is not None:
             self._copper_after[intent.index] = (pour_intent.index,)
+            self._copper_uses[intent.index] = (pour_intent.index,)     # its only= must lie inside the pour's
         return intent
 
     def _stitch_outside(self, ctx, name: str, poly, turn: float, off: float, step: float, wanted, size: float,
@@ -6141,7 +6462,7 @@ class Board:
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              width: float | None = None, cover: Cover | None = None, priority: Priority = Priority.DEFAULT,
-             reach: float | Reach | None = None, grow: float | None = None, within=None, why: str = ""):
+             reach: float | Reach | None = None, grow: float | None = None, within=None, only=None, why: str = ""):
         """A filled copper polygon on one layer, written as a graphic polygon
         (never a zone: nothing refills it, and nothing is cut from it once it
         is planned). Another net's copper inside it is a copper finding.
@@ -6279,8 +6600,9 @@ class Board:
                     pts = tuple(_hull([(round(x, 6), round(y, 6)) for x, y in corners]))
             ctx.pour_at[intent.index] = pts       # a stitch over this pour, once it is drawn
             return [Pour(name, layer, pts, stroke, fitted)]
-        intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
+        intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why, only=self._only(only, "pour"))
         intent.members = vias
+        self._copper_uses[intent.index] = tuple(v.index for v in vias)
         self._copper_after[intent.index] = tuple(v.index for v in vias)
         intent.reach = reach
         return intent
@@ -6481,7 +6803,7 @@ class Board:
 
     def plane(self, net, layers, *, outline=None, inset: float | None = None, chamfer: float | None = None,
               clearance: float | None = None, min_thickness: float | None = None, solid_pads: bool = True,
-              priority: Priority = Priority.DEFAULT, over=None, margin: float = 0.0, why: str = ""):
+              priority: Priority = Priority.DEFAULT, over=None, margin: float = 0.0, only=None, why: str = ""):
         """A KiCad zone per layer, filled by KiCad and pulled back round every
         foreign pad, track and via: the whole board inset from the edge, the
         polygon `outline`, or `over=[Part(...), Cell(...)]` the box round
@@ -6527,13 +6849,13 @@ class Board:
                 pts = board_zone_outline(self.width, self.height, inset, ch)
             return [Zone(name, l, pts, clearance, min_thickness, solid_pads) for l in layers]
         refs = _refs_in(over) if over is not None else [] if outline is None else _refs_in(outline)
-        intent = self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
+        intent = self._copper_intent("plane %s" % name, net, priority, plan, refs, why, only=self._only(only, "plane"))
         if outline is None:
             self._frame_planes.add(intent.index)    # on a fit board, planned once the frame is fitted
         return intent
 
     def finger(self, net, *, layer: CopperLayer, from_, to, width,
-               bridge_width: float | None = None, priority: Priority = Priority.DEFAULT, why: str = ""):
+               bridge_width: float | None = None, priority: Priority = Priority.DEFAULT, only=None, why: str = ""):
         """A finger: a rectangular pour along the centreline from `from_` to
         `to` (points, pads, or (x, y) pairs with X()/Y()), `width` wide - a
         number, or a `PadRef`/`CellPadRef` to run as wide as that pad
@@ -6562,7 +6884,7 @@ class Board:
             segs = [chord for t in ctx.tracks_on(layer) if t.net != name for chord in t.chords()]
             return finger_ops(name, layer, a, b, w, segs, self.via_drill, self.via_size, bridge_width,
                               self.settings.copper_bridge_half_gap, self.settings.copper_finger_min_piece)
-        return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
+        return self._copper_intent("finger %s" % name, net, priority, plan, refs, why, only=self._only(only, "finger"))
 
     # ------------------------------------------------------------ resolution
     def _derive_copper_freedom(self):
@@ -6629,6 +6951,9 @@ class Board:
         """Place everything and plan the copper. When a studio listens in the project (channel.py), the steps and the
         finished plan are also sent to it; with none, that costs one lookup, made once per process. `partial` is a
         reuse.PartialLog: each completed step's record is appended to it as the resolve goes."""
+        self.finish_declarations()
+        if self._laid == DEFAULT_SPEC.id:
+            self.lay_arrangement(DEFAULT_SPEC)      # a board laid as another arrangement resolves as that one
         from . import channel
         rep = channel.reporter(getattr(self, "_script", None))
         if rep is None:
@@ -6644,6 +6969,7 @@ class Board:
         stops after its firm items when that is so, and the last one, or the first that finds everything in place, is the
         resolve (see `_redo_check`)."""
         self._room_seed, self._swaps, self._room_unsettled, self._swap_notes, self._loose = {}, [], [], {}, frozenset()
+        self._arr_prev, self._arr_unsettled, self._arr_taken = {}, {}, {}
         self._room_refused = {}         # copper index -> the parts placed when the room planning could not draw it
         self._firm_pass_no = None
         passes = self.settings.place_firm_passes
@@ -6651,13 +6977,21 @@ class Board:
                 (self._copper or any(getattr(i, "beside", None) is not None for i in self._intents))):
             return self._resolve_run(progress, reuse, explore, lock, routes, on_step, on_begin, partial, False)
         saved = self._snapshot()
+        taken: dict = {}            # firm cell key -> what it took in each pass that stopped, in order
         for n in range(1, passes + 1):
             self._firm_pass_no = n if n < passes else None      # a pass that stops after the firm items: the one a slow step names
             try:
                 return self._resolve_run(progress, reuse, explore, lock, routes, on_step, on_begin, partial, n < passes)
             except _Redo as r:
+                prev = self._arr_prev
                 self._restore(saved)
                 self._room_seed, self._swaps, self._swap_notes, self._loose = r.seed, r.swaps, r.notes, r.loose
+                for k, v in r.arr.items():
+                    taken.setdefault(k, []).append(v)
+                # after the restore, which puts back the attributes as they stood before the passes. A pass that stopped
+                # before it reached a firm cell (a Beside redo ends one before the firm collisions) leaves that cell what
+                # it took before, so the next pass is compared with it
+                self._arr_prev, self._arr_taken = {**prev, **r.arr}, {k: list(v) for k, v in taken.items()}
 
     def _resolve_run(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial, redo: bool) -> Plan:
         """One run of the resolve. With `redo`, what it reports while it goes is held until it is known that it will not be
@@ -6676,6 +7010,7 @@ class Board:
         return plan
 
     def _resolve_once(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial=None):
+        self._arr_choice = {}               # what the firm cells take in this pass (`_settle_firm_arranged`)
         self._check_groups()                # what a declared group may hold, before the search
         self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
         self._part_keep_outs()              # the clearances the parts' Pm.KeepOut ask of other nets' copper; refuses one with no citation
@@ -6702,6 +7037,9 @@ class Board:
         self._flip_said = self._flip_notes(occ)     # a flipped cell's via whose inner end changes role
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
         thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
+        occ.thin_arranged = self._thin_arranged     # and an arranged cell's, from the arrangement's copper
+        # (the callback writes the step's drops note into Board state as the occupancy builds a geometry: valid for this one
+        # _resolve_once, whose occupancy it is; _thin_drops above reset the notes)
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
         occ.plane_nets = frozenset(c.net for c in self._copper if c.key.split(" ")[0] == "plane")   # drops' nets
         occ.plane_layers = self._plane_layers()      # {layer: {net, ...}}: give way's shorten reads this
@@ -6744,6 +7082,12 @@ class Board:
         if native_status().warns:           # the pure Python path is the reference, and 5-10x slower: never silent
             plan.findings.append(self._finding(C.SETUP_NATIVE, native_status().facts(), "warning"))
         plan.findings.extend(self._finding(C.SETUP_RULE_NOTE, facts, "notice") for facts in self._stamped_rule_notes)
+        limit = self.arrangement_limit()
+        if limit is not None:
+            plan.findings.append(self._finding(C.ARRANGEMENT_LIMIT, limit, "warning"))
+        for cname in sorted(self.geometry.cells) if self.settings.place_arrangements else ():   # off: the board ignores arrangements
+            for p in self.geometry.cells[cname].arrangement_problems:
+                plan.findings.append(self._finding(C.ARRANGEMENT_STALE, {"cell": cname, "reason": p["reason"], "ids": p["ids"]}, "warning"))
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement
@@ -6991,6 +7335,7 @@ class Board:
                 placed.update(fp.ref for fp in obj.item.members)
             else:
                 occ.commit(obj.item, step.placement)
+                self._record_arranged_thinned(occ, plan, obj, step.placement)
                 placed.update(fp.ref for fp in members_of(obj.item))
                 self._labels_give_way(occ, plan, obj.item, step.placement, True)     # as the settle did, for a replay
                 if obj.kind == "cell":
@@ -7084,6 +7429,9 @@ class Board:
         for key, moved in self._room_unsettled:
             plan.findings.append(self._finding(C.FIXED_ROOM_UNSETTLED, {
                 "copper": key, "moved_mm": moved, "passes": self.settings.place_firm_passes}))
+        for key, ids in sorted(self._arr_unsettled.items()):
+            plan.findings.append(self._finding(C.FIXED_ROOM_UNSETTLED, {
+                "item": key, "arrangements": ids, "passes": self.settings.place_firm_passes}))
         if self.settings.place_copper_room:
             occ.rooms_apply = True          # the search keeps clear of what declared copper will be
             room_ctx = self._room_context(occ, plan, ctx)
@@ -7275,6 +7623,9 @@ class Board:
         if kept == "unplaced":
             del plan.findings[n_found:]
         facts = dict(self._time_facts(spent), limit_s=limit_s, kept=kept)
+        unreached = self._arr_unreached.pop(step.item, [])
+        if unreached:
+            facts["arrangements"] = unreached
         plan.findings.append(self._finding(C.TIME_STEP_LIMIT, facts, "critical" if kept == "unplaced" else "warning"))
         if kept == "unplaced" and not step.unplaced:
             step.unplaced = ({"form": "time_limit"},)
@@ -7285,7 +7636,12 @@ class Board:
         why the item has no place, as step_text.unplaced_text reads it; the step's notes then start with "unplaced" and
         none of `notes` is kept."""
         notes = [step_text.record("unplaced")] if unplaced is not None else list(notes)
+        arranged = getattr(i.item, "arrangement", "")
+        if placement is not None and arranged and placement.arrangement != arranged:
+            placement = dataclasses.replace(placement, arrangement=arranged)
         drops = self.__dict__.get("_drops_notes", {}).get(i.key)
+        if placement is not None and placement.arrangement and i.kind == "cell":     # its fields as the arrangement stands them
+            drops = self.__dict__.get("_arranged_drops_notes", {}).get((i.item.name, placement.arrangement), drops)
         if drops:
             notes.append(drops)
         if getattr(placement, "face", None) is Face.BACK:
@@ -7310,13 +7666,19 @@ class Board:
         occ.step_budget = SearchBudget(getattr(obj, "budget", None) or self.settings.place_step_budget) \
             if isinstance(obj, PlaceIntent) else None
         try:
-            self._riding = (obj.key, self._rider_check(occ, plan, obj)) if riders else None
+            self._riding = (obj.key, occ, plan, {}) if riders else None
             with _recording_commits(occ) as commits:
                 alone = self._riders_alone(occ, plan, obj) if riders else None
                 if alone:
-                    facts = {"item": obj.key, "variant": "alone", "turns": [[r, w.to_json()] for r, w in alone]}
+                    # a refusal of an arrangement other than the default is tagged with it, as _first_legal tags its refusals
+                    turns = [[r, w.to_json()] + ([a] if a else []) for r, w, a in alone]
+                    facts = {"item": obj.key, "variant": "alone", "turns": turns}
                     plan.findings.append(self._finding(C.UNPLACED_RIDES, facts))
                     step = self._step(obj, None, 0.0, unplaced=[{"form": "riders_alone", "turns": facts["turns"]}])
+                    tried = list(dict.fromkeys(a for _, _, a in alone))
+                    if len(tried) > 1 or tried != [""]:
+                        step.notes = step.notes + (self._arrangement_note(None, [self._arrangement_row(a, None, False)
+                                                                                  for a in tried]),)
                 else:
                     step = self._settle(occ, obj, plan, placed)
                 occ.labels_yield = False
@@ -7346,16 +7708,23 @@ class Board:
                    if k < len(was) and (s.placement, s.notes) != was[k]]
         return {"commits": commits, "changed": changed, "cleanup": dict(plan.cleanup)}
 
-    def _apply_commits(self, occ: Occupancy, commits):
-        """Commit, in order, what _recording_commits recorded."""
+    def _apply_commits(self, occ: Occupancy, commits, plan: Plan):
+        """Commit, in order, what _recording_commits recorded. A cell recorded in an arrangement commits as it stands it, and its
+        thinned vias are the arrangement's, as when it was first committed."""
         from . import reuse as _reuse
-        for (kind, name), placement in commits:
+        for key, placement in commits:
+            kind, name = key[0], key[1]
             item = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
-            occ.commit(item, _reuse.placement_from_json(placement))
+            placement = _reuse.placement_from_json(placement)
+            if len(key) > 2:
+                placement = dataclasses.replace(placement, arrangement=key[2])
+            occ.commit(item, placement)
+            if kind == "cell" and placement.arrangement:
+                self._record_thinned(occ, plan, name, placement.arrangement)
 
     def _replay_cleanup(self, occ: Occupancy, plan: Plan, entry: dict):
         from . import reuse as _reuse
-        self._apply_commits(occ, entry["commits"])
+        self._apply_commits(occ, entry["commits"], plan)
         for k, placement, notes in entry["changed"]:
             plan.steps[k].placement = _reuse.placement_from_json(placement)
             plan.steps[k].notes = tuple(notes)
@@ -7371,7 +7740,7 @@ class Board:
         from . import reuse as _reuse
         if isinstance(obj, PlaceIntent) and obj.kind != "block":
             self._reserve_pushes(occ, plan, obj)
-        self._apply_commits(occ, entry["commits"])
+        self._apply_commits(occ, entry["commits"], plan)
         plan.steps.extend(_reuse.step_from_json(s) for s in entry["steps"])
         plan.findings.extend(_reuse.finding_from_json(f) for f in entry["findings"])
         plan.pocketed.extend(entry["pocketed"])
@@ -8403,7 +8772,7 @@ class Board:
         run = i.run
         fellows = [x for x in self._placements() if x.run is i.run and x.along is None
                    and not x.freedom.decided]
-        k, n = fellows.index(i), max(len(fellows), 1)
+        k, n = _slot_of(fellows, i), max(len(fellows), 1)
         ideal = run.length * (k + 1) / (n + 1)
         shape = occ.board_shape or self._shaped()
 
@@ -8456,7 +8825,7 @@ class Board:
         pinned = _coord(self, occ, i.pin_x if axis == "x" else i.pin_y, axis)
         fellows = [o for o in self._placements() if (o.pin_x if axis == "x" else o.pin_y) is not None
                    and (o.pin_x if axis == "x" else o.pin_y) == (i.pin_x if axis == "x" else i.pin_y)]
-        k, n = fellows.index(i), len(fellows)
+        k, n = _slot_of(fellows, i), len(fellows)
         box = occ.board_box
         lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
         lo, hi = lo + self.keep_in, hi - self.keep_in
@@ -8489,7 +8858,7 @@ class Board:
         pinned = _coord(self, occ, i.pin_x if axis == "x" else i.pin_y, axis)
         fellows = [o for o in self._placements() if (o.pin_x if axis == "x" else o.pin_y) is not None
                    and (o.pin_x if axis == "x" else o.pin_y) == (i.pin_x if axis == "x" else i.pin_y)]
-        k, n = fellows.index(i), len(fellows)
+        k, n = _slot_of(fellows, i), len(fellows)
         box = occ.board_box
         lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
         lo, hi = lo + self.keep_in, hi - self.keep_in
@@ -8526,7 +8895,7 @@ class Board:
         length, so one alone sits at the midpoint."""
         fellows = [x for x in self._placements() if x.edge is i.edge and x.along is None
                    and not x.freedom.decided]
-        k, n = fellows.index(i), len(fellows)
+        k, n = _slot_of(fellows, i), len(fellows)
         box = occ.board_box
         lo, hi = (box.left, box.right) if i.edge in (Edge.NORTH, Edge.SOUTH) else (box.top, box.bottom)
         lo, hi = lo + self.keep_in, hi - self.keep_in
@@ -8549,7 +8918,7 @@ class Board:
         run = i.run
         fellows = [x for x in self._placements() if x.run is i.run and x.along is None
                    and not x.freedom.decided]
-        k, n = fellows.index(i), max(len(fellows), 1)
+        k, n = _slot_of(fellows, i), max(len(fellows), 1)
         ideal = run.length * (k + 1) / (n + 1)
         shape = occ.board_shape or self._shaped()
 
@@ -8566,7 +8935,7 @@ class Board:
         fellows = [x for x in self._placements() if x.angle is None
                    and (x.rim, x.radius_at, x.about) == (i.rim, i.radius_at, i.about)
                    and not x.freedom.decided]
-        k, n = fellows.index(i), max(len(fellows), 1)
+        k, n = _slot_of(fellows, i), max(len(fellows), 1)
         return 360.0 * k / n
 
     def _settle_round_rim(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
@@ -8677,8 +9046,18 @@ class Board:
         entry = self._locked(i)
         if entry is None:
             return None, None
-        if entry.declaration != _lock.declaration_digest(self, i) and \
-                entry.declaration != _lock.declaration_digest(self, i, ordered=False):
+        if entry.arrangement:
+            # offers are read off the base cell: the gate may already have arranged `i`. Tested before the digest, which
+            # cannot be taken in an arrangement the cell does not offer; an item that is no longer a cell offers none
+            offered = self._offered(self.geometry.cells.get(i.key))
+            if entry.arrangement not in offered:
+                plan.findings.append(self._arrangement_missing(i.key, [entry.arrangement], ["default", *offered], source="lock"))
+                self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "arrangement_gone",
+                                                                                     "id": entry.arrangement})
+                return None, None
+        base = self._arranged(i, "")        # the declaration as the script says it, whatever the gate made of it
+        if entry.declaration != _lock.declaration_digest(self, base, arrangement=entry.arrangement) and \
+                entry.declaration != _lock.declaration_digest(self, base, ordered=False, arrangement=entry.arrangement):
             self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "declaration_changed"})
             return None, None
         spot, why = _lock.placement_of(entry, occ)
@@ -8694,6 +9073,7 @@ class Board:
         spot, _ = self._lock_spot(occ, i, plan)
         if spot is None:
             return None
+        i = self._arranged(i, spot.arrangement)        # a cell is laid in the arrangement its entry holds
         held = scan(occ, i.item, spot, 0.0, i.step, (spot.rotation,), clr, accept=self._accept(i))
         self._lock_held.add(i.key)
         if held.chosen is not None:
@@ -8716,6 +9096,8 @@ class Board:
         ex = getattr(self, "_explore", None)
         if ex is None or i.key not in ex.focus:
             return None
+        if self._collect_into is not None:          # `_scan_arrangements` draws over every arrangement: a scan hands it its
+            return lambda cands: (self._collect_into.extend(cands), cands[0])[1]      # sorted candidates and keeps its best
         import random as _random
         from .explore import draw
         rng = _random.Random("%d:%s" % (ex.seed, i.key))
@@ -9030,6 +9412,8 @@ class Board:
                 drawn += list(now[i][0]) + list(now[i][1])
             left = [i for i in left if i not in held]
         intents = []
+        # after the declarations' indexes, which an arrangement's left-out copper does not shorten: ctx.ops_at is keyed by index
+        base = max((c.index for c in self._copper), default=-1) + 1
         for i, e in enumerate(entries):
             key = keys[i]
             if isinstance(got[i], Refusal):
@@ -9039,7 +9423,7 @@ class Board:
             plan.adopted[key] = "held"
             ops = list(got[i][0]) + list(got[i][1])
             intents.append(CopperIntent("adopted %s" % key, e.net, Priority.DEFAULT, lambda ctx, ops=ops: ops,
-                                        (), "kept from a route", len(self._copper) + len(intents)))
+                                        (), "kept from a route", base + len(intents)))
         if intents:
             self._plan_copper(occ, ctx, intents, plan, progress)
 
@@ -9213,11 +9597,16 @@ class Board:
         each where its declaration puts it with `i` and the riders before it
         there, judged against `i` and those riders, then against the board as
         a firm item is (not with `board=False`). With `stop`, the list ends at
-        the first rider that is not legal."""
+        the first rider that is not legal. A cell rider is laid as its one pinned
+        arrangement (`_pinned`); the riders `_riders_dropped` names are left out."""
         view = _Riding(occ)
         group = view.move(i.item, at)
         out = []
+        dropped = self._riders_dropped(i)
         for r in self._ride_groups[i.key]:
+            if r.key in dropped:
+                continue                                # unplaced by _settle_riders
+            r = self._pinned(r)[0]
             if isinstance(r.along, _RowSlot):
                 self._reset_rows(r.along.row)
             if r.turned is not None:
@@ -9265,19 +9654,24 @@ class Board:
         rider wherever `i` goes fails here in a moment rather than after a
         scan of the whole board, as a block's satellites do. Only for an item
         searched at a known set of turns whose riders move exactly as it
-        does; else None, and the search finds out."""
+        does; else None, and the search finds out. A cell is alone only when it is in every arrangement its search may take; each
+        refusal is then [rotation, Refusal, the arrangement it came from ("" the default)]."""
         if i.outward or i.tangent is not None or self._locked(i) is not None:
             return None             # turned by where it lands, or by its lock: any turn at all
+        if self._pinned(i)[1] is not None:
+            return None             # an arrangement it does not offer: _settle says so
         turns = set(self._turns(i)) | {i.rotation, (i.rotation + 90) % 360}      # a pocket's two as well
         at = occ.board_box.center if occ.board_box is not None else Location(0.0, 0.0)
         why = []
-        for face in self._faces_of(i):
-            for rot in sorted(turns):
-                laid = self._ride_turn(occ, plan, i, Placement(at, rot, face))
-                bad = None if laid is None else next(((r, g) for r, _, g in laid[1] if g), None)
-                if bad is None:
-                    return None
-                why.append([rot, Refusal(Code.RIDER, key=bad[0].key, why=bad[1])])
+        for ident in self._arrangement_ids(i):
+            j = self._arranged(i, ident)
+            for face in self._faces_of(j):
+                for rot in sorted(turns):
+                    laid = self._ride_turn(occ, plan, j, Placement(at, rot, face))
+                    bad = None if laid is None else next(((r, g) for r, _, g in laid[1] if g), None)
+                    if bad is None:
+                        return None
+                    why.append([rot, Refusal(Code.RIDER, key=bad[0].key, why=bad[1]), ident])
         return why
 
     def _rider_check(self, occ: Occupancy, plan: Plan, i: PlaceIntent):
@@ -9286,7 +9680,7 @@ class Board:
         <key>: why". The board as the search sees it is gathered once, and
         the riders are laid once per turn of the item wherever they move
         exactly as it does: a candidate then shifts them and asks the board."""
-        obstacles = {r.key: occ.obstacles(occ._geometry(r.item)) for r in self._ride_groups[i.key]}
+        obstacles = {r.key: occ.obstacles(occ._geometry(r.item)) for r in (self._pinned(r)[0] for r in self._ride_groups[i.key])}
         turns = {}
 
         def accept(at: Placement):
@@ -9310,26 +9704,55 @@ class Board:
         return accept
 
     def _accept(self, i: PlaceIntent):
-        """The rider check for the item being settled now, else None."""
+        """The rider check for the item being settled now, else None: one for each arrangement the search stands it in, the
+        riders laid against the cell as that arrangement stands it."""
         riding = self.__dict__.get("_riding")
-        return riding[1] if riding is not None and riding[0] == i.key else None
+        if riding is None or riding[0] != i.key:
+            return None
+        _, occ, plan, checks = riding
+        ident = getattr(i.item, "arrangement", "")
+        if ident not in checks:
+            checks[ident] = self._rider_check(occ, plan, i)
+        return checks[ident]
+
+    def _riders_dropped(self, i: PlaceIntent) -> dict:
+        """{key: the ids it offers, or None} of `i`'s riders that are not laid: a cell rider whose `arrangements=` names an id it
+        does not offer (its offered ids), and every rider that rides one of those, down the chain (None)."""
+        dropped = {}
+        for r in self._ride_groups[i.key]:              # in ride order: a rider comes after the one it rides
+            offered = self._pinned(r)[1]
+            if offered is not None:
+                dropped[r.key] = offered
+            elif self._rider_of.get(r.key) in dropped:
+                dropped[r.key] = None
+        return dropped
 
     def _settle_riders(self, occ: Occupancy, i: PlaceIntent, plan: Plan, step: Step) -> None:
         """Commit `i`'s riders where they go with `i` at its step's placement,
-        a step each; or, with `i` unplaced, an unplaced step and a finding
-        each."""
+        a step each in ride order; or, with `i` unplaced, an unplaced step and
+        a finding each. A cell rider whose `arrangements=` names an id it does
+        not offer is unplaced with `arrangement.missing` either way, and the
+        riders that ride it are unplaced as riders of an unplaced item."""
         for r in self._ride_groups[i.key]:
             plan._items[r.key] = r.item
-        if step.placement is None:
-            for r in self._ride_groups[i.key]:
+        dropped = self._riders_dropped(i)
+        laid = {}
+        if step.placement is not None:
+            stood = self._arranged(i, step.placement.arrangement)      # the riders go with the cell as its arrangement stands it
+            laid = self._ride(occ, plan, stood, step.placement, None, stop=False)
+            if any([self._labels_give_way(occ, plan, r.item, p) for r, p, *_ in laid]):
+                laid = self._ride(occ, plan, stood, step.placement, None, stop=False)
+            laid = {r.key: (r, p, chose, on_board, in_group) for r, p, chose, on_board, in_group in laid}
+        for r in self._ride_groups[i.key]:
+            if dropped.get(r.key) is not None:
+                plan.steps.append(self._arrangement_gone(r, dropped[r.key], plan))
+                continue
+            if r.key not in laid:
                 facts = {"item": r.key, "variant": "rode", "rider_of": self._rider_of[r.key]}
                 plan.findings.append(self._finding(C.UNPLACED_RIDES, facts))
                 plan.steps.append(self._step(r, None, 0.0, unplaced=[{"form": "rides", "rider_of": facts["rider_of"]}]))
-            return
-        laid = self._ride(occ, plan, i, step.placement, None, stop=False)
-        if any([self._labels_give_way(occ, plan, r.item, p) for r, p, *_ in laid]):
-            laid = self._ride(occ, plan, i, step.placement, None, stop=False)
-        for r, p, chose, on_board, in_group in laid:
+                continue
+            r, p, chose, on_board, in_group = laid[r.key]
             why = on_board or in_group
             if why:
                 from . import suggest_facts
@@ -9337,8 +9760,10 @@ class Board:
             notes = [step_text.record("rides", of=self._rider_of[r.key])] + ([step_text.record("required")] if r.required else [])
             notes += [x for x in (chose, step_text.record("refused", why=why.to_json()) if why else None,
                                   step_text.record(r.faces_note) if r.faces_note else None) if x]
-            plan.steps.append(self._step(r, p, 0.0, notes))
-            occ.commit(r.item, p)
+            step = self._step(r, p, 0.0, notes)
+            plan.steps.append(step)
+            occ.commit(r.item, step.placement)          # its step's placement names the arrangement the rider is pinned to
+            self._record_arranged_thinned(occ, plan, r, step.placement)
 
     def _band_frame(self, occ: Occupancy, i: PlaceIntent, placed, hint: Placement | None) -> tuple:
         """(hint, band, turns, within) for a search of `i`: its radial band and the spot turns that
@@ -9357,17 +9782,19 @@ class Board:
                 solve: bool = True, look: bool = True) -> Step:
         if i.kind == "block":
             return self._settle_block(occ, i, plan, placed)
+        i, gone = self._gate(occ, i, plan)
+        if gone is not None:
+            return gone
         clr = self.clearance
         push_sources = self._reserve_pushes(occ, plan, i)
         if i.freedom.decided:
+            if len(self._arrangement_ids(i)) > 1:
+                return self._settle_firm_arranged(occ, i, plan, placed, clr, push_sources)
             p, chose = self._firm_placement(occ, plan, i)
             if self._on_begin is not None:
                 self._phase(Stage.DECLARED, hint=[round(p.location.x, 3), round(p.location.y, 3)])
             self._labels_give_way(occ, plan, i.item, p)     # a user's label moves, the part does not
-            # its carried vias, and those of the items placed before it, may give way (giveway.py):
-            # its commit does what this found. A decided place is judged as KiCad will: silk at the board's clearance
-            with occ.silk_as_drawn():
-                why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
+            why = self._firm_judged(occ, i, p, clr)[0]
             if why:
                 from . import suggest_facts
                 plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))
@@ -9375,17 +9802,17 @@ class Board:
         if i.turns_on_point:
             return self._settle_turns_on_point(occ, i, plan, placed, clr, push_sources)
         if i.run is not None:
-            return self._settle_along_run(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_along_run(occ, j, plan, clr))
         if i.rim is not None:
-            return self._settle_round_rim(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_round_rim(occ, j, plan, clr))
         if i.radius_at is not None:
-            return self._settle_round_ring(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_round_ring(occ, j, plan, clr))
         if i.angle is not None:
-            return self._settle_along_spoke(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_along_spoke(occ, j, plan, clr))
         if i.edge is not None:
-            return self._settle_along_edge(occ, i, plan, clr)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_along_edge(occ, j, plan, clr))
         if i.pin_x is not None or i.pin_y is not None:
-            return self._settle_along_line(occ, i, plan, clr, placed)
+            return self._first_legal(occ, i, plan, lambda j: self._settle_along_line(occ, j, plan, clr, placed))
         locked = self._settle_locked(occ, i, plan, clr)
         if locked is not None:
             return locked
@@ -9429,42 +9856,20 @@ class Board:
             hint = Placement(self.centre, i.rotation, i.face)
             seeded = "searched wide for its push" if len(push_sources) == 1 else "searched wide for its pushes"
         elif hint is None:
-            return self._settle_in_pocket(occ, i, plan, clr)
-        # riders refuse candidates after they are scored: a refused one must not prune the rest
-        accept = self._accept(i)
-        exposed = self._exposure_accept(occ, i, push_sources)
-        if exposed is not None:
-            accept = exposed if accept is None else (lambda c, a=accept, b=exposed: a(c) or b(c))
-        ahead = self._lookahead(occ, i, placed) if look else None
-        if ahead is not None:
-            accept = ahead if accept is None else (lambda c, a=accept, b=ahead: a(c) or b(c))
-        lanes = self._lane_pricer(occ, plan, i)
-        score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and accept is None,
-                             pushes=push_sources, lanes=lanes) if targets or push_sources or lanes else None
-        # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
-        body = occ._geometry(i.item).body
-        if band is not None:
-            radius = band[2] + hint.location.distance(band[0])      # every point of the band is within it
-        elif i.near is not None:
-            radius = i.radius
-        elif wide_push or wide_tangent:
-            # A push's own disc can swallow whatever a link or the global solve seeded, so the
-            # widening applies whatever else set the hint - not only when a push seeded it too.
-            radius = math.hypot(self._outline.width, self._outline.height)
-        else:
-            radius = max(i.radius, body.width, body.height)
-        hopeless = None if bt is not None or band is not None else self._no_pocket_note(occ, i)
-        if hopeless:
+            return self._first_legal(occ, i, plan, lambda j: self._settle_in_pocket(occ, j, plan, clr))
+        reseed = targets if i.near is None and solved is None else None
+        scanned = self._scan_arrangements(occ, i, plan, placed, self._arrangement_ids(i), targets=targets,
+                                          push_sources=push_sources, hint=hint, band=band, bt=bt, within=within, reseed=reseed,
+                                          wide_push=wide_push, wide_tangent=wide_tangent, look=look, clr=clr)
+        lead = scanned.tried[0]                         # the first arrangement's, for what follows a search that found nothing
+        if scanned.won is None and all(t.hopeless for t in scanned.tried):
             from . import suggest_facts
             plan.findings.append(self._finding(C.UNPLACED_POCKET, dict(suggest_facts.unplaced_pocket(self, occ, plan, i),
-                                                                       **hopeless)))
-            return self._step(i, None, 0.0, unplaced=[{"form": "pocket", **hopeless}])
-        if self._on_begin is not None:
-            self._phase(Stage.SCAN, face="either" if i.either else i.face.value, hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
-        result, face_note = self._scan_faces(occ, i, hint, radius, clr, score, accept,
-                                             reseed=(targets if i.near is None and solved is None else None),
-                                             turns_at=bt, within=within,
-                                             turns_on=lambda f: self._spot_turns(occ, i, placed, band, f))
+                                                                       **lead.hopeless)))
+            return self._step(i, None, 0.0, unplaced=[{"form": "pocket", **lead.hopeless}])
+        stood = scanned.won or lead
+        result, face_note, ahead, score, radius = scanned.result, scanned.face_note, stood.ahead, stood.score, stood.radius
+        won = stood.j
         from . import timecap
         clock = timecap.active()
         if result.chosen is None and clock is not None and clock.gave_up:
@@ -9496,11 +9901,19 @@ class Board:
             blamed = blame.blame_of(result)
             pocket_tried = None
             if i.near is None and bt is None and band is None and result.cut is None:
-                step, tried = self._seeded_pocket(occ, i, plan, clr, hint, score, self._turns(i),
-                                                  step_text.record("seeded_no_spot", nets=seeded_nets or None, radius_mm=radius, blame=blamed))
-                if step is not None:
-                    return step
-                pocket_tried = tried
+                # each arrangement's pocket in the order of the search, with its own scorer: the first that places stands
+                why = step_text.record("seeded_no_spot", nets=seeded_nets or None, radius_mm=radius, blame=blamed)
+                pocket_tried = 0
+                for t in scanned.tried:
+                    if t.hopeless:
+                        continue                        # no pocket fits it
+                    step, n = self._seeded_pocket(occ, t.j, plan, clr, t.hint, t.score, self._turns(t.j), why)
+                    pocket_tried += n
+                    if step is not None:
+                        ident = getattr(t.j.item, "arrangement", "")
+                        if ident:
+                            step.notes = step.notes + (self._arrangement_note(ident),)
+                        return step
             late = self._room_lost(plan, i)
             from . import suggest_facts
             facts = dict(suggest_facts.unplaced_search(self, occ, plan, i, placed, result, hint, radius),
@@ -9510,24 +9923,355 @@ class Board:
             if result.cut is not None:
                 facts["budget"] = result.cut
             plan.findings.append(self._finding(C.UNPLACED_SEARCH, facts))
-            return self._step(i, None, 0.0, unplaced=[w.to_json() for w in result.reasons.values()] +
+            return self._step(i, None, 0.0, unplaced=scanned.reasons +
                               ([{"form": "budget", "budget": result.cut}] if result.cut is not None else []) +
                               ([{"form": "room_lost", "room_lost": late}] if finding_text.room_lost_text(late) else []))
         notes = list(seeded)
         if face_note:
             notes.append(face_note)
+        if scanned.note:
+            notes.append(scanned.note)
         if result.moved_mm > 0:
             first = next(iter(result.reasons.values()), None)
             notes.append(step_text.record("moved_off_hint", mm=result.moved_mm, why=None if first is None else first.to_json(),
                                         for_score=True if first is None and score else None))
         if push_sources:
-            notes += self._push_notes(occ, plan, i, result.chosen, push_sources)
+            notes += self._push_notes(occ, plan, won, result.chosen, push_sources)
         if result.cut is not None:
             plan.findings.append(self._finding(C.SETUP_STEP_BUDGET, dict(item=i.key, **result.cut), "notice"))
             notes.append(step_text.record("search_budget", **result.cut))
-        step = self._step(i, result.chosen, result.moved_mm, notes)
+        step = self._step(won, result.chosen, result.moved_mm, notes)
         step.back_face = bool(face_note) and result.chosen.face is Face.BACK
         return step
+
+    def _firm_judged(self, occ, i: PlaceIntent, p: Placement, clr) -> tuple:
+        """(refusal or None, resolution) of decided item `i` at `p`. Its carried vias, and those of the items placed before it,
+        may give way (giveway.py): its commit does what this found. A decided place is judged as KiCad will: silk at the board's
+        clearance."""
+        with occ.silk_as_drawn():
+            return occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)
+
+    def _firm_trials(self, occ, plan, i, placed, clr, push_sources) -> list:
+        """Decided cell `i` laid in each arrangement it may take (`_arrangement_ids`), in order, as `_Trial`s: the declaration laid
+        for that arranged cell (`_firm_placement`), judged as a firm item is judged (`_firm_judged`), and, when anything prices
+        them (links to placed pads, pushes, an arrangement's lanes), each legal one scored once at that placement against what is
+        placed now, unpruned, with what a via giving way costs. Partners not yet placed contribute nothing. User labels are looked
+        past here, as a searched item looks past them: the labels of the one taken give way after (`_settle_firm_arranged`)."""
+        targets = self._targets(i.item, occ, placed)
+        was = occ.labels_yield
+        occ.labels_yield = was or bool(plan.__dict__.get("_label_parts"))
+        laid = []
+        # a Beside laid nearer than its box (`_tight`) is recorded for the arrangement taken only (`_take_tight`)
+        before = self._tight.pop(i.key, None)
+        try:
+            for ident in self._arrangement_ids(i):
+                j = self._arranged(i, ident)
+                p, chose = self._firm_placement(occ, plan, j)
+                tight = self._tight.pop(i.key, None)
+                why, resolution = self._firm_judged(occ, j, p, clr)
+                laid.append((ident, j, p, chose, why, resolution, self._lane_pricer(occ, plan, j) if why is None else None,
+                             tight))
+        finally:
+            occ.labels_yield = was
+            self._tight.pop(i.key, None)
+            if before is not None:
+                self._tight[i.key] = before
+        priced = bool(targets or push_sources or any(x[6] for x in laid))
+        out = []
+        for ident, j, p, chose, why, resolution, lanes, tight in laid:
+            score = None
+            if why is None and priced:
+                score = self._scorer(j.item, occ, targets, prune=False, pushes=push_sources, lanes=lanes)(p) \
+                    + (resolution.cost if resolution is not None else 0.0)
+            out.append(_Trial(ident, j, p, chose, why, score, tight))
+        return out
+
+    def _take_tight(self, key: str, t: "_Trial") -> None:
+        """Record in `_tight` how much nearer than its box the arrangement taken was laid, as a firm item with one arrangement
+        records it while it is laid."""
+        if t.tight is not None:
+            self._tight[key] = t.tight
+
+    def _settle_firm_arranged(self, occ, i, plan, placed, clr, push_sources) -> Step:
+        """A decided cell that may take more than one arrangement, at its spot (`_firm_trials`). Each legal one is compared at its
+        total (`_total_at`: its score, `score.arrangement` for one other than the default, `score.back_face`); the lowest wins and
+        a tie keeps the one tried first. A non-default arrangement must also beat the default's total by
+        `place.arrangement_margin` (`_margin`) when the default is legal, as a searched cell's must. With nothing to score, the
+        first legal one stands. When none is legal it is a firm collision as for a cell with one arrangement: the default stands
+        where its declaration puts it (the first `arrangements=` names when it does not name the default), and its `fixed.part`
+        finding carries every other arrangement's refusal under `arrangements`. The one taken is recorded in `_arr_choice`."""
+        cost = self.settings.score_arrangement
+        trials = self._firm_trials(occ, plan, i, placed, clr, push_sources)
+        total = {t.ident: self._total_at(t.score, t.placement, t.j, cost if t.ident else 0.0) for t in trials if t.score is not None}
+        rows = [self._arrangement_row(t.ident, total.get(t.ident), t.why is None) for t in trials]
+        legal = [t for t in trials if t.why is None]
+        default = next((t for t in trials if not t.ident), None)
+        if not legal:
+            stood = default or trials[0]                    # the default when it was tried, else the first `arrangements=` names
+            self._declared(stood)
+            self._arr_choice[i.key] = stood.ident
+            self._take_tight(i.key, stood)
+            self._labels_give_way(occ, plan, stood.j.item, stood.placement)     # a user's label moves, the cell does not
+            from . import suggest_facts
+            facts = dict(suggest_facts.fixed_part(self, i), why=stood.why.to_json(),
+                         arrangements=[{"id": t.ident or "default", "why": t.why.to_json()} for t in trials if t is not stood])
+            plan.findings.append(self._finding(C.FIXED_PART, facts))
+            notes = [stood.chose, step_text.record("refused", why=stood.why.to_json()), self._arrangement_note(None, rows)]
+            return self._step(stood.j, stood.placement, 0.0, [x for x in notes if x])
+        default_total = total.get("") if default is not None else None
+        margin, held, best = self._margin(i), None, None
+        for t in legal:
+            mine = total.get(t.ident)
+            if t.ident and mine is not None and margin is not None and default_total is not None \
+                    and default_total - mine < margin:
+                if mine < default_total and (held is None or mine < held[0]):
+                    held = (mine, t.ident)
+                continue
+            if best is None or (mine is not None and mine < total[best.ident]):
+                best = t
+        scored = best.score is not None
+        blamed = None
+        if best.ident and default is not None and default.why is not None:
+            blamed = [{"form": "rider", "count": 1, "reason": default.why.to_json()}]     # its one refusal, as blame_text renders it
+        note = self._arrangement_note(best.ident, rows,
+                                      score=self._total_at(best.score, best.placement, best.j, 0.0) if scored else None,
+                                      cost=(cost if best.ident else 0.0) if scored else None,
+                                      default_score=None if default_total is None or not scored
+                                      else self._total_at(default.score, default.placement, default.j, 0.0),
+                                      default_blame=blamed, within=None if best.ident else self._within(held, default_total, margin))
+        self._declared(best)
+        self._arr_choice[i.key] = best.ident
+        self._take_tight(i.key, best)
+        self._labels_give_way(occ, plan, best.j.item, best.placement)       # a user's label moves, the cell does not
+        notes = [best.chose]
+        if plan.__dict__.get("_label_parts"):
+            # judged past the labels: one that could not give way is a firm collision, as for a cell with one arrangement
+            why = self._firm_judged(occ, best.j, best.placement, clr)[0]
+            if why:
+                from . import suggest_facts
+                plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))
+                notes.append(step_text.record("refused", why=why.to_json()))
+        return self._step(best.j, best.placement, 0.0, [x for x in notes + [note] if x])
+
+    def _declared(self, t: "_Trial") -> None:
+        """Tell a viewer the firm cell stands at its declared spot: where, and in which arrangement ("default" for its own)."""
+        if self._on_begin is not None:
+            self._phase(Stage.DECLARED, hint=[round(t.placement.location.x, 3), round(t.placement.location.y, 3)],
+                        arrangement=t.ident or "default")
+
+    def _first_legal(self, occ, i, plan, settle_one) -> Step:
+        """A form that is not scored (a slide along an edge, a line, a run, a rim, a ring, a spoke, a pocket with no hint) takes
+        the default arrangement when it has a legal spot and tries the others, in order, only when it has none: `settle_one(j)`
+        settles `j`, the item standing as one arrangement. What an arrangement that failed said is dropped when another stands;
+        when none does, the first one's findings stand and the step's refusals are every arrangement's, tagged with the one they
+        came from. The step's `arrangement` note lists those tried when more than one was, or one other than the default was
+        taken, with why the default had no legal spot (its refusal counts, or the pocket it found none in); when none stood it
+        names none as taken."""
+        ids = self._arrangement_ids(i)
+        if len(ids) == 1:
+            return settle_one(self._arranged(i, ids[0]))
+        n = len(plan.findings)
+        first, first_findings, rows, refused, default_blame = None, [], [], [], None
+        for ident in ids:
+            step = settle_one(self._arranged(i, ident))
+            rows.append(self._arrangement_row(ident, None, step.placement is not None))
+            if step.placement is not None:
+                if ident or len(rows) > 1:
+                    step.notes = step.notes + (self._arrangement_note(ident, rows, default_blame=default_blame),)
+                return step
+            said = list(plan.findings[n:])
+            if not ident:
+                counts = next((f.facts["counts"] for f in said if f.cause == C.UNPLACED_SLIDE and f.facts.get("item") == i.key),
+                              None)
+                default_blame = None if counts is None else [{"form": "counts", "counts": counts}]
+                pocket = next((f.facts for f in said if f.cause == C.UNPLACED_POCKET and f.facts.get("item") == i.key), None)
+                if pocket is not None:          # what the pocket said (finding_text.pocket_note), without the item's suggestions
+                    default_blame = [dict({k: pocket[k] for k in _POCKET_NOTE_KEYS if k in pocket}, form="pocket")]
+            refused += [dict(r, **({"arrangement": ident} if ident else {})) for r in step.unplaced or ()]
+            if first is None:
+                first, first_findings = step, said
+            del plan.findings[n:]
+        plan.findings.extend(first_findings)
+        if refused:
+            first.unplaced = tuple(refused)
+        first.notes = first.notes + (self._arrangement_note(None, rows),)
+        return first
+
+    def _scan_arrangements(self, occ, i, plan, placed, ids, **kw) -> "_Scanned":
+        """Scan item `i` in each arrangement of `ids` ("" the default), in order, each an ordinary scan of the arranged cell (its own
+        geometry, sweeper, scorer, seed and lanes), the front before the back. A non-default arrangement costs `score.arrangement`
+        more and is taken only when its best score plus that is strictly below the best so far, or when nothing earlier has a legal
+        spot; the best so far, less the cost, is the next scorer's pruning floor. The default's scan takes no floor, so its score
+        is known whenever it has a legal spot. An unscored search (no links, pushes or lanes to price) takes the first arrangement
+        with a legal spot and scans no further. Each scan has the step's budget afresh; the step's time limit stops between scans.
+        `kw` are `_scan_one`'s keywords but `j`.
+
+        A non-default arrangement must also beat the default's total by `place.arrangement_margin` (`_margin`); the best one held
+        back by it is noted as `within`. The margin is not asked when the default had no legal spot, nor of a cell whose
+        `arrangements=` names its choices, nor of an explore's draw.
+
+        An explore variant (`_pick`) over more than one arrangement draws once from every arrangement's legal spots pooled, on
+        both faces of an either-face item, each at its total as the choice compares it (`_standing_total`); the arrangement and
+        face of the spot drawn stand (`_stand_drawn`). Over one arrangement the scan draws as it always has."""
+        from . import timecap
+        clock = timecap.active()
+        cost = self.settings.score_arrangement
+        margin = self._margin(i)
+        self._arr_unreached.pop(i.key, None)
+        draw = self._pick(i) if len(ids) > 1 else None
+        tried, best, pool = [], None, []                # best: (total, ident, _Tried); pool: what `draw` draws from
+        default_total, held = None, None                # held: (total, ident) of the best arrangement the margin kept out
+        for k, ident in enumerate(ids):
+            if k and clock is not None and clock.gave_up:
+                self._arr_unreached[i.key] = [a or "default" for a in ids[k:]]
+                break
+            j = self._arranged(i, ident)
+            budget = occ.step_budget
+            if k and budget is not None:
+                budget.judged = budget.lattice = budget.covered = 0
+                budget.cut = False
+            hint = kw["hint"]
+            if j.item is not i.item and kw["reseed"] is not None and kw["band"] is None and kw["bt"] is None \
+                    and not (kw["wide_push"] or kw["wide_tangent"]):
+                hint = self._seed_hint(j.item, occ, kw["targets"], i.rotation, i.face)      # laid from the arranged item's pads
+            extra = cost if ident else 0.0
+            floor = best[0] if best is not None and ident else None
+            self._collect_into = [] if draw is not None else None
+            try:
+                t = self._scan_one(occ, j, plan, placed, **{**kw, "hint": hint}, floor=floor, cost=extra)
+            finally:
+                got, self._collect_into = self._collect_into, None
+            tried.append((ident, t))
+            r = t.result
+            if r is None or r.chosen is None:
+                continue
+            back = self.settings.score_back_face if j.either else 0.0
+            pool += [(c[0] + extra + (back if c[3].face is Face.BACK else 0.0), c[1], c[2], c[3], ident, t) for c in got or ()]
+            if t.score is None:
+                best = (0.0, ident, t)                  # unscored: the first with a spot stands, nothing else is scanned
+                break
+            total = self._standing_total(t, extra)
+            if not ident:
+                default_total = total
+            elif margin is not None and default_total is not None and default_total - total < margin:
+                if total < default_total and (held is None or total < held[0]):
+                    held = (total, ident)
+                continue
+            if best is None or total < best[0]:
+                best = (total, ident, t)
+        within = self._within(held, default_total, margin) if best is not None and not best[1] and not pool else None
+        if pool:
+            pool.sort(key=lambda c: c[:3])
+            total, _, _, chosen, ident, t = draw(pool)  # explore.draw weighs by the total and the rank: the rest rides along
+            self._stand_drawn(t, chosen, total - (cost if ident else 0.0))
+            best = (total, ident, t)
+        return self._chosen_scan(i, tried, best, cost, within)
+
+    def _margin(self, i: PlaceIntent) -> float | None:
+        """`place.arrangement_margin`, or None for a cell whose `arrangements=` names its choices: the script chose among them."""
+        return None if i.arrangements else self.settings.place_arrangement_margin
+
+    @staticmethod
+    def _within(held, default_total, margin) -> dict | None:
+        """The `within` fact of an `arrangement` note: the arrangement that scored better than the default by less than the
+        margin, by how much, and the margin. `held` is (its total, its id) or None."""
+        if held is None:
+            return None
+        return {"id": held[1], "by": round(default_total - held[0], 3), "margin": margin}
+
+    def _stand_drawn(self, t, chosen: Placement, total: float) -> None:
+        """Stand `t` (a `_Tried`) at the spot an explore drew from the pool, `total` its score with `score.back_face` and without
+        the arrangement's cost: its result becomes that face's own scan's, at the drawn spot, and its face note what that face
+        says."""
+        back = chosen.face is Face.BACK and t.j.either
+        raw = total - (self.settings.score_back_face if back else 0.0)
+        own = (t.faces or {}).get(chosen.face, t.result)
+        t.result = dataclasses.replace(own, chosen=chosen, score=raw, cut=own.cut or t.result.cut)
+        if t.j.either:
+            t.face_note = self._back_face_note(t.faces[Face.FRONT], raw) if back else None
+
+    def _chosen_scan(self, i, tried, best, cost, within=None) -> "_Scanned":
+        """What `_scan_arrangements` found: the winner's scan, or every arrangement's refusals merged when none has a legal spot, and
+        the step's `arrangement` note when more than one arrangement was scanned or a non-default one was taken."""
+        results = [(a, t.result) for a, t in tried if t.result is not None]
+        cut = next((r.cut for _, r in results if r.cut), None)       # a cut is reported if any scan was cut
+        if best is None:
+            reasons = [dict(w.to_json(), **({"arrangement": a} if a else {})) for a, r in results for w in r.reasons.values()]
+            if len(results) == 1:
+                merged = results[0][1]
+            else:
+                merged = ScanResult(None, tried[0][1].hint, sum(r.tried for _, r in results),
+                                    sum((r.rejected for _, r in results), Counter()),
+                                    {k: w for _, r in reversed(results) for k, w in r.reasons.items()},
+                                    sum((r.blockers for _, r in results), Counter()), cut=cut,
+                                    bound=sum(r.bound for _, r in results))
+            return _Scanned(None, [t for _, t in tried], merged, None, None, reasons)
+        _, ident, won = best
+        won.result.cut = won.result.cut or cut
+        note = self._scanned_note(ident, won, tried, cost, within) if len(tried) > 1 or ident else None
+        return _Scanned(won, [t for _, t in tried], won.result, won.face_note, note, [])
+
+    def _standing_total(self, t, extra: float) -> float:
+        """What a scan's spot (`_Tried` with a legal spot) is compared at: its score, plus `extra` (the arrangement's cost) and
+        `score.back_face` when an either-face item stands on the back."""
+        return self._total_at(t.result.score, t.result.chosen, t.j, extra)
+
+    def _total_at(self, score: float, p: Placement, j: PlaceIntent, extra: float) -> float:
+        """`score` of item `j` standing at `p`, plus `extra` (an arrangement's cost) and `score.back_face` when an either-face item
+        stands on the back."""
+        return score + extra + (self.settings.score_back_face if p.face is Face.BACK and j.either else 0.0)
+
+    def _scanned_note(self, ident, won, tried, cost, within=None) -> dict:
+        """The `arrangement` note of a scan over arrangements (`_arrangement_note`): `won` the `_Tried` taken, `tried` each
+        (id, `_Tried`) scanned. Each row is its total as the choice compared it (`_standing_total`). A row is `beaten`, with no
+        score, when the floor of the best so far cut it: it had room but could not beat that. `default_blame` says why the
+        default had no legal spot, and `within` (`_within`) which arrangement the margin held back."""
+        def beaten(t):
+            r = t.result
+            return t.score is not None and r is not None and (r.score >= PRUNED if r.chosen is not None else r.bound > 0)
+
+        def row(a, t):
+            r = t.result
+            cut = beaten(t)
+            legal = r is not None and (r.chosen is not None or cut)
+            total = self._standing_total(t, cost if a else 0.0) if legal and t.score is not None and not cut else None
+            return self._arrangement_row(a, total, legal, beaten=cut)
+        default = next((t for a, t in tried if not a), None)
+        scored = won.score is not None
+        default_score = default_blame = None
+        if default is not None and default.result is not None and default.result.chosen is not None:
+            if scored:
+                default_score = self._standing_total(default, 0.0)
+        elif default is not None and default.hopeless:
+            default_blame = [{"form": "pocket", **default.hopeless}]
+        elif default is not None and default.result is not None:
+            default_blame = blame.blame_of(default.result)
+        return self._arrangement_note(ident, [row(a, t) for a, t in tried],
+                                      score=self._standing_total(won, 0.0) if scored else None,
+                                      cost=(cost if ident else 0.0) if scored else None, default_score=default_score,
+                                      default_blame=default_blame, within=within)
+
+    @staticmethod
+    def _arrangement_row(ident, total, legal: bool, beaten: bool = False) -> dict:
+        """A row of the `arrangement` note: an arrangement tried ("" the default), its total as the choice compared it (None when
+        the choice was unscored, it had no legal spot, or a bound cut it), whether it had a legal spot, and `beaten` when a bound
+        cut it."""
+        out = {"id": ident or "default", "score": None if total is None else round(total, 3), "legal": legal}
+        if beaten:
+            out["beaten"] = True
+        return out
+
+    @staticmethod
+    def _arrangement_note(ident, rows=None, *, score=None, cost=None, default_score=None, default_blame=None, within=None) -> dict:
+        """The step's `arrangement` note, every form's: `ident` the one taken ("" the default, None when none stood); `rows` each
+        arrangement tried
+        (`_arrangement_row`); `score` the one taken's, without its cost, and `cost` its `score.arrangement` (both None when the
+        choice was unscored); `default_score` the default's total, given only when the default was tried and had a legal spot in
+        a scored choice; `default_blame` why the default had no legal spot. What is None is left out."""
+        return step_text.record("arrangement", id=None if ident is None else ident or "default",
+                                score=None if score is None else round(score, 3), cost=cost,
+                                tried=rows, default_score=None if default_score is None else round(default_score, 3),
+                                default_blame=default_blame, within=within)
 
     @staticmethod
     def _faces_of(i: PlaceIntent) -> tuple:
@@ -9538,9 +10282,106 @@ class Board:
     def _face_text(i: PlaceIntent) -> str:
         return "front or back" if i.either else i.face.value
 
+    def _offered(self, cell) -> tuple:
+        """The ids a cell offers besides its own layout; none while `place.arrangements` is false. Give it the base cell
+        (`self.geometry.cells[key]`): an arranged cell holds no arrangements and offers ()."""
+        if not self.settings.place_arrangements or not isinstance(cell, CellGeom):
+            return ()
+        return cell.offered()
+
+    def _arrangement_ids(self, i: PlaceIntent) -> list:
+        """The arrangements a search of `i` tries, "" standing for the default: the ones `arrangements=` names in its order, else the
+        default then everything the cell offers in the module's order. A part and a block have [""]; a cell already standing in an
+        arrangement has that one alone. What a cell offers is read off the base cell, never off `i.item`."""
+        if i.kind != "cell":
+            return [""]
+        if getattr(i.item, "arrangement", ""):
+            return [i.item.arrangement]
+        if i.arrangements:
+            return ["" if a == "default" else a for a in i.arrangements]
+        return [""] + list(self._offered(self.geometry.cells[i.key]))
+
+    def _arranged(self, i: PlaceIntent, ident: str) -> PlaceIntent:
+        """`i` with its cell standing as arrangement `ident` ("" the default), built from the base cell; a part or block as it is."""
+        if i.kind != "cell":
+            return i
+        item = self.geometry.cells[i.key].arranged(ident)
+        return i if item is i.item else dataclasses.replace(i, item=item)
+
+    def _arrangement_missing(self, item: str, asked: list, offered: list, source: str = "") -> Finding:
+        """`arrangement.missing`: critical when the cell's step ends unplaced for it; a warning when `source` is "lock" (the lock
+        names an arrangement the cell no longer offers, and the cell is placed anyway)."""
+        facts = {"item": item, "asked": list(asked), "offered": list(offered)}
+        if source:
+            facts["source"] = source
+        return self._finding(C.ARRANGEMENT_MISSING, facts, "warning" if source == "lock" else "critical")
+
+    def _pinned(self, i: PlaceIntent) -> tuple:
+        """(the intent to lay, None), or (i, the ids the cell offers) when `arrangements=` names an id it does not offer. A cell
+        that is to take one arrangement is laid as that arrangement. What the cell offers is read off the base cell."""
+        if i.kind != "cell" or getattr(i.item, "arrangement", ""):
+            return i, None                              # a settle that runs again with the item already arranged
+        offered = ("default",) + self._offered(self.geometry.cells[i.key])
+        if any(a not in offered for a in i.arrangements):
+            return i, offered
+        ids = self._arrangement_ids(i)
+        return (self._arranged(i, ids[0]) if len(ids) == 1 else i), None
+
+    def _arrangement_gone(self, i: PlaceIntent, offered: tuple, plan: Plan) -> Step:
+        """The unplaced step of a cell whose `arrangements=` names an id it does not offer, and its finding."""
+        plan.findings.append(self._arrangement_missing(i.key, i.arrangements, offered))
+        return self._step(i, None, 0.0, unplaced=[{"form": "arrangement_missing", "asked": list(i.arrangements),
+                                                   "offered": list(offered)}])
+
+    def _gate(self, occ, i: PlaceIntent, plan: Plan) -> tuple:
+        """(the intent to settle, None), or (i, the unplaced step) when `arrangements=` names an id the cell does not offer
+        (`_pinned`)."""
+        i, offered = self._pinned(i)
+        return (i, None) if offered is None else (i, self._arrangement_gone(i, offered, plan))
+
+    def _scan_one(self, occ, j, plan, placed, *, targets, push_sources, hint, band, bt, within, reseed, wide_push, wide_tangent,
+                  look, clr, floor=None, cost: float = 0.0) -> "_Tried":
+        """One standing of the item scanned (the item as its script says it): the riders', exposure and look-ahead tests, the lane
+        pricer, the scorer, the radius, the pocket check, and the front-then-back scan."""
+        # riders refuse candidates after they are scored: a refused one must not prune the rest
+        accept = self._accept(j)
+        exposed = self._exposure_accept(occ, j, push_sources)
+        if exposed is not None:
+            accept = exposed if accept is None else (lambda c, a=accept, b=exposed: a(c) or b(c))
+        ahead = self._lookahead(occ, j, placed) if look else None
+        if ahead is not None:
+            accept = ahead if accept is None else (lambda c, a=accept, b=ahead: a(c) or b(c))
+        lanes = self._lane_pricer(occ, plan, j)
+        score = self._scorer(j.item, occ, targets, prune=self._pick(j) is None and accept is None,
+                             pushes=push_sources, lanes=lanes) if targets or push_sources or lanes else None
+        if score is not None and floor is not None and hasattr(score, "best"):
+            score.best[0] = min(score.best[0], floor - cost)
+        # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
+        body = occ._geometry(j.item).body
+        if band is not None:
+            radius = band[2] + hint.location.distance(band[0])      # every point of the band is within it
+        elif j.near is not None:
+            radius = j.radius
+        elif wide_push or wide_tangent:
+            # A push's own disc can swallow whatever a link or the global solve seeded, so the
+            # widening applies whatever else set the hint - not only when a push seeded it too.
+            radius = math.hypot(self._outline.width, self._outline.height)
+        else:
+            radius = max(j.radius, body.width, body.height)
+        hopeless = None if bt is not None or band is not None else self._no_pocket_note(occ, j)
+        if hopeless:
+            return _Tried(j, hint, radius, None, None, ahead, score, hopeless)
+        if self._on_begin is not None:
+            self._phase(Stage.SCAN, face="either" if j.either else j.face.value,
+                        hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
+        result, face_note, faces = self._scan_faces(occ, j, hint, radius, clr, score, accept, reseed=reseed, turns_at=bt,
+                                                    within=within, turns_on=lambda f: self._spot_turns(occ, j, placed, band, f))
+        return _Tried(j, hint, radius, result, face_note, ahead, score, faces=faces)
+
     def _scan_faces(self, occ: Occupancy, i: PlaceIntent, hint: Placement, radius: float, clr, score, accept,
                     reseed=None, turns_at=None, within=None, turns_on=None):
-        """(the scan's result, a step_text note on the face taken or None) for `i`. A fixed face is one scan. Face.EITHER
+        """(the scan's result, a step_text note on the face taken or None, {face: its own ScanResult} for each face scanned) for
+        `i`. A fixed face is one scan. Face.EITHER
         scans the front and then the back, each at its own turn of the hint (`reseed`: the targets a
         seeded hint was made from, laid again for the back's pads), and takes the back only where
         its score plus `score.back_face` is less than the front's, or the front has no legal spot.
@@ -9549,13 +10390,14 @@ class Board:
         `turns_on(face)` makes the back's: a tangent turn depends on the face, as the item is mirrored there."""
         turns, pick = self._turns(i), self._pick(i)
         if not i.either:
-            return scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
-                        turns_at=turns_at, within=within), None
+            alone = scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
+                         turns_at=turns_at, within=within)
+            return alone, None, {i.face: alone}
         cost = self.settings.score_back_face
         front = scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
                      turns_at=turns_at, within=within)
         if front.chosen is not None and score is None:
-            return front, None
+            return front, None, {Face.FRONT: front}
         if hint.face is Face.BACK:
             back_hint = hint
         elif reseed:
@@ -9567,18 +10409,26 @@ class Board:
         back_turns = turns_on(Face.BACK) if turns_at is not None and turns_on is not None else turns_at
         back = scan(occ, i.item, back_hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
                     turns_at=back_turns, within=within)
-        if back.chosen is not None and (front.chosen is None or back.score + cost < front.score):
-            if front.chosen is None:
-                said = step_text.record("back_face", front_blame=blame.blame_of(front))
-            else:
-                said = step_text.record("back_face", back=back.score, cost=cost, front=front.score)
-            return back, said
+        faces = {Face.FRONT: front, Face.BACK: back}
+        if back.chosen is not None and back.score < PRUNED and (front.chosen is None or back.score + cost < front.score):
+            return back, self._back_face_note(front, back.score), faces
         if front.chosen is not None:
-            return front, None
+            return front, None, faces
         merged = ScanResult(None, hint, front.tried + back.tried, front.rejected + back.rejected,
                             {**back.reasons, **front.reasons}, front.blockers + back.blockers,
-                            cut=back.cut or front.cut)
-        return merged, None
+                            cut=back.cut or front.cut,
+                            # a back whose spots the floor all cut had room: it counts with the give-way cuts
+                            bound=front.bound + back.bound + (1 if back.chosen is not None else 0))
+        return merged, None, faces
+
+    def _back_face_note(self, front: ScanResult, back: float) -> dict:
+        """The `back_face` note of an either-face item standing on the back at score `back`, against `front`, the front's scan."""
+        cost = self.settings.score_back_face
+        if front.chosen is None:
+            return step_text.record("back_face", front_blame=blame.blame_of(front))
+        if front.score >= PRUNED:                       # the front was cut by the floor of an earlier arrangement: no score of its own
+            return step_text.record("back_face", back=back, cost=cost, front_beaten=True)
+        return step_text.record("back_face", back=back, cost=cost, front=front.score)
 
     def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> list:
         """What each push comes to with `i` at `placement`, recorded on the plan and as the step's notes."""
@@ -9650,59 +10500,100 @@ class Board:
                                  hint.rotation, hint.face)
         fellows = [x for x in self._placements() if x.band == i.band and x.about == i.about and x.angle is None
                    and not x.freedom.decided]
-        k, n = fellows.index(i), max(len(fellows), 1)
+        k, n = _slot_of(fellows, i), max(len(fellows), 1)
         return Placement(polar_point(centre, 360.0 * k / n, (lo + hi) / 2.0), i.rotation, i.face)
 
     def _settle_turns_on_point(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set, clr,
                                push_sources: list) -> Step:
-        """The item stays on its point and its turn is searched: each turn `rotations=` names is laid
-        as the declaration lays it, kept when the item is legal there as a decided place is judged,
-        and scored as a search scores a candidate (links, pushes, escape lanes, a via giving way).
-        The cheapest wins; a tie goes to the turn nearest `rotation=`, then the smaller angle."""
+        """The item stays on its point and its turn is searched: each turn `rotations=` names, in each arrangement of a cell, is
+        laid as the declaration lays it, kept when the item is legal there as a decided place is judged, and scored as a search
+        scores a candidate (links, pushes, escape lanes, a via giving way) with its arrangement's scorer. The lowest score plus
+        `score.arrangement` (for an arrangement other than the default) wins; a tie goes to the arrangement tried first, then
+        the turn nearest `rotation=`, then the smaller angle. A non-default arrangement must also beat the default's lowest by
+        `place.arrangement_margin` (`_margin`) when the default has a legal turn. With nothing to score, the first arrangement
+        with a legal turn stands and those after it are not laid."""
         turns = sorted({float(r) % 360.0 for r in i.rotations})
-        laid = {}
-        for rot in turns:
-            laid[rot] = self._firm_placement(occ, plan, dataclasses.replace(i, rotation=rot))
-        geom = occ._geometry(i.item)
-        region = Box.union([transform_box(occ._extent(geom), occ._transform(geom, p)) for p, _ in laid.values()])
-        others = occ.obstacles(geom, region)
+        ids = self._arrangement_ids(i)
+        arr_cost = self.settings.score_arrangement
         targets = self._targets(i.item, occ, placed)
-        exposed = self._exposure_accept(occ, i, push_sources)
-        accept = self._accept(i)            # the items riding it, asked of each turn that is otherwise legal
-        lanes = self._lane_pricer(occ, plan, i)
-        score = self._scorer(i.item, occ, targets, prune=exposed is None and accept is None, pushes=push_sources,
-                             lanes=lanes) if targets or push_sources or lanes else None
         declared = float(i.rotation) % 360.0
         found = []
         rejected: Counter = Counter()
-        reasons: dict = {}
-        for rot, (p, chose) in laid.items():
-            why, resolution = occ.legal_giving_way(i.item, p, clr, others=others, by_corners=True)
-            if why is None and exposed is not None:
-                why = exposed(p)
-            if why is None and accept is not None:
-                why = accept(p)
-            if why is not None:
-                key = _reason_key(why)
-                rejected[key] += 1
-                reasons.setdefault(key, why)
-                continue
-            cost = (score(p) if score is not None else 0.0) + (resolution.cost if resolution is not None else 0.0)
-            away = abs((rot - declared + 180.0) % 360.0 - 180.0)
-            found.append((cost, away, rot, p, chose))
+        by_arrangement: dict = {}           # arrangement -> Counter of its refusals by kind
+        reasons: dict = {}                  # (arrangement, reason key) -> the first refusal of that kind
+        rows, scored, default_total = [], False, None
+        for k, ident in enumerate(ids):
+            j = self._arranged(i, ident)
+            laid = {rot: self._firm_placement(occ, plan, dataclasses.replace(j, rotation=rot)) for rot in turns}
+            geom = occ._geometry(j.item)
+            region = Box.union([transform_box(occ._extent(geom), occ._transform(geom, p)) for p, _ in laid.values()])
+            others = occ.obstacles(geom, region)
+            exposed = self._exposure_accept(occ, j, push_sources)
+            accept = self._accept(j)            # the items riding it, asked of each turn that is otherwise legal
+            lanes = self._lane_pricer(occ, plan, j)
+            score = self._scorer(j.item, occ, targets, prune=exposed is None and accept is None, pushes=push_sources,
+                                 lanes=lanes) if targets or push_sources or lanes else None
+            scored = scored or score is not None
+            extra = arr_cost if ident else 0.0
+            best = None
+            for rot, (p, chose) in laid.items():
+                why, resolution = occ.legal_giving_way(j.item, p, clr, others=others, by_corners=True)
+                if why is None and exposed is not None:
+                    why = exposed(p)
+                if why is None and accept is not None:
+                    why = accept(p)
+                if why is not None:
+                    key = _reason_key(why)
+                    rejected[key] += 1
+                    by_arrangement.setdefault(ident, Counter())[key] += 1
+                    reasons.setdefault((ident, key), why)
+                    continue
+                cost = (score(p) if score is not None else 0.0) + (resolution.cost if resolution is not None else 0.0)
+                away = abs((rot - declared + 180.0) % 360.0 - 180.0)
+                found.append((cost + extra, k, away, rot, cost, p, chose, ident, j))
+                best = cost + extra if best is None else min(best, cost + extra)
+            rows.append(self._arrangement_row(ident, best if score is not None else None, best is not None))
+            if not ident and best is not None and score is not None:
+                default_total = best
+            if score is None and best is not None:
+                break                           # unscored: the first arrangement with a legal turn stands
         if not found:
             plan.findings.append(self._finding(C.UNPLACED_BEARING, {
                 "item": i.key, "turns": len(turns), "counts": blame.counts_of(rejected),
-                }))
-            return self._step(i, None, 0.0, unplaced=[w.to_json() for w in reasons.values()])
-        cost, away, rot, p, chose = min(found, key=lambda f: f[:3])
+                **({"arrangements": len(ids)} if len(ids) > 1 else {})}))
+            return self._step(i, None, 0.0, unplaced=[dict(w.to_json(), **({"arrangement": a} if a else {}))
+                                                      for (a, _), w in reasons.items()])
+        margin, held = self._margin(i), None
+        if margin is not None and default_total is not None:
+            short = lambda f: f[7] and default_total - f[0] < margin      # an arrangement not the margin better than the default
+            held = min(((f[0], f[7]) for f in found if short(f) and f[0] < default_total), default=None)
+            found = [f for f in found if not short(f)]
+        _, k, away, rot, cost, p, chose, ident, j = min(found, key=lambda f: f[:4])
         notes = [chose] if chose else []
-        notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if score is not None else None))
-        if rejected:
-            notes.append(step_text.record("refused_count", n=sum(rejected.values()), why=next(iter(reasons.values())).to_json()))
+        notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if scored else None,
+                                      arrangement=ident or None))
+        own = by_arrangement.get(ident)          # the refusals of the arrangement taken: the default's are its blame
+        if own:
+            notes.append(step_text.record("refused_count", n=sum(own.values()),
+                                          why=next(w for (a, _), w in reasons.items() if a == ident).to_json()))
+        if len(rows) > 1 or ident:
+            default = next((r for r in rows if r["id"] == "default"), None)
+            blamed = [{"form": "counts", "counts": blame.counts_of(by_arrangement.get("", Counter()))}] \
+                if ident and default is not None and not default["legal"] else None
+            notes.append(self._arrangement_note(ident, rows, score=cost if scored else None,
+                                                cost=(arr_cost if ident else 0.0) if scored else None,
+                                                default_score=default_total, default_blame=blamed,
+                                                within=None if ident else self._within(held, default_total, margin)))
         if push_sources:
-            notes += self._push_notes(occ, plan, i, p, push_sources)
-        return self._step(i, p, 0.0, notes)
+            notes += self._push_notes(occ, plan, j, p, push_sources)
+        return self._step(j, p, 0.0, notes)
+
+
+def _slot_of(fellows: list, i: "PlaceIntent") -> int:
+    """Where `i` stands among the declarations sharing its freedom, found by key: a cell searched in an arrangement is not equal
+    to its declaration."""
+    return [x.key for x in fellows].index(i.key)
+
 
 @contextlib.contextmanager
 def _recording_commits(occ: Occupancy):
@@ -9713,8 +10604,17 @@ def _recording_commits(occ: Occupancy):
     real = occ.commit
 
     def commit(item, placement):
-        commits.append([("cell", item.name) if isinstance(item, CellGeom) else ("fp", item.ref),
-                        _reuse.placement_to_json(placement)])
+        if not isinstance(item, CellGeom):
+            commits.append([("fp", item.ref), _reuse.placement_to_json(placement)])
+            return real(item, placement)
+        # A cell in an arrangement records it beside its name and in its placement (a rider's placement may leave it to the item); a
+        # cell in its default records as it always did.
+        arranged = placement.arrangement or item.arrangement
+        if arranged:
+            commits.append([("cell", item.name, arranged),
+                            _reuse.placement_to_json(dataclasses.replace(placement, arrangement=arranged))])
+        else:
+            commits.append([("cell", item.name), _reuse.placement_to_json(placement)])
         return real(item, placement)
     occ.commit = commit
     try:
@@ -9853,6 +10753,8 @@ _SITED = {
     "block": lambda b, out, a, k: [out.anchor.inst],
     "rule": lambda b, out, a, k: [out.why],
     "accept": lambda b, out, a, k: ["%s %s" % (out.check, out.subject)],
+    "alternative": lambda b, out, a, k: ["%s.%s" % (out.item, out.name)],
+    "arrangement": lambda b, out, a, k: [out.name],
 }
 
 
@@ -10078,16 +10980,60 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = 
 
 
 _RIDE_PROBE = (1.37, -0.73)
+# the facts of an `unplaced.pocket` finding that finding_text.pocket_note reads
+_POCKET_NOTE_KEYS = ("variant", "w_mm", "h_mm", "face", "tried", "scanned", "budget", "riders")
 """How far _ride_turn moves an item to see whether its riders move with it:
 off any grid a search walks, on both axes."""
+
+
+@dataclass
+class _Tried:
+    """One standing of an item scanned (`Board._scan_one`)."""
+    j: PlaceIntent
+    hint: Placement
+    radius: float
+    result: ScanResult | None
+    face_note: dict | None
+    ahead: object
+    score: object
+    hopeless: dict | None = None
+    faces: dict | None = None       # each face scanned -> its own ScanResult (`Board._scan_faces`)
+
+
+@dataclass
+class _Trial:
+    """One arrangement of a decided cell laid at its spot (`Board._firm_trials`): its id ("" the default), the arranged intent,
+    where its declaration puts it, the note of which pad a net named, its refusal (None when legal), and its score there (None
+    when it is not legal or nothing prices it)."""
+    ident: str
+    j: PlaceIntent
+    placement: Placement
+    chose: dict | None
+    why: object
+    score: float | None
+    tight: float | None = None      # how much nearer than its box a Beside laid it (`Board._tight`), None when not nearer
+
+
+@dataclass
+class _Scanned:
+    """The scans of every arrangement of an item (`Board._scan_arrangements`) and which stands: the winner's _Tried, its
+    ScanResult and face note (every arrangement's refusals merged when none has a legal spot), the step's arrangement note, and,
+    when none has a legal spot, the refusals as records, each tagged with the arrangement it came from (none for the default)."""
+    won: "_Tried | None"
+    tried: list
+    result: ScanResult
+    face_note: dict | None
+    note: dict | None
+    reasons: list
 
 
 class _Redo(Exception):
     """A run of the resolve that stops after its firm items, for the next to place them against what it found."""
 
-    def __init__(self, seed: dict, swaps: list, notes: dict, loose: frozenset):
+    def __init__(self, seed: dict, swaps: list, notes: dict, loose: frozenset, arr: dict | None = None):
         super().__init__("the firm items are placed again")
         self.seed, self.swaps, self.notes, self.loose = seed, swaps, notes, loose
+        self.arr = dict(arr or {})          # the arrangement each firm cell took in this run ("" the default)
 
 
 class _Out:
@@ -10790,6 +11736,14 @@ def _is_micro(span: tuple) -> bool:
     return len(span) == 2 and any(l.face is not None for l in span)
 
 
+def _posed_footprint(fp: Footprint, pose: Placement) -> Footprint:
+    """`fp` with its place and its pads moved to `pose`, where an arrangement stands it (what drops= reads of a member)."""
+    t = pose_transform(Placement(fp.location, fp.rotation, fp.face), pose)
+    pads = tuple(dataclasses.replace(p, outlines=tuple(transform_polygon(o, t) for o in p.outlines), box=transform_box(p.box, t),
+                                     anchor=None if p.anchor is None else t.apply_location(p.anchor)) for p in fp.pads)
+    return dataclasses.replace(fp, location=pose.location, rotation=pose.rotation, face=pose.face, pads=pads)
+
+
 def _checkerboard(points) -> set:
     """The indices of `points` (a via field in its part's frame) that one
     colour of a checkerboard over its grid keeps: a via's column and row are
@@ -10825,6 +11779,16 @@ def _op_layers(op) -> frozenset:
     if isinstance(op, Via):
         return frozenset(op.layers) or frozenset(CopperLayer)
     return frozenset([op.layer])
+
+
+def _via_intent_at(board: "Board", ctx, net: str, x: float, y: float):
+    """The copper declaration whose planned via of `net` stands at (x, y), or None. `ops_at` is keyed by `CopperIntent.index`,
+    which is not the position in `board._copper` once an arrangement has left out copper its `only=` excludes."""
+    for index, ops in (getattr(ctx, "ops_at", None) or {}).items():
+        for op in ops:
+            if isinstance(op, Via) and op.net == net and abs(op.at.x - x) < 1e-6 and abs(op.at.y - y) < 1e-6:
+                return next((c for c in board._copper if c.index == index), None)
+    return None
 
 
 def _shape_of(op) -> Shape | None:

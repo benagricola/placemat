@@ -16,7 +16,6 @@ Under `<board>/.placemat/explore/<script stem>/`:
   a resume keeps."""
 from __future__ import annotations
 
-from dataclasses import asdict
 import hashlib
 import json
 import os
@@ -47,7 +46,8 @@ def sha(text: str) -> str:
 
 def lock_digest(entries) -> str:
     """The lock as an explore began with it."""
-    return sha(json.dumps([asdict(e) for e in sorted(entries, key=lambda e: e.key)], sort_keys=True))
+    from .lock import _doc          # the entry as the lock file writes it: one with no arrangement digests as it always did
+    return sha(json.dumps([_doc(e) for e in sorted(entries, key=lambda e: e.key)], sort_keys=True))
 
 
 def write_atomic(path, text: str) -> None:

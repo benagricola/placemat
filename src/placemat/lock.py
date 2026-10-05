@@ -30,6 +30,7 @@ class LockEntry:
     release: str = ""               # the placemat release that accepted it, for the record
     run: str = ""                   # the run whose explore accepted it
     score: float | None = None      # that explore's best run score, mm
+    arrangement: str = ""           # the cell's arrangement when it was accepted; "" the module's own layout
 
 
 def path_for(script) -> Path:
@@ -45,14 +46,21 @@ def read(path) -> list:
     data = json.loads(path.read_text())
     return [LockEntry(e["key"], tuple(e["anchor"]) if e["anchor"] is not None else None, e["anchor_face"],
                       tuple(e["offset"]), e["rotation"], e["face"], e["declaration"], e.get("turn", 0),
-                      e.get("release", ""), e.get("run", ""), e.get("score"))
+                      e.get("release", ""), e.get("run", ""), e.get("score"), e.get("arrangement", ""))
             for e in data.get("entries", [])]
 
 
 def write(path, entries) -> None:
     entries = sorted(entries, key=lambda e: e.key)
-    doc = {"format": FORMAT, "entries": [asdict(e) for e in entries]}
+    doc = {"format": FORMAT, "entries": [_doc(e) for e in entries]}
     Path(path).write_text(json.dumps(doc, indent=1) + "\n")
+
+
+def _doc(e) -> dict:
+    d = asdict(e)
+    if not d["arrangement"]:
+        del d["arrangement"]              # an entry with none is written as it always was
+    return d
 
 
 def _turn(dx: float, dy: float, degrees: float) -> tuple:
@@ -76,13 +84,16 @@ def _turn(dx: float, dy: float, degrees: float) -> tuple:
 _NOT_DECIDING = frozenset(("index", "line", "file", "needs", "why", "faces_note", "priority_source"))
 
 
-def declaration_digest(board, intent, ordered: bool = True) -> str:
+def declaration_digest(board, intent, ordered: bool = True, arrangement: str = "") -> str:
     """What an entry was accepted against: the item's declaration, the links
     on its pads and its footprint's shape, each part named by its instance
     path, which a renumbering of the board does not change, and a cell's
     members in order of it, not in the order the board file lists them (a
     re-stamped fragment lists them otherwise). `ordered=False`: members as read, as 0.47-0.48 wrote
-    it; a run still accepts both."""
+    it; a run still accepts both. `arrangement`: a cell's arrangement other than the default adds its
+    members' places as it stands them, so an entry whose arrangement moved its members no longer holds;
+    the default adds nothing, so an entry written before arrangements holds. The intent's cell is read
+    as the board's base cell; an id the cell does not offer raises KeyError."""
     import dataclasses
     from . import reuse as _reuse
     from .board_geometry import members_of
@@ -100,8 +111,18 @@ def declaration_digest(board, intent, ordered: bool = True) -> str:
     links = _reuse.links_on(board, intent)
     links = [dataclasses.replace(l, a=(names.get(l.a[0], l.a[0]), l.a[1]), b=(names.get(l.b[0], l.b[0]), l.b[1]))
              for l in links]
+    extra = []
+    if arrangement and arrangement != "default":
+        base = board.geometry.cells[intent.key]
+        base.arranged(arrangement)                      # KeyError for an id the cell does not offer
+        a = next(a for a in base.arrangements if a.id == arrangement)
+        # each member's place as the arrangement stands it, off its stamped place: where the generator stamped the cell
+        # does not change it
+        extra = [_reuse.canonical(sorted((m.inst, round(m.pose.location.x - m.default.location.x, 4),
+                                          round(m.pose.location.y - m.default.location.y, 4), round(m.pose.rotation, 4),
+                                          m.pose.face.value) for m in a.members))]
     return _reuse._sha("lock", _reuse.canonical(said), _reuse.canonical(sorted(_reuse.canonical(l, parts=names)
-                       for l in links)), _reuse.canonical(shape))[:16]
+                       for l in links)), _reuse.canonical(shape), *extra)[:16]
 
 
 def ref_of(geometry, name: str) -> str:
@@ -119,19 +140,20 @@ def entry_from_turn(key: str, turn: dict, declaration: str, release: str) -> Loc
     p = turn["placement"]
     if turn.get("anchor") is None:
         return LockEntry(key, None, None, (round(p.location.x, 6), round(p.location.y, 6)), p.rotation % 360.0,
-                         p.face.value, declaration, turn["order"], release)
+                         p.face.value, declaration, turn["order"], release, arrangement=p.arrangement)
     a, theta = turn["anchor_at"], turn["anchor_rotation"]
     dx, dy = _turn(p.location.x - a.x, p.location.y - a.y, -theta)
     return LockEntry(key, tuple(turn["anchor"]), turn["anchor_face"], (round(dx, 6), round(dy, 6)),
-                     round((p.rotation - theta) % 360.0, 6), p.face.value, declaration, turn["order"], release)
+                     round((p.rotation - theta) % 360.0, 6), p.face.value, declaration, turn["order"], release,
+                     arrangement=p.arrangement)
 
 
 def placement_of(entry: LockEntry, occ) -> tuple:
     """(placement, None) where the entry puts its item on `occ` as it stands,
-    or (None, why) when it cannot say: why is a record, {"form": "anchor_pending" | "anchor_face" | "anchor_pad_gone", "ref", ["pad"]}
+    in the entry's arrangement, or (None, why) when it cannot say: why is a record, {"form": "anchor_pending" | "anchor_face" | "anchor_pad_gone", "ref", ["pad"]}
     (step_text renders it)."""
     if entry.anchor is None:
-        return Placement(Location(entry.offset[0], entry.offset[1]), entry.rotation, Face(entry.face)), None
+        return Placement(Location(entry.offset[0], entry.offset[1]), entry.rotation, Face(entry.face), entry.arrangement), None
     ref, number = ref_of(occ.geometry, entry.anchor[0]), entry.anchor[1]
     g = occ.items.get(ref)
     if g is None or ref in occ.pending:
@@ -145,7 +167,7 @@ def placement_of(entry: LockEntry, occ) -> tuple:
     theta = g.reference.rotation
     dx, dy = _turn(entry.offset[0], entry.offset[1], theta)
     return Placement(Location(round(a.x + dx, 6), round(a.y + dy, 6)), round((entry.rotation + theta) % 360.0, 6),
-                     Face(entry.face)), None
+                     Face(entry.face), entry.arrangement), None
 
 
 def entries(board, plan, keys, release: str = "", run: str = "", score: float | None = None) -> list:
@@ -157,7 +179,7 @@ def entries(board, plan, keys, release: str = "", run: str = "", score: float | 
         intent = next((i for i in board._placements() if i.key == key), None)
         if turn is None or intent is None:
             continue
-        e = entry_from_turn(key, turn, declaration_digest(board, intent), release)
+        e = entry_from_turn(key, turn, declaration_digest(board, intent, arrangement=turn["placement"].arrangement), release)
         anchor = e.anchor
         if anchor is not None:          # the anchor by instance: a renumbering does not move it
             anchor = (next((fp.inst for fp in board.geometry.footprints if fp.ref == anchor[0]), anchor[0]), anchor[1])

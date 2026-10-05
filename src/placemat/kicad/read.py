@@ -16,6 +16,9 @@ pcbnew = import_pcbnew()
 
 from ..board_geometry import (BoardGeometry, CellGeom, CopperItem, Footprint, NetClass, PadGeom, RuleArea,
                               resolve_marker, split_allow, split_marker, stamped_net)
+from ..arrangement_note import ARRANGEMENT_PREFIX
+from ..arranged_geometry import attach
+from .text import text_box
 from ..rules import RULE_PREFIX, parse_rule_note
 from ..values import Box, CopperLayer, Face, Location
 
@@ -104,18 +107,12 @@ def copper_outlines(item, layer_id, err_nm=CLEAR_ERR_NM):
     edges of a polygon that doubles back on itself (a pour's did, and a via
     passed 0.127 mm from it against a 0.16 rule)."""
     if isinstance(item, pcbnew.PCB_SHAPE) and item.GetShape() == pcbnew.SHAPE_T_POLY and item.GetWidth() > 0:
-        from ..copper import _segment_polygon
+        from ..copper import stroked_outlines
         ps = item.GetPolyShape()
         w = mm(item.GetWidth()) + 2 * mm(err_nm)      # outside by the tolerance, as KiCad's own conversion is
-        out = []
         filled = item.IsSolidFill() if hasattr(item, "IsSolidFill") else item.IsFilled()
-        for k in range(ps.OutlineCount()):
-            o = ps.Outline(k)
-            pts = [(mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount())]
-            if filled and len(pts) >= 3:
-                out.append(tuple(pts))
-            for a, b in zip(pts, pts[1:] + pts[:1]):
-                out.append(_segment_polygon(Location(*a), Location(*b), w))
+        out = list(stroked_outlines([[(mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount())]
+                                     for o in (ps.Outline(k) for k in range(ps.OutlineCount()))], w, filled))
         if out and not filled:
             return tuple(out)                           # a stroke round nothing: its strips, its middle open
         if out:
@@ -803,6 +800,7 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
     by_ref = {fp.ref: fp for fp in fps}
     copper = _copper(board, groups_of, arc_error_nm)
     cells = {}
+    arrangement_texts = {}
     for name, items in group_items.items():
         # in reference order: KiCad returns a group's items in no fixed order, and the search and the
         # findings read members in turn
@@ -824,9 +822,14 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                         faces[k] = v
         rules = tuple(r for r in (parse_rule_note(it.GetText()) for it in items
                                   if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(RULE_PREFIX)) if r)
+        arrangement_texts[name] = [it.GetText() for it in items
+                                   if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(ARRANGEMENT_PREFIX)]
         cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces, parent_of.get(name), rules)
     classes, default_clr = _netclasses(board)
     layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
+    label_box = lambda op: text_box(board, op)      # an arrangement's label measured as its stamped text would be
+    cells = {n: (attach(c, arrangement_texts[n], frozenset(classes), layers, label_box) if arrangement_texts.get(n) else c)
+             for n, c in cells.items()}
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
                     layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance),

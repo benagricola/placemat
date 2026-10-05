@@ -127,6 +127,18 @@ class Settings:
         "the most candidates one searched item's step may judge, over all its passes, both faces and the carried vias' giving way; "
         "a step that spends it takes the best spot found so far, or leaves the item unplaced and says how much of the search area "
         "it covered. Counted, not timed: the result does not depend on how busy the machine is. A `place(budget=)` replaces it")
+    place_arrangements: bool = S(True, "bool",
+        "whether a stamped cell's module arrangements (alternative layouts a module run proved) are searched; false lays every cell's default only, and a module run lays out its default only")
+    place_arrangement_options_max: int = S(4, "count",
+        "the most options one item of a module may have, its `place()` included; a module that declares more is not partly accepted: its run lays out the default only and says so")
+    place_arrangements_max: int = S(8, "count",
+        "the most arrangements a module may have, the default and the named groups included; the product of the items' options counts")
+    place_arrangement_note_chars: int = S(4000, "count",
+        "the characters one arrangement note text holds before it is split into numbered texts (a note rides on a User.Comments text of the fragment)")
+    place_extent_notice_mm: float = S(1.0, "mm",
+        "how far a part may stand past the next part on a side of a module that declares no alternatives before `arrangement.extent_fixed` notes it as setting the module's extent")
+    place_arrangement_margin: float = S(0.5, "mm",
+        "how much better than the module's default a cell's other arrangement must score before a search takes it; within it the default stands and the step says so. It applies at a decided spot too, where a firm cell's arrangements are each scored once. Not asked when the default has no legal spot, of a cell whose `arrangements=` names its choices, or of an explore's draw")
     place_firm_passes: int = S(8, "count",
         "the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was "
         "refused by a firm part placed before it, with the two taken in the other order), the last one the settled run")
@@ -428,6 +440,8 @@ class Settings:
         "mm for each plane drop dropped there")
     score_back_face: float = S(2.0, "mm",
         "mm the search adds to a spot on the back face of an item placed with `face=Face.EITHER`, so an equal spot is the front's; no item with a fixed face pays it")
+    score_arrangement: float = S(0.0, "mm",
+        "mm the search adds to a cell's non-default arrangement, so an equal score keeps the module's own layout; a project raises it to prefer the module's default by that much")
     score_push: float = S(10.0, "mm",
         "mm-equivalent: `score.push` times a push's modelled value over its limit, at the search")
     score_via_leave: float = S(4.0, "mm",
@@ -660,7 +674,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_room_pitch", "place_coarse_min_radius_steps", "place_coarse_stride",
-    "place_refine_spots", "place_step_budget", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
+    "place_refine_spots", "place_step_budget", "place_arrangement_options_max", "place_arrangements_max", "place_arrangement_note_chars", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
@@ -677,7 +691,7 @@ _AT_LEAST_ZERO = frozenset((
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
-    "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face",
+    "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch",
     "pins_exit_mm", "pins_pair_weight", "pins_impedance_weight", "pins_length_weight", "pins_bend_weight", "pins_anneal_start",
     "pins_anneal_end", "pins_gain_min", "pins_explore_top"))

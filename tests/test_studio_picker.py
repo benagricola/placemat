@@ -75,6 +75,11 @@ def test_the_command_takes_no_script(project):
 
 
 # ------------------------------------------------------------------ a worker that dies
+# A process that crashes on purpose first marks itself not dumpable (PR_SET_DUMPABLE 0), so the kernel writes no core and
+# the desktop's crash reporter is not told of it.
+NO_CORE = "import ctypes; ctypes.CDLL(None).prctl(4, 0, 0, 0, 0); "
+
+
 def _crash_log(folder, name="crashing.py"):
     """What faulthandler writes when a user module segfaults, from a real process."""
     mod = folder / name
@@ -91,7 +96,7 @@ def _crash_log(folder, name="crashing.py"):
         """))
     log = folder / "crash.log"
     with open(log, "wb") as f:
-        done = subprocess.run([sys.executable, "-c", "import faulthandler; faulthandler.enable(); exec(compile(open(%r).read(), %r, 'exec'))" % (str(mod), str(mod))],
+        done = subprocess.run([sys.executable, "-c", NO_CORE + "import faulthandler; faulthandler.enable(); exec(compile(open(%r).read(), %r, 'exec'))" % (str(mod), str(mod))],
                               stderr=f)
     assert done.returncode == -signal.SIGSEGV
     return mod, log.read_text()
