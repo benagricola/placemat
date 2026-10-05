@@ -11,7 +11,8 @@ section for each hand-written pattern a newer form replaces.
 
 - **Units with options, and exclusions.** `board.unit(name, Part(...), Part(...), why=)` declares parts that move as one
   unit, and `board.alternative(unit, option, Alt(Part(...), **keywords), ..., why=)` gives it each option
-  (`unit.option`); `run.json`'s arrangement entries list the unit's and the option's `why` (`why`).
+  (`unit.option`); `run.json`'s arrangement entries list the reason of every choice they hold, an item's option or a
+  unit's (`why`), and the console row shows them.
   `board.exclude(choice, choice, ..., why=)` leaves out every combination holding all the choices; `run.json`'s
   `arrangements` lists each with its `why`. `arrangement.option_dead` (warning) names an option refused in every
   combination that holds it.

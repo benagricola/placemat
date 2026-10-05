@@ -436,7 +436,7 @@ def _row_reasons(entry: dict) -> dict:
 def lines(record: list) -> list:
     """One row per arrangement of the record, for the console (finding_text.arrangement_row_text): its id and `state`, written (the
     default), offered, duplicate (with `same_as`), refused (with `refused`) or excluded (with the exclusion's `why` and its
-    choices, `by`). An offered or refused row carries `reasons`, the entry's `why` (its unit options' reasons), when it has one."""
+    choices, `by`). An offered or refused row carries `reasons`, the entry's `why` (the reasons of the item and unit options it holds), when it has one."""
     out = []
     for a in record:
         if a.get("excluded"):
