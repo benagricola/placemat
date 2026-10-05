@@ -1,6 +1,7 @@
 """Synthetic placed boards for the pin map study's tests: a square part with pins on its sides and the parts its nets run
 to, as PlacedPads and PlacedParts (pinmap_input), so the study is tested without a resolve."""
 from dataclasses import replace
+from math import cos, radians, sin
 
 from placemat.pinmap_input import PlacedPad, PlacedPart, build
 from placemat.settings import Settings
@@ -24,15 +25,23 @@ def pad(ref, number, net, x, y, size=0.6, layer=CopperLayer.F, no_connect=False)
 def quad(ref, cx, cy, sides: dict, fields=None, body=4.0, pitch=1.0, rotation=0.0, face="front", may_flip=False) -> tuple:
     """(pads, PlacedPart) of a part `body` mm square centred at (cx, cy), its courtyard 0.25 mm round it, with pins on
     its sides: `sides` {"E" | "S" | "W" | "N": [net, ...]}, each side's pins in order north to south (E, W) or west to
-    east (N, S), numbered from 1 in the order E, S, W, N. A net of "" is a pin with none."""
+    east (N, S), numbered from 1 in the order E, S, W, N. A net of "" is a pin with none. The pads are laid out at
+    rotation 0 on the front, then turned `rotation` degrees counter-clockwise on the board (y down) about the centre,
+    and mirrored east to west about it when `face` is "back" (on the back copper)."""
     pads, n, h = [], 0, body / 2.0 - 0.3
+    layer = CopperLayer.B if face == "back" else CopperLayer.F
+    turn = radians(rotation)
     for side in SIDES:
         nets = sides.get(side, ())
         for i, net in enumerate(nets):
             off = -(len(nets) - 1) / 2.0 * pitch + i * pitch
             x, y = {"E": (cx + h, cy + off), "W": (cx - h, cy + off), "N": (cx + off, cy - h), "S": (cx + off, cy + h)}[side]
             n += 1
-            pads.append(pad(ref, n, net, x, y))
+            dx, dy = x - cx, y - cy
+            dx, dy = dx * cos(turn) + dy * sin(turn), dy * cos(turn) - dx * sin(turn)
+            if face == "back":
+                dx = -dx
+            pads.append(pad(ref, n, net, cx + dx, cy + dy, layer=layer))
     c = body / 2.0 + 0.25
     return pads, PlacedPart(ref, Box(cx - c, cy - c, cx + c, cy + c), rotation, face, may_flip, dict(fields or {}))
 
@@ -56,9 +65,9 @@ def complete(pads, parts) -> dict:
     return parts
 
 
-def input_of(pads, parts, quiet=frozenset(), partners=None, netclasses=None, names=None, follow=True) -> tuple:
+def input_of(pads, parts, quiet=frozenset(), partners=None, netclasses=None, names=None, follow=True, prefixes=("R", "L", "FB")) -> tuple:
     """`build` with every other placed part made up from its pads."""
-    return build(pads, complete(pads, parts), names or {}, frozenset(quiet), partners or {}, netclasses or {}, follow)
+    return build(pads, complete(pads, parts), names or {}, frozenset(quiet), partners or {}, netclasses or {}, follow, prefixes)
 
 
 def reversed_four(fields=None) -> tuple:

@@ -89,3 +89,24 @@ def test_a_net_on_two_pins_of_the_pool_stays_where_it_is():
     rules = PinRules("U1", ("1", "2", "3", "4"))
     slots, _ = part_pins(rules, [("1", "TIED", False), ("2", "TIED", False), ("3", "A", False)], {"TIED", "A"}, set())
     assert slots.movable == ("A",) and slots.free == ("4",)
+
+
+def test_a_fixed_pin_with_no_net_is_neither_free_nor_allowed():
+    rules = PinRules("U1", ("1", "2", "3"), frozenset({"2"}))
+    slots, problems = part_pins(rules, [("1", "A", False), ("3", "B", False)], {"A", "B"}, set())
+    assert problems == [] and slots.free == () and slots.allowed == {"A": ("1", "3"), "B": ("1", "3")}
+
+
+def test_a_range_whose_ends_have_different_prefixes_is_no_pin():
+    rules, problems = read_rules("U1", {"Pm.PinPool": "1-3, GPIO1-FOO3"}, PADS, NAMES)
+    assert rules.pool == ("1", "2", "3")
+    assert problems == [Problem("U1", "Pm.PinPool", "GPIO1-FOO3", "no_pin", "GPIO1-FOO3")]
+
+
+def test_a_net_left_no_pin_by_another_held_on_its_only_one_names_that_net_and_pin():
+    rules = PinRules("U1", ("1", "2"), allow={"A": frozenset({"1"}), "B": frozenset({"1"})})
+    slots, problems = part_pins(rules, [("1", "A", False), ("2", "B", False)], {"A", "B"}, set())
+    assert slots is None and len(problems) == 1
+    assert problems[0] == Problem("U1", "", "", "no_legal_pin", "B", "A", "1")
+    assert problems[0].facts() == {"ref": "U1", "key": "", "entry": "", "code": "no_legal_pin", "name": "B",
+                                   "held_net": "A", "held_pin": "1"}

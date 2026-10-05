@@ -17,6 +17,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import MISSING, dataclass, field, fields, replace
 import json
+import math
 from pathlib import Path
 import re
 import tomllib
@@ -307,6 +308,8 @@ class Settings:
         "the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing)")
     pins_bend_weight: float = S(0.005, "weight",
         "the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target")
+    pins_follow_prefixes: tuple = S(("R", "L", "FB"), "list",
+        "the pin map study follows a net on through a two-pad series part only when its reference starts with one of these letters (a resistor, an inductor, a ferrite bead; a two-pin connector is not followed)")
     pins_rotations: tuple = S((0.0, 90.0, 180.0, 270.0), "degrees",
         "the turns from where a part stands that the pin map study tries besides its present one; add 45, 135, 225 and 315 for the diagonals")
     pins_seeds: int = S(4, "count",
@@ -729,6 +732,12 @@ def _validate(name: str, value, path: str):
         bad = [v for v in value if isinstance(v, bool) or not isinstance(v, (int, float))]
         if bad:
             raise SettingsError("%s: pins.rotations: every entry is a turn in degrees, not %r" % (path, bad[0]))
+        bad = [v for v in value if not math.isfinite(v)]
+        if bad or not value:
+            raise SettingsError("%s: pins.rotations: a list of at least one finite turn in degrees, not %r" % (path, list(value)))
+    if name == "pins_follow_prefixes":
+        if not all(isinstance(v, str) and v for v in value):
+            raise SettingsError("%s: pins.follow_prefixes: every entry is a reference prefix, a string of letters, not %r" % (path, list(value)))
     if name == "drc_severities":
         bad = {k: v for k, v in value.items() if v not in ("error", "warning", "ignore")}
         if bad:
@@ -884,6 +893,10 @@ def load(start, overrides=None, script=None) -> Settings:
         values[name] = value
         sources[name] = "flag"
     coerced = {name: _coerce(name, value) for name, value in values.items()}
+    start, end = (coerced.get(n, _default_of(next(f for f in fields(Settings) if f.name == n)))
+                  for n in ("pins_anneal_start", "pins_anneal_end"))
+    if end > start:
+        raise SettingsError("pins.anneal_end (%r) is above pins.anneal_start (%r)" % (end, start))
     return Settings(**coerced).with_sources(sources)
 
 

@@ -24,15 +24,19 @@ class Problem:
     for the part), no_net (no pin of the part carries the net), unreadable (the entry is not `name:pins`), not_in_pool
     (a group's pin outside the pool, or on a fixed pin), two_groups (a pin already in an earlier group), no_legal_pin (a
     net that no pin may take: the part is not studied), no_legal_map (no matching places every net: the part is not
-    studied)."""
+    studied). A no_legal_pin left so by another net held onto the net's only pin has no `key` or `entry`, and `held_net`
+    and `held_pin` name the holder."""
     ref: str
     key: str
     entry: str
     code: str
     name: str
+    held_net: str = ""
+    held_pin: str = ""
 
     def facts(self) -> dict:
-        return {"ref": self.ref, "key": self.key, "entry": self.entry, "code": self.code, "name": self.name}
+        return {"ref": self.ref, "key": self.key, "entry": self.entry, "code": self.code, "name": self.name,
+                "held_net": self.held_net, "held_pin": self.held_pin}
 
 
 @dataclass(frozen=True)
@@ -225,7 +229,13 @@ def part_pins(rules: PinRules, pads, connected, quiet) -> tuple:
     allowed, problems = {}, []
     for net in movable:
         allowed[net] = legal(net, open_pins)
-        if not allowed[net]:
+        if allowed[net]:
+            continue
+        own = legal(net, pool)
+        by = next((h for h in sorted(held, key=lambda h: natural(h.pin)) if h.pin in own), None)
+        if by is not None:
+            problems.append(Problem(rules.ref, "", "", "no_legal_pin", net, by.net, by.pin))
+        else:
             problems.append(Problem(rules.ref, "Pm.PinAllow" if net in rules.allow else "Pm.PinDeny", "", "no_legal_pin", net))
     if problems:
         return None, problems

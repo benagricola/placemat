@@ -11,6 +11,7 @@ to the series part's far net, as one connection (`pins.follow_series`)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 
 from .ratsnest import Anchor, board_nets, mst
 from .values import Box, Location
@@ -145,10 +146,11 @@ def _merged(pads) -> list:
     return [out[k] for k in sorted(out, key=lambda k: (k[0], natural(k[1])))]
 
 
-def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dict, follow_series: bool = True) -> tuple:
+def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dict, follow_series: bool = True,
+          follow_prefixes: tuple = ("R", "L", "FB")) -> tuple:
     """(StudyInput or None, [Problem]): `pads` every placed pad (PlacedPad), `parts` {ref: PlacedPart} of the placed
     parts, `names` {ref: {pad number: pin name}}, `quiet` the plane and free nets, `partners` {net: its pair's other
-    half}, `netclasses` {net: NetClass}. None when no part has a pool and a net that may move."""
+    half}, `netclasses` {net: NetClass}, `follow_prefixes` the reference prefixes of the series parts to follow. None when no part has a pool and a net that may move."""
     pads = _merged(pads)
     of_ref: dict = {}
     for p in pads:
@@ -191,7 +193,9 @@ def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dic
         ends = tuple(sorted({(a.ref, a.number) for a in anchors if a.ref in on}, key=lambda e: (e[0], natural(e[1]))))
         keep = [i for i, a in enumerate(anchors) if a.ref not in on]
         fixed, via, far, k = _fixed(anchors, joined, keep), "", "", kind(net)
-        followed = _follow(net, ends, fixed[0], of_ref, on, by_net, quiet) if follow_series else None
+        followed = _follow(net, ends, fixed[0], of_ref, on, by_net, quiet, follow_prefixes) if follow_series else None
+        if followed is not None and followed[1] in used:          # another pin's net already carries this far net
+            followed = None
         if followed is not None:
             via, far, fixed = followed
             used.add(far)
@@ -216,15 +220,18 @@ def _fixed(anchors, joined, keep) -> tuple:
             tuple((at[i], at[j]) for i, j in joined if i in at and j in at))
 
 
-def _follow(net, ends, fixed, of_ref, on, by_net, quiet):
+def _follow(net, ends, fixed, of_ref, on, by_net, quiet, prefixes):
     """(series part, far net, (anchors, joined)) when `net` joins one studied pin to one pad of a two-pad part not studied,
-    whose other pad is on a net that is not quiet, reaches no studied part, and has other pads: that net's anchors less
-    the series part's own. None otherwise."""
+    whose reference starts with one of `prefixes` (its leading letters) and whose other pad is on a net that is
+    not quiet, reaches no studied part, and has other pads: that net's anchors less the series part's own. None
+    otherwise."""
     if len(ends) != 1 or len(fixed) != 1:
         return None
     via = fixed[0].ref
     pads = of_ref.get(via, [])
     if via in on or len(pads) != 2:
+        return None
+    if re.match(r"[A-Za-z]*", via).group().upper() not in {x.upper() for x in prefixes}:
         return None
     other = next(p for p in pads if p.number != fixed[0].number)
     far = other.net

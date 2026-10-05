@@ -30,3 +30,17 @@ def test_the_turns_are_read_from_the_toml_and_an_entry_that_is_not_a_number_is_r
 
 def test_a_pins_setting_changes_no_placement_so_a_replay_still_holds():
     assert "pins_budget_ms" not in placement_settings(Settings())
+
+
+@pytest.mark.parametrize("line", ["rotations = []", "rotations = [0, nan]", "rotations = [inf]",
+                                  "anneal_start = 0.1\nanneal_end = 0.5"])
+def test_a_list_of_turns_that_is_empty_or_not_finite_and_an_end_above_the_start_are_refused(tmp_path, line):
+    (tmp_path / "placemat.toml").write_text("[pins]\n%s\n" % line)
+    with pytest.raises(SettingsError, match="pins\\."):
+        load(tmp_path)
+
+
+def test_the_prefixes_of_the_series_parts_followed_are_a_setting(tmp_path):
+    assert Settings().pins_follow_prefixes == ("R", "L", "FB")
+    (tmp_path / "placemat.toml").write_text('[pins]\nfollow_prefixes = ["R"]\n')
+    assert load(tmp_path).pins_follow_prefixes == ("R",)
