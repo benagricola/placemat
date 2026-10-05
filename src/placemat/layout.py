@@ -4931,6 +4931,33 @@ class Board:
         for ref, number, net, by in esc.handoffs_walled():
             plan.findings.append(self._finding(C.ESCAPE_WALLED, dict(
                 suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant="handoff")))
+        if not self._draw_outline:
+            self._report_vias_unneeded(occ, plan, esc)
+
+    def _report_vias_unneeded(self, occ: Occupancy, plan: Plan, esc) -> None:
+        """A module's via on an escape lane that the lane does not need (`Escapes.vias_unneeded`): the lane reaches the
+        frame's edge on its own layer without it, so it ends there and the parent board's router decides whether it changes
+        layer. A finding per via, naming whether `vias=` on the escape put it there or a `board.via` did."""
+        from . import suggest_facts
+        pins = list(dict.fromkeys((d.ref, n) for d in self._escapes if d.index in self._escape_laid for n in d.pins))
+        if not pins:
+            return
+        ctx = self.__dict__.get("_escape_ctx")
+        lane_intents = {id(v) for d in self._escapes for v in d.via_intents.values()}
+        for ref, number, net, layers, vias in esc.vias_unneeded(pins, occ.board_box):
+            seen = set()
+            for v in vias:
+                x, y = (v.circle[0], v.circle[1]) if v.circle else (v.box.center.x, v.box.center.y)
+                if (round(x, 4), round(y, 4)) in seen:
+                    continue                # a lane's via is reserved and drawn at one spot
+                seen.add((round(x, 4), round(y, 4)))
+                intent = _via_intent_at(self, ctx, net, x, y)
+                lane = bool(v.lane) or (intent is not None and id(intent) in lane_intents)
+                plan.findings.append(self._finding(C.ESCAPE_VIA_UNNEEDED, {
+                    "ref": ref, "part": suggest_facts.inst_of(self, ref), "pin": number, "net": net,
+                    "layers": [l.value for l in CopperLayer if l in layers],
+                    "via": {"kind": "lane" if lane else "via", "at": [round(x, 4), round(y, 4)],
+                            "key": copper_id(intent) if intent is not None and not lane else ""}}))
 
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
         for l in self._links:
@@ -10807,6 +10834,15 @@ def _op_layers(op) -> frozenset:
     if isinstance(op, Via):
         return frozenset(op.layers) or frozenset(CopperLayer)
     return frozenset([op.layer])
+
+
+def _via_intent_at(board: "Board", ctx, net: str, x: float, y: float):
+    """The copper declaration whose planned via of `net` stands at (x, y), or None."""
+    for index, ops in (getattr(ctx, "ops_at", None) or {}).items():
+        for op in ops:
+            if isinstance(op, Via) and op.net == net and abs(op.at.x - x) < 1e-6 and abs(op.at.y - y) < 1e-6:
+                return board._copper[index]
+    return None
 
 
 def _shape_of(op) -> Shape | None:

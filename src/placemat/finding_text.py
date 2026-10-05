@@ -123,6 +123,17 @@ def _escape_lane(f):
     return "%s pin %s (%s): its lane is blocked by %s" % (f["ref"], f["pin"], f["net"], "; ".join(_refusal(b) for b in f["blocked"]))
 
 
+@renders(C.ESCAPE_VIA_UNNEEDED, "ref", "pin", "net", "layers", "via")
+def _escape_via_unneeded(f):
+    via, (x, y) = f["via"], f["via"]["at"]
+    if via["kind"] == "lane":
+        what, fix = "the via at (%.2f, %.2f) that ends its lane" % (x, y), "take the pin out of the escape's vias="
+    else:
+        what, fix = "via %s at (%.2f, %.2f), on its lane's copper," % (f["net"], x, y), "remove the board.via"
+    return ("%s pin %s (%s): %s is not needed: the lane reaches the frame's edge on %s without it, so it can end there for "
+            "the parent board's router; %s" % (f["ref"], f["pin"], f["net"], what, "/".join(f["layers"]), fix))
+
+
 @renders(C.PAIR_CROSSED, "pos", "neg", "parts")
 def _pair_crossed(f):
     return ("%s/%s cross between %s: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored "
@@ -760,7 +771,7 @@ def subject(cause, facts: dict) -> str:
     """What a finding is about, from its facts: the item, the label, the link, the cell or the net it names, with the pin
     where it is about one. Two findings of one cause about different things differ in it, and one finding keeps its
     subject across resolves, so a try is judged by whether the finding it was for is gone."""
-    if cause in (C.ESCAPE_CLOSED, C.ESCAPE_WALLED, C.ESCAPE_LANE, C.SETUP_LANE_UNUSED):
+    if cause in (C.ESCAPE_CLOSED, C.ESCAPE_WALLED, C.ESCAPE_LANE, C.SETUP_LANE_UNUSED, C.ESCAPE_VIA_UNNEEDED):
         return "%s.%s" % (facts.get("ref") or facts.get("part", ""), facts.get("pin", ""))
     if cause is C.ESCAPE_CROSSED:
         return "%s %s" % (facts["ref"], "/".join(facts["pins"]))
@@ -781,6 +792,7 @@ _PADS = {
     C.ESCAPE_WALLED: lambda f: [[f["ref"], f["pin"]]],
     C.ESCAPE_LANE: lambda f: [[f["ref"], f["pin"]]],
     C.SETUP_LANE_UNUSED: lambda f: [[f["ref"], f["pin"]]],
+    C.ESCAPE_VIA_UNNEEDED: lambda f: [[f["ref"], f["pin"]]],
     C.ESCAPE_CROSSED: lambda f: [[f["ref"], p] for p in f["pins"]],
 }
 

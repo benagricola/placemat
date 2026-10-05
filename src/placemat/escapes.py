@@ -400,6 +400,33 @@ class Escapes:
         return (path_out(occ, ref, number, self.depth, toward=toward, near=near)
                 or path_out(occ, ref, number, self.depth, toward=toward, near=near, exact=True))
 
+    def vias_unneeded(self, pins, frame: Box) -> list:
+        """The vias on the lanes of `pins` ((ref, number) pairs: a module's escaped pins) that the lane does not need:
+        copper of the pad's own net stands on it and ends in a via, and with the via taken away the pad and that copper
+        still have a track's way to the edge of `frame` on the pad's own layers. Each as (ref, number, net, layers, the via
+        shapes). A pad of a plane or free net (`occ.quiet_nets`) is left out: its via is a drop into the plane, not an
+        escape. So is one whose copper runs on into another pad of its net, a route made inside the frame."""
+        occ = self.occ
+        out = []
+        for ref, number in pins:
+            g = occ.items.get(ref)
+            if g is None or ref in occ.pending:
+                continue
+            pad = _pads_of(g.shapes, ref).get(number)
+            if pad is None:
+                continue
+            net, layers, _ = pad
+            if not net or net in occ.quiet_nets or _unconnected(occ, ref, number, net):
+                continue
+            chain = self._own_copper(ref, number, net)
+            vias = [s for s in chain if s.kind == "through"]
+            if not vias or self._runs_on(chain, ref, number, net):
+                continue
+            own = [s for s in chain if s.kind != "through"]
+            if path_out(occ, ref, number, own=own, exact=True, via_exit=False, window=frame):
+                out.append((ref, number, net, layers, vias))
+        return out
+
     def handoffs_walled(self) -> list:
         """The pads of nets with no other pad on the board - the net leaves the board there, as a cell's pin does for the
         parent board - that no track or via gets out of: (ref, number, net, what closes it). Such a pad keeps no corridor in
@@ -646,7 +673,7 @@ class Escapes:
 
 
 def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None, near=None, own=(),
-             exact: bool = False, via_exit: bool = True) -> bool:
+             exact: bool = False, via_exit: bool = True, window: Box | None = None) -> bool:
     """Whether a track of the pad's net can get out of it: a path, at the
     net's track width and clearance from every other net's copper on the
     pad's layers, from the pad to the edge of a window `depth` round it or
@@ -657,7 +684,8 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     copper). Obstacles are taken as their boxes. `own` is copper of the pad's own net standing on it (a stub): the path
     starts anywhere on it. `exact` takes the obstacles as the shapes they are, not their boxes (a diagonal track's box is
     mostly empty): a cell is blocked by a track's own width and clearance, and the window is judged cell by cell as the
-    search reaches it. `via_exit` off: a spot a via fits at is no way out, only a track reaching the window's edge is."""
+    search reaches it. `via_exit` off: a spot a via fits at is no way out, only a track reaching the window's edge is.
+    `window` is the window itself, in place of the one `depth` round the pad: a module's frame, whose edge a lane reaches."""
     depth = occ.settings.place_escape_depth if depth is None else depth
     g = occ.items[ref]
     mine = [s for s in g.shapes if s.kind in ("pad", "through") and s.owner == ref and s.label == number]
@@ -668,7 +696,7 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     pad = Box.union([s.box for s in mine] + [s.box for s in own])
     nc = occ.geometry.netclass(net)
     track, via = nc.track_width / 2.0 + nc.clearance, nc.via_diameter / 2.0 + nc.clearance
-    win = pad.inflate(depth)
+    win = pad.inflate(depth) if window is None else window
     reach = win.inflate(max(track, via))
     if near is None:
         near = [s for r, h in occ.items.items() if r not in occ.pending for s in h.shapes

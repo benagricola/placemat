@@ -17,6 +17,12 @@ section for each hand-written pattern a newer form replaces.
   past the halo in its module (a longer `run=` on its `board.escape`), or give the node a smaller halo. Draw the halo
   net whole in its module, or name it in `[route] islands`: routed with the other nets, it would space them all at its
   halo, which is a `setup.net_halo` finding too.
+- **A via on a lane that has a way out is a finding in a module.** A module puts a via on an escape lane only when the
+  lane is walled in within the module. In a module run (a frame not drawn), a via on a lane, from `vias=` on
+  `board.escape` or a `board.via` on the lane's copper, whose lane reaches the frame's edge on its own layer without it
+  is an `escape.via_unneeded` warning naming the net, the pin and the via. Take the pin out of `vias=`, or remove the
+  `board.via` (and the track point that ends on it), so the lane ends as a stub and the parent board's router decides
+  whether it changes layer. A plane or free net's via is not one. Placements do not change.
 
 ## To 0.99.11
 

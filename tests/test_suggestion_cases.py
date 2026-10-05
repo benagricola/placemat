@@ -94,6 +94,7 @@ FACTS = {
     C.COPPER_STITCH: {}, C.COPPER_CROSS: {"yielder": "track SIG", "yielder_net": "SIG", "other_net": "GND", "other_bridge": True},
     C.COPPER_MEETS: TRACK, C.COPPER_NOT_DRAWN: TRACK, C.COPPER_CORNER: TRACK, C.COPPER_NOTE: dict(TRACK, variant="waypoint"),
     C.ESCAPE_WALLED: ESCAPE, C.ESCAPE_CLOSED: ESCAPE, C.ESCAPE_CROSSED: ESCAPE, C.ESCAPE_LANE: ESCAPE, C.PAIR_CROSSED: {},
+    C.ESCAPE_VIA_UNNEEDED: dict(ESCAPE, via={"kind": "lane", "at": [1.0, 2.0], "key": ""}),
     C.SETUP_CENTRE_FLAG_DEFAULT: {"item": "c9"},
     C.SETUP_UNDECLARED: {"item": "c9", "anchor": "c1"}, C.SETUP_LANE_UNUSED: ESCAPE, C.SETUP_ACCEPT: {"key": "keep-out SIG"},
     C.VIAS_DROPPED: {"item": "c4"}, C.SETUP_STEP_BUDGET: {"item": "c4", "judged": 5000, "share": 0.1, "limit": 5000},

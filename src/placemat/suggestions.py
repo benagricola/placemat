@@ -1244,6 +1244,19 @@ def escape_lane(f, settings):
     return []
 
 
+@case(C.ESCAPE_VIA_UNNEEDED)
+def escape_via_unneeded(f, settings):
+    part, pin, via = f["part"], str(f["pin"]), f["via"]
+    if via["kind"] == "lane":
+        number = {"num": int(pin)} if pin.isdigit() else {"str": pin}
+        return [Pick("Take pin %s out of %s's escape vias=" % (pin, part),
+                     Edit("edit_list", Target("escape", part), {"arg": "vias", "action": "remove"}, number), "vias")]
+    if not via.get("key"):
+        return []
+    return [Pick("Remove the via at (%.2f, %.2f)" % tuple(via["at"]), Edit("remove_statement", Target("via", via["key"])),
+                 "via")]
+
+
 @case(C.PAIR_CROSSED)
 def pair_crossed(f, settings):
     return []
