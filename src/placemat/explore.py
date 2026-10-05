@@ -411,11 +411,12 @@ def _context_of(make_board):
 
 
 def _placements(plan, focus) -> dict:
-    """{key: [x, y, rotation, face] or None} for the focused items: where a variant put them."""
+    """{key: [x, y, rotation, face, arrangement] or None} for the focused items: where a variant put them, and the arrangement
+    a cell stands in ("" its module's own; a record from before arrangements has four elements)."""
     out = {}
     for key in sorted(focus):
         p = plan.placement(key)
-        out[key] = None if p is None else [round(p.location.x, 3), round(p.location.y, 3), round(p.rotation, 3), p.face.value]
+        out[key] = None if p is None else [round(p.location.x, 3), round(p.location.y, 3), round(p.rotation, 3), p.face.value, p.arrangement]
     return out
 
 

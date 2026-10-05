@@ -29,7 +29,7 @@ def _focus_of(key: str, focus: list) -> str | None:
 
 def group_focus(doc: dict, focus, at: dict) -> dict:
     """`doc` with the items of each focused key gathered into one item keyed by it, where its first footprint was; `at` is
-    {key: [x, y, rotation, face]}, the placement the board has the key at. The original is left alone."""
+    {key: [x, y, rotation, face, arrangement]} (explore._placements), the placement the board has the key at. The original is left alone."""
     focus = sorted(focus)
     out, groups = [], {}
     for it in doc.get("items", ()):
@@ -46,6 +46,11 @@ def group_focus(doc: dict, focus, at: dict) -> dict:
             out.append(g)
         g["members"] = g["members"] + list(it.get("members", ()))
     return dict(doc, items=out)
+
+
+def _arrangement(pl) -> str:
+    """A placement's arrangement: "" for its module's own, and for a record from before arrangements."""
+    return pl[4] if len(pl) > 4 else ""
 
 
 def _transform(a, b) -> Transform:
@@ -78,14 +83,15 @@ def _matrix(m: list, t: Transform, flip: bool, height: float) -> list:
 
 
 def move_items(doc: dict, moves: dict, thickness: float) -> tuple:
-    """`doc` with each item of `moves` ({key: (from, to)}, placements as [x, y, rotation, face]) moved, and the keys moved. An item
-    with no placement on either side, or not in the document, stays. The original is left alone."""
+    """`doc` with each item of `moves` ({key: (from, to)}, placements as explore._placements has them) moved, and the keys moved. An
+    item with no placement on either side, not in the document, or in another arrangement on the two sides (its shapes are not
+    the board's), stays. The original is left alone."""
     from . import model_place
     front, back = model_place.planes(thickness)
     out, moved = [], []
     for it in doc.get("items", ()):
         a, b = moves.get(it["key"], (None, None))
-        if not a or not b:
+        if not a or not b or _arrangement(a) != _arrangement(b):
             out.append(it)
             continue
         t, flip = _transform(a, b), a[3] != b[3]
