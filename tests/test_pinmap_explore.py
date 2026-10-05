@@ -48,10 +48,11 @@ def test_a_study_that_raises_on_a_variant_leaves_the_others_and_says_so_on_its_l
     monkeypatch.setattr(pinmap, "plan_summary", summary)
     maps = _pin_maps(board, [], frozenset({"r1"}), RESULT, {0: (b, b.resolve())})
     assert [m["seed"] for m in maps] == [0, 2, 5] and maps[0]["groups"] and "error" not in maps[0]
-    assert maps[1] == {"seed": 2, "score": 11.0, "groups": [], "error": {"type": "RuntimeError", "message": "boom"}}
+    assert maps[1] == {"seed": 2, "score": 11.0, "groups": [], "error": {"type": "RuntimeError", "message": "boom"},
+                       "seconds": maps[1]["seconds"]}
     lines = pin_map_lines({"pin_maps": maps})
     assert "  pin map, seed 2 at 11.0 mm: the study failed with RuntimeError: boom" in lines
-    assert len(lines) == 3
+    assert len(lines) == 4 and lines[-1].startswith("  pin map study: 3 variants in ")
 
 
 def _searched_board():
@@ -162,3 +163,19 @@ def test_a_panic_in_the_native_core_on_a_variant_is_said_on_its_line(monkeypatch
     monkeypatch.setattr(pinmap, "plan_summary", summary)
     maps = _pin_maps(board, [], frozenset({"r1"}), RESULT, {0: (b, b.resolve())})
     assert maps[1]["error"] == {"type": "PanicException", "message": "index out of bounds"}
+
+
+def test_the_time_the_study_takes_after_the_explore_is_kept_with_each_variant_and_said(monkeypatch):
+    import time
+    b = board()
+    real = pinmap.plan_summary
+
+    def slow(board_, plan, refs=None, settings=None):
+        time.sleep(0.05)
+        return real(board_, plan, refs, settings)
+    monkeypatch.setattr(pinmap, "plan_summary", slow)
+    maps = _pin_maps(board, [], frozenset({"r1"}), RESULT, {0: (b, b.resolve())})
+    assert all(isinstance(m["seconds"], float) and m["seconds"] >= 0.05 for m in maps)
+    assert maps[1]["seconds"] > maps[0]["seconds"]                  # seed 2 is resolved again, seed 0 is not
+    lines = pin_map_lines({"pin_maps": maps})
+    assert lines[-1] == "  pin map study: 3 variants in %.2f s, after the explore's time" % sum(m["seconds"] for m in maps)

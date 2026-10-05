@@ -675,7 +675,9 @@ def _pin_maps(make_board, entries, focus, result, have: dict) -> list:
     each variant's weighted crossings after remapping and its map, reported beside its score and never folded into it.
     `have` holds plans already resolved, {seed: (board, plan)}; another variant is resolved again (a seed is
     deterministic). Nothing is resolved for a board whose parts carry no `Pm.PinPool`. A study that raises on a variant
-    leaves the explore's result standing: that variant's entry has no groups and carries the error."""
+    leaves the explore's result standing: that variant's entry has no groups and carries the error. Each entry's
+    `seconds` is what its resolve and its study took, after the explore's own time."""
+    import time
     from .pinmap_rules import has_pools
     first = have[0][0]
     top = first.settings.pins_explore_top
@@ -686,6 +688,7 @@ def _pin_maps(make_board, entries, focus, result, have: dict) -> list:
     with _context_of(make_board):
         for seed, total, _ in result.results[:top]:
             entry = {"seed": seed, "score": round(total, 1), "groups": []}
+            t0 = time.perf_counter()
             try:
                 if seed in have:
                     board, plan = have[seed]
@@ -697,6 +700,7 @@ def _pin_maps(make_board, entries, focus, result, have: dict) -> list:
                 if not pinmap.contained(e):
                     raise
                 entry["error"] = {"type": type(e).__name__, "message": str(e)}
+            entry["seconds"] = round(time.perf_counter() - t0, 3)
             out.append(entry)
     return out
 
@@ -912,10 +916,12 @@ def _report_lines(report) -> list:
 
 def pin_map_lines(report) -> list:
     """A line per studied group of each variant the pin map study ran on: its weighted crossings now and after
-    remapping, and the pose that takes; a variant whose study failed says so."""
+    remapping, and the pose that takes; a variant whose study failed says so. Then the time the study took after the
+    explore's own."""
     from .finding_text import pose_text
     out = []
-    for v in report.get("pin_maps") or ():
+    maps = report.get("pin_maps") or ()
+    for v in maps:
         if v.get("error"):
             out.append("  pin map, seed %d at %.1f mm: the study failed with %s: %s" % (
                 v["seed"], v["score"], v["error"]["type"], v["error"]["message"]))
@@ -924,6 +930,9 @@ def pin_map_lines(report) -> list:
             out.append("  pin map, seed %d at %.1f mm: %s %g -> %g weighted crossings after remapping%s" % (
                 v["seed"], v["score"], " and ".join(g["refs"]), g["present"]["weighted"], g["best"]["weighted"],
                 ", at " + pose_text(turned) if turned else ""))
+    if maps:
+        out.append("  pin map study: %d variant%s in %.2f s, after the explore's time" % (
+            len(maps), "" if len(maps) == 1 else "s", sum(v.get("seconds", 0.0) for v in maps)))
     return out
 
 

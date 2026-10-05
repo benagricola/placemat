@@ -4136,7 +4136,7 @@ comparison.
 **What a run says.** `explore  N variants in S s over K focused items:
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
-With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part). The report's `pin_maps` (per variant `seed`, `score`, `groups`, or `error` when its study raised) sits beside the score and does not change the ranking.
+With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking.
 Without `--accept` nothing persists.
 
 **Stopping.** `run`, `preview` and `route` stop on SIGTERM, SIGHUP or Ctrl-C
