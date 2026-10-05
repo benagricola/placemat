@@ -226,10 +226,13 @@ one of its points). The rule is `EDGE_CLEARANCE_CONSTRAINT`, KiCad's
 (`drc_test_provider_edge_clearance.cpp`, `testAgainstEdge`, which collides
 the copper's shape with each Edge.Cuts shape at the clearance less
 `m_epsilon`). A loop's chords stand up to `geometry.arc_sag` inside its
-arcs, so where the loop has arcs the need is the clearance plus
-`geometry.arc_sag`, as `_cutout_silk` holds silk. The gap is compared with
-`occ.clear_limit(need, check=True)`, which takes KiCad's DRC epsilon off as
-the other copper findings do.
+arcs, so where the copper's nearest point is on an arc leg whose curve
+bulges toward the copper (a hole's arc, a concave arc of the outline) the
+need is the clearance plus `geometry.arc_sag`. A straight leg, a vertex
+next to one, and the chord of a convex arc of the outline (which already
+stands nearer the copper than its curve) are judged at the clearance. The
+gap is compared with `occ.clear_limit(need, check=True)`, which takes
+KiCad's DRC epsilon off as the other copper findings do.
 
 **Drilled holes.** A part's plated holes (`hole_shape`, kind `hole`) and
 its unplated holes (kind `npth`) are already in the occupancy, and

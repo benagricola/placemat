@@ -289,3 +289,12 @@ def test_edit_list_adds_an_element_at_a_position():
                                               {"enum": "Edge.WEST"}]})
     assert out.endswith('board.track("A", [PadRef(Part("u1"), 1), Past([board.cutout("vent")], Edge.WEST), '
                         'PadRef(Part("u2"), 2)], layer=1)\n')
+
+
+@pytest.mark.parametrize("at", [-1, 3])
+def test_edit_list_refuses_a_position_outside_the_list(at):
+    text = HEAD_PAST + 'board.track("A", [PadRef(Part("u1"), 1), PadRef(Part("u2"), 2)], layer=1)\n'
+    with pytest.raises(se.EditRefused, match="no place %d" % at):
+        run("edit_list", text, "board.track", kind="track", key="A", args={"arg": "points", "action": "add", "at": at},
+            value={"form": "Past", "args": [{"list": [{"form": "board.cutout", "args": [{"str": "vent"}]}]},
+                                            {"enum": "Edge.WEST"}]})

@@ -777,7 +777,6 @@ def _copper_edge(f):
         who, f["gap_mm"], where, f["at"][0], f["at"][1], f["need_mm"], tail)
 
 
-
 @renders(C.SETUP_PCBNEW, "net", "variant")
 def _setup_pcbnew(f):
     return "pour %s: reach%s needs KiCad's pcbnew at plan time, for its polygon booleans; the pour is not drawn" % (
