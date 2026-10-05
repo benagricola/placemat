@@ -2908,7 +2908,7 @@ function renderCompare() {
   const hist = S.history.slice().sort((a, b) => a.id - b.id);
   const opt = (sel, none) => (none ? '<option value="">none</option>' : "") + hist.map(h => '<option value="' + h.id + '"' + (h.id === sel ? " selected" : "") + ">#" + h.id + " " + new Date(h.at * 1000).toLocaleTimeString() + (h.changed.length ? " (" + h.changed.length + " file" + (h.changed.length > 1 ? "s" : "") + " changed)" : "") + (h.applied ? " - " + h.applied : "") + "</option>").join("");
   const head = '<div class="cmpbar"><span class="dim">compare</span><select id="cmpA">' + opt(S.baseId, true) + '</select><span class="dim">with</span><select id="cmpB">' + opt(S.shownId, false) + "</select></div>";
-  let out = runsHTML() + (S.try ? '<div class="cmpbar"><span class="dim">the resolve this was made on (#' + S.try.base + ') and the try, not written</span></div>' : head);
+  let out = runsHTML() + (S.try ? '<div class="cmpbar"><span class="dim">' + (typeof S.try.base === "number" ? "the resolve this was made on (#" + S.try.base + ")" : "the " + esc(S.try.base) + " this was made on") + ' and the try, not written</span></div>' : head);
   const la = lastApplied();
   if (la && S.canApply) out += '<div class="cmpbar"><span class="dim">applied from a suggestion:</span><span>' + esc(la.text) + '</span><button data-sg="undo">Undo</button></div>';
   if (S.redo && S.canApply) out += '<div class="cmpbar"><span class="dim">undone:</span><span>' + esc(S.redo) + '</span><button data-sg="redo">Redo</button></div>';
@@ -3362,10 +3362,10 @@ function probeEvent(id, ev) {
   schedule("findings", "card", "steps");
 }
 async function sgSearch(sid, yes) {
-  const g = S.sg, rid = S.shownId;
+  const g = S.sg;
   g.confirm = null; g.note = null; g.starting = sid;
   schedule("findings", "card", "steps");
-  const r = await sgPost("/suggest/probe", {resolve: rid, id: sid, yes: !!yes});
+  const r = await sgPost("/suggest/probe", Object.assign(sgWhere(), {id: sid, yes: !!yes}));
   g.starting = null;
   if (!r.ok) { sgNote("err", r.data.error); schedule("findings", "card", "steps"); return; }
   if (r.data.state === "confirm") g.confirm = {sid, line: r.data.line};
@@ -3376,6 +3376,16 @@ async function sgPost(path, body) {
   let data; try { data = await r.json(); } catch (e) { data = {error: "the studio answered " + r.status}; }
   return {ok: r.ok, status: r.status, data};
 }
+// What the suggestions shown belong to: the studio's own resolve, or the past run, explore, route or command looked at in its place,
+// which the server opens again to find the suggestion in its plan ({view: {kind, ref}}, as the page opened it).
+function sgWhere() {
+  const V = S.cmdView;
+  if (!V) return {resolve: S.shownId};
+  if (typeof V.id === "number") return {view: {kind: "cmd", ref: String(V.id)}};
+  const id = String(V.id), k = id.split(":")[0], ref = id.slice(k.length + 1), run = (V.summary && V.summary.run) || "";
+  if (k === "route") return {view: run ? {kind: "build", ref: run} : {kind: "route", ref}};
+  return {view: {kind: k, ref}};
+}
 const sgFind = sid => { for (const f of (plan() || {}).findings || []) for (const s of f.suggestions || []) if (s.id === sid) return s; return null; };
 function sgNote(kind, text, extra) { S.sg.note = Object.assign({kind, text}, extra); schedule("sgbar"); }
 async function sgAct(kind, sid) {
@@ -3384,23 +3394,23 @@ async function sgAct(kind, sid) {
     drawPinMap(); schedule("findings", "card", "steps");
     return;
   }
-  const s = sgFind(sid), rid = S.shownId, g = S.sg;
+  const s = sgFind(sid), where = sgWhere(), g = S.sg;
   if (g.busy) return;
   g.note = null;
   if (kind === "show") {
-    const r = await sgPost("/suggest/show", {resolve: rid, id: sid});
+    const r = await sgPost("/suggest/show", Object.assign(where, {id: sid}));
     if (!r.ok) return sgNote("err", r.data.error);
     sgShowDiff(r.data);
   } else if (kind === "try") {
     g.busy = {text: s ? s.text : sid}; renderSgBar(); schedule("findings", "card", "steps", "compare");
-    const r = await sgPost("/suggest/try", {resolve: rid, id: sid});
+    const r = await sgPost("/suggest/try", Object.assign(where, {id: sid}));
     g.busy = null;
     if (!r.ok) sgNote("err", r.data.error);
     else if (r.data.state !== "done") sgNote("err", r.data.message);
     else showTry(r.data);
     schedule("findings", "card", "steps", "sgbar");
   } else if (kind === "apply") {
-    const r = await sgPost("/suggest/apply", {resolve: S.try ? S.try.base : rid, id: sid || (S.try && S.try.suggestion.id)});
+    const r = await sgPost("/suggest/apply", Object.assign(S.try ? (S.try.view ? {view: S.try.view} : {resolve: S.try.base}) : where, {id: sid || (S.try && S.try.suggestion.id)}));
     if (!r.ok) return sgNote("err", r.data.error);
     g.show = null; g.src = false; S.scriptOpen = false;
     if (S.try) leaveTry();
@@ -3433,7 +3443,9 @@ function sgShowDiff(d) {
 // The try's plan shown in place of the resolve it was made on, compared with it, marked "try, not written".
 function showTry(res) {
   S.docs.set(res.id, {id: res.id, doc: res.doc, texts: res.texts, changed: [], timing: res.timing, reused: "", stale: null});
-  S.try = {id: res.id, base: res.base, suggestion: res.suggestion, cleared: res.cleared, gained: res.gained, lost: res.lost, moved: res.moved, score: res.score, applied: res.applied};
+  S.try = {id: res.id, base: res.base, suggestion: res.suggestion, cleared: res.cleared, gained: res.gained, lost: res.lost, moved: res.moved, score: res.score, applied: res.applied,
+           view: res.view || null, from: res.view && S.cmdView ? {cmdView: S.cmdView, xv: S.xv} : null};    // a past view's try is shown in its place, and Back returns to it
+  if (S.try.from) { S.cmdView = null; S.xv = null; renderCmdBar(); }
   S.follow = false; stopPlay();
   S.shownId = res.id; S.live = null; S.liveQ = []; S.texts = res.texts; S.changed = []; S.stale = false; S.error = null; S.status = "try";
   S.replay = null; S.sel = null; S.marked = new Set();
@@ -3442,9 +3454,10 @@ function showTry(res) {
   schedule("all");
 }
 function leaveTry() {
-  const id = S.try && S.try.id; S.try = null; S.follow = true;
+  const id = S.try && S.try.id, from = S.try && S.try.from; S.try = null; S.follow = true;
   if (id != null) S.docs.delete(id);
-  if (S.latestId != null && S.docs.has(S.latestId)) showResolve(S.latestId, null);
+  if (from) { S.cmdView = from.cmdView; S.xv = from.xv; renderCmdBar(); schedule("all"); }
+  else if (S.latestId != null && S.docs.has(S.latestId)) showResolve(S.latestId, null);
   else schedule("all");
 }
 const lastApplied = () => { for (let i = S.applied.length - 1; i >= 0; i--) if (!S.applied[i].undone) return S.applied[i]; return null; };

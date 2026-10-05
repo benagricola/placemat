@@ -55,6 +55,13 @@ section for each hand-written pattern a newer form replaces.
 - **Solid works on the studio's spread 3D layers.** With the layers spread, Solid and See-through drew the same faint
   layer sheets; Solid now fills each layer's sheet opaque, as it draws the closed board.
 
+- **A suggestion of a past run or explore can be shown, tried and applied in the studio.** Show, Try and Apply on a
+  finding of a run, explore, route or command opened from the Runs list (or shown by Latest) answered "no such
+  resolve (the last 10 are kept)": they looked the suggestion up among the studio's own resolves. The page now names
+  the view it shows, and the studio finds the suggestion in that view's plan, as `placemat apply` finds one in the plan
+  its run kept. A try is compared with that plan. When the script has changed since, the request is refused with
+  "this run's script has changed since; re-run to act on its suggestions". Scripts need no change.
+
 ## To 0.99.18
 
 ### New

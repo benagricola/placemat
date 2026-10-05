@@ -193,3 +193,72 @@ def test_redo_makes_the_undone_apply_again_and_refuses_when_there_is_nothing_or_
     studio.script.write_text(studio.script.read_text() + "\n# someone else\n")
     code, out = _post(studio, "/suggest/redo")
     assert code == 409 and "changed" in out["error"] and "# someone else" in studio.script.read_text() and "C_HF1_LINK_LIMIT_MM" not in studio.script.read_text()
+
+
+# ------------------------------------------------------------------ a suggestion of a past run or explore
+# A past run or an explore opened from the Runs list is not a resolve of this studio: the page names the view it shows
+# ({kind, ref}), and the studio finds the suggestion in that view's own plan.
+def _past_run(s, rid, doc):
+    """A recorded run of the watched script that kept `doc` as its plan (what a routed run writes as plan.json)."""
+    d = s.src.board_dir / ".placemat" / "runs" / rid
+    d.mkdir(parents=True)
+    rec = {"run_id": rid, "board": s.src.name, "status": "ok", "placements": {}, "cutouts": {}, "metrics": {}, "findings": [], "finding_details": [],
+           "steps": [], "timing_s": {}, "paths": {"script": str(s.script), "label": ""}, "failure": None, "verdicts": [], "acceptances": []}
+    (d / "run.json").write_text(json.dumps(rec))
+    (d / "plan.json").write_text(json.dumps(doc))
+    return d
+
+
+def _past_explore(s, name, doc):
+    """A finished explore whose best variant's plan was kept beside its record (explore_view.BEST_DIR)."""
+    views = s.src.board_dir / ".placemat" / "views" / "explore"
+    (views / "best").mkdir(parents=True)
+    record = views / name
+    record.write_text(json.dumps({"script": str(s.script), "focus": [], "plain": {}, "variants": [], "best_seed": 0, "best": 1.0,
+                                  "baseline": 1.0, "kept": False, "at": time.time()}))
+    (views / "best" / name).write_text(json.dumps(doc))
+    return record
+
+
+@needs_kicad
+def test_show_and_try_act_on_a_suggestion_of_a_past_run_that_is_not_a_resolve_of_this_studio(studio):
+    rec, f, s = _first(studio)
+    _past_run(studio, "eeee0001", rec.doc)
+    studio.history.clear()                                         # the run is not one of this studio's resolves
+    text = studio.script.read_text()
+    view = {"kind": "run", "ref": "eeee0001"}
+    code, out = _post(studio, "/suggest/show", {"resolve": None, "view": view, "id": s["id"]})
+    assert code == 200, out
+    assert out["dry_run"] and "C_HF1_LINK_LIMIT_MM" in out["diff"] and out["files"][0]["file"] == studio.script.name
+    code, out = _post(studio, "/suggest/try", {"resolve": None, "view": view, "id": s["id"]})
+    assert code == 200 and out["state"] == "done", out
+    assert out["view"] == view and out["base"] == "run eeee0001" and out["cleared"] is True
+    assert out["compare"]["files"][studio.script.name]["added"] >= 1
+    assert studio.script.read_text() == text
+    code, out = _post(studio, "/suggest/apply", {"view": view, "id": s["id"]})
+    assert code == 200 and out["undo"] and "C_HF1_LINK_LIMIT_MM" in studio.script.read_text()
+
+
+@needs_kicad
+def test_show_and_try_act_on_a_suggestion_of_an_explores_best_variant(studio):
+    rec, f, s = _first(studio)
+    record = _past_explore(studio, "eeee0002.json", rec.doc)
+    studio.history.clear()
+    view = {"kind": "explore", "ref": str(record)}
+    code, out = _post(studio, "/suggest/show", {"view": view, "id": s["id"]})
+    assert code == 200 and "C_HF1_LINK_LIMIT_MM" in out["diff"], out
+    code, out = _post(studio, "/suggest/try", {"view": view, "id": s["id"]})
+    assert code == 200 and out["state"] == "done" and out["cleared"] is True, out
+
+
+@needs_kicad
+def test_a_past_run_whose_script_changed_since_is_refused_saying_so(studio):
+    rec, f, s = _first(studio)
+    _past_run(studio, "eeee0003", rec.doc)
+    studio.script.write_text(studio.script.read_text() + "\n# edited since the run\n")
+    view = {"kind": "run", "ref": "eeee0003"}
+    for path in ("/suggest/show", "/suggest/try", "/suggest/apply"):
+        code, out = _post(studio, path, {"view": view, "id": s["id"]})
+        assert code == 409 and out["error"].startswith("this run's script has changed since") and "re-run to act on its suggestions" in out["error"], (path, out)
+    code, out = _post(studio, "/suggest/show", {"view": {"kind": "run", "ref": "nope"}, "id": s["id"]})
+    assert code == 404 and "no such resolve" not in out["error"]
