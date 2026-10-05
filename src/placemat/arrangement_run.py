@@ -114,7 +114,7 @@ def extent_findings(board, extent: list, threshold_mm: float) -> list:
     that declares none, or with `place.arrangements` off, those standing past the next member by more than `threshold_mm`
     (`place.extent_notice_mm`)."""
     declares = bool(board._options or board._arr_groups) and board.settings.place_arrangements
-    moved = set(board._options) | {o.item for g in board._arr_groups for o in g.options}
+    moved = set(board._options) | {k for g in board._arr_groups for k in g.moves()}
     out = []
     for row in extent:
         if row["item"] in moved or (not declares and row["protrudes_mm"] <= threshold_mm):

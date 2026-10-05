@@ -126,7 +126,7 @@ def test_a_duplicate_option_name_and_a_row_members_alternative_are_refused():
     b.row([Part("r_free")], Edge.NORTH)
     with pytest.raises(ValueError) as e:
         b.alternative(Part("r_free"), "x", rotation=90)
-    assert "group" in str(e.value)
+    assert "board.unit" in str(e.value)
 
 
 def test_an_alternative_is_not_a_second_place_and_leaves_the_declarations_alone():
@@ -225,7 +225,9 @@ board.place(Part("c_in"), at=Beside(Part("u1"), Edge.WEST))
 
 
 @pytest.mark.parametrize("declaration", ['board.alternative(Part("c_in"), "east", at=Beside(Part("u1"), Edge.EAST))',
-                                         'board.arrangement("east", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))'])
+                                         'board.arrangement("east", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))',
+                                         'pair = board.unit("pair", Part("c_in")); '
+                                         'board.alternative(pair, "east", Alt(Part("c_in"), at=Beside(Part("u1"), Edge.EAST)))'])
 def test_a_board_script_that_declares_alternatives_fails_saying_they_are_a_modules(tmp_path, declaration):
     from placemat.project import FabProfile
     from placemat.runner import RunFailure, scripted_board
