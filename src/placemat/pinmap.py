@@ -23,7 +23,7 @@ from .pinmap_input import Placed, PlacedCell, PlacedPad, PlacedPart, build, cell
 from .pinmap_rules import Problem, has_pools, natural
 from .values import Box
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 _NOT_READ = ("pins_explore_top", "pins_probe_budget_ms")      # `[pins]` settings the explore and the probe read, not the study
 
 
@@ -179,8 +179,9 @@ def group_facts(inp, g, copper, settings) -> dict | None:
         moved = _map(inp, refs, g.present_assign, r.assign)
         rows.append(dict(r.breakdown.to_json(), turns=_turns(inp, r.poses), map=moved,
                          routed=sorted({m["net"] for m in moved} & copper), paths=_paths(r.paths),
-                         breaks=_still(base["present_breaks"], r.assign)))
-    out = dict(base, rotations=rows, best=best, routed=rows[best]["routed"], before=_paths(g.present_paths))
+                         breaks=_still(base["present_breaks"], r.assign), groups=[x.to_json() for x in r.groups]))
+    out = dict(base, rotations=rows, best=best, routed=rows[best]["routed"], before=_paths(g.present_paths),
+               present_groups=[x.to_json() for x in g.present_groups])
     celled = _celled(inp, refs)
     if celled is not None:
         t = next(t for t in rows[best]["turns"] if t["ref"] == celled)
@@ -344,7 +345,7 @@ def placed_from_plan(board, plan) -> Placed:
                                       occ.pad_anchor(ref, s.label), s.label in nc))
         g = occ.items[ref].reference
         parts[ref] = PlacedPart(ref, occ.courtyard_box(ref), g.rotation, g.face.value, ref in either, dict(fp.fields),
-                                fp.cell or "")
+                                fp.cell or "", occ.courtyard_outline(ref))
     modules = cell_modules(occ.geometry)
     stamps = stamp_counts(modules)
     cells = {}
@@ -359,7 +360,10 @@ def placed_from_plan(board, plan) -> Placed:
         module, key = modules[name]
         cells[name] = PlacedCell(name, members, Box.union([parts[r].courtyard for r in members] + own), float(rotation),
                                  face, face != "front", module, stamps[key], key, arrangement,
-                                 tuple(sorted(fp.ref for fp in cg.members if fp.ref not in parts)))
+                                 tuple(sorted(fp.ref for fp in cg.members if fp.ref not in parts)),
+                                 tuple(p for r in members for p in parts[r].outline)
+                                 + tuple(p for b in own for p in ((b.left, b.top), (b.right, b.top), (b.right, b.bottom),
+                                                                  (b.left, b.bottom))))
     return Placed(pads, parts, cells, tuple(unplaced))
 
 

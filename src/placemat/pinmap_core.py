@@ -22,8 +22,12 @@ class Problem:
     them and its `ends` (part, pin) as they stand, one per end slot; `wires` the other airwires (kind code, ax, ay, bx,
     by) in nm, but for `posed`: per background net with a pad on a studied part, (kind code, its pads (x, y, ref,
     number, part or -1, pin or -1), joined pairs), whose airwires the core works out again at each pose; `movable` (net,
-    slot, allowed pins, group or -1); `groups` (part, member movables or -1, windows of pins); `margin` the exit
-    distance."""
+    slot, allowed pins, group or -1); `groups` the hard groups (part, member movables or -1, windows of pins); `soft`
+    the soft groups (part, pin pitch, members (slot in the group, movable or -1, pin or -1), windows of pins, one per
+    slot): a movable's pin is where the assignment puts it, a held net's is `pin`, and the first map starts the group
+    whole on a window when one fits; `margin` the exit distance; `frames` each part's frame (degrees its pins' frame
+    is turned from the board's: a part standing off the axes keeps its own); `controlled` per net, whether its length
+    counts `pins.impedance_weight` times over."""
     parts: list
     pins: list
     nets: list
@@ -35,32 +39,63 @@ class Problem:
     groups: list
     margin: float
     posed: list = field(default_factory=list)
+    soft: list = field(default_factory=list)
+    frames: list = field(default_factory=list)          # per part, its frame's turn from the board's; [] for none
+    controlled: list = field(default_factory=list)      # per net, whether it is a controlled impedance's; [] for none
 
 
 @dataclass(frozen=True)
 class Breakdown:
     """A score and its parts: crossings against the other airwires and among the studied nets (counts), their weighted
-    sum, the airwire length in mm and the summed bend in degrees."""
+    sum, the airwire length in mm and the summed bend in degrees; the length in mm of the nets in a controlled
+    impedance's class, which counts `pins.impedance_weight` times over; the soft groups' spread in mm and its term
+    (`cohesion`)."""
     total: float
     against: int
     among: int
     weighted: float
     length_mm: float
     bend_deg: float
+    impedance_length_mm: float = 0.0
+    spread_mm: float = 0.0
+    cohesion: float = 0.0
 
     def to_json(self) -> dict:
         return {"total": round(self.total, 3), "against": self.against, "among": self.among,
-                "weighted": round(self.weighted, 3), "length_mm": round(self.length_mm, 3), "bend_deg": round(self.bend_deg, 1)}
+                "weighted": round(self.weighted, 3), "length_mm": round(self.length_mm, 3), "bend_deg": round(self.bend_deg, 1),
+                "impedance_length_mm": round(self.impedance_length_mm, 3), "spread_mm": round(self.spread_mm, 3),
+                "cohesion": round(self.cohesion, 3)}
+
+
+@dataclass(frozen=True)
+class Landing:
+    """Where a `Pm.PinGroup` group's nets stand under an assignment: its part, whether it is hard, its spread (mm its
+    neighbouring nets stand apart beyond the pin pitch, in the group's written order) and what that costs in the total
+    (`pins.group_weight` times the spread for a soft group, 0 for a hard one), and its nets with their pins, in pin
+    number order."""
+    name: str
+    ref: str
+    hard: bool
+    spread_mm: float
+    cost: float
+    nets: tuple
+    pins: tuple
+
+    def to_json(self) -> dict:
+        return {"name": self.name, "ref": self.ref, "hard": self.hard, "spread_mm": round(self.spread_mm, 3),
+                "cost": round(self.cost, 3), "nets": list(self.nets), "pins": list(self.pins)}
 
 
 @dataclass(frozen=True)
 class PoseResult:
     """The best found at one pose of each part of a group: `poses` ((ref, turn, flip), ...), its score, `assign`
-    {net: ends ((ref, pad number), ...)} for every studied net, and `paths` {net: [path, ...]} of the group's nets."""
+    {net: ends ((ref, pad number), ...)} for every studied net, `paths` {net: [path, ...]} of the group's nets, and
+    where its parts' `Pm.PinGroup` groups land (Landing)."""
     poses: tuple
     breakdown: Breakdown
     assign: dict
     paths: dict
+    groups: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -75,6 +110,7 @@ class GroupResult:
     budget_out: bool
     first_map: bool
     problems: tuple = ()        # (ref, net) a matching could not place
+    present_groups: tuple = ()  # Landing of each group as it stands
 
 
 def problem_of(inp, margin: float) -> Problem:
@@ -117,7 +153,16 @@ def problem_of(inp, margin: float) -> Problem:
             if here and here not in wins and legal:
                 wins.insert(0, here)
             groups.append((pi, [mv_at[(pi, n)] if n else -1 for n in gnets], wins))
-    return Problem(parts, pins, nets, fixed, joined, ends, wires, movable, groups, margin, posed)
+    soft = []
+    for pi, p in enumerate(inp.parts):
+        held = {h.net: h.pin for h in p.slots.held}
+        for name, gnets in p.slots.soft:
+            members = [(k, mv_at[(pi, n)], -1) if (pi, n) in mv_at else (k, -1, pin_at[pi][held[n]])
+                       for k, n in enumerate(gnets) if n]
+            if len(members) >= 2:
+                soft.append((pi, p.pitch, members, [[pin_at[pi][q] for q in w] for w in p.slots.windows.get(name, ())]))
+    return Problem(parts, pins, nets, fixed, joined, ends, wires, movable, groups, margin, posed, soft,
+                   [p.frame for p in inp.parts], [n.controlled for n in inp.nets])
 
 
 def poses_of(part, settings) -> list:
@@ -142,7 +187,7 @@ def seed_key(refs) -> int:
 
 def params_of(settings, refs, step_ms: float = 0.0, budget_ms: float | None = None) -> dict:
     return {"weights": (settings.pins_pair_weight, settings.pins_impedance_weight, settings.score_crossing_plane,
-                        settings.pins_length_weight, settings.pins_bend_weight),
+                        settings.pins_length_weight, settings.pins_bend_weight, settings.pins_group_weight),
             "seeds": int(settings.pins_seeds), "moves": int(settings.pins_anneal_moves),
             "t0": float(settings.pins_anneal_start), "t1": float(settings.pins_anneal_end),
             "budget_ms": float(settings.pins_budget_ms * len(refs) if budget_ms is None else budget_ms),
@@ -167,13 +212,40 @@ def search(pb: Problem, group_parts: list, combos: list, params: dict, native=Tr
         pb.parts, pb.pins, pb.nets, pb.fixed, pb.joined, pb.ends, pb.wires,
         [(k, [tuple(a) for a in pads], [tuple(j) for j in joined]) for k, pads, joined in pb.posed],
         [(n, s, list(a), g) for n, s, a, g in pb.movable], [(p, list(m), [list(x) for x in ws]) for p, m, ws in pb.groups],
+        [(p, float(pitch), [tuple(m) for m in ms], [list(x) for x in ws]) for p, pitch, ms, ws in pb.soft],
+        [float(f) for f in pb.frames] or [0.0] * len(pb.parts), [bool(c) for c in pb.controlled] or [False] * len(pb.nets),
         list(group_parts), [[(p, float(t), bool(f)) for p, t, f in c] for c in combos],
         tuple(w), (pb.margin, params["seeds"], params["moves"], params["t0"], params["t1"], params["budget_ms"],
                    params["step_ms"], params["seed_key"]))
 
 
 def _breakdown(t) -> Breakdown:
-    return Breakdown(t[0], int(t[1]), int(t[2]), t[3], t[4], t[5])
+    return Breakdown(t[0], int(t[1]), int(t[2]), t[3], t[4], t[5], t[6], t[7], t[8])
+
+
+def landings(inp, refs, assign: dict, weight: float) -> tuple:
+    """Where each `Pm.PinGroup` group of the parts `refs` lands under `assign` {net: ((ref, pad number), ...)}, in the
+    order the groups are written (Landing). A hard group's nets are those that move with it; a soft group's are every
+    net on its pins as captured, held ones too."""
+    from .pinmap_twin import spread
+    out = []
+    for r in refs:
+        part = inp.part(r)
+        hard = dict(part.slots.groups)
+        soft = dict(part.slots.soft)
+        for name in part.slots.places:
+            nets = hard[name] if name in hard else soft[name]
+            members = []
+            for k, net in enumerate(nets):
+                at = next((n for rr, n in assign.get(net, ()) if rr == r), None) if net else None
+                if at is not None:
+                    members.append((k, net, at))
+            pts = [(k, part.pin(at).x, part.pin(at).y) for k, _, at in members]
+            mm = spread(part.pitch, pts)
+            order = sorted(members, key=lambda m: natural(m[2]))
+            out.append(Landing(name, r, name in hard, mm, 0.0 if name in hard else weight * mm,
+                               tuple(n for _, n, _ in order), tuple(at for _, _, at in order)))
+    return tuple(out)
 
 
 def study_group(inp, refs: tuple, settings, step_ms: float = 0.0, budget_ms: float | None = None, native=True,
@@ -204,10 +276,16 @@ def study_group(inp, refs: tuple, settings, step_ms: float = 0.0, budget_ms: flo
     def paths_of(ps) -> dict:
         return {pb.nets[n][0]: [[tuple(p) for p in path] for path in paths] for n, paths in ps}
     present = [[q for _, q in pb.ends[n]] for n in range(len(pb.nets))]
-    rows = tuple(PoseResult(tuple((pb.parts[p][0], t, f) for p, t, f in combos[k]), _breakdown(b), assign_of(pins),
-                            paths_of(ps)) for k, b, pins, ps in results)
-    return GroupResult(tuple(refs), _breakdown(base), assign_of(present), paths_of(base_paths), rows, len(rows), total,
-                       bool(out), bool(first), tuple((pb.parts[p][0], pb.nets[n][0]) for p, n in problems))
+    w = settings.pins_group_weight
+    rows = []
+    for k, b, pins, ps in results:
+        a = assign_of(pins)
+        rows.append(PoseResult(tuple((pb.parts[p][0], t, f) for p, t, f in combos[k]), _breakdown(b), a, paths_of(ps),
+                               landings(inp, refs, a, w)))
+    here = assign_of(present)
+    return GroupResult(tuple(refs), _breakdown(base), here, paths_of(base_paths), tuple(rows), len(rows), total,
+                       bool(out), bool(first), tuple((pb.parts[p][0], pb.nets[n][0]) for p, n in problems),
+                       landings(inp, refs, here, w))
 
 
 def linked_groups(inp) -> list:

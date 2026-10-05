@@ -27,7 +27,9 @@ class Problem:
     is the annotation as capture.md spells it, `entry` the text that was left out, `name` the pin or net it names and
     `code` what is wrong: no_pin (the part has no such pin), no_names (a pin named by name, and no pin names were read
     for the part), no_net (no pin of the part carries the net), unreadable (the entry is not `name:pins`), not_in_pool
-    (a group's pin outside the pool, or on a fixed pin), two_groups (a pin already in an earlier group), no_legal_pin (a
+    (a group's pin outside the pool, or on a fixed pin), two_groups (a pin already in an earlier group), bad_marker (a
+    group's name ends in more than one `!`; `name` is the marker), same_name (a group named as an earlier one: `entry`
+    is both entries, `name` the name, and the later is left out), no_legal_pin (a
     net that no pin may take: the part is not studied), no_legal_map (no matching places every net: the part is not
     studied), present_breaks (a net that stands on a pin its own `Pm.PinAllow` or `Pm.PinDeny` bars: the study adds
     `pin` and `rule` to the facts), study_failed (the study raised: no part, and `type` and `message` in the facts).
@@ -48,14 +50,16 @@ class Problem:
 
 @dataclass(frozen=True)
 class PinRules:
-    """One part's constraints, in pad numbers. `pool` keeps the order the annotation lists the pins in: a group moves to a
-    run of consecutive entries of it. `allow` and `deny` are keyed by the net as the board names it."""
+    """One part's constraints, in pad numbers. `pool` keeps the order the annotation lists the pins in: a hard group
+    moves to a run of consecutive entries of it. `allow` and `deny` are keyed by the net as the board names it.
+    `groups` are (name, pins, hard): a hard group (`name!` in the annotation) moves as one block; a soft one's nets
+    move one by one, and the study charges for spreading them."""
     ref: str
     pool: tuple
     fixed: frozenset = frozenset()
     allow: dict = None
     deny: dict = None
-    groups: tuple = ()              # (name, (pad number, ...)) in the order written
+    groups: tuple = ()              # (name, (pad number, ...), hard) in the order written
 
     def __post_init__(self):
         object.__setattr__(self, "allow", dict(self.allow or {}))
@@ -128,6 +132,20 @@ def _entries(text: str) -> list:
     return [e.strip() for e in text.split(";") if e.strip()]
 
 
+HARD = "!"
+
+
+def group_name(text: str) -> tuple:
+    """(name, marker) of a `Pm.PinGroup` entry's name: a single `!` it ends in is the marker of a hard group, "" for a
+    soft one; any other name is read as written. `!!` is returned whole, a marker the study does not know."""
+    name = text.strip()
+    if name.endswith(HARD * 2):
+        return name.rstrip(HARD).strip(), name[len(name.rstrip(HARD)):]
+    if name.endswith(HARD):
+        return name[:-1].strip(), HARD
+    return name, ""
+
+
 def read_rules(ref: str, fields: dict, pads, names: dict) -> tuple:
     """(PinRules or None, [Problem]) for one part: `fields` its footprint's fields, `pads` its (pad number, net) pairs,
     `names` {pad number: pin name}. None when the part has no `Pm.PinPool`: it is not studied."""
@@ -155,11 +173,18 @@ def read_rules(ref: str, fields: dict, pads, names: dict) -> tuple:
             for n in hit:
                 out[n] = out.get(n, frozenset()) | got
         rules[low] = out
-    groups, taken = [], set()
+    groups, taken, named = [], set(), {}
     for entry in _entries(f.get("pm.pingroup", "")):
         name, colon, pins = entry.partition(":")
-        if not colon or not name.strip() or not pins.strip():
+        name, mark = group_name(name)
+        if not colon or not name or not pins.strip():
             problems.append(Problem(ref, "Pm.PinGroup", entry, "unreadable", entry))
+            continue
+        if mark not in ("", HARD):
+            problems.append(Problem(ref, "Pm.PinGroup", entry, "bad_marker", mark))
+            continue
+        if name in named:
+            problems.append(Problem(ref, "Pm.PinGroup", "%s; %s" % (named[name], entry), "same_name", name))
             continue
         got = _pin_list(ref, "Pm.PinGroup", pins, numbers, names, problems)
         outside = [p for p in got if p not in pool or p in fixed]
@@ -169,8 +194,9 @@ def read_rules(ref: str, fields: dict, pads, names: dict) -> tuple:
                                     (outside or twice)[0]))
             continue
         if got:
+            named[name] = entry
             taken |= set(got)
-            groups.append((name.strip(), tuple(got)))
+            groups.append((name, tuple(got), mark == HARD))
     return PinRules(ref, tuple(pool), fixed, rules["pm.pinallow"], rules["pm.pindeny"], tuple(groups)), problems
 
 
@@ -188,8 +214,11 @@ class Held:
 class PartPins:
     """What may move on one studied part. `present` is every studied net's pin now (movable or held); `movable` the nets
     the search may move, each to a pin of `allowed[net]` (pool order); `free` the pool pins no studied net stands on now;
-    `groups` (name, nets in order, "" for a pin with none) move whole, to one of `windows[name]`, each a run of
-    consecutive pool pins; `places[name]` is the group's pins as written, where it stands. `breaks` (net, pin, key) are
+    the hard `groups` (name, nets in order, "" for a pin with none that moves) move whole, to one of `windows[name]`,
+    each a run of consecutive pool pins; the `soft` groups (name, nets in order, "" for a pin with none) are nets that
+    move one by one, the held ones among them, and start the search on one of their `windows[name]` (a run of
+    consecutive pool pins whose pins under its movable nets are open and allowed them) when one fits; `places[name]` is a group's pins as written, where it stands. `breaks`
+    (net, pin, key) are
     the movable nets whose present pin `Pm.PinAllow` or `Pm.PinDeny` (`key`) bars them from: the capture as it stands
     breaks its own rule."""
     ref: str
@@ -202,6 +231,7 @@ class PartPins:
     held: tuple
     places: dict = field(default_factory=dict)
     breaks: tuple = ()
+    soft: tuple = ()
 
 
 def part_pins(rules: PinRules, pads, connected, quiet, waiting=frozenset(), inside=frozenset()) -> tuple:
@@ -264,16 +294,22 @@ def part_pins(rules: PinRules, pads, connected, quiet, waiting=frozenset(), insi
     taken = set(present.values())
     free = tuple(p for p in open_pins if p not in taken)
     by_pin = {pin: net for net, pin in present.items()}
-    groups, windows = [], {}
-    for name, pins in rules.groups:
+    standing = dict(by_pin, **{h.pin: h.net for h in held})
+    groups, windows, soft = [], {}, []
+    for name, pins, hard in rules.groups:
         nets = tuple(by_pin.get(p, "") for p in pins)
         wins = []
         for i in range(len(pool) - len(pins) + 1):
             win = tuple(pool[i:i + len(pins)])
-            if all(p in open_pins for p in win) and all(not n or p in allowed[n] for n, p in zip(nets, win)):
+            if hard and not all(p in open_pins for p in win):
+                continue
+            if all(not n or (p in open_pins and p in allowed[n]) for n, p in zip(nets, win)):
                 wins.append(win)
-        groups.append((name, nets))
         windows[name] = tuple(wins)
+        if hard:
+            groups.append((name, nets))
+        else:
+            soft.append((name, tuple(standing.get(p, "") for p in pins)))
     return PartPins(rules.ref, present, tuple(movable), allowed, free, tuple(groups), windows,
                     tuple(sorted(held, key=lambda h: natural(h.pin))),
-                    {name: tuple(pins) for name, pins in rules.groups}, breaks), []
+                    {name: tuple(pins) for name, pins, _ in rules.groups}, breaks, tuple(soft)), []

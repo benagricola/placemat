@@ -935,12 +935,25 @@ class Occupancy:
     def courtyard_box(self, ref: str) -> Box:
         """The box round a part's courtyard where the part stands NOW: its courtyard box as read, moved and turned as the
         part has moved since (as `pad_anchor` moves a pad's anchor)."""
+        b = self.geometry.footprint(ref).courtyard_box
+        return Box.of_points(self._as_now(ref, ((b.left, b.top), (b.right, b.top), (b.right, b.bottom), (b.left, b.bottom))))
+
+    def courtyard_outline(self, ref: str) -> tuple:
+        """A part's courtyard where it stands NOW, as points: the polygon KiCad tests when the footprint draws one, else
+        its courtyard box's corners, moved and turned as the part has moved since. A part turned off the axes keeps
+        its own shape here, where `courtyard_box` is the box round it."""
+        fp = self.geometry.footprint(ref)
+        b = fp.courtyard_box
+        pts = tuple(fp.courtyard_poly) or ((b.left, b.top), (b.right, b.top), (b.right, b.bottom), (b.left, b.bottom))
+        return tuple(self._as_now(ref, pts))
+
+    def _as_now(self, ref: str, points) -> list:
+        """Points of a part as read, where they stand now that the part has moved."""
         fp = self.geometry.footprint(ref)
         read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
                             frozenset())
         t = self._transform(read, self.items[ref].reference)
-        b = fp.courtyard_box
-        return Box.of_points([t.apply(p) for p in ((b.left, b.top), (b.right, b.top), (b.right, b.bottom), (b.left, b.bottom))])
+        return [t.apply(p) for p in points]
 
     def carry(self, ref: str, shapes) -> None:
         """Copper a part takes with it wherever it is placed: `shapes` in

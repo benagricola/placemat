@@ -7,17 +7,22 @@ It takes a study as plain arrays (pinmap_core.Problem) and, for the parts of one
 poses, returns the best assignment of the movable nets to pins with its tallies:
 
 - score: weighted crossings of the studied nets' airwires against the board's other airwires (a 2 mm grid of them)
-  and among themselves, plus `length` times their length in mm, plus `bend` times their summed bend in degrees. A
-  net's airwires are the minimum spanning tree of its pads (ratsnest.mst), each studied pin at its exit point and
-  each airwire to one taken round the body (pinmap_geom.route). Only the nets with an end on the group's parts count,
-  and the pairs with one of them;
+  and among themselves, plus `length` times their length in mm, plus `bend` times their summed bend in degrees, plus
+  the controlled impedances' extra length, plus `group` times the soft groups' spread. A net's airwires are the minimum spanning tree of its
+  pads (ratsnest.mst), each studied pin at its exit point and each airwire to one taken round the body
+  (pinmap_geom.route). Only the nets with an end on the group's parts count, and the pairs with one of them;
+- a studied net in a controlled impedance's class (`controlled`, a differential pair's half too) counts its length
+  `impedance` times over: `impedance_extra` on top of the plain term;
+- cohesion: per soft group, the sum over its neighbouring members (in its written order) of how far their pins'
+  anchors stand apart beyond the pin pitch times the slots between them; an intact group in order spreads 0;
 - background: the board's other airwires. Those of a net with a pad on a studied part (a plane's, on the part's
   ground pins) are not fixed: `posed` carries such a net's pads, and at each pose its tree is worked out again with
   the part's pads turned with it, after the fixed wires in the order a segment meets its candidates;
 - incremental: a net's airwires, its crossings with the background and its crossings with each other net are kept per
   placing of its ends, so a move recounts only the nets it touches;
-- search: a first map (each group on the cheapest run of pins that leaves the rest a matching, then a minimum-cost
-  matching), then per seed `moves` moves, swaps and group moves under annealing from `t0` down to `t1`, checking the
+- search: a first map (each hard group, then each soft group, on the cheapest run of pins that leaves the rest a
+  matching, then a minimum-cost matching), then per seed `moves` moves, swaps and group moves (a soft group's too)
+  under annealing from `t0` down to `t1`, checking the
   clock every 32 moves and between poses. A group's empty slots are reserved where it stands: no single net takes
   one. At the present pose the present map is a candidate too."""
 from __future__ import annotations
@@ -82,8 +87,11 @@ def total_order(x: float) -> int:
     return k ^ 0x7FFFFFFFFFFFFFFF if k < 0 else k
 
 
+SPREAD_SLACK_MM = 1e-3       # a gap this much past the pitch is the pitch: pad anchors are not placed to the nanometre
+
+
 def crossing(w, a: int, b: int) -> float:
-    """What a crossing of classes `a` and `b` counts: `w` (pair, impedance, plane, length, bend)."""
+    """What a crossing of classes `a` and `b` counts: `w` (pair, impedance, plane, length, bend, group)."""
     if a == PLANE or b == PLANE:
         return w[2]
     x = w[0] if a == PAIR else w[1] if a == IMPEDANCE else 1.0
@@ -185,12 +193,62 @@ def posed_wires(pb, poses: list, w) -> list:
         for x, y, ref, num, part, pin in pads:
             if part >= 0:
                 pose = poses[part]
-                if not (pose.turn == 0.0 and not pose.flip):
+                if not _present(pb, part, pose):
                     row = pb.pins[part][pin]
                     x, y = pose.to_board(row[1], row[2])
             at.append((x, y, ref, num))
         for i, j in _tree(at, joined):
             out.append((kind, _seg(_nm(at[i][0]), _nm(at[i][1]), _nm(at[j][0]), _nm(at[j][1]))))
+    return out
+
+
+def _frame(pb, part: int) -> float:
+    return pb.frames[part] if pb.frames else 0.0
+
+
+def _present(pb, part: int, pose) -> bool:
+    """Whether `pose` is the part's present one: its pads where they stand."""
+    return pose.turn == _frame(pb, part) and not pose.flip
+
+
+def pose_at(pb, part: int, turn: float, flip: bool) -> Pose:
+    """Part `part` turned `turn` degrees from where it stands, flipped first when `flip`: its frame's turn added; a flip
+    mirrors the pads as they stand, so a part whose frame is turned has it taken off (turn - frame), as the twin of
+    a mirror in the board's frame."""
+    f = _frame(pb, part)
+    return Pose(pb.parts[part][1], pb.parts[part][2], f + turn if not flip else turn - f, flip)
+
+
+def impedance_extra(w, mm: float) -> float:
+    """What `mm` of a controlled impedance's airwire adds to the plain `length` a mm: `length` times
+    (`impedance` - 1), so it counts `length` times `impedance` in all."""
+    return w[3] * (w[1] - 1.0) * mm
+
+
+def spread_at(pb, g: int, pin_of, held_only: bool = False) -> float:
+    """Soft group `g`'s spread with each movable member on `pin_of(movable)` and each held one on its pin: `spread`,
+    member by member; with `held_only`, only the gaps beside a held member count."""
+    part, pitch, members, _ = pb.soft[g]
+    out, prev = 0.0, None
+    for slot, mv, pin in members:
+        row = pb.pins[part][pin_of(mv) if mv >= 0 else pin]
+        if prev is not None and (not held_only or mv < 0 or prev[3] < 0):
+            d = math.hypot(row[1] - prev[1], row[2] - prev[2]) - (slot - prev[0]) * pitch
+            if d > SPREAD_SLACK_MM:
+                out += d
+        prev = (slot, row[1], row[2], mv)
+    return out
+
+
+def spread(pitch: float, pts) -> float:
+    """How far a group's members stand apart beyond the pitch, in mm: `pts` (slot in the group, x, y) in slot order;
+    each neighbouring pair may stand the pitch times the slots between them apart, and a gap within SPREAD_SLACK_MM
+    of that counts nothing."""
+    out = 0.0
+    for (sa, xa, ya), (sb, xb, yb) in zip(pts, pts[1:]):
+        d = math.hypot(xb - xa, yb - ya) - (sb - sa) * pitch
+        if d > SPREAD_SLACK_MM:
+            out += d
     return out
 
 
@@ -229,6 +287,13 @@ class Scorer:
         self.extra = posed_wires(pb, poses, w)
         gp = set(group_parts)
         self.mine = [any(p in gp for p, _ in e) for e in pb.ends]
+        self.controlled = list(pb.controlled) or [False] * len(pb.ends)
+        self.soft = [g for g in range(len(pb.soft)) if pb.soft[g][0] in gp]
+        self.soft_of: dict = {}
+        for g in self.soft:
+            for _, mv, _ in pb.soft[g][2]:
+                if mv >= 0:
+                    self.soft_of.setdefault(pb.movable[mv][0], []).append(g)
         self._exits: dict = {}
         self._wires: dict = {}
         self._single: dict = {}
@@ -290,7 +355,10 @@ class Scorer:
         if hit is None:
             _, ln, bd, segs, _ = self.wires(net, pins)
             weighted, count = self.bg.cross(self.pb.nets[net][1], segs, self.extra)
-            hit = (weighted + self.w[3] * ln + self.w[4] * bd, weighted, count)
+            term = weighted + self.w[3] * ln + self.w[4] * bd
+            if self.controlled[net]:
+                term += impedance_extra(self.w, ln)
+            hit = (term, weighted, count)
             self._single[k] = hit
         return hit
 
@@ -310,9 +378,20 @@ class Scorer:
             self._pair[k] = hit
         return hit
 
+    def spread(self, g: int, assign: list, changes: dict | None = None) -> float:
+        """Soft group `g`'s spread with its movables where `assign` puts them, but the nets in `changes` where it
+        puts them."""
+        pb = self.pb
+
+        def pin_of(mv):
+            net, slot = pb.movable[mv][0], pb.movable[mv][1]
+            pins = changes.get(net) if changes else None
+            return (assign[net] if pins is None else pins)[slot]
+        return spread_at(pb, g, pin_of)
+
     def total(self, assign: list) -> tuple:
-        """(total, against, among, weighted, length, bend)."""
-        weighted, against, among, ln, bd = 0.0, 0, 0, 0.0, 0.0
+        """(total, against, among, weighted, length, bend, controlled impedances' length, spread, cohesion)."""
+        weighted, against, among, ln, bd, im, xi = 0.0, 0, 0, 0.0, 0.0, 0.0, 0.0
         mine = self.mine
         for n, pins in enumerate(assign):
             if not mine[n]:
@@ -323,6 +402,9 @@ class Scorer:
             against += c
             ln += l
             bd += b
+            if self.controlled[n]:
+                im += l
+                xi += impedance_extra(self.w, l)
         for a in range(len(assign)):
             for b in range(a + 1, len(assign)):
                 if not mine[a] and not mine[b]:
@@ -330,7 +412,11 @@ class Scorer:
                 w, c = self.pair(a, assign[a], b, assign[b])
                 weighted += w
                 among += c
-        return (weighted + self.w[3] * ln + self.w[4] * bd, against, among, weighted, ln, bd)
+        sp = 0.0
+        for g in self.soft:
+            sp += self.spread(g, assign)
+        co = self.w[5] * sp
+        return (weighted + self.w[3] * ln + self.w[4] * bd + xi + co, against, among, weighted, ln, bd, im, sp, co)
 
     def paths(self, assign: list) -> list:
         """[(net, [path, ...])] of the group's nets."""
@@ -360,6 +446,8 @@ class Tally:
         for i, n in enumerate(moved):
             for m in moved[i + 1:]:
                 d += s.pair(n, changes[n], m, changes[m])[0] - s.pair(n, now[n], m, now[m])[0]
+        for g in sorted({g for n in moved for g in s.soft_of.get(n, ())}):
+            d += s.w[5] * s.spread(g, now, changes) - s.w[5] * s.spread(g, now)
         return d
 
     def apply(self, changes: dict, d: float) -> None:
@@ -456,8 +544,11 @@ def _matching(sc: Scorer, singles: list, used: set, assign: list) -> tuple:
 
 
 def first_map(sc: Scorer, group_parts, start: list) -> tuple:
-    """(assignment, [(part, net)] that no matching places): per part, each group on its cheapest window that leaves
-    the singles a matching (its empty slots' pins reserved with it), then the singles by minimum-cost matching."""
+    """(assignment, [(part, net)] that no matching places): per part, each hard group on its cheapest window that
+    leaves the singles a matching (its empty slots' pins reserved with it), then each soft group's movables whole on
+    its cheapest window that leaves the rest a matching (its target costs and `group` times the gaps there beside its
+    held members, which stay on their pins; when none fits, they stay singles), then the singles by minimum-cost
+    matching."""
     pb = sc.pb
     assign = list(start)
     problems = []
@@ -492,6 +583,33 @@ def first_map(sc: Scorer, group_parts, start: list) -> tuple:
             for m, q in zip(members, chosen):
                 if m >= 0:
                     changes[m] = q
+        placed = set()
+        for g, (gpart, _, members, windows) in enumerate(pb.soft):
+            if gpart != part:
+                continue
+            mine = [(slot, mv) for slot, mv, _ in members if mv >= 0 and mv not in placed]
+            rest = [k for k in singles if k not in placed and k not in {mv for _, mv in mine}]
+            ranked = []
+            for wi, win in enumerate(windows):
+                if any(win[slot] in used for slot, _ in mine):
+                    continue
+                c = 0.0
+                for slot, mv in mine:
+                    c += _target_cost(sc, mv, win[slot], assign)
+                slot_of = {mv: slot for slot, mv in mine}
+                c += sc.w[5] * spread_at(pb, g, lambda mv: win[slot_of[mv]] if mv in slot_of else
+                                         assign[pb.movable[mv][0]][pb.movable[mv][1]], held_only=True)
+                ranked.append((c, wi))
+            ranked.sort(key=lambda t: (total_order(t[0]), t[1]))
+            for _, wi in ranked:
+                taken = {windows[wi][slot] for slot, _ in mine}
+                if _matching(sc, rest, used | taken, assign)[1] is not None:
+                    used |= taken
+                    for slot, mv in mine:
+                        changes[mv] = windows[wi][slot]
+                        placed.add(mv)
+                    break
+        singles = [k for k in singles if k not in placed]
         if singles:
             pins, got = _matching(sc, singles, used, assign)
             if got is None:
@@ -532,6 +650,7 @@ def _units(pb, group_parts) -> list:
     for part in group_parts:
         out += [("m", k) for k in range(len(pb.movable)) if pb.movable[k][3] < 0 and _part_of(pb, k) == part]
         out += [("g", g) for g, gr in enumerate(pb.groups) if gr[0] == part and gr[2]]
+        out += [("s", g) for g, gr in enumerate(pb.soft) if gr[0] == part and gr[3]]
     return out
 
 
@@ -577,6 +696,8 @@ def _propose(rng: SplitMix64, st: _State, pb, units) -> dict | None:
         if pb.movable[other][3] < 0 and here in pb.movable[other][2]:
             return {i: to, other: here}
         return None
+    if what == "s":
+        return _propose_soft(rng, st, pb, i)
     gpart, members, windows = pb.groups[i]
     now = [st.pin[m] for m in members if m >= 0]
     wins = [w for w in windows if [q for m, q in zip(members, w) if m >= 0] != now]
@@ -597,6 +718,33 @@ def _propose(rng: SplitMix64, st: _State, pb, units) -> dict | None:
         return None
     for q, r in zip(taken, left):
         other = st.who[(gpart, q)]
+        if pb.movable[other][3] >= 0 or r not in pb.movable[other][2]:
+            return None
+        changes[other] = r
+    return changes
+
+
+def _propose_soft(rng: SplitMix64, st: _State, pb, g: int) -> dict | None:
+    """Soft group `g`'s movables moved whole, in order, to another of its windows; the nets standing where they land
+    take the pins they leave, in pin order."""
+    part, _, members, windows = pb.soft[g]
+    mine = [(slot, mv) for slot, mv, _ in members if mv >= 0]
+    now = [st.pin[mv] for _, mv in mine]
+    wins = [w for w in windows if [w[slot] for slot, _ in mine] != now]
+    if not wins:
+        return None
+    win = wins[rng.below(len(wins))]
+    target = [win[slot] for slot, _ in mine]
+    reserved = _gaps(pb, st, part, -1)
+    if any(q in reserved for q in target):
+        return None
+    changes = {mv: q for (_, mv), q in zip(mine, target)}
+    left = sorted(set(now) - set(target))
+    taken = [q for q in sorted(target) if st.who.get((part, q)) is not None and st.who[(part, q)] not in changes]
+    if len(taken) > len(left):
+        return None
+    for q, r in zip(taken, left):
+        other = st.who[(part, q)]
         if pb.movable[other][3] >= 0 or r not in pb.movable[other][2]:
             return None
         changes[other] = r
@@ -678,6 +826,15 @@ def _indexes(pb, group_parts, combos) -> str | None:
             return "group %d's part or member" % k
         if any(len(w) != len(members) or any(not pin(part, q) for q in w) for w in windows):
             return "group %d's window" % k
+    for k, (part, _, members, windows) in enumerate(pb.soft):
+        if not ok(part, len(parts)) or any(mv < -1 or mv >= len(pb.movable) or (mv < 0 and not pin(part, q))
+                                           or (mv >= 0 and pb.ends[pb.movable[mv][0]][pb.movable[mv][1]][0] != part)
+                                           for _, mv, q in members):
+            return "soft group %d's part or member" % k
+        if any(any(slot >= len(w) for slot, _, _ in members) or any(not pin(part, q) for q in w) for w in windows):
+            return "soft group %d's window" % k
+    if pb.frames and len(pb.frames) != len(parts) or pb.controlled and len(pb.controlled) != n:
+        return "a part's frame or a net's impedance flag: its length"
     if any(not ok(p, len(parts)) for p in group_parts) or any(not ok(c[0], len(parts)) for combo in combos for c in combo):
         return "a group part or a pose's part"
     return None
@@ -693,6 +850,9 @@ def _as_native(pb):
                    fixed=[[(f(x), f(y), r, num) for x, y, r, num in net] for net in pb.fixed],
                    posed=[(kind, [(f(x), f(y), r, num, part, pin) for x, y, r, num, part, pin in pads], joined)
                           for kind, pads, joined in pb.posed],
+                   soft=[(part, f(pitch), members, windows) for part, pitch, members, windows in pb.soft],
+                   frames=[f(x) for x in pb.frames] or [0.0] * len(pb.parts),
+                   controlled=[bool(c) for c in pb.controlled] or [False] * len(pb.ends),
                    margin=f(pb.margin))
 
 
@@ -713,7 +873,7 @@ def search(pb, group_parts, combos, params) -> tuple:
     bg = Background(pb.wires, w)
     clock = Clock(params["budget_ms"], params["step_ms"])
     present = [tuple(q for _, q in e) for e in pb.ends]
-    present_poses = [Pose(p[1], p[2]) for p in pb.parts]
+    present_poses = [Pose(p[1], p[2], _frame(pb, k)) for k, p in enumerate(pb.parts)]
     sc0 = Scorer(pb, present_poses, w, bg, group_parts)
     base = sc0.total(present)
     base_paths = sc0.paths(present)
@@ -726,7 +886,7 @@ def search(pb, group_parts, combos, params) -> tuple:
             break
         poses = list(present_poses)
         for part, turn, flip in combo:
-            poses[part] = Pose(pb.parts[part][1], pb.parts[part][2], float(turn), bool(flip))
+            poses[part] = pose_at(pb, part, float(turn), bool(flip))
         sc = sc0 if k == 0 else Scorer(pb, poses, w, bg, group_parts)
         start, said = first_map(sc, group_parts, present)
         for p in said:

@@ -42,7 +42,7 @@ or by pin name, as `PadRef` names them; a range is `GPIO1-GPIO10` or `3-8`.
 | `Pm.PinFixed` | pins | pins in the pool that keep their net (straps, USB, a crystal, in-package flash) |
 | `Pm.PinAllow` | `NET:pins; NET:pins` | a net may only stand on these pins (an ADC input on the ADC1 pins) |
 | `Pm.PinDeny` | `NET:pins; ...` | a net may not stand on these pins (an enable not on pins that reset pulled up) |
-| `Pm.PinGroup` | `name:pins; ...` | pins that move as one block, keeping their order (a bus a datasheet ties to consecutive pins) |
+| `Pm.PinGroup` | `name:pins; ...` | pins whose nets belong together: soft by default (the nets move one by one and the study charges for spreading them), hard with `name!:pins` (one block, in order, on consecutive pool entries; a set a datasheet ties to consecutive pins) |
 
 A net on a pin outside the pool, or on a fixed pin, stays. A pool pin with no
 net is free to take one. An annotation that names a pin the part does not
@@ -84,8 +84,10 @@ Built on `ratsnest.py`, placemat's port of KiCad's ratsnest.
   not change, but the tracks can leave straighter.
 - **Total.** Weighted crossings against every other airwire plus crossings
   among the studied nets, plus `pins.length_weight` times the total airwire
-  length in millimetres, plus `pins.bend_weight` times the summed bend
-  angles.
+  length in millimetres (`pins.impedance_weight` times over for a controlled
+  impedance's: "Controlled impedances' length"), plus `pins.bend_weight` times
+  the summed bend angles, plus `pins.group_weight` times the soft groups'
+  spread ("Soft groups").
 
 ## The search
 
@@ -96,8 +98,9 @@ Per studied part, per rotation in `pins.rotations` (default 0, 90, 180,
 1. A first map by assignment: each movable net to the free allowed pin whose
    exit point is nearest its target, solved as a minimum-cost matching that
    ignores crossings.
-2. A local search over moves and swaps within the constraints (groups move
-   whole), counting only the airwires a move touches, with a short annealing
+2. A local search over moves and swaps within the constraints (hard groups
+   move whole; a soft group's nets move one by one, and the whole group moves
+   too), counting only the airwires a move touches, with a short annealing
    schedule and `pins.seeds` seeds.
 3. Parts whose movable nets connect to each other's movable nets are studied
    jointly: their rotation combinations are searched together, with both ends
@@ -183,6 +186,134 @@ capacitors, a crystal), which turn with it.
   takes them as given (`cell_rotations`), else 0. A cell's face is that of
   its member with the most pads, and a cell on the back is taken as flipped
   from its stamp.
+
+## Soft groups
+
+Approved 2026-10-05. A `Pm.PinGroup` is soft unless marked hard.
+
+- **Syntax.** `Pm.PinGroup = "lcd:GPIO10-GPIO17; pio0!:GPIO0-GPIO3"`. A
+  single `!` after the name makes the group hard. Any other name is read as
+  written, as in 0.99.16 (`spi(a)`, `bus-`). A name ending in more than one
+  `!` (`pio0!!`) is a `setup.pins` finding with code `bad_marker`, and the
+  study runs without the group. `!` was kept: it is one character, reads as
+  "must", and needs no second separator inside an entry that already uses `:`
+  and `;`.
+- **Names.** A group named as an earlier one is a `setup.pins` finding with
+  code `same_name`, its `entry` both entries; the study runs without the
+  later.
+- **Hard** groups behave as every group did in 0.99.16: one block, in order,
+  on a run of consecutive pool-list entries, or where it stands. The test
+  `test_a_board_with_no_soft_group_or_controlled_impedance_scores_to_the_bit_as_0_99_16_did`
+  (tests/test_pinmap_groups.py) holds three such boards among its seven, each
+  pose's maps and tallies to the bit from 0.99.16's twin.
+- **Soft** groups: the group's nets (the nets on its pins as captured) are
+  movable nets like any other, each under its own `Pm.PinAllow` and
+  `Pm.PinDeny`. The total adds `pins.group_weight` times the group's
+  **spread**: over neighbouring members in the group's written order (a member
+  is a movable net or a held one; a pin with no net is skipped but keeps its
+  slot), the distance between their pins' anchors, in the part's frame, beyond
+  the part's pin pitch times the slots between them, in mm. A gap within
+  0.001 mm of the allowance counts nothing. An intact group in order on one
+  side costs 0. A split across a chip corner, or across pins outside the
+  pool, costs the extra distance between the two pads.
+- **Pin pitch** is the least distance between two of the part's own pad
+  anchors (a cell's other members' pads are left out).
+- **Reversed order** costs the same as the same order: the spread takes the
+  distance between neighbours, which a reversal keeps. A reversed bus routes
+  as well as an in-order one; whether it crosses its far end is what the
+  crossing term already counts, so the order is left to it.
+- **The search.** The first map starts each soft group whole on its cheapest
+  window (a run of consecutive pool entries whose pins under its movable nets
+  are open and allowed them; its cost the movable nets' distances to their
+  targets plus `pins.group_weight` times the gaps beside its held members,
+  which stay on their pins) that leaves the other nets a matching, as for a
+  hard group but reserving only the pins its nets take; with no such window
+  its nets are matched one by one. The local search moves its nets one by one
+  and also moves the group whole to another window, the nets standing there
+  taking the pins it leaves. Without the whole-group start and move, the
+  default search (one seed of 100 moves) left the reference board's i2c pair
+  split at every weight tried, though a long search found it whole.
+- **Facts.** Each pose's record and `present_groups` carry `groups`: `{name,
+  ref, hard, spread_mm, cost, nets, pins}`, the nets and their pins in pin
+  number order (the order round the package). A hard group's `cost` is 0. The
+  breakdown adds `spread_mm` and `cohesion` (the soft groups' term).
+  finding_text adds "group lcd ends split, 0.7 mm beyond its pin pitch" for
+  each soft group the best pose leaves with a spread of 0.05 mm or more (less
+  is together in the text), and names a map's gain in cohesion as "group lcd
+  brought together" (or "nearer together"); a term that grows is never said
+  as a negative saving.
+- **Weight.** `pins.group_weight` default 4.0 weighted crossings per mm. A
+  one-pin gap at 0.4 mm pitch costs 1.6, so it is taken only for two or more
+  crossings saved; a net sent across a 7 mm QFN costs about 24.
+
+Calibration on `fixtures/pinmap/reference.json` (the MCU studied as its cell,
+the i2c pair soft; default search; "long" is 4 seeds of 4000 moves):
+
+| `group_weight` | at the present rotation | best (90 degrees) | long search best |
+|---|---|---|---|
+| 0, 0.25, 0.5 | 1231.2-1234.2, i2c split 6.1 mm (pins 11 and 47) | 1204.322, whole | 1195.3-1196.5 |
+| 1, 2 | 1235.7-1236.1, i2c split 0.4 mm (45 and 47) | 1204.322, whole | 1195.3, whole |
+| 4 | 1236.589, whole (44, 45) | 1204.322, whole | 1195.324, whole |
+
+The present total is 1469.776, as in 0.99.16 (the board has no controlled
+impedance). At 2 the one-pin split at the present rotation scores 1236.132
+against 1236.589 whole: it saves 1.26 in the other terms. At 4 that split
+costs 1.6 and the pair stays whole. With the pair marked hard the default
+search's best is 1205.606, 0.99.16's, and the long search's 1195.324. At
+weights below 0.5 the long search splits the pair at the present rotation.
+
+## Controlled impedances' length
+
+Approved 2026-10-05, reworked the same day. An RF line's length should weigh
+more when a turn lengthens it.
+
+- A studied net is `controlled` when its net class names a tuning profile (for
+  a net followed through a series part, its own class or its far net's), its
+  crossing class aside: a differential pair's half in such a class is
+  controlled too.
+- Its airwire length counts `pins.length_weight` times `pins.impedance_weight`
+  a mm, whether its pins may move or not: a net on a fixed pin, a cell
+  member's net to an antenna. In the core it is the plain term plus
+  `length_weight * (impedance_weight - 1) * mm`, added only for controlled
+  nets, so a board with no controlled impedance scores to the bit as 0.99.16
+  did (`test_a_board_with_no_soft_group_or_controlled_impedance_scores_to_the_bit_as_0_99_16_did`,
+  seven boards, both cores, against tests/data written by 0.99.16's twin).
+- `length_mm` stays every studied net's length, as before; the breakdown adds
+  `impedance_length_mm`, the controlled nets' share of it.
+- Posed background nets (a plane's, a net inside a cell) count crossings only,
+  as before: a net inside the cell turns with all its pads, so its length is
+  the same at every pose.
+
+A first version counted a "posed length" for nets that never move. That came
+from a wrong premise: a fixed pin's net is a studied net, and its length was
+already counted; the posed background nets are only planes and nets inside a
+cell. It was replaced by the rule above.
+
+## A part standing off the axes
+
+Approved 2026-10-05. Before, a part's frame was the board's, its body the box
+round its courtyard as it stands, and its pins' normals the sides of that box:
+a part laid at 45 degrees was studied as a bigger square with its pins facing
+the board's axes.
+
+- A part's frame is turned by what its rotation is off the axes
+  (`pinmap_input.off_axes`: the rotation mod 90, 0 within a millionth of a
+  degree of a quarter turn). A part in a cell takes its cell's.
+- Its body is the box round its courtyard in that frame: the courtyard's
+  outline as it stands (`PlacedPart.outline`: KiCad's courtyard polygon when
+  the footprint draws one, else the courtyard box's corners, moved as the part
+  moved; `Occupancy.courtyard_outline`). A cell's is the box in its frame round
+  its members' outlines and its own copper's boxes (`PlacedCell.outline`).
+- Its pins are in that frame, and their normals are its own courtyard's sides
+  there.
+- The core takes each part's frame (`frames`). The present pose is the frame's
+  turn; a pose `turn` from where the part stands is `frame + turn`, and a
+  flipped one `turn - frame` (the flip mirrors the pads as they stand, then
+  turns them: mirror(R(frame) p) = R(-frame) mirror(p)).
+- A part on a quarter turn has frame 0 and is studied exactly as before.
+- A laid board read from disk does not say how its cells were turned from
+  their stamps (`cell_rotations`, else 0), so a cell there is taken as on the
+  axes.
 
 ## Parts not placed yet
 
@@ -275,6 +406,7 @@ are reported beside it, not folded into the score.
 
 `pins.exit_mm`, `pins.follow_series`, `pins.pair_weight`,
 `pins.impedance_weight`, `pins.length_weight`, `pins.bend_weight`,
+`pins.group_weight`,
 `pins.rotations`, `pins.seeds`,
 `pins.budget_ms`, `pins.faces`, `pins.gain_min`, `pins.placed_share_min`,
 `pins.explore_top`, each with a default and a line in the settings table.
@@ -317,6 +449,19 @@ Preview hook (`_report_pin_maps` inside `Board.resolve`, native core, one
 annotated part on the whole-board fixture, three cold and warm pairs under
 load): cold 0.07-0.12 s, warm 0.03-0.04 s with one 0.10 s outlier. A warm
 cache hit saves about half, because the build and the digest are still paid.
+
+Soft groups, controlled impedances' length and frames off the axes
+(`fixtures/pinmap_bench.py --repeat 5`, median, same machine, same day):
+
+| core   | 0.99.16 | after   | present total | best total |
+|--------|---------|---------|---------------|------------|
+| native | 0.015 s | 0.018-0.020 s | 1469.776 | 1204.322 |
+| Python | 0.107 s | 0.105-0.116 s | 1469.776 | 1204.322-1221.497 |
+
+Native figures are on a quiet machine; under another session's load the same
+runs took 0.034-0.036 s. The Python fallback runs out of its budget, as
+before, and stops at a wall-clock time, so where it stops, and the best it
+has found by then, varies from run to run.
 
 Real-board tests (`tests/test_pinmap_real.py --full`): both pass. The full
 suite passed (5693 passed, 22 skipped), and `fixtures/bench.py --jobs 2`

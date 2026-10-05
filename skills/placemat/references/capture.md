@@ -114,7 +114,7 @@ the other `Pm.*` keys are:
         "Pm.PinPool": "GPIO0-GPIO21, GPIO33-GPIO48",   # datasheet, pin description table: general-purpose IO
         "Pm.PinFixed": "GPIO0, GPIO3, GPIO45, GPIO46",  # datasheet, strapping pins
         "Pm.PinAllow": "VSENSE:GPIO1-GPIO10",           # datasheet, ADC1 channels
-        "Pm.PinGroup": "lcd:GPIO10-GPIO17",             # datasheet, parallel bus: consecutive pins in order
+        "Pm.PinGroup": "lcd:GPIO10-GPIO17; pio0!:GPIO0-GPIO3",  # datasheet: parallel bus; PIO base: consecutive pins
     },
 
 - Pins are named by pad number or by pin name, as `PadRef` names them; a range
@@ -127,8 +127,19 @@ the other `Pm.*` keys are:
   that reaches nothing else, is free.
 - `Pm.PinAllow` and `Pm.PinDeny` name nets as the capture does; the last part
   of a net's path matches, as for `Pm.KeepOut`. Entries are separated by `;`.
-- `Pm.PinGroup` pins move as one block to another run of consecutive pins of
-  the pool, in the order the pool lists them, keeping their order.
+- `Pm.PinGroup` names nets that belong together, by the pins they stand on.
+  A group is soft by default: its nets move one by one, each under its own
+  `Pm.PinAllow` and `Pm.PinDeny`, and the study charges `pins.group_weight`
+  for each mm its neighbouring nets stand apart beyond the part's pin pitch,
+  so it keeps the group together unless splitting it saves clearly more. A
+  `!` after the name (`pio0!:GPIO0-GPIO3`) makes it hard: for a set the
+  datasheet requires on consecutive pins (a PIO or a parallel port's base).
+  A hard group moves as one block, keeping its order, to another run of
+  consecutive pins, where consecutive means consecutive in the order the
+  `Pm.PinPool` lists its pins, not in pad number. Only a single `!` is read
+  as the marker; any other name is read as written. A name ending in `!!`, or
+  a second group of one name, is a `setup.pins` finding, and the study runs
+  without that group.
 - An entry that names a pin the part does not have, or a net it does not
   carry, is a `setup.pins` finding naming it, and the study runs without that
   entry. Constraints that leave a net no pin stop the part's study, with a

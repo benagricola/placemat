@@ -4432,6 +4432,9 @@ pins would save, at its present rotation and at each turn in `pins.rotations`
 (and on the other face with `pins.faces`, where its declaration allows
 `Face.EITHER`). It runs once at the end of every run and preview, on the
 finished board, never inside the placement search, and writes nothing.
+A part or cell standing off the axes (at 45 degrees, say) is studied in its own
+frame: its body is its courtyard (or envelope) as turned, its pins face that
+body's sides, and the turns are from where it stands.
 
 **The score.** Built on placemat's ratsnest. The nets come from the pads alone:
 a laid board's tracks, vias and pours are ignored, so a routed net keeps its
@@ -4446,11 +4449,28 @@ class names a KiCad tuning profile, `score.crossing_plane` for a plane's or a
 free net's. The total is the weighted crossings against every other airwire and
 among the studied nets, plus `pins.length_weight` times the airwire length in
 mm, plus `pins.bend_weight` times the summed bend in degrees (the angle between
-a pin's outward normal and the bearing to its target).
+a pin's outward normal and the bearing to its target), plus the soft groups'
+cohesion. A studied net whose class (or, for a net followed through a series
+part, its far net's class) names a tuning profile counts its length
+`pins.impedance_weight` times over, a differential pair's half too, whether its
+pin may move or not: a turn that lengthens an RF net from a fixed pin or a cell
+member weighs that. The cohesion is `pins.group_weight` times each soft group's spread: the mm its
+neighbouring nets, in the group's written order, stand apart beyond the part's
+pin pitch (the least distance between two of its pads) times the slots between
+them. An intact group costs 0, reversed or not; a split across a corner or
+across pins outside the pool costs the extra distance between the pads.
+
+**Groups.** A `Pm.PinGroup` is soft unless its name ends in `!` (capture.md,
+"Pin pools"). A soft group's nets move one by one and pay the cohesion; a hard
+group moves as one block, in order, to a run of consecutive entries of the
+pool as listed, or stays where it stands. A name ending in `!!` is a
+`setup.pins` warning (`bad_marker`), as is a second group of one name
+(`same_name`), and the study runs without that group.
 
 **The search.** Per pose, a first map by minimum-cost matching (each group of
-`Pm.PinGroup` on the run of pins nearest its targets), then `pins.seeds` local
-searches of `pins.anneal_moves` moves and swaps under annealing. The score and
+`Pm.PinGroup`, hard or soft, starting whole on the run of pins nearest its
+targets), then `pins.seeds` local searches of `pins.anneal_moves` moves, swaps
+and whole-group moves under annealing. The score and
 the search run in the native module when it is in use, else in its Python
 twin, which gives the same maps (`setup.native` says when it is not). Parts
 whose movable nets meet are studied together, their poses in combination, at
@@ -4517,6 +4537,8 @@ last study reused (0.02 s)` or `pins  the study failed with <type>: <message>`.
 | `no_net` | an entry names a net no pin of the part carries; the study runs without the entry |
 | `unreadable` | a `Pm.PinAllow`, `Pm.PinDeny` or `Pm.PinGroup` entry is not `name:pins` |
 | `not_in_pool`, `two_groups` | a group's pin is outside the pool or fixed, or already in an earlier group; the study runs without the group |
+| `bad_marker` | a group's name ends in more than one `!` (`name` is the marker); the study runs without the group |
+| `same_name` | a group is named as an earlier one (`entry` is both entries, `name` the name); the study runs without the later |
 | `no_legal_pin`, `no_legal_map` | the constraints leave a net no pin (`held_net` and `held_pin` name the net holding its only pin); the part is not studied |
 | `present_breaks` | the net `name` stands on pin `pin`, against its own `rule` (`Pm.PinAllow` or `Pm.PinDeny`). Raised whether or not a remap is reported: the capture breaks its own rule |
 | `study_failed` | the study raised; `type` and `message` |
@@ -4527,15 +4549,22 @@ against the present map in the plainest term the pose wins on: weighted
 crossings, else mm of airwire, else degrees of turning; and what it gives up on
 weighted crossings or airwire to win: "U1: a pin map with 8 fewer weighted
 crossings exists at its present rotation; at 90 degrees, 11 fewer weighted
-crossings and 3.2 mm more airwire". A study that ran out of budget before a
-first map says so instead. Facts: `ref`, `refs`, `at`, `present` (the present
+crossings and 3.2 mm more airwire". A soft group the best map leaves split, 0.05 mm or more, is named with its
+spread ("group lcd ends split, 0.7 mm beyond its pin pitch"), and a map that
+closes a soft group up says so ("group lcd brought together", or "nearer
+together"). A study that ran out of budget
+before a first map says so instead. Facts: `ref`, `refs`, `at`, `present` (the present
 map's score), `rotations` (the best map at each pose, the present pose first:
 `total`, `against`, `among` as crossing counts, `weighted`, `length_mm`,
-`bend_deg`, `turns` with `ref`, `turn_deg`, `rotation_deg`, `face` and `flip`,
+`bend_deg`, `impedance_length_mm` (the controlled impedances' share of the
+length), `spread_mm` and its term `cohesion`, `groups` (each
+`Pm.PinGroup` where it lands: `name`, `ref`, `hard`, `spread_mm`, `cost`,
+`nets` and `pins` in pin number order), `turns` with `ref`, `turn_deg`, `rotation_deg`, `face` and `flip`,
 `map` as `ref`, `net`, `from` and `to` each `{pin, name}`, `routed`, `paths`
 and `breaks`), `best` (the index of the best pose), `routed` (the best pose's
 moved nets with copper on the board now: a remap means routing them again),
-`before` (the airwires now), `held` (nets a constraint keeps, with `why` set to
+`before` (the airwires now), `present_groups` (the groups as they stand),
+`held` (nets a constraint keeps, with `why` set to
 `fixed`, `allow`, `unplaced` or `in_cell`), `unplaced_ends` (each studied
 net's pad on a part not placed, as `{net, ref}`, with `via` and `far` when it is
 on a series part's far net, and net `""` for a cell member not placed that
@@ -5004,9 +5033,10 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.exit_mm` | `0.5` | mm | the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn |
 | `pins.follow_series` | `true` | bool | the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection |
 | `pins.pair_weight` | `5.0` | weight | the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1) |
-| `pins.impedance_weight` | `3.0` | weight | the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance |
+| `pins.impedance_weight` | `3.0` | weight | the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance, and how many times over such a net's airwire length counts (a differential pair's half too) |
 | `pins.length_weight` | `0.25` | weight | the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing) |
 | `pins.bend_weight` | `0.005` | weight | the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target |
+| `pins.group_weight` | `4.0` | weight | the pin map study: weighted crossings per mm a soft `Pm.PinGroup`'s neighbouring nets stand apart beyond the part's pin pitch |
 | `pins.follow_prefixes` | `["R", "L", "FB"]` | list | the pin map study follows a net on through a two-pad series part only when its reference's leading letters, in any case, equal one of these: a resistor, an inductor, a ferrite bead by default; RT1 is not followed for R, nor a two-pin connector |
 | `pins.rotations` | `[0.0, 90.0, 180.0, 270.0]` | degrees | the turns from where a part stands that the pin map study tries besides its present one; add 45, 135, 225 and 315 for the diagonals |
 | `pins.seeds` | `1` | count | local searches of the pin map study per pose, each with its own fixed random stream |

@@ -44,7 +44,7 @@ def test_allow_and_deny_name_nets_as_the_capture_does_and_a_net_the_part_lacks_i
 def test_a_group_must_lie_in_the_pool_off_the_fixed_pins_and_in_one_group_only():
     rules, problems = read_rules("U1", {"Pm.PinPool": "1-8", "Pm.PinFixed": "8", "Pm.PinGroup":
                                         "bus:2-4; late:4,5; out:9; strap:7-8; bad entry"}, PADS, NAMES)
-    assert rules.groups == (("bus", ("2", "3", "4")),)
+    assert rules.groups == (("bus", ("2", "3", "4"), False),)
     assert [(p.entry, p.code, p.name) for p in problems] == [
         ("late:4,5", "two_groups", "4"), ("out:9", "not_in_pool", "9"), ("strap:7-8", "not_in_pool", "8"),
         ("bad entry", "unreadable", "bad entry")]
@@ -70,9 +70,9 @@ def test_a_net_allowed_only_its_own_pin_is_held_and_one_allowed_none_stops_the_p
     assert slots.movable == ("B",) and [(h.net, h.why) for h in slots.held] == [("A", "allow")]
 
 
-def test_a_group_moves_to_runs_of_consecutive_pool_pins_its_nets_may_take():
+def test_a_hard_group_moves_to_runs_of_consecutive_pool_pins_its_nets_may_take():
     rules = PinRules("U1", ("1", "2", "3", "4", "5", "6"), frozenset({"4"}), allow={"Y": frozenset({"2", "3", "6"})},
-                     groups=(("pair", ("1", "2")),))
+                     groups=(("pair", ("1", "2"), True),))
     pads = [("1", "X", False), ("2", "Y", False), ("3", "Z", False)]
     slots, _ = part_pins(rules, pads, {"X", "Y", "Z"}, set())
     assert slots.groups == (("pair", ("X", "Y")),)

@@ -14,7 +14,7 @@ from placemat.pinmap_twin import (CELL_NM, Background, Clock, Scorer, SplitMix64
 from placemat.ratsnest import _cross_nm
 from tests.pinmap_boards import input_of, point_pad, quad, reversed_four, settings
 
-W = (5.0, 3.0, 0.25, 0.25, 0.005)           # pair, impedance, plane, length, bend
+W = (5.0, 3.0, 0.25, 0.25, 0.005, 1.0)      # pair, impedance, plane, length, bend, group
 
 
 def test_the_random_stream_is_splitmix64():
@@ -48,7 +48,7 @@ def test_a_long_diagonal_is_filed_only_in_the_cells_it_passes_through():
 
 
 def test_the_grid_finds_every_crossing_a_full_scan_finds_and_adds_them_in_wire_order():
-    w = (5.0, 3.0, 0.7, 0.25, 0.005)
+    w = (5.0, 3.0, 0.7, 0.25, 0.005, 1.0)
     r = SplitMix64(11)
     c = lambda lo, hi: lo + r.next() % (hi - lo)
     wires = []
@@ -96,24 +96,31 @@ def test_window_costs_are_ranked_in_the_total_order_and_a_nan_ranks_last_without
 
 
 def test_a_move_is_priced_by_recounting_the_nets_it_touches_as_the_whole_total_would():
-    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C"], "S": ["D", "E", ""], "W": ["F", "", ""]}, {"Pm.PinPool": "1-9"})
+    # A, B and D a soft group round C, which an allow rule holds: a move of A, B or D re-prices the group's spread
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C"], "S": ["D", "E", ""], "W": ["F", "", ""]},
+                    {"Pm.PinPool": "1-9", "Pm.PinAllow": "C:3", "Pm.PinGroup": "abcd:1-4"})
     rng = random.Random(1)
     for i, net in enumerate("ABCDEF"):
         pads += point_pad("T%d" % i, net, rng.uniform(0, 25), rng.uniform(0, 25))
     pads += point_pad("Q1", "X", 0, 0) + point_pad("Q2", "X", 25, 25)
     pb = problem_of(input_of(pads, {"U1": u1})[0], 0.5)
+    assert pb.soft and len(pb.soft[0][2]) == 4
     sc = Scorer(pb, [Pose(10.0, 10.0)], W, Background(pb.wires, W), [0])
     tally = Tally(sc, [tuple(q for _, q in e) for e in pb.ends])
+    spread = 0
+    held = pb.nets.index(("C", 0))
     for _ in range(40):
-        a, b = rng.sample(range(len(pb.nets)), 2)
+        a, b = rng.sample([n for n in range(len(pb.nets)) if n != held], 2)
         change = {a: tally.assign[b], b: tally.assign[a]} if rng.random() < 0.5 else {a: (rng.randrange(9),)}
         d = tally.delta(change)
         after = list(tally.assign)
         for n, pins in change.items():
             after[n] = pins
         assert d == pytest.approx(sc.total(after)[0] - sc.total(tally.assign)[0], abs=1e-9)
+        spread += sc.total(after)[8] != sc.total(tally.assign)[8]
         tally.apply(change, d)
     assert tally.value == pytest.approx(sc.total(tally.assign)[0], abs=1e-6)
+    assert spread > 5
 
 
 def test_a_quiet_net_on_a_studied_part_turns_with_it_and_a_weightless_plane_is_left_out():
@@ -123,15 +130,15 @@ def test_a_quiet_net_on_a_studied_part_turns_with_it_and_a_weightless_plane_is_l
     pads = [(8.3, 10.0, "U1", "5", 0, 4), (8.3, 0.0, "J1", "1", -1, -1)]
     pb = replace(pb, pins=pins, posed=[(3, pads, [])])
     ends = lambda got: [{(s[0], s[1]), (s[2], s[3])} for _, s in got]
-    w = (5.0, 3.0, 1.0, 0.25, 0.005)
+    w = (5.0, 3.0, 1.0, 0.25, 0.005, 1.0)
     assert ends(posed_wires(pb, [Pose(10.0, 10.0)], w)) == [{(8_300_000, 10_000_000), (8_300_000, 0)}]
     assert ends(posed_wires(pb, [Pose(10.0, 10.0, 180.0)], w)) == [{(11_700_000, 10_000_000), (8_300_000, 0)}]
-    assert posed_wires(pb, [Pose(10.0, 10.0, 180.0)], (5.0, 3.0, 0.0, 0.25, 0.005)) == []
+    assert posed_wires(pb, [Pose(10.0, 10.0, 180.0)], (5.0, 3.0, 0.0, 0.25, 0.005, 1.0)) == []
 
 
 def test_no_single_net_is_offered_the_pin_of_a_groups_empty_slot():
     # the bus is 1-3 with no net on 2: a single's moves never land on 2, however many are drawn
-    pads, u1 = quad("U1", 10, 10, {"E": ["D", "", "F", "S", ""]}, {"Pm.PinPool": "1-5", "Pm.PinGroup": "bus:1-3"})
+    pads, u1 = quad("U1", 10, 10, {"E": ["D", "", "F", "S", ""]}, {"Pm.PinPool": "1-5", "Pm.PinGroup": "bus!:1-3"})
     pads += point_pad("T1", "D", 20, 8.5) + point_pad("T2", "S", 14, 9.5) + point_pad("T3", "F", 20, 10.5)
     pb = problem_of(input_of(pads, {"U1": u1})[0], 0.5)
     present = [tuple(q for _, q in e) for e in pb.ends]

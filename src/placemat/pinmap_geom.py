@@ -7,8 +7,10 @@ its target, corner to corner, until the target is in sight. A target inside the 
 other face) is reached straight. The bend at a pin is the angle between its outward normal and the bearing from its exit
 point to its target: 0 facing it, 180 turning back.
 
-The part's own frame is the board's moved to the courtyard box's centre, as the part stands; a `Pose` turns it about that
-centre (and mirrors it left to right first, for the other face) to ask where the pads would be at another rotation.
+The part's own frame is the board's moved to the courtyard box's centre, turned by what the part's rotation is off the
+axes (pinmap_input.off_axes: 0 for a part on a quarter turn), so its body is its courtyard as turned; a `Pose` turns it
+about that centre (and mirrors it left to right first, for the other face) to ask where the pads would be at another
+rotation, the present one being the frame's own turn.
 
 Every value is the native model's to the last bit: `_clean` is `geometry._clean` (`exact::clean9`), `math.hypot` is
 CPython's (`exact::hypot`), angles go through `math.radians` and `math.degrees`, and sums are plain, in order."""

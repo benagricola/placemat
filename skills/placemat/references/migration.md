@@ -19,6 +19,23 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
+- **A `Pm.PinGroup` is soft unless marked hard.** A group's nets now move one by one, each under its own
+  `Pm.PinAllow` and `Pm.PinDeny`, and the pin map study charges `[pins] group_weight` (default 4 weighted crossings
+  a mm) for how far its neighbouring nets stand apart beyond the part's pin pitch, so a group stays together unless
+  splitting it saves clearly more. A group that must stay one block on consecutive pins, as before, is written with
+  a `!` after its name: `"pio0!:GPIO0-GPIO3"`. Consecutive means consecutive in the order `Pm.PinPool` lists the
+  pins. Other names read as written; `!!` is a `setup.pins` warning (`bad_marker`), as is a second group of one name
+  (`same_name`). Captures whose groups a datasheet ties to
+  consecutive pins need the `!`. Each pose's facts carry `groups`, and the sentence says when a soft group ends
+  split.
+- **A controlled impedance's airwire length counts `[pins] impedance_weight` times over.** A studied net whose net
+  class names a tuning profile (a differential pair's half too) counts its length `impedance_weight` times
+  `length_weight` a mm, whether its pin may move or not, so a cell turn that lengthens an RF net loses more than
+  before. The facts add `impedance_length_mm`. A board with no such net scores as before.
+- **A part standing off the axes is studied in its own frame.** A part or cell at 45 degrees, say, is studied with
+  its body as its courtyard (envelope) turned with it, not the larger box round it, and its pins face that body's
+  sides. Parts on a quarter turn are studied as before. Nothing in a layout script changes; a run after updating
+  studies its pins again (the findings' schemas changed).
 - **A module's units combine with its other items and units.** A module's arrangements are the default and every
   combination of its items' options and its units' options (`c_in.east+pair.upright`), in product order, the first
   declared changing slowest. A module of items' options alone makes the same arrangements, ids and order as before. The

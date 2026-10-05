@@ -5,8 +5,9 @@
 //! box it is nearest - to its exit point, `margin` past the box, then takes the shorter way round the box grown by
 //! `margin` to its target, corner to corner, until the target is in sight. A target inside the body's box is reached
 //! straight. The bend at a pin is the angle between its outward normal and the bearing from its exit point to its
-//! target. A `Pose` turns the part's own frame (the board's, moved to the courtyard box's centre) about that centre,
-//! counter-clockwise on screen with y down, mirrored left to right first for the other face.
+//! target. A `Pose` turns the part's own frame (the board's, moved to the courtyard box's centre and turned by what the
+//! part's rotation is off the axes) about that centre, counter-clockwise on screen with y down, mirrored left to right
+//! first for the other face.
 //!
 //! Every value is Python's: `clean9` is `geometry._clean`, `hypot` CPython's, angles go through CPython's `radians`
 //! (`x * (pi / 180)`) and `degrees` (`(180 / pi) * x`), and sums are plain, in order.

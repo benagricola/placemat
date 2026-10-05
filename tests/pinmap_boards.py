@@ -27,7 +27,8 @@ def quad(ref, cx, cy, sides: dict, fields=None, body=4.0, pitch=1.0, rotation=0.
     its sides: `sides` {"E" | "S" | "W" | "N": [net, ...]}, each side's pins in order north to south (E, W) or west to
     east (N, S), numbered from 1 in the order E, S, W, N. A net of "" is a pin with none. The pads are laid out at
     rotation 0 on the front, then turned `rotation` degrees counter-clockwise on the board (y down) about the centre,
-    and mirrored east to west about it when `face` is "back" (on the back copper)."""
+    and mirrored east to west about it when `face` is "back" (on the back copper). Its courtyard box is the box round
+    the turned courtyard, whose corners are its `outline`."""
     pads, n, h = [], 0, body / 2.0 - 0.3
     layer = CopperLayer.B if face == "back" else CopperLayer.F
     turn = radians(rotation)
@@ -43,7 +44,10 @@ def quad(ref, cx, cy, sides: dict, fields=None, body=4.0, pitch=1.0, rotation=0.
                 dx = -dx
             pads.append(pad(ref, n, net, cx + dx, cy + dy, layer=layer))
     c = body / 2.0 + 0.25
-    return pads, PlacedPart(ref, Box(cx - c, cy - c, cx + c, cy + c), rotation, face, may_flip, dict(fields or {}))
+    outline = tuple((cx + x * cos(turn) + y * sin(turn), cy + y * cos(turn) - x * sin(turn))
+                    for x, y in ((-c, -c), (c, -c), (c, c), (-c, c)))
+    box = Box.of_points(outline) if rotation % 90.0 else Box(cx - c, cy - c, cx + c, cy + c)
+    return pads, PlacedPart(ref, box, rotation, face, may_flip, dict(fields or {}), outline=outline)
 
 
 def two_pad(ref, net_a, net_b, x, y) -> list:
@@ -80,8 +84,10 @@ def in_cell(name, pads, parts: dict, members, rotation=0.0, face="front", module
     for r in members:
         parts[r] = replace(parts[r], cell=name)
     box = Box.union([parts[r].courtyard for r in members])
+    corners = lambda b: ((b.left, b.top), (b.right, b.top), (b.right, b.bottom), (b.left, b.bottom))
+    outline = tuple(p for r in members for p in (parts[r].outline or corners(parts[r].courtyard)))
     return parts, {name: PlacedCell(name, tuple(members), box, rotation, face, face == "back" if flipped is None else flipped,
-                                    module, stamps, module_key or module or name, arrangement, tuple(missing))}
+                                    module, stamps, module_key or module or name, arrangement, tuple(missing), outline)}
 
 
 def reversed_four(fields=None) -> tuple:

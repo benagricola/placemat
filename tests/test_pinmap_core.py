@@ -47,7 +47,7 @@ def test_four_nets_in_reverse_order_cross_six_times_and_are_uncrossed_at_the_pre
 def test_each_constraint_holds_fixed_allow_deny_and_a_group_kept_whole_and_in_order(native):
     pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D", "E", ""]},
                     {"Pm.PinPool": "1-6", "Pm.PinFixed": "1", "Pm.PinAllow": "B:2,3", "Pm.PinDeny": "C:3",
-                     "Pm.PinGroup": "bus:4-5"})
+                     "Pm.PinGroup": "bus!:4-5"})
     for i, net in enumerate(["A", "B", "C", "D", "E"]):
         pads += point_pad("T%d" % i, net, 20, 12.5 - i)                 # every target in reverse order
     inp, _ = input_of(pads, {"U1": u1})
@@ -135,7 +135,7 @@ def test_a_routed_board_scores_as_the_same_board_without_its_copper(native):
 
 
 def test_the_core_takes_the_study_as_plain_arrays():
-    inp, _ = input_of(*reversed_four({"Pm.PinPool": "1-4", "Pm.PinGroup": "ab:1-2"}))
+    inp, _ = input_of(*reversed_four({"Pm.PinPool": "1-4", "Pm.PinGroup": "ab!:1-2"}))
     pb = problem_of(inp, 0.5)
     assert pb.parts == [("U1", 10.0, 10.0, 2.25, 2.25)] and [p[0] for p in pb.pins[0]] == ["1", "2", "3", "4"]
     assert pb.nets == [("A", 0), ("B", 0), ("C", 0), ("D", 0)] and pb.ends == [[(0, 0)], [(0, 1)], [(0, 2)], [(0, 3)]]
@@ -148,7 +148,7 @@ def test_a_group_a_rule_holds_part_of_may_stay_where_it_stands(native):
     # the bus is 2-4 with its middle net held on 3 by its allow rule, so of the runs of free pins only 4-6 would hold
     # the bus: its present place is a window of its own, first, and every net already faces its target
     pads, u1 = quad("U1", 10, 10, {"E": ["A", "D", "E", "F", "", ""]},
-                    {"Pm.PinPool": "1-6", "Pm.PinAllow": "E:3", "Pm.PinGroup": "bus:2-4"})
+                    {"Pm.PinPool": "1-6", "Pm.PinAllow": "E:3", "Pm.PinGroup": "bus!:2-4"})
     for i, net in enumerate(["A", "D", "E", "F"]):
         pads += point_pad("T%d" % i, net, 20, 7.5 + i)
     inp, _ = input_of(pads, {"U1": u1})
@@ -163,7 +163,7 @@ def test_a_group_a_rule_holds_part_of_may_stay_where_it_stands(native):
 def test_at_the_present_pose_the_best_is_never_worse_than_the_present_map(native):
     # the bus case above: one seed of 100 moves from the first map ends on the 4-6 window, worse than where it stands
     pads, u1 = quad("U1", 10, 10, {"E": ["A", "D", "E", "F", "", ""]},
-                    {"Pm.PinPool": "1-6", "Pm.PinAllow": "E:3", "Pm.PinGroup": "bus:2-4"})
+                    {"Pm.PinPool": "1-6", "Pm.PinAllow": "E:3", "Pm.PinGroup": "bus!:2-4"})
     for i, net in enumerate(["A", "D", "E", "F"]):
         pads += point_pad("T%d" % i, net, 20, 7.5 + i)
     inp, _ = input_of(pads, {"U1": u1})
@@ -215,7 +215,7 @@ def test_a_groups_tallies_count_only_its_own_nets_and_their_crossings(native):
 
 def test_a_net_never_takes_the_pin_of_a_groups_empty_slot(native):
     # the bus is 1-3 with no net on 2, and S's target faces pin 2: S stays off it
-    pads, u1 = quad("U1", 10, 10, {"E": ["D", "", "F", "S"]}, {"Pm.PinPool": "1-4", "Pm.PinGroup": "bus:1-3"})
+    pads, u1 = quad("U1", 10, 10, {"E": ["D", "", "F", "S"]}, {"Pm.PinPool": "1-4", "Pm.PinGroup": "bus!:1-3"})
     pads += point_pad("T1", "D", 20, 8.5) + point_pad("T2", "S", 14, 9.5) + point_pad("T3", "F", 20, 10.5)
     inp, _ = input_of(pads, {"U1": u1})
     r = run(inp, native, settings(pins_rotations=(0.0,))).results[0]
@@ -232,3 +232,71 @@ def test_an_index_out_of_range_is_refused(native):
             search(bad, [0], [[(0, 0.0, False)]], params_of(settings(), ("U1",)), native)
     with pytest.raises(ValueError, match="out of range"):
         search(pb, [3], [[(0, 0.0, False)]], params_of(settings(), ("U1",)), native)
+
+
+def test_at_a_diagonal_pose_the_airwires_leave_and_go_round_the_turned_courtyard_not_its_bounding_box(native):
+    # U1 4 mm square (courtyard 2.25 mm each way from its centre), A on its east pin and B on its west pin, both
+    # targets far out on its north-east diagonal. Turned 45 degrees, A faces its target; B goes round the turned body.
+    pads, u1 = quad("U1", 10, 10, {"E": ["A"], "W": ["B"]}, {"Pm.PinPool": "1-2"})
+    pads += point_pad("TA", "A", 30, -10) + point_pad("TB", "B", 31, -9)
+    inp, _ = input_of(pads, {"U1": u1})
+    g = run(inp, native, settings(pins_rotations=(0.0, 45.0)))
+    turned = next(r for r in g.results if r.poses == (("U1", 45.0, False),))
+    a = turned.paths["A"][0]
+    exit_a = a[0] if a[0] != (30.0, -10.0) else a[-1]
+    # the exit is pins.exit_mm past the turned courtyard's side, 2.75 mm from the centre on the diagonal; past the
+    # bounding box of the turned courtyard it would be 2.25 * 2 ** 0.5 + 0.5 = 3.68 mm
+    assert ((exit_a[0] - 10) ** 2 + (exit_a[1] - 10) ** 2) ** 0.5 == pytest.approx(2.75, abs=1e-6)
+    assert exit_a[0] - 10 == pytest.approx(10 - exit_a[1], abs=1e-6)              # north-east, on the diagonal
+    assert len(a) == 2                                                              # straight out to its target
+    b = turned.paths["B"][0]
+    corners = [p for p in b if p not in (b[0], b[-1])]
+    # the turned body's corners, grown by the exit margin, lie on the axes through its centre, 2.75 * 2 ** 0.5 out
+    assert corners
+    for x, y in corners:
+        assert ((x - 10) ** 2 + (y - 10) ** 2) ** 0.5 == pytest.approx(2.75 * 2 ** 0.5, abs=1e-6)
+        assert min(abs(x - 10), abs(y - 10)) == pytest.approx(0.0, abs=1e-6)
+
+
+def _diagonal(rotation, may_flip=False):
+    """U1 laid at `rotation`, A on its east pin and B on its west pin (as it is laid), their targets far out on the
+    board's north-east and south-west diagonals."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A"], "W": ["B"]}, {"Pm.PinPool": "1-2"}, rotation=rotation, may_flip=may_flip)
+    pads += point_pad("TA", "A", 30, -10) + point_pad("TB", "B", -10, 30)
+    return input_of(pads, {"U1": u1})[0]
+
+
+def test_a_part_laid_at_45_degrees_is_studied_in_its_own_frame_its_body_the_turned_courtyard(native):
+    inp = _diagonal(45.0)
+    (part,) = inp.parts
+    # the courtyard is 4.5 mm square: the box round it turned 45 degrees is 6.36 mm, the body stays 4.5
+    assert part.frame == 45.0 and (part.hw, part.hh) == (pytest.approx(2.25), pytest.approx(2.25))
+    assert inp.parts[0].pin("1").nx == 1.0 and inp.parts[0].pin("2").nx == -1.0
+    g = run(inp, native, settings(pins_rotations=(0.0,)))
+    (a,) = g.present_paths["A"]
+    exit_a = a[0] if a[0] != (30.0, -10.0) else a[-1]
+    assert ((exit_a[0] - 10) ** 2 + (exit_a[1] - 10) ** 2) ** 0.5 == pytest.approx(2.75, abs=1e-6)
+    assert len(a) == 2 and g.present.bend_deg < 1.0                      # both pins face their targets
+    assert pin(g.results[0], "A") == "1"
+
+
+def test_a_part_laid_at_45_degrees_scores_as_one_laid_square_and_studied_at_45(native):
+    laid = run(_diagonal(45.0), native, settings(pins_rotations=(0.0, 90.0)))
+    turned = run(_diagonal(0.0), native, settings(pins_rotations=(45.0, 135.0)))
+    for k in (0, 1):
+        a = laid.results[k].breakdown
+        b = turned.results[k + 1].breakdown
+        assert (a.against, a.among) == (b.against, b.among)
+        assert a.total == pytest.approx(b.total, abs=1e-6) and a.length_mm == pytest.approx(b.length_mm, abs=1e-6)
+    assert laid.present.total == pytest.approx(turned.results[1].breakdown.total, abs=1e-6)
+
+
+def test_a_part_laid_at_45_degrees_and_flipped_mirrors_its_pads_as_they_stand(native):
+    # flipping mirrors the pads where they stand, then turns them: laid at 45 and flipped at 90 is laid square and
+    # flipped at 45
+    s = settings(pins_rotations=(0.0, 45.0, 90.0), pins_faces=True)
+    laid = run(_diagonal(45.0, may_flip=True), native, s)
+    square = run(_diagonal(0.0, may_flip=True), native, s)
+    a = next(r for r in laid.results if r.poses == (("U1", 90.0, True),)).breakdown
+    b = next(r for r in square.results if r.poses == (("U1", 45.0, True),)).breakdown
+    assert (a.against, a.among) == (b.against, b.among) and a.total == pytest.approx(b.total, abs=1e-6)

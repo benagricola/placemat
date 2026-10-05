@@ -4,6 +4,8 @@ ways to take a turn (the cell turned on the board, or the module re-laid with th
 one module with different best maps are said."""
 import json
 
+import pytest
+
 from placemat import suggestions as sg
 from placemat.findings import FindingCause as C
 from placemat.pinmap import study_findings
@@ -394,3 +396,43 @@ def test_one_reader_gives_the_fragments_and_the_module_layouts_of_a_layout_log(t
                    "DEBUG: Found module c.u1 with layout_path: None\n")
     got = layout_log(log)
     assert got.fragments == {"c.u1": "c"} and got.layouts == {"c": "package://w/modules/Mcu/layout"}
+
+
+def rf_satellite():
+    """U1 with A and B on its east side, their targets far west: turned alone, U1 faces them at 180 degrees. C1 east of
+    it carries RF to an antenna far east: in one cell with U1, turning the cell half round takes RF the long way."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B"]}, {"Pm.PinPool": "1-2"})
+    pads += point_pad("TA", "A", -15, 12) + point_pad("TB", "B", -15, 8)
+    pads += two_pad("C1", "RF", "", 15, 10) + point_pad("ANT", "RF", 40, 10)
+    parts, cells = in_cell("logic", pads, {"U1": u1}, ["U1", "C1"])
+    return pads, parts, cells
+
+
+def test_a_controlled_impedances_length_counts_impedance_weight_times_so_a_cell_turn_that_lengthens_it_loses():
+    from types import SimpleNamespace
+    s = settings()
+    pads, parts, cells = rf_satellite()
+    plain, _ = input_of(pads, parts, cells=cells)
+    (g,) = study(plain, s)
+    turned = next(r for r in g.results if r.poses[0][1] == 180.0)
+    assert g.present.impedance_length_mm == 0.0 and best_turn(plain, s) == 180.0
+    rf, _ = input_of(pads, parts, cells=cells, netclasses={"RF": SimpleNamespace(tuning_profile="z50")})
+    assert next(n for n in rf.nets if n.net == "RF").controlled
+    (g,) = study(rf, s)
+    turned = next(r for r in g.results if r.poses[0][1] == 180.0)
+    assert turned.breakdown.impedance_length_mm > g.present.impedance_length_mm + 5.0     # RF goes round the cell
+    extra = s.pins_length_weight * (s.pins_impedance_weight - 1.0)
+    assert g.present.total == pytest.approx(g.present.weighted + s.pins_length_weight * g.present.length_mm
+                                            + s.pins_bend_weight * g.present.bend_deg
+                                            + extra * g.present.impedance_length_mm)
+    assert best_turn(rf, s) == 0.0
+
+
+def test_a_differential_pair_half_in_a_controlled_impedance_class_is_controlled_too():
+    from types import SimpleNamespace
+    pads, parts, cells = rf_satellite()
+    rf, _ = input_of(pads, parts, cells=cells, partners={"RF": "RF_N", "RF_N": "RF"},
+                     netclasses={"RF": SimpleNamespace(tuning_profile="z90")})
+    net = next(n for n in rf.nets if n.net == "RF")
+    assert net.kind == "pair" and net.controlled
+    assert best_turn(rf, settings()) == 0.0

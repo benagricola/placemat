@@ -315,11 +315,13 @@ class Settings:
     pins_pair_weight: float = S(5.0, "weight",
         "the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1)")
     pins_impedance_weight: float = S(3.0, "weight",
-        "the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance")
+        "the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance, and how many times over such a net's airwire length counts (a differential pair's half too)")
     pins_length_weight: float = S(0.25, "weight",
         "the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing)")
     pins_bend_weight: float = S(0.005, "weight",
         "the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target")
+    pins_group_weight: float = S(4.0, "weight",
+        "the pin map study: weighted crossings per mm a soft `Pm.PinGroup`'s neighbouring nets stand apart beyond the part's pin pitch")
     pins_follow_prefixes: tuple = S(("R", "L", "FB"), "list",
         "the pin map study follows a net on through a two-pad series part only when its reference's leading letters, in any case, equal one of these: a resistor, an inductor, a ferrite bead by default; RT1 is not followed for R, nor a two-pin connector")
     pins_rotations: tuple = S((0.0, 90.0, 180.0, 270.0), "degrees",
@@ -695,7 +697,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch",
-    "pins_exit_mm", "pins_pair_weight", "pins_impedance_weight", "pins_length_weight", "pins_bend_weight", "pins_anneal_start",
+    "pins_exit_mm", "pins_pair_weight", "pins_impedance_weight", "pins_length_weight", "pins_bend_weight", "pins_group_weight", "pins_anneal_start",
     "pins_anneal_end", "pins_gain_min", "pins_placed_share_min", "pins_explore_top"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.

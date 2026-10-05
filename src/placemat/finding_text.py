@@ -201,6 +201,9 @@ _PIN_PROBLEMS = {
     "not_in_pool": "%(key)s entry %(entry)s names pin %(name)s, which is not an unfixed pin of its Pm.PinPool; the study "
                    "runs without the group",
     "two_groups": "%(key)s entry %(entry)s names pin %(name)s, which an earlier group has; the study runs without it",
+    "bad_marker": "%(key)s entry %(entry)s marks its group with %(name)s, and a single ! (hard) is the only marker; the "
+                  "study runs without the group",
+    "same_name": "%(key)s entries %(entry)s name two groups %(name)s; the study runs without the second",
     "no_legal_pin": "net %(name)s has no pin of the pool left that %(key)s lets it take; %(ref)s is not studied",
     "no_legal_map": "no map gives every net a pin it may take: %(name)s has none left; %(ref)s is not studied",
     "present_breaks": "net %(name)s stands on pin %(pin)s, against its %(rule)s; the capture breaks its own rule",
@@ -223,23 +226,42 @@ def _weighted(n: float, how: str) -> str:
     return "%g %s weighted crossing%s" % (n, how, "" if n == 1 else "s")
 
 
-def _saving(present: dict, r: dict) -> str:
-    """What a pose's best map saves against the present one, in its plainest term (weighted crossings, else airwire,
-    else turning), and what it gives up on weighted crossings or airwire to win."""
+TOGETHER_MM = 0.05          # a soft group spread less than this is together, in the text
+
+
+def _saving(present: dict, r: dict, before=()) -> str:
+    """What a pose's best map saves against the present one: its plainest saving of weighted crossings, airwire or
+    turning, and each soft group it brings together or nearer (`before`: the groups as they stand), and what it gives
+    up on weighted crossings or airwire to win. A term that grows is never said as a negative saving."""
     dw = present["weighted"] - r["weighted"]
     dl = present["length_mm"] - r["length_mm"]
+    db = present["bend_deg"] - r["bend_deg"]
+    won = []
     if dw > 1e-9:
-        won = _weighted(dw, "fewer")
+        won.append(_weighted(dw, "fewer"))
     elif dl > 1e-9:
-        won = "%.1f mm less airwire" % dl
-    else:
-        won = "%.0f degrees less turning at its pins" % (present["bend_deg"] - r["bend_deg"])
+        won.append("%.1f mm less airwire" % dl)
+    elif db >= 0.5:
+        won.append("%.0f degrees less turning at its pins" % db)
+    was = {(g["ref"], g["name"]): g["spread_mm"] for g in before}
+    for g in r.get("groups", ()):
+        old = was.get((g["ref"], g["name"]))
+        if g["hard"] or old is None or g["spread_mm"] >= old - 1e-9:
+            continue
+        won.append("group %s %s" % (g["name"], "brought together" if g["spread_mm"] < TOGETHER_MM else "nearer together"))
+    if not won:
+        won.append("%.1f less in the total" % (present["total"] - r["total"]))
     lost = []
     if dw < -1e-9:
         lost.append(_weighted(-dw, "more"))
     if dl < -1e-9:
         lost.append("%.1f mm more airwire" % -dl)
-    return " and ".join([won] + lost)
+    return " and ".join(won + lost)
+
+
+def split_groups(row: dict) -> list:
+    """The soft groups a pose's map leaves split: spread at least TOGETHER_MM."""
+    return [g for g in row.get("groups", ()) if not g["hard"] and g["spread_mm"] >= TOGETHER_MM]
 
 
 def pose_text(turns: list) -> str:
@@ -323,13 +345,17 @@ def _pins_remap(f):
     rs, p = f["rotations"], f["present"]
     here, best = rs[0], rs[f["best"]]
     if here["total"] < p["total"] - 1e-9:
-        text = "%s: a pin map with %s exists at %s" % (who, _saving(p, here), their)
+        text = "%s: a pin map with %s exists at %s" % (who, _saving(p, here, f.get("present_groups", ())), their)
     else:
         text = "%s: no better pin map at %s" % (who, their)
     if f["best"] != 0:
-        text += "; %s, %s" % (at_pose(best["turns"]), _saving(p, best))
+        text += "; %s, %s" % (at_pose(best["turns"]), _saving(p, best, f.get("present_groups", ())))
         if any("cell" in t and (t["turn_deg"] or t["flip"]) for t in best["turns"]):
             text += "; to take that turn, " + levers_text(best["turns"])
+    split = split_groups(best)
+    if split:
+        text += "; " + "; ".join("group %s ends split, %.1f mm beyond its pin pitch" % (g["name"], g["spread_mm"])
+                                 for g in split)
     lead = next((t for t in best["turns"] if "cell" in t and t["cell"] == f.get("cell")), None)
     if lead is not None and any(m["ref"] == lead["ref"] for m in best["map"]):
         text += "; the map is a change to " + cell_capture(lead)
@@ -1161,3 +1187,4 @@ def _setup_centre_flag_default(f):
 # ------------------------------------------------------------------ schema versions of causes whose facts have changed
 FACTS_V[C.FIXED_ROOM_UNSETTLED] = 2     # a firm cell whose arrangement did not settle: item and arrangements, not copper
 FACTS_V[C.ARRANGEMENT_LIMIT] = 2        # excluded: how many combinations the module's exclusions leave out
+FACTS_V[C.PINS_REMAP] = 2               # controlled impedances' length, groups' spread, cohesion and landing

@@ -1179,6 +1179,9 @@ fn pinmap_indexes(
     posed: &[pinmap::Posed],
     movable: &[(usize, usize, Vec<usize>, i64)],
     groups: &[(usize, Vec<i64>, Vec<Vec<usize>>)],
+    soft: &[pinmap::Soft],
+    frames: &[f64],
+    controlled: &[bool],
     group_parts: &[usize],
     combos: &[Vec<(usize, f64, bool)>],
 ) -> Result<(), String> {
@@ -1220,6 +1223,22 @@ fn pinmap_indexes(
             return Err(format!("group {k}'s window"));
         }
     }
+    for (k, (part, _, members, windows)) in soft.iter().enumerate() {
+        let bad = |&(_, mv, q): &(usize, i64, i64)| {
+            mv < -1 || mv >= movable.len() as i64
+                || (mv < 0 && (q < 0 || !pin(*part, q as usize)))
+                || (mv >= 0 && ends[movable[mv as usize].0][movable[mv as usize].1].0 != *part)
+        };
+        if *part >= parts.len() || members.iter().any(bad) {
+            return Err(format!("soft group {k}'s part or member"));
+        }
+        if windows.iter().any(|w| members.iter().any(|m| m.0 >= w.len()) || w.iter().any(|&q| !pin(*part, q))) {
+            return Err(format!("soft group {k}'s window"));
+        }
+    }
+    if (!frames.is_empty() && frames.len() != parts.len()) || (!controlled.is_empty() && controlled.len() != n) {
+        return Err("a part's frame or a net's impedance flag: its length".into());
+    }
     if group_parts.iter().any(|&p| p >= parts.len()) || combos.iter().flatten().any(|c| c.0 >= parts.len()) {
         return Err("a group part or a pose's part".into());
     }
@@ -1242,12 +1261,16 @@ fn pinmap_search(
     posed: Vec<pinmap::Posed>,
     movable: Vec<(usize, usize, Vec<usize>, i64)>,
     groups: Vec<(usize, Vec<i64>, Vec<Vec<usize>>)>,
+    soft: Vec<pinmap::Soft>,
+    frames: Vec<f64>,
+    controlled: Vec<bool>,
     group_parts: Vec<usize>,
     combos: Vec<Vec<(usize, f64, bool)>>,
-    weights: (f64, f64, f64, f64, f64),
+    weights: (f64, f64, f64, f64, f64, f64),
     params: (f64, u32, u32, f64, f64, f64, f64, u64),
 ) -> PyResult<pinmap::SearchResult> {
-    pinmap_indexes(&parts, &pins, &nets, &fixed, &joined, &ends, &posed, &movable, &groups, &group_parts, &combos)
+    pinmap_indexes(&parts, &pins, &nets, &fixed, &joined, &ends, &posed, &movable, &groups, &soft, &frames, &controlled,
+                   &group_parts, &combos)
         .map_err(|what| PyValueError::new_err(format!("{what} out of range")))?;
     for (k, row) in pins.iter().enumerate() {
         for (number, _, _, nx, ny) in row {
@@ -1257,10 +1280,12 @@ fn pinmap_search(
             }
         }
     }
-    let (pair, impedance, plane, length, bend) = weights;
+    let (pair, impedance, plane, length, bend, group) = weights;
     let (margin, seeds, moves, t0, t1, budget_ms, step_ms, seed_key) = params;
-    let pb = pinmap::Problem { parts, pins, nets, fixed, joined, ends, wires, posed, movable, groups, margin };
-    let pr = pinmap::Params { w: [pair, impedance, plane, length, bend], seeds, moves, t0, t1, budget_ms, step_ms, seed_key };
+    let pb = pinmap::Problem { parts, pins, nets, fixed, joined, ends, wires, posed, movable, groups, soft, margin, frames,
+                               controlled };
+    let pr = pinmap::Params { w: [pair, impedance, plane, length, bend, group], seeds, moves, t0, t1, budget_ms, step_ms,
+                              seed_key };
     Ok(pinmap::search(&pb, &group_parts, &combos, &pr))
 }
 

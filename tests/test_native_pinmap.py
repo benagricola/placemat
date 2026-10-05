@@ -38,7 +38,7 @@ def both(inp, refs, s, step_ms=0.0):
 def constrained():
     pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D", "E", ""]},
                     {"Pm.PinPool": "1-6", "Pm.PinFixed": "1", "Pm.PinAllow": "B:2,3", "Pm.PinDeny": "C:3",
-                     "Pm.PinGroup": "bus:4-5"}, may_flip=True)
+                     "Pm.PinGroup": "bus!:4-5"}, may_flip=True)
     for i, net in enumerate("ABCDE"):
         pads += point_pad("T%d" % i, net, 20, 12.5 - i)
     return input_of(pads, {"U1": u1})[0]
@@ -53,7 +53,7 @@ def joint():
 def held():
     """A bus on 2-4 whose middle net a rule holds on 3: its present place is a window, first."""
     pads, u1 = quad("U1", 10, 10, {"E": ["A", "D", "E", "F", "", ""]},
-                    {"Pm.PinPool": "1-6", "Pm.PinAllow": "E:3", "Pm.PinGroup": "bus:2-4"}, may_flip=True)
+                    {"Pm.PinPool": "1-6", "Pm.PinAllow": "E:3", "Pm.PinGroup": "bus!:2-4"}, may_flip=True)
     for i, net in enumerate("ADEF"):
         pads += point_pad("T%d" % i, net, 20, 7.5 + i)
     return input_of(pads, {"U1": u1})[0]
@@ -62,7 +62,7 @@ def held():
 def gapped():
     """A bus on 1-3 with no net on 2, and a net whose target faces pin 2."""
     pads, u1 = quad("U1", 10, 10, {"E": ["D", "", "F", "S"], "S": ["G", ""]},
-                    {"Pm.PinPool": "1-6", "Pm.PinGroup": "bus:1-3"}, may_flip=True)
+                    {"Pm.PinPool": "1-6", "Pm.PinGroup": "bus!:1-3"}, may_flip=True)
     pads += point_pad("T1", "D", 20, 8.5) + point_pad("T2", "S", 14, 9.5) + point_pad("T3", "F", 20, 10.5)
     pads += point_pad("T4", "G", 4, 18) + point_pad("Q1", "X", 16, 4) + point_pad("Q2", "X", 17, 20)
     return input_of(pads, {"U1": u1})[0]
@@ -87,9 +87,53 @@ def beside():
     return input_of(pads + p2, {"U1": u1, "U2": u2})[0]
 
 
+def soft():
+    """A soft bus of four on the east side round a net a rule holds, one net's target far south past a fence of board
+    airwires, and free pins on the south side."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D", "E"], "S": ["", "", "", ""]},
+                    {"Pm.PinPool": "1-9", "Pm.PinAllow": "C:3", "Pm.PinGroup": "bus:1-5"}, body=6.0, may_flip=True)
+    for i, net in enumerate("ABCD"):
+        pads += point_pad("T%d" % i, net, 25, 8 + i)
+    pads += point_pad("T4", "E", 12, 30)
+    for k in range(3):
+        pads += point_pad("Q%da" % k, "X%d" % k, 12.6, 20 + k) + point_pad("Q%db" % k, "X%d" % k, 20, 20 + k)
+    return input_of(pads, {"U1": u1})[0]
+
+
+def rf_cell():
+    """U1 in a cell with C1, whose RF net (a controlled impedance) runs to an antenna far east, and a net inside the
+    cell: their lengths turn with the cell."""
+    from tests.pinmap_boards import in_cell, two_pad
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B"], "S": ["IN"]}, {"Pm.PinPool": "1-2", "Pm.PinGroup": "ab:1-2"})
+    pads += point_pad("TA", "A", -15, 12) + point_pad("TB", "B", -15, 8)
+    pads += two_pad("C1", "RF", "IN", 15, 10) + point_pad("ANT", "RF", 40, 10)
+    parts, cells = in_cell("logic", pads, {"U1": u1}, ["U1", "C1"])
+    return input_of(pads, parts, cells=cells, netclasses={"RF": SimpleNamespace(tuning_profile="z50")})[0]
+
+
+def laid_diagonal():
+    """U1 laid at 45 degrees, a part that may flip, with a bus and a plane net: studied in its own frame."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C"], "S": ["", ""], "N": ["GND"]},
+                    {"Pm.PinPool": "1-5", "Pm.PinGroup": "ab:1-2"}, rotation=45.0, may_flip=True)
+    pads += point_pad("TA", "A", 30, -8) + point_pad("TB", "B", 28, -11) + point_pad("TC", "C", -6, 25)
+    pads += point_pad("J1", "GND", 2, 2) + point_pad("Q1", "X", 12, -4) + point_pad("Q2", "X", 24, 6)
+    return input_of(pads, {"U1": u1}, quiet={"GND"})[0]
+
+
+def cell_at_30():
+    """U1 and C1 in a cell standing at 30 degrees, C1's net a controlled impedance to an antenna."""
+    from tests.pinmap_boards import in_cell, two_pad
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B"], "W": ["", ""]}, {"Pm.PinPool": "1-4"}, rotation=30.0)
+    pads += point_pad("TA", "A", -15, 12) + point_pad("TB", "B", 25, -8)
+    pads += two_pad("C1", "RF", "", 15, 12) + point_pad("ANT", "RF", 40, 10)
+    parts, cells = in_cell("logic", pads, {"U1": u1}, ["U1", "C1"], rotation=30.0)
+    return input_of(pads, parts, cells=cells, netclasses={"RF": SimpleNamespace(tuning_profile="z50")})[0]
+
+
 CASES = {"four": (lambda: input_of(*reversed_four())[0], ("U1",)), "constrained": (constrained, ("U1",)),
          "joint": (joint, ("U1", "U2")), "held": (held, ("U1",)), "gapped": (gapped, ("U1",)),
-         "grounded": (grounded, ("U1",)), "beside": (beside, ("U1",))}
+         "grounded": (grounded, ("U1",)), "beside": (beside, ("U1",)), "soft": (soft, ("U1",)),
+         "rf_cell": (rf_cell, ("U1",)), "laid_diagonal": (laid_diagonal, ("U1",)), "cell_at_30": (cell_at_30, ("U1",))}
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
@@ -100,7 +144,7 @@ def test_the_native_core_is_the_twin_on_fixed_cases(case, turns):
     assert native == python
 
 
-@pytest.mark.parametrize("case", ["held", "gapped"])
+@pytest.mark.parametrize("case", ["held", "gapped", "soft"])
 def test_the_native_core_is_the_twin_at_the_present_pose_with_a_short_search(case):
     # one seed of 100 moves: the present map, or the first, is kept as the best where the search finds worse
     make, refs = CASES[case]
@@ -133,8 +177,11 @@ def random_board(seed):
     n = sum(len(v) for v in sides.values())
     fields = {"Pm.PinPool": "1-%d" % (n - 1 if quiet else n)}
     if rng.random() < 0.6:
-        start = rng.randint(1, n - 3 if quiet else n - 2)
-        fields["Pm.PinGroup"] = "bus:%d-%d" % (start, start + 2)
+        size = rng.choice((3, 4))
+        start = rng.randint(1, max(1, (n - 1 if quiet else n) - size + 1))
+        fields["Pm.PinGroup"] = "bus%s:%d-%d" % (rng.choice(("", "!")), start, start + size - 1)
+    if rng.random() < 0.4:
+        fields["Pm.PinFixed"] = str(rng.randint(1, n - 1 if quiet else n))
     pads, u1 = quad("U1", 15, 15, sides, fields, body=rng.choice((4.0, 6.0)), rotation=rng.choice((0.0, 0.0, 90.0, 45.0)),
                     may_flip=True)
     for i, net in enumerate(nets):
@@ -151,7 +198,7 @@ def random_board(seed):
     return input_of(pads, {"U1": u1}, quiet={"GND"} if quiet else frozenset(), partners=partners, netclasses=netclasses)[0]
 
 
-@pytest.mark.parametrize("seed", range(16))
+@pytest.mark.parametrize("seed", range(24))
 def test_the_native_core_is_the_twin_on_random_boards(seed):
     inp = random_board(seed)
     if inp is None:

@@ -9,6 +9,10 @@ still one cluster, as KiCad has them.
 A net that reaches a studied pin through a two-pad series part (a termination resistor) and nothing else is followed on
 to the series part's far net, as one connection (`pins.follow_series`).
 
+A part standing off the axes (at 45 degrees, say) is studied in its own frame, turned with it: its body is its
+courtyard as turned, not the box round it, and its pins face that body's sides; a cell off the axes likewise, its
+envelope the box round its members' courtyards in the cell's frame.
+
 A studied part that is a member of a cell (a stamped module instance) is studied as the cell: its body is the cell's
 envelope, centred on the envelope's centre, and it holds every member's pads, so its poses turn the whole cell. Only the
 part's own pool pins move; its pins keep the outward normals of its own courtyard and leave by that side of the
@@ -21,10 +25,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import hashlib
+import math
 from pathlib import Path
 import re
 from typing import NamedTuple
 
+from .pinmap_geom import Pose
 from .ratsnest import Anchor, board_nets, mst
 from .values import Box, Location
 
@@ -57,6 +63,7 @@ class PlacedPart:
     may_flip: bool = False
     fields: dict = field(default_factory=dict, compare=False)
     cell: str = ""              # the cell it is a member of, if any
+    outline: tuple = ()         # its courtyard's points where it stands, board frame; () for its box's corners
 
 
 @dataclass(frozen=True)
@@ -77,12 +84,13 @@ class PlacedCell:
     module_key: str = ""
     arrangement: str = "default"
     missing: tuple = ()
+    outline: tuple = ()         # the points its envelope bounds (members' courtyards, own copper); () for its corners
 
 
 @dataclass(frozen=True)
 class Pin:
-    """A studied part's pad: its anchor in the part's own frame (the body box's centre, as the part stands) and the
-    outward normal of the box side it is nearest. A cell's other members' pads are pins of the part studied as the cell:
+    """A studied part's pad: its anchor in the part's own frame (from the body box's centre, turned with the part when
+    it stands off the axes: StudiedPart.frame) and the outward normal of the box side it is nearest, in that frame. A cell's other members' pads are pins of the part studied as the cell:
     `owner` and `pad` name the member and its pad, and `number` is a label unique on the part."""
     number: str
     name: str
@@ -112,6 +120,8 @@ class StudiedPart:
     slots: object               # pinmap_rules.PartPins
     cell: str = ""              # the cell it is studied as, if any
     at: tuple = ()              # its own courtyard box's centre
+    pitch: float = 0.0          # its pin pitch: the least distance between two of its own pads' anchors, in mm
+    frame: float = 0.0          # its frame's turn from the board's: what its rotation (its cell's) is off the axes
 
     def pin(self, number: str) -> Pin:
         return next(p for p in self.pins if p.number == number)
@@ -121,7 +131,8 @@ class StudiedPart:
 class StudyNet:
     """A net with a pad on a studied part. `fixed` are its anchors on other parts, `joined` index pairs of them that
     touch, `ends` its (ref, pad number) on studied parts as they stand. A followed net keeps its own name and carries the
-    series part (`via`) and the net it is followed on to (`far`), whose anchors are its `fixed`."""
+    series part (`via`) and the net it is followed on to (`far`), whose anchors are its `fixed`. `controlled`: its net
+    class (or its far net's) names a tuning profile, a controlled impedance, whatever its crossing class."""
     net: str
     kind: str
     fixed: tuple
@@ -129,6 +140,7 @@ class StudyNet:
     ends: tuple
     via: str = ""
     far: str = ""
+    controlled: bool = False
 
 
 @dataclass(frozen=True)
@@ -279,30 +291,48 @@ def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dic
         part, mine = parts[ref], of_ref.get(ref, [])
         cell = cells.get(cell_of.get(ref, ""))
         own = part.courtyard.center
-        ohw, ohh = part.courtyard.width / 2.0, part.courtyard.height / 2.0
         body = cell.envelope if cell is not None else part.courtyard
-        c = body.center
-        hw, hh = body.width / 2.0, body.height / 2.0
+        turn = off_axes(cell.rotation if cell is not None else part.rotation)
+        if turn == 0.0:
+            ohw, ohh = part.courtyard.width / 2.0, part.courtyard.height / 2.0
+            c = body.center
+            hw, hh = body.width / 2.0, body.height / 2.0
+            local = lambda x, y: (x - c.x, y - c.y)
+            normal = lambda x, y: outward(x - own.x, y - own.y, ohw, ohh)
+        else:
+            # the part's frame turned with it: its body is its courtyard (its cell's envelope) as turned, not the box
+            # round it, and its pins face that body's sides
+            pts = (cell.outline or _corners(cell.envelope)) if cell is not None else (part.outline or _corners(part.courtyard))
+            c, hw, hh = _framed(body.center, turn, pts)
+            frame = Pose(c.x, c.y, turn)
+            oc, ohw, ohh = _framed(own, turn, part.outline or _corners(part.courtyard))
+            ox, oy = frame.to_local(oc.x, oc.y)
+            local = frame.to_local
+            normal = lambda x, y: outward(frame.to_local(x, y)[0] - ox, frame.to_local(x, y)[1] - oy, ohw, ohh)
         pins = []
         for p in mine:
-            nx, ny = outward(p.anchor.x - own.x, p.anchor.y - own.y, ohw, ohh)
-            pins.append(Pin(p.number, names.get(ref, {}).get(p.number, ""), p.anchor.x - c.x, p.anchor.y - c.y, nx, ny))
+            nx, ny = normal(p.anchor.x, p.anchor.y)
+            x, y = local(p.anchor.x, p.anchor.y)
+            pins.append(Pin(p.number, names.get(ref, {}).get(p.number, ""), x, y, nx, ny))
             end_of[(ref, p.number)] = (ref, p.number)
         if cell is not None and lead[cell.name] == ref:
             for m in cell.members:
                 if m in slots_of:
                     continue
                 for p in of_ref.get(m, []):
-                    x, y = p.anchor.x - c.x, p.anchor.y - c.y
+                    x, y = local(p.anchor.x, p.anchor.y)
                     label = "%s:%s" % (m, p.number)
                     nx, ny = outward(x, y, hw, hh)
                     pins.append(Pin(label, "", x, y, nx, ny, m, p.number))
                     end_of[(m, p.number)] = (ref, label)
         studied.append(StudiedPart(ref, c.x, c.y, hw, hh, part.rotation, part.face, part.may_flip and cell is None,
-                                   tuple(pins), slots_of[ref], cell.name if cell is not None else "", (own.x, own.y)))
+                                   tuple(pins), slots_of[ref], cell.name if cell is not None else "", (own.x, own.y),
+                                   pitch_of([(p.anchor.x, p.anchor.y) for p in mine]) if slots_of[ref].places else 0.0,
+                                   turn))
     on = {r for r, _ in end_of}
     in_cell = {s.ref for s in studied if s.cell}
     kind = lambda n: net_kind(n, quiet, partners, netclasses)
+    controlled = lambda n: n not in quiet and bool(getattr(netclasses.get(n), "tuning_profile", ""))
     out_of = {net: (r, via, far) for (r, net), (via, far) in cell_follow.items() if r in slots_of}
     nets, used = [], {far for _, _, far in out_of.values()}
     for net in sorted(by_net):
@@ -314,7 +344,8 @@ def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dic
             fa, fj = by_net[far]
             fixed = _fixed(fa, fj, [i for i, a in enumerate(fa) if a.ref not in on])
             ends = tuple(sorted((end_of[(a.ref, a.number)] for a in anchors if a.ref == r), key=lambda e: natural(e[1])))
-            nets.append(StudyNet(net, max(kind(net), kind(far), key=KINDS.index), fixed[0], fixed[1], ends, via, far))
+            nets.append(StudyNet(net, max(kind(net), kind(far), key=KINDS.index), fixed[0], fixed[1], ends, via, far,
+                                 controlled(net) or controlled(far)))
             continue
         ends = tuple(sorted({end_of[(a.ref, a.number)] for a in anchors if a.ref in on}, key=lambda e: (e[0], natural(e[1]))))
         bodies = {b for b, _ in ends}
@@ -330,7 +361,7 @@ def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dic
             via, far, fixed = followed
             used.add(far)
             k = max(k, kind(far), key=KINDS.index)
-        nets.append(StudyNet(net, k, fixed[0], fixed[1], ends, via, far))
+        nets.append(StudyNet(net, k, fixed[0], fixed[1], ends, via, far, controlled(net) or (bool(far) and controlled(far))))
     studied_nets = {n.net for n in nets}
     background, posed = [], []
     for net in sorted(by_net):
@@ -356,6 +387,38 @@ def build(pads, parts: dict, names: dict, quiet, partners: dict, netclasses: dic
     return StudyInput(tuple(studied), tuple(nets), tuple(background),
                       {s.ref: dict(names.get(s.ref, {})) for s in studied}, tuple(posed),
                       tuple(cells[n] for n in sorted({s.cell for s in studied if s.cell})), tuple(waits), inside), problems
+
+
+def off_axes(rotation: float) -> float:
+    """What a rotation is off the axes, in degrees from 0 up to 90; 0 within a millionth of a degree of a quarter
+    turn, where a box turned with the part is still a box."""
+    r = rotation % 90.0
+    return 0.0 if r < 1e-6 or r > 90.0 - 1e-6 else r
+
+
+def _corners(b: Box) -> tuple:
+    return ((b.left, b.top), (b.right, b.top), (b.right, b.bottom), (b.left, b.bottom))
+
+
+def _framed(near, turn: float, points) -> tuple:
+    """(centre, half width, half height) of the box round `points` in a frame turned `turn` degrees: the centre on the
+    board, the half sizes in that frame. `near` is any point near them, the frame's origin while they are measured."""
+    f = Pose(near.x, near.y, turn)
+    loc = [f.to_local(x, y) for x, y in points]
+    xs, ys = [p[0] for p in loc], [p[1] for p in loc]
+    cx, cy = f.to_board((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+    return Location(cx, cy), (max(xs) - min(xs)) / 2.0, (max(ys) - min(ys)) / 2.0
+
+
+def pitch_of(points) -> float:
+    """The least distance between two of `points` (a part's pad anchors) that do not coincide, 0 for none."""
+    best = None
+    for i, (x, y) in enumerate(points):
+        for u, v in points[i + 1:]:
+            d = math.hypot(u - x, v - y)
+            if d > 1e-9 and (best is None or d < best):
+                best = d
+    return best or 0.0
 
 
 def _series(ref: str, of_ref, prefixes) -> bool:
@@ -448,7 +511,7 @@ def placed_from_geometry(geometry, either=frozenset(), cell_rotations=None) -> P
             pads.append(PlacedPad(fp.ref, p.number, p.net, frozenset(p.layers), tuple(p.outlines), p.box, p.airwire_end,
                                   p.no_connect))
         parts[fp.ref] = PlacedPart(fp.ref, fp.courtyard_box, fp.rotation, fp.face.value, fp.ref in either, dict(fp.fields),
-                                   fp.cell or "")
+                                   fp.cell or "", tuple(fp.courtyard_poly) or _corners(fp.courtyard_box))
     modules = cell_modules(geometry)
     stamps = stamp_counts(modules)
     turned = dict(cell_rotations or {})
@@ -460,7 +523,8 @@ def placed_from_geometry(geometry, either=frozenset(), cell_rotations=None) -> P
         module, key = modules[name]
         face = max(cg.members, key=lambda fp: (len(fp.pads), fp.ref)).face.value
         cells[name] = PlacedCell(name, members, cg.courtyard_box, float(turned.get(name, 0.0)), face, face != "front",
-                                 module, stamps[key], key, cg.arrangement or "default")
+                                 module, stamps[key], key, cg.arrangement or "default",
+                                 outline=tuple(p for r in members for p in parts[r].outline))
     return Placed(pads, parts, cells, ())
 
 

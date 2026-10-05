@@ -3,16 +3,23 @@
 //! combination of their poses, returns the best assignment of the movable nets to pins with its tallies.
 //!
 //! - Score: weighted crossings of the studied nets' airwires against the board's other airwires (on a 2 mm grid) and
-//!   among themselves, plus `length` times their length in mm, plus `bend` times their summed bend in degrees. A net's
-//!   airwires are the minimum spanning tree of its pads (`ratsnest::mst`), each studied pin at its exit point and each
-//!   airwire to one taken round the body (pinmap_geom.rs).
+//!   among themselves, plus `length` times their length in mm, plus `bend` times their summed bend in degrees, plus the
+//!   controlled impedances' extra length, plus `group` times the soft groups' spread. A net's airwires are the minimum
+//!   spanning tree of its pads (`ratsnest::mst`), each studied pin at its exit point and each airwire to one taken
+//!   round the body (pinmap_geom.rs).
+//! - A studied net in a controlled impedance's class (`controlled`, a differential pair's half too) counts its length
+//!   `impedance` times over.
+//! - Frames: a part standing off the axes keeps its own frame (`frames`): its present pose is turned by it.
+//! - Cohesion: per soft group, the sum over its neighbouring members (in its written order) of how far their pins'
+//!   anchors stand apart beyond the pin pitch times the slots between them; an intact group in order spreads 0.
 //! - Background: the board's other airwires. Those of a net with a pad on a studied part (a plane's, on the part's
 //!   ground pins) are not fixed: `posed` carries such a net's pads, and at each pose its tree is worked out again with
 //!   the part's pads turned with it, after the fixed wires in the order a segment meets its candidates.
 //! - Incremental: a net's airwires, its crossings with the background and with each other net are kept per placing of
 //!   its ends, so a move recounts only the nets it touches.
-//! - Search: a first map (each group on the cheapest run of pins that leaves the rest a matching, then a minimum-cost
-//!   matching), then per seed `moves` moves, swaps and group moves under annealing from `t0` down to `t1`, the clock
+//! - Search: a first map (each hard group, then each soft group, on the cheapest run of pins that leaves the rest a
+//!   matching, then a minimum-cost matching), then per seed `moves` moves, swaps and group moves (a soft group's too)
+//!   under annealing from `t0` down to `t1`, the clock
 //!   checked every 32 moves and between poses. The random stream is SplitMix64, the twin's.
 
 use crate::exact::hypot;
@@ -23,14 +30,15 @@ use std::rc::Rc;
 use std::time::Instant;
 
 pub const CELL_NM: i64 = 2_000_000; // pinmap_twin.CELL_NM
+const SPREAD_SLACK_MM: f64 = 1e-3; // pinmap_twin.SPREAD_SLACK_MM
 const PAIR: u8 = 1;
 const IMPEDANCE: u8 = 2;
 const PLANE: u8 = 3;
 
 /// (ax, ay, bx, by, minx, miny, maxx, maxy) in whole nanometres.
 pub type Seg = [i64; 8];
-/// (total, against, among, weighted, length, bend).
-pub type Tallies = (f64, i64, i64, f64, f64, f64);
+/// (total, against, among, weighted, length, bend, controlled impedances' length, spread, cohesion).
+pub type Tallies = (f64, i64, i64, f64, f64, f64, f64, f64, f64);
 pub type Paths = Vec<(usize, Vec<Vec<(f64, f64)>>)>;
 
 /// A part (ref, cx, cy, hw, hh), or a pin (number, x, y, nx, ny).
@@ -38,6 +46,9 @@ pub type Row = (String, f64, f64, f64, f64);
 
 /// A background net with a pad on a studied part (`Problem::posed`).
 pub type Posed = (u8, Vec<(f64, f64, String, String, i64, i64)>, Vec<(usize, usize)>);
+/// A soft group (`Problem::soft`): its part, the part's pin pitch, its members (slot in the group, movable or -1, pin
+/// or -1), and the windows the first map may start it on (a pin per slot).
+pub type Soft = (usize, f64, Vec<(usize, i64, i64)>, Vec<Vec<usize>>);
 
 /// A study as `pinmap_core.Problem` holds it.
 pub struct Problem {
@@ -53,12 +64,18 @@ pub struct Problem {
     pub posed: Vec<Posed>,
     pub movable: Vec<(usize, usize, Vec<usize>, i64)>,
     pub groups: Vec<(usize, Vec<i64>, Vec<Vec<usize>>)>,
+    /// The soft groups: a movable member's pin is where the assignment puts it, a held one's is its own.
+    pub soft: Vec<Soft>,
     pub margin: f64,
+    /// Per part, its frame's turn from the board's (a part standing off the axes keeps its own); empty for none.
+    pub frames: Vec<f64>,
+    /// Per net, whether it is a controlled impedance's; empty for none.
+    pub controlled: Vec<bool>,
 }
 
-/// (pair, impedance, plane, length, bend) weights and the search's own figures.
+/// (pair, impedance, plane, length, bend, group) weights and the search's own figures.
 pub struct Params {
-    pub w: [f64; 5],
+    pub w: [f64; 6],
     pub seeds: u32,
     pub moves: u32,
     pub t0: f64,
@@ -116,7 +133,7 @@ impl Clock {
     }
 }
 
-fn one(w: &[f64; 5], k: u8) -> f64 {
+fn one(w: &[f64; 6], k: u8) -> f64 {
     match k {
         PAIR => w[0],
         IMPEDANCE => w[1],
@@ -125,7 +142,7 @@ fn one(w: &[f64; 5], k: u8) -> f64 {
 }
 
 /// What a crossing of classes `a` and `b` counts.
-pub fn crossing(w: &[f64; 5], a: u8, b: u8) -> f64 {
+pub fn crossing(w: &[f64; 6], a: u8, b: u8) -> f64 {
     if a == PLANE || b == PLANE {
         return w[2];
     }
@@ -172,14 +189,14 @@ fn cells(s: &Seg) -> Vec<(i64, i64)> {
 }
 
 struct Background {
-    w: [f64; 5],
+    w: [f64; 6],
     kinds: Vec<u8>,
     segs: Vec<Seg>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
 
 impl Background {
-    fn new(wires: &[(u8, i64, i64, i64, i64)], w: [f64; 5]) -> Background {
+    fn new(wires: &[(u8, i64, i64, i64, i64)], w: [f64; 6]) -> Background {
         let kept: Vec<&(u8, i64, i64, i64, i64)> = wires.iter().filter(|x| !(x.0 == PLANE && w[2] <= 0.0)).collect();
         let segs: Vec<Seg> = kept.iter().map(|x| [x.1, x.2, x.3, x.4, x.1.min(x.3), x.2.min(x.4), x.1.max(x.3), x.2.max(x.4)]).collect();
         let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
@@ -225,10 +242,52 @@ impl Background {
     }
 }
 
+/// What `mm` of a controlled impedance's airwire adds to the plain length term (`pinmap_twin.impedance_extra`).
+fn impedance_extra(w: &[f64; 6], mm: f64) -> f64 {
+    w[3] * (w[1] - 1.0) * mm
+}
+
+fn frame(pb: &Problem, part: usize) -> f64 {
+    if pb.frames.is_empty() { 0.0 } else { pb.frames[part] }
+}
+
+/// Whether `pose` is the part's present one (`pinmap_twin._present`).
+fn present(pb: &Problem, part: usize, pose: &Pose) -> bool {
+    pose.turn == frame(pb, part) && !pose.flip
+}
+
+/// Part `part` turned `turn` degrees from where it stands, flipped first when `flip` (`pinmap_twin.pose_at`).
+fn pose_at(pb: &Problem, part: usize, turn: f64, flip: bool) -> Pose {
+    let f = frame(pb, part);
+    Pose::new(pb.parts[part].1, pb.parts[part].2, if flip { turn - f } else { f + turn }, flip)
+}
+
+/// Soft group `g`'s spread with each movable member on `pin_of(movable)` and each held one on its pin
+/// (`pinmap_twin.spread_at`, a gap counted as `pinmap_twin.spread` counts it); with `held_only`, only the gaps beside
+/// a held member count.
+fn spread_at(pb: &Problem, g: usize, pin_of: impl Fn(usize) -> usize, held_only: bool) -> f64 {
+    let (part, pitch, members, _) = &pb.soft[g];
+    let mut out = 0.0;
+    let mut prev: Option<(usize, f64, f64, i64)> = None;
+    for &(slot, mv, pin) in members {
+        let row = &pb.pins[*part][if mv >= 0 { pin_of(mv as usize) } else { pin as usize }];
+        if let Some((ps, px, py, pm)) = prev
+            && (!held_only || mv < 0 || pm < 0)
+        {
+            let d = hypot(row.1 - px, row.2 - py) - (slot - ps) as f64 * pitch;
+            if d > SPREAD_SLACK_MM {
+                out += d;
+            }
+        }
+        prev = Some((slot, row.1, row.2, mv));
+    }
+    out
+}
+
 /// The posed nets' airwires at `poses` (one per part): each net's tree over its pads, a pad of a part at a pose other
 /// than its present one turned with the part about its centre, the rest where they stand. A plane's are left out when
 /// its crossings weigh nothing, as the fixed wires' are.
-pub fn posed_wires(pb: &Problem, poses: &[Pose], w: &[f64; 5]) -> Vec<(u8, Seg)> {
+pub fn posed_wires(pb: &Problem, poses: &[Pose], w: &[f64; 6]) -> Vec<(u8, Seg)> {
     let mut out = Vec::new();
     for (kind, pads, joined) in &pb.posed {
         if *kind == PLANE && w[2] <= 0.0 {
@@ -237,7 +296,7 @@ pub fn posed_wires(pb: &Problem, poses: &[Pose], w: &[f64; 5]) -> Vec<(u8, Seg)>
         let at: Vec<(f64, f64, String, String)> = pads.iter().map(|a| {
             let (x, y) = if a.4 >= 0 {
                 let pose = poses[a.4 as usize];
-                if pose.turn == 0.0 && !pose.flip {
+                if present(pb, a.4 as usize, &pose) {
                     (a.0, a.1)
                 } else {
                     let pin = &pb.pins[a.4 as usize][a.5 as usize];
@@ -284,12 +343,17 @@ type Pins = Vec<usize>;
 struct Scorer<'a> {
     pb: &'a Problem,
     poses: Vec<Pose>,
-    w: [f64; 5],
+    w: [f64; 6],
     bg: &'a Background,
     extra: Vec<(u8, Seg)>,
     /// Per net, whether it has an end on a part of the group: only such nets' own terms, and pairs with one of them,
     /// count in the group's total.
     mine: Vec<bool>,
+    /// Per net, whether it is a controlled impedance's: its length counts `impedance` times over.
+    controlled: Vec<bool>,
+    /// The soft groups on the group's parts, and per net the ones it is a movable member of.
+    soft: Vec<usize>,
+    soft_of: HashMap<usize, Vec<usize>>,
     exits: HashMap<(usize, usize), Exit>,
     wires: HashMap<(usize, Pins), Rc<NetWires>>,
     single: HashMap<(usize, Pins), (f64, f64, i64)>,
@@ -297,10 +361,21 @@ struct Scorer<'a> {
 }
 
 impl<'a> Scorer<'a> {
-    fn new(pb: &'a Problem, poses: Vec<Pose>, w: [f64; 5], bg: &'a Background, group_parts: &[usize]) -> Scorer<'a> {
+    fn new(pb: &'a Problem, poses: Vec<Pose>, w: [f64; 6], bg: &'a Background, group_parts: &[usize]) -> Scorer<'a> {
         let extra = posed_wires(pb, &poses, &w);
         let mine = pb.ends.iter().map(|e| e.iter().any(|x| group_parts.contains(&x.0))).collect();
-        Scorer { pb, poses, w, bg, extra, mine, exits: HashMap::new(), wires: HashMap::new(), single: HashMap::new(), pair: HashMap::new() }
+        let controlled = if pb.controlled.is_empty() { vec![false; pb.ends.len()] } else { pb.controlled.clone() };
+        let soft: Vec<usize> = (0..pb.soft.len()).filter(|&g| group_parts.contains(&pb.soft[g].0)).collect();
+        let mut soft_of: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &g in &soft {
+            for &(_, mv, _) in &pb.soft[g].2 {
+                if mv >= 0 {
+                    soft_of.entry(pb.movable[mv as usize].0).or_default().push(g);
+                }
+            }
+        }
+        Scorer { pb, poses, w, bg, extra, mine, controlled, soft, soft_of, exits: HashMap::new(),
+                 wires: HashMap::new(), single: HashMap::new(), pair: HashMap::new() }
     }
 
     fn exit(&mut self, part: usize, pin: usize) -> Exit {
@@ -371,7 +446,11 @@ impl<'a> Scorer<'a> {
         }
         let nw = self.wires(net, pins);
         let (weighted, count) = self.bg.cross(self.pb.nets[net].1, &nw.segs, &self.extra);
-        let hit = (weighted + self.w[3] * nw.length + self.w[4] * nw.bend, weighted, count);
+        let mut term = weighted + self.w[3] * nw.length + self.w[4] * nw.bend;
+        if self.controlled[net] {
+            term += impedance_extra(&self.w, nw.length);
+        }
+        let hit = (term, weighted, count);
         self.single.insert((net, pins.clone()), hit);
         hit
     }
@@ -394,8 +473,22 @@ impl<'a> Scorer<'a> {
         hit
     }
 
+    /// Soft group `g`'s spread with its movables where `assign` puts them, but the nets in `changes` where it puts them
+    /// (`pinmap_twin.Scorer.spread`).
+    fn spread(&self, g: usize, assign: &[Pins], changes: Option<&BTreeMap<usize, Pins>>) -> f64 {
+        let pb = self.pb;
+        spread_at(pb, g, |mv| {
+            let m = &pb.movable[mv];
+            match changes.and_then(|c| c.get(&m.0)) {
+                Some(pins) => pins[m.1],
+                None => assign[m.0][m.1],
+            }
+        }, false)
+    }
+
     fn total(&mut self, assign: &[Pins]) -> Tallies {
         let (mut weighted, mut against, mut among, mut ln, mut bd) = (0.0, 0i64, 0i64, 0.0, 0.0);
+        let (mut im, mut xi) = (0.0, 0.0);
         for (n, pins) in assign.iter().enumerate() {
             if !self.mine[n] {
                 continue;
@@ -406,6 +499,10 @@ impl<'a> Scorer<'a> {
             against += c;
             ln += nw.length;
             bd += nw.bend;
+            if self.controlled[n] {
+                im += nw.length;
+                xi += impedance_extra(&self.w, nw.length);
+            }
         }
         for a in 0..assign.len() {
             for b in a + 1..assign.len() {
@@ -417,7 +514,12 @@ impl<'a> Scorer<'a> {
                 among += c;
             }
         }
-        (weighted + self.w[3] * ln + self.w[4] * bd, against, among, weighted, ln, bd)
+        let mut sp = 0.0;
+        for &g in &self.soft {
+            sp += self.spread(g, assign, None);
+        }
+        let co = self.w[5] * sp;
+        (weighted + self.w[3] * ln + self.w[4] * bd + xi + co, against, among, weighted, ln, bd, im, sp, co)
     }
 
     fn paths(&mut self, assign: &[Pins]) -> Paths {
@@ -463,6 +565,10 @@ impl Tally {
             for &m in &moved[i + 1..] {
                 d += sc.pair(n, &changes[&n], m, &changes[&m]).0 - sc.pair(n, &now[n], m, &now[m]).0;
             }
+        }
+        let touched: BTreeSet<usize> = moved.iter().filter_map(|n| sc.soft_of.get(n)).flatten().copied().collect();
+        for g in touched {
+            d += sc.w[5] * sc.spread(g, now, Some(changes)) - sc.w[5] * sc.spread(g, now, None);
         }
         d
     }
@@ -645,6 +751,45 @@ fn first_map(sc: &mut Scorer, group_parts: &[usize], start: &[Pins]) -> (Vec<Pin
                 }
             }
         }
+        let mut placed: BTreeSet<usize> = BTreeSet::new();
+        for (g, (gpart, _, members, windows)) in pb.soft.iter().enumerate() {
+            if *gpart != part {
+                continue;
+            }
+            let mine: Vec<(usize, usize)> = members.iter().filter(|m| m.1 >= 0 && !placed.contains(&(m.1 as usize)))
+                .map(|m| (m.0, m.1 as usize)).collect();
+            let rest: Vec<usize> = singles.iter().copied()
+                .filter(|k| !placed.contains(k) && !mine.iter().any(|&(_, mv)| mv == *k)).collect();
+            let mut ranked: Vec<(f64, usize)> = Vec::new();
+            for (wi, win) in windows.iter().enumerate() {
+                if mine.iter().any(|&(slot, _)| used.contains(&win[slot])) {
+                    continue;
+                }
+                let mut c = 0.0;
+                for &(slot, mv) in &mine {
+                    c += target_cost(sc, mv, win[slot], &assign);
+                }
+                c += sc.w[5] * spread_at(pb, g, |mv| match mine.iter().find(|m| m.1 == mv) {
+                    Some(&(slot, _)) => win[slot],
+                    None => assign[pb.movable[mv].0][pb.movable[mv].1],
+                }, true);
+                ranked.push((c, wi));
+            }
+            ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            for (_, wi) in &ranked {
+                let mut trial = used.clone();
+                trial.extend(mine.iter().map(|&(slot, _)| windows[*wi][slot]));
+                if matching(sc, &rest, &trial, &assign).1.is_some() {
+                    used = trial;
+                    for &(slot, mv) in &mine {
+                        changes.insert(mv, windows[*wi][slot]);
+                        placed.insert(mv);
+                    }
+                    break;
+                }
+            }
+        }
+        let singles: Vec<usize> = singles.into_iter().filter(|k| !placed.contains(k)).collect();
         if !singles.is_empty() {
             let (pins, got) = matching(sc, &singles, &used, &assign);
             match got {
@@ -701,6 +846,7 @@ impl State {
 enum Unit {
     Movable(usize),
     Group(usize),
+    Soft(usize),
 }
 
 fn units(pb: &Problem, group_parts: &[usize]) -> Vec<Unit> {
@@ -716,8 +862,54 @@ fn units(pb: &Problem, group_parts: &[usize]) -> Vec<Unit> {
                 out.push(Unit::Group(g));
             }
         }
+        for (g, gr) in pb.soft.iter().enumerate() {
+            if gr.0 == part && !gr.3.is_empty() {
+                out.push(Unit::Soft(g));
+            }
+        }
     }
     out
+}
+
+/// Soft group `g`'s movables moved whole, in order, to another of its windows; the nets standing where they land take
+/// the pins they leave, in pin order (`pinmap_twin._propose_soft`).
+fn propose_soft(rng: &mut SplitMix64, st: &State, pb: &Problem, g: usize) -> Option<BTreeMap<usize, usize>> {
+    let (part, _, members, windows) = &pb.soft[g];
+    let mine: Vec<(usize, usize)> = members.iter().filter(|m| m.1 >= 0).map(|m| (m.0, m.1 as usize)).collect();
+    let now: Vec<usize> = mine.iter().map(|&(_, mv)| st.pin[mv]).collect();
+    let wins: Vec<&Vec<usize>> = windows.iter()
+        .filter(|w| mine.iter().map(|&(slot, _)| w[slot]).collect::<Vec<usize>>() != now).collect();
+    if wins.is_empty() {
+        return None;
+    }
+    let win = wins[rng.below(wins.len())];
+    let target: Vec<usize> = mine.iter().map(|&(slot, _)| win[slot]).collect();
+    let reserved = gaps(pb, st, *part, usize::MAX);
+    if target.iter().any(|q| reserved.contains(q)) {
+        return None;
+    }
+    let mut changes: BTreeMap<usize, usize> = mine.iter().zip(target.iter()).map(|(&(_, mv), &q)| (mv, q)).collect();
+    let left: Vec<usize> = now.iter().copied().collect::<BTreeSet<usize>>()
+        .difference(&target.iter().copied().collect()).copied().collect();
+    let mut sorted_target = target.clone();
+    sorted_target.sort_unstable();
+    let taken: Vec<usize> = sorted_target.into_iter()
+        .filter(|q| match st.who.get(&(*part, *q)) {
+            Some(o) => !changes.contains_key(o),
+            None => false,
+        })
+        .collect();
+    if taken.len() > left.len() {
+        return None;
+    }
+    for (q, r) in taken.iter().zip(left.iter()) {
+        let other = st.who[&(*part, *q)];
+        if pb.movable[other].3 >= 0 || !pb.movable[other].2.contains(r) {
+            return None;
+        }
+        changes.insert(other, *r);
+    }
+    Some(changes)
 }
 
 /// The window group `g` stands on, if it stands on one.
@@ -773,6 +965,7 @@ fn propose(rng: &mut SplitMix64, st: &State, pb: &Problem, units: &[Unit]) -> Op
                 }
             }
         }
+        Unit::Soft(g) => propose_soft(rng, st, pb, g),
         Unit::Group(g) => {
             let (gpart, members, windows) = &pb.groups[g];
             let now: Vec<usize> = members.iter().filter(|m| **m >= 0).map(|m| st.pin[*m as usize]).collect();
@@ -880,7 +1073,8 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
     let bg = Background::new(&pb.wires, pr.w);
     let mut clock = Clock { budget: pr.budget_ms, step: pr.step_ms, elapsed: 0.0, start: Instant::now() };
     let present: Vec<Pins> = pb.ends.iter().map(|e| e.iter().map(|x| x.1).collect()).collect();
-    let present_poses: Vec<Pose> = pb.parts.iter().map(|p| Pose::new(p.1, p.2, 0.0, false)).collect();
+    let present_poses: Vec<Pose> =
+        pb.parts.iter().enumerate().map(|(k, p)| Pose::new(p.1, p.2, frame(pb, k), false)).collect();
     let mut sc0 = Scorer::new(pb, present_poses.clone(), pr.w, &bg, group_parts);
     let base = sc0.total(&present);
     let base_paths = sc0.paths(&present);
@@ -895,7 +1089,7 @@ pub fn search(pb: &Problem, group_parts: &[usize], combos: &[Vec<(usize, f64, bo
         }
         let mut poses = present_poses.clone();
         for &(part, turn, flip) in combo {
-            poses[part] = Pose::new(pb.parts[part].1, pb.parts[part].2, turn, flip);
+            poses[part] = pose_at(pb, part, turn, flip);
         }
         let mut fresh;
         let sc: &mut Scorer = if k == 0 {
@@ -952,14 +1146,15 @@ mod tests {
             parts: vec![("U1".into(), 10.0, 10.0, 2.25, 2.25)], pins: vec![pins],
             nets: vec![("A".into(), 0), ("B".into(), 0), ("C".into(), 0), ("D".into(), 0)], fixed,
             joined: vec![vec![]; 4], ends: (0..4).map(|i| vec![(0, i)]).collect(), wires: vec![], posed: vec![],
-            movable: (0..4).map(|i| (i, 0, vec![0, 1, 2, 3], -1)).collect(), groups: vec![], margin: 0.5,
+            movable: (0..4).map(|i| (i, 0, vec![0, 1, 2, 3], -1)).collect(), groups: vec![], soft: vec![], margin: 0.5,
+            frames: vec![], controlled: vec![],
         }
     }
 
     #[test]
     fn four_nets_in_reverse_order_are_uncrossed() {
         let pb = reversed_four();
-        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005], seeds: 3, moves: 400, t0: 1.0, t1: 0.02, budget_ms: 60000.0,
+        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005, 1.0], seeds: 3, moves: 400, t0: 1.0, t1: 0.02, budget_ms: 60000.0,
                           step_ms: 0.0, seed_key: 7 };
         let (base, _, results, out, first, problems) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &pr);
         assert_eq!((base.2, out, first, problems.len()), (6, false, true, 0));
@@ -981,7 +1176,8 @@ mod tests {
             nets: vec![("A".into(), 0), ("D".into(), 0), ("E".into(), 0), ("F".into(), 0)], fixed,
             joined: vec![vec![]; 4], ends: (0..4).map(|i| vec![(0, i)]).collect(), wires: vec![], posed: vec![],
             movable: vec![(0, 0, free.clone(), -1), (1, 0, free.clone(), 0), (3, 0, free, 0)],
-            groups: vec![(0, vec![1, -1, 2], vec![vec![1, 2, 3], vec![3, 4, 5]])], margin: 0.5,
+            groups: vec![(0, vec![1, -1, 2], vec![vec![1, 2, 3], vec![3, 4, 5]])], soft: vec![], margin: 0.5,
+            frames: vec![], controlled: vec![],
         }
     }
 
@@ -989,7 +1185,7 @@ mod tests {
     fn at_the_present_pose_the_best_is_never_worse_than_the_present_map() {
         // one seed of 100 moves from the first map ends on the 4-6 window, worse than where the group stands
         let pb = held_group();
-        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005], seeds: 1, moves: 100, t0: 1.0, t1: 0.02, budget_ms: 60000.0,
+        let pr = Params { w: [5.0, 3.0, 0.0, 0.25, 0.005, 1.0], seeds: 1, moves: 100, t0: 1.0, t1: 0.02, budget_ms: 60000.0,
                           step_ms: 0.0, seed_key: 15606770251161693233 };
         let (base, _, results, _, _, _) = search(&pb, &[0], &[vec![(0, 0.0, false)]], &pr);
         assert_eq!(results[0].2, vec![vec![0], vec![1], vec![2], vec![3]]);
@@ -1014,7 +1210,7 @@ mod tests {
 
     #[test]
     fn the_grid_finds_every_crossing_a_full_scan_finds() {
-        let w = [5.0, 3.0, 0.7, 0.25, 0.005];
+        let w = [5.0, 3.0, 0.7, 0.25, 0.005, 1.0];
         let mut r = SplitMix64::new(11);
         let mut c = |lo: i64, hi: i64| lo + (r.next() % (hi - lo) as u64) as i64;
         let mut wires = Vec::new();
@@ -1053,12 +1249,12 @@ mod tests {
         let ends = |segs: Vec<(u8, Seg)>| -> Vec<BTreeSet<(i64, i64)>> {
             segs.iter().map(|(_, s)| [(s[0], s[1]), (s[2], s[3])].into_iter().collect()).collect()
         };
-        let w = [5.0, 3.0, 1.0, 0.25, 0.005];
+        let w = [5.0, 3.0, 1.0, 0.25, 0.005, 1.0];
         let here = posed_wires(&pb, &[Pose::new(10.0, 10.0, 0.0, false)], &w);
         let turned = posed_wires(&pb, &[Pose::new(10.0, 10.0, 180.0, false)], &w);
         assert_eq!(ends(here), vec![[(8_300_000, 10_000_000), (8_300_000, 0)].into_iter().collect()]);
         assert_eq!(ends(turned), vec![[(11_700_000, 10_000_000), (8_300_000, 0)].into_iter().collect()]);
-        assert!(posed_wires(&pb, &[Pose::new(10.0, 10.0, 180.0, false)], &[5.0, 3.0, 0.0, 0.25, 0.005]).is_empty());
+        assert!(posed_wires(&pb, &[Pose::new(10.0, 10.0, 180.0, false)], &[5.0, 3.0, 0.0, 0.25, 0.005, 1.0]).is_empty());
     }
 }
 
@@ -1111,7 +1307,13 @@ mod prop {
             wires.push((r.below(4) as u8, nm(ax), nm(ay), nm(bx), nm(by)));
         }
         let posed = vec![(PLANE, vec![(10.0, 7.0, "U1".into(), "13".into(), 0, 12), (rnd(&mut r, 0.0, 20.0), -5.0, "J1".into(), "1".into(), -1, -1)], vec![])];
-        let pb = Problem { parts, pins: vec![u1, u2], nets, fixed, joined, ends, wires, posed, movable, groups, margin: 0.5 };
+        // a soft group of nets 3, 4 and 5 round net 7, held on pin 6, with an empty slot between 4 and 5
+        let soft = vec![(0, 1.0, vec![(0, 3, -1), (1, -1, 6), (2, 4, -1), (4, 5, -1)],
+                         vec![vec![0, 1, 2, 3, 4], vec![7, 8, 9, 10, 11]])];
+        let frames = vec![[0.0, 30.0, 45.0][r.below(3)], 0.0];
+        let controlled = (0..10).map(|_| r.below(3) == 0).collect();
+        let pb = Problem { parts, pins: vec![u1, u2], nets, fixed, joined, ends, wires, posed, movable, groups, soft,
+                           margin: 0.5, frames, controlled };
         (pb, vec![0, 1])
     }
 
@@ -1144,7 +1346,7 @@ mod prop {
     /// poses, every gain and most losses taken.
     #[test]
     fn the_running_total_is_a_full_rescore_after_every_move() {
-        let w = [5.0, 3.0, 0.7, 0.25, 0.005];
+        let w = [5.0, 3.0, 0.7, 0.25, 0.005, 1.0];
         let mut accepted = 0;
         for seed in 0..4u64 {
             let (pb, both) = problem(seed);
