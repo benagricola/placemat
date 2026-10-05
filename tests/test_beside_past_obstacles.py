@@ -4,13 +4,15 @@ nothing from an envelope (its pads keep their clearance); with `lane=`, by that 
 to the own pad. A via, a track, a label and a cutout with a freedom are refused: none has its place when a firm part is
 placed. Pure: synthetic boards."""
 import dataclasses
+import math
 
 import pytest
 
 from placemat.board_geometry import Footprint
-from placemat.cutouts import Circle
+from placemat.cutouts import Circle, Path
 from placemat.layout import Board
-from placemat.values import Beside, Box, Cutout, Edge, Face, Location, Near, Net, PadRef, Part, Past
+from placemat.values import (Beside, Box, Cell, Centre, Corner, Cutout, Edge, Face, Location, Near, Net, PadRef, Part,
+                             Past, X, Y)
 from tests.fixtures import board_geometry, footprint, pad
 from tests.test_beside_lane import CLASSES, G_C, LANE_C, LANE_W, _pad_box
 
@@ -24,7 +26,7 @@ def _one_pad_part(ref, inst, net, cx, cy):
     return Footprint(ref, inst, None, ref, Location(cx, cy), 0.0, Face.FRONT, body, body.inflate(0.1), body, (p,))
 
 
-def _board(holes=(), margin=1.0, with_c_in=False):
+def _board(holes=(), margin=1.0, with_c_in=False, place_c_in=True):
     fps = [footprint("CV", 20, 20, w=4, h=2, inst="c_vdd", nets=("VDD", "GND")),
            footprint("Q", 40, 40, w=3, h=1.5, inst="q", nets=("G", "OUT"))]
     if with_c_in:
@@ -35,7 +37,7 @@ def _board(holes=(), margin=1.0, with_c_in=False):
     b = Board(dataclasses.replace(geom, netclasses=classes), edge_margin=margin)
     b.rect(width=60.0, height=60.0, holes=list(holes))
     b.place(Part("c_vdd"), at=Location(20, 20))
-    if with_c_in:
+    if with_c_in and place_c_in:
         b.place(Part("c_in"), at=Location(26.0, 26.0))
     return b
 
@@ -76,3 +78,62 @@ def test_a_cutout_with_a_freedom_and_a_label_in_besides_past_are_refused():
     key = b.label(Part("c_vdd"), "VDD")
     with pytest.raises(TypeError, match="gives way"):
         b.place(Part("q"), at=Beside(Part("c_vdd"), Edge.SOUTH, align=(1, Past([key], Edge.WEST))))
+
+
+SQUARE = Path(((0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)))           # straight sides: no arc allowance
+
+
+def test_beside_stands_its_pad_on_a_cells_envelope():
+    member = _one_pad_part("U1", "pd.u1", "VIN", 26.0, 26.0)
+    member = dataclasses.replace(member, cell="pd")
+    fps = [footprint("CV", 20, 20, w=4, h=2, inst="c_vdd", nets=("VDD", "GND")), member,
+           footprint("Q", 40, 40, w=3, h=1.5, inst="q", nets=("G", "OUT"))]
+    geom = board_geometry(fps, cells=["pd"], width=60, height=60)
+    b = Board(geom, edge_margin=1.0)
+    b.rect(width=60.0, height=60.0)
+    b.place(Part("c_vdd"), at=Location(20, 20))
+    b.place(Cell("pd"), at=Location(26.0, 26.0))
+    b.place(Part("q"), at=Beside(Part("c_vdd"), Edge.SOUTH, align=(1, Past([Cell("pd")], Edge.WEST))))
+    plan = b.resolve()
+    # the cell's courtyard west side by 0; its member's pad by the clearance, 0.2, is nearer the pad
+    assert _pad_box(plan, "U1", 1).left == pytest.approx(25.5)
+    assert _pad_box(plan, "Q", 1).right == pytest.approx(24.9)
+
+
+def _settles_late(stretch: bool, below: float = 6.0):
+    """A cutout whose place is decided (`below` south of c_in's centre) but which is cut only once c_in is down, and
+    c_in is placed after q in the script: q's Beside waits for the cutout."""
+    at = Centre(X(Part("c_in")), Y(Part("c_in"), below))
+    b = _board([Cutout(SQUARE, "vent", at=at)], with_c_in=True, place_c_in=False)
+    item = b.cutout("vent").edge(Edge.EAST) if stretch else b.cutout("vent")
+    edge = Edge.EAST if stretch else Edge.WEST                  # a stretch is passed on the board's side of it
+    b.place(Part("q"), at=Beside(Part("c_vdd"), Edge.SOUTH, align=(1, Past([item], edge))))
+    b.place(Part("c_in"), at=Location(26.0, 26.0))
+    return b, item
+
+
+def test_beside_waits_for_a_decided_cutout_that_settles_later():
+    b, _ = _settles_late(stretch=False)
+    # the square's west side 25, by the copper-to-edge clearance
+    assert _pad_box(b.resolve(), "Q", 1).right == pytest.approx(25.0 - EDGE)
+
+
+def test_beside_stands_its_pad_past_a_stretch_of_a_cutout():
+    b, item = _settles_late(stretch=True)
+    assert type(item).__name__ == "CutoutEdge"                  # a promise: the cutout has no place yet
+    # the stretch is the square's east side, x = 27, with the hole to its west: the pad stands east of it
+    assert _pad_box(b.resolve(), "Q", 1).left == pytest.approx(27.0 + EDGE)
+
+
+
+def test_beside_at_a_corner_passes_each_groups_own_corner():
+    near = Cutout(SQUARE, "near", at=Location(36.0, 14.0))     # box 35..37 x 13..15: its SE corner (37, 15)
+    far = Cutout(SQUARE, "far", at=Location(40.0, 6.0))        # box 39..41 x 5..7: its SE corner (41, 7)
+    b = _board([near, far])
+    b.place(Part("q"), at=Beside(Part("c_vdd"), Edge.SOUTH, align=(1, Past([near, far], Corner.SE))))
+    pad = _pad_box(b.resolve(), "Q", 1)
+    # the pad's corner facing back across the 45 (its NW) stands past each square's SE corner, along the diagonal, by
+    # at least the copper-to-edge clearance; the near square decides it, not the union's corner (41, 15)
+    past = {name: (pad.left - cx) + (pad.top - cy) for name, cx, cy in (("near", 37.0, 15.0), ("far", 41.0, 7.0))}
+    assert past["near"] == pytest.approx(EDGE * math.sqrt(2.0), abs=2e-6)
+    assert past["far"] > EDGE * math.sqrt(2.0)
