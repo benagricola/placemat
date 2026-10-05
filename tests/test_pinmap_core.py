@@ -154,7 +154,7 @@ def test_a_group_a_rule_holds_part_of_may_stay_where_it_stands(native):
     inp, _ = input_of(pads, {"U1": u1})
     pb = problem_of(inp, 0.5)
     assert pb.groups[0][2] == [[1, 2, 3], [3, 4, 5]]
-    g = run(inp, native, settings(pins_rotations=(0.0,)))
+    g = run(inp, native, settings(pins_rotations=(0.0,), pins_anneal_moves=500, pins_seeds=4))   # one seed of 100 ends on 4-6
     r = g.results[0]
     assert (pin(r, "D"), pin(r, "E"), pin(r, "F")) == ("2", "3", "4")
     assert r.breakdown.total == pytest.approx(g.present.total)

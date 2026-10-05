@@ -312,15 +312,15 @@ class Settings:
         "the pin map study follows a net on through a two-pad series part only when its reference starts with one of these letters (a resistor, an inductor, a ferrite bead; a two-pin connector is not followed)")
     pins_rotations: tuple = S((0.0, 90.0, 180.0, 270.0), "degrees",
         "the turns from where a part stands that the pin map study tries besides its present one; add 45, 135, 225 and 315 for the diagonals")
-    pins_seeds: int = S(4, "count",
+    pins_seeds: int = S(1, "count",
         "local searches of the pin map study per pose, each with its own fixed random stream")
-    pins_anneal_moves: int = S(500, "count",
+    pins_anneal_moves: int = S(100, "count",
         "moves each local search of the pin map study tries")
     pins_anneal_start: float = S(1.0, "weight",
         "the pin map study's annealing temperature at its first move, in weighted crossings: a move that costs this much is taken about one time in three (0: only moves that gain)")
     pins_anneal_end: float = S(0.02, "weight",
         "the pin map study's annealing temperature at its last move")
-    pins_budget_ms: int = S(400, "ms",
+    pins_budget_ms: int = S(50, "ms",
         "the pin map study's time for each studied part: it stops there with the best map found and says so")
     pins_joint_combinations: int = S(64, "count",
         "the most pose combinations the pin map study searches for parts it studies together, their present poses first")
