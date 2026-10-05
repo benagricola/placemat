@@ -1,6 +1,8 @@
 # tests/test_arrangement_occupancy.py
 import dataclasses
 
+import pytest
+
 from placemat import reuse
 from placemat.board_geometry import CopperItem
 from placemat.copper import Track, Zone
@@ -156,3 +158,76 @@ def test_an_arranged_cells_label_and_via_keepout_stand_where_the_arrangement_has
     assert len(held) == 1 and near(held[0])
     bans = [s.box for s in occ.copper if s.owner == "mod" and s.kind == "viaban"]
     assert len(bans) == 1 and abs(bans[0].left - (40.0 + dx)) < 1e-6 and abs(bans[0].top - (10.0 + dy)) < 1e-6
+
+
+def _keepout_over(occ, box):
+    from placemat.refusals import ReservedBy
+    occ.reserve(box, ReservedBy("keepout", "k"), courtyard=True)        # a rule area that excludes parts, as board.keepout makes
+
+
+def _courtyard_of(geom, ref):
+    return Box.union([s.box for s in geom.shapes if s.owner == ref and s.kind == "courtyard"])
+
+
+def _judged_at(occ, item, at, native, monkeypatch):
+    """Whether `item` may stand at `at`: by `legal` (Python), or by a one-point scan through the native sweeper."""
+    from placemat import placer
+    if not native:
+        return occ.legal(item, at, 0.2) is None
+    monkeypatch.setattr(placer, "NATIVE_SWEEP", True)
+    return placer.scan(occ, item, at, 0.0, 0.25, (at.rotation,), 0.2).chosen is not None
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_a_keepout_over_the_arranged_member_refuses_the_arrangement(native, monkeypatch):
+    g = with_arrangement(doc=east_doc(ops=[]))
+    occ = Occupancy(g)
+    arr = g.cells["mod"].arranged("c_in.east")
+    geom = occ._geometry(arr)
+    at = Placement(geom.reference.location, 0.0, Face.FRONT, "c_in.east")
+    assert _judged_at(occ, arr, at, native, monkeypatch)
+    _keepout_over(occ, _courtyard_of(geom, "C1"))                      # c_in east of u1, where the arrangement stands it
+    assert not _judged_at(occ, arr, at, native, monkeypatch)
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_a_keepout_over_only_the_members_default_spot_leaves_the_arrangement_legal(native, monkeypatch):
+    g = with_arrangement(doc=east_doc(ops=[]))
+    occ = Occupancy(g)
+    cell = g.cells["mod"]
+    arr = cell.arranged("c_in.east")
+    geom = occ._geometry(arr)
+    at = Placement(geom.reference.location, 0.0, Face.FRONT, "c_in.east")
+    west = _courtyard_of(occ._geometry(cell), "C1")                    # c_in west of u1, where the default stands it
+    _keepout_over(occ, Box(west.left, west.top, west.left + 2.0, west.bottom))
+    assert _judged_at(occ, arr, at, native, monkeypatch)
+    default = Placement(occ._geometry(cell).reference.location, 0.0, Face.FRONT)
+    assert not _judged_at(occ, cell, default, native, monkeypatch)    # the keepout does refuse the default there
+
+
+def test_an_arranged_members_plated_lead_yard_stands_where_the_arrangement_has_it():
+    """Under the physical envelope a part's courtyard is kept as a yard, judged against another part's plated lead: an arranged
+    member's yard is its posed courtyard, so a lead under it refuses the arrangement and a lead under the default spot does not."""
+    from placemat.settings import Settings
+
+    def geometry(lead_x):
+        fps = [footprint("C1", 31.0, 13.0, w=3, h=1.6, nets=("mod.VIN", "mod.GND"), cell="mod", inst="mod.c_in", excess=1.0,
+                         fab=(29.5, 12.2, 32.5, 13.8)),
+               footprint("U1", 36.0, 13.0, w=6, h=4, nets=("mod.VIN", "mod.OUT"), cell="mod", inst="mod.u1"),
+               footprint("J1", lead_x + 0.9, 13.0, w=3, h=1.6, nets=("GND", "GND"), through=True, inst="j1")]
+        return with_arrangement(board_geometry(fps, cells=["mod"], extra_nets=("mod.GND", "mod.OUT", "GND"), width=80, height=60),
+                                east_doc(ops=[]))
+
+    settings = dataclasses.replace(Settings(), place_envelope="physical")
+    # J1's west lead under the arranged c_in's courtyard (38.5..43.5), clear of its body (39.5..42.5)
+    g = geometry(43.8)
+    occ = Occupancy(g, settings=settings)
+    arr = g.cells["mod"].arranged("c_in.east")
+    at = Placement(occ._geometry(arr).reference.location, 0.0, Face.FRONT, "c_in.east")
+    assert occ.legal(arr, at, 0.2) is not None
+    # J1's west lead under the default c_in's courtyard (28.5..33.5) only
+    g = geometry(28.2)
+    occ = Occupancy(g, settings=settings)
+    arr = g.cells["mod"].arranged("c_in.east")
+    at = Placement(occ._geometry(arr).reference.location, 0.0, Face.FRONT, "c_in.east")
+    assert occ.legal(arr, at, 0.2) is None

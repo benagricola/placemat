@@ -248,6 +248,13 @@ class ItemGeometry:
     reach: Box | None = None            # everything the item physically is: pads and drawn graphics (silk), not the courtyard
     parts: tuple = ()                   # a cell's members' bodies (and its own copper): what the edge and keepouts judge
     part_refs: tuple = ()               # the members whose bodies lead `parts`, in its order; its own copper follows
+    part_at: tuple = ()                 # where each of `part_refs` stands in these coordinates (an arranged cell's members posed)
+
+    def member_at(self, ref: str):
+        """Where member `ref` stands in this geometry's coordinates, or None when it is not one of `part_refs`."""
+        if ref in self.part_refs and self.part_at:
+            return self.part_at[self.part_refs.index(ref)]
+        return None
 
 
 @dataclass(frozen=True, eq=False)
@@ -815,27 +822,33 @@ class Occupancy:
             return self._flip_span(s.layers)
         return self._flip_layers(s.layers)
 
-    def _yard(self, ref: str) -> Shape:
-        """A part's courtyard where it stands now, as the courtyard envelope
-        would claim it (KiCad's polygon, or the box), as a `yard`: judged only
-        against another part's plated lead."""
-        g = self.items[ref]
+    def _yard(self, ref: str, at: Placement | None = None) -> Shape:
+        """A part's courtyard where it stands now, or at `at` (where an arranged cell poses it), as the courtyard envelope
+        would claim it (KiCad's polygon, or the box), as a `yard`: judged only against another part's plated lead."""
+        if at is None:
+            at = self.items[ref].reference
         cache = self.__dict__.setdefault("_yard_cache", {})
-        hit = cache.get(ref)
-        if hit is not None and hit[0] == g.reference:
-            return hit[1]
+        hit = cache.get((ref, at))
+        if hit is not None:
+            return hit
         fp = self.geometry.footprint(ref)
         ct = tuple(fp.courtyard_poly) if courtyard_drawn(fp, self.settings.place_courtyard_polygon_share) \
             else box_polygon(fp.courtyard_box)
         read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
                             frozenset())
         yard = self._moved(read, (Shape(ref, "yard", frozenset([fp.face]), frozenset(), "", ct, Box.of_points(ct)),),
-                           g.reference)[0]
-        cache[ref] = (g.reference, yard)
+                           at)[0]
+        cache[(ref, at)] = yard
         return yard
 
     def _yards_of(self, owners) -> list[Shape]:
+        """The yards of placed parts `owners`, where they stand now."""
         return [self._yard(o) for o in owners if o in self._yard_refs and o in self.items]
+
+    def _own_yards(self, geom: ItemGeometry) -> list[Shape]:
+        """An item's own yards in its geometry's coordinates: a cell's members where it stands them (an arranged cell's
+        posed), not where they were stamped."""
+        return [self._yard(o, geom.member_at(o)) for o in geom.owners if o in self._yard_refs and o in self.items]
 
     @staticmethod
     def native_module():
@@ -1307,7 +1320,7 @@ class Occupancy:
                             Placement(body.center, 0.0, Face.FRONT), shapes, body,
                             frozenset(n for fp in item.members for n in members[fp.ref].nets), reach,
                             tuple(members[fp.ref].body for fp in item.members) + tuple(mine),
-                            tuple(fp.ref for fp in item.members))
+                            tuple(fp.ref for fp in item.members), tuple(members[fp.ref].reference for fp in item.members))
 
     def _commit(self, item, placement: Placement):
         from . import giveway
@@ -1530,24 +1543,26 @@ class Occupancy:
                 return why
         return None
 
-    def _kicad_yard(self, ref: str):
-        """A part's courtyard where it stands now, as KiCad's DRC tests a rule area against it: the
+    def _kicad_yard(self, ref: str, ref_at: Placement | None = None):
+        """A part's courtyard where it stands now, or at `ref_at` (where an arranged cell poses it), as KiCad's DRC tests a
+        rule area against it: the
         courtyard polygon it draws (`Footprint.courtyard_poly`; pcbexpr_functions.cpp
         `collidesWithArea`), as a `yard` shape. A part that draws none is not tested by KiCad; here
         its claimed courtyard box stands in, as it does for the lead check, so a part with no
         courtyard still keeps out of a keepout."""
         fp = self.geometry.footprint(ref)
-        ref_at = self.geometry_of(ref).reference
+        if ref_at is None:
+            ref_at = self.geometry_of(ref).reference
         cache = self.__dict__.setdefault("_kicad_yard_cache", {})
-        hit = cache.get(ref)
-        if hit is not None and hit[0] == ref_at:
-            return hit[1]
+        hit = cache.get((ref, ref_at))
+        if hit is not None:
+            return hit
         ct = tuple(fp.courtyard_poly) if len(fp.courtyard_poly) >= 3 else box_polygon(fp.courtyard_box)
         read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
                             frozenset())
         yard = self._moved(read, (Shape(ref, "yard", frozenset([fp.face]), frozenset(), "", ct,
                                         Box.of_points(ct)),), ref_at)[0]
-        cache[ref] = (ref_at, yard)
+        cache[(ref, ref_at)] = yard
         return yard
 
     def origin_yards(self, geom: ItemGeometry, rotation: float, face) -> list:
@@ -1565,7 +1580,7 @@ class Occupancy:
             at = Placement(Location(0.0, 0.0), rotation, face)
             polys = []
             for ref in geom.part_refs or sorted(geom.owners):
-                y = self._kicad_yard(ref) if self.geometry.has_footprint(ref) else None
+                y = self._kicad_yard(ref, geom.member_at(ref)) if self.geometry.has_footprint(ref) else None
                 polys.append(None if y is None else self._moved(geom, (y,), at)[0].poly)
             hit = (geom, polys, [None if p is None else Box.of_points(p) for p in polys])
             cache[key] = hit
@@ -2111,7 +2126,7 @@ class Occupancy:
     def _legal_origin_shapes(self, item, geom: ItemGeometry, placement: Placement) -> list:
         """`_origin_shapes` and the item's own yards, turned and faced the
         same way: what a legality check judges."""
-        own = self._yards_of(geom.owners)
+        own = self._own_yards(geom)
         if not own:
             return self._origin_shapes(item, geom, placement)
         cache = self.__dict__.setdefault("_legal_shape_cache", {})
