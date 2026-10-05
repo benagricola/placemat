@@ -5,6 +5,21 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **The studio's replay has a speed and steps one at a time.** A select beside the slider sets play's speed to 0.1x,
+  0.25x, 0.5x, 1x, 2x or 4x of the usual pace (the whole placement in about 8 seconds), kept per browser; a change
+  during play keeps the position. Buttons either side of Play, and the Left and Right arrow keys outside a field,
+  pause play and move one step; each is disabled at its end.
+
+### Fixed
+
+- **The studio's replay draws copper at the step that laid it.** A plan's replay hid all the copper until its last
+  step, then showed it at once; each track, via and pour now shows from its own step on, in 2D and 3D, as a route's
+  replay already did.
+
 ## To 0.99.18
 
 ### New

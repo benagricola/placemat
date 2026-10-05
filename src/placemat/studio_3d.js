@@ -365,7 +365,7 @@ export async function mount(host) {
     state.stack = stack;
     if (!names.length) return;
     const info = host.copper ? host.copper() : null, ops = plan.copper || [];
-    state.cn = info ? info.n : 0; state.claid = !!(info && info.laid);
+    state.cn = info ? info.n : 0;
     const stepOf = i => (info && info.steps[i]) || {s: 0, x: null};
     const originOf = i => info ? info.origins[i] : (ops[i].origin === "routed" ? "routed" : "planned");
     const builds = new Map();
@@ -438,7 +438,7 @@ export async function mount(host) {
   function showCopper(k) {
     for (const m of state.copper) {
       const cu = m.userData.cu;
-      applyRanges(m, cu.kind === "pad" || cu.kind === "fcu" ? visibleRanges(cu.spans, k, Infinity, true) : visibleRanges(cu.spans, k, state.cn, state.claid));
+      applyRanges(m, cu.kind === "pad" || cu.kind === "fcu" ? visibleRanges(cu.spans, k, Infinity) : visibleRanges(cu.spans, k, state.cn));
     }
   }
   // The legend's switches, the page's own (host.off): the same set hides the same copper in 2D and 3D.

@@ -125,13 +125,10 @@ export function trackPolys(op, segs = 6) {
 }
 
 // The index ranges of a copper mesh to draw at replay position k of n: `spans` are its ops in the order they were laid ({s, x, i0, i1}: the
-// position that lays it, the one that rips it up again or null, its indices). As the 2D drawing: all of it but what was ripped up when the
-// replay is at its end; nothing while a plan's replay is under way; a route's replay ("laid": each op has its step) lays and rips each op
-// at its step.
-export function visibleRanges(spans, k, n, laid) {
-  const replaying = k != null && k < n;
-  if (replaying && !laid) return [];
-  const kk = replaying ? k : n, out = [];
+// position that lays it, the one that rips it up again or null, its indices). As the 2D drawing: each op from the step that laid it to
+// the one that rips it up, a plan's replay or a route's; at the end all of it but what was ripped up.
+export function visibleRanges(spans, k, n) {
+  const kk = k != null && k < n ? k : n, out = [];
   for (const sp of spans) {
     if (!(sp.s < kk && (sp.x == null || kk <= sp.x))) continue;
     const l = out[out.length - 1];

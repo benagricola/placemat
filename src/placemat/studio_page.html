@@ -282,6 +282,10 @@ body[data-mode="3d"] #viewbar button, body[data-mode="3d"] #bodybar button, body
 #card .src a { font-family: var(--mono); font-size: 12px; }
 #replay { display: flex; gap: 10px; align-items: center; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px 12px 4px 4px; }
 #play { border: 0; background: var(--accent); color: #fff; border-radius: 7px; flex: none; min-width: 70px; padding-left: 8px; padding-right: 8px; padding: 6px 0; font-weight: 600; }
+.stepbtn { border: 0; background: var(--accent-soft); color: var(--accent); border-radius: 7px; flex: none; width: 30px; padding: 6px 0; font-size: 11px; line-height: 18px; }
+.stepbtn:disabled, #play:disabled { opacity: 0.4; cursor: default; }
+#speed { flex: none; background: var(--surface); color: var(--ink); border: 1px solid var(--accent-soft); border-radius: 6px; padding: 3px 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
+@media (max-width: 420px) { #replay { gap: 5px; } #play { min-width: 56px; } #steplabel { width: 4.8em; } }
 #slider { flex: 1; min-width: 0; height: 30px; margin: 0; accent-color: var(--accent); touch-action: none; }
 /* the label and the button have fixed widths: the slider's own width never changes while it is dragged */
 #steplabel { flex: none; width: 6em; text-align: right; white-space: nowrap; overflow: hidden; }
@@ -549,8 +553,7 @@ svg text { user-select: none; font-family: var(--sans); }
 .trk.d-cdel { stroke: var(--bad); stroke-dasharray: 0.4 0.3; } .via.d-cdel { fill: var(--bad); fill-opacity: 0.6; }
 .d-fgain { fill: none; stroke: var(--bad); stroke-width: 0.2; } .d-flost { fill: none; stroke: var(--good); stroke-width: 0.2; }
 .arrowhead { fill: var(--accent); }
-#board.replaying .copper, #board.replaying .links, #board.replaying .heat, #board.replaying .changes, #board.replaying .fnds { display: none; }
-#board.replaying.laid .copper { display: inline; }                     /* a route's replay draws its copper as each net lays it: every op has its step */
+#board.replaying .links, #board.replaying .heat, #board.replaying .changes, #board.replaying .fnds { display: none; }   /* the copper stays: each op shows from the step that laid it (showSteps) */
 #board.lowzoom .ref, #board.lowzoom .silktxt { display: none; }
 #board.lowzoom .lkdot, #board.lowzoom .lklabel { display: none; }
 #grid .minor { stroke: var(--grid-minor); fill: none; }
@@ -642,7 +645,7 @@ svg text { user-select: none; font-family: var(--sans); }
       <div id="card"></div>
       <div id="runstrip" hidden><div class="flds"><i class="spin"></i><span class="f-el" id="rs-el"></span><span class="f-steps" id="rs-steps"></span><button class="info" data-info="running" aria-label="about this" draggable="false">i</button><span class="bar" id="progbarbox"><b class="p-done" id="progbar"></b><b class="p-in" id="proginn"></b></span><button class="mini" id="rs-again" title="cancel this resolve and start another">Again</button></div><div class="flds" id="rs-work"></div></div>
       <div id="stepnow"></div>
-      <div id="replay"><button id="play" title="replay the placement, one item at a time">Play</button><input type="range" id="slider" min="0" max="0" value="0"><span id="steplabel" class="dim"></span><button id="follow" hidden title="back to the newest step">Follow</button></div>
+      <div id="replay"><button id="stepprev" class="stepbtn" title="one step back, pausing play; the Left arrow key does the same" aria-label="previous step">&#9664;</button><button id="play" title="replay the placement, one item at a time">Play</button><button id="stepnext" class="stepbtn" title="one step on, pausing play; the Right arrow key does the same" aria-label="next step">&#9654;</button><input type="range" id="slider" min="0" max="0" value="0"><span id="steplabel" class="dim"></span><select id="speed" title="how fast play goes: a multiple of the normal pace, which plays the whole placement in about 8 seconds" aria-label="replay speed"></select><button id="follow" hidden title="back to the newest step">Follow</button></div>
     </div>
     <div id="tip"></div>
     <button class="edge" id="legtoggle" aria-label="hide the legend" title="hide the legend panel"></button>
@@ -1567,7 +1570,6 @@ function showSteps(k) {
   B.k = k;
   for (const r of B.rips || []) r.g.style.display = k > r.s && k <= r.x ? "" : "none";       // copper that was ripped up: shown from the step that laid it to the one that took it away
   if (B.svg) B.svg.classList.toggle("replaying", k < B.n);
-  if (B.svg) B.svg.classList.toggle("laid", !!(S.cmdView && S.cmdView.route));
 }
 // A streamed step redraws the board and the lists: the timeline's positions index every step, copper and cutouts too.
 function flushLive() { renderBoard(); renderSteps(); schedule("status", "counts", "legend"); }
@@ -2512,6 +2514,8 @@ function renderReplay() {
   $("#play").textContent = S.play ? "Pause" : S.resolving ? "Restart" : "Play";
   $("#play").title = S.resolving && !S.play ? "replay from step 1 through the steps so far, then follow the live end" : "replay the placement, one item at a time";
   $("#play").disabled = !n;
+  $("#stepprev").disabled = !n || k <= 0;
+  $("#stepnext").disabled = !n || k >= n;
 }
 // The display above the timeline for the step the slider is on: fields, not a sentence: step number, name, kind pill,
 // rank. (The step being worked on is in the running strip above it.)
@@ -2528,6 +2532,28 @@ function collectRows() { R.rows = [...document.querySelectorAll("#steplist .row[
 
 const PLAY_SECONDS = 8, PLAY_MIN = 3, PLAY_MAX = 30;           // a replay takes about this long, at a rate within these steps per second
 function playRate(n) { return clamp(n / PLAY_SECONDS, PLAY_MIN, PLAY_MAX); }
+// The speed is a multiple of that pace, so 1x is the pace above on any board and the slower ones leave time to see each step.
+// Each viewer's choice is kept in this browser.
+const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4], SPEED_KEY = "placemat.playSpeed";
+S.speed = (() => { try { const v = +localStorage.getItem(SPEED_KEY); return SPEEDS.includes(v) ? v : 1; } catch (e) { return 1; } })();
+$("#speed").innerHTML = SPEEDS.map(v => '<option value="' + v + '">' + v + "x</option>").join("");
+$("#speed").value = String(S.speed);
+// A new speed takes over from where play is now: the position stays and the clock starts again from it.
+function setSpeed(v) {
+  v = +v; if (!SPEEDS.includes(v)) return;
+  S.speed = v;
+  try { localStorage.setItem(SPEED_KEY, String(v)); } catch (e) { /* kept for this page only */ }
+  const play = S.play;
+  if (play) S.play = Object.assign({}, play, {t0: Date.now(), k0: S.replay == null ? play.n : S.replay, rate: playRate(play.n) * v});
+  $("#speed").value = String(v);
+}
+// One step back or on, from where the slider is: play pauses there.
+function stepBy(d) {
+  const n = replayCount(); if (!n) return;
+  const k = S.replay == null ? n : clamp(S.replay, 0, n);
+  stopPlay();
+  setReplay(clamp(k + d, 0, n));
+}
 function playPosition(play, now) {                              // the position at `now`: a function of the clock, so it only goes forward
   return Math.min(play.n, play.k0 + Math.floor((now - play.t0) / 1000 * play.rate));
 }
@@ -2536,7 +2562,7 @@ function togglePlay() {
   const n = replayCount(); if (!n) return;
   // While a resolve runs the button restarts: from step 1 through what has settled, then it follows the live end.
   const k0 = S.resolving ? 0 : S.replay == null ? 0 : S.replay;                   // from the end it starts again
-  S.play = {t0: Date.now(), k0, rate: playRate(n), n};
+  S.play = {t0: Date.now(), k0, rate: playRate(n) * S.speed, n};
   setReplay(k0);
   requestAnimationFrame(playTick);
 }
@@ -2553,6 +2579,18 @@ $("#slider").addEventListener("input", e => { stopPlay(); setReplay(+e.target.va
 for (const t of ["pointerdown"]) $("#slider").addEventListener(t, () => { S.sliding = true; });
 for (const t of ["pointerup", "pointercancel", "blur"]) $("#slider").addEventListener(t, () => { S.sliding = false; schedule("replay"); });
 $("#play").addEventListener("click", togglePlay);
+$("#stepprev").addEventListener("click", () => stepBy(-1));
+$("#stepnext").addEventListener("click", () => stepBy(1));
+$("#speed").addEventListener("change", e => setSpeed(e.target.value));
+// The Left and Right arrow keys step as the buttons do, except in a field (the slider and the speed take their own arrows) or with a modifier.
+document.addEventListener("keydown", e => {
+  if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || S.start) return;
+  const t = e.target;
+  if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || "") || t.isContentEditable)) return;
+  if (!replayCount()) return;
+  if (e.preventDefault) e.preventDefault();
+  stepBy(e.key === "ArrowLeft" ? -1 : 1);
+});
 $("#follow").addEventListener("click", () => setReplay(replayCount()));
 
 // ---------------------------------------------------------------- steps
@@ -3480,13 +3518,12 @@ function hoverFindings3d(idx, x, y) {
   tip.style.top = Math.max(4, Math.min(y - r.top + 14, r.height - tip.offsetHeight - 6)) + "px";
 }
 // What the 3D view needs of the copper to draw it as the 2D drawing does: each op's origin (copperOrigins), the replay position that lays
-// it (copper no step laid shows with the last) and the one that rips it up again (null: it stands), the number of positions, and whether
-// the replay lays copper step by step (a route's) or draws it only at its end.
+// it (copper no step laid shows with the last) and the one that rips it up again (null: it stands), and the number of positions.
 function copperInfo(p) {
   const order = replaySteps(p), stepN = new Map(order.map(s => [s.at, s.n])), laidAt = new Map();
   for (const s of order) for (const c of s.copper || []) laidAt.set(c, s.n);
   const last = order.length - 1;
-  return {origins: copperOrigins(p), n: order.length, laid: !!(S.cmdView && S.cmdView.route),
+  return {origins: copperOrigins(p), n: order.length,
           steps: ((p && p.copper) || []).map((c, i) => ({s: laidAt.has(i) ? laidAt.get(i) : last, x: c.x != null && stepN.has(c.x) ? stepN.get(c.x) : null}))};
 }
 // The 3D view's own look, kept while the page switches between 2D and 3D: the body solid or see-through, the layers spread apart or not.

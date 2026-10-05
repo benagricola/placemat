@@ -78,6 +78,8 @@ class FakeDate extends Date { static now() { return clock; } }
 const fakeGroup = (key, s) => { const g = {dataset: {key, s: String(s)}, style: {}, cls: new Set(["item"])};
   g.classList = {toggle(c, on) { g.cls[on ? "add" : "delete"](c); }, add(c) { g.cls.add(c); }, remove(c) { g.cls.delete(c); }}; return g; };
 const groups = html => [...html.matchAll(/<g class="item[^"]*" data-key="([^"]*)" data-s="(\d+)"/g)].map(m => fakeGroup(m[1], +m[2]));
+// the copper and the cutouts a step lays, by their tag, class and step: the elements the replay shows and hides
+const laidOps = html => [...html.matchAll(/<(\w+) class="([^"]*)"[^>]*? data-s="(\d+)"/g)].filter(m => !/^item/.test(m[2])).map(m => Object.assign(fakeGroup("", +m[3]), {tag: m[1], op: m[2]}));
 const mk = sel => new Proxy({
   innerHTML: "", textContent: "", value: "", style: {}, dataset: {}, className: "", attrs: {}, max: 0, handlers: {}, disabled: false,
   classList: {toggle() {}, add() {}, remove() {}, contains() { return false; }},
@@ -87,6 +89,7 @@ const mk = sel => new Proxy({
     if (sel !== "#board") return [];
     if (q === ".item") return groups(this.innerHTML);
     if (q === ".items") { const self = this; return [{insertAdjacentHTML(_, html) { self.innerHTML += html; this.last = groups(html).pop(); }, get lastElementChild() { return this.last; }}]; }
+    if (q === ".copper [data-s], .cutoutg") return laidOps(this.innerHTML);
     return [];
   },
   closest: () => null, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] || null; }, setPointerCapture() {},
@@ -103,6 +106,7 @@ const ctx = {
   requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, clearTimeout() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
   URLSearchParams, console,
 };
+if (process.env.PAGE_STORE) { const m = JSON.parse(process.env.PAGE_STORE); ctx.localStorage = {getItem: k => k in m ? m[k] : null, setItem: (k, v) => { m[k] = String(v); }, removeItem: k => { delete m[k]; }, m}; }   // what an earlier load kept
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), ctx);
 flush();
@@ -129,13 +133,14 @@ const finish = (id, keys) => {
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
 
-def run_page(tmp_path, tail, hash=""):
-    """Run the page's script against the DOM stub, then `tail` (JavaScript that fills `out`); `out` as a dict."""
+def run_page(tmp_path, tail, hash="", store=None):
+    """Run the page's script against the DOM stub, then `tail` (JavaScript that fills `out`); `out` as a dict. `store` is
+    the browser storage the page finds when it loads (a dict), as a reload finds what the last load kept."""
     text = PAGE.read_text()
     (tmp_path / "page.js").write_text(text[text.index("<script>") + 8:text.index("</script>")])
     (tmp_path / "run.js").write_text(PRELUDE + tail + "\nconsole.log(JSON.stringify(out));\n")
     import os
-    done = subprocess.run(["node", str(tmp_path / "run.js"), str(tmp_path / "page.js")], capture_output=True, text=True, timeout=60, env=dict(os.environ, PAGE_HASH=hash))
+    done = subprocess.run(["node", str(tmp_path / "run.js"), str(tmp_path / "page.js")], capture_output=True, text=True, timeout=60, env=dict(os.environ, PAGE_HASH=hash, **({"PAGE_STORE": json.dumps(store)} if store is not None else {})))
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout.strip().splitlines()[-1])
 
@@ -2481,6 +2486,153 @@ for (const k of [0, 1, 2, 3]) { ev("showSteps(" + k + ")"); out.visible.push(rip
     assert out["visible"] == ["none", "none", "", "none"]                                      # shown once step 2 is reached... and gone once step 3 is
 
 
+def _copper_hidden_by_css(classes):
+    """Whether the page's stylesheet hides the board's copper layer when the board has `classes`: the last rule of the
+    highest specificity among those that match decides, as the browser does."""
+    css = "".join(re.findall(r"<style>(.*?)</style>", PAGE.read_text(), re.S))
+    best = (-1, "")
+    for sels, body in re.findall(r"([^{}]+)\{([^}]*)\}", css):
+        shown = re.search(r"display:\s*(\w+)", body)
+        for sel in sels.split(","):
+            m = re.fullmatch(r"\s*#board((?:\.[\w-]+)*)\s+\.copper\s*", sel)
+            if shown and m and set(m.group(1).split(".")[1:]) <= set(classes) and len(m.group(1).split(".")) - 1 >= best[0]:
+                best = (len(m.group(1).split(".")) - 1, shown.group(1))
+    return best[1] == "none"
+
+
+REPLAY_COPPER = r"""
+const cls = new Set(); els["#board"].classList = {toggle(c, on) { cls[on ? "add" : "delete"](c); }, add(c) { cls.add(c); }, remove(c) { cls.delete(c); }, contains(c) { return cls.has(c); }};
+// a part, a track, a part, a via, a plane: the copper of each step is its own op (full() sends a track, a plane and a via)
+full([item("a", 1), item("b", 5)], [st("a"), st("b")]);
+ev('plan().steps = [{item: "a", kind: "part", placed: true, note: ""}, {item: "track N", kind: "copper", placed: false, note: "", copper: [0]}, {item: "b", kind: "part", placed: true, note: ""}, {item: "via N", kind: "copper", placed: false, note: "", copper: [2]}, {item: "pour G", kind: "copper", placed: false, note: "", copper: [1]}]');
+ev("renderBoard()"); flush();
+const ops = ev("B.byStep").flat().filter(g => g.op);
+out.n = ev("replayCount()"); out.at = [];
+for (let k = 0; k <= out.n; k++) { ev("setReplay(" + k + ")"); flush(); out.at.push({classes: [...cls].sort(), ops: [...new Set(ops.filter(g => g.style.display !== "none").map(g => g.op.split(" ")[0]))].sort()}); }
+"""
+
+
+@needs_node
+def test_copper_a_step_lays_is_drawn_from_that_step_on_and_not_before(tmp_path):
+    """Play went through the copper steps with nothing drawn, then showed all the copper at the end: the stylesheet hid the copper
+    layer while the replay was short of its end. Each op is drawn from the position after the step that laid it."""
+    out = run_more(tmp_path, REPLAY_COPPER)
+    assert out["n"] == 5
+    drawn = [[] if _copper_hidden_by_css(a["classes"]) else a["ops"] for a in out["at"]]
+    assert drawn == [[], [], ["trk"], ["trk"], ["trk", "viag"], ["plane", "trk", "viag"]]
+
+
+@needs_node
+def test_the_previous_and_next_buttons_move_one_step_and_pause_play(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+finish(1, ["a", "b", "c"]);
+const click = id => { els[id].handlers.click.forEach(f => f({})); flush(); };
+const now = () => [ev("S.replay"), !!ev("S.play")];
+click("#stepprev"); out.back = now(); out.named = els["#stepnow"].innerHTML;
+ev("setReplay(1)"); flush(); ev("togglePlay()"); clock += 400; flushOnce();
+out.playing = now();
+click("#stepnext"); out.next = now();
+clock += 2000; flushOnce(); flushOnce(); out.later = now();
+click("#stepprev"); out.prev = now();
+""")
+    assert out["back"] == [5, False]                                      # from the end, one step back
+    assert "Step 5" in out["named"] and 'class="chip escape">escape' in out["named"] and ">U1</b>" in out["named"]       # the step is named: its kind and item
+    assert out["playing"] == [2, True]
+    assert out["next"] == [3, False] and out["later"] == [3, False]       # play stopped where the step put it
+    assert out["prev"] == [2, False]
+
+
+@needs_node
+def test_the_step_buttons_are_disabled_at_the_first_and_last_step(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+finish(1, ["a", "b", "c"]);
+const click = id => { els[id].handlers.click.forEach(f => f({})); flush(); };
+const state = () => [ev("S.replay"), els["#stepprev"].disabled, els["#stepnext"].disabled];
+out.end = state();
+ev("setReplay(1)"); flush(); click("#stepprev"); out.first = state();
+click("#stepprev"); out.still = state();
+click("#stepnext"); out.mid = state();
+ev("setReplay(5)"); flush(); click("#stepnext"); out.last = state();
+""")
+    assert out["end"] == [None, False, True]
+    assert out["first"] == [0, True, False] and out["still"] == [0, True, False]
+    assert out["mid"] == [1, False, False]
+    assert out["last"] == [None, False, True]
+
+
+@needs_node
+def test_the_left_and_right_arrow_keys_step_unless_focus_is_in_a_field(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+finish(1, ["a", "b", "c"]);
+let stopped = 0;
+const key = (k, extra) => { const e = Object.assign({key: k, target: {tagName: "BODY"}, preventDefault() { stopped++; }}, extra || {}); ctx.document.__keys.forEach(f => f(e)); flush(); };
+key("ArrowLeft"); key("ArrowLeft"); key("ArrowLeft"); out.left = ev("S.replay");
+ev("togglePlay()"); clock += 400; flushOnce(); out.playing = !!ev("S.play");
+key("ArrowRight"); out.right = [ev("S.replay"), !!ev("S.play")];
+for (const target of [{tagName: "INPUT", type: "text"}, {tagName: "TEXTAREA"}, {tagName: "SELECT"}, {tagName: "INPUT", type: "range"}, {tagName: "DIV", isContentEditable: true}]) key("ArrowLeft", {target});
+key("ArrowLeft", {altKey: true}); key("ArrowRight", {ctrlKey: true}); key("ArrowRight", {metaKey: true});
+out.typed = ev("S.replay"); out.stopped = stopped;
+""")
+    assert out["left"] == 3 and out["playing"] is True
+    assert out["right"] == [5, False]                                  # one step on from where play had got to (4), and paused
+    assert out["typed"] == out["right"][0]                             # in a field, or with a modifier, the key is the field's or the browser's
+    assert out["stopped"] == 4
+
+
+@needs_node
+def test_a_speed_change_keeps_the_position_and_scales_the_pace(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+finish(1, ["a", "b", "c"]);
+out.options = els["#speed"].innerHTML; out.start = [ev("S.speed"), els["#speed"].value];
+ev("setReplay(1)"); flush(); ev("togglePlay()"); clock += 400; flushOnce();
+out.before = ev("S.replay");
+els["#speed"].handlers.change.forEach(f => f({target: {value: "0.25"}})); flushOnce();
+out.after = [ev("S.replay"), ev("S.play.k0"), ev("S.play.rate"), ev("playRate(6)")];
+clock += 1000; flushOnce(); out.second = ev("S.replay");
+clock += 1000; flushOnce(); out.third = ev("S.replay");
+ev("stopPlay()"); ev("setReplay(2)"); flush();
+els["#speed"].handlers.change.forEach(f => f({target: {value: "4"}})); flush();
+out.paused = [ev("S.replay"), !!ev("S.play"), ev("S.speed")];
+els["#speed"].handlers.change.forEach(f => f({target: {value: "9"}})); flush(); out.odd = ev("S.speed");
+""")
+    assert out["start"] == [1, "1"]
+    assert [o for o in re.findall(r">([^<]+)</option>", out["options"])] == ["0.1x", "0.25x", "0.5x", "1x", "2x", "4x"]
+    assert out["before"] == 2
+    assert out["after"][0] == 2 and out["after"][1] == 2 and out["after"][2] == pytest.approx(out["after"][3] * 0.25)
+    assert out["second"] == 2 and out["third"] == 3                       # 3 steps a second at 1x, so one step in 1.33 s at 0.25x
+    assert out["paused"] == [2, False, 4]
+    assert out["odd"] == 4                                                  # a value not offered changes nothing
+
+
+@needs_node
+def test_the_chosen_speed_is_remembered_across_a_reload_and_storage_that_fails_is_ignored(tmp_path):
+    first = run_page(tmp_path, r"""
+els["#speed"].handlers.change.forEach(f => f({target: {value: "0.5"}}));
+out.store = ctx.localStorage.m;
+""", store={})
+    again = run_page(tmp_path, r"""out.speed = [ev("S.speed"), els["#speed"].value];""", store=first["store"])
+    junk = run_page(tmp_path, r"""out.speed = ev("S.speed");""", store={"placemat.playSpeed": "fast"})
+    blocked = run_page(tmp_path, r"""
+ctx.localStorage = {getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); }};
+els["#speed"].handlers.change.forEach(f => f({target: {value: "2"}}));
+out.speed = ev("S.speed");
+""")
+    assert first["store"] == {"placemat.playSpeed": "0.5"}
+    assert again["speed"] == [0.5, "0.5"]
+    assert junk["speed"] == 1 and blocked["speed"] == 2
+
+
+def test_the_replay_bar_has_no_bracketed_labels():
+    text = PAGE.read_text()
+    bar = re.search(r'<div id="replay">.*?</div>', text).group(0)
+    assert 'id="stepprev"' in bar and 'id="stepnext"' in bar and 'id="speed"' in bar
+    assert not re.search(r">[^<]*[()\[\]][^<]*<", bar) and not re.search(r'(?:title|aria-label)="[^"]*[()\[\]]', bar)
+
+
 @needs_node
 def test_a_routes_count_is_of_its_stage_and_a_pair_is_one_net(tmp_path):
     out = run_more(tmp_path, r"""
@@ -2835,7 +2987,7 @@ ev("renderBoard()");
 out.twoD = [ev("[...S.opStep.entries()]"), ev("S.lastStep")];
 """)
     cu = out["cu"]
-    assert cu["origins"] == ["planned", "kept", "routed", "routed"] and cu["n"] == 4 and cu["laid"] is False
+    assert cu["origins"] == ["planned", "kept", "routed", "routed"] and cu["n"] == 4 and "laid" not in cu
     assert cu["steps"] == [{"s": 1, "x": None}, {"s": 2, "x": None}, {"s": 3, "x": 3}, {"s": 3, "x": None}]
     assert out["twoD"] == [[[0, 1], [1, 2], [2, 3], [3, 3]], 3]                # the steps the 2D drawing gives the same ops
 

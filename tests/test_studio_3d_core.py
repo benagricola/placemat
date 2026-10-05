@@ -172,12 +172,11 @@ def test_copper_at_a_replay_step_is_what_the_2d_drawing_shows(tmp_path):
         import { visibleRanges } from "%s";
         // three ops laid at steps 0, 2 and 3, the second ripped up again at step 4
         const spans = [{s: 0, x: null, i0: 0, i1: 6}, {s: 2, x: 4, i0: 6, i1: 12}, {s: 3, x: null, i0: 12, i1: 18}];
-        const at = (k, laid) => visibleRanges(spans, k, 6, laid);
-        console.log(JSON.stringify({all: at(null, false), end: at(6, true), mid: at(3, false), laid: [0, 1, 3, 4, 5].map(k => at(k, true))}));
+        const at = k => visibleRanges(spans, k, 6);
+        console.log(JSON.stringify({all: at(null), end: at(6), laid: [0, 1, 3, 4, 5].map(k => at(k))}));
     ''' % CORE, tmp_path)
     assert out["all"] == [[0, 6], [12, 18]] and out["end"] == [[0, 6], [12, 18]]      # the ripped op is gone once the replay is past it
-    assert out["mid"] == []                                                          # a plan's replay draws no copper until its end, as 2D
-    assert out["laid"] == [[], [[0, 6]], [[0, 12]], [[0, 18]], [[0, 6], [12, 18]]]   # a route's replay lays and rips each op at its step
+    assert out["laid"] == [[], [[0, 6]], [[0, 12]], [[0, 18]], [[0, 6], [12, 18]]]   # each op laid at its step and ripped at its own, a plan's or a route's
 
 
 @needs_node

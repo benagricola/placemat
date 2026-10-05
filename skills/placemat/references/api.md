@@ -4074,7 +4074,12 @@ shown as an error with its line, over the last good plan, marked stale.
   outline, keepouts, parts by face (the back mirrored), copper, links,
   congestion. Pan and zoom, a toggle for each layer, a face switch.
 - Each step as it settles, in placement order with its note; the slider
-  replays the placement step by step. A click on a step zooms to its item.
+  replays the placement step by step, drawing each step's copper (tracks, vias,
+  pours) from that step on, in 2D and 3D. Play runs the whole placement in
+  about 8 seconds at 1x; the speed select beside the slider sets 0.1x to 4x of
+  that pace, kept per browser. The buttons either side of Play, and the Left
+  and Right arrow keys outside a field, pause play and move one step. A click
+  on a step zooms to its item.
   The card of a cell that chose among arrangements lists each one tried,
   with its total, whether it was legal, and which was taken.
 - The findings; a click zooms to the place a finding names.
@@ -4143,7 +4148,7 @@ counts parts by state, lists the plates, retries failed conversions and can dim 
 The copper is drawn too, each copper layer at its height in the board: tracks as flat ribbons with round ends, planes and pours as their
 filled outlines (the polygons the 2D view draws), pads and the parts' own copper on each layer they are on, vias as cylinders through the
 layers they join. The colours are the 2D view's layer colours; copper the router laid is drawn lighter, as the 3D form of its hollow 2D
-look. The replay shows copper as the 2D drawing does: a route's replay lays and rips each op at its step, a plan's replay shows it at its end.
+look. The replay shows copper as the 2D drawing does: each op from the step that lays it to the one that rips it up, if any, in a plan's replay and a route's.
 Solid | See-through on the 3D bar draws the board body solid or translucent (in the 2D drawing's substrate colour), so the inner layers'
 copper shows through it; the choice is kept while the page switches between 2D and 3D. The legend's switches are one set for both views:
 a copper layer's row and its only button, a zone's row, the pads and vias rows and the Copper origin rows (planned, kept, routed) hide and
