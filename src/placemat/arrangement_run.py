@@ -10,7 +10,7 @@ import shutil
 import time
 
 from . import arrangement_note as note, checks, reuse as reuse_mod, score as score_mod
-from .arrangements import Spec
+from .arrangements import DEFAULT, Spec
 from .copper import Text
 from .layout import _RowSlot
 from .findings import Finding, FindingCause as C
@@ -56,15 +56,19 @@ def resolve_spec(prepared: Prepared, spec: Spec, *, reuse=None, lock=(), routes=
     reported to a studio: the module run's own plan is the default's. The board is left as it was found, the arrangement
     it was laid as included, whether the resolve returns or raises."""
     board = prepared.board
-    found, found_rows = board._snapshot(), _row_state(board)
+    found, found_rows, studied = board._snapshot(), _row_state(board), board.pin_study
     try:
         board._restore(prepared.saved)
         _put_rows(prepared.rows)
         board.lay_arrangement(spec)
+        # the pin map study belongs to the module's own plan, the default's: an arrangement is not studied, so it does not
+        # take the default's study cache or add notices to the arrangement's record
+        board.pin_study = studied and spec.id == DEFAULT
         return board._resolve(None, reuse, None, lock, routes, None, None, partial)
     finally:
         board._restore(found)
         _put_rows(found_rows)
+        board.pin_study = studied
 
 
 def signature(plan) -> str:
