@@ -1478,7 +1478,8 @@ class Studio:
                "verdicts": [{"check": v.get("check"), "subject": v.get("subject"), "ok": v.get("ok"), "note": v.get("note", "")}
                             for v in (rec.verdicts or []) if v.get("ok") is False][:20],
                "arrangements": [{"id": a["id"], "offered": a["offered"], "refused": len(a.get("refused") or ()),
-                                 **({"duplicate_of": a["duplicate_of"]} if a.get("duplicate_of") else {})} for a in (rec.arrangements or [])],
+                                 **({"duplicate_of": a["duplicate_of"]} if a.get("duplicate_of") else {}),
+                                 **({"excluded": True} if a.get("excluded") else {})} for a in (rec.arrangements or [])],
                "timing": rec.timing_s, "explore": str(kept.resolve()) if kept is not None and kept.is_file() else "",
                "failure": {"message": fail.get("message", ""), "file": fail.get("script", ""), "line": fail.get("line"), "source": fail.get("source")} if fail else None}
         self._run_cache[run_json] = (mtime, out)

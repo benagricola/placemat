@@ -370,8 +370,8 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
         board.pin_study_cache = Path(src.board_dir) / ".placemat" / "pinmap" / (Path(script).stem + ".json")
     try:
         run_script(script, board)
+        board.refuse_board_alternatives()               # an alternative on a board that is not a module
         board.finish_declarations()                     # an only= naming no arrangement is the script's error
-        board.refuse_board_alternatives()               # and so is an alternative on a board that is not a module
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)
         from .project import script_files

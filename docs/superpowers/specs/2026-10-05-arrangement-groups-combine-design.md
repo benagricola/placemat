@@ -8,6 +8,9 @@ is reported; the author may declare combinations to skip.
 
 Amends `2026-10-04-module-member-variants-design.md` (released in 0.99.15).
 
+Amended 2026-10-05 after the final review: the positional `board.arrangement` is removed rather than kept as a one-option
+unit, and `only=` matches by the choices an arrangement holds.
+
 ## Today
 
 `arrangements.enumerate_specs` makes the default, the product of the items'
@@ -39,9 +42,10 @@ board.alternative(pair, "flat",
                   Alt(Part("r1"), at=Beside(Part("c1"), Edge.EAST)))
 board.alternative(pair, "upright",
                   Alt(Part("c1"), rotation=90),
-                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH)))
+                  Alt(Part("r1"), at=Beside(Part("c1"), Edge.NORTH)),
+                  why="the pair stands in the column")
 board.alternative(Part("r_far"), "turned", rotation=90)
-board.exclude("pair.upright", "caps_upright", why="both stand in the one column")
+board.exclude("pair.upright", "r_far.turned", why="both stand in the one column")
 ```
 
 - `board.unit(name, *members, why="")` declares a unit and its
@@ -53,24 +57,27 @@ board.exclude("pair.upright", "caps_upright", why="both stand in the one column"
   **keywords)` does for a single item. Each `Alt(item, **keywords)` names
   a member of the unit, at most once per option; a member the option does
   not name keeps its own `place()` in that option. A unit's alternative
-  takes `Alt`s and no place keywords; an item's takes keywords and no
-  `Alt`s. Option names follow `check_name`, unique within the unit.
-- `board.arrangement(name, *alts, why="")`, the 0.99.15 form, is shorthand
-  for a unit of the `Alt`s' items with one option. It is kept and now
-  combines like any unit: a module written against 0.99.15 runs unchanged,
-  every arrangement it had keeps its id (below), and the combinations of
-  its units with its items are added.
+  takes `Alt`s and `why=`, no place keywords; an item's takes keywords
+  and no `Alt`s. Option names follow
+  `check_name`, unique within the unit.
+- `board.arrangement(name, *alts)`, the 0.99.15 form, is removed. A call
+  raises `TypeError` naming `board.unit` with `board.alternative(unit,
+  option, *alts)` as the replacement: a unit with one option does what it
+  did, and combines. (Decided 2026-10-05: no board project used it. Kept,
+  it would have had to stand alone outside the product to keep its
+  0.99.15 meaning, a second way to say what a unit says.)
 - A member may be in one unit only, and a member of a unit may not also
   have its own `board.alternative`. A second unit naming a member is an
   error at `board.unit`; an item's own alternative on a unit member is
   an error at whichever call comes second; each names both declarations. (Two units
   that move the same part would lay two places over it.)
 - `board.exclude(*choices, why="")`: every combination that holds all of
-  `choices` is not laid out. A choice is `item.option`, `unit.option`, or
-  a one-option unit's name. A choice the module does not declare, an
-  exclusion that leaves out every combination holding some option, and an
-  exclusion of fewer than two choices are errors where the script finishes
-  declaring.
+  `choices` is not laid out. A choice is `item.option` or `unit.option`.
+  A choice the module does not declare, a choice twice, two options of
+  one unit, and an exclusion of fewer than two choices are errors where
+  the script finishes declaring. (An exclusion cannot leave out every
+  combination holding an option: it names two units, and each keeps its
+  default.)
 
 ## The arrangements
 
@@ -83,15 +90,28 @@ changing slowest, less the excluded ones.
 Ids:
 - an item's option: `item.option`, as now;
 - a unit's option: `unit.option`;
-- a one-option unit (the 0.99.15 form): the unit's name alone, as now;
 - a combination: the units' choices in unit order joined by `+`
-  (`pair.upright+r_far.turned`, `caps_upright+r_vconn.upright`).
+  (`pair.upright+r_far.turned`).
 
-Every 0.99.15 id stays valid with the same meaning, so a lock, an
-`arrangements=` or a step note written under 0.99.15 still names the same
-arrangement. `known_id` and `all_ids` follow the new order. `choices` is
-`{unit: option}` for every unit that takes one, a one-option unit
-recorded as `{unit: unit}`.
+A module of items' options alone makes the arrangements, ids and order
+0.99.15 made. `known_id` follows the new order. `choices` is
+`{unit: option}` for every unit that takes one.
+
+## only=
+
+An `only=` entry is `default`, a choice, or choices joined by `+` in unit
+order (a full combination id is one such entry). Copper exists in every
+arrangement that holds all the choices of some entry; `default` is the
+module's own layout alone. So copper on one option is laid in every
+combination holding that option, as a 0.99.15 `only=` naming an item's
+option was where that option stood alone.
+
+An entry that is not of that form, or names a choice the module does not
+declare, is an error where the script finishes declaring; the message
+lists the module's choices as ids (`cap.upright`). So is an entry every
+arrangement holding which an exclusion leaves out: the copper would exist
+in none. Copper fitted round or drawn from other copper with an `only=`
+needs each of its entries to hold every choice of one of the other's.
 
 ## Limits
 
@@ -99,7 +119,7 @@ recorded as `{unit: unit}`.
 counted as one. `place.arrangements_max` applies to the product after
 exclusions: an exclusion is the way to bring a module under the limit
 without dropping an option. Its default goes from 8 to 16, since a unit
-multiplies the count where a 0.99.15 `board.arrangement` added one. `arrangement.limit` keeps its facts and adds
+multiplies the count. `arrangement.limit` keeps its facts and adds
 `excluded` (how many combinations the exclusions removed).
 
 ## The proof
@@ -117,6 +137,14 @@ finished: the option is fixed or dropped.
 
 `run.json`'s `arrangements` record gains `excluded` (the ids not laid out,
 each with the exclusion's `why`).
+
+Each entry also gains `why`, the reasons of the choices it holds, in unit
+order, for those the script gave a `why=`: `{item, option, why}` for an
+item's option, `{unit, option, why, unit_why}` for a unit's; absent when
+there are none. The
+console row of an offered or refused arrangement prints them after it.
+(Amended after the final review: the reasons are kept and shown, not
+dropped.)
 
 ## The skill
 
@@ -143,15 +171,23 @@ again to offer the new combinations; until then its fragment carries what
   an `Alt` naming a part outside the unit, or one member twice: a
   `TypeError` or `ValueError` at the call.
 - A unit with no option: a declaration error.
-- A member in two units, or in a unit and with its own alternative: a
-  declaration error naming both declarations.
-- An exclusion naming an unknown choice, of fewer than two choices, or
-  removing every combination of some option: a declaration error.
+- A member in two units, or in a unit and with its own alternative: an
+  error at the second call naming both declarations.
+- An exclusion naming an unknown choice, a choice twice, two options of
+  one unit, or fewer than two choices: a declaration error.
+- An `only=` entry naming no choice of the module, or held only by
+  excluded combinations: a declaration error.
+- `board.arrangement`: a `TypeError` at the call.
 
 ## Testing
 
-- Two units and an item: the product, its order and its ids; a one-option
-  unit's ids as in 0.99.15; every 0.99.15 test of ids unchanged.
+- Two units and an item: the product, its order and its ids. A module of
+  items alone: ids, order, choices, overrides and count as the v0.99.15
+  tag's `enumerate_specs` gives them.
+- `only=`: an entry naming one choice is laid in every combination
+  holding it; `default` in the default alone; an unknown entry lists the
+  choices; an entry only excluded combinations hold is an error.
+- `board.arrangement` raises `TypeError` naming `board.unit`.
 - Two adjacent units whose upright options collide: the combination is
   refused, both options are offered in other combinations, no
   `option_dead`.
@@ -160,16 +196,30 @@ again to offer the new combinations; until then its fragment carries what
 - An exclusion: the combination is not laid out, `run.json` lists it with
   its why, `arrangement.limit` counts after exclusions.
 - The declaration errors above, each.
-- A 0.99.15 module (positional units): every arrangement it had keeps its
-  id and its places; the combinations of its units with its items are
-  added.
+- A real module with a move declared as a unit's option and with the same
+  move as an item's option: the same places, offered state and dead
+  options, arrangement by arrangement.
 - Bench: every case `same`; a module with no units lays out what it did.
 
 ## Migration
 
-Under "Changed": units combine with other items and units; the
-positional form is a one-option unit and keeps its ids; a member may not
-be in a unit and have its own alternative; `place.arrangements_max` defaults
-to 16, up from 8. Under "New": `board.unit` with options by `board.alternative`,
-`board.exclude`, `arrangement.option_dead`. A module re-run offers the new
-combinations; a board needs no change.
+Under "New": `board.unit` with options by `board.alternative`,
+`board.exclude`, `arrangement.option_dead`. Under "Changed": units
+combine with other items and units; a module of items alone makes what
+it did; a member may not be in a unit and have its own alternative;
+`place.arrangements_max` defaults to 16, up from 8; `only=` matches by
+the choices an arrangement holds. Under "Removed": `board.arrangement`,
+its replacement, and that a module using it fails at the call. A module
+re-run offers the new combinations.
+
+## Build notes
+
+Built 2026-10-05. The bench (`fixtures/bench.py --jobs 2`) is the same in every case on every config (33 cases each). The
+full suite (`--full`, 5788 passed, 22 skipped, none failed) passed. A real fixture module with one item's alternative and
+one move made a unit's option (one `board.arrangement` then) made, under 0.99.15 and at that build, the same places and
+offered state for every arrangement 0.99.15 made.
+
+Amended after the final review (2026-10-05): `board.arrangement` removed, `only=` by membership, the skill check reads
+`board.unit`. The bench is the same in every case on every config (33 cases each); the suite without `--full` (5582 passed,
+22 skipped) and the arrangement, skill-check, settings-docs and finding-text tests with `--full` (512 passed) passed. A module
+of items alone enumerates as the v0.99.15 tag does (a test over every shape of up to four items of up to three options).

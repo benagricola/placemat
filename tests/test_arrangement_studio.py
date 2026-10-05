@@ -203,3 +203,33 @@ ev('goTab("compare"); renderCompare()'); flush();
 out.html = els["#tab-compare"].innerHTML;
 """)
     assert "0 mm, arrangement default to c_in.east" in out["html"]
+
+
+@needs_node
+def test_the_run_detail_says_a_combination_was_excluded(tmp_path):
+    out = _in_page(tmp_path, r"""
+o.html = runDetail({drc: {}, severities: {}, timing: {}, verdicts: [], failure: null,
+  arrangements: [{id: "default", offered: true, refused: 0},
+                 {id: "pair.upright+caps_upright", offered: false, refused: 0, excluded: true}]});
+""")
+    h = out["html"]
+    assert '<span class="chip notice">pair.upright+caps_upright</span> excluded' in h      # a notice, never red or grey
+    assert "chip bad" not in h and "refused 0" not in h
+
+
+def test_a_run_summary_marks_an_excluded_combination(tmp_path):
+    from placemat.report import RunRecord
+    from placemat.studio import Studio
+    rec = RunRecord(run_id="r1", board="b", status="ok")
+    rec.arrangements = [{"id": "default", "choices": {}, "offered": True},
+                        {"id": "pair.upright+caps_upright", "choices": {"pair": "upright", "caps_upright": "caps_upright"},
+                         "offered": False, "excluded": {"why": "both stand", "by": ["pair.upright", "caps_upright"]}}]
+    run = tmp_path / "runs" / "r1"
+    run.mkdir(parents=True)
+    rec.save(run / "run.json")
+    s = Studio.__new__(Studio)
+    s._run_cache, s.cfg = {}, None
+    s.runs_dir = lambda: tmp_path / "runs"
+    assert s.run_summary(run / "run.json")["arrangements"] == [
+        {"id": "default", "offered": True, "refused": 0},
+        {"id": "pair.upright+caps_upright", "offered": False, "refused": 0, "excluded": True}]

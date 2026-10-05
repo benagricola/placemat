@@ -22,6 +22,8 @@ class Prepared:
     saved: tuple                # Board._snapshot() once the declarations are finished, before any arrangement is laid
     specs: tuple                # arrangements.Spec, the default first
     rows: list = field(default_factory=list)    # _row_state then
+    units: list = field(default_factory=list)   # arrangements.Unit, in the order declared
+    excluded: tuple = ()        # (Spec, Exclusion): the combinations an exclusion leaves out
 
 
 def _row_state(board) -> list:
@@ -46,9 +48,11 @@ def _put_rows(state) -> None:
 
 
 def begin(board) -> Prepared:
-    """The board as its script left it, checked and snapshotted, with the arrangements its declarations make."""
+    """The board as its script left it, checked and snapshotted, with the arrangements its declarations make and the ones its
+    exclusions leave out."""
     board.finish_declarations()
-    return Prepared(board, board._snapshot(), board.arrangement_specs(), _row_state(board))
+    return Prepared(board, board._snapshot(), board.arrangement_specs(), _row_state(board), board.arrangement_units(),
+                    board.arrangement_enumeration().excluded)
 
 
 def resolve_spec(prepared: Prepared, spec: Spec, *, reuse=None, lock=(), routes=None, partial=None):
@@ -118,7 +122,7 @@ def extent_findings(board, extent: list, threshold_mm: float) -> list:
     that declares none, or with `place.arrangements` off, those standing past the next member by more than `threshold_mm`
     (`place.extent_notice_mm`)."""
     declares = bool(board._options or board._arr_groups) and board.settings.place_arrangements
-    moved = set(board._options) | {o.item for g in board._arr_groups for o in g.options}
+    moved = set(board._options) | {k for g in board._arr_groups for k in g.moves()}
     out = []
     for row in extent:
         if row["item"] in moved or (not declares and row["protrudes_mm"] <= threshold_mm):
@@ -167,6 +171,45 @@ def drc_refusals(report, default_unconnected: int) -> list:
 
 def verdict_refusals(verdicts) -> list:
     return [{"form": "verdict", "check": v.check, "item": v.subject} for v in verdicts if v.ok is False and not v.accepted]
+
+
+def reasons(units, choices: dict) -> list:
+    """The reasons of the choices an arrangement holds (its `choices`), in unit order, for those the script gave one: an item's
+    option as `item`, `option` and `why`; a unit's option as `unit`, `option`, its `why` and the unit's own (`unit_why`)."""
+    out = []
+    for u in units:
+        for c in u.choices:
+            if choices.get(c.unit) != c.option or not (c.why or c.unit_why):
+                continue
+            out.append({"item": c.unit, "option": c.option, "why": c.why} if c.item else
+                       {"unit": c.unit, "option": c.option, "why": c.why, "unit_why": c.unit_why})
+    return out
+
+
+def _with_reasons(entry: dict, units) -> dict:
+    why = reasons(units, entry["choices"])
+    return dict(entry, why=why) if why else entry
+
+
+def excluded_entries(excluded, units=()) -> list:
+    """The record's entries of the combinations an exclusion leaves out, in product order: not laid out, so no folder, metrics or
+    extent; `excluded` holds the exclusion's why and its choices."""
+    return [_with_reasons({"id": spec.id, "choices": spec.choices, "offered": False,
+                           "excluded": {"why": rule.why, "by": list(rule.choices)}}, units) for spec, rule in excluded]
+
+
+def option_dead_findings(units, record) -> list:
+    """`arrangement.option_dead` for each unit's choice that every laid-out combination holding it was refused in (an excluded
+    combination is not counted; a duplicate is not a refusal), with each one's refusals."""
+    out = []
+    for u in units:
+        for c in u.choices:
+            held = [e for e in record if e["choices"].get(c.unit) == c.option and not e.get("excluded")]
+            if held and all(e.get("refused") for e in held):
+                out.append(Finding(C.ARRANGEMENT_OPTION_DEAD,
+                                   {"unit": c.unit, "option": c.option, "choice": c.id, "refused": [e["id"] for e in held],
+                                    "reasons": {e["id"]: e["refused"] for e in held}}, "warning"))
+    return out
 
 
 @dataclass
@@ -345,7 +388,7 @@ def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_
     findings, texts = [], []
     for r in resolved:
         spec = r.spec
-        entry = {"id": spec.id, "choices": spec.choices, "dir": "arrangements/" + spec.id}
+        entry = _with_reasons({"id": spec.id, "choices": spec.choices, "dir": "arrangements/" + spec.id}, prepared.units)
         record.append(entry)
         if r.duplicate_of:
             entry.update(offered=False, duplicate_of=r.duplicate_of, metrics=None)
@@ -376,6 +419,8 @@ def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_
         if refused:
             entry["refused"] = refused
             findings.append(Finding(C.ARRANGEMENT_REFUSED, {"id": spec.id, "refused": refused}, "warning"))
+    record += excluded_entries(prepared.excluded, prepared.units)
+    findings += option_dead_findings(prepared.units, record)
     d = _dir(run_dir, "default")
     d.mkdir(parents=True, exist_ok=True)
     for name in ("layout.kicad_pcb", "layout.kicad_pro", "layout.kicad_dru", "drc.json", "reuse.json"):
@@ -384,15 +429,22 @@ def finish(prepared, default_plan, resolved, *, src, cfg, fab, run_dir, default_
     return Outcome(record, findings, texts)
 
 
+def _row_reasons(entry: dict) -> dict:
+    return {"reasons": entry["why"]} if entry.get("why") else {}
+
+
 def lines(record: list) -> list:
     """One row per arrangement of the record, for the console (finding_text.arrangement_row_text): its id and `state`, written (the
-    default), offered, duplicate (with `same_as`) or refused (with `refused`)."""
+    default), offered, duplicate (with `same_as`), refused (with `refused`) or excluded (with the exclusion's `why` and its
+    choices, `by`). An offered or refused row carries `reasons`, the entry's `why` (the reasons of the item and unit options it holds), when it has one."""
     out = []
     for a in record:
-        if a.get("duplicate_of"):
+        if a.get("excluded"):
+            out.append({"id": a["id"], "state": "excluded", "why": a["excluded"]["why"], "by": a["excluded"]["by"]})
+        elif a.get("duplicate_of"):
             out.append({"id": a["id"], "state": "duplicate", "same_as": a["duplicate_of"]})
         elif a["offered"]:
-            out.append({"id": a["id"], "state": "written" if a["id"] == "default" else "offered"})
+            out.append(dict({"id": a["id"], "state": "written" if a["id"] == "default" else "offered"}, **_row_reasons(a)))
         else:
-            out.append({"id": a["id"], "state": "refused", "refused": a.get("refused", [])})
+            out.append(dict({"id": a["id"], "state": "refused", "refused": a.get("refused", [])}, **_row_reasons(a)))
     return out

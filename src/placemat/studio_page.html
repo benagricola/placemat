@@ -4121,9 +4121,9 @@ function runDetail(r) {
   const failing = (r.verdicts || []).map(v => '<div>' + pill(v.check) + " " + esc(v.subject || "") + ' <span class="dim">' + esc(v.note || "") + "</span></div>").join("");
   const f = r.failure;
   const rowsHtml = kvl(rows);
-  // a module run's arrangements: offered, refused by its proof (a warning) or laid out as another one
-  const arrs = (r.arrangements || []).map(a => "<div>" + pill(a.id, a.duplicate_of ? "notice" : a.offered ? "good" : "warn") + " " +
-    esc(a.duplicate_of ? "same as " + a.duplicate_of : a.offered ? "offered" : "refused " + a.refused) + "</div>").join("");
+  // a module run's arrangements: offered, refused by its proof (a warning), laid out as another one, or excluded by the script
+  const arrs = (r.arrangements || []).map(a => "<div>" + pill(a.id, a.duplicate_of || a.excluded ? "notice" : a.offered ? "good" : "warn") + " " +
+    esc(a.duplicate_of ? "same as " + a.duplicate_of : a.excluded ? "excluded" : a.offered ? "offered" : "refused " + a.refused) + "</div>").join("");
   return '<div class="full" style="display:block">' + sect("Result", rowsHtml === '<div class="kvl"></div>' ? "" : rowsHtml) + (arrs ? sect("Arrangements", '<div class="cl">' + arrs + "</div>") : "") + (failing ? sect("Failed checks", '<div class="cl">' + failing + "</div>") : "") +
     (f ? sect("Failure", '<div class="note">' + esc(f.message || "") + "</div>" + (f.line ? '<div class="src"><a data-act="src" data-file="' + esc(relName(f.file)) + '" data-line="' + f.line + '">' + esc(relName(f.file) + ":" + f.line) + "</a>" + (f.source ? " <code>" + esc(String(f.source).trim()) + "</code>" : "") + "</div>" : "")) : "") + "</div>";
 }

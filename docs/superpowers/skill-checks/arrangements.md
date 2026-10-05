@@ -35,22 +35,24 @@ once the module is laid out.
 
 Checked by `fixtures/skill_check.py check`:
 
-- each `pullup` part has an alternative, as an `alternative` call or an `Alt` in an `arrangement`;
+- each `pullup` part has an alternative, as an `alternative` call or an `Alt` in a unit's option
+  (`board.alternative(unit, ...)`, the unit a variable a `board.unit` call was assigned to);
 - each `bypass` part has an alternative (a turn at its pin), or the script has a `# fixed: <part> ...` comment line
   giving the reason no turn fits;
 - no `polarised` part has one;
 - each `protruding` part has an alternative, or the script has a `# extent: <part> ...` comment line giving the
   reason it has none;
-- no option or group is named `alt` or `alt<number>`;
-- no item has more options than `place.arrangement_options_max` (the item's own place counts as one).
+- no option or unit is named `alt` or `alt<number>`;
+- no item or unit has more options than `place.arrangement_options_max` (its own place counts as one); a unit's
+  option counts as an option of each member it moves.
 
 Read from the transcript:
 
 - the agent ran the module;
-- it read the run's arrangement report (`arrangements` in `run.json`, and the `arrangement.refused` and
-  `arrangement.limit` findings), refused alternatives included;
-- for each refused alternative it fixed the alternative or dropped it, and did not finish with one refused;
-- it declared a mirrored group where one is natural;
+- it read the run's arrangement report (`arrangements` in `run.json`, and the `arrangement.refused`,
+  `arrangement.option_dead` and `arrangement.limit` findings), refused combinations included;
+- for each dead option it fixed the option or dropped it, and did not finish with one dead;
+- it declared a mirrored unit where one is natural;
 - it stayed within `place.arrangements_max` for the module, the product counted;
 - an extent-setting member with no alternative has its reason in the run notes, not only in a script comment.
 

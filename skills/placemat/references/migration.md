@@ -5,6 +5,43 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **Units with options, and exclusions.** `board.unit(name, Part(...), Part(...), why=)` declares parts that move as one
+  unit, and `board.alternative(unit, option, Alt(Part(...), **keywords), ..., why=)` gives it each option
+  (`unit.option`); `run.json`'s arrangement entries list the reason of every choice they hold, an item's option or a
+  unit's (`why`), and the console row shows them.
+  `board.exclude(choice, choice, ..., why=)` leaves out every combination holding all the choices; `run.json`'s
+  `arrangements` lists each with its `why`. `arrangement.option_dead` (warning) names an option refused in every
+  combination that holds it.
+
+### Changed
+
+- **A module's units combine with its other items and units.** A module's arrangements are the default and every
+  combination of its items' options and its units' options (`c_in.east+pair.upright`), in product order, the first
+  declared changing slowest. A module of items' options alone makes the same arrangements, ids and order as before. The
+  default of `place.arrangements_max` is now 16, up from 8, since a unit multiplies the count; a project that sets its
+  own value keeps it, and a module over the limit lays out the default only (`arrangement.limit`), which `board.exclude`
+  brings back under. A part in a unit may not have its own `board.alternative`, nor be in a second unit.
+- **`only=` matches by the choices an arrangement holds.** An entry names a choice (`pair.upright`) or several joined by
+  `+`, and the copper exists in every arrangement that holds all of them, so copper on one option is laid in each
+  combination with it. An entry that is a full id still names that arrangement; `only=("default",)` is still the
+  module's own layout alone. An `only=` whose every arrangement an exclusion leaves out is refused where the script
+  finishes declaring.
+
+### Removed
+
+- **`board.arrangement(name, Alt(...), ...)` is gone.** A module script that calls it now fails at the call with a
+  `TypeError`. Declare the parts as a unit with one option, which does what it did and also combines with the module's
+  other items and units:
+  `unit = board.unit("name", Part("a"), Part("b"))` and
+  `board.alternative(unit, "option", Alt(Part("a"), ...), Alt(Part("b"), ...))`.
+  Its id becomes `name.option`, so change an `only=` naming the old id, and a board's `arrangements=` naming it, to the
+  new one; a lock entry naming the old id is released (`arrangement.missing`, warning) and the cell searched again. Re-run
+  the module after the change.
+
 ## To 0.99.16
 
 ### New
@@ -4055,3 +4092,4 @@ that says what replaces it.
 | a searched cell or part pinned to `face=Face.BACK` (or `FRONT`) by hand only because one face was full | To 0.72.0 |
 | a cell or part turned by a hand-picked constant (45 or similar) to follow a circle, at a typed point | To 0.76.0 |
 | `board.size(...)`, the rectangular board form | To 0.85.0 |
+| `board.arrangement(name, Alt(...), ...)` | Unreleased |

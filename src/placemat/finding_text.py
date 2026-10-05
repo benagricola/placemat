@@ -953,23 +953,42 @@ def refusal_record_text(r: dict) -> str:
 def arrangement_row_text(row: dict) -> str:
     """One console line of the module run's arrangements (arrangement_run.lines)."""
     state = row["state"]
+    if state == "excluded":
+        return "%s: excluded, not laid out%s" % (row["id"], ": " + row["why"] if row["why"] else "")
     if state == "written":
         return "%s: offered, written" % row["id"]
     if state == "offered":
-        return "%s: offered" % row["id"]
+        return "%s: offered%s" % (row["id"], _unit_reasons_text(row.get("reasons", ())))
     if state == "duplicate":
         return "%s: the same as %s, dropped" % (row["id"], row["same_as"])
-    return "%s: not offered: %s" % (row["id"], "; ".join(refusal_record_text(r) for r in row["refused"]))
+    return "%s: not offered: %s%s" % (row["id"], "; ".join(refusal_record_text(r) for r in row["refused"]),
+                                      _unit_reasons_text(row.get("reasons", ())))
 
 
-@renders(C.ARRANGEMENT_LIMIT, "variant", "arrangements", "max_arrangements", "options", "max_options")
+def _unit_reasons_text(reasons) -> str:
+    """The reasons of an arrangement's choices (arrangement_run.reasons), after its row: ` - unit: why; unit.option: why;
+    item.option: why`."""
+    parts = []
+    for r in reasons:
+        if "item" in r:
+            parts.append("%s.%s: %s" % (r["item"], r["option"], r["why"]))
+            continue
+        if r["unit_why"]:
+            parts.append("%s: %s" % (r["unit"], r["unit_why"]))
+        if r["why"]:
+            parts.append("%s.%s: %s" % (r["unit"], r["option"], r["why"]))
+    return " - " + "; ".join(parts) if parts else ""
+
+
+@renders(C.ARRANGEMENT_LIMIT, "variant", "arrangements", "max_arrangements", "options", "max_options", "excluded")
 def _arrangement_limit(f):
-    tail = "so only the default is laid out; name a group (board.arrangement) for each combination that matters"
     if f["variant"] == "options":
-        item, n = max(f["options"].items(), key=lambda kv: (kv[1], kv[0]))
-        return "%s has %d options, over the %d place.arrangement_options_max allows, %s" % (item, n, f["max_options"], tail)
-    return "this module declares %d arrangements, over the %d place.arrangements_max allows, %s" % (
-        f["arrangements"], f["max_arrangements"], tail)
+        unit, n = max(f["options"].items(), key=lambda kv: (kv[1], kv[0]))
+        return "%s has %d options, over the %d place.arrangement_options_max allows, so only the default is laid out; drop one" % (
+            unit, n, f["max_options"])
+    after = " once its exclusions leave out %d" % f["excluded"] if f["excluded"] else ""
+    return ("this module declares %d arrangements%s, over the %d place.arrangements_max allows, so only the default is laid out; "
+            "leave out the combinations that do not matter with board.exclude" % (f["arrangements"], after, f["max_arrangements"]))
 
 
 @renders(C.ARRANGEMENT_REFUSED, "id", "refused")
@@ -1009,6 +1028,13 @@ def _arrangement_missing(f):
 def _arrangement_extent_fixed(f):
     return "%s sets the module's extent on the %s side%s (%.1f mm past the next part) and has no alternative" % (
         f["item"], " and ".join(f["sides"]), "s" if len(f["sides"]) > 1 else "", f["protrudes_mm"])
+
+
+@renders(C.ARRANGEMENT_OPTION_DEAD, "unit", "option", "choice", "refused", "reasons")
+def _arrangement_option_dead(f):
+    each = "; ".join("%s for %s" % (i, ", ".join(refusal_record_text(r) for r in f["reasons"][i])) for i in f["refused"])
+    return "%s is refused in every arrangement that holds it, so the board is never offered it: %s; fix it or drop it" % (
+        f["choice"], each)
 
 
 def facts_reason_text(r: dict) -> str:
@@ -1051,6 +1077,8 @@ def subject(cause, facts: dict) -> str:
         return " ".join(facts["refs"])
     if cause is C.LINK_OVER:
         return facts["link"]
+    if cause is C.ARRANGEMENT_OPTION_DEAD:
+        return facts["choice"]
     for k in _SUBJECT_KEYS:
         v = facts.get(k)
         if isinstance(v, str) and v:
@@ -1122,3 +1150,4 @@ def _setup_centre_flag_default(f):
 
 # ------------------------------------------------------------------ schema versions of causes whose facts have changed
 FACTS_V[C.FIXED_ROOM_UNSETTLED] = 2     # a firm cell whose arrangement did not settle: item and arrangements, not copper
+FACTS_V[C.ARRANGEMENT_LIMIT] = 2        # excluded: how many combinations the module's exclusions leave out
