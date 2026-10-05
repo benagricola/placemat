@@ -860,6 +860,16 @@ class Occupancy:
                             frozenset())
         return self._transform(read, self.items[ref].reference).apply_location(pad.airwire_end)
 
+    def courtyard_box(self, ref: str) -> Box:
+        """The box round a part's courtyard where the part stands NOW: its courtyard box as read, moved and turned as the
+        part has moved since (as `pad_anchor` moves a pad's anchor)."""
+        fp = self.geometry.footprint(ref)
+        read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                            frozenset())
+        t = self._transform(read, self.items[ref].reference)
+        b = fp.courtyard_box
+        return Box.of_points([t.apply(p) for p in ((b.left, b.top), (b.right, b.top), (b.right, b.bottom), (b.left, b.bottom))])
+
     def carry(self, ref: str, shapes) -> None:
         """Copper a part takes with it wherever it is placed: `shapes` in
         its current frame, moved and turned as its own are."""

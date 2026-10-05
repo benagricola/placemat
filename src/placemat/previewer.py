@@ -296,6 +296,9 @@ def _resolved(script, out=None, explore=None, quiet: bool = False, progress=None
             s.stage = s.stage or "resolve"
             raise
         timecap.placement_done()                # the placement is in hand: the cap is lifted for the drawing
+        if plan.pin_study and not quiet:
+            from .pinmap import study_line
+            console.say("pins", study_line(plan.pin_study))
         held = explore_mod.lock_summary(plan)
         if held and not quiet:
             console.say("lock", held)

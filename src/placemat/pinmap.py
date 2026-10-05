@@ -20,7 +20,7 @@ import time
 from .findings import Finding, FindingCause as C
 
 from .pinmap_core import study
-from .pinmap_input import build, placed_from_geometry
+from .pinmap_input import PlacedPad, PlacedPart, build, placed_from_geometry
 from .pinmap_rules import Problem, natural
 
 CACHE_VERSION = 1
@@ -193,3 +193,47 @@ def geometry_findings(geometry, settings, quiet=frozenset(), either=frozenset(),
     pads, parts = placed_from_geometry(geometry, either)
     return study_findings(pads, parts, geometry.pin_names, quiet, board_pairs(geometry.netclasses), geometry.netclasses,
                           settings, copper_nets(geometry), cache, step_ms)
+
+
+def study_line(record: dict) -> str:
+    """What a run or a preview says of the study, from its record."""
+    if record.get("reused"):
+        return "%d part%s, the last study reused (%.2f s)" % (record["parts"], "" if record["parts"] == 1 else "s",
+                                                                record["seconds"])
+    return "%d part%s in %d group%s (%.2f s)" % (record["parts"], "" if record["parts"] == 1 else "s", record["groups"],
+                                               "" if record["groups"] == 1 else "s", record["seconds"])
+
+
+def placed_from_plan(board, plan) -> tuple:
+    """(pads, {ref: PlacedPart}) of a resolved plan: every placed part where the placement put it (its pads at their
+    airwire anchors, its courtyard's box), and whether its declaration lets it stand on the other face."""
+    occ = plan.occupancy
+    either = {i.item.ref for i in board._placements() if i.kind == "part" and getattr(i, "either", False)}
+    pads, parts = [], {}
+    for ref in sorted(occ.items):
+        if ref in occ.pending or not occ.geometry.has_footprint(ref):
+            continue
+        fp = occ.geometry.footprint(ref)
+        nc = {p.number for p in fp.pads if p.no_connect}
+        for s in occ.items[ref].shapes:
+            if s.kind in ("pad", "through") and s.owner == ref:
+                pads.append(PlacedPad(ref, s.label, s.net, frozenset(s.layers), (tuple(s.poly),), s.box,
+                                      occ.pad_anchor(ref, s.label), s.label in nc))
+        g = occ.items[ref].reference
+        parts[ref] = PlacedPart(ref, occ.courtyard_box(ref), g.rotation, g.face.value, ref in either, dict(fp.fields))
+    return pads, parts
+
+
+def plan_findings(board, plan) -> list:
+    """The study of a resolved plan's board, its record kept on the plan (`plan.pin_study`): what the end of a resolve
+    adds to its findings. A board whose parts carry no `Pm.PinPool` is not read."""
+    if not has_pools(board.geometry.footprints):
+        return []
+    from .pairs import board_pairs
+    pads, parts = placed_from_plan(board, plan)
+    quiet = frozenset(board._plane_nets()) | frozenset(board._free_nets)
+    found, record = study_findings(pads, parts, board.geometry.pin_names, quiet, board_pairs(board.geometry.netclasses),
+                                   board.geometry.netclasses, board.settings, copper_nets(board.geometry, plan),
+                                   board.pin_study_cache)
+    plan.pin_study = record
+    return found

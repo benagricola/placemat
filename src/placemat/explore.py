@@ -512,7 +512,9 @@ class BoardFactory:
 
     def __call__(self):
         from .runner import scripted_board
-        return scripted_board(self.script, self.src, self.cfg, self.fab, self.keep_going, geometry=self.geometry)
+        board = scripted_board(self.script, self.src, self.cfg, self.fab, self.keep_going, geometry=self.geometry)
+        board.pin_study = False             # a variant is studied by the explore, on its best ones (`_pin_maps`)
+        return board
 
 
 # ------------------------------------------------------------ search and accept
