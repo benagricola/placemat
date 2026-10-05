@@ -122,8 +122,9 @@ class RouteReport:
     net_halo_trapped: list = field(default_factory=list)
     net_halo_facts: list = field(default_factory=list)
     # The router's dangling copper taken off the routed copy (route_cleanup.py, KiCad's TRACKS_CLEANER): Cleanup.record(),
-    # {"tracks": {net: n}, "vias": {net: n}, "merged": {net: n}, "refused": bool, "unconnected": [before, after],
-    # "kept_unrouted": [nets left unconnected whose dangling router copper was kept]}.
+    # {"tracks": {net: n}, "vias": {net: n}, "merged": {net: n}, "unconnected": [before, after],
+    # "kept_unrouted": [nets left unconnected whose dangling router copper was kept],
+    # "refused_nets": [nets whose pads the dangling router copper alone joins, which keep it]}.
     dangling_removed: dict = field(default_factory=dict)
 
     def has_findings(self) -> bool:
@@ -173,13 +174,12 @@ class RouteReport:
         tracks, vias = sum((d.get("tracks") or {}).values()), sum((d.get("vias") or {}).values())
         if tracks or vias:
             nets = len(set(d.get("tracks") or {}) | set(d.get("vias") or {}))
-            if d.get("refused"):
-                head += "  %d dangling router track(s) and %d via(s) kept: removing them took unconnected %d -> %d" % (
-                    tracks, vias, *d.get("unconnected", (0, 0)))
-            else:
-                head += "  dangling router copper removed: %d track(s), %d via(s) on %d net(s)" % (tracks, vias, nets)
+            head += "  dangling router copper removed: %d track(s), %d via(s) on %d net(s)" % (tracks, vias, nets)
         if d.get("kept_unrouted"):
             head += "  dangling router copper kept on %d unrouted net(s): %s" % (len(d["kept_unrouted"]), ", ".join(d["kept_unrouted"]))
+        if d.get("refused_nets"):
+            head += "  dangling router copper kept on %d net(s) whose pads it alone joins: %s" % (
+                len(d["refused_nets"]), ", ".join(d["refused_nets"]))
         if self.widths:
             from .route_widths import brief
             head += "  UNDER WIDTH: " + "; ".join(brief(r) for r in self.widths)
