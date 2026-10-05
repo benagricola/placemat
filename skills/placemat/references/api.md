@@ -1727,7 +1727,10 @@ or mask opening is refused, on the face the cell lands on. Under any envelope a
 searched spot also keeps each text's box the board's silk clearance inside the
 outline and off every cutout, which is what KiCad checks silk to the board edge
 against (`label silk to edge: box ...` in the scan's refusals). A cell whose
-place the script decided keeps its texts where they fall.
+place the script decided keeps its texts where they fall; a text nearer the
+outline or a cutout than the silk clearance is a `label.cell_edge` warning
+naming the cell, the text, the edge (the outline, or the cutout by name), the
+gap and the clearance.
 A stamped region larger than its cell costs the parent the difference: the
 cell's step says `its stamped regions keep parts off N mm2 of board beyond
 its own parts`. For a part's escape band, `board.fanout()` follows the pad
@@ -4532,7 +4535,7 @@ its kind.
 | `escape` (`escape.via_unneeded`) | warning | a module run only (a frame not drawn): a via on an escape lane, from `vias=` or a `board.via` on the lane's copper, whose lane reaches the frame's edge on its own layer without it; the lane can end there as a stub for the parent board's router, and the via takes room near the part. A plane or free net's via is not one. Facts: `ref`, `part`, `pin`, `net`, `layers`, `via` (`kind`: `lane` or `via`, `at`, `key`: the `board.via`'s copper key) |
 | `pair_crossed` | warning | a differential pair's halves cross |
 | `link_over` | warning | a link longer than its limit |
-| `label` | warning | a label with a part on it, or with no spot |
+| `label` | warning | a label with a part on it, or with no spot; a decided cell's label nearer the board edge than the silk clearance (`label.cell_edge`) |
 | `label` (not drawn because its item found no place) | notice | the item's own `unplaced` finding is the fault |
 | `split` | warning | a cell whose members form groups joined only by board-level nets |
 | `keep_out` (`keep_out.cross_layer`) | notice | a `Pm.KeepOut` pair on different copper layers inside the distance with no plane between; KiCad judges clearance only on one layer, so `keep-out` does not fail it; facts: `net`, `distance_mm`, `limit_mm`, `layers`, `away` and `pads` (kind, owner, number, net, at) |
@@ -4685,7 +4688,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `copper.note` | the waypoints dropped, for a waypoint that steers a track into a pad |
 | `link_over` | place it beside the far part, on a free side; a heavier `weight=`; `priority=Priority.HIGH`; the limit raised to the measured length, as a named constant |
 | `label.sits_on`, `label.no_spot` | the label on each of its other sides |
-| `label.not_drawn` | none |
+| `label.not_drawn`, `label.cell_edge` | none |
 | `escape_walled`, `escape_closed` | a `board.fanout(part, sides=[...])` on the side the pad's way out points at; a `board.escape(...)` keeping the pin's lane clear |
 | `escape_lane`, `escape_crossed`, `pair_crossed` | none |
 | `setup.centre_flag_default` | the keyword removed |

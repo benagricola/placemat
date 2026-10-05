@@ -835,6 +835,11 @@ def label_not_drawn(f, settings):
     return []
 
 
+@case(C.LABEL_CELL_EDGE)
+def label_cell_edge(f, settings):
+    return []
+
+
 # ------------------------------------------------------------------ builders: copper
 @case(C.COPPER_KEEPOUT)
 def copper_keepout(f, settings):

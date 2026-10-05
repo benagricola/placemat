@@ -7,6 +7,7 @@ import pytest
 
 from placemat.board_geometry import RuleArea
 from placemat.cutouts import Circle
+from placemat.findings import FindingCause as C
 from placemat.geometry import point_segment_distance
 from placemat.layout import Board
 from placemat.values import Cell, CopperLayer, Cutout, Face, Location, Near
@@ -101,11 +102,49 @@ def test_the_native_sweep_judges_the_label_as_the_python_sweep_does(face, layer,
     assert any(why.startswith("label silk to edge") for why in reasons), reasons
 
 
-def test_a_decided_cell_stands_where_the_script_put_it_whatever_its_label():
+def _edge_findings(plan):
+    return [f for f in plan.findings if f.cause is C.LABEL_CELL_EDGE]
+
+
+@pytest.mark.parametrize("face,layer", FACES, ids=["front", "back"])
+def test_a_decided_cell_stands_where_the_script_put_it_and_its_label_by_a_cutout_is_a_warning(face, layer):
     """A place the script decided keeps its labels where they fall, as a decided cutout is cut whatever silk stands by
-    it: the label is DRC's to report."""
+    it; a label nearer the cutout than the silk clearance is a warning naming the cell, the text, the cutout, the gap and
+    the clearance."""
+    b = Board(_geometry(layer), edge_margin=0.5)
+    b.rect(width=SIZE, height=SIZE, holes=[Cutout(Circle(3.0), "vent", at=Location(20.0, 23.5), why="air")])
+    b.place(Cell("panel"), at=Location(20.0, 20.0), face=face)
+    plan = b.resolve()
+    assert plan.occupancy.items["U1" if face is Face.FRONT else "U2"].reference.location == Location(18.0, 20.0)
+    found = _edge_findings(plan)
+    assert len(found) == 1, plan.findings
+    f = found[0]
+    assert f.severity == "warning"
+    assert f.facts == {"cell": "panel", "text": "BOOT", "edge": "cutout", "cutout": "vent", "gap_mm": 0.0,
+                       "need_mm": SILK}
+    assert str(f) == "cell panel label BOOT: 0.00 mm from cutout vent, under the 0.20 mm silk clearance"
+
+
+def test_a_decided_cell_whose_label_is_by_the_outline_is_a_warning():
+    b = Board(_geometry(CopperLayer.F), edge_margin=0.5)
+    b.rect(width=SIZE, height=SIZE)
+    b.place(Cell("panel"), at=Location(20.0, 36.9))      # the label's south edge 0.1 mm off the outline
+    plan = b.resolve()
+    (f,) = _edge_findings(plan)
+    assert f.facts["edge"] == "outline" and f.facts["cutout"] is None
+    assert f.facts["gap_mm"] == pytest.approx(0.1, abs=1e-6)
+    assert str(f) == "cell panel label BOOT: 0.10 mm from the board outline, under the 0.20 mm silk clearance"
+
+
+def test_a_decided_cell_whose_label_keeps_the_clearance_has_no_warning():
+    b = Board(_geometry(CopperLayer.F), edge_margin=0.5)
+    b.rect(width=SIZE, height=SIZE, holes=[Cutout(Circle(3.0), "vent", at=Location(20.0, 26.0), why="air")])
+    b.place(Cell("panel"), at=Location(20.0, 20.0))       # the label ends 1.5 mm north of the hole
+    assert not _edge_findings(b.resolve())
+
+
+def test_a_searched_cell_has_no_such_warning():
     b = Board(_geometry(CopperLayer.F), edge_margin=0.5)
     b.rect(width=SIZE, height=SIZE, holes=[Cutout(Circle(3.0), "vent", at=Location(20.0, 23.5), why="air")])
-    b.place(Cell("panel"), at=Location(20.0, 20.0))
-    plan = b.resolve()
-    assert plan.occupancy.items["U1"].reference.location == Location(18.0, 20.0)
+    b.place(Cell("panel"), at=Near(Location(20.0, 20.0), radius=8.0))
+    assert not _edge_findings(b.resolve())

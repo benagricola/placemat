@@ -13,8 +13,9 @@ section for each hand-written pattern a newer form replaces.
   texts in its group) were judged against placed parts while the cell was searched, but not against Edge.Cuts, so a
   cell could land with a label over a cutout or past the outline (KiCad's `silk_edge_clearance`). A searched spot now
   keeps each text's box the board's silk clearance inside the outline and off every cutout, on either face and under
-  any envelope; the scan counts the refusal as `label silk to edge: box ...`. A cell whose place the script decided is
-  unchanged. Scripts need no change; a board whose cell labels stood by a cutout or the outline may see those cells
+  any envelope; the scan counts the refusal as `label silk to edge: box ...`. A cell whose place the script decided
+  stays where it is put, and each of its labels nearer the outline or a cutout than the silk clearance is a new
+  `label.cell_edge` warning (the cell, the text, the edge, the gap, the clearance). Scripts need no change; a board whose cell labels stood by a cutout or the outline may see those cells
   move. The native module changed: `uv pip install -e ".[native]"` after updating.
 
 ## To 0.99.16

@@ -86,6 +86,7 @@ class FindingCause(str, Enum):
     LABEL_SITS_ON = (FindingKind.LABEL, "label.sits_on")
     LABEL_NO_SPOT = (FindingKind.LABEL, "label.no_spot")
     LABEL_NOT_DRAWN = (FindingKind.LABEL, "label.not_drawn")
+    LABEL_CELL_EDGE = (FindingKind.LABEL, "label.cell_edge")
     ESCAPE_CROSSED = (FindingKind.ESCAPE_CROSSED, "escape_crossed")
     ESCAPE_CLOSED = (FindingKind.ESCAPE_CLOSED, "escape_closed")
     ESCAPE_WALLED = (FindingKind.ESCAPE_WALLED, "escape_walled")

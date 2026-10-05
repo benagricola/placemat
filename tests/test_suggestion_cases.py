@@ -89,6 +89,8 @@ FACTS = {
     C.FIXED_ROOM: {"item": "c1", "copper": "track SIG", "net": "SIG", "side": "north", "reach_mm": 2.0},
     C.FIXED_ROOM_UNSETTLED: {"copper": "track SIG", "moved_mm": 0.2, "passes": 4},
     C.LINK_OVER: LINK, C.LABEL_SITS_ON: LABEL, C.LABEL_NO_SPOT: LABEL, C.LABEL_NOT_DRAWN: LABEL,
+    C.LABEL_CELL_EDGE: {"cell": "panel", "text": "BOOT", "edge": "cutout", "cutout": "vent", "gap_mm": 0.0,
+                        "need_mm": 0.2},
     C.COPPER_KEEPOUT: {"net": "SIG", "keepout": "ant", "word": "track", "layer": "F", "layer_word": "front",
                        "excluded": "tracks", "excludes": ["parts", "tracks"], "keepout_layers": ["F", "B"]},
     C.COPPER_STITCH: {}, C.COPPER_CROSS: {"yielder": "track SIG", "yielder_net": "SIG", "other_net": "GND", "other_bridge": True},

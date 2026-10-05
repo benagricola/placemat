@@ -5148,6 +5148,34 @@ class Board:
             if c.coordinates is False:
                 plan.findings.append(self._finding(C.SETUP_CENTRE_FLAG_DEFAULT, {"item": key}, "notice"))
 
+    def _report_cell_labels_at_edge(self, occ: Occupancy, plan: Plan) -> None:
+        """A cell whose place the script decided keeps its labels where they fall (a searched cell's are held off the edge,
+        `Occupancy._silk_edge_why`): each label nearer the outline or a cutout than the silk clearance, KiCad's
+        silk_edge_clearance, is a warning naming the nearest edge. Measured as the search holds a label, by
+        `Occupancy.silk_edge_margin`."""
+        need = self.geometry.silk_clearance
+        limit = occ.silk_edge_margin if need > 0.0 else 1e-9
+        decided = {s.item for s in plan.steps if s.kind == "cell" and s.placement is not None
+                   and s.freedom is not None and s.freedom.decided}
+        if not decided:
+            return
+        loops = self._shaped().loops
+        names = {k: n for n, k in self._cutout_loop_of.items()}
+        for s in occ.copper:
+            if s.kind != "silk" or s.owner not in decided:
+                continue
+            gaps = []
+            for k, loop in enumerate(loops):
+                # a label off the board, or over a hole, stands 0 from its edge; else the gap between the two boundaries
+                over = any(not point_in_polygon(p, loop) for p in s.poly) if k == 0 else \
+                    any(point_in_polygon(p, loop) for p in s.poly)
+                gaps.append((0.0 if over else loop_gap(loop, s.poly), k))
+            gap, k = min(gaps)
+            if gap < limit:
+                plan.findings.append(self._finding(C.LABEL_CELL_EDGE, {
+                    "cell": s.owner, "text": s.label, "edge": "outline" if k == 0 else "cutout",
+                    "cutout": names.get(k) if k else None, "gap_mm": round(gap, 6), "need_mm": need}))
+
     def _report_undeclared(self, plan: Plan):
         """A footprint no declaration places - itself, or as a cell's or a
         block's member - stays where the generator put it: say which."""
@@ -7478,6 +7506,7 @@ class Board:
         self._report_undeclared(plan)
         self._report_centres(occ, plan)
         self._report_splits(plan)
+        self._report_cell_labels_at_edge(occ, plan)
         if self._explore is None and self.pin_study:
             self._report_pin_maps(plan)
         self._place_labels(occ, plan, placed, progress, final=True)
