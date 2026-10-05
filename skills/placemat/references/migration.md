@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **Nets of a wider clearance class route in their own stage, so the other nets route at the Default clearance.** The
+  router spaces every net of one call at the largest clearance among the nets it routes. The main pass routed a 0.2 mm
+  class (a 50 ohm feed, say) with the Default nets, so every net kept 0.2 mm from everything, and a lane end closer
+  than 0.2 mm plus half a track to a neighbour was refused ("only a narrower track clears it"). The nets whose
+  clearance is above the Default class's now route first, a router call per clearance, widest first; a halo net
+  routes in the stage of its halo. A net such a stage leaves open is not routed again in the main pass. The report and
+  `route.json` have `class_stages`, and `route_stage` events a `classes` stage. The `setup.net_halo` finding with
+  `variant` `open` (a halo net routed with the others) is no longer said. Scripts need no change.
+
 ## To 0.99.20
 
 ### Fixed

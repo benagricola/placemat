@@ -57,14 +57,16 @@ def stage_widths(stage: str, summary: dict, declared=()) -> list:
     return out
 
 
-def read_widths(work, islands: dict) -> list:
+def read_widths(work, islands: dict, classes: int = 0) -> list:
     """Every stage's records for the route in `work`: each island net's own pass (islandsN_summary.json, N the net's place in the
-    sorted names), then the main pass (router_summary.json)."""
+    sorted names), each of the `classes` class stages (classesN_summary.json), then the main pass (router_summary.json)."""
     work = Path(work)
     declared = {n for n, w in islands.items() if w}
     out = []
     for i, _ in enumerate(sorted(islands)):
         out += stage_widths("islands", _read(work / ("islands%d_summary.json" % i)), declared)
+    for i in range(classes):
+        out += stage_widths("classes", _read(work / ("classes%d_summary.json" % i)), declared)
     return out + stage_widths("main", _read(work / "router_summary.json"), declared)
 
 

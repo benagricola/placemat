@@ -97,6 +97,7 @@ def rig(tmp_path, monkeypatch):
     (krt / ".venv/bin/python").symlink_to(sys.executable)
     (krt / "py_router").mkdir()
     (krt / "py_router/route.py").write_text(FAKE)
+    (krt / "py_router/list_nets.py").write_text("def net_clearance_map_by_id(pcb_path, nets, design_rules=None):\n    return {}\n")
     (krt / "VERSION").write_text("fake-1\n")
     board = tmp_path / "board"
     board.mkdir()

@@ -365,7 +365,7 @@ class Settings:
     route_smoothing: bool = S(True, "bool",
         "the router's own octolinear smoothing, as it defaults; false skips it")
     route_router_args: tuple = S((), "list",
-        "more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused")
+        "more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the class stages, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused")
     route_pair_router_args: tuple = S((), "list",
         "the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's")
     route_pair_layers: dict = S(None, "table",
@@ -653,6 +653,19 @@ def parse_islands(items) -> dict:
             raise ValueError("%r is not NET or NET=WIDTH (a width in mm, above 0)" % item)
         out[net] = w
     return out
+
+
+def router_flag(args, name: str):
+    """The value of the router flag `name` in `args` (`--flag value` or `--flag=value`) as a number, or None."""
+    args = list(args)
+    for i, a in enumerate(args):
+        flag, eq, value = a.partition("=")
+        if flag == name:
+            try:
+                return float(value if eq else args[i + 1])
+            except (IndexError, ValueError):
+                return None
+    return None
 
 
 # The router flags placemat sets on every pass: [route] router_args may not name them.

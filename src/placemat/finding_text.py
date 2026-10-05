@@ -405,7 +405,7 @@ def _setup_pair_layers(f):
 def _setup_net_halo(f):
     if f["variant"] == "no_net":
         return "route.net_halos %s: no net of that name on this board; the entry is not used" % f["net"]
-    if f["variant"] == "open":
+    if f["variant"] == "open":            # a past run's: a halo net the main pass routed, before the class stages
         return ("%s is open (%d item(s)) and routed with the other nets: the router spaces every net of that pass %.2f mm "
                 "from all copper, not only from %s; draw %s whole in the module, or route it alone as a `[route] islands` "
                 "net" % (f["net"], f["open_items"], f["halo_mm"], f["net"], f["net"]))

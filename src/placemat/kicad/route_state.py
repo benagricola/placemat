@@ -1,5 +1,5 @@
 """What a route keeps in its work folder so a stop or a failure costs only the
-stage in hand: `state.json` names each finished stage (pairs, islands, main)
+stage in hand: `state.json` names each finished stage (pairs, islands, classes, main)
 with the digest of everything that stage's result depends on, chained from
 the stage before it. A rerun whose digest for a stage matches takes that
 stage's saved result instead of running the router again; the first stage
@@ -18,10 +18,10 @@ from pathlib import Path
 import shutil
 
 VERSION = 1
-STAGES = ("pairs", "islands", "main")
+STAGES = ("pairs", "islands", "classes", "main")
 # What each stage leaves in the work folder (the folder's other files are
 # made again every time, from the board and the settings).
-FILES = {"pairs": ("pairs*",), "islands": ("islands*",),
+FILES = {"pairs": ("pairs*",), "islands": ("islands*",), "classes": ("classes*",),
          "main": ("router*", "routed*", "drc_after.json", "route.json", "route_record.json", "route_summary.json")}
 
 

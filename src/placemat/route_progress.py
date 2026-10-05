@@ -1,7 +1,7 @@
 """A route's progress, on placemat's side: the events the hooked router sends (kicad/route_events.py) over a pipe while it runs, forwarded on the
 command's own socket, and kept as the route's record.
 
-For each stage (`pairs`, `islands`, `main`) `RouteEvents` opens a pipe and gives its write end to the router's process (the descriptor's number in
+For each stage (`pairs`, `islands`, `classes`, `main`) `RouteEvents` opens a pipe and gives its write end to the router's process (the descriptor's number in
 $PLACEMAT_ROUTE_EVENTS_FD); a thread reads newline-delimited JSON from the read end, sends each event with the channel's sender (`Beacon.send`,
 which never blocks the route) and keeps it. The record, `route_record.json`, is the only file: it holds every stage's events in laid order with
 the board it routed, is written when each stage ends and again at the end of the route, and is what the studio replays a finished route from. A
@@ -16,7 +16,7 @@ from pathlib import Path
 import threading
 import time
 
-STAGES = ("pairs", "islands", "main")
+STAGES = ("pairs", "islands", "classes", "main")
 RECORD = "route_record.json"
 BOARD = "route_board.json"
 SUMMARY = "route_summary.json"
