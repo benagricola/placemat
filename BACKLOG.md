@@ -298,6 +298,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **The turn check on every placed item, a cell lock released when its members move** (0.99.33):
+  turn.better judges searched, fixed and locked items (locked: held_by
+  lock with release advice); a cell's lock entry records where its members
+  sit and is released when the module moves them.
+
 - **The studio ignores a page that went away** (0.99.32): no traceback for a broken pipe.
 
 - **Detached runs and one-line outcomes, accept after a comment edit** (0.99.31):
