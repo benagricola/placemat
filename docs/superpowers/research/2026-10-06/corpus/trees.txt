@@ -1,0 +1,71 @@
+## esp-rs/esp-rust-board efe1e8ad5c6dbc23b4365fef35af27545bc1381d
+1837017 hardware/esp-rust-board/esp-rust-board.kicad_pcb
+10437 hardware/esp-rust-board/esp-rust-board.kicad_pro
+366745 hardware/esp-rust-board/esp-rust-board.kicad_sch
+## sqfmi/watchy-hardware 5f147972aa2148d4971f3c41fc3ce39ff8c48131
+642355 Watchy.kicad_pcb
+15586 Watchy.kicad_pro
+359623 Watchy.kicad_sch
+## scottbez1/splitflap 87b17c531ca57b0bf10e86754e9d6b404b11a131
+620569 electronics/chainlinkBase/chainlinkBase.kicad_pcb
+29489 electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.kicad_pcb
+108697 electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.kicad_pcb
+345083 electronics/chainlinkDriver/chainlinkDriver.kicad_pcb
+437390 electronics/chainlinkDriverTester/chainlinkDriverTester.kicad_pcb
+12215 electronics/sensor/sensor.kicad_pcb
+87588 electronics/sensor_smd/sensor_smd.kicad_pcb
+9371 electronics/sensor_smd/sensor_smd.kicad_pro
+30560 electronics/sensor_smd/sensor_smd.kicad_sch
+## OLIMEX/ESP-PROG 8dfb3bb217bd9967871e181cad9a7f7fb1343ac5
+127722 HARDWARE/ESP-PROG-Rev.C/ESP-PROG_Rev.C.kicad_pcb
+## tigard-tools/tigard e255a56893832f122e6f2f5be5826b3cba01d297
+1001377 tigard.kicad_pcb
+## antmicro/usb-c-power-adapter 4d3e9e289a294f7953bf48dde6c96af8327a0611
+677692 dc-dc_converters.kicad_sch
+7950305 usb-c-power-adapter.kicad_pcb
+24236 usb-c-power-adapter.kicad_pro
+168428 usb-c-power-adapter.kicad_sch
+469150 usb_pd.kicad_sch
+## antmicro/infrared-irradiance-probe d4891186544986e55678eab5d64815dd76db3088
+3315604 ir-irradiance-probe.kicad_pcb
+15202 ir-irradiance-probe.kicad_pro
+496617 ir-irradiance-probe.kicad_sch
+## greatscottgadgets/LNA3030 1774ced0f414df2da65889201be2145e1f78b5ae
+109880 LNA3030.kicad_pcb
+## greatscottgadgets/throwing-star-lan-tap dceb2273972f029e9ec398a6d1ec269849c74c81
+208710 throwing-star-pro.kicad_pcb
+215985 throwing-star.kicad_pcb
+## antmicro/ddr4-spd-breakout-board 1ed9fb8b33fa73aa72a3add3c12b6f1b8b89c881
+957080 ddr4-spd-breakout.kicad_pcb
+## antmicro/cm4-baseboard-lvds-adapter 4af945ed558e58e4b8aea6fe909fc33d78b63f6f
+8887506 cm4-lvds-adapter.kicad_pcb
+20975 cm4-lvds-adapter.kicad_pro
+173531 cm4-lvds-adapter.kicad_sch
+121046 dsi-connector.kicad_sch
+205003 dsi-to-lvds.kicad_sch
+221823 lvds-connector.kicad_sch
+734960 power.kicad_sch
+## Strooom/LoRa-V3-PCB 4de6979ace4af83affa25ec414403f30ce9f1a3f
+1116708 LoRa-V3-PCB.kicad_pcb
+15472 LoRa-V3-PCB.kicad_pro
+602739 LoRa-V3-PCB.kicad_sch
+## OLIMEX/ESP32-POE deb38a377d50eadb04ddc7118a17a5ae58b1ee53
+703103 HARDWARE/ESP32-PoE-hardware-revision-B1/ESP32-PoE_Rev_B1.kicad_pcb
+705055 HARDWARE/ESP32-PoE-hardware-revision-B2/ESP32-PoE_Rev_B2.kicad_pcb
+706821 HARDWARE/ESP32-PoE-hardware-revision-C/ESP32-PoE_Rev_C.kicad_pcb
+719261 HARDWARE/ESP32-PoE-hardware-revision-C1/ESP32-PoE_Rev_C.kicad_pcb
+800353 HARDWARE/ESP32-PoE-hardware-revision-D/ESP32-PoE_Rev_D.kicad_pcb
+806340 HARDWARE/ESP32-PoE-hardware-revision-E/BackupFiles/ESP32-PoE_Rev_E.kicad_pcb
+806408 HARDWARE/ESP32-PoE-hardware-revision-E/ESP32-PoE_Rev_E.kicad_pcb
+803255 HARDWARE/ESP32-PoE-hardware-revision-G1/ESP32-PoE_Rev_G1.kicad_pcb
+1080791 HARDWARE/ESP32-PoE-hardware-revision-I/ESP32-PoE_Rev_I.kicad_pcb
+1619012 HARDWARE/ESP32-PoE-hardware-revision-J/ESP32-PoE_Rev_J.kicad_pcb
+1626187 HARDWARE/ESP32-PoE-hardware-revision-K/ESP32-PoE_Rev_K.kicad_pcb
+1628791 HARDWARE/ESP32-PoE-hardware-revision-L/ESP32-PoE_Rev_L.kicad_pcb
+## OLIMEX/MOD-BME280 0980411ee673c1f20e52b47e3f987c05577e3fcd
+41698 HARDWARE/MOD-BME280-Rev.A1/MOD-BME280_RevA.kicad_pcb
+46802 HARDWARE/MOD-BME280-Rev.B/MOD-BME280_RevB.kicad_pcb
+## oxidecomputer/hw-spimux 29e59e9c99ced0a5a90a672e08f21081bf6502da
+282535 spimux.kicad_pcb
+15937 spimux.kicad_pro
+118335 spimux.kicad_sch

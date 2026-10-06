@@ -17,8 +17,8 @@ CLI, KRT's `tests/stress/strip_copper_only.py`.
 
 **Spec:** docs/superpowers/specs/2026-10-06-roadmap-0.100.md, sections "The reference set", "Starting small",
 "Writing each board's capture and layout script", "The rules for a reference script" and "Keeping them current".
-Evidence: /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/corpus/REPORT.md and
-that folder (`inventory.jsonl`, `trees.txt`, `route/`, `import/`).
+Evidence: docs/superpowers/research/2026-10-06/corpus/ (`report-summary.md`, `inventory.jsonl`, `trees.txt`). The
+research's own scratch runs (stripped boards, imports) were not kept; Tasks 2-7 repeat them.
 
 ## Global Constraints
 
@@ -181,7 +181,7 @@ def test_offline_with_an_empty_cache_names_the_board_and_url(tmp_path):
   - `Prepared` is a frozen dataclass with `ref: Path`, `test: Path`, `baseline: list[Violation]`, `layers: int`,
     `human: HumanCopper`.
   - `Violation`: `(type: str, nets: tuple[str, ...], at_mm: tuple[float, float])`.
-  - `HumanCopper`: `(vias: int, track_mm: float)`, measured on `ref.kicad_pcb` as scratchpad/corpus/metrics.py does.
+  - `HumanCopper`: `(vias: int, track_mm: float)`, measured on `ref.kicad_pcb` with pcbnew: vias are the `PCB_VIA_T` tracks, and track length is the sum of the other tracks' `GetLength()` in mm.
   - `prepare.violations(drc_json: Path) -> list[Violation]`: errors only, leaving out silk, courtyard and library types
     (`silk_*`, `courtyards_overlap`, `lib_footprint_*`).
 

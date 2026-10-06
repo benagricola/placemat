@@ -15,7 +15,7 @@ Getting a board from a script to a routed, judged layout takes many commands in 
 8. lock, release, or freeze.
 
 Agents follow it unevenly. In the fairing repos, explore and accept were used often, cleanup was off, no suggestion was
-ever applied, and most advisory findings were ignored (scratchpad/placement-inventory.md 3.4). The user wants one
+ever applied, and most advisory findings were ignored (docs/superpowers/research/2026-10-06/placement-inventory.md 3.4). The user wants one
 command, or a few, that runs the loop the same way every time.
 
 ## The command

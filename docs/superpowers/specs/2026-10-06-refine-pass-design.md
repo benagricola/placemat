@@ -5,7 +5,7 @@ Status: draft for review, 2026-10-06; release line 0.100.x.
 ## Problem
 
 Trying a placement change costs a full resolve: 10-45 s on the fairing core after one statement changes
-(scratchpad/latency/report.md), and an explore variant costs 4-7 minutes there. There are far more positions, turns
+(docs/superpowers/research/2026-10-06/core-preview-latency.md), and an explore variant costs 4-7 minutes there. There are far more positions, turns
 and swaps worth trying than that allows. So agents nudge one thing, wait, judge, and nudge again, and the board keeps
 the choices an early search or an old explore made.
 
@@ -23,7 +23,7 @@ detailed placement step and retires what it makes redundant, so the toolbox gets
 
 ## What exists, and what each becomes
 
-From the inventory (scratchpad/placement-inventory.md, file:line there):
+From the inventory (docs/superpowers/research/2026-10-06/placement-inventory.md, file:line there):
 
 | Feature | Today | After |
 |---|---|---|
@@ -296,7 +296,7 @@ that refine replaces cleanup, and that `refine.enabled = false` turns it off.
 - Pin remaps (capture changes).
 - Large neighbourhood search: lift a cluster and rebuild it, explore's unbuilt "phase two". Revisit after refine is
   measured.
-- GPU acceleration (scratchpad/gpu-study.md: not worth it at this board size).
+- GPU acceleration (docs/superpowers/research/2026-10-06/gpu-study.md: not worth it at this board size).
 
 ## Decided with the user
 

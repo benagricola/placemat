@@ -6,7 +6,7 @@ mechanism.
 
 ## Problem
 
-placemat judges placements with five different objectives (scratchpad/placement-inventory.md section 1):
+placemat judges placements with five different objectives (docs/superpowers/research/2026-10-06/placement-inventory.md section 1):
 
 | Who | Objective | Wire | Crossings |
 |---|---|---|---|

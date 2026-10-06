@@ -13,7 +13,7 @@ On the fairing core this has two costs:
 - **Power legs.** VBIKE's 4.6 A legs and its microamp taps are one net. `islands` gives a net one width, so the legs and
   the taps cannot be routed differently: with neck-down off the taps strand, with it on the legs narrow. The project
   therefore declared the legs as copper in the script, and declared copper reserves its lane during placement. That
-  over-constrained the power cells: in the organic-vs-clean experiment (scratchpad/exp/REPORT.md) a script without the
+  over-constrained the power cells: in the organic-vs-clean experiment (docs/superpowers/research/2026-10-06/organic-vs-clean-experiment.md) a script without the
   hand-placed power blocks could draw none of its four legs.
 - **Buses and other groups** (the display SPI, the other SPI buses) have no way to be routed before the rest, together,
   on a chosen layer.
@@ -114,7 +114,7 @@ and it gains a sidecar the layout writes beside the board.
 - the interface instances it belongs to: a list, since a net can sit in several. Each entry holds the instance path, the
   interface type name and the member name.
 
-It is written from the full schematic in `pcb-layout/src/lib.rs` beside the netlist write (scratchpad/zener-net-export.md,
+It is written from the full schematic in `pcb-layout/src/lib.rs` beside the netlist write (docs/superpowers/research/2026-10-06/zener-net-export.md,
 file:line there). It comes in two stages:
 1. **Type and fields:** about 40 lines, Rust only. The type survives evaluation today.
 2. **Interface membership:** about 120-180 lines. It does not survive evaluation today. The instance, its type and its
