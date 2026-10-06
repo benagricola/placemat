@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **An island net can keep to its own layers.** A `[route] islands` entry (or `--islands`) may end in `@` and its
+  layers: `islands = ["VBUS=1.37@F,B"]` routes VBUS's taps with tracks on F.Cu and B.Cu only; its vias still pass
+  through the inner layers. Layers are F, In1 to In30, B, or their `.Cu` names. An entry without `@` routes on the
+  route's own layers, as before. The report's `island_layers` names each net's layers. Scripts need no change.
+
 ## To 0.99.27
 
 ### New
