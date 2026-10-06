@@ -762,6 +762,8 @@ def _blocker(f) -> str:
         return "%s copper %s" % (_who(what["who"]), what["net"] or "-")
     if form == "edge":
         return "the board edge"
+    if form == "keepout":
+        return ("the %s cell's %s" % (what["cell"], what["name"])) if what.get("cell") else "keepout %r" % what["name"]
     return ("pour %s" % what["net"]) if what.get("net") else "copper"
 
 

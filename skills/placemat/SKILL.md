@@ -605,7 +605,10 @@ shapes and files: `references/api.md`, "Live progress".
   the search, so loose parts go round it. Where an end is a searched part,
   the copper (a fitted pour as well as a track or via) is planned as soon as
   its last end is placed, without reach=, and held clear for the items
-  searched after it; `place.copper_room = false` turns that off. A plane serves what it reaches
+  searched after it; `place.copper_room = false` turns that off. A pour
+  with `reach=` is planned after the search and gives way: it is fitted
+  round the placed parts and cells, their keepouts included, and holds no
+  room for itself. A plane serves what it reaches
   by a via; a bypass capacitor served through a via is a bulk capacitor.
 - A plane net (ground on a face, an inner plane) is a zone: `board.plane`,
   which later copper and vias cut through. A power or hot-loop join is a
