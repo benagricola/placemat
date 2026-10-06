@@ -213,7 +213,7 @@ def test_resume_refuses_a_saved_explore_of_another_script(tmp_path):
     mod, script, src = _searched_module(tmp_path)
     rc, out, err = _stop_after(_run_explore(script, 40), 3)
     assert rc == 143
-    script.write_text(script.read_text() + "\n# edited\n")
+    script.write_text(script.read_text() + "\nEDITED = 1  # code, not a comment: a comment edit resumes\n")
     proc = _run_explore(script, 10, "--resume")
     out, err = proc.communicate(timeout=120)
     assert proc.returncode == 1 and "the script changed since it began" in out, out

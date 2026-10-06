@@ -4570,7 +4570,15 @@ them, any variant the explore tried (seed 0, the placement it began from, is
 refused, naming `lock --current`), but only while the lock is unchanged since
 that explore began: once `--accept` or an `--accept-seed` has written the
 lock, its other seeds are refused (`the lock changed since that explore
-began`) and a new explore is needed. A rerun
+began`) and a new explore is needed. The script's part of the digest is of
+its code and its imports' code, without comments, docstrings, layout or line
+numbers (the reuse keys leave a declaration's line out too), and the header
+and `best.json` keep each file's as `script_files`: an edit to a comment or a
+docstring leaves the explore acceptable and resumable, and a change to the
+code is refused naming the files (`the script's code changed since that
+explore began: helper.py changed; explore again`, with `now imported` and `no
+longer imported` for a module added or dropped). An explore saved before this
+digest is accepted while the script's text is unchanged. A rerun
 with the same digest continues: `resuming a saved explore: N variants in T s
 so far`, the baseline from the header, the untried seeds only, `SECONDS` less
 the time already spent (a fixed list of seeds: those not tried). `--resume`

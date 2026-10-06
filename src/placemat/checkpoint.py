@@ -6,7 +6,9 @@ Under `<board>/.placemat/explore/<script stem>/`:
 
 - `checkpoint.jsonl`: a header line (a digest of everything that decides a
   variant, with the parts it was made of, the focus, the baseline's score and
-  measures, the budget), then one line per finished variant ({"v": seed, "s":
+  measures, the budget; the script's part is of its code and its imports',
+  without comments or docstrings, and `script_files` keeps each file's, for an
+  accept to name what changed), then one line per finished variant ({"v": seed, "s":
   score, "t": seconds spent in all, and "r", the score it is ranked by, when that is
   not the run score: `explore.rank_remapped`}; a variant better than any before it also
   carries "m", its measures), flushed as it is written, a "stop" line when
@@ -137,9 +139,11 @@ class Checkpoint:
     (continue a saved explore that is this one, else start over), "yes"
     (continue it or refuse, saying what changed) or "no" (start over)."""
 
-    def __init__(self, directory, parts: dict, focus, resume: str = "auto", max_variants: int = 100000):
+    def __init__(self, directory, parts: dict, focus, resume: str = "auto", max_variants: int = 100000,
+                 script_files: dict | None = None):
         self.dir = Path(directory)
         self.parts = dict(parts)
+        self.script_files = dict(script_files or {})     # {file: digest of its code}: what an accept names when the script's changed
         self.focus = sorted(focus)
         self.digest = sha(json.dumps(self.parts, sort_keys=True))
         self.resume = resume
@@ -241,7 +245,7 @@ class Checkpoint:
         self.baseline_rank = rank
         self.best_key = (baseline if rank is None else rank, 0)
         self._open("w").write({
-            "kind": "header", "version": FORMAT, "digest": self.digest, "parts": self.parts,
+            "kind": "header", "version": FORMAT, "digest": self.digest, "parts": self.parts, "script_files": self.script_files,
             "focus": self.focus, "baseline": dict({"score": baseline, "measures": measures},
                                                   **({"rank": rank} if rank is not None else {})),
             "budget": {"seconds": seconds, "seeds": None if seeds is None else len(list(seeds))},
@@ -288,7 +292,7 @@ class Checkpoint:
         write_atomic(self.best_path, json.dumps({
             "version": BEST_VERSION, "seed": seed, "score": score, "baseline": self.baseline,
             **({"score_remapped": rank} if rank is not None else {}), "focus": self.focus, "script": self.parts["script"],
-            "lock": self.parts["lock"], "entries": payload["entries"], "orders": payload["orders"]}, indent=1) + "\n")
+            "script_files": self.script_files, "lock": self.parts["lock"], "entries": payload["entries"], "orders": payload["orders"]}, indent=1) + "\n")
 
     def stopped(self, name: str, elapsed: float) -> None:
         self._open("a").write({"stop": name, "t": round(elapsed, 2)})
@@ -345,7 +349,8 @@ def read_variant(directory, seed: int):
     if score is None or kept is None:
         return None
     return {"version": BEST_VERSION, "seed": seed, "score": score, "baseline": head["baseline"]["score"],
-            "focus": head["focus"], "script": head["parts"]["script"], "lock": head["parts"]["lock"],
+            "focus": head["focus"], "script": head["parts"]["script"], "script_files": head.get("script_files") or {},
+            "lock": head["parts"]["lock"],
             "entries": kept["entries"], "orders": kept["orders"]}
 
 

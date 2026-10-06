@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **`placemat lock --accept-seed` no longer refuses after a comment edit.** A saved explore compared the script's text,
+  so a changed comment or docstring refused the accept with "the script changed since that explore began". It now
+  compares the code of the script and its imports, without comments, docstrings or layout; the same digest decides a
+  `--resume`, which also carries on after such an edit. A change to the code is still refused, now naming the files
+  that changed. An explore saved by an earlier release is accepted while the script's text is unchanged; resuming one
+  starts over once. Scripts need no change.
+
 ## To 0.99.30
 
 ### Fixed
