@@ -232,6 +232,10 @@ for power legs and buses, and declared copper only for fixed geometry.
 
 ## Testing
 
+- Zener fork:
+  - `nets.layout.json` carries each net's type, fields and interface instances, including an instance whose name is
+    inferred and an interface passed into a module (the fork's own tests);
+  - placemat reads it, and a phase using `interfaces` on a board without it is refused.
 - Settings:
   - parsing and validation of `[[route.phase]]`: each selector, a phase with two selectors refused, a duplicate name
     refused, a removed setting refused with its replacement named;
