@@ -3144,15 +3144,34 @@ outline unchanged. The grown copper is `reach=`'s: cut back by other nets'
 clearance outlines, graphic polygon(s), never a zone. Only the pour's own
 copper counts, so a track that also joins the parts is not credited.
 
+A via member carries the current of the pad it joins: the pad a
+`board.vias(net, along=PadRef(...), count=)` row stands out of, or a pad of
+the net the via stands on. On the pour's layer its ring stands in for that
+pad, so a pour on an inner layer over via rows out of two parts' pads is
+measured between the rows. Where the pads the members join are two or more
+pads of one part that carries current (a receptacle's two VBUS contacts,
+joined on In2 by a pour over three vias out of each), each pad is an end, at
+the current the check judges between that part and the net's other
+carriers: the lesser of the part's `Pm.I` and the largest other carrier's.
+A pad member with no copper on the pour's layer that a via member joins
+holds no copper in the pour; the via joins it.
+
+```python
+j = Part("j1")
+west = board.vias(Net("VBUS"), along=PadRef(j, "B4A9"), count=3)
+east = board.vias(Net("VBUS"), along=PadRef(j, "A4B9"), count=3)
+board.pour(Net("VBUS"), [west, east], layer=CopperLayer.IN2, swallow_pads=True, reach=Reach.CURRENT)
+```
+
 Where the room runs out first (copper of another net stands at the neck) the
 pour is drawn at the reach where its width stopped gaining and a finding
 names the net, the current, the width reached, the width needed, the neck's
 point and the copper standing there; `check current-path` reports the same
 neck. It is refused at the declaration where fewer than two parts carry
 current on the net (the check does not judge such a net either), and with
-`width=` or without `swallow_pads=True`. Where the pour's pads belong to fewer
-than two of the parts that carry current, it is not drawn and a finding says
-so. It needs pcbnew at plan time, as `reach=mm` does.
+`width=` or without `swallow_pads=True`. Where the pads its members are and
+join belong to fewer than two of the parts that carry current, and are not two
+pads of one of them, it is not drawn and a finding says so. It needs pcbnew at plan time, as `reach=mm` does.
 
 It is written as a graphic copper polygon (a filled `PCB_SHAPE`), never as a
 zone: nothing refills it round later copper, and nothing is cut from it once
