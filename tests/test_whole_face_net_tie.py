@@ -1,12 +1,11 @@
 """A first-legal scan over a whole face (`Layout._scan_whole_face`) of an item that meets net ties: the native pass
-leaves the ties out, and the candidates it accepts are judged in Python until one is legal, a window of candidates
-at a time (`NativeSweeper._first_with_ties`). It chooses the spot, and counts the refusals under the reasons, that
-the pure-Python sweep does."""
+judges KiCad's net-tie exclusion itself, and judges no candidate in Python. It chooses the spot, and counts the
+refusals under the reasons, that the pure-Python sweep does."""
 import math
 
 import pytest
 
-from placemat import occupancy, placer
+from placemat import placer
 from placemat.occupancy import Occupancy
 from placemat.placement import Placement
 from placemat.settings import Settings
@@ -33,30 +32,27 @@ def _occupancy():
 
 
 def _whole_face(occ, item, native, monkeypatch):
-    """(chosen, tried, refusals by bucket, each bucket's reason), and how many candidates the native pass accepted
-    that Python refused."""
+    """(chosen, tried, refusals by bucket, each bucket's reason), and how many candidates were judged in Python."""
     monkeypatch.setattr(placer, "NATIVE_SWEEP", native)
-    refused = []
-    real = occupancy.NativeSweeper._judge
+    judged = []
+    real = Occupancy.legal
 
-    def judge(self, triple):
-        hit, blame = real(self, triple)
-        refused.append(hit is not None)
-        return hit, blame
-    monkeypatch.setattr(occupancy.NativeSweeper, "_judge", judge)
+    def legal(self, *a, **kw):
+        judged.append(1)
+        return real(self, *a, **kw)
+    monkeypatch.setattr(Occupancy, "legal", legal)
     box = occ.board_box
     res = placer.scan(occ, item, Placement(box.center, 0, Face.FRONT), math.hypot(box.width, box.height), 0.25,
                       rotations=(0, 90))
     reasons = {k: w.to_json() for k, w in res.reasons.items()}
-    return (res.chosen, res.tried, dict(res.rejected), reasons), sum(refused)
+    return (res.chosen, res.tried, dict(res.rejected), reasons), len(judged)
 
 
-@pytest.mark.parametrize("window", [1, 7, occupancy.FIRST_WINDOW])
-def test_an_item_among_net_ties_scanned_over_the_whole_face_takes_the_python_sweeps_spot(monkeypatch, window):
-    monkeypatch.setattr(occupancy, "FIRST_WINDOW", window)
+def test_an_item_among_net_ties_scanned_over_the_whole_face_takes_the_python_sweeps_spot(monkeypatch):
     occ, mover = _occupancy()
     py, _ = _whole_face(occ, mover, False, monkeypatch)
-    nat, rechecked = _whole_face(occ, mover, True, monkeypatch)
+    nat, judged = _whole_face(occ, mover, True, monkeypatch)
     assert py[0] is not None, "the part has somewhere to go"
-    assert rechecked > 10, "the native pass accepted candidates Python refused before the one chosen"
+    assert sum(py[2].values()) > 10, "candidates are refused before the one chosen"
+    assert judged == 0, "the native pass judged candidates in Python"
     assert nat == py

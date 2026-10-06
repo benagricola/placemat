@@ -17,6 +17,7 @@ mod pockets;
 mod profile;
 mod ratsnest;
 mod shapes;
+mod ties;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -83,7 +84,82 @@ fn build_shape(t: &PyShape) -> PyResult<shapes::Shape> {
         is_lead: *is_lead,
         margin: *margin,
         wire: *wire,
+        tie: None,
     })
+}
+
+/// A `kicad_collide` shape as Python hands it over: its letter and its integers in order (nm); a polygon's
+/// vertices flattened, x then y.
+type PyK = (String, Vec<i64>);
+/// A read pad: (outlines, effective shape, layers, layers mirrored).
+type PyReadPad = (Vec<Vec<Point>>, Vec<PyK>, u32, u32);
+/// A net tie's footprint: (its net-tie pads with their nets, the pads `_net_tie_cache` collides with the nets of
+/// their groups).
+type PyTieFp = (Vec<(String, PyReadPad)>, Vec<(PyReadPad, Vec<String>)>);
+/// One shape's `ties::TieInfo`: (has_fp, fp_graphic, fp_copper, tie_graphic, circle, ends, the index of its reads
+/// among the read tables handed over, the index of its footprint among the net ties handed over).
+type PyTieInfo = (bool, bool, bool, bool, Option<(f64, f64, f64)>, Option<(Point, Point)>, Option<usize>, Option<usize>);
+/// `Occupancy._read_of`'s outlines for a footprint's pad number or its copper drawings, each with its effective
+/// shape.
+type PyReads = Vec<(Vec<Point>, Vec<PyK>)>;
+/// What `Occupancy._native_ties` hands over: the net ties' footprints, the read tables, and (shape index, its
+/// TieInfo) for each shape the exclusion can excuse.
+type PyTies = (Vec<PyTieFp>, Vec<PyReads>, Vec<(usize, PyTieInfo)>);
+
+fn build_k(t: &PyK) -> PyResult<ties::K> {
+    let (letter, v) = t;
+    let bad = || PyValueError::new_err(format!("bad kicad shape {letter:?} {v:?}"));
+    Ok(match (letter.as_str(), v.len()) {
+        ("c", 3) => ties::K::C(v[0], v[1], v[2]),
+        ("s", 5) => ties::K::S(v[0], v[1], v[2], v[3], v[4]),
+        ("r", 5) => ties::K::R(v[0], v[1], v[2], v[3], v[4]),
+        ("p", n) if n % 2 == 0 => ties::K::P(v.chunks(2).map(|c| (c[0], c[1])).collect()),
+        _ => return Err(bad()),
+    })
+}
+
+fn build_ks(ks: &[PyK]) -> PyResult<Vec<ties::K>> {
+    ks.iter().map(build_k).collect()
+}
+
+fn build_read_pad(p: &PyReadPad) -> PyResult<ties::ReadPad> {
+    Ok(ties::ReadPad { outlines: p.0.clone(), kshapes: build_ks(&p.1)?, layers: p.2, mirrored: p.3 })
+}
+
+/// Hands each shape named in `ties` what the net-tie exclusion reads of it.
+fn attach_ties(shapes: &mut [shapes::Shape], ties: Option<PyTies>) -> PyResult<()> {
+    let Some((fps, tables, infos)) = ties else { return Ok(()) };
+    let fps: Vec<std::sync::Arc<ties::TieFootprint>> = fps
+        .iter()
+        .map(|(tie_pads, cache_pads)| -> PyResult<_> {
+            let tie_pads = tie_pads.iter().map(|(n, p)| Ok((n.clone(), build_read_pad(p)?))).collect::<PyResult<_>>()?;
+            let cache_pads: Vec<(ties::ReadPad, Vec<String>)> =
+                cache_pads.iter().map(|(p, nets)| Ok((build_read_pad(p)?, nets.clone()))).collect::<PyResult<_>>()?;
+            let cache_nets = cache_pads.iter().flat_map(|(_, nets)| nets.iter().cloned()).collect();
+            Ok(std::sync::Arc::new(ties::TieFootprint { tie_pads, cache_pads, cache_nets }))
+        })
+        .collect::<PyResult<_>>()?;
+    let tables: Vec<std::sync::Arc<ties::Reads>> = tables
+        .iter()
+        .map(|t| Ok(std::sync::Arc::new(t.iter().map(|(o, ks)| Ok((o.clone(), build_ks(ks)?))).collect::<PyResult<_>>()?)))
+        .collect::<PyResult<_>>()?;
+    for (i, (has_fp, fp_graphic, fp_copper, tie_graphic, circle, ends, reads, fp)) in infos {
+        let reads = match reads {
+            Some(k) => Some(tables.get(k).ok_or_else(|| PyValueError::new_err("read table index out of range"))?.clone()),
+            None => None,
+        };
+        let fp = match fp {
+            Some(k) => Some(fps.get(k).ok_or_else(|| PyValueError::new_err("net tie index out of range"))?.clone()),
+            None => None,
+        };
+        let s = shapes.get_mut(i).ok_or_else(|| PyValueError::new_err("tie shape index out of range"))?;
+        s.tie = Some(std::sync::Arc::new(ties::TieInfo { has_fp, fp_graphic, fp_copper, tie_graphic, circle, ends, reads, fp }));
+    }
+    Ok(())
+}
+
+fn tie_eps(mm: f64) -> ties::TieEps {
+    ties::TieEps { mm, nm: ties::to_nm(mm) }
 }
 
 fn geometry_bounds(poly: &[Point]) -> (f64, f64, f64, f64) {
@@ -114,9 +190,10 @@ fn build_rules(rules: Option<Vec<RuleArg>>) -> Vec<shapes::ClearanceRule> {
 
 /// `Occupancy._conflict`'s boolean decision (not its reason string), for
 /// direct fuzzing against the live Python method - see
-/// tests/test_native_conflict.py.
+/// tests/test_native_conflict.py. `ties`: what the net-tie exclusion reads of
+/// the two shapes, `s` index 0 and `o` index 1 (`Occupancy._native_ties`).
 #[pyfunction]
-#[pyo3(signature = (s, o, clearance, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance, epsilon, rules=None))]
+#[pyo3(signature = (s, o, clearance, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance, epsilon, rules=None, tie_epsilon=0.0005, ties=None))]
 #[allow(clippy::too_many_arguments)]
 fn conflict(
     s: PyShape,
@@ -132,6 +209,8 @@ fn conflict(
     hole_clearance: f64,
     epsilon: f64,
     rules: Option<Vec<RuleArg>>,
+    tie_epsilon: f64,
+    ties: Option<PyTies>,
 ) -> PyResult<bool> {
     // gap/drawn_gap are only read by ShapeGrid::first_conflict's gap_for,
     // not by conflict() itself: unused here.
@@ -140,8 +219,11 @@ fn conflict(
     let cfg = shapes::ConflictConfig {
         touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance,
         rules, gap: 0.0, drawn_gap: 0.0, hole_to_hole, hole_clearance, max_clearance, epsilon,
+        tie_eps: tie_eps(tie_epsilon),
     };
-    Ok(shapes::conflict(&build_shape(&s)?, &build_shape(&o)?, clearance, &cfg))
+    let mut pair = vec![build_shape(&s)?, build_shape(&o)?];
+    attach_ties(&mut pair, ties)?;
+    Ok(shapes::conflict(&pair[0], &pair[1], clearance, &cfg))
 }
 
 /// A scan's obstacle pool, registered once (mirrors `Occupancy.obstacles()`
@@ -157,7 +239,7 @@ struct NativeObstacles {
 #[pymethods]
 impl NativeObstacles {
     #[new]
-    #[pyo3(signature = (obstacles, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap, hole_to_hole, hole_clearance, epsilon, rules=None))]
+    #[pyo3(signature = (obstacles, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap, hole_to_hole, hole_clearance, epsilon, rules=None, tie_epsilon=0.0005, ties=None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         obstacles: Vec<PyShape>,
@@ -173,13 +255,17 @@ impl NativeObstacles {
         hole_clearance: f64,
         epsilon: f64,
         rules: Option<Vec<RuleArg>>,
+        tie_epsilon: f64,
+        ties: Option<PyTies>,
     ) -> PyResult<Self> {
-        let built: Vec<shapes::Shape> = obstacles.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let mut built: Vec<shapes::Shape> = obstacles.iter().map(build_shape).collect::<PyResult<_>>()?;
+        attach_ties(&mut built, ties)?;
         let rules = build_rules(rules);
         let max_clearance = shapes::largest_clearance(default_clearance, &net_clearance, &rules);
         let cfg = shapes::ConflictConfig {
             touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance,
             rules, gap, drawn_gap, hole_to_hole, hole_clearance, max_clearance, epsilon,
+            tie_eps: tie_eps(tie_epsilon),
         };
         Ok(NativeObstacles { grid: shapes::ShapeGrid::new(built), cfg })
     }
@@ -332,8 +418,11 @@ struct NativeOriginShapes {
 #[pymethods]
 impl NativeOriginShapes {
     #[new]
-    fn new(shapes: Vec<PyShape>) -> PyResult<Self> {
-        Ok(NativeOriginShapes { shapes: shapes.iter().map(build_shape).collect::<PyResult<_>>()? })
+    #[pyo3(signature = (shapes, ties=None))]
+    fn new(shapes: Vec<PyShape>, ties: Option<PyTies>) -> PyResult<Self> {
+        let mut shapes: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
+        attach_ties(&mut shapes, ties)?;
+        Ok(NativeOriginShapes { shapes })
     }
 }
 

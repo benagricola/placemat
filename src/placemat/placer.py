@@ -270,8 +270,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     others = occ.obstacles(geom, region)
     seen: set = set()
     native = occ.native_sweeper(item, hint.face, rots, others, clearance) if NATIVE_SWEEP else None
-    scoring = score.native(rots, hint.face) if native is not None and (not native.recheck or native.full is not None) \
-        and hasattr(score, "native") else None
+    scoring = score.native(rots, hint.face) if native is not None and hasattr(score, "native") else None
     # Carried vias that may give way (giveway.py): a pass judges the item as it is first; the
     # candidates that refuses are judged again less its carried vias, and against the board less
     # the placed items' carried vias, and the vias then share, move or drop at a cost
@@ -305,11 +304,6 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 if n is not None and len(out) == n:
                     break
         return out
-
-    def blocker_of(key) -> list:
-        """A native refusal's blocker key as the blockers a tally counts: none for a candidate
-        refused in full without one (NativeSweeper's `recheck`)."""
-        return [] if key is None else [key]
 
     def blocker_key(b) -> tuple:
         return (b.kind, b.owner, "/".join(sorted(f.value for f in b.faces)))
@@ -478,9 +472,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         less_first = (B_FIRST and gw is not None and gw.native is not None and not stop_at_first
                       and bool(triples) and (budget is None or budget.left >= 2 * everything))
         if less_first:
-            # what the item less its vias is legal at natively (the Python judgment of the net ties' pairs comes
-            # after, for those the item as it is was not legal at), and, of those, where the item as it is is legal
-            found_less, _, refusals_less = gw.native.run_native(triples, False, None)
+            # what the item less its vias is legal at, and, of those, where the item as it is is legal
+            found_less, _, refusals_less = gw.native.run(triples, False, None)
             as_is = [triples[i] for i in found_less]
             found_as, scores, refusals = native.run(as_is, False, scoring) if as_is else ([], [], [])
             found = [found_less[k] for k in found_as]
@@ -494,7 +487,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         charge(cutoff, True)
         if short and not (first_only and found):
             budget.cut = True
-        scored = scoring is not None and scores is not None       # a sweep that judged some candidates in Python scores none natively
+        scored = scoring is not None and scores is not None
         legal = []
         for i, sc in zip(found, scores if scored else [0.0] * len(found)):
             x, y, k = triples[i]
@@ -507,7 +500,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 break
         if gw is None or (stop_at_first and legal):
             for bucket, count, first, reason, blocker in refusals:
-                tally(bucket, reason, blocker_of(blocker), count)
+                tally(bucket, reason, [blocker], count)
             return legal
         taken = set(found)
         if phase is not None and len(taken) < len(triples):
@@ -519,16 +512,10 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             # judged less their vias already, over every candidate: the ones the item as it is was legal at are not
             # among those the second judgment is to say anything of
             charge(len(triples) - len(taken))
-            events = [(first, 0, (bucket, reason, blocker_of(blocker), count))
+            events = [(first, 0, (bucket, reason, [blocker], count))
                       for bucket, count, first, reason, blocker in refusals_less]
             wanting = [i for i in found_less if i not in taken]
-            if gw.native.recheck is None:
-                events += [(i, 1, i) for i in wanting]
-            else:
-                found_c, _, refusals_c = gw.native.run([triples[i] for i in wanting], False, None) if wanting else ([], [], [])
-                events += [(wanting[first], 0, (bucket, reason, blocker_of(blocker), count))
-                           for bucket, count, first, reason, blocker in refusals_c]
-                events += [(wanting[j], 1, wanting[j]) for j in found_c]
+            events += [(i, 1, i) for i in wanting]
             for _, kind, what in sorted(events, key=lambda e: e[0]):
                 if kind == 0:
                     tally(*what)
@@ -559,7 +546,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 found_b, _, refusals_b = gw.native.run(part, True, None) if part else ([], [], [])
                 charge(found_b[0] + 1 if found_b else len(part))
                 for bucket, count, first, reason, blocker in refusals_b:
-                    tally(bucket, reason, blocker_of(blocker), count)
+                    tally(bucket, reason, [blocker], count)
                 if not found_b:
                     if len(part) < len(rest):
                         budget.cut = True
@@ -577,7 +564,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         sub = part
         found_b, _, refusals_b = gw.native.run(sub, False, None) if sub else ([], [], [])
         charge(len(sub))
-        events = [(first, 0, (bucket, reason, blocker_of(blocker), count))
+        events = [(first, 0, (bucket, reason, [blocker], count))
                   for bucket, count, first, reason, blocker in refusals_b]
         events += [(j, 1, j) for j in found_b]
         for _, kind, what in sorted(events, key=lambda e: e[0]):

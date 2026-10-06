@@ -1,7 +1,5 @@
-"""A scan of an item that owns a net tie, or meets another item's, is still
-judged natively (Occupancy.native_sweeper): the native pass leaves the tie
-shapes out and refuses what it refuses without them, and the candidates it
-accepts are judged in full in Python, where KiCad's net-tie exclusion is. It
+"""A scan of an item that owns a net tie, or meets another item's, is judged
+natively (Occupancy.native_sweeper), KiCad's net-tie exclusion and all: it
 accepts the candidates and chooses the spot the pure-Python sweep does."""
 import dataclasses
 
@@ -65,7 +63,7 @@ def test_a_cell_that_owns_a_net_tie_is_accepted_and_chosen_as_the_python_sweep_d
     nat = _scan(occ, cell, True, monkeypatch)
     assert py[4], "the cell has somewhere to go"
     assert nat[:5] == py[:5]
-    assert nat[5] < py[5] / 2            # legal_bucket judges the native survivors, not every candidate
+    assert nat[5] == 0                   # no candidate is judged in Python
 
 
 @pytest.mark.parametrize("envelope", ["courtyard", "physical"])
@@ -77,7 +75,7 @@ def test_an_item_meeting_another_items_net_tie_is_accepted_and_chosen_as_the_pyt
     nat = _scan(occ, mover, True, monkeypatch)
     assert py[4], "the part has somewhere to go"
     assert nat[:5] == py[:5]
-    assert nat[5] < py[5] / 2
+    assert nat[5] == 0
 
 
 def _searched_board(envelope):
