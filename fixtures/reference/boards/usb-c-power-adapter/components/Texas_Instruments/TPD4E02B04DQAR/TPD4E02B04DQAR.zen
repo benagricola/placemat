@@ -1,0 +1,23 @@
+"""
+TPD4E02B04DQAR
+
+Auto-generated using `pcb import`.
+"""
+
+P1 = io(Net)
+P10 = io(Net)
+P2 = io(Net)
+P3 = io(Net)
+P4 = io(Net)
+P5 = io(Net)
+P6 = io(Net)
+P7 = io(Net)
+P8 = io(Net)
+P9 = io(Net)
+
+Component(
+    name="TPD4E02B04DQAR",
+    symbol=Symbol(library="TPD4E02B04DQAR.kicad_sym"),
+    pin_defs={"1": "1", "10": "10", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9"},
+    pins={"1": P1, "10": P10, "2": P2, "3": P3, "4": P4, "5": P5, "6": P6, "7": P7, "8": P8, "9": P9},
+)

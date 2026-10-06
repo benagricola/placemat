@@ -1,0 +1,197 @@
+(footprint "R_0402_1005Metric"
+	(version 20211014)
+	(generator pcbnew)
+	(fp_text reference "REF**"
+		(at 0 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(fp_text value "R_0402_1005Metric"
+		(at 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(layer "F.Cu")
+	(descr "Resistor SMD 0402")
+	(tags "resistor SMD 0402")
+	(attr smd)
+	(fp_rect
+		(start -0.925 -0.47)
+		(end 0.925 0.47)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "e6e5559e-6bc8-4a84-9f75-ad1d0710eb60")
+	)
+	(fp_rect
+		(start -0.5 -0.25)
+		(end 0.5 0.25)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.Fab")
+		(uuid "ff312b59-1a61-45fa-bb6f-d9554b81b054")
+	)
+	(fp_rect
+		(start -0.5 -0.25)
+		(end 0.5 0.25)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(fill no)
+		(layer "User.5")
+		(uuid "73a3d85d-c17c-44ad-9fd7-bdb9d67cf480")
+	)
+	(fp_line
+		(start 0.498 -0.25)
+		(end 0.248 -0.25)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "4362f19b-79e2-4b66-a4f2-c84459adac76")
+	)
+	(fp_line
+		(start 0.248 -0.25)
+		(end 0.248 0.248)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "c34cce06-3fad-4931-941e-32de9b819f6b")
+	)
+	(fp_line
+		(start -0.25 -0.25)
+		(end -0.5 -0.25)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "8a0d0441-aaeb-42d4-bdc3-279b6aa08fc2")
+	)
+	(fp_line
+		(start 0.248 -0.232)
+		(end -0.25 -0.232)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "c0c50a1f-3cc6-4e1b-abf1-5e8345d452f7")
+	)
+	(fp_line
+		(start 0.248 0.23)
+		(end -0.25 0.23)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "36ebf9c7-6d26-4430-b07b-288b7f438d7f")
+	)
+	(fp_line
+		(start 0.498 0.248)
+		(end 0.498 -0.25)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "8cb26ba4-166a-46dd-8440-5b266b1a85c4")
+	)
+	(fp_line
+		(start 0.248 0.248)
+		(end 0.498 0.248)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "0a5af8ad-6fcd-4f81-a217-a562881b02bf")
+	)
+	(fp_line
+		(start -0.25 0.248)
+		(end -0.25 -0.25)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "8e27af6c-09e0-4d32-b9ca-815c951ea5a4")
+	)
+	(fp_line
+		(start -0.25 0.248)
+		(end -0.5 0.248)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "04cb49f2-c3e9-4811-8ead-38a38f70f939")
+	)
+	(fp_line
+		(start -0.5 0.248)
+		(end -0.5 -0.25)
+		(stroke
+			(width 0.02)
+			(type solid)
+		)
+		(layer "User.9")
+		(uuid "c519a243-9a9e-415e-bae1-63071130947c")
+	)
+	(pad "1" smd roundrect
+		(at -0.48 0)
+		(size 0.59 0.64)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(pintype "passive")
+	)
+	(pad "2" smd roundrect
+		(at 0.48 0)
+		(size 0.59 0.64)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.25)
+		(pintype "passive")
+	)
+	(embedded_fonts no)
+	(model "${ANT3DMDL}/R_0402_1005Metric.step"
+		(offset
+			(xyz 0 0 -0.01)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)

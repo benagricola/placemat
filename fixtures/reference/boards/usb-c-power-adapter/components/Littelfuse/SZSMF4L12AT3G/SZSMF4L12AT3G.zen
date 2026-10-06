@@ -1,0 +1,15 @@
+"""
+SZSMF4L12AT3G
+
+Auto-generated using `pcb import`.
+"""
+
+A = io(Net)
+C = io(Net)
+
+Component(
+    name="SZSMF4L12AT3G",
+    symbol=Symbol(library="SZSMF4L12AT3G.kicad_sym"),
+    pin_defs={"C": "1", "A": "2"},
+    pins={"C": C, "A": A},
+)

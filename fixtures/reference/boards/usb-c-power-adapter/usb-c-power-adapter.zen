@@ -1,0 +1,1524 @@
+"""
+usb-c-power-adapter: a USB-C PD sink giving 12 V, up to 75 W (Antmicro, github.com/antmicro/usb-c-power-adapter at
+4d3e9e28, Apache-2.0). Imported with `pcb import`; annotations and the changes listed below added for placemat's
+reference set. Sources for every number: NOTES.md beside this file.
+
+The circuit:
+- J1 (USB-C, power only: D+, D- and SBU are not connected) brings VBUS and CC1/CC2; U5, U7, U8 (TVS2200) clamp them.
+- U1 (STUSB4500) negotiates the PD contract on CC1/CC2 and drives Q1 (P-MOSFET), which switches VBUS onto VCC.
+- FB1 feeds VCC to U2 (SiC477 buck, 8 A), which makes +12V through L1; F1 and J4 take it off the board, D5 clamps it.
+- U3 and U4 (AP62301 bucks) make +5V and +3V3 from +12V for J3; D3, D4, D6..D9 show the rails and contract flags.
+- J2 (Qwiic) is the I2C port that programs U1's PD profiles; U6 (TPD4E02B04) protects it.
+
+Load (the board's README): PD profile PDO3 20 V 4.5 A; 12 V 55 W continuous, 75 W with active cooling (6.25 A);
+the 5 V and 3.3 V converters up to 500 mA.
+
+Layout rules from the datasheets (NOTES.md has the pages):
+1. SiC477: VIN ceramics between VIN and PGND very close to the device; VIN and PGND planes (doc 77113 rev I, p20
+   step 1).
+2. SiC477: the VCIN capacitor close to pin 1; the VDD capacitor between pins 26 and 23; the VDRV capacitor close to
+   pins 16 and 17 (p2, p20 steps 2 and 4).
+3. SiC477: the output inductor joined to SW by a large plane; no vias on the SW pad (p20 step 3, p22 step 7.3).
+4. SiC477: the boot RC very close, between PHASE and BOOT (p21 step 5).
+5. SiC477: feedback away from the switch node, shielded by the inner ground layer; the inner layer next to the top a
+   ground plane (p21 step 6, p22 step 8).
+6. AP62301: input capacitor across VIN and GND, inductor at SW, output capacitor at GND, feedback components at FB, as
+   close as possible (DS41958 rev 2-2, p20 Layout 2-5).
+7. STUSB4500: 1 uF decoupling on VREG_1V2 and VREG_2V7 (DS12499 rev 2, 2.2.13, 2.2.15).
+8. TVS2200, TPD4E02B04: as close to the connector as possible (SLVSED5C 9.4.1, SLVSD85B 10.1).
+
+Changes from the import:
+- The USB_PD and DC-DC Converters sheets are flattened into this file. As modules they became two rigid cells, each
+  holding connectors that sit at their own mechanical points (J1 and J2 in one, J3 and J4 in the other); the sheets
+  are drawing boundaries, not placement ones (circuit-capture, "Modules for placement"). Names and nets are
+  unchanged; nets keep the names the import gave them, without the module prefix.
+- The USB net class gets its nets (/USB_PD/*), as the original project's pattern "/USB.*" assigns them; the import
+  dropped the pattern. Its diff_pair_width, diff_pair_gap and diff_pair_via_gap are removed: the class holds the PD
+  sheet's CC, I2C and control nets, not a differential pair.
+- U6's pins 1 (IO1, unused) and 10 (NC) are not connected: the import joined them into one net, where the original
+  has two unconnected nets.
+- Layer roles are the original board's use: In1.Cu ground, the other three mixed.
+"""
+
+load(
+    "@stdlib/board_config.zen",
+    "Board",
+    "BoardConfig",
+    "DesignRules",
+    "Constraints",
+    "Copper",
+    "Holes",
+    "Uvias",
+    "Silkscreen",
+    "SolderMask",
+    "Zones",
+    "PredefinedSizes",
+    "ViaDimension",
+    "NetClass",
+    "Stackup",
+    "Material",
+    "CopperLayer",
+    "DielectricLayer",
+)
+
+load("@stdlib/interfaces.zen", "NotConnected", "Power", "Ground")
+
+NET_3V3 = Power("+3V3")
+NET_5V = Power("+5V")
+GND = Ground("GND")
+VCC = Power("VCC")
+NET_12V = Power("+12V")
+DC_DC_CONVERTERS_12V_FSW = Net("/DC-DC_Converters/12V_FSW")
+DC_DC_CONVERTERS_12V_ILIM = Net("/DC-DC_Converters/12V_ILIM")
+DC_DC_CONVERTERS_12V_MODE = Net("/DC-DC_Converters/12V_MODE")
+DC_DC_CONVERTERS_12V_SNS = Net("/DC-DC_Converters/12V_SNS")
+DC_DC_CONVERTERS_12V_SS = Net("/DC-DC_Converters/12V_SS")
+DC_DC_CONVERTERS_VDD_12V_DCDC = Net("/DC-DC_Converters/VDD_12V_DCDC")
+DC_DC_CONVERTERS_VDRV_12V_DCDC = Net("/DC-DC_Converters/VDRV_12V_DCDC")
+USB_PD_CC1 = Net("/USB_PD/CC1")
+USB_PD_CC2 = Net("/USB_PD/CC2")
+USB_PD_QWIIC_VCC = Net("/USB_PD/QWIIC_VCC")
+USB_PD_SCL = Net("/USB_PD/SCL")
+USB_PD_SDA = Net("/USB_PD/SDA")
+USB_PD_VBUS_DISCH = Net("/USB_PD/VBUS_DISCH")
+USB_PD_VBUS_EN = Net("/USB_PD/VBUS_EN")
+NET_C10_PAD1 = Net("Net-(C10-Pad1)")
+NET_C13_PAD1 = Net("Net-(C13-Pad1)")
+NET_C19_PAD1 = Net("Net-(C19-Pad1)")
+NET_D1_C = Net("Net-(D1-C)")
+NET_D3_A = Net("Net-(D3-A)")
+NET_D4_A = Net("Net-(D4-A)")
+NET_D5_C = Net("Net-(D5-C)")
+NET_D6_A = Net("Net-(D6-A)")
+NET_D7_A = Net("Net-(D7-A)")
+NET_D8_A = Net("Net-(D8-A)")
+NET_D9_A = Net("Net-(D9-A)")
+NET_L1_PAD1 = Net("Net-(L1-Pad1)")
+NET_Q1_G = Net("Net-(Q1-G)")
+NET_R14_PAD2 = Net("Net-(R14-Pad2)")
+NET_R16_PAD1 = Net("Net-(R16-Pad1)")
+NET_U1_ATTACH = Net("Net-(U1-ATTACH)")
+NET_U1_A_B_SIDE = Net("Net-(U1-A_B_SIDE)")
+NET_U1_DISCH = Net("Net-(U1-DISCH)")
+NET_U1_GPIO = Net("Net-(U1-GPIO)")
+NET_U1_RESET = Net("Net-(U1-RESET)")
+NET_U1_VREG_1V2 = Net("Net-(U1-VREG_1V2)")
+NET_U1_VREG_2V7 = Net("Net-(U1-VREG_2V7)")
+NET_U1_ALERT = Net("Net-(U1-~{ALERT})")
+NET_U2_BOOT = Net("Net-(U2-BOOT)")
+NET_U2_EN = Net("Net-(U2-EN)")
+NET_U2_P_GOOD = Net("Net-(U2-P_{GOOD})")
+NET_U2_V_CIN = Net("Net-(U2-V_{CIN})")
+NET_U2_V_FB = Net("Net-(U2-V_{FB})")
+NET_U2_V_SNS = Net("Net-(U2-V_{SNS})")
+NET_U3_BST = Net("Net-(U3-BST)")
+NET_U3_EN = Net("Net-(U3-EN)")
+NET_U3_FB = Net("Net-(U3-FB)")
+NET_U3_SW = Net("Net-(U3-SW)")
+NET_U4_BST = Net("Net-(U4-BST)")
+NET_U4_EN = Net("Net-(U4-EN)")
+NET_U4_FB = Net("Net-(U4-FB)")
+NET_U4_SW = Net("Net-(U4-SW)")
+POWER_OK2 = Net("POWER_OK2")
+POWER_OK3 = Net("POWER_OK3")
+VBUS = Net("VBUS")
+
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+AP62301Z6_7 = Module("components/Diodes_Incorporated/AP62301Z6-7/AP62301Z6-7.zen")
+ASPIAIG_Q8080_4R7M_T = Module("components/Abracon/ASPIAIG-Q8080-4R7M-T/ASPIAIG-Q8080-4R7M-T.zen")
+AXGD10402KR = Module("components/Littelfuse/AXGD10402KR/AXGD10402KR.zen")
+CR0402_FX_4700GLF = Module("components/Bourns/CR0402-FX-4700GLF/CR0402-FX-4700GLF.zen")
+LG_L29K_G2J1_24_Z = Module("components/OSRAM/LG_L29K-G2J1-24-Z/LG_L29K-G2J1-24-Z.zen")
+MP_PAD3_5MM_DRILL2_2MM = Module("components/MP_Pad3_5mm_Drill2_2mm/MP_Pad3_5mm_Drill2_2mm.zen")
+PMEG6002EJ_115 = Module("components/Nexperia/PMEG6002EJ_115/PMEG6002EJ_115.zen")
+SIC477ED_T1_GE3 = Module("components/Vishay/SIC477ED-T1-GE3/SIC477ED-T1-GE3.zen")
+SM04B_SRSS_TB_LF_SN = Module("components/JST_Automotive_Connectors/SM04B-SRSS-TB_LF_SN/SM04B-SRSS-TB_LF_SN.zen")
+SQS401EN_T1_BE3 = Module("components/Vishay/SQS401EN-T1_BE3/SQS401EN-T1_BE3.zen")
+STUSB4500QTR = Module("components/STMicroelectronics/STUSB4500QTR/STUSB4500QTR.zen")
+SZSMF4L12AT3G = Module("components/Littelfuse/SZSMF4L12AT3G/SZSMF4L12AT3G.zen")
+T59EE157M030C0075 = Module("components/Vishay/T59EE157M030C0075/T59EE157M030C0075.zen")
+TFM252012ALMA3R3MTAA = Module("components/TDK/TFM252012ALMA3R3MTAA/TFM252012ALMA3R3MTAA.zen")
+TPD4E02B04DQAR = Module("components/Texas_Instruments/TPD4E02B04DQAR/TPD4E02B04DQAR.zen")
+TP_0_75MM_SMD = Module("components/TP_0_75mm_SMD/TP_0_75mm_SMD.zen")
+TVS2200DRVR = Module("components/Texas_Instruments/TVS2200DRVR/TVS2200DRVR.zen")
+USB4105_GF_A = Module("components/GCT/USB4105-GF-A/USB4105-GF-A.zen")
+_1053131202 = Module("components/Molex/1053131202/1053131202.zen")
+_3413_0326_11 = Module("components/Schurter/3413_0326_11/3413_0326_11.zen")
+_74279221100 = Module("components/Wurth_Elektronik/74279221100/74279221100.zen")
+
+
+# The USB_PD sheet
+
+Capacitor(
+    name="C11",
+    dielectric="X5R",
+    manufacturer="Murata",
+    mpn="GRM155R61E105KE11J",
+    package="0402",
+    value="1uF",
+    voltage="25V",
+    P1=GND,
+    P2=VBUS,
+)
+
+Capacitor(
+    name="C19",
+    manufacturer="Murata",
+    mpn="GCM155L8EH104KE07D",
+    package="0402",
+    value="100nF",
+    voltage="50V",
+    P1=NET_C19_PAD1,
+    P2=VCC,
+)
+
+Capacitor(
+    name="C27",
+    manufacturer="Murata",
+    mpn="GRM155C61E475ME15J",
+    package="0402",
+    value="4.7uF",
+    voltage="25V",
+    P1=GND,
+    P2=VBUS,
+)
+
+Capacitor(
+    name="C28",
+    manufacturer="Murata",
+    mpn="GCM155L8EH104KE07D",
+    package="0402",
+    value="100nF",
+    voltage="50V",
+    P1=GND,
+    P2=USB_PD_QWIIC_VCC,
+)
+
+Capacitor(
+    name="C7",
+    manufacturer="Murata",
+    mpn="GRM21BR6YA106KE43L",
+    package="0805",
+    value="10uF",
+    voltage="35V",
+    P1=GND,
+    P2=NET_D1_C,
+)
+
+Capacitor(
+    name="C8",
+    dielectric="X5R",
+    manufacturer="Murata",
+    mpn="GRM155R61E105KE11J",
+    package="0402",
+    value="1uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_U1_VREG_2V7,
+)
+
+Capacitor(
+    name="C9",
+    dielectric="X5R",
+    manufacturer="Murata",
+    mpn="GRM155R61E105KE11J",
+    package="0402",
+    value="1uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_U1_VREG_1V2,
+)
+
+PMEG6002EJ_115(
+    name="D1",
+    A=VBUS,
+    C=NET_D1_C,
+)
+
+LG_L29K_G2J1_24_Z(
+    name="D3",
+    A=NET_D3_A,
+    C=GND,
+)
+
+LG_L29K_G2J1_24_Z(
+    name="D6",
+    A=NET_D6_A,
+    C=POWER_OK2,
+)
+
+LG_L29K_G2J1_24_Z(
+    name="D7",
+    A=NET_D7_A,
+    C=POWER_OK3,
+)
+
+USB4105_GF_A(
+    name="J1",
+    annotations={
+        "Pm.I": "VBUS:4.5A GND:4.5A",   # load: board README, PD profile PDO3 20 V 4.5 A; STUSB4500 DS12499 rev 2 3.3.1: a sink PDO takes up to 5 A
+    },
+    CC_1=USB_PD_CC1,
+    CC_2=USB_PD_CC2,
+    D_A_NEG=NotConnected(),
+    D_A_POS=NotConnected(),
+    D_B_NEG=NotConnected(),
+    D_B_POS=NotConnected(),
+    GND_A1=GND,
+    GND_A12=GND,
+    GND_B1=GND,
+    GND_B12=GND,
+    SBU_1=NotConnected(),
+    SBU_2=NotConnected(),
+    SH=GND,
+    VBUS_A4=VBUS,
+    VBUS_A9=VBUS,
+    VBUS_B4=VBUS,
+    VBUS_B9=VBUS,
+)
+
+SM04B_SRSS_TB_LF_SN(
+    name="J2",
+    MP=GND,
+    P1=GND,
+    P2=USB_PD_QWIIC_VCC,
+    P3=USB_PD_SDA,
+    P4=USB_PD_SCL,
+)
+
+MP_PAD3_5MM_DRILL2_2MM(
+    name="MP1",
+    P1=GND,
+)
+
+SQS401EN_T1_BE3(
+    name="Q1",
+    annotations={
+        "Pm.I": "VBUS:4.5A VCC:4.5A",   # load: board README, PD profile PDO3 20 V 4.5 A; STUSB4500 DS12499 rev 2 3.3.1: a sink PDO takes up to 5 A; the VBUS switch VBUS_EN_SNK drives (2.2.10)
+    },
+    D=VCC,
+    G=NET_Q1_G,
+    S_1=VBUS,
+    S_2=VBUS,
+    S_3=VBUS,
+)
+
+Resistor(
+    name="R19",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-4700GLF",
+    package="0402",
+    value="470",
+    P1=NET_D1_C,
+    P2=VBUS,
+)
+
+Resistor(
+    name="R20",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1001GLF",
+    package="0402",
+    value="1k",
+    P1=USB_PD_VBUS_DISCH,
+    P2=NET_D1_C,
+)
+
+Resistor(
+    name="R21",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1003GLF",
+    package="0402",
+    value="100k",
+    P1=NET_Q1_G,
+    P2=VBUS,
+)
+
+Resistor(
+    name="R22",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-2202GLF",
+    package="0402",
+    value="22k",
+    P1=USB_PD_VBUS_EN,
+    P2=NET_Q1_G,
+)
+
+Resistor(
+    name="R25",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-4700GLF",
+    package="0402",
+    value="470",
+    P1=NET_D6_A,
+    P2=NET_5V,
+)
+
+CR0402_FX_4700GLF(
+    name="R26",
+    P1=NET_D7_A,
+    P2=NET_5V,
+)
+
+Resistor(
+    name="R3",
+    manufacturer="Bourns",
+    mpn="CR0603-FX-4701ELF",
+    package="0603",
+    value="4.7k",
+    P1=VCC,
+    P2=NET_U1_DISCH,
+)
+
+Resistor(
+    name="R31",
+    dnp=True,
+    skip_bom=True,
+    manufacturer="Bourns",
+    mpn="CR0402-FX-4701GLF",
+    package="0402",
+    value="4.7k",
+    P1=USB_PD_SCL,
+    P2=NET_3V3,
+)
+
+Resistor(
+    name="R32",
+    dnp=True,
+    skip_bom=True,
+    manufacturer="Bourns",
+    mpn="CR0402-FX-4701GLF",
+    package="0402",
+    value="4.7k",
+    P1=USB_PD_SDA,
+    P2=NET_3V3,
+)
+
+Resistor(
+    name="R33",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1000GLF",
+    package="0402",
+    value="100",
+    P1=NET_Q1_G,
+    P2=NET_C19_PAD1,
+)
+
+Resistor(
+    name="R34",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1201GLF",
+    package="0402",
+    value="1.2k",
+    P1=NET_D3_A,
+    P2=VBUS,
+)
+
+Resistor(
+    name="R38",
+    dnp=True,
+    skip_bom=True,
+    manufacturer="Panasonic",
+    mpn="ERJ2GE0R00X",
+    package="0402",
+    value="0",
+    P1=USB_PD_QWIIC_VCC,
+    P2=NET_3V3,
+)
+
+Resistor(
+    name="R4",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1002GLF",
+    package="0402",
+    value="10k",
+    P1=NET_U1_RESET,
+    P2=GND,
+)
+
+TP_0_75MM_SMD(
+    name="TP1",
+    P1=USB_PD_SDA,
+)
+
+TP_0_75MM_SMD(
+    name="TP10",
+    P1=NET_U1_ATTACH,
+)
+
+TP_0_75MM_SMD(
+    name="TP11",
+    P1=NET_U1_A_B_SIDE,
+)
+
+TP_0_75MM_SMD(
+    name="TP12",
+    P1=NET_U1_GPIO,
+)
+
+TP_0_75MM_SMD(
+    name="TP13",
+    P1=GND,
+)
+
+TP_0_75MM_SMD(
+    name="TP2",
+    P1=USB_PD_SCL,
+)
+
+TP_0_75MM_SMD(
+    name="TP3",
+    P1=VBUS,
+)
+
+TP_0_75MM_SMD(
+    name="TP4",
+    P1=VCC,
+)
+
+TP_0_75MM_SMD(
+    name="TP8",
+    P1=NET_U1_RESET,
+)
+
+TP_0_75MM_SMD(
+    name="TP9",
+    P1=NET_U1_ALERT,
+)
+
+STUSB4500QTR(
+    name="U1",
+    ADDR0=GND,
+    ADDR1=GND,
+    ATTACH=NET_U1_ATTACH,
+    A_B_SIDE=NET_U1_A_B_SIDE,
+    CC1=USB_PD_CC1,
+    CC1DB=USB_PD_CC1,
+    CC2=USB_PD_CC2,
+    CC2DB=USB_PD_CC2,
+    DISCH=NET_U1_DISCH,
+    EP=GND,
+    GND=GND,
+    GPIO=NET_U1_GPIO,
+    N_ALERT=NET_U1_ALERT,
+    POWER_OK2=POWER_OK2,
+    POWER_OK3=POWER_OK3,
+    RESET=NET_U1_RESET,
+    SCL=USB_PD_SCL,
+    SDA=USB_PD_SDA,
+    VBUS_EN_SNK=USB_PD_VBUS_EN,
+    VBUS_VS_DISCH=USB_PD_VBUS_DISCH,
+    VDD=VBUS,
+    VREG_1V2=NET_U1_VREG_1V2,
+    VREG_2V7=NET_U1_VREG_2V7,
+    VSYS=GND,
+)
+
+TVS2200DRVR(
+    name="U5",
+    GND_1=GND,
+    GND_2=GND,
+    GND_3=GND,
+    GND_7=GND,
+    IN_4=VBUS,
+    IN_5=VBUS,
+    IN_6=VBUS,
+)
+
+TPD4E02B04DQAR(
+    name="U6",
+    P1=NotConnected(),    # IO1, unused: its own unconnected net on the original board
+    P10=NotConnected(),   # NC (TI SLVSD85B, Pin Functions); the import joined it to P1
+    P2=USB_PD_SCL,
+    P3=GND,
+    P4=USB_PD_SDA,
+    P5=USB_PD_QWIIC_VCC,
+    P6=USB_PD_QWIIC_VCC,
+    P7=USB_PD_SDA,
+    P8=GND,
+    P9=USB_PD_SCL,
+)
+
+TVS2200DRVR(
+    name="U7",
+    GND_1=GND,
+    GND_2=GND,
+    GND_3=GND,
+    GND_7=GND,
+    IN_4=USB_PD_CC1,
+    IN_5=USB_PD_CC1,
+    IN_6=USB_PD_CC1,
+)
+
+TVS2200DRVR(
+    name="U8",
+    GND_1=GND,
+    GND_2=GND,
+    GND_3=GND,
+    GND_7=GND,
+    IN_4=USB_PD_CC2,
+    IN_5=USB_PD_CC2,
+    IN_6=USB_PD_CC2,
+)
+
+# The DC-DC Converters sheet
+
+Capacitor(
+    name="C1",
+    dielectric="X5R",
+    manufacturer="Murata",
+    mpn="GRM155R61E105KE11J",
+    package="0402",
+    value="1uF",
+    voltage="25V",
+    P1=GND,
+    P2=DC_DC_CONVERTERS_VDD_12V_DCDC,
+)
+
+Capacitor(
+    name="C10",
+    manufacturer="Murata",
+    mpn="GCM155L8EH104KE07D",
+    package="0402",
+    value="100nF",
+    voltage="50V",
+    P1=NET_C10_PAD1,
+    P2=NET_U2_BOOT,
+)
+
+Capacitor(
+    name="C12",
+    dnp=True,
+    skip_bom=True,
+    manufacturer="Murata",
+    mpn="GCM155R71H122KA37D",
+    package="0402",
+    value="1.2nF",
+    voltage="50V",
+    P1=NET_U2_V_SNS,
+    P2=DC_DC_CONVERTERS_12V_SNS,
+)
+
+Capacitor(
+    name="C13",
+    dnp=True,
+    skip_bom=True,
+    manufacturer="KEMET",
+    mpn="C0402C271J3GAC7867",
+    package="0402",
+    value="270pF",
+    voltage="25V",
+    P1=NET_C13_PAD1,
+    P2=GND,
+)
+
+Capacitor(
+    name="C14",
+    dnp=True,
+    skip_bom=True,
+    manufacturer="Murata",
+    mpn="GCM155R71H122KA37D",
+    package="0402",
+    value="1.2nF",
+    voltage="50V",
+    P1=DC_DC_CONVERTERS_12V_SNS,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C15",
+    manufacturer="Murata",
+    mpn="GCM155L8EH104KE07D",
+    package="0402",
+    value="100nF",
+    voltage="50V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C16",
+    annotations={
+        "Pm.Loop": "hot",   # SiC47x doc 77113 rev I p20 step 1: VIN ceramic to PGND
+    },
+    manufacturer="Murata",
+    mpn="GRM21BR6YA106KE43L",
+    package="0805",
+    value="10uF",
+    voltage="35V",
+    P1=GND,
+    P2=NET_U2_V_CIN,
+)
+
+Capacitor(
+    name="C17",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C18",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C2",
+    manufacturer="Murata",
+    mpn="GRM155C61E475ME15J",
+    package="0402",
+    value="4.7uF",
+    voltage="25V",
+    P1=GND,
+    P2=DC_DC_CONVERTERS_VDRV_12V_DCDC,
+)
+
+Capacitor(
+    name="C20",
+    dielectric="X5R",
+    manufacturer="TDK",
+    mpn="C3216X5R1E476M160AC",
+    package="1206",
+    value="47uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C21",
+    annotations={
+        "Pm.Loop": "hot_5v",   # AP62301 DS41958 rev 2-2 p20 Layout 2: U3's input capacitor (drawn with U3 on the sheet)
+    },
+    manufacturer="TDK",
+    mpn="C1608X5R1E106M080AC",
+    package="0603",
+    value="10uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C22",
+    annotations={
+        "Pm.Loop": "hot_3v3",   # AP62301 DS41958 rev 2-2 p20 Layout 2: U4's input capacitor (drawn with U4 on the sheet)
+    },
+    manufacturer="TDK",
+    mpn="C1608X5R1E106M080AC",
+    package="0603",
+    value="10uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C23",
+    annotations={
+        "Pm.Aggressor": "true",   # the BST capacitor's pad 1 is on U3's switch node
+    },
+    manufacturer="Murata",
+    mpn="GCM155L8EH104KE07D",
+    package="0402",
+    value="100nF",
+    voltage="50V",
+    P1=NET_U3_SW,
+    P2=NET_U3_BST,
+)
+
+Capacitor(
+    name="C24",
+    annotations={
+        "Pm.Aggressor": "true",   # the BST capacitor's pad 1 is on U4's switch node
+    },
+    manufacturer="Murata",
+    mpn="GCM155L8EH104KE07D",
+    package="0402",
+    value="100nF",
+    voltage="50V",
+    P1=NET_U4_SW,
+    P2=NET_U4_BST,
+)
+
+Capacitor(
+    name="C25",
+    manufacturer="TDK",
+    mpn="C1608X5R1E106M080AC",
+    package="0603",
+    value="10uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_5V,
+)
+
+Capacitor(
+    name="C26",
+    manufacturer="TDK",
+    mpn="C1608X5R1E106M080AC",
+    package="0603",
+    value="10uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_3V3,
+)
+
+Capacitor(
+    name="C29",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C3",
+    annotations={
+        "Pm.Loop": "hot",   # SiC47x doc 77113 rev I p20 step 1: VIN ceramic to PGND
+    },
+    manufacturer="Murata",
+    mpn="GRM21BR6YA106KE43L",
+    package="0805",
+    value="10uF",
+    voltage="35V",
+    P1=GND,
+    P2=NET_U2_V_CIN,
+)
+
+Capacitor(
+    name="C30",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C31",
+    dielectric="X5R",
+    manufacturer="TDK",
+    mpn="C3216X5R1E476M160AC",
+    package="1206",
+    value="47uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C32",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C33",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C34",
+    dielectric="X5R",
+    manufacturer="TDK",
+    mpn="C3216X5R1E476M160AC",
+    package="1206",
+    value="47uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C35",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C36",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C37",
+    dielectric="X5R",
+    manufacturer="TDK",
+    mpn="C3216X5R1E476M160AC",
+    package="1206",
+    value="47uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C38",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C39",
+    dielectric="X5R",
+    manufacturer="Samsung Electro-Mechanics",
+    mpn="CL21A226MAYNNNE",
+    package="0805",
+    value="22uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_12V,
+)
+
+Capacitor(
+    name="C4",
+    annotations={
+        "Pm.Loop": "hot",   # SiC47x doc 77113 rev I p20 step 1: VIN ceramic to PGND
+    },
+    manufacturer="Murata",
+    mpn="GRM21BR6YA106KE43L",
+    package="0805",
+    value="10uF",
+    voltage="35V",
+    P1=GND,
+    P2=NET_U2_V_CIN,
+)
+
+Capacitor(
+    name="C40",
+    dielectric="X5R",
+    manufacturer="Murata",
+    mpn="GRM155R61E105KE11J",
+    package="0402",
+    value="1uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_D5_C,
+)
+
+Capacitor(
+    name="C41",
+    dielectric="X5R",
+    manufacturer="Murata",
+    mpn="GRM155R61E105KE11J",
+    package="0402",
+    value="1uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_3V3,
+)
+
+Capacitor(
+    name="C42",
+    dielectric="X5R",
+    manufacturer="Murata",
+    mpn="GRM155R61E105KE11J",
+    package="0402",
+    value="1uF",
+    voltage="25V",
+    P1=GND,
+    P2=NET_5V,
+)
+
+T59EE157M030C0075(
+    name="C43",
+    P1=NET_U2_V_CIN,
+    P2=GND,
+)
+
+T59EE157M030C0075(
+    name="C44",
+    P1=NET_U2_V_CIN,
+    P2=GND,
+)
+
+Capacitor(
+    name="C5",
+    manufacturer="Murata",
+    mpn="GCM155R71E333KA55D",
+    package="0402",
+    value="33nF",
+    P1=DC_DC_CONVERTERS_12V_SS,
+    P2=GND,
+)
+
+Capacitor(
+    name="C6",
+    manufacturer="Murata",
+    mpn="GCM155L8EH104KE07D",
+    package="0402",
+    value="100nF",
+    voltage="50V",
+    P1=GND,
+    P2=NET_U2_V_CIN,
+)
+
+AXGD10402KR(
+    name="D2",
+    A=NET_12V,
+    C=GND,
+)
+
+LG_L29K_G2J1_24_Z(
+    name="D4",
+    A=NET_D4_A,
+    C=GND,
+)
+
+SZSMF4L12AT3G(
+    name="D5",
+    A=GND,
+    C=NET_D5_C,
+)
+
+LG_L29K_G2J1_24_Z(
+    name="D8",
+    A=NET_D8_A,
+    C=GND,
+)
+
+LG_L29K_G2J1_24_Z(
+    name="D9",
+    A=NET_D9_A,
+    C=GND,
+)
+
+_3413_0326_11(
+    name="F1",
+    annotations={
+        "Pm.I": "6.25A",   # load: board README, 12 V 75 W with active cooling = 6.25 A; SiC477 doc 77113 rev I p1, p23: 8 A continuous; in series to J4
+    },
+    P1=NET_12V,
+    P2=NET_D5_C,
+)
+
+_74279221100(
+    name="FB1",
+    annotations={
+        "Pm.I": "4.5A",   # load: board README, PD profile PDO3 20 V 4.5 A; STUSB4500 DS12499 rev 2 3.3.1: a sink PDO takes up to 5 A; in series on VCC
+    },
+    P1=VCC,
+    P2=NET_U2_V_CIN,
+)
+
+_74279221100(
+    name="FB2",
+    dnp=True,
+    skip_bom=True,
+    skip_pos=True,
+    P1=VCC,
+    P2=NET_12V,
+)
+
+SM04B_SRSS_TB_LF_SN(
+    name="J3",
+    annotations={
+        "Pm.I": "+5V:0.5A +3V3:0.5A",   # load: board README, 5 V and 3.3 V converters up to 500 mA; AP62301 DS41958 rev 2-2 p1: 3 A continuous
+    },
+    MP=GND,
+    P1=GND,
+    P2=NET_3V3,
+    P3=GND,
+    P4=NET_5V,
+)
+
+_1053131202(
+    name="J4",
+    annotations={
+        "Pm.I": "Net-(D5-C):6.25A GND:6.25A",   # load: board README, 12 V 75 W with active cooling = 6.25 A; SiC477 doc 77113 rev I p1, p23: 8 A continuous
+    },
+    P1=NET_D5_C,
+    P2=GND,
+)
+
+ASPIAIG_Q8080_4R7M_T(
+    name="L1",
+    annotations={
+        "Pm.I": "6.25A",   # load: board README, 12 V 75 W with active cooling = 6.25 A; SiC477 doc 77113 rev I p1, p23: 8 A continuous
+        "Pm.Aggressor": "true",   # SiC47x doc 77113 rev I p2 (SW, pins 12-14) and p20 step 3: the switch node
+    },
+    P1=NET_L1_PAD1,
+    P2=NET_12V,
+)
+
+TFM252012ALMA3R3MTAA(
+    name="L2",
+    annotations={
+        "Pm.I": "0.5A",   # load: board README, 5 V and 3.3 V converters up to 500 mA; AP62301 DS41958 rev 2-2 p1: 3 A continuous
+        "Pm.Aggressor": "true",   # AP62301 DS41958 rev 2-2 p20 Layout 3: the inductor at SW, the switch node
+    },
+    P1=NET_U3_SW,
+    P2=NET_5V,
+)
+
+TFM252012ALMA3R3MTAA(
+    name="L3",
+    annotations={
+        "Pm.I": "0.5A",   # load: board README, 5 V and 3.3 V converters up to 500 mA; AP62301 DS41958 rev 2-2 p1: 3 A continuous
+        "Pm.Aggressor": "true",   # AP62301 DS41958 rev 2-2 p20 Layout 3: the inductor at SW, the switch node
+    },
+    P1=NET_U4_SW,
+    P2=NET_3V3,
+)
+
+Resistor(
+    name="R1",
+    annotations={
+        "Pm.Sensitive": "Net-(U4-FB)",   # AP62301 DS41958 rev 2-2 p20 Layout 5: feedback components at FB
+    },
+    manufacturer="YAGEO",
+    mpn="RC0402FR-073K16L",
+    package="0402",
+    value="3.16k",
+    P1=NET_U4_FB,
+    P2=NET_3V3,
+)
+
+Resistor(
+    name="R10",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1003GLF",
+    package="0402",
+    value="100k",
+    P1=NET_U3_EN,
+    P2=NET_12V,
+)
+
+Resistor(
+    name="R11",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1003GLF",
+    package="0402",
+    value="100k",
+    P1=NET_U4_EN,
+    P2=NET_12V,
+)
+
+Resistor(
+    name="R12",
+    manufacturer="Panasonic",
+    mpn="ERJ2GE0R00X",
+    package="0402",
+    value="0",
+    P1=NET_U2_V_SNS,
+    P2=NET_12V,
+)
+
+Resistor(
+    name="R13",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1003GLF",
+    package="0402",
+    value="100k",
+    P1=NET_U2_P_GOOD,
+    P2=DC_DC_CONVERTERS_VDD_12V_DCDC,
+)
+
+Resistor(
+    name="R14",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-3R30GLF",
+    package="0402",
+    value="3.3",
+    P1=NET_C10_PAD1,
+    P2=NET_R14_PAD2,
+)
+
+Resistor(
+    name="R15",
+    annotations={
+        "Pm.Aggressor": "true",   # its pad 1 is on the switch node (DNP ripple injection network)
+    },
+    dnp=True,
+    skip_bom=True,
+    manufacturer="Bourns",
+    mpn="CR0402-FX-8661GLF",
+    package="0402",
+    value="8.66k",
+    P1=NET_L1_PAD1,
+    P2=DC_DC_CONVERTERS_12V_SNS,
+)
+
+Resistor(
+    name="R16",
+    dnp=True,
+    skip_bom=True,
+    manufacturer="Bourns",
+    mpn="CR0402-FX-3163GLF",
+    package="0402",
+    value="316k",
+    P1=NET_R16_PAD1,
+    P2=NET_C13_PAD1,
+)
+
+Resistor(
+    name="R17",
+    annotations={
+        "Pm.Sensitive": "Net-(U2-V_{FB})",   # SiC47x doc 77113 rev I p21 step 6.3: feedback far from VSWH
+    },
+    manufacturer="YAGEO",
+    mpn="RT0402BRD07140KL",
+    package="0402",
+    value="140k",
+    P1=NET_U2_V_FB,
+    P2=NET_12V,
+)
+
+Resistor(
+    name="R18",
+    annotations={
+        "Pm.Sensitive": "Net-(U2-V_{FB})",   # SiC47x doc 77113 rev I p21 step 6.3: feedback far from VSWH
+    },
+    manufacturer="Bourns",
+    mpn="CRT0402-BY-1002GLF",
+    package="0402",
+    value="10k",
+    P1=GND,
+    P2=NET_U2_V_FB,
+)
+
+Resistor(
+    name="R2",
+    annotations={
+        "Pm.Sensitive": "Net-(U3-FB)",   # AP62301 DS41958 rev 2-2 p20 Layout 5: feedback components at FB
+    },
+    manufacturer="YAGEO",
+    mpn="RC0402FR-075K23L",
+    package="0402",
+    value="5.23k",
+    P1=NET_5V,
+    P2=NET_U3_FB,
+)
+
+Resistor(
+    name="R23",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1502GLF",
+    package="0402",
+    value="15k",
+    P1=GND,
+    P2=NET_U3_EN,
+)
+
+Resistor(
+    name="R24",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1502GLF",
+    package="0402",
+    value="15k",
+    P1=GND,
+    P2=NET_U4_EN,
+)
+
+Resistor(
+    name="R27",
+    annotations={
+        "Pm.Sensitive": "Net-(U4-FB)",   # AP62301 DS41958 rev 2-2 p20 Layout 5: feedback components at FB
+    },
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1001GLF",
+    package="0402",
+    value="1k",
+    P1=GND,
+    P2=NET_U4_FB,
+)
+
+Resistor(
+    name="R28",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-2201GLF",
+    package="0402",
+    value="2.2k",
+    P1=NET_D4_A,
+    P2=NET_12V,
+)
+
+CR0402_FX_4700GLF(
+    name="R29",
+    P1=NET_D8_A,
+    P2=NET_5V,
+)
+
+Resistor(
+    name="R30",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-2200GLF",
+    package="0402",
+    value="220",
+    P1=NET_D9_A,
+    P2=NET_3V3,
+)
+
+Resistor(
+    name="R41",
+    annotations={
+        "Pm.Sensitive": "Net-(U3-FB)",   # AP62301 DS41958 rev 2-2 p20 Layout 5: feedback components at FB
+    },
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1001GLF",
+    package="0402",
+    value="1k",
+    P1=GND,
+    P2=NET_U3_FB,
+)
+
+Resistor(
+    name="R5",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-2001GLF",
+    package="0402",
+    value="2k",
+    P1=DC_DC_CONVERTERS_12V_MODE,
+    P2=GND,
+)
+
+Resistor(
+    name="R6",
+    manufacturer="Panasonic",
+    mpn="ERJ2GE0R00X",
+    package="0402",
+    value="0",
+    P1=DC_DC_CONVERTERS_VDD_12V_DCDC,
+    P2=DC_DC_CONVERTERS_12V_ILIM,
+)
+
+Resistor(
+    name="R7",
+    dnp=True,
+    skip_bom=True,
+    manufacturer="Bourns",
+    mpn="CR0402-FX-6802GLF",
+    package="0402",
+    value="68k",
+    P1=GND,
+    P2=DC_DC_CONVERTERS_12V_ILIM,
+)
+
+Resistor(
+    name="R8",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1003GLF",
+    package="0402",
+    value="100k",
+    P1=NET_U2_EN,
+    P2=NET_U2_V_CIN,
+)
+
+Resistor(
+    name="R9",
+    manufacturer="Bourns",
+    mpn="CR0402-FX-1583GLF",
+    package="0402",
+    value="158k",
+    P1=GND,
+    P2=DC_DC_CONVERTERS_12V_FSW,
+)
+
+TP_0_75MM_SMD(
+    name="TP5",
+    P1=NET_5V,
+)
+
+TP_0_75MM_SMD(
+    name="TP6",
+    P1=NET_3V3,
+)
+
+TP_0_75MM_SMD(
+    name="TP7",
+    P1=NET_12V,
+)
+
+SIC477ED_T1_GE3(
+    name="U2",
+    annotations={
+        "Pm.I": "Net-(U2-V_{CIN}):4.5A Net-(L1-Pad1):6.25A GND:6.25A",   # VIN: the PD input load above; SW and PGND: the 12 V output load, below
+        "Pm.Loop": "hot",   # SiC47x doc 77113 rev I p20 step 1: VIN ceramics to PGND very close
+        "Pm.Aggressor": "true",   # SiC47x doc 77113 rev I p2 (SW, pins 12-14) and p20 step 3: the switch node
+    },
+    AGND_23=GND,
+    AGND_28=GND,
+    BOOT=NET_U2_BOOT,
+    EN=NET_U2_EN,
+    F_SW=DC_DC_CONVERTERS_12V_FSW,
+    GL=NotConnected(),
+    I_LIMIT=DC_DC_CONVERTERS_12V_ILIM,
+    MODE=DC_DC_CONVERTERS_12V_MODE,
+    NC_18=NotConnected(),
+    NC_21=NET_R16_PAD1,
+    PGND_10=GND,
+    PGND_11=GND,
+    PGND_17=GND,
+    PGND_9=GND,
+    PHASE_5=NET_R14_PAD2,
+    PHASE_6=NET_R14_PAD2,
+    P_GOOD=NET_U2_P_GOOD,
+    SS=DC_DC_CONVERTERS_12V_SS,
+    SW_12=NET_L1_PAD1,
+    SW_13=NET_L1_PAD1,
+    SW_14=NET_L1_PAD1,
+    V_CIN=NET_U2_V_CIN,
+    V_DD=DC_DC_CONVERTERS_VDD_12V_DCDC,
+    V_DRV=DC_DC_CONVERTERS_VDRV_12V_DCDC,
+    V_FB=NET_U2_V_FB,
+    V_IN_7=NET_U2_V_CIN,
+    V_IN_8=NET_U2_V_CIN,
+    V_SNS=NET_U2_V_SNS,
+)
+
+AP62301Z6_7(
+    name="U3",
+    annotations={
+        "Pm.I": "+12V:0.5A Net-(U3-SW):0.5A GND:0.5A",   # load: board README, 5 V and 3.3 V converters up to 500 mA; AP62301 DS41958 rev 2-2 p1: 3 A continuous
+        "Pm.Loop": "hot_5v",   # AP62301 DS41958 rev 2-2 p20 Layout 2: input capacitor across VIN and GND
+        "Pm.Aggressor": "true",   # AP62301 DS41958 rev 2-2 p20 Layout 3: the inductor at SW, the switch node
+    },
+    BST=NET_U3_BST,
+    EN=NET_U3_EN,
+    FB=NET_U3_FB,
+    GND=GND,
+    SW=NET_U3_SW,
+    V_IN=NET_12V,
+)
+
+AP62301Z6_7(
+    name="U4",
+    annotations={
+        "Pm.I": "+12V:0.5A Net-(U4-SW):0.5A GND:0.5A",   # load: board README, 5 V and 3.3 V converters up to 500 mA; AP62301 DS41958 rev 2-2 p1: 3 A continuous
+        "Pm.Loop": "hot_3v3",   # AP62301 DS41958 rev 2-2 p20 Layout 2: input capacitor across VIN and GND
+        "Pm.Aggressor": "true",   # AP62301 DS41958 rev 2-2 p20 Layout 3: the inductor at SW, the switch node
+    },
+    BST=NET_U4_BST,
+    EN=NET_U4_EN,
+    FB=NET_U4_FB,
+    GND=GND,
+    SW=NET_U4_SW,
+    V_IN=NET_12V,
+)
+
+
+Board(
+    name="usb-c-power-adapter",
+    layout_path="layout",
+    layers=4,
+    config=BoardConfig(
+        design_rules=DesignRules(
+            constraints=Constraints(
+                copper=Copper(
+                    minimum_clearance=0.125,
+                    minimum_track_width=0.125,
+                    minimum_connection_width=0.0,
+                    minimum_annular_width=0.125,
+                    minimum_via_diameter=0.45,
+                    copper_to_hole_clearance=0.2,
+                    copper_to_edge_clearance=0.4,
+                ),
+                holes=Holes(minimum_through_hole=0.2, hole_to_hole_clearance=0.25),
+                uvias=Uvias(minimum_uvia_diameter=0.2, minimum_uvia_hole=0.1),
+                silkscreen=Silkscreen(minimum_item_clearance=0.0, minimum_text_height=0.7),
+                solder_mask=SolderMask(to_copper_clearance=0.0),
+                zones=Zones(minimum_clearance=0.25),
+            ),
+            predefined_sizes=PredefinedSizes(
+                track_widths=[0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 1.0, 1.5],
+                via_dimensions=[ViaDimension(diameter=0.55, drill=0.25), ViaDimension(diameter=0.6, drill=0.3)],
+            ),
+            netclasses=[
+                NetClass(
+                    name="Default",
+                    clearance=0.125,
+                    track_width=0.125,
+                    via_diameter=0.45,
+                    via_drill=0.2,
+                    microvia_diameter=0.3,
+                    microvia_drill=0.1,
+                    diff_pair_width=0.2,
+                    diff_pair_gap=0.25,
+                    diff_pair_via_gap=0.25,
+                    priority=2147483647,
+                ),
+                NetClass(
+                    name="USB",
+                    nets=["/USB_PD/*"],   # the original project's pattern "/USB.*": the USB PD sheet's own nets
+                    clearance=0.125,
+                    track_width=0.125,
+                    via_diameter=0.6,
+                    via_drill=0.3,
+                    microvia_diameter=0.3,
+                    microvia_drill=0.1,
+                    priority=0,
+                ),
+            ],
+        ),
+        stackup=Stackup(
+            materials=[
+                Material(name="PR7628", relative_permittivity=4.5, loss_tangent=0.02),
+                Material(name="FR4", relative_permittivity=4.5, loss_tangent=0.02),
+                Material(name="FR4PR7628", relative_permittivity=4.5, loss_tangent=0.02),
+            ],
+            silk_screen_color="White",
+            solder_mask_color="Black",
+            thickness=1.21,
+            layers=[
+                CopperLayer(thickness=0.035, role="mixed"),     # F.Cu: tracks and the power pours
+                DielectricLayer(thickness=0.18, material="PR7628", form="prepreg"),
+                CopperLayer(thickness=0.035, role="ground"),    # In1.Cu: one GND zone over the whole board
+                DielectricLayer(thickness=0.71, material="FR4", form="core"),
+                CopperLayer(thickness=0.035, role="mixed"),     # In2.Cu: +12V, +3V3 and VBUS pours, a few tracks
+                DielectricLayer(thickness=0.18, material="FR4PR7628", form="prepreg"),
+                CopperLayer(thickness=0.035, role="mixed"),     # B.Cu: tracks, a GND fill and power pours
+            ],
+        ),
+    ),
+)

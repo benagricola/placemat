@@ -1,0 +1,22 @@
+"""
+AP62301Z6-7
+
+Auto-generated using `pcb import`.
+"""
+
+BST = io(Net)
+EN = io(Net)
+FB = io(Net)
+GND = io(Net)
+SW = io(Net)
+V_IN = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="AP62301Z6-7",
+    symbol=Symbol(library="AP62301Z6-7.kicad_sym"),
+    properties=annotations,
+    pin_defs={"V_{IN}": "1", "SW": "2", "GND": "3", "BST": "4", "EN": "5", "FB": "6"},
+    pins={"V_{IN}": V_IN, "SW": SW, "GND": GND, "BST": BST, "EN": EN, "FB": FB},
+)

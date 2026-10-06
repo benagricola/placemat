@@ -1,0 +1,28 @@
+"""
+TVS2200DRVR
+
+Auto-generated using `pcb import`.
+"""
+
+GND_1 = io(Net)
+GND_2 = io(Net)
+GND_3 = io(Net)
+GND_7 = io(Net)
+IN_4 = io(Net)
+IN_5 = io(Net)
+IN_6 = io(Net)
+
+Component(
+    name="TVS2200DRVR",
+    symbol=Symbol(library="TVS2200DRVR.kicad_sym"),
+    pin_defs={"GND__1": "1", "GND__2": "2", "GND__3": "3", "IN__4": "4", "IN__5": "5", "IN__6": "6", "GND__7": "7"},
+    pins={
+        "GND__1": GND_1,
+        "GND__2": GND_2,
+        "GND__3": GND_3,
+        "IN__4": IN_4,
+        "IN__5": IN_5,
+        "IN__6": IN_6,
+        "GND__7": GND_7,
+    },
+)

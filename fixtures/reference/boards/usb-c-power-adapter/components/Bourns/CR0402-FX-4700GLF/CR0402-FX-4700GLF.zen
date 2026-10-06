@@ -1,0 +1,15 @@
+"""
+CR0402-FX-4700GLF
+
+Auto-generated using `pcb import`.
+"""
+
+P1 = io(Net)
+P2 = io(Net)
+
+Component(
+    name="CR0402-FX-4700GLF",
+    symbol=Symbol(library="CR0402-FX-4700GLF.kicad_sym"),
+    pin_defs={"1": "1", "2": "2"},
+    pins={"1": P1, "2": P2},
+)
