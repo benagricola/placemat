@@ -178,3 +178,24 @@ def test_main_exits_1_on_a_problem_and_0_when_clean(tmp_path, capsys):
 def test_main_names_an_unknown_board_and_exits_1(capsys):
     assert lint.main(["no-such-board"]) == 1
     assert "no-such-board" in capsys.readouterr().out
+
+
+def test_a_bare_call_named_like_an_order_call_does_not_crash(tmp_path):
+    assert _problems(tmp_path, 'before(1)\nafter()\norder()\n') == []
+
+
+def test_a_figure_needs_a_datasheet_basis(tmp_path):
+    ok = 'fig = board.figure(at=Location(1, 2), why="datasheet: ant p3 fig 2")\n'
+    assert _problems(tmp_path, ok) == []
+    for why in ('"mechanical: x"', '"fig"', "reason"):
+        assert [p[1] for p in _problems(tmp_path, 'fig = board.figure(at=Location(1, 2), why=%s)\n' % why)] == ["basis"]
+
+
+@pytest.mark.parametrize("call", [
+    'board.track(Net("A"), [Location(1, 2), PadRef(Part("u1"), 1)], layer=L, why="physics: x")',
+    'board.via(Net("A"), at=Location(1, 2), why="physics: x")',
+    'board.pour(Net("A"), [Location(1, 2), Location(3, 4)], layer=L, why="physics: x")',
+    'board.push(Part("u2"), from_=Location(1, 2), falloff=3, reference=(1, 1), limit=1, why="physics: x")',
+])
+def test_a_coordinate_in_copper_or_a_push_is_a_problem_even_for_a_fixed_part(tmp_path, call):
+    assert [(p.rule, p.ref) for p in _lint(tmp_path, call + "\n", fixed={"u2", "u1"}).problems] == [("coordinate", "")]

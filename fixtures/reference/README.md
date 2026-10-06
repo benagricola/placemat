@@ -76,9 +76,9 @@ Basis prefixes: a `why=` starts with `mechanical:`, `datasheet:`, `physics:` or 
 
 | Rule | Problem |
 |---|---|
-| `coordinate` | A typed position on a part the manifest does not list in `fixed`: `Location(...)`, a numeric `Centre` or `coordinates=True`, `Pin(key, x, y)`, an `X()`/`Y()` with an offset, `OnEdge(along=<number>)`, `.point()`, `.local()`, `.offset()`, a bare `(x, y)` |
+| `coordinate` | A typed position on a part the manifest does not list in `fixed`, or in the points of copper (`track`, `via`, `pour`, ...), a keepout or a `push`, where nothing is fixed: `Location(...)`, a numeric `Centre` or `coordinates=True`, `Pin(key, x, y)`, an `X()`/`Y()` with an offset, `OnEdge(along=<number>)`, `.point()`, `.local()`, `.offset()`, a bare `(x, y)` |
 | `no_why` | A placement, link or copper call with no `why=` |
-| `basis` | A `why=` that starts with none of the prefixes, or cannot be read without running the script |
+| `basis` | A `why=` that starts with none of the prefixes (a `board.figure`: not `datasheet:`), or cannot be read without running the script |
 | `steering` | `priority=`, `Priority`, `Near(` or an order call (`board.order`, `before`, `after`), whatever its basis |
 | `syntax` | The script does not parse |
 

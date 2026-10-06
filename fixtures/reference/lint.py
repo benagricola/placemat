@@ -6,9 +6,9 @@ The script is parsed, never run. It is found in fixtures/reference/boards/<name>
 link or a piece of copper) is listed with its basis, and a problem is any of:
 - coordinate: a number that says where a part goes (`Location`, a numeric `Centre`, `Pin(key, x, y)`, an `X()`/`Y()` with
   an offset, `OnEdge(along=<number>)`, `.point()`/`.local()`/`.offset()`, a bare `(x, y)`) on a part the manifest does not
-  list as fixed;
+  list as fixed, or in the points of copper (track, via, pour...), a keepout or a push;
 - no_why: a declaration with no `why=`;
-- basis: a `why=` that does not start with one of BASES followed by a colon;
+- basis: a `why=` that does not start with one of BASES followed by a colon (a `figure`'s: `datasheet:`);
 - steering: `priority=`, `Priority`, `Near(` or an order call, which no basis permits;
 - syntax: the script does not parse.
 
@@ -37,6 +37,8 @@ DECLARING = frozenset({"place", "row", "ring", "link", "push", "track", "pair", 
 PLACING = {"place": "at", "row": "start", "ring": None, "escape": None, "fanout": None}
 ORDER_CALLS = frozenset({"order", "before", "after"})   # on `board`
 STEERING_KEYWORDS = frozenset({"priority", "order"})
+# Calls whose points are positions of copper or sources; a typed one is never allowed, as no part is fixed there.
+POINTED = frozenset({"track", "pair", "via", "vias", "stitch", "pour", "plane", "finger", "keepout", "push"})
 COORDINATE_OFFSETS = frozenset({"point", "local", "offset"})   # methods whose numbers are typed positions
 
 
@@ -174,7 +176,7 @@ def _steering(node: ast.AST) -> list[tuple[ast.AST, str]]:
             found.append((n, "Near("))
         elif isinstance(n, ast.Call):
             found += [(k.value, k.arg + "=") for k in n.keywords if k.arg in STEERING_KEYWORDS]
-            if _name(n) in ORDER_CALLS and isinstance(n.func.value, ast.Name) and n.func.value.id == "board":
+            if _name(n) in ORDER_CALLS and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name) and n.func.value.id == "board":
                 found.append((n, "board.%s(" % _name(n)))
     return found
 
@@ -217,12 +219,16 @@ def lint(script: pathlib.Path, fixed) -> LintReport:
         ref = ",".join(refs)
         if why is None:
             problem(node.lineno, "no_why", ref)
-        elif basis is None:
+        elif basis is None and name != "figure":
             problem(node.lineno, "basis", ref, "why starts %r" % (text[:24] if text is not None else "(not a literal)"))
         if forms and name in PLACING:
             for r in refs:
                 if r.lower() not in held:
                     problem(node.lineno, "coordinate", r, forms[0])
+        elif forms and name in POINTED:
+            problem(node.lineno, "coordinate", "", forms[0])
+        if name == "figure" and why is not None and not (text or "").startswith("datasheet:"):
+            problem(node.lineno, "basis", ref, "a figure's why starts datasheet:, got %r" % (text or "")[:24])
         for at, what in _steering(node):
             problem(at.lineno, "steering", ref, what)
     for at, what in _steering(tree):   # outside any declaration: a constant, a helper
