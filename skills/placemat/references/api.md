@@ -3933,11 +3933,15 @@ one stage: nothing inside it is kept (the router's own `KICAD_STOP_AFTER` /
 used for that later). The router's raw output is `router_out.kicad_pcb`;
 `routed.kicad_pcb` is made from it, then post-processed, every time.
 
+**Nets with DRC violations.** The route's summary line ends `with DRC violations: NET (hole_to_hole)` for each net
+with a real DRC violation in the routed copy; the closure counts such a net as unrouted ("clean"). `route.json` and
+the route record list the nets under `shorted` and the kinds of each under `violations`, `{net: [kind, ...]}`.
+
 **Keeping routed copper.** `placemat route <script> --adopt NET ...` routes
 as above, then keeps the router's new copper on the named nets in
 `<script stem>.routes.json` beside the script (commit it with the script);
 `--adopt-all` keeps every net the route closed. A net is adopted whole and
-clean: one still open or shorted after the route, or one the route added no
+clean: one still open or with a DRC violation (`shorted` in `route.json`) after the route, or one the route added no
 copper to, is not kept, and says why - unless `--partial`: then a net the
 route left open keeps each island of its new copper that joins two of its
 pads, or a pad and a plane of it (a via inside one of its zones), trimmed of
