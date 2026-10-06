@@ -14,6 +14,13 @@ from .quiet import import_pcbnew, quiet_stderr
 
 pcbnew = import_pcbnew()
 
+
+def standard_layer_name(layer_id) -> str:
+    """KiCad's standard name for a layer id (F.Cu, In1.Cu, B.Cu), never the
+    name a board's author gave it: placemat identifies a copper layer by its id,
+    and `board.GetLayerName` returns the user name when one is set."""
+    return pcbnew.LayerName(layer_id)
+
 from ..board_geometry import (BoardGeometry, CellGeom, CopperItem, Footprint, NetClass, PadGeom, RuleArea,
                               resolve_marker, split_allow, split_marker, stamped_net)
 from ..arrangement_note import ARRANGEMENT_PREFIX
@@ -73,7 +80,7 @@ def _layer_names(board, layer_set) -> list[str]:
     board it is on, so a pad on a 2-layer board reported In1.Cu through
     In30.Cu. A layer the board has not enabled does not exist for anything
     read off it - not for a clearance, and not for a printed line."""
-    return [board.GetLayerName(l) for l in layer_set.CuStack() if board.IsLayerEnabled(l)]
+    return [standard_layer_name(l) for l in layer_set.CuStack() if board.IsLayerEnabled(l)]
 
 
 def _copper_layers(board, layer_set) -> frozenset[CopperLayer]:
@@ -298,7 +305,7 @@ def _copper_art(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
     for d in fp.GraphicalItems():
         layer = d.GetLayer()
         if isinstance(d, pcbnew.PCB_SHAPE) and pcbnew.IsCopperLayer(layer):
-            name = fp.GetBoard().GetLayerName(layer) if fp.GetBoard() else pcbnew.LayerName(layer)
+            name = standard_layer_name(layer)
             polys = copper_outlines(d, layer, err_nm)
             out += [(CopperLayer.of(name), poly) for poly in polys]
             shapes += [kicad_shapes(d.GetEffectiveShape())] * len(polys)
@@ -460,7 +467,7 @@ def layer_types(board) -> dict:
     """Each copper layer's type as the board's setup gives it."""
     names = {pcbnew.LT_SIGNAL: "signal", pcbnew.LT_POWER: "power", pcbnew.LT_MIXED: "mixed",
              pcbnew.LT_JUMPER: "jumper"}
-    return {CopperLayer.of(board.GetLayerName(l)): names.get(board.GetLayerType(l), "signal")
+    return {CopperLayer.of(standard_layer_name(l)): names.get(board.GetLayerType(l), "signal")
             for l in board.GetEnabledLayers().CuStack()}
 
 
@@ -522,7 +529,7 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
                 o = ps.Outline(k)
                 outs.append(tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount())))
             if outs:
-                items.append(CopperItem("zone", z.GetNetname(), frozenset([CopperLayer.of(board.GetLayerName(layer))]),
+                items.append(CopperItem("zone", z.GetNetname(), frozenset([CopperLayer.of(standard_layer_name(layer))]),
                                         tuple(outs), Box.of_points([p for o in outs for p in o])))
     return tuple(items)
 
@@ -560,7 +567,7 @@ def _rule_areas(board, groups_of) -> tuple:
         if declared is not None:
             # the declaration in the name wins over the layer set KiCad saved:
             # a two-layer module fragment could only ever save F and B
-            stack = tuple(CopperLayer.of(board.GetLayerName(l))
+            stack = tuple(CopperLayer.of(standard_layer_name(l))
                           for l in board.GetEnabledLayers().CuStack())
             layers, missing = resolve_marker(declared, stack)
         out.append(RuleArea(z.GetZoneName(), cell, poly, layers, excludes, missing, holes, allow, relaxed))
@@ -842,7 +849,7 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                                    if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(ARRANGEMENT_PREFIX)]
         cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces, parent_of.get(name), rules)
     classes, default_clr = _netclasses(board)
-    layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
+    layers = tuple(CopperLayer.of(standard_layer_name(l)) for l in board.GetEnabledLayers().CuStack())
     label_box = lambda op: text_box(board, op)      # an arrangement's label measured as its stamped text would be
     cells = {n: (attach(c, arrangement_texts[n], frozenset(classes), layers, label_box) if arrangement_texts.get(n) else c)
              for n, c in cells.items()}

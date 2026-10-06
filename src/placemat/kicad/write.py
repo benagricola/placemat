@@ -24,7 +24,7 @@ from ..placement import Placement
 from ..board_geometry import (CellGeom, Footprint, allow_marker, cell_tagged, layer_marker, resolve_marker,
                               split_allow, split_marker, stackup_order, untagged)
 from ..cutouts import closes_itself
-from .read import FACES_PREFIX
+from .read import FACES_PREFIX, standard_layer_name
 from .text import _mirror_for_layer, text_item
 from ..rules import RULE_PREFIX, rule_note
 from ..arrangement_note import ARRANGEMENT_PREFIX
@@ -183,7 +183,7 @@ def _group_given_way_tracks(board, plan: Plan, groups: dict) -> None:
         for op in ([a.tail] if a.tail is not None else []) + list(a.tracks):
             ends = ((op.start.x, op.start.y), (op.end.x, op.end.y))
             for t in loose:
-                if t.GetNetname() == op.net and t.GetLayerName() == op.layer.value \
+                if t.GetNetname() == op.net and standard_layer_name(t.GetLayer()) == op.layer.value \
                         and ((at(t.GetStart(), ends[0]) and at(t.GetEnd(), ends[1]))
                              or (at(t.GetStart(), ends[1]) and at(t.GetEnd(), ends[0]))):
                     g.AddItem(t)
@@ -215,7 +215,7 @@ def _merge_cell_zones(board, plan: Plan) -> list:
                      for j in range(o.COutline(k).PointCount())] for k in range(o.OutlineCount())]
         keep = pcbnew.LSET()
         for layer_id in z.GetLayerSet().CuStack():
-            layer = CopperLayer.of(board.GetLayerName(layer_id))
+            layer = CopperLayer.of(standard_layer_name(layer_id))
             plane = next((p for p in planes if p.net == net and p.layer == layer
                           and all(poly_within(ol, p.points) for ol in outlines)), None)
             if plane is None:
@@ -375,7 +375,7 @@ def _draw_keepouts(board, plan):
     for z in list(board.Zones()):
         if z.GetIsRuleArea() and _kiid(z) not in grouped:
             board.Delete(z)                 # placemat's own: a rerun replaces them, never doubles them
-    stack = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
+    stack = tuple(CopperLayer.of(standard_layer_name(l)) for l in board.GetEnabledLayers().CuStack())
     for z in board.Zones():
         # A stamped module's rule area is not placemat's to delete, but it is
         # placemat's to correct: its module could only save F and B, and its
@@ -389,7 +389,7 @@ def _draw_keepouts(board, plan):
         if declared is None:
             continue
         want, _ = resolve_marker(declared, stack)
-        have = {CopperLayer.of(board.GetLayerName(l)) for l in z.GetLayerSet().CuStack()}
+        have = {CopperLayer.of(standard_layer_name(l)) for l in z.GetLayerSet().CuStack()}
         if want - have:
             z.SetLayerSet(_layer_set(board, tuple(sorted(want | have, key=stackup_order))))
     for k in plan.keepouts.values():
@@ -1008,7 +1008,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     plan.models = _reanchor_models(board, Path(out).parent)
     save(board, out)
     from ..rules import write_rules
-    stack = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
+    stack = tuple(CopperLayer.of(standard_layer_name(l)) for l in board.GetEnabledLayers().CuStack())
     write_rules(out, list(plan.rules) + keepout_rules(plan, [fp.GetReference() for fp in board.GetFootprints()],
                                                       stack) + allow_rules(plan, stack, arranged_areas))
     return out

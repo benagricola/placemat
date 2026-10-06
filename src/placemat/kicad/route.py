@@ -316,6 +316,7 @@ def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
     least `share` of the board is a plane, and an outer layer's pours hold
     other nets' surface pads: neither is guarded. "NET on LAYER" per guard."""
     from .quiet import import_pcbnew, quiet_stderr
+    from .read import standard_layer_name
     pcbnew = import_pcbnew()
     with quiet_stderr():
         board = pcbnew.LoadBoard(pcb_path)
@@ -330,7 +331,7 @@ def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
         if board_area and z.Outline().Area() >= share * board_area:
             continue
         for layer in z.GetLayerSet().CuStack():
-            name = board.GetLayerName(layer)
+            name = standard_layer_name(layer)
             if layer in (pcbnew.F_Cu, pcbnew.B_Cu) or name not in routed or not board.IsLayerEnabled(layer):
                 continue
             g = pcbnew.ZONE(board)
@@ -402,10 +403,11 @@ def fill_zones(pcb_path: str) -> None:
 
 def _copper_layers(pcb_path: str) -> list:
     from .quiet import import_pcbnew, quiet_stderr
+    from .read import standard_layer_name
     pcbnew = import_pcbnew()
     with quiet_stderr():
         board = pcbnew.LoadBoard(pcb_path)
-    return [board.GetLayerName(l) for l in board.GetEnabledLayers().CuStack()]
+    return [standard_layer_name(l) for l in board.GetEnabledLayers().CuStack()]
 
 
 def resolved_layers(explicit, board_layers, layer_types) -> tuple:
