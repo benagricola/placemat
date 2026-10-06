@@ -24,6 +24,16 @@ section for each hand-written pattern a newer form replaces.
   as before. A place placemat chooses - a search's, a rider's of a searched item, a `Beside` item's moved out from its
   offset - keeps off the hole at any severity. Scripts need no change.
 
+### Fixed
+
+- **A route with nothing left to route completes.** `run --route` on a board whose nets are all served by planes, pours
+  or fingers called the router with a net list that matched nothing; the router exited 1 and the run crashed with its
+  record left at "running". The main pass is now skipped when no net is left for it, and the route records zero of zero
+  connections, closure 100%. Scripts need no change.
+- **A route that fails fails the run.** An error while routing left `run.json` at "running"; the run now records a
+  failure of kind `route`, with the router's exit code, log and the log's last lines where the router failed, and exits
+  non-zero. Scripts need no change.
+
 ## To 0.99.34
 
 ### Fixed

@@ -50,6 +50,15 @@ def _launch(python, script) -> list:
     return [str(python), str(script)]
 
 
+class RouterFailed(RuntimeError):
+    """A router call that exited non-zero or wrote no board: `what` failed, the call's `exit_code`, its `log` and the log's
+    last lines (`tail`)."""
+
+    def __init__(self, what: str, exit_code, log, tail: str):
+        super().__init__("%s; log %s\n%s" % (what, log, tail))
+        self.what, self.exit_code, self.log, self.tail = what, exit_code, Path(log), tail
+
+
 @dataclass
 class Score:
     closure: float
@@ -704,7 +713,7 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
             if "matched no differential pair" in text or "No differential pairs" in text:
                 continue
             tail = "\n".join(text.splitlines()[-8:])
-            raise RuntimeError("the pair router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
+            raise RouterFailed("the pair router exited %d without a routed board" % rc, rc, log, tail)
         found = _merged(found, read_pairs(text))
         _copy_project(router_in, out)             # the next call reads the renamed nets' classes beside its board
         lock_copper(str(out))                     # and keeps this call's copper as it stands
@@ -880,6 +889,15 @@ def _copy_project(src_pcb, dst_pcb) -> None:
             shutil.copy(Path(src_pcb).with_suffix(ext), Path(dst_pcb).with_suffix(ext))
 
 
+def main_pass_nets(nets, excluded) -> set:
+    """The nets of `nets` the main pass's `--nets '*' '!NET' ...` matches, as the router expands it (KRT net_queries.py
+    expand_net_patterns, net_pattern_matches): the wildcard leaves out unnamed and 'unconnected-*' nets, and an excluded
+    name with no sheet path also excludes the nets whose last path component it is."""
+    leaves = {x for x in excluded if "/" not in x}
+    return {n for n in nets if n and not n.lower().startswith("unconnected-") and n not in excluded
+            and not ("/" in n and n.rsplit("/", 1)[-1] in leaves)}
+
+
 def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
                    iterations: int | None = None, probe: int | None = None, quick: bool = False,
                    nets=None, widths=None, clearances: Path | None = None) -> list:
@@ -942,7 +960,7 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
                                 timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
         if rc != 0 or not out.exists():
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
-            raise RuntimeError("the router exited %d routing island net %s; log %s\n%s" % (rc, net, log, tail))
+            raise RouterFailed("the router exited %d routing island net %s" % (rc, net), rc, log, tail)
         _copy_project(inp, out)
         pours_back(str(out), board)
         lock_copper(str(out))
@@ -999,7 +1017,7 @@ def route_class_stages(rpy, script, router_dir_path, board: Path, work: Path, st
                                 timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
         if rc != 0 or not out.exists():
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
-            raise RuntimeError("the router exited %d routing the %g mm class nets; log %s\n%s" % (rc, mm, log, tail))
+            raise RouterFailed("the router exited %d routing the %g mm class nets" % (rc, mm), rc, log, tail)
         _copy_project(board, out)
         lock_copper(str(out))
         board = out
@@ -1214,21 +1232,27 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     else:
         state.drop_from("main")
         t1 = time.time()
-        cmd = router_command(rpy, script, board, raw_out, excluded | pairs.routed_nets | staged, layers, summary,
-                             iterations, probe, quick, clearances=clearances)
-        rev.begin("main")
-        rc = None
-        try:
-            with open(log, "w") as f:
-                f.write("$ %s\n\n" % " ".join(cmd))
-                f.flush()
-                rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=dict(env, **rev.env("main")),
-                                    timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
-        finally:
-            rev.end("main", complete=rc == 0)
-        if rc != 0 or not raw_out.exists():
-            tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
-            raise RuntimeError("router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
+        # the router refuses a net list that matches no net, exit 1 (KRT route.py main, "No nets matched the given
+        # patterns!"): with none, the board stands as the earlier stages left it
+        if not main_pass_nets(geometry.nets, excluded | pairs.routed_nets | staged):
+            shutil.copy(board, raw_out)
+            log.write_text("no net left for the main pass: the router was not called\n")
+        else:
+            cmd = router_command(rpy, script, board, raw_out, excluded | pairs.routed_nets | staged, layers, summary,
+                                 iterations, probe, quick, clearances=clearances)
+            rev.begin("main")
+            rc = None
+            try:
+                with open(log, "w") as f:
+                    f.write("$ %s\n\n" % " ".join(cmd))
+                    f.flush()
+                    rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=dict(env, **rev.env("main")),
+                                        timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
+            finally:
+                rev.end("main", complete=rc == 0)
+            if rc != 0 or not raw_out.exists():
+                tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
+                raise RouterFailed("router exited %d without a routed board" % rc, rc, log, tail)
         spent += time.time() - t1
         state.record("main", d_main, {"board": raw_out.name, "seconds": round(time.time() - t1, 1)})
     seconds = round(spent, 1)

@@ -29,7 +29,7 @@ class RunFailure(Exception):
 
     def record(self) -> dict:
         """The failure as data, for the live channel and the studio's worker: `failure` (the stage: generation, script, placement,
-        explore, escape), the `item` a placement failure names, and `detail`, the free text of what raised it (the script's own
+        explore, escape, route), the `item` a placement failure names, and `detail`, the free text of what raised it (the script's own
         error, or an exception's message). The sentence is channel.failure_text's."""
         constant = ("generation", "script", "placement")
         detail = self.details.get("error") or ("" if self.kind in constant and "item" not in self.details else str(self))
@@ -749,9 +749,17 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                     (run_dir / "plan.json").write_text(json.dumps(plan_json(plan, declared_sites(board)), separators=(",", ":")))
                 except Exception as e:                  # a courtesy: the run goes on without it
                     say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
-                report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
-                                     quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)},
-                                     on_setup=lambda fs: [console.finding(f, "route") for f in fs])
+                from .kicad.route import RouterFailed
+                try:
+                    report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
+                                         quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)},
+                                         on_setup=lambda fs: [console.finding(f, "route") for f in fs])
+                except RouterFailed as e:
+                    raise RunFailure("route", "Routing failed", {"error": e.what, "exit_code": e.exit_code, "log": str(e.log),
+                                                                 "tail": e.tail}) from e
+                except Exception as e:                  # anything else the route raises fails the run too
+                    raise RunFailure("route", "Routing failed", {"error": "%s: %s" % (type(e).__name__, e),
+                                                                 "traceback": traceback.format_exc()}) from e
                 if report.resumed:
                     say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
                         ", ".join(report.resumed))
