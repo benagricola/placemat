@@ -1,0 +1,72 @@
+import json
+
+from fixtures.reference import prepare, route_ref
+
+V = prepare.Violation
+VERSIONS = {"placemat": "0", "krt": "0", "pcb": "0"}
+
+
+def _result(**over):
+    fields = dict(board="x", widths="class", closure_clean=1.0, open=0, open_nets=[], new_violations=[], vias=3,
+                  track_mm=10.0, human_vias=2, human_track_mm=9.0, passed=True, seconds=1.0, versions=VERSIONS)
+    return route_ref.AResult(**dict(fields, **over))
+
+
+def test_a_violation_already_in_the_baseline_is_not_new():
+    base = [V("clearance", ("A", "B"), (10.0, 10.0))]
+    after = [V("clearance", ("A", "B"), (10.02, 10.0)), V("short", ("A", "C"), (5.0, 5.0))]
+    assert route_ref.new_violations(after, base) == [V("short", ("A", "C"), (5.0, 5.0))]
+
+
+def test_a_baseline_violation_further_than_the_tolerance_does_not_match():
+    base = [V("clearance", ("A", "B"), (10.0, 10.0))]
+    after = [V("clearance", ("A", "B"), (10.2, 10.0))]
+    assert route_ref.new_violations(after, base) == after
+
+
+def test_passed_needs_full_clean_closure_and_nothing_new():
+    r = _result()
+    assert r.passed
+    assert not route_ref.judge(dict(closure_clean=0.98), [], r).passed
+    assert not route_ref.judge(dict(closure_clean=1.0), [V("short", ("A", "C"), (5.0, 5.0))], r).passed
+    assert route_ref.judge(dict(closure_clean=1.0), [], r).passed
+
+
+def test_judge_reads_the_route_report():
+    report = dict(closure_clean=0.95, open_after=2, open_nets={"A": 1, "B": 1}, seconds=12.5, vias=7, track_mm=33.0)
+    r = route_ref.judge(report, [], _result())
+    assert (r.closure_clean, r.open, r.open_nets, r.seconds, r.vias, r.track_mm) == (0.95, 2, ["A", "B"], 12.5, 7, 33.0)
+    assert (r.board, r.human_vias, r.versions) == ("x", 2, VERSIONS)
+
+
+def test_a_board_that_passed_and_now_fails_is_worse():
+    recorded = {"a": {"x": {"class": json.loads(json.dumps(route_ref.asdict(_result())))}}}
+    now = _result(closure_clean=0.9, passed=False)
+    c = route_ref.compare(recorded["a"]["x"]["class"], now, "placemat")
+    assert (c.status, c.differ) == ("worse", [])
+    assert route_ref.compare(recorded["a"]["x"]["class"], _result(), "placemat").status == "same"
+    assert route_ref.compare(None, _result(), "placemat").status == "new"
+
+
+def test_a_fall_in_closure_is_worse_even_when_both_fail():
+    old = route_ref.asdict(_result(closure_clean=0.9, passed=False))
+    assert route_ref.compare(old, _result(closure_clean=0.8, passed=False), "placemat").status == "worse"
+    assert route_ref.compare(old, _result(closure_clean=0.95, passed=False), "placemat").status == "better"
+
+
+def test_results_with_another_router_version_are_not_compared():
+    old = route_ref.asdict(_result())
+    now = _result(closure_clean=0.5, passed=False, versions=dict(VERSIONS, krt="1"))
+    c = route_ref.compare(old, now, "placemat")
+    assert (c.status, c.differ) == ("not comparable", ["krt"])
+    assert route_ref.comparable(old["versions"], now.versions, "krt") == []
+    assert route_ref.comparable(old["versions"], now.versions, "placemat") == ["krt"]
+
+
+def test_update_rewrites_the_boards_it_ran_in_the_a_key_and_keeps_the_rest(tmp_path):
+    path = tmp_path / "results.json"
+    path.write_text(json.dumps({"a": {"old": {"class": {}}}, "b": {"keep": 1}}))
+    route_ref.save_results(path, [_result()])
+    data = json.loads(path.read_text())
+    assert data["b"] == {"keep": 1}
+    assert sorted(data["a"]) == ["old", "x"] and data["a"]["x"]["class"]["closure_clean"] == 1.0
