@@ -155,16 +155,18 @@ def test_a_track_declared_across_a_fitted_pour_is_not_drawn_and_the_pour_stays()
     assert not any("copper C" in f for f in declared_findings(bare))
 
 
-def test_a_via_with_no_way_round_leaves_the_pour_undrawn_and_is_named():
+def test_a_via_in_the_middle_of_the_pads_is_a_hole_in_the_pour():
+    """It refused the pour, no way round it, until a via or a plated-through pad of another net wholly inside became a
+    clearance hole (test_pour_holes)."""
+    from placemat.geometry import point_in_polygon
     pads = [_part("A%d" % i, "A", x, y) for i, (x, y) in enumerate(((10, 10), (16, 10), (13, 15)))]
     b = _board(pads, extra_nets=["V"])
     b.via(Net("V"), Location(13.0, 11.5), why="stands in the middle of the pads")
     b.pour(Net("A"), _refs("a", 3), layer=F, swallow_pads=True)
     plan = b.resolve()
-    assert not _pours(plan)
-    (f,) = [f for f in declared_findings(plan) if f.startswith("pour A")]
-    assert "via V at (13.00, 11.50)" in f and "no way round" in f, f
-    assert all(label in f for label in ("A0.1", "A1.1", "A2.1")[:2]), f
+    (p,) = _pours(plan)
+    assert not point_in_polygon((13.0, 11.5), p.points)
+    assert not [f for f in declared_findings(plan) if f.startswith("pour A")], plan.findings
 
 
 def test_a_wall_between_two_pads_leaves_no_way_and_names_the_wall_and_the_pads():

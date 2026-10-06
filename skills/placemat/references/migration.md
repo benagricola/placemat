@@ -28,6 +28,37 @@ section for each hand-written pattern a newer form replaces.
   | `placemat run <script> --explore 900 --jobs 4 --route-top 3 --accept` | `placemat run <script> --explore 900 --jobs 4 --route-best --accept` |
   | `[explore] route_top = 3` | `[explore] route_best = true` |
 
+- **A fitted pour ends on the board's vias at a pad off its layer.** A pad member with no copper on the pour's layer
+  was accepted only when a via member of the same pour call joined it; otherwise the pad was refused ("pad ... has no
+  copper on In3.Cu"). Where no via member joins it, the pour now takes the vias of the pad's net already on the board
+  that join that pad (standing on it, or a `vias(along=)` row out of it) and reach the layer: a stamped cell's own,
+  or the script's placed outside the call. They are the pour's ends at the pad, `Reach.CURRENT` credits them with
+  its current, and a notice names them. With none the pad is refused as before. A script that repeated a cell's
+  vias as members to get past the refusal can drop them:
+
+  ```python
+  # before: vias declared again, in the pad, only to join the back pad to the pour
+  v = board.via(Net("VIN"), PadRef(Part("guard.q_rev"), 2))
+  board.pour(Net("VIN"), [PadRef(Part("power.j_in"), 2), v, PadRef(Part("guard.q_rev"), 2)],
+             layer=CopperLayer.IN3, swallow_pads=True, reach=Reach.CURRENT)
+  # after: the guard cell's own vias in the pad join it
+  board.pour(Net("VIN"), [PadRef(Part("power.j_in"), 2), PadRef(Part("guard.q_rev"), 2)],
+             layer=CopperLayer.IN3, swallow_pads=True, reach=Reach.CURRENT)
+  ```
+
+- **A fitted pour cuts a hole round another net's via inside it.** A via or a plated-through pad of another net
+  standing wholly inside a fitted pour's outline refused the pour ("... stands between pads ... with no way round it").
+  It is now cut out as a clearance hole, as KiCad's zone filler cuts one, and the pour is drawn where it still meets
+  its need with the hole: `Reach.CURRENT` its current, otherwise one piece joining every member. Where it does not, a
+  `pour_hole` finding names the via and why. A track or an SMD pad inside still refuses it. Scripts need no change;
+  a pour that was refused for a via inside may now be drawn:
+
+  ```python
+  # before: refused, a 3V3 via between the two pins; after: drawn with a hole round the via
+  board.pour(Net("VIN"), [PadRef(Part("j_in"), 1), PadRef(Part("j_out"), 1)], layer=CopperLayer.IN2,
+             swallow_pads=True)
+  ```
+
 ## To 0.99.24
 
 ### New

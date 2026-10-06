@@ -6912,6 +6912,11 @@ class Board:
         row stands out of and any pad of the net it stands on: a pad member
         with no copper on the pour's layer that a via member joins holds
         none, and `reach=Reach.CURRENT` credits the via with the pad's current.
+        Where no via member joins such a pad, the vias of its net already on
+        the board that join it by the same test and reach the pour's layer -
+        a stamped cell's own, or the script's placed outside this call - are
+        the pour's ends at the pad, as via members would be, and a notice
+        names them; where there are none the pad is refused.
 
         `reach=mm` on a fitted pour grows its copper into the room round it:
         the fitted outline grown by `reach` (arcs no more than
@@ -7062,6 +7067,9 @@ class Board:
         member_pads, member_vias = [], []       # what Reach.CURRENT measures the pour between
         joins = self._via_member_pads(occ, net, [p for p in pads if isinstance(p, CopperIntent)], ctx.ops_at)
         joined = {pd for got in joins.values() for pd in got}
+        taken = {_via_key(op.at.x, op.at.y) for p in pads if isinstance(p, CopperIntent)
+                 for op in ctx.ops_at.get(p.index) or () if isinstance(op, Via)}
+        on_board: dict = {}         # a pad member -> the vias on the board that join it (_board_vias_joining)
         for p in pads:
             if isinstance(p, CopperIntent):
                 ops = ctx.ops_at.get(p.index)
@@ -7098,6 +7106,23 @@ class Board:
                 if layer not in sh.layers and (owner, number) in joined:
                     continue            # off the layer, and a via member joins it to the pour
                 if layer not in sh.layers:
+                    # the vias already on the board that join the pad and reach the layer are the pour's ends there,
+                    # as via members would be
+                    if (owner, number) not in on_board:
+                        on_board[owner, number] = got = self._board_vias_joining(ctx, net, layer, owner, number)
+                        for (x, y), poly, box in got:
+                            if _via_key(x, y) in taken:
+                                continue
+                            taken.add(_via_key(x, y))
+                            holds.append((("via", x, y), pourfit.hull(poly)))
+                            boxes.append(box)
+                            member_pads.append((owner, number, poly))
+                        if got:
+                            ctx.note(C.COPPER_NOTE, {"variant": "pour_pad_vias", "net": net, "member": list(label),
+                                                     "layer": layer.value,
+                                                     "vias": [[x, y] for (x, y), _, _ in got]}, "notice")
+                    if on_board[owner, number]:
+                        continue
                     ctx.note(C.COPPER_NOT_DRAWN, {"variant": "pour_pad_layer", "net": net, "member": list(label),
                                                   "layer": layer.value})
                     return []
@@ -7113,7 +7138,10 @@ class Board:
             r = clr + half + slack * (2 if sh.kind == "copper" and not sh.ends and not sh.owner else 1)
             if not sh.box.overlaps(span, gap=r):
                 return
-            pieces.extend(pourfit.pieces_of(sh.poly, r, sag, what, sh.circle, () if sh.arc else sh.ends))
+            got = pourfit.pieces_of(sh.poly, r, sag, what, sh.circle, () if sh.arc else sh.ends)
+            for pc in got:
+                pc.hole = sh.kind == "through"      # a via or a plated-through pad: inside the pour, a hole in it
+            pieces.extend(got)
 
         shapes = []
         for owner, g in occ.items.items():
@@ -7147,16 +7175,40 @@ class Board:
                                                                                                           "pour_no_area")
             ctx.note(C.COPPER_NOT_DRAWN, dict(facts, variant=variant))
             return []
+        outline = res.outline
+        if res.holes:
+            outline = self._holed(ctx, net, res, [poly for _, poly in holds], sag)
+            if outline is None:
+                return []
         if reach is Reach.CURRENT:
-            return self._reached_to_current(ctx, net, layer, stroke, res.outline, pieces, sag, member_pads, member_vias)
+            return self._reached_to_current(ctx, net, layer, stroke, outline, pieces, sag, member_pads, member_vias,
+                                            res)
         if reach is not None:
-            return self._reached(ctx, net, res.outline, reach, pieces, sag)
+            return self._reached(ctx, net, outline, reach, pieces, sag)
         need = self._width(net, None)
         for gap, (x, y) in sorted(res.necks):
             if gap + stroke < need - 1e-6:
                 ctx.note(C.COPPER_NOTE, {"variant": "pour_narrow", "net": net, "width_mm": gap + stroke, "at": [x, y],
                                          "need_mm": need})
-        return [res.outline]
+        return [outline]
+
+    def _holed(self, ctx, net: str, res, members, sag: float):
+        """A fitted outline with a clearance hole cut round each via and plated-through pad of another net standing
+        wholly inside it (`res.holes`, their clearance outlines), as KiCad's zone filler cuts one (polyops.cut_holes),
+        or None with a finding where that leaves it in more than one piece or off a member, or pcbnew is not there to
+        cut it (the finding then is the one an enclosed obstacle gets)."""
+        from .kicad import polyops
+        facts = {"net": net, "between": [list(l) for l in res.pads], "what": res.holes[0].what}
+        if not polyops.available():
+            ctx.note(C.COPPER_NOT_DRAWN, dict(facts, variant="pour_enclosed",
+                                              noun="pad" if not any(l[0] == "via" for l in res.pads) else "member"))
+            return None
+        loops, joined = polyops.cut_holes(res.outline, [pc.poly for pc in res.holes],
+                                          self.settings.copper_plane_min_width, sag, members)
+        if not joined:
+            ctx.note(C.COPPER_NOT_DRAWN, dict(facts, variant="pour_hole", reason="split"))
+            return None
+        return loops[0]
 
     def _fill_bars(self, ctx, net: str, layer: CopperLayer) -> list:
         """[(name, cell or None, polygon)]: the regions that bar a fill of `net` on `layer` as the plan stands - the
@@ -7181,23 +7233,60 @@ class Board:
         pads = None
         for it in members:
             ops = [op for op in ops_at.get(it.index) or () if isinstance(op, Via)]
-            row = None
-            if it.key.startswith("via row") and it.refs:
-                owner, number, _, _ = self._pad_ref(it.refs[0])
-                row = (owner, number)
+            row = self._row_pad(it)
             for op in ops:
-                got = [row] if row is not None else []
                 if pads is None:
                     pads = [sh for g in occ.items.values() for sh in g.shapes
                             if sh.kind in ("pad", "through") and sh.net == net and sh.label]
-                for sh in pads:
-                    if (op.layers and not sh.layers & set(op.layers)) or not sh.box.overlaps(op.box):
-                        continue
-                    if polys_overlap(op.polygon, sh.poly) and (sh.owner, sh.label) not in got:
-                        got.append((sh.owner, sh.label))
+                got = _via_joins(op.polygon, op.box, frozenset(op.layers or ()), pads, [row] if row is not None else [])
                 if got:
                     out[id(op)] = got
         return out
+
+    def _row_pad(self, it) -> tuple | None:
+        """(owner, number) of the pad a `vias(along=PadRef(...))` row stands out of, else None."""
+        if it.key.startswith("via row") and it.refs:
+            owner, number, _, _ = self._pad_ref(it.refs[0])
+            return (owner, number)
+        return None
+
+    def _board_vias_joining(self, ctx, net: str, layer: CopperLayer, owner: str, number: str) -> list:
+        """[((x, y), ring polygon, box)]: the vias of `net` already on the board, as the plan stands, that join the pad
+        `owner`.`number` and reach `layer`, by the test that joins a fitted pour's via member to a pad
+        (`_via_member_pads`): its copper stands on the pad on a layer it spans, or it is of a `vias(along=)` row out
+        of the pad. A stamped cell's own vias count, and the script's planned before the pour, outside its call."""
+        occ = ctx.occ
+        pads = [sh for sh in occ.pad_shapes(owner, number) if sh.net == net]
+        if not pads:
+            return []
+        rows = {id(op) for it in self._copper if self._row_pad(it) == (owner, number)
+                for op in ctx.ops_at.get(it.index) or () if isinstance(op, Via)}
+        seen, out = set(), []
+
+        def take(at, poly, box, layers, row=False):
+            if layers and layer not in layers:
+                return
+            k = _via_key(*at)
+            if k in seen:
+                return
+            if row or _via_joins(poly, box, layers, pads, []):
+                seen.add(k)
+                out.append((at, poly, box))
+
+        for ops in ctx.ops_at.values():
+            for op in ops or ():
+                if isinstance(op, Via) and op.net == net:
+                    take((op.at.x, op.at.y), op.polygon, op.box, frozenset(op.layers or ()), id(op) in rows)
+        candidates = [sh for g_owner, g in occ.items.items() if g_owner not in occ.pending for sh in g.shapes]
+        candidates += [sh for sh in occ.copper if sh.owner not in occ.pending]
+        if ctx.dry:
+            candidates += occ.rooms
+        for sh in candidates:
+            if sh.kind != "through" or sh.label or sh.net != net:
+                continue
+            at = sh.circle[:2] if sh.circle else sh.points[0] if sh.points else (sh.box.center.x, sh.box.center.y)
+            take(tuple(at), sh.poly, sh.box, sh.layers)
+        return sorted(out, key=lambda v: v[0])
 
     def _grown(self, outline, reach: float, pieces) -> list:
         """The loops of `outline` grown by `reach` and cut back by every clearance outline in `pieces`,
@@ -7222,7 +7311,7 @@ class Board:
         return got
 
     def _reached_to_current(self, ctx, net: str, layer: CopperLayer, stroke: float, outline, pieces, sag: float,
-                            member_pads, member_vias):
+                            member_pads, member_vias, res=None):
         """The copper of a fitted pour grown into the room round its `outline` as far as its net's
         current-path width needs and no further: the smallest multiple of `[copper] pour_reach_step` whose
         copper `checks.pour_current` reads at the width the current needs (`reach=` of that distance, by
@@ -7286,6 +7375,20 @@ class Board:
                 lo, hi = (mid, hi) if not goal(mid) else (lo, mid)
             k = hi
         loops, reading = at(k)
+        if not met(k) and res is not None and res.holes:
+            # a pour with holes is drawn only where it meets its current with them: refused, naming the hole nearest
+            # the neck
+            x, y = reading.point
+            hole = min(res.holes, key=lambda pc: math.hypot(pc.centre()[0] - x, pc.centre()[1] - y))
+            facts = {"variant": "pour_hole", "reason": "current", "net": net, "between": [list(l) for l in res.pads],
+                     "what": hole.what, "width_mm": reading.width, "need_mm": reading.need, "amps": reading.amps,
+                     "at": [x, y], "rise_c": s.check_rise_c}
+            near = min(((poly_distance(pc.poly, ((x, y), (x + 1e-6, y), (x, y + 1e-6))), pc.what) for pc in pieces
+                        if pc.what != hole.what), key=lambda d: d[0], default=(math.inf, None))
+            if near[0] <= reading.width:
+                facts["there"] = near[1]        # the copper at the neck, where it is not the hole itself
+            ctx.note(C.COPPER_NOT_DRAWN, facts)
+            return []
         if not met(k):
             x, y = reading.point
             near = min(((poly_distance(pc.poly, ((x, y), (x + 1e-6, y), (x, y + 1e-6))), pc.what) for pc in pieces),
@@ -11953,6 +12056,13 @@ def _inner_box(pads: list, centre: Location) -> Box:
 
 def _copper_name(occ: Occupancy, sh: Shape) -> dict:
     """How a finding names a piece of copper standing in a fitted pour's way (finding_text._blocker)."""
+    if sh.kind == "through" and not sh.label:
+        # a via: a cell's own (its owner the cell), carried or routed, or the script's; named by where it stands
+        x, y = sh.circle[:2] if sh.circle else sh.points[0] if sh.points else (sh.box.center.x, sh.box.center.y)
+        out = {"form": "via", "net": sh.net, "at": [x, y]}
+        if sh.owner in occ.geometry.cells:
+            out["cell"] = sh.owner
+        return out
     if sh.kind in ("pad", "through") and sh.owner:
         return {"form": "pad", "who": occ._w(sh.owner), "label": sh.label, "net": sh.net}
     if sh.circle:
@@ -12781,6 +12891,23 @@ def _via_intent_at(board: "Board", ctx, net: str, x: float, y: float):
             if isinstance(op, Via) and op.net == net and abs(op.at.x - x) < 1e-6 and abs(op.at.y - y) < 1e-6:
                 return next((c for c in board._copper if c.index == index), None)
     return None
+
+
+def _via_key(x: float, y: float) -> tuple:
+    """A via's centre as a key that tells two copies of one via (its planned op and its shape) apart from another."""
+    return (round(x, 4), round(y, 4))
+
+
+def _via_joins(poly, box: Box, layers: frozenset, pads, got: list) -> list:
+    """`got` and the pads among `pads` (Shapes) a via's copper (`poly`, `box`) stands on, on a layer it spans
+    (`layers`, empty for every layer), each (owner, number) once."""
+    got = list(got)
+    for sh in pads:
+        if (layers and not sh.layers & layers) or not sh.box.overlaps(box):
+            continue
+        if polys_overlap(poly, sh.poly) and (sh.owner, sh.label) not in got:
+            got.append((sh.owner, sh.label))
+    return got
 
 
 def _shape_of(op) -> Shape | None:

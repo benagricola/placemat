@@ -723,6 +723,12 @@ _NOT_DRAWN = {
         f["net"], _blocker(f), f["noun"], _between(f)),
     "pour_no_way": lambda f: "pour %s: %s leaves no way between %ss %s; the pour is not drawn" % (
         f["net"], _blocker(f), f["noun"], _between(f)),
+    "pour_hole": lambda f: ("pour %s: %s stands inside it between %s; with a clearance hole round it %s; the pour is not "
+                            "drawn" % (f["net"], _blocker(f), _between(f),
+                                       "it falls apart or leaves a member" if f["reason"] == "split" else
+                                       "it narrows to %.2f mm at (%.2f, %.2f), where %g A needs %.2f mm at a %g C rise%s" % (
+                                           f["width_mm"], f["at"][0], f["at"][1], f["amps"], f["need_mm"], f["rise_c"],
+                                           "; %s stands there" % _blocker({"what": f["there"]}) if f.get("there") else ""))),
     "pour_no_area": lambda f: "pour %s: its pads leave no area to fit; the pour is not drawn" % f["net"],
     "pour_no_reach": lambda f: "pour %s: reach= leaves no copper joined to its pads; the pour is not drawn" % f["net"],
     "pour_carriers": lambda f: "pour %s: reach=Reach.CURRENT sizes the pour for the current between two of its parts, and %s "
@@ -752,7 +758,8 @@ def _blocker(f) -> str:
     if form == "unplated":
         return "%s's unplated hole" % _who(what["who"])
     if form == "via":
-        return "via %s at (%.2f, %.2f)" % (what["net"] or "-", what["at"][0], what["at"][1])
+        return "%svia %s at (%.2f, %.2f)" % ("the %s cell's " % what["cell"] if what.get("cell") else "",
+                                             what["net"] or "-", what["at"][0], what["at"][1])
     if form == "track":
         (ax, ay), (bx, by) = what["ends"]
         return "%s %s (%.2f, %.2f)-(%.2f, %.2f)" % ("arc track" if what["arc"] else "track", what["net"] or "-", ax, ay, bx, by)
@@ -783,6 +790,9 @@ _NOTE = {
     "between_gap": lambda f: "track %s: the gap between %s.%s and %s.%s is %.3f mm, not enough for a %.2f mm track with "
                              "clearance to each (%.3f mm needed)" % (
                                  f["net"], f["a"][0], f["a"][1], f["b"][0], f["b"][1], f["gap_mm"], f["width_mm"], f["need_mm"]),
+    "pour_pad_vias": lambda f: "pour %s: pad %s has no copper on %s; the pour ends on the %s that join%s it there: %s" % (
+        f["net"], _member(f["member"]), f["layer"], "via" if len(f["vias"]) == 1 else "%d vias" % len(f["vias"]),
+        "s" if len(f["vias"]) == 1 else "", ", ".join("(%.2f, %.2f)" % (x, y) for x, y in f["vias"])),
     "pour_narrow": lambda f: "pour %s: narrows to %.2f mm at (%.2f, %.2f), under its net's %.2f mm track" % (
         f["net"], f["width_mm"], f["at"][0], f["at"][1], f["need_mm"]),
     "pour_neck": lambda f: ("pour %s: the room runs out at %.2f mm of reach (up to %.2f mm tried): it narrows to %.2f mm at "
