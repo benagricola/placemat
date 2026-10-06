@@ -18,6 +18,7 @@ section for each hand-written pattern a newer form replaces.
   tracks alone resolves as before. `board.label()` returns a `LabelKey`,
   a `str`, so scripts that use the key as text need no change. A
   `CutoutEdge` taken from another board is refused.
+
 - **Copper near a hole or the edge is a finding.** Declared copper nearer
   the outline or a cutout than the board's copper-to-edge clearance is a
   critical `copper.edge` finding when it is planned, and copper wholly
@@ -36,6 +37,7 @@ section for each hand-written pattern a newer form replaces.
   finding (`past_off_board`) for a `Past` over pads, vias and tracks too,
   whose point was not checked against the board before. It is not judged on a
   module fragment.
+
 - **A finding names a `Past`'s items as records.** The `names` fact of
   `copper.corner` and of a `copper.not_drawn` finding's `past` variant
   holds one record per item: `{"kind": "pad", "ref", "number"}`,
@@ -64,6 +66,25 @@ section for each hand-written pattern a newer form replaces.
 
   The notes are now taken in the order the fragment wrote them, one under another, which a turn or a flip of the
   cell keeps.
+
+- **Nets of a wider clearance class route in their own stage, so the other nets route at the Default clearance.** The
+  router spaces every net of one call at the largest clearance among the nets it routes. The main pass routed a 0.2 mm
+  class (a 50 ohm feed, say) with the Default nets, so every net kept 0.2 mm from everything, and a lane end closer
+  than 0.2 mm plus half a track to a neighbour was refused ("only a narrower track clears it"). The nets whose
+  clearance is above the Default class's now route first, a router call per clearance, widest first; a halo net
+  routes in the stage of its halo. A net such a stage leaves open is not routed again in the main pass. The report and
+  `route.json` have `class_stages`, and `route_stage` events a `classes` stage. The `setup.net_halo` finding with
+  `variant` `open` (a halo net routed with the others) is no longer said. Scripts need no change.
+
+- **Turned lanes leave room for the router's grid snap.** The router starts a route from the point of its 0.1 mm grid
+  nearest a lane's end and refuses a leg from there that comes nearer the next lane than the clearance. Turned lanes
+  stood exactly a track and a clearance apart, so the leg from a lane end that did not lie on the grid was refused
+  ("grazes foreign copper"), and the route could leave the lane only along its own line. Two lanes of an escape with
+  `turn=` that are not a pair's now stand the router's grid step over the square root of 2 further apart (0.0707 mm;
+  `--grid-step` in `route.router_args` sets the step), and each riser of a fan at 45 is that much times the square root
+  of 2 (0.1 mm) further out than the one before. A turned fan is wider by that much per lane: a script that stands a
+  part beside a turned fan at exactly the lanes' old pitch (a bypass a lane's width off the row, say) may now see the
+  outer lanes blocked by it (`escape_lane`, `copper` findings); stand the part that much further off.
 
 ## To 0.99.20
 

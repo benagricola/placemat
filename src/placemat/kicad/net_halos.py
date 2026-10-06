@@ -176,19 +176,9 @@ def trapped(geometry, halos: dict, judged=None) -> list:
     return out
 
 
-def routed_with_others(halos: dict, open_items: dict, alone=()) -> list:
-    """The halo nets the main pass routes, as records: each open (`open_items`, {net: open items} of the nets the
-    route routes) and not routed alone first (`alone`, the island nets). The router raises the clearance of every net
-    it routes in a call to the largest clearance among them (routing_config.set_net_clearances' floor), so a halo net
-    routed with the others spaces all of them at its halo."""
-    return [{"variant": "open", "net": n, "halo_mm": float(h), "open_items": int(open_items[n])}
-            for n, h in sorted(halos.items()) if open_items.get(n) and n not in set(alone)]
-
-
-def findings(trapped_records: list, missing: list, halos: dict, open_records=()) -> list:
-    """The `setup.net_halo` findings: an entry naming no net on the board, a halo net the main pass routes, then each
-    trapped pad."""
+def findings(trapped_records: list, missing: list, halos: dict) -> list:
+    """The `setup.net_halo` findings: an entry naming no net on the board, then each trapped pad. A halo net with open
+    connections routes in the class stage of its halo (kicad/route.py class_stages), alone with nets of the same clearance."""
     from ..findings import Finding, FindingCause as C
     return ([Finding(C.SETUP_NET_HALO, {"variant": "no_net", "net": n, "halo_mm": float(halos[n])}) for n in missing]
-            + [Finding(C.SETUP_NET_HALO, dict(r)) for r in open_records]
             + [Finding(C.SETUP_NET_HALO, dict(r)) for r in trapped_records])

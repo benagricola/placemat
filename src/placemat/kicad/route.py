@@ -126,6 +126,9 @@ class RouteReport:
     # "kept_unrouted": [nets left unconnected whose dangling router copper was kept],
     # "refused_nets": [nets whose pads the dangling router copper alone joins, which keep it]}.
     dangling_removed: dict = field(default_factory=dict)
+    # The class stages (`class_stages`), widest clearance first: each {"clearance_mm": mm, "nets": {net: [open items before,
+    # after]}}. Their nets route in their own router call before the main pass, which does not route them again.
+    class_stages: list = field(default_factory=list)
 
     def has_findings(self) -> bool:
         return bool(self.widths or self.pair_layers_refused or self.net_halo_facts)
@@ -166,6 +169,9 @@ class RouteReport:
             head += "  islands: " + ", ".join("%s %d -> %d apart" % (n, a, b) for n, (a, b) in self.islands.items())
         if self.islands_missing:
             head += "  island nets not on the board: " + ", ".join(self.islands_missing)
+        if self.class_stages:
+            head += "  class stages: " + "; ".join("%g mm %s" % (st["clearance_mm"], ", ".join(
+                "%s %d -> %d" % (n, a, b) for n, (a, b) in sorted(st["nets"].items()))) for st in self.class_stages)
         if self.net_halos:
             head += "  halos: " + ", ".join("%s %g mm" % kv for kv in sorted(self.net_halos.items()))
         if self.pair_layers:
@@ -195,6 +201,7 @@ class RouteReport:
                 "pairs": self.pairs, "plane_layers": self.plane_layers,
                 "pours_kept": list(self.pours_kept),
                 "islands": {n: list(v) for n, v in self.islands.items()}, "islands_missing": list(self.islands_missing),
+                "class_stages": [dict(st, nets={n: list(v) for n, v in st["nets"].items()}) for st in self.class_stages],
                 "resumed": list(self.resumed), "record": self.record, "widths": list(self.widths),
                 "pair_layers": dict(self.pair_layers), "pair_layers_refused": list(self.pair_layers_refused),
                 "net_halos": dict(self.net_halos), "net_halos_missing": list(self.net_halos_missing),
@@ -810,6 +817,56 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
     return final, breaches
 
 
+def routing_clearance(default: float, args, env) -> float:
+    """The clearance the router gives the Default net class, as route.py resolves it: `--clearance` in the router arguments
+    when given, else the board's Default class clearance (`default`), capped at the clearance ceiling (net_halos.ceiling)."""
+    from ..settings import router_flag
+    from .net_halos import ceiling
+    given = router_flag(args, "--clearance")
+    out = default if given is None else given
+    cap = ceiling(args, env)
+    return out if cap is None else min(out, cap)
+
+
+def class_stages(clearances: dict, base: float, nets) -> list:
+    """The class stages: the nets of `nets` whose clearance in `clearances` ({net: mm}, the router's map) is above `base`
+    (the Default class's), grouped by clearance, widest first: [(mm, [net, ...])].
+
+    The router spaces every net of one call at the largest clearance among the nets the call routes (KRT
+    routing_config.py set_net_clearances, the routing-side floor), and prices each foreign net's copper at the larger of
+    that floor and the net's own clearance (obstacle_clearance). A call per clearance routes each net at its own; the
+    copper of an earlier stage keeps its own clearance against the later ones."""
+    by = {}
+    for n in nets:
+        c = clearances.get(n)
+        if c is not None and c > base + 1e-9:
+            by.setdefault(round(float(c), 6), []).append(n)
+    return [(c, sorted(by[c])) for c in sorted(by, reverse=True)]
+
+
+def route_class_stages(rpy, script, router_dir_path, board: Path, work: Path, stages: list, layers, iterations, probe,
+                       quick, timeout, env, clearances: Path | None = None) -> Path:
+    """Route the class stages (`class_stages`), one router call each, in order, each on the board the one before left with
+    its copper locked. Returns the board the main pass routes on."""
+    for i, (mm, nets) in enumerate(stages):
+        out = work / ("classes%d.kicad_pcb" % i)
+        cmd = router_command(rpy, script, board, out, set(), layers, work / ("classes%d_summary.json" % i), iterations,
+                             probe, quick, nets=nets, clearances=clearances)
+        log = work / ("classes%d.log" % i)
+        with open(log, "w") as f:
+            f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
+            f.flush()
+            rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
+                                timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
+        if rc != 0 or not out.exists():
+            tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
+            raise RuntimeError("the router exited %d routing the %g mm class nets; log %s\n%s" % (rc, mm, log, tail))
+        _copy_project(board, out)
+        lock_copper(str(out))
+        board = out
+    return board
+
+
 def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: str | None = None,
                 quick: bool = False, iterations: int | None = None, probe: int | None = None,
                 timeout: int | None = None, islands: dict | None = None, resume: bool = True, board_info: dict | None = None,
@@ -823,7 +880,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     first: the `setup.net_halo` findings go to `on_setup` (a callable taking
     the list) before the first router call, and stay on the report.
 
-    The stages - the differential pairs, the islands, the main pass - are
+    The stages - the differential pairs, the islands, the class stages (class_stages), the main pass - are
     kept in `work` as they finish (route_state.py): a route that is stopped
     or fails leaves them, and a rerun whose inputs digest the same takes them
     instead of routing again (`resume` False starts over). The report's
@@ -900,8 +957,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from . import net_halos
     halos, halos_missing = net_halos.on_board(cfg.route_net_halos or {}, geometry.nets)
     trapped = net_halos.trapped(geometry, halos, judged={n for n in open0 if open0[n]}) if halos else []
-    halo_findings = net_halos.findings(trapped, halos_missing, cfg.route_net_halos or {},
-                                       net_halos.routed_with_others(halos, open0, islands))
+    halo_findings = net_halos.findings(trapped, halos_missing, cfg.route_net_halos or {})
     if halo_findings and on_setup is not None:
         on_setup(halo_findings)
     clearances = net_halos.write_map(rpy, router_dir_path, pcb_in, geometry.nets, halos, work / net_halos.MAP_NAME,
@@ -963,7 +1019,48 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             spent += time.time() - t1
             state.record("islands", d_islands, {"board": board.name, "breaches": island_breaches, "pours": kept,
                                                 "seconds": round(time.time() - t1, 1)})
-    d_main = digest(d_islands, "main", sorted(excluded | pairs.routed_nets))
+    guarded = board                              # the island nets' pours are guarded on it: the later copper is judged against them
+    # the nets whose clearance is above the Default's, a stage per clearance: the router spaces every net of one call at
+    # the largest clearance among them (class_stages), so routed in the main pass they would space every net at theirs
+    if halos:
+        clearance_map = json.loads(Path(clearances).read_text())
+    else:
+        clearance_map = net_halos.merged(net_halos.class_clearances(rpy, router_dir_path, pcb_in, geometry.nets, env), {},
+                                         net_halos.ceiling(cfg.route_router_args, env))
+    # the router's own set: every net its --nets names with two pads or more, joined or not (KRT route.py
+    # resolve_net_ids, net_queries.filter_routable_nets), and its floor is taken over all of them
+    pads = {}
+    for fp in geometry.footprints:
+        for pad in fp.pads:
+            if pad.net:
+                pads[pad.net] = pads.get(pad.net, 0) + 1
+    routed_later = {n for n, k in pads.items() if k >= 2 and n not in excluded | pairs.routed_nets}
+    stages = class_stages(clearance_map, routing_clearance(geometry.default_clearance, cfg.route_router_args, env),
+                          routed_later)
+    staged = {n for _, nets in stages for n in nets}
+    d_classes = digest(d_islands, "classes", stages)
+    if stages:
+        saved = state.result("classes", d_classes)
+        if saved is not None and (work / saved["board"]).exists():
+            board = work / saved["board"]
+            resumed.append("classes")
+            spent += saved["seconds"]
+            rev.resumed("classes", saved["seconds"])
+        else:
+            state.drop_from("classes")
+            t1 = time.time()
+            rev.begin("classes", nets=len(staged))
+            whole = False
+            try:
+                board = route_class_stages(rpy, script, router_dir_path, board, work, stages, layers, iterations, probe,
+                                           quick, timeout, dict(env, **rev.env("classes")), clearances)
+                whole = True
+            finally:
+                rev.end("classes", complete=whole)
+            spent += time.time() - t1
+            state.record("classes", d_classes, {"board": board.name, "seconds": round(time.time() - t1, 1)})
+    # a net its class stage left open is not routed again: in the main pass it would raise every net's clearance to its own
+    d_main = digest(d_classes, "main", sorted(excluded | pairs.routed_nets | staged))
     log = work / "router.log"
     saved = state.result("main", d_main)
     if saved is not None and raw_out.exists():
@@ -973,7 +1070,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     else:
         state.drop_from("main")
         t1 = time.time()
-        cmd = router_command(rpy, script, board, raw_out, excluded | pairs.routed_nets, layers, summary,
+        cmd = router_command(rpy, script, board, raw_out, excluded | pairs.routed_nets | staged, layers, summary,
                              iterations, probe, quick, clearances=clearances)
         rev.begin("main")
         rc = None
@@ -1006,7 +1103,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     breaches = router_breaches(pcb_in, pcb_out) + island_breaches
     if islands:     # the island nets' own pours were guarded after their pass: the main pass's copper against them
         own = tuple("%s %s " % (POUR_GUARD, n) for n in islands)
-        breaches += [b for b in router_breaches(board, pcb_out) if any(g in b for g in own)]
+        breaches += [b for b in router_breaches(guarded, pcb_out) if any(g in b for g in own)]
     report = RouteReport(valid, round(sc.closure, 4), round(sc.closure_clean, 4), sum(open0.values()), sum(open1.values()),
                          dict(sorted(open1.items())), sc.shorted, sorted(counted), layers, seconds,
                          router_version(router_dir_path), after.by_type, pcb_out, log, work,
@@ -1015,7 +1112,9 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                          {n: (before.open_nets.get(n, 0), after.open_nets.get(n, 0)) for n in sorted(islands)},
                          islands_missing, resumed)
     from .route_widths import read_widths
-    report.widths = read_widths(work, islands)
+    report.class_stages = [{"clearance_mm": mm, "nets": {n: [open0.get(n, 0), after.open_nets.get(n, 0)] for n in nets}}
+                           for mm, nets in stages]
+    report.widths = read_widths(work, islands, len(stages))
     report.pair_layers = {"%s/%s" % pair: list(ls) for pair, ls in pair_layers.items()}
     report.pair_layers_refused = pair_layers_refused
     report.net_halos, report.net_halos_missing, report.net_halo_trapped = halos, halos_missing, trapped

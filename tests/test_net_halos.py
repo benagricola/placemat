@@ -58,15 +58,11 @@ def test_a_halo_naming_no_net_is_a_warning_and_is_not_used():
     assert str(f) == "route.net_halos GONE: no net of that name on this board; the entry is not used"
 
 
-def test_a_halo_net_the_main_pass_routes_is_a_warning():
-    """The router spaces every net of a call at the largest clearance among the nets it routes: an open halo net routed
-    with the rest spaces them all at its halo. Routed alone (an island net), or drawn whole, it does not."""
-    got = net_halos.routed_with_others({"SW": 2.0, "SW2": 1.0, "SW3": 1.0}, {"SW": 2, "SW3": 1, "FB": 1}, alone={"SW3"})
-    assert got == [{"variant": "open", "net": "SW", "halo_mm": 2.0, "open_items": 2}]
-    f = net_halos.findings([], [], {"SW": 2.0}, got)[0]
-    assert f.cause is C.SETUP_NET_HALO and f.severity == "warning"
-    assert str(f).startswith("SW is open (2 item(s)) and routed with the other nets: the router spaces every net of that "
-                             "pass 2.00 mm from all copper")
+def test_a_halo_net_with_open_connections_routes_in_its_own_class_stage():
+    """The router spaces every net of a call at the largest clearance among them: a halo net is not routed with the
+    rest but in the class stage of its halo (kicad/route.py class_stages)."""
+    from placemat.kicad.route import class_stages
+    assert class_stages(net_halos.merged({"VIN": 0.3}, {"SW": 2.0}), 0.15, {"SW", "VIN", "FB"}) == [(2.0, ["SW"]), (0.3, ["VIN"])]
 
 
 # ---------------------------------------------------------------- the clearance map
