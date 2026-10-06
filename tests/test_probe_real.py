@@ -58,9 +58,12 @@ def test_the_probe_resolves_each_candidate_from_the_overlay_and_writes_nothing(s
 
 def test_the_command_line_runs_it_and_a_second_run_resolves_nothing_again(staged, capsys):
     tmp, layout, s, far = staged
+    if not probe.load_results(probe.results_path(layout.parent, s)):      # run alone: the probe above saved nothing yet
+        assert cli.main(["apply", "s1z", "--script", str(layout), "--search", "--yes"]) == 0
+        capsys.readouterr()
     saved = len(probe.load_results(probe.results_path(layout.parent, s)))
     code = cli.main(["apply", "s1z", "--script", str(layout), "--search", "--yes"])
     out = capsys.readouterr().out
-    assert code == 0 and "continuing s1z from %d saved result(s)" % saved in out and out.count(", saved)") == saved
+    assert saved and code == 0 and "continuing s1z from %d saved result(s)" % saved in out and out.count(", saved)") == saved
     code = cli.main(["apply", "s1z.1", "--script", str(layout), "--dry-run"])
     assert code == 0 and "C_HF1_LINK_LIMIT_MM" in capsys.readouterr().out
