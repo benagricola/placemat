@@ -648,5 +648,65 @@
         "widths": "human"
       }
     }
+  },
+  "b": {
+    "pic_programmer": {
+      "a_closure_clean": 1.0,
+      "board": "pic_programmer",
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "inputs_digest": "b7f1c31d3b08380e",
+      "new_violations": [],
+      "open": 0,
+      "placement": {
+        "airwire_mm": 1497.032,
+        "area_mm2": 19571.64,
+        "crossings": 50,
+        "findings": 11,
+        "placed": 63,
+        "run_score": 1827.032
+      },
+      "ref_track_mm": 1745.7030331706978,
+      "ref_vias": 6,
+      "run_score": 1827.032,
+      "seconds": 64.6,
+      "track_mm": 1816.8682075327356,
+      "versions": {
+        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+        "pcb": "pcbc 0.4.52",
+        "placemat": "e622c7968e087333db0e75424861d61790e66616"
+      },
+      "vias": 46
+    },
+    "usb-c-power-adapter": {
+      "a_closure_clean": 1.0,
+      "board": "usb-c-power-adapter",
+      "closure_clean": 0.9521,
+      "detail": "",
+      "failure": "",
+      "inputs_digest": "277423dde88ef8e2",
+      "new_violations": [],
+      "open": 8,
+      "placement": {
+        "airwire_mm": 791.506,
+        "area_mm2": 1226.32,
+        "crossings": 232,
+        "findings": 37,
+        "placed": 122,
+        "run_score": 3493.506
+      },
+      "ref_track_mm": 437.6509716398021,
+      "ref_vias": 229,
+      "run_score": 3493.506,
+      "seconds": 54.3,
+      "track_mm": 882.3474771318922,
+      "versions": {
+        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+        "pcb": "pcbc 0.4.52",
+        "placemat": "e622c7968e087333db0e75424861d61790e66616"
+      },
+      "vias": 97
+    }
   }
 }
