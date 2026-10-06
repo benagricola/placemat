@@ -51,9 +51,12 @@ that folder (`inventory.jsonl`, `trees.txt`, `route/`, `import/`).
    nothing new. The baseline is compared by violation type and location, not by count alone. The test is in Task 3.
 3. **No network, with the cache filled:** fetching reuses the cache when every sha256 matches, and says so. With no
    network and an empty cache, the error names the board and the URL. The test is in Task 1.
-4. **A board with user-named copper layers** must be read by standard names (fixed in 0.99.34). The runner must not
+4. **Two results recorded with different router or pcb versions** must not be called better or worse when the change
+   under test is placemat's. They are reported as not comparable, naming the component that differs. The test is in
+   Task 3.
+5. **A board with user-named copper layers** must be read by standard names (fixed in 0.99.34). The runner must not
    rename layers itself. The test is in Task 2, using a board with renamed layers.
-5. **A reference script that writes a coordinate for a part the manifest does not list as fixed** must fail the lint,
+6. **A reference script that writes a coordinate for a part the manifest does not list as fixed** must fail the lint,
    naming the part and the line. The test is in Task 5.
 
 ---
@@ -219,7 +222,13 @@ def test_offline_with_an_empty_cache_names_the_board_and_url(tmp_path):
     - `closure_clean: float`, `open: int`, `open_nets: list[str]`;
     - `new_violations: list[Violation]`, `vias: int`, `track_mm: float`;
     - `human_vias: int`, `human_track_mm: float`;
-    - `passed: bool` (`closure_clean == 1.0 and not new_violations`), `seconds: float`, `placemat: str`.
+    - `passed: bool` (`closure_clean == 1.0 and not new_violations`), `seconds: float`;
+    - `versions: dict`: `{"placemat": <git commit of the placemat checkout>, "krt": <commit of the router checkout the
+      route used>, "pcb": <pcb --version>}`.
+  - `route_ref.comparable(old: dict, new: dict, changing: str) -> list[str]`: the components other than `changing`
+    whose versions differ between two results' `versions`. A non-empty list means the two are not compared: the CLI
+    prints "not comparable: <components> differ" instead of better or worse. `--changing placemat|krt|pcb` (default
+    `placemat`) names the component under change.
   - `route_ref.new_violations(after: list[Violation], baseline: list[Violation], tol_mm=0.05) -> list[Violation]`: those
     `after` has that no baseline violation of the same type and nets matches within `tol_mm`.
   - CLI: `python fixtures/reference/route_ref.py [name ...] [--update]`. For each test (a) board, it runs class widths,
@@ -247,8 +256,11 @@ def test_passed_needs_full_clean_closure_and_nothing_new():
     assert not route_ref.judge(dict(closure_clean=0.98), [], r).passed
 ```
 
-  Also add a test that compares the results against a recorded file, and marks a board "worse" when it passed before and
-  fails now.
+  Also add two tests:
+  - one that compares the results against a recorded file, and marks a board "worse" when it passed before and fails
+    now;
+  - one where two results differ in their `krt` version while `--changing placemat`, which are reported as not
+    comparable, naming `krt`.
 - [ ] **Step 2:** Run and watch them fail.
 - [ ] **Step 3: Implement.** `judge(route_json, new, template) -> AResult` builds the result. Results are records; the
   console line is made at the edge, in `main()`.
@@ -391,7 +403,8 @@ Same as Task 6, for usb-c-power-adapter (4 layers, power and USB).
     - `board`, `closure_clean`, `open`, `new_violations`, `vias`, `track_mm`, `run_score`;
     - the regenerated reference's `ref_vias` and `ref_track_mm`;
     - the test (a) result of the same board for comparison (`a_closure_clean`);
-    - `seconds` and `placemat`.
+    - `seconds` and `versions`, as in `AResult`.
+    - Results are compared only through `route_ref.comparable`.
   - `place_ref.run_module(script: Path, work) -> MResult`. It runs a module fixture with `placemat run --route` and
     records `closure_clean`, `area_mm2` (the fitted frame's area from run.json's outline), `run_score` and `seconds`.
     Modules are those under fixtures/mnb/modules and fixtures/fairing/modules that have a layout script.
