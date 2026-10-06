@@ -4351,6 +4351,12 @@ last run left it, a final line names the stage and the signal, and the exit
 status is 128 + the signal. While a run works its `run.json` says `status:
 "running"` and its `pid`; a record whose pid is gone died without finishing.
 
+**Stages alongside.** Once the board is written, a run starts kicad-cli's DRC and its renders and runs the design
+checks while they work (`run.parallel`, on by default). The console lines, `run.json` and the exit status are those of
+the stages in sequence; `timing_s` gives each stage its own time, so their sum is more than the run's. A run with
+arrangements renders after them, since they write their notes into the board. A stop or an error kills the kicad-cli
+processes still working. `run.parallel = false` runs the stages one after another, for a loaded machine.
+
 **Bounding the time.** Three bounds, each a flag of `run` and `preview` and a `[run]` setting (a flag wins; 0 is off, the default):
 
 ```
@@ -5225,6 +5231,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `run.max_time_s` | `0.0` | seconds | stop a `run` or `preview` after this many seconds of placing, at the next point it can be resumed from (its finished steps are kept and replayed by the rerun); 0 is no cap. `--max-time`. Wall-clock, so it depends on machine load |
 | `run.step_warn_s` | `0.0` | seconds | a step still working after this many seconds sends a live event and gets a finding naming the item, its seconds and the pass it was in; 0 is never. `--step-warn` |
 | `run.step_limit_s` | `0.0` | seconds | a step still working after this many seconds gives up: it is left unplaced, or at the best legal spot its scan had found, with a finding, and the resolve goes on with the next item; checked between a scan's passes; 0 is never. `--step-limit`. Wall-clock, so which steps give up depends on machine load, unlike a candidate budget; such a step is searched again by the next run |
+| `run.parallel` | `true` | bool | `run` starts kicad-cli's DRC and renders as soon as the board is written and runs the design checks while they work, so those stages take the time of the longest rather than the sum (a measured core board's run, 109 s -> 83 s on a loaded machine); the renders use several cores meanwhile. false runs them one after another. The run's record is the same either way, but for the stages' times |
 | `timeout.generate` | `900` | seconds | seconds for `pcb layout` |
 | `timeout.drc` | `600` | seconds | seconds for kicad-cli DRC |
 | `timeout.route` | `3600` | seconds | seconds for the router |

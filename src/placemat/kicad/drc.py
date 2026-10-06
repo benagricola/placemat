@@ -251,9 +251,10 @@ def unconnected_items(data: dict, insts: dict | None = None) -> list:
 
 
 def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None = None,
-            real_kinds=None, outstanding_kinds=None, allow=None, frame_only: bool = False) -> DrcReport:
+            real_kinds=None, outstanding_kinds=None, allow=None, frame_only: bool = False, run=None) -> DrcReport:
     """Run kicad-cli DRC (zones refilled for the check only; the board file is
-    not touched) and parse the JSON into buckets."""
+    not touched) and parse the JSON into buckets. `run` starts kicad-cli
+    (`subprocess.run` when None; overlap.Children.run in a run's background job)."""
     pcb, out_json = Path(pcb).absolute(), Path(out_json).absolute()   # kicad-cli runs in the board's folder
     cfg = active()
     refill_zones = cfg.drc_refill_zones if refill_zones is None else refill_zones
@@ -274,7 +275,7 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
     if refill_zones:
         cmd.insert(3, "--refill-zones")
     env = child_env()
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(pcb.parent), timeout=timeout, env=env)
+    proc = (run or subprocess.run)(cmd, capture_output=True, text=True, cwd=str(pcb.parent), timeout=timeout, env=env)
     report = DrcReport(out_json, command=cmd, returncode=proc.returncode,
                        stderr_tail="\n".join(proc.stderr.strip().splitlines()[-5:]),
                        real_kinds=tuple(real_kinds), outstanding_kinds=tuple(outstanding_kinds),

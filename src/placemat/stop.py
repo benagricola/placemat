@@ -61,9 +61,27 @@ def request(cause: str, **facts) -> None:
 _installed: list = []
 
 
+_tracked: set = set()
+
+
+def track(proc) -> None:
+    """A child process (a `subprocess.Popen`) started by a thread other than the main one: the second signal kills it
+    before the process exits, since no thread is left to."""
+    _tracked.add(proc)
+
+
+def untrack(proc) -> None:
+    _tracked.discard(proc)
+
+
 def _handler(signum, frame):
     if _seen:
-        os._exit(128 + signum)          # the second signal: no cleanup
+        for proc in list(_tracked):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        os._exit(128 + signum)          # the second signal: no other cleanup
     global _cause
     _seen.append(signum)
     s = Stopped(signum)

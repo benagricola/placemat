@@ -904,10 +904,13 @@ def finish_board(pcb_path, fab, refs_to_fab_layer: bool = True, refs_to_fab=None
     patch_rule_severities(pcb_path, active().drc_severities)
 
 
-def render_board(pcb_path, log, both_faces: bool = False, timeout: int | None = None) -> list:
+def render_board(pcb_path, log, both_faces: bool = False, timeout: int | None = None, run=None) -> list:
     """layout.png (top), layout-iso.png, and layout-bottom.png when the board
-    carries parts on both faces, beside the board file."""
+    carries parts on both faces, beside the board file. `run` starts each
+    kicad-cli (`subprocess.run` when None; overlap.Children.run in a run's
+    background job)."""
     import subprocess
+    run = run or subprocess.run
     from ..settings import active
     timeout = active().timeout_render if timeout is None else timeout
     pcb_path = str(pcb_path)
@@ -924,7 +927,7 @@ def render_board(pcb_path, log, both_faces: bool = False, timeout: int | None = 
             f.write("$ %s\n" % " ".join(cmd))
             f.flush()
             try:
-                subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=timeout, env=env)
+                run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=timeout, env=env)
                 done.append(name)
             except Exception as e:
                 f.write("render %s failed: %s\n" % (name, e))
