@@ -12,7 +12,7 @@
     "islands": [
       "VCC"
     ],
-    "fixed": [],
+    "fixed": ["J1", "P1", "P101", "P102", "P103", "P104", "P105", "P106", "P2", "P3", "U5", "U6", "U1"],
     "human_track_mm": 0.5,
     "kicad5": false,
     "files": {
