@@ -2835,9 +2835,10 @@ class Board:
         self._room_refused = {}
         return room
 
-    def _dry_rooms(self, occ: Occupancy, plan: Plan, intents, ctx=None, kinds=None) -> dict:
+    def _dry_rooms(self, occ: Occupancy, plan: Plan, intents, ctx=None, kinds=None, refusals: dict | None = None) -> dict:
         """{copper index: [Shape]}: where each track and via of `intents` (and each pour, in `kinds`) would be drawn, planned
-        as the real plan plans it but committed nowhere. A declaration the plan cannot read yet (an end not placed) has none."""
+        as the real plan plans it but committed nowhere. A declaration the plan cannot read yet (an end not placed) has none.
+        `refusals`, when given, gets {copper index: facts} of the first not-drawn finding each declaration's plan made."""
         kinds = kinds or self._ROOM_KINDS
         if ctx is None:
             ctx = _CopperContext(self, occ)
@@ -2846,10 +2847,15 @@ class Board:
         for c in sorted(intents, key=lambda c: c.index):
             if c.key.split(" ")[0] not in kinds:
                 continue
+            said = len(ctx.notes)
             try:
                 ops = c.plan(ctx)
             except Exception:           # an end that is not placed, a form that needs what is not there yet
                 continue
+            if refusals is not None:
+                first = next((n.facts for n in ctx.notes[said:] if n.cause is C.COPPER_NOT_DRAWN), None)
+                if first is not None:
+                    refusals[c.index] = first
             ctx.ops_at[c.index] = ops
             shapes = []
             for op in ops:
@@ -2904,10 +2910,11 @@ class Board:
         # a pour with a reach keeps no room: it gives way to what is placed, cut round it when it is planned
         self._roomed |= {c.index for c in todo} | {c.index for c in pours if c.reach is not None}
         pours = [c for c in pours if c.reach is None]
-        got = self._dry_rooms(occ, plan, todo, room_ctx)
+        refusals = {}
+        got = self._dry_rooms(occ, plan, todo, room_ctx, refusals=refusals)
         for c in todo:      # a track it could not draw: the parts placed now are those it was refused with (its finding says so)
             if not any(isinstance(op, Track) for op in room_ctx.ops_at.get(c.index, ())):
-                self._room_refused[c.index] = frozenset(placed)
+                self._room_refused[c.index] = (frozenset(placed), _room_refusal(step.item, refusals.get(c.index)))
         # a fitted pour is the last of what it joins: its vias are planned (here or before) as well as its pads placed
         pours = [c for c in pours if all(m.index in room_ctx.ops_at for m in c.members)]
         self._roomed |= {c.index for c in pours}
@@ -6778,16 +6785,20 @@ class Board:
     def _track_through_facts(self, ctx, hits, index: int) -> dict:
         """What a track not drawn for the copper it would run through says: every piece along its first leg, the leg,
         and for each pad whether its part was placed when the room planning first tried this track (None where that was
-        not tried, and for copper that is not a part's pad)."""
+        not tried, and for copper that is not a part's pad). Where that try could not draw it, so no room was kept for it,
+        `room` says when it was tried and what refused it then (`_room_refusal`)."""
         op, blockers = hits
-        early = None if ctx.dry else self._room_refused.get(index)
+        early, room = (None, None) if ctx.dry else self._room_refused.get(index, (None, None))
         out = []
         for c in blockers:
             c = dict(c)
             c["placed_when_plannable"] = (c["who"][0] in early) if early is not None and c["form"] == "pad" else None
             out.append(c)
-        return {"met": out[0], "blockers": out,
-                "leg": {"start": [round(op.start.x, 6), round(op.start.y, 6)], "end": [round(op.end.x, 6), round(op.end.y, 6)]}}
+        facts = {"met": out[0], "blockers": out,
+                 "leg": {"start": [round(op.start.x, 6), round(op.start.y, 6)], "end": [round(op.end.x, 6), round(op.end.y, 6)]}}
+        if room is not None:
+            facts["room"] = room
+        return facts
 
     def _tail_why(self, ctx, tail) -> Refusal | None:
         """Why `tail` cannot be drawn - within clearance of another net's via
@@ -11811,6 +11822,22 @@ class _OutPartial:
 
     def append(self, *a):
         self._out._later(self._real.append)(*a)
+
+
+def _room_refusal(after: str, facts: dict | None) -> dict:
+    """Why no room was kept for a track (`_rooms_after`): the item whose placing made it plannable, and, from the
+    not-drawn finding its plan made then, what it ran into first (`met`, as the real finding names it, less
+    `placed_when_plannable`), how many more pieces were on that leg, and the leg."""
+    room = {"after": after}
+    if facts is None:
+        return room
+    room["variant"] = facts.get("variant")
+    if facts.get("met") is not None:
+        room["met"] = {k: v for k, v in facts["met"].items() if k != "placed_when_plannable"}
+        room["more"] = len(facts.get("blockers", ())) - 1
+    if facts.get("leg") is not None:
+        room["leg"] = facts["leg"]
+    return room
 
 
 def _rooms_moved(old: dict, new: dict, tol: float) -> list:
