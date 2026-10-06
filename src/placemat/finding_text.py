@@ -685,13 +685,22 @@ def _not_drawn_arc(f):
                ", or Bend.ARC_FREE where the octilinear legs made the short leg" if f["free_hint"] else ""))
 
 
+def _no_room(room) -> str:
+    """Why no room was kept for a track not drawn: when it could first be planned, and what refused it then."""
+    text = "; no room was kept for it: it could be planned once %s was placed, and then " % room["after"]
+    if room.get("met") is None:
+        return text + "it could not be drawn"
+    return text + "it ran through %s%s" % (_copper_name(room["met"]), " and %d more" % room["more"] if room.get("more") else "")
+
+
 _NOT_DRAWN = {
     "via_lost": lambda f: "track %s: its end on %s is not drawn, because that via found no spot" % (
         f["track"], ", ".join(f["lost"])),
     "past": lambda f: "%s: its point past %s is not drawn, because %s" % (f["item"], _past_items(f["names"]), _refusal(f["why"])),
     "arc": _not_drawn_arc,
-    "through": lambda f: "track %s: not drawn, it would run through %s%s" % (
-        f["net"], _copper_name(f["met"]), " and %d more" % (len(f["blockers"]) - 1) if len(f.get("blockers", ())) > 1 else ""),
+    "through": lambda f: "track %s: not drawn, it would run through %s%s%s" % (
+        f["net"], _copper_name(f["met"]), " and %d more" % (len(f["blockers"]) - 1) if len(f.get("blockers", ())) > 1 else "",
+        _no_room(f["room"]) if f.get("room") else ""),
     "pair_close": lambda f: "pair %s/%s: its pad pairs are too close for a centreline of its own; give the centreline's "
                             "points" % (f["p"], f["n"]),
     "vias_span": lambda f: "vias %s: a span of %s does not reach %s.%s on %s" % (

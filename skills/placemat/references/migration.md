@@ -14,6 +14,17 @@ section for each hand-written pattern a newer form replaces.
   through the inner layers. Layers are F, In1 to In30, B, or their `.Cu` names. An entry without `@` routes on the
   route's own layers, as before. The report's `island_layers` names each net's layers. Scripts need no change.
 
+### Changed
+
+- **"Track not drawn, it would run through X" says why no room was kept for it.** Placement keeps room for a declared
+  track once all its ends are placed, but only when it can be drawn then; when it cannot, no room is kept, and parts
+  searched after it may land on any of its legs. The finding named only those parts, along its first blocked leg, with
+  `placed_when_plannable` false, which read as the room not being kept against them. Its facts now add `room`: `after`
+  (the item whose placing made the track plannable), and from the not-drawn finding its plan made then, `variant`,
+  `met` (as the finding names copper), `more` (how many more pieces on that leg) and `leg`. The sentence adds "; no
+  room was kept for it: it could be planned once power was placed, and then it ran through cell power's U3 pad 2 (EN)
+  and 4 more". Fix what refused it then, and the room is kept from that step on. Scripts need no change.
+
 ## To 0.99.27
 
 ### New
