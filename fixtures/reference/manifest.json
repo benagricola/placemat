@@ -119,7 +119,8 @@
       "Watchy.kicad_pcb": "d7f8eb56613968aa061cd612a8679a034430fd9a1fcb08f83690b92c167db217",
       "Watchy.kicad_pro": "fde508c4b521db58712bde8e91120fb30bfeef0eefab5fe502737074bcc671aa",
       "Watchy.kicad_sch": "92d91681697848605b8caf940bb7d5f930aed028c216578dbe6a7f79c5427f85"
-    }
+    },
+    "notes": "Test (a) leaves nets open (15 at class widths, 5 at 0.15 mm): dense 4-layer board, router log reports routes blocked by pads, stubs and zones."
   },
   {
     "name": "spimux",
@@ -138,7 +139,8 @@
       "spimux.kicad_pcb": "66d80999b6cc7c5909b9e0a82576e200f21d3ba4c4a009ca789b6ccb7dc184f2",
       "spimux.kicad_pro": "44d350ffd08b8e71984a695ff4ac683b6814c53e6263fe9b13e7b088e103156a",
       "spimux.kicad_sch": "46427f7208a96c7d8a4b953761e5cf368d67f2c689474cf853d25e492d6ad8bd"
-    }
+    },
+    "notes": "Test (a) leaves 5 SPI flash nets open at both widths: the router cannot escape the 0.65 mm pitch part under the board rules (dog-bone escape fails). 86.5% closure matches the research run."
   },
   {
     "name": "chainlinkDriver",

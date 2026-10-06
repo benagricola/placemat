@@ -1,0 +1,656 @@
+{
+  "a": {
+    "chainlinkDriver": {
+      "class": {
+        "board": "chainlinkDriver",
+        "closure_clean": 1.0,
+        "human_track_mm": 2629.883386219394,
+        "human_vias": 111,
+        "new_violations": [],
+        "open": 0,
+        "open_nets": [],
+        "passed": true,
+        "seconds": 15.1,
+        "track_mm": 2319.0498077964667,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 118,
+        "widths": "class"
+      },
+      "human": {
+        "board": "chainlinkDriver",
+        "closure_clean": 1.0,
+        "human_track_mm": 2629.883386219394,
+        "human_vias": 111,
+        "new_violations": [],
+        "open": 0,
+        "open_nets": [],
+        "passed": true,
+        "seconds": 13.2,
+        "track_mm": 2277.6145692403006,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 107,
+        "widths": "human"
+      }
+    },
+    "esp-rust-board": {
+      "class": {
+        "board": "esp-rust-board",
+        "closure_clean": 1.0,
+        "human_track_mm": 878.6372571665057,
+        "human_vias": 216,
+        "new_violations": [
+          {
+            "at_mm": [
+              151.282,
+              121.229
+            ],
+            "nets": [
+              "GND"
+            ],
+            "type": "starved_thermal"
+          }
+        ],
+        "open": 0,
+        "open_nets": [],
+        "passed": false,
+        "seconds": 10.5,
+        "track_mm": 676.2394017177268,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 57,
+        "widths": "class"
+      },
+      "human": {
+        "board": "esp-rust-board",
+        "closure_clean": 1.0,
+        "human_track_mm": 878.6372571665057,
+        "human_vias": 216,
+        "new_violations": [
+          {
+            "at_mm": [
+              146.9295,
+              87.284
+            ],
+            "nets": [
+              "GND"
+            ],
+            "type": "starved_thermal"
+          }
+        ],
+        "open": 0,
+        "open_nets": [],
+        "passed": false,
+        "seconds": 10.2,
+        "track_mm": 671.7076321795606,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 56,
+        "widths": "human"
+      }
+    },
+    "ir-irradiance-probe": {
+      "class": {
+        "board": "ir-irradiance-probe",
+        "closure_clean": 0.8861,
+        "human_track_mm": 395.518257241467,
+        "human_vias": 196,
+        "new_violations": [
+          {
+            "at_mm": [
+              77.2,
+              83.2
+            ],
+            "nets": [
+              "/SCL",
+              "/SDA"
+            ],
+            "type": "clearance"
+          },
+          {
+            "at_mm": [
+              77.075,
+              99.32
+            ],
+            "nets": [
+              "GND",
+              "Net-(D1-C)"
+            ],
+            "type": "clearance"
+          }
+        ],
+        "open": 0,
+        "open_nets": [],
+        "passed": false,
+        "seconds": 20.4,
+        "track_mm": 322.34531923756225,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 17,
+        "widths": "class"
+      },
+      "human": {
+        "board": "ir-irradiance-probe",
+        "closure_clean": 0.962,
+        "human_track_mm": 395.518257241467,
+        "human_vias": 196,
+        "new_violations": [
+          {
+            "at_mm": [
+              77.075,
+              99.32
+            ],
+            "nets": [
+              "GND",
+              "Net-(D1-C)"
+            ],
+            "type": "clearance"
+          }
+        ],
+        "open": 0,
+        "open_nets": [],
+        "passed": false,
+        "seconds": 20.1,
+        "track_mm": 320.3766449899926,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 16,
+        "widths": "human"
+      }
+    },
+    "lora-v3": {
+      "class": {
+        "board": "lora-v3",
+        "closure_clean": 0.9815,
+        "human_track_mm": 1257.8193135423633,
+        "human_vias": 150,
+        "new_violations": [
+          {
+            "at_mm": [
+              162.7,
+              100.2
+            ],
+            "nets": [
+              "RF"
+            ],
+            "type": "solder_mask_bridge"
+          },
+          {
+            "at_mm": [
+              162.7,
+              100.2
+            ],
+            "nets": [
+              "RF"
+            ],
+            "type": "solder_mask_bridge"
+          },
+          {
+            "at_mm": [
+              168.7552,
+              100.0183
+            ],
+            "nets": [
+              "RF"
+            ],
+            "type": "solder_mask_bridge"
+          }
+        ],
+        "open": 1,
+        "open_nets": [
+          "DISPLAY-D/C"
+        ],
+        "passed": false,
+        "seconds": 7.4,
+        "track_mm": 296.83096667164324,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 24,
+        "widths": "class"
+      },
+      "human": {
+        "board": "lora-v3",
+        "closure_clean": 0.9815,
+        "human_track_mm": 1257.8193135423633,
+        "human_vias": 150,
+        "new_violations": [
+          {
+            "at_mm": [
+              162.7,
+              100.2
+            ],
+            "nets": [
+              "RF"
+            ],
+            "type": "solder_mask_bridge"
+          },
+          {
+            "at_mm": [
+              162.7,
+              100.2
+            ],
+            "nets": [
+              "RF"
+            ],
+            "type": "solder_mask_bridge"
+          },
+          {
+            "at_mm": [
+              168.7552,
+              100.0183
+            ],
+            "nets": [
+              "RF"
+            ],
+            "type": "solder_mask_bridge"
+          }
+        ],
+        "open": 1,
+        "open_nets": [
+          "DISPLAY-D/C"
+        ],
+        "passed": false,
+        "seconds": 7.4,
+        "track_mm": 296.83096667164324,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 24,
+        "widths": "human"
+      }
+    },
+    "pic_programmer": {
+      "class": {
+        "board": "pic_programmer",
+        "closure_clean": 1.0,
+        "human_track_mm": 1745.7030331706978,
+        "human_vias": 6,
+        "new_violations": [
+          {
+            "at_mm": [
+              99.06,
+              70.26
+            ],
+            "nets": [
+              "GND"
+            ],
+            "type": "track_width"
+          },
+          {
+            "at_mm": [
+              100.12,
+              69.872422
+            ],
+            "nets": [
+              "GND"
+            ],
+            "type": "track_width"
+          }
+        ],
+        "open": 0,
+        "open_nets": [],
+        "passed": false,
+        "seconds": 20.0,
+        "track_mm": 1685.994580440353,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 47,
+        "widths": "class"
+      },
+      "human": {
+        "board": "pic_programmer",
+        "closure_clean": 0.8721,
+        "human_track_mm": 1745.7030331706978,
+        "human_vias": 6,
+        "new_violations": [
+          {
+            "at_mm": [
+              100.12,
+              69.872422
+            ],
+            "nets": [
+              "GND"
+            ],
+            "type": "track_width"
+          },
+          {
+            "at_mm": [
+              99.06,
+              70.26
+            ],
+            "nets": [
+              "GND"
+            ],
+            "type": "track_width"
+          },
+          {
+            "at_mm": [
+              119.17,
+              64.77
+            ],
+            "nets": [
+              "GND",
+              "VCC"
+            ],
+            "type": "clearance"
+          }
+        ],
+        "open": 0,
+        "open_nets": [],
+        "passed": false,
+        "seconds": 20.0,
+        "track_mm": 1737.8217015790403,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 48,
+        "widths": "human"
+      }
+    },
+    "spimux": {
+      "class": {
+        "board": "spimux",
+        "closure_clean": 0.8649,
+        "human_track_mm": 864.5488065348824,
+        "human_vias": 43,
+        "new_violations": [
+          {
+            "at_mm": [
+              137.2,
+              95.67
+            ],
+            "nets": [
+              "GNDREF"
+            ],
+            "type": "starved_thermal"
+          }
+        ],
+        "open": 5,
+        "open_nets": [
+          "/SPI_FLASH_DQ1",
+          "/SPI_FLASH_DQ2",
+          "/SPI_FLASH_DQ3",
+          "/SP_FLASH_DQ0_1V8",
+          "/~{SPI_FLASH_CS_L}"
+        ],
+        "passed": false,
+        "seconds": 10.0,
+        "track_mm": 603.2095870610773,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 43,
+        "widths": "class"
+      },
+      "human": {
+        "board": "spimux",
+        "closure_clean": 0.8649,
+        "human_track_mm": 864.5488065348824,
+        "human_vias": 43,
+        "new_violations": [
+          {
+            "at_mm": [
+              137.2,
+              95.67
+            ],
+            "nets": [
+              "GNDREF"
+            ],
+            "type": "starved_thermal"
+          }
+        ],
+        "open": 5,
+        "open_nets": [
+          "/SPI_FLASH_DQ1",
+          "/SPI_FLASH_DQ2",
+          "/SPI_FLASH_DQ3",
+          "/SP_FLASH_DQ0_1V8",
+          "/~{SPI_FLASH_CS_L}"
+        ],
+        "passed": false,
+        "seconds": 10.1,
+        "track_mm": 603.2095870610773,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 43,
+        "widths": "human"
+      }
+    },
+    "usb-c-power-adapter": {
+      "class": {
+        "board": "usb-c-power-adapter",
+        "closure_clean": 1.0,
+        "human_track_mm": 437.6509716398021,
+        "human_vias": 229,
+        "new_violations": [],
+        "open": 0,
+        "open_nets": [],
+        "passed": true,
+        "seconds": 18.4,
+        "track_mm": 206.25164524614348,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 21,
+        "widths": "class"
+      },
+      "human": {
+        "board": "usb-c-power-adapter",
+        "closure_clean": 1.0,
+        "human_track_mm": 437.6509716398021,
+        "human_vias": 229,
+        "new_violations": [],
+        "open": 0,
+        "open_nets": [],
+        "passed": true,
+        "seconds": 26.7,
+        "track_mm": 201.136880136198,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 31,
+        "widths": "human"
+      }
+    },
+    "watchy": {
+      "class": {
+        "board": "watchy",
+        "closure_clean": 0.8582,
+        "human_track_mm": 917.7475659447364,
+        "human_vias": 108,
+        "new_violations": [
+          {
+            "at_mm": [
+              88.5,
+              80.2
+            ],
+            "nets": [
+              "Net-(AE1-FEED)"
+            ],
+            "type": "clearance"
+          },
+          {
+            "at_mm": [
+              76.8,
+              99.0
+            ],
+            "nets": [
+              "PREVGL"
+            ],
+            "type": "hole_clearance"
+          },
+          {
+            "at_mm": [
+              76.8,
+              99.0
+            ],
+            "nets": [
+              "PREVGL"
+            ],
+            "type": "hole_clearance"
+          }
+        ],
+        "open": 15,
+        "open_nets": [
+          "+3V3",
+          "/32K_N",
+          "/40M_N",
+          "ACC_INT_2",
+          "ADC",
+          "BTN1",
+          "BTN2",
+          "EN",
+          "Net-(U4-U0TXD/PROG/GPIO43)",
+          "RES",
+          "SCK",
+          "SCL",
+          "USB_D-"
+        ],
+        "passed": false,
+        "seconds": 36.3,
+        "track_mm": 613.6031023505358,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 52,
+        "widths": "class"
+      },
+      "human": {
+        "board": "watchy",
+        "closure_clean": 0.903,
+        "human_track_mm": 917.7475659447364,
+        "human_vias": 108,
+        "new_violations": [
+          {
+            "at_mm": [
+              93.05,
+              100.27
+            ],
+            "nets": [
+              "GDR"
+            ],
+            "type": "hole_clearance"
+          },
+          {
+            "at_mm": [
+              93.05,
+              100.27
+            ],
+            "nets": [
+              "RESE"
+            ],
+            "type": "hole_clearance"
+          },
+          {
+            "at_mm": [
+              88.5,
+              80.2
+            ],
+            "nets": [
+              "Net-(AE1-FEED)"
+            ],
+            "type": "shorting_items"
+          },
+          {
+            "at_mm": [
+              76.8,
+              99.7
+            ],
+            "nets": [
+              "PREVGL"
+            ],
+            "type": "hole_clearance"
+          },
+          {
+            "at_mm": [
+              76.8,
+              99.7
+            ],
+            "nets": [
+              "PREVGL"
+            ],
+            "type": "hole_clearance"
+          },
+          {
+            "at_mm": [
+              93.05,
+              100.27
+            ],
+            "nets": [
+              "RESE"
+            ],
+            "type": "hole_clearance"
+          },
+          {
+            "at_mm": [
+              93.05,
+              100.27
+            ],
+            "nets": [
+              "GDR"
+            ],
+            "type": "hole_clearance"
+          }
+        ],
+        "open": 5,
+        "open_nets": [
+          "+3V3",
+          "/32K_P",
+          "BTN1",
+          "BTN4",
+          "SCL"
+        ],
+        "passed": false,
+        "seconds": 16.6,
+        "track_mm": 687.5441457146158,
+        "versions": {
+          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "pcb": "pcbc 0.4.52",
+          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+        },
+        "vias": 63,
+        "widths": "human"
+      }
+    }
+  }
+}
