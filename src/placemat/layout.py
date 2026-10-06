@@ -12850,6 +12850,16 @@ def _escape_lane(fp, pad, pads, width: float, reach: float):
     return lane
 
 
+def _is_default(param, value) -> bool:
+    d = param.default
+    if d is param.empty or type(d) is not type(value):
+        return False
+    try:
+        return bool(d == value)
+    except Exception:                       # a value with no plain equality
+        return False
+
+
 def _declares_copper(fn):
     """A copper declaration's arguments, less its `why`, in reuse.canonical's form, for the intents it makes to carry
     (CopperIntent.form): a plan closure reads them, and canonical sees a closure as nothing but a function, so without
@@ -12865,7 +12875,9 @@ def _declares_copper(fn):
         except TypeError:
             return fn(self, *args, **kwargs)            # the declaration's own error
         from .reuse import canonical
-        self._declaring.append("%s%s" % (fn.__name__, canonical({k: v for k, v in given.items() if k not in ("self", "why")})))
+        # an argument given as its default digests as one left out, so spelling out a default replays as before
+        self._declaring.append("%s%s" % (fn.__name__, canonical({k: v for k, v in given.items() if k not in ("self", "why")
+                                                                 and not _is_default(sig.parameters[k], v)})))
         try:
             return fn(self, *args, **kwargs)
         finally:
