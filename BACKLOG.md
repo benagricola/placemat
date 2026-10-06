@@ -298,6 +298,9 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Overlapped DRC and renders use the shared KiCad environment** (0.99.26):
+  the release suite's three failures on 0.99.25 fixed (one bug, two stale tests).
+
 - **Explore routes as it searches, kept variants, pour holes, edge-clear legs** (0.99.25):
   `--route-best` quick-routes the plain placement and each new best during
   the search (replaces `--route-top`); a finished explore keeps its

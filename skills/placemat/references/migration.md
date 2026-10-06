@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.99.26
+
+### Fixed
+
+- **DRC and renders run alongside the checks with the shared KiCad environment.** The child processes the overlapped
+  DRC and renders start were given the caller's environment, not the one every other kicad-cli call gets. Scripts
+  need no change.
+
 ## To 0.99.25
 
 ### New

@@ -13,6 +13,7 @@ import threading
 import time
 
 from . import stop
+from .childenv import child_env
 
 
 class Cancelled(Exception):
@@ -35,7 +36,8 @@ class Children:
         with self._lock:
             if self.closed:
                 raise Cancelled(" ".join(map(str, cmd)))
-            proc = subprocess.Popen(cmd, **kwargs)
+            env = kwargs.pop("env", None)
+            proc = subprocess.Popen(cmd, env=env if env is not None else child_env(), **kwargs)
             self._live.add(proc)
             stop.track(proc)
         try:

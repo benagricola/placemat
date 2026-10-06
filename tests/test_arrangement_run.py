@@ -152,7 +152,7 @@ def test_with_render_each_proven_arrangement_is_rendered_in_its_folder_and_its_r
     from placemat.kicad import write
     rendered = []
 
-    def render_board(pcb_path, log, both_faces=False, timeout=None):        # kicad-cli's render is minutes: where it is asked
+    def render_board(pcb_path, log, both_faces=False, timeout=None, run=None):        # kicad-cli's render is minutes: where it is asked
         rendered.append(Path(pcb_path).parent)
         (Path(pcb_path).parent / "layout.png").write_bytes(b"png")
         return ["layout.png"]
