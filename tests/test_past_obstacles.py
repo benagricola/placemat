@@ -471,10 +471,10 @@ def test_the_skill_api_and_migration_teach_past_over_obstacles_and_copper_edge()
     assert "Past([vent], Edge.WEST)" in api and "Past([board.edge(facing=Edge.WEST)], Edge.EAST)" in api
     assert "the Past takes pads only" not in api
     assert "LabelKey" in api and "copper.edge" in skill and "Past([vent], Edge.WEST)" in skill
-    unreleased = (_SKILLS / "references/migration.md").read_text().split("## Unreleased", 1)[1].split("\n## To ", 1)[0]
+    released = (_SKILLS / "references/migration.md").read_text().split("## To 0.99.21", 1)[1].split("\n## To ", 1)[0]
     for word in ("Past passes any obstacle", "past_off_board", "LabelKey", "copper.edge", "copper.meets", "run score"):
-        assert word in unreleased, word
-    assert all(ord(c) < 128 for c in api + skill + unreleased), "ASCII only"
+        assert word in released, word
+    assert all(ord(c) < 128 for c in api + skill + released), "ASCII only"
 
 
 # ---------------------------------------------------------------- copper that waits for late copper

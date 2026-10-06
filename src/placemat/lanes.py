@@ -22,6 +22,8 @@ from .values import Box, Edge, Location, Part
 _DIR = {Edge.NORTH: (0.0, -1.0), Edge.SOUTH: (0.0, 1.0), Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0)}
 _TOL = 1e-9             # the clearance checks' own tolerance (occupancy._conflict)
 _SQ2 = math.sqrt(2.0)
+# The router's grid step when `route.router_args` gives no --grid-step (KRT routing_defaults.py GRID_STEP).
+ROUTER_GRID_STEP = 0.1
 
 
 class EscapeError(ValueError):
@@ -346,9 +348,20 @@ class Layouter:
 
     def _step(self, inner: _Lane, outer: _Lane) -> float:
         """From an inner lane's centreline to the next one out: half each one's copper
-        plus the clearance, a lane with a via counting as its via where the other passes it."""
-        gap = (self.env.pair_gap(inner.net) if self.paired.get(inner.number) == outer.number
-               else self.env.clearance(inner.net, outer.net))
+        plus the clearance, a lane with a via counting as its via where the other passes it.
+
+        Turned lanes that are not a pair's also leave room for the router's grid snap. The router starts a route from a
+        lane end at the nearest point of its grid, each coordinate rounded (KRT routing_config.py GridCoord.to_grid, grid
+        origin at the board's), and refuses a leg from there to the end that comes nearer the next lane than the
+        clearance (single_ended_routing.py _neck_terminal_grazes). That point lies up to half a grid step off on each
+        axis: across a lane, half a step where the lane runs along a board axis and half a step times sqrt 2 where it runs
+        at 45. The module does not know how the board turns it, so the step takes the larger."""
+        if self.paired.get(inner.number) == outer.number:
+            gap = self.env.pair_gap(inner.net)
+        else:
+            gap = self.env.clearance(inner.net, outer.net)
+            if self.decl.turn is not None:
+                gap += self.env.grid_step / _SQ2
         need = inner.width / 2.0 + outer.width / 2.0
         if inner.via:
             need = max(need, inner.via[0] / 2.0 + outer.width / 2.0)

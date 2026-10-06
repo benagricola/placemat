@@ -1,5 +1,6 @@
 """A real module (fixtures/fairing/mcu_fan, laid out by its current script: scripts/Mcu_layout_fans.py) whose south row fans out
-south-east in one escape, lanes 0.45 mm apart across their direction (x - y), the least a track and its clearance allow.
+south-east in one escape, lanes 0.45 mm apart across their direction (x - y), the least a track and its clearance allow
+(and the snap room of the fine grid the fixture is laid out for).
 The handoff pins in the fan have their way out along their own lane carried on, between the lanes beside them, with no
 room to spare. A way out judged on cells of a grid, off that line, did not find it and reported them walled in; a track
 drawn there, and KiCad's DRC on it, is the check that the way is real."""
@@ -14,6 +15,10 @@ pytestmark = needs_kicad
 
 pcbnew = pytest.importorskip("pcbnew")
 
+# The hand layout's lanes stand at the least pitch, a track and a clearance, with no room for the router's grid snap
+# (lanes.Layouter._step), and the west fan's bypass stands against them with none to spare. Laid out for a router on a
+# fine grid, the lanes keep the hand layout's pitch, so what is checked is the handoff pins' way out.
+FINE_GRID = {"route_router_args": ("--grid-step", "0.001")}
 _run = {}
 SCRIPT = "scripts/Mcu_layout_fans.py"
 
@@ -21,7 +26,7 @@ SCRIPT = "scripts/Mcu_layout_fans.py"
 @pytest.fixture
 def run(tmp_path_factory):
     if not _run:
-        _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True, script=SCRIPT)
+        _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True, overrides=FINE_GRID, script=SCRIPT)
     return _run["r"]
 
 
@@ -46,5 +51,5 @@ def test_the_fans_lanes_are_laid_at_the_least_pitch(run):
         a, b = t.GetStart(), t.GetEnd()
         if abs(abs(a.x - b.x) - abs(a.y - b.y)) < 10 and a.x != b.x:                    # the 45
             lines[t.GetNetname()] = pcbnew.ToMM(a.x) - pcbnew.ToMM(a.y)
-    assert lines["GNSS_TX"] - lines["GNSS_RX"] == pytest.approx(-0.4525, abs=1e-3)
-    assert lines["GNSS_PPS"] - lines["STRAP_JTAG"] == pytest.approx(0.4525, abs=1e-3)
+    assert lines["GNSS_TX"] - lines["GNSS_RX"] == pytest.approx(-0.4535, abs=1e-4)
+    assert lines["GNSS_PPS"] - lines["STRAP_JTAG"] == pytest.approx(0.4535, abs=1e-4)

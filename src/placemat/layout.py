@@ -11594,6 +11594,9 @@ class _LaneEnv:
         s = board.settings
         self.step, self.reach = s.place_escape_via_step, s.place_escape_via_reach
         self.hole_to_hole = board.geometry.hole_to_hole
+        from .lanes import ROUTER_GRID_STEP
+        from .settings import router_flag
+        self.grid_step = router_flag(s.route_router_args, "--grid-step") or ROUTER_GRID_STEP     # the router's grid
         self.own = [sh for shapes in pads.values() for sh in shapes]
         self.ref = decl.ref
         self._obstacles = None
