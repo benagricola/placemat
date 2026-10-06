@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **The studio acts on a followed command's suggestions.** With no script chosen, Try, Apply and Search options on a
+  finished command's findings (or a past run's, an explore's or a route's) were refused with "choose a layout script
+  first". They now act on that command's own script, as if it had been chosen. While the command is still running
+  they are disabled, saying they are available when it finishes, and `/suggest/try`, `/suggest/apply` and
+  `/suggest/probe` refuse with 409 and `"reason": "running"`. Scripts need no change.
+
 ## To 0.99.25
 
 ### New

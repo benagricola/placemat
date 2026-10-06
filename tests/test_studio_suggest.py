@@ -262,3 +262,51 @@ def test_a_past_run_whose_script_changed_since_is_refused_saying_so(studio):
         assert code == 409 and out["error"].startswith("this run's script has changed since") and "re-run to act on its suggestions" in out["error"], (path, out)
     code, out = _post(studio, "/suggest/show", {"view": {"kind": "run", "ref": "nope"}, "id": s["id"]})
     assert code == 404 and "no such resolve" not in out["error"]
+
+
+# ------------------------------------------------------------------ a suggestion of a followed command
+# A studio with no script chosen follows the commands of the project. While the followed command runs its plan is not its last, so
+# Try, Apply and Search are refused (409, reason "running") and the run is left alone; once it has finished they act on the command's
+# own script, as if it had been chosen.
+@needs_kicad
+def test_a_followed_commands_suggestions_wait_for_it_to_finish_then_act_on_its_script(tmp_path):
+    script = real_modules.stage(tmp_path, MODULE, edit=lambda t: t + OVER)
+    first = Studio(script, port=0, open_browser=False, debounce_ms=100, poll_ms=50)
+    raw = []
+    finish = first._finish
+    first._finish = lambda cur, ev: (raw.append(json.loads(json.dumps(ev["doc"]))), finish(cur, ev))
+    first.start()
+    try:
+        _settled(first)
+        _, _, s = _first(first)
+    finally:
+        first.stop()
+    studio = Studio(None, port=0, open_browser=False, root=script.parents[2], debounce_ms=100, poll_ms=50)
+    studio.start()
+    try:
+        assert studio.script is None
+        studio._on_channel(3, {"ev": "hello", "pid": 99999999, "command": "preview", "script": str(script), "args": ["preview"]})
+        studio._on_channel(3, {"ev": "plan", "doc": raw[0]})
+        view = {"kind": "cmd", "ref": "3"}
+        text = script.read_text()
+        code, out = _post(studio, "/suggest/show", {"view": view, "id": s["id"]})
+        assert code == 200 and "C_HF1_LINK_LIMIT_MM" in out["diff"] and out["files"][0]["file"] == script.name, out
+        for path in ("/suggest/try", "/suggest/apply", "/suggest/probe"):
+            code, out = _post(studio, path, {"view": view, "id": s["id"]})
+            assert code == 409 and out["reason"] == "running" and out["cmd"] == 3 and "when it has finished" in out["error"], (path, out)
+        assert studio.cmds[3]["state"] == "running" and script.read_text() == text
+        studio._on_channel(3, {"ev": "done", "record": ""})
+        code, out = _post(studio, "/suggest/try", {"view": view, "id": s["id"]})
+        assert code == 200 and out["state"] == "done" and out["cleared"] is True and out["view"] == view, out
+        assert out["compare"]["files"][script.name]["added"] >= 1 and script.read_text() == text
+        code, out = _post(studio, "/suggest/apply", {"view": view, "id": s["id"]})
+        assert code == 200 and out["undo"] and "C_HF1_LINK_LIMIT_MM" in script.read_text(), out
+        assert studio.script is None and [a["id"] for a in studio.applied_list()] == [s["id"]]
+        code, out = _post(studio, "/suggest/undo")
+        assert code == 200 and script.read_text() == text, out
+        # the script has changed since the command ran: refused, as for a past run
+        script.write_text(text + "\n# edited since the command\n")
+        code, out = _post(studio, "/suggest/apply", {"view": view, "id": s["id"]})
+        assert code == 409 and "has changed since" in out["error"], out
+    finally:
+        studio.stop()

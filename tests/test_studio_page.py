@@ -3479,3 +3479,39 @@ send("cmdev", {id: 8, n: 0, ev: r}); send("cmdev", {id: 8, n: 1, ev: r});
 out.n = ev("S.xv.routes.length");
 """)
     assert out["n"] == 1
+
+
+@needs_node
+def test_a_followed_commands_try_apply_and_search_are_disabled_while_it_runs_saying_why_and_come_back_when_it_finishes(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const SG = [{id: "s1a", text: "Place c4 beside c1, on its north side", rank: 1, lever: "beside", how: "instant"},
+              {id: "s1b", text: "Changing the gap might fix this: search options?", rank: 2, lever: "gap", how: "searched", figure: {kind: "bisect", name: "gap", unit: "mm", lo: 0.1, hi: 0.5}}];
+  const doc = Object.assign({}, BOARD, {items: [item("a", 1)], steps: [{i: 0, item: "a", kind: "part", placed: true, note: "", freedom: "fixed", copper: []}], copper: [], links: [], findings: [
+    {text: "c4: no legal location", kind: "unplaced", severity: "critical", item: "", case: "unplaced.search", suggestions: SG, at: null, refs: [], pads: []}], unplaced: [], pocketed: [], layers: ["F.Cu"], counts: {placed: 1, findings: 1}, score: null});
+  const a = mkcmd(4, {kind: "preview", command: "preview"});
+  serve({"/cmd/4": {summary: a, events: [], plan: {ev: "plan", doc}, explore: null}});
+  helloPicker({commands: [a]}); await tick(); flush();
+  ev("S.sg.more.add(0)");
+  const html = () => { ev("renderFindings()"); return els["#tab-findings"].innerHTML; };
+  out.running = html();
+  const n = fetched.length;
+  await ev("sgAct")("try", "s1a"); await ev("sgAct")("apply", "s1a"); await ev("sgAct")("search", "s1b");
+  out.posted = fetched.slice(n).filter(([u, o]) => o).length;
+  send("cmd", Object.assign({}, a, {state: "done", ended: clock / 1000}));
+  flush();
+  out.done = html();
+  console.log(JSON.stringify(out));
+})();
+""")
+    r = out["running"]
+    for a, sid in (("try", "s1a"), ("apply", "s1a"), ("search", "s1b")):
+        btn = re.search(r'<button data-sg="%s" data-sid="%s" title="([^"]*)" disabled>' % (a, sid), r)
+        assert btn and btn.group(1).endswith(": available when the preview finishes"), (a, r)
+    assert re.search(r'<button data-sg="show" data-sid="s1a" title="[^"]*">', r)                     # Show writes nothing: it stays
+    assert "Try, Apply and Search options are available when the preview finishes." in r and "(" not in r.split("sgwait")[1].split("</div>")[0]
+    assert out["posted"] == 0
+    d = out["done"]
+    assert "sgwait" not in d and " disabled" not in d
+    for a, sid in (("try", "s1a"), ("apply", "s1a"), ("search", "s1b")):
+        assert 'data-sg="%s" data-sid="%s"' % (a, sid) in d

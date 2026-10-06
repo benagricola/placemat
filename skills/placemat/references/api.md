@@ -4158,7 +4158,12 @@ resolve's findings). On a past run, explore, route or command opened in place of
 `{view: {kind, ref}, id}` instead (`kind` one of `run`, `build`, `route`, `explore`, `cmd`, `ref` the run id, record file
 or command id it was opened by); the studio finds the suggestion in that view's plan, a try is compared with that plan,
 and a script that changed since is refused (409, "this run's script has changed since; re-run to act on its suggestions").
-A try or a search of a view of another script than the one watched is refused (409):
+A try or a search of a view of another script than the one watched is refused (409). With no script chosen (the studio follows
+commands, or the view was opened from the dialog) Try, Apply and Search act on the view's own script, as if it had been chosen:
+the script and its inputs (what a resolve of it reads) count as watched for Apply, and Undo and Redo use that board's applied log.
+A command that is still running has not made its last plan: on it Try, Apply and Search are disabled in the page, their title saying
+they are available when the command finishes, and the server refuses them (409, `{"error", "reason": "running", "cmd": id}`). Show
+stays. The studio never stops a run started elsewhere:
 
 - Show, `POST /suggest/show`: the dry-run diff of every file the edit writes (unified diff, hunks, the lines changed, the
   declarations the edit names), opened in the script dialog with Apply and Cancel. Nothing is written.

@@ -71,11 +71,13 @@ class Record:
 class PastView:
     """A view the page shows in place of a resolve of this studio, whose suggestion is acted on: `kind` and `ref` as the page names it
     ("run" and its id, "build" and the run's id, "route" and its record, "explore" and its record, "cmd" and the command's id), `noun`
-    what the refusals call it, `script` the layout script it is of ("" when it does not say)."""
+    what the refusals call it, `script` the layout script it is of ("" when it does not say), `running` whether it is a command
+    still running (its plan is not its last: Try, Apply and Search wait for it to finish)."""
     kind: str
     ref: str
     noun: str
     script: str
+    running: bool = False
 
 
 class SuggestRefused(Exception):
@@ -384,6 +386,7 @@ class Studio:
         self._fresh_next = False                # the next resolve replays nothing from an earlier one
         self._try = None                        # the try of a suggestion in flight: {"id", "rid", "event", "result", ...}
         self._probe = None                      # the probe of a searched suggestion in flight: {"sid", "proc", "started"}
+        self._applied_dir = None                # with no script chosen, the board a followed command's suggestion was last applied to
         self._applied_text = ""                 # what the next resolve is said to follow: an applied (or undone) suggestion
         self._notes: list = []                  # this script's notes (notes.py), oldest first
         self._notes_stamp = None                # (mtime_ns, size) of the notes file when it was last read
@@ -477,27 +480,33 @@ class Studio:
             self.hub.emit("switched", self._hello_data())
 
     # ------------------------------------------------------------ files
-    def name_of(self, path) -> str:
-        return os.path.relpath(path, self.script.parent if self.script else self.root)
+    def name_of(self, path, base=None) -> str:
+        """`path` as the page names files: relative to `base` (a folder), by default the watched script's folder."""
+        return os.path.relpath(path, base or (self.script.parent if self.script else self.root))
 
     def watched(self) -> list:
         """What a resolve depends on: the script and what it imports, its lock
         and routes, every placemat.toml above the board, the fab profile and
         the cached generation."""
+        return self.watched_of(self.script, self.src)
+
+    @staticmethod
+    def watched_of(script, src) -> list:
+        """What a resolve of `script` (its board `src`) depends on: `watched` for a script the studio is not watching."""
         from .project import fab_profile, script_files
         from .runner import cached_generation
         from .settings import _files
-        if self.script is None:
+        if script is None:
             return []
-        files = list(script_files(self.script, missing=True))
-        files += _files(self.script.parent)
+        files = list(script_files(script, missing=True))
+        files += _files(script.parent)
         try:
-            fab = fab_profile(self.src.board_dir)
+            fab = fab_profile(src.board_dir)
             if fab.path:
                 files.append(Path(fab.path))
         except (ValueError, OSError):
             pass
-        files.append(cached_generation(self.src) / self.src.pcb.name)
+        files.append(cached_generation(src) / src.pcb.name)
         seen, out = set(), []
         for f in files:
             if f not in seen:
@@ -505,13 +514,14 @@ class Studio:
                 out.append(f)
         return out
 
-    def snapshot_texts(self) -> dict:
+    def snapshot_texts(self, files=None, base=None) -> dict:
+        """The texts of `files` (default the watched ones), by their names relative to `base` (name_of)."""
         out = {}
-        for f in self._files:
+        for f in self._files if files is None else files:
             if f.suffix == ".kicad_pcb" or not f.is_file():
                 continue
             try:
-                out[self.name_of(f)] = f.read_text(errors="replace")
+                out[self.name_of(f, base)] = f.read_text(errors="replace")
             except OSError:
                 pass
         return out
@@ -894,13 +904,53 @@ class Studio:
         finding = next((f for f in findings if any(s.get("id") == sid for s in f.get("suggestions", ()))), None)
         if finding is None:
             raise SuggestRefused(404, "this %s has no suggestion %r" % (noun, sid))
-        doc = dict(doc, items=[dict(it, file=self.name_of(it["file"])) if it.get("file") and os.path.isabs(it["file"]) else it
+        running = False
+        if kind == "cmd":
+            with self.lock:
+                running = (self.cmds.get(_int(ref)) or {}).get("state") == "running"
+        past = PastView(kind, ref, noun, script, running)
+        target, src = self._target(past)
+        base = target.parent if target is not None and target != self.script else None
+        doc = dict(doc, items=[dict(it, file=self.name_of(it["file"], base)) if it.get("file") and os.path.isabs(it["file"]) else it
                                for it in doc.get("items", ())])
-        texts = self.snapshot_texts()
+        texts = self.snapshot_texts(None if base is None else self.watched_of(target, src), base)
         label = "%s %s" % (noun, Path(ref).name if kind in ("explore", "route") else ref)
         rec = Record(label, time.time(), texts, with_spans(doc, texts), [], {})
         pool = sg.from_json([s for f in findings for s in f.get("suggestions", ())])
-        return rec, pool, finding, PastView(kind, ref, noun, script)
+        return rec, pool, finding, past
+
+    def _target(self, past):
+        """(script, src) a try, apply or search of a suggestion acts on: the script this studio watches, or, with none chosen (the
+        studio follows commands), the script of the view the suggestion is of, as if it had been chosen. (None, None) when neither
+        is there."""
+        from .project import find_board
+        with self.lock:
+            if self.script is not None or past is None or not past.script:
+                return self.script, self.src
+        script = Path(past.script).resolve()
+        try:
+            return (script, find_board(script)) if script.is_file() else (None, None)
+        except (ValueError, OSError):
+            return None, None
+
+    def _target_or_refuse(self, past):
+        script, src = self._target(past)
+        if script is None or src is None:
+            raise SuggestRefused(409, "choose a layout script first", reason="no_script")
+        return script, src
+
+    def _base(self, past):
+        """The folder a suggestion's files are named relative to: None (the watched script's) unless it acts on another script (_target)."""
+        script, _ = self._target(past)
+        return script.parent if script is not None and script != self.script else None
+
+    @staticmethod
+    def _not_running(past) -> None:
+        """A command still running has not made its last plan: its suggestions are tried, applied and searched once it has finished.
+        A run started elsewhere is never stopped for it."""
+        if past is not None and past.running:
+            raise SuggestRefused(409, "this %s is still running: its suggestions can be tried, applied and searched when it has finished" % past.noun,
+                                 reason="running", cmd=_int(past.ref))
 
     def _same_script(self, past) -> None:
         """A try or a search of a past view's suggestion resolves the watched script: the view must be of it."""
@@ -933,10 +983,10 @@ class Studio:
             return SuggestRefused(409, "this %s's script has changed since; re-run to act on its suggestions" % past.noun, files=files)
         return SuggestRefused(status, str(e.args[0]) if isinstance(e, KeyError) and e.args else str(e), files=files)
 
-    def _applied_json(self, done) -> dict:
+    def _applied_json(self, done, base=None) -> dict:
         files = []
         for path, ch in done.files.items():
-            files.append({"file": self.name_of(path), "path": str(path), "diff": ch.diff, "old_lines": list(ch.old_lines),
+            files.append({"file": self.name_of(path, base), "path": str(path), "diff": ch.diff, "old_lines": list(ch.old_lines),
                           "new_lines": list(ch.new_lines), "hunks": line_diff(ch.before or "", ch.after or "")["hunks"],     # a created or removed file has no text on one side
                           "added": len(ch.new_lines), "removed": len(ch.old_lines)})
         return {"id": done.id, "text": done.text, "dry_run": done.dry_run, "files": files, "diff": done.diff()}
@@ -955,11 +1005,11 @@ class Studio:
 
     def _log_dir(self):
         """The board folder whose applied log the page's undo and redo use: the script's, or before there is one the board the
-        builder is making."""
+        builder is making, or with neither the board of the followed command a suggestion was last applied to."""
         if self.src is not None:
             return self.src.board_dir
         sess = self.builder.session
-        return sess["board_dir"] if sess else None
+        return sess["board_dir"] if sess else self._applied_dir
 
     def redo_text(self) -> str:
         """What a redo would make again (the apply the last undo took back), or "" when there is nothing to redo."""
@@ -981,14 +1031,15 @@ class Studio:
             done = sg.apply_suggestion(pool, sid, dry_run=True)
         except sg.SuggestionError as e:
             raise self._sg_refusal(e, past)
-        out = self._applied_json(done)
+        base = self._base(past)
+        out = self._applied_json(done, base)
         s = next(x for x in pool if x.id == sid)
         targets = []
         for e in s.edits:                                              # a suggestion may make several edits; each names its declaration
             if e.target is not None:
                 targets.append(("target", e.target))
             targets += [("refers to", r) for r in (e.refs or {}).values()]
-        out["targets"] = [{"role": role, "key": tg.key, "file": self.name_of(tg.file), "line": tg.line} for role, tg in targets if tg.file]
+        out["targets"] = [{"role": role, "key": tg.key, "file": self.name_of(tg.file, base), "line": tg.line} for role, tg in targets if tg.file]
         out["resolve"] = rec.id
         return out
 
@@ -997,21 +1048,24 @@ class Studio:
         if not self.cfg.studio_apply:
             raise SuggestRefused(403, "this studio shows suggestions but does not write them ([studio] apply is false)")
         rec, pool, finding, past = self._suggestion(rid, sid, view)
-        if self.src is None:
-            raise SuggestRefused(409, "choose a layout script first")
-        root = sg.project_root(self.src.board_dir)
+        self._not_running(past)
+        script, src = self._target_or_refuse(past)
+        base = self._base(past)
+        root = sg.project_root(src.board_dir)
         try:
             dry = sg.apply_suggestion(pool, sid, dry_run=True)
-            watched = {Path(f).resolve() for f in self.watched()}
-            outside = [self.name_of(p) for p in dry.files if Path(p).resolve() not in watched]
+            watched = {Path(f).resolve() for f in self.watched_of(script, src)}       # the followed command's script and its inputs when none is chosen
+            outside = [self.name_of(p, base) for p in dry.files if Path(p).resolve() not in watched]
             if outside:
                 raise SuggestRefused(422, "the edit would write %s, which this studio does not watch" % ", ".join(outside))
-            done = sg.apply_suggestion(pool, sid, root=root, log=sg.log_path(self.src.board_dir))
+            done = sg.apply_suggestion(pool, sid, root=root, log=sg.log_path(src.board_dir))
         except sg.SuggestionError as e:
             raise self._sg_refusal(e, past)
         with self.lock:
             self._applied_text = "applied from a suggestion: " + done.text
-        out = self._applied_json(done)
+            if script != self.script:
+                self._applied_dir = src.board_dir                  # undo and redo use that board's log while no script is chosen
+        out = self._applied_json(done, base)
         out["undo"] = True
         self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "id": sid, "redo": ""})
         return out
@@ -1067,24 +1121,25 @@ class Studio:
         one at a time; a change to a watched file cancels it."""
         from . import suggestions as sg
         rec, pool, finding, past = self._suggestion(rid, sid, view)
+        self._not_running(past)
         try:
             done = sg.apply_suggestion(pool, sid, dry_run=True)
         except sg.SuggestionError as e:
             raise self._sg_refusal(e, past)
         self._same_script(past)
+        script, _ = self._target_or_refuse(past)
+        base = self._base(past)
         overlay = {str(p): ch.after for p, ch in done.files.items()}
         with self.lock:
-            if self.script is None:
-                raise SuggestRefused(409, "choose a layout script first")
             if self._cur is not None or self._dirty or self._initial:
                 raise SuggestRefused(409, "a resolve is running or pending: try again when it has finished")
             if self._try is not None:
                 raise SuggestRefused(409, "another try is running")
             self._next_id += 1
             tr = self._try = {"id": self._next_id, "rid": rec.id, "event": threading.Event(), "result": None, "overlay": overlay,
-                              "finding": finding, "text": done.text, "sid": sid, "applied": self._applied_json(done),
-                              "past": past, "base": rec if past is not None else None}
-            if not self.worker.send({"cmd": "try", "id": tr["id"], "script": str(self.script), "overlay": overlay}):
+                              "finding": finding, "text": done.text, "sid": sid, "applied": self._applied_json(done, base),
+                              "past": past, "base": rec if past is not None else None, "names": base}
+            if not self.worker.send({"cmd": "try", "id": tr["id"], "script": str(script), "overlay": overlay}):
                 self._try = None
                 raise SuggestRefused(409, "the resolve worker could not be started")
         limit = float(self.cfg.studio_try_timeout_s)
@@ -1106,16 +1161,16 @@ class Studio:
     def probe_start(self, rid, sid, yes: bool = False, view=None) -> dict:
         from . import probe, suggestions as sg
         rec, pool, finding, past = self._suggestion(rid, sid, view)
+        self._not_running(past)
         s = sg.find(pool, sid)
         if s.how != "searched":
             raise SuggestRefused(422, "%s is not a searched suggestion: it has a value to apply or try" % sid)
         self._same_script(past)
+        script, src = self._target_or_refuse(past)
+        board_dir = src.board_dir
         with self.lock:
-            if self.script is None:
-                raise SuggestRefused(409, "choose a layout script first")
             if self._probe is not None and self._probe["proc"].poll() is None:
                 raise SuggestRefused(409, "a probe is already running (%s): stop it first" % self._probe["sid"])
-            script, board_dir = self.script, self.src.board_dir
         est = probe.estimate(s, board_dir, script, self.cfg.studio_probe_candidates, self.cfg.studio_probe_budget_s)
         if est["board_wide"] and not yes:
             return {"state": "confirm", "estimate": est, "line": probe.estimate_line(est)}
@@ -1147,7 +1202,7 @@ class Studio:
             self._end_try({"state": "cancelled", "message": "the try was stopped: %s" % (tr.get("cancel") or "cancelled")})
         elif kind == "try_error":
             self._end_try({"state": "error", "message": "the edited script does not run: %s" % channel.failure_text(ev),
-                           "file": self.name_of(ev["file"]) if ev.get("file") else "", "line": ev.get("line")})
+                           "file": self.name_of(ev["file"], tr.get("names")) if ev.get("file") else "", "line": ev.get("line")})
         else:
             from . import suggestions as sg
             rec = tr["base"] or self.record(tr["rid"])
@@ -1156,10 +1211,10 @@ class Studio:
                 return
             texts = dict(rec.texts)
             for path, after in tr["overlay"].items():
-                texts[self.name_of(path)] = after
+                texts[self.name_of(path, tr.get("names"))] = after
             doc = present.plan(ev["doc"])
             for item in doc["items"]:
-                item["file"] = self.name_of(item["file"]) if item.get("file") else ""
+                item["file"] = self.name_of(item["file"], tr.get("names")) if item.get("file") else ""
             for f in doc.get("findings", ()):
                 f["suggestions"] = []                      # their digests are of the overlay: a try's suggestions are never applied
             doc = with_spans(doc, texts)

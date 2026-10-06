@@ -92,7 +92,8 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #sgbar b, #sgdlg b { overflow-wrap: anywhere; }
 #sgbar .sgx { margin-left: auto; }
 #sgbar button, #sgdlg button, .sgbtns button { border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
-#sgbar button:disabled, .sgbtns button:disabled { opacity: 0.5; }
+#sgbar button:disabled, .sgbtns button:disabled, #sgdlg button:disabled { opacity: 0.5; }
+.sgwait { font-size: 12px; }
 .sg { margin-top: 3px; font-weight: 400; }
 .difffile { position: sticky; top: 0; z-index: 1; padding: 4px 10px; background: var(--surface2); border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .sgrow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
@@ -3036,7 +3037,7 @@ on("cmd", c => {
   if (fresh && c.state === "running" && S.latestOn && kindOf(c) !== "apply") latestSwitch();
   else if (fresh && c.state === "running" && !(S.run && S.run.pid && S.run.pid === c.pid))
     toast(kindWord(kindOf(c)) + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { leaveLatest(); goTab("runs"); openCmd(c.id); });
-  if (S.cmdView && S.cmdView.id === c.id) { renderCmdBar(); schedule("status"); }
+  if (S.cmdView && S.cmdView.id === c.id) { renderCmdBar(); schedule("status"); if (was && was.state !== c.state) schedule("findings", "card", "steps"); if (S.sg.show) renderSgDialog(); }       // its suggestions' Try, Apply and Search wait for it to finish
   if (c.probe) schedule("findings", "card", "steps");
   schedule("runs", "counts", "start");
 });
@@ -3270,16 +3271,25 @@ const SG_KINDS = {
   advice: (b) => b("pinmap", "Try", "draw the airwires before and after this map and list it; nothing is resolved or written"),
 };
 const sgKind = s => s.how === "searched" ? "search" : s.how === "advice" ? "advice" : "instant";
+// A followed command that is still running has not made its last plan: Try, Apply and Search act on its script once it has finished,
+// and until then they are disabled, saying so. Show stays: it writes nothing. The studio never stops a run started elsewhere.
+const SG_WAITS = new Set(["try", "apply", "search", "probeyes", "probego"]);
+function sgWaiting() {
+  const V = S.cmdView, vs = viewState();
+  return V && typeof V.id === "number" && vs && vs.state === "running" ? "available when the " + kindWord(vs.kind) + " finishes" : "";
+}
 function sgRow(s, withLever) {
-  const b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(title) + '"' + (S.sg.busy ? " disabled" : "") + ">" + label + "</button>";
+  const wait = sgWaiting();
+  const b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(wait && SG_WAITS.has(a) ? label + ": " + wait : title) + '"' +
+    (S.sg.busy || (wait && SG_WAITS.has(a)) ? " disabled" : "") + ">" + label + "</button>";
   return '<div class="sgrow">' + (withLever && s.lever ? pill(s.lever.replace(/_/g, " ")) : "") + '<span class="sgtext">' + esc(s.text) + '</span><span class="sgbtns">' +
     SG_KINDS[sgKind(s)](b) + "</span></div>" + (s.how === "searched" ? sgProbeHTML(s) : "") + (S.pinmap && S.pinmap.sid === s.id ? pinMapHTML(s) : "");
 }
 function sgHTML(f) {
   const ss = sgList(f), k = sgKey(f);
   if (!ss.length || k < 0) return "";
-  const more = ss.slice(1), open = S.sg.more.has(k);
-  return '<div class="sg">' + sgRow(ss[0], false) + (more.length ? '<a class="sgmore" data-sgmore="' + k + '">' + (open ? "fewer" : "more (" + more.length + ")") + "</a>" : "") +
+  const more = ss.slice(1), open = S.sg.more.has(k), wait = sgWaiting();
+  return '<div class="sg">' + (wait ? '<div class="sgwait">Try, Apply and Search options are ' + esc(wait) + ".</div>" : "") + sgRow(ss[0], false) + (more.length ? '<a class="sgmore" data-sgmore="' + k + '">' + (open ? "fewer" : "more (" + more.length + ")") + "</a>" : "") +
     (open ? more.map(s => sgRow(s, true)).join("") : "") + "</div>";
 }
 // ---- a search's live view and outcome. The probe is a command of its own (command "apply"); its summary carries {start, candidates, done}, kept
@@ -3323,7 +3333,7 @@ function probeCands(cs, unit) {
     '<span class="dim">' + Number(c.seconds.toFixed(1)) + " s" + (c.saved ? ", saved" : "") + "</span></div>").join("") + "</div>";
 }
 function sgProbeHTML(s) {
-  const g = S.sg, b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(title) + '">' + label + "</button>";
+  const g = S.sg, wait = sgWaiting(), b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(wait && SG_WAITS.has(a) ? label + ": " + wait : title) + '"' + (wait && SG_WAITS.has(a) ? " disabled" : "") + ">" + label + "</button>";
   if (g.confirm && g.confirm.sid === s.id) return '<div class="sgprobe"><div class="sgl"><span>' + esc(g.confirm.line.charAt(0).toUpperCase() + g.confirm.line.slice(1)) + ".</span>" +
     b("probeyes", "Search", "resolve the edited script for each candidate; nothing is written") + b("probeno", "Cancel", "") + "</div></div>";
   const c = probeCmd(s);
@@ -3398,7 +3408,7 @@ async function sgAct(kind, sid) {
     return;
   }
   const s = sgFind(sid), where = sgWhere(), g = S.sg;
-  if (g.busy) return;
+  if (g.busy || (SG_WAITS.has(kind) && sgWaiting())) return;
   g.note = null;
   if (kind === "show") {
     const r = await sgPost("/suggest/show", Object.assign(where, {id: sid}));
@@ -3487,7 +3497,7 @@ function renderSgDialog() {
   if (bar.hidden) return false;
   const sid = sh.id;
   bar.innerHTML = pill("dry run", "warn") + "<b>" + esc(sh.text) + '</b><span class="dim">nothing is written</span>' +
-    (S.canApply && !S.try ? '<button data-sg="apply" data-sid="' + esc(sid) + '">Apply</button>' : "") + (S.sg.src ? '<button data-sg="diffview">Diff</button>' : "") + '<button data-sg="cancel">Cancel</button>' +
+    (S.canApply && !S.try ? '<button data-sg="apply" data-sid="' + esc(sid) + '"' + (sgWaiting() ? ' disabled title="' + esc("Apply: " + sgWaiting()) + '"' : "") + ">Apply</button>" : "") + (S.sg.src ? '<button data-sg="diffview">Diff</button>' : "") + '<button data-sg="cancel">Cancel</button>' +
     (sh.targets || []).map(tg => '<button data-sgline="' + esc(tg.file + ":" + tg.line) + '" title="' + esc(tg.role) + '">' + esc(tg.key) + " " + esc(tg.file) + ":" + tg.line + "</button>").join("");
   return !S.sg.src;
 }
