@@ -890,12 +890,32 @@ def _copy_project(src_pcb, dst_pcb) -> None:
 
 
 def main_pass_nets(nets, excluded) -> set:
-    """The nets of `nets` the main pass's `--nets '*' '!NET' ...` matches, as the router expands it (KRT net_queries.py
-    expand_net_patterns, net_pattern_matches): the wildcard leaves out unnamed and 'unconnected-*' nets, and an excluded
-    name with no sheet path also excludes the nets whose last path component it is."""
-    leaves = {x for x in excluded if "/" not in x}
-    return {n for n in nets if n and not n.lower().startswith("unconnected-") and n not in excluded
-            and not ("/" in n and n.rsplit("/", 1)[-1] in leaves)}
+    """The nets of `nets` the main pass's `--nets '*' '!NET' ...` (router_command) matches, as the router expands it: a
+    port of KRT net_queries.py expand_net_patterns and net_pattern_matches. The wildcard takes every named net but the
+    'unconnected-*' ones; each '!NET' is an fnmatch pattern ('D[0]' matches D0, not D[0]) that also matches the last
+    path component of a sheet-qualified net when it names no path; and a '!NET' that is itself the name of a net on the
+    board is that net, included, not an exclusion of NET."""
+    import fnmatch
+
+    def matches(name, pattern):                  # net_pattern_matches
+        if fnmatch.fnmatch(name, pattern):
+            return True
+        return "/" not in pattern and "/" in name and fnmatch.fnmatch(name.rsplit("/", 1)[-1], pattern)
+    known = {n for n in nets if n}
+    pool = {n for n in known if not n.lower().startswith("unconnected-")}
+    result, dropped = set(pool), set()           # '*' first
+    for x in sorted(excluded):
+        raw = "!" + x
+        if raw in known:                         # a literal active-low net: an include
+            hit = {n for n in pool if matches(n, raw) and n not in dropped}
+            result |= hit if hit else ({raw} - dropped)
+            continue
+        hit = {n for n in pool if matches(n, x)}
+        if "*" not in x and "?" not in x:
+            dropped.add(x)
+        dropped |= hit
+        result -= hit
+    return result
 
 
 def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,

@@ -86,3 +86,48 @@ def test_the_main_pass_matches_what_the_routers_wildcard_and_exclusions_match():
     assert main_pass_nets(nets, {"GND"}) == {"/GND_A", "SIG"}
     assert main_pass_nets(nets, {"/Sub/GND", "SIG"}) == {"GND", "/GND_A"}
     assert main_pass_nets(nets, {"GND", "/GND_A", "SIG"}) == set()
+
+
+def test_an_excluded_name_is_an_fnmatch_pattern_to_the_router():
+    """KRT matches '!D[0]' with fnmatch (net_queries.py net_pattern_matches): the brackets are a set, so it excludes D0
+    and leaves the net called D[0] in."""
+    from placemat.kicad.route import main_pass_nets
+    assert main_pass_nets({"D[0]", "D0", "SIG"}, {"D[0]"}) == {"D[0]", "SIG"}
+    assert main_pass_nets({"D[0]"}, {"D[0]"}) == {"D[0]"}
+
+
+def test_an_exclusion_that_names_a_net_itself_is_that_net_included():
+    """KRT net_queries.py: a '!X' that is the name of a net on the board is a literal include of that net (#177); with
+    '!!RESET' first (the exclusions go sorted), the net !RESET is already excluded and the include does not bring it back."""
+    from placemat.kicad.route import main_pass_nets
+    assert main_pass_nets({"RESET", "!RESET"}, {"RESET"}) == {"RESET", "!RESET"}
+    assert main_pass_nets({"RESET", "!RESET"}, {"RESET", "!RESET"}) == {"RESET"}
+
+
+_CASES = [({"D[0]", "D0", "SIG"}, {"D[0]"}), ({"D[0]"}, {"D[0]"}), ({"RESET", "!RESET"}, {"RESET"}),
+          ({"RESET", "!RESET"}, {"RESET", "!RESET"}), ({"", "GND", "/Sub/GND", "/GND_A", "SIG", "unconnected-(U1-Pad3)"}, {"GND"}),
+          ({"GND", "/Sub/GND", "/GND_A", "SIG"}, {"/Sub/GND", "SIG"}), ({"GND", "/GND_A", "SIG"}, {"GND", "/GND_A", "SIG"})]
+_KRT_EXPAND = """
+import contextlib, io, json, sys
+from types import SimpleNamespace as N
+import net_queries as q
+out = []
+for nets, ex in json.load(sys.stdin):
+    pcb = N(nets={i + 1: N(name=n) for i, n in enumerate(sorted(nets))}, pads_by_net={})
+    with contextlib.redirect_stdout(io.StringIO()):
+        out.append(sorted(q.expand_net_patterns(pcb, ["*"] + ["!" + x for x in sorted(ex)])))
+print(json.dumps(out))
+"""
+
+
+def test_main_pass_nets_agrees_with_the_routers_own_expansion():
+    import subprocess
+    from pathlib import Path
+    from placemat.kicad.route import main_pass_nets, router_dir
+    krt = Path(router_dir())
+    if not (krt / ".venv/bin/python").exists():
+        pytest.skip("KiCadRoutingTools not at %s" % krt)
+    cases = [[sorted(n), sorted(e)] for n, e in _CASES]
+    got = subprocess.run([str(krt / ".venv/bin/python"), "-c", _KRT_EXPAND], input=json.dumps(cases), capture_output=True,
+                         text=True, cwd=str(krt / "py_router"), check=True)
+    assert json.loads(got.stdout) == [sorted(main_pass_nets(n, e)) for n, e in _CASES]
