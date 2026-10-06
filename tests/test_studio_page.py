@@ -3752,3 +3752,52 @@ out.run = [els["#tab-runs"].innerHTML, els["#notice"].style.display, ev("documen
     runs, notice, title = out["run"]
     assert "This run abcd1234" in runs and "2 real" in runs and "1 failed" in runs and "creepage" in runs and "DRC found real violations" in runs and 'data-line="20"' in runs
     assert notice == "none" and title.startswith("B_layout.py - ")
+
+
+@needs_node
+def test_what_cannot_act_on_a_view_says_why_in_place_and_the_address_names_any_view(tmp_path):
+    out = run_more(tmp_path, r"""
+WIDE = true;
+const titles = () => ["#runbtn", "#resolvebtn", "#srcbtn", "#sharebtn"].map(id => [els[id].hidden, els[id].disabled, els[id].title]);
+send("hello", {script: "", picker: true, root: "/p", scripts: [], keep: 5, history: [], resolving: null, error: null, runs: [], run: null, project_runs: [], explores: [], routes: [], commands: []});
+ev("renderStatus()"); out.picker = titles();
+ev("renderCompare()"); out.cmpPicker = els["#tab-compare"].innerHTML;
+send("cmd", {id: 4, pid: 70, command: "preview", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "done", items: 0, variants: 0, probe: null, route: null});
+ev("S").cmdView = {id: 4, plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false};
+ev("renderStatus()"); out.pickerView = titles();
+out.hashes = [ev("viewHash()")];
+ev("S").cmdView = {id: "explore:/p/b/.placemat/views/explore/e1.json", plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false, record: true}; out.hashes.push(ev("viewHash()"));
+ev("S").cmdView = {id: "route:/p/b/route/route.json", plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false, replay: true}; out.hashes.push(ev("viewHash()"));
+ev("S").cmdView = {id: "route:eeee0002", plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: "eeee0002"}, next: 0, fitted: false, replay: true}; out.hashes.push(ev("viewHash()"));
+out.read = ev('readHash("#explore=%2Fp%2Fe.json&tab=runs")');
+// a script chosen, a view of another script over it
+full([item("a", 1)], [st("a")]);
+ev('S.hello.script_path = "/p/x/x_layout.py"');
+ev("S").cmdView = {id: 4, plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false};
+ev("renderStatus()"); out.chosenView = titles();
+ev("renderCompare()"); out.cmpView = els["#tab-compare"].innerHTML;
+ev("S.cmdView = null"); ev("renderStatus()"); out.chosen = titles();
+// a past explore that kept no board, of another script: not drawn over the chosen script's plan
+ev('xvStart("record", "/p/b/.placemat/views/explore/e2.json", {}); S.xv.script = "/p/b/B_layout.py"; S.xv.board = "none"');
+out.foreign = [ev("plan() === null"), ev("xvBoardNote(S.xv, null)")];
+ev('S.xv.script = "/p/x/x_layout.py"'); out.own = ev("plan() !== null");
+ev("S.xv = null; S.texts = {'x_layout.py': 'a', 'helper.py': 'b'}; S.hello.script = 'x_layout.py'; openScript('x_layout.py', 1)"); flush();
+out.files = els["#file"].innerHTML;
+""")
+    p = out["picker"]
+    assert all(not h for h, d, t in p) and all(d for h, d, t in p)
+    assert p[0][2] == "Full run: choose a layout script to run it" and p[1][2] == "Resolve: choose a layout script to resolve it"
+    assert "to see its source" in p[2][2] and "open a command or a run to share it" in p[3][2]
+    assert "no resolves to compare" in out["cmpPicker"] and "No script is chosen, so none of its runs are listed here" in out["cmpPicker"]
+    pv = out["pickerView"]
+    assert pv[0][1] and "run B_layout.py with placemat run" in pv[0][2] and pv[1][1] and "choose a layout script to resolve it" in pv[1][2]
+    assert not pv[2][1] and not pv[3][1]                                       # Source and Share work on a view
+    assert "&cmd=4&" in out["hashes"][0] and "&explore=%2Fp%2Fb%2F.placemat%2Fviews%2Fexplore%2Fe1.json&" in out["hashes"][1]
+    assert "&route=%2Fp%2Fb%2Froute%2Froute.json&" in out["hashes"][2] and "&build=eeee0002&" in out["hashes"][3]
+    assert out["read"]["explore"] == "/p/e.json"
+    cv = out["chosenView"]
+    assert cv[0][1] and "it runs x_layout.py, not B_layout.py" in cv[0][2] and cv[1][1]
+    assert "resolves of x_layout.py; the command shown is not one of them" in out["cmpView"]
+    assert [d for h, d, t in out["chosen"]] == [False, False, False, False]
+    assert out["foreign"][0] is True and "it is of B_layout.py, not the script this studio watches" in out["foreign"][1] and out["own"] is True
+    assert ">helper.py - imported<" in out["files"] and "(" not in out["files"]

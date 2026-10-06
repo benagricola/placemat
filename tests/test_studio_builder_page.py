@@ -76,3 +76,12 @@ def test_no_label_the_builder_shows_has_a_bracketed_explanation():
         if re.search(r"\s\([A-Za-z][^()]*\)", t) and not re.search(r"[=;{}]", t) and " " in t:
             shown.append(t.strip())
     assert shown == []
+
+
+def test_the_builder_does_nothing_over_a_view_and_its_tab_says_why():
+    text = JS.read_text()
+    card = text[text.index("renderCard = function"):text.index("// a placed item: unplace it")]
+    fold = text[text.index("function foldUnplaced"):text.index("const _render = render")]
+    tab = text[text.index("function drawTab"):text.index("const p = BS.parts, c = counts();")]
+    assert "viewOpen()" in card and "viewOpen()" in fold and "viewOpen()" in tab
+    assert "the script this studio watches: close the view to use it" in tab and "No script is chosen" in tab

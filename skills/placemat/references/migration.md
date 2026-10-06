@@ -26,6 +26,15 @@ section for each hand-written pattern a newer form replaces.
   (or a finished command that recorded one) shows its DRC, failed checks, arrangements and failure under "This run" in the
   Runs tab. The studio's own resolve no longer shows through a view: its compare arrows, timing, error, waiting and
   Regenerate notices are hidden while a view is open, and the browser tab title names the view.
+- **What cannot act on a view says why.** Full run, Resolve, Source and Share stay in the header; when one cannot act on
+  what is shown it is disabled and its title says why (no script chosen, or a view of another script). Source and Share
+  work on a followed command or a past run. The Compare tab says it compares the studio's own resolves, and its Full run
+  follows the header's. The Build tab says why it cannot be used with no script chosen or a view open, and the builder's
+  Unplace and its folding of "no declaration places it" findings do nothing over a view. A past explore or route is kept
+  in the address (`explore=`, `route=`, `build=`) and shared with it. A past explore that kept no board, of a script other
+  than the chosen one, is no longer drawn over the chosen script's plan. An explore shown on its run's board draws the
+  keepouts, reservations and copper of the run's plan. The file select names an imported module "- imported" in place
+  of a bracketed label.
 
 ## To 0.99.29
 

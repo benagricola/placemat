@@ -144,3 +144,23 @@ def test_an_explore_whose_routes_took_another_variant_draws_that_variant(own_pro
     assert s.explore_view(str(record))["drawn"] == {"a": [5, 5, 0, "front"]}
     record = _record(board_dir, script, ["a"], {"a": [1, 1, 0, "front"]}, variants, 3, taken_seed=0, name="20261004-082239-77.json")
     assert s.explore_view(str(record))["drawn"] == {"a": [1, 1, 0, "front"]}
+
+
+def test_an_explore_moved_onto_its_runs_board_draws_the_keepouts_and_reservations_its_plan_kept(own_project):
+    s, jobs, board_dir, script = _studio(own_project)
+    key, plain = "kk", [2.0, 2.0, 0, "front"]
+    variants, best = _variants(key, plain)
+    record = _record(board_dir, script, [key], {key: plain}, variants, 3)
+    folder = _explore_run(board_dir, "eeee0008", script, record, kept=False)
+    pad = {"kind": "pad", "poly": [[1.5, 1.5], [2.5, 1.5], [2.5, 2.5]], "faces": ["front"]}
+    keepout = {"name": "ko", "poly": [[0, 0], [1, 0], [1, 1]], "faces": ["front"]}
+    reservation = {"name": "res", "poly": [[5, 5], [6, 5], [6, 6]], "faces": ["front"]}
+    plan = {"board": {"extent": [0, 0, 20, 20], "loops": [[[0, 0], [20, 0], [20, 20], [0, 20]]]}, "keepouts": [keepout], "reservations": [reservation],
+            "items": [{"key": key, "kind": "part", "placed": True, "at": [2.0, 2.0], "rotation": 0, "face": "front", "members": [{"ref": "R1", "shapes": [pad]}]}],
+            "steps": [], "copper": [], "findings": [{"text": "of the run's placement", "kind": "x"}], "counts": {"placed": 1, "findings": 1}}
+    (folder / "plan.json").write_text(json.dumps(plan))
+    view = s.explore_view(str(record))
+    assert view["source"] == "moved" and view["doc"] is not None, view
+    doc = view["doc"]
+    assert doc["keepouts"] and doc["reservations"] and doc["findings"] == []
+    assert _item(doc, key)["at"] == best[:2]

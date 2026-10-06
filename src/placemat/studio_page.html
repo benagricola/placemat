@@ -370,6 +370,7 @@ main { position: relative; }
 .ln.chgdecl { background: var(--warn-soft); }
 .ln.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
 .sgbad { color: var(--bad); padding: 2px 0; }
+.cmpnote { padding: 6px 12px; background: var(--warn-soft); color: var(--warn); }
 .srcnote { padding: 6px 10px; font: 13px/1.45 var(--sans); white-space: normal; }
 .srcnote.warn { background: var(--warn-soft); color: var(--warn); } .srcnote.err { background: var(--bad-soft); color: var(--bad); }
 
@@ -756,6 +757,7 @@ const S = {
 
 function plan() {                      // the plan to draw
   if (S.cmdView) return S.cmdView.plan;           // a command's streamed plan, while one is open
+  if (xvForeign()) return null;                   // an explore that kept no board, of another script: the studio's plan is of another board
   if (S.resolving && S.live) return S.live;
   const d = S.docs.get(S.shownId);
   return d ? d.doc : S.live;
@@ -849,13 +851,15 @@ function applyHello(d) {
   // With no script given and nothing in the address, and with `latest` in the address, the studio follows the latest command of the project; a project
   // with no command or run to show gets the dialog.
   if (S.start === null) {
-    const pinned = r && (r.s || r.run || r.cmd) && !r.latest;
+    const pinned = r && (r.s || r.run || r.cmd || r.explore || r.route || r.build) && !r.latest;
     S.start = !!d.picker && !pinned;
     const t = !pinned && ((r && r.latest) || d.picker) ? latestTarget() : null;
     if (t) { S.latestOn = true; S.start = false; latestOpen(t); }
   } else if (S.latestOn) latestSwitch();                         // a hello again (the page reconnected): what started meanwhile
   if (r && !r.latest && r.run && !r.runOpened) { r.runOpened = true; openRunRecord(r.run); }
   if (r && !r.latest && r.cmd && !r.cmdOpened && S.cmds.has(+r.cmd)) { r.cmdOpened = true; openCmd(+r.cmd); }
+  if (r && !r.latest && r.explore && !r.exploreOpened) { r.exploreOpened = true; openExploreRecord(r.explore); }
+  if (r && !r.latest && (r.route || r.build) && !r.routeOpened) { r.routeOpened = true; openRoute(r.route, r.build); }
 }
 on("hello", d => { applyHello(d); schedule("all"); });
 on("scripts", d => { S.scripts = d.scripts; schedule("script", "scripts"); });
@@ -1023,6 +1027,22 @@ function statNumbers(p, rec) {
   if (rec && rec.timing) out.push(["s", rec.timing.total_s, ""]);
   return out;
 }
+// Why a header action cannot act on what is shown ("" when it can). Full run and Resolve act on the script this studio watches, so
+// they are unavailable with none chosen and, for Resolve, while a view is shown (it would resolve the studio's script under it); Full
+// run in a view of another script would run the wrong one. Source and Share work on a view.
+function fullRunWhy() {
+  const pick = !!(S.hello && S.hello.picker), vs = viewState();
+  if (pick) return vs ? "no script is chosen; run " + (baseName(vs.script) || "this script") + " with placemat run, or choose it to run it here" : "choose a layout script to run it";
+  if (vs && viewElsewhere()) return "it runs " + ((S.hello && S.hello.script) || "the chosen script") + ", not " + baseName(vs.script) + ": choose that script to run it here";
+  return "";
+}
+function resolveWhy() {
+  if (S.hello && S.hello.picker) return "choose a layout script to resolve it";
+  if (viewState()) return "the " + kindWord(viewState().kind) + " shown is not the studio's own resolve; close it to resolve the script this studio watches";
+  return "";
+}
+const sourceWhy = () => S.hello && S.hello.picker && !viewState() ? "choose a layout script, or open a command or a run, to see its source" : "";
+const shareWhy = () => S.hello && S.hello.picker && !viewState() ? "open a command or a run to share it" : "";
 // What the header says of a command being followed or a record being looked at: its kind, its script and its state.
 const STATE_WORD = {running: "running", done: "done", error: "failed", lost: "lost", recorded: "recorded"};
 const STATE_PILL = {running: "busy", done: "live", error: "error", lost: "error", recorded: "accent"};
@@ -1047,8 +1067,12 @@ function renderStatus() {
   $("#nothing").hidden = !(pick && !vs && !S.start && !S.latestOn);
   const label = vs ? STATE_WORD[vs.state] : pick ? "nothing open" : S.run && S.run.regenerate ? "regenerating" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = label;
-  const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Full run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
-  rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = $("#sharebtn").hidden = !!(S.hello && S.hello.picker);
+  const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Full run"; rb.classList.toggle("busy", !!S.run);
+  // A button that cannot act on what is shown stays in place, disabled, and its title says why.
+  for (const [id, name, why] of [["#runbtn", "Full run", fullRunWhy()], ["#resolvebtn", "Resolve", resolveWhy()], ["#srcbtn", "Source", sourceWhy()], ["#sharebtn", "Share", shareWhy()]]) {
+    const el = $(id); if (!el.dataset.title) el.dataset.title = el.title || "";
+    el.hidden = false; el.disabled = !!why || (id === "#runbtn" && !!S.run); el.title = why ? name + ": " + why : el.dataset.title;
+  }
   b.className = "pill " + (vs ? STATE_PILL[vs.state] : pick ? "accent" : S.run && S.run.regenerate ? "busy" : {live: "live", resolving: "busy", stale: "stale", error: "error", try: "stale", disconnected: "error"}[S.status] || "accent");
   const viewed = !!(S.cmdView || S.xv), rec = viewed ? null : S.docs.get(S.shownId), p = plan();       // a view's numbers are its own, never the studio's resolve's
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
@@ -2877,7 +2901,7 @@ function renderScript() {
   const sel = $("#file");
   if (!VS && !names.includes(S.file)) S.file = (own && names.includes(own)) ? own : names[0];
   const key = JSON.stringify(names);
-  if (sel.dataset.names !== key) { sel.innerHTML = names.map(n => '<option value="' + esc(n) + '">' + esc(label(n)) + (VS || n === own ? "" : " (helper)") + "</option>").join(""); sel.dataset.names = key; }
+  if (sel.dataset.names !== key) { sel.innerHTML = names.map(n => '<option value="' + esc(n) + '">' + esc(label(n) + (VS || n === own ? "" : " - imported")) + "</option>").join(""); sel.dataset.names = key; }
   sel.value = S.file || "";
   const body = $("#scriptbody");
   const entry = VS ? VS.files[S.file] : null;
@@ -2998,7 +3022,9 @@ function renderCompare() {
   const hist = S.history.slice().sort((a, b) => a.id - b.id);
   const opt = (sel, none) => (none ? '<option value="">none</option>' : "") + hist.map(h => '<option value="' + h.id + '"' + (h.id === sel ? " selected" : "") + ">#" + h.id + " " + new Date(h.at * 1000).toLocaleTimeString() + (h.changed.length ? " (" + h.changed.length + " file" + (h.changed.length > 1 ? "s" : "") + " changed)" : "") + (h.applied ? " - " + h.applied : "") + "</option>").join("");
   const head = '<div class="cmpbar"><span class="dim">compare</span><select id="cmpA">' + opt(S.baseId, true) + '</select><span class="dim">with</span><select id="cmpB">' + opt(S.shownId, false) + "</select></div>";
-  let out = runsHTML() + (S.try ? '<div class="cmpbar"><span class="dim">' + (typeof S.try.base === "number" ? "the resolve this was made on (#" + S.try.base + ")" : "the " + esc(S.try.base) + " this was made on") + ' and the try, not written</span></div>' : head);
+  const ownNote = S.cmdView || S.xv ? '<div class="cmpnote">' + esc(S.hello && S.hello.picker ? "This tab compares the studio's own resolves; no script is chosen, so it has none. The " + kindWord(viewState().kind) + " shown is not compared here."
+    : "This tab compares the studio's own resolves of " + ((S.hello && S.hello.script) || "its script") + "; the " + kindWord(viewState().kind) + " shown is not one of them.") + "</div>" : "";
+  let out = ownNote + runsHTML() + (S.try ? '<div class="cmpbar"><span class="dim">' + (typeof S.try.base === "number" ? "the resolve this was made on (#" + S.try.base + ")" : "the " + esc(S.try.base) + " this was made on") + ' and the try, not written</span></div>' : head);
   const la = lastApplied();
   if (la && S.canApply) out += '<div class="cmpbar"><span class="dim">applied from a suggestion:</span><span>' + esc(la.text) + '</span><button data-sg="undo">Undo</button></div>';
   if (S.redo && S.canApply) out += '<div class="cmpbar"><span class="dim">undone:</span><span>' + esc(S.redo) + '</span><button data-sg="redo">Redo</button></div>';
@@ -3006,7 +3032,7 @@ function renderCompare() {
     out += "<h3>Changed since the resolve before</h3>" + S.changed.map(c => '<div class="row" data-file="' + esc(c.file) + '"><span class="k">' + esc(c.file) + '</span><span class="n"><span class="add">+' + c.added + '</span> <span class="del">-' + c.removed + "</span> " + esc(c.status) + "</span></div>").join("");
   }
   const c = S.cmp;
-  if (!c) { el.innerHTML = out + '<div class="empty">' + (hist.length < 2 ? "One resolve so far: nothing to compare yet" : "Pick two resolves") + "</div>"; wireCompare(el); return; }
+  if (!c) { el.innerHTML = out + '<div class="empty">' + (S.hello && S.hello.picker ? "No script is chosen, so the studio has made no resolves to compare" : hist.length < 2 ? "One resolve so far: nothing to compare yet" : "Pick two resolves") + "</div>"; wireCompare(el); return; }
   const d = c.diff;
   out += '<div class="sum"><b>' + (typeof c.a === "number" ? "#" + c.a : esc(c.a)) + (S.try && c.b === S.try.id ? " to the try, not written" : " to #" + c.b) + "</b>" + (d.empty ? '<span class="dim">no change in the plan</span>' : "") +
     (d.moved.length ? "<span>" + d.moved.length + " moved</span>" : "") + (d.added.length ? '<span class="add">' + d.added.length + " added</span>" : "") + (d.removed.length ? '<span class="del">' + d.removed.length + " removed</span>" : "") +
@@ -4038,9 +4064,12 @@ function xvLine(X) {
 }
 // A past explore's board, when it is not the best's own: the run's board with the focused items moved to the best (the others as the run
 // placed them, its copper where it was laid), the items that could not be moved, or no board at all.
+// A past explore that kept no board, of a script other than the one this studio watches: its variants are not drawn over the studio's plan.
+const xvForeign = () => !!(S.xv && S.xv.source === "record" && S.xv.board === "none" && S.xv.script && !sameScript(S.xv.script, S.hello && S.hello.script_path) && S.hello && !S.hello.picker);
 function xvBoardNote(X, V) {
   if (X.source !== "record") return "";
-  if (X.board === "none") return '<span class="xwarn">this explore kept no board' + (plan() ? ", its variants are drawn over the studio's own plan" : "") + "</span>";
+  if (X.board === "none") return '<span class="xwarn">this explore kept no board' + (xvForeign() ? "; it is of " + esc(baseName(X.script)) + ", not the script this studio watches, so its variants are drawn on no board"
+    : plan() ? ", its variants are drawn over the studio's own plan" : "") + "</span>";
   const ex = V && V.explore;
   if (!ex || ex.source !== "moved") return "";
   const un = ex.unmoved || [];
@@ -4290,6 +4319,9 @@ function viewHash() {
   if (S.latestOn) q.set("latest", "1");
   else if (S.cmdView && String(S.cmdView.id).startsWith("run:")) q.set("run", S.cmdView.id.slice(4));
   else if (S.cmdView && typeof S.cmdView.id === "number") q.set("cmd", S.cmdView.id);
+  else if (S.cmdView && String(S.cmdView.id).startsWith("explore:")) q.set("explore", S.cmdView.id.slice(8));
+  else if (S.cmdView && String(S.cmdView.id).startsWith("route:")) { const run = (S.cmdView.summary && S.cmdView.summary.run) || ""; if (run) q.set("build", run); else q.set("route", S.cmdView.id.slice(6)); }
+  else if (!S.cmdView && S.xv && S.xv.source === "record" && S.xv.id) q.set("explore", S.xv.id);          // an explore that kept no board is shown without a view of its own
   q.set("tab", S.tab);
   if (narrow() && document.body.dataset.nv) q.set("nv", document.body.dataset.nv);
   return q.toString();
@@ -4307,7 +4339,8 @@ function readHash(text) {
   const q = new URLSearchParams(String(text || "").replace(/^#/, "")), v = (q.get("v") || "").split(",").map(Number);
   if (![...q.keys()].length) return null;
   return {s: q.get("s") || "", f: q.get("f") || "", v: v.length === 4 && v.every(Number.isFinite) ? v : null, sel: q.get("sel") || "", ref: q.get("ref") || "",
-    fi: q.has("fi") ? +q.get("fi") : null, tab: q.get("tab") || "", nv: q.get("nv") || "", run: q.get("run") || "", cmd: q.has("cmd") ? +q.get("cmd") : null, latest: q.has("latest")};
+    fi: q.has("fi") ? +q.get("fi") : null, tab: q.get("tab") || "", nv: q.get("nv") || "", run: q.get("run") || "", cmd: q.has("cmd") ? +q.get("cmd") : null, latest: q.has("latest"),
+    explore: q.get("explore") || "", route: q.get("route") || "", build: q.get("build") || ""};
 }
 S.restore = readHash(typeof location !== "undefined" ? location.hash : "");
 // Once the plan of the right script is there: the face, the selection, the finding, the tab, then the box.
@@ -4341,9 +4374,9 @@ function shareHTML() {
 // On a phone the four header buttons are one: its menu has what they do.
 $("#morebtn").onclick = () => {
   if (!$("#menu").hidden) { closeMenu(); return; }
-  const picker = !!(S.hello && S.hello.picker), item = (id, text, extra, tail, tip) => '<button role="menuitem" data-more="' + id + '"' + (extra || "") + (tip ? ' title="' + esc(tip) + '"' : "") + "><b>" + text + "</b>" + (tail || "") + "</button>";
-  openMenuAt($("#morebtn"), item("run", S.run ? "Running ..." : "Full run", picker || S.run ? " disabled" : "", '<span class="info" role="button" tabindex="0" data-info="fullrun" aria-label="about this">i</span>', FULL_RUN) + item("again", "Resolve again", picker ? " disabled" : "") + item("fresh", "Resolve from scratch", picker ? " disabled" : "") +
-    item("share", "Share this view", picker ? " disabled" : "") + item("source", "Source", picker ? " disabled" : ""));
+  const item = (id, text, why, tail, tip) => '<button role="menuitem" data-more="' + id + '"' + (why ? " disabled" : "") + (why || tip ? ' title="' + esc(why || tip) + '"' : "") + "><b>" + text + "</b>" + (why ? '<span class="sub">' + esc(why) + "</span>" : tail || "") + "</button>";
+  openMenuAt($("#morebtn"), item("run", S.run ? "Running ..." : "Full run", fullRunWhy() || (S.run ? "a run is in progress" : ""), '<span class="info" role="button" tabindex="0" data-info="fullrun" aria-label="about this">i</span>', FULL_RUN) + item("again", "Resolve again", resolveWhy()) + item("fresh", "Resolve from scratch", resolveWhy()) +
+    item("share", "Share this view", shareWhy()) + item("source", "Source", sourceWhy()));
 };
 $("#sharebtn").onclick = () => { if (!$("#menu").hidden) { closeMenu(); return; } openMenuAt($("#sharebtn"), shareHTML()); };
 
@@ -4477,12 +4510,13 @@ function runRow(r) {
 }
 function runsHTML() {
   const run = S.run, last = S.lastRun;
-  let o = '<div class="runbar"><button class="tool" id="runnow"' + (run ? " disabled" : "") + ">" + (run ? "Running..." : "Full run") + "</button>" + infoBtn("runs") +
-    '<span class="dim">' + (run ? "a checked run is in progress" : "design checks, DRC and the score, recorded") + "</span></div>";
+  const why = fullRunWhy();
+  let o = '<div class="runbar"><button class="tool" id="runnow"' + (run || why ? " disabled" : "") + (why ? ' title="' + esc("Full run: " + why) + '"' : "") + ">" + (run ? "Running..." : "Full run") + "</button>" + infoBtn("runs") +
+    '<span class="dim">' + (run ? "a checked run is in progress" : why ? esc(why.charAt(0).toUpperCase() + why.slice(1)) : "design checks, DRC and the score, recorded") + "</span></div>";
   if (run) o += '<div class="runlog">' + esc(run.n ? "step " + run.n + ": " + run.step : "starting ...") + "</div>";
   else if (last && !last.run) o += '<div class="notice-run">The run ended' + (last.code != null ? " (exit " + last.code + ")" : "") + " without a record.</div><pre class=\"runlog\">" + esc((last.tail || []).slice(-8).join("\n")) + "</pre>";
   o += '<h3>Runs <span class="c">' + S.runs.length + "</span></h3>";
-  o += S.runs.length ? S.runs.map(runRow).join("") : '<div class="pad8 dim">No recorded run of this script yet. Run records the first.</div>';
+  o += S.runs.length ? S.runs.map(runRow).join("") : S.hello && S.hello.picker ? '<div class="pad8 dim">No script is chosen, so none of its runs are listed here. The Runs tab lists every board\'s runs.</div>' : '<div class="pad8 dim">No recorded run of this script yet. Run records the first.</div>';
   return o;
 }
 async function loadRunCompare(id) {

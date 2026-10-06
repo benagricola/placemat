@@ -158,6 +158,9 @@ async function refreshParts() {
   drawTab();
 }
 const hasScript = () => !!(S.hello && !S.hello.picker && S.hello.script);
+// A followed command or a past run shown in place of the studio's own resolve: the builder works on the script this studio watches, so
+// it does nothing over a view, and says so.
+const viewOpen = () => !!(S.cmdView || S.xv);
 
 // ---------------------------------------------------------------- the start view
 const _renderPicker = renderPicker;
@@ -187,8 +190,7 @@ async function startBoard(id) {
 // ---------------------------------------------------------------- the flow for a new board (full screen)
 function drawAll() { drawWizard(); drawTab(); drawButtons(); }
 function drawButtons() {
-  const on = hasScript();
-  tabBtn.hidden = !on; nBtn.hidden = !on;
+  tabBtn.hidden = nBtn.hidden = false;           // with no script chosen, or a view shown, the tab says why it cannot be used
 }
 // a script that exists is opened in the builder on demand: the board is generated (or restored from its cache) and read
 async function openSession() {
@@ -651,7 +653,12 @@ function closeOutlineDialog() { if (olDlg) { olDlg.remove(); olDlg = null; } BS.
 function counts() { return BS.parts ? BS.parts.counts : {unplaced: 0, searched: 0, decided: 0, "by hand": 0}; }
 function drawTab() {
   const el = tabPane;
-  if (!hasScript()) { el.innerHTML = ""; return; }
+  if (!hasScript() || viewOpen()) {
+    const why = !hasScript() ? "No script is chosen. Choose a layout script to build it here; a board with no layout script is started from the start dialog."
+      : "The " + kindWord(viewState().kind) + " shown is not the studio's own resolve. The builder works on " + S.hello.script + ", the script this studio watches: close the view to use it.";
+    el.innerHTML = '<div class="bt-sec"><p class="bld-note">' + h(why) + "</p></div>";
+    return;
+  }
   const mine = BS.st && BS.st.session && BS.st.session.script && BS.st.session.script.endsWith(S.hello.script);
   if (!BS.st || !mine || BS.st.phase !== "ready") {
     const working = BS.st && mine && (BS.st.phase === "working");
@@ -873,7 +880,7 @@ const _renderCard = renderCard;
 renderCard = function () {
   _renderCard();
   const el = $("#card");
-  if (!el || el.style.display === "none" || !BS.parts || !hasScript() || !S.sel) return;
+  if (!el || el.style.display === "none" || !BS.parts || !hasScript() || viewOpen() || !S.sel) return;
   const row = BS.parts.rows.find(r => r.key === S.sel);
   if (!row || row.status === "unplaced" || q("#bld-cardun", el)) return;
   el.insertAdjacentHTML("beforeend", '<div class="bld-row" style="padding:6px 12px"><button class="bld-btn" id="bld-cardun" title="Takes the statement that places it out of the script. One undo puts it back.">Unplace</button></div>');
@@ -974,7 +981,7 @@ ev("switched", () => { BS.parts = null; BS.subj = []; BS.target = null; BS.offer
 const UNDECLARED = /no declaration places it/;
 function foldUnplaced() {
   const el = q("#tab-findings");
-  if (!el || !BS.parts || !hasScript()) return;
+  if (!el || !BS.parts || !hasScript() || viewOpen()) return;
   let n = 0;
   qa(".row", el).forEach(r => { if (UNDECLARED.test(r.textContent)) { r.style.display = "none"; n++; } });
   qa(".gh", el).forEach(g => { let next = g.nextElementSibling, shown = 0; while (next && !next.classList.contains("gh")) { if (next.style.display !== "none") shown++; next = next.nextElementSibling; } g.style.display = shown ? "" : "none"; });
@@ -985,6 +992,6 @@ function foldUnplaced() {
   if (em && n) { const v = Math.max(0, (parseInt(em.textContent, 10) || 0) - n); em.textContent = v || ""; em.style.display = v ? "" : "none"; }
 }
 const _render = render;
-render = function (parts) { _render(parts); if (parts.includes("all") || parts.includes("status")) { drawButtons(); drawTimeline(); const e = S.error ? S.error.id : null; if (e !== BS.lastErr) { BS.lastErr = e; drawTab(); } } if (parts.includes("all") || parts.includes("findings") || parts.includes("counts")) foldUnplaced(); };
+render = function (parts) { _render(parts); if (parts.includes("all") || parts.includes("status")) { drawButtons(); drawTimeline(); const e = S.error ? S.error.id : null, v = viewOpen() || !hasScript(); if (e !== BS.lastErr || v !== BS.lastView) { BS.lastErr = e; BS.lastView = v; drawTab(); } } if (parts.includes("all") || parts.includes("findings") || parts.includes("counts")) foldUnplaced(); };
 refreshState().then(refreshParts);
 })();

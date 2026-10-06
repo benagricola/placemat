@@ -2035,7 +2035,7 @@ class Studio:
         from .report import RunRecord
         base = None
         try:
-            base = json.loads((folder / "plan.json").read_text()) if findings else None
+            base = json.loads((folder / "plan.json").read_text())        # the run's plan: its keepouts, reservations and copper, which the board file does not carry
         except (OSError, ValueError):
             pass
         if base is None:
