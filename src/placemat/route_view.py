@@ -171,11 +171,23 @@ def lay(events: list) -> dict:
     return {"order": order, "ops": {n: ops.get(n, []) for n in order}, "result": result}
 
 
-def route_doc(record: dict, board: dict) -> dict:
+def open_connections(unconnected) -> list:
+    """The connections a route left open, as the page marks them: {"net", "a", "b"} with `a` and `b` the two items' places (mm), from
+    drc.unconnected_items of the DRC after the route. One whose items KiCad placed nowhere is left out."""
+    out = []
+    for u in unconnected or ():
+        at = [i.get("at") for i in u.get("items", ()) if i.get("at")]
+        if at:
+            out.append({"net": u.get("net", ""), "a": list(at[0]), "b": list(at[1] if len(at) > 1 else at[0])})
+    return out
+
+
+def route_doc(record: dict, board: dict, opens=()) -> dict:
     """The plan document of a route's record. `board` is the board_doc (parts only: a step for each part, then each net) or a run's plan.json
     (its own steps and copper first: the whole build, the placement and then the route). Each net is a step of kind `copper` in the order
     the router took it up, its result as the note and the copper laid during it as its ops; copper that was ripped carries `x`, the index of
-    the step during which it went, so the replay takes it away there. The router's copper and its nets' steps carry `origin` "routed", so the
+    the step during which it went, so the replay takes it away there. `opens` are the connections the route left open (open_connections),
+    the doc's `open`. The router's copper and its nets' steps carry `origin` "routed", so the
 page can tell them from the copper the plan laid (which has none). `route` counts the nets and says whether the record is `partial` (the
     route did not finish, or a stage did not) and how many events were `dropped`."""
     stages = record.get("stages", ())
@@ -209,7 +221,13 @@ page can tell them from the copper the plan laid (which has none). `route` count
                       "why": "", "copper": at, "loop": None, "origin": "routed"})
     lost = sum(int(st.get("dropped") or 0) for st in stages)
     partial = not record.get("complete", True) or any(not st.get("complete", True) for st in stages)
-    doc.update(copper=copper, steps=steps, counts=base.get("counts") or {"placed": len(doc["items"]), "findings": len(doc["findings"])}, score=base.get("score"),
-               route={"nets": len(laid["order"]), "routed": sum(1 for n in laid["order"] if laid["result"][n] == "routed"),
-                      "failed": sum(1 for n in laid["order"] if laid["result"][n] in ("no route found", "ripped")), "partial": partial, "dropped": lost})
+    routed = sum(1 for n in laid["order"] if laid["result"][n] == "routed")
+    said = sum(1 for ev in events if ev.get("ev") in ("net_end", "route_net_end") and ev.get("ok"))
+    # nets the router said it routed, and no copper for any of them in the record: an older record's events carried none
+    unread = {"code": "no_copper", "nets": said} if said and not any(laid["ops"][n] for n in laid["order"]) else None
+    opens = list(opens or ())
+    doc.update(copper=copper, steps=steps, counts=base.get("counts") or {"placed": len(doc["items"]), "findings": len(doc["findings"])}, score=base.get("score"), open=opens,
+               route={"nets": len(laid["order"]), "routed": routed,
+                      "failed": sum(1 for n in laid["order"] if laid["result"][n] in ("no route found", "ripped")), "partial": partial, "dropped": lost,
+                      "open": len(opens), "unread": unread})
     return doc

@@ -519,7 +519,12 @@ svg text { user-select: none; font-family: var(--sans); }
 .lklabel { fill: var(--ink); stroke: var(--substrate); stroke-width: 0.2px; paint-order: stroke; stroke-linejoin: round; }
 .lkg[data-st="over"] .lk { stroke-width: 0.16; }
 .bd, .cy { pointer-events: all; }
-.lkhit { stroke: transparent; stroke-width: 0.5; fill: none; }   /* the middle of a link takes the pointer, its ends leave the parts under them to it */
+.lkhit { stroke: transparent; stroke-width: 0.5; fill: none; }
+/* a connection the route left open: a dashed line between its two items, a ring on each */
+.opnline { stroke: var(--bad); stroke-width: 0.12; stroke-dasharray: 0.4 0.25; pointer-events: none; }
+.opndot { fill: none; stroke: var(--bad); stroke-width: 0.14; }
+.opnhit { stroke: transparent; stroke-width: 0.8; fill: none; }
+.routebad { color: var(--bad); }   /* the middle of a link takes the pointer, its ends leave the parts under them to it */
 .arrowhead.ok { fill: var(--ok); } .arrowhead.over { fill: var(--over); } .arrowhead.free { fill: var(--free); }
 #board.hassel .lkg:not(.mine) { opacity: 0.2; }
 .lkg.mine .lk { stroke-width: 0.22; }
@@ -1461,6 +1466,7 @@ function panelSVG(p, pn, first, order, diffLayer) {
       body + '<circle class="lkdot ' + startCls + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/>' + ends + "</g>");
   });
   o.push("</g>");
+  o.push('<g class="opens">' + openSVG(p) + "</g>");
   o.push('<g class="fnds" data-face="' + f + '">' + findingAreasSVG(p, pn) + "</g>");
   o.push('<g class="npins">' + notePins(p) + "</g>");
   o.push(diffLayer(f, pn));
@@ -1538,6 +1544,18 @@ function diffLayerSVG(diff, itemsA, itemsB, f, pn) {
   o.push("</g>");
   return o.join("");
 }
+
+// The connections a finished route left open (route_view.open_connections, from the DRC after the route): each a dashed red line between
+// the two items KiCad found unconnected and a ring on each, the net named on hover or tap (openLines).
+function openSVG(p) {
+  return ((p && p.open) || []).map((c, i) => {
+    const [x1, y1] = c.a, [x2, y2] = c.b;
+    return '<g class="opn" data-i="' + i + '" data-net="' + esc(c.net) + '"><line class="opnhit" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>' +
+      '<line class="opnline" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/><circle class="opndot" cx="' + x1 + '" cy="' + y1 + '" r="0.4"/>' +
+      (x1 !== x2 || y1 !== y2 ? '<circle class="opndot" cx="' + x2 + '" cy="' + y2 + '" r="0.4"/>' : "") + "<title>" + esc(openLines(c).join("\n")) + "</title></g>";
+  }).join("");
+}
+const openLines = c => ["net " + (c.net || "unnamed") + ": not connected", "the route left this connection open"];
 
 function renderBoard() {
   const p = plan();
@@ -2128,9 +2146,11 @@ function regionLines(kind, id, p) {
 }
 function hover(e) {
   const p = plan(), t = e.target && e.target.closest ? e.target : null;
-  const g = t && t.closest(".item"), rg = t && t.closest(".ko, .res"), lk = t && t.closest(".lkg"), fa = t && t.closest(".fa");
+  const g = t && t.closest(".item"), rg = t && t.closest(".ko, .res"), lk = t && t.closest(".lkg"), fa = t && t.closest(".fa"), op = t && t.closest(".opn");
   let tipd = null;
-  if (fa && clusterOf(fa.dataset.ci)) { const c = clusterOf(fa.dataset.ci); tipd = {key: "fa:" + c.idx.join(","), lines: clusterLines(c, p), mod: []}; }
+  const oc = op && ((p && p.open) || [])[+op.dataset.i];
+  if (oc) tipd = {key: "o:" + op.dataset.i, lines: openLines(oc), mod: []};
+  else if (fa && clusterOf(fa.dataset.ci)) { const c = clusterOf(fa.dataset.ci); tipd = {key: "fa:" + c.idx.join(","), lines: clusterLines(c, p), mod: []}; }
   else if (g) tipd = tipItem(g, e, p);
   else if (lk) {
     const l = (p.links || [])[+lk.dataset.i];
@@ -2157,6 +2177,8 @@ function pickAt(x, y) {                      // a tap or a click on the board: a
   const pin = t && t.closest(".npin");
   if (pin) { const n = S.notes.find(x => x.id === pin.dataset.note); if (n) { focusNote(n); return; } }
   if (it) { selectItem(it.dataset.key, {ref: m ? m.dataset.ref : null}); return; }
+  const op = t && t.closest(".opn");
+  if (op) { hover({target: t, clientX: x, clientY: y}); return; }          // a tap names the open connection's net, as a hover does
   const lk = t && t.closest(".lkg");
   if (lk) { const p = plan(), ref = lk.dataset.a, owner = itemsOf(p).find(i => i.members.some(mm => mm.ref === ref)); if (owner) { selectItem(owner.key, {ref}); return; } }
   const rg = t && t.closest(".ko, .res");
@@ -3037,7 +3059,7 @@ on("cmd", c => {
   if (fresh && c.state === "running" && S.latestOn && kindOf(c) !== "apply") latestSwitch();
   else if (fresh && c.state === "running" && !(S.run && S.run.pid && S.run.pid === c.pid))
     toast(kindWord(kindOf(c)) + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { leaveLatest(); goTab("runs"); openCmd(c.id); });
-  if (S.cmdView && S.cmdView.id === c.id) { renderCmdBar(); schedule("status"); if (was && was.state !== c.state) schedule("findings", "card", "steps"); if (S.sg.show) renderSgDialog(); }       // its suggestions' Try, Apply and Search wait for it to finish
+  if (S.cmdView && S.cmdView.id === c.id) { renderCmdBar(); schedule("status"); if (was && was.state !== c.state) schedule("findings", "card", "steps"); if (S.sg.show) renderSgDialog(); cmdBuild(S.cmdView); }       // its suggestions' Try, Apply and Search wait for it to finish
   if (c.probe) schedule("findings", "card", "steps");
   schedule("runs", "counts", "start");
 });
@@ -3129,8 +3151,29 @@ function routeEvent(V, P, ev) {
   else if (ev.ev === "route_dropped") R.dropped += ev.n || 0;
   else if (ev.ev === "route_truncated") R.truncated = true;
 }
-const routeLine = (R, V) => !R ? "" : R.off ? "no progress for this route: " + R.off : (R.finished || (V && S.cmds.has(V.id) && S.cmds.get(V.id).state !== "running")) ? "route " + (R.partial ? "stopped before it finished: " : "finished: ") + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") + (R.dropped ? ", " + R.dropped + " events were lost, so the copper drawn may be incomplete" : "") :
+const routeLine = (R, V) => !R || R.done == null ? "" : R.off ? "no progress for this route: " + R.off : (R.finished || (V && S.cmds.has(V.id) && S.cmds.get(V.id).state !== "running")) ? "route " + (R.partial ? "stopped before it finished: " : "finished: ") + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") + (R.dropped ? ", " + R.dropped + " events were lost, so the copper drawn may be incomplete" : "") + (R.open ? ", " + R.open + " connection" + (R.open === 1 ? "" : "s") + " left open, marked in red" : "") :
   "net " + Math.min(R.total || 1, R.seen + 1) + " of " + (R.total || "?") + (R.current ? ": " + R.current : "") + ", " + R.done + " routed, " + R.failed + " failed";
+// Why a finished route's copper is not drawn (route_view.route_doc and Studio.run_view say so in `unread`), or "" when it is.
+const UNREAD = {no_copper: u => "the route record carries no copper for the " + u.nets + " net" + (u.nets === 1 ? "" : "s") + " the router routed, so none is drawn",
+  record_unreadable: () => "the run's route record could not be read, so its routed copper is not drawn"};
+const unreadLine = (R, V) => (V && V.copperError) || (R && R.unread ? (UNREAD[R.unread.code] || (() => "the routed copper could not be read: " + R.unread.code))(R.unread) : "");
+// A finished route's counts as the cmd bar says them, from a route doc's `route` (route_view.route_doc); one with no counts says only why.
+const routeOf = r => r.nets == null ? {unread: r.unread || null, finished: true, results: {}, step: {}} :
+  {total: r.nets, done: r.routed, failed: r.failed, finished: true, partial: !!r.partial, dropped: r.dropped || 0, open: r.open || 0, unread: r.unread || null, results: {}, step: {}};
+// A finished command that routed a run (its summary's `build`): the copper, the route's steps and the open connections are read again from
+// the run's own records (/build), which the run wrote, rather than kept from the events the command sent. Said in red when they cannot be.
+async function cmdBuild(V) {
+  const c = V && typeof V.id === "number" ? (S.cmds.get(V.id) || V.summary) : null;
+  if (!c || !c.build || c.state === "running" || V.built) return;
+  V.built = true;
+  try {
+    const d = await getJSON("/build?run=" + encodeURIComponent(c.build));
+    if (S.cmdView !== V) return;
+    Object.assign(V.plan, {copper: d.doc.copper || [], steps: d.doc.steps || V.plan.steps, open: d.doc.open || []});
+    V.route = Object.assign(V.route || {}, routeOf(d.doc.route || {}), {off: "", truncated: false});
+  } catch (e) { if (S.cmdView === V) V.copperError = "the run's route record could not be read, so the copper drawn is what the command sent: " + e.message; }
+  if (S.cmdView === V) { renderCmdBar(); schedule("all"); }
+}
 // ---------------------------------------------------------------- Latest: the view follows the most recent command of the project
 const LATEST_TITLE = "The most recent command in this project, whether a preview, a full run, an explore or a route. A running one is followed live; with none running, the one that finished last shows its board and findings. A command that starts takes over, and one that ends stays shown until the next starts.";
 const holdMs = () => 1000 * (S.hello && S.hello.follow_hold_s != null ? S.hello.follow_hold_s : 10);
@@ -3175,14 +3218,15 @@ async function openRoute(file, run) {
     const d = await getJSON(run ? "/build?run=" + encodeURIComponent(run) : "/route?f=" + encodeURIComponent(file));
     if (my !== S.openSeq) return;
     const sc = (d.board && d.board.script) || "";
-    S.cmdView = {id: "route:" + (run || file), plan: d.doc, summary: {command: run ? "build replay" : "route replay", kind: run ? "run" : "route", script: sc, pid: "", run: run || ""}, next: 0, fitted: false, replay: true, route: {total: d.doc.route.nets, done: d.doc.route.routed, failed: d.doc.route.failed, finished: true, partial: !!d.doc.route.partial, dropped: d.doc.route.dropped || 0, results: {}, step: {}}};
+    S.cmdView = {id: "route:" + (run || file), plan: d.doc, summary: {command: run ? "build replay" : "route replay", kind: run ? "run" : "route", script: sc, pid: "", run: run || ""}, next: 0, fitted: false, replay: true, route: routeOf(d.doc.route)};
     S.xv = null; looking();
     renderCmdBar(); schedule("all");
   } catch (e) { toast("could not open the route: " + e.message); }
 }
 function showRunRecord(d) {
   const r = d.summary;
-  S.cmdView = {id: "run:" + r.id, plan: d.doc, summary: {command: "run", kind: "run", script: r.script, label: r.label, pid: "", run: r.id, record: r}, next: 0, fitted: false, record: true};
+  S.cmdView = {id: "run:" + r.id, plan: d.doc, summary: {command: "run", kind: "run", script: r.script, label: r.label, pid: "", run: r.id, record: r}, next: 0, fitted: false, record: true,
+    route: d.doc.route ? routeOf(d.doc.route) : null};            // a run that routed is served as its build (Studio.run_view)
   S.xv = null; looking();
   renderCmdBar(); schedule("all");
 }
@@ -3205,8 +3249,10 @@ async function openCmd(id) {
     if (my !== S.openSeq) return;
     S.cmdView = {id, plan: blankPlan(), summary: d.summary, next: d.events.length, fitted: false, route: null};
     S.xv = null;
-    for (const ev of d.events) cmdEvent(ev, 0);
-    if (d.plan) cmdEvent(d.plan, 0);
+    // the latest plan goes in before the route's events: a run sends it before it routes, and the plan replaces the copper and the steps
+    let planned = !d.plan;
+    for (const ev of d.events) { if (!planned && String(ev.ev).startsWith("route_")) { cmdEvent(d.plan, 0); planned = true; } cmdEvent(ev, 0); }
+    if (!planned) cmdEvent(d.plan, 0);
     if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v, true); S.xv.routes = (d.explore.routes || []).slice(); S.xv.searchDone = d.explore.search_done || null; S.xv.budgetPassed = d.explore.budget_passed || null; if (d.explore.done) S.xv.done = d.explore.done; xvDrawNow(); }
     S.cmdView.next = d.events.length;
     looking();
@@ -3217,6 +3263,7 @@ async function openCmd(id) {
       cmdEvent(b.ev, b.n);
     }
     renderCmdBar(); schedule("all");
+    cmdBuild(S.cmdView);
   } catch (e) { if (S.opening === op) S.opening = null; toast("could not open the command: " + e.message); }
 }
 // A past explore: the board of its best variant (the server's /exploreview: its run's build or board, or the best's own plan), with the
@@ -3230,7 +3277,7 @@ async function openExploreRecord(file) {
     const doc = d.record;
     S.cmdView = d.doc ? {id: "explore:" + d.file, plan: d.doc, summary: {command: "explore", kind: "explore", script: doc.script, label: "", pid: "", run: d.run || "", record: d.summary || null},
       next: 0, fitted: false, record: true, explore: {source: d.source, unmoved: d.unmoved || []}} : null;
-    if (S.cmdView && d.source === "build") { const r = d.doc.route; S.cmdView.route = {total: r.nets, done: r.routed, failed: r.failed, finished: true, partial: !!r.partial, dropped: r.dropped || 0, results: {}, step: {}}; }
+    if (S.cmdView && d.source === "build") S.cmdView.route = routeOf(d.doc.route);
     xvStart("record", d.file, {focus: doc.focus, plain: doc.plain, order: doc.order, baseline: doc.baseline, at: doc.at, jobs: doc.jobs, seconds: doc.seconds});
     for (const v of doc.variants || []) if (v.seed !== 0) xvAdd(v, true);
     S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline, pin_maps: doc.pin_maps || [], routes: doc.routes || [],
@@ -3251,6 +3298,7 @@ function renderCmdBar() {
     (vs.state === "running" ? "Following" : "Finished") + " " + (baseName(vs.script) || "a board") + (vs.pid ? ", pid " + vs.pid : "");
   el.innerHTML = kindChip(vs) + '<span class="cbt">' + esc(what) + "</span>" + (X ? xvLine(X) + xvBoardNote(X, V) : "") +
     (V && V.route ? '<span class="routeline">' + esc(routeLine(V.route, V)) + "</span>" : "") +
+    (V && unreadLine(V.route, V) ? '<span class="routebad">' + esc(unreadLine(V.route, V)) + "</span>" : "") +
     (S.latestOn && S.latestPending ? '<span class="newer">A newer run started</span><button id="gonewer" title="' + esc("show " + kindTitle(S.latestPending.what)) + '">Go to it</button>' : "") +
     '<button id="cmdclose">' + (S.latestOn ? "Stop following" : S.hello && S.hello.picker ? "Close" : "Back to the studio's own view") + "</button>";
   $("#cmdclose").onclick = closeCmd;

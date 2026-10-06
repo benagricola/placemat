@@ -28,6 +28,19 @@ section for each hand-written pattern a newer form replaces.
   event carries `t`, `budget` and `finishing` (`{seed, started}`), and the studio's explore view shows
   `time passed, finishing #41, #42` in yellow. Nothing is stopped. Scripts need no change.
 
+### Fixed
+
+- **A finished route shows its copper and its open nets in the studio.** A `run --route` opened after the route had
+  begun (Latest picking it up late, a reload, a click in Runs) said "route finished: N routed, M failed" over a board
+  with no routed copper: the command's last plan was applied after its route events and replaced their copper. The
+  plan now goes in first, and once the command is done the copper is read again from the run's own route record
+  (`/build`); the command's summary names that run as `build`. `/runview` now serves a run that routed as its build,
+  so a past run shows its copper however old it is. Each connection the route left open (from the run's
+  `route/drc_after.json`) is drawn as a red dashed line with a ring on each end, the net named on hover or tap; route
+  docs carry these as `open` (`{net, a, b}`) and count them in `route.open`. When the copper cannot be read, the
+  studio says why in red (`route.unread`: `no_copper` or `record_unreadable`). The copper never comes from the
+  project's layout file, so reverting it after a run changes nothing shown. Scripts need no change.
+
 ## To 0.99.26
 
 ### Fixed

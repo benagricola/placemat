@@ -1206,6 +1206,78 @@ out.live = [ev("routeOps({net: 'D', seg: [[0, 0, 1, 0, 'F.Cu', 0.2]], via: [[1, 
 
 
 @needs_node
+def test_a_finished_route_command_draws_the_runs_routed_copper_and_marks_each_open_connection(tmp_path):
+    """A `run --route` opened after it finished: its plan goes in before the route's events, so the routed copper stands; once it is done the
+    copper and the open connections are read from the run's build. A past run's build marks its open connections too, the net named on hover
+    and on tap, and a route whose copper cannot be read says why in red."""
+    out = run_more(tmp_path, r"""
+const answer = map => { ctx.fetch = u => { const path = u.split("?")[0]; fetched.push([path]); const r = map[path]; return Promise.resolve({ok: r.status < 400, status: r.status, json: async () => JSON.parse(JSON.stringify(r.body))}); }; };
+(async () => {
+  full([item("a", 1)], [st("a")]);
+  const seg = x => [[x, 0, x + 1, 0, "F.Cu", 0.2]];
+  const evs = [{ev: "route_board", doc: {board: BOARD.board, keepouts: [], reservations: [], items: [item("u1", 1)], layers: ["F.Cu"]}},
+    {ev: "route_stage", stage: "main"}, {ev: "route_queue", nets: ["A", "B"]}, {ev: "route_net_begin", net: "A"}, {ev: "route_net_end", net: "A", ok: true},
+    {ev: "route_commit", net: "A", how: "route", seg: seg(0), via: []}, {ev: "route_net_begin", net: "B"}, {ev: "route_net_end", net: "B", ok: false}, {ev: "route_queue_end"}];
+  const placed = {items: [item("u1", 1)], steps: [Object.assign(st("u1"), {i: 0, copper: []})], copper: [], links: [], findings: [], unplaced: [], pocketed: [], board: BOARD.board, layers: ["F.Cu"], counts: {placed: 1, findings: 0}};
+  const rtrk = (net, x) => ({t: "track", layer: "F.Cu", face: "front", width: 0.2, a: [x, 0], b: [x + 1, 0], net, origin: "routed"});
+  const OPEN = [{net: "B", a: [2, 6], b: [8, 6]}];
+  const build = Object.assign({}, placed, {copper: [rtrk("A", 0), rtrk("A", 1)], open: OPEN,
+    steps: [Object.assign(st("u1"), {i: 0, copper: []}), Object.assign(st("track A", "copper", false), {i: 1, copper: [0, 1], origin: "routed"}), Object.assign(st("track B", "copper", false), {i: 2, copper: [], origin: "routed"})],
+    route: {nets: 2, routed: 1, failed: 1, partial: false, dropped: 0, open: 1, unread: null}});
+  const c = {id: 4, pid: 4312, command: "run", script: "/p/x_layout.py", args: ["--route"], started: 1, ended: 2, state: "done", items: 1, variants: 0, build: null,
+    route: {total: 2, seen: 2, done: 1, failed: 1, current: "", finished: false}};
+  const routedOps = () => ev("plan().copper.filter(o => o.origin === 'routed' && o.x == null).length");
+  // the command, from its events alone (it names no build)
+  send("cmd", c);
+  answer({"/cmd/4": {status: 200, body: {summary: c, events: [{ev: "hello"}].concat(evs, [{ev: "done"}]), plan: {ev: "plan", doc: placed}, explore: null}}});
+  await ev("openCmd(4)"); flush();
+  out.fromEvents = [routedOps(), ev("plan().steps.map(s => s.item).join(',')"), (els["#board"].innerHTML.match(/rcore/g) || []).length > 0, ev("routeLine(S.cmdView.route, S.cmdView)")];
+  // the command once it names its run's build: read from the run's records
+  const cb = Object.assign({}, c, {id: 5, build: "ab12cd34"});
+  send("cmd", cb);
+  answer({"/cmd/5": {status: 200, body: {summary: cb, events: [{ev: "hello"}].concat(evs, [{ev: "done"}]), plan: {ev: "plan", doc: placed}, explore: null}}, "/build": {status: 200, body: {doc: build, summary: {}, board: {}}}});
+  await ev("openCmd(5)"); await new Promise(r => setImmediate(r)); flush();
+  out.built = [routedOps(), fetched.map(f => f[0]).filter(u => u === "/build").length, ev("routeLine(S.cmdView.route, S.cmdView)")];
+  out.board = els["#board"].innerHTML;
+  ev('hover({target: {closest: s => s === ".opn" ? {dataset: {i: "0"}} : null}, clientX: 5, clientY: 5})'); out.tip = els["#tip"].textContent;
+  ev('hideTip()');
+  ctx.document.elementFromPoint = () => ({closest: s => s === ".opn" ? {dataset: {i: "0"}} : null});
+  ev("pickAt(5, 5)"); out.tapped = els["#tip"].textContent;
+  ctx.document.elementFromPoint = () => null;
+  // the build cannot be read: what the command sent stays, and the bar says why in red
+  const cc = Object.assign({}, cb, {id: 6});
+  send("cmd", cc);
+  answer({"/cmd/6": {status: 200, body: {summary: cc, events: [{ev: "hello"}].concat(evs, [{ev: "done"}]), plan: {ev: "plan", doc: placed}, explore: null}}, "/build": {status: 404, body: {}}});
+  await ev("openCmd(6)"); await new Promise(r => setImmediate(r)); flush();
+  out.failed = [routedOps(), els["#cmdbar"].innerHTML];
+  // past runs: one served as its build, one whose record carries no copper, one whose record cannot be read
+  ev("showRunRecord(" + JSON.stringify({doc: build, summary: {id: "ab12cd34", script: "x_layout.py", label: ""}}) + ")"); flush();
+  out.past = [routedOps(), (els["#board"].innerHTML.match(/class="opn"/g) || []).length, els["#cmdbar"].innerHTML];
+  const none = Object.assign({}, placed, {open: [], route: {nets: 1, routed: 0, failed: 1, partial: false, dropped: 0, open: 0, unread: {code: "no_copper", nets: 1}}});
+  ev("showRunRecord(" + JSON.stringify({doc: none, summary: {id: "ab12cd35", script: "x_layout.py", label: ""}}) + ")"); flush();
+  out.none = els["#cmdbar"].innerHTML;
+  const lost = Object.assign({}, placed, {route: {unread: {code: "record_unreadable"}}});
+  ev("showRunRecord(" + JSON.stringify({doc: lost, summary: {id: "ab12cd36", script: "x_layout.py", label: ""}}) + ")"); flush();
+  out.lost = els["#cmdbar"].innerHTML;
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["fromEvents"][0] == 1 and out["fromEvents"][1] == "u1,track A,track B" and out["fromEvents"][2] is True
+    assert out["fromEvents"][3] == "route finished: 1 routed, 1 failed"
+    assert out["built"] == [2, 1, "route finished: 1 routed, 1 failed, 1 connection left open, marked in red"]
+    b = out["board"]
+    n = b.count('class="opn" data-i="0" data-net="B"')                                   # once on each panel drawn
+    assert n >= 1 and '<line class="opnline" x1="2" y1="6" x2="8" y2="6"/>' in b and b.count('class="opndot"') == 2 * n and "<title>net B: not connected" in b
+    assert out["tip"].startswith("net B: not connected") and out["tapped"].startswith("net B: not connected")
+    assert out["failed"][0] == 1 and '<span class="routebad">the run' in out["failed"][1] and "could not be read" in out["failed"][1]
+    assert out["past"][0] == 2 and out["past"][1] == n and "1 connection left open" in out["past"][2] and "routebad" not in out["past"][2]
+    assert '<span class="routebad">the route record carries no copper for the 1 net the router routed, so none is drawn</span>' in out["none"]
+    assert '<span class="routebad">the run&#39;s route record could not be read' in out["lost"] or "<span class=\"routebad\">the run's route record could not be read" in out["lost"]
+    for html in (out["failed"][1], out["none"], out["lost"]):
+        assert "(" not in re.sub(r"<[^>]*>|title=\"[^\"]*\"", "", html)                # no bracketed words
+
+
+@needs_node
 def test_latest_and_a_past_runs_row_open_a_routed_run_as_its_build(tmp_path):
     out = run_page(tmp_path, LATEST + r"""
 (async () => {

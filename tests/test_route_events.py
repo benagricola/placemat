@@ -377,7 +377,7 @@ def test_a_replay_takes_ripped_copper_away_at_the_step_that_ripped_it_and_says_w
     ripped = [o for o in doc["copper"] if o["net"] == "B"][0]
     assert ripped["x"] == 2 and "gone" not in ripped          # shown from B's step (1), gone after C's (2)
     assert doc["steps"][1]["note"] == "ripped" and doc["steps"][2]["note"].startswith("routed: 1 track")
-    assert doc["route"] == {"nets": 2, "routed": 1, "failed": 1, "partial": True, "dropped": 3}
+    assert doc["route"] == {"nets": 2, "routed": 1, "failed": 1, "partial": True, "dropped": 3, "open": 0, "unread": None}
     whole = dict(record, stages=[dict(record["stages"][0], complete=True, dropped=0)], complete=True)
     assert route_view.route_doc(whole, board)["route"]["partial"] is False
 
@@ -394,7 +394,7 @@ def test_a_route_record_replays_as_a_plan_with_a_step_per_part_then_per_net(tmp_
     doc = route_view.route_doc(record, board)
     assert [s["item"] for s in doc["steps"]] == ["u1", "track A", "track B"] and [s["kind"] for s in doc["steps"]] == ["part", "copper", "copper"]
     assert doc["steps"][1]["copper"] == [0] and doc["copper"][0]["t"] == "track" and doc["steps"][2]["note"] == "no route found" and doc["steps"][1]["note"].startswith("routed: 1 track")
-    assert doc["route"] == {"nets": 2, "routed": 1, "failed": 1, "partial": True, "dropped": 0}      # written before the route finished
+    assert doc["route"] == {"nets": 2, "routed": 1, "failed": 1, "partial": True, "dropped": 0, "open": 0, "unread": None}      # written before the route finished
     plan = dict(board, steps=[{"i": 0, "item": "u1", "kind": "part", "placed": True, "note": "", "copper": []}], copper=[{"t": "track", "layer": "F.Cu"}], counts={"placed": 1, "findings": 0}, score=None)
     whole = route_view.route_doc(record, plan)                                                    # a run's plan first: the whole build
     assert [s["item"] for s in whole["steps"]] == ["u1", "track A", "track B"] and whole["steps"][1]["copper"] == [1] and len(whole["copper"]) == 2
