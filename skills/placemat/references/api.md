@@ -4168,6 +4168,10 @@ A source line followed while a command or a past run is shown opens that view's 
 /viewsource?kind=K&ref=R&file=PATH`, the view named as a suggestion of it names it): the view's script, its inputs, or another file
 of the project its plan names. A file outside the project or no longer there is refused with a `reason` ("outside", "gone",
 "not_of_view", "no_view"), said in red; `changed` marks a file modified since the run read it, said in yellow.
+A view acts on its own script's board: `GET /suggest/found?id=ID&kind=K&ref=R` reads what a probe found from the view's
+script's store, `GET /suggest/applied?kind=K&ref=R` gives that board's `applied` list and `redo`, and `POST /suggest/undo` and
+`/suggest/redo` take `{view}` to act on that board's log (refused with 409 "nothing has been applied here" when there is none).
+Notes in `hello` and `note` events carry `path`, their script's full path; the page shows a note on that script's board only.
 The address's hash can name a script (`s=`), a past run (`run=ID`) or a running command (`cmd=ID`). Every command in a list says what it
 is - preview, full run, explore or route - by a chip; a command summary carries `kind` (`channel.kind_of`: a run or preview given
 `--explore`, or one that has sent `explore` events, is an explore) and `label`. Following an explore shows its focus, variants landed (of

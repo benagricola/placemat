@@ -1727,8 +1727,9 @@ class Studio:
             return None
 
     # ------------------------------------------------------------ checked runs
-    def runs_dir(self) -> Path:
-        return self.src.board_dir / ".placemat" / "runs"
+    def runs_dir(self) -> Path | None:
+        """The watched script's board's runs; None with no script chosen."""
+        return None if self.src is None else self.src.board_dir / ".placemat" / "runs"
 
     def run_summary(self, run_json: Path) -> dict | None:
         """One recorded run, as the page lists it: status, score, DRC by kind, the checks, the findings by severity and
@@ -1854,9 +1855,10 @@ class Studio:
     def run_doc(self, run_id: str) -> dict | None:
         """A recorded run as a plan document for the compare: its placements as items, its findings and score."""
         from .report import RunRecord
-        if self.src is None or not run_id or "/" in run_id or run_id.startswith("."):
+        runs = self.runs_dir()
+        if runs is None or not run_id or "/" in run_id or run_id.startswith("."):
             return None                         # with no script chosen there is no resolve to compare a run with
-        path = self.runs_dir() / run_id / "run.json"
+        path = runs / run_id / "run.json"
         if not path.is_file():
             return None
         rec = RunRecord.load(path)
