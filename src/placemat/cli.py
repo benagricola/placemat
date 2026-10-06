@@ -57,12 +57,12 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--focus-box", metavar="X0,Y0,X1,Y1", help="with --explore: vary what sits in this box (mm)")
     run.add_argument("--jobs", type=int, help="with --explore: worker processes (default [explore] jobs)")
     run.add_argument("--accept", action="store_true",
-                     help="with --explore: write the best variant's decisions to the lock and use them (with --route-top, "
+                     help="with --explore: write the best variant's decisions to the lock and use them (with --route-best, "
                           "the best route closure's)")
-    run.add_argument("--route-top", type=int, metavar="N",
-                     help="with --explore: quick-route the best N variants by score, each on its own written board, "
-                          "report each one's route closure, and with --accept take the best closure, ties going to the "
-                          "better score (default [explore] route_top; 0 routes none)")
+    run.add_argument("--route-best", action="store_true", default=None,
+                     help="with --explore: quick-route the plain placement and each new best as the search finds it, "
+                          "in a routing worker that takes one of the jobs, report each closure as it comes, and with "
+                          "--accept take the best closure, ties going to the better score (default [explore] route_best)")
     run.add_argument("--resume", action="store_true",
                      help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
                           "its time) or refuse, saying what changed; without it a saved explore that is this one is "
@@ -318,8 +318,9 @@ def parser() -> argparse.ArgumentParser:
     how.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
     how.add_argument("--release-all", action="store_true", help="drop every entry")
     how.add_argument("--accept-seed", type=int, metavar="N",
-                     help="write the saved explore's best variant, seed N, to the lock (what a stopped "
-                          "explore's message offers); no search is run")
+                     help="write variant N of the script's saved explore to the lock (its best, what a stopped "
+                          "explore's message offers, or any other it tried; a finished explore is kept until the "
+                          "next one); no search is run")
     how.add_argument("--current", action="store_true",
                     help="lock every searched item where the board stands (the last run's placement)")
     lk.add_argument("--partial", action="store_true",
@@ -428,8 +429,8 @@ def _explore_options(args):
     """The ExploreOptions --explore and its flags ask for, or None."""
     if getattr(args, "explore", None) is None:
         if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume")) or \
-                getattr(args, "route_top", None) is not None:
-            raise SystemExit("--focus, --focus-after, --focus-box, --accept, --route-top and --resume go with --explore SECONDS")
+                getattr(args, "route_best", None) is not None:
+            raise SystemExit("--focus, --focus-after, --focus-box, --accept, --route-best and --resume go with --explore SECONDS")
         return None
     from .explore import ExploreOptions
     from .values import Box
@@ -442,11 +443,9 @@ def _explore_options(args):
         box = Box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
     if args.resume and args.no_resume:
         raise SystemExit("--resume and --no-resume say opposite things")
-    route_top = getattr(args, "route_top", None)
-    if route_top is not None and route_top < 0:
-        raise SystemExit("--route-top is a count of variants, 0 or more, not %d" % route_top)
     return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept,
-                          "yes" if args.resume else "no" if args.no_resume else "auto", route_top)
+                          "yes" if args.resume else "no" if args.no_resume else "auto",
+                          getattr(args, "route_best", None))
 
 
 def cmd_lock(args) -> int:

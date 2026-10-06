@@ -35,8 +35,8 @@ def test_accepting_what_was_kept_writes_the_lock_the_search_would_have(tmp_path)
 
 def test_accepting_refuses_another_seed_a_changed_lock_and_nothing_saved(tmp_path):
     script, report = _searched(tmp_path)
-    with pytest.raises(ValueError, match="not %d" % (report["best_seed"] + 1)):
-        explore.accept_best(script, tmp_path / "state", seed=report["best_seed"] + 1)
+    with pytest.raises(ValueError, match="seed 99 is not among"):
+        explore.accept_best(script, tmp_path / "state", seed=99)
     with pytest.raises(ValueError, match="no saved explore"):
         explore.accept_best(script, tmp_path / "empty")
     lock.write(lock.path_for(script), [lock.LockEntry("zz", None, None, (1.0, 2.0), 0.0, "front", "d")])

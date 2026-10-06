@@ -3447,3 +3447,35 @@ def test_a_past_explore_whose_routes_took_another_variant_opens_on_it_and_its_ro
 })();
 """)
     assert out["opened"] == 4 and out["plain"] == 0
+
+
+@needs_node
+def test_an_explores_routes_appear_as_they_arrive_before_it_ends(tmp_path):
+    out = run_more(tmp_path, r"""
+const it = Object.assign(item("a", 1), {at: [2, 2], rotation: 0});
+full([it, item("b", 5)], [st("a"), st("b")]);
+ev("S.exploreFps = 100");
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'explore', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore", focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2}});
+send("cmdev", {id: 8, n: 0, ev: {ev: "variant", seed: 3, score: 8, measures: {}, placements: {a: [6, 2, 0, "front"]}, order: ["a"], t: 1}});
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_route", seed: 0, score: 10, closure_clean: 0.8, closure: 0.9, open_before: 4, open_after: 1, valid: true, seconds: 3, dir: "d0"}});
+ev("renderRuns()"); out.live = els["#tab-runs"].innerHTML;
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_route", seed: 3, score: 8, closure_clean: 0.9, closure: 0.9, open_before: 4, open_after: 0, valid: true, seconds: 3, dir: "d3"}});
+ev("renderRuns()"); out.two = els["#tab-runs"].innerHTML;
+""")
+    live = out["live"]
+    assert 'data-xroute="0"' in live and "80.0% clean" in live and "taken" not in live and "every route failed" not in live
+    assert 'data-xroute="3"' in out["two"]
+
+
+@needs_node
+def test_a_route_that_arrives_twice_is_shown_once(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'explore', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore", focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2}});
+const r = {ev: "explore_route", seed: 0, score: 10, closure_clean: 0.8, closure: 0.9, open_before: 4, open_after: 1, valid: true, seconds: 3, dir: "d0"};
+send("cmdev", {id: 8, n: 0, ev: r}); send("cmdev", {id: 8, n: 1, ev: r});
+out.n = ev("S.xv.routes.length");
+""")
+    assert out["n"] == 1

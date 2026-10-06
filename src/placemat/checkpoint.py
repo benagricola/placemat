@@ -9,11 +9,18 @@ Under `<board>/.placemat/explore/<script stem>/`:
   measures, the budget), then one line per finished variant ({"v": seed, "s":
   score, "t": seconds spent in all}; a variant better than any before it also
   carries "m", its measures), flushed as it is written, a "stop" line when
-  the process was stopped, and a "done" line when the explore finished. A
+  the process was stopped, a "done" line when the explore finished, and a
+  "recorded" line once the command that ran it has recorded its result. A
   line cut short by a kill is ignored.
 - `best.json`: the best variant's lock entries, replaced atomically whenever
   a better one is found: what `placemat lock --accept-seed` writes, and what
-  a resume keeps."""
+  a resume keeps.
+- `entries.jsonl`: every variant's lock entries, a line each ({"v": seed,
+  "entries", "orders"}), so `placemat lock --accept-seed S` takes any of them.
+
+A recorded explore stays, so its variants can still be accepted, until the
+next explore of the script replaces it; it is never resumed. One that
+finished without being recorded (its run failed after it) is."""
 from __future__ import annotations
 
 import hashlib
@@ -25,6 +32,7 @@ from typing import NamedTuple
 
 BEST_VERSION = 1
 FORMAT = 1
+ENTRIES = "entries.jsonl"
 
 # What the digest is made of, and what a change to each is called.
 PARTS = {"script": "the script", "board": "the generated board", "settings": "the settings",
@@ -69,6 +77,8 @@ class Appender:
 
     def __init__(self, path, mode: str = "a"):
         self.path = Path(path)
+        if mode == "a":
+            _drop_partial_tail(self.path)
         self._f = open(self.path, mode)
 
     def write(self, doc: dict) -> None:
@@ -77,6 +87,18 @@ class Appender:
 
     def close(self) -> None:
         self._f.close()
+
+
+def _drop_partial_tail(path: Path) -> None:
+    """A last line cut short by a kill, taken off before more is appended: glued to it, the next line would be lost
+    with it (`read_lines` stops at a line that is not JSON)."""
+    try:
+        with open(path, "rb+") as f:
+            data = f.read()
+            if data and not data.endswith(b"\n"):
+                f.truncate(data.rfind(b"\n") + 1)
+    except FileNotFoundError:
+        pass
 
 
 def read_lines(path) -> list:
@@ -124,6 +146,7 @@ class Checkpoint:
         self.best_key = None            # (score, seed) of the best seen: a variant better than it carries its measures
         self.n = 0
         self._out = None
+        self._entries = None
         self._best_written = None       # (score, seed) of the variant best.json holds
         self.resumed = None             # the Prior this explore continued, or None
         self.discarded = []             # what changed, when a saved explore that was not this one was cleared
@@ -136,14 +159,18 @@ class Checkpoint:
     def best_path(self) -> Path:
         return self.dir / "best.json"
 
+    @property
+    def entries_path(self) -> Path:
+        return self.dir / ENTRIES
+
     # ---------------------------------------------------------- reading
     def load(self):
         """The saved explore this one continues, or None to start over (what
         was there is cleared when it is not this explore's). Raises
         ResumeRefused when asked to resume ("yes") one that is not this."""
         lines = read_lines(self.path)
-        if self.resume == "no" or not lines or lines[0].get("kind") != "header":
-            self.clear()
+        if self.resume == "no" or not lines or lines[0].get("kind") != "header" or any("recorded" in d for d in lines):
+            self.clear()                # a recorded explore is kept for accepting, not resumed: this one replaces it
             return None
         head = lines[0]
         if head.get("version") != FORMAT or head.get("digest") != self.digest:
@@ -191,7 +218,7 @@ class Checkpoint:
     # ---------------------------------------------------------- writing
     def clear(self) -> None:
         """No saved explore: the checkpoint and the best it kept, gone."""
-        for p in (self.path, self.best_path, self.dir / "best.json.tmp"):
+        for p in (self.path, self.best_path, self.dir / "best.json.tmp", self.entries_path):
             try:
                 p.unlink()
             except OSError:
@@ -217,8 +244,13 @@ class Checkpoint:
 
     def variant(self, seed: int, score: float, measures: dict, elapsed: float, payload) -> None:
         """One finished variant: a line (its measures when it beat every one
-        before it; at the cap on lines, nothing), and best.json when it
-        brought entries to replace it."""
+        before it; at the cap on lines, nothing), its entries' line when it
+        brought its entries (`payload`), and best.json when those beat the
+        baseline and the best written."""
+        if self.n < self.max_variants and payload is not None and seed:
+            if self._entries is None:
+                self._entries = Appender(self.entries_path, "a")
+            self._entries.write({"v": seed, "entries": payload["entries"], "orders": payload["orders"]})
         if self.n < self.max_variants:
             line = {"v": seed, "s": score, "t": round(elapsed, 2)}
             if self.best_key is None or (score, seed) < self.best_key:
@@ -231,6 +263,8 @@ class Checkpoint:
         if self.best_key is None or key < self.best_key:
             self.best_key = key
         if payload is None or not seed:
+            return
+        if self.baseline is not None and score >= self.baseline - 1e-9:
             return
         if self._best_written is not None and key >= self._best_written:
             return
@@ -252,15 +286,15 @@ class Checkpoint:
         if self._out is not None:
             self._out.close()
             self._out = None
+        if self._entries is not None:
+            self._entries.close()
+            self._entries = None
 
     def finish(self) -> None:
-        """The explore is complete and its result is where it goes: the
-        checkpoint is not needed. (best.json stays, for accepting later.)"""
+        """The explore is complete and its result is where it goes: marked
+        recorded (`finish_dir`), and kept for accepting any of its variants."""
         self.close()
-        try:
-            self.path.unlink()
-        except OSError:
-            pass
+        finish_dir(self.dir)
 
 
 def read_best(directory):
@@ -273,9 +307,35 @@ def read_best(directory):
 
 
 def finish_dir(directory) -> None:
-    """A completed explore whose result is recorded: its checkpoint is not
-    needed (best.json stays, for accepting it later)."""
-    try:
-        (Path(directory) / "checkpoint.jsonl").unlink()
-    except OSError:
-        pass
+    """A completed explore whose result is recorded: its checkpoint gets a
+    "recorded" line, so it is not resumed, and stays with its entries for
+    accepting any variant until the next explore replaces it."""
+    path = Path(directory) / "checkpoint.jsonl"
+    lines = read_lines(path)
+    if lines and not any("recorded" in d for d in lines):
+        Appender(path, "a").write({"recorded": True})
+
+
+def read_variant(directory, seed: int):
+    """A saved variant as best.json holds the best (seed, score, baseline,
+    focus, script, lock, entries, orders), from the checkpoint's header and
+    lines and `entries.jsonl`; None when the explore did not keep it."""
+    lines = read_lines(Path(directory) / "checkpoint.jsonl")
+    if not lines or lines[0].get("kind") != "header":
+        return None
+    head = lines[0]
+    score = next((d["s"] for d in lines if d.get("v") == seed), None)
+    kept = next((d for d in read_lines(Path(directory) / ENTRIES) if d.get("v") == seed), None)
+    if score is None or kept is None:
+        return None
+    return {"version": BEST_VERSION, "seed": seed, "score": score, "baseline": head["baseline"]["score"],
+            "focus": head["focus"], "script": head["parts"]["script"], "lock": head["parts"]["lock"],
+            "entries": kept["entries"], "orders": kept["orders"]}
+
+
+def saved(directory, seed: int) -> bool:
+    """Whether `placemat lock --accept-seed` can take this seed from the saved explore."""
+    if not seed:
+        return False
+    best = read_best(directory)
+    return (best is not None and best["seed"] == seed) or read_variant(directory, seed) is not None

@@ -4324,8 +4324,8 @@ the items it was left to place:
 
 ```
 placemat run <script> --explore SECONDS [--focus ITEM ...] [--focus-after LINE]
-                      [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept] [--route-top N] [--resume | --no-resume]
-placemat preview <script> --explore SECONDS [the same, less --route-top]
+                      [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept] [--route-best] [--resume | --no-resume]
+placemat preview <script> --explore SECONDS [the same, less --route-best]
 placemat lock <script> [--current [--partial] | --release ITEM ... | --release-all | --accept-seed N]
 placemat freeze <script> ITEM ... | --all [--fixed]
 ```
@@ -4363,36 +4363,42 @@ score that changed in brackets, then one line per item that would move. `metrics
 With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part, or `, with cell logic turned to 90 degrees` when it turns the part's cell), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking.
 Without `--accept` nothing persists.
 
-**Routing the best variants.** The run score's ratsnest crossings do not reliably predict how well a board routes,
-so a run can quick-route its best variants and take the one that closes best. `--route-top N` (`[explore] route_top`, 0 by default: none) writes each of the best N variants by run
-score, one at a time, as the run writes its own board, in `<run>/explore/seed-S/layout.kicad_pcb`, and quick-routes it
-there (`route/`, as `run --route` does: the plane nets and `--route-exclude` left out). A line per variant gives its
-closure (`route, seed 3 at 120.4 mm: closure 86.4% clean (91.2% raw), 14 open, in 3 min 4 s`, with `; the placement's
-DRC was not clean before routing` when the router judged it invalid), and a last line the time the routes took and the
-variant taken (`routes: 3 variants quick-routed in 9 min 12 s, after the explore's time; taken by closure: seed 7`).
-The variant taken is the best clean closure, ties going to the better score; its moves are the ones reported, and
-`--accept` writes it. When the plain placement closes best it is taken and nothing is accepted (`nothing to accept:
-the current placement's route closed best`). A variant whose board cannot be written or whose route fails (the router
-exits, times out or is missing) says so on its line (`the route failed with RuntimeError: ...`) and the others go on;
-when every route fails the best score is taken (`every route failed: the best score is taken`). A signal during the
-routes stops the explore as one during the search does, with the routes done so far in the report and in an
-`explore_done` event that keeps nothing; `--no-resume` routes every stage of the variants' routes again. The studio
-opens a past explore on the variant its routes took, and the plan kept beside the record is that variant's. The report
-(`metrics.explore`), the explore record and its `explore_done` event keep `routes` - per variant `seed`, `score`,
-`dir`, `seconds` (its resolve when not already in hand, its board and its route) and `closure_clean`, `closure`,
-`open_before`, `open_after`, `valid`, or `error` (`type`, `message`) - and `taken_seed` when a route closed. A rerun
-of the same run carries `explore/` over, so a resumed explore takes the route stages its variants finished. A preview
-writes no board and routes none (`routes: none; a preview writes no board to route`). A quick route of a small
-module took about 2 s a variant; on a large board a quick route takes minutes, so N variants add N such routes to
-the explore, which is why the default is 0.
+**Routing as it searches.** The run score's ratsnest crossings do not reliably predict how well a board routes, so a
+run can quick-route its explore's bests as the search finds them and take the one that closes best. With
+`--route-best` (`[explore] route_best`, off by default) a routing worker, one of the `--jobs`, starts with the search
+and quick-routes the plain placement (seed 0) first: the baseline the others are judged against. Then, each time a
+variant becomes the new best by run score, it routes that one. While it is routing, only the latest new best waits; a
+best overtaken before its route starts is not routed. With `--jobs 1` the search keeps the one job and the routes run
+after it: the plain placement, then the best. When the search ends, the worker finishes the route in hand and the one
+waiting, then stops; that time comes after the explore's budget. Each variant is resolved again, written as the run
+writes its own board in `<run>/explore/seed-S/layout.kicad_pcb`, and quick-routed there (`route/`, as `run --route`
+does: the plane nets and `--route-exclude` left out). Its line is said as it comes (`route, seed 3 at 120.4 mm:
+closure 86.4% clean (91.2% raw), 14 open, in 4 min 56 s`, with `; the placement's DRC was not clean before routing`
+when the router judged it invalid), it is sent to the studio as an `explore_route` event (the explore view's Routes
+block fills as they come), and the summary line says what they came to (`routes: 4 variants quick-routed in 19 min,
+alongside the search; taken by closure: seed 7`). The variant taken is the best clean closure, ties going to the
+better score; its moves are the ones reported, and `--accept` writes it. When the plain placement closes best it is
+taken and nothing is accepted (`nothing to accept: the current placement's route closed best`). A variant whose board
+cannot be written or whose route fails (the router exits, times out or is missing) says so on its line (`the route
+failed with RuntimeError: ...`), and a worker that dies marks its route and the waiting one `WorkerDied`; the explore
+goes on, and when every route fails the best score is taken (`every route failed: the best score is taken`). A signal
+stops the routes with the explore, with the routes done so far in the report and in an `explore_done` event that keeps
+nothing; `--no-resume` routes every stage of the variants' routes again. The studio opens a past explore on the
+variant its routes took, and the plan kept beside the record is that variant's. The report (`metrics.explore`), the
+explore record and its `explore_done` event keep `routes` in the order they came - per variant `seed`, `score`, `dir`,
+`seconds` (its resolve, its board and its route) and `closure_clean`, `closure`, `open_before`, `open_after`, `valid`,
+or `error` (`type`, `message`) - and `taken_seed` when a route closed. A rerun of the same run carries `explore/` over,
+so a resumed explore takes the route stages its variants finished. A preview writes no board and routes none
+(`routes: none; a preview writes no board to route`). A quick route of a small module takes about 2 s; on a large
+board about 5 minutes, so a 15-minute explore routes the plain placement and a few of its bests.
 
 **Stopping.** `run`, `preview` and `route` stop on SIGTERM, SIGHUP or Ctrl-C
 (a second signal exits at once). A stopped explore prints `explore stopped by
 SIGTERM after N variants in T s; best seed S: a -> b mm; nothing accepted;
 accept it with: placemat lock <script> --accept-seed S`; the lock is never
 written on a stop, even with `--accept`, and `placemat lock <script>
---accept-seed S` writes the best from `<board>/.placemat/explore/<script
-stem>/best.json` (refused when the lock or the script changed since). A
+--accept-seed S` writes variant S from `<board>/.placemat/explore/<script
+stem>/` (refused when the lock or the script changed since). A
 stopped run's `run.json` has `status: "stopped"` and `failure: {kind:
 "stopped", signal, stage, elapsed_s, explore}`, the layout folder is as the
 last run left it, a final line names the stage and the signal, and the exit
@@ -4444,19 +4450,29 @@ profile, placemat version, lock, focus - the baseline's score and measures, the
 budget), a line per finished variant `{"v": seed, "s": score, "t": seconds
 spent in all}` (a variant better than every one before it also has `"m"`, its
 measures), flushed as it goes, a `{"stop": signal}` line when it was stopped
-and `{"done": true}` when it finished; a line cut short by a kill is ignored.
+`{"done": true}` when it finished and `{"recorded": true}` once the command
+that ran it recorded its result; a line cut short by a kill is ignored.
 `best.json` holds the best variant's lock entries (replaced atomically at each
-new best) and what `placemat lock <script> --accept-seed N` writes. A rerun
+new best) and `entries.jsonl` every variant's (`{"v": seed, "entries",
+"orders"}`): `placemat lock <script> --accept-seed N` writes variant N from
+them, any variant the explore tried (seed 0, the placement it began from, is
+refused, naming `lock --current`), but only while the lock is unchanged since
+that explore began: once `--accept` or an `--accept-seed` has written the
+lock, its other seeds are refused (`the lock changed since that explore
+began`) and a new explore is needed. A rerun
 with the same digest continues: `resuming a saved explore: N variants in T s
 so far`, the baseline from the header, the untried seeds only, `SECONDS` less
 the time already spent (a fixed list of seeds: those not tried). `--resume`
 refuses a checkpoint with another digest, naming what changed; with no flag it
 is dropped with a note and the explore starts over; `--no-resume` starts over
-always. The checkpoint is removed when the run that explored is recorded (a
-`preview`, which records nothing, removes it when it has the result); a run
-that fails or is stopped after a complete explore leaves it, and the rerun
-takes the finished result without searching again. `best.json` stays until the
-lock is written from it or the explore starts over. `[explore]
+always. When the run that explored is recorded (a `preview`, which records
+nothing, when it has the result) the checkpoint is marked recorded and kept,
+with every variant's entries, so any variant can be accepted, or read by
+tools outside placemat, until the next explore of the script replaces it; a
+recorded explore is never resumed. A run that fails or is stopped after a
+complete explore leaves it unrecorded, and the rerun takes the finished result
+without searching again. `best.json` is removed when `--accept` writes the
+lock from the explore. `[explore]
 checkpoint_max_variants` bounds the lines.
 
 **The curve and the stopping rules.** Each finished variant is a point
@@ -4483,7 +4499,7 @@ For a long explore run it detached (`setsid nohup placemat run ... >
 explore.log 2>&1 &`) and do not chain it with `;`, which hides its exit
 status.
 
-**The lock.** `--accept` writes the best variant's decisions (with `--route-top`, the variant its routes took) for the
+**The lock.** `--accept` writes the best variant's decisions (with `--route-best`, the variant its routes took) for the
 focused items to `<script stem>.lock.json` beside the script, and the run
 uses them. Each entry places its item off the placed pad it depends on
 most, in that pad's part's frame (it follows the part when it moves or
@@ -5239,7 +5255,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.stall_seconds` | `0.0` | seconds | end an explore this many seconds after its last improvement; 0 is off |
 | `explore.stop_hard_clear` | `false` | bool | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | `100000` | count | finished variants an explore's checkpoint records; past it a resume tries those again |
-| `explore.route_top` | `0` | count | after an explore, quick-route its best this many variants by run score, each on its own written board, one at a time, and report each one's route closure beside its score; `--accept` then takes the best clean closure, ties going to the better score. 0 routes none. A run only: a preview writes no board (`--route-top`) |
+| `explore.route_best` | `false` | bool | a routing worker, one of the explore's jobs, quick-routes the plain placement at the start and each new best by run score as the search finds it (only the latest waits while it is busy; with one job it routes after the search); each closure is said beside its score and `--accept` takes the best clean closure, ties going to the better score. A run only: a preview writes no board (`--route-best`) |
 | `pins.exit_mm` | `0.5` | mm | the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn |
 | `pins.follow_series` | `true` | bool | the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection |
 | `pins.pair_weight` | `5.0` | weight | the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1) |

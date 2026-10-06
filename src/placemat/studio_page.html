@@ -3064,6 +3064,7 @@ function cmdEvent(ev, n) {
   else if (ev.ev === "explore") { xvStart("cmd", V.id, ev); }
   else if (ev.ev === "variant") { xvAdd(ev); }
   else if (ev.ev === "explore_done") { if (S.xv) { S.xv.done = ev; schedule("runs"); } }
+  else if (ev.ev === "explore_route") { if (S.xv) { const rs = S.xv.routes = S.xv.routes || []; if (!rs.some(r => r.seed === ev.seed)) rs.push(ev); schedule("runs"); } }
   V.next = Math.max(V.next || 0, (n || 0) + 1);
   if (ev.ev === "route_commit" || ev.ev === "route_rip") {            // a route commits copper many times a second: the drawing follows at a few frames a second
     if (!V.redraw) V.redraw = setTimeout(() => { V.redraw = null; schedule("board", "steps", "replay", "counts", "runs", "status"); renderCmdBar(); }, 250);
@@ -3203,13 +3204,13 @@ async function openCmd(id) {
     S.xv = null;
     for (const ev of d.events) cmdEvent(ev, 0);
     if (d.plan) cmdEvent(d.plan, 0);
-    if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v, true); if (d.explore.done) S.xv.done = d.explore.done; xvDrawNow(); }
+    if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v, true); S.xv.routes = (d.explore.routes || []).slice(); if (d.explore.done) S.xv.done = d.explore.done; xvDrawNow(); }
     S.cmdView.next = d.events.length;
     looking();
     S.opening = null;
     for (const b of op.buf) {                         // what arrived meanwhile and the command's copy did not have: events of its log past the copy's end, a plan, a variant
       const k = b.ev.ev;
-      if (k.startsWith("route_") || (k === "explore" ? S.xv : !["plan", "variant", "explore_done"].includes(k) && b.n < d.events.length)) continue;
+      if (k.startsWith("route_") || (k === "explore" ? S.xv : !["plan", "variant", "explore_route", "explore_done"].includes(k) && b.n < d.events.length)) continue;
       cmdEvent(b.ev, b.n);
     }
     renderCmdBar(); schedule("all");
@@ -4001,8 +4002,9 @@ function xvPinsHTML(X) {
   return '<div class="xpins"><div class="cst">Pin study</div>' + rows + "</div>";
 }
 // ---- an explore's routes (explore._route_variants): each top variant's quick-route closure, clean and raw, the signal items it left
-// open and its time, beside its score, and the variant the routes took (taken_seed). They come with the explore's end.
-const xvRoutes = X => (X.done && X.done.routes) || [];
+// open and its time, beside its score, and the variant the routes took (taken_seed). Each comes as it is routed (explore_route); the
+// explore's end brings them all and the one taken.
+const xvRoutes = X => (X.done && X.done.routes && X.done.routes.length ? X.done.routes : X.routes) || [];
 function xvRoutesHTML(X) {
   const rs = xvRoutes(X), taken = X.done && X.done.taken_seed;
   if (!rs.length) return X.done && X.done.routes_skipped === "no_board" ? '<div class="xroutes"><div class="cst">Routes</div><div>none: a preview writes no board to route</div></div>' : "";
@@ -4014,7 +4016,7 @@ function xvRoutesHTML(X) {
     return '<div class="xpin' + (took ? " on" : "") + '" data-xroute="' + r.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(r.score) + "</span>" +
       (took ? pill("taken", "good") : "") + "</div><div>" + body + "</div></div>";
   }).join("");
-  return '<div class="xroutes"><div class="cst">Routes</div>' + rows + (taken == null ? "<div>every route failed: the best score is taken</div>" : "") + "</div>";
+  return '<div class="xroutes"><div class="cst">Routes</div>' + rows + (X.done && taken == null ? "<div>every route failed: the best score is taken</div>" : "") + "</div>";
 }
 function drawExplore() {
   const svg = typeof B !== "undefined" && B.svg; if (!svg || !svg.querySelectorAll) return;

@@ -501,21 +501,28 @@ shapes and files: `references/api.md`, "Live progress".
   60 --focus <cluster>` (or `--focus-after LINE`), read what would move and
   why, then `--accept`. The lock beside the script keeps it; commit the
   lock with the script. `placemat freeze` moves an entry into the script
-  once the spot is part of the design.
+  once the spot is part of the design. A finished explore keeps every
+  variant until the next explore of the script: `placemat lock <script>
+  --accept-seed S` writes any of them (the record in
+  `.placemat/views/explore/` lists their seeds and scores), but only while
+  the lock is as it was when that explore began: once `--accept` (or an
+  `--accept-seed`) has written the lock, the other seeds are refused, so
+  explore again.
 - An explore reports its curve: `best found at variant 7 of 34, 5 min 12 s in
   (of 43 min)`, and `metrics.explore.curve`/`found`/`ended` keep it. If the best
   comes early, set `[explore] stall_variants` or `stall_seconds` (off by default)
   to end an explore that has stopped improving; `ended.rule` says what ended it,
   and an explore ended that way is complete (`--accept` applies).
 - When the score's crossings do not track how the board routes, add
-  `--route-top N` to a run's explore (`[explore] route_top`, 0 by default):
-  the best N variants by score are written and quick-routed one at a time in
-  `<run>/explore/seed-S/`, each one's closure is said beside its score
+  `--route-best` to a run's explore (`[explore] route_best`, off by
+  default): a routing worker, one of the `--jobs`, quick-routes the plain
+  placement and then each new best as the search finds it (only the latest
+  waits while it is busy; with `--jobs 1` it routes after the search), in
+  `<run>/explore/seed-S/`. Each closure is said as it comes
   (`metrics.explore.routes`), and `--accept` takes the best clean closure,
   ties going to the better score (`taken_seed`). A failed route is said on
-  its variant's line and the explore stands. Each route costs what a quick
-  route of the board costs (minutes on a large board), after the explore's
-  own time.
+  its variant's line and the explore stands. A quick route of a large board
+  takes minutes, so give the explore time for a few.
 - Long commands (`run`, `preview`, `route`, above all `--explore`) stop
   safely on SIGTERM, SIGHUP or Ctrl-C and say so: the run is recorded as
   `stopped` (`status: "running"` with a `pid` while it works; a record whose

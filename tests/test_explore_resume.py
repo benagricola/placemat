@@ -49,9 +49,10 @@ def test_a_finished_variant_is_a_line_with_the_header_first_and_a_done_line_last
     assert all("m" not in d for d in lines if "v" in d and d["s"] >= head["baseline"]["score"])
 
 
-def test_a_complete_explore_clears_its_checkpoint_and_keeps_the_best(tmp_path):
+def test_a_complete_explore_keeps_its_checkpoint_marked_recorded_and_the_best(tmp_path):
     _search(tmp_path, seeds=range(0, 10))
-    assert not (tmp_path / "state" / FILE).exists() and (tmp_path / "state" / "best.json").exists()
+    assert checkpoint.read_lines(tmp_path / "state" / FILE)[-1] == {"recorded": True}
+    assert (tmp_path / "state" / "best.json").exists()
 
 
 def test_a_resume_tries_only_the_untried_seeds_and_gets_the_same_answer(tmp_path):

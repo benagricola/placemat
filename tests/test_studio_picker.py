@@ -759,3 +759,13 @@ def test_a_command_starting_over_the_channel_is_announced_at_once_and_the_hello_
     assert [c["id"] for c in second] == [2] and second[0]["kind"] == "preview" and second[0]["state"] == "running" and second[0]["started"] >= first[0]["started"]
     hello = json.loads(s.hello()[0][1])
     assert hello["follow_hold_s"] == 10.0 and [c["id"] for c in hello["commands"]] == [1, 2]
+
+
+def test_an_explores_routes_streamed_over_the_channel_are_kept_with_it_not_in_its_log(project):
+    s = _fresh(project)
+    _cmd(s, 6)
+    s._on_channel(6, {"ev": "explore", "focus": ["a"], "plain": {}, "order": ["a"], "baseline": 10.0, "jobs": 2, "at": 1.0})
+    s._on_channel(6, {"ev": "explore_route", "seed": 0, "score": 10.0, "closure_clean": 0.8, "closure": 0.9, "open_before": 4,
+                      "open_after": 1, "valid": True, "seconds": 3.0, "dir": "d"})
+    d = s.cmd_detail(6)
+    assert [r["seed"] for r in d["explore"]["routes"]] == [0] and all(e["ev"] != "explore_route" for e in d["events"])

@@ -156,7 +156,7 @@ def test_a_real_sigterm_to_a_real_explore_run(tmp_path):
         assert json.loads((mod / "UsbC_layout.lock.json").read_text())["entries"]
         again = subprocess.run([sys.executable, "-m", "placemat", "lock", m.group(1), "--accept-seed", "999999"],
                                cwd=ROOT, capture_output=True, text=True, timeout=120)
-        assert again.returncode == 1 and "not 999999" in again.stdout
+        assert again.returncode == 1 and "seed 999999 is not among the saved explore's variants" in again.stdout
 
 
 def _run_explore(script, seconds, *flags):
@@ -204,7 +204,7 @@ def test_a_real_explore_stopped_twice_resumes_each_time_without_repeating_a_seed
     out, err = proc.communicate(timeout=300)
     assert proc.returncode == 0, out + err
     assert "resuming a saved explore: %d variants" % (len(s2) + 1) in out
-    assert not ck.exists()                                                    # recorded in the run: not needed
+    assert checkpoint.read_lines(ck)[-1] == {"recorded": True}                # recorded in the run: kept, not resumed
     doc, _ = _only_run(src)
     assert doc["status"] == "ok" and doc["metrics"]["explore"]["tried"] >= len(s2) + 1
 
