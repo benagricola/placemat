@@ -120,6 +120,7 @@ class ExploreResult:
     plain_order: list = None
     curve: list = None             # {i, seed, t, score, best} for every variant in the order it finished, over every session
     ended: dict = None             # why it ended: {"rule": "budget" | "stall_count" | "stall_time" | "hard_clear" | "signal", ...}
+    routes: list = None            # with routing: each route's entry (_route_work), in the order they came
 
 
 class StopRule:
@@ -189,8 +190,30 @@ def _compact(curve, cap: int = 2000):
     return [c for k, c in enumerate(curve) if c["best"] or k % step == 0]
 
 
+@dataclass(frozen=True)
+class Routing:
+    """What an explore's routing worker needs (`explore(routing=)`): the folder its variants are written in, the nets
+    left out of their routes, route_board's `resume`, and the board writer and router (VariantRouter; a test's stand-in)."""
+    folder: Path
+    exclude: tuple = ()
+    resume: bool = True
+    router: object = None
+
+
+class VariantRouter:
+    """How the routing worker writes a variant's board and routes it: as a run writes its own (`_write_variant`), and
+    placemat's quick route."""
+
+    def write(self, make_board, board, plan, folder):
+        return _write_variant(make_board, board, plan, folder)
+
+    def route(self, pcb, work, exclude_nets=(), quick=True, resume=True):
+        from .kicad import route as route_mod
+        return route_mod.route_board(pcb, work, exclude_nets=exclude_nets, quick=quick, resume=resume)
+
+
 def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=None, lock=None,
-            checkpoint=None) -> ExploreResult:
+            checkpoint=None, routing: Routing | None = None) -> ExploreResult:
     """Resolve variants of `make_board()` (a fresh board per variant, the
     script already declared on it) until `seconds` pass, in `jobs` worker
     processes (None: [explore] jobs, 0 there meaning the CPU count less
@@ -213,7 +236,16 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     in `failures` and the others carry on. When the process is stopped
     (stop.Stopped) the workers are ended and the exception, carrying the
     partial result as `.partial`, goes on up. `checkpoint` (checkpoint.py)
-    is told of the baseline, every variant and each new best as they come."""
+    is told of the baseline, every variant and each new best as they come.
+
+    With `routing`, a routing worker process (`_route_work`) quick-routes the
+    plain placement first, then each new best by run score as it comes; while
+    it routes, only the latest new best waits, and a best overtaken before
+    its route starts is not routed. It takes one of the `jobs`; with one job
+    the search has it, and the routes run after the search. When the search
+    ends the worker finishes the route in hand and the one waiting. Each
+    route is said, sent as an `explore_route` event and kept in `routes`; one
+    that fails, or a worker that dies, is an entry with its `error`."""
     import multiprocessing as mp
     import os
     import queue
@@ -238,6 +270,9 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
             baseline, base_m = prior.baseline, prior.measures
     if jobs is None:
         jobs = base_board.settings.explore_jobs or max(1, (os.cpu_count() or 2) - 1)
+    route_after = routing is not None and jobs <= 1          # one job: the search has it, the routes come after
+    if routing is not None and not route_after:
+        jobs -= 1                                            # the routing worker's
     done_before = dict(prior.done) if prior is not None else {}
     spent = prior.spent if prior is not None else 0.0
     if checkpoint is not None and prior is None:
@@ -279,11 +314,65 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         rule.see(t_, curve[-1]["best"], False)
     fired = []                                      # [{"rule": ...}] once a rule has ended it
     ended_by = lambda: fired[0] if fired else {"rule": "budget"}
+    routes = []
+    rq = ctx.Queue() if routing is not None else None
+    rproc = ctx.Process(target=_route_work, args=(make_board, frozenset(focus), lock, plain.reuse, routing, rq, out,
+                                                  os.getpid()), daemon=True, name="explore-router") \
+        if routing is not None else None
+    rs = {"inflight": None, "pending": None, "started": False, "dead": False}
     partial = lambda: _result(results, baseline, base_m, spent + time.time() - t0, failures, variants, focus, len(procs),
-                              curve, ended_by())
+                              curve, ended_by(), list(routes) if routing is not None else None)
+
+    def dispatch():
+        """The waiting best to the routing worker, when it is free."""
+        if rs["started"] and not rs["dead"] and rs["inflight"] is None and rs["pending"] is not None:
+            rq.put(rs["pending"])
+            rs["inflight"], rs["pending"] = rs["pending"], None
+
+    def start_router():
+        rproc.start()
+        rs["started"] = True
+        rq.put(0)                                    # the plain placement first: the baseline the others are judged by
+        rs["inflight"] = 0
+        dispatch()
+
+    def routed(seed, entry):
+        total = results[seed][1] if seed in results else baseline
+        entry = {"seed": seed, "score": round(total, 1), **{k: v for k, v in entry.items() if k != "seed"}}
+        routes.append(entry)
+        rs["inflight"] = None
+        console.say("explore", route_line(entry))
+        dispatch()
+        if rep is not None:
+            rep.send({"ev": "explore_route", **entry})
+
+    def router_gone():
+        """A routing worker that died with a route in hand: that route, and the one waiting, are entries that say so."""
+        if not rs["started"] or rs["dead"] or rproc.is_alive():
+            return
+        try:
+            while True:
+                take(out.get_nowait())
+        except queue.Empty:
+            pass
+        if rs["inflight"] is None and rs["pending"] is None:
+            return
+        code = rproc.exitcode
+        why = "was killed by signal %d (%s)" % (-code, _signame(-code)) if code is not None and code < 0 else \
+            "exited with code %s" % code
+        rs["dead"] = True
+        for seed in (rs["inflight"], rs["pending"]):
+            if seed is not None:
+                rs["inflight"] = seed
+                routed(seed, {"seed": seed, "dir": str(routing.folder / ("seed-%d" % seed)), "seconds": 0.0,
+                              "error": {"type": "WorkerDied", "message": "the routing worker %s before this route "
+                                        "finished" % why}})
+        rs["inflight"] = rs["pending"] = None
     try:
         for pr in procs:
             pr.start()
+        if routing is not None and not route_after and procs:
+            start_router()
         if rep is not None:
             rep.send({"ev": "explore", "focus": sorted(focus), "seconds": seconds, "jobs": len(procs),
                       "seeds": None if order is None else len(order), "baseline": baseline,
@@ -293,6 +382,10 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         def take(msg):
             if msg[0] == "end":
                 ended.add(msg[1])
+            elif msg[0] == "route":
+                routed(msg[1], msg[2])
+            elif msg[0] == "rend":
+                pass
             elif msg[0] == "err":
                 failures.append("worker %d raised:\n%s" % (msg[1], msg[2].rstrip()))
                 console.say("explore", "worker %d raised: %s" % (msg[1], failures[-1].splitlines()[-1]), level="fail")
@@ -305,6 +398,9 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                 variants.append(v)
                 if rep is not None:
                     rep.send({"ev": "variant", **v})
+                if better and routing is not None:
+                    rs["pending"] = seed                     # the latest new best waits; one it overtakes is not routed
+                    dispatch()
                 if checkpoint is not None:
                     checkpoint.variant(seed, total, m, now, payload)
                 if rule.active and not fired:
@@ -323,6 +419,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                 if why:
                     fired.append(rule.detail(why, spent + time.time() - t0))
                     halt.value = 1
+            router_gone()
             for k, pr in enumerate(procs):
                 if k in ended or pr.is_alive():
                     continue
@@ -340,6 +437,19 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                         why = "exited with code %s" % code
                     failures.append("worker %d %s without finishing" % (k, why))
                     console.say("explore", failures[-1], level="fail")
+        if routing is not None:                      # the search is done: the route in hand and the one waiting
+            if not rs["started"]:
+                start_router()
+            while rs["inflight"] is not None or (rs["pending"] is not None and not rs["dead"]):
+                try:
+                    take(out.get(timeout=1.0))
+                    continue
+                except queue.Empty:
+                    pass
+                router_gone()
+            if not rs["dead"]:
+                rq.put(None)
+                rproc.join(5.0)
     except stop.Stopped as s:
         s.partial = partial()
         s.partial.stopped = True
@@ -348,7 +458,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
             checkpoint.stopped(s.label, s.partial.seconds)
         raise
     finally:
-        _end(procs)
+        _end(procs + ([rproc] if rs["started"] else []))
         out.close()
         out.cancel_join_thread()
     result = partial()
@@ -382,13 +492,13 @@ def _end(procs) -> None:
 
 
 def _result(results: dict, baseline, base_m, seconds: float, failures, variants=None, focus=(), jobs=0, curve=None,
-            ended=None) -> ExploreResult:
+            ended=None, routes=None) -> ExploreResult:
     rows = sorted(results.values(), key=lambda r: (r[1], r[0]))
     return ExploreResult(rows[0][0], rows[0][1], baseline, len(rows), rows, rows[0][2], base_m, round(seconds, 3),
                          list(failures), variants=variants, focus=sorted(focus), jobs=jobs,
                          plain=variants[0]["placements"] if variants else None,
                          plain_order=variants[0]["order"] if variants else None, curve=list(curve) if curve else None,
-                         ended=ended)
+                         ended=ended, routes=routes)
 
 
 def _untried(done: dict):
@@ -478,6 +588,54 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, be
         out.put(("err", idx, traceback.format_exc()))
     finally:
         out.put(("end", idx))
+
+
+def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
+    """The routing worker: take a seed from `rq` until None, resolve that variant (seed 0 the plain placement), write
+    its board in its own folder (`routing.folder`/seed-S) and quick-route it there, the plane nets and `routing.exclude`
+    left out, and send its entry {"seed", "dir", "seconds", and "closure_clean", "closure", "open_before", "open_after",
+    "valid", or "error" {"type", "message"}}. A process of its own, as the search's workers are: KiCad's writer runs on
+    its main thread, and it reports nothing to the command's readers (channel.disable, as channel.paused does in a run's
+    own process). A SIGTERM ends it and the router it is running."""
+    import os
+    import signal
+    import time
+    from . import channel, stop, timecap
+    channel.disable()
+    timecap.disable()
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+    def ended(signum, frame):
+        raise SystemExit(128 + signum)                  # subprocess.run kills the router on the way out
+    signal.signal(signal.SIGTERM, ended)
+    stop.parent_death_signal()
+    if os.getppid() != parent:
+        return
+    router = routing.router if routing.router is not None else VariantRouter()
+    try:
+        while True:
+            seed = rq.get()
+            if seed is None:
+                break
+            d = Path(routing.folder) / ("seed-%d" % seed)
+            entry = {"seed": seed, "dir": str(d)}
+            t0 = time.perf_counter()
+            try:
+                with _context_of(make_board):
+                    b = make_board()
+                    p = b.resolve(reuse=reuse, lock=lock) if seed == 0 else \
+                        b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
+                    pcb = router.write(make_board, b, p, d)
+                    r = router.route(pcb, d / "route", exclude_nets=set(p.plane_nets) | set(routing.exclude), quick=True,
+                                     resume=routing.resume)
+                entry.update(closure_clean=r.closure_clean, closure=r.closure, open_before=r.open_before,
+                             open_after=r.open_after, valid=r.valid)
+            except Exception as e:
+                entry["error"] = {"type": type(e).__name__, "message": str(e)}
+            entry["seconds"] = round(time.perf_counter() - t0, 3)
+            out.put(("route", seed, entry))
+    finally:
+        out.put(("rend",))
 
 
 def _payload(board, plan, focus) -> dict:
@@ -571,8 +729,8 @@ def _write_lock(path, entries, focus, new, plan) -> list:
 
 def search(make_board, script, seconds: float, jobs: int | None = None, keys=(), after_line=None, box=None,
            accept: bool = False, seeds=None, release: str = "", run_id: str = "", checkpoint_dir=None,
-           resume: str = "auto", keep_state: bool = False, route_top: int | None = None, variants_dir=None,
-           route_exclude=(), route_resume: bool = True) -> tuple:
+           resume: str = "auto", keep_state: bool = False, route_best: bool | None = None, variants_dir=None,
+           route_exclude=(), route_resume: bool = True, router=None) -> tuple:
     """What `--explore` does: read the script's lock, choose the focus, run
     the variants, and report what the best would move against the current
     placement. With `accept`, write the best's decisions for the focused
@@ -589,11 +747,13 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     nothing is written to the lock whatever `accept` says - the decision is
     the user's - and the stop goes on up with the report as `.explore`.
 
-    `route_top` (None: [explore] route_top) quick-routes the best variants by run score after the search, each on its own
-    board written in `variants_dir` (`_route_variants`); with routes, the variant taken - reported as `taken_seed`, its
-    moves the report's, and what `accept` writes - is the best clean closure, ties going to the better score. Without
+    `route_best` (None: [explore] route_best) quick-routes the plain placement and each new best as the search finds
+    them, each on its own board written in `variants_dir` (explore's `routing`, `router` the board writer and router);
+    with routes, the variant taken - reported as `taken_seed`, its moves the report's, and what `accept` writes - is the
+    best clean closure, ties going to the better score, and the best score when every route failed. Without
     `variants_dir` (a preview) nothing is routed and the report says so. `route_resume` False routes every stage of
-    those routes again (`placemat run --no-resume`)."""
+    those routes again (`placemat run --no-resume`). A stop keeps the routes done in the report and sends an
+    `explore_done` event that keeps nothing."""
     from . import checkpoint as _checkpoint
     from . import stop
     path = _lock.path_for(script)
@@ -610,8 +770,11 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if checkpoint_dir is not None:
         ck = _checkpoint.Checkpoint(checkpoint_dir, _parts(script, base, make_board, entries, focus), focus, resume,
                                     base.settings.explore_checkpoint_max_variants)
+    on = base.settings.explore_route_best if route_best is None else bool(route_best)
+    routing = Routing(Path(variants_dir), tuple(route_exclude), route_resume, router) \
+        if on and variants_dir is not None else None
     try:
-        result = explore(make_board, focus, seconds, jobs, seeds=seeds, lock=entries, checkpoint=ck)
+        result = explore(make_board, focus, seconds, jobs, seeds=seeds, lock=entries, checkpoint=ck, routing=routing)
     except stop.Stopped as s:
         now = score(base, current)
         r = s.partial or ExploreResult(0, now, now, 0, [], seconds=0.0)       # stopped before a variant was begun
@@ -622,6 +785,9 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
             report.update(curve=_compact(r.curve), found=_found(r.curve, r.seconds), ended=r.ended)
         if ck is not None and _checkpoint.saved(ck.dir, r.best_seed):
             report["accept"] = accept_command(script, r.best_seed)
+        if r.routes is not None:
+            report["routes"] = r.routes
+            _send_done(report, kept=False, stopped=s.label)
         s.explore, s.stage = report, "explore"
         stop.say(stopped_line(report), both=False)
         raise
@@ -632,28 +798,21 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if result.failures:
         report["failures"] = result.failures
     saved = (lambda seed: _checkpoint.saved(ck.dir, seed)) if ck is not None else (lambda seed: False)
-    if saved(result.best_seed):                                   # before the routes: a stop during them still offers it
-        report["accept"] = accept_command(script, result.best_seed)
+    taken = result.best_seed
+    if on and variants_dir is None:
+        report["routes"], report["routes_skipped"] = [], "no_board"
+    elif on:
+        report["routes"] = result.routes
+        closed = _taken(result.routes, {r[0]: r[1] for r in result.results})
+        if closed is not None:
+            taken = report["taken_seed"] = closed
+    if saved(taken):
+        report["accept"] = accept_command(script, taken)
     have = {0: (base, current)}
     if result.best_seed:
-        have[result.best_seed] = _variant(make_board, entries, focus, result.best_seed, have)
-    top = base.settings.explore_route_top if route_top is None else route_top
-    taken = result.best_seed
-    if top > 0:
-        if variants_dir is None:
-            report["routes"], report["routes_skipped"] = [], "no_board"
-        else:
-            # before the accept, as the study: the variants are routed as they were ranked, under the lock of the search
-            _route_variants(report, make_board, entries, focus, result, have, top, Path(variants_dir), route_exclude,
-                            route_resume)
-            closed = _taken(report["routes"])
-            if closed is not None:
-                taken = report["taken_seed"] = closed
-                report.pop("accept", None)
-                if saved(taken):
-                    report["accept"] = accept_command(script, taken)
+        _variant(make_board, entries, focus, result.best_seed, have)
     if taken:
-        board, chosen = have[taken]
+        board, chosen = _variant(make_board, entries, focus, taken, have)
         for key in sorted(focus):
             m = _move_of(key, current.placement(key), chosen.placement(key))
             if m:
@@ -697,60 +856,23 @@ def _write_variant(make_board, board, plan, folder: Path) -> Path:
     return pcb
 
 
-def _route_variants(report, make_board, entries, focus, result, have: dict, top: int, folder: Path, exclude=(),
-                    resume: bool = True) -> None:
-    """`report["routes"]`: the best `top` variants by run score, in that order, one at a time, each written in its own
-    folder (`folder`/seed-N) and quick-routed there as `placemat run --route` routes (the plane nets and `exclude` left
-    out). Each entry is {"seed", "score", "dir", "seconds"} with the route's "closure_clean", "closure", "open_before",
-    "open_after" and "valid", or "error" {"type", "message"} when writing or routing it raised: the others go on and the
-    explore's result stands. `seconds` is the variant's wall-clock time after the explore's own: its resolve when it is
-    not in `have`, its board and its route. The route's events are not the command's own and are not sent. A stop (a
-    signal) is the explore's stop, as one during the study is, with the routes done so far in the report and in an
-    `explore_done` event that keeps nothing. `resume` is route_board's: False routes every stage again."""
-    import time
-    from . import channel, stop
-    from .console import console
-    from .kicad import route as route_mod
-    out = report["routes"] = []
-    rows = result.results[:top]
-    try:
-        with _context_of(make_board):
-            for k, (seed, total, _) in enumerate(rows):
-                d = folder / ("seed-%d" % seed)
-                entry = {"seed": seed, "score": round(total, 1), "dir": str(d)}
-                console.say("explore", "quick-routing seed %d, %d of %d, on its own board in %s" % (seed, k + 1, len(rows), d))
-                t0 = time.perf_counter()
-                try:
-                    board, plan = _variant(make_board, entries, focus, seed, have)
-                    pcb = _write_variant(make_board, board, plan, d)
-                    with channel.paused():
-                        r = route_mod.route_board(pcb, d / "route", exclude_nets=set(plan.plane_nets) | set(exclude),
-                                                  quick=True, resume=resume)
-                    entry.update(closure_clean=r.closure_clean, closure=r.closure, open_before=r.open_before,
-                                 open_after=r.open_after, valid=r.valid)
-                except Exception as e:
-                    entry["error"] = {"type": type(e).__name__, "message": str(e)}
-                entry["seconds"] = round(time.perf_counter() - t0, 3)
-                out.append(entry)
-    except stop.Stopped as s:
-        report["stopped"] = s.label
-        s.explore, s.stage = report, "explore"
-        rep = channel.current()
-        if rep is not None:
-            rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline,
-                      "tried": result.tried, "kept": False, "stopped": s.label, "found": report.get("found"),
-                      "ended": result.ended, "pin_maps": [], "routes": list(out)})
-        stop.say(stopped_line(report), both=False)
-        raise
-
-
-def _taken(routes: list):
-    """The seed of the routed variant with the best clean closure, the first (the better run score) of a tie; None when
-    every route failed."""
+def _taken(routes: list, scores: dict):
+    """The seed of the routed variant with the best clean closure, the better run score (`scores`, {seed: score}) of a
+    tie; None when every route failed."""
     closed = [r for r in routes if "error" not in r]
     if not closed:
         return None
-    return max(closed, key=lambda r: r["closure_clean"])["seed"]
+    return min(closed, key=lambda r: (-r["closure_clean"], scores.get(r["seed"], r["score"]), r["seed"]))["seed"]
+
+
+def _send_done(report, kept: bool, **more) -> None:
+    """The `explore_done` event of an explore that left no record (a stop): its result as far as it got."""
+    from . import channel
+    rep = channel.current()
+    if rep is not None:
+        rep.send({"ev": "explore_done", "best_seed": report["best_seed"], "best": report["best"], "baseline": report["baseline"],
+                  "tried": report["tried"], "kept": kept, "found": report.get("found"), "ended": report.get("ended"),
+                  "pin_maps": [], **_routed(report), **more})
 
 
 def _study(report, make_board, entries, focus, result, have: dict) -> None:
@@ -909,7 +1031,7 @@ def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
 
 
 def _routed(report) -> dict:
-    """What the record and its done event keep of the routes (`_route_variants`): the routes and the seed taken by them,
+    """What the record and its done event keep of the routes (`_route_work`): the routes and the seed taken by them,
     when the explore routed."""
     return {k: report[k] for k in ("routes", "taken_seed", "routes_skipped") if k in report}
 
@@ -950,7 +1072,7 @@ class ExploreOptions:
     jobs: int | None = None
     accept: bool = False
     resume: str = "auto"            # "yes": --resume, "no": --no-resume
-    route_top: int | None = None    # --route-top; None: [explore] route_top
+    route_best: bool | None = None  # --route-best; None: [explore] route_best
 
 
 def before_resolve(script, board, make_board, options, say, run_id: str = "", keep_state: bool = False, variants_dir=None,
@@ -967,7 +1089,7 @@ def before_resolve(script, board, make_board, options, say, run_id: str = "", ke
     report, entries = search(make_board, script, options.seconds, options.jobs, options.keys,
                              options.after_line, options.box, options.accept, release=__version__,
                              run_id=run_id, checkpoint_dir=state, resume=options.resume, keep_state=keep_state,
-                             route_top=options.route_top, variants_dir=variants_dir, route_exclude=route_exclude,
+                             route_best=options.route_best, variants_dir=variants_dir, route_exclude=route_exclude,
                              route_resume=route_resume)
     for line in report_lines(report):
         say("explore", line)
@@ -1022,7 +1144,7 @@ def _report_lines(report) -> list:
         return [head + ": no variant scored better than the current placement" + ended]
     if not report["best_seed"]:
         lines = [head + ": no variant scored better than the current placement" + ended]
-        return lines + _move_lines(report) + route_lines(report) + _accept_lines(report)
+        return lines + _move_lines(report) + routes_summary(report) + _accept_lines(report)
     moved = ", ".join("%s %.1f -> %.1f" % (t, x, y) for t, (x, y) in (report.get("terms") or {}).items())
     found = report.get("found")
     when = (", best found at variant %d of %d, %s in (of %s)" % (found["i"], found["of_variants"], duration(found["t"]),
@@ -1033,7 +1155,7 @@ def _report_lines(report) -> list:
         "" if taken == report["best_seed"] else " to seed %d's places, taken by route closure" % taken, when, ended)]
     lines += _move_lines(report)
     lines += pin_map_lines(report)
-    lines += route_lines(report)
+    lines += routes_summary(report)
     return lines + _accept_lines(report)
 
 
@@ -1057,32 +1179,38 @@ def _accept_lines(report) -> list:
         ", or later: " + report["accept"] if report.get("accept") else "")]
 
 
+def route_line(r: dict) -> str:
+    """One route of the routing worker (`_route_work`), as it is said when it comes: its closure, clean and raw, the
+    signal items it left open and the time it took, or that writing or routing it failed."""
+    at = "  route, seed %d at %.1f mm: " % (r["seed"], r["score"])
+    if r.get("error"):
+        message = (r["error"]["message"] or "").splitlines()
+        return at + "the route failed with %s%s" % (r["error"]["type"], ": " + message[0] if message else "")
+    return at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s" % (
+        100 * r["closure_clean"], 100 * r["closure"], r["open_after"], duration(r["seconds"]),
+        "" if r.get("valid", True) else "; the placement's DRC was not clean before routing")
+
+
 def route_lines(report) -> list:
-    """A line per routed variant (`_route_variants`): its route closure, clean and raw, the signal items it left open and
-    the time it took, or that writing or routing it failed; then the time the routes took after the explore's own and the
-    variant they took. Nothing when the explore did not route."""
+    """Every route's line (`route_line`), then `routes_summary`'s."""
+    return [route_line(r) for r in report.get("routes") or ()] + routes_summary(report)
+
+
+def routes_summary(report) -> list:
+    """What the routes came to, after their lines were said as they came: how many, the time they took and the variant
+    taken. Nothing when the explore did not route."""
     if "routes" not in report:
         return []
     if report.get("routes_skipped") == "no_board":
         return ["  routes: none; a preview writes no board to route: explore in a run to route its variants"]
-    out = []
     routes = report["routes"]
-    for r in routes:
-        at = "  route, seed %d at %.1f mm: " % (r["seed"], r["score"])
-        if r.get("error"):
-            message = (r["error"]["message"] or "").splitlines()
-            out.append(at + "the route failed with %s%s" % (r["error"]["type"], ": " + message[0] if message else ""))
-            continue
-        out.append(at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s" % (
-            100 * r["closure_clean"], 100 * r["closure"], r["open_after"], duration(r["seconds"]),
-            "" if r.get("valid", True) else "; the placement's DRC was not clean before routing"))
-    if routes:
-        t = report.get("taken_seed")
-        taken = ("taken by closure: seed %d%s" % (t, ", the current placement" if t == 0 else "")) if t is not None \
-            else "every route failed: the best score is taken"
-        out.append("  routes: %d variant%s quick-routed in %s, after the explore's time; %s" % (
-            len(routes), "" if len(routes) == 1 else "s", duration(sum(r["seconds"] for r in routes)), taken))
-    return out
+    if not routes:
+        return []
+    t = report.get("taken_seed")
+    taken = ("taken by closure: seed %d%s" % (t, ", the current placement" if t == 0 else "")) if t is not None \
+        else "every route failed: the best score is taken"
+    return ["  routes: %d variant%s quick-routed in %s, alongside the search; %s" % (
+        len(routes), "" if len(routes) == 1 else "s", duration(sum(r["seconds"] for r in routes)), taken)]
 
 
 def pin_map_lines(report) -> list:

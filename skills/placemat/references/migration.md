@@ -5,6 +5,29 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A finished explore keeps its variants.** An explore's state in `.placemat/explore/<script>/` is no longer removed
+  when the run records it: it is marked recorded and kept, with every variant's lock entries (`entries.jsonl`), until
+  the next explore of the script replaces it. `placemat lock <script> --accept-seed S` now writes any variant the
+  explore tried, not only its best. A recorded explore is not resumed, so rerunning `--explore` searches afresh as
+  before. Scripts need no change.
+
+### Changed
+
+- **An explore routes as it searches: `--route-best` replaces `--route-top N`.** The routes no longer wait for the
+  end of the search. A routing worker, one of the `--jobs`, quick-routes the plain placement at the start and each new
+  best by run score as the search finds it; while it is busy only the latest new best waits. With `--jobs 1` the
+  routes run after the search. Each closure is said, sent to the studio and kept as it comes, and `--accept` takes the
+  best clean closure as before. The setting `explore.route_top` is gone; a placemat.toml that sets it is refused.
+
+  | 0.99.24 | now |
+  |---|---|
+  | `placemat run <script> --explore 900 --jobs 4 --route-top 3 --accept` | `placemat run <script> --explore 900 --jobs 4 --route-best --accept` |
+  | `[explore] route_top = 3` | `[explore] route_best = true` |
+
 ## To 0.99.24
 
 ### New
@@ -22,12 +45,6 @@ section for each hand-written pattern a newer form replaces.
   variant's line and the explore's result stands. `metrics.explore`, the explore record and the studio's explore
   view carry the routes (`routes`, `taken_seed`). Each route costs a quick route of the board, minutes on a large
   one, so the default is 0 and an explore without the flag is as before. Scripts need no change.
-
-- **A finished explore keeps its variants.** An explore's state in `.placemat/explore/<script>/` is no longer removed
-  when the run records it: it is marked recorded and kept, with every variant's lock entries (`entries.jsonl`), until
-  the next explore of the script replaces it. `placemat lock <script> --accept-seed S` now writes any variant the
-  explore tried, not only its best. A recorded explore is not resumed, so rerunning `--explore` searches afresh as
-  before. Scripts need no change.
 
 ### Changed
 

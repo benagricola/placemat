@@ -233,6 +233,8 @@ def compact(ev: dict):
         return {k: v for k, v in ev.items() if k != "doc"}
     if kind == "variant":
         return {k: ev[k] for k in ("ev", "seed", "score", "t") if k in ev}
+    if kind == "explore_route":
+        return dict(ev)
     if kind in ("probe", "candidate", "probe_done"):
         return {k: v for k, v in ev.items() if k not in ("candidates",) or kind == "probe"}
     return None
@@ -599,6 +601,10 @@ def describe(ev: dict) -> str:
         return "variant seed %s score %s" % (ev.get("seed"), ev.get("score"))
     if kind == "explore_done":
         return "explore done: best %s of baseline %s, kept %s" % (ev.get("best"), ev.get("baseline"), ev.get("kept"))
+    if kind == "explore_route":
+        if ev.get("error"):
+            return "route seed %s: failed, %s" % (ev.get("seed"), ev["error"].get("type"))
+        return "route seed %s: closure %.1f%% clean, %.1f%% raw" % (ev.get("seed"), 100 * ev.get("closure_clean", 0), 100 * ev.get("closure", 0))
     if kind in ("route_commit", "route_rip", "route_net_begin", "route_board"):
         return ""                                          # the copper itself: the studio draws it, `watch` says each net's result
     if kind == "route_stage":
