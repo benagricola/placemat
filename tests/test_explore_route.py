@@ -256,7 +256,7 @@ def test_a_stop_during_the_routes_keeps_the_saved_bests_accept_command(tmp_path,
     assert r["best_seed"] == 2 and r["accept"] == explore.accept_command(script, 2) and not r["accepted"]
 
 
-def test_the_accept_command_names_the_variant_taken_only_when_the_saved_best_is_it(tmp_path, router):
+def test_the_accept_command_names_the_variant_taken(tmp_path, router):
     script = tmp_path / "Board_layout.py"
     router.closures.update({2: (0.9, 0.9), 6: (0.8, 0.9)})
     report, _ = explore.search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, route_top=2,
@@ -265,7 +265,7 @@ def test_the_accept_command_names_the_variant_taken_only_when_the_saved_best_is_
     router.closures.update({2: (0.8, 0.9), 6: (0.9, 0.9)})
     report, _ = explore.search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, route_top=2,
                                variants_dir=tmp_path / "explore2", checkpoint_dir=tmp_path / "s2", keep_state=True)
-    assert report["taken_seed"] == 6 and "accept" not in report
+    assert report["taken_seed"] == 6 and report["accept"] == explore.accept_command(script, 6)    # every variant is kept
 
 
 def test_a_stop_during_the_routes_sends_explore_done_with_the_routes_so_far_and_nothing_kept(tmp_path, router, monkeypatch):

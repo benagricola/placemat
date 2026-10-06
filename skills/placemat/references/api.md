@@ -4381,8 +4381,8 @@ the explore, which is why the default is 0.
 SIGTERM after N variants in T s; best seed S: a -> b mm; nothing accepted;
 accept it with: placemat lock <script> --accept-seed S`; the lock is never
 written on a stop, even with `--accept`, and `placemat lock <script>
---accept-seed S` writes the best from `<board>/.placemat/explore/<script
-stem>/best.json` (refused when the lock or the script changed since). A
+--accept-seed S` writes variant S from `<board>/.placemat/explore/<script
+stem>/` (refused when the lock or the script changed since). A
 stopped run's `run.json` has `status: "stopped"` and `failure: {kind:
 "stopped", signal, stage, elapsed_s, explore}`, the layout folder is as the
 last run left it, a final line names the stage and the signal, and the exit
@@ -4434,19 +4434,26 @@ profile, placemat version, lock, focus - the baseline's score and measures, the
 budget), a line per finished variant `{"v": seed, "s": score, "t": seconds
 spent in all}` (a variant better than every one before it also has `"m"`, its
 measures), flushed as it goes, a `{"stop": signal}` line when it was stopped
-and `{"done": true}` when it finished; a line cut short by a kill is ignored.
+`{"done": true}` when it finished and `{"recorded": true}` once the command
+that ran it recorded its result; a line cut short by a kill is ignored.
 `best.json` holds the best variant's lock entries (replaced atomically at each
-new best) and what `placemat lock <script> --accept-seed N` writes. A rerun
+new best) and `entries.jsonl` every variant's (`{"v": seed, "entries",
+"orders"}`): `placemat lock <script> --accept-seed N` writes variant N from
+them, any variant the explore tried (seed 0, the placement it began from, is
+refused, naming `lock --current`). A rerun
 with the same digest continues: `resuming a saved explore: N variants in T s
 so far`, the baseline from the header, the untried seeds only, `SECONDS` less
 the time already spent (a fixed list of seeds: those not tried). `--resume`
 refuses a checkpoint with another digest, naming what changed; with no flag it
 is dropped with a note and the explore starts over; `--no-resume` starts over
-always. The checkpoint is removed when the run that explored is recorded (a
-`preview`, which records nothing, removes it when it has the result); a run
-that fails or is stopped after a complete explore leaves it, and the rerun
-takes the finished result without searching again. `best.json` stays until the
-lock is written from it or the explore starts over. `[explore]
+always. When the run that explored is recorded (a `preview`, which records
+nothing, when it has the result) the checkpoint is marked recorded and kept,
+with every variant's entries, so any variant can be accepted, or read by
+tools outside placemat, until the next explore of the script replaces it; a
+recorded explore is never resumed. A run that fails or is stopped after a
+complete explore leaves it unrecorded, and the rerun takes the finished result
+without searching again. `best.json` is removed when `--accept` writes the
+lock from the explore. `[explore]
 checkpoint_max_variants` bounds the lines.
 
 **The curve and the stopping rules.** Each finished variant is a point

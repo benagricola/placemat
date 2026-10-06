@@ -135,7 +135,7 @@ def test_a_stall_by_count_ends_a_time_boxed_explore_early_and_it_is_complete(tmp
     tail = [c for c in report["curve"] if c["i"] > report["found"]["i"]]
     assert len(tail) >= 6
     assert report["accepted"] is True and (tmp_path / "Board_layout.lock.json").exists()      # complete: --accept applies
-    assert not (state / "checkpoint.jsonl").exists()
+    assert checkpoint.read_lines(state / "checkpoint.jsonl")[-1] == {"recorded": True}
 
 
 def test_a_stall_by_time_ends_it_too(tmp_path):

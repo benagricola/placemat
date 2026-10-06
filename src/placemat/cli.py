@@ -318,8 +318,9 @@ def parser() -> argparse.ArgumentParser:
     how.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
     how.add_argument("--release-all", action="store_true", help="drop every entry")
     how.add_argument("--accept-seed", type=int, metavar="N",
-                     help="write the saved explore's best variant, seed N, to the lock (what a stopped "
-                          "explore's message offers); no search is run")
+                     help="write variant N of the script's saved explore to the lock (its best, what a stopped "
+                          "explore's message offers, or any other it tried; a finished explore is kept until the "
+                          "next one); no search is run")
     how.add_argument("--current", action="store_true",
                     help="lock every searched item where the board stands (the last run's placement)")
     lk.add_argument("--partial", action="store_true",

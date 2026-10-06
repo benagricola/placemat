@@ -23,6 +23,12 @@ section for each hand-written pattern a newer form replaces.
   view carry the routes (`routes`, `taken_seed`). Each route costs a quick route of the board, minutes on a large
   one, so the default is 0 and an explore without the flag is as before. Scripts need no change.
 
+- **A finished explore keeps its variants.** An explore's state in `.placemat/explore/<script>/` is no longer removed
+  when the run records it: it is marked recorded and kept, with every variant's lock entries (`entries.jsonl`), until
+  the next explore of the script replaces it. `placemat lock <script> --accept-seed S` now writes any variant the
+  explore tried, not only its best. A recorded explore is not resumed, so rerunning `--explore` searches afresh as
+  before. Scripts need no change.
+
 ### Changed
 
 - **The route summary names nets with DRC violations, not shorts.** The line said `shorted: NET` for every net with

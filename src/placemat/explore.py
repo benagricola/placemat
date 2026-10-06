@@ -468,13 +468,10 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, be
                 p = b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
                 m = measure(b, p)
                 total = _total(b, m)
-                payload = None
-                with best_val.get_lock():           # the best so far carries its lock entries, for the one accepted
-                    better = total <= best_val.value and total < baseline - 1e-9
-                    if better:
+                with best_val.get_lock():
+                    if total <= best_val.value and total < baseline - 1e-9:
                         best_val.value = total
-                if better:
-                    payload = _payload(b, p, focus)
+                payload = _payload(b, p, focus)     # every variant carries its lock entries: any of them can be accepted
             out.put(("v", seed, total, m, payload, round(time.time() - t0, 3),
                      {"placements": _placements(p, focus), "order": _order(p, focus)}))
     except BaseException:
@@ -623,7 +620,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
                   "seconds": round(r.seconds, 1), "failures": r.failures}
         if r.curve:
             report.update(curve=_compact(r.curve), found=_found(r.curve, r.seconds), ended=r.ended)
-        if r.best_seed and ck is not None and (_checkpoint.read_best(ck.dir) or {}).get("seed") == r.best_seed:
+        if ck is not None and _checkpoint.saved(ck.dir, r.best_seed):
             report["accept"] = accept_command(script, r.best_seed)
         s.explore, s.stage = report, "explore"
         stop.say(stopped_line(report), both=False)
@@ -634,8 +631,8 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     report.update(curve=_compact(result.curve), found=_found(result.curve, result.seconds), ended=result.ended)
     if result.failures:
         report["failures"] = result.failures
-    saved_best = (_checkpoint.read_best(ck.dir) or {}).get("seed") if ck is not None else None
-    if result.best_seed and saved_best == result.best_seed:      # before the routes: a stop during them still offers it
+    saved = (lambda seed: _checkpoint.saved(ck.dir, seed)) if ck is not None else (lambda seed: False)
+    if saved(result.best_seed):                                   # before the routes: a stop during them still offers it
         report["accept"] = accept_command(script, result.best_seed)
     have = {0: (base, current)}
     if result.best_seed:
@@ -652,8 +649,8 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
             closed = _taken(report["routes"])
             if closed is not None:
                 taken = report["taken_seed"] = closed
-                report.pop("accept", None)          # the saved best is the score's: offered only when it is the one taken
-                if taken and saved_best == taken:
+                report.pop("accept", None)
+                if saved(taken):
                     report["accept"] = accept_command(script, taken)
     if taken:
         board, chosen = have[taken]
@@ -835,17 +832,27 @@ def stopped_line(report) -> str:
 
 
 def accept_best(script, directory, release: str = "", run_id: str = "", seed: int | None = None) -> str:
-    """Write a saved explore's best variant to the script's lock, as the
-    explore would have with --accept, without searching or resolving. `seed`
-    is the one the caller named: refused when the saved best is another.
+    """Write a saved explore's variant to the script's lock, as the explore
+    would have with --accept, without searching or resolving: its best, or
+    `seed`, any variant the saved explore kept (checkpoint.read_variant), a
+    finished one included until the next explore of the script replaces it.
     Returns what was done; raises ValueError saying why when it cannot."""
     from . import checkpoint as _checkpoint
     from types import SimpleNamespace
     doc = _checkpoint.read_best(directory)
-    if doc is None:
+    kept = (Path(directory) / "checkpoint.jsonl").exists()
+    if doc is None and not kept:
         raise ValueError("no saved explore for this script (looked in %s)" % directory)
-    if seed is not None and doc["seed"] != seed:
-        raise ValueError("the saved explore's best is seed %d, not %d" % (doc["seed"], seed))
+    if seed == 0:
+        raise ValueError("seed 0 is the placement the explore began from: there is nothing to accept "
+                         "(`placemat lock <script> --current` locks the current placement)")
+    if seed is not None and (doc is None or doc["seed"] != seed):
+        doc = _checkpoint.read_variant(directory, seed)
+        if doc is None:
+            raise ValueError("seed %d is not among the saved explore's variants (looked in %s)" % (seed, directory))
+    if doc is None:
+        raise ValueError("the saved explore has no variant better than the placement it began from; name one "
+                         "with --accept-seed S")
     path = _lock.path_for(script)
     entries = _lock.read(path)
     if _checkpoint.lock_digest(entries) != doc["lock"]:

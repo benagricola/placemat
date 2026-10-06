@@ -34,4 +34,5 @@ def test_a_real_explore_ended_by_a_stall_is_complete_and_keeps_its_curve(tmp_pat
     for key, pl in next(v for v in record["variants"] if v["seed"] == record["best_seed"])["placements"].items():
         if pl is not None:
             assert placed[key]["at"] == [round(pl[0], 3), round(pl[1], 3)] and placed[key]["face"] == pl[3]
-    assert not (mod / ".placemat" / "explore" / "UsbC_layout" / "checkpoint.jsonl").exists()
+    from placemat import checkpoint
+    assert checkpoint.read_lines(mod / ".placemat" / "explore" / "UsbC_layout" / "checkpoint.jsonl")[-1] == {"recorded": True}
