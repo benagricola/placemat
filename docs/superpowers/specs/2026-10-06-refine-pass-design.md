@@ -1,6 +1,6 @@
 # Refine: detailed placement after the search
 
-Status: draft for review, 2026-10-06.
+Status: draft for review, 2026-10-06; release line 0.100.x.
 
 ## Problem
 

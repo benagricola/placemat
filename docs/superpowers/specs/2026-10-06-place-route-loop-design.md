@@ -1,6 +1,6 @@
 # The place, route and score loop as one command
 
-Status: draft for review, 2026-10-06. Builds on 2026-10-06-routing-phases-design.md and 2026-10-06-refine-pass-design.md.
+Status: draft for review, 2026-10-06; release line 0.100.x. Builds on 2026-10-06-routing-phases-design.md and 2026-10-06-refine-pass-design.md.
 
 ## Problem
 
