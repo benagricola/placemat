@@ -5,6 +5,25 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **DRC and the renders run alongside the checks.** Once the board is written, `placemat run` starts kicad-cli's DRC
+  and renders and runs the design checks while they work, so those stages take the time of the longest rather than the
+  sum: a measured core board's run went from 109 s to 83 s on average on a loaded machine. `run.json`, the console lines and the exit status are as before; each stage's `timing_s` is its own time,
+  so they add up to more than the run took. A run with arrangements still renders after them. The setting
+  `run.parallel` (default true) turns it off, for a loaded machine: `[run] parallel = false`. Scripts need no change.
+
+### Changed
+
+- **A replay reuses the planned copper.** When every step of a preview, run or studio resolve replays and the script
+  ran from the same files as the record's (the script, the modules it imports from beside it and the folders above,
+  and every file it read, such as a TOML or JSON of dimensions), the declared copper and the room kept for it are put
+  back from the record instead of being planned again. Any edit to those files plans the copper again, even where
+  every step still replays. The reuse record (`reuse.json`) holds the planned copper and is larger by about the size
+  of the plan's copper. Scripts need no change.
+
 ## To 0.99.23
 
 ### Fixed
@@ -24,25 +43,6 @@ section for each hand-written pattern a newer form replaces.
   lesser of the part's `Pm.I` and the net's largest other carrier's. A pad member with no copper on the pour's layer
   that a via member joins is no longer refused ("pad ... has no copper on In2.Cu"); the via joins it. A script that
   dropped `reach=Reach.CURRENT` from such a pour, or took the contacts out of its members, can put them back.
-
-## Unreleased
-
-### New
-
-- **DRC and the renders run alongside the checks.** Once the board is written, `placemat run` starts kicad-cli's DRC
-  and renders and runs the design checks while they work, so those stages take the time of the longest rather than the
-  sum: a measured core board's run went from 109 s to 83 s on average on a loaded machine. `run.json`, the console lines and the exit status are as before; each stage's `timing_s` is its own time,
-  so they add up to more than the run took. A run with arrangements still renders after them. The setting
-  `run.parallel` (default true) turns it off, for a loaded machine: `[run] parallel = false`. Scripts need no change.
-
-### Changed
-
-- **A replay reuses the planned copper.** When every step of a preview, run or studio resolve replays and the script
-  ran from the same files as the record's (the script, the modules it imports from beside it and the folders above,
-  and every file it read, such as a TOML or JSON of dimensions), the declared copper and the room kept for it are put
-  back from the record instead of being planned again. Any edit to those files plans the copper again, even where
-  every step still replays. The reuse record (`reuse.json`) holds the planned copper and is larger by about the size
-  of the plan's copper. Scripts need no change.
 
 ## To 0.99.22
 
