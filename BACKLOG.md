@@ -298,6 +298,9 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Boards with user-named copper layers** (0.99.34): read and routed by the
+  layers' standard names.
+
 - **The turn check on every placed item, a cell lock released when its members move** (0.99.33):
   turn.better judges searched, fixed and locked items (locked: held_by
   lock with release advice); a cell's lock entry records where its members
