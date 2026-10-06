@@ -12,6 +12,7 @@ from ..board_geometry import CellGeom, untagged
 from ..copper import Pour, Text, Track, Via, Zone
 from ..rules import RULE_PREFIX
 from ..values import CopperLayer
+from .read import standard_layer_name
 from .write import (ARRANGEMENT_NOTES_MM, NOTE_PITCH_MM, RULE_NOTES_MM, _delete_note, _draw_pour, _draw_text, _draw_track, _draw_via,
                     _draw_zone, _keepout_admits, _keepout_admits_text, _keepout_zone_name, _place_footprint, add_notes_below,
                     keepout_drawing, rule_area, save, seed_uuids)
@@ -117,7 +118,7 @@ def arrange_cell(board, group, cell: CellGeom, ident: str, settings=None) -> Cel
     for op in arr.ops:
         draw = next(d for kind, d in _DRAW if isinstance(op, kind))
         drawn.append(draw(board, op))
-    stack = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
+    stack = tuple(CopperLayer.of(standard_layer_name(l)) for l in board.GetEnabledLayers().CuStack())
     used = set()
     mode = settings.write_keepout_drawings
     for k in arr.keepouts:
