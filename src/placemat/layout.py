@@ -2969,7 +2969,7 @@ class Board:
         def fits(s: float) -> bool:
             """Whether the part stands at `s` with nothing giving way: the cheap answer, all the move out asks."""
             p = at(s)
-            if group and real.legal(i.item, p, clr, others=ShapeIndex(group), board=False) is not None:
+            if group and real.legal(i.item, p, clr, others=ShapeIndex(group), board=False, by_corners=True) is not None:
                 return False
             return real.legal(i.item, p, clr, others=others, past_edge=past, by_corners=True, overhang=i.overhang) is None
 
@@ -2977,7 +2977,7 @@ class Board:
             """As a firm item is judged: a via of its own or placed before it may give way."""
             if fits(0.0):
                 return True
-            if group and real.legal(i.item, at(0.0), clr, others=ShapeIndex(group), board=False) is not None:
+            if group and real.legal(i.item, at(0.0), clr, others=ShapeIndex(group), board=False, by_corners=True) is not None:
                 return False
             return real.legal_giving_way(i.item, at(0.0), clr, others=others, past_edge=past, by_corners=True,
                                          overhang=i.overhang)[0] is None
@@ -3007,7 +3007,8 @@ class Board:
         """A Beside part that no step within reach lets stand: said, by what stood in its way. Provisional copper is
         `fixed.room`; a firm Beside part placed before it is noted, for the next pass to place the two the other way round."""
         blame: list = []
-        if not (group and real.legal(i.item, placement, clr, others=ShapeIndex(group), board=False, blame=blame) is not None):
+        if not (group and real.legal(i.item, placement, clr, others=ShapeIndex(group), board=False, blame=blame,
+                                     by_corners=True) is not None):
             real.legal(i.item, placement, clr, others=others, past_edge=self._firm_past_edge(i), overhang=i.overhang,
                        blame=blame, by_corners=True)
         if not blame:
@@ -10524,7 +10525,7 @@ class Board:
             # the group's own shapes stand where the script put them: silk at the board's clearance
             with occ.silk_as_drawn():
                 in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex([x for x in group if not x.carried]),
-                                     board=False)
+                                     board=False, by_corners=True)
             # on the board its carried vias, and those placed before it, may give way (giveway.py)
             on_board = occ.legal_giving_way(r.item, p, self.clearance, others=others,
                                             past_edge=self._firm_past_edge(r), overhang=r.overhang, by_corners=True)[0] \

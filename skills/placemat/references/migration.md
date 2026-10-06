@@ -17,6 +17,11 @@ section for each hand-written pattern a newer form replaces.
   refused ("body box ... crosses the board edge") and KiCad's DRC accepts. A reach past the stated overhang is refused
   with how far the box crosses. It needs a `why=` and a decided place: on a searched item, on a block, or with an
   `OnEdge`/`OnRim` that says its own `overhang=`, it raises. Scripts need no change.
+- **A firm part's courtyard over another part's hole follows the board's severity.** Where `[drc.severities]` sets
+  `npth_inside_courtyard` (an unplated hole) or `pth_inside_courtyard` (a plated lead) to `warning` or `ignore`, a
+  placement the script decided may stand with its courtyard over such a hole, as KiCad's DRC accepts it; placemat
+  refused it ("J2 courtyard sits over a npth (J1)") whatever the severity. At KiCad's default, `error`, it is refused
+  as before, and a searched placement keeps off the hole at any severity. Scripts need no change.
 
 ## To 0.99.34
 

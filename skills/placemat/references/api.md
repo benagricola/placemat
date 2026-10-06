@@ -1451,7 +1451,13 @@ parts out. `union` is both. In
 `physical` a part's courtyard still keeps off another part's plated lead, and
 its plated leads out from under another part's courtyard, as KiCad's DRC
 judges them (`pth_inside_courtyard`); the refusal names the pad: `C1 courtyard
-sits over the through-hole lead of J1 pad 2`. Under every
+sits over the through-hole lead of J1 pad 2`. Under every envelope a courtyard
+also keeps off another part's unplated hole (`npth_inside_courtyard`: `J2
+courtyard sits over a npth (J1)`). A placement the script decided follows the
+board's severity for these two rules, `[drc.severities]` over KiCad's default
+of `error`: at `warning` or `ignore` its courtyard may stand over the hole or
+lead, and KiCad's DRC reports it at that severity. A searched placement keeps
+off them whatever the severity. Under every
 envelope a footprint's own copper graphics (a net-tie's winding, a printed
 antenna) are copper of no net: every other part, track and via - placed,
 drawn by the script, or found by `FreeSpot` and `--via-near` - keeps the
@@ -5464,7 +5470,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.explore_top` | `3` | count | the best variants of an explore, by run score, the pin map study runs on (0: none) |
 | `pins.probe_budget_steps` | `150000` | steps | the pin map study's search for each part, in steps, when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
 | `pins.guard_ms` | `10000.0` | ms | a safety net on the pin map study's time for each studied part, scaled with its budget for a longer study: past it the study gives no map and says so in a `setup.pins` warning; 0 is off |
-| `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
+| `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC; a placement the script decided may put a courtyard over another part's hole where `npth_inside_courtyard` or `pth_inside_courtyard` is below `error` |
 | `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream` |
 | `route.quick` | `true` | bool | one routing round rather than the router's full run |
 | `route.max_iterations` | `unset` | count | cap on the router's search per net; unset: the router's own default |

@@ -409,6 +409,14 @@ def _cell_vias(geometry, routed: bool = False) -> dict:
     return out
 
 
+# KiCad's rule for a footprint's pad hole inside another footprint's courtyard, by the pad's kind
+# (drc_test_provider_courtyard_clearance.cpp testPadAgainstCourtyards: PTH -> DRCE_PTH_IN_COURTYARD,
+# NPTH -> DRCE_NPTH_IN_COURTYARD; a via hole is not checked), and its default severity
+# (board_design_settings.cpp, both RPT_SEVERITY_ERROR).
+_COURTYARD_HOLE_RULES = {"npth": "npth_inside_courtyard", "pth": "pth_inside_courtyard"}
+_KICAD_COURTYARD_HOLE_SEVERITY = "error"
+
+
 def _is_lead(fp, pad) -> bool:
     """A plated through pad that stands proud of the far face: not a via in
     one of the part's own surface pads (an exposed pad's thermal vias are
@@ -520,6 +528,12 @@ class Occupancy:
         self._copper_reach = max(self._gap, 1.0)        # how far from a box another's copper is looked for
         self.edge_margin = edge_margin
         self.vias_block_courtyards = vias_block_courtyards
+        # The hole kinds whose rule the board's severities (`[drc] severities`, written into its .kicad_pro, over
+        # KiCad's default) set below error: a firm placement may stand with a courtyard over such a hole, as
+        # KiCad's DRC then accepts it (`legal`, `_hole_waived`).
+        severities = self.settings.drc_severities or {}
+        self._holes_waived = frozenset(kind for kind, rule in _COURTYARD_HOLE_RULES.items()
+                                       if severities.get(rule, _KICAD_COURTYARD_HOLE_SEVERITY) != "error")
         # The board a script declared, when it is not a rectangle (a Disc or an Outline):
         # it answers `why_not(box, margin)` for the keep-in and owns the real area,
         # cutouts and all. A rectangle has no such object, so its cutouts come
@@ -1944,7 +1958,10 @@ class Occupancy:
         `blame`, when a list is passed, collects a `Blocker` for the conflict
         found: the same refusal in parts rather than prose, so a scan can
         count who was in the way rather than only how often. `board=False`
-        judges `others` alone: not the edge, not the reservations."""
+        judges `others` alone: not the edge, not the reservations.
+        `by_corners` marks a place the script decided: there a courtyard may
+        stand over another part's hole whose rule the board's severities set
+        below error (`_hole_waived`); a searched place keeps off it."""
         geom = self._geometry(item)
         body = self.shifted_body_box(item, placement)
         why = self._edge_or_reservation_conflict(geom, body, placement, past_edge, blame, by_corners, overhang) \
@@ -1954,9 +1971,12 @@ class Occupancy:
         if others is None:
             others = self.obstacles(geom)
         dx, dy = placement.location.x, placement.location.y
+        waive = by_corners and bool(self._holes_waived)
         native_entry = getattr(others, "_native", None)
         if native_entry is not None and self._silk_as_drawn and self.silk_clearance != self.geometry.silk_clearance:
             native_entry = None             # the native judge holds the silk margin (see silk_as_drawn)
+        if native_entry is not None and waive:
+            native_entry = None             # the native judge refuses every courtyard over a hole
         if native_entry is not None:
             # The near-obstacle search itself - ShapeIndex.near() plus the
             # per-shape "close" filter plus _conflict/_drawn_conflict's own
@@ -2016,11 +2036,19 @@ class Occupancy:
                           tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label, claims=s.claims, wire=s.wire)
             for o in close:
                 why = self._conflict(moved, o, clearance)
-                if why:
+                if why and not (waive and self._hole_waived(why)):
                     if blame is not None:
                         blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
                     return why
         return None
+
+    def _hole_waived(self, why: Refusal) -> bool:
+        """Whether `why` is a courtyard over another part's hole whose KiCad rule the board's severities set below
+        error: an unplated hole (`npth_inside_courtyard`), a plated lead (`pth_inside_courtyard`). A via under a
+        courtyard (`vias_block_courtyards`) is a house rule KiCad has none of, and stays refused."""
+        if why.code is Code.LEAD_UNDER:
+            return "pth" in self._holes_waived
+        return why.code is Code.COURTYARD_OVER and why.facts["hole_kind"] == "npth" and "npth" in self._holes_waived
 
     @contextmanager
     def silk_as_drawn(self):
