@@ -104,3 +104,28 @@ def test_run_a_judges_the_route_json_against_the_baseline(tmp_path, monkeypatch)
     assert seen["islands"] == ("VCC",) and "--track-width" in seen["toml"]
     assert r.widths == "human" and not r.passed and r.new_violations == [V("short", ("A", "C"), (5.0, 5.0))]
     assert (r.vias, r.track_mm, r.versions) == (4, 50.0, {"placemat": "p", "pcb": "z", "krt": "krt1"})
+
+
+def _main_with_work_root_seen(tmp_path, monkeypatch, *extra):
+    import contextlib
+    import tempfile
+    seen = []
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(route_ref.fetch, "load_manifest", lambda: [])
+    monkeypatch.setattr(route_ref.lock, "realboard", contextlib.nullcontext)
+    monkeypatch.setattr(route_ref, "current_versions", lambda: {})
+    monkeypatch.setattr(route_ref, "_run_boards", lambda boards, root, *a: seen.append(root) or False)
+    route_ref.main(["--results", str(tmp_path / "results.json"), *extra])
+    return seen[0]
+
+
+def test_a_temporary_work_root_is_removed_after_the_run(tmp_path, monkeypatch):
+    root = _main_with_work_root_seen(tmp_path, monkeypatch)
+    assert root.parent == tmp_path and not root.exists()
+
+
+def test_a_work_root_given_with_work_is_kept(tmp_path, monkeypatch):
+    work = tmp_path / "keep"
+    work.mkdir()
+    root = _main_with_work_root_seen(tmp_path, monkeypatch, "--work", str(work))
+    assert root == work and work.exists()

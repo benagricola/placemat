@@ -14,6 +14,7 @@ import argparse
 import dataclasses
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -198,9 +199,13 @@ def main(argv=None) -> int:
     recorded = load_results(pathlib.Path(args.results)).get("a", {})
     versions = current_versions()
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
-    results, worse = [], False
-    with lock.realboard():
-        worse = _run_boards(boards, root, recorded, versions, args.changing, results)
+    results = []
+    try:
+        with lock.realboard():
+            worse = _run_boards(boards, root, recorded, versions, args.changing, results)
+    finally:
+        if not args.work:   # a --work folder is the caller's, to inspect
+            shutil.rmtree(root, ignore_errors=True)
     if args.update:
         save_results(pathlib.Path(args.results), results)
     return 1 if worse else 0
