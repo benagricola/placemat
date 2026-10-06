@@ -1,0 +1,546 @@
+"""
+pic_programmer: a PIC programmer driven from a PC's serial port (KiCad 10.0.6 demo, demos/pic_programmer,
+CC-BY-SA-4.0). Imported with `pcb import`; annotations and the changes listed below added for placemat's
+reference set. Sources for every number: NOTES.md beside this file.
+
+The circuit:
+- P1 takes +8..12 V; D1 (1N4004) blocks reverse polarity; U3 (7805) makes VCC = 5 V.
+- U4 (LT1373 boost, L1, D10, C3) makes VPP, about 13 V, set by R16/RV1/R15 on FB+.
+- Q1/Q2 switch VPP onto VPP/MCLR; Q3 switches VCC onto VCC_PIC; JP1 bypasses Q3.
+- J1 (DB9) carries the PC's lines, clamped by D2..D7 and buffered by U2 (74HC125).
+- P2, P3, U1, U5, U6 are the sockets the target chip is plugged into; C6, C7 decouple VCC_PIC there.
+
+Layout rules from the datasheets (NOTES.md has the pages):
+1. LT1373: the switch, the output diode and the output capacitor (U4 pin 8 and 7, D10, C3) carry the only
+   path with nanosecond edges: keep it as short as possible (rev B, p10, Figure 3).
+2. LT1373: keep the switch node's traces short and small (rev B, p5 VSW pin, p10 Switch Node Considerations).
+3. LT1373: bypass VIN with 10 uF or more (rev B, p5 VIN pin): C1.
+4. LT1373: GND (pin 7) straight to a ground plane; a ground plane under the switcher (rev B, p5, p10).
+5. LT1373: keep the divider's and the VC network's ground free of large currents (rev B, p5 GND S pin).
+6. LM7805: a bypass capacitor at the output pin, as close as possible to the IC (SNOSBT0L, 10.1): C1.
+
+Changes from the import:
+- The pic_sockets sheet is flattened into this file. As a module it became one rigid cell holding five
+  sockets that each sit where the user plugs a chip in; the sheet is a drawing boundary, not a placement one
+  (circuit-capture, "Modules for placement"). Names and nets are unchanged.
+- The POWER net class gets its nets (GND, VCC), as the original project assigns them; the import dropped
+  the pattern.
+- F.Cu's role is mixed: it carries the GND plane and tracks, as on the original board.
+"""
+
+load(
+    "@stdlib/board_config.zen",
+    "Board",
+    "BoardConfig",
+    "DesignRules",
+    "Constraints",
+    "Copper",
+    "Holes",
+    "Uvias",
+    "Silkscreen",
+    "SolderMask",
+    "Zones",
+    "PredefinedSizes",
+    "ViaDimension",
+    "NetClass",
+    "Stackup",
+    "Material",
+    "CopperLayer",
+    "DielectricLayer",
+)
+
+load("@stdlib/interfaces.zen", "NotConnected", "Power", "Ground")
+
+CLOCK_RB6 = Net("/CLOCK-RB6")
+DATA_RB7 = Net("/DATA-RB7")
+PC_CLOCK_OUT = Net("/PC-CLOCK-OUT")
+PC_DATA_IN = Net("/PC-DATA-IN")
+PC_DATA_OUT = Net("/PC-DATA-OUT")
+VPP_ON = Net("/VPP_ON")
+VPP_SLASH_MCLR = Net("/VPP{slash}MCLR")
+PIC_SOCKETS_VCC_PIC = Net("/pic_sockets/VCC_PIC")
+GND = Ground("GND")
+NET_C5_PAD1 = Net("Net-(C5-Pad1)")
+NET_D1_A = Net("Net-(D1-A)")
+NET_D1_K = Net("Net-(D1-K)")
+NET_D10_A = Net("Net-(D10-A)")
+NET_D11_A = Net("Net-(D11-A)")
+NET_D11_K = Net("Net-(D11-K)")
+NET_D12_A = Net("Net-(D12-A)")
+NET_D2_A = Net("Net-(D2-A)")
+NET_D4_A = Net("Net-(D4-A)")
+NET_D6_A = Net("Net-(D6-A)")
+NET_D8_A = Net("Net-(D8-A)")
+NET_D9_A = Net("Net-(D9-A)")
+NET_Q1_B = Net("Net-(Q1-B)")
+NET_Q2_B = Net("Net-(Q2-B)")
+NET_Q2_C = Net("Net-(Q2-C)")
+NET_Q3_B = Net("Net-(Q3-B)")
+NET_R12_PAD1 = Net("Net-(R12-Pad1)")
+NET_R13_PAD1 = Net("Net-(R13-Pad1)")
+NET_R15_PAD1 = Net("Net-(R15-Pad1)")
+NET_R16_PAD1 = Net("Net-(R16-Pad1)")
+NET_R8_PAD1 = Net("Net-(R8-Pad1)")
+NET_U4_FB = Net("Net-(U4-FB+)")
+NET_U4_VC = Net("Net-(U4-Vc)")
+VCC = Power("VCC")
+VPP = Power("VPP")
+
+BAT43 = Module("components/BAT43/BAT43.zen")
+BC237 = Module("components/BC237/BC237.zen")
+BC307 = Module("components/BC307/BC307.zen")
+CONN_1 = Module("components/CONN_1/CONN_1.zen")
+CONN_2 = Module("components/CONN_2/CONN_2.zen")
+DB9_FEMAL = Module("components/DB9-FEMAL/DB9-FEMAL.zen")
+GREEN_LED = Module("components/GREEN-LED/GREEN-LED.zen")
+JUMPER = Module("components/JUMPER/JUMPER.zen")
+LT1373 = Module("components/LT1373/LT1373.zen")
+RED_LED = Module("components/RED-LED/RED-LED.zen")
+SCHOTTKY = Module("components/SCHOTTKY/SCHOTTKY.zen")
+YELLOW_LED = Module("components/YELLOW-LED/YELLOW-LED.zen")
+_0 = Module("components/0/0.zen")
+_100NF = Module("components/100nF/100nF.zen")
+_100UF = Module("components/100uF/100uF.zen")
+_24CXX = Module("components/24Cxx/24Cxx.zen")
+PIC_18_PINS = Module("components/PIC_18_PINS/PIC_18_PINS.zen")
+PIC_8_PINS = Module("components/PIC_8_PINS/PIC_8_PINS.zen")
+SUPP28 = Module("components/SUPP28/SUPP28.zen")
+SUPP40 = Module("components/SUPP40/SUPP40.zen")
+_10K = Module("components/10K/10K.zen")
+_10NF = Module("components/10nF/10nF.zen")
+_1K = Module("components/1K/1K.zen")
+_1K_RV2X4 = Module("components/1K__RV2X4/1K__RV2X4.zen")
+_1N4004 = Module("components/1N4004/1N4004.zen")
+_220 = Module("components/220/220.zen")
+_220NF = Module("components/220nF/220nF.zen")
+_220UF = Module("components/220uF/220uF.zen")
+_22K = Module("components/22K/22K.zen")
+_22UF_25V = Module("components/22uF_25V/22uF_25V.zen")
+_22UH = Module("components/22uH/22uH.zen")
+_2_2K = Module("components/2_2K/2_2K.zen")
+_470 = Module("components/470/470.zen")
+_5_1K = Module("components/5_1K/5_1K.zen")
+_62K = Module("components/62K/62K.zen")
+_6_2K = Module("components/6_2K/6_2K.zen")
+_74HC125 = Module("components/74HC125/74HC125.zen")
+_7805 = Module("components/7805/7805.zen")
+
+# The target sockets (the pic_sockets sheet)
+
+_100NF(name="C6", P1=PIC_SOCKETS_VCC_PIC, P2=GND)
+
+_100NF(name="C7", P1=PIC_SOCKETS_VCC_PIC, P2=GND)
+
+SUPP28(
+    name="P2",
+    P1=VPP_SLASH_MCLR,
+    P10=NotConnected(),
+    P11=NotConnected(),
+    P12=NotConnected(),
+    P13=NotConnected(),
+    P14=NotConnected(),
+    P15=NotConnected(),
+    P16=NotConnected(),
+    P17=NotConnected(),
+    P18=NotConnected(),
+    P19=GND,
+    P2=NotConnected(),
+    P20=PIC_SOCKETS_VCC_PIC,
+    P21=NotConnected(),
+    P22=NotConnected(),
+    P23=NotConnected(),
+    P24=NotConnected(),
+    P25=NotConnected(),
+    P26=NotConnected(),
+    P27=CLOCK_RB6,
+    P28=DATA_RB7,
+    P3=NotConnected(),
+    P4=NotConnected(),
+    P5=NotConnected(),
+    P6=NotConnected(),
+    P7=NotConnected(),
+    P8=GND,
+    P9=NotConnected(),
+)
+
+SUPP40(
+    name="P3",
+    P1=VPP_SLASH_MCLR,
+    P10=NotConnected(),
+    P11=PIC_SOCKETS_VCC_PIC,
+    P12=GND,
+    P13=NotConnected(),
+    P14=NotConnected(),
+    P15=NotConnected(),
+    P16=NotConnected(),
+    P17=NotConnected(),
+    P18=NotConnected(),
+    P19=NotConnected(),
+    P2=NotConnected(),
+    P20=NotConnected(),
+    P21=NotConnected(),
+    P22=NotConnected(),
+    P23=NotConnected(),
+    P24=NotConnected(),
+    P25=NotConnected(),
+    P26=NotConnected(),
+    P27=NotConnected(),
+    P28=NotConnected(),
+    P29=NotConnected(),
+    P3=NotConnected(),
+    P30=NotConnected(),
+    P31=GND,
+    P32=PIC_SOCKETS_VCC_PIC,
+    P33=NotConnected(),
+    P34=NotConnected(),
+    P35=NotConnected(),
+    P36=NotConnected(),
+    P37=NotConnected(),
+    P38=NotConnected(),
+    P39=CLOCK_RB6,
+    P4=NotConnected(),
+    P40=DATA_RB7,
+    P5=NotConnected(),
+    P6=NotConnected(),
+    P7=NotConnected(),
+    P8=GND,
+    P9=NotConnected(),
+)
+
+_24CXX(
+    name="U1",
+    A0=GND,
+    A1=GND,
+    A2=GND,
+    GND=GND,
+    SCL=CLOCK_RB6,
+    SDA=DATA_RB7,
+    VCC=PIC_SOCKETS_VCC_PIC,
+    WP=NotConnected(),
+)
+
+PIC_18_PINS(
+    name="U5",
+    ICSPC_RB6=CLOCK_RB6,
+    ICSPD_RB7=DATA_RB7,
+    MCLR=VPP_SLASH_MCLR,
+    OSC1_CLKI=NotConnected(),
+    OSC2_CLKO=NotConnected(),
+    RA0=NotConnected(),
+    RA1=NotConnected(),
+    RA2=NotConnected(),
+    RA3=NotConnected(),
+    RB0=NotConnected(),
+    RB1=NotConnected(),
+    RB2=NotConnected(),
+    RB3=NotConnected(),
+    RB4=NotConnected(),
+    RB5=NotConnected(),
+    T0CKL=NotConnected(),
+    VDD=PIC_SOCKETS_VCC_PIC,
+    VSS=GND,
+)
+
+PIC_8_PINS(
+    name="U6",
+    GP0=DATA_RB7,
+    GP1=CLOCK_RB6,
+    GP2=NotConnected(),
+    GP3_MCLR=VPP_SLASH_MCLR,
+    GP4_OSC2=NotConnected(),
+    GP5_OSC1=NotConnected(),
+    VDD=PIC_SOCKETS_VCC_PIC,
+    VSS=GND,
+)
+
+
+_100UF(name="C1", P1=VCC, P2=GND)
+
+_220UF(name="C2", P1=NET_D1_K, P2=GND)
+
+_22UF_25V(
+    name="C3",
+    P1=VPP,
+    P2=GND,
+    annotations={
+        "Pm.Loop": "hot",  # LT1373 rev B p10 Figure 3: the output capacitor closes the switch-diode path
+        "Pm.I": "1.5A",    # that path's peak current, bounded by the switch current limit: LT1373 rev B p3 ILIM min 1.5 A
+    },
+)
+
+_0(name="C4", P1=NET_U4_VC, P2=GND)
+
+_10NF(name="C5", P1=NET_C5_PAD1, P2=GND)
+
+_220NF(name="C9", P1=VPP, P2=NET_Q2_B)
+
+_1N4004(
+    name="D1",
+    A=NET_D1_A,
+    K=NET_D1_K,
+    annotations={"Pm.I": "1A"},  # Vishay 1N4001-1N4007 doc 88503 p1: IF(AV) 1.0 A, the input path's bound
+)
+
+SCHOTTKY(
+    name="D10",
+    A=NET_D10_A,
+    K=VPP,
+    annotations={
+        "Pm.Loop": "hot",       # LT1373 rev B p10 Figure 3: the output diode is in the switch-diode-capacitor path
+        "Pm.Aggressor": "true", # LT1373 rev B p10 Switch Node Considerations: the diode lead is on the switch node
+        "Pm.I": "1.5A",         # carries the inductor current in switch-off time (rev B p9 Output Diode); ILIM min 1.5 A, p3
+    },
+)
+
+BAT43(name="D11", A=NET_D11_A, K=NET_D11_K)
+
+YELLOW_LED(name="D12", A=NET_D12_A, K=GND)
+
+BAT43(name="D2", A=NET_D2_A, K=VCC)
+
+BAT43(name="D3", A=GND, K=NET_D2_A)
+
+BAT43(name="D4", A=NET_D4_A, K=VCC)
+
+BAT43(name="D5", A=GND, K=NET_D4_A)
+
+BAT43(name="D6", A=NET_D6_A, K=VCC)
+
+BAT43(name="D7", A=GND, K=NET_D6_A)
+
+RED_LED(name="D8", A=NET_D8_A, K=GND)
+
+GREEN_LED(name="D9", A=NET_D9_A, K=GND)
+
+DB9_FEMAL(
+    name="J1",
+    P1=NotConnected(),
+    P2=NotConnected(),
+    P3=VPP_ON,
+    P4=PC_DATA_OUT,
+    P5=GND,
+    P6=NotConnected(),
+    P7=PC_CLOCK_OUT,
+    P8=PC_DATA_IN,
+    P9=NotConnected(),
+)
+
+JUMPER(name="JP1", P1=VCC, P2=PIC_SOCKETS_VCC_PIC)
+
+_22UH(
+    name="L1",
+    P1=NET_D10_A,
+    P2=VCC,
+    annotations={
+        "Pm.Aggressor": "true",  # LT1373 rev B p10 Figure 3: the inductor's switch-node end
+        "Pm.I": "1.5A",          # inductor current is the switch current in on-time: LT1373 rev B p3 ILIM min 1.5 A, p8
+    },
+)
+
+CONN_2(
+    name="P1",
+    P1=GND,
+    PM=NET_D1_A,
+    annotations={"Pm.I": "1A"},  # the input path, in series with D1: Vishay 88503 p1, IF(AV) 1.0 A
+)
+
+CONN_1(name="P101")
+
+CONN_1(name="P102")
+
+CONN_1(name="P103")
+
+CONN_1(name="P104")
+
+CONN_1(name="P105")
+
+CONN_1(name="P106")
+
+BC237(
+    name="Q1",
+    B=NET_Q1_B,
+    C=NET_D11_K,
+    E=GND,
+)
+
+BC307(
+    name="Q2",
+    B=NET_Q2_B,
+    C=NET_Q2_C,
+    E=VPP,
+    annotations={"Pm.I": "VPP:0.1A Net-(Q2-C):0.1A"},  # BC307 (Fairchild rev A2, abs. max): IC 100 mA, VPP's switch
+)
+
+BC307(
+    name="Q3",
+    B=NET_Q3_B,
+    C=PIC_SOCKETS_VCC_PIC,
+    E=VCC,
+    annotations={"Pm.I": "VCC:0.1A /pic_sockets/VCC_PIC:0.1A"},  # BC307 (Fairchild rev A2, abs. max): IC 100 mA, the target supply's bound
+)
+
+_10K(name="R1", P1=VPP_ON, P2=NET_D2_A)
+
+_5_1K(
+    name="R10",
+    P1=NET_U4_VC,
+    P2=NET_C5_PAD1,
+    annotations={"Pm.Sensitive": "Net-(U4-Vc)"},  # LT1373 rev B p9: VC is the error amplifier's output, about 1 Mohm
+)
+
+_22K(name="R11", P1=NET_D11_K, P2=NET_Q2_B)
+
+_470(name="R12", P1=NET_R12_PAD1, P2=DATA_RB7)
+
+_470(name="R13", P1=NET_R13_PAD1, P2=CLOCK_RB6)
+
+_470(name="R14", P1=VCC, P2=NET_D9_A)
+
+_6_2K(name="R15", P1=NET_R15_PAD1, P2=GND)
+
+_62K(name="R16", P1=NET_R16_PAD1, P2=VPP)
+
+_22K(name="R17", P1=NET_Q2_C, P2=GND)
+
+_220(name="R18", P1=NET_Q2_C, P2=VPP_SLASH_MCLR)
+
+_2_2K(name="R19", P1=NET_D11_A, P2=NET_Q3_B)
+
+_10K(name="R2", P1=VPP_ON, P2=GND)
+
+_2_2K(name="R20", P1=VCC, P2=NET_Q3_B)
+
+_470(name="R21", P1=NET_D12_A, P2=PIC_SOCKETS_VCC_PIC)
+
+_10K(name="R3", P1=PC_DATA_OUT, P2=NET_D4_A)
+
+_10K(name="R4", P1=PC_DATA_OUT, P2=GND)
+
+_10K(name="R5", P1=PC_CLOCK_OUT, P2=NET_D6_A)
+
+_10K(name="R6", P1=PC_CLOCK_OUT, P2=GND)
+
+_10K(name="R7", P1=VPP, P2=NET_Q2_B)
+
+_1K(name="R8", P1=NET_R8_PAD1, P2=NET_Q1_B)
+
+_2_2K(name="R9", P1=NET_Q2_C, P2=NET_D8_A)
+
+_1K_RV2X4(
+    name="RV1",
+    P1=NET_R15_PAD1,
+    P2=NET_U4_FB,
+    P3=NET_R16_PAD1,
+    annotations={"Pm.Sensitive": "Net-(U4-FB+)"},  # LT1373 rev B p5 FB pin: the regulator's feedback input, the divider tap
+)
+
+_74HC125(
+    name="U2",
+    GND=GND,
+    P1=GND,
+    P10=GND,
+    P11=PC_DATA_IN,
+    P12=DATA_RB7,
+    P13=GND,
+    P2=NET_D2_A,
+    P3=NET_R8_PAD1,
+    P4=GND,
+    P5=NET_D4_A,
+    P6=NET_R12_PAD1,
+    P8=NET_R13_PAD1,
+    P9=NET_D6_A,
+    VCC=VCC,
+)
+
+_7805(
+    name="U3",
+    GND=GND,
+    VI=NET_D1_K,
+    VO=VCC,
+    annotations={"Pm.I": "Net-(D1-K):1A VCC:1A"},  # TI SNOSBT0L 6.6: LM7805 specified to IO = 1 A; GND pin carries only IQ
+)
+
+LT1373(
+    name="U4",
+    FB_NEG=NotConnected(),
+    FB_POS=NET_U4_FB,
+    GND=GND,
+    GND_S=GND,
+    S_S=NotConnected(),
+    VC=NET_U4_VC,
+    VIN=VCC,
+    VSW=NET_D10_A,
+    annotations={
+        "Pm.Loop": "hot",                         # LT1373 rev B p10 Figure 3: the switch
+        "Pm.Aggressor": "true",                   # rev B p5 VSW pin, p10 Switch Node Considerations
+        "Pm.I": "Net-(D10-A):1.5A GND:1.5A",      # VSW and GND carry the switch current: rev B p5; ILIM min 1.5 A, p3
+    },
+)
+
+Board(
+    name="pic_programmer",
+    layout_path="layout",
+    layers=2,
+    config=BoardConfig(
+        design_rules=DesignRules(
+            constraints=Constraints(
+                copper=Copper(
+                    minimum_clearance=0.0,
+                    minimum_track_width=0.25,
+                    minimum_connection_width=0.0,
+                    minimum_annular_width=0.05,
+                    minimum_via_diameter=0.9,
+                    copper_to_hole_clearance=0.0,
+                    copper_to_edge_clearance=0.01,
+                ),
+                holes=Holes(minimum_through_hole=0.5, hole_to_hole_clearance=0.25),
+                uvias=Uvias(minimum_uvia_diameter=0.508, minimum_uvia_hole=0.127),
+                silkscreen=Silkscreen(minimum_item_clearance=0.0, minimum_text_height=0.8),
+                solder_mask=SolderMask(to_copper_clearance=0.0),
+                zones=Zones(minimum_clearance=0.508),
+            ),
+            predefined_sizes=PredefinedSizes(
+                track_widths=[0.5, 0.4], via_dimensions=[ViaDimension(diameter=1.6, drill=0.6)]
+            ),
+            netclasses=[
+                NetClass(
+                    name="Default",
+                    clearance=0.25,
+                    track_width=0.5,
+                    via_diameter=1.6,
+                    via_drill=0.6,
+                    microvia_diameter=0.508,
+                    microvia_drill=0.127,
+                    diff_pair_width=0.25,
+                    diff_pair_gap=0.25,
+                    diff_pair_via_gap=0.25,
+                    priority=2147483647,
+                ),
+                NetClass(
+                    name="POWER",
+                    nets=["GND", "VCC"],  # the original project's netclass_patterns
+                    clearance=0.28,
+                    track_width=0.8,
+                    via_diameter=1.6,
+                    via_drill=0.6,
+                    microvia_diameter=0.508,
+                    microvia_drill=0.127,
+                    priority=0,
+                ),
+            ],
+        ),
+        stackup=Stackup(
+            materials=[
+                Material(name="FR4", relative_permittivity=4.5, loss_tangent=0.02),
+            ],
+            silk_screen_color="White",
+            solder_mask_color="Green",
+            thickness=1.58,
+            layers=[
+                CopperLayer(thickness=0.035, role="mixed"),  # F.Cu: the GND plane and tracks, as on the original
+                DielectricLayer(thickness=1.51, material="FR4", form="core"),
+                CopperLayer(thickness=0.035, role="signal"),
+            ],
+        ),
+    ),
+)

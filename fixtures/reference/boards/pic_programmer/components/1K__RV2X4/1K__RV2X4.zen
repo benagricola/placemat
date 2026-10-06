@@ -1,0 +1,19 @@
+"""
+1K_RV2X4
+
+Auto-generated using `pcb import`.
+"""
+
+P1 = io(Net)
+P2 = io(Net)
+P3 = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="1K_RV2X4",
+    symbol=Symbol(library="1K__RV2X4.kicad_sym"),
+    properties=annotations,
+    pin_defs={"1": "1", "2": "2", "3": "3"},
+    pins={"1": P1, "2": P2, "3": P3},
+)

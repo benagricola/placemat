@@ -1,0 +1,15 @@
+"""
+CONN_1
+
+Auto-generated using `pcb import`.
+"""
+
+skip_bom = config(bool, default=True)
+
+
+Component(
+    name="CONN_1",
+    skip_bom=skip_bom,
+    symbol=Symbol(library="CONN_1.kicad_sym"),
+    pins={},
+)

@@ -1,0 +1,136 @@
+(footprint "C_Disc_D5.1mm_W3.2mm_P5.00mm"
+	(version 20211014)
+	(generator pcbnew)
+	(layer "F.Cu")
+	(descr "C, Disc series, Radial, pin pitch=5.00mm, diameter*width=5.1*3.2mm^2, Capacitor, http://www.vishay.com/docs/45233/krseries.pdf")
+	(tags "C Disc series Radial pin pitch 5.00mm diameter 5.1mm width 3.2mm Capacitor")
+	(units
+		(unit
+			(name "A")
+			(pins "1" "2")
+		)
+	)
+	(attr through_hole)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start -0.17 1.72)
+		(end -0.17 1.026)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "b60fd0c9-0410-49b6-89a3-25daf1e95744")
+	)
+	(fp_line
+		(start 5.17 1.72)
+		(end -0.17 1.72)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "c9bd5b81-4847-471e-9cb2-08c55fef97fe")
+	)
+	(fp_line
+		(start 5.17 1.026)
+		(end 5.17 1.72)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "be3cf7be-62e3-4223-b007-5dbc94c75434")
+	)
+	(fp_line
+		(start -0.17 -1.026)
+		(end -0.17 -1.72)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "6d19095a-7a0f-4ff6-9fce-1bc8af55bfc1")
+	)
+	(fp_line
+		(start -0.17 -1.72)
+		(end 5.17 -1.72)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "0eb9d7f7-bc83-43b7-a46f-edc12139ed1b")
+	)
+	(fp_line
+		(start 5.17 -1.72)
+		(end 5.17 -1.026)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "48ecebf2-d7a6-4761-a2b0-f28d5fcb82a7")
+	)
+	(fp_rect
+		(start -1.05 -1.85)
+		(end 6.05 1.85)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "d265ea5c-6023-47d6-ae89-921c5a059cff")
+	)
+	(fp_rect
+		(start -0.05 -1.6)
+		(end 5.05 1.6)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.Fab")
+		(uuid "0b041935-d1f2-43cc-8ed7-4f3c21cf7d14")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 2.5 0)
+		(layer "F.Fab")
+		(uuid "ab466514-77ee-4d4d-92f9-3b9877c36165")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" thru_hole circle
+		(at 0 0)
+		(size 1.6 1.6)
+		(drill 0.8)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(pintype "passive")
+	)
+	(pad "2" thru_hole circle
+		(at 5 0)
+		(size 1.6 1.6)
+		(drill 0.8)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(pintype "passive")
+	)
+	(embedded_fonts no)
+	(model "${KICAD10_3DMODEL_DIR}/Capacitor_THT.3dshapes/C_Disc_D5.1mm_W3.2mm_P5.00mm.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)

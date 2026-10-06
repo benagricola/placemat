@@ -1,0 +1,15 @@
+"""
+GREEN-LED
+
+Auto-generated using `pcb import`.
+"""
+
+A = io(Net)
+K = io(Net)
+
+Component(
+    name="GREEN-LED",
+    symbol=Symbol(library="GREEN-LED.kicad_sym"),
+    pin_defs={"K": "1", "A": "2"},
+    pins={"K": K, "A": A},
+)

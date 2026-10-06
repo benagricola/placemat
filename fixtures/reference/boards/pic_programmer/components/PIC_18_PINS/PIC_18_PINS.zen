@@ -1,0 +1,69 @@
+"""
+PIC_18_PINS
+
+Auto-generated using `pcb import`.
+"""
+
+ICSPC_RB6 = io(Net)
+ICSPD_RB7 = io(Net)
+MCLR = io(Net)
+OSC1_CLKI = io(Net)
+OSC2_CLKO = io(Net)
+RA0 = io(Net)
+RA1 = io(Net)
+RA2 = io(Net)
+RA3 = io(Net)
+RB0 = io(Net)
+RB1 = io(Net)
+RB2 = io(Net)
+RB3 = io(Net)
+RB4 = io(Net)
+RB5 = io(Net)
+T0CKL = io(Net)
+VDD = io(Net)
+VSS = io(Net)
+
+Component(
+    name="PIC_18_PINS",
+    symbol=Symbol(library="PIC_18_PINS.kicad_sym"),
+    pin_defs={
+        "RA2": "1",
+        "RB4": "10",
+        "RB5": "11",
+        "ICSPC/RB6": "12",
+        "ICSPD/RB7": "13",
+        "VDD": "14",
+        "OSC2/CLKO": "15",
+        "OSC1/CLKI": "16",
+        "RA0": "17",
+        "RA1": "18",
+        "RA3": "2",
+        "T0ckl": "3",
+        "MCLR": "4",
+        "VSS": "5",
+        "RB0": "6",
+        "RB1": "7",
+        "RB2": "8",
+        "RB3": "9",
+    },
+    pins={
+        "RA2": RA2,
+        "RB4": RB4,
+        "RB5": RB5,
+        "ICSPC/RB6": ICSPC_RB6,
+        "ICSPD/RB7": ICSPD_RB7,
+        "VDD": VDD,
+        "OSC2/CLKO": OSC2_CLKO,
+        "OSC1/CLKI": OSC1_CLKI,
+        "RA0": RA0,
+        "RA1": RA1,
+        "RA3": RA3,
+        "T0ckl": T0CKL,
+        "MCLR": MCLR,
+        "VSS": VSS,
+        "RB0": RB0,
+        "RB1": RB1,
+        "RB2": RB2,
+        "RB3": RB3,
+    },
+)

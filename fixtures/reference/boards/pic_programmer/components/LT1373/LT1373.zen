@@ -1,0 +1,24 @@
+"""
+LT1373
+
+Auto-generated using `pcb import`.
+"""
+
+FB_NEG = io(Net)
+FB_POS = io(Net)
+GND = io(Net)
+GND_S = io(Net)
+S_S = io(Net)
+VC = io(Net)
+VIN = io(Net)
+VSW = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="LT1373",
+    symbol=Symbol(library="LT1373.kicad_sym"),
+    properties=annotations,
+    pin_defs={"Vc": "1", "FB+": "2", "FB-": "3", "S/S": "4", "Vin": "5", "GND_S": "6", "GND": "7", "Vsw": "8"},
+    pins={"Vc": VC, "FB+": FB_POS, "FB-": FB_NEG, "S/S": S_S, "Vin": VIN, "GND_S": GND_S, "GND": GND, "Vsw": VSW},
+)

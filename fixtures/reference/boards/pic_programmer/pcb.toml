@@ -1,0 +1,11 @@
+[workspace]
+pcb-version = "0.4"
+vendor = ["code.diode.computer/diode/registry/**"]
+
+[board]
+name = "pic_programmer"
+path = "pic_programmer.zen"
+description = "Replace with concise board description."
+
+[access]
+allow = ["*"]

@@ -1,0 +1,21 @@
+"""
+24Cxx
+
+Auto-generated using `pcb import`.
+"""
+
+A0 = io(Net)
+A1 = io(Net)
+A2 = io(Net)
+GND = io(Net)
+SCL = io(Net)
+SDA = io(Net)
+VCC = io(Net)
+WP = io(Net)
+
+Component(
+    name="24Cxx",
+    symbol=Symbol(library="24Cxx.kicad_sym"),
+    pin_defs={"A0": "1", "A1": "2", "A2": "3", "GND": "4", "SDA": "5", "SCL": "6", "WP": "7", "VCC": "8"},
+    pins={"A0": A0, "A1": A1, "A2": A2, "GND": GND, "SDA": SDA, "SCL": SCL, "WP": WP, "VCC": VCC},
+)

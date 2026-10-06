@@ -1,0 +1,18 @@
+"""
+SCHOTTKY
+
+Auto-generated using `pcb import`.
+"""
+
+A = io(Net)
+K = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="SCHOTTKY",
+    symbol=Symbol(library="SCHOTTKY.kicad_sym"),
+    properties=annotations,
+    pin_defs={"K": "1", "A": "2"},
+    pins={"K": K, "A": A},
+)

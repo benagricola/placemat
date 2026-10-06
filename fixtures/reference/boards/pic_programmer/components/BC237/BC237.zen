@@ -1,0 +1,16 @@
+"""
+BC237
+
+Auto-generated using `pcb import`.
+"""
+
+B = io(Net)
+C = io(Net)
+E = io(Net)
+
+Component(
+    name="BC237",
+    symbol=Symbol(library="BC237.kicad_sym"),
+    pin_defs={"C": "1", "B": "2", "E": "3"},
+    pins={"C": C, "B": B, "E": E},
+)
