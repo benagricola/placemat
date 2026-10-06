@@ -9894,6 +9894,9 @@ class Board:
                 entry.declaration != _lock.declaration_digest(self, base, ordered=False, arrangement=entry.arrangement):
             self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "declaration_changed"})
             return None, None
+        if entry.members and entry.members != _lock.members_digest(self, base):
+            self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "members_moved"})
+            return None, None
         spot, why = _lock.placement_of(entry, occ)
         if spot is None:
             self._lock_notes[i.key] = step_text.record("lock_released", reason=why)

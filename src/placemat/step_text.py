@@ -275,6 +275,7 @@ def _lock_drifted(n):
 
 _RELEASED = {
     "declaration_changed": lambda r: "its declaration changed since it was accepted",
+    "members_moved": lambda r: "the cell's members moved inside it since it was accepted",
     "anchor_pending": lambda r: "its anchor %s is not placed before it" % r["ref"],
     "anchor_face": lambda r: "its anchor %s is on the other face now" % r["ref"],
     "anchor_pad_gone": lambda r: "its anchor pad %s.%s is gone" % (r["ref"], r["pad"]),
