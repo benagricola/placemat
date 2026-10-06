@@ -1,6 +1,6 @@
 """A replay reuses the planned copper as well as the steps: the batches of declared copper and the rooms kept for it while
-parts are placed, recorded in the reuse record. Only under the same script inputs (`Board.copper_inputs`), since the
-context holds no copper declaration's arguments. Synthetic boards, and a script run for the inputs' digest."""
+parts are placed, recorded in the reuse record. Only under the same script inputs (`Board.copper_inputs`); the context
+holds every copper declaration's arguments, so a copper change places the parts again as well. Synthetic boards, and a script run for the inputs' digest."""
 import dataclasses
 
 import pytest
@@ -62,12 +62,25 @@ def test_a_replay_of_a_replay_is_the_same_too():
 
 
 @pytest.mark.parametrize("change", [{"width": 0.4}, {"via_at": (32.0, 25.0)}])
-def test_copper_changed_in_the_script_is_planned_again_though_every_step_replays(change):
+def test_copper_changed_in_the_script_places_the_parts_again_as_a_fresh_run_does(change):
+    """A track's width or a via's at= is in the context: the searched parts kept room for that copper, so no step replays."""
     first = _board().resolve()
+    assert Settings().place_copper_room
     fresh = _board(inputs="script v2", **change).resolve()
     again = _board(inputs="script v2", **change).resolve(reuse=first.reuse)
-    assert again.reuse["reused"] == len(first.reuse["steps"])          # the context does not hold copper's arguments
+    assert again.reuse["reused"] == 0 and again.reuse["context"] != first.reuse["context"]
     assert _said(again) == _said(fresh) and list(again.copper) != list(first.copper)
+
+
+def test_a_comment_edited_in_the_script_replays_every_step(monkeypatch):
+    """The script's text changed (`copper_inputs`) but no declaration did: every step replays and the copper is planned again."""
+    first = _board().resolve()
+    planned = []
+    real = Board._plan_copper_now
+    monkeypatch.setattr(Board, "_plan_copper_now", lambda self, *a, **k: planned.append(1) or real(self, *a, **k))
+    again = _board(inputs="script v1, a comment edited").resolve(reuse=first.reuse)
+    assert again.reuse["reused"] == len(first.reuse["steps"]) and again.reuse["context"] == first.reuse["context"]
+    assert planned and _said(again) == _said(first)
 
 
 def test_the_copper_is_planned_again_after_a_step_that_did_not_replay():

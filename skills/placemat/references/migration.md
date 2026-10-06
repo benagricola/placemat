@@ -24,6 +24,16 @@ section for each hand-written pattern a newer form replaces.
   every step still replays. The reuse record (`reuse.json`) holds the planned copper and is larger by about the size
   of the plan's copper. Scripts need no change.
 
+### Fixed
+
+- **A copper change places the parts again.** A replay keyed its steps on each copper declaration but not on its
+  arguments, so after a change to a track's width or points, a via's `at=` or a pour's outline, every step
+  still replayed, and with `place.copper_room` on (the default) the searched parts kept the room of the old copper.
+  The reuse context now holds every copper declaration's arguments as the script wrote them (a `FreeSpot`, `Past` or
+  `Between` as declared, not the point it resolves to); a change to any of them places every step again, and an edit
+  to a comment alone still replays every step. The first run after upgrading replays nothing, as after
+  any upgrade. Scripts need no change.
+
 ## To 0.99.23
 
 ### Fixed
