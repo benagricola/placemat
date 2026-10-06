@@ -60,8 +60,11 @@ def locked_at(tmp_path, rotation, body=BODY, **settings):
     return plan, path
 
 
-def turns(plan) -> list:
-    return [f for f in plan.findings if f.cause is C.TURN_BETTER]
+def turns(plan, item=None) -> list:
+    """The turn.better findings, of `item` (the cell or the resistor a test is about) by default: the fixed parts either
+    side of it have their own."""
+    keys = {"term", "r1"} if item is None else {item}
+    return [f for f in plan.findings if f.cause is C.TURN_BETTER and f.facts["item"] in keys]
 
 
 def test_the_search_left_alone_takes_the_turn_its_links_favour_and_says_nothing(tmp_path):
@@ -93,17 +96,83 @@ def test_links_that_lengthen_are_said_beside_those_that_shorten():
         "part u3 turned 180 degrees, to 270 degrees: 3 links 2.40 mm shorter, 1 link 0.50 mm longer, 0 weighted crossings more"
 
 
-def test_its_suggestion_narrows_rotations_to_that_turn(tmp_path):
+def test_a_locked_item_is_held_by_the_lock_and_its_suggestion_is_the_lock_release(tmp_path):
+    """Nothing is applied: the turn is the lock's, and the advice names the command that releases the entry."""
     plan, path = locked_at(tmp_path, 180.0)
     (f,) = turns(plan)
+    assert f.facts["held_by"] == "lock"
+    (s,) = f.suggestions
+    assert s.how == "advice" and s.edits == () and s.advice == {"release": ["term"], "to_deg": 0.0}
+    assert s.text == ("Turn cell term to 0 degrees: its turn is held by the lock; release it with "
+                      "`placemat lock <script> --release term` and the next run searches it again")
+
+
+def test_a_narrowed_rotations_is_judged_over_every_turn_and_the_suggestion_narrows_it_again(tmp_path):
+    body = BODY.replace("rotations=(0, 180)", "rotations=(180,)")
+    b, path = board(tmp_path, body)
+    plan = b.resolve()
+    assert plan.placement("term").rotation == 180.0
+    (f,) = turns(plan)
+    assert f.facts["to_deg"] == 0.0 and "held_by" not in f.facts
     (s,) = f.suggestions
     assert s.text == "Turn cell term to 0 degrees"
     shown = sg.apply_suggestion(suggestions_of(plan), s.id, dry_run=True)
     assert 'board.place(Cell("term"), at=Near(Location(25, 25)), radius=3.0, rotations=[0])' in shown.files[str(path)].after
 
 
-def test_a_turn_the_declaration_does_not_allow_is_not_judged(tmp_path):
-    plan, _ = locked_at(tmp_path, 180.0, BODY.replace("rotations=(0, 180)", "rotations=(180,)"))
+PARTS = '''board.place(Part("u1"), at=Location(17, 25))
+board.place(Part("j1"), at=Location(33, 25))
+board.link(PadRef(Part("u1"), 1), PadRef(Part("r1"), 1), weight=LinkWeight.SHORT)
+board.link(PadRef(Part("r1"), 2), PadRef(Part("j1"), 1), weight=LinkWeight.PREFER)
+'''
+
+
+def part_board(tmp_path, line, imports_extra=""):
+    """U1 and J1 as above, and one series resistor R1 between them (U1 side pad 1) placed by `line`."""
+    fps = [column("U1", "u1", 17.0, ("A1", "A2")), column("J1", "j1", 33.0, ("B1", "B2")),
+           footprint("R1", 25, 24, w=2.2, h=0.8, nets=("A1", "B1"), inst="r1")]
+    path = script(tmp_path, PARTS + line + "\n", imports=IMPORTS.replace("(board, ", "(board, " + imports_extra))
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=1.0, keep_going=True,
+              settings=dataclasses.replace(Settings(), cleanup_enabled=False))
+    b.script_file = str(path)
+    run_script(path, b)
+    return b.resolve(), path
+
+
+def test_a_fixed_part_turned_by_rotation_is_judged_and_its_suggestion_edits_the_value_as_a_constant(tmp_path):
+    plan, path = part_board(tmp_path, 'board.place(Part("r1"), at=Location(25, 24), rotation=180)')
+    (f,) = turns(plan)
+    assert (f.facts["item"], f.facts["rotation_deg"], f.facts["to_deg"]) == ("r1", 180.0, 0.0)
+    (s,) = f.suggestions
+    assert s.text == "Turn part r1 to 0 degrees"
+    after = sg.apply_suggestion(suggestions_of(plan), s.id, dry_run=True).files[str(path)].after
+    assert "rotation=R1_ROTATION_DEG)" in after and "R1_ROTATION_DEG = 0" in after
+
+
+def test_a_fixed_part_with_no_rotation_is_judged_at_every_right_angle(tmp_path):
+    """Generated reversed: nothing in the script turns it, so every right-angle turn is asked."""
+    fps_turned = 'board.place(Part("r1"), at=Location(25, 24))'
+    plan, _ = part_board(tmp_path, fps_turned.replace("Location(25, 24))", "Location(25, 24), rotation=90)"))
+    (f,) = turns(plan)
+    assert f.facts["rotation_deg"] == 90.0 and f.facts["to_deg"] == 0.0
+
+
+def test_a_why_that_names_the_turn_holds_it(tmp_path):
+    plan, _ = part_board(tmp_path, 'board.place(Part("r1"), at=Location(25, 24), rotation=180, '
+                                   'why="turned so its silk reads from the south")')
+    (f,) = turns(plan)
+    assert f.facts["held_by"] == "why" and f.suggestions == ()
+
+
+def test_a_rotation_by_facing_holds_the_turn(tmp_path):
+    plan, _ = part_board(tmp_path, 'board.place(Part("r1"), at=Location(25, 24), rotation=Facing(PadRef(Part("r1"), 1), Edge.EAST))',
+                         imports_extra="Facing, ")
+    (f,) = turns(plan)
+    assert f.facts["held_by"] == "facing" and f.suggestions == ()
+
+
+def test_a_part_at_the_turn_its_links_favour_is_no_finding(tmp_path):
+    plan, _ = part_board(tmp_path, 'board.place(Part("r1"), at=Location(25, 24), rotation=0)')
     assert turns(plan) == []
 
 

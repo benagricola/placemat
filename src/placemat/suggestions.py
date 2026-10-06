@@ -1249,6 +1249,14 @@ def turn_better(f, settings):
     item, to = f["item"], f["to_deg"]
     to = int(to) if float(to).is_integer() else to
     text = "Turn %s %s to %g degrees" % (f["kind"], item, to)
+    held = f.get("held_by", "")
+    if held == "lock":
+        # the lock's own lever (`placemat lock --release`), as advice: nothing is applied
+        return [Pick("%s: its turn is held by the lock; release it with `placemat lock <script> --release %s` and the next "
+                     "run searches it again" % (text, item), (), "turn", "advice",
+                     advice={"release": [item], "to_deg": f["to_deg"]})]
+    if held:
+        return []                       # the script holds the turn for a reason it states: said, not offered
     if f.get("rotations_given"):
         return [_set("place", item, "rotations", {"list": [{"num": to}]}, text, "turn")]
     why = ("A run's finding (turn.better): turned %g degrees where it stood, %s %s's links came %s mm shorter in weighted "
