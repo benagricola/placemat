@@ -14,6 +14,12 @@ section for each hand-written pattern a newer form replaces.
   first". They now act on that command's own script, as if it had been chosen. While the command is still running
   they are disabled, saying they are available when it finishes, and `/suggest/try`, `/suggest/apply` and
   `/suggest/probe` refuse with 409 and `"reason": "running"`. Scripts need no change.
+- **An explore says when its search is over and which routes it waits for.** With `--route-best`, the route in hand
+  and the one waiting when the search ends are finished after it, past the `--explore` time. The console now says so
+  when the search ends (`the search is over after 15 min; routing goes on: seed 7 in hand, seed 9 waiting`, with the
+  mean time of the routes done so far once there is one), a new `explore_search_done` event carries the same as fields,
+  and the studio's explore time reads `of 15:00, then routes`. The explore's start event carries `route`. Scripts
+  need no change.
 
 ## To 0.99.25
 

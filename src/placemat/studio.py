@@ -1302,7 +1302,7 @@ class Studio:
                         it["file"] = self._rel(c, it["file"])
                 c["plan"] = ev
             elif kind == "explore":
-                c["explore"] = {"start": ev, "variants": [], "routes": [], "done": None}
+                c["explore"] = {"start": ev, "variants": [], "routes": [], "search_done": None, "done": None}
             elif kind == "variant":
                 c["variants"] += 1
                 if c["explore"] is not None:
@@ -1311,6 +1311,9 @@ class Studio:
             elif kind == "explore_route":
                 if c["explore"] is not None:
                     c["explore"].setdefault("routes", []).append(ev)
+            elif kind == "explore_search_done":           # the search is over, routes outstanding: which (explore.search_done_line)
+                if c["explore"] is not None:
+                    c["explore"]["search_done"] = ev
             elif kind == "explore_done":
                 if c["explore"] is not None:
                     c["explore"]["done"] = ev
@@ -1329,10 +1332,8 @@ class Studio:
                 c.update(state="done", ended=time.time(), record=ev.get("record") or c.get("record"))
             elif kind == "error":
                 c.update(state="error", ended=time.time(), message=ev.get("message", ""), error=ev)
-            if kind in ("explore", "variant", "explore_route", "explore_done"):
-                pass
             n = len(c["log"])
-            if kind not in ("plan", "explore", "variant", "explore_route", "explore_done"):
+            if kind not in ("plan", "explore", "variant", "explore_route", "explore_search_done", "explore_done"):
                 if n < self.MAX_EVENTS:
                     c["log"].append(ev)
                 else:

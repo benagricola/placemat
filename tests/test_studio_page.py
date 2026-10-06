@@ -3515,3 +3515,26 @@ def test_a_followed_commands_try_apply_and_search_are_disabled_while_it_runs_say
     assert "sgwait" not in d and " disabled" not in d
     for a, sid in (("try", "s1a"), ("apply", "s1a"), ("search", "s1b")):
         assert 'data-sg="%s" data-sid="%s"' % (a, sid) in d
+
+
+@needs_node
+def test_a_routing_explore_says_its_routes_may_run_past_its_time_and_when_the_search_is_done_which_it_waits_for(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+send("cmd", {id: 8, pid: 1, command: "run", script: "/p/x.py", args: ["run", "--explore", "900"], started: clock / 1000, state: "running", items: 0, variants: 0});
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'run', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore", focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2, seconds: 900, at: clock / 1000, route: true}});
+send("cmdev", {id: 8, n: 0, ev: {ev: "variant", seed: 3, score: 8, measures: {}, placements: {a: [6, 2, 0, "front"]}, order: ["a"], t: 1}});
+ev("renderRuns()"); out.searching = els["#tab-runs"].innerHTML; out.bar = ev("xvLine(S.xv)");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_route", seed: 0, score: 10, closure_clean: 0.8, closure: 0.9, open_before: 4, open_after: 1, valid: true, seconds: 300, dir: "d0"}});
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_search_done", t: 900.4, in_hand: [3], waiting: [], routed: 1, route_mean_s: 300}});
+ev("renderRuns()"); out.done = els["#tab-runs"].innerHTML; out.doneBar = ev("xvLine(S.xv)");
+ev("S.xv.start.route = false"); ev("renderRuns()"); out.plain = els["#tab-runs"].innerHTML;
+""")
+    s = out["searching"]
+    assert "of 15:00, then routes" in s and "the routes in hand and waiting when the search ends are finished after it" in s
+    assert "of 15:00, then routes" in out["bar"] and "Search done" not in s
+    d = out["done"]
+    assert "Search done after 15:00: routing #3" in d and "the routes so far took 5:00 each on average" in d
+    assert "search done, routing #3" in out["doneBar"]
+    assert "then routes" not in out["plain"]

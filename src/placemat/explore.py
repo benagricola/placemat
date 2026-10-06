@@ -376,7 +376,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
             rep.send({"ev": "explore", "focus": sorted(focus), "seconds": seconds, "jobs": len(procs),
                       "seeds": None if order is None else len(order), "baseline": baseline,
                       "baseline_measures": base_m, "plain": variants[0]["placements"], "order": variants[0]["order"],
-                      "at": t0})
+                      "at": t0, "route": routing is not None})
 
         def take(msg):
             if msg[0] == "end":
@@ -439,6 +439,14 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         if routing is not None:                      # the search is done: the route in hand and the one waiting
             if not rs["started"]:
                 start_router()
+            if not rs["dead"] and (rs["inflight"] is not None or rs["pending"] is not None):
+                done_s = [r["seconds"] for r in routes if not r.get("error")]
+                left = {"t": round(spent + time.time() - t0, 1), "in_hand": [s for s in (rs["inflight"],) if s is not None],
+                        "waiting": [s for s in (rs["pending"],) if s is not None], "routed": len(done_s),
+                        "route_mean_s": round(sum(done_s) / len(done_s), 1) if done_s else None}
+                console.say("explore", search_done_line(left))
+                if rep is not None:
+                    rep.send({"ev": "explore_search_done", **left})
             while rs["inflight"] is not None or (rs["pending"] is not None and not rs["dead"]):
                 try:
                     take(out.get(timeout=1.0))
@@ -1185,6 +1193,16 @@ def route_line(r: dict) -> str:
     return at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s" % (
         100 * r["closure_clean"], 100 * r["closure"], r["open_after"], duration(r["seconds"]),
         "" if r.get("valid", True) else "; the placement's DRC was not clean before routing")
+
+
+def search_done_line(ev: dict) -> str:
+    """The search's end while routes are outstanding (the `explore_search_done` event): when it ended, the route in hand and
+    the one waiting, and the mean time of the routes done so far when there are some (the only measure of how long the
+    rest will take)."""
+    seeds = ["seed %d in hand" % s for s in ev["in_hand"]] + ["seed %d waiting" % s for s in ev["waiting"]]
+    mean = "; the %d route%s so far took %s each on average" % (ev["routed"], "" if ev["routed"] == 1 else "s", duration(ev["route_mean_s"])) \
+        if ev.get("route_mean_s") is not None else ""
+    return "  the search is over after %s; routing goes on: %s%s" % (duration(ev["t"]), ", ".join(seeds), mean)
 
 
 def route_lines(report) -> list:

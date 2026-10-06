@@ -396,3 +396,9 @@ def test_a_command_is_named_by_what_it_is_for_the_studio():
     assert channel.kind_of("preview", ["preview", "x.py", "--explore=30"]) == "explore"
     assert channel.kind_of("run", ["run", "x.py"], explored=True) == "explore"             # explore events say it is one whatever its arguments were
     assert channel.kind_of("route", ["route", "x.pcb"]) == "route" and channel.kind_of("apply", None) == "apply" and channel.kind_of("", ()) == ""
+
+
+def test_an_explores_search_done_is_kept_in_the_progress_file_and_watch_says_what_it_waits_for():
+    ev = {"ev": "explore_search_done", "t": 900.0, "in_hand": [0], "waiting": [17], "routed": 1, "route_mean_s": 450.0}
+    assert channel.compact(ev) == ev
+    assert channel.describe(ev) == "explore: the search is over; routing seed 0, seed 17 waiting"

@@ -4403,7 +4403,12 @@ and quick-routes the plain placement (seed 0) first: the baseline the others are
 variant becomes the new best by run score, it routes that one. While it is routing, only the latest new best waits; a
 best overtaken before its route starts is not routed. With `--jobs 1` the search keeps the one job and the routes run
 after it: the plain placement, then the best. When the search ends, the worker finishes the route in hand and the one
-waiting, then stops; that time comes after the explore's budget. Each variant is resolved again, written as the run
+waiting, then stops; that time comes after the explore's budget. When the search ends with routes outstanding the explore
+says so (`the search is over after 15 min; routing goes on: seed 7 in hand, seed 9 waiting; the 2 routes so far took 7 min 30 s
+each on average`, the mean only once a route has finished) and sends an `explore_search_done` event (`t`, the seconds into the
+explore; `in_hand` and `waiting`, lists of seeds; `routed`, the routes finished; `route_mean_s`, their mean time or null). In the
+studio the explore's time reads `of 15:00, then routes` while routing is on, and once the search is done the explore view says
+`Search done after 15:00: routing #7, #9 waiting`, with the mean time of the routes so far. Each variant is resolved again, written as the run
 writes its own board in `<run>/explore/seed-S/layout.kicad_pcb`, and quick-routed there (`route/`, as `run --route`
 does: the plane nets and `--route-exclude` left out). Its line is said as it comes (`route, seed 3 at 120.4 mm:
 closure 86.4% clean (91.2% raw), 14 open, in 4 min 56 s`, with `; the placement's DRC was not clean before routing`
@@ -5288,7 +5293,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.stall_seconds` | `0.0` | seconds | end an explore this many seconds after its last improvement; 0 is off |
 | `explore.stop_hard_clear` | `false` | bool | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | `100000` | count | finished variants an explore's checkpoint records; past it a resume tries those again |
-| `explore.route_best` | `false` | bool | a routing worker, one of the explore's jobs, quick-routes the plain placement at the start and each new best by run score as the search finds it (only the latest waits while it is busy; with one job it routes after the search); each closure is said beside its score and `--accept` takes the best clean closure, ties going to the better score. A run only: a preview writes no board (`--route-best`) |
+| `explore.route_best` | `false` | bool | a routing worker, one of the explore's jobs, quick-routes the plain placement at the start and each new best by run score as the search finds it (only the latest waits while it is busy; with one job it routes after the search); each closure is said beside its score and `--accept` takes the best clean closure, ties going to the better score. The route in hand and the one waiting when the search ends are finished after it, so the run can last past the explore's time. A run only: a preview writes no board (`--route-best`) |
 | `pins.exit_mm` | `0.5` | mm | the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn |
 | `pins.follow_series` | `true` | bool | the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection |
 | `pins.pair_weight` | `5.0` | weight | the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1) |

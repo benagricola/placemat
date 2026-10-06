@@ -523,7 +523,10 @@ shapes and files: `references/api.md`, "Live progress".
   (`metrics.explore.routes`), and `--accept` takes the best clean closure,
   ties going to the better score (`taken_seed`). A failed route is said on
   its variant's line and the explore stands. A quick route of a large board
-  takes minutes, so give the explore time for a few.
+  takes minutes, so give the explore time for a few. The route in hand and
+  the one waiting when the search ends are finished after it, so the run
+  lasts past the `--explore` time: the console says when the search is over
+  and which routes it waits for, with the mean time of the routes done so far.
 - Long commands (`run`, `preview`, `route`, above all `--explore`) stop
   safely on SIGTERM, SIGHUP or Ctrl-C and say so: the run is recorded as
   `stopped` (`status: "running"` with a `pid` while it works; a record whose

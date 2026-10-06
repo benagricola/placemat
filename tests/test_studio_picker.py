@@ -769,3 +769,13 @@ def test_an_explores_routes_streamed_over_the_channel_are_kept_with_it_not_in_it
                       "open_after": 1, "valid": True, "seconds": 3.0, "dir": "d"})
     d = s.cmd_detail(6)
     assert [r["seed"] for r in d["explore"]["routes"]] == [0] and all(e["ev"] != "explore_route" for e in d["events"])
+
+
+def test_an_explores_search_done_is_kept_with_it_for_a_page_that_opens_it_late(project):
+    s = _fresh(project)
+    _cmd(s, 7)
+    s._on_channel(7, {"ev": "explore", "focus": ["a"], "plain": {}, "order": ["a"], "baseline": 10.0, "jobs": 2, "at": 1.0, "seconds": 60, "route": True})
+    s._on_channel(7, {"ev": "explore_search_done", "t": 60.2, "in_hand": [0], "waiting": [5], "routed": 0, "route_mean_s": None})
+    d = s.cmd_detail(7)
+    assert d["explore"]["search_done"] == {"ev": "explore_search_done", "t": 60.2, "in_hand": [0], "waiting": [5], "routed": 0, "route_mean_s": None}
+    assert all(e["ev"] != "explore_search_done" for e in d["events"])
