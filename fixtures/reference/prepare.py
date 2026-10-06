@@ -29,7 +29,6 @@ TEST = "test.kicad_pcb"
 BASELINE = "baseline-drc.json"
 STRIP_SCRIPT = "tests/stress/strip_copper_only.py"
 PROJECT_SUFFIXES = (".kicad_pro", ".kicad_dru")
-LEGACY_PROJECT_SUFFIX = ".pro"
 STRIP_TIMEOUT_S = 600
 IGNORED_TYPES = ("courtyards_overlap",)
 IGNORED_PREFIXES = ("silk_", "lib_footprint_")
@@ -61,16 +60,17 @@ class Prepared:
 
 def violations(drc_json: pathlib.Path) -> list[Violation]:
     """The errors of a kicad-cli DRC report, without the silk, courtyard and library kinds. KiCad names an
-    item's net inside its description ("Track [GND] on F.Cu"), so `nets` are read from there."""
+    item's net inside its description ("Track [GND] on F.Cu"), so `nets` are read from there. `nets` are sorted and
+    `at_mm` is the least item position, so a violation reads the same whichever order KiCad lists its items in."""
     out = []
     for v in json.loads(pathlib.Path(drc_json).read_text()).get("violations", []):
         kind = v.get("type", "")
         if v.get("severity") != "error" or kind in IGNORED_TYPES or kind.startswith(IGNORED_PREFIXES):
             continue
         items = v.get("items", [])
-        nets = tuple(dict.fromkeys(m.group(1) for i in items for m in [NET_IN_DESCRIPTION.search(i.get("description", ""))] if m and m.group(1) != NO_NET))
-        pos = items[0].get("pos", {}) if items else {}
-        out.append(Violation(kind, nets, (float(pos.get("x", 0.0)), float(pos.get("y", 0.0)))))
+        nets = tuple(sorted({m.group(1) for i in items for m in [NET_IN_DESCRIPTION.search(i.get("description", ""))] if m and m.group(1) != NO_NET}))
+        at = min(((float(i.get("pos", {}).get("x", 0.0)), float(i.get("pos", {}).get("y", 0.0))) for i in items), default=(0.0, 0.0))
+        out.append(Violation(kind, nets, at))
     return out
 
 
@@ -114,10 +114,9 @@ def prepare(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> Prepar
     ref, test = work / REF, work / TEST
     shutil.copy(original, ref)
     if board.kicad5:
-        # pcbnew reads the legacy .pro beside the board and writes its net classes into the .kicad_pro
-        _copy_project(original, ref, (LEGACY_PROJECT_SUFFIX,))
-        _upgrade(ref)
-    _copy_project(original, ref, PROJECT_SUFFIXES)
+        _upgrade(ref)   # writes the .kicad_pro; a project file copied from the source would replace it
+    else:
+        _copy_project(original, ref, PROJECT_SUFFIXES)
     strip(ref, test)
     _copy_project(ref, test, PROJECT_SUFFIXES)
     layers, human = measure(ref)
