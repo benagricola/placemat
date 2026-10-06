@@ -3920,10 +3920,10 @@ not used; a halo that is not a number above 0 is refused when the settings
 load.
 
 A wide route the router cannot lay is retried at its default track width (its "neck-down"), so a width asked for is not a width
-delivered. An island net given a width in `[route] islands` is judged on the routed board: each of its tracks against the larger of
-the width asked and the width the current its parts state (`Pm.I`, the most any part says) needs on the track's own layer,
-by IPC-2221 at `[check] rise_c` on that layer's copper weight from the stackup, with the inner constant on an inner layer (the sizing
-`check current-path` uses). A 1.37 mm track asked for 3 A on outer copper is short on an inner 1 oz layer, which needs 3.56 mm.
+delivered. An island net given a width in `[route] islands` is judged on the routed board: each of its tracks, on every layer,
+against the width asked. The script chose that width for what the island carries, which may be a tap of a net whose full current
+flows through a declared track; the current itself is `check current-path`'s to judge, carrier to carrier, by IPC-2221 with the
+inner constant on an inner layer. To keep an island off the inner layers, give it layers (`"VBUS=1.37@F,B"`).
 Narrow copper the router leaves at a pad on purpose is not counted: copper within the router's neck length plus its taper of a pad
 (KRT `--neckdown-length` 2.5 mm and `--neckdown-taper-length` 0.5 mm, so 3 mm, read from `[route] router_args`; none with
 `--no-power-tap-neckdown`), measured along narrow copper from the pad. A narrow stretch farther from every pad counts, wherever it is.
@@ -4971,7 +4971,7 @@ its kind.
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `setup` (`setup.net_halo`: a pad of another net inside a `[route] net_halos` halo whose own copper ends inside it, a key that names no net) | warning | the router cannot lead the pad out; the entry is not used |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
-| `route` (`route.width`: a net's copper delivered under the width asked, or, for an island net, under what its stated current needs on that layer) | critical when the net has a width in `[route] islands` (it carries current), or when the current its narrowest copper carries is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a`, and for an island net judged on the routed board `bottleneck_layer`, `necks_mm`, `neck_limit_mm`, `layers` |
+| `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net has a width in `[route] islands` (it carries current), or when the current its narrowest copper carries is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a`, and for an island net judged on the routed board `bottleneck_layer`, `necks_mm`, `neck_limit_mm`, `layers` |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
 | `needs` | notice | an if-needed fab option would have cleared a spot; the item's `unplaced` finding is the fault |

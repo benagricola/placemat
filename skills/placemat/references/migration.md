@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A width island is judged by the width it was asked.** Since 0.99.27 an island's routed copper was judged against the larger
+  of its asked width and what the net's highest stated current (`Pm.I`) needs on each layer, so a 0.3 mm island that is only a
+  tap of a 3 A net was flagged against 3 A. It is now judged against its asked width on every layer; the current is left to
+  `check current-path`, which judges the copper that carries it. Scripts need no change.
+
 ## To 0.99.28
 
 ### New
