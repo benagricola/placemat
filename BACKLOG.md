@@ -298,6 +298,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Detached runs and one-line outcomes, accept after a comment edit** (0.99.31):
+  `run/preview/route --detach`; `watch <pid> --summary`; the skill teaches
+  following a long run as a background task; an explore's script digest
+  ignores comments and layout, so a comment edit no longer refuses
+  `--accept-seed` or a resume.
+
 - **The studio on a watched run or a past run** (0.99.30): the code view,
   probe results, undo log, notes, progress, errors and run details read the
   view's own script and run; features that cannot act on a view say why;
