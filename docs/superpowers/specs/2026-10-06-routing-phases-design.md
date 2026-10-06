@@ -92,7 +92,7 @@ A phase has at most one selector. A phase with none takes every connection still
 |---|---|---|
 | `nets` | nets by name or glob (`DISP_*`); `!NAME` excludes | the board's nets |
 | `net_classes` | every net in these KiCad net classes | the capture's `board_rules.zen` net classes, which reach `layout.kicad_pro` |
-| `pairs = true` | the differential pairs the net classes declare | today's pair stage (`pairs.board_pair_list`) |
+| `pairs = true` | the differential pairs: the capture's `DiffPair` interface instances | the capture, through the Zener fork (below) |
 | `buses` | a list of buses, each a list of net names or globs | the board's nets |
 | `connections` | pad-to-pad connections, each `{from = {part, pad}, to = {part, pad}}`; a pad by number or by net, as `PadRef` takes it | the capture |
 | `current_paths = true` | every pair of carriers on each net with a `Pm.I`, pad to pad (`checks._pairs(by_pad=True)`) | the capture's `Pm.I` |
@@ -121,6 +121,18 @@ file:line there). It comes in two stages:
    field-to-net map are recorded where the instance is created and carried to the schematic's nets. One case must be
    checked before this is sized: an instance whose name is inferred from its assignment (`DISP = Spi(...)`) has no root
    name recorded.
+
+The first version also moves two circuit facts out of placemat's config and into the capture (decided with the user):
+
+- **Differential pairs:** each `DiffPair` interface instance in the file is a pair, its `P` and `N` members the two
+  nets. `pairs = true` selects them. Today pairing is derived from net-class patterns (`pairs.board_pair_list`), which
+  duplicates what the capture states. The net classes still give a pair's width, gap and impedance.
+- **Net clearance:** a clearance a net needs for electrical reasons, such as a high-voltage net, is stated on the net in
+  the capture. The fork adds a `clearance` field to the stdlib net types, written to the file per net. It replaces
+  `[route] net_halos` in `placemat.toml`. That setting is removed with a migration entry, and a `placemat.toml` that
+  still has it is refused, naming the capture field.
+
+The file is versioned (`"version": 1`) and keyed by net name, so later fields can be added without breaking a reader.
 
 placemat reads the sidecar into the board geometry. A board generated without it, by an older toolchain, has no
 `interfaces` or `net_types` to select by: a phase that uses them is refused, saying the generator does not export them.
@@ -235,6 +247,8 @@ for power legs and buses, and declared copper only for fixed geometry.
 - Zener fork:
   - `nets.layout.json` carries each net's type, fields and interface instances, including an instance whose name is
     inferred and an interface passed into a module (the fork's own tests);
+  - a `DiffPair` instance arrives as a pair, and a net's `clearance` field arrives as its clearance;
+  - `[route] net_halos` is refused, naming the capture field;
   - placemat reads it, and a phase using `interfaces` on a board without it is refused.
 - Settings:
   - parsing and validation of `[[route.phase]]`: each selector, a phase with two selectors refused, a duplicate name
