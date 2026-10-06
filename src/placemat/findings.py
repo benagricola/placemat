@@ -34,8 +34,8 @@ class FindingKind(str, Enum):
     KEEP_OUT = "keep_out"               # a keep-out distance that KiCad's DRC does not judge: copper on different layers
     TIME = "time"                       # a step that ran past the time a command allows it (`--step-warn`, `--step-limit`)
     ARRANGEMENT = "arrangement"         # a module's alternative arrangements: over the limits, refused by the module run, stale on the stamping board, asked for and not offered
-    ESCAPE = "escape"                   # a module's escape that does more than the module needs: a via on a lane with a way out
-    PINS = "pins"                       # a better assignment of nets to a part's pins (its Pm.PinPool) than the capture's, from the pin map study
+    ESCAPE = "escape"                   # a module's escape that does more than the module needs; a pad whose only approach is pinched
+    PINS = "pins"                       # a better assignment of nets to a part's pins than the capture's: the pin map study's, a reversed group
 
     def __str__(self):
         return self.value
@@ -93,6 +93,7 @@ class FindingCause(str, Enum):
     ESCAPE_WALLED = (FindingKind.ESCAPE_WALLED, "escape_walled")
     ESCAPE_LANE = (FindingKind.ESCAPE_LANE, "escape_lane")
     ESCAPE_VIA_UNNEEDED = (FindingKind.ESCAPE, "escape.via_unneeded")
+    ESCAPE_PINCHED = (FindingKind.ESCAPE, "escape.pinched")
     PAIR_CROSSED = (FindingKind.PAIR_CROSSED, "pair_crossed")
     SETUP_UNDECLARED = (FindingKind.SETUP, "setup.undeclared")
     SETUP_LANE_UNUSED = (FindingKind.SETUP, "setup.lane_unused")
@@ -129,6 +130,7 @@ class FindingCause(str, Enum):
     ARRANGEMENT_EXTENT_FIXED = (FindingKind.ARRANGEMENT, "arrangement.extent_fixed")
     ARRANGEMENT_OPTION_DEAD = (FindingKind.ARRANGEMENT, "arrangement.option_dead")
     PINS_REMAP = (FindingKind.PINS, "pins.remap")
+    PINS_REVERSED = (FindingKind.PINS, "pins.reversed")
 
     def __str__(self):
         return self.value

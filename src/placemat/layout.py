@@ -5478,6 +5478,33 @@ class Board:
                 suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant="handoff")))
         if not self._draw_outline:
             self._report_vias_unneeded(occ, plan, esc)
+        if self._explore is None:           # an explore's variant is scored, and the score does not count this
+            self._report_approaches(occ, plan, esc)
+
+    def _report_approaches(self, occ: Occupancy, plan: Plan, esc) -> None:
+        """Each pad whose one way toward what it joins, on its own layer, passes between two other parts' copper closer
+        than its track and two clearances (approach.py): an `escape.pinched` warning, judged once on the finished
+        board."""
+        from .approach import pinched
+        for facts in pinched(occ, esc):
+            plan.findings.append(self._finding(C.ESCAPE_PINCHED, facts))
+
+    def _report_pin_orders(self, occ: Occupancy, plan: Plan) -> None:
+        """Lines between two parts whose pins on one part stand in the reverse of the order their airwires land in
+        (pin_order.py): a `pins.reversed` notice, judged once on the finished board after the pin map study. A part the
+        study gives a `pins.remap` for is left to that advice; a part with a `Pm.PinPool` the study looked at and gave
+        no map for is said to be so."""
+        from .pin_order import reversed_groups
+        from .pinmap_rules import fields_of
+        skip = {r for f in plan.findings if f.cause is C.PINS_REMAP for r in f.facts.get("refs", ())}
+        studied: set = set()
+        if plan.pin_study and "error" not in plan.pin_study:
+            unstudied = {r for f in plan.findings if f.cause is C.SETUP_PINS
+                         and f.facts.get("code") in ("study_slow", "no_legal_map", "no_legal_pin")
+                         for r in (f.facts.get("refs") or [f.facts.get("ref")])}
+            studied = {fp.ref for fp in self.geometry.footprints if "pm.pinpool" in fields_of(fp.fields)} - unstudied
+        for facts in reversed_groups(occ, frozenset(skip), frozenset(studied)):
+            plan.findings.append(self._finding(C.PINS_REVERSED, facts))
 
     def _report_vias_unneeded(self, occ: Occupancy, plan: Plan, esc) -> None:
         """A module's via on an escape lane that the lane does not need (`Escapes.vias_unneeded`): the lane reaches the
@@ -7866,6 +7893,8 @@ class Board:
         self._report_cell_labels_at_edge(occ, plan)
         if self._explore is None and self.pin_study:
             self._report_pin_maps(plan)
+        if self._explore is None:
+            self._report_pin_orders(occ, plan)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
             text, why, sides = self._faces

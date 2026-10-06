@@ -202,6 +202,10 @@ class Settings:
         "whether a via that fits at the end of a pad's own copper (an escape lane or a stub drawn from it) counts as that pad's way out. Off: a pad on a lane needs a track to get on, on the layer the lane is on, and is walled off when only a via would; on: a via spot is enough, as for a pad with no lane, which keeps the via rule either way")
     place_escape_cell: float = S(0.05, "mm",
         "the grid a pad's path out is searched on")
+    place_approach_reach: float = S(8.0, "mm",
+        "how far along a pad's airwire toward its nearest target the `escape.pinched` check looks for a gap between two other parts' copper that the pad's track does not fit through")
+    place_approach_detour: float = S(2.0, "mm",
+        "how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding")
     place_split_min_group: int = S(2, "count",
         "the least members a group needs to count as one, in a cell's `split` finding")
     copper_chamfer: float = S(1.0, "mm",
@@ -342,6 +346,8 @@ class Settings:
         "the pin map study also turns a part on the other face where its declaration lets it stand there (`face=Face.EITHER`)")
     pins_gain_min: float = S(0.05, "share",
         "the share of the present total a better pin map must save for a `pins.remap` finding")
+    pins_reversed_min: int = S(3, "count",
+        "the fewest lines next to each other on a part whose airwires land, on the part they join or on the series parts on the way, in the reverse of their order, for a `pins.reversed` finding")
     pins_placed_share_min: float = S(0.8, "share",
         "the share of a studied group's movable nets that must have a placed far end for the pin map study to advise a map; below it the study says it waits on placement")
     pins_explore_top: int = S(3, "count",
@@ -693,7 +699,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_room_pitch", "place_coarse_min_radius_steps", "place_coarse_stride",
-    "place_refine_spots", "place_step_budget", "place_arrangement_options_max", "place_arrangements_max", "place_arrangement_note_chars", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
+    "place_refine_spots", "place_step_budget", "place_arrangement_options_max", "place_arrangements_max", "place_arrangement_note_chars", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "place_approach_reach", "place_approach_detour", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
@@ -701,7 +707,7 @@ _ABOVE_ZERO = frozenset((
     "studio_3d_cache_mb", "studio_3d_batch", "studio_3d_batch_timeout_s", "studio_3d_model_tris", "studio_3d_max_tris", "studio_3d_plate_mm", "studio_3d_spread_mm",     "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "studio_builder_grid_mm", "studio_builder_max_fill", "studio_builder_aspect", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height",
-    "pins_seeds", "pins_anneal_moves", "pins_budget_steps", "pins_joint_combinations", "pins_probe_budget_steps"))
+    "pins_seeds", "pins_anneal_moves", "pins_budget_steps", "pins_reversed_min", "pins_joint_combinations", "pins_probe_budget_steps"))
 _AT_LEAST_ZERO = frozenset((
     "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",

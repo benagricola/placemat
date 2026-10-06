@@ -678,6 +678,13 @@ shapes and files: `references/api.md`, "Live progress".
   before the search. Shorten runs only when the fab profile's micro, blind
   or buried tier for the shorter via is "yes"; the refusal says when one
   would have cleared it. api.md, "Carried vias give way", has the rest.
+- An `escape.pinched` warning names a pad whose one way toward what it
+  joins, on its own layer, passes between two other parts' copper closer
+  than its track and two clearances need (the other ways within
+  `place.approach_detour` are closed by copper or cross another net's
+  airwire). The router will need a via pair past it. Give the line room
+  there: space or shift the row that pinches it, or turn a part, and run
+  again; `gap_mm` and `need_mm` in its facts say how much.
 - A number chosen to dodge something is a workaround for a rule the tool
   should carry: say so in the run notes.
 - A design check that fails where no layout does better is accepted only on
@@ -834,6 +841,15 @@ preview: a `pins.remap` notice gives a map (and a turn) that saves
 crossings; take it as a candidate, checked against the datasheet as above
 (capture.md, "Pin pools"). A `setup.pins` warning names a pin annotation
 to fix.
+
+A `pins.reversed` notice names lines between two parts whose pins on one
+part stand in the reverse of the order their airwires land in, on the other
+part or on series terminations on the way, with the crossings mirroring
+them would remove. It is a candidate swap like the study's, checked the same
+way. It says when a `Pm.PinGroup` or `Pm.PinPool` holds the pins, and when
+the study looked at the part and gave no map: `pins.gain_min` is a share of
+the part's whole total, so a mirror of three or four lines can save too
+little to be advised there.
 
 Then:
 
