@@ -7,6 +7,16 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **An explore can rank its variants after their pin remap.** `placemat run --explore SECONDS --rank-remapped` (or
+  `[explore] rank_remapped = true`, off by default) gives every variant the pin map study and ranks the variants on
+  the run score less what each one's best remap saves: the weighted crossings it removes at `score.crossing` each. The
+  records and events keep `score` and add `score_remapped` and `remap`; the report adds `baseline_remapped` and
+  `best_remapped`. With `--route-best` a variant is routed with its remap made on the pads of its own board. `--accept`
+  writes the placement only; the remap is still yours to make in the capture. A board with no `Pm.PinPool` part
+  explores as before. Scripts need no change.
+
 ### Changed
 
 - **The studio acts on a followed command's suggestions.** With no script chosen, Try, Apply and Search options on a

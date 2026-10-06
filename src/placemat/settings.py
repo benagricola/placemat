@@ -314,6 +314,8 @@ class Settings:
         "finished variants an explore's checkpoint records; past it a resume tries those again")
     explore_route_best: bool = S(False, "bool",
         "a routing worker, one of the explore's jobs, quick-routes the plain placement at the start and each new best by run score as the search finds it (only the latest waits while it is busy; with one job it routes after the search); each closure is said beside its score and `--accept` takes the best clean closure, ties going to the better score. The route in hand and the one waiting when the search ends are finished after it, so the run can last past the explore's time. A run only: a preview writes no board (`--route-best`)")
+    explore_rank_remapped: bool = S(False, "bool",
+        "every variant an explore keeps gets the pin map study, and variants are ranked, and the best chosen, on the run score less what its best pin remap saves: the weighted crossings it removes at `score.crossing` each. With `explore.route_best` a variant is routed on its board with that remap applied to its pads. Nothing changes on a board with no `Pm.PinPool` part (`--rank-remapped`)")
     pins_exit_mm: float = S(0.5, "mm",
         "the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn")
     pins_follow_series: bool = S(True, "bool",

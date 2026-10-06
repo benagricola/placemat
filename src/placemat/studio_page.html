@@ -3231,7 +3231,7 @@ async function openExploreRecord(file) {
     S.cmdView = d.doc ? {id: "explore:" + d.file, plan: d.doc, summary: {command: "explore", kind: "explore", script: doc.script, label: "", pid: "", run: d.run || "", record: d.summary || null},
       next: 0, fitted: false, record: true, explore: {source: d.source, unmoved: d.unmoved || []}} : null;
     if (S.cmdView && d.source === "build") { const r = d.doc.route; S.cmdView.route = {total: r.nets, done: r.routed, failed: r.failed, finished: true, partial: !!r.partial, dropped: r.dropped || 0, results: {}, step: {}}; }
-    xvStart("record", d.file, {focus: doc.focus, plain: doc.plain, order: doc.order, baseline: doc.baseline, at: doc.at, jobs: doc.jobs, seconds: doc.seconds});
+    xvStart("record", d.file, {focus: doc.focus, plain: doc.plain, order: doc.order, baseline: doc.baseline, baseline_remapped: doc.baseline_remapped, at: doc.at, jobs: doc.jobs, seconds: doc.seconds});
     for (const v of doc.variants || []) if (v.seed !== 0) xvAdd(v, true);
     S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline, pin_maps: doc.pin_maps || [], routes: doc.routes || [],
       taken_seed: doc.taken_seed, routes_skipped: doc.routes_skipped}; S.xv.script = doc.script;
@@ -3819,7 +3819,7 @@ function moveShape(poly, from, to) {
 }
 function xvStart(source, id, start) {
   S.xv = {source, id, start: start || {}, variants: [], seeds: new Set(), done: null, sel: null, mode: "order", auto: true, drawn: null, bestDrawn: null, thumbs: [], density: true, lastDraw: 0, timer: null, script: (S.cmds.get(id) || {}).script || ""};
-  const plain = {seed: 0, score: start.baseline, measures: start.baseline_measures || {}, placements: start.plain || {}, order: start.order || [], t: 0};
+  const plain = {seed: 0, score: start.baseline, ...(start.baseline_remapped != null ? {score_remapped: start.baseline_remapped} : {}), measures: start.baseline_measures || {}, placements: start.plain || {}, order: start.order || [], t: 0};
   S.xv.variants.push(plain); S.xv.seeds.add(0);
   S.xv.drawn = S.xv.bestDrawn = plain;
 }
@@ -3835,7 +3835,11 @@ function xvTouch() {
   else if (!X.timer) X.timer = setTimeout(() => { X.timer = null; xvDrawNow(); }, gap - (now - X.lastDraw));
   schedule("runs"); renderCmdBar();
 }
-function xvBest() { const X = S.xv; return X.variants.reduce((b, v) => (b == null || v.score < b.score || (v.score === b.score && v.seed < b.seed)) ? v : b, null); }
+// With explore.rank_remapped a variant is ranked by its score after its pin remap (score_remapped); else by its run score.
+const xvRank = v => v.score_remapped != null ? v.score_remapped : v.score;
+// A variant's score after its pin remap, beside its run score, where the explore ranked by it.
+const xvRemapped = v => v && v.score_remapped != null ? '<span class="xremap" title="its score after its best pin remap, which the explore ranked it by">, ' + f1(v.score_remapped) + " remapped</span>" : "";
+function xvBest() { const X = S.xv; return X.variants.reduce((b, v) => (b == null || xvRank(v) < xvRank(b) || (xvRank(v) === xvRank(b) && v.seed < b.seed)) ? v : b, null); }
 // Following the explore, the board shows the best variant so far and changes when a better one lands; a variant picked stays until following is asked for again.
 function xvDrawNow() {
   const X = S.xv; if (!X) return;
@@ -4023,7 +4027,7 @@ function xvPinsHTML(X) {
         (on ? pinMapList(g) : "") + "</div>";
     }).join("");
     const err = m.error ? "<div>" + pill("error", "bad") + " " + esc(m.error.type + ": " + m.error.message) + "</div>" : "";
-    return '<div class="xpin' + (here ? " on" : "") + '" data-xpin="' + m.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(m.score) + "</span></div><div>" +
+    return '<div class="xpin' + (here ? " on" : "") + '" data-xpin="' + m.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(m.score) + xvRemapped(m) + "</span></div><div>" +
       (groups || err || "<div>no group to remap</div>") + (groups ? err : "") + "</div></div>";
   }).join("");
   return '<div class="xpins"><div class="cst">Pin study</div>' + rows + "</div>";
@@ -4043,8 +4047,8 @@ function xvRoutesHTML(X) {
     const v = xvBySeed(r.seed) || {seed: r.seed}, took = r.seed === taken;
     const body = r.error ? pill("error", "bad") + " " + esc(r.error.type + ": " + (r.error.message || "").split("\n")[0])
       : esc(pct(r.closure_clean) + " clean, " + pct(r.closure) + " raw, " + r.open_after + " open, " + fmtDur(1000 * r.seconds)) + (r.valid === false ? " " + pill("DRC not clean", "warn") : "");
-    return '<div class="xpin' + (took ? " on" : "") + '" data-xroute="' + r.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(r.score) + "</span>" +
-      (took ? pill("taken", "good") : "") + "</div><div>" + body + "</div></div>";
+    return '<div class="xpin' + (took ? " on" : "") + '" data-xroute="' + r.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(r.score) + xvRemapped(r) + "</span>" +
+      (took ? pill("taken", "good") : "") + "</div><div>" + body + (r.remapped ? ", routed with its pin remap on its pads" : "") + "</div></div>";
   }).join("");
   return '<div class="xroutes"><div class="cst">Routes</div>' + waits + rows + (X.done && taken == null ? "<div>every route failed: the best score is taken</div>" : "") + "</div>";
 }
@@ -4076,14 +4080,14 @@ function drawExplore() {
 function exploreHTML() {
   const X = S.xv; if (!X) return "";
   const I = xvInfo(X), vs = X.variants, best = I.best, base = I.base, shown = X.drawn;
-  const tmax = Math.max(1, ...vs.map(v => v.t || 0)), lo = Math.min(...vs.map(v => v.score)), hi = Math.max(...vs.map(v => v.score)), span = Math.max(hi - lo, 1e-9);
+  const tmax = Math.max(1, ...vs.map(v => v.t || 0)), lo = Math.min(...vs.map(xvRank)), hi = Math.max(...vs.map(xvRank)), span = Math.max(hi - lo, 1e-9);
   const px = v => 10 + 280 * (v.t || 0) / tmax, py = s => 112 - 100 * (s - lo) / span;
   let run = Infinity; const stairs = [];
-  for (const v of vs.slice().sort((a, b) => (a.t || 0) - (b.t || 0))) { run = Math.min(run, v.score); stairs.push(px(v).toFixed(1) + "," + py(run).toFixed(1)); }
-  const dots = vs.map((v, i) => '<circle data-xs="' + i + '" cx="' + px(v).toFixed(1) + '" cy="' + py(v.score).toFixed(1) + '" r="' + (v === shown ? 4.5 : 3) + '" fill="' + (v === best ? "var(--good)" : v === shown ? "var(--mark)" : "var(--accent)") + '" fill-opacity="' + (v === shown || v === best ? 1 : 0.6) + '" style="cursor:pointer"/>').join("");
-  const plot = '<svg class="plot" viewBox="0 0 300 124" preserveAspectRatio="none"><line x1="10" x2="290" y1="' + py(base).toFixed(1) + '" y2="' + py(base).toFixed(1) + '" stroke="var(--dim)" stroke-dasharray="3 3" stroke-width="1"/>' +
+  for (const v of vs.slice().sort((a, b) => (a.t || 0) - (b.t || 0))) { run = Math.min(run, xvRank(v)); stairs.push(px(v).toFixed(1) + "," + py(run).toFixed(1)); }
+  const dots = vs.map((v, i) => '<circle data-xs="' + i + '" cx="' + px(v).toFixed(1) + '" cy="' + py(xvRank(v)).toFixed(1) + '" r="' + (v === shown ? 4.5 : 3) + '" fill="' + (v === best ? "var(--good)" : v === shown ? "var(--mark)" : "var(--accent)") + '" fill-opacity="' + (v === shown || v === best ? 1 : 0.6) + '" style="cursor:pointer"/>').join("");
+  const plot = '<svg class="plot" viewBox="0 0 300 124" preserveAspectRatio="none"><line x1="10" x2="290" y1="' + py(xvRank(vs[0])).toFixed(1) + '" y2="' + py(xvRank(vs[0])).toFixed(1) + '" stroke="var(--dim)" stroke-dasharray="3 3" stroke-width="1"/>' +
     '<polyline points="' + stairs.join(" ") + '" fill="none" stroke="var(--good)" stroke-width="1.5"/>' + dots + "</svg>";
-  const order = X.mode === "score" ? vs.map((v, i) => i).sort((a, b) => vs[a].score - vs[b].score || vs[a].seed - vs[b].seed) : vs.map((v, i) => i);
+  const order = X.mode === "score" ? vs.map((v, i) => i).sort((a, b) => xvRank(vs[a]) - xvRank(vs[b]) || vs[a].seed - vs[b].seed) : vs.map((v, i) => i);
   const at = Math.max(0, order.indexOf(vs.indexOf(shown)));
   const thumb = v => { const p = plan(), e = p && p.board ? p.board.extent : [0, 0, 60, 40], polys = []; const plain = xvFrom(X), imap = p ? itemMap(p) : new Map();
     for (const key of Object.keys(v.placements || {})) { const it = imap.get(key), a = plain[key], pl = v.placements[key]; if (!it || !xvSame(a, pl)) continue;
@@ -4096,13 +4100,13 @@ function exploreHTML() {
   const st = I.running ? ["running", "running"] : I.done ? [I.done.kept ? "done" : "done", I.done.kept ? "kept" : "done"] : I.ended ? [I.ended === "error" ? "error" : "lost", I.ended === "error" ? "failed" : "lost"] : ["done", "recorded"];
   const fields = '<div class="xf">' + cell("focus", esc(focusWord(I.focus)) || "-", I.focus.join(", ")) +
     cell("variants", fx(4, I.tried) + (I.seeds ? " of " + I.seeds : " tried"), I.seeds ? "variants landed, of the seeds this explore has" : "variants landed: the explore runs for its time, with no fixed number") +
-    cell("seed", fx(5, I.seed != null ? "#" + I.seed : "-"), "the seed of the variant that landed last") + cell("baseline", fx(6, f1(base)), "the score of the plain placement; lower is better") +
-    cell("best", fx(6, f1(best && best.score)) + ' <span class="dim">' + esc(seedWord(best) + (I.delta != null ? ", " + (I.delta === 0 ? "level" : f1d(I.delta)) : "")) + "</span>", "the best score so far, its seed and its distance from the baseline") +
+    cell("seed", fx(5, I.seed != null ? "#" + I.seed : "-"), "the seed of the variant that landed last") + cell("baseline", fx(6, f1(base)) + xvRemapped(vs[0]), "the score of the plain placement; lower is better") +
+    cell("best", fx(6, f1(best && best.score)) + xvRemapped(best) + ' <span class="dim">' + esc(seedWord(best) + (I.delta != null ? ", " + (I.delta === 0 ? "level" : f1d(I.delta)) : "")) + "</span>", "the best score so far, its seed and its distance from the baseline" + (best && best.score_remapped != null ? "; the variants are ranked by their score after each one's best pin remap" : "")) +
     cell("time", fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) + xvRoutesPast(I) : "") + (I.finishing.length ? " " + xvFinishingHTML(I) : ""), "time spent, of the time the explore was given" + xvRoutesTip(I)) + "</div>";
-  const recent = vs.filter(v => v.seed !== 0).slice(-6).reverse().map(v => { const d = base != null ? v.score - base : null; return '<div class="xl' + (v === best ? " best" : "") + '" data-xr="' + vs.indexOf(v) + '"><span>' + seedWord(v) + "</span><span>" + f1(v.score) + "</span><span class=\"" + (d != null && d < 0 ? "add" : "dim") + '">' + (d == null ? "" : d === 0 ? "level" : f1d(d)) + "</span></div>"; }).join("");
+  const recent = vs.filter(v => v.seed !== 0).slice(-6).reverse().map(v => { const d = base != null ? v.score - base : null; return '<div class="xl' + (v === best ? " best" : "") + '" data-xr="' + vs.indexOf(v) + '"><span>' + seedWord(v) + "</span><span>" + f1(v.score) + xvRemapped(v) + "</span><span class=\"" + (d != null && d < 0 ? "add" : "dim") + '">' + (d == null ? "" : d === 0 ? "level" : f1d(d)) + "</span></div>"; }).join("");
   return '<div class="xv"><div class="xh">' + (I.running ? '<i class="spin"></i>' : "") + "<h3>Explore</h3>" + rowStateChip(st[0], st[1]) + "</div>" + fields + plot +
     '<div class="xshow dim">Board: ' + (X.auto ? "best so far, " + seedWord(best) + ", changes when a better one lands" : seedWord(shown) + ", picked") + "</div>" +
-    '<div class="xctl"><button data-xstep="-1">&lt;</button><span>' + (shown ? seedWord(shown) + " " + f1(shown.score) + ", " : "") + (at + 1) + " of " + vs.length + '</span><button data-xstep="1">&gt;</button>' +
+    '<div class="xctl"><button data-xstep="-1">&lt;</button><span>' + (shown ? seedWord(shown) + " " + f1(shown.score) + xvRemapped(shown) + ", " : "") + (at + 1) + " of " + vs.length + '</span><button data-xstep="1">&gt;</button>' +
     '<select data-xmode><option value="order"' + (X.mode === "order" ? " selected" : "") + '>by order</option><option value="score"' + (X.mode === "score" ? " selected" : "") + ">by score</option></select>" +
     '<button data-xauto="1" class="' + (X.auto ? "on" : "") + '" aria-pressed="' + (X.auto ? "true" : "false") + '" title="the board shows the best variant so far and changes when a better one lands">Follow best</button><label><input type="checkbox" data-xdens' + (X.density ? " checked" : "") + "> where it tried</label></div>" +
     (recent ? '<div class="xlist" title="the variants that landed last, newest first, against the baseline">' + recent + "</div>" : "") + (thumbs ? '<div class="xthumbs">' + thumbs + "</div>" : "") + xvPinsHTML(X) + xvRoutesHTML(X) + moves + "</div>";
@@ -4118,7 +4122,7 @@ function exploreClick(e) {
   const row = e.target.closest("[data-xr]"); if (row) { show(+row.dataset.xr); return; }
   const th = e.target.closest("[data-xt]"); if (th) { show(vs.findIndex(v => v.seed === +th.dataset.xt)); return; }
   const st = e.target.closest("[data-xstep]");
-  if (st) { const order = X.mode === "score" ? vs.map((v, i) => i).sort((a, b) => vs[a].score - vs[b].score || vs[a].seed - vs[b].seed) : vs.map((v, i) => i);
+  if (st) { const order = X.mode === "score" ? vs.map((v, i) => i).sort((a, b) => xvRank(vs[a]) - xvRank(vs[b]) || vs[a].seed - vs[b].seed) : vs.map((v, i) => i);
     const at = Math.max(0, order.indexOf(vs.indexOf(X.drawn))), next = Math.min(order.length - 1, Math.max(0, at + +st.dataset.xstep)); show(order[next]); return; }
   if (e.target.closest("[data-xauto]")) { X.auto = !X.auto; X.bestDrawn = xvBest(); if (X.auto) X.drawn = X.bestDrawn; drawExplore(); schedule("runs"); renderCmdBar(); return; }
   if (e.target.closest("[data-xdens]")) { X.density = !X.density; drawExplore(); schedule("runs"); }
