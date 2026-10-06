@@ -298,6 +298,14 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Explore routes as it searches, kept variants, pour holes, edge-clear legs** (0.99.25):
+  `--route-best` quick-routes the plain placement and each new best during
+  the search (replaces `--route-top`); a finished explore keeps its
+  variants for `lock --accept-seed`; a pour pad off its layer is joined by
+  the board's vias on it; a pour cuts a hole round another net's via
+  inside it when its need is still met; a declared leg's way clears the
+  board edge.
+
 - **Reach pours give way, per-pad current, router via merge, explore route ranking** (0.99.24):
   a `reach=` pour is planned after the search and cut back round fill
   keepouts; a pour between one part's pads is sized at its Pm.I per pad;
