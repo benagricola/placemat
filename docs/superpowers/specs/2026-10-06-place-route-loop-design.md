@@ -38,7 +38,12 @@ command, or a few, that runs the loop the same way every time.
 6. **Route again** if refine moved anything a phase depends on. Keep the result only if the phases' closures improve,
    in phase order, then the clean closure. Otherwise go back to the result before.
 7. **Repeat** steps 5-6 until an iteration improves nothing, or `--rounds N` (default from settings) is reached.
-8. **Write** the board, the routed board, the snapshot, run.json, and one summary.
+8. **Study the pins:** on the final board, the pin study looks for a better map for each part with swappable pins, with
+   a turn where the remap needs one (refine spec, "The pin study after refine"). It is advice for the user, not applied.
+9. **Write** the board, the routed board, the snapshot, run.json, and one summary.
+
+Refine and the pin study are part of every run, with no flag to ask for them. `refine.enabled = false` turns refine off,
+for a measurement. The pin study runs only on a board with a part that has a pin pool.
 
 Options:
 - `--restarts N`: run N fresh constructions (`--fresh`, different seeds) through the same loop, in parallel within
