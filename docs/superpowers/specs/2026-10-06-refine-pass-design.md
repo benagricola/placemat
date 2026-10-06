@@ -163,6 +163,9 @@ constraints are the only thing that holds an item.
 
   Refine moves an item only within what its declaration leaves free. An item that may slide only along the Y axis
   between turns 0 and 180 is nudged only along Y, and turned only between those two.
+- **A temporary pin** (decided with the user): `placemat run --pin ITEM` (repeatable) holds an item at its snapshot place
+  and turn for that run only, for a quick experiment. It is not written anywhere. The next run without `--pin` treats
+  the item as usual. Anything meant to stay is stated in the script.
 - **Removed:**
   - `placemat lock` and its subcommands;
   - `<stem>.lock.json`;
