@@ -5518,6 +5518,96 @@ class Board:
         for facts in reversed_groups(occ, frozenset(skip), frozenset(studied)):
             plan.findings.append(self._finding(C.PINS_REVERSED, facts))
 
+    def _pin_study_turned(self, plan: Plan) -> set:
+        """The parts the pin map study's best pose turns or flips (a `pins.remap`): their turn is that advice's."""
+        out = set()
+        for f in plan.findings:
+            if f.cause is C.PINS_REMAP and f.facts.get("rotations"):
+                best = f.facts["rotations"][f.facts["best"]]
+                out |= {t["ref"] for t in best["turns"] if t["turn_deg"] or t["flip"]}
+        return out
+
+    def _report_turns(self, occ: Occupancy, plan: Plan) -> None:
+        """Each searched part or cell that another turn its declaration allows would serve better where it stands: the
+        turn held at the same body centre, legal there, judged on the search's own wire and crossing terms (`Scorer`) - its
+        links' weighted pad-to-pad length and the weighted crossings of its airwires. It must come out lower on the two
+        together, and either shorten the links by `place.turn_gain_mm` and `place.turn_gain_share` of their weighted length
+        or remove `place.turn_crossings_min` weighted crossings. A `turn.better` notice, judged once on the finished board;
+        a part the pin map study turns is left to that advice. A turn that follows the spot (a tangent's, facing out) has no
+        other turn at that spot."""
+        s = self.settings
+        turned = self._pin_study_turned(plan)
+        last = {}
+        for st in plan.steps:
+            if st.placement is not None:
+                last[st.item] = st.placement
+        placed = {r for r in occ.items if r not in occ.pending}
+        rn = occ.ratsnest() if s.score_crossing > 0 else None
+        for i in self._placements():
+            if i.kind not in ("part", "cell") or i.freedom.decided or i.tangent is not None or i.outward:
+                continue
+            p = last.get(i.key)
+            if p is None:
+                continue
+            here = p.rotation % 360.0
+            others = sorted({float(r) % 360.0 for r in self._turns(i)} - {here})
+            if not others:
+                continue
+            # A cell is asked as it stands: committed, its geometry is its members where they are, at rotation 0 about its
+            # body centre (Occupancy.cell_geometry), so a turn of it is that rotation, whatever face it is on. A part's
+            # geometry stands at its own placement. Either way the turn in the board's frame is the difference of the two
+            # rotations (pose_transform).
+            item = self.geometry.cells[i.key] if i.kind == "cell" else i.item
+            own = frozenset(fp.ref for fp in members_of(item))
+            if own & turned:
+                continue
+            targets = self._targets(item, occ, placed)
+            if not targets:
+                continue
+
+            def measured(q):
+                pads = occ.candidate_pad_locations(item, q)
+                lengths = [(pads[k].distance(t), w) for k, t, w in targets if k in pads]
+                cross = rn.leaf_costs(occ.candidate_anchors(item, q), own, s.place_escape_depth)[0] if rn is not None else 0.0
+                return lengths, cross
+
+            base = occ._geometry(item).reference
+            now, cross_now = measured(base)
+            weighted_now = sum(d * w for d, w in now)
+            centre = occ.body_box(item, base).center
+            best = None
+            for rot in others:
+                turn = dataclasses.replace(base, rotation=base.rotation + rot - here)
+                c = occ.body_box(item, turn).center
+                q = dataclasses.replace(turn, location=Location(base.location.x + centre.x - c.x,
+                                                                base.location.y + centre.y - c.y))
+                then, cross = measured(q)
+                saved = sum((a - b) * w for (a, w), (b, _) in zip(now, then))
+                fewer = cross_now - cross
+                gain = saved + s.score_crossing * fewer
+                if gain <= 1e-9:
+                    continue
+                on_length = saved >= s.place_turn_gain_mm and saved >= s.place_turn_gain_share * weighted_now
+                if not (on_length or fewer >= s.place_turn_crossings_min):
+                    continue
+                if best is not None and gain <= best[0]:
+                    continue
+                if occ.legal(item, q, self.clearance) is not None:
+                    continue
+                best = (gain, rot, q, now, then, saved, cross - cross_now)
+            if best is None:
+                continue
+            gain, rot, q, now, then, saved, delta = best
+            short = [a - b for (a, _), (b, _) in zip(now, then) if b < a - 1e-6]
+            long_ = [b - a for (a, _), (b, _) in zip(now, then) if b > a + 1e-6]
+            plan.findings.append(self._finding(C.TURN_BETTER, {
+                "item": i.key, "kind": i.kind, "rotation_deg": round(here, 3), "to_deg": round(rot, 3),
+                "turn_deg": round((rot - here) % 360.0, 3), "face": p.face.value,
+                "shorter": {"links": len(short), "mm": round(float(sum(short)), 3)},
+                "longer": {"links": len(long_), "mm": round(float(sum(long_)), 3)},
+                "weighted_mm": round(saved, 3), "crossings_delta": round(delta, 3), "gain": round(gain, 3),
+                "rotations_given": bool(i.rotations), "at": [round(q.location.x, 4), round(q.location.y, 4)]}))
+
     def _report_vias_unneeded(self, occ: Occupancy, plan: Plan, esc) -> None:
         """A module's via on an escape lane that the lane does not need (`Escapes.vias_unneeded`): the lane reaches the
         frame's edge on its own layer without it, so it ends there and the parent board's router decides whether it changes
@@ -8112,6 +8202,7 @@ class Board:
             self._report_pin_maps(plan)
         if self._explore is None:
             self._report_pin_orders(occ, plan)
+            self._report_turns(occ, plan)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
             text, why, sides = self._faces

@@ -206,6 +206,12 @@ class Settings:
         "how far along a pad's airwire toward its nearest target the `escape.pinched` check looks for a gap between two other parts' copper that the pad's track does not fit through")
     place_approach_detour: float = S(2.0, "mm",
         "how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding")
+    place_turn_gain_mm: float = S(2.0, "mm",
+        "the least another allowed turn of a searched part or cell, at the same spot, must shorten its links for a `turn.better` finding, in weighted mm: each link's length times its weight, as the search scores it")
+    place_turn_gain_share: float = S(0.05, "share",
+        "the least share of the item's weighted link length that turn must save as well, for a `turn.better` finding on length")
+    place_turn_crossings_min: float = S(2.0, "count",
+        "the fewest weighted crossings another allowed turn must remove for a `turn.better` finding on crossings alone; either way the turn's links and crossings together, as the search prices them, must come out lower")
     place_split_min_group: int = S(2, "count",
         "the least members a group needs to count as one, in a cell's `split` finding")
     copper_chamfer: float = S(1.0, "mm",
@@ -752,7 +758,7 @@ _ABOVE_ZERO = frozenset((
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height",
     "pins_seeds", "pins_anneal_moves", "pins_budget_steps", "pins_reversed_min", "pins_joint_combinations", "pins_probe_budget_steps"))
 _AT_LEAST_ZERO = frozenset((
-    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "place_turn_crossings_min", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
@@ -766,7 +772,7 @@ _AT_LEAST_ZERO = frozenset((
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
 _AT_LEAST_TWO = frozenset(("place_split_min_group", "place_room_ratio"))
-_UNIT_INTERVAL = frozenset(("check_neck_end_share", "studio_builder_max_fill"))      # a share: 0 to 1
+_UNIT_INTERVAL = frozenset(("check_neck_end_share", "studio_builder_max_fill", "place_turn_gain_share"))      # a share: 0 to 1
 
 
 def _declared(name: str) -> str:

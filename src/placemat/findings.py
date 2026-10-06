@@ -36,6 +36,7 @@ class FindingKind(str, Enum):
     ARRANGEMENT = "arrangement"         # a module's alternative arrangements: over the limits, refused by the module run, stale on the stamping board, asked for and not offered
     ESCAPE = "escape"                   # a module's escape that does more than the module needs; a pad whose only approach is pinched
     PINS = "pins"                       # a better assignment of nets to a part's pins than the capture's: the pin map study's, a reversed group
+    TURN = "turn"                       # another turn of a searched item, at the spot it took, that its links and crossings favour
 
     def __str__(self):
         return self.value
@@ -131,6 +132,7 @@ class FindingCause(str, Enum):
     ARRANGEMENT_OPTION_DEAD = (FindingKind.ARRANGEMENT, "arrangement.option_dead")
     PINS_REMAP = (FindingKind.PINS, "pins.remap")
     PINS_REVERSED = (FindingKind.PINS, "pins.reversed")
+    TURN_BETTER = (FindingKind.TURN, "turn.better")
 
     def __str__(self):
         return self.value
@@ -175,6 +177,7 @@ SEVERITY = {
     FindingKind.ARRANGEMENT: "warning",
     FindingKind.ESCAPE: "warning",
     FindingKind.PINS: "notice",
+    FindingKind.TURN: "notice",
 }
 """A kind's default severity: a classification of what the kind means, not a
 tunable. A finding of a kind that mixes causes is made with its own."""
