@@ -298,6 +298,14 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Reach pours give way, per-pad current, router via merge, explore route ranking** (0.99.24):
+  a `reach=` pour is planned after the search and cut back round fill
+  keepouts; a pour between one part's pads is sized at its Pm.I per pad;
+  the router's too-close same-net vias are merged where no clearance
+  suffers; `--route-top N` quick-routes the best explore variants; DRC
+  and renders run beside the checks; replay keys on copper arguments;
+  the native sweep applies the net-tie exclusion.
+
 - **Net-tie whole-face scan, Reach.CURRENT via rows, lock files** (0.99.23):
   a first-legal net-tie sweep is judged a window at a time (ringsensor 8 s
   to 1 s); a via row is credited with its pad's current; KiCad lock files
