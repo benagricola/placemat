@@ -312,6 +312,8 @@ class Settings:
         "end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had")
     explore_checkpoint_max_variants: int = S(100000, "count",
         "finished variants an explore's checkpoint records; past it a resume tries those again")
+    explore_route_top: int = S(0, "count",
+        "after an explore, quick-route its best this many variants by run score, each on its own written board, one at a time, and report each one's route closure beside its score; `--accept` then takes the best clean closure, ties going to the better score. 0 routes none. A run only: a preview writes no board (`--route-top`)")
     pins_exit_mm: float = S(0.5, "mm",
         "the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn")
     pins_follow_series: bool = S(True, "bool",
@@ -721,7 +723,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch",
     "pins_exit_mm", "pins_pair_weight", "pins_impedance_weight", "pins_length_weight", "pins_bend_weight", "pins_group_weight", "pins_anneal_start",
-    "pins_anneal_end", "pins_gain_min", "pins_placed_share_min", "pins_explore_top", "pins_guard_ms"))
+    "pins_anneal_end", "pins_gain_min", "pins_placed_share_min", "pins_explore_top", "pins_guard_ms", "explore_route_top"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
 _AT_LEAST_TWO = frozenset(("place_split_min_group", "place_room_ratio"))

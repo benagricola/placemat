@@ -87,7 +87,7 @@ def _geometry_digest(g) -> str:
 
 
 # Settings that cannot change a placement: a change to one replays everything still.
-_NOT_PLACEMENT = ("preview_", "timeout_", "run_", "route_", "best_", "noise_", "check_", "drc_", "pins_")
+_NOT_PLACEMENT = ("preview_", "timeout_", "run_", "route_", "best_", "noise_", "check_", "drc_", "pins_", "explore_route_")
 
 
 def placement_settings(settings) -> str:

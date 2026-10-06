@@ -301,10 +301,14 @@ def keep_route(final_dir: Path, staging: Path) -> None:
 
     A route this run has already produced wins: the routing path writes into
     the run directory itself, and a preserved older one must never displace a
-    fresher one."""
-    previous = final_dir / "route"
-    if previous.is_dir() and not (staging / "route").exists():
-        shutil.move(str(previous), str(staging / "route"))
+    fresher one.
+
+    The explore's routed variants (`explore/seed-N`, explore._route_variants) are carried the same way: a rerun that
+    resumes the explore routes the same variants and takes the stages their routes finished."""
+    for name in ("route", "explore"):
+        previous = final_dir / name
+        if previous.is_dir() and not (staging / name).exists():
+            shutil.move(str(previous), str(staging / name))
 
 
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
@@ -524,7 +528,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             with timecap.cap_only():            # an explore's own resolves are not timed step by step
                 lock_entries, explored = explore_mod.before_resolve(
                     script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
-                    explore, say, run_id=rid, keep_state=True)
+                    explore, say, run_id=rid, keep_state=True, variants_dir=run_dir / "explore",
+                    route_exclude=route_exclude, route_resume=resume)
         except (explore_mod.FocusError, ResumeRefused) as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         stage = "resolve"

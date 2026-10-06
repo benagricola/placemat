@@ -507,6 +507,15 @@ shapes and files: `references/api.md`, "Live progress".
   comes early, set `[explore] stall_variants` or `stall_seconds` (off by default)
   to end an explore that has stopped improving; `ended.rule` says what ended it,
   and an explore ended that way is complete (`--accept` applies).
+- When the score's crossings do not track how the board routes, add
+  `--route-top N` to a run's explore (`[explore] route_top`, 0 by default):
+  the best N variants by score are written and quick-routed one at a time in
+  `<run>/explore/seed-S/`, each one's closure is said beside its score
+  (`metrics.explore.routes`), and `--accept` takes the best clean closure,
+  ties going to the better score (`taken_seed`). A failed route is said on
+  its variant's line and the explore stands. Each route costs what a quick
+  route of the board costs (minutes on a large board), after the explore's
+  own time.
 - Long commands (`run`, `preview`, `route`, above all `--explore`) stop
   safely on SIGTERM, SIGHUP or Ctrl-C and say so: the run is recorded as
   `stopped` (`status: "running"` with a `pid` while it works; a record whose

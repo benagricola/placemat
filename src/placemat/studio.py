@@ -1768,8 +1768,9 @@ class Studio:
         p = Path(path).resolve()
         focus = list(record.get("focus") or ())
         plain = record.get("plain") or {}
-        best = next((v.get("placements") or {} for v in record.get("variants", ()) if v.get("seed") == record.get("best_seed")), None)
-        best = plain if best is None or not record.get("best_seed") else best
+        shown = record.get("taken_seed") if record.get("taken_seed") is not None else record.get("best_seed")     # what its routes took
+        best = next((v.get("placements") or {} for v in record.get("variants", ()) if v.get("seed") == shown), None)
+        best = plain if best is None or not shown else best
         at = {k: best.get(k) for k in focus}
         folder = self._explore_run(p, record)
         out = {"record": record, "file": str(p), "run": folder.name if folder is not None else "", "doc": None, "source": "", "drawn": at, "unmoved": [],
