@@ -1239,7 +1239,21 @@ class Studio:
                                       "variants", "ended", "own_run", "best", "baseline", "kept", "resolves", "truncated", "probe", "slow", "label")} | \
             {"kind": channel.kind_of(c.get("command", ""), c.get("args"), c.get("explore") is not None),
              "stopped": (c.get("error") or {}).get("kind") == "stopped",          # ended on purpose (--max-time, a stop, a signal), not by a failure
-             "route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results", "in_stage")}}
+             "route": None if not c.get("route") else {k: v for k, v in c["route"].items() if k not in ("log", "results", "in_stage")},
+             "build": Studio._built_run(c.get("record"))}
+
+    @staticmethod
+    def _built_run(record) -> str | None:
+        """The run a finished command wrote, when that run routed and kept its placement (its build, build_record): the page reads the
+        route's copper and open nets from the run's own records once the command is done. None for any other command."""
+        from . import route_progress
+        if not record:
+            return None
+        p = Path(record)
+        if p.name != "run.json" or p.parent.parent.name != "runs":
+            return None
+        d = p.parent
+        return d.name if (d / "route" / route_progress.RECORD).is_file() and (d / "plan.json").is_file() else None
 
     def commands(self) -> list:
         with self.lock:
@@ -1482,9 +1496,20 @@ class Studio:
                 board = {}
         if shape is not None:
             board = shape(board)
-        doc = route_view.route_doc(record, board)
+        doc = route_view.route_doc(record, board, self._route_opens(record_path.parent))
         self._with_models(doc, pcb, project_dir)
         return {"doc": present.plan(doc), "summary": record.get("report", {}), "board": record.get("board", {})}
+
+    @staticmethod
+    def _route_opens(work: Path) -> list:
+        """The connections a route left open, from the DRC it ran on the routed board (drc_after.json in its own folder); none without it."""
+        from . import route_view
+        from .kicad.drc import unconnected_items
+        try:
+            data = json.loads((work / "drc_after.json").read_text())
+        except (OSError, ValueError):
+            return []
+        return route_view.open_connections(unconnected_items(data)) if isinstance(data, dict) else []
 
     def route_record(self, path: str):
         """One route's replay document from its record, if it is one of this project's."""
@@ -1786,9 +1811,11 @@ class Studio:
         return None
 
     def run_view(self, run_id: str) -> dict | None:
-        """A recorded run as the page shows a board it has not resolved: the plan the run kept (plan.json, written by a routed run) or else
-        the board the run wrote, and the run's findings and score. Nothing is resolved. None when the run is not there or kept no board."""
-        from . import route_view
+        """A recorded run as the page shows a board it has not resolved: the run's build when it routed (build_record: its placement and the
+        router's copper, from the run's own records), else the plan the run kept (plan.json) or the board the run wrote, and the run's findings
+        and score. A run whose route record cannot be read is shown without the route, its doc's `route` saying why. Nothing is resolved.
+        None when the run is not there or kept no board."""
+        from . import route_progress, route_view
         from .report import RunRecord
         folder = self.run_folder(run_id)
         if folder is None:
@@ -1796,6 +1823,11 @@ class Studio:
         summary = self.run_summary(folder / "run.json")
         if summary is None:
             return None
+        routed = (folder / "route" / route_progress.RECORD).is_file()
+        if routed:
+            b = self.build_record(run_id)
+            if b is not None:
+                return {"doc": b["doc"], "summary": summary}
         base = None
         try:
             base = json.loads((folder / "plan.json").read_text())
@@ -1809,6 +1841,8 @@ class Studio:
             base = route_view.board_doc(read_board(str(pcb)))
         findings = RunRecord.load(folder / "run.json").findings_with_severity()
         doc = route_view.run_doc(base, findings, summary.get("score"))
+        if routed:
+            doc["route"] = {"unread": {"code": "record_unreadable"}}
         self._with_models(doc, *self._run_board(folder))
         return {"doc": present.plan(doc), "summary": summary}
 

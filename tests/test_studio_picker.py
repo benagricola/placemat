@@ -446,7 +446,7 @@ def test_recorded_routes_are_listed_and_served_only_from_this_projects_folders(p
     (base / "runs" / "ab12" / "plan.json").write_text(json.dumps({"board": {"loops": [], "drawn": False, "extent": [0, 0, 1, 1]}, "items": [], "layers": ["F.Cu"], "steps": [], "copper": []}))
     listed = s.routes()
     assert {e["file"]: (e["run"], e["build"], e["nets"], e["routed"]) for e in listed} == {str(own): ("", False, 1, 1), str(ran): ("ab12", True, 1, 1)}
-    assert s.route_record(str(own))["doc"]["route"] == {"nets": 1, "routed": 1, "failed": 0, "partial": False, "dropped": 0}
+    assert s.route_record(str(own))["doc"]["route"] == {"nets": 1, "routed": 1, "failed": 0, "partial": False, "dropped": 0, "open": 0, "unread": None}
     assert s.build_record("ab12")["doc"]["steps"][0]["item"] == "track A" and s.build_record("nope") is None and s.build_record("../x") is None and s.build_record("") is None
     assert s.route_record("/etc/passwd") is None and s.route_record(str(own.with_name("route_summary.json"))) is None
     assert json.loads(s.hello()[0][1])["routes"] == listed
