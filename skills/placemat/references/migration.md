@@ -48,7 +48,7 @@ section for each hand-written pattern a newer form replaces.
 
 - **A module with net-tie parts searched over a whole face places faster.** A part that no free pocket takes is
   scanned over the whole face; when the part owns a net tie or meets another part's, that scan took several seconds
-  (8 s on one 6-part module, 0.7 s now). It places the same parts at the same spots. Nothing in a script changes.
+  (8 s on one 6-part module, 0.2 s now). It places the same parts at the same spots. Nothing in a script changes.
 
 - **Reach.CURRENT over via members.** A via member of a fitted pour carries the current of the pad it joins: the pad a
   `board.vias(net, along=PadRef(...))` row stands out of, or a pad of the net the via stands on. A pour on an inner

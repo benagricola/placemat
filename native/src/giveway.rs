@@ -255,13 +255,14 @@ mod tests {
             touch: 0.02, vias_block_courtyards: false, silk_clearance: 0.1, component_spacing: 0.2,
             default_clearance: 0.2, net_clearance: crate::shapes::NetMap::default(), rules: Vec::new(), gap: 1.0, drawn_gap: 0.2, hole_to_hole: 0.25,
             hole_clearance: 0.0, max_clearance: 0.2, epsilon: 1e-9,
+            tie_eps: crate::ties::TieEps { mm: 0.0005, nm: 500 },
         }
     }
 
     fn copper(kind: Kind, poly: Vec<Point>, net: &str) -> Shape {
         let bbox = bounds(&poly);
         Shape { kind, faces: 1, layers: 1, net: net.into(), poly, bbox, owner: "o".into(), owner_is_footprint: false,
-                is_lead: false, margin: 0.0, wire: false }
+                is_lead: false, margin: 0.0, wire: false, tie: None }
     }
 
     #[test]

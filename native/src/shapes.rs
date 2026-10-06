@@ -118,6 +118,8 @@ pub struct Shape {
     pub is_lead: bool,  // (owner, label) in Occupancy._leads: a through pad standing proud of the far face
     pub margin: f64,    // Occupancy._margins.get(owner, 0.0): how far KiCad's own courtyard lies inside courtyard_box
     pub wire: bool,     // a track or a via, which a rule of a part (`of`) does not hold
+    /// What KiCad's net-tie exclusion reads of the shape (`ties`), for a shape it can excuse; None for the rest.
+    pub tie: Option<std::sync::Arc<crate::ties::TieInfo>>,
 }
 
 /// One of the script's clearance rules (`rules.ClearanceRules`): `within` holds the owners of the
@@ -171,6 +173,7 @@ pub struct ConflictConfig {
     pub hole_clearance: f64, // BoardGeometry.hole_clearance: copper to a drilled hole
     pub epsilon: f64,        // BoardGeometry.drc_epsilon: a copper, hole or hole-to-hole gap short of its rule by no more is clear (KiCad's sub_e)
     pub max_clearance: f64,  // the largest clearance `pair_clearance` can answer (`largest_clearance`): a pair further apart than this is clear
+    pub tie_eps: crate::ties::TieEps, // how far a collision may lie outside a net-tie pad and still be inside it
 }
 
 /// The largest figure `ConflictConfig::pair_clearance` can answer when no clearance is asked for: the
@@ -331,8 +334,7 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
     }
     if s.kind == Kind::Hole || o.kind == Kind::Hole {
         // a plated hole keeps the hole clearance from the copper of another net
-        // (Occupancy._hole_conflict); a net tie's own exclusion is Python's
-        // (`_tie_refs`), as it is for a copper clearance
+        // (Occupancy._hole_conflict), but where a net tie excuses it (`_hole_tie_exclusion`)
         let (hole, metal) = if s.kind == Kind::Hole { (s, o) } else { (o, s) };
         if !metal.kind.is_copperish() || (!hole.net.is_empty() && hole.net == metal.net) {
             return false;
@@ -344,7 +346,8 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         let need = cfg.hole_clearance;
         let slack = HOLE_SLACK * (hole.bbox.2 - hole.bbox.0);
         return box_gap(hole.bbox, metal.bbox) < need + slack - 1e-9
-            && circle_distance(hole, &metal.poly) < clear_limit(need, cfg.epsilon);
+            && circle_distance(hole, &metal.poly) < clear_limit(need, cfg.epsilon)
+            && !(metal.tie.is_some() && crate::ties::hole_tie_exclusion(hole, metal, cfg.tie_eps));
     }
     let court = |k: Kind| matches!(k, Kind::Courtyard | Kind::Keepclear);
     if court(s.kind) && court(o.kind) {
@@ -399,7 +402,7 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         if apart >= limit {
             return false;
         }
-        return poly_distance_below(&s.poly, &o.poly, limit);
+        return poly_distance_below(&s.poly, &o.poly, limit) && !crate::ties::net_tie_exclusion(s, o, clr, cfg.tie_eps);
     }
     if (s.kind == Kind::Npth && is_copperish(o.kind)) || (o.kind == Kind::Npth && is_copperish(s.kind)) {
         if polys_overlap(&s.poly, &o.poly) {
@@ -803,7 +806,7 @@ mod tests {
     fn shape_margin(kind: Kind, owner: &str, poly: Vec<Point>, faces: u8, layers: u32, net: &str,
                     owner_is_footprint: bool, is_lead: bool, margin: f64) -> Shape {
         let bbox = bounds(&poly);
-        Shape { kind, faces, layers, net: net.into(), poly, bbox, owner: owner.into(), owner_is_footprint, is_lead, margin, wire: false }
+        Shape { kind, faces, layers, net: net.into(), poly, bbox, owner: owner.into(), owner_is_footprint, is_lead, margin, wire: false, tie: None }
     }
 
     fn bounds(poly: &[Point]) -> Bounds {
@@ -833,6 +836,7 @@ mod tests {
             hole_clearance: 0.0,
             epsilon: 1e-9,
             max_clearance: f64::INFINITY,       // the tests that add rules leave the early way out off
+            tie_eps: crate::ties::TieEps { mm: 0.0005, nm: 500 },
         }
     }
 

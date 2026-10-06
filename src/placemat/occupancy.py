@@ -87,6 +87,20 @@ def _native_layers(layers: frozenset) -> int:
     return bits
 
 
+def _native_kshapes(shapes) -> list:
+    """`kicad_collide` shapes (nm) as the native judge takes them: each its letter and its integers, a polygon's
+    vertices flattened, a rectangle's quarter turns last (0 when it has none)."""
+    out = []
+    for sh in shapes:
+        if sh[0] == "p":
+            out.append(("p", [v for p in sh[1] for v in p]))
+        elif sh[0] == "r":
+            out.append(("r", list(sh[1:5]) + [sh[5] if len(sh) > 5 else 0]))
+        else:
+            out.append((sh[0], list(sh[1:])))
+    return out
+
+
 def _to_native_shape(s: Shape, footprint_refs: frozenset, leads: frozenset, margins: dict) -> tuple:
     kind = "keepclear" if (s.kind == "courtyard" and s.claims) else s.kind
     return (kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
@@ -476,9 +490,10 @@ class Occupancy:
         # the footprints whose body and courtyard keep pads and copper out, or that a body keeps out: all but a
         # net tie drawing nothing, which is copper as a track is
         self._body_refs = frozenset(fp.ref for fp in geometry.footprints if not fp.copper_only)
-        # KiCad's net-tie exclusion (_net_tie_exclusion) is not in the native conflict rules, so a pair with a
-        # net tie in it is settled here: a native hit on one that Python excuses sends the check to Python
+        # the net ties, and the nets of their pads: what KiCad's net-tie exclusion (_net_tie_exclusion) can
+        # excuse, which the native judge is told of (`_native_ties`)
         self._tie_refs = frozenset(fp.ref for fp in geometry.footprints if fp.net_tie_pads)
+        self._tie_nets = frozenset(p.net for fp in geometry.footprints if fp.net_tie_pads for p in fp.pads if p.net)
         # KiCad's courtyard lies inside the box by the stroke: two boxes may overlap by that much. A
         # courtyard claimed as drawn is KiCad's own polygon, with nothing to allow for.
         share = self.settings.place_courtyard_polygon_share
@@ -623,7 +638,6 @@ class Occupancy:
         from them is stale. Called from commit(), add_copper() and the
         (rare, post-init) lazy path in _register()."""
         self._native_obstacle_cache.clear()
-        self.__dict__.pop("_native_tieless", None)
         self.__dict__.pop("_placed_groups", None)
         self.__dict__.pop("_placed_groups_owners", None)
 
@@ -1491,7 +1505,7 @@ class Occupancy:
         shapes = self._obstacle_shapes(skip, carried)
         index = native.NativeObstacles(
             [_to_native_shape(s, self._body_refs, self._leads, self._margins) for s in shapes],
-            **self._native_conflict_kwargs())
+            ties=self._native_ties(shapes), **self._native_conflict_kwargs())
         entry = (index, shapes)
         self._native_obstacle_cache[key] = entry
         return entry
@@ -1510,7 +1524,7 @@ class Occupancy:
                         default_clearance=self.geometry.default_clearance, net_clearance=net_clearance,
                         gap=self._gap, drawn_gap=self._drawn_gap,
                         hole_to_hole=self.geometry.hole_to_hole, hole_clearance=self.geometry.hole_clearance,
-                        epsilon=self._eps, rules=self.rules.native())
+                        epsilon=self._eps, rules=self.rules.native(), tie_epsilon=self._tie_eps)
             self.__dict__["_native_kwargs"] = cache
         return cache
 
@@ -1858,8 +1872,6 @@ class Occupancy:
             others = self.obstacles(geom)
         dx, dy = placement.location.x, placement.location.y
         native_entry = getattr(others, "_native", None)
-        if native_entry is not None and self._tie_refs & geom.owners:
-            native_entry = None             # a net tie's own pairs are settled in Python (see _tie_refs)
         if native_entry is not None and self._silk_as_drawn and self.silk_clearance != self.geometry.silk_clearance:
             native_entry = None             # the native judge holds the silk margin (see silk_as_drawn)
         if native_entry is not None:
@@ -1887,16 +1899,13 @@ class Occupancy:
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
                          tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims, wire=s.wire)
             why = self._conflict(moved, o, clearance)
-            if why is None and o.owner in self._tie_refs:
-                native_entry = None         # a net tie's exclusion: the rest of the check is Python's
-            elif why is None:
+            if why is None:
                 raise AssertionError(
                     "native found a conflict between a %s and a %s that _conflict disagrees with; "
                     "this is a native/Python mismatch, not a placement question" % (moved.kind, o.kind))
-            else:
-                if blame is not None:
-                    blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
-                return why
+            if blame is not None:
+                blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
+            return why
         # What a conflict can reach from: the body, or in a drawn envelope every
         # shape the part claims - silk can stand well past the body.
         shapes = self._legal_origin_shapes(item, geom, placement)
@@ -2006,7 +2015,7 @@ class Occupancy:
         if others is None:
             others = self.obstacles(geom)
         native_entry = getattr(others, "_native", None)
-        if native_entry is None or self._tie_refs & geom.owners:
+        if native_entry is None:
             why = self.legal(item, placement, clearance, others=others, blame=blame, board=False)   # judged above
             return None if why is None else (_reason_key(why), (lambda why=why: why))
         native_index, native_shapes = native_entry
@@ -2019,9 +2028,6 @@ class Occupancy:
         si, oi = hit
         o = native_shapes[oi]
         s = origin_shapes[si]
-        if o.owner in self._tie_refs:
-            why = self.legal(item, placement, clearance, others=others, blame=blame, board=False)   # a net tie's exclusion
-            return None if why is None else (_reason_key(why), (lambda why=why: why))
         moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
                      tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims, wire=s.wire)
         if blame is not None:
@@ -2040,13 +2046,7 @@ class Occupancy:
         """A whole sweep pass judged natively (placemat_native.sweep), or None
         when the pieces it needs are not there: the module, the obstacles'
         native index, the board's native mirror. The answers are the ones
-        `legal_bucket` gives each candidate in turn - see NativeSweeper.
-
-        KiCad's net-tie exclusion is not in the native conflict rules (see
-        `_tie_refs`), so an item that owns a net tie, or meets another item's,
-        is swept natively without the tie shapes: its refusals are pairs that
-        involve no tie, and each candidate it accepts is judged again in
-        full, in Python (NativeSweeper's `recheck`)."""
+        `legal_bucket` gives each candidate in turn - see NativeSweeper."""
         native = _geometry_module._native
         entry = getattr(others, "_native", None)
         if native is None or entry is None or not hasattr(native, "sweep"):
@@ -2054,33 +2054,78 @@ class Occupancy:
         board = native_board(self)
         if board is None:
             return None
-        leave_out, recheck, full = frozenset(), None, None
-        if self._tie_refs:
-            owned = self._tie_refs & self._geometry(item).owners
-            lean = self._without_ties(entry)
-            if owned or lean is not entry:
-                # An item that owns no tie also has its pass over the obstacles with their ties in (`full`):
-                # a candidate that passes it passes `legal`, where an exclusion can only excuse a conflict.
-                entry, leave_out, recheck, full = lean, owned, (item, others), (None if owned else entry)
-        return NativeSweeper(self, item, face, rots, entry, board, clearance, leave_out, recheck, full)
+        return NativeSweeper(self, item, face, rots, entry, board, clearance)
 
-    def _without_ties(self, entry):
-        """A native obstacle entry (index, shapes) less the shapes of the net
-        ties; the entry itself when it holds none. Cached with the entries
-        it is made from."""
-        cache = self.__dict__.setdefault("_native_tieless", {})
-        hit = cache.get(id(entry))
-        if hit is not None and hit[0] is entry:
-            return hit[1]
-        shapes = [s for s in entry[1] if s.owner not in self._tie_refs]
-        if len(shapes) == len(entry[1]):
-            lean = entry
-        else:
-            lean = (_geometry_module._native.NativeObstacles(
-                [_to_native_shape(s, self._body_refs, self._leads, self._margins) for s in shapes],
-                **self._native_conflict_kwargs()), shapes)
-        cache[id(entry)] = (entry, lean)
-        return lean
+    def _native_ties(self, shapes, moved: bool = False):
+        """What KiCad's net-tie exclusion (`_net_tie_exclusion`, `_hole_tie_exclusion`) reads of `shapes`, for the
+        native judge (native/src/ties.rs): (the net ties' footprints, [(index, what it reads of the shape)]) for
+        the copper of a net tie and the copper of a net a net tie's pads carry, which are all it can excuse; None
+        when there is none. `moved`: the shapes are a candidate's, which `legal` judges moved, with neither a
+        track's ends nor a via's circle."""
+        if not self._tie_refs:
+            return None
+        fps, at, tables, read_at, out = [], {}, [], {}, []
+        for i, s in enumerate(shapes):
+            if s.kind not in _COPPERISH or (s.owner not in self._tie_refs and s.net not in self._tie_nets):
+                continue
+            ends = () if moved else s.ends
+            has_fp = self.geometry.has_footprint(s.owner)
+            fp = self.geometry.footprint(s.owner) if has_fp else None
+            fp_graphic = s.kind == "copper" and not ends and has_fp
+            circle = tuple(s.circle) if s.circle and not ends and not moved else None
+            k = None
+            if fp is not None and fp.net_tie_pads:
+                k = at.get(fp.ref)
+                if k is None:
+                    k = at[fp.ref] = len(fps)
+                    fps.append(self._native_tie_footprint(fp))
+            r = None
+            if has_fp:
+                key = (s.owner, s.kind == "copper", "" if s.kind == "copper" else s.label)
+                r = read_at.get(key)
+                if r is None:
+                    r = read_at[key] = len(tables)
+                    tables.append(self._native_reads(key))
+            out.append((i, (has_fp, fp_graphic, not ends and has_fp,
+                            fp_graphic and bool(fp.net_tie_pads) and s.owner in self.items, circle,
+                            (tuple(ends[0]), tuple(ends[1])) if len(ends) == 2 else None, r, k)))
+        return (fps, tables, out) if out else None
+
+    def _native_reads(self, key) -> list:
+        """`_read_of`'s outlines for a footprint's pad or copper drawing - `key` (owner, a drawing, the pad's number) -
+        in the order it tries them, each with the effective shape read with it, as the native judge takes them."""
+        cache = self.__dict__.setdefault("_native_read_cache", {})
+        hit = cache.get(key)
+        if hit is None:
+            owner, drawing, label = key
+            fp = self.geometry.footprint(owner)
+            if drawing:
+                kept = fp.copper_shapes
+                reads = [(p, kept[i] if i < len(kept) else ()) for i, (_, p) in enumerate(fp.copper)]
+            else:
+                reads = [(o, p.kshapes) for p in fp.pads if p.number == label for o in p.outlines]
+            hit = cache[key] = [([tuple(v) for v in o], _native_kshapes(ks)) for o, ks in reads]
+        return hit
+
+    def _native_tie_footprint(self, fp) -> tuple:
+        """A net tie's footprint as the native judge reads it: its net-tie pads with their nets (`_tie_pads`), and
+        the pads `_net_tie_cache` collides with a drawing, each with the nets of its group."""
+        cache = self.__dict__.setdefault("_native_tie_fp_cache", {})
+        hit = cache.get(fp.ref)
+        if hit is None:
+            def read(p):
+                return ([[tuple(v) for v in o] for o in p.outlines], _native_kshapes(p.kshapes),
+                        _native_layers(p.layers), _native_layers(self._mirror_layers(p.layers)))
+            groups = fp.net_tie_groups or (tuple(sorted(fp.net_tie_pads)),)
+            cached = []
+            for pad in fp.pads:
+                group = next((g for g in groups if pad.number in g), None) if pad.number in fp.net_tie_pads else None
+                members = [p for p in fp.pads if group and p.number in group]
+                if not members or (fp.net_tie_groups and len(members) < 2):
+                    continue            # BuildNetTieCache: a pad is a net tie only with another in its group
+                cached.append((read(pad), [p.net for p in members if p.net]))
+            hit = cache[fp.ref] = ([(p.net, read(p)) for p in fp.pads if p.number in fp.net_tie_pads], cached)
+        return hit
 
     def _native_bucket(self, s: Shape, o: Shape) -> str:
         """`_reason_key`'s answer for a near-obstacle conflict, from the
@@ -2221,13 +2266,14 @@ class Occupancy:
         if native is None:
             return None
         cache = self.__dict__.setdefault("_native_shape_cache", {})
-        key = (id(geom), placement.rotation, placement.face)
+        # a net tie's drawing is one (`_is_tie_graphic`) once its owner is among the items
+        key = (id(geom), placement.rotation, placement.face, len(self._tie_refs & geom.owners & self.items.keys()))
         hit = cache.get(key)
         if hit is not None and hit[0] is geom:
             return hit[1]
-        origin_shapes = self._legal_origin_shapes(item, geom, placement)
-        handle = native.NativeOriginShapes(
-            [_to_native_shape(s, self._body_refs, self._leads, self._margins) for s in origin_shapes])
+        shapes = self._legal_origin_shapes(item, geom, placement)
+        handle = native.NativeOriginShapes([_to_native_shape(s, self._body_refs, self._leads, self._margins)
+                                            for s in shapes], ties=self._native_ties(shapes, moved=True))
         cache[key] = (geom, handle)
         return handle
 
@@ -2983,10 +3029,6 @@ def edge_refusal(code: int, body: Box, margin: float, silk_margin: float = 0.0) 
                    verdict=EDGE_OF_NATIVE[code], margin_mm=margin)
 
 
-FIRST_WINDOW = 1024
-"""How many candidates `NativeSweeper._first_with_ties` hands the native pass at first; the window doubles from it."""
-
-
 class NativeSweeper:
     """One scan's native legality: its turns' shapes and origin body boxes,
     the reservations that apply to the item, registered once; `run` judges a
@@ -2995,12 +3037,9 @@ class NativeSweeper:
     the first; this turns a detail into what `legal_bucket` gives: the
     bucket, the sentence (for the first candidate only) and the blocker."""
 
-    def __init__(self, occ, item, face, rots, entry, board, clearance, leave_out=frozenset(), recheck=None,
-                 full=None):
+    def __init__(self, occ, item, face, rots, entry, board, clearance):
         from .placement import Placement
         self.occ, self.item, self.face, self.rots = occ, item, face, tuple(rots)
-        self.recheck = recheck              # (item, obstacles): what a candidate the native pass accepts is judged by, in full
-        self.full = full                    # the obstacle entry with the net ties in, when the item owns none (see `run`)
         self.index, self.shapes = entry
         self.board, self.clearance = board, clearance
         geom = occ._geometry(item)
@@ -3009,14 +3048,8 @@ class NativeSweeper:
         self.edges, self.edge_parts, self.yards, self.silk_edges = [], [], [], []
         for rot in self.rots:
             at = Placement(Location(0.0, 0.0), rot, face)
-            if leave_out:               # the item's own net ties: judged in Python, on the candidates this pass accepts
-                shapes = [s for s in occ._legal_origin_shapes(item, geom, at) if s.owner not in leave_out]
-                self.handles.append(_geometry_module._native.NativeOriginShapes(
-                    [_to_native_shape(s, occ._body_refs, occ._leads, occ._margins) for s in shapes]))
-                self.origin.append(shapes)
-            else:
-                self.handles.append(occ._native_origin_shapes(item, geom, at))
-                self.origin.append(list(occ._legal_origin_shapes(item, geom, at)))
+            self.handles.append(occ._native_origin_shapes(item, geom, at))
+            self.origin.append(list(occ._legal_origin_shapes(item, geom, at)))
             b = occ.origin_body_box(item, rot, face)
             self.bodies.append((b.left, b.top, b.right, b.bottom))
             self.parts.append([(p.left, p.top, p.right, p.bottom) for p in occ.origin_parts(geom, rot, face)])
@@ -3058,78 +3091,13 @@ class NativeSweeper:
         (x, y, turn) triples; each refusal (bucket, count, first index,
         reason, blocker key), in the order first met. With `scoring` (a
         NativeScoring for these turns) each legal candidate is scored as the
-        scan's scorer would score it; else its score is 0. A sweep with net
-        ties left out (`recheck`) judges what its native pass accepts in full:
-        a candidate that also passes with the ties in (`full`) is legal as it
-        stands, since KiCad's net-tie exclusion only excuses a conflict, and
-        the rest are judged here and kept or refused. Its scores are None
-        (the caller scores each candidate) unless `scoring` is given and every
-        candidate the native pass accepted passed with the ties in, when they
-        are scored natively."""
-        if self.recheck is None:
-            return self._native_run(triples, stop_at_first, scoring)
-        if stop_at_first:
-            return self._first_with_ties(triples)
-        refused = {}
-        found, _, refusals = self._native_run(triples, False, None)
-        for bucket, count, first, reason, blocker in refusals:
-            self._merge(refused, bucket, count, first, reason, blocker)
-        legal, scores = [], None
-        if found:
-            sure, scores = self._with_ties([triples[j] for j in found], scoring)
-            for at, i in enumerate(found):
-                if at in sure:
-                    legal.append(i)
-                    continue
-                hit, blame = self._judge(triples[i])
-                if hit is None:
-                    legal.append(i)
-                    continue
-                self._merge(refused, hit[0], 1, i, hit[1], self._blocker(blame))
-        out = sorted(((b, c, f, r, k) for (b, k), (c, f, r) in refused.items()), key=lambda e: e[2])
-        return legal, scores if len(legal) == len(scores or ()) else None, out
-
-    def _first_with_ties(self, triples):
-        """`run` with `stop_at_first` for a sweep with net ties left out: the first candidate legal in full, and the
-        refusals of every candidate before it. The native pass judges a window of `triples` at a time, all of it, and
-        the candidates it accepts are judged here in order until one is legal; the window doubles each time none is.
-        A pass from each refused candidate to the next would hand the native sweep the rest of `triples` each time."""
-        refused, legal, start, size = {}, [], 0, FIRST_WINDOW
-        while start < len(triples) and not legal:
-            window = triples[start:start + size]
-            found, _, refusals = self._native_run(window, False, None)
-            sure, _ = self._with_ties([window[j] for j in found], None) if found else (frozenset(), None)
-            for at, j in enumerate(found):
-                if at not in sure:
-                    hit, blame = self._judge(window[j])
-                    if hit is not None:
-                        self._merge(refused, hit[0], 1, start + j, hit[1], self._blocker(blame))
-                        continue
-                legal.append(start + j)
-                if any(first > j for _, _, first, _, _ in refusals):         # the ones past it are not a first-legal pass's
-                    refusals = self._native_run(window[:j], False, None)[2] if j else []
-                break
-            for bucket, count, first, reason, blocker in refusals:
-                self._merge(refused, bucket, count, start + first, reason, blocker)
-            start += len(window)
-            size *= 2
-        out = sorted(((b, c, f, r, k) for (b, k), (c, f, r) in refused.items()), key=lambda e: e[2])
-        return legal, None, out
-
-    def _with_ties(self, triples, scoring) -> tuple:
-        """(positions in `triples` that the native pass accepts with the net ties in, their scores): the
-        scores only when `scoring` is given and every one of `triples` is accepted - else None, and
-        `scoring` is left as it was."""
-        if self.full is None:
-            return frozenset(), None
-        floor = None if scoring is None else scoring.floor
-        found, scores, _ = self._sweep(self.full[0], triples, False, scoring)
-        if scoring is None:
-            return frozenset(found), None
-        if len(found) == len(triples):
-            return frozenset(found), scores
-        scoring.floor = floor
-        return frozenset(found), None
+        scan's scorer would score it; else its score is 0."""
+        legal, scores, refused = self._sweep(self.index, triples, stop_at_first, scoring)
+        out = []
+        for kind, a, b, count, first in refused:
+            bucket, blocker, reason = self._decode(kind, a, b, triples[first])
+            out.append((bucket, count, first, reason, blocker))
+        return legal, scores, out
 
     def _sweep(self, index, triples, stop_at_first: bool, scoring):
         from . import geometry as _g
@@ -3138,46 +3106,6 @@ class NativeSweeper:
                                 scoring, self.parts if self.geom.parts else None,
                                 self.judged if self.geom.parts else None,
                                 self.edge_parts if self.geom.parts else None, self.yards, **self.silk)
-
-    def run_native(self, triples, stop_at_first: bool, scoring=None):
-        """`run` less the judgment in Python of the candidates the native pass accepts (`recheck`): what the
-        native pass accepts and refuses, as `run` would have it before it judged the accepted ones again."""
-        return self._native_run(triples, stop_at_first, scoring)
-
-    def _native_run(self, triples, stop_at_first: bool, scoring=None):
-        legal, scores, refused = self._sweep(self.index, triples, stop_at_first, scoring)
-        out = []
-        for kind, a, b, count, first in refused:
-            bucket, blocker, reason = self._decode(kind, a, b, triples[first])
-            out.append((bucket, count, first, reason, blocker))
-        return legal, scores, out
-
-    def _judge(self, triple):
-        """(refusal or None, blame): a candidate the native pass accepted, as the pure-Python sweep judges it."""
-        from .placement import Placement
-        item, others = self.recheck
-        x, y, turn = triple
-        blame = []
-        hit = self.occ.legal_bucket(item, Placement(Location(x, y), self.rots[turn], self.face), self.clearance,
-                                    others, blame, board=False)         # the native pass has judged the edge and the reservations
-        return hit, blame
-
-    @staticmethod
-    def _blocker(blame):
-        if not blame:
-            return None
-        b = blame[0]
-        return (b.kind, b.owner, "/".join(sorted(f.value for f in b.faces)))
-
-    @staticmethod
-    def _merge(refused, bucket, count, first, reason, blocker):
-        hit = refused.get((bucket, blocker))
-        if hit is None:
-            refused[(bucket, blocker)] = [count, first, reason]
-        else:
-            hit[0] += count
-            if first < hit[1]:
-                hit[1], hit[2] = first, reason
 
     def _decode(self, kind, a, b, triple):
         from .placement import Placement

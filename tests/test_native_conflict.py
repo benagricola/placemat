@@ -73,7 +73,7 @@ def _cfg_kwargs(occ: Occupancy):
                 silk_clearance=occ.silk_clearance, component_spacing=occ.component_spacing,
                 default_clearance=occ.geometry.default_clearance, net_clearance=net_clearance,
                 hole_to_hole=occ.geometry.hole_to_hole, hole_clearance=occ.geometry.hole_clearance,
-                epsilon=occ._eps, rules=occ.rules.native())
+                epsilon=occ._eps, rules=occ.rules.native(), tie_epsilon=occ._tie_eps)
 
 
 def _rules():
@@ -115,12 +115,9 @@ def _rich_occupancy(envelope="union", vias_block_courtyards=False, rules=()):
     return occ
 
 
-def _excused(occ, s, o, py, native):
-    """Native says conflict and Python says none, between copper and a net tie's copper: KiCad's net-tie
-    exclusion (Occupancy._net_tie_exclusion), which the native rules do not model and `legal` leaves to
-    Python (`_tie_refs`)."""
-    return native and not py and (s.owner in occ._tie_refs or o.owner in occ._tie_refs) \
-        and occ._net_tie_exclusion(s, o)
+def _ties(occ, s, o):
+    """What KiCad's net-tie exclusion reads of the pair, as `legal` hands it to the native judge."""
+    return dict(ties=occ._native_ties([s, o]))
 
 
 def _offset(poly, dx, dy):
@@ -149,9 +146,10 @@ def test_conflict_agrees_with_python_on_randomised_shape_pairs(envelope):
         clearance = rnd.choice([None, None, None, 0.1, 0.3])
         py = occ._conflict(s_moved, o_moved, clearance) is not None
         native = placemat_native.conflict(_py_shape(s_moved, s_is_fp, s_is_lead, s_margin),
-                                          _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), clearance, **cfg)
+                                          _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), clearance, **cfg,
+                                          **_ties(occ, s_moved, o_moved))
         n += 1
-        if py != native and not _excused(occ, s_moved, o_moved, py, native):
+        if py != native:
             mismatches.append((s_moved.kind, o_moved.kind, dx, dy, clearance, py, native))
     assert not mismatches, "%d/%d mismatches: %s" % (len(mismatches), n, mismatches[:5])
 
@@ -176,9 +174,10 @@ def test_conflict_agrees_with_python_under_clearance_rules(envelope):
         clearance = rnd.choice([None, None, None, 0.1, 0.3])
         py = occ._conflict(s_moved, o_moved, clearance) is not None
         native = placemat_native.conflict(_py_shape(s_moved, s_is_fp, s_is_lead, s_margin),
-                                          _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), clearance, **cfg)
+                                          _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), clearance, **cfg,
+                                          **_ties(occ, s_moved, o_moved))
         changed += py != (plain._conflict(s_moved, o_moved, clearance) is not None)
-        if py != native and not _excused(occ, s_moved, o_moved, py, native):
+        if py != native:
             mismatches.append((s_moved.kind, o_moved.kind, s_moved.net, o_moved.net, dx, dy, clearance, py, native))
     assert not mismatches, "%d mismatches: %s" % (len(mismatches), mismatches[:5])
     assert changed > 30, "the rules changed only %d verdicts: the fuzz does not reach them" % changed
@@ -196,8 +195,9 @@ def test_conflict_agrees_with_vias_blocking_courtyards():
         o_moved = _shifted(o, dx, dy)
         py = occ._conflict(s, o_moved, None) is not None
         native = placemat_native.conflict(_py_shape(s, s_is_fp, s_is_lead, s_margin),
-                                          _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), None, **cfg)
-        if py != native and not _excused(occ, s, o_moved, py, native):
+                                          _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), None, **cfg,
+                                          **_ties(occ, s, o_moved))
+        if py != native:
             mismatches.append((s.kind, o_moved.kind, dx, dy))
     assert not mismatches
 
@@ -298,8 +298,8 @@ def test_conflict_agrees_that_a_body_and_a_claimed_courtyard_may_stand_over_a_ne
 def test_conflict_agrees_on_a_plated_hole_beside_netless_and_net_tie_copper():
     """A plated hole keeps the hole clearance from the copper of another net (Occupancy._hole_conflict):
     holes of a few nets drawn up to the rich board's pads, tracks, vias and net tie's copper, and judged by
-    both engines, with a drill each side of the clearance. Native has no net-tie exclusion, which `legal`
-    leaves to Python (`_excused`)."""
+    both engines, with a drill each side of the clearance, the net tie's exclusion (`_hole_tie_exclusion`)
+    and all."""
     from placemat.occupancy import hole_shape
     occ = _rich_occupancy()
     cfg = _cfg_kwargs(occ)
@@ -319,10 +319,11 @@ def test_conflict_agrees_on_a_plated_hole_beside_netless_and_net_tie_copper():
         layers = rnd.choice([frozenset(), frozenset([CopperLayer.F]), frozenset([CopperLayer.B])])
         hole = hole_shape("", Location(cx, cy), drill, net, layers=layers)
         py = occ._conflict(hole, o, None) is not None
-        native = placemat_native.conflict(_py_shape(hole, False), _py_shape(o, o_fp, o_lead, o_margin), None, **cfg)
+        native = placemat_native.conflict(_py_shape(hole, False), _py_shape(o, o_fp, o_lead, o_margin), None, **cfg,
+                                          **_ties(occ, hole, o))
         hits += py
         clear += not py
-        if py != native and not _excused(occ, hole, o, py, native):
+        if py != native:
             mismatches.append((o.kind, o.owner, o.net, net, drill, (cx, cy), py, native))
     assert not mismatches, "%d mismatches: %s" % (len(mismatches), mismatches[:5])
     assert hits > 100 and clear > 100, (hits, clear)

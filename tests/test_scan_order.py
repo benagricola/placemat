@@ -82,12 +82,12 @@ def test_it_is_the_order_that_changes_not_what_is_judged(monkeypatch):
             break
     from placemat import occupancy
     calls = {}
-    real = occupancy.NativeSweeper._native_run
+    real = occupancy.NativeSweeper.run
 
     def counting(self, triples, *a, **k):
         calls[id(self)] = calls.get(id(self), 0) + len(triples)
         return real(self, triples, *a, **k)
-    monkeypatch.setattr(occupancy.NativeSweeper, "_native_run", counting)
+    monkeypatch.setattr(occupancy.NativeSweeper, "run", counting)
     totals = {}
     for first in (False, True):
         calls.clear()
