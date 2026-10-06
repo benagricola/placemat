@@ -298,6 +298,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **The studio on a watched run or a past run** (0.99.30): the code view,
+  probe results, undo log, notes, progress, errors and run details read the
+  view's own script and run; features that cannot act on a view say why;
+  the builder tests make their own first resolve.
+
 - **A width island is judged by its asked width** (0.99.29): not by the
   net's highest stated current, which a tap may not carry.
 
