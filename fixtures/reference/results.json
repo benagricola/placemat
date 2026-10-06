@@ -4,18 +4,18 @@
       "class": {
         "board": "chainlinkDriver",
         "closure_clean": 1.0,
-        "human_track_mm": 2629.883386219394,
+        "human_track_mm": 2629.8833862193937,
         "human_vias": 111,
         "new_violations": [],
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 16.0,
+        "seconds": 14.7,
         "track_mm": 2319.049807796466,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 118,
         "widths": "class"
@@ -23,18 +23,18 @@
       "human": {
         "board": "chainlinkDriver",
         "closure_clean": 1.0,
-        "human_track_mm": 2629.883386219394,
+        "human_track_mm": 2629.8833862193937,
         "human_vias": 111,
         "new_violations": [],
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 14.6,
+        "seconds": 12.9,
         "track_mm": 2277.6145692403,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 107,
         "widths": "human"
@@ -61,12 +61,12 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 12.0,
-        "track_mm": 676.2394017177265,
+        "seconds": 10.2,
+        "track_mm": 676.2394017177268,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 57,
         "widths": "class"
@@ -91,12 +91,12 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 11.9,
-        "track_mm": 671.7076321795606,
+        "seconds": 10.1,
+        "track_mm": 671.7076321795605,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 56,
         "widths": "human"
@@ -135,12 +135,12 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 22.5,
-        "track_mm": 322.34531923756225,
+        "seconds": 19.9,
+        "track_mm": 322.3453192375622,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 17,
         "widths": "class"
@@ -166,12 +166,12 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 22.7,
+        "seconds": 19.8,
         "track_mm": 320.37664498999254,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 16,
         "widths": "human"
@@ -186,8 +186,8 @@
         "new_violations": [
           {
             "at_mm": [
-              162.9948,
-              97.2317
+              162.7,
+              100.2
             ],
             "nets": [
               "RF"
@@ -196,8 +196,8 @@
           },
           {
             "at_mm": [
-              162.9948,
-              97.2317
+              162.7,
+              100.2
             ],
             "nets": [
               "RF"
@@ -218,12 +218,12 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 64.9,
-        "track_mm": 1410.5242344898766,
+        "seconds": 58.4,
+        "track_mm": 1410.5242344898763,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 116,
         "widths": "class"
@@ -268,12 +268,12 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 65.5,
-        "track_mm": 1410.524234489876,
+        "seconds": 57.6,
+        "track_mm": 1410.5242344898763,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 116,
         "widths": "human"
@@ -310,12 +310,12 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 21.6,
-        "track_mm": 1685.9945804403535,
+        "seconds": 19.7,
+        "track_mm": 1685.994580440353,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 47,
         "widths": "class"
@@ -361,12 +361,12 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 22.5,
+        "seconds": 19.5,
         "track_mm": 1737.8217015790403,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 48,
         "widths": "human"
@@ -399,12 +399,12 @@
           "/~{SPI_FLASH_CS_L}"
         ],
         "passed": false,
-        "seconds": 10.7,
-        "track_mm": 603.2095870610774,
+        "seconds": 9.6,
+        "track_mm": 603.2095870610773,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 43,
         "widths": "class"
@@ -435,12 +435,12 @@
           "/~{SPI_FLASH_CS_L}"
         ],
         "passed": false,
-        "seconds": 10.2,
-        "track_mm": 603.2095870610773,
+        "seconds": 9.7,
+        "track_mm": 603.2095870610774,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 43,
         "widths": "human"
@@ -456,12 +456,12 @@
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 19.9,
+        "seconds": 18.1,
         "track_mm": 206.25164524614348,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 21,
         "widths": "class"
@@ -475,12 +475,12 @@
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 29.3,
-        "track_mm": 201.136880136198,
+        "seconds": 26.2,
+        "track_mm": 201.13688013619796,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 31,
         "widths": "human"
@@ -501,7 +501,7 @@
             "nets": [
               "Net-(AE1-FEED)"
             ],
-            "type": "clearance"
+            "type": "shorting_items"
           },
           {
             "at_mm": [
@@ -541,12 +541,12 @@
           "USB_D-"
         ],
         "passed": false,
-        "seconds": 41.3,
+        "seconds": 35.2,
         "track_mm": 613.6031023505358,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 52,
         "widths": "class"
@@ -563,7 +563,7 @@
               100.27
             ],
             "nets": [
-              "RESE"
+              "GDR"
             ],
             "type": "hole_clearance"
           },
@@ -573,7 +573,7 @@
               100.27
             ],
             "nets": [
-              "GDR"
+              "RESE"
             ],
             "type": "hole_clearance"
           },
@@ -585,7 +585,7 @@
             "nets": [
               "Net-(AE1-FEED)"
             ],
-            "type": "shorting_items"
+            "type": "clearance"
           },
           {
             "at_mm": [
@@ -637,12 +637,12 @@
           "SCL"
         ],
         "passed": false,
-        "seconds": 18.2,
+        "seconds": 16.1,
         "track_mm": 687.5441457146158,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "e622c7968e087333db0e75424861d61790e66616"
+          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
         },
         "vias": 63,
         "widths": "human"
