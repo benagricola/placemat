@@ -35,7 +35,7 @@
       "demos/pic_programmer/pic_programmer.kicad_sch": "cf92bff8aebe19e45444f13b2ccd1c8ad578df6a226acd5381e2eff95e2fc08f",
       "demos/pic_programmer/pic_sockets.kicad_sch": "8cbf575b53b205280ca277df8affc6477cf20c5d06c63c267cd6fb19b6d771ae"
     },
-    "notes": "KiCad 10.0.6 demo, tag 10.0.6 Both widths: the POWER class (GND, VCC) sets diff_pair_width/gap, so placemat routes the two as a coupled pair with route_diff; the router necks two GND segments to 0.218 mm, below the board min 0.25 (track_width x2). The human width 0.5 equals the Default class width; the explicit --track-width still changes the result (87.2% closure)."
+    "notes": "KiCad 10.0.6 demo, tag 10.0.6. Both widths: the POWER class (GND, VCC) sets diff_pair_width/gap, so placemat routes the two as a coupled pair with route_diff; the router necks two GND segments to 0.218 mm, below the board min 0.25 (track_width x2). The human width 0.5 equals the Default class width; the explicit --track-width still changes the result (87.2% closure)."
   },
   {
     "name": "usb-c-power-adapter",
@@ -48,7 +48,7 @@
       "b"
     ],
     "islands": [],
-    "fixed": [],
+    "fixed": ["J1", "J2", "J3", "J4", "MP1"],
     "human_track_mm": 0.2,
     "kicad5": false,
     "files": {
