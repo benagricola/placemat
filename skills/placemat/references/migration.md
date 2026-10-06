@@ -14,6 +14,14 @@ section for each hand-written pattern a newer form replaces.
   through the inner layers. Layers are F, In1 to In30, B, or their `.Cu` names. An entry without `@` routes on the
   route's own layers, as before. The report's `island_layers` names each net's layers. Scripts need no change.
 
+### Fixed
+
+- **An island net's own pour no longer gets a mesh of router tracks.** The router read a `board.pour` (a filled
+  graphic polygon) as one strip of copper per scanline and joined the strips to each other: dozens of short tracks
+  over the pour, their ends past its edge, inside the hole clearance it kept off an NPTH. The islands stage now gives
+  the router the net's own pours as zones, which it counts as joining what they reach, and puts the pours back as
+  drawn afterwards. Scripts need no change.
+
 ## To 0.99.27
 
 ### New
