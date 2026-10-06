@@ -244,8 +244,11 @@ def test_adopting_says_why_a_net_was_not_kept(tmp_path):
     routes.adopt(script, placed, routed, ["X", "Q"], still_open={"X": 2}, skipped=skipped)
     assert "open" in skipped["X"] and "no copper" in skipped["Q"]
     skipped = {}
+    routes.adopt(script, placed, routed, None, shorted=["X"], skipped=skipped, violations={"X": ["hole_to_hole"]})
+    assert skipped["X"] == "it has DRC violations (hole_to_hole)"
+    skipped = {}
     routes.adopt(script, placed, routed, None, shorted=["X"], skipped=skipped)
-    assert "shorted" in skipped["X"]
+    assert skipped["X"] == "it has DRC violations"
 
 
 def test_an_adopted_nets_parts_are_named_as_the_items_the_script_places():
