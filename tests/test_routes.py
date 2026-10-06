@@ -58,7 +58,7 @@ def test_the_file_round_trips_and_a_new_entry_replaces_its_net(tmp_path):
     p = tmp_path / "Board_layout.routes.json"
     routes.write(p, entries)
     assert routes.read(p) == entries
-    again = dataclasses.replace(entries[0], adopted="later")
+    again = dataclasses.replace(entries[0], vias=(), adopted="later")
     assert routes.merged(entries, [again]) == [again]
 
 
@@ -265,3 +265,61 @@ def test_an_adopted_nets_parts_are_named_as_the_items_the_script_places():
     b.place(Part("u1"))
     b.place(Cell("m"))
     assert routes.items_of([e], b) == {"u1", "m"}
+
+
+def test_an_entry_held_on_the_board_the_route_was_given_only_when_its_copper_is_there():
+    """The second adoption of one route: the entry is in the routes file but
+    its copper was not on the board routed, so it is the same copper again,
+    not copper beside it."""
+    placed, routed = _routed()
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    assert routes.held_on([e], placed, routed, 0.001) == [False]
+    # a board a run drew the entry onto, routed on: the entry's copper was given, and is still there
+    assert routes.held_on([e], routed, routed, 0.001) == [True]
+    assert routes.held_on([e], routed, placed, 0.001) == [False]       # the router took it up
+
+
+def test_adopting_the_same_route_twice_keeps_one_entry_and_draws_each_via_once(tmp_path):
+    placed, routed = _routed()
+    script = tmp_path / "Board_layout.py"
+    first = routes.adopt(script, placed, routed, None)
+    old = routes.read(routes.path_for(script))
+    routes.keep(script, routes.adoptable(placed, routed), routes.held_on(old, placed, routed, 0.001))
+    again = routes.read(routes.path_for(script))
+    assert again == first
+    b = Board(board_geometry(_parts(), width=40, height=40), edge_margin=0.5)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"), at=Location(20, 16))
+    plan = b.resolve(routes=again)
+    assert len([c for c in plan.copper if isinstance(c, Via) and c.net == "X"]) == 1
+
+
+def test_an_entry_adopted_again_with_the_same_copper_is_left_as_it_was():
+    placed, routed = _routed()
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    old = dataclasses.replace(e, adopted="earlier")
+    assert routes.merged([old], [e]) == [old]
+    assert routes.merged([old], [e], held=[False]) == [old]
+
+
+def test_reading_a_routes_file_drops_duplicate_entries_and_counts_them(tmp_path):
+    placed, routed = _routed()
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    y = routes.RouteEntry("Y", (), (), {}, "earlier")
+    p = tmp_path / "Board_layout.routes.json"
+    routes.write(p, [e, y, dataclasses.replace(e, adopted="later"), e])
+    dropped = []
+    assert routes.read(p, dropped) == [e, y]
+    assert len(dropped) == 2
+    assert routes.read(p) == [e, y]
+
+
+def test_the_routes_command_says_how_many_duplicates_it_dropped(tmp_path, capsys):
+    from placemat import cli
+    placed, routed = _routed()
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    script = tmp_path / "Board_layout.py"
+    script.write_text("")
+    routes.write(routes.path_for(script), [e, e])
+    assert cli.main(["routes", str(script)]) == 0
+    assert "1 entry repeated another's copper: dropped" in capsys.readouterr().out

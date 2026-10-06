@@ -482,7 +482,7 @@ def cmd_lock(args) -> int:
     return 0
 
 
-def _lock_where_it_stands(script: Path, keys, key_of=None, plan_out=None, partial: bool = False) -> tuple:
+def _lock_where_it_stands(script: Path, keys, key_of=None, partial: bool = False) -> tuple:
     """(lock entries, keys locked, {key: why not}, last run's id): `keys`
     (None: every searched item; `key_of(board)` gives them once the board
     is built) locked where the board stands, and checked by resolving once
@@ -495,8 +495,6 @@ def _lock_where_it_stands(script: Path, keys, key_of=None, plan_out=None, partia
     from ._version import __version__
     from .previewer import resolve_like_last_run, written_pads
     board, plan, src, run_id = resolve_like_last_run(script)
-    if plan_out is not None:
-        plan_out.append(plan)
     if key_of is not None:
         keys = key_of(board) & set(plan.turns)
     path = lock.path_for(script.resolve())
@@ -764,7 +762,8 @@ def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = 
     from . import lock, routes
     from .kicad.read import read_board
     skipped, counts = {}, {}
-    new = routes.adoptable(read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb), nets,
+    placed, routed = read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb)
+    new = routes.adoptable(placed, routed, nets,
                            report.open_nets, report.shorted, skipped, partial=partial, counts=counts,
                            violations=getattr(report, "violations", None))
     for net, why in skipped.items():
@@ -772,11 +771,10 @@ def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = 
     for net, tally in sorted(counts.items()):
         if tally["kept"]:
             console.say("adopt", routes.island_line(net, tally, report.open_nets.get(net, 0)))
-    last = []                           # the resolve the lock makes: which kept entries held on the routed board
     if new and lock_items:
         try:
             entries, locked, refused, run_id = _lock_where_it_stands(
-                script, None, key_of=lambda board: routes.items_of(new, board), plan_out=last)
+                script, None, key_of=lambda board: routes.items_of(new, board))
         except ValueError as e:
             console.say("adopt", "nothing adopted: %s" % e, level="fail")
             return
@@ -790,19 +788,17 @@ def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = 
         if locked:
             lock.write(lock.path_for(script.resolve()), entries)
             console.say("adopt", "locked %d item(s) the kept nets join where the board stands" % len(locked))
-    held = None
-    old = routes.read(routes.path_for(script))
-    if new and old:                     # a net's entries that did not hold are replaced; the ones that did stay
-        if not last:
-            try:
-                from .previewer import resolve_like_last_run
-                last.append(resolve_like_last_run(script)[1])
-            except ValueError:
-                pass
-        if last:
-            held = routes.held_of(old, last[0].adopted)
+    from .settings import active
+    dropped = []
+    old = routes.read(routes.path_for(script), dropped)
+    if dropped:
+        console.say("adopt", "%d entr%s in %s repeated another's copper: dropped" % (
+            len(dropped), "y" if len(dropped) == 1 else "ies", routes.path_for(script).name), level="warning")
+    # a net's entries whose copper was on the board routed stay; the rest, adopted again, are replaced
+    held = routes.held_on(old, placed, routed, active().route_adopt_tolerance) if new and old else None
     for e in routes.replaced(old, new, held):
-        console.say("adopt", "replaced a kept entry of %s (adopted %s) that did not hold" % (e.net, e.adopted or "-"))
+        console.say("adopt", "replaced a kept entry of %s (adopted %s): its copper was not on the board routed"
+                    % (e.net, e.adopted or "-"))
     routes.keep(script, new, held)
     for e in new:
         console.say("adopt", routes.describe(e))
@@ -823,7 +819,11 @@ def cmd_routes(args) -> int:
             console.say("routes", "%s was not adopted" % net)
         if missing:
             return 1
-    entries = routes.read(routes.path_for(script))
+    dropped = []
+    entries = routes.read(routes.path_for(script), dropped)
+    if dropped:
+        console.say("routes", "%d entr%s repeated another's copper: dropped (adopting or releasing rewrites the file)"
+                    % (len(dropped), "y" if len(dropped) == 1 else "ies"), level="warning")
     for e in entries:
         console.say("routes", routes.describe(e))
     if not entries:

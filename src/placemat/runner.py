@@ -537,7 +537,12 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             previous_reuse, previous_id = died, "%s (interrupted)" % rid
         partial = reuse_mod.PartialLog(run_dir / "reuse.partial.jsonl")
         declared = arrangement_run.begin(board)
-        routes = routes_mod.read(routes_mod.path_for(script))
+        dropped = []
+        routes = routes_mod.read(routes_mod.path_for(script), dropped)
+        if dropped:
+            say("routes", "%d entr%s in %s repeated another's copper: dropped, drawn once (adopting or releasing "
+                "rewrites the file)" % (len(dropped), "y" if len(dropped) == 1 else "ies",
+                                       routes_mod.path_for(script).name), level="warning")
         try:
             plan = board.resolve(progress=progress, reuse=previous_reuse, lock=lock_entries,
                                  routes=routes, partial=partial)

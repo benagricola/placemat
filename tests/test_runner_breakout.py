@@ -403,3 +403,60 @@ def test_the_resolve_a_later_adoption_asks_sees_the_kept_routes(scratch_ecosyste
         script.write_text(SCRIPT)
         lock.path_for(script).unlink(missing_ok=True)
         routes.path_for(script).unlink(missing_ok=True)
+
+
+def test_adopting_the_same_route_twice_keeps_one_entry_and_draws_each_via_once(scratch_ecosystem, tmp_path):
+    """route --adopt-all run twice on one work folder: the second adoption
+    finds the first's entry held (it is in the routes file now) though its
+    copper was not on the board the route was given, and must replace it,
+    not add a second copy beside it."""
+    import shutil
+    from types import SimpleNamespace
+    import pcbnew
+    from placemat import cli, lock, routes
+    from placemat.kicad.read import read_board
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    script.write_text(SCRIPT + 'board.place(Part("trunk_led_ra"))\n')
+    try:
+        run(script, label="to-adopt-twice", render=False, drc=False)
+        pcb = scratch_ecosystem / "breakout/layout/Breakout/layout.kicad_pcb"
+        g = read_board(pcb)
+        led = next(fp for fp in g.footprints if fp.inst == "trunk_led_ra")
+        pad = next(p for p in led.pads if p.net and any(q.net == p.net for fp in g.footprints if fp is not led
+                                                         for q in fp.pads))
+        other = next(q for fp in g.footprints if fp is not led for q in fp.pads if q.net == pad.net)
+        work = tmp_path / "route"
+        work.mkdir()
+        shutil.copy(pcb, work / "in.kicad_pcb")
+        routed = work / "routed.kicad_pcb"
+        shutil.copy(pcb, routed)
+        brd = pcbnew.LoadBoard(str(routed))
+        a, b = pad.box.center, other.box.center
+        t = pcbnew.PCB_TRACK(brd)
+        t.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(a.x), pcbnew.FromMM(a.y)))
+        t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(b.x), pcbnew.FromMM(b.y)))
+        t.SetWidth(pcbnew.FromMM(0.2))
+        t.SetLayer(pcbnew.F_Cu)
+        t.SetNet(brd.FindNet(pad.net))
+        brd.Add(t)
+        v = pcbnew.PCB_VIA(brd)
+        v.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM((a.x + b.x) / 2), pcbnew.FromMM((a.y + b.y) / 2)))
+        v.SetWidth(pcbnew.FromMM(0.6))
+        v.SetDrill(pcbnew.FromMM(0.3))
+        v.SetNet(brd.FindNet(pad.net))
+        brd.Add(v)
+        brd.Save(str(routed))
+        report = SimpleNamespace(work=work, routed_pcb=routed, open_nets={}, shorted=[])
+        cli._adopt(script, None, report)
+        first = routes.read(routes.path_for(script))
+        cli._adopt(script, None, report)
+        again = routes.read(routes.path_for(script))
+        assert [e.net for e in again] == [pad.net]
+        assert again == first                     # the same copper: the entry is left as it was
+        run(script, label="adopted-twice", render=False, drc=False)
+        vias = [c for c in read_board(pcb).copper if c.kind == "via" and c.net == pad.net]
+        assert len(vias) == len([c for c in g.copper if c.kind == "via" and c.net == pad.net]) + 1
+    finally:
+        script.write_text(SCRIPT)
+        lock.path_for(script).unlink(missing_ok=True)
+        routes.path_for(script).unlink(missing_ok=True)
