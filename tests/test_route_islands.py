@@ -203,3 +203,90 @@ def test_an_island_net_not_on_the_board_is_said_and_skipped(breakout_pcb):
     from placemat.kicad.route import islands_on_board
     kept, missing = islands_on_board(breakout_pcb, {"PERMIT_A": None, "NO_SUCH_NET": 0.5})
     assert kept == {"PERMIT_A": None} and missing == ["NO_SUCH_NET"]
+
+
+def test_an_island_net_may_carry_its_own_layers():
+    from placemat.settings import parse_island_layers
+    items = ["VBUS=1.37@F,B", "V_HI@In2.Cu", "V_LO=0.4@B.Cu,in1,F.Cu", "VIN"]
+    assert parse_islands(items) == {"VBUS": 1.37, "V_HI": None, "V_LO": 0.4, "VIN": None}
+    assert parse_island_layers(items) == {"VBUS": ("F.Cu", "B.Cu"), "V_HI": ("In2.Cu",),
+                                          "V_LO": ("F.Cu", "In1.Cu", "B.Cu")}     # in stack order, F first and B last
+
+
+def test_an_unknown_island_layer_is_refused():
+    for bad, said in (("VBUS=1.37@F,X", "X"), ("VBUS@In31", "In31"), ("VBUS@", "VBUS@"), ("VBUS=1@F,,B", "VBUS=1@F,,B")):
+        with pytest.raises(ValueError, match=said):
+            parse_islands([bad])
+
+
+def test_an_unknown_island_layer_is_refused_when_the_settings_load(tmp_path):
+    from placemat.settings import SettingsError, load
+    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["VBUS=1.37@F,Q"]\n')
+    with pytest.raises(SettingsError, match=r"route\.islands.*'Q' is not a copper layer"):
+        load(tmp_path)
+
+
+def test_an_island_layer_the_board_lacks_is_refused():
+    from placemat.kicad.route import island_layers_on_board
+    assert island_layers_on_board({"VBUS": ("F.Cu", "B.Cu")}, ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]) == {"VBUS": ["F.Cu", "B.Cu"]}
+    with pytest.raises(ValueError, match="VBUS.*In3.Cu"):
+        island_layers_on_board({"VBUS": ("F.Cu", "In3.Cu")}, ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"])
+
+
+def test_the_report_records_each_islands_layers():
+    from placemat.kicad.route import RouteReport
+    r = RouteReport(True, 1.0, 1.0, 0, 0, {}, [], [], ["F.Cu", "B.Cu"], 0.0, "", {}, Path("r"), Path("l"), Path("w"),
+                    island_layers={"VBUS": ["F.Cu", "B.Cu"]})
+    assert r.as_dict()["island_layers"] == {"VBUS": ["F.Cu", "B.Cu"]}
+    assert "VBUS on F.Cu, B.Cu" in r.summary()
+
+
+@needs_kicad
+def test_the_route_command_passes_each_islands_layers(tmp_path, monkeypatch):
+    from placemat import cli
+    import placemat.kicad.route as route_mod
+    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["VBUS=1.37@F,B", "VIN@B"]\n')
+    pcb = tmp_path / "layout.kicad_pcb"
+    pcb.write_text("")
+    seen = {}
+
+    class Report:
+        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths, pair_layers_refused = True, [], {}, pcb, [], [], []
+
+        def has_findings(self):
+            return False
+
+        def summary(self):
+            return "stand-in"
+
+    def stand_in(pcb, work, exclude_nets=(), islands=None, island_layers=None, **kw):
+        seen["islands"], seen["layers"] = islands, island_layers
+        return Report()
+    monkeypatch.setattr(route_mod, "route_board", stand_in)
+    assert cli.main(["route", str(pcb), "--islands", "VBUS", "VIN@F", "V_HI"]) == 0
+    assert seen["islands"] == {"VBUS": 1.37, "VIN": None, "V_HI": None}
+    assert seen["layers"] == {"VBUS": ("F.Cu", "B.Cu"), "VIN": ("F.Cu",)}       # a bare flag keeps the setting's layers
+    assert cli.main(["route", str(pcb), "--islands", "VIN@Z"]) == 2
+
+
+@needs_kicad
+@needs_breakout
+def test_an_island_with_layers_routes_on_them_and_a_bare_one_on_the_routes(breakout_pcb, tmp_path, monkeypatch):
+    import subprocess
+    import placemat.kicad.route as route_mod
+    pcb = _four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"])
+    passes = {}
+
+    def stand_in(cmd, **kw):
+        nets = cmd[cmd.index("--nets") + 1:cmd.index("--layers")]
+        passes[nets[0]] = cmd[cmd.index("--layers") + 1:cmd.index("--escalation")]
+        assert "--layer-costs" not in cmd
+        shutil.copy(cmd[2], cmd[3])
+        return subprocess.CompletedProcess(cmd, 0)
+    monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
+    work = tmp_path / "work"
+    work.mkdir()
+    route_mod.route_islands("py", "route.py", str(tmp_path), pcb, work, {"PERMIT_A": 0.5, "PERMIT_B": None},
+                            ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"], None, None, True, 60, {}, 0.9,
+                            island_layers={"PERMIT_A": ["F.Cu", "B.Cu"]})
+    assert passes == {"PERMIT_A": ["F.Cu", "B.Cu"], "PERMIT_B": ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]}

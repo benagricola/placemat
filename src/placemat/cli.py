@@ -79,9 +79,10 @@ def parser() -> argparse.ArgumentParser:
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     rt.add_argument("--exclude", nargs="*", default=[], help="nets to leave unrouted (planes, pours)")
-    rt.add_argument("--islands", nargs="*", default=[], metavar="NET[=WIDTH]",
+    rt.add_argument("--islands", nargs="*", default=[], metavar="NET[=WIDTH][@LAYER,...]",
                     help="nets with pours whose pads the pours do not reach: routed first and alone, at the "
-                         "netclass width or WIDTH mm (adds to [route] islands)")
+                         "netclass width or WIDTH mm, their tracks on the LAYERs given (F, In1, B, ...) or on the "
+                         "route's own (adds to [route] islands)")
     rt.add_argument("--layers", nargs="*", help="copper layers to route on (default: all)")
     rt.add_argument("--full", action="store_true", help="the router's full run, not one round")
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
@@ -713,20 +714,21 @@ def cmd_route(args) -> int:
     from .kicad.route import plane_nets_of
     planes = plane_nets_of(pcb)             # served by their pours, as run --route leaves them
     with bind(cfg):
-        from .settings import active, parse_islands
+        from .settings import active, parse_island_layers, parse_islands
         try:
-            flag = parse_islands(args.islands)
+            flag, flag_layers = parse_islands(args.islands), parse_island_layers(args.islands)
         except ValueError as e:
             console.say("route", "--islands: %s" % e, level="fail")
             return 2
         islands = parse_islands(active().route_islands)
         islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
+        island_layers = dict(parse_island_layers(active().route_islands), **flag_layers)      # and its layers
         from . import channel
         channel.reporter(p)                 # the route's own socket: readers follow it net by net
         said = (lambda fs: None) if args.json else (lambda fs: [console.finding(f, "route") for f in fs])
         try:
             report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
-                                 quick=not args.full, iterations=args.iterations, islands=islands,
+                                 quick=not args.full, iterations=args.iterations, islands=islands, island_layers=island_layers,
                                  resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {},
                                  on_setup=said)
         except Exception as e:

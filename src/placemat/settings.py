@@ -383,7 +383,7 @@ class Settings:
     route_net_halos: dict = S(None, "table",
         "a net mapped to a halo in mm (`{\"SW\" = 2.0}`): every router pass keeps other nets' new copper that far from the net's copper, and the net's own new copper that far from everything, to keep coupling off a switch node. Each net is given the larger of its net class clearance and its halo in the clearance map placemat hands the router. Before the route, a pad of another net within the halo whose own copper (an escape, a via) ends inside it is a `setup.net_halo` finding: the router cannot leave it. A key that names no net on the board is a `setup.net_halo` finding and the entry is not used", factory=dict)
     route_islands: tuple = S((), "list",
-        "nets with pours whose pads the pours do not reach (a pour net's small taps), `\"NET\"` or `\"NET=WIDTH\"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them")
+        "nets with pours whose pads the pours do not reach (a pour net's small taps), `\"NET\"` or `\"NET=WIDTH\"` (mm), either with `@LAYER,...` after it (`\"VBUS=1.37@F,B\"`; F, In1 to In30, B or their .Cu names): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH, its tracks on the layers given (its vias may still pass through the others) or on the route's own layers; `placemat route --islands` adds to them")
     route_diff_pair_gap: float = S(0.0, "mm",
         "mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance)")
     route_diff_pair_width: float = S(0.0, "mm",
@@ -651,20 +651,57 @@ def _files(start) -> list:
     return list(reversed(found))
 
 
+def _island_entry(item) -> tuple:
+    """One `[route] islands` / `--islands` entry, "NET", "NET=WIDTH" (mm,
+    above 0), either with "@LAYER,LAYER..." after it, as (net, width or
+    None, layers or None). A layer is named as `[route] pair_layers` names
+    one (F.Cu, In1.Cu to In30.Cu, B.Cu) or by its short name (F, In1, B);
+    the layers come back in stack order, F.Cu first."""
+    text = str(item)
+    head, at, tail = text.rpartition("@") if "@" in text else (text, "", "")
+    net, eq, width = head.partition("=")
+    try:
+        w = float(width) if eq else None
+    except ValueError:
+        w = 0.0
+    if not net or (eq and not (w or 0) > 0):
+        raise ValueError("%r is not NET or NET=WIDTH (a width in mm, above 0), with @LAYER,... after it or not" % item)
+    if not at:
+        return net, w, None
+    names = tail.split(",")
+    if not all(n.strip() for n in names):
+        raise ValueError("%r: @ is followed by layer names, a comma between each" % item)
+    layers = []
+    for name in (n.strip() for n in names):
+        full = name if name.endswith(".Cu") else _short_layer(name)
+        if not _COPPER_LAYER.match(full):
+            raise ValueError("%r: %r is not a copper layer (F, In1 to In30, B, or F.Cu, In1.Cu to In30.Cu, B.Cu)" % (item, name))
+        if full not in layers:
+            layers.append(full)
+    return net, w, tuple(sorted(layers, key=_stack_place))
+
+
+def _short_layer(name: str) -> str:
+    """A copper layer's full name from its short one, F, B or In1 (any case); anything else as given."""
+    if name.upper() in ("F", "B"):
+        return name.upper() + ".Cu"
+    return "In%s.Cu" % name[2:] if name[:2].lower() == "in" else name
+
+
+def _stack_place(layer: str) -> int:
+    """A copper layer's place in the stack: F.Cu 0, In1.Cu 1 ..., B.Cu last."""
+    return 0 if layer == "F.Cu" else 99 if layer == "B.Cu" else int(layer[2:-3])
+
+
 def parse_islands(items) -> dict:
-    """`[route] islands` / `--islands` entries, "NET" or "NET=WIDTH" (mm,
-    above 0), as {net: width or None}."""
-    out = {}
-    for item in items or ():
-        net, eq, width = str(item).partition("=")
-        try:
-            w = float(width) if eq else None
-        except ValueError:
-            w = 0.0
-        if not net or (eq and not (w or 0) > 0):
-            raise ValueError("%r is not NET or NET=WIDTH (a width in mm, above 0)" % item)
-        out[net] = w
-    return out
+    """`[route] islands` / `--islands` entries (`_island_entry`) as {net: width or None}."""
+    return {net: w for net, w, _ in map(_island_entry, items or ())}
+
+
+def parse_island_layers(items) -> dict:
+    """The layers `[route] islands` / `--islands` entries give their nets (`_island_entry`): {net: (layer, ...)}, only
+    the nets given some."""
+    return {net: layers for net, _, layers in map(_island_entry, items or ()) if layers}
 
 
 def router_flag(args, name: str):

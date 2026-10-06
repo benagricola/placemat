@@ -3344,7 +3344,7 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 
 ```
 placemat run <script | its directory> [--label L] [--fresh] [--no-reuse] [--no-resume] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
-placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--no-resume] [--json]
+placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH][@LAYER,...] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--no-resume] [--json]
                [--adopt NET ... | --adopt-all] [--partial] [--no-lock]
 placemat routes <script> [--release NET ... | --release-all]
 placemat impact <run> <run> [--board DIR]      # each a run id, a unique id prefix, a --label, or a run directory or run.json path
@@ -3860,6 +3860,20 @@ skipped; a malformed entry is refused when the settings load. The route step say
 island net had apart before and after (`islands` in the report); the
 island nets count in the closure, and `--adopt NET` keeps their routes like
 any other net's.
+
+An entry may end in `@` and a list of layers, `"VBUS=1.37@F,B"` or
+`"VBUS@F.Cu,B.Cu"` (F, In1 to In30, B, or their `.Cu` names): that net's
+pass lays tracks on those layers only, and its vias still pass through the
+others, joining a pour of the net there. Without `@` the net routes on the
+route's own layers. A layer that is not a copper layer is refused when the
+settings load; one the board does not have stops the route before its first
+router call. A bare `--islands NET` keeps the layers the setting gives it.
+The report's `island_layers` names each net's layers.
+
+```toml
+[route]
+islands = ["VBUS=1.37@F,B", "VSHUNT=0.3"]
+```
 
 A net that should keep other nets' copper further off than its class
 clearance, such as a switch node, gets a halo in `[route] net_halos`:
@@ -5379,7 +5393,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.pair_router_args` | `[]` | list | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
 | `route.pair_layers` | `{}` | table | the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `"P/N"` (either order) or a net class name, its value a list of layer names (`{"USB_D_P/USB_D_N" = ["In2.Cu", "B.Cu"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used |
 | `route.net_halos` | `{}` | table | a net mapped to a halo in mm (`{"SW" = 2.0}`): every router pass keeps other nets' new copper that far from the net's copper, and the net's own new copper that far from everything, to keep coupling off a switch node. Each net is given the larger of its net class clearance and its halo in the clearance map placemat hands the router. Before the route, a pad of another net within the halo whose own copper (an escape, a via) ends inside it is a `setup.net_halo` finding: the router cannot leave it. A key that names no net on the board is a `setup.net_halo` finding and the entry is not used |
-| `route.islands` | `[]` | list | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
+| `route.islands` | `[]` | list | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm), either with `@LAYER,...` after it (`"VBUS=1.37@F,B"`; F, In1 to In30, B or their .Cu names): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH, its tracks on the layers given (its vias may still pass through the others) or on the route's own layers; `placemat route --islands` adds to them |
 | `route.diff_pair_gap` | `0.0` | mm | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | `0.0` | mm | mm, a pair's track width; 0 is the net class's diff pair width |
 | `route.adopt_tolerance` | `0.001` | mm | mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped |
