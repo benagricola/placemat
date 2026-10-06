@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 import subprocess
 
+from placemat.findings import FindingCause
 from placemat.board_geometry import CellGeom, CopperItem, Footprint, NetClass, PadGeom, BoardGeometry
 from placemat.values import Box, CopperLayer, Face, Location
 
@@ -106,7 +107,9 @@ def placement_findings(plan) -> list:
 
 def declared_findings(plan) -> list:
     """The plan's findings less the ones for fixture parts no test declares
-    (a fixture board often carries parts a test never places) and the escape
-    findings, a routing diagnosis the geometry tests are not about."""
+    (a fixture board often carries parts a test never places), the escape
+    findings, a routing diagnosis the geometry tests are not about, and the
+    turn advice (turn.better), which judges a turn a geometry test chose."""
     return [f for f in plan.findings if "no declaration places it" not in f
-            and not getattr(f, "kind", "").startswith("escape_")]
+            and not getattr(f, "kind", "").startswith("escape_")
+            and getattr(f, "cause", None) is not FindingCause.TURN_BETTER]
