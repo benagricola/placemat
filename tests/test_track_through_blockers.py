@@ -59,3 +59,39 @@ def test_a_blocker_is_said_to_have_been_placed_or_not_when_the_track_became_plan
     by = {c["who"][0]: c["placed_when_plannable"] for c in f.facts["blockers"] if c["form"] == "pad"}
     assert by["K1"] is True
     assert by.get("T1", False) is False
+
+
+def test_a_track_refused_when_it_could_first_be_planned_says_so_and_what_refused_it():
+    """S1 searched, then T1 searched onto the track's first stretch. When S1 stands the track can be planned, but it runs
+    through K1 (firm, further along), so no room is kept for it and T1 lands on it: the finding names T1 first along the
+    leg, and says that no room was kept, from when, and that K1 refused it then."""
+    fps = [_fp("F1", 10, ("B", "A")),
+           footprint("S1", 36, 20, w=6, h=3, inst="s1", nets=("A", "C"), excess=0.0, fab=(33, 18.5, 39, 21.5)),
+           _fp("K1", 28, ("D", "E")),
+           footprint("T1", 18, 20, w=2, h=1, inst="t1", nets=("G", "H"), excess=0.0, fab=(17, 19.5, 19, 20.5))]
+    b = _board(fps)
+    b.place(Part("f1"), at=Location(10, 20))
+    b.place(Part("k1"), at=Location(28, 20))
+    b.place(Part("s1"), at=Near(Location(36, 20)))
+    b.place(Part("t1"), at=Near(Location(18, 20)))
+    b.track(Net("A"), [PadRef(Part("f1"), 2), PadRef(Part("s1"), 1)], layer=F, why="past k1")
+    f = _not_drawn(b.resolve())
+    assert f.facts["met"]["who"][0] == "T1" and f.facts["met"]["placed_when_plannable"] is False
+    room = f.facts["room"]
+    assert room["after"] == "s1"
+    assert room["met"]["who"][0] == "K1" and "placed_when_plannable" not in room["met"]
+    assert room["more"] == 1
+    text = render(f.cause, f.facts)
+    assert "no room was kept for it: it could be planned once s1 was placed, and then it ran through K1 pad 1 (D) and 1 more" \
+        in text, text
+
+
+def test_a_track_drawn_when_it_could_first_be_planned_says_nothing_of_its_room():
+    fps = [_fp("F1", 10, ("B", "A")), _fp("F2", 42, ("A", "B")), _fp("K1", 20, ("C", "D"))]
+    b = _board(fps)
+    for fp in fps:
+        b.place(Part(fp.inst), at=Location(fp.location.x, fp.location.y))
+    b.track(Net("A"), [PadRef(Part("f1"), 2), PadRef(Part("f2"), 1)], layer=F, why="straight through k1")
+    f = _not_drawn(b.resolve())
+    assert "room" not in f.facts
+    assert "no room" not in render(f.cause, f.facts)
