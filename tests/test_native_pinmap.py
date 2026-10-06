@@ -2,6 +2,7 @@
 same best map per pose with the same tallies to the last bit, the same airwires, the same steps and budget outcome."""
 import itertools
 import json
+import math
 import random
 import struct
 from types import SimpleNamespace
@@ -100,6 +101,17 @@ def soft():
     return input_of(pads, {"U1": u1})[0]
 
 
+def soft_reversed():
+    """A soft bus of four on the east side, each net's target due east of its mirror pin: the first map lays it
+    reversed. A pin outside the group is free, and a board airwire crosses the way east."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D", ""], "S": ["", "", ""]},
+                    {"Pm.PinPool": "1-8", "Pm.PinGroup": "bus:1-4"}, body=6.0, may_flip=True)
+    for i, net in enumerate("DCBA"):
+        pads += point_pad("T%d" % i, net, 25, 8 + i)
+    pads += point_pad("Q1", "X", 18, 4) + point_pad("Q2", "X", 19, 16)
+    return input_of(pads, {"U1": u1})[0]
+
+
 def rf_cell():
     """U1 in a cell with C1, whose RF net (a controlled impedance) runs to an antenna far east, and a net inside the
     cell: their lengths turn with the cell."""
@@ -133,7 +145,7 @@ def cell_at_30():
 CASES = {"four": (lambda: input_of(*reversed_four())[0], ("U1",)), "constrained": (constrained, ("U1",)),
          "joint": (joint, ("U1", "U2")), "held": (held, ("U1",)), "gapped": (gapped, ("U1",)),
          "grounded": (grounded, ("U1",)), "beside": (beside, ("U1",)), "soft": (soft, ("U1",)),
-         "rf_cell": (rf_cell, ("U1",)), "laid_diagonal": (laid_diagonal, ("U1",)), "cell_at_30": (cell_at_30, ("U1",))}
+         "soft_reversed": (soft_reversed, ("U1",)), "rf_cell": (rf_cell, ("U1",)), "laid_diagonal": (laid_diagonal, ("U1",)), "cell_at_30": (cell_at_30, ("U1",))}
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
@@ -144,7 +156,7 @@ def test_the_native_core_is_the_twin_on_fixed_cases(case, turns):
     assert native == python
 
 
-@pytest.mark.parametrize("case", ["held", "gapped", "soft"])
+@pytest.mark.parametrize("case", ["held", "gapped", "soft", "soft_reversed"])
 def test_the_native_core_is_the_twin_at_the_present_pose_with_a_short_search(case):
     # one seed of 100 moves: the present map, or the first, is kept as the best where the search finds worse
     make, refs = CASES[case]
@@ -233,3 +245,64 @@ def test_the_native_core_is_the_twin_on_the_reference_board():
     native, python = both(mod.input_of(case), tuple(case["parts"]), settings(pins_seeds=1, pins_anneal_moves=100,
                                                                             pins_faces=True))
     assert native == python and native[2]
+
+
+def reversed_soft_board(seed):
+    """A random part with a soft group of three to five nets on one side whose targets lie beyond that side in the
+    reverse of the group's order, jittered, among other nets and board airwires, laid at 0, 45 or 90 degrees."""
+    rng = random.Random(seed)
+    size = rng.randint(3, 5)
+    bus = ["B%d" % i for i in range(size)]
+    others = ["N%d" % i for i in range(rng.randint(0, 4))]
+    lead = [""] * rng.randint(0, 2)
+    sides = {"E": lead + bus + [""] * rng.randint(0, 2), "S": [], "W": [], "N": []}
+    for net in others + [""] * rng.randint(1, 3):
+        sides[rng.choice("SWN")].append(net)
+    n = sum(len(v) for v in sides.values())
+    first = len(lead) + 1
+    fields = {"Pm.PinPool": "1-%d" % n, "Pm.PinGroup": "bus:%d-%d" % (first, first + size - 1)}
+    if rng.random() < 0.3:
+        fields["Pm.PinFixed"] = str(rng.choice([k for k in range(1, n + 1) if not first <= k < first + size]))
+    turn = rng.choice((0.0, 45.0, 90.0))
+    pads, u1 = quad("U1", 15, 15, sides, fields, body=rng.choice((6.0, 8.0)), rotation=turn, may_flip=True)
+    c, s_ = math.cos(math.radians(turn)), math.sin(math.radians(turn))
+    for i, net in enumerate(reversed(bus)):
+        # east of the part in its own frame, north to south, turned with it (y down, counter-clockwise)
+        x, y = rng.uniform(12, 18), (i - (size - 1) / 2.0) * rng.uniform(1.0, 2.0)
+        pads += point_pad("T%d" % i, net, round(15 + x * c + y * s_, 2), round(15 + y * c - x * s_, 2))
+    for i, net in enumerate(others):
+        pads += point_pad("S%d" % i, net, round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+    for k in range(rng.randint(0, 4)):
+        pads += point_pad("Q%da" % k, "X%d" % k, round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+        pads += point_pad("Q%db" % k, "X%d" % k, round(rng.uniform(0, 30), 2), round(rng.uniform(0, 30), 2))
+    return input_of(pads, {"U1": u1})[0]
+
+
+def first_reversed(inp) -> bool:
+    """Whether the twin's first map, at the present pose, lays the soft group's movables in descending pin order."""
+    from placemat import pinmap_twin as tw
+    from placemat.pinmap_geom import Pose
+    pb = tw._as_native(problem_of(inp, settings().pins_exit_mm))
+    w = tuple(float(x) for x in params_of(settings(), ("U1",))["weights"])
+    poses = [Pose(p[1], p[2], tw._frame(pb, k)) for k, p in enumerate(pb.parts)]
+    sc = tw.Scorer(pb, poses, w, tw.Background(pb.wires, w), [0])
+    start, _ = tw.first_map(sc, [0], [tuple(q for _, q in e) for e in pb.ends])
+    _, _, members, _ = pb.soft[0]
+    at = [start[pb.movable[mv][0]][pb.movable[mv][1]] for _, mv, _ in members if mv >= 0]
+    return len(at) > 1 and at == sorted(at, reverse=True)
+
+
+def test_the_reversed_soft_boards_start_reversed():
+    # the fuzzed boards below exercise a soft group laid reversed
+    assert all(first_reversed(reversed_soft_board(seed)) for seed in range(16))
+
+
+@pytest.mark.parametrize("seed", range(16))
+def test_the_native_core_is_the_twin_on_random_boards_with_a_soft_group_written_backwards(seed):
+    inp = reversed_soft_board(seed)
+    if inp is None:
+        pytest.skip("no net may move")
+    s = settings(pins_anneal_moves=150, pins_seeds=2, pins_rotations=(0.0, 45.0, 90.0, 180.0), pins_faces=True,
+                 score_crossing_plane=0.5)
+    native, python = both(inp, ("U1",), s)
+    assert native == python

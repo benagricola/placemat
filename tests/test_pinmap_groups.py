@@ -249,3 +249,39 @@ def test_both_cores_start_the_soft_group_beside_its_held_member():
         g = study_group(inp, ("U1",), s, native=native)
         r = g.results[0]
         assert (pin(r, "D"), pin(r, "F")) == ("5", "6"), native
+
+
+def backwards(group):
+    """U1's bus A-D on its east pins 1-4 (north to south), each net's target due east of the pin its mirror stands on:
+    A's of pin 4, D's of pin 1. Written order crosses every pair of lines; the reverse crosses none."""
+    pads, u1 = quad("U1", 10, 10, {"E": ["A", "B", "C", "D"], "S": ["", "", "", ""]},
+                    {"Pm.PinPool": "1-8", "Pm.PinGroup": group}, body=6.0)
+    for i, net in enumerate("DCBA"):
+        pads += point_pad("T%d" % i, net, 25, 8.5 + i)
+    return input_of(pads, {"U1": u1})[0]
+
+
+def test_the_first_map_lays_a_soft_group_reversed_when_its_targets_lie_in_reverse():
+    from placemat import pinmap_twin
+    from placemat.pinmap_geom import Pose
+    pb = problem_of(backwards("bus:1-4"), 0.5)
+    w = (5.0, 3.0, 0.0, 0.25, 0.005, 4.0)
+    sc = pinmap_twin.Scorer(pb, [Pose(10.0, 10.0)], w, pinmap_twin.Background(pb.wires, w), [0])
+    start, _ = pinmap_twin.first_map(sc, [0], [tuple(q for _, q in e) for e in pb.ends])
+    at = {pb.nets[n][0]: pb.pins[0][start[n][0]][0] for n in range(len(pb.nets))}
+    assert [at[n] for n in "ABCD"] == ["4", "3", "2", "1"]
+
+
+def test_both_cores_start_a_soft_group_reversed_with_no_crossings_among_its_lines(native):
+    # one move at zero temperature from the first map: the first map stands
+    s = settings(pins_rotations=(0.0,), pins_anneal_moves=1, pins_anneal_start=0.0, pins_anneal_end=0.0)
+    r = study_group(backwards("bus:1-4"), ("U1",), s, native=native).results[0]
+    assert [pin(r, n) for n in "ABCD"] == ["4", "3", "2", "1"]
+    assert r.breakdown.among == 0 and landed(r, "bus").spread_mm == 0.0
+
+
+def test_a_hard_group_keeps_its_written_order_when_its_targets_lie_in_reverse(native):
+    s = settings(pins_rotations=(0.0,), pins_anneal_moves=1, pins_anneal_start=0.0, pins_anneal_end=0.0)
+    r = study_group(backwards("bus!:1-4"), ("U1",), s, native=native).results[0]
+    at = [int(pin(r, n)) for n in "ABCD"]
+    assert at == list(range(at[0], at[0] + 4))
