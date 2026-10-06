@@ -47,8 +47,8 @@ and reports only what it may not change.
 After the searched tier and before the late copper (where cleanup runs now), refine:
 
 1. **Holds the board** as the search left it. Firm items, decided items and declared copper stay as they are.
-2. **The movable set** is every searched part and cell, using the `_cleanup_movable` rule (layout.py:8543) widened to
-   cells, less:
+2. **The movable set** is every searched part and cell, and the refinable members of cells (see "Cells: placed whole,
+   refined as members"), using the `_cleanup_movable` rule (layout.py:8543) widened to cells, less:
    - an item another declaration is placed against, such as a `Beside` target or a row member;
    - an item whose turn or place a stated constraint owns: `rotation=` set, `Facing`, `Turned`, a `why=` that names a
      turn, `Near` with a radius, which stays a hard bound.
@@ -148,6 +148,46 @@ constraints are the only thing that holds an item.
 - **Migration.** On its first run, a script with a `.lock.json` converts the entries into the snapshot, and says so. The
   migration entry tells the user to state as constraints any item that was held on purpose.
 
+## Cells: placed whole, refined as members
+
+Decided with the user. A cell is placed as one piece by the constructive search, as now. Refine then works on its
+members, so routing can make a part give way or turn inside a cell. This replaces fixed cell designs and their
+designed-ahead variations: `board.alternative`, `board.unit` and arrangement alternatives are removed, with migration
+entries. Neither fairing tree uses them.
+
+**Which members refine may move.**
+- **Joined by the module's pours:** members the module's own pours join are one rigid group. They move and turn only
+  together, as the cell does today. Re-planning a pour around moved members comes later. Module pours are mostly stated
+  by their members' pads, so they can follow their members once that step is built.
+- **Unconnected, or joined only by tracks:** every other member is refinable on its own.
+- **Module tracks:** when refine moves a member, the module tracks that touch it are deleted. Their connections go to
+  the routing phases to be routed again, keeping the width the module declared for them.
+
+**The module's constraints go with its members.** Each member stays bound by what its module script declares,
+evaluated on the board:
+- `Beside` and pin-relative places;
+- link limits;
+- turns and faces;
+- keepouts and regions;
+- pushes.
+
+The module's declarations are carried with the stamped cell as data, the same terms the module's own resolve used, so
+the board's refine judges a member exactly as the module's search did. A member moves only within what both its module
+and the board allow.
+
+**Identical cells.** Several cells stamped from one module may end up laid out differently. A module script can set
+`rigid=True` on the stamp, or the board on the cell, to keep that cell as stamped, for example for channels that must
+match.
+
+**Scoring.** Members are scored by the one score like every other item.
+
+## The pin study's pose check
+
+A turned part carries its cell with it: an MCU turns its crystal, its bypass capacitors and its fanout. The same spot
+may not be legal after the turn, though a spot nearby would be. For each pose the study judges, it therefore runs a
+short refine with the part held at that turn and free to move within its declaration. It then finds the best map on
+that board. The advice comes with the board the turn and remap need, and its score change.
+
 ## The pin study after refine
 
 Decided with the user: refine places and turns every item with the pins as the capture has them. A part with a pin
@@ -155,8 +195,8 @@ pool is turned by refine like any other item, within what its declaration allows
 
 After refine, the pin study runs on the refined board, on the one score (one-score spec):
 - **at refine's pose:** the best map for the part where refine left it;
-- **at the other poses its declaration allows:** for each, the part turned there (checked legal on the refined board,
-  which the study does not check today) with the best map for that pose. This catches a turn that pays only with a
+- **at the other poses its declaration allows:** for each, the part turned there and refined around the turn (see "The
+  pin study's pose check"), with the best map for that pose. This catches a turn that pays only with a
   remap, which refine on the captured pins never takes.
 
 It reports one piece of advice per part: the remap, and the turn if one is needed, with the score change of the two
