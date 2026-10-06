@@ -15,6 +15,14 @@ section for each hand-written pattern a newer form replaces.
   so they add up to more than the run took. A run with arrangements still renders after them. The setting
   `run.parallel` (default true) turns it off, for a loaded machine: `[run] parallel = false`. Scripts need no change.
 
+- **An explore can rank its best variants by a quick route.** `placemat run <script> --explore SECONDS --route-top N`
+  (or `[explore] route_top = N`) writes the best N variants by run score, one at a time, in `<run>/explore/seed-S/`,
+  quick-routes each there and says each one's closure, clean and raw, its open items and its time beside its score.
+  `--accept` then takes the best clean closure, ties going to the better score. A route that fails is said on its
+  variant's line and the explore's result stands. `metrics.explore`, the explore record and the studio's explore
+  view carry the routes (`routes`, `taken_seed`). Each route costs a quick route of the board, minutes on a large
+  one, so the default is 0 and an explore without the flag is as before. Scripts need no change.
+
 ### Changed
 
 - **A replay reuses the planned copper.** When every step of a preview, run or studio resolve replays and the script

@@ -3354,3 +3354,74 @@ out.shown = ev("S.xv.drawn.seed"); out.gone = pm().map(l => l.length); out.state
     assert out["drawn"] == [1, 1] and 'points="1,1 5,1"' in out["svg"] and 'points="2,2 5,2 5,4"' in out["svg"]
     assert "GPIO7, pin 12" in out["open"] and "turn U1 to 90 degrees" in out["open"] and 'aria-pressed="true"' in out["open"]
     assert out["shown"] == 4 and out["gone"] == [0, 0] and out["state"] is None
+
+
+EXPLORE_ROUTES = r"""
+const it = Object.assign(item("a", 1), {at: [2, 2], rotation: 0});
+full([it, item("b", 5)], [st("a"), st("b")]);
+ev("S.exploreFps = 100");
+const click = (el, sel, data) => els[el].onclick({target: {closest: s => s === sel ? {dataset: data || {}} : null}});
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'explore', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore", focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2}});
+const v = (seed, score, x) => ({ev: "variant", seed, score, measures: {}, placements: {a: [x, 2, 0, "front"]}, order: ["a"], t: seed});
+send("cmdev", {id: 8, n: 0, ev: v(3, 8, 6)}); send("cmdev", {id: 8, n: 0, ev: v(4, 9, 7)}); send("cmdev", {id: 8, n: 0, ev: v(5, 9.5, 8)});
+const ROUTES = [{seed: 3, score: 8, closure_clean: 0.864, closure: 0.9, open_before: 100, open_after: 12, valid: true, seconds: 184.2, dir: "/r/explore/seed-3"},
+  {seed: 4, score: 9, closure_clean: 0.893, closure: 0.95, open_before: 100, open_after: 9, valid: false, seconds: 200, dir: "/r/explore/seed-4"},
+  {seed: 5, score: 9.5, error: {type: "RuntimeError", message: "router exited 1\ntail"}, seconds: 3, dir: "/r/explore/seed-5"}];
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_done", best_seed: 3, best: 8, baseline: 10, kept: false, pin_maps: [], routes: ROUTES, taken_seed: 4}});
+const runs = () => { ev("renderRuns()"); return els["#tab-runs"].innerHTML; };
+"""
+
+
+@needs_node
+def test_an_explores_routed_variants_show_their_closure_beside_their_score_and_the_one_taken(tmp_path):
+    out = run_more(tmp_path, EXPLORE_ROUTES + r"""
+out.html = runs();
+click("#tab-runs", "[data-xroute]", {xroute: "4"}); flush();
+out.shown = ev("S.xv.drawn.seed");
+""")
+    h = out["html"]
+    assert 'class="xroutes"' in h and 'data-xroute="3"' in h and 'data-xroute="4"' in h and 'data-xroute="5"' in h
+    three = h[h.index('data-xroute="3"'):h.index('data-xroute="4"')]
+    assert "#3" in three and "8.0" in three and "86.4% clean, 90.0% raw, 12 open, 3:04" in three and "taken" not in three
+    four = h[h.index('data-xroute="4"'):h.index('data-xroute="5"')]
+    assert '<span class="chip good">taken</span>' in four and '<span class="chip warn">DRC not clean</span>' in four
+    five = h[h.index('data-xroute="5"'):]
+    assert '<span class="chip bad">error</span>' in five and "RuntimeError: router exited 1" in five and "tail" not in five
+    assert "(" not in re.sub(r"<[^>]*>", "", h[h.index('class="xroutes"'):h.index("<h3>Commands")])
+    assert out["shown"] == 4
+
+
+@needs_node
+def test_an_explore_whose_routes_all_failed_says_the_best_score_is_taken(tmp_path):
+    out = run_more(tmp_path, EXPLORE_ROUTES + r"""
+ev("S.xv.done = Object.assign({}, S.xv.done, {routes: [S.xv.done.routes[2]], taken_seed: undefined})");
+out.html = runs();
+""")
+    h = out["html"]
+    assert "every route failed: the best score is taken" in h[h.index('class="xroutes"'):]
+
+
+@needs_node
+def test_an_explore_that_did_not_route_shows_no_routes(tmp_path):
+    out = run_more(tmp_path, EXPLORE_PINS + r"""
+out.html = runs();
+""")
+    assert 'class="xroutes"' not in out["html"]
+
+
+@needs_node
+def test_a_past_explore_shows_the_routes_its_record_kept(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const file = explores[0].file;
+  const record = {script: PROJ + "/a/A_layout.py", focus: ["a"], plain: {a: [1, 1, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2, seconds: 30, at: 3, best_seed: 3, best: 8, kept: false,
+    variants: [{seed: 0, score: 10, placements: {a: [1, 1, 0, "front"]}, t: 0}, {seed: 3, score: 8, placements: {a: [9, 1, 0, "front"]}, t: 1}],
+    routes: [{seed: 3, score: 8, closure_clean: 0.5, closure: 0.75, open_before: 4, open_after: 2, valid: true, seconds: 5, dir: "d"}], taken_seed: 3};
+  serve({["/exploreview?f=" + encodeURIComponent(file)]: {record, file, run: "", doc: null, source: "", drawn: {}, unmoved: []}});
+  ev("openExploreRecord(" + JSON.stringify(file) + ")"); await tick(); flush();
+  out.done = [ev("S.xv.done.routes.length"), ev("S.xv.done.taken_seed")];
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["done"] == [1, 3]

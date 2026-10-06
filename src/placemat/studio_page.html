@@ -121,6 +121,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .xpin > div { min-width: 0; overflow-wrap: anywhere; }
 .xpinh { display: flex; gap: 8px; font-variant-numeric: tabular-nums; }
 .xpin button { margin-left: 6px; }
+.xroutes { margin-top: 8px; }
 .pinmap .pm-before { stroke: var(--k-violet); stroke-width: 0.15; stroke-dasharray: 0.6 0.4; }
 .pinmap .pm-after { stroke: var(--good); stroke-width: 0.2; }
 .sgprobe { margin: 3px 0 4px; padding: 6px 8px; background: var(--surface2); border: 1px solid var(--line); border-radius: 6px; font-weight: 400; }
@@ -3228,7 +3229,8 @@ async function openExploreRecord(file) {
     if (S.cmdView && d.source === "build") { const r = d.doc.route; S.cmdView.route = {total: r.nets, done: r.routed, failed: r.failed, finished: true, partial: !!r.partial, dropped: r.dropped || 0, results: {}, step: {}}; }
     xvStart("record", d.file, {focus: doc.focus, plain: doc.plain, order: doc.order, baseline: doc.baseline, at: doc.at, jobs: doc.jobs, seconds: doc.seconds});
     for (const v of doc.variants || []) if (v.seed !== 0) xvAdd(v, true);
-    S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline, pin_maps: doc.pin_maps || []}; S.xv.script = doc.script;
+    S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline, pin_maps: doc.pin_maps || [], routes: doc.routes || [],
+      taken_seed: doc.taken_seed, routes_skipped: doc.routes_skipped}; S.xv.script = doc.script;
     S.xv.base = d.doc ? d.drawn : null; S.xv.board = d.doc ? d.source : "none";
     S.xv.auto = false; S.xv.sel = S.xv.variants.findIndex(v => v.seed === doc.best_seed); xvDrawNow();
     S.xv.drawn = S.xv.variants[S.xv.sel] || S.xv.bestDrawn; looking();
@@ -3998,6 +4000,22 @@ function xvPinsHTML(X) {
   }).join("");
   return '<div class="xpins"><div class="cst">Pin study</div>' + rows + "</div>";
 }
+// ---- an explore's routes (explore._route_variants): each top variant's quick-route closure, clean and raw, the signal items it left
+// open and its time, beside its score, and the variant the routes took (taken_seed). They come with the explore's end.
+const xvRoutes = X => (X.done && X.done.routes) || [];
+function xvRoutesHTML(X) {
+  const rs = xvRoutes(X), taken = X.done && X.done.taken_seed;
+  if (!rs.length) return X.done && X.done.routes_skipped === "no_board" ? '<div class="xroutes"><div class="cst">Routes</div><div>none: a preview writes no board to route</div></div>' : "";
+  const pct = v => (100 * v).toFixed(1) + "%";
+  const rows = rs.map(r => {
+    const v = xvBySeed(r.seed) || {seed: r.seed}, took = r.seed === taken;
+    const body = r.error ? pill("error", "bad") + " " + esc(r.error.type + ": " + (r.error.message || "").split("\n")[0])
+      : esc(pct(r.closure_clean) + " clean, " + pct(r.closure) + " raw, " + r.open_after + " open, " + fmtDur(1000 * r.seconds)) + (r.valid === false ? " " + pill("DRC not clean", "warn") : "");
+    return '<div class="xpin' + (took ? " on" : "") + '" data-xroute="' + r.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(r.score) + "</span>" +
+      (took ? pill("taken", "good") : "") + "</div><div>" + body + "</div></div>";
+  }).join("");
+  return '<div class="xroutes"><div class="cst">Routes</div>' + rows + (taken == null ? "<div>every route failed: the best score is taken</div>" : "") + "</div>";
+}
 function drawExplore() {
   const svg = typeof B !== "undefined" && B.svg; if (!svg || !svg.querySelectorAll) return;
   for (const e of svg.querySelectorAll(".explore")) e.remove();
@@ -4055,7 +4073,7 @@ function exploreHTML() {
     '<div class="xctl"><button data-xstep="-1">&lt;</button><span>' + (shown ? seedWord(shown) + " " + f1(shown.score) + ", " : "") + (at + 1) + " of " + vs.length + '</span><button data-xstep="1">&gt;</button>' +
     '<select data-xmode><option value="order"' + (X.mode === "order" ? " selected" : "") + '>by order</option><option value="score"' + (X.mode === "score" ? " selected" : "") + ">by score</option></select>" +
     '<button data-xauto="1" class="' + (X.auto ? "on" : "") + '" aria-pressed="' + (X.auto ? "true" : "false") + '" title="the board shows the best variant so far and changes when a better one lands">Follow best</button><label><input type="checkbox" data-xdens' + (X.density ? " checked" : "") + "> where it tried</label></div>" +
-    (recent ? '<div class="xlist" title="the variants that landed last, newest first, against the baseline">' + recent + "</div>" : "") + (thumbs ? '<div class="xthumbs">' + thumbs + "</div>" : "") + xvPinsHTML(X) + moves + "</div>";
+    (recent ? '<div class="xlist" title="the variants that landed last, newest first, against the baseline">' + recent + "</div>" : "") + (thumbs ? '<div class="xthumbs">' + thumbs + "</div>" : "") + xvPinsHTML(X) + xvRoutesHTML(X) + moves + "</div>";
 }
 function exploreClick(e) {
   const X = S.xv; if (!X) return;
@@ -4064,6 +4082,7 @@ function exploreClick(e) {
   const pa = e.target.closest("[data-xpa]");
   if (pa) { const [seed, g] = pa.dataset.xpa.split(":").map(Number); X.pin = X.pin && X.pin.seed === seed && X.pin.g === g ? null : {seed, g}; drawPinMap(); schedule("runs"); return; }
   const pn = e.target.closest("[data-xpin]"); if (pn) { const i = vs.findIndex(v => v.seed === +pn.dataset.xpin); if (i >= 0 && vs[i] !== X.drawn) show(i); return; }
+  const rn = e.target.closest("[data-xroute]"); if (rn) { const i = vs.findIndex(v => v.seed === +rn.dataset.xroute); if (i >= 0 && vs[i] !== X.drawn) show(i); return; }
   const row = e.target.closest("[data-xr]"); if (row) { show(+row.dataset.xr); return; }
   const th = e.target.closest("[data-xt]"); if (th) { show(vs.findIndex(v => v.seed === +th.dataset.xt)); return; }
   const st = e.target.closest("[data-xstep]");

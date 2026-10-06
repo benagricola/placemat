@@ -574,7 +574,8 @@ def _write_lock(path, entries, focus, new, plan) -> list:
 
 def search(make_board, script, seconds: float, jobs: int | None = None, keys=(), after_line=None, box=None,
            accept: bool = False, seeds=None, release: str = "", run_id: str = "", checkpoint_dir=None,
-           resume: str = "auto", keep_state: bool = False) -> tuple:
+           resume: str = "auto", keep_state: bool = False, route_top: int | None = None, variants_dir=None,
+           route_exclude=()) -> tuple:
     """What `--explore` does: read the script's lock, choose the focus, run
     the variants, and report what the best would move against the current
     placement. With `accept`, write the best's decisions for the focused
@@ -589,7 +590,12 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     unless `keep_state`: the caller clears it (checkpoint.finish_dir) once
     the result is recorded. When the process is stopped, the best so far is reported and kept there,
     nothing is written to the lock whatever `accept` says - the decision is
-    the user's - and the stop goes on up with the report as `.explore`."""
+    the user's - and the stop goes on up with the report as `.explore`.
+
+    `route_top` (None: [explore] route_top) quick-routes the best variants by run score after the search, each on its own
+    board written in `variants_dir` (`_route_variants`); with routes, the variant taken - reported as `taken_seed`, its
+    moves the report's, and what `accept` writes - is the best clean closure, ties going to the better score. Without
+    `variants_dir` (a preview) nothing is routed and the report says so."""
     from . import checkpoint as _checkpoint
     from . import stop
     path = _lock.path_for(script)
@@ -627,34 +633,114 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     report.update(curve=_compact(result.curve), found=_found(result.curve, result.seconds), ended=result.ended)
     if result.failures:
         report["failures"] = result.failures
-    if ck is not None and result.best_seed and (_checkpoint.read_best(ck.dir) or {}).get("seed") == result.best_seed:
-        report["accept"] = accept_command(script, result.best_seed)
-    if result.best_seed == 0:
-        _study(report, make_board, entries, focus, result, {0: (base, current)})
-        _write_record(script, result, report, run_id, (base, current))
-        if ck is not None and not keep_state:
-            ck.finish()
-        return report, entries
-    with _context_of(make_board):
-        board = make_board()
-        best = board.resolve(explore=Explore(result.best_seed, frozenset(focus)), lock=entries)
-    for key in sorted(focus):
-        m = _move_of(key, current.placement(key), best.placement(key))
-        if m:
-            report["moves"].append(m)
+    have = {0: (base, current)}
+    if result.best_seed:
+        have[result.best_seed] = _variant(make_board, entries, focus, result.best_seed, have)
+    top = base.settings.explore_route_top if route_top is None else route_top
+    taken = result.best_seed
+    if top > 0:
+        if variants_dir is None:
+            report["routes"], report["routes_skipped"] = [], "no_board"
+        else:
+            # before the accept, as the study: the variants are routed as they were ranked, under the lock of the search
+            _route_variants(report, make_board, entries, focus, result, have, top, Path(variants_dir), route_exclude)
+            closed = _taken(report["routes"])
+            if closed is not None:
+                taken = report["taken_seed"] = closed
+    if ck is not None and taken and (_checkpoint.read_best(ck.dir) or {}).get("seed") == taken:
+        report["accept"] = accept_command(script, taken)
+    if taken:
+        board, chosen = have[taken]
+        for key in sorted(focus):
+            m = _move_of(key, current.placement(key), chosen.placement(key))
+            if m:
+                report["moves"].append(m)
     # before the accept: the variants are studied under the lock they were ranked under
-    _study(report, make_board, entries, focus, result, {0: (base, current), result.best_seed: (board, best)})
-    if accept:
-        placed = [k for k in focus if best.placement(k) is not None]
-        new = _lock.entries(board, best, placed, release, run_id, round(result.best, 1))
-        entries = _write_lock(path, entries, focus, new, best)
+    _study(report, make_board, entries, focus, result, have)
+    if accept and taken:
+        placed = [k for k in focus if chosen.placement(k) is not None]
+        total = next(r[1] for r in result.results if r[0] == taken)
+        new = _lock.entries(board, chosen, placed, release, run_id, round(total, 1))
+        entries = _write_lock(path, entries, focus, new, chosen)
         report["accepted"] = True
         if ck is not None:
             ck.best_path.unlink(missing_ok=True)         # taken: it would not match the lock now
-    _write_record(script, result, report, run_id, (board, best))
+    _write_record(script, result, report, run_id, have[result.best_seed])
     if ck is not None and not keep_state:
         ck.finish()
     return report, entries
+
+
+def _variant(make_board, entries, focus, seed: int, have: dict) -> tuple:
+    """(board, plan) of a variant: the one in `have`, or resolved again (a seed is deterministic) and kept there."""
+    if seed not in have:
+        with _context_of(make_board):
+            board = make_board()
+            have[seed] = (board, board.resolve(explore=Explore(seed, frozenset(focus)), lock=entries))
+    return have[seed]
+
+
+def _write_variant(make_board, board, plan, folder: Path) -> Path:
+    """The variant's board, written as a run writes its own: the plan applied to a copy of the board `pcb layout`
+    generated (the cached generation, as an arrangement's board is), in `folder` as layout.kicad_pcb with its project and
+    rules beside it. Returns the board's path."""
+    from .arrangement_run import scratch_board
+    from .kicad.write import apply_plan, finish_board
+    from .runner import cached_generation
+    src = make_board.src
+    pcb = scratch_board(cached_generation(src) / src.pcb.name, folder)
+    apply_plan(pcb, plan)
+    finish_board(pcb, make_board.fab, refs_to_fab=getattr(board, "refs_on_fab", True))
+    return pcb
+
+
+def _route_variants(report, make_board, entries, focus, result, have: dict, top: int, folder: Path, exclude=()) -> None:
+    """`report["routes"]`: the best `top` variants by run score, in that order, one at a time, each written in its own
+    folder (`folder`/seed-N) and quick-routed there as `placemat run --route` routes (the plane nets and `exclude` left
+    out). Each entry is {"seed", "score", "dir", "seconds"} with the route's "closure_clean", "closure", "open_before",
+    "open_after" and "valid", or "error" {"type", "message"} when writing or routing it raised: the others go on and the
+    explore's result stands. `seconds` is the variant's wall-clock time after the explore's own: its resolve when it is
+    not in `have`, its board and its route. The route's events are not the command's own and are not sent. A stop (a
+    signal) is the explore's stop, as one during the study is, with the routes done so far in the report."""
+    import time
+    from . import channel, stop
+    from .console import console
+    from .kicad import route as route_mod
+    out = report["routes"] = []
+    rows = result.results[:top]
+    try:
+        with _context_of(make_board):
+            for k, (seed, total, _) in enumerate(rows):
+                d = folder / ("seed-%d" % seed)
+                entry = {"seed": seed, "score": round(total, 1), "dir": str(d)}
+                console.say("explore", "quick-routing seed %d, %d of %d, on its own board in %s" % (seed, k + 1, len(rows), d))
+                t0 = time.perf_counter()
+                try:
+                    board, plan = _variant(make_board, entries, focus, seed, have)
+                    pcb = _write_variant(make_board, board, plan, d)
+                    with channel.paused():
+                        r = route_mod.route_board(pcb, d / "route", exclude_nets=set(plan.plane_nets) | set(exclude),
+                                                  quick=True)
+                    entry.update(closure_clean=r.closure_clean, closure=r.closure, open_before=r.open_before,
+                                 open_after=r.open_after, valid=r.valid)
+                except Exception as e:
+                    entry["error"] = {"type": type(e).__name__, "message": str(e)}
+                entry["seconds"] = round(time.perf_counter() - t0, 3)
+                out.append(entry)
+    except stop.Stopped as s:
+        report["stopped"] = s.label
+        s.explore, s.stage = report, "explore"
+        stop.say(stopped_line(report), both=False)
+        raise
+
+
+def _taken(routes: list):
+    """The seed of the routed variant with the best clean closure, the first (the better run score) of a tie; None when
+    every route failed."""
+    closed = [r for r in routes if "error" not in r]
+    if not closed:
+        return None
+    return max(closed, key=lambda r: r["closure_clean"])["seed"]
 
 
 def _study(report, make_board, entries, focus, result, have: dict) -> None:
@@ -785,6 +871,7 @@ def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
                "best_seed": result.best_seed, "best": result.best, "kept": bool(report.get("accepted")), "variants": result.variants,
                "curve": result.curve, "found": report.get("found"), "ended": result.ended, "run": run_id,
                "pin_maps": report.get("pin_maps") or []}
+        doc.update(_routed(report))
         path.write_text(json.dumps(doc, separators=(",", ":")))
         report["record"] = str(path)
         if shown is not None:
@@ -793,9 +880,15 @@ def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
         if rep is not None:
             rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline, "tried": result.tried,
                       "kept": bool(report.get("accepted")), "record": str(path), "found": report.get("found"), "ended": result.ended,
-                      "pin_maps": report.get("pin_maps") or []})
+                      "pin_maps": report.get("pin_maps") or [], **_routed(report)})
     except (OSError, ValueError):
         pass
+
+
+def _routed(report) -> dict:
+    """What the record and its done event keep of the routes (`_route_variants`): the routes and the seed taken by them,
+    when the explore routed."""
+    return {k: report[k] for k in ("routes", "taken_seed", "routes_skipped") if k in report}
 
 
 def _write_best(record, result, board, plan) -> None:
@@ -831,12 +924,15 @@ class ExploreOptions:
     jobs: int | None = None
     accept: bool = False
     resume: str = "auto"            # "yes": --resume, "no": --no-resume
+    route_top: int | None = None    # --route-top; None: [explore] route_top
 
 
-def before_resolve(script, board, make_board, options, say, run_id: str = "", keep_state: bool = False) -> tuple:
+def before_resolve(script, board, make_board, options, say, run_id: str = "", keep_state: bool = False, variants_dir=None,
+                   route_exclude=()) -> tuple:
     """The lock entries a run resolves with, and the explore report when
     --explore was given (else None): the search runs first, and with
-    --accept its decisions are in the entries returned."""
+    --accept its decisions are in the entries returned. `variants_dir` is
+    where routed variants are written (a run's; None routes none)."""
     from . import __version__
     from . import lock as _lock
     if options is None:
@@ -844,7 +940,8 @@ def before_resolve(script, board, make_board, options, say, run_id: str = "", ke
     state = _state_dir(script, make_board)
     report, entries = search(make_board, script, options.seconds, options.jobs, options.keys,
                              options.after_line, options.box, options.accept, release=__version__,
-                             run_id=run_id, checkpoint_dir=state, resume=options.resume, keep_state=keep_state)
+                             run_id=run_id, checkpoint_dir=state, resume=options.resume, keep_state=keep_state,
+                             route_top=options.route_top, variants_dir=variants_dir, route_exclude=route_exclude)
     for line in report_lines(report):
         say("explore", line)
     return entries, report
@@ -894,27 +991,71 @@ def _report_lines(report) -> list:
     head = "%d variants in %.0f s over %d focused item%s" % (
         report["tried"], report.get("seconds", 0.0), len(report["focus"]), "" if len(report["focus"]) == 1 else "s")
     ended = _ended_text(report.get("ended"))
-    if not report["best_seed"]:
+    if not report["best_seed"] and "routes" not in report:
         return [head + ": no variant scored better than the current placement" + ended]
+    if not report["best_seed"]:
+        lines = [head + ": no variant scored better than the current placement" + ended]
+        return lines + _move_lines(report) + route_lines(report) + _accept_lines(report)
     moved = ", ".join("%s %.1f -> %.1f" % (t, x, y) for t, (x, y) in (report.get("terms") or {}).items())
     found = report.get("found")
     when = (", best found at variant %d of %d, %s in (of %s)" % (found["i"], found["of_variants"], duration(found["t"]),
                                                               duration(found["of_seconds"]))) if found else ""
-    lines = [head + ": score %.1f -> %.1f mm%s; %d item%s would move%s%s" % (
-        b, a, " (%s)" % moved if moved else "", len(report["moves"]), "" if len(report["moves"]) == 1 else "s", when, ended)]
+    taken = report.get("taken_seed", report["best_seed"])
+    lines = [head + ": score %.1f -> %.1f mm%s; %d item%s would move%s%s%s" % (
+        b, a, " (%s)" % moved if moved else "", len(report["moves"]), "" if len(report["moves"]) == 1 else "s",
+        "" if taken == report["best_seed"] else " to seed %d's places, taken by route closure" % taken, when, ended)]
+    lines += _move_lines(report)
+    lines += pin_map_lines(report)
+    lines += route_lines(report)
+    return lines + _accept_lines(report)
+
+
+def _move_lines(report) -> list:
+    lines = []
     for m in report["moves"]:
         turn = "" if m["rotation"][0] == m["rotation"][1] else ", rotation %s -> %s" % tuple(
             "-" if r is None else "%g" % r for r in m["rotation"])
         if "arrangement" in m:
             turn += ", arrangement %s -> %s" % tuple(a or "default" for a in m["arrangement"])
         lines.append("  %s: %s%s" % (m["key"], "placed/unplaced" if m["mm"] is None else "%.2f mm" % m["mm"], turn))
-    lines += pin_map_lines(report)
-    if report["accepted"]:
-        lines.append("accepted: written to the lock")
-    else:
-        lines.append("not accepted: --accept writes it to the lock%s" % (
-            ", or later: " + report["accept"] if report.get("accept") else ""))
     return lines
+
+
+def _accept_lines(report) -> list:
+    if report["accepted"]:
+        return ["accepted: written to the lock"]
+    if report.get("taken_seed") == 0:
+        return ["nothing to accept: the current placement's route closed best"]
+    return ["not accepted: --accept writes it to the lock%s" % (
+        ", or later: " + report["accept"] if report.get("accept") else "")]
+
+
+def route_lines(report) -> list:
+    """A line per routed variant (`_route_variants`): its route closure, clean and raw, the signal items it left open and
+    the time it took, or that writing or routing it failed; then the time the routes took after the explore's own and the
+    variant they took. Nothing when the explore did not route."""
+    if "routes" not in report:
+        return []
+    if report.get("routes_skipped") == "no_board":
+        return ["  routes: none; a preview writes no board to route: explore in a run to route its variants"]
+    out = []
+    routes = report["routes"]
+    for r in routes:
+        at = "  route, seed %d at %.1f mm: " % (r["seed"], r["score"])
+        if r.get("error"):
+            message = (r["error"]["message"] or "").splitlines()
+            out.append(at + "the route failed with %s%s" % (r["error"]["type"], ": " + message[0] if message else ""))
+            continue
+        out.append(at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s" % (
+            100 * r["closure_clean"], 100 * r["closure"], r["open_after"], duration(r["seconds"]),
+            "" if r.get("valid", True) else "; the placement's DRC was not clean before routing"))
+    if routes:
+        t = report.get("taken_seed")
+        taken = ("taken by closure: seed %d%s" % (t, ", the current placement" if t == 0 else "")) if t is not None \
+            else "every route failed: the best score is taken"
+        out.append("  routes: %d variant%s quick-routed in %s, after the explore's time; %s" % (
+            len(routes), "" if len(routes) == 1 else "s", duration(sum(r["seconds"] for r in routes)), taken))
+    return out
 
 
 def pin_map_lines(report) -> list:
