@@ -12015,6 +12015,13 @@ def _inner_box(pads: list, centre: Location) -> Box:
 
 def _copper_name(occ: Occupancy, sh: Shape) -> dict:
     """How a finding names a piece of copper standing in a fitted pour's way (finding_text._blocker)."""
+    if sh.kind == "through" and not sh.label:
+        # a via: a cell's own (its owner the cell), carried or routed, or the script's; named by where it stands
+        x, y = sh.circle[:2] if sh.circle else sh.points[0] if sh.points else (sh.box.center.x, sh.box.center.y)
+        out = {"form": "via", "net": sh.net, "at": [x, y]}
+        if sh.owner in occ.geometry.cells:
+            out["cell"] = sh.owner
+        return out
     if sh.kind in ("pad", "through") and sh.owner:
         return {"form": "pad", "who": occ._w(sh.owner), "label": sh.label, "net": sh.net}
     if sh.circle:

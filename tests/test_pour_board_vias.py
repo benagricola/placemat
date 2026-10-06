@@ -183,3 +183,33 @@ def test_a_via_row_the_script_drew_out_of_the_pad_joins_it():
         assert _holds(p.points, v.at.x, v.at.y)
     (f,) = _joined(plan)
     assert sorted(map(tuple, f.facts["vias"])) == pytest.approx(sorted((v.at.x, v.at.y) for v in east))
+
+
+def test_a_cells_via_standing_in_the_pours_way_is_named_as_that_cells_via_at_its_place():
+    """A via another cell's layout placed, of another net, wholly inside the hull: the finding names it as that cell's
+    via, where it stands, not as a pad with no number."""
+    other = dataclasses.replace(_fet(cell="m"), ref="Q2", pads=tuple(
+        dataclasses.replace(p, owner="Q2", net="G") for p in _fet(cell="m").pads))
+    other = dataclasses.replace(other, location=Location(30.0, 42.0), body_box=Box(28.5, 41.0, 31.5, 43.0),
+                                courtyard_box=Box(28.4, 40.9, 31.6, 43.1), phys_box=Box(28.5, 41.0, 31.5, 43.0),
+                                pads=tuple(dataclasses.replace(p, outlines=(rect(28.9 + 0.65 * i, 42.0, 0.35, 0.75),),
+                                                               box=Box.of_points(rect(28.9 + 0.65 * i, 42.0, 0.35, 0.75)))
+                                           for i, p in enumerate(other.pads)))
+    o = rect(8.0, ROW_Y, 1.7, 1.7)
+    pin2 = PadGeom("J1", "j1", "3", "VB", FOUR, (rect(14.0, ROW_Y, 1.7, 1.7),), Box.of_points(rect(14.0, ROW_Y, 1.7, 1.7)),
+                   True, 1.0)
+    pin = dataclasses.replace(_pin(), pads=(PadGeom("J1", "j1", "2", "VB", FOUR, (o,), Box.of_points(o), True, 1.0), pin2),
+                              body_box=Box(6.5, 28.5, 15.5, 31.5))
+    g = board_geometry([pin, other], cells=("m",), copper=[_via(11.0, ROW_Y, net="G", owner="m")], width=40, height=50,
+                       clearance=CLEARANCE)
+    g = dataclasses.replace(g, layers=(F, IN1, IN2, B))
+    b = Board(g, edge_margin=1.0, keep_going=True)
+    b.place(Part("j1"), at=pin.location)
+    b.place(Cell("m"), at=g.cells["m"].box.center)
+    b.pour(Net("VB"), [PadRef(Part("j1"), 2), PadRef(Part("j1"), 3)], layer=IN2, swallow_pads=True)
+    plan = b.resolve()
+    assert not _pours(plan)
+    (f,) = [f for f in plan.findings if f.facts.get("variant") == "pour_enclosed"]
+    what = f.facts["what"]
+    assert what["form"] == "via" and what["net"] == "G" and what["at"] == pytest.approx([11.0, ROW_Y])
+    assert "the m cell's via G at (11.00, 30.00)" in str(f), str(f)

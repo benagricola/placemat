@@ -752,7 +752,8 @@ def _blocker(f) -> str:
     if form == "unplated":
         return "%s's unplated hole" % _who(what["who"])
     if form == "via":
-        return "via %s at (%.2f, %.2f)" % (what["net"] or "-", what["at"][0], what["at"][1])
+        return "%svia %s at (%.2f, %.2f)" % ("the %s cell's " % what["cell"] if what.get("cell") else "",
+                                             what["net"] or "-", what["at"][0], what["at"][1])
     if form == "track":
         (ax, ay), (bx, by) = what["ends"]
         return "%s %s (%.2f, %.2f)-(%.2f, %.2f)" % ("arc track" if what["arc"] else "track", what["net"] or "-", ax, ay, bx, by)
