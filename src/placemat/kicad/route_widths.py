@@ -152,40 +152,34 @@ def _neck_lengths(tracks, under, pads, vias, neck_mm: float) -> set:
     return out
 
 
-def board_widths(geometry, islands: dict, stated: dict, rise_c: float | None = None, copper_oz: float | None = None,
+def board_widths(geometry, islands: dict, rise_c: float | None = None, copper_oz: float | None = None,
                  neck_mm: float = KRT_NECKDOWN_LENGTH_MM + KRT_NECKDOWN_TAPER_MM) -> list:
     """The island nets' routed copper judged on the board: a record for each net of `islands` ({net: width asked or None}) given
     a width and with any track narrower than it needs, each
     {net, stage, requested_mm, delivered_min_mm, length_under_mm, length_mm, share, declared, max_a, bottleneck_mm,
     bottleneck_layer, amps, necks_mm, neck_limit_mm, layers}.
 
-    An island net given no width, and a net that is no island, is left to `check current-path`, which judges a net's copper
-    from carrier to carrier: judged here against its highest stated current, a decoupling branch that never carries it would
-    count. A track needs the width asked and the width its net's stated current (`stated`, {net: amps}) needs on the track's own layer: IPC-2221 at `rise_c` on
-    the layer's copper weight, the inner constant on an inner layer (checks.py `_need_mm`, what `check current-path` sizes a
-    route by). Under-width copper within `neck_mm` of a pad along under-width copper is the router's pad neck-down
+    A track needs the width the island was asked, on every layer: the script chose it for what the island carries, which may
+    be a tap of a net whose full current flows elsewhere. Current is `check current-path`'s to judge, from carrier to carrier
+    (IPC-2221, the inner constant on an inner layer); an island net given no width, and a net that is no island, are left to
+    it too. `max_a` is the current its narrowest copper carries at `rise_c`. Under-width copper within `neck_mm` of a pad along under-width copper is the router's pad neck-down
     (`neck_allowance`) and is not counted, its length given as `necks_mm`. `layers` is the shortfall per layer, each
     {layer, need_mm, by ("asked" or "current"), under_mm, min_mm}; `max_a` is what the copper with the least capacity carries
     (IPC-2221), `bottleneck_mm` its width."""
-    from ..checks import COPPER_OZ, TRACK_RISE_C, _layer_k, _layer_oz, _need_mm, ipc2221_current_a
+    from ..checks import COPPER_OZ, TRACK_RISE_C, _layer_k, _layer_oz, ipc2221_current_a
     rise_c = TRACK_RISE_C if rise_c is None else rise_c
     copper_oz = COPPER_OZ if copper_oz is None else copper_oz
     copper_mm = getattr(geometry, "copper_mm", None) or {}
     out = []
     for net in sorted(islands):
-        asked, amps = islands[net] or None, stated.get(net)
+        asked = islands[net] or None
         if not asked:
             continue
         tracks = [c for c in geometry.copper if c.net == net and c.kind == "track" and len(c.anchors) == 2 and c.layers]
         if not tracks:
             continue
-        need, by = {}, {}
-        for t in tracks:
-            layer = next(iter(t.layers))
-            if layer not in need:
-                current = _need_mm(amps, rise_c, copper_oz, copper_mm, [layer]) if amps else 0.0
-                need[layer] = max(asked or 0.0, current)
-                by[layer] = "asked" if (asked or 0.0) >= current else "current"
+        need = {next(iter(t.layers)): asked for t in tracks}
+        by = {layer: "asked" for layer in need}
         under = [i for i, t in enumerate(tracks) if t.width_mm < need[next(iter(t.layers))] - _UNDER_MM]
         pads = [(c.outlines, c.layers) for c in geometry.copper if c.net == net and c.kind == "pad"]
         vias = [(c.anchors[0], c.layers) for c in geometry.copper if c.net == net and c.kind == "via" and c.anchors]
@@ -211,7 +205,7 @@ def board_widths(geometry, islands: dict, stated: dict, rise_c: float | None = N
                     "length_under_mm": round(under_mm, 2), "length_mm": round(length, 2),
                     "share": round(under_mm / length, 4) if length else None, "declared": bool(asked),
                     "max_a": round(capacity(worst), 2), "bottleneck_mm": round(worst.width_mm, 4),
-                    "bottleneck_layer": next(iter(worst.layers)).value, "amps": amps,
+                    "bottleneck_layer": next(iter(worst.layers)).value, "amps": None,
                     "necks_mm": round(sum(tracks[i].length_mm for i in necks), 2), "neck_limit_mm": neck_mm,
                     "layers": [dict(r, under_mm=round(r["under_mm"], 2), min_mm=round(r["min_mm"], 4))
                                for _, r in sorted(per.items(), key=lambda kv: kv[0].value)]})
@@ -232,7 +226,7 @@ def findings_of(records: list, stated: dict | None = None) -> list:
     stated = stated or {}
     out = []
     for r in records:
-        amps = stated.get(r["net"], r.get("amps"))
+        amps = None if "layers" in r else stated.get(r["net"], r.get("amps"))   # a board record is judged by its asked width
         short = amps is not None and r["max_a"] is not None and r["max_a"] < amps
         facts = {k: r[k] for k in ("net", "stage", "requested_mm", "delivered_min_mm", "length_under_mm", "length_mm", "share",
                                    "declared", "max_a", "bottleneck_mm")}

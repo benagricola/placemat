@@ -1259,12 +1259,11 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.violations = {n: by_net[n] for n in sc.shorted}
     report.island_layers = dict(island_layers)
     # the island nets judged on the routed board (route_widths.board_widths); the router's summaries for the rest
-    from .route_widths import board_widths, judged_on_board, neck_allowance, stated_currents
+    from .route_widths import board_widths, judged_on_board, neck_allowance
     widths = []
     if islands:
         routed = read_board(str(pcb_out))
-        stated = stated_currents(routed)
-        widths = board_widths(routed, islands, stated, cfg.check_rise_c, None, neck_allowance(cfg.route_router_args))
+        widths = board_widths(routed, islands, cfg.check_rise_c, None, neck_allowance(cfg.route_router_args))
         judged = judged_on_board(islands)
     else:
         judged = set()

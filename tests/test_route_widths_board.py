@@ -44,7 +44,7 @@ def test_an_outer_track_under_the_asked_width_is_counted_and_a_short_pad_neck_is
                _track((7, 10), (20, 10), 1.0),
                _track((20, 10), (30, 10), 0.3),             # a mid-route pinch: 10 mm
                _track((30, 10), (40, 10), 1.0))
-    (r,) = board_widths(g, {"V": 1.0}, {}, neck_mm=NECK)
+    (r,) = board_widths(g, {"V": 1.0}, neck_mm=NECK)
     assert (r["net"], r["requested_mm"], r["delivered_min_mm"], r["length_under_mm"], r["length_mm"]) == ("V", 1.0, 0.3, 10.0, 35.0)
     assert r["declared"] and r["necks_mm"] == 2.0
     assert r["layers"] == [{"layer": "F.Cu", "need_mm": 1.0, "by": "asked", "under_mm": 10.0, "min_mm": 0.3}]
@@ -54,49 +54,49 @@ def test_an_outer_track_under_the_asked_width_is_counted_and_a_short_pad_neck_is
                  "asked, narrowest 0.3 mm; 2.0 mm of pad neck-down within 3 mm of a pad not counted")
 
 
-def test_inner_copper_is_judged_by_the_inner_rating():
-    outer = ipc2221_width_mm(3.0)
-    inner = ipc2221_width_mm(3.0, k=0.024)
-    assert round(outer, 2) == 1.37 and round(inner, 2) == 3.56
-    g = _board(_track((5, 10), (20, 10), 1.37), _via((20, 10)),
-               _track((20, 10), (35, 10), 1.37, IN2), _via((35, 10)),
-               _track((35, 10), (40, 10), 1.37), amps=3.0)
-    (r,) = board_widths(g, {"V": 1.37}, {"V": 3.0}, neck_mm=NECK)
-    assert r["length_under_mm"] == 15.0 and r["delivered_min_mm"] == 1.37
-    (layer,) = r["layers"]
-    assert (layer["layer"], layer["by"], layer["under_mm"], round(layer["need_mm"], 2)) == ("In2.Cu", "current", 15.0, 3.56)
-    assert r["bottleneck_layer"] == "In2.Cu" and r["max_a"] < 3.0 and r["amps"] == 3.0
+def test_an_island_is_judged_by_its_asked_width_not_the_nets_stated_current():
+    """An island the script gave a width is a tap or a leg whose width the script chose: its copper is judged against that width
+    on every layer. The net's highest stated current may flow elsewhere (a declared track), and the paths that carry it are
+    `check current-path`'s to judge."""
+    g = _board(_track((5, 10), (20, 10), 0.31), _via((20, 10)),
+               _track((20, 10), (35, 10), 0.31, IN2), _via((35, 10)),
+               _track((35, 10), (40, 10), 0.31), amps=3.0)
+    assert board_widths(g, {"V": 0.3}, neck_mm=NECK) == []
+    pinched = _board(_track((5, 10), (20, 10), 0.31), _track((20, 10), (30, 10), 0.127, IN2),
+                     _track((30, 10), (40, 10), 0.31), amps=3.0)
+    (r,) = board_widths(pinched, {"V": 0.3}, neck_mm=NECK)
+    assert r["layers"] == [{"layer": "In2.Cu", "need_mm": 0.3, "by": "asked", "under_mm": 10.0, "min_mm": 0.127}]
+    assert r["amps"] is None
     (f,) = findings_of([r], {"V": 3.0})
-    assert f.severity == "critical"
-    assert "In2.Cu 15.0 mm under 3.56 mm for 3 A on inner copper, narrowest 1.37 mm" in f
-    assert f.endswith("its narrowest copper carries %g A at most, the design states 3 A" % r["max_a"])
+    assert f.severity == "critical" and f.facts["stated_a"] is None
+    assert "In2.Cu 10.0 mm under the 0.3 mm it was asked, narrowest 0.127 mm" in f and "design states" not in f
 
 
 def test_only_an_island_given_a_width_is_judged_and_a_thin_decoupling_branch_elsewhere_is_left_to_current_path():
     trunk = _track((5, 10), (40, 10), 1.37)
     branch = _track((20, 10), (20, 20), 0.127)          # to a decoupling capacitor: never carries the stated 3 A
     g = _board(trunk, branch, amps=3.0)
-    assert board_widths(g, {"OTHER": 1.0}, {"V": 3.0}, neck_mm=NECK) == []      # V has a Pm.I but is no island
-    assert board_widths(g, {"V": None}, {"V": 3.0}, neck_mm=NECK) == []         # an island given no width
+    assert board_widths(g, {"OTHER": 1.0}, neck_mm=NECK) == []      # V has a Pm.I but is no island
+    assert board_widths(g, {"V": None}, neck_mm=NECK) == []         # an island given no width
     assert judged_on_board({"V": None, "W": 1.0}) == {"W"}
-    (r,) = board_widths(g, {"V": 1.37}, {"V": 3.0}, neck_mm=NECK)               # a width island: the branch counts
+    (r,) = board_widths(g, {"V": 1.37}, neck_mm=NECK)               # a width island: the branch counts
     assert r["length_under_mm"] == 10.0 and r["declared"]
 
 
 def test_the_neck_bound_is_krt_s_and_neck_down_off_counts_every_neck():
     short = _board(_track((5, 10), (7, 10), 0.2), _track((7, 10), (7.5, 10), 0.6),   # neck and taper: 2.5 mm
                    _track((7.5, 10), (40, 10), 1.0))
-    assert board_widths(short, {"V": 1.0}, {}, neck_mm=NECK) == []
-    (off,) = board_widths(short, {"V": 1.0}, {}, neck_mm=0.0)
+    assert board_widths(short, {"V": 1.0}, neck_mm=NECK) == []
+    (off,) = board_widths(short, {"V": 1.0}, neck_mm=0.0)
     assert off["length_under_mm"] == 2.5 and off["necks_mm"] == 0.0
     long = _board(_track((5, 10), (9, 10), 0.2), _track((9, 10), (40, 10), 1.0))      # 4 mm: past 3 mm
-    (r,) = board_widths(long, {"V": 1.0}, {}, neck_mm=NECK)
+    (r,) = board_widths(long, {"V": 1.0}, neck_mm=NECK)
     assert r["length_under_mm"] == 4.0
     both = _board(_track((5, 10), (40, 10), 0.2), )                                     # narrow from pad to pad: no neck
-    assert board_widths(both, {"V": 1.0}, {}, neck_mm=NECK)[0]["length_under_mm"] == 35.0
+    assert board_widths(both, {"V": 1.0}, neck_mm=NECK)[0]["length_under_mm"] == 35.0
     pinch = _board(_track((5, 10), (20, 10), 1.0), _track((20, 10), (21, 10), 0.2),    # a 1 mm pinch away from any pad
                    _track((21, 10), (40, 10), 1.0))
-    assert board_widths(pinch, {"V": 1.0}, {}, neck_mm=NECK)[0]["length_under_mm"] == 1.0
+    assert board_widths(pinch, {"V": 1.0}, neck_mm=NECK)[0]["length_under_mm"] == 1.0
 
 
 def test_neck_allowance_reads_the_router_arguments():
