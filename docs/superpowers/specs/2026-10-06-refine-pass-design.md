@@ -53,9 +53,10 @@ Decided with the user. Refine runs in two stages.
   neighbours free to make room. It keeps the best pose by the one score, on the pins as captured. This is the turn
   study, done by refine rather than reported afterwards.
 - **Why every part:** a resistor turned end for end so its MCU-side pad faces away from the MCU is a pose error, like a
-  turned IC. The display terminations were one, and only a per-pose check catches it reliably. A two-pin part has at
-  most four turns, and its local refine is small, so the cost stays within the coarse stage's budget
-  (`refine.pose_moves` per pose, set by measurement).
+  turned IC. The display terminations were one, and only a per-pose check catches it reliably.
+- **Which poses:** every turn the declaration's `rotations=` allows: eight, at 45-degree steps, by default, or whatever
+  set of angles the script gives. Each is tried on each face the declaration allows. The cost is the number of poses
+  times `refine.pose_moves` per pose, set by measurement. A two-pin part's local refine is small.
 - **The pin study** runs inside this stage (see "The pin study, in coarse refine").
 - **Annealing:** the moves below, over cells and parts.
 
