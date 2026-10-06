@@ -231,3 +231,31 @@ def test_a_loop_whose_leg_centres_do_not_match_its_legs_is_an_error():
     assert _legs_toward(square, [None] * 4, 0) == ((False,) * 4, (0.0,) * 4)
     with pytest.raises(AssertionError, match="3 leg centres for 4 legs"):
         _legs_toward(square, [None] * 3, 0)
+
+
+def _notched(*tracks):
+    """A board whose south arm (x 20..30) leaves a concave corner at (20, 20), with one VBUS track per (points, bend)."""
+    b = Board(board_geometry([], width=40.0, height=30.0, extra_nets=["VBUS", "SIG", "GND"]), edge_margin=EDGE)
+    b.outline([Location(0.0, 0.0), Location(40.0, 0.0), Location(40.0, 20.0), Location(30.0, 20.0),
+               Location(30.0, 30.0), Location(20.0, 30.0), Location(20.0, 20.0), Location(0.0, 20.0)])
+    for pts, bend in tracks:
+        b.track(Net("VBUS"), pts, layer=CopperLayer.B, width=W3A, bend=bend)
+    return b.resolve()
+
+
+# from the body into the south arm: the 45 at the start would cross the notch at (20, 22); at the end it passes
+# the corner 2.1 mm off
+_INTO_ARM = [Location(10.0, 12.0), Location(27.0, 24.0)]
+
+
+def test_a_legs_way_is_chosen_clear_of_a_concave_corner():
+    plan = _notched((_INTO_ARM, None))
+    assert _edge(plan) == []
+    tracks = [op for op in plan.copper if isinstance(op, Track) and op.net == "VBUS"]
+    assert tracks and all(op.start.y <= 24.0 + 1e-6 and op.end.y <= 24.0 + 1e-6 for op in tracks)
+
+
+def test_a_scripts_bend_is_honoured_by_the_edge():
+    from placemat.values import Bend
+    (f,) = _edge(_notched((_INTO_ARM, Bend.START)))
+    assert f.facts["obstacle"] == {"form": "outline"}

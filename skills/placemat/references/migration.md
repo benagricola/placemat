@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A track's leg is planned clear of the board's edge.** Where the script gives no `bend=`, each off-grid leg of a
+  declared track took the first of its octilinear ways that kept clear of other copper, even where that way came nearer
+  the outline or a cutout than the copper-to-edge clearance: a 45 that cut a concave corner of the outline was drawn
+  and reported as `copper.edge`. The planner now weighs the edge clearance with the other copper and takes a way that
+  keeps both, such as the 45 at the other end; `copper.edge` is reported only where no way does. An explicit
+  `bend=` is still drawn as given. Scripts need no change.
+
 ## To 0.99.24
 
 ### New

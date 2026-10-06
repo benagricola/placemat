@@ -693,14 +693,20 @@ def _bend_matches(cand: list, bend, tol: float = STRAIGHT) -> bool:
     return len(dirs) == 3 and diag == [0, 2]                    # BOTH
 
 
-def _detours(a: Location, b: Location, tol: float = STRAIGHT) -> list:
+_DETOUR_STEPS = (0.25, 0.5, 0.75)
+# the finer steps tried when no detour at the quarters clears: a straight the room between two obstacles holds only
+# between the quarters (a concave corner of the edge on one side, a pad on the other)
+_DETOUR_FINE_STEPS = tuple(k / 16.0 for k in range(1, 16) if k % 4)
+
+
+def _detours(a: Location, b: Location, tol: float = STRAIGHT, steps=_DETOUR_STEPS) -> list:
     """Other octilinear ways from a to b, for when none of `_leg_candidates`
     clears: a straight along the minor axis before the 45 or after it (out
     along a pin's row and off the pad beside it, where every way that starts
-    along the major axis crosses that pad), a quarter, half or three
-    quarters of the diagonal's reach; and for a leg already one 45, which
-    has no other candidate, the two L shapes and the same straights along
-    either axis."""
+    along the major axis crosses that pad), each of `steps` of the
+    diagonal's reach (a quarter, half or three quarters); and for a leg
+    already one 45, which has no other candidate, the two L shapes and the
+    same straights along either axis."""
     dx, dy = b.x - a.x, b.y - a.y
     m = min(abs(dx), abs(dy))
     if m < tol:
@@ -711,7 +717,7 @@ def _detours(a: Location, b: Location, tol: float = STRAIGHT) -> list:
     minors = ("x", "y") if one_45 else (("y",) if abs(dx) >= abs(dy) else ("x",))
     for axis in minors:
         ux, uy = (sx, 0.0) if axis == "x" else (0.0, sy)
-        for f in (0.25, 0.5, 0.75):
+        for f in steps:
             s = m * f
             p1 = Location(round(a.x + ux * s, 6), round(a.y + uy * s, 6))                       # out, then the 45
             p2 = Location(round(p1.x + sx * (m - s), 6), round(p1.y + sy * (m - s), 6))
@@ -723,15 +729,19 @@ def _detours(a: Location, b: Location, tol: float = STRAIGHT) -> list:
 
 
 def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, clear, bend=None,
-              lane_a=None, lane_b=None, tol: float = STRAIGHT, through=None) -> list:
+              lane_a=None, lane_b=None, tol: float = STRAIGHT, through=None, edge=None) -> list:
     """The best octilinear way from a to b: among the candidates whose legs
     all `clear`, the fewest direction changes against the legs either side
     (a chamfered right angle counting two), then the shortest, then the 45
     at the pad end. If none clears, the fewest-turn candidate is returned
     and the conflict is left for the run to report - but one that runs
     through another net's copper (`through(p, q)` says a leg does) is the
-    last choice, behind any that only stands too near. When none clears,
-    `_detours` are tried too.
+    last choice, behind any that only stands too near. `edge(p, q)` says a
+    leg keeps the board's copper-to-edge clearance: a candidate clears only
+    where it keeps both, and where none does, one clear of other copper
+    still goes before one that is not. When none clears, `_detours` are
+    tried too, at the quarters and then, where none of those clears, at
+    sixteenths.
 
     `lane_a`/`lane_b` (sets of directions) narrow the candidates first to
     those that leave a, and reach b, on one of them: a 45 held off a
@@ -740,9 +750,17 @@ def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, cle
     meets is dropped; a leg with no room to choose (already on the grid,
     or already a single 45) is unaffected. Ends level to within `tol` on an
     axis are one straight leg."""
+    def copper_ok(cand):
+        return clear is None or all(clear(p, q) for p, q in zip(cand, cand[1:]))
+
+    def edge_ok(cand):
+        return edge is None or all(edge(p, q) for p, q in zip(cand, cand[1:]))
+
     cands = _leg_candidates(a, b, tol)
-    if clear is not None and not any(all(clear(p, q) for p, q in zip(c, c[1:])) for c in cands):
+    if (clear is not None or edge is not None) and not any(copper_ok(c) and edge_ok(c) for c in cands):
         cands += _detours(a, b, tol)
+        if not any(copper_ok(c) and edge_ok(c) for c in cands):
+            cands += _detours(a, b, tol, _DETOUR_FINE_STEPS)
     if lane_a or lane_b:
         on = [c for c in cands if (not lane_a or _dir(c[0], c[1], tol) in lane_a)
               and (not lane_b or _dir(c[-2], c[-1], tol) in lane_b)]
@@ -759,15 +777,16 @@ def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, cle
         length = sum(p.distance(q) for p, q in zip(cand, cand[1:]))
         first = len(cand) == 3 and _dir(cand[0], cand[1], tol)[0] != 0 and _dir(cand[0], cand[1], tol)[1] != 0
         tie = 0 if (first and not (pad_b and not pad_a)) or (not first and pad_b and not pad_a) else 1
-        ok = all(clear(p, q) for p, q in zip(cand, cand[1:])) if clear is not None else True
+        ok = copper_ok(cand)
         short = 0 if ok or through is None else int(any(through(p, q) for p, q in zip(cand, cand[1:])))
-        scored.append((0 if ok else 1, short, turns, round(length, 6), tie, k, cand))
-    scored.sort(key=lambda t: t[:6])
-    return scored[0][6]
+        both = ok and edge_ok(cand)
+        scored.append((0 if both else 1, 0 if ok else 1, short, turns, round(length, 6), tie, k, cand))
+    scored.sort(key=lambda t: t[:7])
+    return scored[0][7]
 
 
 def octilinear(pts: list, at_pad=None, clear=None, bend=None, lanes=None, tolerance: float = STRAIGHT,
-               through=None) -> list:
+               through=None, edge=None) -> list:
     """The polyline with every leg at 0, 45 or 90 degrees: a leg at another
     angle is routed by route_leg, the best clear octilinear way between its
     ends given the legs either side. `bend` is the script's own choice of
@@ -775,6 +794,8 @@ def octilinear(pts: list, at_pad=None, clear=None, bend=None, lanes=None, tolera
     is None or the directions a leg may leave or reach that point on (a
     45 held off a corner). `through` says a leg runs through another net's
     copper, which no leg that merely stands too near is passed over for.
+    `edge` says a leg keeps the board's copper-to-edge clearance, weighed
+    with `clear` (route_leg).
     A leg whose ends differ by less than `tolerance`
     on one axis is drawn straight between them (`copper.straight_tolerance`)."""
     at_pad = at_pad or [False] * len(pts)
@@ -784,7 +805,7 @@ def octilinear(pts: list, at_pad=None, clear=None, bend=None, lanes=None, tolera
         prev = _dir(out[-2], out[-1], tolerance) if len(out) > 1 else None
         nxt = _dir(b, pts[i + 2], tolerance) if i + 2 < len(pts) else None
         out += route_leg(a, b, at_pad[i], at_pad[i + 1], prev, nxt, clear, bend, lanes[i], lanes[i + 1], tolerance,
-                         through)[1:]
+                         through, edge)[1:]
     return out
 
 

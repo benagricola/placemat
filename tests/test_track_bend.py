@@ -74,3 +74,26 @@ def test_route_leg_bend_matches_only_the_candidates_that_fit():
     assert len(start) == 3 and start[1] == Location(4, 4)
     assert len(end) == 3 and end[1] == Location(6, 0)
     assert len(both) == 4
+
+
+def _off(point, r):
+    """A leg predicate: every leg stays `r` from `point`."""
+    import math
+
+    def keeps(p, q):
+        dx, dy = q.x - p.x, q.y - p.y
+        t = max(0.0, min(1.0, ((point[0] - p.x) * dx + (point[1] - p.y) * dy) / (dx * dx + dy * dy or 1.0)))
+        return math.hypot(p.x + t * dx - point[0], p.y + t * dy - point[1]) >= r
+    return keeps
+
+
+def test_route_leg_weighs_the_edge_with_other_copper_down_to_a_finer_detour():
+    """Unit-level: a pad at (2.2, -0.3) and an edge corner at (0.3, 0.6) leave no way at the quarters that keeps clear
+    of both; a straight out along x of a sixteenth of the diagonal's reach, then the 45, does."""
+    a, b = Location(0, 0), Location(8, 9)
+    pad, corner = _off((2.2, -0.3), 0.6), _off((0.3, 0.6), 0.6)
+    got = route_leg(a, b, False, False, None, None, pad, edge=corner)
+    assert [(p.x, p.y) for p in got] == [(0, 0), (1.0, 0.0), (8.0, 7.0), (8, 9)]
+    # without the edge, the planner's own way is kept: one clear of the pad
+    alone = route_leg(a, b, False, False, None, None, pad)
+    assert all(pad(p, q) for p, q in zip(alone, alone[1:])) and not all(corner(p, q) for p, q in zip(alone, alone[1:]))
