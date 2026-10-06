@@ -65,11 +65,14 @@ def test_a_run_with_no_record_is_a_failed_result(tmp_path, monkeypatch):
 
 def test_a_routed_run_is_read_from_its_record_and_routed_board(tmp_path, monkeypatch):
     folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
-    drc = tmp_path / "drc.json"
-    drc.write_text(json.dumps({"violations": [{"type": "shorting_items", "severity": "error",
-                                               "items": [{"description": "Track [A] on F.Cu", "pos": {"x": 1, "y": 2}}]}]}))
-    record = {"status": "ok", "failure": None, "metrics": {"closure_clean": 0.9, "measures": {}, "route": {
-        "closure_clean": 0.9, "open_after": 2, "routed_pcb": str(tmp_path / "r.kicad_pcb"), "drc_after": str(drc)}}}
+    from placemat.kicad.route import RouteReport
+    drc = {"violations": [{"type": "shorting_items", "severity": "error",
+                           "items": [{"description": "Track [A] on F.Cu", "pos": {"x": 1, "y": 2}}]}]}
+    # the route dict as RouteReport writes it: drc_after is the parsed DRC report, not a path
+    route = RouteReport(valid=True, closure=0.9, closure_clean=0.9, open_before=5, open_after=2, open_nets={}, shorted=[],
+                        excluded=[], layers=[], seconds=1.0, router_version="r", drc_after=drc,
+                        routed_pcb=tmp_path / "r.kicad_pcb", log=tmp_path / "log", work=tmp_path).as_dict()
+    record = {"status": "ok", "failure": None, "metrics": {"closure_clean": 0.9, "measures": {}, "route": route}}
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (record, 7.0))
     monkeypatch.setattr(place_ref.prepare, "measure", lambda pcb: (2, prepare.HumanCopper(9, 33.0)))
     monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 12.5)
@@ -239,3 +242,21 @@ def test_update_writes_not_comparable_and_better_entries(tmp_path, monkeypatch):
     for status in ("not comparable", "better", "new"):
         rc, data = _main(tmp_path, monkeypatch, status)
         assert (rc, data["b"]["x"]["board"]) == (0, "x")
+
+
+def test_a_dirty_checkout_ignores_the_runners_own_results_file(tmp_path):
+    import subprocess
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+    run("init", "-q")
+    (tmp_path / "fixtures" / "reference").mkdir(parents=True)
+    results, other = tmp_path / "fixtures/reference/results.json", tmp_path / "other.txt"
+    results.write_text("{}")
+    other.write_text("1")
+    run("add", ".")
+    run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x")
+    clean = route_ref._git_head(str(tmp_path))
+    assert not clean.endswith("-dirty")
+    results.write_text('{"a": 1}')
+    assert route_ref._git_head(str(tmp_path)) == clean
+    other.write_text("2")
+    assert route_ref._git_head(str(tmp_path)) == clean + "-dirty"

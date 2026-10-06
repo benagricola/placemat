@@ -59,11 +59,16 @@ class Prepared:
 
 
 def violations(drc_json: pathlib.Path) -> list[Violation]:
+    """`violations_of` the kicad-cli DRC report file."""
+    return violations_of(json.loads(pathlib.Path(drc_json).read_text()))
+
+
+def violations_of(report: dict) -> list[Violation]:
     """The errors of a kicad-cli DRC report, without the silk, courtyard and library kinds. KiCad names an
     item's net inside its description ("Track [GND] on F.Cu"), so `nets` are read from there. `nets` are sorted and
     `at_mm` is the least item position, so a violation reads the same whichever order KiCad lists its items in."""
     out = []
-    for v in json.loads(pathlib.Path(drc_json).read_text()).get("violations", []):
+    for v in report.get("violations", []):
         kind = v.get("type", "")
         if v.get("severity") != "error" or kind in IGNORED_TYPES or kind.startswith(IGNORED_PREFIXES):
             continue

@@ -217,7 +217,7 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     if not route or not route.get("routed_pcb"):
         return result(failure=NO_ROUTE, seconds=round(seconds, 1), versions=versions, placement=placement)
     _, routed = prepare.measure(pathlib.Path(route["routed_pcb"]))
-    new = route_ref.new_violations(prepare.violations(pathlib.Path(route["drc_after"])), prepared.baseline)
+    new = route_ref.new_violations(prepare.violations_of(route["drc_after"]), prepared.baseline)
     return result(closure_clean=route.get("closure_clean", NOT_RUN), open=route.get("open_after", 0), new_violations=new,
                   vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder), seconds=round(seconds, 1),
                   versions=versions, placement=placement)

@@ -32,6 +32,7 @@ ROUTE_TIMEOUT_S = 3600
 GIT_TIMEOUT_S = 30
 CLEAN = 1.0
 DIRTY = "-dirty"
+OWN_OUTPUT = "fixtures/reference/results.json"   # the runners write it; it does not make the checkout dirty
 NEAR_MM = 0.05   # a violation this close to a baseline one, of the same type and nets, is that one
 
 
@@ -134,7 +135,8 @@ def _git(root: str, *args: str) -> str:
 def _git_head(root: str) -> str:
     """The commit of a checkout, with "-dirty" when it has uncommitted changes to tracked files."""
     head = _git(root, "rev-parse", "HEAD") or "unknown"
-    return head + DIRTY if _git(root, "status", "--porcelain", "-uno") else head
+    changed = [l for l in _git(root, "status", "--porcelain", "-uno").splitlines() if not l.endswith(OWN_OUTPUT)]
+    return head + DIRTY if changed else head
 
 
 def _krt_version(board_pcb: pathlib.Path) -> str:
