@@ -284,3 +284,29 @@ def test_a_stop_while_the_routing_worker_starts_still_ends_the_workers(tmp_path,
     with pytest.raises(stop.Stopped):
         _search(tmp_path, seeds, jobs=2)
     assert any("explore-router" in names for names in ended)
+
+
+def test_when_the_search_ends_with_routes_outstanding_it_says_so_and_names_them(tmp_path, seeds, events, capsys):
+    a, b, c = seeds
+    report, _ = _search(tmp_path, [a, b, c], delay=0.05, router=eb.StandInRouter(tmp_path / "routes.log", delay=4.0))
+    (start,) = [e for e in events if e["ev"] == "explore"]
+    assert start["route"] is True and start["seconds"] == 120
+    (done,) = [e for e in events if e["ev"] == "explore_search_done"]
+    assert done["in_hand"] == [0] and done["waiting"] == [c] and done["routed"] == 0 and done["route_mean_s"] is None and done["t"] >= 0
+    names = [e["ev"] for e in events]
+    assert names.index("explore_search_done") < names.index("explore_route")      # said before the routes it waits for
+    line = explore.search_done_line(done)
+    assert line in capsys.readouterr().out
+    assert line.startswith("  the search is over after ") and "routing goes on: seed 0 in hand, seed %d waiting" % c in line
+    assert "average" not in line                                                    # no route had finished: nothing measured
+
+
+def test_the_line_gives_the_mean_time_of_the_routes_done_when_there_are_some():
+    line = explore.search_done_line({"t": 900.0, "in_hand": [17], "waiting": [], "routed": 2, "route_mean_s": 450.0})
+    assert line == "  the search is over after 15 min; routing goes on: seed 17 in hand; the 2 routes so far took 7 min 30 s each on average"
+
+
+def test_a_search_that_ends_with_nothing_left_to_route_says_nothing_of_it(tmp_path, seeds, events):
+    _search(tmp_path, seeds, route_best=False)
+    assert not [e for e in events if e["ev"] == "explore_search_done"]
+    assert [e for e in events if e["ev"] == "explore"][0]["route"] is False

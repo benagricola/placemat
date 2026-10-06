@@ -313,7 +313,7 @@ class Settings:
     explore_checkpoint_max_variants: int = S(100000, "count",
         "finished variants an explore's checkpoint records; past it a resume tries those again")
     explore_route_best: bool = S(False, "bool",
-        "a routing worker, one of the explore's jobs, quick-routes the plain placement at the start and each new best by run score as the search finds it (only the latest waits while it is busy; with one job it routes after the search); each closure is said beside its score and `--accept` takes the best clean closure, ties going to the better score. A run only: a preview writes no board (`--route-best`)")
+        "a routing worker, one of the explore's jobs, quick-routes the plain placement at the start and each new best by run score as the search finds it (only the latest waits while it is busy; with one job it routes after the search); each closure is said beside its score and `--accept` takes the best clean closure, ties going to the better score. The route in hand and the one waiting when the search ends are finished after it, so the run can last past the explore's time. A run only: a preview writes no board (`--route-best`)")
     pins_exit_mm: float = S(0.5, "mm",
         "the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn")
     pins_follow_series: bool = S(True, "bool",

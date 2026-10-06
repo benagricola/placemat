@@ -92,7 +92,8 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #sgbar b, #sgdlg b { overflow-wrap: anywhere; }
 #sgbar .sgx { margin-left: auto; }
 #sgbar button, #sgdlg button, .sgbtns button { border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
-#sgbar button:disabled, .sgbtns button:disabled { opacity: 0.5; }
+#sgbar button:disabled, .sgbtns button:disabled, #sgdlg button:disabled { opacity: 0.5; }
+.sgwait { font-size: 12px; }
 .sg { margin-top: 3px; font-weight: 400; }
 .difffile { position: sticky; top: 0; z-index: 1; padding: 4px 10px; background: var(--surface2); border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .sgrow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
@@ -164,7 +165,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .xv .xctl button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 #cmdbar .xline { font-weight: 500; }
 #cmdbar .xnote { font-weight: 500; }
-#cmdbar .xwarn { font-weight: 500; color: var(--sev-warning); }
+#cmdbar .xwarn, .xv .xwarn { font-weight: 500; color: var(--sev-warning); }
 #cmdbar .xline > span { display: inline-block; margin-right: 12px; white-space: nowrap; }
 .row.cmd.step .l2 { white-space: normal; overflow: visible; }
 #cmdbar .cbt { font-weight: 600; }
@@ -3036,7 +3037,7 @@ on("cmd", c => {
   if (fresh && c.state === "running" && S.latestOn && kindOf(c) !== "apply") latestSwitch();
   else if (fresh && c.state === "running" && !(S.run && S.run.pid && S.run.pid === c.pid))
     toast(kindWord(kindOf(c)) + " started: " + (baseName(c.script) || "a command") + ", by pid " + c.pid, () => { leaveLatest(); goTab("runs"); openCmd(c.id); });
-  if (S.cmdView && S.cmdView.id === c.id) { renderCmdBar(); schedule("status"); }
+  if (S.cmdView && S.cmdView.id === c.id) { renderCmdBar(); schedule("status"); if (was && was.state !== c.state) schedule("findings", "card", "steps"); if (S.sg.show) renderSgDialog(); }       // its suggestions' Try, Apply and Search wait for it to finish
   if (c.probe) schedule("findings", "card", "steps");
   schedule("runs", "counts", "start");
 });
@@ -3065,6 +3066,8 @@ function cmdEvent(ev, n) {
   else if (ev.ev === "variant") { xvAdd(ev); }
   else if (ev.ev === "explore_done") { if (S.xv) { S.xv.done = ev; schedule("runs"); } }
   else if (ev.ev === "explore_route") { if (S.xv) { const rs = S.xv.routes = S.xv.routes || []; if (!rs.some(r => r.seed === ev.seed)) rs.push(ev); schedule("runs"); } }
+  else if (ev.ev === "explore_budget_passed") { if (S.xv) { S.xv.budgetPassed = ev; schedule("runs"); renderCmdBar(); } }
+  else if (ev.ev === "explore_search_done") { if (S.xv) { S.xv.searchDone = ev; schedule("runs"); renderCmdBar(); } }
   V.next = Math.max(V.next || 0, (n || 0) + 1);
   if (ev.ev === "route_commit" || ev.ev === "route_rip") {            // a route commits copper many times a second: the drawing follows at a few frames a second
     if (!V.redraw) V.redraw = setTimeout(() => { V.redraw = null; schedule("board", "steps", "replay", "counts", "runs", "status"); renderCmdBar(); }, 250);
@@ -3204,13 +3207,13 @@ async function openCmd(id) {
     S.xv = null;
     for (const ev of d.events) cmdEvent(ev, 0);
     if (d.plan) cmdEvent(d.plan, 0);
-    if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v, true); S.xv.routes = (d.explore.routes || []).slice(); if (d.explore.done) S.xv.done = d.explore.done; xvDrawNow(); }
+    if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v, true); S.xv.routes = (d.explore.routes || []).slice(); S.xv.searchDone = d.explore.search_done || null; S.xv.budgetPassed = d.explore.budget_passed || null; if (d.explore.done) S.xv.done = d.explore.done; xvDrawNow(); }
     S.cmdView.next = d.events.length;
     looking();
     S.opening = null;
     for (const b of op.buf) {                         // what arrived meanwhile and the command's copy did not have: events of its log past the copy's end, a plan, a variant
       const k = b.ev.ev;
-      if (k.startsWith("route_") || (k === "explore" ? S.xv : !["plan", "variant", "explore_route", "explore_done"].includes(k) && b.n < d.events.length)) continue;
+      if (k.startsWith("route_") || (k === "explore" ? S.xv : !["plan", "variant", "explore_route", "explore_budget_passed", "explore_search_done", "explore_done"].includes(k) && b.n < d.events.length)) continue;
       cmdEvent(b.ev, b.n);
     }
     renderCmdBar(); schedule("all");
@@ -3270,16 +3273,25 @@ const SG_KINDS = {
   advice: (b) => b("pinmap", "Try", "draw the airwires before and after this map and list it; nothing is resolved or written"),
 };
 const sgKind = s => s.how === "searched" ? "search" : s.how === "advice" ? "advice" : "instant";
+// A followed command that is still running has not made its last plan: Try, Apply and Search act on its script once it has finished,
+// and until then they are disabled, saying so. Show stays: it writes nothing. The studio never stops a run started elsewhere.
+const SG_WAITS = new Set(["try", "apply", "search", "probeyes", "probego"]);
+function sgWaiting() {
+  const V = S.cmdView, vs = viewState();
+  return V && typeof V.id === "number" && vs && vs.state === "running" ? "available when the " + kindWord(vs.kind) + " finishes" : "";
+}
 function sgRow(s, withLever) {
-  const b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(title) + '"' + (S.sg.busy ? " disabled" : "") + ">" + label + "</button>";
+  const wait = sgWaiting();
+  const b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(wait && SG_WAITS.has(a) ? label + ": " + wait : title) + '"' +
+    (S.sg.busy || (wait && SG_WAITS.has(a)) ? " disabled" : "") + ">" + label + "</button>";
   return '<div class="sgrow">' + (withLever && s.lever ? pill(s.lever.replace(/_/g, " ")) : "") + '<span class="sgtext">' + esc(s.text) + '</span><span class="sgbtns">' +
     SG_KINDS[sgKind(s)](b) + "</span></div>" + (s.how === "searched" ? sgProbeHTML(s) : "") + (S.pinmap && S.pinmap.sid === s.id ? pinMapHTML(s) : "");
 }
 function sgHTML(f) {
   const ss = sgList(f), k = sgKey(f);
   if (!ss.length || k < 0) return "";
-  const more = ss.slice(1), open = S.sg.more.has(k);
-  return '<div class="sg">' + sgRow(ss[0], false) + (more.length ? '<a class="sgmore" data-sgmore="' + k + '">' + (open ? "fewer" : "more (" + more.length + ")") + "</a>" : "") +
+  const more = ss.slice(1), open = S.sg.more.has(k), wait = sgWaiting();
+  return '<div class="sg">' + (wait ? '<div class="sgwait">Try, Apply and Search options are ' + esc(wait) + ".</div>" : "") + sgRow(ss[0], false) + (more.length ? '<a class="sgmore" data-sgmore="' + k + '">' + (open ? "fewer" : "more (" + more.length + ")") + "</a>" : "") +
     (open ? more.map(s => sgRow(s, true)).join("") : "") + "</div>";
 }
 // ---- a search's live view and outcome. The probe is a command of its own (command "apply"); its summary carries {start, candidates, done}, kept
@@ -3323,7 +3335,7 @@ function probeCands(cs, unit) {
     '<span class="dim">' + Number(c.seconds.toFixed(1)) + " s" + (c.saved ? ", saved" : "") + "</span></div>").join("") + "</div>";
 }
 function sgProbeHTML(s) {
-  const g = S.sg, b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(title) + '">' + label + "</button>";
+  const g = S.sg, wait = sgWaiting(), b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(wait && SG_WAITS.has(a) ? label + ": " + wait : title) + '"' + (wait && SG_WAITS.has(a) ? " disabled" : "") + ">" + label + "</button>";
   if (g.confirm && g.confirm.sid === s.id) return '<div class="sgprobe"><div class="sgl"><span>' + esc(g.confirm.line.charAt(0).toUpperCase() + g.confirm.line.slice(1)) + ".</span>" +
     b("probeyes", "Search", "resolve the edited script for each candidate; nothing is written") + b("probeno", "Cancel", "") + "</div></div>";
   const c = probeCmd(s);
@@ -3398,7 +3410,7 @@ async function sgAct(kind, sid) {
     return;
   }
   const s = sgFind(sid), where = sgWhere(), g = S.sg;
-  if (g.busy) return;
+  if (g.busy || (SG_WAITS.has(kind) && sgWaiting())) return;
   g.note = null;
   if (kind === "show") {
     const r = await sgPost("/suggest/show", Object.assign(where, {id: sid}));
@@ -3487,7 +3499,7 @@ function renderSgDialog() {
   if (bar.hidden) return false;
   const sid = sh.id;
   bar.innerHTML = pill("dry run", "warn") + "<b>" + esc(sh.text) + '</b><span class="dim">nothing is written</span>' +
-    (S.canApply && !S.try ? '<button data-sg="apply" data-sid="' + esc(sid) + '">Apply</button>' : "") + (S.sg.src ? '<button data-sg="diffview">Diff</button>' : "") + '<button data-sg="cancel">Cancel</button>' +
+    (S.canApply && !S.try ? '<button data-sg="apply" data-sid="' + esc(sid) + '"' + (sgWaiting() ? ' disabled title="' + esc("Apply: " + sgWaiting()) + '"' : "") + ">Apply</button>" : "") + (S.sg.src ? '<button data-sg="diffview">Diff</button>' : "") + '<button data-sg="cancel">Cancel</button>' +
     (sh.targets || []).map(tg => '<button data-sgline="' + esc(tg.file + ":" + tg.line) + '" title="' + esc(tg.role) + '">' + esc(tg.key) + " " + esc(tg.file) + ":" + tg.line + "</button>").join("");
   return !S.sg.src;
 }
@@ -3843,8 +3855,23 @@ function xvInfo(X) {
   const elapsed = running && X.start.at ? Math.max(spent * 1000, Date.now() - serverMs(X.start.at)) : (X.source === "record" ? (X.start.seconds || spent) : spent) * 1000;
   const base = X.start.baseline;
   return {focus: X.start.focus || [], tried: tried.length, seeds: X.start.seeds || null, seed: last ? last.seed : null, base, best, delta: best && base != null ? best.score - base : null,
-    elapsed, budget: X.source === "cmd" && X.start.seconds ? X.start.seconds * 1000 : 0, running, done: X.done, ended: c && !running && !X.done ? c.state : ""};
+    elapsed, budget: X.source === "cmd" && X.start.seconds ? X.start.seconds * 1000 : 0, running, done: X.done, ended: c && !running && !X.done ? c.state : "",
+    route: !!X.start.route && !X.done, searchDone: running ? X.searchDone || null : null, routeMean: xvRouteMean(X), finishing: running ? xvFinishing(X) : []};
 }
+// With --route-best the routes in hand and waiting when the search ends are finished after it: the explore's time is the search's, and the
+// run can last past it. The only measure of how long is the routes done so far.
+function xvRouteMean(X) {
+  const ss = (X.routes || []).filter(r => !r.error && r.seconds != null).map(r => r.seconds);
+  return ss.length ? ss.reduce((a, b) => a + b, 0) / ss.length : null;
+}
+// The time passed with variants in hand: they run to their end and are kept. Those not landed yet, as a warning (not an error).
+const xvFinishing = X => X.budgetPassed && !X.searchDone ? X.budgetPassed.finishing.filter(f => !X.seeds.has(f.seed)) : [];
+const xvFinishingHTML = I => I.finishing.length ? '<span class="xwarn" title="' + esc("the explore's time has passed; variants started before it run to their end and are kept: " +
+  I.finishing.map(f => seedWord({seed: f.seed}) + " from " + fmtDur(1000 * f.started)).join(", ")) + '">time passed, finishing ' + esc(I.finishing.map(f => seedWord({seed: f.seed})).join(", ")) + "</span>" : "";
+const xvRoutesPast = I => I.route && I.budget ? ", then routes" : "";
+const xvRoutesTip = I => !I.route ? "" : "; the routes in hand and waiting when the search ends are finished after it, so the explore may run past its time" +
+  (I.routeMean != null ? "; the routes so far took " + fmtDur(1000 * I.routeMean) + " each on average" : "");
+const xvWaitsFor = sd => [...sd.in_hand.map(s => seedWord({seed: s})), ...sd.waiting.map(s => seedWord({seed: s}) + " waiting")].join(", ");
 const f1 = v => v == null ? "-" : Number(v).toFixed(1);
 const f1d = d => d == null ? "" : (d > 0 ? "+" : d < 0 ? "-" : "") + Math.abs(d).toFixed(1);
 const seedWord = v => v ? (v.seed === 0 ? "plain" : "#" + v.seed) : "-";
@@ -3852,11 +3879,11 @@ const focusWord = list => list.length <= 3 ? list.join(", ") : list.slice(0, 3).
 // The explore in the header strip: fixed-width fields, so the line does not move as the numbers do.
 function xvLine(X) {
   const I = xvInfo(X), fx = (w, v) => '<span class="fx" style="--w:' + w + 'ch">' + esc(v) + "</span>", rec = X.source === "record";
-  const tip = "variants landed" + (I.seeds ? " of " + I.seeds + " seeds" : "") + (rec ? ", the best variant" : ", the seed that landed last") + ", the best score so far against the plain placement, and the time";
+  const tip = "variants landed" + (I.seeds ? " of " + I.seeds + " seeds" : "") + (rec ? ", the best variant" : ", the seed that landed last") + ", the best score so far against the plain placement, and the time" + xvRoutesTip(I);
   return '<span class="xline" title="' + esc(tip) + '"><span>variants ' + fx(4, I.tried) + (I.seeds ? " of " + I.seeds : "") + "</span>" +
     (rec ? "<span>best variant " + fx(5, seedWord(I.best)) + "</span>" : "<span>seed " + fx(5, I.seed != null ? "#" + I.seed : "-") + "</span>") +
-    "<span>best " + fx(6, f1(I.best && I.best.score)) + " of " + fx(6, f1(I.base)) + "</span><span>time " + fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) : "") + "</span>" +
-    "</span>";
+    "<span>best " + fx(6, f1(I.best && I.best.score)) + " of " + fx(6, f1(I.base)) + "</span><span>time " + fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) + xvRoutesPast(I) : "") + "</span>" +
+    xvFinishingHTML(I) + (I.searchDone ? "<span>search done, routing " + esc(xvWaitsFor(I.searchDone)) + "</span>" : "") + "</span>";
 }
 // A past explore's board, when it is not the best's own: the run's board with the focused items moved to the best (the others as the run
 // placed them, its copper where it was laid), the items that could not be moved, or no board at all.
@@ -4006,8 +4033,11 @@ function xvPinsHTML(X) {
 // explore's end brings them all and the one taken.
 const xvRoutes = X => (X.done && X.done.routes && X.done.routes.length ? X.done.routes : X.routes) || [];
 function xvRoutesHTML(X) {
-  const rs = xvRoutes(X), taken = X.done && X.done.taken_seed;
-  if (!rs.length) return X.done && X.done.routes_skipped === "no_board" ? '<div class="xroutes"><div class="cst">Routes</div><div>none: a preview writes no board to route</div></div>' : "";
+  const rs = xvRoutes(X), taken = X.done && X.done.taken_seed, I = xvInfo(X), sd = I.searchDone;
+  const waits = sd ? "<div>Search done after " + esc(fmtDur(1000 * sd.t)) + ": routing " + esc(xvWaitsFor(sd)) +
+    (I.routeMean != null ? "; the routes so far took " + esc(fmtDur(1000 * I.routeMean)) + " each on average" : "") + "</div>" : "";
+  if (!rs.length) return X.done && X.done.routes_skipped === "no_board" ? '<div class="xroutes"><div class="cst">Routes</div><div>none: a preview writes no board to route</div></div>' :
+    waits ? '<div class="xroutes"><div class="cst">Routes</div>' + waits + "</div>" : "";
   const pct = v => (100 * v).toFixed(1) + "%";
   const rows = rs.map(r => {
     const v = xvBySeed(r.seed) || {seed: r.seed}, took = r.seed === taken;
@@ -4016,7 +4046,7 @@ function xvRoutesHTML(X) {
     return '<div class="xpin' + (took ? " on" : "") + '" data-xroute="' + r.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(r.score) + "</span>" +
       (took ? pill("taken", "good") : "") + "</div><div>" + body + "</div></div>";
   }).join("");
-  return '<div class="xroutes"><div class="cst">Routes</div>' + rows + (X.done && taken == null ? "<div>every route failed: the best score is taken</div>" : "") + "</div>";
+  return '<div class="xroutes"><div class="cst">Routes</div>' + waits + rows + (X.done && taken == null ? "<div>every route failed: the best score is taken</div>" : "") + "</div>";
 }
 function drawExplore() {
   const svg = typeof B !== "undefined" && B.svg; if (!svg || !svg.querySelectorAll) return;
@@ -4068,7 +4098,7 @@ function exploreHTML() {
     cell("variants", fx(4, I.tried) + (I.seeds ? " of " + I.seeds : " tried"), I.seeds ? "variants landed, of the seeds this explore has" : "variants landed: the explore runs for its time, with no fixed number") +
     cell("seed", fx(5, I.seed != null ? "#" + I.seed : "-"), "the seed of the variant that landed last") + cell("baseline", fx(6, f1(base)), "the score of the plain placement; lower is better") +
     cell("best", fx(6, f1(best && best.score)) + ' <span class="dim">' + esc(seedWord(best) + (I.delta != null ? ", " + (I.delta === 0 ? "level" : f1d(I.delta)) : "")) + "</span>", "the best score so far, its seed and its distance from the baseline") +
-    cell("time", fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) : ""), "time spent, of the time the explore was given") + "</div>";
+    cell("time", fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) + xvRoutesPast(I) : "") + (I.finishing.length ? " " + xvFinishingHTML(I) : ""), "time spent, of the time the explore was given" + xvRoutesTip(I)) + "</div>";
   const recent = vs.filter(v => v.seed !== 0).slice(-6).reverse().map(v => { const d = base != null ? v.score - base : null; return '<div class="xl' + (v === best ? " best" : "") + '" data-xr="' + vs.indexOf(v) + '"><span>' + seedWord(v) + "</span><span>" + f1(v.score) + "</span><span class=\"" + (d != null && d < 0 ? "add" : "dim") + '">' + (d == null ? "" : d === 0 ? "level" : f1d(d)) + "</span></div>"; }).join("");
   return '<div class="xv"><div class="xh">' + (I.running ? '<i class="spin"></i>' : "") + "<h3>Explore</h3>" + rowStateChip(st[0], st[1]) + "</div>" + fields + plot +
     '<div class="xshow dim">Board: ' + (X.auto ? "best so far, " + seedWord(best) + ", changes when a better one lands" : seedWord(shown) + ", picked") + "</div>" +

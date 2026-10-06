@@ -62,7 +62,9 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--route-best", action="store_true", default=None,
                      help="with --explore: quick-route the plain placement and each new best as the search finds it, "
                           "in a routing worker that takes one of the jobs, report each closure as it comes, and with "
-                          "--accept take the best closure, ties going to the better score (default [explore] route_best)")
+                          "--accept take the best closure, ties going to the better score (default [explore] route_best). "
+                          "The route in hand and the one waiting when the search ends are finished after it, so the run "
+                          "can last past the --explore SECONDS")
     run.add_argument("--resume", action="store_true",
                      help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
                           "its time) or refuse, saying what changed; without it a saved explore that is this one is "

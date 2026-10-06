@@ -5,6 +5,29 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **The studio acts on a followed command's suggestions.** With no script chosen, Try, Apply and Search options on a
+  finished command's findings (or a past run's, an explore's or a route's) were refused with "choose a layout script
+  first". They now act on that command's own script, as if it had been chosen. While the command is still running
+  they are disabled, saying they are available when it finishes, and `/suggest/try`, `/suggest/apply` and
+  `/suggest/probe` refuse with 409 and `"reason": "running"`. Scripts need no change.
+
+- **An explore says when its search is over and which routes it waits for.** With `--route-best`, the route in hand
+  and the one waiting when the search ends are finished after it, past the `--explore` time. The console now says so
+  when the search ends (`the search is over after 15 min; routing goes on: seed 7 in hand, seed 9 waiting`, with the
+  mean time of the routes done so far once there is one), a new `explore_search_done` event carries the same as fields,
+  and the studio's explore time reads `of 15:00, then routes`. The explore's start event carries `route`. Scripts
+  need no change.
+
+- **An explore says when its time passes with variants still finishing.** A variant begun before the `--explore`
+  time runs to its end and is kept, as before, so a search could run well past its time without a word. Now when
+  the time passes with variants in hand the console says which and when each began, an `explore_budget_passed`
+  event carries `t`, `budget` and `finishing` (`{seed, started}`), and the studio's explore view shows
+  `time passed, finishing #41, #42` in yellow. Nothing is stopped. Scripts need no change.
+
 ## To 0.99.26
 
 ### Fixed

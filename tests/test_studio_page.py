@@ -3479,3 +3479,85 @@ send("cmdev", {id: 8, n: 0, ev: r}); send("cmdev", {id: 8, n: 1, ev: r});
 out.n = ev("S.xv.routes.length");
 """)
     assert out["n"] == 1
+
+
+@needs_node
+def test_a_followed_commands_try_apply_and_search_are_disabled_while_it_runs_saying_why_and_come_back_when_it_finishes(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const SG = [{id: "s1a", text: "Place c4 beside c1, on its north side", rank: 1, lever: "beside", how: "instant"},
+              {id: "s1b", text: "Changing the gap might fix this: search options?", rank: 2, lever: "gap", how: "searched", figure: {kind: "bisect", name: "gap", unit: "mm", lo: 0.1, hi: 0.5}}];
+  const doc = Object.assign({}, BOARD, {items: [item("a", 1)], steps: [{i: 0, item: "a", kind: "part", placed: true, note: "", freedom: "fixed", copper: []}], copper: [], links: [], findings: [
+    {text: "c4: no legal location", kind: "unplaced", severity: "critical", item: "", case: "unplaced.search", suggestions: SG, at: null, refs: [], pads: []}], unplaced: [], pocketed: [], layers: ["F.Cu"], counts: {placed: 1, findings: 1}, score: null});
+  const a = mkcmd(4, {kind: "preview", command: "preview"});
+  serve({"/cmd/4": {summary: a, events: [], plan: {ev: "plan", doc}, explore: null}});
+  helloPicker({commands: [a]}); await tick(); flush();
+  ev("S.sg.more.add(0)");
+  const html = () => { ev("renderFindings()"); return els["#tab-findings"].innerHTML; };
+  out.running = html();
+  const n = fetched.length;
+  await ev("sgAct")("try", "s1a"); await ev("sgAct")("apply", "s1a"); await ev("sgAct")("search", "s1b");
+  out.posted = fetched.slice(n).filter(([u, o]) => o).length;
+  send("cmd", Object.assign({}, a, {state: "done", ended: clock / 1000}));
+  flush();
+  out.done = html();
+  console.log(JSON.stringify(out));
+})();
+""")
+    r = out["running"]
+    for a, sid in (("try", "s1a"), ("apply", "s1a"), ("search", "s1b")):
+        btn = re.search(r'<button data-sg="%s" data-sid="%s" title="([^"]*)" disabled>' % (a, sid), r)
+        assert btn and btn.group(1).endswith(": available when the preview finishes"), (a, r)
+    assert re.search(r'<button data-sg="show" data-sid="s1a" title="[^"]*">', r)                     # Show writes nothing: it stays
+    assert "Try, Apply and Search options are available when the preview finishes." in r and "(" not in r.split("sgwait")[1].split("</div>")[0]
+    assert out["posted"] == 0
+    d = out["done"]
+    assert "sgwait" not in d and " disabled" not in d
+    for a, sid in (("try", "s1a"), ("apply", "s1a"), ("search", "s1b")):
+        assert 'data-sg="%s" data-sid="%s"' % (a, sid) in d
+
+
+@needs_node
+def test_a_routing_explore_says_its_routes_may_run_past_its_time_and_when_the_search_is_done_which_it_waits_for(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+send("cmd", {id: 8, pid: 1, command: "run", script: "/p/x.py", args: ["run", "--explore", "900"], started: clock / 1000, state: "running", items: 0, variants: 0});
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'run', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore", focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2, seconds: 900, at: clock / 1000, route: true}});
+send("cmdev", {id: 8, n: 0, ev: {ev: "variant", seed: 3, score: 8, measures: {}, placements: {a: [6, 2, 0, "front"]}, order: ["a"], t: 1}});
+ev("renderRuns()"); out.searching = els["#tab-runs"].innerHTML; out.bar = ev("xvLine(S.xv)");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_route", seed: 0, score: 10, closure_clean: 0.8, closure: 0.9, open_before: 4, open_after: 1, valid: true, seconds: 300, dir: "d0"}});
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_search_done", t: 900.4, in_hand: [3], waiting: [], routed: 1, route_mean_s: 300}});
+ev("renderRuns()"); out.done = els["#tab-runs"].innerHTML; out.doneBar = ev("xvLine(S.xv)");
+ev("S.xv.start.route = false"); ev("renderRuns()"); out.plain = els["#tab-runs"].innerHTML;
+""")
+    s = out["searching"]
+    assert "of 15:00, then routes" in s and "the routes in hand and waiting when the search ends are finished after it" in s
+    assert "of 15:00, then routes" in out["bar"] and "Search done" not in s
+    d = out["done"]
+    assert "Search done after 15:00: routing #3" in d and "the routes so far took 5:00 each on average" in d
+    assert "search done, routing #3" in out["doneBar"]
+    assert "then routes" not in out["plain"]
+
+
+@needs_node
+def test_an_explore_past_its_time_says_so_in_yellow_and_names_the_variants_finishing(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+send("cmd", {id: 8, pid: 1, command: "run", script: "/p/x.py", args: ["run", "--explore", "900"], started: clock / 1000, state: "running", items: 0, variants: 0});
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'run', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore", focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2, seconds: 900, at: clock / 1000, route: true}});
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_budget_passed", t: 900.2, budget: 900, finishing: [{seed: 41, started: 782}, {seed: 42, started: 840}]}});
+ev("renderRuns()"); out.passed = els["#tab-runs"].innerHTML; out.bar = ev("xvLine(S.xv)");
+send("cmdev", {id: 8, n: 0, ev: {ev: "variant", seed: 41, score: 8, measures: {}, placements: {a: [6, 2, 0, "front"]}, order: ["a"], t: 1150}});
+ev("renderRuns()"); out.one = els["#tab-runs"].innerHTML;
+send("cmdev", {id: 8, n: 0, ev: {ev: "variant", seed: 42, score: 9, measures: {}, placements: {a: [5, 2, 0, "front"]}, order: ["a"], t: 1160}});
+ev("renderRuns()"); out.none = els["#tab-runs"].innerHTML;
+""")
+    p = out["passed"]
+    warn = re.compile(r'<span class="xwarn" title="([^"]*)">time passed, finishing #41, #42</span>')
+    m = warn.search(p)
+    assert m and "then routes" in p and "#41 from 13:02, #42 from 14:00" in m.group(1) and "kept" in m.group(1)
+    assert warn.search(out["bar"])
+    assert ">time passed, finishing #42</span>" in out["one"] and "finishing #41" not in out["one"]
+    assert "finishing" not in out["none"]
