@@ -16,9 +16,9 @@ pcbnew = import_pcbnew()
 
 
 def is_pour(zone) -> bool:
-    """Whether a board zone is copper the board's own pour or plane: not a rule area and not a teardrop. KiCad writes a
-    teardrop as a zone (pcbnew/zone.h ZONE::IsTeardropArea, set from the zone's teardrop attribute) that widens a
-    track at a pad or via; it serves no net by a pour."""
+    """Whether a board zone is a pour or plane: not a rule area and not a teardrop. KiCad stores a teardrop (the widening
+    at a pad or via that the teardrop generator adds) as a zone; ZONE::IsTeardropArea is true when its teardrop type is
+    not TD_NONE (KiCad 10.0.6, pcbnew/zone.h:692)."""
     return not zone.GetIsRuleArea() and not zone.IsTeardropArea()
 
 

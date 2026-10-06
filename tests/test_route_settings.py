@@ -120,7 +120,7 @@ TEARDROP_ZONE = """	(zone
 		(net {code})
 		(net_name "{net}")
 		(layer "{layer}")
-		(uuid "00000000-0000-4000-8000-0000000000{code:02d}")
+		(uuid "{uid}")
 		(name "$teardrop_padvia$")
 		(hatch full 0.1)
 		(priority 30053)
@@ -142,22 +142,27 @@ TEARDROP_ZONE = """	(zone
 		)
 		(polygon
 			(pts
-				(xy 10 10) (xy 11 10) (xy 11 11) (xy 10 11)
+				(xy {x0} {y0}) (xy {x1} {y0}) (xy {x1} {y1}) (xy {x0} {y1})
 			)
 		)
 	)
 """
 
 
-def add_teardrop_zone(pcb, net, layer="B.Cu"):
-    """Append a KiCad teardrop zone (what the teardrop generator writes at a pad or via) on `net` to the board file."""
+def add_teardrop_zone(pcb, net, layer="B.Cu", at=(10, 10), size=1):
+    """Append a KiCad teardrop zone (what the teardrop generator writes at a pad or via) on `net` to the board file: a
+    `size` mm square with its corner at `at`. Returns the zone's uuid."""
     import pcbnew
+    import uuid
     code = pcbnew.LoadBoard(str(pcb)).GetNetcodeFromNetname(net)
     text = pcb.read_text().rstrip()
     assert text.endswith(")")
-    pcb.write_text(text[:-1] + TEARDROP_ZONE.format(code=code, net=net, layer=layer) + ")\n")
-    zone = next(z for z in pcbnew.LoadBoard(str(pcb)).Zones() if z.GetZoneName() == "$teardrop_padvia$")
+    uid = str(uuid.uuid4())
+    block = TEARDROP_ZONE.format(code=code, net=net, layer=layer, uid=uid, x0=at[0], y0=at[1], x1=at[0] + size, y1=at[1] + size)
+    pcb.write_text(text[:-1] + block + ")\n")
+    zone = next(z for z in pcbnew.LoadBoard(str(pcb)).Zones() if z.m_Uuid.AsString() == uid)
     assert zone.IsTeardropArea() and zone.GetNetname() == net
+    return uid
 
 
 def _board_with_teardrop_zone(breakout_pcb, tmp_path):
