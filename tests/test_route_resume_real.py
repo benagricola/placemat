@@ -49,7 +49,7 @@ def test_a_rerun_takes_the_stages_the_first_run_finished_and_gets_the_same_route
     assert again.status == "ok" and again.run_dir == first.run_dir
     again_route = again.record.metrics["route"]
     assert again_route["resumed"] == ["islands", "main"]
-    for k in ("closure", "closure_clean", "open_after", "islands", "shorted"):
+    for k in ("closure", "closure_clean", "open_after", "islands", "shorted", "violations"):
         assert again_route[k] == route[k], k
 
     fresh = _run(script, monkeypatch, resume=False)

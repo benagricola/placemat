@@ -755,7 +755,8 @@ def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = 
     from .kicad.read import read_board
     skipped, counts = {}, {}
     new = routes.adoptable(read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb), nets,
-                           report.open_nets, report.shorted, skipped, partial=partial, counts=counts)
+                           report.open_nets, report.shorted, skipped, partial=partial, counts=counts,
+                           violations=getattr(report, "violations", None))
     for net, why in skipped.items():
         console.say("adopt", "%s not adopted: %s" % (net, why))
     for net, tally in sorted(counts.items()):

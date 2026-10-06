@@ -129,6 +129,9 @@ class RouteReport:
     # The class stages (`class_stages`), widest clearance first: each {"clearance_mm": mm, "nets": {net: [open items before,
     # after]}}. Their nets route in their own router call before the main pass, which does not route them again.
     class_stages: list = field(default_factory=list)
+    # The nets `shorted` lists, with the kinds of the real DRC violations each is in: {net: [kind, ...]}. A net named there need not be
+    # shorted; a hole_to_hole between two of its own vias puts it there too.
+    violations: dict = field(default_factory=dict)
 
     def has_findings(self) -> bool:
         return bool(self.widths or self.pair_layers_refused or self.net_halo_facts)
@@ -154,7 +157,8 @@ class RouteReport:
         if not self.valid:
             head += "  INVALID: " + self.invalid_reason
         if self.shorted:
-            head += "  shorted: " + ", ".join(self.shorted)
+            head += "  with DRC violations: " + ", ".join(
+                "%s (%s)" % (n, ", ".join(self.violations[n])) if self.violations.get(n) else n for n in self.shorted)
         if self.keepout_breaches:
             head += "  %d item(s) inside a keepout" % len(self.keepout_breaches)
         p = self.pairs or {}
@@ -194,7 +198,7 @@ class RouteReport:
     def as_dict(self) -> dict:
         return {"valid": self.valid, "closure": self.closure, "closure_clean": self.closure_clean,
                 "open_before": self.open_before, "open_after": self.open_after, "open_nets": self.open_nets,
-                "shorted": self.shorted, "excluded": self.excluded, "layers": self.layers,
+                "shorted": self.shorted, "violations": {n: list(k) for n, k in self.violations.items()}, "excluded": self.excluded, "layers": self.layers,
                 "seconds": self.seconds, "router_version": self.router_version, "drc_after": self.drc_after,
                 "routed_pcb": str(self.routed_pcb), "log": str(self.log), "quick": self.quick,
                 "invalid_reason": self.invalid_reason, "keepout_breaches": list(self.keepout_breaches),
@@ -424,17 +428,22 @@ def plane_note(dropped: dict) -> str:
     return "route layers: " + "; ".join(parts) + "; placemat route --layers to override"
 
 
-def _nets_in_violations(drc: dict) -> set:
+def _violations_by_net(drc: dict) -> dict:
+    """{net: sorted kinds} of the real DRC violations the net's items are in."""
     import re
-    out = set()
+    out = {}
     for v in drc.get("violations", []):
         if v.get("type") not in REAL_KINDS:
             continue
         for item in v.get("items", []):
             m = re.search(r"\[([^\]]+)\]", item.get("description", ""))
             if m:
-                out.add(m.group(1))
-    return out
+                out.setdefault(m.group(1), set()).add(v["type"])
+    return {n: sorted(k) for n, k in out.items()}
+
+
+def _nets_in_violations(drc: dict) -> set:
+    return set(_violations_by_net(drc))
 
 
 @dataclass
@@ -1098,7 +1107,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     cleanup = remove_dangling_router_copper(str(pcb_out), str(pcb_in))     # after the fill: KiCad tests a track end in a zone by its fill
     after = run_drc(pcb_out, work / "drc_after.json", refill_zones=False)     # filled just now
     open1 = {n: v for n, v in after.open_nets.items() if n not in counted}
-    violated = _nets_in_violations(json.loads((work / "drc_after.json").read_text()))
+    by_net = _violations_by_net(json.loads((work / "drc_after.json").read_text()))
+    violated = set(by_net)
     sc = score(open0, open1, {n for n in violated if n not in counted})
     breaches = router_breaches(pcb_in, pcb_out) + island_breaches
     if islands:     # the island nets' own pours were guarded after their pass: the main pass's copper against them
@@ -1114,6 +1124,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from .route_widths import read_widths
     report.class_stages = [{"clearance_mm": mm, "nets": {n: [open0.get(n, 0), after.open_nets.get(n, 0)] for n in nets}}
                            for mm, nets in stages]
+    report.violations = {n: by_net[n] for n in sc.shorted}
     report.widths = read_widths(work, islands, len(stages))
     report.pair_layers = {"%s/%s" % pair: list(ls) for pair, ls in pair_layers.items()}
     report.pair_layers_refused = pair_layers_refused

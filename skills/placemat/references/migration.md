@@ -17,6 +17,11 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
+- **The route summary names nets with DRC violations, not shorts.** The line said `shorted: NET` for every net with
+  a real DRC violation in the routed copy, a hole_to_hole between two of its own vias included. It now reads
+  `with DRC violations: NET (hole_to_hole)`, with the kinds. `route.json` and the route record keep `shorted` and add
+  `violations`, `{net: [kinds]}` for the same nets. Scripts need no change.
+
 - **A replay reuses the planned copper.** When every step of a preview, run or studio resolve replays and the script
   ran from the same files as the record's (the script, the modules it imports from beside it and the folders above,
   and every file it read, such as a TOML or JSON of dimensions), the declared copper and the room kept for it are put

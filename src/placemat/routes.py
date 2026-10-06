@@ -471,7 +471,7 @@ def items_of(entries, board) -> set:
 
 
 def adoptable(placed, routed, nets=None, still_open=(), shorted=(), skipped=None, partial: bool = False,
-              counts=None) -> list:
+              counts=None, violations=None) -> list:
     """The entries `adopt` would write, and nothing written: `skipped`,
     when given, gets {net: why} for each net left out. With `partial`, a net
     still open keeps each island of its new copper that joins two of its
@@ -482,7 +482,8 @@ def adoptable(placed, routed, nets=None, still_open=(), shorted=(), skipped=None
     pick = {}
     for net in (sorted(added) if nets is None else nets):
         if net in shorted:
-            skipped[net] = "the router shorted it"
+            kinds = (violations or {}).get(net)
+            skipped[net] = "it has DRC violations" + (" (%s)" % ", ".join(kinds) if kinds else "")
         elif net in still_open and partial:
             keep, tally = [], {"kept": 0, "joined": 0, "dropped": 0}
             for copper, joined in islands(placed, routed, net):
@@ -519,13 +520,13 @@ def keep(script, new, held=None) -> None:
         write(path, merged(read(path), new, held))
 
 
-def adopt(script, placed, routed, nets=None, still_open=(), shorted=(), skipped=None) -> list:
+def adopt(script, placed, routed, nets=None, still_open=(), shorted=(), skipped=None, violations=None) -> list:
     """Adopt the router's new copper on `nets` (None: every net it added
     copper to) into the script's routes file, merged over what it held. A
-    net still open or shorted after the route is left out: a net is adopted
+    net still open or with DRC violations after the route is left out: a net is adopted
     whole and clean. The entries written; `skipped`, when given, gets
     {net: why} for each net left out."""
-    new = adoptable(placed, routed, nets, still_open, shorted, skipped)
+    new = adoptable(placed, routed, nets, still_open, shorted, skipped, violations=violations)
     keep(script, new)
     return new
 
