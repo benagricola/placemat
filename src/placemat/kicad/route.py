@@ -776,6 +776,99 @@ def drop_pour_guards(pcb_path: str, nets) -> None:
             board.Save(pcb_path)
 
 
+POUR_ZONE = "placemat graphic pour"
+
+
+def pours_as_zones(pcb_path: str, net: str) -> int:
+    """Hand the router `net`'s own filled copper graphics as zones, for a
+    call that routes `net` alone. `board.pour` draws a pour as a filled
+    graphic polygon (write.py _draw_pour). The router credits a net's zones
+    as joining the pads they reach, as route_islands relies on for a plane,
+    but it reads a filled graphic as scanline bands
+    (KRT kicad_parser.py filled_area_spans) and takes each band for an
+    island of the net to join (connectivity.py
+    _get_multipoint_net_pads_unordered, one terminal per copper group): it
+    then lays a mesh of short tracks over the pour, and their ends stand
+    past its edge into the clearance the pour kept. Each graphic gives way
+    to a zone over its copper outline (stroke included), solid to pads,
+    keeping its islands, filled, named for the graphic so `pours_back` puts
+    the graphic back. The graphics replaced."""
+    from .quiet import import_pcbnew, quiet_stderr
+    from .read import CLEAR_ERR_NM
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
+    shapes = [d for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_SHAPE) and d.GetNetname() == net
+              and d.IsOnCopperLayer() and d.IsSolidFill()]
+    ds = board.GetDesignSettings()
+    zones = []
+    for d in shapes:
+        layer = d.GetLayer()
+        ps = pcbnew.SHAPE_POLY_SET()
+        d.TransformShapeToPolySet(ps, layer, 0, CLEAR_ERR_NM, pcbnew.ERROR_OUTSIDE)
+        ps.Simplify()
+        z = pcbnew.ZONE(board)
+        z.SetLayer(layer)
+        z.SetNetCode(d.GetNetCode())
+        z.SetLocalClearance(0)                  # the net classes' clearances, as the pour was fitted to
+        z.SetMinThickness(ds.m_TrackMinWidth or ds.GetDefault().GetTrackWidth())
+        z.SetPadConnection(pcbnew.ZONE_CONNECTION_FULL)
+        z.SetIslandRemovalMode(pcbnew.ISLAND_REMOVAL_MODE_NEVER)
+        z.Outline().Append(ps)
+        z.SetZoneName("%s %s" % (POUR_ZONE, d.m_Uuid.AsString()))
+        group = d.GetParentGroup()
+        if group is not None:
+            group.RemoveItem(d)
+        board.Delete(d)
+        board.Add(z)
+        if group is not None:                   # the zone holds the graphic's place in its group (an empty one is not saved)
+            group.AddItem(z)
+        zones.append(z)
+    if zones:
+        with quiet_stderr():
+            pcbnew.ZONE_FILLER(board).Fill(zones)
+            board.Save(pcb_path)
+    return len(zones)
+
+
+def pours_back(pcb_path: str, given: str) -> int:
+    """Undo `pours_as_zones` on the router's output: delete each zone it
+    drew and put back the graphic it stood for, as drawn on `given` (the
+    board before), its uuid kept, in the group the zone held its place in.
+    The graphics put back."""
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
+    zones = [z for z in board.Zones() if z.GetZoneName().startswith(POUR_ZONE + " ")]
+    if not zones:
+        return 0
+    with quiet_stderr():
+        before = pcbnew.LoadBoard(str(given))
+    by_uuid = {d.m_Uuid.AsString(): d for d in before.GetDrawings()}
+    n = 0
+    for z in zones:
+        d = by_uuid.get(z.GetZoneName()[len(POUR_ZONE) + 1:])
+        group = z.GetParentGroup()
+        if group is not None:
+            group.RemoveItem(z)
+        board.Delete(z)
+        if d is None:
+            continue
+        sh = d.Duplicate()                      # (PCB_SHAPE(d) is the constructor taking a parent, not a copy)
+        sh.SetUuid(d.m_Uuid)
+        sh.SetParentGroup(None)                 # the copy names `given`'s group; it takes the zone's place here
+        sh.SetParent(board)
+        board.Add(sh)
+        sh.SetNetCode(board.GetNetcodeFromNetname(d.GetNetname()))
+        if group is not None:
+            group.AddItem(sh)
+        n += 1
+    with quiet_stderr():
+        board.Save(pcb_path)
+    return n
+
+
 def _copy_project(src_pcb, dst_pcb) -> None:
     """The board's project files beside a copy of it: the router reads the
     netclasses (their widths and clearances) from them."""
@@ -829,6 +922,7 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
         _copy_project(board, inp)
         drop_pour_guards(str(inp), set(islands))
         guard_partial_pours(str(inp), set(islands) - {net}, layers, share)
+        pours_as_zones(str(inp), net)
         width = islands[net]
         # A net's own layers go to the router as its --layers. The router appends every board copper layer left out
         # of --layers with the forbidden cost, the same as `--layer-costs -1` on it (KRT py_router/route.py:1291-1310):
@@ -847,6 +941,7 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
             raise RuntimeError("the router exited %d routing island net %s; log %s\n%s" % (rc, net, log, tail))
         _copy_project(inp, out)
+        pours_back(str(out), board)
         lock_copper(str(out))
         others = tuple("%s %s " % (POUR_GUARD, n) for n in islands if n != net)
         breaches += [b for b in router_breaches(inp, out) if any(g in b for g in others)]
