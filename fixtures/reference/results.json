@@ -180,14 +180,14 @@
     "lora-v3": {
       "class": {
         "board": "lora-v3",
-        "closure_clean": 0.9815,
+        "closure_clean": 1.0,
         "human_track_mm": 1257.8193135423633,
         "human_vias": 150,
         "new_violations": [
           {
             "at_mm": [
-              162.7,
-              100.2
+              162.9948,
+              97.2317
             ],
             "nets": [
               "RF"
@@ -196,8 +196,8 @@
           },
           {
             "at_mm": [
-              162.7,
-              100.2
+              162.9948,
+              97.2317
             ],
             "nets": [
               "RF"
@@ -215,31 +215,29 @@
             "type": "solder_mask_bridge"
           }
         ],
-        "open": 1,
-        "open_nets": [
-          "DISPLAY-D/C"
-        ],
+        "open": 0,
+        "open_nets": [],
         "passed": false,
-        "seconds": 7.4,
-        "track_mm": 296.83096667164324,
+        "seconds": 61.0,
+        "track_mm": 1410.524234489876,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+          "placemat": "4b1e172dc70f3fe4fffe517c83c11548d32432ef"
         },
-        "vias": 24,
+        "vias": 116,
         "widths": "class"
       },
       "human": {
         "board": "lora-v3",
-        "closure_clean": 0.9815,
+        "closure_clean": 1.0,
         "human_track_mm": 1257.8193135423633,
         "human_vias": 150,
         "new_violations": [
           {
             "at_mm": [
-              162.7,
-              100.2
+              162.9948,
+              97.2317
             ],
             "nets": [
               "RF"
@@ -248,8 +246,8 @@
           },
           {
             "at_mm": [
-              162.7,
-              100.2
+              162.9948,
+              97.2317
             ],
             "nets": [
               "RF"
@@ -267,19 +265,17 @@
             "type": "solder_mask_bridge"
           }
         ],
-        "open": 1,
-        "open_nets": [
-          "DISPLAY-D/C"
-        ],
+        "open": 0,
+        "open_nets": [],
         "passed": false,
-        "seconds": 7.4,
-        "track_mm": 296.83096667164324,
+        "seconds": 59.2,
+        "track_mm": 1410.524234489876,
         "versions": {
           "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
           "pcb": "pcbc 0.4.52",
-          "placemat": "565ba9924c9f0ed0841f2e0bb62099e86c208855"
+          "placemat": "4b1e172dc70f3fe4fffe517c83c11548d32432ef"
         },
-        "vias": 24,
+        "vias": 116,
         "widths": "human"
       }
     },

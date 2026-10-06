@@ -12,7 +12,21 @@
     "islands": [
       "VCC"
     ],
-    "fixed": ["J1", "P1", "P101", "P102", "P103", "P104", "P105", "P106", "P2", "P3", "U5", "U6", "U1"],
+    "fixed": [
+      "J1",
+      "P1",
+      "P101",
+      "P102",
+      "P103",
+      "P104",
+      "P105",
+      "P106",
+      "P2",
+      "P3",
+      "U5",
+      "U6",
+      "U1"
+    ],
     "human_track_mm": 0.5,
     "kicad5": false,
     "files": {
@@ -63,7 +77,7 @@
       "LoRa-V3-PCB.kicad_pro": "a97c4b8208590890a66d6177723abc8be19c1e8210b3b1622c99ca51df9126c7",
       "LoRa-V3-PCB.kicad_sch": "83a9760b5c9225f26bcf57123c57faed4711907925b2a80ee0d20471bd163f52"
     },
-    "notes": "Class and human widths are the same: the Default class width 0.2 equals the human width. 112 teardrop zones make placemat treat 25 nets as pour nets (plane_nets_of), so they are neither routed nor counted in closure; closure 98.2% overstates it (KiCad DRC lists their connections as missing). The 3 solder_mask_bridge on RF come from pad mask margins (0.25 mm, above the 0.2 mm clearance) which the router does not model."
+    "notes": "Class and human widths are the same: the Default class width 0.2 equals the human width. The board has 112 teardrop zones; before the fix in 4b1e172d placemat took them for pours and left 25 nets unrouted and out of the closure (98.2% was overstated). The 3 solder_mask_bridge on RF come from pad mask margins (0.25 mm, above the 0.2 mm clearance) which the router does not model."
   },
   {
     "name": "ir-irradiance-probe",
