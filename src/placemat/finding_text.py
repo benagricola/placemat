@@ -1016,6 +1016,18 @@ def _route_dropped(f):
 @renders(C.ROUTE_WIDTH, "net", "stage", "requested_mm", "delivered_min_mm", "length_under_mm")
 def _route_width(f):
     of = " of %.1f mm (%.0f%%)" % (f["length_mm"], 100 * (f.get("share") or 0.0)) if f.get("length_mm") is not None else " mm"
+    if f.get("layers"):         # judged on the routed board, per layer (route_widths.board_widths)
+        text = "net %s: %.1f%s of its routed copper is under what it needs: %s" % (f["net"], f["length_under_mm"], of, "; ".join(
+            "%s %.1f mm under %s, narrowest %g mm" % (
+                d["layer"], d["under_mm"],
+                "the %g mm it was asked" % d["need_mm"] if d["by"] == "asked" else "%.2f mm for %g A on %s copper" % (
+                    d["need_mm"], f["stated_a"], "outer" if d["layer"] in ("F.Cu", "B.Cu") else "inner"),
+                d["min_mm"]) for d in f["layers"]))
+        if f.get("max_a") is not None and f.get("stated_a") is not None:
+            text += "; its narrowest copper carries %g A at most, the design states %g A" % (f["max_a"], f["stated_a"])
+        if f.get("necks_mm"):
+            text += "; %.1f mm of pad neck-down within %g mm of a pad not counted" % (f["necks_mm"], f["neck_limit_mm"])
+        return text
     text = "net %s: %.1f%s of its copper in the %s stage is under the %g mm it was asked, narrowest %g mm" % (
         f["net"], f["length_under_mm"], of, f["stage"], f["requested_mm"], f["delivered_min_mm"])
     if f.get("max_a") is not None:
