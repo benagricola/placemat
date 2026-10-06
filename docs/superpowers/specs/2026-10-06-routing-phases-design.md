@@ -63,8 +63,13 @@ pairs = true                   # the differential pairs the net classes declare
 
 [[route.phase]]
 name = "buses"
-buses = [["DISP_*"], ["SPI1_*"], ["SPI2_*"]]   # each list one bus, routed together
+interfaces = ["Spi", "I2c"]    # every instance in the capture, each routed together as one bus
 layers = ["F"]
+
+[[route.phase]]
+name = "power"
+net_types = ["Power"]
+width = "current"
 
 [[route.phase]]
 name = "wide-clearance"
@@ -94,12 +99,31 @@ A phase has at most one selector. A phase with none takes every connection still
 
 A phase selects only connections still open when it runs. A connection an earlier phase joined is not routed again.
 
-**Selecting by the capture's grouping.** Zener's interface instances (`Spi`, `I2c`, `DiffPair`) and net types (`Power`,
-`Ground`, `Gpio`) would be the natural selectors: the capture already knows each bus. They do not reach placemat: the
-generated `default.net` and `snapshot.layout.json` carry only net names and pins. Until the generator exports them,
-the capture can group nets with net classes, which do reach the board. A gap entry goes to the Zener toolchain asking
-for the interface instance and net type of each net in the generated output; when it lands, `interfaces = ["Spi"]` and
-`net_types = ["Power"]` become selectors, each interface instance one bus.
+| `interfaces` | every instance of these Zener interface types (`Spi`, `I2c`, ...), each instance one bus; or instances by path (`"DISP"`) | the capture, through the Zener fork (below) |
+| `net_types` | every net of these Zener net types (`Power`, `Ground`, `Gpio`, a custom type) | the capture, through the Zener fork (below) |
+
+**The capture's grouping.** The capture already knows each bus and each power net: Zener's interface instances
+(`DISP = Spi(...)`) and net types (`Power`, `Ground`). Today the generated `default.net` and `snapshot.layout.json`
+carry only net names and pins. We maintain the Zener toolchain's fork (https://github.com/benagricola/pcb, ~/work/pcb),
+and it gains a sidecar the layout writes beside the board.
+
+`nets.layout.json` holds one record per net:
+- its flat name;
+- its type, from `pcb_sch::Net.kind`;
+- the type's fields (voltage, impedance), from `properties`;
+- the interface instances it belongs to: a list, since a net can sit in several. Each entry holds the instance path, the
+  interface type name and the member name.
+
+It is written from the full schematic in `pcb-layout/src/lib.rs` beside the netlist write (scratchpad/zener-net-export.md,
+file:line there). It comes in two stages:
+1. **Type and fields:** about 40 lines, Rust only. The type survives evaluation today.
+2. **Interface membership:** about 120-180 lines. It does not survive evaluation today. The instance, its type and its
+   field-to-net map are recorded where the instance is created and carried to the schematic's nets. One case must be
+   checked before this is sized: an instance whose name is inferred from its assignment (`DISP = Spi(...)`) has no root
+   name recorded.
+
+placemat reads the sidecar into the board geometry. A board generated without it, by an older toolchain, has no
+`interfaces` or `net_types` to select by: a phase that uses them is refused, saying the generator does not export them.
 
 ### Width
 
@@ -227,6 +251,5 @@ for power legs and buses, and declared copper only for fixed geometry.
 
 ## Out of scope
 
-- Selecting by Zener interfaces and net types, until the generator exports them (gap entry above).
 - Length matching and tuning per phase.
 - Keeping phase copper across placements, beyond `--adopt`.
