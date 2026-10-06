@@ -122,9 +122,9 @@ def _git(root: str, *args: str) -> str:
 
 
 def _git_head(root: str) -> str:
-    """The commit of a checkout, with "-dirty" when it has uncommitted changes."""
+    """The commit of a checkout, with "-dirty" when it has uncommitted changes to tracked files."""
     head = _git(root, "rev-parse", "HEAD") or "unknown"
-    return head + DIRTY if _git(root, "status", "--porcelain") else head
+    return head + DIRTY if _git(root, "status", "--porcelain", "-uno") else head
 
 
 def _krt_version(board_pcb: pathlib.Path) -> str:
