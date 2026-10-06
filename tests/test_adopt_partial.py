@@ -55,7 +55,7 @@ def test_a_shorted_net_keeps_nothing_partial_or_not():
 def test_a_second_partial_adoption_adds_an_entry_and_a_whole_one_replaces_them(tmp_path):
     placed = _board()
     (first,) = routes.adoptable(placed, _routed(placed), ["X"], still_open={"X": 1}, partial=True)
-    second = dataclasses.replace(first, adopted="later")
+    second = dataclasses.replace(first, vias=(), adopted="later")
     assert routes.merged([first], [second]) == [first, second]
     whole = dataclasses.replace(first, partial=False, adopted="whole")
     assert routes.merged([first, second], [whole]) == [whole]
@@ -146,7 +146,7 @@ def test_the_pass_that_closes_a_net_keeps_the_islands_that_held():
 def test_an_entry_that_did_not_hold_is_replaced_by_the_next():
     placed = _board()
     (first,) = routes.adoptable(placed, _pass1(placed), ["X"], still_open={"X": 1}, partial=True)
-    stale = dataclasses.replace(first, adopted="stale")
+    stale = dataclasses.replace(first, tracks=first.tracks[:1], adopted="stale")
     again = dataclasses.replace(first, adopted="again")
     assert routes.merged([stale], [again], held=[False]) == [again]
 

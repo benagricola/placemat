@@ -28,6 +28,16 @@ section for each hand-written pattern a newer form replaces.
   event carries `t`, `budget` and `finishing` (`{seed, started}`), and the studio's explore view shows
   `time passed, finishing #41, #42` in yellow. Nothing is stopped. Scripts need no change.
 
+### Fixed
+
+- **Adopting a route again replaces its entries instead of adding a second copy.** `route --adopt-all` run twice on
+  one `--out` folder kept each net's entry twice in `<script>.routes.json`, and the next run drew every kept via on
+  itself (`holes_co_located`). An entry already kept now stays beside the new copper only when its own copper was on
+  the board that route was given and is still on the routed one; otherwise the route's copper for the net replaces
+  it, and an entry with the same copper as before is left as it was. Reading a routes file drops an entry whose
+  copper repeats an earlier one's: a run, `placemat routes` and `route --adopt` say how many, and the next adopt or
+  release writes the file without them. Scripts need no change.
+
 ## To 0.99.26
 
 ### Fixed

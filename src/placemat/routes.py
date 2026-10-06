@@ -37,14 +37,38 @@ def path_for(script) -> Path:
     return script.with_name(script.stem + ".routes.json")
 
 
-def read(path) -> list:
+def read(path, dropped=None) -> list:
+    """The entries in the routes file at `path`, an entry whose copper
+    repeats an earlier one's dropped: a file 0.99.26's `route --adopt` wrote
+    twice over holds each net twice, and drawing both puts every via on
+    itself. `dropped`, when given, gets the entries dropped."""
     path = Path(path)
     if not path.exists():
         return []
     data = json.loads(path.read_text())
-    return [RouteEntry(e["net"], tuple(e["tracks"]), tuple(e["vias"]), dict(e.get("parts", {})), e.get("adopted", ""),
-                       bool(e.get("partial", False)))
-            for e in data.get("entries", [])]
+    entries = [RouteEntry(e["net"], tuple(e["tracks"]), tuple(e["vias"]), dict(e.get("parts", {})),
+                          e.get("adopted", ""), bool(e.get("partial", False)))
+               for e in data.get("entries", [])]
+    out = _unique(entries)
+    if dropped is not None:
+        dropped += [e for e in entries if not any(e is o for o in out)]
+    return out
+
+
+def _copper_of(entry: RouteEntry) -> str:
+    """What an entry draws, and on what: all of it but when it was adopted."""
+    return json.dumps([entry.net, entry.tracks, entry.vias, entry.parts, entry.partial], sort_keys=True)
+
+
+def _unique(entries) -> list:
+    """`entries` with each one whose copper repeats an earlier one's left out."""
+    seen, out = set(), []
+    for e in entries:
+        key = _copper_of(e)
+        if key not in seen:
+            seen.add(key)
+            out.append(e)
+    return out
 
 
 def write(path, entries) -> None:
@@ -55,18 +79,21 @@ def write(path, entries) -> None:
 
 
 def merged(old, new, held=None) -> list:
-    """`old` with the entries in `new` added. `held`, one flag an `old` entry,
-    says which held on the board the route was given: an entry of a net in
-    `new` that did not hold is replaced, one that held stays (its copper was
-    on that board, so it is not in the new entry). Without `held`, a whole
-    entry replaces its net's and a partial one is added beside them."""
+    """`old` with the entries in `new` added. `held`, one flag an `old` entry
+    (see `held_on`), says which were on the board the route was given: an
+    entry of a net in `new` that was not is replaced, one that was stays
+    (its copper was on that board, so it is not in the new entry). Without
+    `held`, a whole entry replaces its net's and a partial one is added
+    beside them. A new entry with the same copper as an old one is that old
+    one, left as it was; no two entries keep the same copper."""
+    new = [next((o for o in old if _copper_of(o) == _copper_of(n)), n) for n in new]
     nets = {e.net for e in new}
     if held is None:
         whole = {e.net for e in new if not e.partial}
         out = [o for o in old if o.net not in whole]
     else:
         out = [o for o, h in zip(old, held) if o.net not in nets or h]
-    return out + list(new)
+    return _unique(out + list(new))
 
 
 def replaced(old, new, held=None) -> list:
@@ -89,9 +116,19 @@ def entry_keys(entries) -> list:
     return keys
 
 
-def held_of(entries, adopted: dict) -> list:
-    """Which of `entries` a plan's `adopted` says held."""
-    return [adopted.get(k) == "held" for k in entry_keys(entries)]
+def held_on(entries, placed, routed, tolerance: float) -> list:
+    """Which of `entries` (a routes file's) were on the board a route was
+    given, `placed`, and are still on the one it left, `routed`: the copper
+    each draws where `placed` has its parts (see `drawn_each`) is on both.
+    Not whether it holds now: once a route is adopted its entries hold, but
+    the board that route was given never had their copper, and adopting the
+    route again must replace them, not keep them beside the same copper."""
+    out = []
+    for e, ops in zip(entries, drawn_each(entries, placed, tolerance)):
+        out.append(ops is not None and all(
+            any(_same_op(c, op, tolerance) for c in g.copper if c.kind in ("track", "via") and c.net == e.net)
+            for g in (placed, routed) for op in ops))
+    return out
 
 
 def _xy(a) -> tuple:
@@ -344,6 +381,8 @@ def resolve(entry: RouteEntry, occ, tolerance: float, also=()):
             net = _pad_net(occ, ref_of(occ.geometry, name), number)
             if net != entry.net:
                 return Refusal(Code.ROUTE_NET, part=label(name), number=number, net=net)
+    if not src and not points:                # binds to nothing and draws nothing
+        return [], []
     (c, s), (sx, sy), (dx, dy) = _fit(src, dst)
 
     def moved(p):
@@ -384,17 +423,18 @@ def _kept_shape(op):
     return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box, wire=True)
 
 
-def drawn_now(entries, geometry, tolerance: float) -> list:
-    """The tracks and vias `entries` (kept routes) draw on `geometry` right
-    now: the same round-by-round resolution `_draw_adopted` draws them onto
-    a generated board, since an entry whose end rests on another kept
-    entry's copper needs that one resolved first. An entry that no longer
-    holds (see `resolve`) draws nothing."""
+def drawn_each(entries, geometry, tolerance: float) -> list:
+    """The tracks and vias each of `entries` (kept routes) draws on
+    `geometry` right now, None for one that no longer holds (see
+    `resolve`): the same round-by-round resolution `_draw_adopted` draws
+    them onto a generated board, since an entry whose end rests on another
+    kept entry's copper needs that one resolved first."""
     from .occupancy import Occupancy
+    out = [None] * len(entries)
     if not entries:
-        return []
+        return out
     occ = Occupancy(geometry)
-    drawn, left, out = [], list(range(len(entries))), []
+    drawn, left = [], list(range(len(entries)))
     while left:
         also = [_kept_shape(op) for op in drawn]
         now = {i: resolve(entries[i], occ, tolerance, also) for i in left}
@@ -402,11 +442,16 @@ def drawn_now(entries, geometry, tolerance: float) -> list:
         if not held:
             break
         for i in held:
-            ops = list(now[i][0]) + list(now[i][1])
-            drawn += ops
-            out += ops
+            out[i] = list(now[i][0]) + list(now[i][1])
+            drawn += out[i]
         left = [i for i in left if i not in held]
     return out
+
+
+def drawn_now(entries, geometry, tolerance: float) -> list:
+    """The tracks and vias `entries` (kept routes) draw on `geometry` right
+    now, all together (see `drawn_each`)."""
+    return [op for ops in drawn_each(entries, geometry, tolerance) if ops for op in ops]
 
 
 def _near(a, b, tolerance: float) -> bool:
@@ -525,9 +570,12 @@ def adopt(script, placed, routed, nets=None, still_open=(), shorted=(), skipped=
     copper to) into the script's routes file, merged over what it held. A
     net still open or with DRC violations after the route is left out: a net is adopted
     whole and clean. The entries written; `skipped`, when given, gets
-    {net: why} for each net left out."""
+    {net: why} for each net left out. An entry already kept is replaced
+    unless its copper was on the board routed (see `merged`)."""
+    from .settings import active
     new = adoptable(placed, routed, nets, still_open, shorted, skipped, violations=violations)
-    keep(script, new)
+    old = read(path_for(script)) if new else []
+    keep(script, new, held_on(old, placed, routed, active().route_adopt_tolerance) if old else None)
     return new
 
 
