@@ -298,6 +298,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Net-tie whole-face scan, Reach.CURRENT via rows, lock files** (0.99.23):
+  a first-legal net-tie sweep is judged a window at a time (ringsensor 8 s
+  to 1 s); a via row is credited with its pad's current; KiCad lock files
+  are not copied.
+
 - **Turned lanes room for the router's grid snap** (0.99.22): lanes of a turned
   escape stand the grid step over root 2 further apart.
 
