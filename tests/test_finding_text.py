@@ -172,6 +172,14 @@ SAMPLES = [
     (C.ROUTE_WIDTH, {"net": "V", "stage": "main", "requested_mm": 0.5, "delivered_min_mm": 0.2, "length_under_mm": 3.0,
                      "length_mm": None, "share": None, "declared": False, "max_a": None, "bottleneck_mm": None, "stated_a": None},
      "net V: 3.0 mm of its copper in the main stage is under the 0.5 mm it was asked, narrowest 0.2 mm"),
+    (C.ROUTE_WIDTH, {"net": "V", "stage": "islands", "requested_mm": 1.37, "delivered_min_mm": 0.1, "length_under_mm": 46.9,
+                     "length_mm": 84.4, "share": 0.5557, "declared": True, "max_a": 0.23, "bottleneck_mm": 0.1, "stated_a": 3.0,
+                     "bottleneck_layer": "In2.Cu", "necks_mm": 20.4, "neck_limit_mm": 3.0,
+                     "layers": [{"layer": "B.Cu", "need_mm": 1.37, "by": "asked", "under_mm": 6.9, "min_mm": 0.127},
+                                {"layer": "In2.Cu", "need_mm": 3.5563, "by": "current", "under_mm": 40.0, "min_mm": 0.1}]},
+     "net V: 46.9 of 84.4 mm (56%) of its routed copper is under what it needs: B.Cu 6.9 mm under the 1.37 mm it was asked, "
+     "narrowest 0.127 mm; In2.Cu 40.0 mm under 3.56 mm for 3 A on inner copper, narrowest 0.1 mm; its narrowest copper carries "
+     "0.23 A at most, the design states 3 A; 20.4 mm of pad neck-down within 3 mm of a pad not counted"),
     (C.VIAS_GAVE_WAY, {"item": "m", "nets": [{"net": "SIG", "parts": [{"kind": "move", "n": 1, "moved_mm": 0.25}],
                                               "under": ["R9"], "held": []}], "fields": []},
      "m: 1 SIG via moved 0.25 mm under R9"),

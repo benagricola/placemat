@@ -28,6 +28,20 @@ section for each hand-written pattern a newer form replaces.
   event carries `t`, `budget` and `finishing` (`{seed, started}`), and the studio's explore view shows
   `time passed, finishing #41, #42` in yellow. Nothing is stopped. Scripts need no change.
 
+### Fixed
+
+- **An island net's routed copper is judged on the board, per layer.** `route.width` read only the router's summaries, and a
+  quick route's stages carry no `power_widths` (the router writes it only with its final reconciliation on), so an island net
+  necked down to 0.1 mm across tens of millimetres raised nothing. Each island net given a width in `[route] islands` is now
+  judged on the routed board: every track against the width asked and the width its
+  stated current (`Pm.I`) needs on that track's layer, by IPC-2221 with the inner constant on an inner layer, as `check current-path` sizes
+  copper. A track sized for 3 A on outer copper (1.37 mm) is short on 1 oz inner copper (3.56 mm). The router's pad neck-down
+  is not counted when it stays within its neck length plus taper of a pad (3 mm by default, from `--neckdown-length` and
+  `--neckdown-taper-length` in `[route] router_args`, none with `--no-power-tap-neckdown`). The record and the finding carry
+  the shortfall per layer (`layers`), `bottleneck_layer`, `necks_mm` and `neck_limit_mm`. A board that routed clean before may
+  now have critical `route.width` findings. Scripts need no change; to keep an island net off inner layers, or wider there, the
+  route has no form yet.
+
 ## To 0.99.26
 
 ### Fixed

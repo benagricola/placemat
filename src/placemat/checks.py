@@ -818,6 +818,13 @@ def ipc2221_width_mm(current_a: float, rise_c: float = TRACK_RISE_C, copper_oz: 
     return area_milsq / (_MIL_PER_OZ * copper_oz) * _MM_PER_MIL
 
 
+def ipc2221_current_a(width_mm: float, rise_c: float = TRACK_RISE_C, copper_oz: float = COPPER_OZ,
+                      k: float = _IPC_K_OUTER) -> float:
+    """The current a track this wide carries at a temperature rise by IPC-2221: `ipc2221_width_mm` turned round."""
+    area_milsq = width_mm / _MM_PER_MIL * _MIL_PER_OZ * copper_oz
+    return k * rise_c ** 0.44 * area_milsq ** 0.725
+
+
 def _layer_oz(layer, copper_mm: dict, fallback_oz: float) -> float:
     mm_thickness = copper_mm.get(layer) if layer is not None else None
     return mm_thickness / _MM_PER_OZ if mm_thickness is not None else fallback_oz

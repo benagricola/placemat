@@ -1133,7 +1133,17 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.class_stages = [{"clearance_mm": mm, "nets": {n: [open0.get(n, 0), after.open_nets.get(n, 0)] for n in nets}}
                            for mm, nets in stages]
     report.violations = {n: by_net[n] for n in sc.shorted}
-    report.widths = read_widths(work, islands, len(stages))
+    # the island nets judged on the routed board (route_widths.board_widths); the router's summaries for the rest
+    from .route_widths import board_widths, judged_on_board, neck_allowance, stated_currents
+    widths = []
+    if islands:
+        routed = read_board(str(pcb_out))
+        stated = stated_currents(routed)
+        widths = board_widths(routed, islands, stated, cfg.check_rise_c, None, neck_allowance(cfg.route_router_args))
+        judged = judged_on_board(islands)
+    else:
+        judged = set()
+    report.widths = widths + [r for r in read_widths(work, islands, len(stages)) if r["net"] not in judged]
     report.pair_layers = {"%s/%s" % pair: list(ls) for pair, ls in pair_layers.items()}
     report.pair_layers_refused = pair_layers_refused
     report.net_halos, report.net_halos_missing, report.net_halo_trapped = halos, halos_missing, trapped
