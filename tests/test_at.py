@@ -3,11 +3,13 @@ kind. Each kind of place carries its own degrees of freedom: a Location
 with both axes (none), with one axis (one), on an edge at a distance
 (none) or anywhere along it (one), near a hint (two, searched), or
 nothing (two, seeded from its links)."""
+import dataclasses
+
 import pytest
 
-from placemat.layout import Board
+from placemat.layout import Board, PlacementCollision
 from placemat.values import Freedom, Along, Cell, Centre, Edge, Fraction, Location, Mid, Near, OnEdge, PadRef, Part, Priority, X, Y
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, pad, placement_findings
 
 
 def make_board():
@@ -73,3 +75,85 @@ def test_the_old_keywords_are_gone_and_a_wrong_kind_of_place_is_refused():
         b.place(Part("j1"), at="north")
     with pytest.raises(TypeError):
         b.place(Part("j1"), at=OnEdge(Edge.NORTH, along="mid"))
+
+
+HOLE_YARD = 9.1         # a mounting hole's courtyard, square here
+HOLE_LAND = 6.0         # its plated land
+HOLE_INSET = 3.81       # its centre from each of two edges: the courtyard crosses both by 0.74 mm
+KEEP_IN = 0.5
+
+
+def hole(ref, cx, cy):
+    """A mounting hole: one plated land in the middle of a wider courtyard."""
+    fp = footprint(ref, cx, cy, w=HOLE_YARD, h=HOLE_YARD, nets=("GND", "GND"), excess=0.0)
+    return dataclasses.replace(fp, pads=(pad(ref, ref.lower(), 1, "GND", cx, cy, HOLE_LAND, HOLE_LAND, through=True),))
+
+
+def hole_board():
+    return Board(board_geometry([hole("H1", 25, 25)], width=50, height=50, edge_clearance=KEEP_IN), edge_margin=KEEP_IN)
+
+
+def test_a_firm_part_whose_courtyard_crosses_the_edge_is_refused_without_an_overhang():
+    b = hole_board()
+    b.place(Part("h1"), at=Centre(HOLE_INSET, HOLE_INSET, coordinates=True))
+    with pytest.raises(PlacementCollision, match="h1 .*body box -0.74,-0.74..8.36,8.36 crosses the board edge"):
+        b.resolve()
+
+
+def test_a_firm_part_may_state_how_far_its_courtyard_overhangs_the_edge():
+    """overhang= lets the courtyard and body reach that far past the edge, on any side; it does not move the part."""
+    b = hole_board()
+    b.place(Part("h1"), at=Centre(HOLE_INSET, HOLE_INSET, coordinates=True), overhang=0.8,
+            why="the corner holes sit where the enclosure's bosses are")
+    plan = b.resolve()
+    centre = plan.box("h1").center
+    assert (centre.x, centre.y) == pytest.approx((HOLE_INSET, HOLE_INSET)) and plan.step("h1").freedom is Freedom.FIXED
+    assert placement_findings(plan) == []
+
+
+def test_a_courtyard_past_the_stated_overhang_is_refused_saying_how_far_it_crosses():
+    b = hole_board()
+    b.place(Part("h1"), at=Centre(HOLE_INSET, HOLE_INSET, coordinates=True), overhang=0.5,
+            why="the corner holes sit where the enclosure's bosses are")
+    with pytest.raises(PlacementCollision, match=r"h1 .*body box -0.74,-0.74..8.36,8.36 crosses the board edge "
+                                                 r"by 0.74 mm, more than its overhang \(0.50 mm\)"):
+        b.resolve()
+
+
+def test_an_overhang_leaves_pads_held_to_the_keep_in():
+    b = hole_board()
+    b.place(Part("h1"), at=Centre(3.3, 25.0, coordinates=True), overhang=1.5, why="a boss at the edge")   # land 0.3 mm in
+    with pytest.raises(PlacementCollision, match=r"h1 .*copper to edge: box 0.30,22.00..6.30,28.00 crosses the board edge "
+                                                 r"margin \(0.50 mm\)"):
+        b.resolve()
+
+
+def test_an_overhang_says_why():
+    b = hole_board()
+    with pytest.raises(ValueError, match="h1: overhang= says why"):
+        b.place(Part("h1"), at=Centre(HOLE_INSET, HOLE_INSET, coordinates=True), overhang=0.8)
+
+
+def test_an_overhang_is_for_a_firm_placement():
+    """A searched item would take the allowance wherever the search put it; an edge place says its own overhang."""
+    b = hole_board()
+    with pytest.raises(ValueError, match="h1: overhang= is for a firm placement"):
+        b.place(Part("h1"), overhang=0.8, why="a boss at the edge")
+    with pytest.raises(ValueError, match="h1: overhang= is for a firm placement"):
+        b.place(Part("h1"), at=OnEdge(Edge.NORTH), overhang=0.8, why="a boss at the edge")
+    with pytest.raises(ValueError, match="overhang= is a distance of at least 0"):
+        b.place(Part("h1"), at=Centre(HOLE_INSET, HOLE_INSET, coordinates=True), overhang=-0.1, why="a boss")
+
+
+def test_an_edge_place_with_its_own_overhang_takes_no_second_one():
+    b = hole_board()
+    with pytest.raises(ValueError, match="h1: OnEdge.* says its own overhang"):
+        b.place(Part("h1"), at=OnEdge(Edge.NORTH, along=10.0, overhang=0.5), overhang=0.8, why="a boss at the edge")
+
+
+def test_an_edge_place_may_overhang_the_edge_it_turns_the_corner_onto():
+    """On an edge at the keep-in, overhang= lets the courtyard cross the other edge at the corner."""
+    b = hole_board()
+    b.place(Part("h1"), at=OnEdge(Edge.NORTH, along=HOLE_INSET), rotation=0, overhang=0.8, why="a boss in the corner")
+    plan = b.resolve()
+    assert plan.box("h1").center.x == pytest.approx(HOLE_INSET) and placement_findings(plan) == []

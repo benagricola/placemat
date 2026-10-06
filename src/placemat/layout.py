@@ -324,6 +324,7 @@ class PlaceIntent:
     band: object = field(default=None, metadata={"omit_default": True})      # (r_min, r_max) about `about`: Polar((r_min, r_max), None)
     budget: int | None = field(default=None, metadata={"omit_default": True})   # the candidates its search may judge, else `place.step_budget`
     arrangements: tuple = field(default=(), metadata={"omit_default": True})   # arrangements=: the arrangement ids a cell may take, in the order tried; () every one it offers
+    overhang: float = field(default=0.0, metadata={"omit_default": True})   # overhang= on a firm place: how far the courtyard and body may reach past the edge
 
     @property
     def stands_off(self) -> tuple | None:
@@ -2970,7 +2971,7 @@ class Board:
             p = at(s)
             if group and real.legal(i.item, p, clr, others=ShapeIndex(group), board=False) is not None:
                 return False
-            return real.legal(i.item, p, clr, others=others, past_edge=past, by_corners=True) is None
+            return real.legal(i.item, p, clr, others=others, past_edge=past, by_corners=True, overhang=i.overhang) is None
 
         def stands_at_standoff() -> bool:
             """As a firm item is judged: a via of its own or placed before it may give way."""
@@ -2978,7 +2979,8 @@ class Board:
                 return True
             if group and real.legal(i.item, at(0.0), clr, others=ShapeIndex(group), board=False) is not None:
                 return False
-            return real.legal_giving_way(i.item, at(0.0), clr, others=others, past_edge=past, by_corners=True)[0] is None
+            return real.legal_giving_way(i.item, at(0.0), clr, others=others, past_edge=past, by_corners=True,
+                                         overhang=i.overhang)[0] is None
 
         stands = fits
         if stands_at_standoff():
@@ -3006,7 +3008,8 @@ class Board:
         `fixed.room`; a firm Beside part placed before it is noted, for the next pass to place the two the other way round."""
         blame: list = []
         if not (group and real.legal(i.item, placement, clr, others=ShapeIndex(group), board=False, blame=blame) is not None):
-            real.legal(i.item, placement, clr, others=others, past_edge=self._firm_past_edge(i), blame=blame, by_corners=True)
+            real.legal(i.item, placement, clr, others=others, past_edge=self._firm_past_edge(i), overhang=i.overhang,
+                       blame=blame, by_corners=True)
         if not blame:
             return
         owner = blame[0].owner
@@ -3115,7 +3118,7 @@ class Board:
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
               radius: float | None = None, step: float | None = None, rotations=(),
               priority: Priority | None = None, required: bool = False, why: str = "",
-              drops: Drops = Drops.ALL, budget: int | None = None, arrangements=None,
+              drops: Drops = Drops.ALL, budget: int | None = None, arrangements=None, overhang: float = 0.0,
               _standoff: float | None = None, _row_of: object = None, _declare: bool = True) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
@@ -3171,9 +3174,14 @@ class Board:
         either face: the search scans the front, then the back, scores them alike
         and adds `score.back_face` to a back spot. A position that is decided or
         along an edge, a block, and a turn that depends on the face are refused.
+
+        `overhang=` (mm) on a decided place of a part or a cell lets its courtyard and body reach that far
+        past the board edge where the script puts it, on any side; the pads and copper keep `keep_in`. It
+        needs a `why=`. An edge place that says its own `OnEdge(overhang=)` takes no second one.
         """
         raw = {"rotation": rotation, "face": face, "radius": radius, "step": step, "rotations": rotations, "priority": priority,
-               "required": required, "why": why, "drops": drops, "budget": budget, "_standoff": _standoff, "_row_of": _row_of}
+               "required": required, "why": why, "drops": drops, "budget": budget, "overhang": overhang,
+               "_standoff": _standoff, "_row_of": _row_of}
         given_at = at
         radius = self.settings.place_radius if radius is None else radius
         step = self.settings.place_step if step is None else step
@@ -3212,6 +3220,14 @@ class Board:
                 raise TypeError("%s: arrangements= names arrangements by their ids, as text, not %r" % (key, arrangements))
         if _declare and any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
+        if isinstance(overhang, bool) or not isinstance(overhang, (int, float)):
+            raise TypeError("%s: overhang= is a distance in mm, not %r" % (key, overhang))
+        if overhang < 0:
+            raise ValueError("%s: overhang= is a distance of at least 0, in mm, not %r" % (key, overhang))
+        reach_past = float(overhang)        # the firm place's own overhang=; `overhang` below is an edge place's
+        if reach_past and kind == "block":
+            raise TypeError("%s: overhang= lets a part's or a cell's courtyard cross the edge; a block's satellites "
+                            "keep clear of it, and its anchor overhangs by OnEdge(edge, overhang=)" % key)
         center = edge = along = near = about = run = band = None
         rim = angle = radius_at = None
         outward = False
@@ -3367,6 +3383,15 @@ class Board:
                    or (rim is not None and angle is not None)) and not turns_on_point
         freedom = Freedom.SEARCHED if not decided else \
             Freedom.FIXED if (at is not None or center is not None or beside is not None) else Freedom.EDGE
+        if reach_past:
+            if overhang or (_standoff is not None and _standoff < 0.0):
+                raise ValueError("%s: %s(overhang=) says its own overhang, standing the face that far past the edge; "
+                                 "overhang= on the place would be a second one" % (key, type(given_at).__name__))
+            if not decided:
+                raise ValueError("%s: overhang= is for a firm placement, where the script says where the item stands; "
+                                 "a search would take the allowance wherever it put the item" % key)
+            if not why:
+                raise ValueError("%s: overhang= says why the item's courtyard crosses the board edge" % key)
         if decided and priority is not None:
             raise ValueError("%s: the declaration decided this position, so the item goes down before anything "
                              "searched and priority=%s has nothing to order; drop the priority, or drop the "
@@ -3454,7 +3479,7 @@ class Board:
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
                              cell_pin=cell_pin, drops=drops, file=_script_site()[0], line=_script_site()[1],
                              toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either,
-                             tangent=tangent, band=band, budget=budget, arrangements=ids)
+                             tangent=tangent, band=band, budget=budget, arrangements=ids, overhang=reach_past)
         if _declare:
             self._intents.append(intent)
             self._place_calls[key] = (item, given_at, raw, self._compound)
@@ -5607,7 +5632,8 @@ class Board:
                 if not i.freedom.decided:
                     return occ.legal(item, q, self.clearance) is None
                 with occ.silk_as_drawn():          # a decided place is judged as KiCad will (_firm_judged)
-                    return occ.legal(item, q, self.clearance, past_edge=self._firm_past_edge(i), by_corners=True) is None
+                    return occ.legal(item, q, self.clearance, past_edge=self._firm_past_edge(i), overhang=i.overhang,
+                                     by_corners=True) is None
 
             base = occ._geometry(item).reference
             now, cross_now = measured(base)
@@ -10501,7 +10527,7 @@ class Board:
                                      board=False)
             # on the board its carried vias, and those placed before it, may give way (giveway.py)
             on_board = occ.legal_giving_way(r.item, p, self.clearance, others=others,
-                                            past_edge=self._firm_past_edge(r), by_corners=True)[0] \
+                                            past_edge=self._firm_past_edge(r), overhang=r.overhang, by_corners=True)[0] \
                 if board and not in_group else None
             out.append((r, p, chose, on_board, in_group))
             if (on_board or in_group) and stop:
@@ -10577,7 +10603,7 @@ class Board:
             for r, p, in_group in riders:
                 p = Placement(Location(round(p.location.x + dx, 6), round(p.location.y + dy, 6)), p.rotation, p.face)
                 why = in_group or occ.legal_giving_way(r.item, p, self.clearance, others=obstacles[r.key],
-                                                       past_edge=self._firm_past_edge(r), by_corners=True)[0]
+                                                       past_edge=self._firm_past_edge(r), overhang=r.overhang, by_corners=True)[0]
                 if why:
                     return Refusal(Code.RIDER, key=r.key, why=why)
             return None
@@ -10829,7 +10855,8 @@ class Board:
         may give way (giveway.py): its commit does what this found. A decided place is judged as KiCad will: silk at the board's
         clearance."""
         with occ.silk_as_drawn():
-            return occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)
+            return occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), overhang=i.overhang,
+                                        by_corners=True)
 
     def _firm_trials(self, occ, plan, i, placed, clr, push_sources) -> list:
         """Decided cell `i` laid in each arrangement it may take (`_arrangement_ids`), in order, as `_Trial`s: the declaration laid

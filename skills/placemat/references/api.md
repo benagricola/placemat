@@ -34,6 +34,7 @@ request (SKILL.md, "When no form says it").
 | on a board edge, wherever there is room | `at=OnEdge(edge)` | Placement |
 | at a mechanical point along an edge | `at=OnEdge(edge, along=Along.MID)` | Placement |
 | at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
+| a firm part whose courtyard crosses the edge (a corner mounting hole) | `board.place(item, at=..., overhang=0.8, why=...)` | Placement ("The edge is the board's") |
 | its own pad on the pin it serves | `at=Pin(key, X(pin), Y(pin))`, or `Pin(key, pin)` | Placement |
 | its own pad against another pad's edge (a net tie at a shunt's inner edge) | `at=Pin(1, PadRef(part, n, edge=Edge.SOUTH, along=Along.END))` | Placement |
 | a cell placed by one of its members' pads | `at=Pin(CellPadRef(cell, net=), x, y)` | Placement |
@@ -251,6 +252,7 @@ board.place(cell, at=Polar(r, None, about=centre), rotations=Turns.TANGENT)  # o
 board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
 board.place(item, at=Near(Location(x, y)), radius=20, budget=5_000_000)  # a search that may judge this many candidates
 board.place(cell, arrangements=["default", "pair.upright"])          # a cell: the arrangements of its module the search may take
+board.place(item, at=Location(x, y), overhang=0.8, why="...")         # FIXED, its courtyard and body up to 0.8 mm past the edge
 ```
 `item` is a `Part` (schematic instance), a `Cell` (a stamped group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -808,6 +810,19 @@ a searched part may stand nearer the edge by its courtyard's margin. An edge
 item's reach (body, pads and silk together, `board.reach(item,
 rotation)`) lands there. A face that must stand proud of the edge says
 `OnEdge(edge, overhang=)` with a why. A row inboard of an edge row is `behind=` it.
+A firm placement whose courtyard or body crosses the edge where the script
+puts it (a mounting hole in a corner, its courtyard wider than its inset)
+says how far with `overhang=` on `board.place`, and why: its courtyard and
+body may then reach up to that many mm past the edge, on any side, judged
+by their box pulled in by the overhang. It does not move the item, and its
+pads and copper are still held to `board.keep_in`. A reach past the
+overhang is refused, saying how far the box crosses ("body box ... crosses
+the board edge by 0.74 mm, more than its overhang (0.50 mm)"). `overhang=`
+needs a `why=` (an empty one raises) and a decided place - a `Location`, a
+`Centre`, a `Pin`, a `Beside`, or `OnEdge`/`OnRim` with a position along it;
+a searched item raises. On `OnEdge`/`OnRim` it lets the courtyard cross the
+other edge at a corner; one that already says `overhang=` takes no second
+one. A part or a cell takes it; a block does not.
 
 **Beside another item.** `at=Beside(item, Edge.EAST, align=None, gap=None)`
 stands the item on that side of `item` - a `Part`, a `Cell`, a keepout

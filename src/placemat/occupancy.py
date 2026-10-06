@@ -425,6 +425,12 @@ def _shift_box(b, dx: float, dy: float):
     return None if b is None else Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
 
 
+def _pulled_in(b: Box, d: float) -> Box:
+    """`b` pulled in by `d` on every side, to its centre line on an axis it is not 2 * `d` across."""
+    cx, cy = (b.left + b.right) / 2.0, (b.top + b.bottom) / 2.0
+    return Box(min(b.left + d, cx), min(b.top + d, cy), max(b.right - d, cx), max(b.bottom - d, cy))
+
+
 class _ShiftedBoxes:
     """The boxes of `origin` (None allowed) moved by (dx, dy), each moved when first read: a big cell has hundreds of
     member boxes and a search asks for a few of them at most candidates."""
@@ -1542,21 +1548,25 @@ class Occupancy:
         return cache
 
     def _edge_or_reservation_conflict(self, geom: ItemGeometry, body: Box, placement: Placement,
-                                      past_edge: bool, blame: list | None, by_corners: bool = False) -> Refusal | None:
+                                      past_edge: bool, blame: list | None, by_corners: bool = False,
+                                      overhang: float = 0.0) -> Refusal | None:
         """The two checks `legal()` runs before it ever looks at an
         obstacle: the board edge (and cutouts) and the reservations. Both
         produce a ready sentence cheaply (a box test, or a polymorphic
         `why_not` call), so unlike the near-obstacle search below there is
         nothing to gain from deferring them - `legal()` and `legal_bucket()`
-        both call this and return its answer unchanged when it fires."""
+        both call this and return its answer unchanged when it fires.
+        `overhang` is how far the courtyard and body may reach past the
+        edge (a firm placement's `overhang=`); the copper is judged as ever."""
         parts = None
         if self.edge_margin is not None and not past_edge:
-            why = self._item_edge_why(geom, placement)
-            if why and by_corners and self.board_shape is not None:
+            why = self._item_edge_why(geom, placement, overhang)
+            if why and by_corners and self.board_shape is not None and (not overhang or why.facts["what"] == "copper"):
                 # a decided part turned off the axes, or a member drawn as an arc: its box's corner passes a
                 # round rim, the part does not. Only for a place the script decided: a scan judges by boxes,
-                # natively and in Python alike
-                if self._corners_inside(geom, placement):
+                # natively and in Python alike. With an overhang the courtyard was judged by its box pulled in,
+                # so the corners judged here are the copper's
+                if self._corners_inside(geom, placement, copper_only=bool(overhang)):
                     why = None
             if why is None and not by_corners:
                 # a place the script decided (by_corners) keeps its labels where they fall, as a decided cutout is cut
@@ -1710,7 +1720,7 @@ class Occupancy:
         cannot see it), and no more than the keep-in."""
         return min(self.edge_margin, FLAT_EDGE_MARGIN)
 
-    def _item_edge_why(self, geom: ItemGeometry, placement: Placement) -> Refusal | None:
+    def _item_edge_why(self, geom: ItemGeometry, placement: Placement, overhang: float = 0.0) -> Refusal | None:
         """What the board's edge says of an item at a placement, by boxes.
         KiCad keeps copper `edge_margin` from the edge (copper_edge_clearance,
         drc_test_provider_edge_clearance.cpp) and has no such rule for a
@@ -1718,11 +1728,18 @@ class Occupancy:
         body box is judged against the edge itself, and the copper's box
         against the keep-in. A cell whose box fails is judged again by its
         members' boxes: the box of an L-shaped cell has an empty corner that
-        may sit in a keepout or past a round board's rim."""
+        may sit in a keepout or past a round board's rim. A firm placement's
+        `overhang` lets the courtyard and body box reach that far past the
+        edge (`_overhang_why`)."""
         flat, flat_parts, copper, copper_parts = self._shifted_edge_boxes(geom, placement)
-        why = self._edge_why(flat, self.flat_edge_margin)
-        if why and geom.parts:
-            why = next((w for w in (self._edge_why(b, self.flat_edge_margin) for b in flat_parts) if w), None)
+        if overhang:
+            why = self._overhang_why(flat, overhang)
+            if why and geom.parts:
+                why = next((w for w in (self._overhang_why(b, overhang) for b in flat_parts) if w), None)
+        else:
+            why = self._edge_why(flat, self.flat_edge_margin)
+            if why and geom.parts:
+                why = next((w for w in (self._edge_why(b, self.flat_edge_margin) for b in flat_parts) if w), None)
         if why or copper is None:
             return why
         why = self._edge_why(copper, what="copper")
@@ -1730,6 +1747,26 @@ class Occupancy:
             why = next((w for w in (self._edge_why(b, what="copper") for b in copper_parts if b is not None)
                         if w), None)
         return why
+
+    def _overhang_why(self, body: Box, overhang: float) -> Refusal | None:
+        """What the board's edge says of a courtyard and body box that may
+        reach `overhang` past it, or None: the box, pulled in by the
+        overhang on every side, judged against the edge itself. A refusal
+        says the box as it stands, the overhang, and how far the box
+        reaches past the edge (`past_mm`, None when its centre is off the
+        board), found as the least pull-in that brings it inside."""
+        fault = self.board_why(_pulled_in(body, overhang), self.flat_edge_margin)
+        if fault is None:
+            return None
+        lo, hi = overhang, max(body.width, body.height) / 2.0
+        past = None
+        if self.board_why(_pulled_in(body, hi), self.flat_edge_margin) is None:
+            while hi - lo > FLAT_EDGE_MARGIN:
+                mid = (lo + hi) / 2.0
+                lo, hi = (mid, hi) if self.board_why(_pulled_in(body, mid), self.flat_edge_margin) else (lo, mid)
+            past = hi
+        return Refusal(Code.EDGE, what="body", box=[body.left, body.top, body.right, body.bottom],
+                       verdict=fault.verdict, margin_mm=fault.margin_mm, overhang_mm=overhang, past_mm=past)
 
     def edge_boxes(self, geom: ItemGeometry) -> tuple:
         """What the edge judges of an item, as it stands: (the box of its
@@ -1838,7 +1875,7 @@ class Occupancy:
             cache[key] = hit
         return hit[1]
 
-    def _corners_inside(self, geom: ItemGeometry, placement: Placement) -> bool:
+    def _corners_inside(self, geom: ItemGeometry, placement: Placement, copper_only: bool = False) -> bool:
         """Every corner of every shape the part is made of - pads, body,
         courtyard, as the envelope claims them - inside the board's shape: a
         pad or copper with the keep-in to spare, the rest inside the edge
@@ -1848,14 +1885,16 @@ class Occupancy:
         Copper is read as a polygon a few microns outside the arc it is drawn
         as, and an outline's curves are flattened with chords inside the real
         edge, so the keep-in is eased by those errors: KiCad measures the
-        drawn copper to the real edge."""
+        drawn copper to the real edge. `copper_only` judges the copper's
+        corners alone: a courtyard with an overhang is judged by its box."""
         t = self._transform(geom, placement)
         slack = self.settings.geometry_arc_error_nm * 1e-6
         if isinstance(self.board_shape, Outline):
             slack += self.settings.geometry_arc_sag
         copper = max(self.edge_margin - slack, 0.0)
         corners = [(pt, copper if s.kind in _COPPERISH else 0.0)
-                   for s in geom.shapes if s.kind != "npth" for pt in transform_polygon(s.poly, t)]
+                   for s in geom.shapes if s.kind != "npth" and (not copper_only or s.kind in _COPPERISH)
+                   for pt in transform_polygon(s.poly, t)]
         return bool(corners) and all(self.board_shape.why_not(Box(x, y, x, y), margin) is None
                                      for (x, y), margin in corners)
 
@@ -1865,19 +1904,21 @@ class Occupancy:
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
               past_edge: bool = False, blame: list | None = None, by_corners: bool = False,
-              board: bool = True) -> Refusal | None:
+              board: bool = True, overhang: float = 0.0) -> Refusal | None:
         """None when `item` may sit at `placement`, else a Refusal saying
         what stops it. The first failure found is reported. `others` is a
         prefiltered obstacle list from `obstacles()`; without one every
         shape on the board is a candidate obstacle. `past_edge` allows a
         body over the edge margin: a connector face declared to overhang.
+        `overhang` lets the courtyard and body reach that far past the edge
+        and holds the copper to the keep-in: a firm placement's `overhang=`.
         `blame`, when a list is passed, collects a `Blocker` for the conflict
         found: the same refusal in parts rather than prose, so a scan can
         count who was in the way rather than only how often. `board=False`
         judges `others` alone: not the edge, not the reservations."""
         geom = self._geometry(item)
         body = self.shifted_body_box(item, placement)
-        why = self._edge_or_reservation_conflict(geom, body, placement, past_edge, blame, by_corners) \
+        why = self._edge_or_reservation_conflict(geom, body, placement, past_edge, blame, by_corners, overhang) \
             if board else None
         if why is not None:
             return why
@@ -1965,7 +2006,8 @@ class Occupancy:
             self._silk_as_drawn = was
 
     def legal_giving_way(self, item, placement: Placement, clearance: float | None = None, others=None,
-                         past_edge: bool = False, blame: list | None = None, by_corners: bool = False) -> tuple:
+                         past_edge: bool = False, blame: list | None = None, by_corners: bool = False,
+                         overhang: float = 0.0) -> tuple:
         """(why, resolution): `legal()`, except that where it refuses the
         item, the item less its carried vias is judged, and the vias - its
         own and those of items already placed - may give way (giveway.py).
@@ -1974,7 +2016,7 @@ class Occupancy:
         else why a via cannot give way."""
         from . import giveway
         why = self.legal(item, placement, clearance, others=others, past_edge=past_edge, blame=blame,
-                         by_corners=by_corners)
+                         by_corners=by_corners, overhang=overhang)
         if why is None or not giveway.enabled(self.settings):
             return why, None
         geom = self._geometry(item)
@@ -1984,7 +2026,7 @@ class Occupancy:
             return why, None
         less = self.obstacles(geom, region, carried=False)
         if self.legal(WithoutCarried(item), placement, clearance, others=less, past_edge=past_edge,
-                      by_corners=by_corners) is not None:
+                      by_corners=by_corners, overhang=overhang) is not None:
             return why, None
         res = giveway.resolve(self, item, placement, clearance, self.obstacles(geom, region))
         if blame is not None:

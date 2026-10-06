@@ -480,6 +480,12 @@ def _edge_bucket(f) -> str:
 def _edge(f):
     label = {"copper": "copper to edge: box", "silk": "label silk to edge: box"}.get(f["what"], "body box")
     verdict = EdgeWhy(f["verdict"])
+    if f.get("overhang_mm"):
+        # a firm placement's overhang=: how far the box reaches past the edge, against what the script allowed
+        allowed = "more than its overhang (%.2f mm)" % f["overhang_mm"]
+        if f.get("past_mm") is not None:
+            return "%s %s crosses the board edge by %.2f mm, %s" % (label, _box(f["box"]), f["past_mm"], allowed)
+        return "%s %s is %s, %s" % (label, _box(f["box"]), edge_phrase(verdict, f["margin_mm"]), allowed)
     if verdict is EdgeWhy.CROSSES:
         return "%s %s %s" % (label, _box(f["box"]), edge_phrase(verdict, f["margin_mm"]))
     return "%s %s is %s" % (label, _box(f["box"]), edge_phrase(verdict, f["margin_mm"]))
