@@ -425,12 +425,6 @@ def _shift_box(b, dx: float, dy: float):
     return None if b is None else Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
 
 
-def _pulled_in(b: Box, d: float) -> Box:
-    """`b` pulled in by `d` on every side, to its centre line on an axis it is not 2 * `d` across."""
-    cx, cy = (b.left + b.right) / 2.0, (b.top + b.bottom) / 2.0
-    return Box(min(b.left + d, cx), min(b.top + d, cy), max(b.right - d, cx), max(b.bottom - d, cy))
-
-
 class _ShiftedBoxes:
     """The boxes of `origin` (None allowed) moved by (dx, dy), each moved when first read: a big cell has hundreds of
     member boxes and a search asks for a few of them at most candidates."""
@@ -1557,17 +1551,20 @@ class Occupancy:
         nothing to gain from deferring them - `legal()` and `legal_bucket()`
         both call this and return its answer unchanged when it fires.
         `overhang` is how far the courtyard and body may reach past the
-        edge (a firm placement's `overhang=`); the copper is judged as ever."""
+        board's outer edge (a firm placement's `overhang=`): an item the edge
+        refuses without it is judged again by `_overhang_edge_why`, so an
+        overhang never refuses what is accepted without one."""
         parts = None
         if self.edge_margin is not None and not past_edge:
-            why = self._item_edge_why(geom, placement, overhang)
-            if why and by_corners and self.board_shape is not None and (not overhang or why.facts["what"] == "copper"):
+            why = self._item_edge_why(geom, placement)
+            if why and by_corners and self.board_shape is not None:
                 # a decided part turned off the axes, or a member drawn as an arc: its box's corner passes a
                 # round rim, the part does not. Only for a place the script decided: a scan judges by boxes,
-                # natively and in Python alike. With an overhang the courtyard was judged by its box pulled in,
-                # so the corners judged here are the copper's
-                if self._corners_inside(geom, placement, copper_only=bool(overhang)):
+                # natively and in Python alike
+                if self._corners_inside(geom, placement):
                     why = None
+            if why and overhang:
+                why = self._overhang_edge_why(geom, placement, overhang, by_corners)
             if why is None and not by_corners:
                 # a place the script decided (by_corners) keeps its labels where they fall, as a decided cutout is cut
                 # whatever silk stands by it: the label silk is judged where placement chooses the place
@@ -1720,7 +1717,7 @@ class Occupancy:
         cannot see it), and no more than the keep-in."""
         return min(self.edge_margin, FLAT_EDGE_MARGIN)
 
-    def _item_edge_why(self, geom: ItemGeometry, placement: Placement, overhang: float = 0.0) -> Refusal | None:
+    def _item_edge_why(self, geom: ItemGeometry, placement: Placement) -> Refusal | None:
         """What the board's edge says of an item at a placement, by boxes.
         KiCad keeps copper `edge_margin` from the edge (copper_edge_clearance,
         drc_test_provider_edge_clearance.cpp) and has no such rule for a
@@ -1728,18 +1725,11 @@ class Occupancy:
         body box is judged against the edge itself, and the copper's box
         against the keep-in. A cell whose box fails is judged again by its
         members' boxes: the box of an L-shaped cell has an empty corner that
-        may sit in a keepout or past a round board's rim. A firm placement's
-        `overhang` lets the courtyard and body box reach that far past the
-        edge (`_overhang_why`)."""
+        may sit in a keepout or past a round board's rim."""
         flat, flat_parts, copper, copper_parts = self._shifted_edge_boxes(geom, placement)
-        if overhang:
-            why = self._overhang_why(flat, overhang)
-            if why and geom.parts:
-                why = next((w for w in (self._overhang_why(b, overhang) for b in flat_parts) if w), None)
-        else:
-            why = self._edge_why(flat, self.flat_edge_margin)
-            if why and geom.parts:
-                why = next((w for w in (self._edge_why(b, self.flat_edge_margin) for b in flat_parts) if w), None)
+        why = self._edge_why(flat, self.flat_edge_margin)
+        if why and geom.parts:
+            why = next((w for w in (self._edge_why(b, self.flat_edge_margin) for b in flat_parts) if w), None)
         if why or copper is None:
             return why
         why = self._edge_why(copper, what="copper")
@@ -1748,25 +1738,64 @@ class Occupancy:
                         if w), None)
         return why
 
-    def _overhang_why(self, body: Box, overhang: float) -> Refusal | None:
-        """What the board's edge says of a courtyard and body box that may
-        reach `overhang` past it, or None: the box, pulled in by the
-        overhang on every side, judged against the edge itself. A refusal
-        says the box as it stands, the overhang, and how far the box
-        reaches past the edge (`past_mm`, None when its centre is off the
-        board), found as the least pull-in that brings it inside."""
-        fault = self.board_why(_pulled_in(body, overhang), self.flat_edge_margin)
-        if fault is None:
+    def _overhang_edge_why(self, geom: ItemGeometry, placement: Placement, overhang: float,
+                           by_corners: bool) -> Refusal | None:
+        """What the board's edge says of an item that may reach `overhang`
+        past the board's outer edge (a firm placement's `overhang=`), or
+        None. The courtyard and body are judged by how far the points of
+        their shapes lie outside the outer edge (`outside_by`), which is at
+        most `overhang`; the cutouts and a disc's bore by the courtyard and
+        body box as without an overhang (by their shapes' points on a placed
+        part of a shaped board, as `_corners_inside`); the copper by its box
+        at the keep-in, as without one."""
+        flat, flat_parts, copper, copper_parts = self._shifted_edge_boxes(geom, placement)
+        t = self._transform(geom, placement)
+        points = [pt for s in geom.shapes if s.kind in ("courtyard", "body") for pt in transform_polygon(s.poly, t)]
+        if not points:
+            points = [(x, y) for x in (flat.left, flat.right) for y in (flat.top, flat.bottom)]
+        past = max(self._outside_by(x, y) for x, y in points)
+        if past > overhang + FLAT_EDGE_MARGIN:
+            fault = self.board_why(flat, self.flat_edge_margin)
+            return Refusal(Code.EDGE, what="body", box=[flat.left, flat.top, flat.right, flat.bottom],
+                           verdict=EdgeWhy.CROSSES if fault is None else fault.verdict,
+                           margin_mm=self.flat_edge_margin, overhang_mm=overhang, past_mm=past)
+        why = self._cutouts_why(flat)
+        if why and geom.parts:
+            why = next((w for w in (self._cutouts_why(b) for b in flat_parts) if w), None)
+        if why and by_corners and self.board_shape is not None and all(
+                self._cutouts_why(Box(x, y, x, y), 0.0) is None for x, y in points):
+            why = None
+        if why or copper is None:
+            return why
+        why = self._edge_why(copper, what="copper")
+        if why and geom.parts:
+            why = next((w for w in (self._edge_why(b, what="copper") for b in copper_parts if b is not None)
+                        if w), None)
+        if why and by_corners and self.board_shape is not None and self._corners_inside(geom, placement, copper_only=True):
+            why = None
+        return why
+
+    def _outside_by(self, x: float, y: float) -> float:
+        """How far a point lies outside the board's outer edge: 0 on or inside it, a cutout not counted."""
+        if self.board_shape is not None:
+            return self.board_shape.outside_by(x, y)
+        b = self.board_box
+        if b is None:
+            return 0.0
+        return math.hypot(max(b.left - x, 0.0, x - b.right), max(b.top - y, 0.0, y - b.bottom))
+
+    def _cutouts_why(self, box: Box, margin: float | None = None) -> Refusal | None:
+        """What the board's cutouts (and a disc's bore) say of a courtyard and body box, held `margin` (default the
+        flat margin) clear of them, or None."""
+        margin = self.flat_edge_margin if margin is None else margin
+        if self.board_shape is not None:
+            verdict = self.board_shape.cutouts_why_not(box, margin)
+        else:
+            verdict = self.board_cutouts.why_not(box, margin) if self.board_cutouts else None
+        if verdict is None:
             return None
-        lo, hi = overhang, max(body.width, body.height) / 2.0
-        past = None
-        if self.board_why(_pulled_in(body, hi), self.flat_edge_margin) is None:
-            while hi - lo > FLAT_EDGE_MARGIN:
-                mid = (lo + hi) / 2.0
-                lo, hi = (mid, hi) if self.board_why(_pulled_in(body, mid), self.flat_edge_margin) else (lo, mid)
-            past = hi
-        return Refusal(Code.EDGE, what="body", box=[body.left, body.top, body.right, body.bottom],
-                       verdict=fault.verdict, margin_mm=fault.margin_mm, overhang_mm=overhang, past_mm=past)
+        return Refusal(Code.EDGE, what="body", box=[box.left, box.top, box.right, box.bottom],
+                       verdict=verdict, margin_mm=margin)
 
     def edge_boxes(self, geom: ItemGeometry) -> tuple:
         """What the edge judges of an item, as it stands: (the box of its
@@ -1886,7 +1915,7 @@ class Occupancy:
         as, and an outline's curves are flattened with chords inside the real
         edge, so the keep-in is eased by those errors: KiCad measures the
         drawn copper to the real edge. `copper_only` judges the copper's
-        corners alone: a courtyard with an overhang is judged by its box."""
+        corners alone (`_overhang_edge_why` judges the rest)."""
         t = self._transform(geom, placement)
         slack = self.settings.geometry_arc_error_nm * 1e-6
         if isinstance(self.board_shape, Outline):

@@ -3176,7 +3176,7 @@ class Board:
         along an edge, a block, and a turn that depends on the face are refused.
 
         `overhang=` (mm) on a decided place of a part or a cell lets its courtyard and body reach that far
-        past the board edge where the script puts it, on any side; the pads and copper keep `keep_in`. It
+        past the board's outer edge where the script puts it, not into a cutout; the pads and copper keep `keep_in`. It
         needs a `why=`. An edge place that says its own `OnEdge(overhang=)` takes no second one.
         """
         raw = {"rotation": rotation, "face": face, "radius": radius, "step": step, "rotations": rotations, "priority": priority,
@@ -3390,7 +3390,7 @@ class Board:
             if not decided:
                 raise ValueError("%s: overhang= is for a firm placement, where the script says where the item stands; "
                                  "a search would take the allowance wherever it put the item" % key)
-            if not why:
+            if not (isinstance(why, str) and why.strip()):
                 raise ValueError("%s: overhang= says why the item's courtyard crosses the board edge" % key)
         if decided and priority is not None:
             raise ValueError("%s: the declaration decided this position, so the item goes down before anything "

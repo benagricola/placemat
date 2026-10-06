@@ -812,12 +812,15 @@ rotation)`) lands there. A face that must stand proud of the edge says
 `OnEdge(edge, overhang=)` with a why. A row inboard of an edge row is `behind=` it.
 A firm placement whose courtyard or body crosses the edge where the script
 puts it (a mounting hole in a corner, its courtyard wider than its inset)
-says how far with `overhang=` on `board.place`, and why: its courtyard and
-body may then reach up to that many mm past the edge, on any side, judged
-by their box pulled in by the overhang. It does not move the item, and its
-pads and copper are still held to `board.keep_in`. A reach past the
-overhang is refused, saying how far the box crosses ("body box ... crosses
-the board edge by 0.74 mm, more than its overhang (0.50 mm)"). `overhang=`
+says how far with `overhang=` on `board.place`, and why: the points of its
+courtyard and body shapes may then lie up to that many mm outside the
+board's outer edge, measured to the edge itself (round a rounded or
+chamfered corner too). The allowance is the outer edge's only: a cutout
+and a round board's bore are judged as without one. It does not move the
+item, and its pads and copper are still held to `board.keep_in`. A reach
+past the overhang is refused, saying how far the shapes cross ("body box
+... crosses the board edge by 0.74 mm, more than its overhang (0.50 mm)").
+An item accepted without an overhang is accepted with one. `overhang=`
 needs a `why=` (an empty one raises) and a decided place - a `Location`, a
 `Centre`, a `Pin`, a `Beside`, or `OnEdge`/`OnRim` with a position along it;
 a searched item raises. On `OnEdge`/`OnRim` it lets the courtyard cross the

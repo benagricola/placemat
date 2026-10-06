@@ -10,8 +10,9 @@ section for each hand-written pattern a newer form replaces.
 ### New
 
 - **A firm placement may state `overhang=` with a why.** `board.place(item, at=..., overhang=0.8, why=...)` lets the
-  item's courtyard and body reach up to 0.8 mm past the board edge, on any side, where the script puts it; it does not
-  move the item, and its pads and copper are still held to `board.keep_in`. Use it for a part whose courtyard crosses
+  item's courtyard and body reach up to 0.8 mm past the board's outer edge, on any side, where the script puts it; it
+  does not move the item, a cutout or a bore is judged as without it, and its pads and copper are still held to
+  `board.keep_in`. Use it for a part whose courtyard crosses
   the edge at a decided place, such as a corner mounting hole whose courtyard is wider than its inset, which placemat
   refused ("body box ... crosses the board edge") and KiCad's DRC accepts. A reach past the stated overhang is refused
   with how far the box crosses. It needs a `why=` and a decided place: on a searched item, on a block, or with an
