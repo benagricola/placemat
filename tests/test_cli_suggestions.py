@@ -151,7 +151,9 @@ def test_a_suggestion_read_back_from_the_kept_plan_equals_the_one_in_the_record(
     plan, path = planned
     kept = sg.recall(tmp_path, path)[str(path.resolve())]["suggestions"]
     (f,) = [f for f in plan.findings if f.kind == "link_over"]
-    assert kept == list(f.suggestions)
+    mine = {s.id for s in f.suggestions}         # the plan's other findings (a fixed part's turn.better) keep theirs too
+    assert [s for s in kept if s.id in mine] == list(f.suggestions)
+    assert kept == [s for g in plan.findings for s in g.suggestions]
     assert sg.from_json(f.detail()["suggestions"]) == list(f.suggestions)
 
 

@@ -21,6 +21,7 @@ import functools
 from collections import Counter
 from dataclasses import dataclass, field
 import math
+import re
 import time
 import types
 
@@ -5527,30 +5528,61 @@ class Board:
                 out |= {t["ref"] for t in best["turns"] if t["turn_deg"] or t["flip"]}
         return out
 
+    def _turn_choices(self, i: PlaceIntent, here: float) -> tuple:
+        """(the turns to judge an item at besides `here`, whether its turn is fixed). A searched item that may take more than
+        one turn is judged at the others its declaration allows. One whose turn is fixed - `rotation=`, a `rotations=`
+        narrowed to one, a decided place, or a turn nothing in the script chooses - is judged at every right angle from where
+        it stands, and at the 45s between them when its declared turns include a diagonal (the search would take one)."""
+        allowed = {float(r) % 360.0 for r in self._turns(i)}
+        if not i.freedom.decided and len(allowed) > 1:
+            return tuple(sorted(allowed - {here})), False
+        step = 45.0 if any(float(r) % 90.0 for r in i.rotations) else 90.0
+        return tuple(sorted({(here + k * step) % 360.0 for k in range(1, int(360 / step))})), True
+
+    def _turn_held_by(self, i: PlaceIntent, step, fixed: bool) -> str:
+        """What holds an item's turn so that a better one is said but not offered: "lock" (an accepted entry holds it), the
+        relation `rotation=` gave it ("facing", "turned", "parallel"), or "why" (its turn is fixed and its `why=` names a
+        turn: one of `place.turn_held_words`); "" when nothing does."""
+        if step is not None and step.lock in ("held", "drifted"):
+            return "lock"
+        raw = self._place_calls.get(i.key, (None, None, {}, ""))[2].get("rotation")
+        if type(raw).__name__ in ("Facing", "Turned", "Parallel"):
+            return type(raw).__name__.lower()
+        if fixed and i.why:
+            words = re.findall(r"[a-z]+", i.why.lower())
+            if any(w in self.settings.place_turn_held_words for w in words):
+                return "why"
+        return ""
+
     def _report_turns(self, occ: Occupancy, plan: Plan) -> None:
-        """Each searched part or cell that another turn its declaration allows would serve better where it stands: the
-        turn held at the same body centre, legal there, judged on the search's own wire and crossing terms (`Scorer`) - its
-        links' weighted pad-to-pad length and the weighted crossings of its airwires. It must come out lower on the two
-        together, and either shorten the links by `place.turn_gain_mm` and `place.turn_gain_share` of their weighted length
-        or remove `place.turn_crossings_min` weighted crossings. A `turn.better` notice, judged once on the finished board;
-        a part the pin map study turns is left to that advice. A turn that follows the spot (a tangent's, facing out) has no
-        other turn at that spot."""
+        """Each placed part or cell that another turn would serve better where it stands: the turn held at the same body
+        centre, legal there, judged on the search's own wire and crossing terms (`Scorer`) - its links' weighted pad-to-pad
+        length and the weighted crossings of its airwires. It must come out lower on the two together, and either shorten the
+        links by `place.turn_gain_mm` and `place.turn_gain_share` of their weighted length or remove
+        `place.turn_crossings_min` weighted crossings. A searched item is judged at the other turns its declaration allows;
+        one whose turn is fixed at every turn it could take (`_turn_choices`). A `turn.better` notice, judged once on the
+        finished board; a turn something holds (`_turn_held_by`) is said with `held_by` and no edit. A part the pin map
+        study turns is left to that advice. A turn that follows the spot (a tangent's, facing out, a ring member's) has
+        no other turn at that spot."""
         s = self.settings
         turned = self._pin_study_turned(plan)
         last = {}
         for st in plan.steps:
             if st.placement is not None:
-                last[st.item] = st.placement
+                last[st.item] = st
         placed = {r for r in occ.items if r not in occ.pending}
         rn = occ.ratsnest() if s.score_crossing > 0 else None
         for i in self._placements():
-            if i.kind not in ("part", "cell") or i.freedom.decided or i.tangent is not None or i.outward:
+            if i.kind not in ("part", "cell") or i.tangent is not None or i.outward:
                 continue
-            p = last.get(i.key)
-            if p is None:
+            if self._place_calls.get(i.key, (None, None, {}, ""))[3] == "ring":
+                continue                    # a ring turns each member to its bearing: its turn follows its spot
+            st = last.get(i.key)
+            if st is None:
                 continue
+            p = st.placement
             here = p.rotation % 360.0
-            others = sorted({float(r) % 360.0 for r in self._turns(i)} - {here})
+            others, fixed = self._turn_choices(i, here)
             if not others:
                 continue
             # A cell is asked as it stands: committed, its geometry is its members where they are, at rotation 0 about its
@@ -5570,6 +5602,12 @@ class Board:
                 lengths = [(pads[k].distance(t), w) for k, t, w in targets if k in pads]
                 cross = rn.leaf_costs(occ.candidate_anchors(item, q), own, s.place_escape_depth)[0] if rn is not None else 0.0
                 return lengths, cross
+
+            def legal(q):
+                if not i.freedom.decided:
+                    return occ.legal(item, q, self.clearance) is None
+                with occ.silk_as_drawn():          # a decided place is judged as KiCad will (_firm_judged)
+                    return occ.legal(item, q, self.clearance, past_edge=self._firm_past_edge(i), by_corners=True) is None
 
             base = occ._geometry(item).reference
             now, cross_now = measured(base)
@@ -5592,7 +5630,7 @@ class Board:
                     continue
                 if best is not None and gain <= best[0]:
                     continue
-                if occ.legal(item, q, self.clearance) is not None:
+                if not legal(q):
                     continue
                 best = (gain, rot, q, now, then, saved, cross - cross_now)
             if best is None:
@@ -5600,13 +5638,18 @@ class Board:
             gain, rot, q, now, then, saved, delta = best
             short = [a - b for (a, _), (b, _) in zip(now, then) if b < a - 1e-6]
             long_ = [b - a for (a, _), (b, _) in zip(now, then) if b > a + 1e-6]
-            plan.findings.append(self._finding(C.TURN_BETTER, {
+            facts = {
                 "item": i.key, "kind": i.kind, "rotation_deg": round(here, 3), "to_deg": round(rot, 3),
                 "turn_deg": round((rot - here) % 360.0, 3), "face": p.face.value,
                 "shorter": {"links": len(short), "mm": round(float(sum(short)), 3)},
                 "longer": {"links": len(long_), "mm": round(float(sum(long_)), 3)},
                 "weighted_mm": round(saved, 3), "crossings_delta": round(delta, 3), "gain": round(gain, 3),
-                "rotations_given": bool(i.rotations), "at": [round(q.location.x, 4), round(q.location.y, 4)]}))
+                "rotations_given": bool(i.rotations), "rotation_given": bool(i.rotation_given), "fixed": fixed,
+                "at": [round(q.location.x, 4), round(q.location.y, 4)]}
+            held = self._turn_held_by(i, st, fixed)
+            if held:
+                facts["held_by"] = held
+            plan.findings.append(self._finding(C.TURN_BETTER, facts))
 
     def _report_vias_unneeded(self, occ: Occupancy, plan: Plan, esc) -> None:
         """A module's via on an escape lane that the lane does not need (`Escapes.vias_unneeded`): the lane reaches the

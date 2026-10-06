@@ -212,6 +212,8 @@ class Settings:
         "the least share of the item's weighted link length that turn must save as well, for a `turn.better` finding on length")
     place_turn_crossings_min: float = S(2.0, "count",
         "the fewest weighted crossings another allowed turn must remove for a `turn.better` finding on crossings alone; either way the turn's links and crossings together, as the search prices them, must come out lower")
+    place_turn_held_words: tuple = S(("turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"), "list",
+        "words that, in the `why=` of an item whose turn the script fixes, say the turn was chosen: a better turn is then a `turn.better` notice with `held_by` \"why\" and no edit")
     place_split_min_group: int = S(2, "count",
         "the least members a group needs to count as one, in a cell's `split` finding")
     copper_chamfer: float = S(1.0, "mm",

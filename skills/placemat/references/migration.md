@@ -18,6 +18,14 @@ section for each hand-written pattern a newer form replaces.
   180 degrees, to 0 degrees: 4 links 5.05 mm shorter, 4 weighted crossings fewer"; its suggestion writes the turn into the
   `place` call (`rotations=` narrowed to it, else `rotation=`). A part the pin map study turns is left to that advice.
   Nothing moves. Scripts need no change.
+- **`turn.better` judges every placed part and cell.** Besides searched items, an item whose turn is fixed (`rotation=`, a
+  `rotations=` of one turn, a fixed or edge place, or a turn nothing chooses) is judged at every right angle from where it
+  stands, and at the 45s when its declared turns include a diagonal, at the same body centre and only where it is legal.
+  Its suggestion edits `rotation=` as a named constant, or narrows `rotations=`. An item the lock holds is said with
+  `held_by: "lock"` and advice to release its entry (`placemat lock <script> --release <item>`); a turn the script gives
+  by `Facing`, `Turned` or `Parallel`, or fixes with a `why=` that names a turn (`place.turn_held_words`), is said with
+  `held_by` and no suggestion. A part with a `Pm.PinPool` is judged unless the pin map study turns it. Nothing is applied;
+  scripts need no change.
 
 ## To 0.99.32
 
