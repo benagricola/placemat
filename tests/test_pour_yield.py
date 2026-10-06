@@ -5,6 +5,9 @@ that keepout (and round every rule area that bars a fill on the pour's layer).
 Where the cut leaves the pour short of its current, the neck finding names
 the keepout.
 
+And Reach.CURRENT between two or more pads of one part: each pad carries the
+part's current shared by its pads on the net.
+
 Plan tests are pure (synthetic four-layer boards)."""
 import dataclasses
 
@@ -136,3 +139,29 @@ def test_a_keepout_that_bars_fills_cuts_the_hull_of_a_fitted_pour():
     assert pours, plan.findings
     for p in pours:
         assert not polys_overlap(_copper(p), keep)
+
+
+# ---------------------------------------------------------------- shared by pads
+
+
+def test_two_pads_of_one_part_are_sized_for_its_current_shared_by_its_pads():
+    """J1 carries 3 A on VBUS through two pads: the pour between them is sized for 1.5 A, not 3 A."""
+    g = dataclasses.replace(board_geometry([_receptacle("3A"), _sink()], width=60, height=60,
+                                           clearance=CLEARANCE), layers=FOUR)
+    b = Board(g, edge_margin=1.0)
+    b.place(Part("j1"), at=Location(12.5, 22.5))
+    _pour_over_rows(b)
+    plan = b.resolve()
+    assert not [f for f in declared_findings(plan) if f.startswith("pour")], plan.findings
+    s = Settings()
+    vias = [c for c in plan.copper if isinstance(c, Via) and c.net == "VBUS"]
+    pads = [("J1", "B4A9" if v.at.x < 12.5 else "A4B9", v.polygon) for v in vias]
+    (p,) = _pours(plan)
+
+    def reading(amps):
+        return checks.pour_current("VBUS", IN2, pads, [], [pourfit.offset(p.points, p.stroke / 2.0)],
+                                   {"J1.B4A9": amps, "J1.A4B9": amps}, {}, s.check_rise_c, checks.COPPER_OZ,
+                                   s.check_zone_step, by_pad=True)
+    half, full = reading(1.5), reading(3.0)
+    assert half.width >= half.need
+    assert full.width < full.need                   # grown no further than 1.5 A needs

@@ -3161,8 +3161,10 @@ pad, so a pour on an inner layer over via rows out of two parts' pads is
 measured between the rows. Where the pads the members join are two or more
 pads of one part that carries current (a receptacle's two VBUS contacts,
 joined on In2 by a pour over three vias out of each), each pad is an end, at
-the current the check judges between that part and the net's other
-carriers: the lesser of the part's `Pm.I` and the largest other carrier's.
+the part's current shared by its pads on the net: the lesser of the part's
+`Pm.I` and the largest other carrier's, divided by the number of the part's
+pads on that net (two pads at 3 A: 1.5 A each). A pour joining different parts
+is measured at the current the check judges between them.
 A pad member with no copper on the pour's layer that a via member joins
 holds no copper in the pour; the via joins it.
 

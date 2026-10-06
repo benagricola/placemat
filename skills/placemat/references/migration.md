@@ -51,6 +51,12 @@ section for each hand-written pattern a newer form replaces.
   Where that leaves `Reach.CURRENT` short of its current, the neck finding names the keepout ("...; the <cell> cell's
   keepout <name> stands there"). A script that took such a pour out, or fixed a cell's place to keep it clear of
   one, can put it back and let the cell be searched again.
+- **Reach.CURRENT between pads of one part shares the part's current.** Where the pads a pour's members are and join
+  are two or more pads of one part that carries current, each pad is an end at the part's current shared by its pads
+  on the net: the lesser of its `Pm.I` and the net's largest other carrier's, divided by the number of the part's pads
+  on that net (two pads at 3 A: 1.5 A each). It was the whole current at each pad, so such a pour was drawn wider than
+  either pad carries. A pour joining different parts is sized as before. Scripts need no change; such a pour is drawn
+  smaller.
 
 ## To 0.99.23
 
