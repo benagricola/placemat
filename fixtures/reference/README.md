@@ -65,6 +65,25 @@ placemat rather than the quirks of a script.
 - **A check:** a script lint in the runner lists every declaration by its basis. A reviewer checks each new or changed
   reference script against these rules before it is accepted.
 
+## The script lint
+
+    .venv/bin/python fixtures/reference/lint.py <board name>
+
+Reads the script in `fixtures/reference/boards/<name>/` with `ast`, never running it. It prints every declaration (a
+placement, a link or a piece of copper) grouped by its basis, then the problems, and exits 1 on any problem.
+
+Basis prefixes: a `why=` starts with `mechanical:`, `datasheet:`, `physics:` or `capture:`.
+
+| Rule | Problem |
+|---|---|
+| `coordinate` | A typed position on a part the manifest does not list in `fixed`: `Location(...)`, a numeric `Centre` or `coordinates=True`, `Pin(key, x, y)`, an `X()`/`Y()` with an offset, `OnEdge(along=<number>)`, `.point()`, `.local()`, `.offset()`, a bare `(x, y)` |
+| `no_why` | A placement, link or copper call with no `why=` |
+| `basis` | A `why=` that starts with none of the prefixes, or cannot be read without running the script |
+| `steering` | `priority=`, `Priority`, `Near(` or an order call (`board.order`, `before`, `after`), whatever its basis |
+| `syntax` | The script does not parse |
+
+A coordinate on a fixed part is listed with the declaration (`[coordinate]`) and is not a problem.
+
 ## Boards
 
 | Name | Licence | Source | Tests |
