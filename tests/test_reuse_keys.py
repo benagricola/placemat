@@ -93,3 +93,32 @@ def test_a_setting_that_cannot_change_a_placement_leaves_the_context_alone():
     base = _keys(_declare(_board()))[0]
     assert _keys(_declare(_board(preview_px_per_mm=80.0, timeout_render=10)))[0] == base
     assert _keys(_declare(_board(place_radius=4.0)))[0] != base
+
+
+# ------------------------------------------------------------ copper as declared
+def _copper(b, width=0.25, via_at=None, past_edge=None):
+    from placemat.values import CopperLayer, Edge, FreeSpot, Net, Past
+    b.track(Net("A"), [PadRef(Part("j1"), 1), PadRef(Part("r1"), 1)], layer=CopperLayer.F, width=width, why="joins A")
+    b.via(Net("GND"), via_at if via_at is not None else FreeSpot(PadRef(Part("j1"), 2)))
+    b.via(Net("C"), Past([PadRef(Part("r3"), 1)], past_edge or Edge.EAST))
+    return b
+
+
+def test_a_copper_declarations_arguments_change_the_context():
+    from placemat.values import Edge, FreeSpot
+    base = _keys(_copper(_declare(_board())))[0]
+    assert _keys(_copper(_declare(_board())))[0] == base
+    assert _keys(_copper(_declare(_board()), width=0.4))[0] != base
+    assert _keys(_copper(_declare(_board()), via_at=Location(12, 3)))[0] != base
+    assert _keys(_copper(_declare(_board()), via_at=FreeSpot(PadRef(Part("j1"), 2), radius=3.0)))[0] != base
+    assert _keys(_copper(_declare(_board()), past_edge=Edge.WEST))[0] != base
+
+
+def test_a_copper_value_that_resolves_later_is_digested_as_declared():
+    """A FreeSpot or a Past is the form the script wrote, not the point it resolves to: the same
+    declaration digests the same before and after a resolve."""
+    b = _copper(_declare(_board()))
+    before = reuse.context_key(b, "extra")
+    b.resolve()
+    assert reuse.context_key(_copper(_declare(_board())), "extra") == before
+    assert all("function()" not in c.form for c in b._copper)

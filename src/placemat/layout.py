@@ -473,6 +473,7 @@ class CopperIntent:
     reach: float | Reach | None = field(default=None, metadata={"omit_default": True})   # a fitted pour's reach=: mm, or Reach.CURRENT
     declared: dict = field(default_factory=dict, metadata={"reuse": False})   # what the declaration gave, as a finding's suggestions read it
     only: tuple = field(default=(), metadata={"omit_default": True})    # the arrangements it exists in, as only= names them; () every one (arrangements.py)
+    form: str = field(default="", metadata={"omit_default": True})      # the declaration's arguments in canonical form (_declares_copper): what `plan` reads, which reuse.canonical cannot see into
 
     def applies_in(self, held: frozenset) -> bool:
         """Whether it exists in an arrangement holding the choice ids `held` (arrangements.Spec.held): `only=` matches by the
@@ -964,6 +965,7 @@ class Board:
         self.fab_via_tiers = dict(fab_via_tiers) if fab_via_tiers is not None else type(self).fab_via_tiers
         self.fab_source = fab_source
         self._planes_declared: list = []    # (net, layers) of each board.plane()
+        self._declaring: list = []          # the canonical arguments of each copper declaration being made, innermost last
         self._solve_hints = None
         self.geometry = geometry
         self.courtyard_excess = courtyard_excess    # the fab's assembly margin round a part: the only spacing that comes free
@@ -4376,7 +4378,8 @@ class Board:
                 ctx.planned_vias.append(via)
                 ctx.via_at[intent.index] = via.at
                 return [via]
-            intent = self._copper_intent("via %s" % net, net, Priority.DEFAULT, plan, [decl.part], decl.why)
+            intent = self._copper_intent("via %s" % net, net, Priority.DEFAULT, plan, [decl.part], decl.why,
+                                         form="lane %s %s" % (decl.key, n))     # the escape itself is in the context
             decl.via_intents[n] = intent
         return intent
 
@@ -5594,16 +5597,20 @@ class Board:
             raise TypeError("%s: only= is a sequence of distinct arrangement ids, not %r" % (form, only))
         return ids
 
-    def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False, extra_owners=frozenset(), only=()):
+    def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False, extra_owners=frozenset(), only=(), form=None):
         """A copper declaration. WHEN it is planned is not asked here: it is
         derived in resolve(), once every placement is declared, because at
         declaration time a part placed later is invisible. `extra_owners`
         widens the owners a declaration with no refs of its own still waits
-        on - a stitch over a pour waits on whatever the pour itself did."""
+        on - a stitch over a pour waits on whatever the pour itself did.
+        `form` is what the reuse context digests of it; by default the
+        arguments of the board.track()/via()/... call being made."""
         name = self.geometry.require_net(net)
         pads = tuple(self._pad_ref(r) for r in refs)
+        if form is None:
+            form = self._declaring[-1] if self._declaring else ""
         ci = CopperIntent(key, name, priority, plan, tuple(refs), why, len(self._copper), bridge,
-                          frozenset(owner for owner, *_ in pads) | extra_owners, only=only)
+                          frozenset(owner for owner, *_ in pads) | extra_owners, only=only, form=form)
         self._copper.append(ci)
         if only:
             self._only_sites[ci.index] = _script_site()
@@ -7384,7 +7391,8 @@ class Board:
 
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
     copper_inputs = ""      # what the script ran from, as runner.scripted_board digests it: a replay reuses the planned copper only
-                            # under the same digest (the context does not hold copper's arguments); "" never reuses it
+                            # under the same digest (the context's canonical form of an argument can lose what it holds: a
+                            # function, an object with no readable form); "" never reuses it
 
     def _phase(self, stage, **info) -> bool:
         """Tell a viewer what the step being worked on is doing now (`on_begin`): a phases.Stage and its numbers (`within`,
@@ -7542,7 +7550,8 @@ class Board:
             and reuse.get("context") == context else None
         chain = {"key": context, "replaying": previous is not None}
         # The planned copper is replayed too, where the script ran from the same files (`copper_inputs`): the context holds
-        # every copper declaration but not its arguments (a track's width, a via's spot), which only the script's text says.
+        # every copper declaration's arguments (CopperIntent.form), but in a canonical form that can lose what an argument
+        # holds (a function, an object with no readable form), which only the script's text says.
         if self.copper_inputs:
             record["copper_inputs"] = self.copper_inputs
         self._copper_reuse = {"record": record, "chain": chain,
@@ -12840,6 +12849,32 @@ def _escape_lane(fp, pad, pads, width: float, reach: float):
         return poly_distance(ahead, q.outlines[0]) if near.overlaps(q.box) else None
     return lane
 
+
+def _declares_copper(fn):
+    """A copper declaration's arguments, less its `why`, in reuse.canonical's form, for the intents it makes to carry
+    (CopperIntent.form): a plan closure reads them, and canonical sees a closure as nothing but a function, so without
+    them a track's width or a via's at= is in no reuse key. The form is of what the script wrote - a FreeSpot, a Past,
+    a Between - never the point it resolves to."""
+    import inspect
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def declaring(self, *args, **kwargs):
+        try:
+            given = sig.bind(self, *args, **kwargs).arguments
+        except TypeError:
+            return fn(self, *args, **kwargs)            # the declaration's own error
+        from .reuse import canonical
+        self._declaring.append("%s%s" % (fn.__name__, canonical({k: v for k, v in given.items() if k not in ("self", "why")})))
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            self._declaring.pop()
+    return declaring
+
+
+for _method in ("track", "pair", "vias", "via", "stitch", "pour", "plane", "finger"):
+    setattr(Board, _method, _declares_copper(getattr(Board, _method)))
 
 for _method, _keys in _SITED.items():
     setattr(Board, _method, _sited(_method, _keys)(getattr(Board, _method)))
