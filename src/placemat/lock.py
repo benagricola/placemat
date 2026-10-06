@@ -31,6 +31,8 @@ class LockEntry:
     run: str = ""                   # the run whose explore accepted it
     score: float | None = None      # that explore's best run score, mm
     arrangement: str = ""           # the cell's arrangement when it was accepted; "" the module's own layout
+    members: str = ""               # a cell's: digest of where its members stand inside it in the module's own layout
+                                    # (members_digest); "" for a part, and for an entry written before 0.99.33
 
 
 def path_for(script) -> Path:
@@ -46,7 +48,8 @@ def read(path) -> list:
     data = json.loads(path.read_text())
     return [LockEntry(e["key"], tuple(e["anchor"]) if e["anchor"] is not None else None, e["anchor_face"],
                       tuple(e["offset"]), e["rotation"], e["face"], e["declaration"], e.get("turn", 0),
-                      e.get("release", ""), e.get("run", ""), e.get("score"), e.get("arrangement", ""))
+                      e.get("release", ""), e.get("run", ""), e.get("score"), e.get("arrangement", ""),
+                      e.get("members", ""))
             for e in data.get("entries", [])]
 
 
@@ -60,6 +63,8 @@ def _doc(e) -> dict:
     d = asdict(e)
     if not d["arrangement"]:
         del d["arrangement"]              # an entry with none is written as it always was
+    if not d["members"]:
+        del d["members"]                  # a part's, or an entry from before members were recorded
     return d
 
 
@@ -125,6 +130,22 @@ def declaration_digest(board, intent, ordered: bool = True, arrangement: str = "
                        for l in links)), _reuse.canonical(shape), *extra)[:16]
 
 
+def members_digest(board, intent) -> str:
+    """Where a cell's members stand inside it in the module's own layout, as stamped on the generated board: each member's
+    place off the first member's (by instance path), its rotation and face. Not part of `declaration_digest`, which sees each
+    member's shape but not its place: a module re-laid out with the same parts kept every entry for its cells. "" for a
+    part."""
+    if intent.kind != "cell":
+        return ""
+    from . import reuse as _reuse
+    cell = board.geometry.cells[intent.key]
+    members = sorted(cell.members, key=lambda fp: fp.inst)
+    o = members[0].location
+    places = [(fp.inst, round(fp.location.x - o.x, 4), round(fp.location.y - o.y, 4), round(fp.rotation % 360.0, 4),
+               fp.face.value) for fp in members]
+    return _reuse._sha("lock members", _reuse.canonical(places))[:16]
+
+
 def ref_of(geometry, name: str) -> str:
     """The refdes a stored part name stands for now: an instance path
     (what the lock and the routes file write), or a refdes as 0.43-0.46
@@ -183,7 +204,8 @@ def entries(board, plan, keys, release: str = "", run: str = "", score: float | 
         anchor = e.anchor
         if anchor is not None:          # the anchor by instance: a renumbering does not move it
             anchor = (next((fp.inst for fp in board.geometry.footprints if fp.ref == anchor[0]), anchor[0]), anchor[1])
-        out.append(LockEntry(**{**asdict(e), "anchor": anchor, "turn": len(out), "run": run, "score": score}))
+        out.append(LockEntry(**{**asdict(e), "anchor": anchor, "turn": len(out), "run": run, "score": score,
+                                "members": members_digest(board, intent)}))
     return out
 
 

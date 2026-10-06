@@ -19,6 +19,15 @@ section for each hand-written pattern a newer form replaces.
   `place` call (`rotations=` narrowed to it, else `rotation=`). A part the pin map study turns is left to that advice.
   Nothing moves. Scripts need no change.
 
+### Fixed
+
+- **A cell's lock entry is released when its module is laid out again.** An entry's digest covered each member's
+  shape but not where it stood inside the cell, so a module re-laid out with the same parts (a column reversed, say)
+  kept every entry for its cells, at a turn and spot chosen for the old layout. An entry now records the members' places
+  (`"members"` in `<script stem>.lock.json`) and is released when they change: `lock: released - the cell's members
+  moved inside it since it was accepted`. Entries written by earlier releases have no record and hold as before: after
+  re-laying a module, release its cells' entries once with `placemat lock <script> --release <cell>`.
+
 ## To 0.99.32
 
 ### Fixed

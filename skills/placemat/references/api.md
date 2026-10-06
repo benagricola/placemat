@@ -4669,7 +4669,13 @@ covers that arrangement's member places, so an entry whose arrangement
 now stands its members elsewhere is released as a changed declaration;
 one whose arrangement the module no longer offers is released (`lock:
 released - the module no longer offers arrangement <id>`) with an
-`arrangement.missing` warning (`source: "lock"`). The cleanup
+`arrangement.missing` warning (`source: "lock"`). A cell's entry also
+records where its members stand inside it in the module's own layout
+(`"members"`, a digest of each member's place off the first's, its
+rotation and face); when the module is laid out again and they stand
+elsewhere, the entry is released (`lock: released - the cell's members
+moved inside it since it was accepted`). An entry written before 0.99.33
+has no `"members"` and holds as before. The cleanup
 pass leaves a held item where it is. Commit the lock with the script; a
 run prints how many items it held, drifted and released. `placemat lock`
 lists entries and releases them. An anchor is named by its part's
