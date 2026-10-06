@@ -298,6 +298,14 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Routed width judged on the board, idempotent adopt, studio routed copper, rank after remap** (0.99.27):
+  width islands are judged on the routed board per layer (inner rating
+  inside); adopting a route twice keeps one entry per net and duplicates
+  are dropped on read; the studio draws a finished route's copper and
+  marks open connections; `--rank-remapped` ranks explore variants after
+  their pin remap; Try/Apply wait for a followed command; explore says
+  when its time passes and when routes outlast the search.
+
 - **Overlapped DRC and renders use the shared KiCad environment** (0.99.26):
   the release suite's three failures on 0.99.25 fixed (one bug, two stale tests).
 
