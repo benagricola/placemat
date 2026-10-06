@@ -1,7 +1,6 @@
 """board.escape: a pin row's routes out (lanes, risers, vias), worked out when the part is placed.
 The north-row model is a hand layout's arithmetic: LANE = TRACK + CLEAR; lane0 = TIP_N - LANE;
-lane1 = lane0 - (lane0_track / 2 + CLEAR + VIA / 2 + SNAP); lane2 = lane1 - (VIA / 2 + CLEAR + TRACK / 2 + SNAP), SNAP the
-room turned lanes leave for the router's grid snap (lanes.Layouter._step);
+lane1 = lane0 - (lane0_track / 2 + CLEAR + VIA / 2); lane2 = lane1 - (VIA / 2 + CLEAR + TRACK / 2);
 north is -y. Pure: synthetic boards."""
 import math
 
@@ -10,7 +9,6 @@ import pytest
 from placemat import FreeSpot
 from placemat.board_geometry import NetClass
 from placemat.copper import Track, Via
-from placemat.lanes import ROUTER_GRID_STEP
 from placemat.values import (Corner, CopperLayer, Edge, LinkWeight, Location, Near, Net, PadRef, Part,
                              Pin, X, Y)
 from tests.escape_fixtures import CLEAR, DRILL, PD_NETS, TRACK, VIA, board_with, pd_board, qfn, small_part
@@ -19,15 +17,14 @@ from tests.fixtures import footprint
 F = CopperLayer.F
 TIP_N = 27.2
 OUT_TRACK = 0.3
-SNAP = ROUTER_GRID_STEP / math.sqrt(2.0)
 ROW_END_W = 28.125         # the westmost north pad's outer edge: pin 32 at x = 28.25, 0.25 wide
 
 
 def _hand_lanes():
     lane = OUT_TRACK + CLEAR
     lane0 = TIP_N - lane
-    lane1 = lane0 - (OUT_TRACK / 2 + CLEAR + VIA / 2 + SNAP)
-    lane2 = lane1 - (VIA / 2 + CLEAR + TRACK / 2 + SNAP)
+    lane1 = lane0 - (OUT_TRACK / 2 + CLEAR + VIA / 2)
+    lane2 = lane1 - (VIA / 2 + CLEAR + TRACK / 2)
     return lane0, lane1, lane2
 
 
@@ -66,8 +63,8 @@ def test_the_three_lanes_are_the_hand_layouts_lines():
     plan = b.resolve()
     lane0, lane1, lane2 = _hand_lanes()
     assert _lane_y(plan, "VOUT") == pytest.approx(lane0, abs=1e-9)
-    assert _lane_y(plan, "SENSE") == pytest.approx(lane1, abs=1e-6)       # rounded outward to the nanometre
-    assert _lane_y(plan, "PGOOD") == pytest.approx(lane2, abs=1e-6)
+    assert _lane_y(plan, "SENSE") == pytest.approx(lane1, abs=1e-9)
+    assert _lane_y(plan, "PGOOD") == pytest.approx(lane2, abs=1e-9)
 
 
 def test_the_vias_stand_at_the_first_legal_spot_past_the_row_s_end_and_clear():
@@ -77,10 +74,10 @@ def test_the_vias_stand_at_the_first_legal_spot_past_the_row_s_end_and_clear():
     vias = _vias(plan)
     lane0, lane1, lane2 = _hand_lanes()
     excite, wet = vias["SENSE"], vias["PGOOD"]
-    assert excite.at.x == pytest.approx(ROW_END_W, abs=1e-6) and excite.at.y == pytest.approx(lane1, abs=1e-6)
+    assert excite.at.x == pytest.approx(ROW_END_W, abs=1e-6) and excite.at.y == pytest.approx(lane1, abs=1e-9)
     # the second via is the nearest spot along its lane that keeps the clearance off the first
     along = math.sqrt((VIA + CLEAR) ** 2 - (lane1 - lane2) ** 2)
-    assert wet.at.y == pytest.approx(lane2, abs=1e-6)
+    assert wet.at.y == pytest.approx(lane2, abs=1e-9)
     assert wet.at.x == pytest.approx(ROW_END_W - along, abs=2e-6)
     assert math.hypot(excite.at.x - wet.at.x, excite.at.y - wet.at.y) - VIA >= CLEAR - 1e-9
     # and each clear of the pads and of the other lanes' copper
@@ -155,7 +152,7 @@ def test_a_lane_at_45_and_the_next_one_a_step_across_it():
         dx, dy = t.end.x - t.start.x, t.end.y - t.start.y
         assert abs(abs(dx) - abs(dy)) < 1e-4 and dx * dy < 0           # a south row turning west runs SW: -x, +y
         lines.append((t, (t.start.x + t.start.y)))                      # x + y is constant along it
-    step = TRACK + CLEAR + SNAP
+    step = TRACK + CLEAR
     for (_, a), (_, c) in zip(lines, lines[1:]):
         assert abs(c - a) / math.sqrt(2.0) == pytest.approx(step, abs=1e-5)
 
@@ -252,7 +249,7 @@ def test_depth_sets_the_innermost_lane_and_run_the_end_of_lanes_with_no_via():
     b.track(Net("SENSE"), [esc[31]], layer=F, why="its lane")
     plan = b.resolve()
     assert _lane_y(plan, "VOUT") == pytest.approx(TIP_N - 0.9, abs=1e-9)
-    assert _lane_y(plan, "SENSE") == pytest.approx(TIP_N - 0.9 - (TRACK + CLEAR + SNAP), abs=1e-6)
+    assert _lane_y(plan, "SENSE") == pytest.approx(TIP_N - 0.9 - (TRACK + CLEAR), abs=1e-9)
     for net in ("VOUT", "SENSE"):
         west = min(min(t.start.x, t.end.x) for t in plan.copper if isinstance(t, Track) and t.net == net)
         assert west == pytest.approx(ROW_END_W - 1.5, abs=1e-6)         # run= past the row's turn-side end
@@ -283,8 +280,8 @@ def test_a_west_row_turning_north_lays_its_lanes_along_y_the_same_way():
         return max(legs, key=lambda t: abs(t.end.y - t.start.y)).start.x
     # pin 1 is the northmost: the innermost lane, a track and a clearance out from the tips (west is -x)
     assert lane_x("A1") == pytest.approx(tip_w - (TRACK + CLEAR), abs=1e-9)
-    assert lane_x("A2") == pytest.approx(tip_w - (TRACK + CLEAR) - (VIA / 2 + CLEAR + TRACK / 2 + SNAP), abs=1e-6)
-    assert lane_x("A3") == pytest.approx(lane_x("A2") - (VIA / 2 + CLEAR + TRACK / 2 + SNAP), abs=1e-6)
+    assert lane_x("A2") == pytest.approx(tip_w - (TRACK + CLEAR) - (VIA / 2 + CLEAR + TRACK / 2), abs=1e-9)
+    assert lane_x("A3") == pytest.approx(lane_x("A2") - (VIA / 2 + CLEAR + TRACK / 2), abs=1e-9)
 
 
 def test_a_part_turned_a_quarter_lays_the_row_it_now_has():
@@ -417,8 +414,8 @@ def test_via_size_and_via_drill_size_the_lanes_vias_and_their_steps():
     vias = _vias(plan)
     assert {(v.size, v.drill) for v in vias.values()} == {(size, drill)}
     lane0 = TIP_N - (OUT_TRACK + CLEAR)
-    lane1 = lane0 - (OUT_TRACK / 2 + CLEAR + size / 2 + SNAP)
-    assert _lane_y(plan, "SENSE") == pytest.approx(lane1, abs=1e-6)
+    lane1 = lane0 - (OUT_TRACK / 2 + CLEAR + size / 2)
+    assert _lane_y(plan, "SENSE") == pytest.approx(lane1, abs=1e-9)
     assert not [f for f in plan.findings if f.kind in ("copper", "escape_lane")]
 
 

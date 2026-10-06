@@ -20,11 +20,6 @@ ROW = {"43": "LED_STATUS_DRIVE", "44": "VBUS_DISCH", "45": "USB_WET", "47": "PD_
 # The hand layout's riser ends (x, module frame) of the same pins
 HAND_RISER_END = {"44": -3.8530, "45": -3.9050, "47": -4.7280, "48": -4.7800, "49": -4.8330, "50": -4.8900, "51": -4.9500}
 HAND_TOLERANCE = 0.15       # mm: the hand layout leaves a little room the least pitch does not
-# The hand layout's lanes stand at the least pitch, a track and a clearance, with no room for the router's grid snap
-# (lanes.Layouter._step), and the bypass stands against them with none to spare. Laid out for a router on a fine grid,
-# the lanes keep the hand layout's pitch, so what is checked is how they pass the bypass.
-FINE_GRID = {"route_router_args": ("--grid-step", "0.001")}
-
 _run = {}
 
 
@@ -38,7 +33,7 @@ def _level_with_pin_45(text: str) -> str:
 @pytest.fixture
 def run(tmp_path_factory):
     if not _run:
-        _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True, overrides=FINE_GRID, script=SCRIPT, edit=_level_with_pin_45)
+        _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True, script=SCRIPT, edit=_level_with_pin_45)
     return _run["r"]
 
 
@@ -88,7 +83,7 @@ def _bypass_a_mm_further_out(text: str) -> str:
 @pytest.fixture
 def far(tmp_path_factory):
     if "far" not in _run:
-        _run["far"] = rm.run(tmp_path_factory.mktemp("mcu_far"), "mcu", keep_going=True, overrides=FINE_GRID, script=SCRIPT, edit=_bypass_a_mm_further_out)
+        _run["far"] = rm.run(tmp_path_factory.mktemp("mcu_far"), "mcu", keep_going=True, script=SCRIPT, edit=_bypass_a_mm_further_out)
     return _run["far"]
 
 

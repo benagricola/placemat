@@ -15,11 +15,6 @@ pytestmark = needs_kicad
 
 pcbnew = pytest.importorskip("pcbnew")
 
-# The hand layout's lanes stand at the least pitch, a track and a clearance, with no room for the router's grid snap
-# (lanes.Layouter._step), and the bypass stands against them with none to spare. Laid out for a router on a fine grid,
-# the lanes keep the hand layout's pitch, so what is checked is how they pass the bypass.
-FINE_GRID = {"route_router_args": ("--grid-step", "0.001")}
-
 _run = {}
 
 # The hand layout's own figures for the same two pins (module frame): the end of each riser, and x - y along each 45.
@@ -34,7 +29,7 @@ BYPASS_PAD_LINE = -4.661 + 1.711        # x - y of the bypass's pad 1 at (-4.661
 @pytest.fixture
 def run(tmp_path_factory):
     if not _run:
-        _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True, overrides=FINE_GRID)
+        _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True)
     return _run["r"]
 
 
@@ -90,8 +85,7 @@ def test_the_lanes_are_the_hand_layouts_to_a_hand_s_slack(run):
         assert risers[pin] == pytest.approx(HAND_RISER_END[pin], abs=HAND_TOLERANCE)
         assert lines[pin] == pytest.approx(HAND_LINE[pin], abs=HAND_TOLERANCE)
         assert risers[pin] > HAND_RISER_END[pin] - 1e-6                # no longer than the hand layout's: the 45 is as near the row as it may
-    # a track, a clearance and the fine grid's snap room across their direction
-    assert (lines["44"] - lines["45"]) / math.sqrt(2.0) == pytest.approx(0.32 + 0.001 / math.sqrt(2.0), abs=1e-5)
+    assert (lines["44"] - lines["45"]) / math.sqrt(2.0) == pytest.approx(0.32, abs=1e-4)      # a track and a clearance across their direction
     assert PAD_TIP - risers["44"] == pytest.approx(0.0525, abs=2e-3)                         # one stagger from the row's end
 
 

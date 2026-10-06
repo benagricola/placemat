@@ -4,13 +4,10 @@ track 0.16, clearance 0.16, west row pads' tips at x = 26.2575) with no fixture 
 A lane's start is judged out to the row's depth whatever `run=` leaves of the lane's own copper, so a part beside the row
 that `run=` makes the lane stop short of is still passed. A firm pad-to-pad track from a pad of the escape's part that the
 escape does not name, to a placed pad, stands in the occupancy while the lanes are laid out, so they leave it room."""
-import math
-
 import pytest
 
 from placemat.copper import Track
 from placemat.geometry import poly_distance
-from placemat.lanes import ROUTER_GRID_STEP
 from placemat.values import Beside, Corner, CopperLayer, Edge, Net, PadRef, Part
 from tests.escape_fixtures import CLEAR56, TRACK56, bypass_135, fan_board
 
@@ -75,10 +72,8 @@ def test_a_pad_to_pad_track_from_a_pin_between_the_fans_is_drawn_and_the_lanes_l
         assert _min_gap(plan, "BYP", "N%d" % pin) >= CLEAR56 - 1e-6, pin
 
 
-# the riser ends (x) of the escape on its own: from the tips, one stagger per pad of the row (the step, a track, a clearance
-# and the router's grid snap room, times sqrt 2, less the 0.4 mm pitch)
-STAGGER = (LANE + ROUTER_GRID_STEP / math.sqrt(2.0)) * math.sqrt(2.0) - 0.4
-RISER_END = {p: 26.2575 - (p - 43) * STAGGER for p in (43, 44, 45, 47, 48, 49)}
+# the riser ends (x) of the escape on its own, as laid before the lane start and the track's way were judged
+RISER_END = {43: 26.2575, 44: 26.205, 45: 26.1524, 47: 26.0473, 48: 25.9948, 49: 25.9422}
 
 
 def test_with_no_bypass_and_no_track_the_lanes_are_where_they_were():
