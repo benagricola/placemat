@@ -576,8 +576,14 @@ class Occupancy:
         # from where the item is now, not from where the generator left it, so
         # re-transforming the original polygon would compound.
         self._cell_rule_areas: dict = {}
+        # A cell's rule areas that bar a fill, held the same way, and once the cell has landed {cell: [(RuleArea, polygon,
+        # copper layers)]} as placed (its layers flipped with it): what a fitted pour is cut back round (layout._fit_pour)
+        self._cell_fill_areas: dict = {}
+        self.fill_areas: dict = {}
         for ra in geometry.rule_areas:
             self.copper.extend(_rule_area_shapes(ra))
+            if ra.cell is not None and "fill" in ra.excludes:
+                self._cell_fill_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
             if "parts" not in ra.excludes:
                 continue
             if ra.cell is None:
@@ -1414,6 +1420,13 @@ class Occupancy:
             # the arrangement's areas stand in for the stamped ones; its geometry is built in the generated board's frame, so
             # they are moved from there
             self._cell_rule_areas[item.name] = [[ra, tuple(ra.polygon)] for ra in self._arranged_areas(item) if "parts" in ra.excludes]
+            self._cell_fill_areas[item.name] = [[ra, tuple(ra.polygon)] for ra in self._arranged_areas(item) if "fill" in ra.excludes]
+        flipped = placement.face != geom.reference.face
+        for pair in self._cell_fill_areas.get(item.name, ()):
+            pair[1] = tuple(t.apply(p) for p in pair[1])
+        self.fill_areas = {**self.fill_areas, item.name: [
+            (ra, poly, self._flip_layers(ra.layers) if flipped else ra.layers)
+            for ra, poly in self._cell_fill_areas.get(item.name, ())]}
         for pair in self._cell_rule_areas.get(item.name, ()):
             ra, poly = pair
             poly = tuple(t.apply(p) for p in poly)
