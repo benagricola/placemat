@@ -18,6 +18,7 @@ section for each hand-written pattern a newer form replaces.
   of 2 (0.1 mm) further out than the one before. A turned fan is wider by that much per lane: a script that stands a
   part beside a turned fan at exactly the lanes' old pitch (a bypass a lane's width off the row, say) may now see the
   outer lanes blocked by it (`escape_lane`, `copper` findings); stand the part that much further off.
+  The 0.99.21 notes list this change, but it was held back from that release; it is in this one.
 
 ## To 0.99.21
 
@@ -104,6 +105,16 @@ section for each hand-written pattern a newer form replaces.
   routes in the stage of its halo. A net such a stage leaves open is not routed again in the main pass. The report and
   `route.json` have `class_stages`, and `route_stage` events a `classes` stage. The `setup.net_halo` finding with
   `variant` `open` (a halo net routed with the others) is no longer said. Scripts need no change.
+
+- **Turned lanes leave room for the router's grid snap.** The router starts a route from the point of its 0.1 mm grid
+  nearest a lane's end and refuses a leg from there that comes nearer the next lane than the clearance. Turned lanes
+  stood exactly a track and a clearance apart, so the leg from a lane end that did not lie on the grid was refused
+  ("grazes foreign copper"), and the route could leave the lane only along its own line. Two lanes of an escape with
+  `turn=` that are not a pair's now stand the router's grid step over the square root of 2 further apart (0.0707 mm;
+  `--grid-step` in `route.router_args` sets the step), and each riser of a fan at 45 is that much times the square root
+  of 2 (0.1 mm) further out than the one before. A turned fan is wider by that much per lane: a script that stands a
+  part beside a turned fan at exactly the lanes' old pitch (a bypass a lane's width off the row, say) may now see the
+  outer lanes blocked by it (`escape_lane`, `copper` findings); stand the part that much further off.
 
 - **The pin map study starts a soft group reversed when its targets lie in reverse.** The first map laid a soft
   `Pm.PinGroup` whole on a run of pins only in its written order, though an intact group costs the same either way.
