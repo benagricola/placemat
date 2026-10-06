@@ -388,8 +388,8 @@ class Studio:
         self._probe = None                      # the probe of a searched suggestion in flight: {"sid", "proc", "started"}
         self._applied_dir = None                # with no script chosen, the board a followed command's suggestion was last applied to
         self._applied_text = ""                 # what the next resolve is said to follow: an applied (or undone) suggestion
-        self._notes: list = []                  # this script's notes (notes.py), oldest first
-        self._notes_stamp = None                # (mtime_ns, size) of the notes file when it was last read
+        self._notes: list = []                  # the notes of the project's scripts (notes.py), oldest first, each with its script's `path`
+        self._notes_stamp = None                # {board folder: (mtime_ns, size)} of the notes files when they were last read
         self.cmds: dict = {}                    # the commands of the project that report over the channel, by connection id
         self.watcher = None
         self._run = None                        # the checked run in progress: {"id", "lines"}
@@ -578,20 +578,29 @@ class Studio:
             if self._stopping.wait(self.poll_s):
                 return
 
+    def _note_dirs(self) -> list:
+        """The board folders whose notes are read: every board of the project's layout scripts once they are listed, and the
+        watched script's. A followed command or a past run of any of them shows its own script's notes."""
+        dirs = [s["src"].board_dir for s in (self._scripts or [])] + ([self.src.board_dir] if self.src is not None else [])
+        return list(dict.fromkeys(dirs))
+
     def _check_notes(self) -> None:
-        """Read the notes file when it has changed and tell the pages of the notes they have not been told of."""
+        """Read the notes files when one has changed and tell the pages of the notes they have not been told of. Each note
+        carries `path`, its script's full path, by which the page shows it on the board of that script only."""
         from . import notes as notes_mod
-        if self.src is None:
+        dirs = self._note_dirs()
+        stamps = {}
+        for d in dirs:
+            try:
+                st = notes_mod.path_for(d).stat()
+                stamps[str(d)] = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                pass
+        if stamps == self._notes_stamp:
             return
-        try:
-            st = notes_mod.path_for(self.src.board_dir).stat()
-            stamp = (st.st_mtime_ns, st.st_size)
-        except OSError:
-            stamp = None
-        if stamp == self._notes_stamp:
-            return
-        self._notes_stamp = stamp
-        fresh = notes_mod.read(self.src.board_dir, self.script.name)
+        self._notes_stamp = stamps
+        fresh = sorted((dict(n, path=str(Path(d) / str(n.get("script") or ""))) for d in dirs for n in notes_mod.read(d)),
+                       key=lambda n: float(n.get("at") or 0))
         with self.lock:
             seen = {n["id"] for n in self._notes}
             new = [n for n in fresh if n["id"] not in seen]
@@ -600,15 +609,15 @@ class Studio:
                 self.hub.emit("note", n)
 
     def notes_list(self) -> list:
-        """The notes for this script that have not expired, oldest first, as a page that joins is given them."""
+        """The notes of the project's scripts that have not expired, oldest first, as a page that joins is given them."""
         from . import notes as notes_mod
         with self.lock:
             return notes_mod.live(self._notes, self.cfg.studio_note_age_s)
 
     def _tick(self, now: float) -> None:
+        self._check_notes()                     # a followed command or past run shows its own script's notes, chosen or not
         if self.script is None:
             return                              # a picker: nothing is watched until a script is chosen
-        self._check_notes()
         changed = self._poller.scan()
         if changed:
             self._files = self.watched()        # an import added or dropped changes what is watched
@@ -975,22 +984,19 @@ class Studio:
         watched files' texts as they are now: the suggestion's digests (checked when it is shown, tried or applied) say the files it
         edits are as the run saw them."""
         from . import suggestions as sg
-        if not isinstance(view, dict):
-            raise SuggestRefused(400, "a view is {kind, ref}")
-        kind, ref = str(view.get("kind") or ""), str(view.get("ref") or "")
-        got = self._view_doc(kind, ref)
-        if got is None:
-            raise SuggestRefused(404, "no such %s, or it kept no plan" % {"cmd": "command", "build": "run"}.get(kind, kind or "view"))
-        doc, script, noun = got
+        past, doc = self._past(view)
+        kind, ref, noun = past.kind, past.ref, past.noun
         findings = doc.get("findings", [])
         finding = next((f for f in findings if any(s.get("id") == sid for s in f.get("suggestions", ()))), None)
+        found = []
+        if finding is None and "." in sid:                  # `s3a.1`: what a probe of s3a found, kept in the store of the view's script
+            parent = sid.rsplit(".", 1)[0]
+            finding = next((f for f in findings if any(s.get("id") == parent for s in f.get("suggestions", ()))), None)
+            found = [s for s in self._found_all(past) if s.id == sid] if finding is not None else []
+            if not found:
+                finding = None
         if finding is None:
             raise SuggestRefused(404, "this %s has no suggestion %r" % (noun, sid))
-        running = False
-        if kind == "cmd":
-            with self.lock:
-                running = (self.cmds.get(_int(ref)) or {}).get("state") == "running"
-        past = PastView(kind, ref, noun, script, running)
         target, src = self._target(past)
         base = target.parent if target is not None and target != self.script else None
         doc = dict(doc, items=[dict(it, file=self.name_of(it["file"], base)) if it.get("file") and os.path.isabs(it["file"]) else it
@@ -998,16 +1004,30 @@ class Studio:
         texts = self.snapshot_texts(None if base is None else self.watched_of(target, src), base)
         label = "%s %s" % (noun, Path(ref).name if kind in ("explore", "route") else ref)
         rec = Record(label, time.time(), texts, with_spans(doc, texts), [], {})
-        pool = sg.from_json([s for f in findings for s in f.get("suggestions", ())])
+        pool = sg.from_json([s for f in findings for s in f.get("suggestions", ())]) + found
         return rec, pool, finding, past
 
+    def _past(self, view):
+        """(PastView, doc) of a view named as the page names it ({kind, ref}); refused when it is not there."""
+        if not isinstance(view, dict):
+            raise SuggestRefused(400, "a view is {kind, ref}")
+        kind, ref = str(view.get("kind") or ""), str(view.get("ref") or "")
+        got = self._view_doc(kind, ref)
+        if got is None:
+            raise SuggestRefused(404, "no such %s, or it kept no plan" % {"cmd": "command", "build": "run"}.get(kind, kind or "view"))
+        doc, script, noun = got
+        running = False
+        if kind == "cmd":
+            with self.lock:
+                running = (self.cmds.get(_int(ref)) or {}).get("state") == "running"
+        return PastView(kind, ref, noun, script, running), doc
+
     def _target(self, past):
-        """(script, src) a try, apply or search of a suggestion acts on: the script this studio watches, or, with none chosen (the
-        studio follows commands), the script of the view the suggestion is of, as if it had been chosen. (None, None) when neither
-        is there."""
+        """(script, src) a suggestion of `past` acts on: the script of the view it is of, as if it had been chosen, or with no view
+        (or a view that does not say) the script this studio watches. (None, None) when neither is there."""
         from .project import find_board
         with self.lock:
-            if self.script is not None or past is None or not past.script:
+            if past is None or not past.script or (self.script is not None and Path(past.script).resolve() == self.script):
                 return self.script, self.src
         script = Path(past.script).resolve()
         try:
@@ -1040,19 +1060,21 @@ class Studio:
             raise SuggestRefused(409, "this %s is of %s, not the script this studio watches: choose it to try its suggestions"
                                  % (past.noun, Path(past.script).name))
 
-    def _found_all(self) -> list:
-        """The suggestions probes found for this script (`<id>.<n>`), from the store `placemat apply` reads."""
+    def _found_all(self, past=None) -> list:
+        """The suggestions probes found for this script, or for the script of the view `past` (`<id>.<n>`), from the store
+        `placemat apply` reads."""
         from . import suggestions as sg
-        with self.lock:
-            script, src = self.script, self.src
+        script, src = self._target(past)
         if script is None or src is None:
             return []
         plans = sg.recall(src.board_dir, script)
         return [s for entry in plans.values() for s in entry["suggestions"] if "." in s.id]
 
-    def suggest_found(self, sid: str) -> dict:
-        """What a probe found for a searched suggestion, as an instant suggestion (the plan does not know it: the page asks)."""
-        s = next((x for x in self._found_all() if x.id == sid), None)
+    def suggest_found(self, sid: str, view=None) -> dict:
+        """What a probe found for a searched suggestion, as an instant suggestion (the plan does not know it: the page asks). `view`
+        names the view the suggestion is of, whose script's store is read."""
+        past = self._past(view)[0] if view else None
+        s = next((x for x in self._found_all(past) if x.id == sid), None)
         if s is None:
             raise SuggestRefused(404, "no found suggestion %r" % sid)
         return s.to_json()
@@ -1073,33 +1095,41 @@ class Studio:
                           "added": len(ch.new_lines), "removed": len(ch.old_lines)})
         return {"id": done.id, "text": done.text, "dry_run": done.dry_run, "files": files, "diff": done.diff()}
 
-    def applied_list(self, limit: int = 12) -> list:
-        """The suggestions applied here (oldest first), as the page lists them: its Undo and its history rows."""
-        if self._log_dir() is None:
+    def applied_list(self, limit: int = 12, past=None) -> list:
+        """The suggestions applied here (oldest first), as the page lists them: its Undo and its history rows. With `past`, those of
+        the view's board."""
+        log_dir = self._log_dir(past)
+        if log_dir is None:
             return []
         from . import suggestions as sg
         try:
-            entries = sg.applied_entries(sg.log_path(self._log_dir()))
+            entries = sg.applied_entries(sg.log_path(log_dir))
         except (OSError, ValueError):
             return []
         return [{"seq": e["seq"], "id": e.get("id"), "text": e.get("text", ""), "at": e.get("at"), "undone": bool(e.get("undone")),
                  "op": e.get("op"), "files": [self.name_of(f["file"]) for f in e.get("files", ())]} for e in entries[-limit:]]
 
-    def _log_dir(self):
-        """The board folder whose applied log the page's undo and redo use: the script's, or before there is one the board the
-        builder is making, or with neither the board of the followed command a suggestion was last applied to."""
+    def _log_dir(self, past=None):
+        """The board folder whose applied log the page's undo and redo use: that of the view `past` when one is shown, else the
+        script's, or before there is one the board the builder is making, or with neither the board of the followed command a
+        suggestion was last applied to."""
+        if past is not None:
+            _, src = self._target(past)
+            if src is not None:
+                return src.board_dir
         if self.src is not None:
             return self.src.board_dir
         sess = self.builder.session
         return sess["board_dir"] if sess else self._applied_dir
 
-    def redo_text(self) -> str:
+    def redo_text(self, past=None) -> str:
         """What a redo would make again (the apply the last undo took back), or "" when there is nothing to redo."""
-        if self._log_dir() is None or not self.cfg.studio_apply:
+        log_dir = self._log_dir(past)
+        if log_dir is None or not self.cfg.studio_apply:
             return ""
         from . import suggestions as sg
         try:
-            return sg.redo_last(sg.log_path(self._log_dir()), dry_run=True).text
+            return sg.redo_last(sg.log_path(log_dir), dry_run=True).text
         except sg.NothingToRedo:
             return ""
         except (sg.SuggestionError, OSError, ValueError):
@@ -1131,6 +1161,7 @@ class Studio:
             raise SuggestRefused(403, "this studio shows suggestions but does not write them ([studio] apply is false)")
         rec, pool, finding, past = self._suggestion(rid, sid, view)
         self._not_running(past)
+        self._same_script(past)
         script, src = self._target_or_refuse(past)
         base = self._base(past)
         root = sg.project_root(src.board_dir)
@@ -1149,31 +1180,45 @@ class Studio:
                 self._applied_dir = src.board_dir                  # undo and redo use that board's log while no script is chosen
         out = self._applied_json(done, base)
         out["undo"] = True
-        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "id": sid, "redo": ""})
+        self.hub.emit("applied", {"applied": self.applied_list(past=past), "text": done.text, "id": sid, "redo": ""})
         return out
 
-    def suggest_undo(self) -> dict:
+    def _undo_log(self, view):
+        """(past, the applied log) an undo or a redo acts on: the board of the view shown, else the studio's (_log_dir)."""
         from . import suggestions as sg
         if not self.cfg.studio_apply:
             raise SuggestRefused(403, "this studio does not write ([studio] apply is false)")
+        past = self._past(view)[0] if view else None
+        log_dir = self._log_dir(past)
+        if log_dir is None:
+            raise SuggestRefused(409, "nothing has been applied here")
+        return past, sg.log_path(log_dir)
+
+    def applied_state(self, view=None) -> dict:
+        """The applied list and the redo of the view shown (or the studio's), for a page that opens a view."""
+        past = self._past(view)[0] if view else None
+        return {"applied": self.applied_list(past=past), "redo": self.redo_text(past)}
+
+    def suggest_undo(self, view=None) -> dict:
+        from . import suggestions as sg
+        past, log = self._undo_log(view)
         try:
-            done = sg.undo_last(sg.log_path(self._log_dir()), root=self.root)
+            done = sg.undo_last(log, root=self.root)
         except sg.SuggestionError as e:
             raise self._sg_refusal(e)
         with self.lock:
             self._applied_text = "undid: " + done.text
         self.builder.after_undo(done)
         out = self._applied_json(done)
-        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "undone": True, "redo": self.redo_text()})
+        self.hub.emit("applied", {"applied": self.applied_list(past=past), "text": done.text, "undone": True, "redo": self.redo_text(past)})
         return out
 
-    def suggest_redo(self) -> dict:
+    def suggest_redo(self, view=None) -> dict:
         """Make again the apply the last undo took back (refused when a file has moved on since)."""
         from . import suggestions as sg
-        if not self.cfg.studio_apply:
-            raise SuggestRefused(403, "this studio does not write ([studio] apply is false)")
+        past, log = self._undo_log(view)
         try:
-            done = sg.redo_last(sg.log_path(self._log_dir()), root=self.root)
+            done = sg.redo_last(log, root=self.root)
         except sg.SuggestionError as e:
             raise self._sg_refusal(e)
         with self.lock:
@@ -1181,7 +1226,7 @@ class Studio:
         self.builder.after_undo(done)
         out = self._applied_json(done)
         out["undo"] = True
-        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "redone": True, "redo": self.redo_text()})
+        self.hub.emit("applied", {"applied": self.applied_list(past=past), "text": done.text, "redone": True, "redo": self.redo_text(past)})
         return out
 
     def _cancel_try(self, why: str) -> None:
@@ -1809,6 +1854,8 @@ class Studio:
     def run_doc(self, run_id: str) -> dict | None:
         """A recorded run as a plan document for the compare: its placements as items, its findings and score."""
         from .report import RunRecord
+        if self.src is None or not run_id or "/" in run_id or run_id.startswith("."):
+            return None                         # with no script chosen there is no resolve to compare a run with
         path = self.runs_dir() / run_id / "run.json"
         if not path.is_file():
             return None
@@ -2069,7 +2116,7 @@ class Studio:
             return {**common, "script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
                     "scripts": self.script_list(), "history": [], "resolving": None, "error": None, "runs": [], "run": None}
         title, sub = script_titles(self.script, self.src)
-        return {**common, "work": self._work_state(), "script": self.script.name, "keep": self.keep, "title": title, "subtitle": sub,
+        return {**common, "work": self._work_state(), "script": self.script.name, "script_path": str(self.script), "keep": self.keep, "title": title, "subtitle": sub,
                 "scripts": self.script_list(), "history": [r.summary() for r in self.history],
                 "resolving": self._cur["id"] if self._cur else None, "error": self._error,
                 "runs": self.runs(), "run": self._run_state()}
@@ -2174,9 +2221,16 @@ def _handler(studio: Studio):
             if path == "/build":
                 doc = studio.build_record(query.get("run", [""])[0])
                 return self._json(doc) if doc is not None else self._refuse(404, "no such run, or it did not route")
+            if path == "/suggest/applied":
+                try:
+                    kind, ref = query.get("kind", [""])[0], query.get("ref", [""])[0]
+                    return self._json(studio.applied_state({"kind": kind, "ref": ref} if kind else None))
+                except SuggestRefused as e:
+                    return self._send(e.status, "application/json", json.dumps({"error": str(e), **e.extra}).encode())
             if path == "/suggest/found":
                 try:
-                    return self._json(studio.suggest_found(query.get("id", [""])[0]))
+                    kind, ref = query.get("kind", [""])[0], query.get("ref", [""])[0]
+                    return self._json(studio.suggest_found(query.get("id", [""])[0], {"kind": kind, "ref": ref} if kind else None))
                 except SuggestRefused as e:
                     return self._refuse(e.status, str(e))
             if path == "/viewsource":
@@ -2255,9 +2309,9 @@ def _handler(studio: Studio):
                     body = json.loads(self.rfile.read(n) or b"{}")
                     call = {"/suggest/show": studio.suggest_show, "/suggest/try": studio.suggest_try, "/suggest/apply": studio.suggest_apply}
                     if url.path == "/suggest/undo":
-                        return self._json(studio.suggest_undo())
+                        return self._json(studio.suggest_undo(body.get("view")))
                     if url.path == "/suggest/redo":
-                        return self._json(studio.suggest_redo())
+                        return self._json(studio.suggest_redo(body.get("view")))
                     if url.path == "/suggest/probe/stop":
                         return self._json(studio.probe_stop())
                     if url.path == "/suggest/probe":

@@ -369,6 +369,7 @@ main { position: relative; }
 .ln.chg .no { background: var(--good-soft); color: var(--good); }
 .ln.chgdecl { background: var(--warn-soft); }
 .ln.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sgbad { color: var(--bad); padding: 2px 0; }
 .srcnote { padding: 6px 10px; font: 13px/1.45 var(--sans); white-space: normal; }
 .srcnote.warn { background: var(--warn-soft); color: var(--warn); } .srcnote.err { background: var(--bad-soft); color: var(--bad); }
 
@@ -735,6 +736,7 @@ const S = {
   findingsHand: false, findingsTab: false,   // the findings layer: turned on by hand in the legend (kept in this browser), and on while the Findings tab is open
   routes: [],                  // recorded routes of this script's board (their summaries): replayed from their records
   pinmap: null,                // the pin map whose airwires are drawn: {sid} a suggestion, {fi, r} a pose of finding fi
+  appliedKey: "",              // the view whose applied log S.applied and S.redo are of ("" the studio's own): syncApplied
   vsrc: null,                  // the code view's files of a view shown in place of a resolve (viewSrc)
   sg: {more: new Set(), busy: null, show: null, note: null, src: false, confirm: null, found: {}, asked: new Set()},   // suggestions: the finding slots opened, a try in flight, the diff shown, what the last apply said
   try: null,                   // a try shown, not written: {id, base, suggestion, cleared, gained, lost, moved, score, applied}
@@ -3332,6 +3334,7 @@ async function openExploreRecord(file) {
 function closeCmd() { leaveLatest(); S.cmdView = null; S.xv = null; S.view = null; lay = null; renderCmdBar(); schedule("all"); }
 // The strip under the header while a command or a record is looked at: what it is, and for an explore its numbers.
 function renderCmdBar() {
+  syncApplied();
   const el = $("#cmdbar"), V = S.cmdView, X = S.xv, vs = viewState();
   el.hidden = !(V || X);
   if (!V && !X) return;
@@ -3357,7 +3360,7 @@ const sgKey = f => ((plan() || {}).findings || []).indexOf(f);
 // The buttons of a kind are its entry in SG_KINDS; a search's live progress and its outcome are drawn under its row (sgProbeHTML).
 const SG_KINDS = {
   instant: (b) => b("show", "Show", "the change it would make, as a diff; nothing is written") + b("try", "Try", "resolve the edited script and compare it; nothing is written") +
-    (S.canApply ? b("apply", "Apply", "write the change to the script; the studio resolves again") : ""),
+    (S.canApply ? b("apply", "Apply", viewElsewhere() ? "write the change to " + baseName(viewState().script) + "; nothing resolves here, so re-run it to see the result" : "write the change to the script; the studio resolves again") : ""),
   search: (b) => b("search", "Search options", "run a small search for the best value and offer it as a suggestion; nothing is written"),
   advice: (b) => b("pinmap", "Try", "draw the airwires before and after this map and list it; nothing is resolved or written"),
 };
@@ -3439,20 +3442,23 @@ function sgProbeHTML(s) {
   else if (d && ["stopped", "budget", "limit"].includes(d.state)) h += b("probego", "Continue", "search again from the saved results");
   h += "</div>" + probeChart(f, cs) + (cs.length ? probeCands(cs, f.unit) : "");
   if (d && d.best && d.state !== "error") {
-    const fid = s.id + ".1", fs = g.found[fid];
-    if (fs) h += '<div class="sg">' + sgRow(fs, false) + "</div>";
-    else if (fs === undefined) { sgFetchFound(fid); h += '<div class="dim">reading what it found</div>'; }
+    const fid = s.id + ".1", fs = g.found[foundKey(fid)];
+    if (fs && fs.error) h += '<div class="sgbad">' + esc("Could not read what it found: " + fs.error) + "</div>";
+    else if (fs) h += '<div class="sg">' + sgRow(fs, false) + "</div>";
+    else { sgFetchFound(fid); h += '<div class="dim">reading what it found</div>'; }
   }
   return h + "</div>";
 }
+// What a probe found is read from the store of the script of what is shown (the view's own when one is open), so it is kept per view.
+const foundKey = fid => (S.cmdView ? viewKey() : "") + "|" + fid;
 async function sgFetchFound(fid) {
-  const g = S.sg;
-  if (g.asked.has(fid)) return;
-  g.asked.add(fid);
+  const g = S.sg, k = foundKey(fid);
+  if (g.asked.has(k)) return;
+  g.asked.add(k);
   try {
-    const r = await fetch("/suggest/found?id=" + encodeURIComponent(fid) + "&t=" + encodeURIComponent(T));
-    g.found[fid] = r.ok ? await r.json() : null;
-  } catch (e) { g.found[fid] = null; }
+    const r = await fetch("/suggest/found?id=" + encodeURIComponent(fid) + viewQuery() + "&t=" + encodeURIComponent(T));
+    g.found[k] = r.ok ? await r.json() : {error: (await r.text()) || "the studio answered " + r.status};
+  } catch (e) { g.found[k] = {error: e.message}; }
   schedule("findings", "card", "steps");
 }
 // A probe event from the channel: this page's copy of the command's summary follows it.
@@ -3462,7 +3468,7 @@ function probeEvent(id, ev) {
   if (ev.ev === "probe") c.probe = {start: ev, candidates: [], done: null};
   else if (!c.probe) return;
   else if (ev.ev === "candidate") c.probe.candidates.push(ev);
-  else if (ev.ev === "probe_done") { c.probe.done = ev; S.sg.asked.delete(ev.id + ".1"); delete S.sg.found[ev.id + ".1"]; }
+  else if (ev.ev === "probe_done") { c.probe.done = ev; for (const k of [...S.sg.asked]) if (k.endsWith("|" + ev.id + ".1")) { S.sg.asked.delete(k); delete S.sg.found[k]; } }
   schedule("findings", "card", "steps");
 }
 async function sgSearch(sid, yes) {
@@ -3489,6 +3495,21 @@ function sgWhere() {
   const id = String(V.id), k = id.split(":")[0], ref = id.slice(k.length + 1), run = (V.summary && V.summary.run) || "";
   if (k === "route") return {view: run ? {kind: "build", ref: run} : {kind: "route", ref}};
   return {view: {kind: k, ref}};
+}
+// The script whose board is shown: the view's own, or the one this studio watches. Paths are compared by their folder and name, as a
+// command, a run record and the studio may name the same script by different absolute spellings.
+const shownScript = () => { const vs = viewState(); return vs ? vs.script || "" : (S.hello && S.hello.script_path) || ""; };
+const sameScript = (a, b) => !!a && !!b && (a === b || String(a).split("/").slice(-2).join("/") === String(b).split("/").slice(-2).join("/"));
+// A view of a script that is not the one this studio watches: an apply writes its files, and nothing resolves here.
+const viewElsewhere = () => !!viewState() && !sameScript(viewState().script, S.hello && S.hello.script_path);
+const viewQuery = () => { const v = S.cmdView && sgWhere().view; return v ? "&kind=" + encodeURIComponent(v.kind) + "&ref=" + encodeURIComponent(v.ref) : ""; };
+// Undo, Redo and the applied list are of the board shown: on opening a view (or leaving one) the page reads that board's log.
+function syncApplied() {
+  const key = S.cmdView ? viewKey() : "";
+  if (key === (S.appliedKey || "")) return;
+  S.appliedKey = key;
+  let req; try { req = getJSON("/suggest/applied?x=1" + viewQuery()); } catch (e) { return; }      // the bar is drawn whatever the request does
+  req.then(d => { if ((S.cmdView ? viewKey() : "") !== key) return; S.applied = d.applied || []; S.redo = d.redo || ""; schedule("compare", "sgbar"); }).catch(() => {});
 }
 const sgFind = sid => { for (const f of (plan() || {}).findings || []) for (const s of f.suggestions || []) if (s.id === sid) return s; return null; };
 function sgNote(kind, text, extra) { S.sg.note = Object.assign({kind, text}, extra); schedule("sgbar"); }
@@ -3518,7 +3539,7 @@ async function sgAct(kind, sid) {
     if (!r.ok) return sgNote("err", r.data.error);
     g.show = null; g.src = false; S.scriptOpen = false;
     if (S.try) leaveTry();
-    sgNote("applied", r.data.text);
+    sgNote("applied", r.data.text, viewElsewhere() ? {where: "written to " + baseName(viewState().script) + "; re-run it to see the result"} : {});
   } else if (kind === "search") {
     await sgSearch(sid, false);
   } else if (kind === "probeyes" || kind === "probego") {
@@ -3529,11 +3550,11 @@ async function sgAct(kind, sid) {
     const r = await sgPost("/suggest/probe/stop", {});
     if (!r.ok) sgNote("err", r.data.error);
   } else if (kind === "undo") {
-    const r = await sgPost("/suggest/undo", {});
+    const r = await sgPost("/suggest/undo", S.cmdView ? {view: sgWhere().view} : {});
     if (!r.ok) return sgNote("err", r.data.error);
     sgNote("undone", r.data.text);
   } else if (kind === "redo") {
-    const r = await sgPost("/suggest/redo", {});
+    const r = await sgPost("/suggest/redo", S.cmdView ? {view: sgWhere().view} : {});
     if (!r.ok) return sgNote("err", r.data.error);
     sgNote("applied", r.data.text);
   }
@@ -3576,7 +3597,7 @@ function renderSgBar() {
       "<span>" + r.moved + (r.moved === 1 ? " item" : " items") + " moved</span>" + (sc ? "<span>score " + sc.a + " to " + sc.b + " (" + val((sc.delta > 0 ? "+" : "") + sc.delta, sc.delta < 0 ? "good" : sc.delta > 0 ? "bad" : "") + ", lower is better)</span>" : "") +
       '<button data-sg="viewdiff">Show diff</button>' + (S.canApply ? '<button data-sg="apply" data-sid="' + esc(r.suggestion.id) + '">Apply</button>' : "") + '<button data-sg="back">Back to the plan</button>';
   } else if (n) {
-    h = n.kind === "err" ? pill("not done", "bad") + "<span>" + esc(n.text) + "</span>" : pill(n.kind, "good") + "<b>" + esc(n.text) + "</b>" + (n.kind === "applied" && S.canApply ? '<button data-sg="undo">Undo</button>' : "") + (n.kind === "undone" && S.canApply && S.redo ? '<button data-sg="redo">Redo</button>' : "");
+    h = n.kind === "err" ? pill("not done", "bad") + "<span>" + esc(n.text) + "</span>" : pill(n.kind, "good") + "<b>" + esc(n.text) + "</b>" + (n.where ? "<span>" + esc(n.where) + "</span>" : "") + (n.kind === "applied" && S.canApply ? '<button data-sg="undo">Undo</button>' : "") + (n.kind === "undone" && S.canApply && S.redo ? '<button data-sg="redo">Redo</button>' : "");
     h += '<button class="sgx" data-sg="dismiss" aria-label="dismiss">&times;</button>';
   }
   el.hidden = !h; el.innerHTML = h;
@@ -3778,7 +3799,8 @@ on("models3d", d => { S.models3d = d; if (S.mode === "3d") schedule("legend"); }
 let noteDismissed = (() => { try { return new Set(JSON.parse(localStorage.getItem("placemat.notesDismissed") || "[]")); } catch (e) { return new Set(); } })();
 function saveDismissed() { try { localStorage.setItem("placemat.notesDismissed", JSON.stringify([...noteDismissed].slice(-300))); } catch (e) {} }
 const noteNow = () => Date.now() + (S.skew || 0);
-const liveNotes = () => S.notes.filter(n => !noteDismissed.has(n.id) && (!S.noteAge || noteNow() - n.at * 1000 <= S.noteAge * 1000));
+// A note is of one script (`path`): it shows on the board of the script shown, the view's when a command or a run is open.
+const liveNotes = () => S.notes.filter(n => !noteDismissed.has(n.id) && (!S.noteAge || noteNow() - n.at * 1000 <= S.noteAge * 1000) && (!n.path || sameScript(n.path, shownScript())));
 function notePlace(p, n) {
   const t = n.target;
   if (!t) return null;

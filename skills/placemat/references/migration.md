@@ -15,6 +15,12 @@ section for each hand-written pattern a newer form replaces.
   the project its plan names (a module's script, say), and opens on the line. A file outside the project, or one no
   longer there, is said in red; a file changed since the run is shown with a yellow note that the line may have moved.
   Scripts need no change.
+- **A followed command or a past run acts on its own script in the studio.** What a probe found for one of its suggestions
+  is read from its script's store, so the found value gets Show, Try and Apply (a failure to read it is said in red).
+  Undo, Redo and the applied list are read from its board's log, after a reload too. Notes show on the board of the script
+  they were left for. Apply on a view of a script other than the chosen one is refused with "choose it", as Try is; with no
+  script chosen, Apply says it writes the view's script and nothing resolves here. Undo with nothing applied, and a run
+  compare with no script chosen, are refused rather than failing.
 
 ## To 0.99.29
 

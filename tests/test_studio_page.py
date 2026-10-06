@@ -2288,7 +2288,7 @@ const helloPicker = (extra = {}) => send("hello", Object.assign({script: "", pic
 // The first hello of a project with nothing run opens the dialog; the second brings what the project has run, and the dialog stays.
 const helloDialog = () => { helloPicker({project_runs: [], explores: [], commands: []}); helloPicker(); };
 const posts = () => fetched.filter(([u, o]) => o).map(([u, o]) => [u, o.body]);
-const gets = () => fetched.filter(([u, o]) => !o).map(([u]) => u);
+const gets = () => fetched.filter(([u, o]) => !o && !u.startsWith("/suggest/applied")).map(([u]) => u);     // what opens a view; the applied log it reads is not one
 const click = (el, sel, data) => els[el].onclick({target: {closest: s => s === sel ? {dataset: data || {}} : null}});
 """
 
@@ -3670,3 +3670,49 @@ def test_a_source_link_of_a_followed_command_opens_its_own_script_on_the_line_wi
     assert ">X_layout.py<" in out["select"] and ">../m/M_layout.py<" in out["select"] and "(" not in out["select"]
     assert 'class="srcnote warn"' in out["changed"] and "changed since the run" in out["changed"] and 'data-n="2"' in out["changed"]
     assert 'class="srcnote err"' in out["gone"] and "no longer there" in out["gone"] and 'data-n=' not in out["gone"]
+
+
+@needs_node
+def test_a_view_reads_its_own_found_store_and_applied_log_and_shows_its_own_scripts_notes(tmp_path):
+    """With no script chosen, a followed command's probe result, its board's Undo and Redo, and its script's notes are its own;
+    what cannot be read is said in red, and Apply says nothing resolves here."""
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  const urls = [];
+  let reply = () => ({ok: true, status: 200, json: async () => ({}), text: async () => ""});
+  ctx.fetch = (u, o) => { urls.push([u, o && o.body]); return Promise.resolve(reply(u)); };
+  send("hello", {script: "", picker: true, root: "/p", scripts: [], keep: 5, history: [], resolving: null, error: null, runs: [], run: null, project_runs: [], explores: [], routes: [], commands: [],
+    notes: []});
+  const FIG = {kind: "bisect", name: "chamfer", what: "the chamfer", unit: "mm", declared: 0.5, far: 0.1, lo: 0.1, hi: 0.5};
+  const SRCH = {id: "s9z", text: "search the chamfer?", rank: 9, lever: "chamfer", how: "searched", figure: FIG};
+  full([item("a", 1)], [st("a")], {findings: [Object.assign({}, FND[0], {suggestions: [SRCH, SUG[0]]})]});
+  const shown = JSON.parse(JSON.stringify(ev("plan()")));
+  ev("S").notes = [{id: "n1", script: "B_layout.py", path: "/p/b/B_layout.py", description: "on B", at: clock / 1000, target: null}, {id: "n2", script: "C_layout.py", path: "/p/c/C_layout.py", description: "on C", at: clock / 1000, target: null}];
+  send("cmd", {id: 4, pid: 70, command: "preview", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "done", items: 1, variants: 0, probe: null, route: null});
+  ev("S").cmdView = {id: 4, plan: shown, next: 0, fitted: false, summary: {script: "/p/b/B_layout.py", run: ""}};
+  ev("renderCmdBar()");
+  await new Promise(r => setImmediate(r));
+  out.applied = urls.map(u => u[0]).filter(u => u.startsWith("/suggest/applied"));
+  out.notes = ev("liveNotes().map(n => n.id)");
+  send("cmd", {id: 5, pid: 77, command: "apply", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "running", items: 0, variants: 0, probe: null, route: null});
+  const pev = (n, o) => send("cmdev", {id: 5, n, ev: o});
+  pev(0, {ev: "probe", id: "s9z", text: SRCH.text, figure: FIG, budget_s: 120, candidates: 12});
+  reply = u => ({ok: false, status: 404, json: async () => ({}), text: async () => "no found suggestion 's9z.1'"});
+  pev(1, {ev: "probe_done", id: "s9z", state: "done", n: 2, of: 12, best: {value: 0.1, cleared: true, gained: [], score: 10.5, seconds: 3.2, acceptable: true}, neighbour: null, monotone: true, message: "", resumed: 0, candidates: []});
+  ev("renderFindings()");
+  await new Promise(r => setImmediate(r)); await new Promise(r => setImmediate(r));
+  ev("renderFindings()"); out.findings = els["#tab-findings"].innerHTML;
+  out.found = urls.map(u => u[0]).filter(u => u.startsWith("/suggest/found"));
+  out.row = ev("sgRow")(SUG[0], false);
+  reply = () => ({ok: true, status: 200, json: async () => ({text: "undid it"})});
+  await ev("sgAct")("undo", "");
+  out.undo = urls.filter(u => u[0].startsWith("/suggest/undo")).map(u => u[1]);
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["applied"] == ["/suggest/applied?x=1&kind=cmd&ref=4&t=x"]
+    assert out["notes"] == ["n1"]
+    assert out["found"] and all("kind=cmd&ref=4" in u for u in out["found"])
+    assert 'class="sgbad"' in out["findings"] and "Could not read what it found: no found suggestion" in out["findings"]
+    assert "write the change to B_layout.py; nothing resolves here, so re-run it to see the result" in out["row"]
+    assert out["undo"] == ['{"view":{"kind":"cmd","ref":"4"}}']
