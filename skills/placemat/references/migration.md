@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.99.32
+
+### Fixed
+
+- **A page that goes away mid-response prints nothing.** A reload or a closed tab broke the pipe the studio was writing to,
+  and the studio printed the whole traceback (twice, the second under `kicad`). It is the client's doing and is now ignored;
+  any other error in a request is still printed.
+
 ## To 0.99.31
 
 ### New

@@ -48,6 +48,16 @@ PAGE = Path(__file__).with_name("studio_page.html")
 BUILDER_JS = Path(__file__).with_name("studio_builder.js")
 
 
+class _Server(http.server.ThreadingHTTPServer):
+    """The studio's HTTP server: a page that goes away mid-response (a reload, a closed tab) is not an error of the studio's,
+    and is not printed; any other error in a request is, as the standard server prints it."""
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
+
+
 @dataclass
 class Record:
     """One finished resolve, as kept for comparing."""
@@ -538,7 +548,7 @@ class Studio:
     # ------------------------------------------------------------ lifecycle
     def start(self) -> str:
         handler = _handler(self)
-        self.server = http.server.ThreadingHTTPServer((self.host, self.port), handler)
+        self.server = _Server((self.host, self.port), handler)
         self.server.daemon_threads = True
         self.port = self.server.server_address[1]
         self.url = "http://%s:%d/?t=%s" % (_url_host(self.host), self.port, self.token)

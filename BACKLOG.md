@@ -298,6 +298,8 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **The studio ignores a page that went away** (0.99.32): no traceback for a broken pipe.
+
 - **Detached runs and one-line outcomes, accept after a comment edit** (0.99.31):
   `run/preview/route --detach`; `watch <pid> --summary`; the skill teaches
   following a long run as a background task; an explore's script digest
