@@ -21,7 +21,7 @@
       "demos/pic_programmer/pic_programmer.kicad_sch": "cf92bff8aebe19e45444f13b2ccd1c8ad578df6a226acd5381e2eff95e2fc08f",
       "demos/pic_programmer/pic_sockets.kicad_sch": "8cbf575b53b205280ca277df8affc6477cf20c5d06c63c267cd6fb19b6d771ae"
     },
-    "notes": "KiCad 10.0.6 demo, tag 10.0.6"
+    "notes": "KiCad 10.0.6 demo, tag 10.0.6 Both widths: the POWER class (GND, VCC) sets diff_pair_width/gap, so placemat routes the two as a coupled pair with route_diff; the router necks two GND segments to 0.218 mm, below the board min 0.25 (track_width x2). The human width 0.5 equals the Default class width; the explicit --track-width still changes the result (87.2% closure)."
   },
   {
     "name": "usb-c-power-adapter",
@@ -62,7 +62,8 @@
       "LoRa-V3-PCB.kicad_pcb": "9239c44ecf8ef7d2abde81814f858392f2c986f3d03a9e844082b38368712734",
       "LoRa-V3-PCB.kicad_pro": "a97c4b8208590890a66d6177723abc8be19c1e8210b3b1622c99ca51df9126c7",
       "LoRa-V3-PCB.kicad_sch": "83a9760b5c9225f26bcf57123c57faed4711907925b2a80ee0d20471bd163f52"
-    }
+    },
+    "notes": "Class and human widths are the same: the Default class width 0.2 equals the human width. 112 teardrop zones make placemat treat 25 nets as pour nets (plane_nets_of), so they are neither routed nor counted in closure; closure 98.2% overstates it (KiCad DRC lists their connections as missing). The 3 solder_mask_bridge on RF come from pad mask margins (0.25 mm, above the 0.2 mm clearance) which the router does not model."
   },
   {
     "name": "ir-irradiance-probe",
@@ -81,7 +82,8 @@
       "ir-irradiance-probe.kicad_pcb": "438dcff4e9a8fbf9a14f48c15598597b1c5893ddd56d645d7a7051559566923b",
       "ir-irradiance-probe.kicad_pro": "52a572a8f1ddf0edafc31b9bcf2459034cad72b9aac31474916d54035f7b6c17",
       "ir-irradiance-probe.kicad_sch": "95b18a4f0bf76d6bfa4c30286585bc4592164182ae8ab4ad611ed1f57f03e4fd"
-    }
+    },
+    "notes": "The Default net class clearance (0.125 mm) is below the board min_clearance (0.15 mm); the router routes at 0.125 and KiCad grades at 0.15, so the clearance DRC errors are new."
   },
   {
     "name": "esp-rust-board",
@@ -100,7 +102,8 @@
       "hardware/esp-rust-board/esp-rust-board.kicad_pcb": "4907cec7fec31beada1d9c60d53e4ab0068f80ca7261857166e60b330553594c",
       "hardware/esp-rust-board/esp-rust-board.kicad_pro": "3e4ff2b6f86d6d22c282729334b796a24d52d120d03472a25bbf6255f073d65b",
       "hardware/esp-rust-board/esp-rust-board.kicad_sch": "56937aae482676117b9c9b2c8cc7bdffb85ce2dd939b25e1190968952abdfd4d"
-    }
+    },
+    "notes": "starved_thermal on a USB-C GND pad (J1 B1_A12): GND is a pour net the router does not route, and signal tracks beside the pad leave the zone one thermal spoke where it needs two; the human drew a GND stub and via there."
   },
   {
     "name": "watchy",
@@ -140,7 +143,7 @@
       "spimux.kicad_pro": "44d350ffd08b8e71984a695ff4ac683b6814c53e6263fe9b13e7b088e103156a",
       "spimux.kicad_sch": "46427f7208a96c7d8a4b953761e5cf368d67f2c689474cf853d25e492d6ad8bd"
     },
-    "notes": "Test (a) leaves 5 SPI flash nets open at both widths: the router cannot escape the 0.65 mm pitch part under the board rules (dog-bone escape fails). 86.5% closure matches the research run."
+    "notes": "Test (a) leaves 5 SPI flash nets open at both widths: the router cannot escape the 0.65 mm pitch part under the board rules (dog-bone escape fails). 86.5% closure matches the research run. Class and human widths are the same: the Default class width 0.16 equals the human width. The new starved_thermal is C4 pad 2 on GNDREF (B.Cu): one thermal spoke where the zone needs two."
   },
   {
     "name": "chainlinkDriver",
