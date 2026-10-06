@@ -5831,9 +5831,16 @@ class Board:
                 return any(not (bridge and o.wire and o.kind == "copper")
                            for o in ctx.occ.copper_through(_shape_of(Track(name, layer, w, a, b))))
 
+            edge_loops = self._edge_loop_info() if self._judges_edge() else None
+
+            def keeps_edge(a, b):     # a leg as far from the board's edge as copper.edge asks (`_edge_hits`)
+                if edge_loops is None or (a.x, a.y, b.x, b.y) in frozen:
+                    return True
+                return not self._edge_hits(ctx.occ, _shape_of(Track(name, layer, w, a, b)), edge_loops)
+
             if arc:
                 pts = octilinear(located, pads, clear, None, lanes, self.settings.copper_straight_tolerance,
-                                 runs_through) if bend is Bend.ARC else located
+                                 runs_through, keeps_edge) if bend is Bend.ARC else located
                 ops, misfits = arc_tracks(name, layer, w, pts, arc_r)
                 if misfits:
                     for m in misfits:
@@ -5843,7 +5850,8 @@ class Board:
                     return []
                 diagonals = []
             else:
-                pts = octilinear(located, pads, clear, bend, lanes, self.settings.copper_straight_tolerance, runs_through)
+                pts = octilinear(located, pads, clear, bend, lanes, self.settings.copper_straight_tolerance, runs_through,
+                                 keeps_edge)
                 cut_pts, diagonals = chamfer_cuts(pts, chamfer)
                 ops = polyline_tracks(name, layer, w, cut_pts)
             for p in corners:

@@ -2522,7 +2522,8 @@ track per net between the first and last pad it serves, `(x, Y(pad))` to
 degrees. Between two points that are not on the grid the tool tries the
 octilinear ways of up to three legs (the 45 at the start, at the end or
 between two straights, two 45s round a straight, the two L shapes), drops
-those whose legs touch another net's pad or copper, and keeps the one with
+those whose legs touch another net's pad or copper or come nearer the board's
+edge than its copper-to-edge clearance, and keeps the one with
 the fewest direction changes against the legs either side (a chamfered
 right angle counting two), then the shortest, then (its own tie-break) the
 45 at the pad end. `bend=Bend.START`/`Bend.END`/`Bend.BOTH` says which end
