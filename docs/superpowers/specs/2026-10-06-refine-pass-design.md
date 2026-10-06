@@ -31,8 +31,8 @@ From the inventory (scratchpad/placement-inventory.md, file:line there):
 | Search score `Scorer` (layout.py:829) and native `NativeScoring` (lib.rs:802) | Scores one item against the placed board | **Refine's score.** A move is judged by the score that placed the item |
 | Incremental ratsnest, lift/unlift/commit (occupancy.py:1216-1245) | Refreshes only touched nets | **Used as is** by refine's moves |
 | turn.better (`_report_turns`) | Reports a better turn and suggests the edit | For movable items, **refine takes the turn itself** and turn.better no longer reports it. It stays for turns the script or a stated constraint owns, where only the user can change it |
-| Explore (`explore.py`) | Re-runs the construction with random choices and order. The best variant goes to the lock | **Kept, as restarts:** it reaches arrangements a local pass cannot. Each variant is refined before it is scored, so variants are compared at their refined best |
-| Lock (`lock.py`) | Pins each searched item where an explore put it | **Becomes refine's starting point** (see Lock) |
+| Explore (`explore.py`) | Re-runs the construction with random choices and order. The best variant goes to the lock | **Kept, as restarts** (fresh constructions from a different seed, then refined): it reaches arrangements a local pass cannot. Each variant is refined before it is scored, so variants are compared at their refined best |
+| Lock (`lock.py`) | Pins each searched item where an explore put it | **Removed.** Each run starts from the last run's placement, and the script's constraints hold what must not move (see Starting from the last run) |
 | Pin study (`pinmap*`) | Pin remap and pose: advice, a capture change | **Kept.** A remap is a capture change refine cannot make. Its pose turn gains the legality check it lacks: the MCU's 45-degree turn needed the coin moved afterwards |
 | Give-way, settle, scan | Construction | **Kept.** Refine depends on them |
 | Global solve (`solve.py`) | Optional hints, off by default; measured no better once cleanup runs | Unchanged. Revisit after refine is measured |
@@ -52,7 +52,7 @@ After the searched tier and before the late copper (where cleanup runs now), ref
    - an item another declaration is placed against, such as a `Beside` target or a row member;
    - an item whose turn or place a stated constraint owns: `rotation=` set, `Facing`, `Turned`, a `why=` that names a
      turn, `Near` with a radius, which stays a hard bound.
-   A held item is movable (see Lock).
+   An item placed from the snapshot is movable like any other.
 3. **Proposes small moves** at random, from a seeded deterministic stream:
    - nudge: one item a grid step or a few in any direction, within its declared bounds;
    - turn: one item to another turn its declaration allows, at the same centre;
@@ -89,21 +89,37 @@ legality.
 The items the native scorer does not cover today (an item with a push, a declared lane: `Scorer.native` returns None)
 are scored in Python, or left out of the movable set while the native scorer lacks them. This is a stated limit.
 
-## The lock
+## Starting from the last run (the lock is removed)
 
-The lock's job is to start from a snapshot instead of from nothing (inventory 3.3). Today it does that by pinning
-every held item, which is what stops the board improving once an explore is accepted.
+Decided with the user: the lock goes. Its job, starting from a snapshot instead of from nothing (inventory 3.3), is
+done by starting each run from the last run's placement. What must stay fixed is stated in the script, so the script's
+constraints are the only thing that holds an item.
 
-With refine, a held item is placed at its lock spot as now, then is movable by refine like any searched item. A lock
-entry means "start here", not "stay here". What stays fixed is what the script states: a fixed place, a stated turn, a
-`Near` radius.
+- **The snapshot.** `<script stem>.placement.json` beside the script holds each searched item's last place, anchored
+  to the pad it depends on most and stored in that part's frame, as a lock entry is today. It also holds the item's turn,
+  its face, its arrangement and a digest of its declaration. Every run writes it. It is committed with the script, so a
+  run is reproducible on another machine.
+- **A run** places each searched item at its snapshot place when that is legal and its declaration is unchanged, then
+  refines. A changed declaration, a gone anchor, or no legal spot near it means the item is searched from nothing, with a
+  note, as a released lock entry is today. Items new to the script are searched.
+- **`--fresh`** ignores the snapshot and searches everything, for a new construction. Explore's restarts use this.
+- **Pins live in the script.** An item that must not move is placed by its constraint. The forms already exist:
+  - a fixed or edge place;
+  - one free axis, for example `Centre` on a line, so the item slides only along it;
+  - a stated turn, or `rotations=` narrowed to the allowed turns, for example `(0, 180)`;
+  - `Near` with a radius.
 
-A refined run's result can be written back to the lock (`placemat lock --current`, as today), so the next run starts
-from the refined board, and refine continues from there. Repeated runs therefore improve the board in steps of seconds,
-not explores.
+  Refine moves an item only within what its declaration leaves free. An item that may slide only along the Y axis
+  between turns 0 and 180 is nudged only along Y, and turned only between those two.
+- **Removed:**
+  - `placemat lock` and its subcommands;
+  - `<stem>.lock.json`;
+  - `freeze`, which wrote lock entries into the script.
 
-`placemat lock <script> --pin ITEM` keeps the old meaning for an item the user wants left alone. It is a flag on the
-entry, shown in the lock listing. Explore `--accept`, `route --adopt` and `freeze` keep their behaviour.
+  Explore `--accept` writes the chosen variant as the snapshot. `route --adopt` keeps its routes, and no longer locks the
+  items they join: a kept route that no longer fits its pads is dropped with a reason, as today.
+- **Migration.** On its first run, a script with a `.lock.json` converts the entries into the snapshot, and says so. The
+  migration entry tells the user to state as constraints any item that was held on purpose.
 
 ## Routing feedback (after routing phases)
 
@@ -118,8 +134,9 @@ are built.
 ## Explore with refine
 
 Each explore variant is refined before it is scored, so variants are compared at their refined best. A variant then
-costs its resolve plus refine's few seconds. Explore keeps its role of reaching different constructions. The lock it
-accepts is a starting point, as above.
+costs its resolve plus refine's few seconds. Explore keeps its role of reaching different constructions: a restart searches every item again
+from nothing (`--fresh`), with different random choices of spot and order, so it can land in an arrangement that
+moving items one at a time from the current board would never reach. The chosen variant becomes the snapshot.
 
 ## Settings
 
@@ -147,8 +164,12 @@ that refine replaces cleanup, and that `refine.enabled = false` turns it off.
 - **Bounds:** no move breaks a hard constraint (fixed place, stated turn, `Near` radius, keepouts), and no move is
   illegal.
 - **Run score:** a refine that would worsen the run score is undone.
-- **Lock:** a held item moves under refine. A pinned one does not. A refined run written back with `lock --current`
-  starts the next run there.
+- **Snapshot:**
+  - a run starts at the last run's places and refines from there;
+  - a changed declaration searches that item afresh;
+  - `--fresh` ignores the snapshot;
+  - an item with one free axis and narrowed turns moves only along that axis and between those turns;
+  - a `.lock.json` is converted on the first run.
 - **Bench:** run fixtures/bench.py in all three configs. Refine must not worsen any fixture's run score. The tally goes
   in the commit.
 - **Fairing core:** the core copy, with and without refine, compared on run score, crossings, quick-route closure and
@@ -163,8 +184,8 @@ that refine replaces cleanup, and that `refine.enabled = false` turns it off.
   measured.
 - GPU acceleration (scratchpad/gpu-study.md: not worth it at this board size).
 
-## Decisions for the user at review
+## Decided with the user
 
-1. The lock as "start here" by default, with `--pin` for "stay here". Or keep pinning as the default, and make
-   "start here" the flag.
-2. Retiring cleanup in favour of refine, and turn.better reporting only turns refine may not take.
+- Refine replaces the cleanup pass.
+- The lock is removed. A run starts from the last run's placement, and the script's constraints say what is fixed.
+- One command runs the whole loop: see 2026-10-06-place-route-loop-design.md.
