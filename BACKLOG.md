@@ -298,6 +298,9 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Turned lanes room for the router's grid snap** (0.99.22): lanes of a turned
+  escape stand the grid step over root 2 further apart.
+
 - **Past any obstacle, copper.edge, route stages per clearance, new checks**
   (0.99.21): Past off cutouts, edge runs, parts, cells and labels;
   copper.edge for copper nearer the outline or a cutout than KiCad's
