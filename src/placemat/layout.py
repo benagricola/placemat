@@ -7335,6 +7335,8 @@ class Board:
                     grew = True
 
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
+    copper_inputs = ""      # what the script ran from, as runner.scripted_board digests it: a replay reuses the planned copper only
+                            # under the same digest (the context does not hold copper's arguments); "" never reuses it
 
     def _phase(self, stage, **info) -> bool:
         """Tell a viewer what the step being worked on is doing now (`on_begin`): a phases.Stage and its numbers (`within`,
@@ -7491,6 +7493,13 @@ class Board:
         previous = reuse.get("steps", []) if reuse and reuse.get("version") == _reuse.VERSION \
             and reuse.get("context") == context else None
         chain = {"key": context, "replaying": previous is not None}
+        # The planned copper is replayed too, where the script ran from the same files (`copper_inputs`): the context holds
+        # every copper declaration but not its arguments (a track's width, a via's spot), which only the script's text says.
+        if self.copper_inputs:
+            record["copper_inputs"] = self.copper_inputs
+        self._copper_reuse = {"record": record, "chain": chain,
+                              "prev": (reuse.get("copper") or {}) if previous is not None and self.copper_inputs
+                              and reuse.get("copper_inputs") == self.copper_inputs else None}
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
         if native_status().warns:           # the pure Python path is the reference, and 5-10x slower: never silent
@@ -7685,7 +7694,7 @@ class Board:
                 occ.board_box = self._outline = self._fit_room(occ, plan, obj)
             if chain["replaying"]:
                 step = self._replay_settle(occ, plan, previous[position], obj)
-                record["steps"].append(previous[position])
+                record["steps"].append(dict(previous[position]))     # a copy: this resolve may record its rooms in it
                 record["reused"] += 1
                 self._step_t0 = None
                 if clock is not None:
@@ -7783,7 +7792,8 @@ class Board:
             self._place_escapes(occ, plan, placed, progress)
             self._place_labels(occ, plan, placed, progress)
             if occ.rooms_apply and step.placement is not None:      # declared copper whose ends are all placed now
-                self._rooms_after(occ, plan, room_ctx, placed, other_copper, step)
+                self._rooms_after_recorded(occ, plan, room_ctx, placed, other_copper, step, record["steps"][-1],
+                                           bool(chain["replaying"]))
 
         def place_ranked(lo, hi):
             """FIXED and EDGE go down in declaration order: nothing yields to
@@ -7839,7 +7849,7 @@ class Board:
         self._check_web(plan)
         self._check_pitch(plan)
         occ.set_rooms([])       # the real copper replaces what the passes planned
-        self._plan_copper(occ, ctx, fixed_copper, plan, progress)
+        self._plan_copper(occ, ctx, fixed_copper, plan, progress, slot="fixed")
         for key, moved in self._room_unsettled:
             plan.findings.append(self._finding(C.FIXED_ROOM_UNSETTLED, {
                 "copper": key, "moved_mm": moved, "passes": self.settings.place_firm_passes}))
@@ -7871,7 +7881,7 @@ class Board:
         self._give_way_copper(occ, plan)
         occ.set_rooms([])
         occ.rooms_apply = False
-        self._plan_copper(occ, ctx, other_copper, plan, progress)
+        self._plan_copper(occ, ctx, other_copper, plan, progress, slot="other")
         if routes:
             self._draw_adopted(occ, ctx, plan, routes, progress)
         if self._fit:
@@ -7881,7 +7891,7 @@ class Board:
             frame = self._fit_bound(grown)
             self._check_fit_content(occ, plan, frame)
             plan.outline = self._outline = occ.board_box = frame
-            self._plan_copper(occ, ctx, [c for c in self._copper if c.index in held], plan, progress)
+            self._plan_copper(occ, ctx, [c for c in self._copper if c.index in held], plan, progress, slot="held")
         self._check_keepouts(plan)
         plan.rudy = self._rudy(occ, plan)
         self._report_links(occ, plan, placed)
@@ -8895,10 +8905,93 @@ class Board:
             now = at[key] = "%s %s" % (side.name.lower(), word)
             step.say("label_moved", **{"from": was, "to": now, "by": list(because)})
 
-    def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
+    def _plan_copper(self, occ, ctx, intents, plan: Plan, progress, slot: str | None = None):
         """Plan a batch of copper together, with the vias of the parts' grids lifted off the board: a grid is
         drawn by its own plan (`vias()`), which keeps each via off the copper planned before it, so a track
-        declared across a grid is drawn and the grid goes round it, as it always has."""
+        declared across a grid is drawn and the grid goes round it, as it always has.
+
+        A batch of the resolve (`slot`: "fixed", "other", "held") is recorded for the next resolve, which replays it
+        while every step before it was replayed and the script ran from the same files (`_copper_reuse`)."""
+        cr = getattr(self, "_copper_reuse", None) if slot is not None and self.copper_inputs else None
+        if cr is None:
+            return self._plan_copper_now(occ, ctx, intents, plan, progress)
+        from . import reuse as _reuse
+        key = cr["chain"]["key"]
+        got = (cr["prev"] or {}).get(slot) if cr["chain"]["replaying"] and cr["prev"] is not None else None
+        if got is not None and got.get("key") == key:
+            try:
+                data = _reuse.unpack(got["data"])
+            except Exception:           # a record this build cannot read: planned again
+                data = None
+            if data is not None:
+                self._replay_copper(occ, ctx, intents, plan, progress, data)
+                cr["record"].setdefault("copper", {})[slot] = got
+                return
+        n_copper, n_found, n_steps, n_occ = len(plan.copper), len(plan.findings), len(plan.steps), len(occ.copper)
+        before = _ctx_snapshot(ctx)
+        self._plan_copper_now(occ, ctx, intents, plan, progress)
+        steps = [dataclasses.replace(st, seconds=0.0) for st in plan.steps[n_steps:]]
+        data = _reuse.pack({"copper": plan.copper[n_copper:], "findings": list(plan.findings[n_found:]), "steps": steps,
+                            "ctx": _ctx_delta(before, ctx), "occ": occ.copper[n_occ:]})
+        if data is not None:
+            cr["record"].setdefault("copper", {})[slot] = {"key": key, "data": data}
+
+    def _replay_copper(self, occ, ctx, intents, plan: Plan, progress, data: dict) -> None:
+        """A recorded batch (`_plan_copper`) put back: what it told a viewer and printed, its ops, findings and steps on
+        the plan, what the copper context knew after it, and its copper in the occupancy."""
+        if self._on_begin is not None and intents:
+            self._on_begin(plan, {"kind": "begin", "item": "copper", "what": "copper", "rank": None, "of": None,
+                                  "replaying": False, "n": len(plan.steps), "count": len(intents)})
+        plan.copper.extend(data["copper"])
+        plan.findings.extend(data["findings"])
+        for st in data["steps"]:
+            plan.steps.append(st)
+            if progress:
+                progress("   bridge: " + step_text.render(st.notes[0]) if st.item == "bridge" else _fmt(st))
+        _ctx_apply(ctx, data["ctx"])
+        occ.add_copper(data["occ"])
+
+    def _rooms_after_recorded(self, occ: Occupancy, plan: Plan, room_ctx, placed: set, other_copper, step, entry: dict,
+                              replayed: bool) -> None:
+        """`_rooms_after`, recorded in the step's reuse `entry` and replayed from it when the step was replayed and the
+        script ran from the same files."""
+        from . import reuse as _reuse
+        if not self.copper_inputs:
+            entry.pop("rooms", None)
+            return self._rooms_after(occ, plan, room_ctx, placed, other_copper, step)
+        cr = getattr(self, "_copper_reuse", None)
+        got = entry.get("rooms") if replayed and cr is not None and cr["prev"] is not None else None
+        if got is not None:
+            try:
+                data = _reuse.unpack(got) if got else {}
+            except Exception:
+                data = None
+            if data is not None:
+                if data:
+                    _ctx_apply(room_ctx, data["ctx"])
+                    if data["set"]:
+                        occ.set_rooms(occ.rooms + data["rooms"])
+                    self._roomed |= data["roomed"]
+                    self._room_refused.update(data["refused"])
+                    step.notes = step.notes + data["notes"]
+                return
+        before = _ctx_snapshot(room_ctx)
+        serial, n_rooms, roomed, refused, notes = occ._rooms_serial, len(occ.rooms), set(self._roomed), \
+            dict(self._room_refused), len(step.notes)
+        self._rooms_after(occ, plan, room_ctx, placed, other_copper, step)
+        delta = _ctx_delta(before, room_ctx)
+        data = {"ctx": delta, "set": occ._rooms_serial != serial, "rooms": occ.rooms[n_rooms:],
+                "roomed": self._roomed - roomed,
+                "refused": {k: v for k, v in self._room_refused.items() if refused.get(k, _NO) is not v},
+                "notes": step.notes[notes:]}
+        changed = delta or data["set"] or data["roomed"] or data["refused"] or data["notes"]
+        packed = _reuse.pack(data) if changed else ""
+        if packed is None:
+            entry.pop("rooms", None)
+        else:
+            entry["rooms"] = packed
+
+    def _plan_copper_now(self, occ, ctx, intents, plan: Plan, progress):
         lifted = {}
         for ref, g in occ.items.items():
             if any(x.carried.startswith(FIELD_PREFIX) for x in g.shapes):
@@ -11646,6 +11739,47 @@ class CutoutNowhere(Exception):
     def __init__(self, why):
         super().__init__(str(why))
         self.why = why
+
+
+_NO = object()
+_CTX_NOT_STATE = ("board", "occ", "plan", "fields", "dry")      # what a copper context is bound to, not what it learned
+
+
+def _ctx_snapshot(ctx) -> dict:
+    """What a copper context knows now, its lists and dicts copied (not their items), for `_ctx_delta`."""
+    return {k: (type(v)(v) if isinstance(v, (list, dict, set)) else v)
+            for k, v in vars(ctx).items() if k not in _CTX_NOT_STATE}
+
+
+def _ctx_delta(before: dict, ctx) -> dict:
+    """What `ctx` learned since `before` (`_ctx_snapshot`): per attribute, ("ext", items) appended to a list, ("upd",
+    entries) added to or replaced in a dict, or ("set", value) for anything else that changed."""
+    out = {}
+    for k, v in vars(ctx).items():
+        if k in _CTX_NOT_STATE:
+            continue
+        b = before.get(k, _NO)
+        if isinstance(v, list) and type(b) is type(v) and len(v) >= len(b) and all(x is y for x, y in zip(b, v)):
+            if len(v) > len(b):
+                out[k] = ("ext", list(v[len(b):]))
+        elif isinstance(v, dict) and type(b) is type(v) and all(x in v and v[x] is y for x, y in b.items()):
+            new = {x: y for x, y in v.items() if b.get(x, _NO) is not y}
+            if new:
+                out[k] = ("upd", new)
+        elif b is _NO or b is not v and not (type(b) is type(v) and b == v):
+            out[k] = ("set", v)
+    return out
+
+
+def _ctx_apply(ctx, delta: dict) -> None:
+    """Put a `_ctx_delta` on a context that knows what the one it was taken from knew before."""
+    for k, (how, value) in delta.items():
+        if how == "ext":
+            getattr(ctx, k).extend(value)
+        elif how == "upd":
+            getattr(ctx, k).update(value)
+        else:
+            setattr(ctx, k, value)
 
 
 class _CopperContext:

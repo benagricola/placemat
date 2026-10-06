@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A replay reuses the planned copper.** When every step of a preview, run or studio resolve replays and the script
+  ran from the same files as the record's (the script, the modules it imports from beside it and the folders above,
+  and every file it read, such as a TOML or JSON of dimensions), the declared copper and the room kept for it are put
+  back from the record instead of being planned again. Any edit to those files plans the copper again, even where
+  every step still replays. The reuse record (`reuse.json`) holds the planned copper and is larger by about the size
+  of the plan's copper. Scripts need no change.
+
 ## To 0.99.22
 
 ### Fixed
