@@ -42,6 +42,27 @@ Agents ignored the advisory findings (escape_crossed, link_over, every suggestio
 (explore accept, the lock, the pin remap with approval). Refine follows that: it applies improvements the script allows,
 and reports only what it may not change.
 
+## Two stages: coarse, then fine
+
+Decided with the user. Refine runs in two stages.
+
+**Coarse refine** runs once, after the constructive search and before any routing.
+- **Items:** cells stay rigid, so the items are whole cells and standalone parts.
+- **Poses:** for each cell and each part with more than two pins, it tries every turn and face the declaration allows.
+  For each one it runs a short local refine: the item held at that pose, free to shift within its declaration, its
+  neighbours free to make room. It keeps the best pose by the one score, on the pins as captured. This is the turn
+  study, done by refine rather than reported afterwards.
+- **Two-pin parts:** they get ordinary turn moves inside the annealing, with no per-pose search.
+- **The pin study** runs inside this stage (see "The pin study, in coarse refine").
+- **Annealing:** the moves below, over cells and parts.
+
+**Fine refine** starts from the coarse result.
+- It frees cell members (see "Cells: placed whole, refined as members").
+- It anneals over parts and members.
+- It is the stage the routing loop repeats, with each phase's open connections as a cost (see "Routing feedback").
+
+A restart runs both stages from its own fresh construction.
+
 ## What refine does
 
 After the searched tier and before the late copper (where cleanup runs now), refine:
@@ -188,12 +209,12 @@ may not be legal after the turn, though a spot nearby would be. For each pose th
 short refine with the part held at that turn and free to move within its declaration. It then finds the best map on
 that board. The advice comes with the board the turn and remap need, and its score change.
 
-## The pin study after refine
+## The pin study, in coarse refine
 
 Decided with the user: refine places and turns every item with the pins as the capture has them. A part with a pin
 pool is turned by refine like any other item, within what its declaration allows.
 
-After refine, the pin study runs on the refined board, on the one score (one-score spec):
+In coarse refine, for a part with a pin pool, the pin study runs on the one score (one-score spec):
 - **at refine's pose:** the best map for the part where refine left it;
 - **at the other poses its declaration allows:** for each, the part turned there and refined around the turn (see "The
   pin study's pose check"), with the best map for that pose. This catches a turn that pays only with a

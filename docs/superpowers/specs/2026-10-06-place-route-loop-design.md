@@ -24,7 +24,9 @@ command, or a few, that runs the loop the same way every time.
 
 1. **Place:** the constructive search, starting from the last run's placement (the snapshot), with each item searched
    only where it is new or its declaration changed.
-2. **Refine:** detailed placement within what the script leaves free.
+2. **Coarse refine:** poses and rough places of whole cells and parts, each pose tried with a short local refine. The
+   pin study's remap advice comes from here.
+2b. **Fine refine:** cell members freed (those not joined by module pours), and parts and members refined.
 3. **Route** every phase in `placemat.toml`.
 4. **Score:**
    - each phase's closure and width judgement;
@@ -32,17 +34,15 @@ command, or a few, that runs the loop the same way every time.
    - DRC;
    - the checks (current-path on the routed board among them);
    - the run score.
-5. **Refine again,** with the open connections of each phase as a cost. Earlier phases weigh more. Between routes it
+5. **Fine refine again,** with the open connections of each phase as a cost. Earlier phases weigh more. Between routes it
    uses the cheap routability proxies: crossings, congestion, and each open connection's straight line against the
    copper laid.
 6. **Route again** if refine moved anything a phase depends on. Keep the result only if the phases' closures improve,
    in phase order, then the clean closure. Otherwise go back to the result before.
 7. **Repeat** steps 5-6 until an iteration improves nothing, or `--rounds N` (default from settings) is reached.
-8. **Study the pins:** on the final board, the pin study looks for a better map for each part with swappable pins, with
-   a turn where the remap needs one (refine spec, "The pin study after refine"). It is advice for the user, not applied.
-9. **Write** the board, the routed board, the snapshot, run.json, and one summary.
+8. **Write** the board, the routed board, the snapshot, run.json, and one summary.
 
-Refine and the pin study are part of every run, with no flag to ask for them. `refine.enabled = false` turns refine off,
+Both refine stages and the pin study (inside coarse refine) are part of every run, with no flag to ask for them. `refine.enabled = false` turns refine off,
 for a measurement. The pin study runs only on a board with a part that has a pin pool.
 
 Options:
