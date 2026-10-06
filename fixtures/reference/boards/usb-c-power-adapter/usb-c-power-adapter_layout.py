@@ -160,4 +160,4 @@ SEARCHED = [
     "TP9", "TP10", "TP11", "TP12", "TP13", "U1", "U3", "U4", "U5", "U6", "U7", "U8"]
 for ref in SEARCHED:
     board.place(Part(ref), face=Face.EITHER,
-                why="mechanical: searched from its connections, on either face; the original is assembled on both")
+                why="capture: searched from its connections; on either face, as the original board is assembled on both")

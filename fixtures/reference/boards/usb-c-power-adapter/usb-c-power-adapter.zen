@@ -31,7 +31,8 @@ Changes from the import:
 - The USB_PD and DC-DC Converters sheets are flattened into this file. As modules they became two rigid cells, each
   holding connectors that sit at their own mechanical points (J1 and J2 in one, J3 and J4 in the other); the sheets
   are drawing boundaries, not placement ones (circuit-capture, "Modules for placement"). Names and nets are
-  unchanged; nets keep the names the import gave them, without the module prefix.
+  unchanged; nets keep the names the import gave them, without the module prefix. Those are not quite the
+  original's: a sheet path keeps the import's underscore (/USB_PD/CC1, where the original has /USB PD/CC1).
 - The USB net class gets its nets (/USB_PD/*), as the original project's pattern "/USB.*" assigns them; the import
   dropped the pattern. Its diff_pair_width, diff_pair_gap and diff_pair_via_gap are removed: the class holds the PD
   sheet's CC, I2C and control nets, not a differential pair.
@@ -1513,7 +1514,7 @@ Board(
             layers=[
                 CopperLayer(thickness=0.035, role="mixed"),     # F.Cu: tracks and the power pours
                 DielectricLayer(thickness=0.18, material="PR7628", form="prepreg"),
-                CopperLayer(thickness=0.035, role="ground"),    # In1.Cu: one GND zone over the whole board
+                CopperLayer(thickness=0.035, role="ground"),    # In1.Cu: a GND zone over the whole board, and a 19 mm2 +5V zone beside it
                 DielectricLayer(thickness=0.71, material="FR4", form="core"),
                 CopperLayer(thickness=0.035, role="mixed"),     # In2.Cu: +12V, +3V3 and VBUS pours, a few tracks
                 DielectricLayer(thickness=0.18, material="FR4PR7628", form="prepreg"),

@@ -30,8 +30,9 @@ The 30 errors `-S errors` hides are all `bom.unspecified`: the part wrappers the
   stamps each as one KiCad group, which placemat places as one rigid cell. Each sheet holds connectors that sit at
   their own mechanical points (J1 and J2 in USB_PD, J3 and J4 in DC-DC Converters), so the sheets are drawing
   boundaries, not placement ones (circuit-capture, "Modules for placement"). Instance names and nets are unchanged;
-  net names lose the module prefix the import's generation added (`VBUS`, `+12V`, `/USB_PD/CC1`), which brings them
-  back to the original's names. The import's `# pcb:sch` schematic positions are dropped with the modules.
+  net names lose the module prefix the import's generation added (`USB_PD.VBUS` is `VBUS`). They are the import's
+  names, not quite the original's: a sheet path keeps the import's underscore (`/USB_PD/CC1`,
+  `/DC-DC_Converters/12V_SS`, where the original has `/USB PD/CC1` and `/DC-DC Converters/12V_SS`). The import's `# pcb:sch` schematic positions are dropped with the modules.
 - **The USB net class gets `nets=["/USB_PD/*"]`**, the original project's pattern `/USB.*`: the PD sheet's CC1, CC2,
   SDA, SCL, QWIIC_VCC, VBUS_EN and VBUS_DISCH. The import kept the class and dropped the pattern.
 - **USB's `diff_pair_width`, `diff_pair_gap` and `diff_pair_via_gap` are removed.** KiCad stores pair figures on
@@ -134,7 +135,10 @@ parts:
 - the `datasheet:` links of the SiC477 (VIN ceramics, VCIN, VDD, VDRV, the boot RC, the inductor), the AP62301s (input
   capacitor, inductor, feedback, output capacitor), the STUSB4500 (VREG decoupling) and the TVS parts (at their
   connector);
-- U2, L1 and the VIN ceramics on the front; the VIN and SW planes on F.Cu as fitted pours; the GND plane on In1;
+- U2, L1 and the VIN ceramics on the front; the VIN and SW planes on F.Cu as fitted pours; the GND plane on In1.
+  The human board departs from two datasheet rules - AP62301 p20 Layout 6 (In1 and In2 both GND) and SiC47x p22 step
+  7.2 (VIN and ground planes duplicated on the bottom layer): its In2 carries the +12V, +3V3 and VBUS pours and its
+  B.Cu no VIN plane. The script follows the human board;
 - the original board's silk labels on J2, J4 and the LEDs;
 - every other part placed bare on either face (`mechanical:`: the original is assembled on both, 46 of its 124
   footprints on the back).
@@ -144,11 +148,11 @@ parts:
 ## Skill gaps
 
 1. **A fixed part whose courtyard covers another fixed part's NPTH on the other face cannot be placed (placemat).**
-   J1 (on the back) has two NPTH locating pegs; J2 (on the front, above it) has its courtyard over them, as on the
-   human board. KiCad grades that `npth_inside_courtyard`, a warning, and the original has it. placemat stops the run:
-   "Firm placements collide ... J1 (edge): J2 courtyard sits over a npth (J1)". Tried: J1 by `OnEdge(..., overhang=)`
-   and J2 by `Location`, both at the human origins (`--keep-going` puts them there). No form says that a peg may pass
-   under another face's part. The default run therefore stops; `--keep-going` resolves the rest.
+   Resolved. J1 (on the back) has two NPTH locating pegs; J2 (on the front, above it) has its courtyard over them, as
+   on the human board, whose project sets `npth_inside_courtyard` to warning. placemat stopped the run: "Firm
+   placements collide ... J1 (edge): J2 courtyard sits over a npth (J1)". Tried: J1 by `OnEdge(..., overhang=)` and
+   J2 by `Location`, both at the human origins. The user decided that a firm courtyard over a hole follows the board's
+   severity (placemat 04d3a2aa); `placemat.toml` carries the human board's severities, and the run places both.
 2. **Imported sheets become rigid cells (placemat, circuit-capture).** As for pic_programmer: both sheets came out of
    `pcb import` as modules, which placemat places as rigid cells with the generator's arrangement. Neither skill says
    so. Fixed in the capture by flattening.
