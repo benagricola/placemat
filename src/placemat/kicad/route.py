@@ -232,13 +232,14 @@ def plane_nets_of(pcb) -> set:
     cell's local zone or pour (in its group) does not count, its net still
     runs to parts elsewhere."""
     from .quiet import import_pcbnew, quiet_stderr
+    from .read import is_pour
     pcbnew = import_pcbnew()
     with quiet_stderr():
         board = pcbnew.LoadBoard(str(pcb)) if Path(pcb).stat().st_size else None
     if board is None:
         return set()
     grouped = {it.m_Uuid.AsString() for g in board.Groups() for it in g.GetItems()}
-    nets = {z.GetNetname() for z in board.Zones() if not z.GetIsRuleArea() and z.GetNetname()
+    nets = {z.GetNetname() for z in board.Zones() if is_pour(z) and z.GetNetname()
             and z.m_Uuid.AsString() not in grouped}
     nets |= {d.GetNetname() for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_SHAPE) and d.GetNetname()
              and d.IsOnCopperLayer() and (d.IsSolidFill() if hasattr(d, "IsSolidFill") else False)
@@ -316,7 +317,7 @@ def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
     least `share` of the board is a plane, and an outer layer's pours hold
     other nets' surface pads: neither is guarded. "NET on LAYER" per guard."""
     from .quiet import import_pcbnew, quiet_stderr
-    from .read import standard_layer_name
+    from .read import is_pour, standard_layer_name
     pcbnew = import_pcbnew()
     with quiet_stderr():
         board = pcbnew.LoadBoard(pcb_path)
@@ -326,7 +327,7 @@ def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
     routed = set(layers or ())
     out = []
     for z in list(board.Zones()):
-        if z.GetIsRuleArea() or z.GetNetname() not in nets:
+        if not is_pour(z) or z.GetNetname() not in nets:
             continue
         if board_area and z.Outline().Area() >= share * board_area:
             continue

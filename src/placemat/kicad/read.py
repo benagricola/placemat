@@ -15,6 +15,13 @@ from .quiet import import_pcbnew, quiet_stderr
 pcbnew = import_pcbnew()
 
 
+def is_pour(zone) -> bool:
+    """Whether a board zone is copper the board's own pour or plane: not a rule area and not a teardrop. KiCad writes a
+    teardrop as a zone (pcbnew/zone.h ZONE::IsTeardropArea, set from the zone's teardrop attribute) that widens a
+    track at a pad or via; it serves no net by a pour."""
+    return not zone.GetIsRuleArea() and not zone.IsTeardropArea()
+
+
 def standard_layer_name(layer_id) -> str:
     """KiCad's standard name for a layer id (F.Cu, In1.Cu, B.Cu), never the
     name a board's author gave it: placemat identifies a copper layer by its id,

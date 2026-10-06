@@ -132,3 +132,11 @@ def test_a_router_run_leaves_the_pour_to_its_net(breakout_pcb, tmp_path):
     assert report.pours_kept == ["GND on In2.Cu"]
     assert _other_net_tracks_inside(report.routed_pcb, "GND", "In2.Cu", outline) == 0
     assert not any(POUR_GUARD in str(b) for b in report.keepout_breaches)
+
+
+def test_a_teardrop_zone_on_an_inner_layer_is_not_guarded(breakout_pcb, tmp_path):
+    from tests.test_route_settings import add_teardrop_zone
+    pcb = _four_layer(breakout_pcb, tmp_path / "in", [])
+    add_teardrop_zone(pcb, "GND", "In2.Cu")
+    assert guard_partial_pours(str(pcb), {"GND"}, LAYERS, 0.9) == []
+    assert _guards(pcb)[0] == []
