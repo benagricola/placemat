@@ -203,6 +203,21 @@ def _pins_reversed(f):
                            f["crossings_mirrored"], tail))
 
 
+# ------------------------------------------------------------------ turn
+def _links_by(group: dict, word: str) -> str:
+    return "%s %.2f mm %s" % (_plural(group["links"], "link", "links"), group["mm"], word)
+
+
+@renders(C.TURN_BETTER, "item", "kind", "rotation_deg", "to_deg", "turn_deg", "shorter", "longer", "crossings_delta")
+def _turn_better(f):
+    """A searched item at the same spot turned by `turn_deg`, to `to_deg`: its links that would shorten and lengthen, each
+    `{links, mm}`, and the change in weighted crossings (turned less present)."""
+    bits = [_links_by(g, w) for g, w in ((f["shorter"], "shorter"), (f["longer"], "longer")) if g["links"]]
+    d = f["crossings_delta"]
+    bits.append("%g weighted crossings %s" % (abs(d), "fewer" if d < 0 else "more"))
+    return "%s %s turned %g degrees, to %g degrees: %s" % (f["kind"], f["item"], f["turn_deg"], f["to_deg"], ", ".join(bits))
+
+
 # ------------------------------------------------------------------ setup
 @renders(C.SETUP_UNDECLARED, "item", "ref")
 def _setup_undeclared(f):

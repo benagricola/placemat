@@ -1242,6 +1242,21 @@ def pins_remap(f, settings):
     return [Pick(pin_advice_text(pin_advice(f, i)), (), "pins", "advice", advice=pin_advice(f, i)) for i in picks]
 
 
+@case(C.TURN_BETTER)
+def turn_better(f, settings):
+    """The turn written into the declaration: `rotations=` narrowed to it where the call gives a list, else `rotation=`.
+    Worded as the pin study words a turn: the item's rotation on the board."""
+    item, to = f["item"], f["to_deg"]
+    to = int(to) if float(to).is_integer() else to
+    text = "Turn %s %s to %g degrees" % (f["kind"], item, to)
+    if f.get("rotations_given"):
+        return [_set("place", item, "rotations", {"list": [{"num": to}]}, text, "turn")]
+    why = ("A run's finding (turn.better): turned %g degrees where it stood, %s %s's links came %s mm shorter in weighted "
+           "length, with %g weighted crossings %s." % (f["turn_deg"], f["kind"], item, _mm(f["weighted_mm"]),
+                                                       abs(f["crossings_delta"]), "fewer" if f["crossings_delta"] < 0 else "more"))
+    return [_set("place", item, "rotation", _const(_name(item, "rotation", "deg"), to, why), text, "turn")]
+
+
 @case(C.SETUP_CENTRE_FLAG_DEFAULT)
 def setup_centre_flag_default(f, settings):
     item = f["item"]

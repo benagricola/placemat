@@ -5,6 +5,20 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A searched item that another of its turns would serve better is a `turn.better` notice.** On the finished board, each
+  searched part or cell is turned in place, to each other turn its `rotations=` allows, holding its body centre and only
+  where it is legal. The search's own wire and crossing terms decide: the turn must come out lower on its links' weighted
+  pad-to-pad length and its airwires' weighted crossings together, and either shorten the links by `place.turn_gain_mm`
+  and `place.turn_gain_share` of their weighted length or remove `place.turn_crossings_min` weighted crossings. A lock,
+  an explore's draw, a cleanup move or a partner placed later can leave such a turn. The sentence reads "cell term turned
+  180 degrees, to 0 degrees: 4 links 5.05 mm shorter, 4 weighted crossings fewer"; its suggestion writes the turn into the
+  `place` call (`rotations=` narrowed to it, else `rotation=`). A part the pin map study turns is left to that advice.
+  Nothing moves. Scripts need no change.
+
 ## To 0.99.32
 
 ### Fixed
