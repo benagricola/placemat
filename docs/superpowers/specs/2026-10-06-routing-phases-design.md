@@ -215,7 +215,9 @@ geometric filter), the fork gains a flag that takes the bus's nets as one group 
 Per phase, in `route.json` (`phases`), the summary line, the studio's route view and `watch --summary`:
 
 - the name, the selector and the number of connections asked;
-- connections joined, connections left open (each named), and the phase's closure (joined over asked);
+- connections joined, connections left open (each named), and the phase's clean closure: joined over asked, where a
+  connection counts as joined only if its copper has no DRC violation (a short, a clearance or hole-to-hole error),
+  judged by a DRC after the phase. This is the board-wide clean closure's rule, applied to the phase's own connections;
 - for a phase with a width, the width judgement on the routed board, per layer. This is the 0.99.29 rule: against the
   asked width, or against the current for `width = "current"`. Under it is a critical `route.width` finding naming the
   phase.
@@ -226,7 +228,7 @@ The board-wide closure and DRC stay as today and are computed once after the las
 ## Explore
 
 `--route-best` routes each candidate variant through every phase. `--route-rank PHASE[,PHASE...]` ranks the routed
-variants by those phases' closure, in order, then by the board-wide clean closure, then by the run score. Without it,
+variants by those phases' clean closure, in order, then by the board-wide clean closure, then by the run score. Without it,
 the board-wide clean closure ranks, as today.
 
 ## What this replaces
