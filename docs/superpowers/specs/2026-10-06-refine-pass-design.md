@@ -33,7 +33,7 @@ From the inventory (scratchpad/placement-inventory.md, file:line there):
 | turn.better (`_report_turns`) | Reports a better turn and suggests the edit | For movable items, **refine takes the turn itself** and turn.better no longer reports it. It stays for turns the script or a stated constraint owns, where only the user can change it |
 | Explore (`explore.py`) | Re-runs the construction with random choices and order. The best variant goes to the lock | **Kept, as restarts** (fresh constructions from a different seed, then refined): it reaches arrangements a local pass cannot. Each variant is refined before it is scored, so variants are compared at their refined best |
 | Lock (`lock.py`) | Pins each searched item where an explore put it | **Removed.** Each run starts from the last run's placement, and the script's constraints hold what must not move (see Starting from the last run) |
-| Pin study (`pinmap*`) | Pin remap and pose: advice, a capture change | **Kept.** A remap is a capture change refine cannot make. Its pose turn gains the legality check it lacks: the MCU's 45-degree turn needed the coin moved afterwards |
+| Pin study (`pinmap*`) | Pin remap and pose: advice, a capture change | **Split.** The pose (turn, face) is a placement move, and refine owns it. The remap is a capture change only the user can approve, so the study keeps it and runs after refine (see The pin study after refine) |
 | Give-way, settle, scan | Construction | **Kept.** Refine depends on them |
 | Global solve (`solve.py`) | Optional hints, off by default; measured no better once cleanup runs | Unchanged. Revisit after refine is measured |
 | Suggestions, probe | Script edits; never used on the fairing boards (no applied.jsonl, no probes) | Unchanged here. Refine moves placement where the script leaves it free, so fewer findings need an edit |
@@ -147,6 +147,25 @@ constraints are the only thing that holds an item.
   items they join: a kept route that no longer fits its pads is dropped with a reason, as today.
 - **Migration.** On its first run, a script with a `.lock.json` converts the entries into the snapshot, and says so. The
   migration entry tells the user to state as constraints any item that was held on purpose.
+
+## The pin study after refine
+
+Decided with the user: refine places and turns every item with the pins as the capture has them. A part with a pin
+pool is turned by refine like any other item, within what its declaration allows.
+
+After refine, the pin study runs on the refined board, on the one score (one-score spec):
+- **at refine's pose:** the best map for the part where refine left it;
+- **at the other poses its declaration allows:** for each, the part turned there (checked legal on the refined board,
+  which the study does not check today) with the best map for that pose. This catches a turn that pays only with a
+  remap, which refine on the captured pins never takes.
+
+It reports one piece of advice per part: the remap, and the turn if one is needed, with the score change of the two
+together. It also writes the board that would result, so the user can see it before changing the capture. Nothing is
+applied: a remap changes the capture and the firmware's pin assignments. When the user applies it in the capture, the
+next run starts from the new pins, and refine works from there.
+
+`--rank-remapped` and the separate pose search in the study are removed: refine owns poses, and restarts rank on the
+captured pins.
 
 ## Routing feedback (after routing phases)
 
