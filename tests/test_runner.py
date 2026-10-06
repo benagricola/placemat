@@ -107,3 +107,13 @@ def test_the_classes_come_from_the_settings():
     r = _report({"my_own_class": 3}, footprint_kinds=("my_own_class",))
     assert r.footprint_issues == {"my_own_class": 3} and r.other == {}
     assert "lib_footprint_issues" in Settings().drc_footprint_kinds
+
+
+def test_a_kicad_lock_file_is_never_copied_with_a_generation(tmp_path):
+    import shutil
+    from placemat import runner
+    src = tmp_path / "gen"; src.mkdir()
+    (src / "layout.kicad_pcb").write_text("x")
+    (src / "~layout.kicad_pro.lck").write_text("lock")
+    shutil.copytree(src, tmp_path / "out", ignore=runner._KICAD_LOCKS)
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["layout.kicad_pcb"]

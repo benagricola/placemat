@@ -202,6 +202,10 @@ def _put_back(src: BoardSource, run_dir: Path, foreign: list) -> None:
         shutil.copy2(run_dir / "kept" / rel, src.layout_dir / rel)
 
 
+# KiCad's lock files (~name.kicad_pro.lck) belong to an open session and may vanish while a folder is copied: never copied
+_KICAD_LOCKS = shutil.ignore_patterns("~*.lck", "*.lck")
+
+
 def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
              timeout: int = 900, keep_renders: bool = False) -> bool:
     """Put a freshly generated (unscripted) board in src.layout_dir. A copy of
@@ -215,7 +219,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
     foreign, notes = _set_aside(src, run_dir, cache, quiet, keep_renders)
     if cache.exists() and not fresh and not stale:
         shutil.rmtree(src.layout_dir, ignore_errors=True)
-        shutil.copytree(cache, src.layout_dir)
+        shutil.copytree(cache, src.layout_dir, ignore=_KICAD_LOCKS)
         _put_back(src, run_dir, foreign)
         log.write_text("restored the cached generation from %s\n" % cache + "".join(n + "\n" for n in notes))
         _say(quiet, "board   restored from cache (%s)" % cache.relative_to(src.board_dir))
@@ -236,7 +240,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
                          {"command": " ".join(cmd), "cwd": str(src.board_dir),
                           "exit_code": rc, "log": str(log), "tail": _tail(log)})
     shutil.rmtree(cache, ignore_errors=True)
-    shutil.copytree(src.layout_dir, cache)
+    shutil.copytree(src.layout_dir, cache, ignore=_KICAD_LOCKS)
     _put_back(src, run_dir, foreign)            # after the cache is taken: it holds only what was generated
     with open(log, "a") as f:
         f.writelines(n + "\n" for n in notes)
@@ -443,7 +447,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     # writes the board puts it back, rather than leave the unplaced generation
     before = staging / "before"
     if src.layout_dir.exists():
-        shutil.copytree(src.layout_dir, before)
+        shutil.copytree(src.layout_dir, before, ignore=_KICAD_LOCKS)
     try:
         t0 = time.time()
         generated = generate(src, run_dir, fresh, quiet, cfg.timeout_generate, keep_renders=not render)
@@ -770,7 +774,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         kept = run_dir / "before"
         if kept.exists() and "item" not in e.details:     # a critical item's failure writes the board as it stood
             shutil.rmtree(src.layout_dir, ignore_errors=True)
-            shutil.copytree(kept, src.layout_dir)
+            shutil.copytree(kept, src.layout_dir, ignore=_KICAD_LOCKS)
             say("fail", "the layout folder is as the last run left it")
         for k in ("script", "line", "source", "error", "command", "cwd", "exit_code", "log"):
             if e.details.get(k) is not None:
@@ -788,7 +792,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         kept = run_dir / "before"
         if kept.exists():                  # whatever the stop left half written: the folder as the last run left it
             shutil.rmtree(src.layout_dir, ignore_errors=True)
-            shutil.copytree(kept, src.layout_dir)
+            shutil.copytree(kept, src.layout_dir, ignore=_KICAD_LOCKS)
     if rec.status == "ok":
         shutil.rmtree(run_dir / "before", ignore_errors=True)    # only a failure needs it
     try:
