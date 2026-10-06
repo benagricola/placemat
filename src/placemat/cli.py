@@ -65,6 +65,10 @@ def parser() -> argparse.ArgumentParser:
                           "--accept take the best closure, ties going to the better score (default [explore] route_best). "
                           "The route in hand and the one waiting when the search ends are finished after it, so the run "
                           "can last past the --explore SECONDS")
+    run.add_argument("--rank-remapped", action="store_true", default=None,
+                     help="with --explore: give every variant the pin map study and rank the variants on the run score "
+                          "less what each one's best pin remap saves, its weighted crossings at score.crossing each; with "
+                          "--route-best a variant is routed with that remap on its pads (default [explore] rank_remapped)")
     run.add_argument("--resume", action="store_true",
                      help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
                           "its time) or refuse, saying what changed; without it a saved explore that is this one is "
@@ -373,6 +377,8 @@ def overrides_from(args) -> dict:
         value = getattr(args, flag, None)
         if value is not None:
             out[name] = value
+    if getattr(args, "rank_remapped", None):
+        out["explore_rank_remapped"] = True
     limits = {}
     for item in getattr(args, "limit", None) or []:
         name, _, value = item.partition("=")
@@ -431,8 +437,9 @@ def _explore_options(args):
     """The ExploreOptions --explore and its flags ask for, or None."""
     if getattr(args, "explore", None) is None:
         if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume")) or \
-                getattr(args, "route_best", None) is not None:
-            raise SystemExit("--focus, --focus-after, --focus-box, --accept, --route-best and --resume go with --explore SECONDS")
+                getattr(args, "route_best", None) is not None or getattr(args, "rank_remapped", None) is not None:
+            raise SystemExit("--focus, --focus-after, --focus-box, --accept, --route-best, --rank-remapped and --resume go with "
+                             "--explore SECONDS")
         return None
     from .explore import ExploreOptions
     from .values import Box

@@ -121,6 +121,19 @@ class ExploreResult:
     curve: list = None             # {i, seed, t, score, best} for every variant in the order it finished, over every session
     ended: dict = None             # why it ended: {"rule": "budget" | "stall_count" | "stall_time" | "hard_clear" | "signal", ...}
     routes: list = None            # with routing: each route's entry (_route_work), in the order they came
+    ranks: dict = None             # `explore.rank_remapped`: {seed: score_remapped}, what `results` is ranked by; None without
+
+    def rank_of(self, seed: int, score: float) -> float:
+        """The score a variant is ranked by: its run score less its pin remap's saving with `explore.rank_remapped`."""
+        return self.ranks.get(seed, score) if self.ranks else score
+
+    @property
+    def best_remapped(self):
+        return self.ranks.get(self.best_seed) if self.ranks else None
+
+    @property
+    def baseline_remapped(self):
+        return self.ranks.get(0) if self.ranks else None
 
 
 class StopRule:
@@ -202,10 +215,15 @@ class Routing:
 
 class VariantRouter:
     """How the routing worker writes a variant's board and routes it: as a run writes its own (`_write_variant`), and
-    placemat's quick route."""
+    placemat's quick route; with `explore.rank_remapped`, the variant's pin remap made on the board written
+    (kicad.remap.apply_remap)."""
 
     def write(self, make_board, board, plan, folder):
         return _write_variant(make_board, board, plan, folder)
+
+    def remap(self, pcb, groups) -> dict:
+        from .kicad.remap import apply_remap
+        return apply_remap(pcb, groups)
 
     def route(self, pcb, work, exclude_nets=(), quick=True, resume=True):
         from .kicad import route as route_mod
@@ -268,6 +286,10 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
             baseline = _total(base_board, base_m)
         else:                                   # the baseline is the saved one: it is the same board and settings
             baseline, base_m = prior.baseline, prior.measures
+        base_rank = ranked(base_board, plain, baseline)     # studied again on a resume: the study is deterministic
+    ranks = dict(prior.ranks) if prior is not None else {}  # {seed: score_remapped}: what the variants are ranked by
+    if base_rank:
+        ranks[0] = base_rank["score_remapped"]
     if jobs is None:
         jobs = base_board.settings.explore_jobs or max(1, (os.cpu_count() or 2) - 1)
     route_after = routing is not None and jobs <= 1          # one job: the search has it, the routes come after
@@ -276,7 +298,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     done_before = dict(prior.done) if prior is not None else {}
     spent = prior.spent if prior is not None else 0.0
     if checkpoint is not None and prior is None:
-        checkpoint.start(baseline, base_m, seconds, seeds)
+        checkpoint.start(baseline, base_m, seconds, seeds, rank=ranks.get(0))
     deadline = t0 + max(0.0, seconds - spent)
     order = [s for s in seeds if s != 0 and s not in done_before] if seeds is not None else None
     nothing_left = (not order) if order is not None else deadline <= time.time()
@@ -294,19 +316,22 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     from . import channel
     rep = channel.current()
     variants = [{"seed": 0, "score": baseline, "measures": base_m, "placements": _placements(plain, focus),
-                 "order": _order(plain, focus), "t": 0.0, "i": 0, "best": True}]
+                 "order": _order(plain, focus), "t": 0.0, "i": 0, "best": True, **base_rank}]
     from . import score as _score
     rule = StopRule(base_board.settings.explore_stall_variants, base_board.settings.explore_stall_seconds,
                     base_board.settings.explore_stop_hard_clear, _score.hard_clear(base_m))
-    curve = [{"i": 0, "seed": 0, "t": 0.0, "score": baseline, "best": True}]
-    best_so_far = [baseline]
+    curve = [dict({"i": 0, "seed": 0, "t": 0.0, "score": baseline, "best": True},
+                  **({"score_remapped": ranks[0]} if 0 in ranks else {}))]
+    best_so_far = [ranks.get(0, baseline)]
 
     def note(seed, total, t):
-        """A finished variant on the curve; whether it beat every one before it."""
-        better = total < best_so_far[0] - 1e-9
+        """A finished variant on the curve; whether it beat every one before it, by the score it is ranked by."""
+        by = ranks.get(seed, total)
+        better = by < best_so_far[0] - 1e-9
         if better:
-            best_so_far[0] = total
-        curve.append({"i": len(curve), "seed": seed, "t": round(t, 3), "score": total, "best": better})
+            best_so_far[0] = by
+        curve.append(dict({"i": len(curve), "seed": seed, "t": round(t, 3), "score": total, "best": better},
+                          **({"score_remapped": ranks[seed]} if seed in ranks else {})))
         return better
     for seed_, score_, t_ in (prior.curve if prior is not None else ()):
         note(seed_, score_, t_)
@@ -320,7 +345,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         if routing is not None else None
     rs = {"inflight": None, "pending": None, "started": False, "dead": False}
     partial = lambda: _result(results, baseline, base_m, spent + time.time() - t0, failures, variants, focus, len(procs),
-                              curve, ended_by(), list(routes) if routing is not None else None)
+                              curve, ended_by(), list(routes) if routing is not None else None, ranks)
 
     def dispatch():
         """The waiting best to the routing worker, when it is free."""
@@ -337,7 +362,8 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
 
     def routed(seed, entry):
         total = results[seed][1] if seed in results else baseline
-        entry = {"seed": seed, "score": round(total, 1), **{k: v for k, v in entry.items() if k != "seed"}}
+        entry = {"seed": seed, "score": round(total, 1), **({"score_remapped": round(ranks[seed], 1)} if seed in ranks else {}),
+                 **{k: v for k, v in entry.items() if k != "seed"}}
         routes.append(entry)
         rs["inflight"] = None
         console.say("explore", route_line(entry))
@@ -389,6 +415,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         if rep is not None:
             rep.send({"ev": "explore", "focus": sorted(focus), "seconds": seconds, "jobs": len(procs),
                       "seeds": None if order is None else len(order), "baseline": baseline,
+                      **({"baseline_remapped": ranks[0]} if 0 in ranks else {}),
                       "baseline_measures": base_m, "plain": variants[0]["placements"], "order": variants[0]["order"],
                       "at": t0, "route": routing is not None})
 
@@ -410,6 +437,8 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                 for k in [k for k, (s, _) in flight.items() if s == seed]:
                     del flight[k]
                 results[seed] = (seed, total, m)
+                if "score_remapped" in extra:
+                    ranks[seed] = extra["score_remapped"]
                 now = spent + time.time() - t0
                 better = note(seed, total, now)
                 v = {"seed": seed, "score": total, "measures": m, **extra, "t": round(now, 3), "i": curve[-1]["i"], "best": better}
@@ -420,7 +449,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                     rs["pending"] = seed                     # the latest new best waits; one it overtakes is not routed
                     dispatch()
                 if checkpoint is not None:
-                    checkpoint.variant(seed, total, m, now, payload)
+                    checkpoint.variant(seed, total, m, now, payload, rank=ranks.get(seed))
                 if rule.active and not fired:
                     why = rule.see(now, better, _score.hard_clear(m))
                     if why:
@@ -519,13 +548,16 @@ def _end(procs) -> None:
 
 
 def _result(results: dict, baseline, base_m, seconds: float, failures, variants=None, focus=(), jobs=0, curve=None,
-            ended=None, routes=None) -> ExploreResult:
-    rows = sorted(results.values(), key=lambda r: (r[1], r[0]))
+            ended=None, routes=None, ranks=None) -> ExploreResult:
+    """The result, its rows best first by the score each is ranked by: the run score, or with `ranks` (`explore.rank_remapped`,
+    {seed: score_remapped}) that score where a variant has one."""
+    ranks = dict(ranks) if ranks else None
+    rows = sorted(results.values(), key=lambda r: ((ranks or {}).get(r[0], r[1]), r[0]))
     return ExploreResult(rows[0][0], rows[0][1], baseline, len(rows), rows, rows[0][2], base_m, round(seconds, 3),
                          list(failures), variants=variants, focus=sorted(focus), jobs=jobs,
                          plain=variants[0]["placements"] if variants else None,
                          plain_order=variants[0]["order"] if variants else None, curve=list(curve) if curve else None,
-                         ended=ended, routes=routes)
+                         ended=ended, routes=routes, ranks=ranks)
 
 
 def _untried(done: dict):
@@ -539,6 +571,59 @@ def _untried(done: dict):
 def _total(board, m) -> float:
     from . import score as _score
     return _score.total(m, board.settings)
+
+
+def remap_of(board, plan) -> dict | None:
+    """What the pin map study's best remap of a resolved variant saves, priced as the run score prices a crossing
+    (`explore.rank_remapped`): {"saving": mm, "crossings": the weighted crossings it removes, "groups"}. A group is
+    counted when its best map removes weighted crossings: {"refs", "present" and "best" (its weighted crossings),
+    "map" and "turns" (pinmap.plan_summary's)}; a turn that turns or flips its part also carries "pivot", the centre of
+    the part's courtyard box, which the study turns it about. A group past its wall-clock guard, or whose best map
+    removes none, adds nothing. None for a board with no `Pm.PinPool` part."""
+    from .pinmap_rules import has_pools
+    if not has_pools(board.geometry.footprints):
+        return None
+    from . import pinmap
+    groups, crossings = [], 0.0
+    for g in pinmap.plan_summary(board, plan):
+        if g.get("slow"):
+            continue
+        cut = g["present"]["weighted"] - g["best"]["weighted"]
+        if cut <= 1e-9:
+            continue
+        crossings += cut
+        turns = []
+        for t in g["turns"]:
+            t = dict(t)
+            if t["turn_deg"] or t["flip"]:
+                c = plan.occupancy.courtyard_box(t["ref"]).center
+                t["pivot"] = [round(c.x, 4), round(c.y, 4)]
+            turns.append(t)
+        groups.append({"refs": g["refs"], "present": g["present"]["weighted"], "best": g["best"]["weighted"],
+                       "map": g["map"], "turns": turns})
+    return {"saving": round(board.settings.score_crossing * crossings, 3), "crossings": round(crossings, 3),
+            "groups": groups}
+
+
+def ranked(board, plan, total: float) -> dict:
+    """What a variant ranked by its remap carries (`explore.rank_remapped`): {"score_remapped": its run score `total`
+    less the remap's saving, "remap": remap_of's, with the "seconds" the study took}. A study that raises leaves the
+    variant at its run score, its "remap" carrying the "error". {} when the setting is off or the board has no pool."""
+    import time
+    if not board.settings.explore_rank_remapped:
+        return {}
+    from . import pinmap
+    t0 = time.perf_counter()
+    try:
+        r = remap_of(board, plan)
+    except BaseException as e:                   # a stop or an interrupt still ends the explore
+        if not pinmap.contained(e):
+            raise
+        r = {"saving": 0.0, "crossings": 0.0, "groups": [], "error": {"type": type(e).__name__, "message": str(e)}}
+    if r is None:
+        return {}
+    r["seconds"] = round(time.perf_counter() - t0, 3)
+    return {"score_remapped": round(total - r["saving"], 6), "remap": r}
 
 
 def _context_of(make_board):
@@ -607,8 +692,8 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, pa
                 m = measure(b, p)
                 total = _total(b, m)
                 payload = _payload(b, p, focus)     # every variant carries its lock entries: any of them can be accepted
-            out.put(("v", seed, total, m, payload, round(time.time() - t0, 3),
-                     {"placements": _placements(p, focus), "order": _order(p, focus)}))
+                extra = {"placements": _placements(p, focus), "order": _order(p, focus), **ranked(b, p, total)}
+            out.put(("v", seed, total, m, payload, round(time.time() - t0, 3), extra))
     except BaseException:
         out.put(("err", idx, traceback.format_exc()))
     finally:
@@ -651,6 +736,10 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                     p = b.resolve(reuse=reuse, lock=lock) if seed == 0 else \
                         b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
                     pcb = router.write(make_board, b, p, d)
+                    remap = ranked(b, p, 0.0).get("remap")
+                    if remap and remap["groups"]:            # routed as it would stand once the remap is made
+                        entry["remapped"] = dict(router.remap(pcb, remap["groups"]), saving=remap["saving"],
+                                                 crossings=remap["crossings"])
                     r = router.route(pcb, d / "route", exclude_nets=set(p.plane_nets) | set(routing.exclude), quick=True,
                                      resume=routing.resume)
                 entry.update(closure_clean=r.closure_clean, closure=r.closure, open_before=r.open_before,
@@ -721,6 +810,9 @@ def _parts(script, base, make_board, entries, focus) -> dict:
     for k in [k for k in settings if k in ("explore_jobs", "explore_checkpoint_max_variants", "explore_stall_variants",
                                                           "explore_stall_seconds", "explore_stop_hard_clear")]:
         del settings[k]                                 # how many workers, how long a checkpoint: not what a variant is
+    if base.settings.explore_rank_remapped:             # the ranking is the pin map study's too
+        every = json.loads(base.settings.json())
+        settings.update({k: v for k, v in every.items() if k == "explore_rank_remapped" or k.startswith("pins_")})
     fab = getattr(make_board, "fab", None)
     return {"script": _script_digest(script), "board": checkpoint.sha(_reuse._geometry_digest(base.geometry)),
             "settings": checkpoint.sha(json.dumps(settings, sort_keys=True)),
@@ -806,6 +898,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report = {"tried": r.tried, "focus": sorted(focus), "baseline": r.baseline, "best": r.best,
                   "best_seed": r.best_seed, "moves": [], "accepted": False, "stopped": s.label,
                   "seconds": round(r.seconds, 1), "failures": r.failures}
+        report.update(_remapped(r))
         if r.curve:
             report.update(curve=_compact(r.curve), found=_found(r.curve, r.seconds), ended=r.ended)
         if ck is not None and _checkpoint.saved(ck.dir, r.best_seed):
@@ -818,7 +911,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         raise
     report = {"tried": result.tried, "focus": sorted(focus), "baseline": result.baseline, "seconds": round(result.seconds, 1),
               "best": result.best, "best_seed": result.best_seed, "moves": [], "accepted": False,
-              "terms": _moved_terms(base, result.baseline_measures, result.best_measures)}
+              "terms": _moved_terms(base, result.baseline_measures, result.best_measures), **_remapped(result)}
     report.update(curve=_compact(result.curve), found=_found(result.curve, result.seconds), ended=result.ended)
     if result.failures:
         report["failures"] = result.failures
@@ -828,7 +921,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["routes"], report["routes_skipped"] = [], "no_board"
     elif on:
         report["routes"] = result.routes
-        closed = _taken(result.routes, {r[0]: r[1] for r in result.results})
+        closed = _taken(result.routes, {r[0]: result.rank_of(r[0], r[1]) for r in result.results})
         if closed is not None:
             taken = report["taken_seed"] = closed
     if saved(taken):
@@ -856,6 +949,14 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     if ck is not None and not keep_state:
         ck.finish()
     return report, entries
+
+
+def _remapped(result) -> dict:
+    """The report's fields of an explore ranked by its variants' remaps (`explore.rank_remapped`): the baseline's and the
+    best's `score_remapped`, as `baseline_remapped` and `best_remapped`; {} when it was not."""
+    if not result.ranks:
+        return {}
+    return {"baseline_remapped": result.baseline_remapped, "best_remapped": result.best_remapped}
 
 
 def _variant(make_board, entries, focus, seed: int, have: dict) -> tuple:
@@ -897,7 +998,8 @@ def _send_done(report, kept: bool, **more) -> None:
     if rep is not None:
         rep.send({"ev": "explore_done", "best_seed": report["best_seed"], "best": report["best"], "baseline": report["baseline"],
                   "tried": report["tried"], "kept": kept, "found": report.get("found"), "ended": report.get("ended"),
-                  "pin_maps": [], **_routed(report), **more})
+                  "pin_maps": [], **_routed(report), **{k: report[k] for k in ("baseline_remapped", "best_remapped") if k in report},
+                  **more})
 
 
 def _study(report, make_board, entries, focus, result, have: dict) -> None:
@@ -931,6 +1033,8 @@ def _pin_maps(make_board, entries, focus, result, have: dict) -> list:
     with _context_of(make_board):
         for seed, total, _ in result.results[:top]:
             entry = {"seed": seed, "score": round(total, 1), "groups": []}
+            if getattr(result, "ranks", None) and seed in result.ranks:
+                entry["score_remapped"] = round(result.ranks[seed], 1)
             t0 = time.perf_counter()
             try:
                 if seed in have:
@@ -1040,6 +1144,7 @@ def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
                "curve": result.curve, "found": report.get("found"), "ended": result.ended, "run": run_id,
                "pin_maps": report.get("pin_maps") or []}
         doc.update(_routed(report))
+        doc.update({k: report[k] for k in ("baseline_remapped", "best_remapped") if k in report})
         path.write_text(json.dumps(doc, separators=(",", ":")))
         report["record"] = str(path)
         if shown is not None:
@@ -1050,7 +1155,8 @@ def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
         if rep is not None:
             rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline, "tried": result.tried,
                       "kept": bool(report.get("accepted")), "record": str(path), "found": report.get("found"), "ended": result.ended,
-                      "pin_maps": report.get("pin_maps") or [], **_routed(report)})
+                      "pin_maps": report.get("pin_maps") or [], **_routed(report),
+                      **{k: report[k] for k in ("baseline_remapped", "best_remapped") if k in report}})
     except (OSError, ValueError):
         pass
 
@@ -1166,9 +1272,9 @@ def _report_lines(report) -> list:
         report["tried"], report.get("seconds", 0.0), len(report["focus"]), "" if len(report["focus"]) == 1 else "s")
     ended = _ended_text(report.get("ended"))
     if not report["best_seed"] and "routes" not in report:
-        return [head + ": no variant scored better than the current placement" + ended]
+        return [head + ": no variant scored better than the current placement" + ended] + _rank_lines(report)
     if not report["best_seed"]:
-        lines = [head + ": no variant scored better than the current placement" + ended]
+        lines = [head + ": no variant scored better than the current placement" + ended] + _rank_lines(report)
         return lines + _move_lines(report) + routes_summary(report) + _accept_lines(report)
     moved = ", ".join("%s %.1f -> %.1f" % (t, x, y) for t, (x, y) in (report.get("terms") or {}).items())
     found = report.get("found")
@@ -1178,10 +1284,19 @@ def _report_lines(report) -> list:
     lines = [head + ": score %.1f -> %.1f mm%s; %d item%s would move%s%s%s" % (
         b, a, " (%s)" % moved if moved else "", len(report["moves"]), "" if len(report["moves"]) == 1 else "s",
         "" if taken == report["best_seed"] else " to seed %d's places, taken by route closure" % taken, when, ended)]
+    lines += _rank_lines(report)
     lines += _move_lines(report)
     lines += pin_map_lines(report)
     lines += routes_summary(report)
     return lines + _accept_lines(report)
+
+
+def _rank_lines(report) -> list:
+    """With `explore.rank_remapped`: the scores the variants were ranked by, after each one's best pin remap."""
+    if report.get("best_remapped") is None:
+        return []
+    return ["  ranked after each variant's pin remap: %.1f -> %.1f mm, the best's remap saving %.1f mm" % (
+        report["baseline_remapped"], report["best_remapped"], report["best"] - report["best_remapped"])]
 
 
 def _move_lines(report) -> list:
@@ -1196,6 +1311,8 @@ def _move_lines(report) -> list:
 
 
 def _accept_lines(report) -> list:
+    if report["accepted"] and report.get("best_remapped") is not None:
+        return ["accepted: written to the lock; its pin remap is not, make it in the capture (the pin map lines above)"]
     if report["accepted"]:
         return ["accepted: written to the lock"]
     if report.get("taken_seed") == 0:
@@ -1207,13 +1324,15 @@ def _accept_lines(report) -> list:
 def route_line(r: dict) -> str:
     """One route of the routing worker (`_route_work`), as it is said when it comes: its closure, clean and raw, the
     signal items it left open and the time it took, or that writing or routing it failed."""
-    at = "  route, seed %d at %.1f mm: " % (r["seed"], r["score"])
+    at = "  route, seed %d at %.1f mm%s: " % (r["seed"], r["score"], ", %.1f mm after its pin remap" % r["score_remapped"]
+                                               if r.get("score_remapped") is not None else "")
     if r.get("error"):
         message = (r["error"]["message"] or "").splitlines()
         return at + "the route failed with %s%s" % (r["error"]["type"], ": " + message[0] if message else "")
-    return at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s" % (
+    return at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s%s" % (
         100 * r["closure_clean"], 100 * r["closure"], r["open_after"], duration(r["seconds"]),
-        "" if r.get("valid", True) else "; the placement's DRC was not clean before routing")
+        "" if r.get("valid", True) else "; the placement's DRC was not clean before routing",
+        "; routed with its pin remap made on its pads" if r.get("remapped") else "")
 
 
 def budget_passed_line(ev: dict) -> str:

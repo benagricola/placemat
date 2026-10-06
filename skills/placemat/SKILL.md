@@ -527,6 +527,14 @@ shapes and files: `references/api.md`, "Live progress".
   the one waiting when the search ends are finished after it, so the run
   lasts past the `--explore` time: the console says when the search is over
   and which routes it waits for, with the mean time of the routes done so far.
+- When a board has `Pm.PinPool` parts whose pins are still free to move, add
+  `--rank-remapped` (`[explore] rank_remapped`, off by default): every
+  variant gets the pin map study and is ranked on its run score less what its
+  best remap saves (the weighted crossings it removes at `score.crossing`
+  each), so a variant that is better once its pins are remapped wins. Both
+  scores are kept (`score`, `score_remapped`); with `--route-best` the routes
+  run with the remap made on the variant's pads. `--accept` writes the
+  placement only: make the remap in the capture yourself.
 - Long commands (`run`, `preview`, `route`, above all `--explore`) stop
   safely on SIGTERM, SIGHUP or Ctrl-C and say so: the run is recorded as
   `stopped` (`status: "running"` with a `pid` while it works; a record whose

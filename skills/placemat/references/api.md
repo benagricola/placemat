@@ -4369,8 +4369,9 @@ the items it was left to place:
 
 ```
 placemat run <script> --explore SECONDS [--focus ITEM ...] [--focus-after LINE]
-                      [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept] [--route-best] [--resume | --no-resume]
-placemat preview <script> --explore SECONDS [the same, less --route-best]
+                      [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept] [--route-best] [--rank-remapped]
+                      [--resume | --no-resume]
+placemat preview <script> --explore SECONDS [the same, less --route-best and --rank-remapped]
 placemat lock <script> [--current [--partial] | --release ITEM ... | --release-all | --accept-seed N]
 placemat freeze <script> ITEM ... | --all [--fixed]
 ```
@@ -4413,8 +4414,27 @@ comparison.
 **What a run says.** `explore  N variants in S s over K focused items:
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
-With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part, or `, with cell logic turned to 90 degrees` when it turns the part's cell), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking.
+With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part, or `, with cell logic turned to 90 degrees` when it turns the part's cell), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking, unless the explore ranks by it (below).
 Without `--accept` nothing persists.
+
+**Ranking after the pin remap.** By default a variant is judged on today's pinout, so the explore can pick one that
+is best as the pins stand over one that would be better once its pins were remapped. With `--rank-remapped`
+(`[explore] rank_remapped`, off by default) every variant the explore keeps, the plain placement too, gets the pin
+map study as it finishes, and the variants are ranked, and the best and the new bests (the ones `--route-best` routes)
+chosen, on `score_remapped`: the run score less what the variant's best remap saves. The saving is the weighted
+crossings the best map removes (the study's `present` less its `best` weighted crossings, summed over the groups
+whose best map removes some) at `score.crossing` each, the run score's price of a crossing (4 mm by default). A
+variant's record and `variant` event keep `score` as before and add `score_remapped` and `remap` (`saving` in mm,
+`crossings`, `seconds` the study took, and `groups`: per group `refs`, `present`, `best`, `map` and `turns`, or
+`error` when the study raised, the variant then ranked at its run score). The report, the record and `explore_done`
+add `baseline_remapped` and `best_remapped`; `best` stays the run score of the variant ranked best, and the run says
+`ranked after each variant's pin remap: 130.2 -> 118.4 mm, the best's remap saving 8.0 mm` under its first line.
+`pin_maps` entries and route entries carry `score_remapped`. The study runs in the search's workers, as each variant
+finishes, so it counts in the explore's time: about 0.1 s a variant on a large board whose variants take minutes to
+resolve. `--accept` writes the variant's placement as
+always; its remap is not made anywhere but reported for you to make in the capture (`accepted: written to the lock;
+its pin remap is not, make it in the capture`). A board with no `Pm.PinPool` part explores exactly as without it.
+The studio's explore view shows `, 118.4 remapped` beside a variant's score and ranks, plots and follows the best by it.
 
 **Routing as it searches.** The run score's ratsnest crossings do not reliably predict how well a board routes, so a
 run can quick-route its explore's bests as the search finds them and take the one that closes best. With
@@ -4445,7 +4465,18 @@ nothing; `--no-resume` routes every stage of the variants' routes again. The stu
 variant its routes took, and the plan kept beside the record is that variant's. The report (`metrics.explore`), the
 explore record and its `explore_done` event keep `routes` in the order they came - per variant `seed`, `score`, `dir`,
 `seconds` (its resolve, its board and its route) and `closure_clean`, `closure`, `open_before`, `open_after`, `valid`,
-or `error` (`type`, `message`) - and `taken_seed` when a route closed. A rerun of the same run carries `explore/` over,
+or `error` (`type`, `message`) - and `taken_seed` when a route closed.
+
+With `--rank-remapped` as well, the best clean closure's ties go to the better `score_remapped`, and a variant whose
+best remap removes crossings is routed with that remap made on the board in its folder (kicad/remap.py): each pad the
+map names takes its new net, a pad a net leaves and none takes has no net, an escape or fanout laid from a pad (its
+net's tracks and vias reaching it end to end, reaching no other pad) takes the pad's new net, and copper that runs on
+to another pad of the old net is deleted for the router to lay again. A part the remap's best pose turns is turned
+about the centre of its courtyard box and the copper laid from its pads is deleted; it is not placed again, so it may
+overlap a neighbour. A pose that flips a part or turns a part in a cell is not made: the part keeps its pose with the
+remap's nets on its pads. The script and the capture are untouched. The route's line says `seed 3 at 120.4 mm,
+116.4 mm after its pin remap: ...; routed with its pin remap made on its pads`, and its entry has `remapped`
+(`pads`, `tracks` given a new net, `deleted`, `turned`, `not_turned`, `saving`, `crossings`). A rerun of the same run carries `explore/` over,
 so a resumed explore takes the route stages its variants finished. A preview writes no board and routes none
 (`routes: none; a preview writes no board to route`). A quick route of a small module takes about 2 s; on a large
 board about 5 minutes, so a 15-minute explore routes the plain placement and a few of its bests.
@@ -5314,6 +5345,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.stop_hard_clear` | `false` | bool | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | `100000` | count | finished variants an explore's checkpoint records; past it a resume tries those again |
 | `explore.route_best` | `false` | bool | a routing worker, one of the explore's jobs, quick-routes the plain placement at the start and each new best by run score as the search finds it (only the latest waits while it is busy; with one job it routes after the search); each closure is said beside its score and `--accept` takes the best clean closure, ties going to the better score. The route in hand and the one waiting when the search ends are finished after it, so the run can last past the explore's time. A run only: a preview writes no board (`--route-best`) |
+| `explore.rank_remapped` | `false` | bool | every variant an explore keeps gets the pin map study, and variants are ranked, and the best chosen, on the run score less what its best pin remap saves: the weighted crossings it removes at `score.crossing` each. With `explore.route_best` a variant is routed on its board with that remap applied to its pads. Nothing changes on a board with no `Pm.PinPool` part (`--rank-remapped`) |
 | `pins.exit_mm` | `0.5` | mm | the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn |
 | `pins.follow_series` | `true` | bool | the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection |
 | `pins.pair_weight` | `5.0` | weight | the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1) |
