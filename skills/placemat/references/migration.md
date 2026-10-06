@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **The studio's code view shows the source of a followed command or a past run.** With no script chosen, a source line
+  followed from a component's pop-up (or a step or finding) opened an empty code view: the view read only the files of the
+  script the studio watches. It now loads the file from the command's or run's own script and inputs, or any other file of
+  the project its plan names (a module's script, say), and opens on the line. A file outside the project, or one no
+  longer there, is said in red; a file changed since the run is shown with a yellow note that the line may have moved.
+  Scripts need no change.
+
 ## To 0.99.29
 
 ### Changed

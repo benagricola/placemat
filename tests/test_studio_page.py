@@ -3633,3 +3633,40 @@ ev("renderRuns()"); out.none = els["#tab-runs"].innerHTML;
     assert warn.search(out["bar"])
     assert ">time passed, finishing #42</span>" in out["one"] and "finishing #41" not in out["one"]
     assert "finishing" not in out["none"]
+
+
+@needs_node
+def test_a_source_link_of_a_followed_command_opens_its_own_script_on_the_line_with_no_script_chosen(tmp_path):
+    """With no script chosen the page holds no texts: the code view asks /viewsource for the view's file, by the path the link
+    gives, and shows it on the line; a file changed since the run is shown with a yellow note, one that cannot be read in red."""
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([Object.assign(item("a", 1), {file: "/p/b/X_layout.py", line: 30, span: [30, 30]}), Object.assign(item("b", 5), {file: "/p/m/M_layout.py", line: 2})], [st("a"), st("b")]);
+  const shown = JSON.parse(JSON.stringify(ev("plan()")));
+  ev("S.texts = {}; S.hello.script = ''");
+  ev("S").cmdView = {id: 3, plan: shown, next: 0, fitted: false, summary: {run: ""}};
+  const text = Array.from({length: 60}, (_, i) => "line_" + (i + 1) + " = 1").join("\n") + "\n";
+  const files = [{file: "/p/b/X_layout.py", name: "X_layout.py"}, {file: "/p/m/M_layout.py", name: "../m/M_layout.py"}];
+  answer({"/viewsource": {status: 200, body: {file: "/p/b/X_layout.py", name: "X_layout.py", text, changed: false, files}}});
+  ev('openScript("/p/b/X_layout.py", 30)');
+  await new Promise(r => setImmediate(r)); flush();
+  const rows = () => (els["#scriptbody"].innerHTML.match(/data-n="(\d+)"/g) || []).map(s => +s.match(/\d+/)[0]);
+  out.asked = fetched.filter(f => f[0] === "/viewsource").length;
+  out.shown = [ev("S.file"), rows()[0], rows().slice(-1)[0], /class="ln[^"]*sel[^"]*" data-n="30"/.test(els["#scriptbody"].innerHTML), els["#scriptbody"].innerHTML.includes("srcnote")];
+  out.select = els["#file"].innerHTML;
+  answer({"/viewsource": {status: 200, body: {file: "/p/m/M_layout.py", name: "../m/M_layout.py", text: "a = 1\nb = 2\n", changed: true, files}}});
+  ev('openScript("/p/m/M_layout.py", 2)');
+  await new Promise(r => setImmediate(r)); flush();
+  out.changed = els["#scriptbody"].innerHTML;
+  answer({"/viewsource": {status: 404, body: {error: "/p/m/gone.py could not be read: it is no longer there", reason: "gone"}}});
+  ev('openScript("/p/m/gone.py", 4)');
+  await new Promise(r => setImmediate(r)); flush();
+  out.gone = els["#scriptbody"].innerHTML;
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["asked"] == 1
+    assert out["shown"] == ["/p/b/X_layout.py", 20, 40, True, False], out["shown"]
+    assert ">X_layout.py<" in out["select"] and ">../m/M_layout.py<" in out["select"] and "(" not in out["select"]
+    assert 'class="srcnote warn"' in out["changed"] and "changed since the run" in out["changed"] and 'data-n="2"' in out["changed"]
+    assert 'class="srcnote err"' in out["gone"] and "no longer there" in out["gone"] and 'data-n=' not in out["gone"]

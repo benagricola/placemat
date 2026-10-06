@@ -369,6 +369,8 @@ main { position: relative; }
 .ln.chg .no { background: var(--good-soft); color: var(--good); }
 .ln.chgdecl { background: var(--warn-soft); }
 .ln.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.srcnote { padding: 6px 10px; font: 13px/1.45 var(--sans); white-space: normal; }
+.srcnote.warn { background: var(--warn-soft); color: var(--warn); } .srcnote.err { background: var(--bad-soft); color: var(--bad); }
 
 
 /* the legend: the colour key and the switch for each kind of thing */
@@ -733,6 +735,7 @@ const S = {
   findingsHand: false, findingsTab: false,   // the findings layer: turned on by hand in the legend (kept in this browser), and on while the Findings tab is open
   routes: [],                  // recorded routes of this script's board (their summaries): replayed from their records
   pinmap: null,                // the pin map whose airwires are drawn: {sid} a suggestion, {fi, r} a pose of finding fi
+  vsrc: null,                  // the code view's files of a view shown in place of a resolve (viewSrc)
   sg: {more: new Set(), busy: null, show: null, note: null, src: false, confirm: null, found: {}, asked: new Set()},   // suggestions: the finding slots opened, a try in flight, the diff shown, what the last apply said
   try: null,                   // a try shown, not written: {id, base, suggestion, cleared, gained, lost, moved, score, applied}
   applied: [], canApply: true, // the suggestions applied here (for Undo and the history rows); false: this studio does not write
@@ -2789,6 +2792,38 @@ function declIndex(p) {
 // What the file select lists: the layout script and the Python modules it imports, the files the line diff and the
 // line links apply to; the toml, lock and board files that are watched too are not shown.
 function scriptFiles(texts) { return Object.keys(texts || {}).filter(n => /\.py$/.test(n)); }
+// The source of a view shown in place of a resolve of this studio (a followed command, a past run, route or explore): the files are
+// its own, not the watched script's, so the code view asks the server for them (/viewsource: the view's script, its inputs and the
+// files its plan names), by the path the source link gives. S.vsrc is {key, files: {path: {text, name, changed} | {error}}, list, pending}.
+const viewKey = () => S.cmdView ? JSON.stringify(sgWhere().view) : "";
+function viewSrc() {
+  if (!S.cmdView) return null;
+  const key = viewKey();
+  if (!S.vsrc || S.vsrc.key !== key) {
+    if (S.vsrc) { S.file = ""; S.selLine = null; }          // another view took over while the code view was open: its own script is shown
+    S.vsrc = {key, files: {}, list: [], pending: new Set()};
+  }
+  return S.vsrc;
+}
+const scrollToLine = n => { if (n) setTimeout(() => { const l = $('#scriptbody .ln[data-n="' + n + '"]'); if (l && l.scrollIntoView) l.scrollIntoView({block: "center"}); }, 30); };
+function loadViewSource(file, n) {
+  const V = viewSrc(), v = sgWhere().view;
+  if (V && file && V.files[file]) scrollToLine(n);
+  if (!V || (file && V.files[file]) || V.pending.has(file || "")) return Promise.resolve();
+  V.pending.add(file || "");
+  const q = "/viewsource?kind=" + encodeURIComponent(v.kind) + "&ref=" + encodeURIComponent(v.ref) + "&file=" + encodeURIComponent(file || "") + "&t=" + encodeURIComponent(T);
+  return fetch(q).then(r => r.json().then(d => ({ok: r.ok, d}), () => ({ok: false, d: {error: "the studio answered " + r.status}})))
+    .catch(e => ({ok: false, d: {error: e.message}}))
+    .then(({ok, d}) => {
+      V.pending.delete(file || "");
+      if (S.vsrc !== V) return;
+      const key = ok ? d.file : file;
+      V.files[key] = ok ? {text: d.text, name: d.name, changed: !!d.changed} : {error: "Could not show " + (file ? baseName(file) : "the script") + ": " + (d.error || "the studio did not say why")};
+      if (ok) V.list = d.files || V.list;
+      if (!file || S.file === file || !S.file) { S.file = key; if (n) S.selLine = {file: key, n}; }
+      schedule("script"); scrollToLine(n);
+    });
+}
 let hlCache = {text: null, lines: []};
 const CONTEXT_LINES = 10;                      // the lines either side of the one a dialog opens on, until it is shown whole
 function renderScript() {
@@ -2811,19 +2846,24 @@ function renderScript() {
     return;
   }
   $("#linechips").style.display = "";
-  const names = scriptFiles(S.texts), own = S.hello && S.hello.script;
+  const VS = viewSrc();
+  const names = VS ? [...new Set([...VS.list.map(f => f.file), ...Object.keys(VS.files)])] : scriptFiles(S.texts), own = VS ? "" : S.hello && S.hello.script;
+  const label = n => { const f = VS && (VS.list.find(x => x.file === n) || VS.files[n]); return f && f.name ? f.name : VS ? baseName(n) : n; };
   const sel = $("#file");
-  if (!names.includes(S.file)) S.file = (own && names.includes(own)) ? own : names[0];
+  if (!VS && !names.includes(S.file)) S.file = (own && names.includes(own)) ? own : names[0];
   const key = JSON.stringify(names);
-  if (sel.dataset.names !== key) { sel.innerHTML = names.map(n => '<option value="' + esc(n) + '">' + esc(n) + (n === own ? "" : " (helper)") + "</option>").join(""); sel.dataset.names = key; }
+  if (sel.dataset.names !== key) { sel.innerHTML = names.map(n => '<option value="' + esc(n) + '">' + esc(label(n)) + (VS || n === own ? "" : " (helper)") + "</option>").join(""); sel.dataset.names = key; }
   sel.value = S.file || "";
   const body = $("#scriptbody");
-  const text = S.texts[S.file];
+  const entry = VS ? VS.files[S.file] : null;
+  if (VS && !entry) { body.innerHTML = ""; loadViewSource(S.file || "", S.selLine && S.selLine.file === S.file ? S.selLine.n : 0); return; }
+  if (entry && entry.error) { body.innerHTML = '<div class="srcnote err">' + esc(entry.error) + "</div>"; $("#scriptinfo").textContent = ""; return; }
+  const text = VS ? entry.text : S.texts[S.file];
   if (text == null) { body.innerHTML = ""; return; }
   const p = plan(), idx = declIndex(p)[S.file] || {};
   const it = S.sel ? itemMap(p).get(S.sel) : null;
   const span = it && it.file === S.file ? (it.span || [it.line, it.line]) : null;
-  const cmpf = S.cmp && S.cmp.files[S.file];
+  const cmpf = !VS && S.cmp && S.cmp.files[S.file];
   const chg = new Set(cmpf ? cmpf.changed_new : []);
   const trItem = it && S.cmp && S.cmp.trace.items[it.key];
   const chgDecl = new Set(trItem && it.file === S.file ? trItem.lines.new : []);
@@ -2839,12 +2879,12 @@ function renderScript() {
     return '<div class="' + cls + '" data-n="' + n + '"><span class="no">' + n + '</span><span class="dot">' + (idx[n] ? "&#9679;" : "") + '</span><span class="tx">' + lines[i] + "</span></div>";
   };
   const more = (n, dir) => n > 0 ? '<div class="ln more" data-more="1">' + n + " more line" + (n > 1 ? "s " : " ") + dir + " (show the whole file)</div>" : "";
-  const out = [more(lo - 1, "above")];
+  const out = [entry && entry.changed ? '<div class="srcnote warn">This file has changed since the run, so the line may have moved.</div>' : "", more(lo - 1, "above")];
   for (let i = lo - 1; i < hi; i++) out.push(row(i));
   out.push(more(lines.length - hi, "below"));
   body.innerHTML = out.join("");
   $("#scriptinfo").textContent = cmpf ? "+" + cmpf.added + " -" + cmpf.removed + " since #" + S.cmp.a : "";
-  const keysAt = n => { const k = new Set(idx[n] || []); const t = S.cmp && S.cmp.trace.lines[S.file] && S.cmp.trace.lines[S.file].new[String(n)]; (t || []).forEach(x => k.add(x)); return k; };
+  const keysAt = n => { const k = new Set(idx[n] || []); const t = !VS && S.cmp && S.cmp.trace.lines[S.file] && S.cmp.trace.lines[S.file].new[String(n)]; (t || []).forEach(x => k.add(x)); return k; };
   const at = S.selLine && S.selLine.file === S.file ? [...keysAt(S.selLine.n)] : [];
   $("#linechips").innerHTML = at.length ? "<span>Line " + S.selLine.n + " declares</span>" + at.map(k => '<button data-key="' + esc(k) + '">' + esc(k) + "</button>").join("") : '<span>Tap a line to see what it declares; a dot marks lines that declare something.</span>';
   $("#linechips").onclick = e => { const b = e.target.closest("button[data-key]"); if (b) selectItem(b.dataset.key, {zoom: true}); };
@@ -2890,12 +2930,13 @@ $("#srcsidetoggle").onclick = () => togglePanel("side");
 // A source link was followed (from a card, a step, a finding, an error): the script opens on that line.
 function openScript(file, n) {
   S.scriptOpen = true; S.scriptWhole = false;
+  if (viewSrc()) { S.file = file || ""; S.selLine = n ? {file: S.file, n} : null; schedule("script"); loadViewSource(S.file, n); return; }
   if (file && S.texts[file] != null) S.file = file;
   if (n) S.selLine = {file: S.file, n};
   schedule("script");
   setTimeout(() => { const l = $('#scriptbody .ln[data-n="' + n + '"]'); if (l && l.scrollIntoView) l.scrollIntoView({block: "center"}); }, 30);
 }
-function closeScript() { S.scriptOpen = false; S.scriptFull = false; S.sg.show = null; S.sg.src = false; schedule("script"); }
+function closeScript() { S.scriptOpen = false; S.scriptFull = false; S.sg.show = null; S.sg.src = false; S.vsrc = null; schedule("script"); }      // a view's files are read again when it opens next
 $("#scriptclose").onclick = closeScript;
 $("#scriptfull").onclick = () => { S.scriptFull = !S.scriptFull; schedule("script"); };
 $("#srcbtn").onclick = () => { const it = S.sel ? itemMap(plan()).get(S.sel) : null; openScript(it && it.file ? it.file : (S.hello && S.hello.script), it && it.line); };

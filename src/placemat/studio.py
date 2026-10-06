@@ -887,6 +887,88 @@ class Studio:
                 return present.plan(c["plan"].get("doc") or {}), c.get("script") or "", noun
         return None
 
+    def _view_at(self, kind: str, ref: str) -> float | None:
+        """When a view's run read its files (epoch seconds), for saying a file has changed since: a command's start, a recorded run's
+        record less the time it took, a route's or an explore's record. None when it is not known."""
+        if kind == "cmd":
+            with self.lock:
+                return (self.cmds.get(_int(ref)) or {}).get("started")
+        try:
+            if kind in ("run", "build"):
+                folder = self.run_folder(ref)
+                if folder is None:
+                    return None
+                at = (folder / "run.json").stat().st_mtime
+                try:
+                    took = json.loads((folder / "run.json").read_text()).get("timing_s") or {}
+                    at -= sum(v for v in took.values() if isinstance(v, (int, float)))
+                except (OSError, ValueError, AttributeError):
+                    pass
+                return at
+            if kind in ("route", "explore"):
+                return Path(ref).stat().st_mtime
+        except OSError:
+            return None
+        return None
+
+    def view_source(self, kind: str, ref: str, file: str) -> dict:
+        """A source file of a view the page shows in place of a resolve of its own (a followed command, a past run, route or
+        explore), for its code view: the view's own script and its inputs (watched_of, the rule a suggestion of the view acts on)
+        and any other file the view's plan names by a source link (a module's script, say), inside the project only.
+        {file, name, text, changed, files: [{file, name}]}: `file` as asked, `name` relative to the view's script's folder,
+        `changed` whether it was modified after the view's run read it, `files` the view's Python files. Refused (SuggestRefused,
+        `reason`) when the view is not there ("no_view"), the file is not one of it ("not_of_view"), lies outside the project
+        ("outside") or cannot be read ("gone")."""
+        from .project import find_board, script_files
+        got = self._view_doc(kind, ref)
+        if got is None:
+            raise SuggestRefused(404, "no such %s, or it kept no plan" % {"cmd": "command", "build": "run"}.get(kind, kind or "view"), reason="no_view")
+        doc, script_name, noun = got
+        script = Path(script_name).resolve() if script_name else None
+        base = script.parent if script is not None else self.root
+
+        def resolved(f) -> Path:
+            p = Path(f)
+            return (p if p.is_absolute() else base / p).resolve()
+
+        named: dict = {}                                    # resolved path -> the name the view's plan gives it
+        def walk(v):
+            if isinstance(v, dict):
+                f = v.get("file")
+                if isinstance(f, str) and f.endswith(".py"):
+                    named.setdefault(resolved(f), f)
+                for x in v.values():
+                    walk(x)
+            elif isinstance(v, list):
+                for x in v:
+                    walk(x)
+        walk(doc)
+        inputs = []
+        if script is not None:
+            try:
+                inputs = self.watched_of(script, find_board(script))
+            except (ValueError, OSError):
+                inputs = script_files(script)
+        allowed = {Path(f).resolve(): named.get(Path(f).resolve(), str(f)) for f in inputs}
+        for p, f in named.items():
+            allowed.setdefault(p, f)
+        want = resolved(file) if file else script
+        if want is None or want not in allowed:
+            raise SuggestRefused(404, "%s is not a file of this %s" % (Path(file).name or "the file", noun), reason="not_of_view")
+        root = self.root.resolve()
+        if root not in want.parents:
+            raise SuggestRefused(403, "%s lies outside the project (%s), so it is not shown" % (want, root), reason="outside")
+        try:
+            text = want.read_text(errors="replace")
+            mtime = want.stat().st_mtime
+        except OSError:
+            raise SuggestRefused(404, "%s could not be read: it is no longer there" % want, reason="gone") from None
+        at = self._view_at(kind, ref)
+        files = sorted(((p, f) for p, f in allowed.items() if p.suffix == ".py" and root in p.parents and p.is_file()),
+                       key=lambda pf: (pf[0] != script, str(pf[0])))
+        return {"file": file or str(want), "name": self.name_of(want, base), "text": text, "changed": at is not None and mtime > at,
+                "files": [{"file": f, "name": self.name_of(p, base)} for p, f in files]}
+
     def _view_suggestion(self, view, sid):
         """A suggestion of a view that is not a resolve of this studio (a past run, an explore, a command), found in the plan the view
         shows, as `placemat apply` finds one in the plan its run kept. The record it is compared with in a try is that plan, with the
@@ -2097,6 +2179,11 @@ def _handler(studio: Studio):
                     return self._json(studio.suggest_found(query.get("id", [""])[0]))
                 except SuggestRefused as e:
                     return self._refuse(e.status, str(e))
+            if path == "/viewsource":
+                try:
+                    return self._json(studio.view_source(query.get("kind", [""])[0], query.get("ref", [""])[0], query.get("file", [""])[0]))
+                except SuggestRefused as e:
+                    return self._send(e.status, "application/json", json.dumps({"error": str(e), **e.extra}).encode())
             if path == "/routes":
                 return self._json(studio.routes())
             if path == "/3d/models":

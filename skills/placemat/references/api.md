@@ -4164,6 +4164,10 @@ the board is off until the Findings tab is open or the legend turns it on). Its 
 background run), a past run (`GET /projectruns` lists every board's `run.json` records; `GET /runview?run=ID` serves one as a plan
 document - the run's `plan.json` when it has one, else the board it wrote with its findings placed from their facts - and resolves
 nothing) or a layout script (`POST /switch`, the only choice that starts the studio's own preview). The header title opens it again.
+A source line followed while a command or a past run is shown opens that view's own file in the code view (`GET
+/viewsource?kind=K&ref=R&file=PATH`, the view named as a suggestion of it names it): the view's script, its inputs, or another file
+of the project its plan names. A file outside the project or no longer there is refused with a `reason` ("outside", "gone",
+"not_of_view", "no_view"), said in red; `changed` marks a file modified since the run read it, said in yellow.
 The address's hash can name a script (`s=`), a past run (`run=ID`) or a running command (`cmd=ID`). Every command in a list says what it
 is - preview, full run, explore or route - by a chip; a command summary carries `kind` (`channel.kind_of`: a run or preview given
 `--explore`, or one that has sent `explore` events, is an explore) and `label`. Following an explore shows its focus, variants landed (of
