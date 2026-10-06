@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A module with net-tie parts searched over a whole face places faster.** A part that no free pocket takes is
+  scanned over the whole face; when the part owns a net tie or meets another part's, that scan took several seconds
+  (8 s on one 6-part module, 0.7 s now). It places the same parts at the same spots. Nothing in a script changes.
+
 ## To 0.99.22
 
 ### Fixed
