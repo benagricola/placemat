@@ -124,7 +124,9 @@ class RouteReport:
     # The router's dangling copper taken off the routed copy (route_cleanup.py, KiCad's TRACKS_CLEANER): Cleanup.record(),
     # {"tracks": {net: n}, "vias": {net: n}, "merged": {net: n}, "unconnected": [before, after],
     # "kept_unrouted": [nets left unconnected whose dangling router copper was kept],
-    # "refused_nets": [nets whose pads the dangling router copper alone joins, which keep it]}.
+    # "refused_nets": [nets whose pads the dangling router copper alone joins, which keep it],
+    # "vias_merged": {net: n} (router vias merged into a same-net hole within hole-to-hole),
+    # "vias_kept_close": [{"net", "at_mm", "near_mm", "distance_mm", "reason"}] (such vias left in place)}.
     dangling_removed: dict = field(default_factory=dict)
     # The class stages (`class_stages`), widest clearance first: each {"clearance_mm": mm, "nets": {net: [open items before,
     # after]}}. Their nets route in their own router call before the main pass, which does not route them again.
@@ -190,6 +192,12 @@ class RouteReport:
         if d.get("refused_nets"):
             head += "  dangling router copper kept on %d net(s) whose pads it alone joins: %s" % (
                 len(d["refused_nets"]), ", ".join(d["refused_nets"]))
+        if d.get("vias_merged"):
+            head += "  same-net vias within hole-to-hole merged: %d via(s) on %d net(s)" % (
+                sum(d["vias_merged"].values()), len(d["vias_merged"]))
+        if d.get("vias_kept_close"):
+            head += "  same-net vias within hole-to-hole kept: " + ", ".join(
+                "%s at (%g, %g)" % (k["net"], k["at_mm"][0], k["at_mm"][1]) for k in d["vias_kept_close"])
         if self.widths:
             from .route_widths import brief
             head += "  UNDER WIDTH: " + "; ".join(brief(r) for r in self.widths)

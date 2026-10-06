@@ -48,6 +48,12 @@ section for each hand-written pattern a newer form replaces.
 - **The native sweep applies KiCad's net-tie exclusion.** A part near a net tie is judged in the native module like any
   other, with no Python recheck: a module with net-tie parts places faster again (the bench's ring sensor module 0.2 s,
   from 0.7 s). Placements are unchanged. Rebuild the native module after updating (`uv pip install -e ".[native]"`).
+- **Same-net vias within hole-to-hole are merged after routing.** The router's stub-swap and stub-layer-switch rescues
+  could leave two vias of one net closer than the board's hole-to-hole (0.1 mm apart on a measured board). KiCad's
+  hole_to_hole check ignores nets, so the net was listed with a DRC violation and counted against `closure_clean`.
+  The post-route cleanup now merges such a router via into the other hole by the router's own rule, when the net's
+  pads stay joined; a pair it leaves is named in `dangling_removed.vias_kept_close` and on the summary line.
+  `dangling_removed` adds `vias_merged`. Scripts need no change.
 
 ## To 0.99.23
 
