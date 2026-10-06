@@ -298,6 +298,9 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **A width island is judged by its asked width** (0.99.29): not by the
+  net's highest stated current, which a tap may not carry.
+
 - **Island layers, island pours as zones, leg-room finding** (0.99.28):
   `[route] islands "NET=W@F,B"` routes an island on those layers; an
   island net's own fitted pours reach the router as zones, so it no longer
