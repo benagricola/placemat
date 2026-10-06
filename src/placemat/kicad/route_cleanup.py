@@ -57,7 +57,9 @@ paths that do not run KRT's merge (its stub-swap and stub-layer-switch
 rescues). Divergences from KRT's merge: a via whose spot another item
 ends at that is not the router's track (given copper, an arc) stays; and
 a net whose pads fall into more groups after its merges keeps its vias as
-the router wrote them. Both are named in `vias_kept_close`.
+the router wrote them, and so does a net where a moved track would come
+within clearance of another net's copper (`clearance_clash`; KRT moves the
+ends without that test). All are named in `vias_kept_close`.
 """
 from __future__ import annotations
 
@@ -80,8 +82,10 @@ class Cleanup:
     `vias_kept_close` lists the router's vias left within hole-to-hole of
     one, each {"net", "at_mm": [x, y], "near_mm": [x, y] of the other hole,
     "distance_mm", "reason"}: "parts_net" (merging would part the net's
-    pads), "span" (the other hole does not cover its layers) or
-    "fixed_copper" (copper the merge may not move ends on it)."""
+    pads), "span" (the other hole does not cover its layers), "fixed_copper"
+    (copper the merge may not move ends on it) or "clearance" (a moved track
+    would come within clearance of another net's copper, named in
+    "other_net")."""
     tracks: dict = field(default_factory=dict)
     vias: dict = field(default_factory=dict)
     merged: dict = field(default_factory=dict)
@@ -351,10 +355,11 @@ def merge_close_vias(board, mine: set, pcbnew, keep_nets=frozenset()) -> tuple:
     vias kept so far. The router's track ends on the dropped via move onto
     the survivor, and a track left with no length is deleted, as KiCad's
     cleaner deletes null segments (tracks_cleaner.cpp:456-466). The board's
-    connectivity is not checked here. Returns (merges, kept): merges
-    [{"net", "at_mm", "near_mm", "distance_mm"}] done, kept the same records
-    with a "reason" ("span", "fixed_copper") for the vias within range left
-    in place."""
+    connectivity and clearances are not checked here. Returns (merges, kept,
+    moved): merges [{"net", "at_mm", "near_mm", "distance_mm"}] done, kept
+    the same records with a "reason" ("span", "fixed_copper") for the vias
+    within range left in place, and moved {net: [(track, old start, old
+    end)]} for the tracks a merge moved and kept."""
     h2h = board.GetDesignSettings().m_HoleToHoleMin
     cu = list(board.GetEnabledLayers().CuStack())
 
@@ -374,7 +379,7 @@ def merge_close_vias(board, mine: set, pcbnew, keep_nets=frozenset()) -> tuple:
         if pad.GetNetCode() > 0 and pad.GetAttribute() == pcbnew.PAD_ATTRIB_PTH and max(d.x, d.y) > 0:
             survivors.setdefault(pad.GetNetname(), []).append(
                 (pad.GetEffectiveHoleShape().GetSeg().Center(), max(d.x, d.y), frozenset(cu)))
-    merges, kept = [], []
+    merges, kept, moved = [], [], {}
     for via in vias:
         net = via.GetNetname()
         if net in keep_nets:
@@ -399,20 +404,71 @@ def merge_close_vias(board, mine: set, pcbnew, keep_nets=frozenset()) -> tuple:
             else:
                 sp = found[0]
                 for t in ends:
+                    old = (pcbnew.VECTOR2I(t.GetStart().x, t.GetStart().y), pcbnew.VECTOR2I(t.GetEnd().x, t.GetEnd().y))
                     if _end_on(t.GetStart(), at):
                         t.SetStart(pcbnew.VECTOR2I(sp.x, sp.y))
                     if _end_on(t.GetEnd(), at):
                         t.SetEnd(pcbnew.VECTOR2I(sp.x, sp.y))
-                for t in ends:
                     if t.GetStart() == t.GetEnd():
                         _delete(board, t)
+                    else:
+                        moved.setdefault(net, []).append((t,) + old)
                 _delete(board, via)
                 merges.append(rec)
                 continue
         elif blocked:
             kept.append(dict(rec, reason="span"))
         survivors.setdefault(net, []).append((at, drill, own))
-    return merges, kept
+    return merges, kept, moved
+
+
+def _other_copper(board, pcbnew):
+    """Every copper item on `board` a moved track can come too near: tracks,
+    arcs, vias, pads, zones other than rule areas, and copper shapes, the
+    board's and the footprints'."""
+    yield from board.GetTracks()
+    yield from board.GetPads()
+    for z in board.Zones():
+        if not z.GetIsRuleArea():
+            yield z
+    for d in board.GetDrawings():
+        if d.GetClass() == "PCB_SHAPE" and pcbnew.IsCopperLayer(d.GetLayer()):
+            yield d
+    for fp in board.GetFootprints():
+        for d in fp.GraphicalItems():
+            if d.GetClass() == "PCB_SHAPE" and pcbnew.IsCopperLayer(d.GetLayer()):
+                yield d
+
+
+def clearance_clash(board, net: str, moved: list, pcbnew):
+    """The name of another net whose copper a track the merges on `net`
+    moved now comes within clearance of, when it did not before the move;
+    None when there is none. `moved` is merge_close_vias' [(track, old
+    start, old end)]. A zone is tested by its fill. A pair's clearance is
+    the larger of the two items' own (GetOwnClearance: the netclass's, as
+    pcbnew loads the board), less the board's DRC epsilon, as KiCad's
+    clearance test applies it (drc_test_provider_copper_clearance.cpp). The
+    survivor via does not move, so it adds no violation and is not tested."""
+    eps = board.GetDesignSettings().GetDRCEpsilon()
+    others = list(_other_copper(board, pcbnew))
+    for t, a, b in moved:
+        layer = t.GetLayer()
+        after = t.GetEffectiveShape(layer)
+        before = pcbnew.SHAPE_SEGMENT(a, b, t.GetWidth())
+        own = t.GetOwnClearance(layer)
+        box = t.GetBoundingBox()
+        for o in others:
+            if o.GetNetname() == net or not o.IsOnLayer(layer):
+                continue
+            cl = max(own, o.GetOwnClearance(layer))
+            ob = o.GetBoundingBox()
+            ob.Inflate(cl)
+            if not box.Intersects(ob):
+                continue
+            shape = o.GetEffectiveShape(layer)
+            if after.Collide(shape, cl - eps) and not before.Collide(shape, cl - eps):
+                return o.GetNetname()
+    return None
 
 
 def remove_dangling_router_copper(pcb_path: str, given_path: str) -> Cleanup:
@@ -438,13 +494,20 @@ def remove_dangling_router_copper(pcb_path: str, given_path: str) -> Cleanup:
     groups = pad_groups(board, pcbnew)
     close_refused, kept_close = set(), []
     while True:
-        close_merges, kept = merge_close_vias(board, mine, pcbnew, close_refused)
+        close_merges, kept, moved = merge_close_vias(board, mine, pcbnew, close_refused)
         parted = {n for n, g in pad_groups(board, pcbnew).items() if g > groups.get(n, 0)} if close_merges else set()
-        if not parted:
+        clash = {}
+        for n in sorted(set(moved) - parted):
+            other = clearance_clash(board, n, moved[n], pcbnew)
+            if other is not None:
+                clash[n] = other
+        if not (parted or clash):
             break
-        close_refused |= parted           # those nets' vias as the router wrote them: start over from the file
+        undone = parted | set(clash)
+        close_refused |= undone           # those nets' vias as the router wrote them: start over from the file
         kept_close += [dict(m, reason="parts_net") for m in close_merges if m["net"] in parted]
-        kept_close += [k for k in kept if k["net"] in parted]
+        kept_close += [dict(m, reason="clearance", other_net=clash[m["net"]]) for m in close_merges if m["net"] in clash]
+        kept_close += [k for k in kept if k["net"] in undone]
         with quiet_stderr():
             board = pcbnew.LoadBoard(pcb_path)
     kept_close += kept

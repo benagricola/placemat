@@ -166,3 +166,36 @@ def test_the_console_line_and_the_record_carry_the_merged_and_kept_vias():
     line = _report(done).summary()
     assert "same-net vias within hole-to-hole merged: 3 via(s) on 2 net(s)" in line
     assert "same-net vias within hole-to-hole kept: INA_ALERT at (33.1, 12.8)" in line
+
+
+def test_a_merge_that_would_bring_a_track_within_clearance_of_another_net_is_left(tmp_path):
+    """Vias 0.4 mm apart, each with a track running north to its pad. Whichever
+    via is dropped, its track swings over to the other via and passes within
+    clearance of net B's track beside it on that layer, so the pair stays."""
+    import pcbnew
+
+    def board(path, router):
+        b, n = _plain_board(path, ("A", "B"), (("1", (50, 53), "A"), ("2", (50.4, 53), "A")))
+        _smd(b, ("2",))
+        _track(b, n["B"], 49.85, 50.8, 49.85, 51.8, pcbnew.B_Cu)      # beside the B.Cu track's swing
+        _track(b, n["B"], 50.55, 50.8, 50.55, 51.8, pcbnew.F_Cu)      # beside the F.Cu track's swing
+        if router:
+            a = n["A"]
+            _track(b, a, 50, 53, 50, 50, pcbnew.F_Cu)
+            _via(b, a, 50, 50)
+            _track(b, a, 50, 50, 50.4, 50, pcbnew.B_Cu)
+            _via(b, a, 50.4, 50)
+            _track(b, a, 50.4, 50, 50.4, 53, pcbnew.B_Cu)
+        return _save(b, path)
+
+    given, routed = board(tmp_path / "given.kicad_pcb", False), board(tmp_path / "routed.kicad_pcb", True)
+    before = run_drc(routed, tmp_path / "before.json")
+    assert len(_of(before, "hole_to_hole")) == 1 and _of(before, "clearance") == []
+    text = routed.read_text()
+    result = remove_dangling_router_copper(str(routed), str(given))
+    assert routed.read_text() == text
+    assert result.vias_merged == {}
+    assert len(result.vias_kept_close) == 1
+    kept = result.vias_kept_close[0]
+    assert kept["net"] == "A" and kept["reason"] == "clearance" and kept["other_net"] == "B"
+    assert sorted([kept["at_mm"], kept["near_mm"]]) == [[50.0, 50.0], [50.4, 50.0]]

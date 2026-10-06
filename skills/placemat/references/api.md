@@ -3894,10 +3894,11 @@ dangling router copper was kept) and `refused_nets` (the nets kept because the d
 Before that cleanup, a router via closer than the board's hole-to-hole to another hole of its net (a via or a plated through-hole
 pad) is merged into it, as the router's own plane passes merge theirs: the via is deleted and the router's tracks ending on it move
 onto the other hole, where the other hole covers the via's layers. KiCad's own cleanup merges only vias at the same spot, but its
-hole_to_hole check ignores nets, so such a pair is a DRC violation. A via stays where the merge would part its net's pads, where the
-other hole does not cover its layers, or where copper the router was given ends on it. `dangling_removed` has `vias_merged` (per
-net) and `vias_kept_close`: each `{"net", "at_mm", "near_mm", "distance_mm", "reason"}`, the reason `parts_net`, `span` or
-`fixed_copper`. The summary line says `same-net vias within hole-to-hole merged: N via(s) on K net(s)` and
+hole_to_hole check ignores nets, so such a pair is a DRC violation. A via stays where the merge would part its net's pads, where a
+moved track would come within clearance of another net's copper (the netclass clearance; a zone by its fill), where the other hole
+does not cover its layers, or where copper the router was given ends on it. `dangling_removed` has `vias_merged` (per net) and
+`vias_kept_close`: each `{"net", "at_mm", "near_mm", "distance_mm", "reason"}`, the reason `parts_net`, `clearance` (with
+`other_net`), `span` or `fixed_copper`. The summary line says `same-net vias within hole-to-hole merged: N via(s) on K net(s)` and
 `same-net vias within hole-to-hole kept: NET at (X, Y), ...`.
 
 A footprint's own copper graphics (a net-tie's winding, a copper logo) are

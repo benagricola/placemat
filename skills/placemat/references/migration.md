@@ -52,7 +52,8 @@ section for each hand-written pattern a newer form replaces.
   could leave two vias of one net closer than the board's hole-to-hole (0.1 mm apart on a measured board). KiCad's
   hole_to_hole check ignores nets, so the net was listed with a DRC violation and counted against `closure_clean`.
   The post-route cleanup now merges such a router via into the other hole by the router's own rule, when the net's
-  pads stay joined; a pair it leaves is named in `dangling_removed.vias_kept_close` and on the summary line.
+  pads stay joined and no moved track comes within clearance of another net's copper; a pair it leaves is named in
+  `dangling_removed.vias_kept_close` and on the summary line.
   `dangling_removed` adds `vias_merged`. Scripts need no change.
 
 ## To 0.99.23
