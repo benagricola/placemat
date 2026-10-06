@@ -17,7 +17,7 @@ corner is this board's origin. Rotations are the human board's.
 Everything else is searched from its connections. The only relations declared are the LT1373's and the 7805's
 datasheet layout rules (the capture's header lists them): the boost converter's switch-diode-capacitor path and
 its switch node kept short, and C1 at the regulator output and the converter input. The ground plane under the
-switcher is the LT1373's rule; it is on F.Cu, as on the original board.
+switcher is the LT1373's rule; it is on B.Cu, as on the original board (its GND zone is on B.Cu).
 
 Labels are the original board's silk texts for what a user plugs in, reads or adjusts.
 
@@ -43,12 +43,20 @@ board.place(Part("J1"), at=OnEdge(Edge.WEST, along=J1_ALONG, overhang=J1_OVERHAN
             why="mechanical: the DB9's shell over the west edge, where the serial cable plugs in")
 board.place(Part("P1"), at=Location(8.14, 19.36), rotation=-90,       # human (81.80, 60.00)
             why="mechanical: the power terminal on the west edge, wire entry facing out")
-board.place(Part("P106"), at=Location(3.81, 3.81), why="mechanical: mounting hole, north-west")       # human (77.47, 44.45)
-board.place(Part("P105"), at=Location(85.09, 3.81), why="mechanical: mounting hole, north middle")    # human (158.75, 44.45)
-board.place(Part("P104"), at=Location(156.21, 3.81), why="mechanical: mounting hole, north-east")    # human (229.87, 44.45)
-board.place(Part("P101"), at=Location(3.81, 95.25), why="mechanical: mounting hole, south-west")     # human (77.47, 135.89)
-board.place(Part("P102"), at=Location(85.09, 95.25), why="mechanical: mounting hole, south middle")  # human (158.75, 135.89)
-board.place(Part("P103"), at=Location(156.21, 95.25), why="mechanical: mounting hole, south-east")   # human (229.87, 135.89)
+# The M4 holes' courtyards (radius 4.55 mm) reach 0.74 mm past the edges from centres 3.81 mm in, as on the human board.
+HOLE_OVERHANG = 0.74
+board.place(Part("P106"), at=Location(3.81, 3.81), overhang=HOLE_OVERHANG,   # human (77.47, 44.45)
+            why="mechanical: mounting hole, north-west, 3.81 mm in from the edges as on the human board")
+board.place(Part("P105"), at=Location(85.09, 3.81), overhang=HOLE_OVERHANG,   # human (158.75, 44.45)
+            why="mechanical: mounting hole, north middle, 3.81 mm in from the edges as on the human board")
+board.place(Part("P104"), at=Location(156.21, 3.81), overhang=HOLE_OVERHANG,   # human (229.87, 44.45)
+            why="mechanical: mounting hole, north-east, 3.81 mm in from the edges as on the human board")
+board.place(Part("P101"), at=Location(3.81, 95.25), overhang=HOLE_OVERHANG,   # human (77.47, 135.89)
+            why="mechanical: mounting hole, south-west, 3.81 mm in from the edges as on the human board")
+board.place(Part("P102"), at=Location(85.09, 95.25), overhang=HOLE_OVERHANG,   # human (158.75, 135.89)
+            why="mechanical: mounting hole, south middle, 3.81 mm in from the edges as on the human board")
+board.place(Part("P103"), at=Location(156.21, 95.25), overhang=HOLE_OVERHANG,   # human (229.87, 135.89)
+            why="mechanical: mounting hole, south-east, 3.81 mm in from the edges as on the human board")
 
 # ---------------------------------------------------------------- fixed: the target sockets, the board's user face
 board.place(Part("P3"), at=OnEdge(Edge.NORTH, along=P3_ALONG, overhang=P3_OVERHANG), rotation=0,
@@ -89,10 +97,12 @@ board.link(PadRef(C1, "VCC"), PadRef(U3, "VCC"), weight=LinkWeight.SHORT,
            why="datasheet: TI SNOSBT0L 10.1, the output capacitor as close as possible to the 7805")
 
 # ---------------------------------------------------------------- copper
-board.plane(GND, layers=(CopperLayer.F,),
-            why="datasheet: LT1373 rev B p5 GND pin and p10, a ground plane under the switcher; F.Cu as on the original")
+board.plane(GND, layers=(CopperLayer.B,),
+            why="datasheet: LT1373 rev B p5 GND pin and p10, a ground plane under the switcher; B.Cu as on the "
+                "original")
 
 # ---------------------------------------------------------------- searched: everything else, from its connections
+# Each part is declared: a part no declaration names stays where the generator put it (setup.undeclared).
 SEARCHED = ["U2", "U3", "U4", "L1", "D10", "C1", "C2", "C3", "C4", "C5", "C9", "C6", "C7", "RV1", "JP1",
             "Q1", "Q2", "Q3", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D11", "D12",
             "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15",

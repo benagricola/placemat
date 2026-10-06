@@ -25,7 +25,8 @@ Changes from the import:
   (circuit-capture, "Modules for placement"). Names and nets are unchanged.
 - The POWER net class gets its nets (GND, VCC), as the original project assigns them; the import dropped
   the pattern.
-- F.Cu's role is mixed: it carries the GND plane and tracks, as on the original board.
+- B.Cu's role is mixed: it carries the GND plane and most tracks, as on the original board (its GND zone is on
+  B.Cu); F.Cu stays signal.
 """
 
 load(
@@ -396,9 +397,19 @@ _470(name="R13", P1=NET_R13_PAD1, P2=CLOCK_RB6)
 
 _470(name="R14", P1=VCC, P2=NET_D9_A)
 
-_6_2K(name="R15", P1=NET_R15_PAD1, P2=GND)
+_6_2K(
+    name="R15",
+    P1=NET_R15_PAD1,
+    P2=GND,
+    annotations={"Pm.Sensitive": "Net-(R15-Pad1)"},  # LT1373 rev B p5 FB pin: the divider's low end, feeding FB through RV1
+)
 
-_62K(name="R16", P1=NET_R16_PAD1, P2=VPP)
+_62K(
+    name="R16",
+    P1=NET_R16_PAD1,
+    P2=VPP,
+    annotations={"Pm.Sensitive": "Net-(R16-Pad1)"},  # LT1373 rev B p5 FB pin: the divider's high end, feeding FB through RV1
+)
 
 _22K(name="R17", P1=NET_Q2_C, P2=GND)
 
@@ -537,9 +548,9 @@ Board(
             solder_mask_color="Green",
             thickness=1.58,
             layers=[
-                CopperLayer(thickness=0.035, role="mixed"),  # F.Cu: the GND plane and tracks, as on the original
-                DielectricLayer(thickness=1.51, material="FR4", form="core"),
                 CopperLayer(thickness=0.035, role="signal"),
+                DielectricLayer(thickness=1.51, material="FR4", form="core"),
+                CopperLayer(thickness=0.035, role="mixed"),  # B.Cu: the GND plane and most tracks, as on the original
             ],
         ),
     ),

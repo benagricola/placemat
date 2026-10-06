@@ -31,9 +31,10 @@ The 56 errors `-S errors` hides are all `bom.unspecified` (no part numbers in an
 - **POWER's `diff_pair_width`, `diff_pair_gap` and `diff_pair_via_gap` are removed.** The import writes KiCad's
   stored values into every class. placemat pairs the two nets of any non-Default class that sets both
   (`src/placemat/pairs.py:184`), so GND and VCC would have been a differential pair.
-- **F.Cu's role is `mixed`:** it carries the GND plane and tracks, as on the original board.
+- **B.Cu's role is `mixed`:** it carries the GND plane and most tracks, as on the original board (its one GND zone
+  is on B.Cu, and B.Cu holds 305 of its 370 track segments). F.Cu stays `signal`.
 - **Part wrappers that carry annotations take `annotations`** (capture.md, "Annotations"): LT1373, 22uH, SCHOTTKY,
-  22uF_25V, 1N4004, CONN_2, 7805, 1K__RV2X4, 5_1K, BC307.
+  22uF_25V, 1N4004, CONN_2, 7805, 1K__RV2X4, 5_1K, 6_2K, 62K, BC307.
 
 ## Datasheets
 
@@ -62,6 +63,8 @@ DO-35 footprint): its current is the LT1373's, not its own rating.
 | D10 | `Pm.I: 1.5A` | LT1373 p9, "Output Diode": the diode conducts the inductor current in switch-off time; ILIM, p3 |
 | C3 | `Pm.I: 1.5A` | LT1373 p10, Figure 3: the output capacitor closes the circulating path; ILIM, p3 |
 | RV1 | `Pm.Sensitive: Net-(U4-FB+)` | LT1373 p5, FB pin: the inverting input of the error amplifier; the divider tap is on RV1's wiper |
+| R15 | `Pm.Sensitive: Net-(R15-Pad1)` | LT1373 p5, FB pin: the divider's low end, which feeds FB+ through RV1 |
+| R16 | `Pm.Sensitive: Net-(R16-Pad1)` | the same, the divider's high end |
 | R10 | `Pm.Sensitive: Net-(U4-Vc)` | LT1373 p5, VC pin: the error amplifier's output; p9: its output impedance is about 1 Mohm |
 | U3 | `Pm.I: Net-(D1-K):1A VCC:1A` | TI SNOSBT0L 6.6 (p6), LM7805 electrical characteristics: specified for 5 mA <= IO <= 1 A. The GND pin carries only the quiescent current, so GND is left out (capture.md) |
 | D1 | `Pm.I: 1A` | Vishay 88503 p1: IF(AV) 1.0 A, the bound of the input path it sits in |
@@ -81,6 +84,10 @@ Left out:
   part on the board is field-sensitive.
 - `Pm.KeepOut`: the LT1373 gives no keep-out distance.
 - C4 (value "0", on VC): no value, so no role.
+- The LT1373's GND S rule (p5: keep the ground path to the divider and the VC network free of large ground
+  currents): GND S, the divider, the VC network and the switch's GND are one net (GND), and no `Pm.*` key says that
+  part of a net's return must stay apart from its load current. The capture could split a quiet ground joined by a
+  net tie (SKILL.md's sense-line rule), but that is a change to the circuit, not an annotation.
 - Pin pools: see "Skill gaps" (74HC125 gate swap).
 
 ## Fixed parts
@@ -110,28 +117,29 @@ Not fixed, and why:
 
 Every declaration's basis is printed by `python fixtures/reference/lint.py pic_programmer`. J1 and P3 stand past an edge, so
 they are placed with `OnEdge(edge, along=, overhang=)`, whose numbers put their origins back on the human ones; the
-other fixed parts are a `Location`. Beyond the fixed parts:
+other fixed parts are a `Location`, the six holes with `overhang=0.74` (their courtyards cross the edge by that much,
+as on the human board). Beyond the fixed parts:
 - the six `datasheet:` links of the LT1373 (switch path, switch node, VIN bypass) and the LM7805 (output capacitor);
-- the GND plane on F.Cu (LT1373: a ground plane under the switcher; F.Cu as on the original);
+- the GND plane on B.Cu (LT1373: a ground plane under the switcher; B.Cu as on the original);
 - the original board's silk labels on the sockets, the power terminal, the LEDs and the trimmer;
-- every other part placed bare (`capture:`), searched from its connections.
+- every other part placed bare (`capture:`), searched from its connections. These lines are needed: a part no
+  declaration names is not searched but stays where `pcb layout` put it, with a `setup.undeclared` finding
+  (`layout.py` `_report_undeclared`).
 
 `placemat.toml` keeps every setting at its default; the default route needs no phase of its own for this board.
 
 ## Skill gaps
 
-1. **A fixed part whose courtyard crosses the board edge cannot be placed (placemat).** The six mounting holes sit
-   3.81 mm from the edges; their M4 courtyards (radius 4.475 mm) cross the edge by 0.74 mm, as on the human board.
-   `board.place(..., at=Location(...))` stops the run: "Firm placements collide ... body box ... crosses the board
-   edge". `OnEdge(edge, overhang=)` says a face standing past one edge, and serves J1 and P3, but a corner hole crosses
-   two edges, and a hole's courtyard is a clearance, not a face. No form holds a mechanical point whose courtyard the
-   edge cuts. The default run therefore stops; `--keep-going` resolves the rest (task report). Tried: `Location`
-   (refused), `OnEdge(..., overhang=)` (one edge only; the corner holes cross two).
-2. **An imported sheet becomes a rigid cell with the generator's arrangement (placemat, circuit-capture).** The
-   sockets sheet came out of `pcb import` as a module, which `pcb layout` stamps as a group and placemat places as one
-   rigid cell, members where the generator packed them. Neither skill says that a module with no layout script of its
-   own is still a rigid cell, and no finding says so; it showed only as `cell PIC_SOCKETS` in `placemat parts`. Fixed
-   in the capture by flattening (above).
+1. **A fixed part whose courtyard crosses the board edge could not be placed (placemat). Fixed by `overhang=` on a
+   firm placement, commit 07e13341.** The six mounting holes sit 3.81 mm from the edges; their M4 courtyards cross the
+   edge by 0.74 mm, as on the human board. `Location` was refused ("body box ... crosses the board edge"), and
+   `OnEdge(edge, overhang=)` covers one edge only, where a corner hole crosses two. The holes now take
+   `overhang=0.74` with a `mechanical:` why.
+2. **Nothing says an imported sheet becomes a cell (placemat, circuit-capture).** The sockets sheet came out of
+   `pcb import` as a module, which `pcb layout` stamps as a group and placemat places as one rigid cell. SKILL.md says
+   cells are rigid, but neither skill says that an imported sheet, with no layout script of its own, becomes such a
+   cell, and no finding says so: it showed only as `cell PIC_SOCKETS` in `placemat parts`. Fixed in the capture by
+   flattening (above).
 3. **`Pm.I` names nets exactly; capture.md does not say so.** capture.md says the last part of a net's path matches for
    `Pm.KeepOut`, `Pm.PinAllow` and `Pm.PinDeny`, and says only "give `Pm.I` per net". `checks.py` looks `Pm.I` up by
    the whole net name (`currents.get(p.net.lower())`), so `VCC_PIC` does not name `/pic_sockets/VCC_PIC`. Written as
@@ -139,7 +147,8 @@ other fixed parts are a `Location`. Beyond the fixed parts:
 4. **A two-net class from an import is a differential pair (placemat capture.md, circuit-capture).** capture.md:
    "a class other than Default that sets `diff_pair_width` and `diff_pair_gap` pairs its nets, exactly two outright".
    KiCad stores pair figures on every class and `pcb import` writes them into every `NetClass`, so POWER (GND, VCC)
-   would pair. Neither skill warns that an imported class must lose them. Removed from POWER.
+   would pair. Neither skill warns that an imported class must lose them. Removed from POWER. Test (a) shows the
+   effect on the original project: its manifest note records GND and VCC routed as a coupled pair.
 5. **No form for swapping the gates of a multi-gate logic part (placemat pin pools).** U2's four 74HC125 buffers are
    interchangeable (each gate is A, Y and /OE). `Pm.PinPool` moves single nets, and a hard `Pm.PinGroup` moves a block
    to any run of consecutive pins in pool order, so it can shift a gate by one pin; nothing restricts a block to the
