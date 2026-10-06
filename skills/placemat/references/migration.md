@@ -20,6 +20,11 @@ section for each hand-written pattern a newer form replaces.
   mean time of the routes done so far once there is one), a new `explore_search_done` event carries the same as fields,
   and the studio's explore time reads `of 15:00, then routes`. The explore's start event carries `route`. Scripts
   need no change.
+- **An explore says when its time passes with variants still finishing.** A variant begun before the `--explore`
+  time runs to its end and is kept, as before, so a search could run well past its time without a word. Now when
+  the time passes with variants in hand the console says which and when each began, an `explore_budget_passed`
+  event carries `t`, `budget` and `finishing` (`{seed, started}`), and the studio's explore view shows
+  `time passed, finishing #41, #42` in yellow. Nothing is stopped. Scripts need no change.
 
 ## To 0.99.25
 

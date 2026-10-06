@@ -165,7 +165,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .xv .xctl button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 #cmdbar .xline { font-weight: 500; }
 #cmdbar .xnote { font-weight: 500; }
-#cmdbar .xwarn { font-weight: 500; color: var(--sev-warning); }
+#cmdbar .xwarn, .xv .xwarn { font-weight: 500; color: var(--sev-warning); }
 #cmdbar .xline > span { display: inline-block; margin-right: 12px; white-space: nowrap; }
 .row.cmd.step .l2 { white-space: normal; overflow: visible; }
 #cmdbar .cbt { font-weight: 600; }
@@ -3066,6 +3066,7 @@ function cmdEvent(ev, n) {
   else if (ev.ev === "variant") { xvAdd(ev); }
   else if (ev.ev === "explore_done") { if (S.xv) { S.xv.done = ev; schedule("runs"); } }
   else if (ev.ev === "explore_route") { if (S.xv) { const rs = S.xv.routes = S.xv.routes || []; if (!rs.some(r => r.seed === ev.seed)) rs.push(ev); schedule("runs"); } }
+  else if (ev.ev === "explore_budget_passed") { if (S.xv) { S.xv.budgetPassed = ev; schedule("runs"); renderCmdBar(); } }
   else if (ev.ev === "explore_search_done") { if (S.xv) { S.xv.searchDone = ev; schedule("runs"); renderCmdBar(); } }
   V.next = Math.max(V.next || 0, (n || 0) + 1);
   if (ev.ev === "route_commit" || ev.ev === "route_rip") {            // a route commits copper many times a second: the drawing follows at a few frames a second
@@ -3206,13 +3207,13 @@ async function openCmd(id) {
     S.xv = null;
     for (const ev of d.events) cmdEvent(ev, 0);
     if (d.plan) cmdEvent(d.plan, 0);
-    if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v, true); S.xv.routes = (d.explore.routes || []).slice(); S.xv.searchDone = d.explore.search_done || null; if (d.explore.done) S.xv.done = d.explore.done; xvDrawNow(); }
+    if (d.explore) { xvStart("cmd", id, d.explore.start); for (const v of d.explore.variants) xvAdd(v, true); S.xv.routes = (d.explore.routes || []).slice(); S.xv.searchDone = d.explore.search_done || null; S.xv.budgetPassed = d.explore.budget_passed || null; if (d.explore.done) S.xv.done = d.explore.done; xvDrawNow(); }
     S.cmdView.next = d.events.length;
     looking();
     S.opening = null;
     for (const b of op.buf) {                         // what arrived meanwhile and the command's copy did not have: events of its log past the copy's end, a plan, a variant
       const k = b.ev.ev;
-      if (k.startsWith("route_") || (k === "explore" ? S.xv : !["plan", "variant", "explore_route", "explore_search_done", "explore_done"].includes(k) && b.n < d.events.length)) continue;
+      if (k.startsWith("route_") || (k === "explore" ? S.xv : !["plan", "variant", "explore_route", "explore_budget_passed", "explore_search_done", "explore_done"].includes(k) && b.n < d.events.length)) continue;
       cmdEvent(b.ev, b.n);
     }
     renderCmdBar(); schedule("all");
@@ -3855,7 +3856,7 @@ function xvInfo(X) {
   const base = X.start.baseline;
   return {focus: X.start.focus || [], tried: tried.length, seeds: X.start.seeds || null, seed: last ? last.seed : null, base, best, delta: best && base != null ? best.score - base : null,
     elapsed, budget: X.source === "cmd" && X.start.seconds ? X.start.seconds * 1000 : 0, running, done: X.done, ended: c && !running && !X.done ? c.state : "",
-    route: !!X.start.route && !X.done, searchDone: running ? X.searchDone || null : null, routeMean: xvRouteMean(X)};
+    route: !!X.start.route && !X.done, searchDone: running ? X.searchDone || null : null, routeMean: xvRouteMean(X), finishing: running ? xvFinishing(X) : []};
 }
 // With --route-best the routes in hand and waiting when the search ends are finished after it: the explore's time is the search's, and the
 // run can last past it. The only measure of how long is the routes done so far.
@@ -3863,6 +3864,10 @@ function xvRouteMean(X) {
   const ss = (X.routes || []).filter(r => !r.error && r.seconds != null).map(r => r.seconds);
   return ss.length ? ss.reduce((a, b) => a + b, 0) / ss.length : null;
 }
+// The time passed with variants in hand: they run to their end and are kept. Those not landed yet, as a warning (not an error).
+const xvFinishing = X => X.budgetPassed && !X.searchDone ? X.budgetPassed.finishing.filter(f => !X.seeds.has(f.seed)) : [];
+const xvFinishingHTML = I => I.finishing.length ? '<span class="xwarn" title="' + esc("the explore's time has passed; variants started before it run to their end and are kept: " +
+  I.finishing.map(f => seedWord({seed: f.seed}) + " from " + fmtDur(1000 * f.started)).join(", ")) + '">time passed, finishing ' + esc(I.finishing.map(f => seedWord({seed: f.seed})).join(", ")) + "</span>" : "";
 const xvRoutesPast = I => I.route && I.budget ? ", then routes" : "";
 const xvRoutesTip = I => !I.route ? "" : "; the routes in hand and waiting when the search ends are finished after it, so the explore may run past its time" +
   (I.routeMean != null ? "; the routes so far took " + fmtDur(1000 * I.routeMean) + " each on average" : "");
@@ -3878,7 +3883,7 @@ function xvLine(X) {
   return '<span class="xline" title="' + esc(tip) + '"><span>variants ' + fx(4, I.tried) + (I.seeds ? " of " + I.seeds : "") + "</span>" +
     (rec ? "<span>best variant " + fx(5, seedWord(I.best)) + "</span>" : "<span>seed " + fx(5, I.seed != null ? "#" + I.seed : "-") + "</span>") +
     "<span>best " + fx(6, f1(I.best && I.best.score)) + " of " + fx(6, f1(I.base)) + "</span><span>time " + fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) + xvRoutesPast(I) : "") + "</span>" +
-    (I.searchDone ? "<span>search done, routing " + esc(xvWaitsFor(I.searchDone)) + "</span>" : "") + "</span>";
+    xvFinishingHTML(I) + (I.searchDone ? "<span>search done, routing " + esc(xvWaitsFor(I.searchDone)) + "</span>" : "") + "</span>";
 }
 // A past explore's board, when it is not the best's own: the run's board with the focused items moved to the best (the others as the run
 // placed them, its copper where it was laid), the items that could not be moved, or no board at all.
@@ -4093,7 +4098,7 @@ function exploreHTML() {
     cell("variants", fx(4, I.tried) + (I.seeds ? " of " + I.seeds : " tried"), I.seeds ? "variants landed, of the seeds this explore has" : "variants landed: the explore runs for its time, with no fixed number") +
     cell("seed", fx(5, I.seed != null ? "#" + I.seed : "-"), "the seed of the variant that landed last") + cell("baseline", fx(6, f1(base)), "the score of the plain placement; lower is better") +
     cell("best", fx(6, f1(best && best.score)) + ' <span class="dim">' + esc(seedWord(best) + (I.delta != null ? ", " + (I.delta === 0 ? "level" : f1d(I.delta)) : "")) + "</span>", "the best score so far, its seed and its distance from the baseline") +
-    cell("time", fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) + xvRoutesPast(I) : ""), "time spent, of the time the explore was given" + xvRoutesTip(I)) + "</div>";
+    cell("time", fx(5, fmtDur(I.elapsed)) + (I.budget ? " of " + fmtDur(I.budget) + xvRoutesPast(I) : "") + (I.finishing.length ? " " + xvFinishingHTML(I) : ""), "time spent, of the time the explore was given" + xvRoutesTip(I)) + "</div>";
   const recent = vs.filter(v => v.seed !== 0).slice(-6).reverse().map(v => { const d = base != null ? v.score - base : null; return '<div class="xl' + (v === best ? " best" : "") + '" data-xr="' + vs.indexOf(v) + '"><span>' + seedWord(v) + "</span><span>" + f1(v.score) + "</span><span class=\"" + (d != null && d < 0 ? "add" : "dim") + '">' + (d == null ? "" : d === 0 ? "level" : f1d(d)) + "</span></div>"; }).join("");
   return '<div class="xv"><div class="xh">' + (I.running ? '<i class="spin"></i>' : "") + "<h3>Explore</h3>" + rowStateChip(st[0], st[1]) + "</div>" + fields + plot +
     '<div class="xshow dim">Board: ' + (X.auto ? "best so far, " + seedWord(best) + ", changes when a better one lands" : seedWord(shown) + ", picked") + "</div>" +

@@ -53,3 +53,39 @@ def test_the_deadline_is_kept():
     r = explore(_make, FOCUS, seconds=2, jobs=2)
     assert time.time() - t0 < 2 + 10          # the deadline, plus a variant in flight and process start
     assert r.tried >= 2
+
+
+def test_when_the_time_passes_with_variants_in_flight_they_finish_and_the_explore_says_which(tmp_path, monkeypatch, capsys):
+    from placemat import channel, explore as ex
+    from tests import explore_boards as eb
+    sent = []
+
+    class Rep:
+        def send(self, ev):
+            sent.append(ev)
+    monkeypatch.setattr(channel, "current", lambda: Rep())
+    r = explore(eb.Recording(tmp_path / "pids", delay=8.0), eb.FOCUS, seconds=6, jobs=2)
+    (passed,) = [e for e in sent if e["ev"] == "explore_budget_passed"]
+    assert passed["budget"] == 6 and passed["t"] >= 6
+    seeds = [f["seed"] for f in passed["finishing"]]
+    assert seeds and all(0 <= f["started"] < 6 for f in passed["finishing"])
+    landed = [e["seed"] for e in sent if e["ev"] == "variant"]
+    assert set(seeds) <= set(landed) and r.tried == 1 + len(landed)                # kept: they ran to the end and count
+    names = [e["ev"] for e in sent]
+    assert all(names.index("explore_budget_passed") < i for i, e in enumerate(sent) if e["ev"] == "variant" and e["seed"] in seeds)
+    line = ex.budget_passed_line(passed)
+    assert line in capsys.readouterr().out and line.startswith("  the explore's time, 6 s, has passed; ")
+
+
+def test_the_budget_line_names_each_variant_still_finishing_and_when_it_began():
+    from placemat.explore import budget_passed_line
+    line = budget_passed_line({"t": 900.2, "budget": 900, "finishing": [{"seed": 41, "started": 782.0}, {"seed": 42, "started": 840.0}]})
+    assert line == "  the explore's time, 15 min, has passed; 2 variants started before it are finishing: seed 41 from 13 min 2 s in, seed 42 from 14 min in"
+
+
+def test_an_explore_of_fixed_seeds_has_no_time_to_pass(monkeypatch):
+    from placemat import channel
+    sent = []
+    monkeypatch.setattr(channel, "current", lambda: type("R", (), {"send": lambda self, ev: sent.append(ev)})())
+    explore(_make, FOCUS, seconds=0.001, jobs=2, seeds=range(0, 4))
+    assert not [e for e in sent if e["ev"] == "explore_budget_passed"]

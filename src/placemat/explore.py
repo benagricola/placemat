@@ -367,6 +367,20 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                               "error": {"type": "WorkerDied", "message": "the routing worker %s before this route "
                                         "finished" % why}})
         rs["inflight"] = rs["pending"] = None
+    flight = {}                                     # worker -> (seed, its start time): the variants in hand
+    passed = []
+
+    def budget_check():
+        """Once the time is up with variants in hand, say which: a worker takes no seed past the deadline but finishes the
+        one it has, and its work is kept. Nothing is stopped. Not for fixed seeds (no deadline) or a stop rule's end."""
+        if passed or order is not None or fired or not flight or time.time() < deadline:
+            return
+        ev = {"t": round(spent + time.time() - t0, 1), "budget": seconds,
+              "finishing": [{"seed": s, "started": round(spent + st - t0, 1)} for s, st in sorted(flight.values())]}
+        passed.append(ev)
+        console.say("explore", budget_passed_line(ev))
+        if rep is not None:
+            rep.send({"ev": "explore_budget_passed", **ev})
     try:
         for pr in procs:
             pr.start()
@@ -379,8 +393,11 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                       "at": t0, "route": routing is not None})
 
         def take(msg):
-            if msg[0] == "end":
+            if msg[0] == "start":
+                flight[msg[1]] = (msg[2], msg[3])
+            elif msg[0] == "end":
                 ended.add(msg[1])
+                flight.pop(msg[1], None)
             elif msg[0] == "route":
                 routed(msg[1], msg[2])
             elif msg[0] == "rend":
@@ -390,6 +407,8 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                 console.say("explore", "worker %d raised: %s" % (msg[1], failures[-1].splitlines()[-1]), level="fail")
             else:
                 _, seed, total, m, payload, dt, extra = msg
+                for k in [k for k, (s, _) in flight.items() if s == seed]:
+                    del flight[k]
                 results[seed] = (seed, total, m)
                 now = spent + time.time() - t0
                 better = note(seed, total, now)
@@ -408,6 +427,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                         fired.append(rule.detail(why, now))
                         halt.value = 1
         while len(ended) < len(procs):
+            budget_check()
             try:
                 take(out.get(timeout=1.0))
                 continue
@@ -580,6 +600,7 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, pa
                     break
                 seed = gaps[k] if k < len(gaps) else top + 1 + k - len(gaps)
             t0 = time.time()
+            out.put(("start", idx, seed, t0))              # the parent says which are still finishing when the time passes
             with _context_of(make_board):
                 b = make_board()
                 p = b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
@@ -1193,6 +1214,15 @@ def route_line(r: dict) -> str:
     return at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s" % (
         100 * r["closure_clean"], 100 * r["closure"], r["open_after"], duration(r["seconds"]),
         "" if r.get("valid", True) else "; the placement's DRC was not clean before routing")
+
+
+def budget_passed_line(ev: dict) -> str:
+    """The explore's time passed with variants in hand (the `explore_budget_passed` event): they run to their end and are
+    kept, and this names each and when it began."""
+    n = len(ev["finishing"])
+    return "  the explore's time, %s, has passed; %d variant%s started before it %s finishing: %s" % (
+        duration(ev["budget"]), n, "" if n == 1 else "s", "is" if n == 1 else "are",
+        ", ".join("seed %d from %s in" % (f["seed"], duration(f["started"])) for f in ev["finishing"]))
 
 
 def search_done_line(ev: dict) -> str:

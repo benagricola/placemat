@@ -5,7 +5,7 @@ for as long as it runs, on `<project root>/.placemat/sockets/<pid>.sock`, with `
 command, script, arguments, started, label, the path of its progress file). Readers - the studio, `placemat watch`, an
 agent - look in that folder and connect to whichever they want. One that connects mid-run is sent a catch-up first
 (`hello`, the board, the steps and the plan so far) and then the live events, newline-delimited JSON: `hello`, `resolve`,
-`board`, `item`, `begin`, `plan`, for an explore `explore`, `variant`, `explore_route`, `explore_search_done` and `explore_done`, for a probe of a searched suggestion `probe`, `candidate` and `probe_done`, and at the end `done` (the
+`board`, `item`, `begin`, `plan`, for an explore `explore`, `variant`, `explore_route`, `explore_budget_passed`, `explore_search_done` and `explore_done`, for a probe of a searched suggestion `probe`, `candidate` and `probe_done`, and at the end `done` (the
 record's path) or `error`.
 
 What is sent is records, never sentences: an event is numbers, names, enums and the facts of what happened (a step's `notes`, an
@@ -233,7 +233,7 @@ def compact(ev: dict):
         return {k: v for k, v in ev.items() if k != "doc"}
     if kind == "variant":
         return {k: ev[k] for k in ("ev", "seed", "score", "t") if k in ev}
-    if kind in ("explore_route", "explore_search_done"):
+    if kind in ("explore_route", "explore_search_done", "explore_budget_passed"):
         return dict(ev)
     if kind in ("probe", "candidate", "probe_done"):
         return {k: v for k, v in ev.items() if k not in ("candidates",) or kind == "probe"}
@@ -601,6 +601,8 @@ def describe(ev: dict) -> str:
         return "variant seed %s score %s" % (ev.get("seed"), ev.get("score"))
     if kind == "explore_done":
         return "explore done: best %s of baseline %s, kept %s" % (ev.get("best"), ev.get("baseline"), ev.get("kept"))
+    if kind == "explore_budget_passed":
+        return "explore: its time has passed; finishing %s" % ", ".join("seed %s" % f.get("seed") for f in ev.get("finishing", ()))
     if kind == "explore_search_done":
         return "explore: the search is over; routing %s" % ", ".join(
             ["seed %s" % s for s in ev.get("in_hand", ())] + ["seed %s waiting" % s for s in ev.get("waiting", ())])

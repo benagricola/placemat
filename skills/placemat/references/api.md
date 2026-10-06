@@ -4384,6 +4384,14 @@ hint - fixed, edge, line and rim items never vary.
 every searched item. A focus with nothing in it says so and searches
 nothing.
 
+**The time.** A search job takes no new seed once `--explore SECONDS` has passed, but a variant it has begun runs to
+its end and is kept, so the search can last up to one variant past its time (minutes each on a large board). When the
+time passes with variants in hand the explore says so (`the explore's time, 15 min, has passed; 2 variants started before
+it are finishing: seed 41 from 13 min 2 s in, seed 42 from 14 min in`) and sends an `explore_budget_passed` event (`t`, the
+seconds into the explore; `budget`, the time given; `finishing`, a list of `{seed, started}`, `started` in seconds into
+the explore). Nothing is stopped. The studio's explore view shows `time passed, finishing #41, #42` in yellow beside
+its time, each variant leaving the list as it lands. An explore of fixed seeds has no time to pass.
+
 **Judging a variant.** By the run score (Commands), with the worst congestion
 cell (RUDY) added in steps of `[explore] congestion_step` at
 `score.congestion` each: the measure that agreed with the router in the

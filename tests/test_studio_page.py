@@ -3538,3 +3538,26 @@ ev("S.xv.start.route = false"); ev("renderRuns()"); out.plain = els["#tab-runs"]
     assert "Search done after 15:00: routing #3" in d and "the routes so far took 5:00 each on average" in d
     assert "search done, routing #3" in out["doneBar"]
     assert "then routes" not in out["plain"]
+
+
+@needs_node
+def test_an_explore_past_its_time_says_so_in_yellow_and_names_the_variants_finishing(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+send("cmd", {id: 8, pid: 1, command: "run", script: "/p/x.py", args: ["run", "--explore", "900"], started: clock / 1000, state: "running", items: 0, variants: 0});
+ev("S.cmdView = {id: 8, plan: S.docs.get(S.shownId).doc, summary: {id: 8, command: 'run', script: '/p/x.py', pid: 1}, next: 0}");
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore", focus: ["a"], plain: {a: [2, 2, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2, seconds: 900, at: clock / 1000, route: true}});
+send("cmdev", {id: 8, n: 0, ev: {ev: "explore_budget_passed", t: 900.2, budget: 900, finishing: [{seed: 41, started: 782}, {seed: 42, started: 840}]}});
+ev("renderRuns()"); out.passed = els["#tab-runs"].innerHTML; out.bar = ev("xvLine(S.xv)");
+send("cmdev", {id: 8, n: 0, ev: {ev: "variant", seed: 41, score: 8, measures: {}, placements: {a: [6, 2, 0, "front"]}, order: ["a"], t: 1150}});
+ev("renderRuns()"); out.one = els["#tab-runs"].innerHTML;
+send("cmdev", {id: 8, n: 0, ev: {ev: "variant", seed: 42, score: 9, measures: {}, placements: {a: [5, 2, 0, "front"]}, order: ["a"], t: 1160}});
+ev("renderRuns()"); out.none = els["#tab-runs"].innerHTML;
+""")
+    p = out["passed"]
+    warn = re.compile(r'<span class="xwarn" title="([^"]*)">time passed, finishing #41, #42</span>')
+    m = warn.search(p)
+    assert m and "then routes" in p and "#41 from 13:02, #42 from 14:00" in m.group(1) and "kept" in m.group(1)
+    assert warn.search(out["bar"])
+    assert ">time passed, finishing #42</span>" in out["one"] and "finishing #41" not in out["one"]
+    assert "finishing" not in out["none"]
