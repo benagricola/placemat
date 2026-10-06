@@ -13,7 +13,9 @@ the obstacle on the hull's inside (A* over a visibility graph of the pads'
 and the obstacles' vertices); a pad left outside the result, in the pocket
 between the edge and its path, becomes a waypoint of that edge and the paths
 are drawn again. An outline that crosses itself or closes up, or an obstacle
-left standing inside it, has no way round: there is no fit.
+left standing inside it, has no way round: there is no fit - except a via's or
+a plated-through pad's (`Piece.hole`), which the fit hands back (`Fit.holes`)
+for the plan to cut out of the outline as a clearance hole.
 
 Pure geometry: nothing here knows pcbnew or the plan.
 """
@@ -149,10 +151,11 @@ def offset(points, d: float) -> tuple:
 class Piece:
     """A convex clearance outline: a polygon (counter-clockwise) and what to
     call the copper it came from."""
-    __slots__ = ("poly", "what", "left", "top", "right", "bottom", "edges")
+    __slots__ = ("poly", "what", "left", "top", "right", "bottom", "edges", "hole")
 
-    def __init__(self, poly, what: dict):
+    def __init__(self, poly, what: dict, hole: bool = False):
         self.poly, self.what = tuple(poly), what
+        self.hole = hole            # a via's or a plated-through pad's: standing wholly inside, it is cut out as a hole
         xs, ys = [p[0] for p in poly], [p[1] for p in poly]
         self.left, self.right, self.top, self.bottom = min(xs), max(xs), min(ys), max(ys)
         edges = []
@@ -323,6 +326,7 @@ class Fit:
     piece: Piece | None = None        # the copper in the way
     pads: tuple = ()                  # the pads it stands between (labels)
     necks: list = field(default_factory=list)   # (gap, (x, y)) where the outline narrows
+    holes: tuple = ()                 # the pieces (each `hole`) standing wholly inside the outline, to cut out of it
 
 
 def _clean(path) -> list:
@@ -580,11 +584,14 @@ def fit(holds, pieces, margin: float = 0.0) -> Fit:
                 x = outline[i]
                 pc = min(owners, key=lambda b: math.hypot(b.centre()[0] - x[0], b.centre()[1] - x[1])) if owners else None
                 return Fit(problem="no way", piece=pc, pads=_flanking(pc, verts, *_ends(h, pc)) if pc else ())
-    for pc in near:
+    def between(pc) -> tuple:
         c = pc.centre()
-        if _inside(outline, c) and _edge_gap(outline, c) > _TOL:
-            ranked = sorted(verts.items(), key=lambda kv: math.hypot(kv[0][0] - c[0], kv[0][1] - c[1]))
-            return Fit(problem="enclosed", piece=pc, pads=tuple(dict.fromkeys(l for _, l in ranked))[:2])
+        ranked = sorted(verts.items(), key=lambda kv: math.hypot(kv[0][0] - c[0], kv[0][1] - c[1]))
+        return tuple(dict.fromkeys(l for _, l in ranked))[:2]
+    inside = [pc for pc in near if _inside(outline, pc.centre()) and _edge_gap(outline, pc.centre()) > _TOL]
+    for pc in inside:
+        if not pc.hole:
+            return Fit(problem="enclosed", piece=pc, pads=between(pc))
     necks = _necks(outline, [poly for _, poly in holds])
     pinched = [nk for nk in necks if nk[0] < _TOL]
     if pinched:
@@ -592,7 +599,8 @@ def fit(holds, pieces, margin: float = 0.0) -> Fit:
         owners = [owner[p] for p in outline if p in owner]
         pc = min(owners, key=lambda b: math.hypot(b.centre()[0] - x[0], b.centre()[1] - x[1])) if owners else None
         return Fit(problem="no way", piece=pc, pads=_flanking(pc, verts, *_ends(h, pc)) if pc else ())
-    return Fit(outline=tuple((round(x, 6), round(y, 6)) for x, y in outline), necks=necks)
+    return Fit(outline=tuple((round(x, 6), round(y, 6)) for x, y in outline), necks=necks, holes=tuple(inside),
+               pads=between(inside[0]) if inside else ())
 
 
 def edge_pieces(loops, r: float, sag: float, box) -> list:

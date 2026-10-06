@@ -195,8 +195,8 @@ def test_a_cells_via_standing_in_the_pours_way_is_named_as_that_cells_via_at_its
                                 pads=tuple(dataclasses.replace(p, outlines=(rect(28.9 + 0.65 * i, 42.0, 0.35, 0.75),),
                                                                box=Box.of_points(rect(28.9 + 0.65 * i, 42.0, 0.35, 0.75)))
                                            for i, p in enumerate(other.pads)))
-    o = rect(8.0, ROW_Y, 1.7, 1.7)
-    pin2 = PadGeom("J1", "j1", "3", "VB", FOUR, (rect(14.0, ROW_Y, 1.7, 1.7),), Box.of_points(rect(14.0, ROW_Y, 1.7, 1.7)),
+    o = rect(8.0, ROW_Y, 1.7, 1.3)            # so low that a hole round the via would cut the pour in two
+    pin2 = PadGeom("J1", "j1", "3", "VB", FOUR, (rect(14.0, ROW_Y, 1.7, 1.3),), Box.of_points(rect(14.0, ROW_Y, 1.7, 1.3)),
                    True, 1.0)
     pin = dataclasses.replace(_pin(), pads=(PadGeom("J1", "j1", "2", "VB", FOUR, (o,), Box.of_points(o), True, 1.0), pin2),
                               body_box=Box(6.5, 28.5, 15.5, 31.5))
@@ -209,7 +209,7 @@ def test_a_cells_via_standing_in_the_pours_way_is_named_as_that_cells_via_at_its
     b.pour(Net("VB"), [PadRef(Part("j1"), 2), PadRef(Part("j1"), 3)], layer=IN2, swallow_pads=True)
     plan = b.resolve()
     assert not _pours(plan)
-    (f,) = [f for f in plan.findings if f.facts.get("variant") == "pour_enclosed"]
+    (f,) = [f for f in plan.findings if f.facts.get("variant") == "pour_hole"]
     what = f.facts["what"]
     assert what["form"] == "via" and what["net"] == "G" and what["at"] == pytest.approx([11.0, ROW_Y])
     assert "the m cell's via G at (11.00, 30.00)" in str(f), str(f)

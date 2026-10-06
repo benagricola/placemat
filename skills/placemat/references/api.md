@@ -3214,6 +3214,18 @@ finding names where, and the pour is drawn. A pad that is on another net, or
 has no copper on the pour's layer and no via joining it there, is a finding
 and the pour is not drawn.
 
+A via or a plated-through pad of another net that is on the board when the
+pour is fitted and stands wholly inside its outline is the exception: it is
+cut out of the pour as a clearance hole, as KiCad's zone filler cuts one
+(the clearance outline subtracted, features under `[copper] plane_min_width`
+pruned, the polygon fractured). The pour is drawn only where, with its holes,
+it still meets its need: with `reach=Reach.CURRENT` its current (read along
+one side of a hole, so on the safe side), otherwise one piece that joins every
+member. Where it does not, it is not drawn and a finding names the via or pad,
+and with `Reach.CURRENT` the width, the need and the copper at the neck. Any
+other copper standing inside, a track or an SMD pad, refuses the pour as
+before. The pour is still fixed graphic copper: the router does not cross it.
+
 A fitted pour's members may be vias as well as pads: what `board.via()` and
 `board.vias()` return (a `vias()` result counts as all its vias) and an
 escape lane's `.via`. A via counts on the pour's layer when its span includes

@@ -27,6 +27,19 @@ section for each hand-written pattern a newer form replaces.
              layer=CopperLayer.IN3, swallow_pads=True, reach=Reach.CURRENT)
   ```
 
+- **A fitted pour cuts a hole round another net's via inside it.** A via or a plated-through pad of another net
+  standing wholly inside a fitted pour's outline refused the pour ("... stands between pads ... with no way round it").
+  It is now cut out as a clearance hole, as KiCad's zone filler cuts one, and the pour is drawn where it still meets
+  its need with the hole: `Reach.CURRENT` its current, otherwise one piece joining every member. Where it does not, a
+  `pour_hole` finding names the via and why. A track or an SMD pad inside still refuses it. Scripts need no change;
+  a pour that was refused for a via inside may now be drawn:
+
+  ```python
+  # before: refused, a 3V3 via between the two pins; after: drawn with a hole round the via
+  board.pour(Net("VIN"), [PadRef(Part("j_in"), 1), PadRef(Part("j_out"), 1)], layer=CopperLayer.IN2,
+             swallow_pads=True)
+  ```
+
 ## To 0.99.24
 
 ### New

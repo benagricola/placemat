@@ -723,6 +723,12 @@ _NOT_DRAWN = {
         f["net"], _blocker(f), f["noun"], _between(f)),
     "pour_no_way": lambda f: "pour %s: %s leaves no way between %ss %s; the pour is not drawn" % (
         f["net"], _blocker(f), f["noun"], _between(f)),
+    "pour_hole": lambda f: ("pour %s: %s stands inside it between %s; with a clearance hole round it %s; the pour is not "
+                            "drawn" % (f["net"], _blocker(f), _between(f),
+                                       "it falls apart or leaves a member" if f["reason"] == "split" else
+                                       "it narrows to %.2f mm at (%.2f, %.2f), where %g A needs %.2f mm at a %g C rise%s" % (
+                                           f["width_mm"], f["at"][0], f["at"][1], f["amps"], f["need_mm"], f["rise_c"],
+                                           "; %s stands there" % _blocker({"what": f["there"]}) if f.get("there") else ""))),
     "pour_no_area": lambda f: "pour %s: its pads leave no area to fit; the pour is not drawn" % f["net"],
     "pour_no_reach": lambda f: "pour %s: reach= leaves no copper joined to its pads; the pour is not drawn" % f["net"],
     "pour_carriers": lambda f: "pour %s: reach=Reach.CURRENT sizes the pour for the current between two of its parts, and %s "
