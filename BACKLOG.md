@@ -298,6 +298,14 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Past any obstacle, copper.edge, route stages per clearance, new checks**
+  (0.99.21): Past off cutouts, edge runs, parts, cells and labels;
+  copper.edge for copper nearer the outline or a cutout than KiCad's
+  copper-to-edge; copper.meets on holes; nets of a wider clearance class
+  route in a stage per clearance so the rest route at the Default;
+  escape.pinched and pins.reversed; a cell's rules read in declared order;
+  a soft pin group may start reversed.
+
 - **Studio replay and pin views, pin rules kept, fixes** (0.99.19): replay
   draws copper at the step that lays it, with a speed select and step
   back/on; 3D Solid fills spread layers; a pin map finding's rotations are a
