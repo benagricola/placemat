@@ -156,6 +156,7 @@ a `.kicad_mod` or loading pcbnew.
 |---|---|---|
 | what the parts are called, where they are, the totals | `placemat parts <board>` | Commands |
 | how a long command is going (or how one that died ended) | `placemat watch [PID\|LABEL]` | Live progress |
+| how a detached command ended, once it has | `placemat watch PID --summary` | Live progress |
 | a pad's copper box, net, centre and pin name | `placemat measure <board> <part> --pads` | Commands |
 | a footprint's pads before it is on a board | `placemat measure <path>.kicad_mod --pads` | Commands |
 | which item sets each side of a part's drawn envelope | `placemat measure <board> <part> --envelope` | Commands |
@@ -3343,9 +3344,9 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 ## Commands
 
 ```
-placemat run <script | its directory> [--label L] [--fresh] [--no-reuse] [--no-resume] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
+placemat run <script | its directory> [--label L] [--fresh] [--no-reuse] [--no-resume] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]] [--detach]
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH][@LAYER,...] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--no-resume] [--json]
-               [--adopt NET ... | --adopt-all] [--partial] [--no-lock]
+               [--adopt NET ... | --adopt-all] [--partial] [--no-lock] [--detach]
 placemat routes <script> [--release NET ... | --release-all]
 placemat impact <run> <run> [--board DIR]      # each a run id, a unique id prefix, a --label, or a run directory or run.json path
 placemat drc <layout.kicad_pcb> [--json]
@@ -3477,7 +3478,7 @@ running DRC or rendering it:
 placemat preview <script> [--svg] [--face front|back|both] [--out DIR]
                  [--zoom X0,Y0,X1,Y1 | --around PART [--margin MM]]
                  [--no-heat] [--no-links] [--no-copper] [--no-tags]
-                 [--max-time S] [--step-warn S] [--step-limit S]
+                 [--max-time S] [--step-warn S] [--step-limit S] [--detach]
 ```
 
 `--max-time`, `--step-warn` and `--step-limit` bound how long the placement takes (see "Bounding the time", under
@@ -4116,13 +4117,48 @@ socket for as long as it runs (Linux and macOS):
 
 ```
 placemat watch [<pid|label>] [--json]
+placemat watch <pid|label> --summary [--json]
 ```
 
 follows one command or all of them in the project, a line per event (`--json`: the events as sent), and exits when they
-end: 0 done, 1 error, 2 died (its last state is printed from its trail) or not found. A line reads `ble: searching, rank 3 of 12` when an item
+end: 0 done, 1 error (a stop among them), 2 died (its last state is printed from its trail) or not found. A line reads `ble: searching, rank 3 of 12` when an item
 begins, `ble: refining around the best spots, 2 of 3, 12.4 s` for a phase (the seconds are the step's so far), `ble part, 31.2 s: moved 0.4 mm`
 when it settles and `ble: still working after 30.4 s (--step-warn 30 s) in the refine pass 2 of 3` for a slow step. Written for an agent that starts a long
 job detached and then follows it; the studio's Runs view reads the same sockets.
+
+`--summary` prints nothing until the command ends, then its outcome, with the same exit codes. It is built from what the
+command left, never its printed text: the last `done` or `error` in its trail, the run's `run.json` (the `done` event's
+record; for a run that failed, the one beside its trail; for one that failed before its first resolve, the run folder
+naming its pid) and the explore's report (`metrics.explore` in `run.json`, `failure.explore` for a stopped run, else the
+`explore_done` event and the explore's record). It says how the command ended (or the error, as `watch` says it); for an
+explore the variants, the time, the best seed and its score against the baseline, the scores after each variant's pin
+remap when it was ranked by them, each route's closure and the seed the routes took, and whether it was accepted (or the
+`placemat lock ... --accept-seed N` that accepts it); for a run its id and status, the DRC counts with the unconnected,
+outstanding, airwires, crossings and congestion, the run score by term, the findings' count, the run folder and the
+record; and the log of a detached command. With `--json` it is one object: `pid`, `command`, `script`, `label`, `log`,
+`ended` (`done`, `error`, `died`, `not_found`), `error` (the event), `record`, `run` (`id`, `status`, `dir`, `failure`,
+`findings`, `drc_real`, `unconnected`, `outstanding`, `airwire_mm`, `crossings`, `congestion`, `score`, `terms`) and
+`explore` (`tried`, `seconds`, `baseline`, `best`, `best_seed`, `taken_seed`, `baseline_remapped`, `best_remapped`,
+`accepted`, `accept`, `stopped`, `record`, `moves` as a count, `routes`). A label names the live command with it, else
+the newest detached one. The wait looks once a second whether the pid is still alive.
+
+### Detached commands
+
+```
+placemat run|preview|route ... --detach [--json]
+```
+
+starts the same command, with the same arguments less `--detach`, in a session of its own (setsid, stdin from
+/dev/null), its stdout and stderr to `<project root>/.placemat/detached/<pid>.log`, and returns at once. It prints the
+pid, the label when `--label` gave one, the log and `placemat watch <pid> --summary`; `--json` prints the entry it
+writes beside the log as `<pid>.json` (`pid`, `command`, `args`, `script`, `label`, `log`, `started`, `cwd`, and
+`entry`, its path). `--json` is passed on too, so the log holds the command's JSON. The run's id is not known yet
+(it is taken once the board is generated); the summary names it. The pid is the command's own: its socket is
+`<pid>.sock`, `watch` takes it, and a SIGTERM to it stops the command as in the foreground, keeping its work (an
+explore's variants for `--resume`, the run's record). The child gets the environment less KIPRJMOD (childenv.child_env),
+the display kept, as a command run in the foreground has it. The explore's flags are checked before it starts. The
+entries and logs of ended commands beyond the newest 20 are deleted at the next `--detach`. `run`, `preview` and `route`
+take it: the commands a stop keeps the work of.
 
 ## Studio
 
@@ -4570,7 +4606,15 @@ them, any variant the explore tried (seed 0, the placement it began from, is
 refused, naming `lock --current`), but only while the lock is unchanged since
 that explore began: once `--accept` or an `--accept-seed` has written the
 lock, its other seeds are refused (`the lock changed since that explore
-began`) and a new explore is needed. A rerun
+began`) and a new explore is needed. The script's part of the digest is of
+its code and its imports' code, without comments, docstrings, layout or line
+numbers (the reuse keys leave a declaration's line out too), and the header
+and `best.json` keep each file's as `script_files`: an edit to a comment or a
+docstring leaves the explore acceptable and resumable, and a change to the
+code is refused naming the files (`the script's code changed since that
+explore began: helper.py changed; explore again`, with `now imported` and `no
+longer imported` for a module added or dropped). An explore saved before this
+digest is accepted while the script's text is unchanged. A rerun
 with the same digest continues: `resuming a saved explore: N variants in T s
 so far`, the baseline from the header, the untried seeds only, `SECONDS` less
 the time already spent (a fixed list of seeds: those not tried). `--resume`

@@ -788,15 +788,77 @@ class BoardFactory:
 
 
 # ------------------------------------------------------------ search and accept
-def _script_digest(script) -> str:
-    """What the script is, for a saved explore to say it still is: its text,
-    its imports and its lock and routes files (project.script_fingerprint)."""
+def _code_of(text: str) -> str:
+    """A Python file's code as its syntax tree, without its comments, its docstrings, its layout or its line numbers: what
+    the reuse keys leave out of a declaration too (its `line` is not what it decides). Its text when it does not parse."""
+    import ast
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return text
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and body and \
+                isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+            node.body = body[1:]
+    return ast.dump(tree)
+
+
+def _script_code(script) -> dict:
+    """{file: digest of its code (`_code_of`)} for the script and the modules it imports (project.script_files, less its
+    lock and routes files), each named relative to the script's folder."""
+    import os
+    from . import checkpoint
+    from .project import script_files
+    script = Path(script).resolve()
+    skip = {script.with_name(script.stem + ".lock.json"), script.with_name(script.stem + ".routes.json")}
+    try:
+        return {os.path.relpath(p, script.parent): checkpoint.sha(_code_of(p.read_text(errors="replace")))
+                for p in script_files(script) if p not in skip}
+    except OSError:
+        return {}
+
+
+def _script_digest(script, code: dict | None = None) -> str:
+    """What the script is, for a saved explore to say it still is: the code of it and its imports (`_script_code`), so an
+    edit to a comment or a docstring is the same script. "" when it cannot be read."""
+    from . import checkpoint
+    import json
+    code = _script_code(script) if code is None else code
+    return checkpoint.sha(json.dumps(code, sort_keys=True)) if code else ""
+
+
+def _text_digest(script) -> str:
+    """The script's digest as earlier releases saved it, of its text (project.script_fingerprint): such an explore is
+    still accepted while the text is unchanged."""
     from . import checkpoint
     from .project import script_fingerprint
     try:
         return checkpoint.sha(script_fingerprint(script, with_lock=False))
     except OSError:
         return ""
+
+
+class ScriptChanged(ValueError):
+    """The code of a saved explore's script, or of a module it imports, changed since the explore began. `changed`,
+    `added` and `removed` are the files, relative to the script's folder; all empty for an explore saved before its
+    files' digests were kept."""
+
+    def __init__(self, changed=(), added=(), removed=()):
+        self.changed, self.added, self.removed = sorted(changed), sorted(added), sorted(removed)
+        super().__init__(script_changed_text(self.facts()))
+
+    def facts(self) -> dict:
+        return {"changed": self.changed, "added": self.added, "removed": self.removed}
+
+
+def script_changed_text(facts: dict) -> str:
+    """What a ScriptChanged says, as a person reads it."""
+    parts = [("%s changed" % ", ".join(facts["changed"])) if facts["changed"] else "",
+             ("%s now imported" % ", ".join(facts["added"])) if facts["added"] else "",
+             ("%s no longer imported" % ", ".join(facts["removed"])) if facts["removed"] else ""]
+    said = "; ".join(p for p in parts if p)
+    return "the script's code changed since that explore began%s; explore again" % ((": " + said) if said else "")
 
 
 def _parts(script, base, make_board, entries, focus) -> dict:
@@ -886,7 +948,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     ck = None
     if checkpoint_dir is not None:
         ck = _checkpoint.Checkpoint(checkpoint_dir, _parts(script, base, make_board, entries, focus), focus, resume,
-                                    base.settings.explore_checkpoint_max_variants)
+                                    base.settings.explore_checkpoint_max_variants, script_files=_script_code(script))
     on = base.settings.explore_route_best if route_best is None else bool(route_best)
     routing = Routing(Path(variants_dir), tuple(route_exclude), route_resume, router) \
         if on and variants_dir is not None else None
@@ -1109,8 +1171,11 @@ def accept_best(script, directory, release: str = "", run_id: str = "", seed: in
     if _checkpoint.lock_digest(entries) != doc["lock"]:
         raise ValueError("the lock changed since that explore began; explore again (or --resume once it is "
                          "the same lock)")
-    if doc["script"] != _script_digest(script):
-        raise ValueError("the script changed since that explore began; explore again")
+    code = _script_code(script)
+    if doc["script"] not in (_script_digest(script, code), _text_digest(script)):
+        was = doc.get("script_files") or {}
+        raise ScriptChanged([f for f in code if f in was and was[f] != code[f]] if was else [],
+                            [f for f in code if f not in was] if was else [], [f for f in was if f not in code])
     new = [_lock.LockEntry(**{**e, "anchor": tuple(e["anchor"]) if e["anchor"] is not None else None,
                               "offset": tuple(e["offset"]), "release": release, "run": run_id,
                               "score": round(doc["score"], 1)}) for e in doc["entries"]]
