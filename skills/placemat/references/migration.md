@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **DRC and the renders run alongside the checks.** Once the board is written, `placemat run` starts kicad-cli's DRC
+  and renders and runs the design checks while they work, so those stages take the time of the longest rather than the
+  sum: a measured core board's run went from 109 s to 83 s on average on a loaded machine. `run.json`, the console lines and the exit status are as before; each stage's `timing_s` is its own time,
+  so they add up to more than the run took. A run with arrangements still renders after them. The setting
+  `run.parallel` (default true) turns it off, for a loaded machine: `[run] parallel = false`. Scripts need no change.
+
 ## To 0.99.22
 
 ### Fixed

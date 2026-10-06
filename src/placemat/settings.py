@@ -55,7 +55,7 @@ SECTIONS = {
     "explore": "the time-boxed search of the placer's own choices (`--explore`): variation, workers, checkpoint, stopping rules",
     "pins": "the pin map study: what may move on a part with a `Pm.PinPool`, how a map is scored and searched, and when it is a finding",
     "route": "routing a copy of the board with KiCadRoutingTools",
-    "run": "how long `placemat run` and `preview` may take: a cap on the command and on one step (off by default; a flag of the same name wins). Not part of a run's id",
+    "run": "how long `placemat run` and `preview` may take: a cap on the command and on one step (off by default; a flag of the same name wins), and whether a run's last stages work alongside each other. Not part of a run's id",
     "timeout": "how long each external tool may run before it is given up on",
     "noise": "KiCad stderr lines to suppress, added to the built-ins",
     "best": "judging a run against the best of its family: how much a measure may move before it counts",
@@ -392,6 +392,8 @@ class Settings:
         "a step still working after this many seconds sends a live event and gets a finding naming the item, its seconds and the pass it was in; 0 is never. `--step-warn`")
     run_step_limit_s: float = S(0.0, "seconds",
         "a step still working after this many seconds gives up: it is left unplaced, or at the best legal spot its scan had found, with a finding, and the resolve goes on with the next item; checked between a scan's passes; 0 is never. `--step-limit`. Wall-clock, so which steps give up depends on machine load, unlike a candidate budget; such a step is searched again by the next run")
+    run_parallel: bool = S(True, "bool",
+        "`run` starts kicad-cli's DRC and renders as soon as the board is written and runs the design checks while they work, so those stages take the time of the longest rather than the sum (a measured core board's run, 109 s -> 83 s on a loaded machine); the renders use several cores meanwhile. false runs them one after another. The run's record is the same either way, but for the stages' times")
     timeout_generate: int = S(900, "seconds",
         "seconds for `pcb layout`")
     timeout_drc: int = S(600, "seconds",

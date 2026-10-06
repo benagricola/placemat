@@ -601,150 +601,176 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         copy_board(src.pcb, run_dir)
         say("board", "written %s (%.1fs)" % (src.pcb.relative_to(src.board_dir), rec.timing_s["write"]))
 
-        if plan.seeded_by_net:
-            top = plan.seeded_by_net.most_common(4)
-            more = len(plan.seeded_by_net) - len(top)
-            say("seeded", ", ".join("%s %d" % kv for kv in top) + (", +%d more" % more if more else ""))
-        if getattr(plan, "rudy", None) is not None:
-            r = plan.rudy
-            say("congestion", "worst cell %.2f of capacity at (%.1f, %.1f), 99th percentile %.2f (RUDY, %.1f mm cells)" % (
-                r.worst, r.worst_at.x, r.worst_at.y, r.p99, r.cell))
-        if plan.footprints:
-            say("footprints", "%d courtyard(s) understate their part: %s%s" % (
-                len(plan.footprints), "; ".join(plan.footprints[:8]), "; ..." if len(plan.footprints) > 8 else ""))
-        if plan.pocketed:
-            say("pocketed", "%d item(s) had no room by what they connect to and took a pocket: %s" % (
-                len(plan.pocketed), ", ".join(plan.pocketed[:8]) + (", ..." if len(plan.pocketed) > 8 else "")))
-        reuse_mod.write(run_dir / "reuse.json", plan.reuse)
-        partial.remove()                    # the whole record is written: the partial one is not needed
-        line = reuse_mod.summary(plan.reuse, previous_reuse, "run %s" % previous_id)
-        if line:
-            say("reused", line[len("reused "):])
-        metrics = run_metrics(plan, n_place, n_copper, extent_metrics)
-        from . import score as score_mod
-        metrics["measures"] = score_mod.plan_measures(board, plan)
-        if explored is not None:
-            metrics["explore"] = explored
-        if plan.adopted:
-            metrics["adopted"] = dict(plan.adopted)
-        held = explore_mod.lock_summary(plan)
-        if held:
-            say("lock", held)
-        kept = routes_mod.summary(plan)
-        if kept:
-            say("adopted", kept)
-        metrics["resolve_seconds"] = round(plan.seconds, 3)
-        if plan.pin_study:
-            from .pinmap import study_line
-            metrics["pin_study"] = dict(plan.pin_study)
-            say("pins", study_line(plan.pin_study))
-        if previous_reuse:
-            metrics["reused"] = {"steps": plan.reuse["reused"], "of": len(plan.reuse["steps"]),
-                                 "from": previous_id, "first_change": plan.reuse["first_change"]}
-        if drc:
-            t0 = time.time()
-            stage = "drc"
+        # DRC and the renders read only the board as written: with run.parallel they start now, each a kicad-cli a thread waits
+        # on, and work while the checks do. Their results are taken where they come in sequence (overlap.py).
+        from . import overlap
+        background = overlap.Background(cfg.run_parallel)
+        try:
             # KiCad's rule area has no allow list: what a keepout lets in is set aside.
             allow = {"keepout %s" % k.name: (set(k.owners), set(k.allow)) for k in plan.keepouts.values()}
-            report = run_drc(src.pcb, run_dir / "drc.json", allow=allow, frame_only=not plan.draw_outline)
-            quiet = set(board._plane_nets()) | set(board._free_nets)
-            from .pairs import board_pairs
-            aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()), quiet,
-                                   board_pairs(board.geometry.netclasses))
-            free = plan.occupancy.free_area()
-            metrics.update(drc_metrics(report, aw, free))
-            # KiCad's own ratsnest and DRC replace the plan's estimates in the score
-            metrics["measures"].update(drc=_drc_total(metrics), airwire_mm=aw["total_mm"],
-                                       crossings={"signal": aw["crossings"] - aw["crossings_quiet"],
-                                                  "plane": aw["crossings_quiet"],
-                                                  "pair": aw.get("crossings_pair", 0)})
-            cong = metrics["congestion"]
-            rec.timing_s["drc"] = round(time.time() - t0, 1)
-            say("check", "%s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (
-                report.summary(), aw["count"], aw["total_mm"], aw["crossings"],
-                "-" if cong is None else "%.2f/cm2" % cong, rec.timing_s["drc"]))
-            busiest = list(aw["crossings_per_net"].items())[:5]
-            if busiest:
-                say("check", "crossings by net: " + ", ".join("%s %d" % kv for kv in busiest))
-        # The design checks, on the board as written: the same judgement as
-        # `placemat check`, so a failed hot loop or an over-temperature part
-        # is in the run record rather than in a command nobody ran.
-        rec.metrics = metrics                 # the checks count into this same dict
-        t0 = time.time()
-        stage = "checks"
-        written = read_board(src.pcb)
-        check_kwargs = checks.kwargs_from(cfg)
-        verdicts, outcomes = checks.judge(checks.run_checks(written, **check_kwargs), plan.acceptances)
-        for line in checks.record(rec, verdicts, outcomes):
-            say("checks", line)
-        stale = checks.findings_of(outcomes) + checks.keep_out_findings(written, check_kwargs["keep_out_mm"])  # after the finding lines printed above: said here, kept in run.json
-        plan.findings.extend(stale)
-        from . import suggestions as suggestions_mod
-        suggestions_mod.bind(plan.findings, board)
-        for f in stale:
-            console.finding(f)
-        rec.timing_s["checks"] = round(time.time() - t0, 1)
-        if len(declared.specs) > 1 or board.arrangement_limit() is not None:
-            t0 = time.time()
-            stage = "arrangements"
-            outcome = arrangement_run.finish(declared, plan, others, src=src, cfg=cfg, fab=fab, run_dir=run_dir,
-                                             default_report=report if drc else None, board=board, drc=drc, render=render)
-            rec.arrangements = outcome.record
-            plan.findings.extend(outcome.findings)
-            if outcome.texts:
-                from .kicad.arrange import write_notes
-                write_notes(src.pcb, outcome.texts)
-                copy_board(src.pcb, run_dir)
-            from .finding_text import arrangement_row_text
-            for row in arrangement_run.lines(outcome.record):
-                say("arrangements", arrangement_row_text(row))
-            rec.timing_s["arrangements"] = round(others_s + time.time() - t0, 1)     # their resolves and their proofs
-        if route:
-            from .kicad.route import route_board
-            t0 = time.time()
-            stage = "route"
-            say("route", "%s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
-            try:                                    # the placement as the studio draws it: the build replay's first half (the route's record is its second)
-                from .preview_json import declared_sites, plan_json
-                (run_dir / "plan.json").write_text(json.dumps(plan_json(plan, declared_sites(board)), separators=(",", ":")))
-            except Exception as e:                  # a courtesy: the run goes on without it
-                say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
-            report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
-                                 quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)},
-                                 on_setup=lambda fs: [console.finding(f, "route") for f in fs])
-            if report.resumed:
-                say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
-                    ", ".join(report.resumed))
-            metrics["route"] = report.as_dict()
-            metrics["closure_clean"] = report.closure_clean
-            rec.timing_s["route"] = round(time.time() - t0, 1)
-            say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
-            for breach in report.keepout_breaches:
-                say("route", breach, level="finding")
-            if report.has_findings():
-                from .findings import FindingCause
-                from .kicad.route_widths import stated_currents
-                short = report.findings(stated_currents(read_board(src.pcb)) if report.widths else {})
-                plan.findings.extend(short)
-                for f in short:
-                    if f.cause is not FindingCause.SETUP_NET_HALO:    # said before the route started
-                        console.finding(f, "route")
-            if report.open_nets:
-                worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
-                say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))
-        if render:
-            t0 = time.time()
-            stage = "render"
-            render_board(src.pcb, run_dir / "render.log", both_faces=getattr(board, "both_faces", False))
-            rec.timing_s["render"] = round(time.time() - t0, 1)
-            say("render", "%s  (%.1fs)" % (", ".join(p.name for p in src.layout_dir.glob("layout*.png")), rec.timing_s["render"]))
-            metrics["renders_from"] = rec.run_id
-        else:
-            kept = [n for n in _RENDERS if (src.layout_dir / n).exists()]
+            drc_job = background.start(lambda run: run_drc(src.pcb, run_dir / "drc.json", allow=allow,
+                                                           frame_only=not plan.draw_outline, run=run)) if drc else None
+            arranging = len(declared.specs) > 1 or board.arrangement_limit() is not None
+
+            def start_render():
+                return background.start(lambda run: render_board(src.pcb, run_dir / "render.log",
+                                                                 both_faces=getattr(board, "both_faces", False), run=run))
+            # the arrangements stage writes its notes into the board after the checks: with it, the render waits for them
+            render_job = start_render() if render and not arranging else None
+            if plan.seeded_by_net:
+                top = plan.seeded_by_net.most_common(4)
+                more = len(plan.seeded_by_net) - len(top)
+                say("seeded", ", ".join("%s %d" % kv for kv in top) + (", +%d more" % more if more else ""))
+            if getattr(plan, "rudy", None) is not None:
+                r = plan.rudy
+                say("congestion", "worst cell %.2f of capacity at (%.1f, %.1f), 99th percentile %.2f (RUDY, %.1f mm cells)" % (
+                    r.worst, r.worst_at.x, r.worst_at.y, r.p99, r.cell))
+            if plan.footprints:
+                say("footprints", "%d courtyard(s) understate their part: %s%s" % (
+                    len(plan.footprints), "; ".join(plan.footprints[:8]), "; ..." if len(plan.footprints) > 8 else ""))
+            if plan.pocketed:
+                say("pocketed", "%d item(s) had no room by what they connect to and took a pocket: %s" % (
+                    len(plan.pocketed), ", ".join(plan.pocketed[:8]) + (", ..." if len(plan.pocketed) > 8 else "")))
+            reuse_mod.write(run_dir / "reuse.json", plan.reuse)
+            partial.remove()                    # the whole record is written: the partial one is not needed
+            line = reuse_mod.summary(plan.reuse, previous_reuse, "run %s" % previous_id)
+            if line:
+                say("reused", line[len("reused "):])
+            metrics = run_metrics(plan, n_place, n_copper, extent_metrics)
+            from . import score as score_mod
+            metrics["measures"] = score_mod.plan_measures(board, plan)
+            if explored is not None:
+                metrics["explore"] = explored
+            if plan.adopted:
+                metrics["adopted"] = dict(plan.adopted)
+            held = explore_mod.lock_summary(plan)
+            if held:
+                say("lock", held)
+            kept = routes_mod.summary(plan)
             if kept:
-                metrics["renders_from"] = renders_from
-                say("render", "not rendered: %s kept from %s, the board as that run placed it" % (
-                    ", ".join(kept), "run %s" % renders_from if renders_from else "an earlier run"))
+                say("adopted", kept)
+            metrics["resolve_seconds"] = round(plan.seconds, 3)
+            if plan.pin_study:
+                from .pinmap import study_line
+                metrics["pin_study"] = dict(plan.pin_study)
+                say("pins", study_line(plan.pin_study))
+            if previous_reuse:
+                metrics["reused"] = {"steps": plan.reuse["reused"], "of": len(plan.reuse["steps"]),
+                                     "from": previous_id, "first_change": plan.reuse["first_change"]}
+
+            def judge_written():
+                """The design checks' verdicts on the board as written (pcbnew, so the main thread's), and their seconds."""
+                t0 = time.time()
+                written = read_board(src.pcb)
+                check_kwargs = checks.kwargs_from(cfg)
+                verdicts, outcomes = checks.judge(checks.run_checks(written, **check_kwargs), plan.acceptances)
+                stale = checks.findings_of(outcomes) + checks.keep_out_findings(written, check_kwargs["keep_out_mm"])
+                return verdicts, outcomes, stale, time.time() - t0
+            judged = None
+            if background.parallel and (drc_job is not None or render_job is not None):
+                stage = "checks"
+                judged = judge_written()            # while DRC and the renders work; said below, where the checks come
+            if drc:
+                stage = "drc"
+                report = drc_job.result()
+                t0 = time.time()
+                quiet = set(board._plane_nets()) | set(board._free_nets)
+                from .pairs import board_pairs
+                aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()), quiet,
+                                       board_pairs(board.geometry.netclasses))
+                free = plan.occupancy.free_area()
+                metrics.update(drc_metrics(report, aw, free))
+                # KiCad's own ratsnest and DRC replace the plan's estimates in the score
+                metrics["measures"].update(drc=_drc_total(metrics), airwire_mm=aw["total_mm"],
+                                           crossings={"signal": aw["crossings"] - aw["crossings_quiet"],
+                                                      "plane": aw["crossings_quiet"],
+                                                      "pair": aw.get("crossings_pair", 0)})
+                cong = metrics["congestion"]
+                rec.timing_s["drc"] = round(drc_job.seconds + time.time() - t0, 1)
+                say("check", "%s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (
+                    report.summary(), aw["count"], aw["total_mm"], aw["crossings"],
+                    "-" if cong is None else "%.2f/cm2" % cong, rec.timing_s["drc"]))
+                busiest = list(aw["crossings_per_net"].items())[:5]
+                if busiest:
+                    say("check", "crossings by net: " + ", ".join("%s %d" % kv for kv in busiest))
+            # The design checks, on the board as written: the same judgement as
+            # `placemat check`, so a failed hot loop or an over-temperature part
+            # is in the run record rather than in a command nobody ran.
+            rec.metrics = metrics                 # the checks count into this same dict
+            stage = "checks"
+            verdicts, outcomes, stale, judge_s = judged or judge_written()
+            t0 = time.time()
+            for line in checks.record(rec, verdicts, outcomes):
+                say("checks", line)
+            plan.findings.extend(stale)             # after the finding lines printed above: said here, kept in run.json
+            from . import suggestions as suggestions_mod
+            suggestions_mod.bind(plan.findings, board)
+            for f in stale:
+                console.finding(f)
+            rec.timing_s["checks"] = round(judge_s + time.time() - t0, 1)
+            if arranging:
+                t0 = time.time()
+                stage = "arrangements"
+                outcome = arrangement_run.finish(declared, plan, others, src=src, cfg=cfg, fab=fab, run_dir=run_dir,
+                                                 default_report=report if drc else None, board=board, drc=drc, render=render)
+                rec.arrangements = outcome.record
+                plan.findings.extend(outcome.findings)
+                if outcome.texts:
+                    from .kicad.arrange import write_notes
+                    write_notes(src.pcb, outcome.texts)
+                    copy_board(src.pcb, run_dir)
+                from .finding_text import arrangement_row_text
+                for row in arrangement_run.lines(outcome.record):
+                    say("arrangements", arrangement_row_text(row))
+                rec.timing_s["arrangements"] = round(others_s + time.time() - t0, 1)     # their resolves and their proofs
+            if route:
+                from .kicad.route import route_board
+                t0 = time.time()
+                stage = "route"
+                say("route", "%s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
+                try:                                    # the placement as the studio draws it: the build replay's first half (the route's record is its second)
+                    from .preview_json import declared_sites, plan_json
+                    (run_dir / "plan.json").write_text(json.dumps(plan_json(plan, declared_sites(board)), separators=(",", ":")))
+                except Exception as e:                  # a courtesy: the run goes on without it
+                    say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
+                report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
+                                     quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)},
+                                     on_setup=lambda fs: [console.finding(f, "route") for f in fs])
+                if report.resumed:
+                    say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
+                        ", ".join(report.resumed))
+                metrics["route"] = report.as_dict()
+                metrics["closure_clean"] = report.closure_clean
+                rec.timing_s["route"] = round(time.time() - t0, 1)
+                say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
+                for breach in report.keepout_breaches:
+                    say("route", breach, level="finding")
+                if report.has_findings():
+                    from .findings import FindingCause
+                    from .kicad.route_widths import stated_currents
+                    short = report.findings(stated_currents(read_board(src.pcb)) if report.widths else {})
+                    plan.findings.extend(short)
+                    for f in short:
+                        if f.cause is not FindingCause.SETUP_NET_HALO:    # said before the route started
+                            console.finding(f, "route")
+                if report.open_nets:
+                    worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
+                    say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))
+            if render:
+                stage = "render"
+                render_job = render_job or start_render()
+                render_job.result()
+                rec.timing_s["render"] = round(render_job.seconds, 1)
+                say("render", "%s  (%.1fs)" % (", ".join(p.name for p in src.layout_dir.glob("layout*.png")), rec.timing_s["render"]))
+                metrics["renders_from"] = rec.run_id
+            else:
+                kept = [n for n in _RENDERS if (src.layout_dir / n).exists()]
+                if kept:
+                    metrics["renders_from"] = renders_from
+                    say("render", "not rendered: %s kept from %s, the board as that run placed it" % (
+                        ", ".join(kept), "run %s" % renders_from if renders_from else "an earlier run"))
+        finally:
+            background.close()
         rec.metrics = metrics
         rec.placements = placements_record(plan)
         rec.cutouts = {n: {"x": c.centre.x, "y": c.centre.y, "rotation": c.rotation}
