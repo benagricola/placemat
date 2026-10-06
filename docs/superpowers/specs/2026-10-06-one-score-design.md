@@ -69,9 +69,9 @@ change: it moves placements. It is measured on the bench before it is adopted (s
 - **Restarts and explore:** they rank by the loop's ordering (phases, then the clean closure, then the run score).
   Congestion becomes a run-score term, no longer explore's addition.
 - **The pin study:** its map search keeps its own incremental counter (pinmap.rs `Tally::delta`), but with the
-  run-score crossing and wire definitions and weights. It runs after refine. Refine owns poses, and the study judges a
-  remap, alone or with a turn the remap needs, by the run-score change of the two together (refine spec, "The pin study
-  after refine").
+  run-score crossing and wire definitions and weights. It runs inside coarse refine, for each pose tried. Refine owns poses, and the study judges a
+  remap, alone or with a turn the remap needs, by the run-score change of the two together (refine spec, "The pin study,
+  in coarse refine").
 - **Cleanup's score:** removed with cleanup.
 
 ## Gate
