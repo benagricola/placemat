@@ -101,6 +101,15 @@ section for each hand-written pattern a newer form replaces.
   part beside a turned fan at exactly the lanes' old pitch (a bypass a lane's width off the row, say) may now see the
   outer lanes blocked by it (`escape_lane`, `copper` findings); stand the part that much further off.
 
+- **The pin map study starts a soft group reversed when its targets lie in reverse.** The first map laid a soft
+  `Pm.PinGroup` whole on a run of pins only in its written order, though an intact group costs the same either way.
+  Where the order that does not cross was the reverse (a part turned 45 degrees, say), the default search seldom
+  undid the crossings, and the advised map could score worse than the uncrossed one by the study's own total. The
+  first map now tries each run in both orders and takes the cheaper; at equal cost the written order wins, so a part
+  whose groups are all hard, or whose soft groups gain nothing reversed, gets the map it got before. A hard group
+  (`name!`) keeps its written order. A part with a soft group may now be advised a different map.
+  Scripts need no change.
+
 ## To 0.99.20
 
 ### Fixed

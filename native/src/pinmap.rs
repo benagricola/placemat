@@ -17,10 +17,11 @@
 //!   the part's pads turned with it, after the fixed wires in the order a segment meets its candidates.
 //! - Incremental: a net's airwires, its crossings with the background and with each other net are kept per placing of
 //!   its ends, so a move recounts only the nets it touches.
-//! - Search: a first map (each hard group, then each soft group, on the cheapest run of pins that leaves the rest a
-//!   matching, then a minimum-cost matching), then per seed `moves` moves, swaps and group moves (a soft group's too)
-//!   under annealing from `t0` down to `t1`. The random stream is SplitMix64, the twin's. At the present pose the
-//!   present map is a candidate too, when every net of it stands on a pin it may take.
+//! - Search: a first map (each hard group, then each soft group, written or reversed, on the cheapest run of
+//!   pins that leaves the rest a matching, then a minimum-cost matching), then per seed `moves` moves, swaps and
+//!   group moves (a soft group's too) under annealing from `t0` down to `t1`. The random stream is SplitMix64, the
+//!   twin's. At the present pose the present map is a candidate too, when every net of it stands on a pin it may
+//!   take.
 //! - Budget: the search stops when it has taken `budget_steps` steps, a step being one move of a local search (tried
 //!   whether or not a legal change came of it, and whether or not it was taken), checked before each move and before
 //!   each pose. It never reads the time, so where it stops is the same on any machine and on either core.
@@ -728,7 +729,8 @@ fn legal(pb: &Problem, assign: &[Pins]) -> bool {
 }
 
 /// `pinmap_twin.first_map`: a hard group no window of which fits stays where it stands only when its nets may take
-/// those pins; else no map is legal, and its first barred net is the problem.
+/// those pins; else no map is legal, and its first barred net is the problem. A soft group's window is tried written
+/// and reversed, the reverse where its movables may take those pins.
 fn first_map(sc: &mut Scorer, group_parts: &[usize], start: &[Pins]) -> (Vec<Pins>, Vec<(usize, usize)>) {
     let pb = sc.pb;
     let mut assign = start.to_vec();
@@ -796,29 +798,36 @@ fn first_map(sc: &mut Scorer, group_parts: &[usize], start: &[Pins]) -> (Vec<Pin
                 .map(|m| (m.0, m.1 as usize)).collect();
             let rest: Vec<usize> = singles.iter().copied()
                 .filter(|k| !placed.contains(k) && !mine.iter().any(|&(_, mv)| mv == *k)).collect();
-            let mut ranked: Vec<(f64, usize)> = Vec::new();
-            for (wi, win) in windows.iter().enumerate() {
-                if mine.iter().any(|&(slot, _)| used.contains(&win[slot])) {
-                    continue;
+            // each window in its written order (rev 0) and reversed (rev 1); at equal cost written ranks first
+            let mut ranked: Vec<(f64, usize, usize, Vec<usize>)> = Vec::new();
+            for (wi, written) in windows.iter().enumerate() {
+                for rev in 0..2 {
+                    let win: Vec<usize> = if rev == 0 { written.clone() } else { written.iter().rev().copied().collect() };
+                    if mine.iter().any(|&(slot, _)| used.contains(&win[slot])) {
+                        continue;
+                    }
+                    if rev == 1 && mine.iter().any(|&(slot, mv)| !pb.movable[mv].2.contains(&win[slot])) {
+                        continue;
+                    }
+                    let mut c = 0.0;
+                    for &(slot, mv) in &mine {
+                        c += target_cost(sc, mv, win[slot], &assign);
+                    }
+                    c += sc.w[5] * spread_at(pb, g, |mv| match mine.iter().find(|m| m.1 == mv) {
+                        Some(&(slot, _)) => win[slot],
+                        None => assign[pb.movable[mv].0][pb.movable[mv].1],
+                    }, true);
+                    ranked.push((c, rev, wi, win));
                 }
-                let mut c = 0.0;
-                for &(slot, mv) in &mine {
-                    c += target_cost(sc, mv, win[slot], &assign);
-                }
-                c += sc.w[5] * spread_at(pb, g, |mv| match mine.iter().find(|m| m.1 == mv) {
-                    Some(&(slot, _)) => win[slot],
-                    None => assign[pb.movable[mv].0][pb.movable[mv].1],
-                }, true);
-                ranked.push((c, wi));
             }
-            ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-            for (_, wi) in &ranked {
+            ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+            for (_, _, _, win) in &ranked {
                 let mut trial = used.clone();
-                trial.extend(mine.iter().map(|&(slot, _)| windows[*wi][slot]));
+                trial.extend(mine.iter().map(|&(slot, _)| win[slot]));
                 if matching(sc, &rest, &trial, &assign).1.is_some() {
                     used = trial;
                     for &(slot, mv) in &mine {
-                        changes.insert(mv, windows[*wi][slot]);
+                        changes.insert(mv, win[slot]);
                         placed.insert(mv);
                     }
                     break;
@@ -1208,6 +1217,20 @@ mod tests {
         assert_eq!((base.2, out, first, problems.len()), (6, false, true, 0));
         assert_eq!(results[0].1 .2, 0);
         assert_eq!(results[0].2, vec![vec![3], vec![2], vec![1], vec![0]]);
+    }
+
+    /// A soft group of the four, written north to south: the first map lays it reversed, uncrossed.
+    #[test]
+    fn the_first_map_lays_a_soft_group_reversed_when_its_targets_lie_in_reverse() {
+        let mut pb = reversed_four();
+        pb.soft = vec![(0, 1.0, (0..4).map(|i| (i, i as i64, -1)).collect(), vec![vec![0, 1, 2, 3]])];
+        let w = [5.0, 3.0, 0.0, 0.25, 0.005, 1.0];
+        let bg = Background::new(&pb.wires, w);
+        let mut sc = Scorer::new(&pb, vec![Pose::new(10.0, 10.0, 0.0, false)], w, &bg, &[0]);
+        let present: Vec<Pins> = pb.ends.iter().map(|e| e.iter().map(|x| x.1).collect()).collect();
+        let (start, probs) = first_map(&mut sc, &[0], &present);
+        assert!(probs.is_empty());
+        assert_eq!(start, vec![vec![3], vec![2], vec![1], vec![0]]);
     }
 
     #[test]

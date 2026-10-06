@@ -20,10 +20,11 @@ poses, returns the best assignment of the movable nets to pins with its tallies:
   the part's pads turned with it, after the fixed wires in the order a segment meets its candidates;
 - incremental: a net's airwires, its crossings with the background and its crossings with each other net are kept per
   placing of its ends, so a move recounts only the nets it touches;
-- search: a first map (each hard group, then each soft group, on the cheapest run of pins that leaves the rest a
-  matching, then a minimum-cost matching), then per seed `moves` moves, swaps and group moves (a soft group's too)
-  under annealing from `t0` down to `t1`. A group's empty slots are reserved where it stands: no single net takes
-  one. At the present pose the present map is a candidate too, when every net of it stands on a pin it may take;
+- search: a first map (each hard group, then each soft group, written or reversed, on the cheapest run of
+  pins that leaves the rest a matching, then a minimum-cost matching), then per seed `moves` moves, swaps and
+  group moves (a soft group's too) under annealing from `t0` down to `t1`. A group's empty slots are reserved where
+  it stands: no single net takes one. At the present pose the present map is a candidate too, when every net of it
+  stands on a pin it may take;
 - budget: the search stops when it has taken `budget_steps` steps, a step being one move of a local search (tried
   whether or not a legal change came of it, and whether or not it was taken), checked before each move and before each
   pose. It never reads the time, so where it stops is the same on any machine and on either core;
@@ -564,7 +565,8 @@ def first_map(sc: Scorer, group_parts, start: list) -> tuple:
     its nets may take those pins, else its first barred net is the problem), then each soft group's movables whole on
     its cheapest window that leaves the rest a matching (its target costs and `group` times the gaps there beside its
     held members, which stay on their pins; when none fits, they stay singles), then the singles by minimum-cost
-    matching."""
+    matching. A soft group's window is tried in its written order and reversed, where its movables may take the
+    reversed pins; at equal cost every written window ranks before every reversed one."""
     pb = sc.pb
     assign = list(start)
     problems = []
@@ -613,23 +615,26 @@ def first_map(sc: Scorer, group_parts, start: list) -> tuple:
             mine = [(slot, mv) for slot, mv, _ in members if mv >= 0 and mv not in placed]
             rest = [k for k in singles if k not in placed and k not in {mv for _, mv in mine}]
             ranked = []
-            for wi, win in enumerate(windows):
-                if any(win[slot] in used for slot, _ in mine):
-                    continue
-                c = 0.0
-                for slot, mv in mine:
-                    c += _target_cost(sc, mv, win[slot], assign)
-                slot_of = {mv: slot for slot, mv in mine}
-                c += sc.w[5] * spread_at(pb, g, lambda mv: win[slot_of[mv]] if mv in slot_of else
-                                         assign[pb.movable[mv][0]][pb.movable[mv][1]], held_only=True)
-                ranked.append((c, wi))
-            ranked.sort(key=lambda t: (total_order(t[0]), t[1]))
-            for _, wi in ranked:
-                taken = {windows[wi][slot] for slot, _ in mine}
+            slot_of = {mv: slot for slot, mv in mine}
+            for wi, written in enumerate(windows):
+                for rev, win in ((0, written), (1, written[::-1])):
+                    if any(win[slot] in used for slot, _ in mine):
+                        continue
+                    if rev and any(win[slot] not in pb.movable[mv][2] for slot, mv in mine):
+                        continue
+                    c = 0.0
+                    for slot, mv in mine:
+                        c += _target_cost(sc, mv, win[slot], assign)
+                    c += sc.w[5] * spread_at(pb, g, lambda mv: win[slot_of[mv]] if mv in slot_of else
+                                             assign[pb.movable[mv][0]][pb.movable[mv][1]], held_only=True)
+                    ranked.append((c, rev, wi, win))
+            ranked.sort(key=lambda t: (total_order(t[0]), t[1], t[2]))
+            for _, _, _, win in ranked:
+                taken = {win[slot] for slot, _ in mine}
                 if _matching(sc, rest, used | taken, assign)[1] is not None:
                     used |= taken
                     for slot, mv in mine:
-                        changes[mv] = windows[wi][slot]
+                        changes[mv] = win[slot]
                         placed.add(mv)
                     break
         singles = [k for k in singles if k not in placed]

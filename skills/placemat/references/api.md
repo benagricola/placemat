@@ -4575,7 +4575,8 @@ pool as listed, or stays where it stands. A name ending in `!!` is a
 
 **The search.** Per pose, a first map by minimum-cost matching (each group of
 `Pm.PinGroup`, hard or soft, starting whole on the run of pins nearest its
-targets), then `pins.seeds` local searches of `pins.anneal_moves` moves, swaps
+targets, a soft group in its written order or reversed, whichever is nearer),
+then `pins.seeds` local searches of `pins.anneal_moves` moves, swaps
 and whole-group moves under annealing. The score and
 the search run in the native module when it is in use, else in its Python
 twin, which gives the same maps (`setup.native` says when it is not). Parts
