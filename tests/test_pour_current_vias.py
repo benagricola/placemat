@@ -29,6 +29,7 @@ from tests.test_pour_reach import _footprint
 F, IN1, IN2, B = CopperLayer.F, CopperLayer.IN1, CopperLayer.IN2, CopperLayer.B
 FOUR = (F, IN1, IN2, B)
 AMPS = 3.0
+SHARE = AMPS / 2            # the receptacle's current shared by its two VBUS pads
 
 
 @pytest.fixture(autouse=True)
@@ -87,11 +88,12 @@ def _reading(plan, amps=AMPS):
 
 
 def test_a_pour_over_two_via_rows_is_drawn_and_sized_for_the_contacts_current():
+    """Each contact carries the receptacle's 3 A shared by its two VBUS pads: 1.5 A."""
     bare = _board()
     rows = _rows(bare)
     bare.pour(Net("VBUS"), list(rows), layer=IN2, swallow_pads=True)
-    narrow = _reading(bare.resolve())
-    assert narrow.width < narrow.need               # the hull over the rows alone is too narrow for 3 A
+    narrow = _reading(bare.resolve(), amps=SHARE)
+    assert narrow.width < narrow.need               # the hull over the rows alone is too narrow for 1.5 A
 
     b = _board()
     rows = _rows(b)
@@ -99,8 +101,8 @@ def test_a_pour_over_two_via_rows_is_drawn_and_sized_for_the_contacts_current():
     plan = b.resolve()
     assert not [f for f in declared_findings(plan) if f.startswith("pour")], plan.findings
     assert _pour(plan).layer is IN2
-    got = _reading(plan)
-    assert got.width >= got.need and got.amps == pytest.approx(AMPS)
+    got = _reading(plan, amps=SHARE)
+    assert got.width >= got.need and got.amps == pytest.approx(SHARE)
 
 
 def test_the_contacts_with_the_via_rows_are_drawn_too():
@@ -111,17 +113,17 @@ def test_the_contacts_with_the_via_rows_are_drawn_too():
            reach=Reach.CURRENT)
     plan = b.resolve()
     assert not [f for f in declared_findings(plan) if f.startswith("pour")], plan.findings
-    got = _reading(plan)
+    got = _reading(plan, amps=SHARE)
     assert got.width >= got.need
 
 
-def test_the_current_is_the_lesser_of_the_contacts_and_the_load():
+def test_the_current_is_the_parts_own_rating_shared_by_its_pads_whatever_the_load():
     b = _board(receptacle="3A", load="0.5A")
     b.pour(Net("VBUS"), list(_rows(b)), layer=IN2, swallow_pads=True, reach=Reach.CURRENT)
     plan = b.resolve()
     assert not [f for f in declared_findings(plan) if f.startswith("pour")], plan.findings
-    assert _reading(plan, amps=0.5).width >= _reading(plan, amps=0.5).need
-    assert _reading(plan).width < _reading(plan).need
+    got = _reading(plan, amps=SHARE)
+    assert got.width >= got.need and got.amps == pytest.approx(SHARE)
 
 
 def test_via_rows_out_of_a_part_that_carries_no_current_are_the_none_carries_finding():

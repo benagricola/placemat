@@ -2901,7 +2901,9 @@ class Board:
             return
         pours = [c for c in todo if c.key.startswith("pour ")]
         todo = [c for c in todo if c not in pours]
-        self._roomed |= {c.index for c in todo}
+        # a pour with a reach keeps no room: it gives way to what is placed, cut round it when it is planned
+        self._roomed |= {c.index for c in todo} | {c.index for c in pours if c.reach is not None}
+        pours = [c for c in pours if c.reach is None]
         got = self._dry_rooms(occ, plan, todo, room_ctx)
         for c in todo:      # a track it could not draw: the parts placed now are those it was refused with (its finding says so)
             if not any(isinstance(op, Track) for op in room_ctx.ops_at.get(c.index, ())):
@@ -7029,6 +7031,11 @@ class Board:
         self._copper_uses[intent.index] = tuple(v.index for v in vias)
         self._copper_after[intent.index] = tuple(v.index for v in vias)
         intent.reach = reach
+        if reach is not None:
+            # planned after the search, and keeping no room in it (_rooms_after): the room it grows into is what the
+            # placed items leave, so a cell's place, its keepout and vias with it, is the board's to decide and the pour
+            # gives way to it
+            self._late_copper.add(intent.index)
         return intent
 
     def _check_pour_via(self, name: str, it: CopperIntent):
@@ -7123,6 +7130,11 @@ class Board:
                     self.geometry.hole_clearance, {"form": "unplated", "who": occ._w(sh.owner)})
             elif layer in sh.layers and sh.net != net:
                 add(sh, occ.pair_clearance(net, sh.net, "", sh.owner)[0], _copper_name(occ, sh))
+        # the regions that bar a fill on the layer: the script's keepouts, the board's own rule areas and those of the cells
+        # placed so far, each held off by the stroke
+        for name, cell, poly in self._fill_bars(ctx, net, layer):
+            if Box.of_points(poly).overlaps(span, gap=half + slack):
+                pieces.extend(pourfit.pieces_of(poly, half + slack, sag, {"form": "keepout", "name": name, "cell": cell}))
         if occ.edge_margin is not None:
             pieces += pourfit.edge_pieces(_edge_loops(occ), occ.edge_margin + half + slack, sag, span)
         res = pourfit.fit(holds, pieces, half + self.settings.geometry_arc_sag)
@@ -7145,6 +7157,21 @@ class Board:
                 ctx.note(C.COPPER_NOTE, {"variant": "pour_narrow", "net": net, "width_mm": gap + stroke, "at": [x, y],
                                          "need_mm": need})
         return [res.outline]
+
+    def _fill_bars(self, ctx, net: str, layer: CopperLayer) -> list:
+        """[(name, cell or None, polygon)]: the regions that bar a fill of `net` on `layer` as the plan stands - the
+        script's keepouts placed so far, the generated board's own rule areas and those of the cells placed so far - where
+        their `allow=` does not name the net."""
+        out = []
+        for k in (ctx.plan.keepouts.values() if ctx.plan else ()):
+            if "fill" in k.excludes and net not in k.allow and (k.layers is None or layer in k.layers):
+                out.append((k.name, None, tuple(k.poly)))
+        areas = [(ra, ra.polygon, ra.layers) for ra in self.geometry.rule_areas if ra.cell is None and "fill" in ra.excludes]
+        areas += [a for got in ctx.occ.fill_areas.values() for a in got]
+        for ra, poly, layers in areas:
+            if net not in ra.allow and layer in layers:
+                out.append((ra.name, ra.cell, tuple(tuple(p) for p in poly)))
+        return out
 
     def _via_member_pads(self, occ, net: str, members, ops_at) -> dict:
         """The pads of `net` each via of a fitted pour's via `members` joins, {id(Via op): [(owner, number)]}:
@@ -7212,13 +7239,14 @@ class Board:
         carriers = {r: a for r, a in on_net.items() if r in have}
         by_pad = False
         if len(carriers) == 1:
-            # two pads of one carrier (a receptacle's two contacts): each pad is an end, at the current the
-            # check judges between that part and another carrier of the net
+            # two pads of one carrier (a receptacle's two contacts): each pad is an end, at the part's own rating
+            # shared by its pads on the net, whatever the rest of the net draws: two pads of a 3 A part carry 1.5 A each
             (ref, amps), = carriers.items()
             ends = sorted({"%s.%s" % (r, n) for r, n, _ in member_pads if r == ref})
             others = [a for r, a in on_net.items() if r != ref]
             if len(ends) >= 2 and others:
-                carriers, by_pad = {e: min(amps, max(others)) for e in ends}, True
+                share = len({p.number for p in self.geometry.footprint(ref).pads if p.net == net})
+                carriers, by_pad = {e: amps / share for e in ends}, True
         if len(carriers) < 2:
             ctx.note(C.COPPER_NOT_DRAWN, {"variant": "pour_carriers", "net": net, "carriers": sorted(carriers)[:1]})
             return []
@@ -12850,6 +12878,16 @@ def _escape_lane(fp, pad, pads, width: float, reach: float):
     return lane
 
 
+def _is_default(param, value) -> bool:
+    d = param.default
+    if d is param.empty or type(d) is not type(value):
+        return False
+    try:
+        return bool(d == value)
+    except Exception:                       # a value with no plain equality
+        return False
+
+
 def _declares_copper(fn):
     """A copper declaration's arguments, less its `why`, in reuse.canonical's form, for the intents it makes to carry
     (CopperIntent.form): a plan closure reads them, and canonical sees a closure as nothing but a function, so without
@@ -12865,7 +12903,9 @@ def _declares_copper(fn):
         except TypeError:
             return fn(self, *args, **kwargs)            # the declaration's own error
         from .reuse import canonical
-        self._declaring.append("%s%s" % (fn.__name__, canonical({k: v for k, v in given.items() if k not in ("self", "why")})))
+        # an argument given as its default digests as one left out, so spelling out a default replays as before
+        self._declaring.append("%s%s" % (fn.__name__, canonical({k: v for k, v in given.items() if k not in ("self", "why")
+                                                                 and not _is_default(sig.parameters[k], v)})))
         try:
             return fn(self, *args, **kwargs)
         finally:

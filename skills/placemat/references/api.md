@@ -3087,7 +3087,10 @@ the copper planned before it: the shortest closed outline that holds all the
 pads' copper (every land) and enters no other copper's clearance outline.
 That is every other net's pad (at its real shape), track, via and pour on
 the layer, every unplated hole and the board edge, each grown by the clearance the
-pair needs plus half the pour's stroke. The clearance is the pair's class
+pair needs plus half the pour's stroke, and every keepout or rule area that
+bars a fill on the layer (unless its `allow=` names the pour's net), grown by
+half the stroke: the script's keepouts, the generated board's own rule areas
+and those of the cells placed before the pour. The clearance is the pair's class
 figure or the `board.rule` one that matches it, as the router keeps it; a pad
 with no net keeps the board's default. Every edge is straight. Where the
 outline passes a pad's corner, a track's end or a via it follows the
@@ -3144,6 +3147,13 @@ outline unchanged. The grown copper is `reach=`'s: cut back by other nets'
 clearance outlines, graphic polygon(s), never a zone. Only the pour's own
 copper counts, so a track that also joins the parts is not credited.
 
+A pour with `reach=` (a distance or `Reach.CURRENT`) is planned after the
+search, whatever its members stand on, and keeps no room in it: the parts
+and cells the board places land where the board puts them, and the pour,
+hull and reach, is fitted round what they bring (their pads, vias and
+keepouts). Where that leaves `Reach.CURRENT` short of its need, the neck
+finding names what stands there, a keepout included.
+
 A via member carries the current of the pad it joins: the pad a
 `board.vias(net, along=PadRef(...), count=)` row stands out of, or a pad of
 the net the via stands on. On the pour's layer its ring stands in for that
@@ -3151,8 +3161,9 @@ pad, so a pour on an inner layer over via rows out of two parts' pads is
 measured between the rows. Where the pads the members join are two or more
 pads of one part that carries current (a receptacle's two VBUS contacts,
 joined on In2 by a pour over three vias out of each), each pad is an end, at
-the current the check judges between that part and the net's other
-carriers: the lesser of the part's `Pm.I` and the largest other carrier's.
+the part's own `Pm.I` divided by the number of its pads on that net,
+whatever the rest of the net draws (two pads at 3 A: 1.5 A each). A pour joining different parts
+is measured at the current the check judges between them.
 A pad member with no copper on the pour's layer that a via member joins
 holds no copper in the pour; the via joins it.
 
@@ -3166,7 +3177,7 @@ board.pour(Net("VBUS"), [west, east], layer=CopperLayer.IN2, swallow_pads=True, 
 Where the room runs out first (copper of another net stands at the neck) the
 pour is drawn at the reach where its width stopped gaining and a finding
 names the net, the current, the width reached, the width needed, the neck's
-point and the copper standing there; `check current-path` reports the same
+point and the copper or keepout standing there; `check current-path` reports the same
 neck. It is refused at the declaration where fewer than two parts carry
 current on the net (the check does not judge such a net either), and with
 `width=` or without `swallow_pads=True`. Where the pads its members are and

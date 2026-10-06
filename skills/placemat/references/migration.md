@@ -48,13 +48,29 @@ section for each hand-written pattern a newer form replaces.
 - **The native sweep applies KiCad's net-tie exclusion.** A part near a net tie is judged in the native module like any
   other, with no Python recheck: a module with net-tie parts places faster again (the bench's ring sensor module 0.2 s,
   from 0.7 s). Placements are unchanged. Rebuild the native module after updating (`uv pip install -e ".[native]"`).
+- **A pour with `reach=` gives way to the parts and cells the board places.** A fitted pour with `reach=` (a distance
+  or `Reach.CURRENT`) whose members were all on fixed or edge items was planned before the search, grown to its full
+  reach, and stood in the search's way: a searched cell near it was pushed off its spot, or left unplaced, by its own
+  vias or pads meeting the pour (one board's In2 pour over two via rows, about 11 x 7 mm, left the cell beside
+  it with no place). It is now planned after the search and keeps no room during it, so the cells land where the board
+  puts them and the pour is fitted, hull and reach, round what they bring. Every fitted pour is also cut back round the
+  keepouts and rule areas that bar a fill on its layer, unless their `allow=` names its net: the script's keepouts, the
+  board's own rule areas and those of the cells placed before it (a cell's copper-pour keepout was not seen at all).
+  Where that leaves `Reach.CURRENT` short of its current, the neck finding names the keepout ("...; the <cell> cell's
+  keepout <name> stands there"). A script that took such a pour out, or fixed a cell's place to keep it clear of
+  one, can put it back and let the cell be searched again.
+- **Reach.CURRENT between pads of one part shares the part's current.** Where the pads a pour's members are and join
+  are two or more pads of one part that carries current, each pad is an end at the part's own `Pm.I` divided by the
+  number of its pads on that net, whatever the rest of the net draws (two pads at 3 A: 1.5 A each). It was the lesser
+  of the part's `Pm.I` and the net's largest other carrier's, whole at each pad. A pour joining different parts is sized as before. Scripts need no change; such a pour is drawn
+  smaller.
 - **Same-net vias within hole-to-hole are merged after routing.** The router's stub-swap and stub-layer-switch rescues
   could leave two vias of one net closer than the board's hole-to-hole (0.1 mm apart on a measured board). KiCad's
   hole_to_hole check ignores nets, so the net was listed with a DRC violation and counted against `closure_clean`.
   The post-route cleanup now merges such a router via into the other hole by the router's own rule, when the net's
   pads stay joined and no moved track comes within clearance of another net's copper; a pair it leaves is named in
-  `dangling_removed.vias_kept_close` and on the summary line.
-  `dangling_removed` adds `vias_merged`. Scripts need no change.
+  `dangling_removed.vias_kept_close` and on the summary line. `dangling_removed` adds `vias_merged`. Scripts need
+  no change.
 
 ## To 0.99.23
 
