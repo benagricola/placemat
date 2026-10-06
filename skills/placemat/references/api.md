@@ -4456,7 +4456,10 @@ that ran it recorded its result; a line cut short by a kill is ignored.
 new best) and `entries.jsonl` every variant's (`{"v": seed, "entries",
 "orders"}`): `placemat lock <script> --accept-seed N` writes variant N from
 them, any variant the explore tried (seed 0, the placement it began from, is
-refused, naming `lock --current`). A rerun
+refused, naming `lock --current`), but only while the lock is unchanged since
+that explore began: once `--accept` or an `--accept-seed` has written the
+lock, its other seeds are refused (`the lock changed since that explore
+began`) and a new explore is needed. A rerun
 with the same digest continues: `resuming a saved explore: N variants in T s
 so far`, the baseline from the header, the untried seeds only, `SECONDS` less
 the time already spent (a fixed list of seeds: those not tried). `--resume`

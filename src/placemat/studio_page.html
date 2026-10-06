@@ -3064,7 +3064,7 @@ function cmdEvent(ev, n) {
   else if (ev.ev === "explore") { xvStart("cmd", V.id, ev); }
   else if (ev.ev === "variant") { xvAdd(ev); }
   else if (ev.ev === "explore_done") { if (S.xv) { S.xv.done = ev; schedule("runs"); } }
-  else if (ev.ev === "explore_route") { if (S.xv) { (S.xv.routes = S.xv.routes || []).push(ev); schedule("runs"); } }
+  else if (ev.ev === "explore_route") { if (S.xv) { const rs = S.xv.routes = S.xv.routes || []; if (!rs.some(r => r.seed === ev.seed)) rs.push(ev); schedule("runs"); } }
   V.next = Math.max(V.next || 0, (n || 0) + 1);
   if (ev.ev === "route_commit" || ev.ev === "route_rip") {            // a route commits copper many times a second: the drawing follows at a few frames a second
     if (!V.redraw) V.redraw = setTimeout(() => { V.redraw = null; schedule("board", "steps", "replay", "counts", "runs", "status"); renderCmdBar(); }, 250);

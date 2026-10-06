@@ -268,3 +268,19 @@ def test_the_released_route_top_setting_is_refused_naming_route_best(tmp_path):
     (tmp_path / "placemat.toml").write_text("[explore]\nroute_top = 3\n")
     with pytest.raises(SettingsError, match="explore.route_top is retired; set explore.route_best"):
         load(tmp_path)
+
+
+def test_a_stop_while_the_routing_worker_starts_still_ends_the_workers(tmp_path, seeds, monkeypatch):
+    import multiprocessing.process as mpp
+    ended = []
+    real_end, real_start = explore._end, mpp.BaseProcess.start
+    monkeypatch.setattr(explore, "_end", lambda procs: (ended.append([p.name for p in procs]), real_end(procs)))
+
+    def start(self):
+        if self.name == "explore-router":
+            raise stop.Stopped(signal.SIGTERM)
+        return real_start(self)
+    monkeypatch.setattr(mpp.BaseProcess, "start", start)
+    with pytest.raises(stop.Stopped):
+        _search(tmp_path, seeds, jobs=2)
+    assert any("explore-router" in names for names in ended)

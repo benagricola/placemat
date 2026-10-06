@@ -77,6 +77,8 @@ class Appender:
 
     def __init__(self, path, mode: str = "a"):
         self.path = Path(path)
+        if mode == "a":
+            _drop_partial_tail(self.path)
         self._f = open(self.path, mode)
 
     def write(self, doc: dict) -> None:
@@ -85,6 +87,18 @@ class Appender:
 
     def close(self) -> None:
         self._f.close()
+
+
+def _drop_partial_tail(path: Path) -> None:
+    """A last line cut short by a kill, taken off before more is appended: glued to it, the next line would be lost
+    with it (`read_lines` stops at a line that is not JSON)."""
+    try:
+        with open(path, "rb+") as f:
+            data = f.read()
+            if data and not data.endswith(b"\n"):
+                f.truncate(data.rfind(b"\n") + 1)
+    except FileNotFoundError:
+        pass
 
 
 def read_lines(path) -> list:

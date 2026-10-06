@@ -283,11 +283,10 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     ctx = mp.get_context("spawn")
     counter = ctx.Value("l", 0)
     halt = ctx.Value("b", 0)                       # a stopping rule fired: the workers take no more seeds
-    best_val = ctx.Value("d", min([baseline] + [r[1] for r in done_before.values()]))
     out = ctx.Queue()
     untried = _untried(done_before)
     procs = [ctx.Process(target=_work, args=(k, make_board, frozenset(focus), lock, plain.reuse, order, deadline,
-                                             counter, out, best_val, baseline, os.getpid(), untried, halt), daemon=True)
+                                             counter, out, os.getpid(), untried, halt), daemon=True)
              for k in range(0 if nothing_left else max(1, jobs))]
     results = {0: (0, baseline, base_m)}
     results.update(done_before)
@@ -458,7 +457,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
             checkpoint.stopped(s.label, s.partial.seconds)
         raise
     finally:
-        _end(procs + ([rproc] if rs["started"] else []))
+        _end(procs + ([rproc] if rproc is not None else []))
         out.close()
         out.cancel_join_thread()
     result = partial()
@@ -539,7 +538,7 @@ def _order(plan, focus) -> list:
     return out
 
 
-def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, best_val, baseline, parent, untried, halt):
+def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, parent, untried, halt):
     """A worker: take the next seed until the list or the deadline runs out,
     and say so: a variant's result, a traceback if one raises, and that it
     has ended. It does not outlive its parent, and leaves the stopping to it
@@ -578,9 +577,6 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, be
                 p = b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
                 m = measure(b, p)
                 total = _total(b, m)
-                with best_val.get_lock():
-                    if total <= best_val.value and total < baseline - 1e-9:
-                        best_val.value = total
                 payload = _payload(b, p, focus)     # every variant carries its lock entries: any of them can be accepted
             out.put(("v", seed, total, m, payload, round(time.time() - t0, 3),
                      {"placements": _placements(p, focus), "order": _order(p, focus)}))

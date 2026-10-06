@@ -504,7 +504,10 @@ shapes and files: `references/api.md`, "Live progress".
   once the spot is part of the design. A finished explore keeps every
   variant until the next explore of the script: `placemat lock <script>
   --accept-seed S` writes any of them (the record in
-  `.placemat/views/explore/` lists their seeds and scores).
+  `.placemat/views/explore/` lists their seeds and scores), but only while
+  the lock is as it was when that explore began: once `--accept` (or an
+  `--accept-seed`) has written the lock, the other seeds are refused, so
+  explore again.
 - An explore reports its curve: `best found at variant 7 of 34, 5 min 12 s in
   (of 43 min)`, and `metrics.explore.curve`/`found`/`ended` keep it. If the best
   comes early, set `[explore] stall_variants` or `stall_seconds` (off by default)

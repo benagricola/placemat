@@ -75,3 +75,31 @@ def test_seed_0_and_a_seed_not_tried_are_refused_saying_why(tmp_path):
 def test_the_report_offers_the_accept_command_for_its_best(tmp_path):
     script, report = _searched(tmp_path)
     assert report["accept"] == explore.accept_command(script, report["best_seed"])
+
+
+def test_a_line_cut_short_by_a_kill_is_dropped_before_the_recorded_marker_is_appended(tmp_path):
+    import json
+    path = tmp_path / "checkpoint.jsonl"
+    head = {"kind": "header", "version": checkpoint.FORMAT, "digest": "d", "parts": {}, "focus": [],
+            "baseline": {"score": 10.0, "measures": {}}}
+    path.write_text(json.dumps(head) + "\n" + json.dumps({"v": 1, "s": 9.0, "t": 1.0}) + "\n" + '{"v":2,"s"')
+    checkpoint.finish_dir(tmp_path)
+    lines = checkpoint.read_lines(path)
+    assert lines[-1] == {"recorded": True} and [d["v"] for d in lines if "v" in d] == [1]
+
+
+def test_a_resume_appends_its_entries_after_a_line_cut_short(tmp_path):
+    ck = checkpoint.Checkpoint(tmp_path, {k: "x" for k in checkpoint.PARTS}, [])
+    ck.start(10.0, {}, 60, None)
+    ck.variant(1, 9.0, {}, 1.0, {"entries": [], "orders": {}})
+    ck.close()
+    with open(tmp_path / checkpoint.ENTRIES, "a") as f:
+        f.write('{"v":2,"entr')
+    with open(tmp_path / "checkpoint.jsonl", "a") as f:
+        f.write('{"v":2,"s"')
+    again = checkpoint.Checkpoint(tmp_path, {k: "x" for k in checkpoint.PARTS}, [])
+    assert again.load() is not None
+    again.variant(3, 8.0, {}, 2.0, {"entries": [], "orders": {}})
+    again.close()
+    assert [d["v"] for d in checkpoint.read_lines(tmp_path / checkpoint.ENTRIES)] == [1, 3]
+    assert [d["v"] for d in checkpoint.read_lines(tmp_path / "checkpoint.jsonl") if "v" in d] == [1, 3]
