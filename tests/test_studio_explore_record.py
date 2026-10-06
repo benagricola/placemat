@@ -134,3 +134,13 @@ def test_an_explore_that_kept_its_best_plan_opens_on_it_and_one_with_neither_ope
     assert view["source"] == "plan" and view["drawn"] == {"a": [2, 1, 90, "front"]} and view["doc"]["score"] == {"total": 8.0}
     assert _item(view["doc"], "a")["at"] == [2, 1] and "model_jobs" not in view["doc"] and jobs[-1] == plan["model_jobs"]       # its models go to the converter
     assert [e["file"] for e in s.explores()] == [str(record)]                                       # the best plan is not another record
+
+
+def test_an_explore_whose_routes_took_another_variant_draws_that_variant(own_project):
+    s, jobs, board_dir, script = _studio(own_project)
+    variants = [{"seed": 0, "score": 10.0, "placements": {"a": [1, 1, 0, "front"]}}, {"seed": 3, "score": 8.0, "placements": {"a": [2, 1, 90, "front"]}},
+                {"seed": 4, "score": 9.0, "placements": {"a": [5, 5, 0, "front"]}}]
+    record = _record(board_dir, script, ["a"], {"a": [1, 1, 0, "front"]}, variants, 3, taken_seed=4)
+    assert s.explore_view(str(record))["drawn"] == {"a": [5, 5, 0, "front"]}
+    record = _record(board_dir, script, ["a"], {"a": [1, 1, 0, "front"]}, variants, 3, taken_seed=0, name="20261004-082239-77.json")
+    assert s.explore_view(str(record))["drawn"] == {"a": [1, 1, 0, "front"]}

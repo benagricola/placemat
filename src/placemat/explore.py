@@ -575,7 +575,7 @@ def _write_lock(path, entries, focus, new, plan) -> list:
 def search(make_board, script, seconds: float, jobs: int | None = None, keys=(), after_line=None, box=None,
            accept: bool = False, seeds=None, release: str = "", run_id: str = "", checkpoint_dir=None,
            resume: str = "auto", keep_state: bool = False, route_top: int | None = None, variants_dir=None,
-           route_exclude=()) -> tuple:
+           route_exclude=(), route_resume: bool = True) -> tuple:
     """What `--explore` does: read the script's lock, choose the focus, run
     the variants, and report what the best would move against the current
     placement. With `accept`, write the best's decisions for the focused
@@ -595,7 +595,8 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     `route_top` (None: [explore] route_top) quick-routes the best variants by run score after the search, each on its own
     board written in `variants_dir` (`_route_variants`); with routes, the variant taken - reported as `taken_seed`, its
     moves the report's, and what `accept` writes - is the best clean closure, ties going to the better score. Without
-    `variants_dir` (a preview) nothing is routed and the report says so."""
+    `variants_dir` (a preview) nothing is routed and the report says so. `route_resume` False routes every stage of
+    those routes again (`placemat run --no-resume`)."""
     from . import checkpoint as _checkpoint
     from . import stop
     path = _lock.path_for(script)
@@ -633,6 +634,9 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     report.update(curve=_compact(result.curve), found=_found(result.curve, result.seconds), ended=result.ended)
     if result.failures:
         report["failures"] = result.failures
+    saved_best = (_checkpoint.read_best(ck.dir) or {}).get("seed") if ck is not None else None
+    if result.best_seed and saved_best == result.best_seed:      # before the routes: a stop during them still offers it
+        report["accept"] = accept_command(script, result.best_seed)
     have = {0: (base, current)}
     if result.best_seed:
         have[result.best_seed] = _variant(make_board, entries, focus, result.best_seed, have)
@@ -643,12 +647,14 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
             report["routes"], report["routes_skipped"] = [], "no_board"
         else:
             # before the accept, as the study: the variants are routed as they were ranked, under the lock of the search
-            _route_variants(report, make_board, entries, focus, result, have, top, Path(variants_dir), route_exclude)
+            _route_variants(report, make_board, entries, focus, result, have, top, Path(variants_dir), route_exclude,
+                            route_resume)
             closed = _taken(report["routes"])
             if closed is not None:
                 taken = report["taken_seed"] = closed
-    if ck is not None and taken and (_checkpoint.read_best(ck.dir) or {}).get("seed") == taken:
-        report["accept"] = accept_command(script, taken)
+                report.pop("accept", None)          # the saved best is the score's: offered only when it is the one taken
+                if taken and saved_best == taken:
+                    report["accept"] = accept_command(script, taken)
     if taken:
         board, chosen = have[taken]
         for key in sorted(focus):
@@ -665,7 +671,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["accepted"] = True
         if ck is not None:
             ck.best_path.unlink(missing_ok=True)         # taken: it would not match the lock now
-    _write_record(script, result, report, run_id, have[result.best_seed])
+    _write_record(script, result, report, run_id, have[taken])
     if ck is not None and not keep_state:
         ck.finish()
     return report, entries
@@ -694,14 +700,16 @@ def _write_variant(make_board, board, plan, folder: Path) -> Path:
     return pcb
 
 
-def _route_variants(report, make_board, entries, focus, result, have: dict, top: int, folder: Path, exclude=()) -> None:
+def _route_variants(report, make_board, entries, focus, result, have: dict, top: int, folder: Path, exclude=(),
+                    resume: bool = True) -> None:
     """`report["routes"]`: the best `top` variants by run score, in that order, one at a time, each written in its own
     folder (`folder`/seed-N) and quick-routed there as `placemat run --route` routes (the plane nets and `exclude` left
     out). Each entry is {"seed", "score", "dir", "seconds"} with the route's "closure_clean", "closure", "open_before",
     "open_after" and "valid", or "error" {"type", "message"} when writing or routing it raised: the others go on and the
     explore's result stands. `seconds` is the variant's wall-clock time after the explore's own: its resolve when it is
     not in `have`, its board and its route. The route's events are not the command's own and are not sent. A stop (a
-    signal) is the explore's stop, as one during the study is, with the routes done so far in the report."""
+    signal) is the explore's stop, as one during the study is, with the routes done so far in the report and in an
+    `explore_done` event that keeps nothing. `resume` is route_board's: False routes every stage again."""
     import time
     from . import channel, stop
     from .console import console
@@ -720,7 +728,7 @@ def _route_variants(report, make_board, entries, focus, result, have: dict, top:
                     pcb = _write_variant(make_board, board, plan, d)
                     with channel.paused():
                         r = route_mod.route_board(pcb, d / "route", exclude_nets=set(plan.plane_nets) | set(exclude),
-                                                  quick=True)
+                                                  quick=True, resume=resume)
                     entry.update(closure_clean=r.closure_clean, closure=r.closure, open_before=r.open_before,
                                  open_after=r.open_after, valid=r.valid)
                 except Exception as e:
@@ -730,6 +738,11 @@ def _route_variants(report, make_board, entries, focus, result, have: dict, top:
     except stop.Stopped as s:
         report["stopped"] = s.label
         s.explore, s.stage = report, "explore"
+        rep = channel.current()
+        if rep is not None:
+            rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline,
+                      "tried": result.tried, "kept": False, "stopped": s.label, "found": report.get("found"),
+                      "ended": result.ended, "pin_maps": [], "routes": list(out)})
         stop.say(stopped_line(report), both=False)
         raise
 
@@ -853,7 +866,8 @@ def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
     """The explore's result, kept: every variant's seed, score, measures, the focused items' placements and the order they
     were placed in, which was kept, the run it was part of (`run_id`) and the pin map study of its best variants
     (`pin_maps`, `_pin_maps`), which the `explore_done` event carries too. Read after the command ends (the studio lists and
-    replays it); `report["record"]` names it. `shown` is (board, the best variant's plan): its plan document, with its parts'
+    replays it); `report["record"]` names it. `shown` is (board, plan) of the variant taken - the best, or the one its
+    routes took (`taken_seed`), which is what an accept writes: its plan document, with its parts'
     3D models, is kept beside the record (explore_view.BEST_DIR) for the studio to show. A courtesy: a record that cannot be
     written does not fail the explore."""
     import json
@@ -875,7 +889,9 @@ def _write_record(script, result, report, run_id: str = "", shown=None) -> None:
         path.write_text(json.dumps(doc, separators=(",", ":")))
         report["record"] = str(path)
         if shown is not None:
-            _write_best(path, result, *shown)
+            seed = report.get("taken_seed", result.best_seed)
+            row = next((r for r in getattr(result, "results", ()) if r[0] == seed), None)
+            _write_best(path, result, *shown, total=row[1] if row else None, measures=row[2] if row else None)
         rep = channel.current()
         if rep is not None:
             rep.send({"ev": "explore_done", "best_seed": result.best_seed, "best": result.best, "baseline": result.baseline, "tried": result.tried,
@@ -891,9 +907,10 @@ def _routed(report) -> dict:
     return {k: report[k] for k in ("routes", "taken_seed", "routes_skipped") if k in report}
 
 
-def _write_best(record, result, board, plan) -> None:
+def _write_best(record, result, board, plan, total=None, measures=None) -> None:
     """The best variant's plan document beside its record (explore_view.BEST_DIR, the record's name), with its parts' 3D models and
-    the converter's jobs for them (`model_jobs`), and the run score as the explore measured it. A courtesy, as the record is."""
+    the converter's jobs for them (`model_jobs`), and the run score as the explore measured it: `total` and `measures` are
+    the shown variant's (the one its routes took), the best's when not given. A courtesy, as the record is."""
     import json
     import sys
     from . import score as _score
@@ -902,8 +919,10 @@ def _write_best(record, result, board, plan) -> None:
     from .preview_json import declared_sites, plan_json
     try:
         ctx = _model_context(plan)
-        terms = _score.terms(result.best_measures, board.settings) if result.best_measures else {}
-        doc = plan_json(plan, declared_sites(board), {"total": round(result.best, 3), "terms": {k: round(v, 3) for k, v in terms.items() if v}}, ctx)
+        measures = result.best_measures if measures is None else measures
+        total = result.best if total is None else total
+        terms = _score.terms(measures, board.settings) if measures else {}
+        doc = plan_json(plan, declared_sites(board), {"total": round(total, 3), "terms": {k: round(v, 3) for k, v in terms.items() if v}}, ctx)
         if ctx is not None:
             doc["model_jobs"] = ctx.new_jobs(set())
         out = record.parent / BEST_DIR / record.name
@@ -928,7 +947,7 @@ class ExploreOptions:
 
 
 def before_resolve(script, board, make_board, options, say, run_id: str = "", keep_state: bool = False, variants_dir=None,
-                   route_exclude=()) -> tuple:
+                   route_exclude=(), route_resume: bool = True) -> tuple:
     """The lock entries a run resolves with, and the explore report when
     --explore was given (else None): the search runs first, and with
     --accept its decisions are in the entries returned. `variants_dir` is
@@ -941,7 +960,8 @@ def before_resolve(script, board, make_board, options, say, run_id: str = "", ke
     report, entries = search(make_board, script, options.seconds, options.jobs, options.keys,
                              options.after_line, options.box, options.accept, release=__version__,
                              run_id=run_id, checkpoint_dir=state, resume=options.resume, keep_state=keep_state,
-                             route_top=options.route_top, variants_dir=variants_dir, route_exclude=route_exclude)
+                             route_top=options.route_top, variants_dir=variants_dir, route_exclude=route_exclude,
+                             route_resume=route_resume)
     for line in report_lines(report):
         say("explore", line)
     return entries, report

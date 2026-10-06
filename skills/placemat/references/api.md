@@ -4350,7 +4350,9 @@ The variant taken is the best clean closure, ties going to the better score; its
 the current placement's route closed best`). A variant whose board cannot be written or whose route fails (the router
 exits, times out or is missing) says so on its line (`the route failed with RuntimeError: ...`) and the others go on;
 when every route fails the best score is taken (`every route failed: the best score is taken`). A signal during the
-routes stops the explore as one during the search does, with the routes done so far in the report. The report
+routes stops the explore as one during the search does, with the routes done so far in the report and in an
+`explore_done` event that keeps nothing; `--no-resume` routes every stage of the variants' routes again. The studio
+opens a past explore on the variant its routes took, and the plan kept beside the record is that variant's. The report
 (`metrics.explore`), the explore record and its `explore_done` event keep `routes` - per variant `seed`, `score`,
 `dir`, `seconds` (its resolve when not already in hand, its board and its route) and `closure_clean`, `closure`,
 `open_before`, `open_after`, `valid`, or `error` (`type`, `message`) - and `taken_seed` when a route closed. A rerun

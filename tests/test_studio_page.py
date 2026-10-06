@@ -3425,3 +3425,25 @@ def test_a_past_explore_shows_the_routes_its_record_kept(tmp_path):
 })();
 """)
     assert out["done"] == [1, 3]
+
+
+@needs_node
+def test_a_past_explore_whose_routes_took_another_variant_opens_on_it_and_its_rows_show_any_variant(tmp_path):
+    out = run_page(tmp_path, LATEST + r"""
+(async () => {
+  const file = explores[0].file;
+  const record = {script: PROJ + "/a/A_layout.py", focus: ["a"], plain: {a: [1, 1, 0, "front"]}, order: ["a"], baseline: 10, jobs: 2, seconds: 30, at: 3, best_seed: 3, best: 8, kept: true,
+    variants: [{seed: 0, score: 10, placements: {a: [1, 1, 0, "front"]}, t: 0}, {seed: 3, score: 8, placements: {a: [9, 1, 0, "front"]}, t: 1}, {seed: 4, score: 9, placements: {a: [5, 5, 90, "front"]}, t: 2}],
+    routes: [{seed: 3, score: 8, closure_clean: 0.5, closure: 0.75, open_before: 4, open_after: 2, valid: true, seconds: 5, dir: "d"},
+             {seed: 0, score: 10, closure_clean: 0.6, closure: 0.75, open_before: 4, open_after: 2, valid: true, seconds: 5, dir: "d0"},
+             {seed: 4, score: 9, closure_clean: 0.9, closure: 0.9, open_before: 4, open_after: 1, valid: true, seconds: 5, dir: "d4"}], taken_seed: 4};
+  serve({["/exploreview?f=" + encodeURIComponent(file)]: {record, file, run: "", doc: null, source: "", drawn: {}, unmoved: []}});
+  ev("openExploreRecord(" + JSON.stringify(file) + ")"); await tick(); flush();
+  out.opened = ev("S.xv.drawn.seed");
+  ev("renderRuns()");
+  els["#tab-runs"].onclick({target: {closest: s => s === "[data-xroute]" ? {dataset: {xroute: "0"}} : null}});
+  out.plain = ev("S.xv.drawn.seed");
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["opened"] == 4 and out["plain"] == 0

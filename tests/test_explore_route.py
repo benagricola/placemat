@@ -34,7 +34,8 @@ def router(monkeypatch):
 
     def route_board(pcb, work, exclude_nets=(), quick=False, **kw):
         seed = int(Path(pcb).parent.name.split("-")[1])
-        calls.append({"seed": seed, "pcb": Path(pcb), "work": Path(work), "exclude": set(exclude_nets), "quick": quick})
+        calls.append({"seed": seed, "pcb": Path(pcb), "work": Path(work), "exclude": set(exclude_nets), "quick": quick,
+                      "resume": kw.get("resume", True)})
         got = closures[seed]
         if isinstance(got, BaseException):
             raise got
@@ -241,3 +242,91 @@ def test_the_setting_reads_from_the_toml_and_refuses_a_negative(tmp_path):
     (tmp_path / "placemat.toml").write_text("[explore]\nroute_top = -1\n")
     with pytest.raises(SettingsError, match="explore.route_top"):
         load(tmp_path)
+
+
+def test_a_stop_during_the_routes_keeps_the_saved_bests_accept_command(tmp_path, router):
+    import signal
+    from placemat import stop
+    router.closures.update({2: (0.8, 0.9), 6: stop.Stopped(signal.SIGTERM)})
+    script = tmp_path / "Board_layout.py"
+    with pytest.raises(stop.Stopped) as e:
+        explore.search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, accept=True, route_top=2,
+                       variants_dir=tmp_path / "explore", checkpoint_dir=tmp_path / "state", keep_state=True)
+    r = e.value.explore
+    assert r["best_seed"] == 2 and r["accept"] == explore.accept_command(script, 2) and not r["accepted"]
+
+
+def test_the_accept_command_names_the_variant_taken_only_when_the_saved_best_is_it(tmp_path, router):
+    script = tmp_path / "Board_layout.py"
+    router.closures.update({2: (0.9, 0.9), 6: (0.8, 0.9)})
+    report, _ = explore.search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, route_top=2,
+                               variants_dir=tmp_path / "explore", checkpoint_dir=tmp_path / "s1", keep_state=True)
+    assert report["taken_seed"] == 2 and report["accept"] == explore.accept_command(script, 2)
+    router.closures.update({2: (0.8, 0.9), 6: (0.9, 0.9)})
+    report, _ = explore.search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, route_top=2,
+                               variants_dir=tmp_path / "explore2", checkpoint_dir=tmp_path / "s2", keep_state=True)
+    assert report["taken_seed"] == 6 and "accept" not in report
+
+
+def test_a_stop_during_the_routes_sends_explore_done_with_the_routes_so_far_and_nothing_kept(tmp_path, router, monkeypatch):
+    import signal
+    from placemat import channel, stop
+    sent = []
+
+    class Rep:
+        def send(self, ev):
+            sent.append(ev)
+    monkeypatch.setattr(channel, "current", lambda: Rep())
+    router.closures.update({2: (0.8, 0.9), 6: stop.Stopped(signal.SIGTERM)})
+    with pytest.raises(stop.Stopped):
+        explore.search(_searched_board, tmp_path / "Board_layout.py", seconds=60, jobs=1, seeds=SEEDS, accept=True,
+                       route_top=2, variants_dir=tmp_path / "explore")
+    (done,) = [e for e in sent if e["ev"] == "explore_done"]
+    assert done["kept"] is False and done["stopped"] == "SIGTERM" and [r["seed"] for r in done["routes"]] == [2]
+    assert done["best_seed"] == 2 and "taken_seed" not in done
+
+
+def test_no_resume_reaches_the_variants_routes(tmp_path, router):
+    router.closures.update({2: (0.8, 0.9)})
+    explore.search(_searched_board, tmp_path / "a" / "Board_layout.py", seconds=60, jobs=1, seeds=SEEDS, route_top=1,
+                   variants_dir=tmp_path / "explore")
+    explore.search(_searched_board, tmp_path / "b" / "Board_layout.py", seconds=60, jobs=1, seeds=SEEDS, route_top=1,
+                   variants_dir=tmp_path / "explore", route_resume=False)
+    assert [c["resume"] for c in router.calls] == [True, False]
+
+
+def test_the_runner_hands_the_runs_resume_and_its_folder_to_the_explore(tmp_path, monkeypatch):
+    """`placemat run --no-resume` routes every stage again: the variants' routes too."""
+    import signal
+    pytest.importorskip("pcbnew")
+    from placemat import stop
+    from tests.test_stop_run import _stage_and_patch
+    script, src, runner = _stage_and_patch(tmp_path, monkeypatch)
+    seen = []
+
+    def stopping(*a, **kw):
+        seen.append(kw)
+        raise stop.Stopped(signal.SIGTERM)
+    monkeypatch.setattr(explore, "before_resolve", stopping)
+    for resume in (True, False):
+        with pytest.raises(stop.Stopped):
+            runner.run(script, render=False, quiet=True, reuse=False, resume=resume, route_exclude=("X",))
+    from placemat import console
+    console.configure(quiet=False)
+    assert [kw["route_resume"] for kw in seen] == [True, False] and seen[0]["route_exclude"] == ("X",)
+    assert seen[0]["variants_dir"].name == "explore"
+
+
+def test_the_plan_kept_beside_the_record_is_the_taken_variants(tmp_path, router, monkeypatch):
+    kept = []
+    monkeypatch.setattr(explore, "_write_best", lambda record, result, board, plan, total=None, measures=None: kept.append((plan, total)))
+    from placemat import project
+    monkeypatch.setattr(project, "find_board", lambda p: SimpleNamespace(board_dir=tmp_path))
+    router.closures.update({2: (0.8, 0.9), 6: (0.9, 0.9)})
+    report, _ = explore.search(_searched_board, tmp_path / "Board_layout.py", seconds=60, jobs=1, seeds=SEEDS, accept=True,
+                               route_top=2, variants_dir=tmp_path / "explore")
+    (plan, total), = kept
+    six = _searched_board().resolve(explore=explore.Explore(6, frozenset(report["focus"])))
+    for key in report["focus"]:
+        assert plan.placement(key).location.distance(six.placement(key).location) < 1e-6, key
+    assert total == next(r["score"] for r in report["routes"] if r["seed"] == 6) or abs(total - [r for r in report["routes"] if r["seed"] == 6][0]["score"]) < 0.06

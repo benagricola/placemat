@@ -529,7 +529,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 lock_entries, explored = explore_mod.before_resolve(
                     script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
                     explore, say, run_id=rid, keep_state=True, variants_dir=run_dir / "explore",
-                    route_exclude=route_exclude)
+                    route_exclude=route_exclude, route_resume=resume)
         except (explore_mod.FocusError, ResumeRefused) as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         stage = "resolve"

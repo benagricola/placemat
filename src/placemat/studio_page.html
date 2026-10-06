@@ -3232,7 +3232,7 @@ async function openExploreRecord(file) {
     S.xv.done = {best_seed: doc.best_seed, best: doc.best, kept: doc.kept, baseline: doc.baseline, pin_maps: doc.pin_maps || [], routes: doc.routes || [],
       taken_seed: doc.taken_seed, routes_skipped: doc.routes_skipped}; S.xv.script = doc.script;
     S.xv.base = d.doc ? d.drawn : null; S.xv.board = d.doc ? d.source : "none";
-    S.xv.auto = false; S.xv.sel = S.xv.variants.findIndex(v => v.seed === doc.best_seed); xvDrawNow();
+    S.xv.auto = false; S.xv.sel = S.xv.variants.findIndex(v => v.seed === (doc.taken_seed != null ? doc.taken_seed : doc.best_seed)); xvDrawNow();
     S.xv.drawn = S.xv.variants[S.xv.sel] || S.xv.bestDrawn; looking();
     renderCmdBar(); schedule("all");
   } catch (e) { toast("could not open the explore: " + e.message); }
