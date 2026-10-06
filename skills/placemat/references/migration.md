@@ -5,6 +5,37 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **The studio's code view shows the source of a followed command or a past run.** With no script chosen, a source line
+  followed from a component's pop-up (or a step or finding) opened an empty code view: the view read only the files of the
+  script the studio watches. It now loads the file from the command's or run's own script and inputs, or any other file of
+  the project its plan names (a module's script, say), and opens on the line. A file outside the project, or one no
+  longer there, is said in red; a file changed since the run is shown with a yellow note that the line may have moved.
+  Scripts need no change.
+- **A followed command or a past run acts on its own script in the studio.** What a probe found for one of its suggestions
+  is read from its script's store, so the found value gets Show, Try and Apply (a failure to read it is said in red).
+  Undo, Redo and the applied list are read from its board's log, after a reload too. Notes show on the board of the script
+  they were left for. Apply on a view of a script other than the chosen one is refused with "choose it", as Try is; with no
+  script chosen, Apply says it writes the view's script and nothing resolves here. Undo with nothing applied, and a run
+  compare with no script chosen, are refused rather than failing.
+- **A view in the studio shows its own progress, error and run result.** A followed command still running shows the item
+  it is on, its step count and phase. One that failed shows its error in red with a link to the source line. A past run
+  (or a finished command that recorded one) shows its DRC, failed checks, arrangements and failure under "This run" in the
+  Runs tab. The studio's own resolve no longer shows through a view: its compare arrows, timing, error, waiting and
+  Regenerate notices are hidden while a view is open, and the browser tab title names the view.
+- **What cannot act on a view says why.** Full run, Resolve, Source and Share stay in the header; when one cannot act on
+  what is shown it is disabled and its title says why (no script chosen, or a view of another script). Source and Share
+  work on a followed command or a past run. The Compare tab says it compares the studio's own resolves, and its Full run
+  follows the header's. The Build tab says why it cannot be used with no script chosen or a view open, and the builder's
+  Unplace and its folding of "no declaration places it" findings do nothing over a view. A past explore or route is kept
+  in the address (`explore=`, `route=`, `build=`) and shared with it. A past explore that kept no board, of a script other
+  than the chosen one, is no longer drawn over the chosen script's plan. An explore shown on its run's board draws the
+  keepouts, reservations and copper of the run's plan. The file select names an imported module "- imported" in place
+  of a bracketed label.
+
 ## To 0.99.29
 
 ### Changed

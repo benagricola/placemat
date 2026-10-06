@@ -2288,7 +2288,7 @@ const helloPicker = (extra = {}) => send("hello", Object.assign({script: "", pic
 // The first hello of a project with nothing run opens the dialog; the second brings what the project has run, and the dialog stays.
 const helloDialog = () => { helloPicker({project_runs: [], explores: [], commands: []}); helloPicker(); };
 const posts = () => fetched.filter(([u, o]) => o).map(([u, o]) => [u, o.body]);
-const gets = () => fetched.filter(([u, o]) => !o).map(([u]) => u);
+const gets = () => fetched.filter(([u, o]) => !o && !u.startsWith("/suggest/applied")).map(([u]) => u);     // what opens a view; the applied log it reads is not one
 const click = (el, sel, data) => els[el].onclick({target: {closest: s => s === sel ? {dataset: data || {}} : null}});
 """
 
@@ -3633,3 +3633,171 @@ ev("renderRuns()"); out.none = els["#tab-runs"].innerHTML;
     assert warn.search(out["bar"])
     assert ">time passed, finishing #42</span>" in out["one"] and "finishing #41" not in out["one"]
     assert "finishing" not in out["none"]
+
+
+@needs_node
+def test_a_source_link_of_a_followed_command_opens_its_own_script_on_the_line_with_no_script_chosen(tmp_path):
+    """With no script chosen the page holds no texts: the code view asks /viewsource for the view's file, by the path the link
+    gives, and shows it on the line; a file changed since the run is shown with a yellow note, one that cannot be read in red."""
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  full([Object.assign(item("a", 1), {file: "/p/b/X_layout.py", line: 30, span: [30, 30]}), Object.assign(item("b", 5), {file: "/p/m/M_layout.py", line: 2})], [st("a"), st("b")]);
+  const shown = JSON.parse(JSON.stringify(ev("plan()")));
+  ev("S.texts = {}; S.hello.script = ''");
+  ev("S").cmdView = {id: 3, plan: shown, next: 0, fitted: false, summary: {run: ""}};
+  const text = Array.from({length: 60}, (_, i) => "line_" + (i + 1) + " = 1").join("\n") + "\n";
+  const files = [{file: "/p/b/X_layout.py", name: "X_layout.py"}, {file: "/p/m/M_layout.py", name: "../m/M_layout.py"}];
+  answer({"/viewsource": {status: 200, body: {file: "/p/b/X_layout.py", name: "X_layout.py", text, changed: false, files}}});
+  ev('openScript("/p/b/X_layout.py", 30)');
+  await new Promise(r => setImmediate(r)); flush();
+  const rows = () => (els["#scriptbody"].innerHTML.match(/data-n="(\d+)"/g) || []).map(s => +s.match(/\d+/)[0]);
+  out.asked = fetched.filter(f => f[0] === "/viewsource").length;
+  out.shown = [ev("S.file"), rows()[0], rows().slice(-1)[0], /class="ln[^"]*sel[^"]*" data-n="30"/.test(els["#scriptbody"].innerHTML), els["#scriptbody"].innerHTML.includes("srcnote")];
+  out.select = els["#file"].innerHTML;
+  answer({"/viewsource": {status: 200, body: {file: "/p/m/M_layout.py", name: "../m/M_layout.py", text: "a = 1\nb = 2\n", changed: true, files}}});
+  ev('openScript("/p/m/M_layout.py", 2)');
+  await new Promise(r => setImmediate(r)); flush();
+  out.changed = els["#scriptbody"].innerHTML;
+  answer({"/viewsource": {status: 404, body: {error: "/p/m/gone.py could not be read: it is no longer there", reason: "gone"}}});
+  ev('openScript("/p/m/gone.py", 4)');
+  await new Promise(r => setImmediate(r)); flush();
+  out.gone = els["#scriptbody"].innerHTML;
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["asked"] == 1
+    assert out["shown"] == ["/p/b/X_layout.py", 20, 40, True, False], out["shown"]
+    assert ">X_layout.py<" in out["select"] and ">../m/M_layout.py<" in out["select"] and "(" not in out["select"]
+    assert 'class="srcnote warn"' in out["changed"] and "changed since the run" in out["changed"] and 'data-n="2"' in out["changed"]
+    assert 'class="srcnote err"' in out["gone"] and "no longer there" in out["gone"] and 'data-n=' not in out["gone"]
+
+
+@needs_node
+def test_a_view_reads_its_own_found_store_and_applied_log_and_shows_its_own_scripts_notes(tmp_path):
+    """With no script chosen, a followed command's probe result, its board's Undo and Redo, and its script's notes are its own;
+    what cannot be read is said in red, and Apply says nothing resolves here."""
+    out = run_more(tmp_path, SUGGEST + r"""
+(async () => {
+  const urls = [];
+  let reply = () => ({ok: true, status: 200, json: async () => ({}), text: async () => ""});
+  ctx.fetch = (u, o) => { urls.push([u, o && o.body]); return Promise.resolve(reply(u)); };
+  send("hello", {script: "", picker: true, root: "/p", scripts: [], keep: 5, history: [], resolving: null, error: null, runs: [], run: null, project_runs: [], explores: [], routes: [], commands: [],
+    notes: []});
+  const FIG = {kind: "bisect", name: "chamfer", what: "the chamfer", unit: "mm", declared: 0.5, far: 0.1, lo: 0.1, hi: 0.5};
+  const SRCH = {id: "s9z", text: "search the chamfer?", rank: 9, lever: "chamfer", how: "searched", figure: FIG};
+  full([item("a", 1)], [st("a")], {findings: [Object.assign({}, FND[0], {suggestions: [SRCH, SUG[0]]})]});
+  const shown = JSON.parse(JSON.stringify(ev("plan()")));
+  ev("S").notes = [{id: "n1", script: "B_layout.py", path: "/p/b/B_layout.py", description: "on B", at: clock / 1000, target: null}, {id: "n2", script: "C_layout.py", path: "/p/c/C_layout.py", description: "on C", at: clock / 1000, target: null}];
+  send("cmd", {id: 4, pid: 70, command: "preview", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "done", items: 1, variants: 0, probe: null, route: null});
+  ev("S").cmdView = {id: 4, plan: shown, next: 0, fitted: false, summary: {script: "/p/b/B_layout.py", run: ""}};
+  ev("renderCmdBar()");
+  await new Promise(r => setImmediate(r));
+  out.applied = urls.map(u => u[0]).filter(u => u.startsWith("/suggest/applied"));
+  out.notes = ev("liveNotes().map(n => n.id)");
+  send("cmd", {id: 5, pid: 77, command: "apply", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "running", items: 0, variants: 0, probe: null, route: null});
+  const pev = (n, o) => send("cmdev", {id: 5, n, ev: o});
+  pev(0, {ev: "probe", id: "s9z", text: SRCH.text, figure: FIG, budget_s: 120, candidates: 12});
+  reply = u => ({ok: false, status: 404, json: async () => ({}), text: async () => "no found suggestion 's9z.1'"});
+  pev(1, {ev: "probe_done", id: "s9z", state: "done", n: 2, of: 12, best: {value: 0.1, cleared: true, gained: [], score: 10.5, seconds: 3.2, acceptable: true}, neighbour: null, monotone: true, message: "", resumed: 0, candidates: []});
+  ev("renderFindings()");
+  await new Promise(r => setImmediate(r)); await new Promise(r => setImmediate(r));
+  ev("renderFindings()"); out.findings = els["#tab-findings"].innerHTML;
+  out.found = urls.map(u => u[0]).filter(u => u.startsWith("/suggest/found"));
+  out.row = ev("sgRow")(SUG[0], false);
+  reply = () => ({ok: true, status: 200, json: async () => ({text: "undid it"})});
+  await ev("sgAct")("undo", "");
+  out.undo = urls.filter(u => u[0].startsWith("/suggest/undo")).map(u => u[1]);
+  console.log(JSON.stringify(out));
+})();
+""")
+    assert out["applied"] == ["/suggest/applied?x=1&kind=cmd&ref=4&t=x"]
+    assert out["notes"] == ["n1"]
+    assert out["found"] and all("kind=cmd&ref=4" in u for u in out["found"])
+    assert 'class="sgbad"' in out["findings"] and "Could not read what it found: no found suggestion" in out["findings"]
+    assert "write the change to B_layout.py; nothing resolves here, so re-run it to see the result" in out["row"]
+    assert out["undo"] == ['{"view":{"kind":"cmd","ref":"4"}}']
+
+
+@needs_node
+def test_a_view_shows_its_own_progress_error_and_run_result_and_nothing_of_the_studios_own_resolve(tmp_path):
+    """A followed command running shows its own step and phase; one that failed its error and source line; a past run its DRC, checks
+    and failure. The studio's own error, timing and compare arrows are not shown over a view, and the tab title names the view."""
+    out = run_more(tmp_path, r"""
+WIDE = true;
+full([item("a", 1)], [st("a")]);
+ev('S.error = {message: "own resolve failed", file: "x_layout.py", line: 3}');
+send("cmd", {id: 4, pid: 70, command: "preview", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "running", items: 0, variants: 0, probe: null, route: null});
+ev("S").cmdView = {id: 4, plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false};
+send("cmdev", {id: 4, n: 0, ev: {ev: "resolve"}});
+send("cmdev", {id: 4, n: 1, ev: {ev: "begin", kind: "total", items: 9, copper: 0}});
+send("cmdev", {id: 4, n: 2, ev: {ev: "begin", kind: "begin", item: "u7", what: "searched", rank: 2, of: 9}});
+send("cmdev", {id: 4, n: 3, ev: {ev: "begin", kind: "phase", stage: "coarse"}});
+ev("renderStatus()"); ev("renderSteps()");
+out.running = [els["#runhead"].innerHTML, els["#tab-steps"].innerHTML, ev("S.resolving"), els["#notice"].style.display, els["#stats"].innerHTML, ev("document.title")];
+send("cmdev", {id: 4, n: 4, ev: {ev: "error", kind: "run_failure", failure: "script", detail: "NameError: x", file: "/p/b/B_layout.py", line: 12}});
+send("cmd", {id: 4, pid: 70, command: "preview", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "error", message: "the layout script raised: NameError: x", items: 0, variants: 0, probe: null, route: null});
+ev("renderStatus()");
+out.failed = [els["#notice"].innerHTML, els["#notice"].className, els["#runhead"].hidden];
+const rec = {id: "abcd1234", status: "failed", drc: {drc_real: {clearance: 2}}, checks: {checks_failed: 1}, verdicts: [{check: "creepage", subject: "J1", note: "too close"}], severities: {}, timing: {},
+  arrangements: [], failure: {message: "DRC found real violations", file: "/p/b/B_layout.py", line: 20, source: "board.place(x)"}, findings: 0, at: 0};
+ev("S").cmdView = {id: "run:abcd1234", plan: ev("blankPlan()"), summary: {command: "run", kind: "run", script: "/p/b/B_layout.py", run: "abcd1234", record: rec}, next: 0, fitted: false, record: true};
+ev("renderRuns()"); ev("renderStatus()");
+out.run = [els["#tab-runs"].innerHTML, els["#notice"].style.display, ev("document.title")];
+""")
+    head, steps, resolving, notice, stats, title = out["running"]
+    assert "u7" in head and "coarse pass" in head and "step 0 of ~9" in head and resolving is None
+    assert 'id="pendrow"' in steps and "u7" in steps
+    assert notice == "none" and ">s<" not in stats and title == "B_layout.py - preview - placemat studio"
+    assert "the layout script raised: NameError: x" in out["failed"][0] and "B_layout.py line 12" in out["failed"][0] and out["failed"][1] == "err" and out["failed"][2]
+    runs, notice, title = out["run"]
+    assert "This run abcd1234" in runs and "2 real" in runs and "1 failed" in runs and "creepage" in runs and "DRC found real violations" in runs and 'data-line="20"' in runs
+    assert notice == "none" and title.startswith("B_layout.py - ")
+
+
+@needs_node
+def test_what_cannot_act_on_a_view_says_why_in_place_and_the_address_names_any_view(tmp_path):
+    out = run_more(tmp_path, r"""
+WIDE = true;
+const titles = () => ["#runbtn", "#resolvebtn", "#srcbtn", "#sharebtn"].map(id => [els[id].hidden, els[id].disabled, els[id].title]);
+send("hello", {script: "", picker: true, root: "/p", scripts: [], keep: 5, history: [], resolving: null, error: null, runs: [], run: null, project_runs: [], explores: [], routes: [], commands: []});
+ev("renderStatus()"); out.picker = titles();
+ev("renderCompare()"); out.cmpPicker = els["#tab-compare"].innerHTML;
+send("cmd", {id: 4, pid: 70, command: "preview", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "done", items: 0, variants: 0, probe: null, route: null});
+ev("S").cmdView = {id: 4, plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false};
+ev("renderStatus()"); out.pickerView = titles();
+out.hashes = [ev("viewHash()")];
+ev("S").cmdView = {id: "explore:/p/b/.placemat/views/explore/e1.json", plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false, record: true}; out.hashes.push(ev("viewHash()"));
+ev("S").cmdView = {id: "route:/p/b/route/route.json", plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false, replay: true}; out.hashes.push(ev("viewHash()"));
+ev("S").cmdView = {id: "route:eeee0002", plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: "eeee0002"}, next: 0, fitted: false, replay: true}; out.hashes.push(ev("viewHash()"));
+out.read = ev('readHash("#explore=%2Fp%2Fe.json&tab=runs")');
+// a script chosen, a view of another script over it
+full([item("a", 1)], [st("a")]);
+ev('S.hello.script_path = "/p/x/x_layout.py"');
+ev("S").cmdView = {id: 4, plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false};
+ev("renderStatus()"); out.chosenView = titles();
+ev("renderCompare()"); out.cmpView = els["#tab-compare"].innerHTML;
+ev("S.cmdView = null"); ev("renderStatus()"); out.chosen = titles();
+// a past explore that kept no board, of another script: not drawn over the chosen script's plan
+ev('xvStart("record", "/p/b/.placemat/views/explore/e2.json", {}); S.xv.script = "/p/b/B_layout.py"; S.xv.board = "none"');
+out.foreign = [ev("plan() === null"), ev("xvBoardNote(S.xv, null)")];
+ev('S.xv.script = "/p/x/x_layout.py"'); out.own = ev("plan() !== null");
+ev("S.xv = null; S.texts = {'x_layout.py': 'a', 'helper.py': 'b'}; S.hello.script = 'x_layout.py'; openScript('x_layout.py', 1)"); flush();
+out.files = els["#file"].innerHTML;
+""")
+    p = out["picker"]
+    assert all(not h for h, d, t in p) and all(d for h, d, t in p)
+    assert p[0][2] == "Full run: choose a layout script to run it" and p[1][2] == "Resolve: choose a layout script to resolve it"
+    assert "to see its source" in p[2][2] and "open a command or a run to share it" in p[3][2]
+    assert "no resolves to compare" in out["cmpPicker"] and "No script is chosen, so none of its runs are listed here" in out["cmpPicker"]
+    pv = out["pickerView"]
+    assert pv[0][1] and "run B_layout.py with placemat run" in pv[0][2] and pv[1][1] and "choose a layout script to resolve it" in pv[1][2]
+    assert not pv[2][1] and not pv[3][1]                                       # Source and Share work on a view
+    assert "&cmd=4&" in out["hashes"][0] and "&explore=%2Fp%2Fb%2F.placemat%2Fviews%2Fexplore%2Fe1.json&" in out["hashes"][1]
+    assert "&route=%2Fp%2Fb%2Froute%2Froute.json&" in out["hashes"][2] and "&build=eeee0002&" in out["hashes"][3]
+    assert out["read"]["explore"] == "/p/e.json"
+    cv = out["chosenView"]
+    assert cv[0][1] and "it runs x_layout.py, not B_layout.py" in cv[0][2] and cv[1][1]
+    assert "resolves of x_layout.py; the command shown is not one of them" in out["cmpView"]
+    assert [d for h, d, t in out["chosen"]] == [False, False, False, False]
+    assert out["foreign"][0] is True and "it is of B_layout.py, not the script this studio watches" in out["foreign"][1] and out["own"] is True
+    assert ">helper.py - imported<" in out["files"] and "(" not in out["files"]

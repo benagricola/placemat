@@ -73,7 +73,8 @@ def test_the_studio_tells_its_pages_of_a_new_note_for_its_script_and_gives_a_lat
     old = notes.add(staged.parent, staged.name, "long ago", None, "a", now=time.time() - 7200)
     other = notes.add(staged.parent, "other_layout.py", "for another script", None, "a")
     s._check_notes()
-    assert not [1 for n, t in list(q.queue) if n == "note" and json.loads(t)["description"] == "for another script"]
+    sent = [json.loads(t) for n, t in list(q.queue) if n == "note"]
+    assert [n["path"] for n in sent if n["description"] == "for another script"] == [str(staged.parent / "other_layout.py")]     # the page shows it on that script's board only
     fresh = notes.add(staged.parent, staged.name, "trying c_hf1 further west", {"kind": "point", "x": 1.0, "y": 2.0}, "agent-1")
     s._check_notes()
     seen = []
@@ -85,5 +86,5 @@ def test_the_studio_tells_its_pages_of_a_new_note_for_its_script_and_gives_a_lat
     s._check_notes()
     assert q.empty()                                                                              # nothing new: nothing sent twice
     data = json.loads(s.hello()[0][1])
-    assert [n["id"] for n in data["notes"]] == [fresh["id"]] and data["note_age_s"] == 3600       # the expired one is not offered
-    assert other["id"] not in [n["id"] for n in data["notes"]]
+    assert [n["id"] for n in data["notes"]] == [other["id"], fresh["id"]] and data["note_age_s"] == 3600       # the expired one is not offered
+    assert {n["id"]: n["path"] for n in data["notes"]} == {other["id"]: str(staged.parent / "other_layout.py"), fresh["id"]: str(staged)}

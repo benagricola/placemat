@@ -77,14 +77,40 @@ def wait_phase(b, phase="ready", seconds=120):
     raise AssertionError("the builder did not reach %s" % phase)
 
 
+IDLE_S = 5.0       # how long the studio may sit with nothing resolving or pending before a wait for a resolve gives up
+
+
 def wait_resolved(b, seconds=300, after=0):
-    end = time.monotonic() + seconds
+    """The newest resolve after `after`, once the studio has settled. The wait follows the studio: it lasts while a resolve runs or is
+    pending (up to `seconds` on a loaded machine), and ends early when nothing has been resolving for IDLE_S."""
+    end, idle = time.monotonic() + seconds, None
     while time.monotonic() < end:
         with b.studio.lock:
-            if b.studio.history and b.studio.history[-1].id > after and b.studio._cur is None and not b.studio._dirty and not b.studio._initial:
-                return b.studio.history[-1]
+            s = b.studio
+            busy = s._cur is not None or s._dirty or s._initial
+            if s.history and s.history[-1].id > after and not busy:
+                return s.history[-1]
+        now = time.monotonic()
+        idle = None if busy else (idle or now)
+        if idle is not None and now - idle > IDLE_S:
+            raise AssertionError("no resolve finished: nothing has been resolving or pending for %g s (resolves so far: %s)"
+                                 % (IDLE_S, [r.id for r in s.history] or "none"))
         time.sleep(0.3)
-    raise AssertionError("no resolve finished")
+    raise AssertionError("no resolve finished within %g s" % seconds)
+
+
+def ready_to_place(b):
+    """The new script's first resolve and the board's facts confirmed, so placements can be offered: what the placement test does,
+    done here for the tests after it, which run without it when it is left out as slow (tests/slow_tests.txt)."""
+    wait_phase(b)
+    if not b.studio.history:
+        b.studio.resolve_now()
+        wait_resolved(b)
+    st, f = b.api.get("/build/facts")
+    if not f["model"]["confirmed"]:
+        st, out = b.api.post("/build/facts/confirm", {"acks": FLAGS})
+        assert st == 200, out
+    return wait_resolved(b)
 
 
 def test_the_start_view_lists_the_boards_with_no_layout_script(built):
@@ -227,7 +253,7 @@ def test_placement_waits_for_the_confirmation_and_the_confirmation_is_the_comman
 
 
 def test_a_click_becomes_an_offer_the_suggestion_endpoints_show_try_and_apply(built):
-    rec = wait_resolved(built)
+    rec = ready_to_place(built)
     q = {"resolve": rec.id, "subject": ["usbpd.esd"], "target": {"kind": "edge", "edge": "SOUTH"}}
     st, out = built.api.post("/build/offer", q)
     assert st == 200, out
@@ -256,7 +282,7 @@ def test_a_click_becomes_an_offer_the_suggestion_endpoints_show_try_and_apply(bu
 
 
 def test_the_rest_is_searched_in_one_apply_and_one_undo_takes_it_back(built):
-    rec = wait_resolved(built)
+    rec = ready_to_place(built)
     st, out = built.api.post("/build/offer", {"resolve": rec.id, "kind": "search", "keys": ["usbpd.tcpc", "usbpd.moisture"]})
     assert st == 200 and out["offers"][0]["count"] == 2
     before = built.script.read_text()
@@ -273,7 +299,7 @@ def test_the_rest_is_searched_in_one_apply_and_one_undo_takes_it_back(built):
 
 
 def test_a_stale_plan_is_refused_when_the_script_was_edited_meanwhile(built):
-    rec = wait_resolved(built)
+    rec = ready_to_place(built)
     st, out = built.api.post("/build/offer", {"resolve": rec.id, "subject": ["usbpd.sink"], "target": {"kind": "part", "key": "usbpd.esd", "side": "NORTH"}})
     assert st == 200, out
     sid = out["offers"][0]["id"]
