@@ -70,3 +70,37 @@ def test_update_rewrites_the_boards_it_ran_in_the_a_key_and_keeps_the_rest(tmp_p
     data = json.loads(path.read_text())
     assert data["b"] == {"keep": 1}
     assert sorted(data["a"]) == ["old", "x"] and data["a"]["x"]["class"]["closure_clean"] == 1.0
+
+
+def test_more_new_violations_at_equal_closure_is_worse():
+    old = route_ref.asdict(_result(closure_clean=0.9, passed=False, new_violations=[V("short", ("A", "B"), (1.0, 1.0))]))
+    more = _result(closure_clean=0.9, passed=False, new_violations=[V("short", ("A", "B"), (1.0, 1.0)), V("short", ("A", "C"), (2.0, 2.0))])
+    assert route_ref.compare(old, more, "placemat").status == "worse"
+
+
+def test_the_console_line_names_the_components_that_differ():
+    text = route_ref.line(_result(), route_ref.Comparison("not comparable", ["krt"]))
+    assert "not comparable: krt differ" in text
+
+
+def test_run_a_judges_the_route_json_against_the_baseline(tmp_path, monkeypatch):
+    board = route_ref.fetch.Board(name="x", repo="github:o/r", commit="0" * 40, files={}, board="x.kicad_pcb", licence="MIT",
+                                  tests=("a",), islands=("VCC",), fixed=(), human_track_mm=0.2, kicad5=False)
+    seen = {}
+
+    def route(pcb, work, islands, toml):
+        seen.update(pcb=pcb, islands=islands, toml=toml)
+        return dict(closure_clean=1.0, open_after=0, open_nets={}, seconds=2.0, routed_pcb=str(tmp_path / "routed.kicad_pcb"))
+
+    def violations(path):
+        return [V("clearance", ("A", "B"), (1.0, 1.0))] if path.name == prepare.BASELINE else [
+            V("clearance", ("A", "B"), (1.0, 1.0)), V("short", ("A", "C"), (5.0, 5.0))]
+
+    monkeypatch.setattr(route_ref, "_route", route)
+    monkeypatch.setattr(route_ref, "_krt_version", lambda pcb: "krt1")
+    monkeypatch.setattr(prepare, "measure", lambda pcb: (2, prepare.HumanCopper(4, 50.0)))
+    monkeypatch.setattr(prepare, "violations", violations)
+    r = route_ref.run_a(board, tmp_path, track_mm=0.2, versions={"placemat": "p", "pcb": "z"})
+    assert seen["islands"] == ("VCC",) and "--track-width" in seen["toml"]
+    assert r.widths == "human" and not r.passed and r.new_violations == [V("short", ("A", "C"), (5.0, 5.0))]
+    assert (r.vias, r.track_mm, r.versions) == (4, 50.0, {"placemat": "p", "pcb": "z", "krt": "krt1"})

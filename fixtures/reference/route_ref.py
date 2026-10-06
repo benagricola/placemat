@@ -1,12 +1,12 @@
 """Test (a) of the reference set: route each board's human placement with its copper stripped, and judge clean closure and
 the DRC errors the route adds to the stripped board's baseline.
 
-    flock <realboard lock> .venv/bin/python fixtures/reference/route_ref.py [name ...] [--update] [--changing placemat|krt|pcb]
+    .venv/bin/python fixtures/reference/route_ref.py [name ...] [--update] [--changing placemat|krt|pcb]
 
 For each test (a) board it runs the route with the net classes' widths, then with the human's track width where the manifest
 gives one, and compares each result with results.json["a"]. Results of runs whose placemat, router or zener versions differ
 in a component other than --changing are not compared. --update writes the boards it ran into results.json["a"].
-Real boards: run it alone, under the lock the other real-board runs take.
+Real boards: it takes the realboard lock (lock.py) for the whole run, so it waits for the other real-board runs.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import tempfile
 if __package__ in (None, ""):   # run as a script: the repository root, for `fixtures.reference`
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from fixtures.reference import fetch, prepare   # noqa: E402
+from fixtures.reference import fetch, lock, prepare   # noqa: E402
 
 HERE = pathlib.Path(__file__).resolve().parent
 RESULTS = HERE / "results.json"
@@ -30,6 +30,7 @@ WIDTHS = ("class", "human")
 ROUTE_TIMEOUT_S = 3600
 GIT_TIMEOUT_S = 30
 CLEAN = 1.0
+DIRTY = "-dirty"
 NEAR_MM = 0.05   # a violation this close to a baseline one, of the same type and nets, is that one
 
 
@@ -88,7 +89,10 @@ def compare(old: dict | None, new: AResult, changing: str) -> Comparison:
     differ = comparable(old.get("versions", {}), new.versions, changing)
     if differ:
         return Comparison("not comparable", differ)
+    gained = len(new.new_violations) - len(old.get("new_violations", ()))
     if (old["passed"] and not new.passed) or new.closure_clean < old["closure_clean"]:
+        return Comparison("worse", [])
+    if new.closure_clean == old["closure_clean"] and gained > 0:
         return Comparison("worse", [])
     if (new.passed and not old["passed"]) or new.closure_clean > old["closure_clean"]:
         return Comparison("better", [])
@@ -113,18 +117,28 @@ def save_results(path: pathlib.Path, results: list[AResult]) -> None:
     pathlib.Path(path).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
+def _git(root: str, *args: str) -> str:
+    return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, timeout=GIT_TIMEOUT_S).stdout.strip()
+
+
 def _git_head(root: str) -> str:
-    out = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=GIT_TIMEOUT_S)
-    return out.stdout.strip() or "unknown"
+    """The commit of a checkout, with "-dirty" when it has uncommitted changes."""
+    head = _git(root, "rev-parse", "HEAD") or "unknown"
+    return head + DIRTY if _git(root, "status", "--porcelain") else head
+
+
+def _krt_version(board_pcb: pathlib.Path) -> str:
+    """The commit of the router the route of this board resolves: [route] router_dir of the board's folder, else $KRT_DIR, else the built-in."""
+    from placemat.kicad.route import router_dir
+    from placemat.settings import load
+    return _git_head(router_dir(load(pathlib.Path(board_pcb).parent)))
 
 
 def current_versions() -> dict:
-    """The placemat checkout's commit, the router's commit, and zener's version."""
+    """The placemat checkout's commit and zener's version; "krt" is the router a route used (run_a)."""
     import placemat
-    from placemat.kicad.route import router_dir
     pcb = subprocess.run(["pcb", "--version"], capture_output=True, text=True, timeout=GIT_TIMEOUT_S).stdout.strip()
-    return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)),
-            "krt": _git_head(router_dir()), "pcb": pcb or "unknown"}
+    return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb or "unknown"}
 
 
 def _route(pcb: pathlib.Path, work: pathlib.Path, islands: tuple, toml: str | None) -> dict:
@@ -157,8 +171,8 @@ def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = No
     _, human = prepare.measure(work / prepare.REF)
     after = prepare.violations(out / "drc_after.json")
     new = new_violations(after, prepare.violations(work / prepare.BASELINE))
-    template = AResult(board.name, widths, 0.0, 0, [], [], 0, 0.0, human.vias, human.track_mm, False, 0.0,
-                       versions if versions is not None else current_versions())
+    versions = dict(versions if versions is not None else current_versions(), krt=_krt_version(work / prepare.TEST))
+    template = AResult(board.name, widths, 0.0, 0, [], [], 0, 0.0, human.vias, human.track_mm, False, 0.0, versions)
     return judge(dict(report, vias=routed.vias, track_mm=routed.track_mm), new, template)
 
 
@@ -185,6 +199,15 @@ def main(argv=None) -> int:
     versions = current_versions()
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
     results, worse = [], False
+    with lock.realboard():
+        worse = _run_boards(boards, root, recorded, versions, args.changing, results)
+    if args.update:
+        save_results(pathlib.Path(args.results), results)
+    return 1 if worse else 0
+
+
+def _run_boards(boards, root, recorded, versions, changing, results) -> bool:
+    worse = False
     for board in boards:
         work = root / board.name
         prepare.prepare(board, fetch.fetch(board), work)
@@ -192,13 +215,11 @@ def main(argv=None) -> int:
             if widths == "human" and not board.human_track_mm:
                 continue
             r = run_a(board, work, track_mm=board.human_track_mm if widths == "human" else None, versions=versions)
-            c = compare(recorded.get(board.name, {}).get(widths), r, args.changing)
+            c = compare(recorded.get(board.name, {}).get(widths), r, changing)
             print(line(r, c), flush=True)
             worse = worse or c.status == "worse"
             results.append(r)
-    if args.update:
-        save_results(pathlib.Path(args.results), results)
-    return 1 if worse else 0
+    return worse
 
 
 if __name__ == "__main__":
