@@ -656,7 +656,7 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "b7f1c31d3b08380e",
+      "inputs_digest": "612bc3cfa6fa41cb",
       "new_violations": [],
       "open": 0,
       "placement": {
@@ -670,12 +670,12 @@
       "ref_track_mm": 1745.7030331706978,
       "ref_vias": 6,
       "run_score": 1827.032,
-      "seconds": 64.6,
-      "track_mm": 1816.8682075327356,
+      "seconds": 57.8,
+      "track_mm": 1816.8682075327358,
       "versions": {
         "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
         "pcb": "pcbc 0.4.52",
-        "placemat": "e622c7968e087333db0e75424861d61790e66616"
+        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
       },
       "vias": 46
     },
@@ -685,7 +685,7 @@
       "closure_clean": 0.9521,
       "detail": "",
       "failure": "",
-      "inputs_digest": "277423dde88ef8e2",
+      "inputs_digest": "ae4617d41cf3ab17",
       "new_violations": [],
       "open": 8,
       "placement": {
@@ -699,12 +699,12 @@
       "ref_track_mm": 437.6509716398021,
       "ref_vias": 229,
       "run_score": 3493.506,
-      "seconds": 54.3,
-      "track_mm": 882.3474771318922,
+      "seconds": 52.2,
+      "track_mm": 882.3474771318921,
       "versions": {
         "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
         "pcb": "pcbc 0.4.52",
-        "placemat": "e622c7968e087333db0e75424861d61790e66616"
+        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
       },
       "vias": 97
     }
