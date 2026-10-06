@@ -41,9 +41,9 @@ LINT = "lint"           # failure kinds of the runner's own; a refused run carri
 NO_RECORD = "no run record"
 NO_ROUTE = "no route"
 TIMEOUT = "timeout"
-STALE = "stale layout"   # a module whose layout/ was generated from other files than its capture now holds
+WORKSPACE_DIRS = ("modules", "parts")   # what a module needs of its family folder besides its own
 DIGEST_CHARS = 16
-STATE_DIRS = (".placemat", "__pycache__")   # never copied into the clean board folder
+STATE_DIRS = (".placemat", ".pcb", "__pycache__")   # never copied into the clean board folder
 RUN_ARGS = ("--route", "--no-render", "--no-resume")
 FULL_ROUTE = ("--route-full",)
 
@@ -108,26 +108,12 @@ def placement_facts(record: dict | None, folder: pathlib.Path) -> dict:
     return facts
 
 
-def generation_inputs(script: pathlib.Path) -> tuple[str, bool]:
-    """(digest, stale) of the board a script is for: the digest covers the generator inputs (the .zen and what it names) and
-    the files of a kept layout/, so a changed capture or a regenerated layout shows as a difference; stale is True when the
-    fixture keeps a record of the inputs its layout/ was generated from (.placemat/generated/<name>.inputs.json) and the
-    capture's inputs are now other than that. A fixture with no record cannot be told stale: only the digest shows it."""
+def generation_inputs(script: pathlib.Path) -> str:
+    """A digest (sha256, DIGEST_CHARS hex) of what `pcb layout` reads for the board a script is for: project.generator_inputs,
+    the .zen and what it names. A changed capture shows as a difference between results."""
     from placemat.project import find_board, generator_inputs
-    src = find_board(pathlib.Path(script))
-    inputs = generator_inputs(src)
-    digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode())
-    for f in sorted((src.board_dir / "layout").glob("*")) if (src.board_dir / "layout").is_dir() else ():
-        if f.suffix in (".net", ".kicad_pcb") and f.is_file():
-            digest.update(f.read_bytes())
-    kept = src.board_dir / ".placemat" / "generated" / (src.name + ".inputs.json")
-    stale = False
-    if kept.exists():
-        try:
-            stale = json.loads(kept.read_text()) != inputs
-        except ValueError:
-            stale = True
-    return digest.hexdigest()[:DIGEST_CHARS], stale
+    inputs = generator_inputs(find_board(pathlib.Path(script)))
+    return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:DIGEST_CHARS]
 
 
 def krt_version(folder: pathlib.Path) -> str:
@@ -189,7 +175,7 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     work = pathlib.Path(work)
     versions = dict(versions if versions is not None else route_ref.current_versions())
     human = prepared.human if prepared is not None else prepare.HumanCopper(0, 0.0)
-    digest = generation_inputs(lint.find_script(board.name, ref_dir.parent))[0]
+    digest = generation_inputs(lint.find_script(board.name, ref_dir.parent))
 
     def result(**over) -> BResult:
         fields = dict(board=board.name, closure_clean=NOT_RUN, open=0, new_violations=[], vias=0, track_mm=0.0, run_score=0.0,
@@ -229,41 +215,38 @@ def _area(metrics: dict) -> float:
     return round(w * h, 2)
 
 
+def _copy_family(script: pathlib.Path, dst: pathlib.Path) -> pathlib.Path:
+    """The workspace of a module fixture (fixtures/<family>: its pcb.toml, parts/ and modules/) copied into `dst`, so the
+    capture's relative paths (`../../parts`) resolve as in the repository; returns the script's path in the copy."""
+    root = script.parents[2]
+    shutil.rmtree(dst, ignore_errors=True)
+    dst.mkdir(parents=True)
+    for entry in root.iterdir():
+        if entry.name in WORKSPACE_DIRS:
+            shutil.copytree(entry, dst / entry.name, ignore=shutil.ignore_patterns(*STATE_DIRS))
+        elif entry.is_file():
+            shutil.copy(entry, dst / entry.name)
+    return dst / script.relative_to(root)
+
+
 def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions: dict | None = None) -> MResult:
-    """A module fixture run from a clean copy of its folder in `work` with `placemat run --route`."""
+    """A module fixture run as a user runs it: `placemat run --route` on the script inside a copy of its family's workspace in
+    `work`, so placemat generates the board fresh with `pcb layout` (the checked-in layout/ holds an old run's copper and is not
+    the generation) and the repository's files are not written."""
     script = pathlib.Path(script)
     versions = dict(versions if versions is not None else route_ref.current_versions())
-    folder = pathlib.Path(work) / "module"
-    digest, stale = generation_inputs(script)
-    if stale:
-        return MResult(name, NOT_RUN, 0.0, 0.0, 0.0, versions, STALE, "layout/ was generated from other inputs than the capture's now",
-                       digest)
-    _copy_folder(script.parent, folder)
-    _stage_generation(folder / script.name)
-    record, seconds = placemat_run(folder / script.name)
-    versions["krt"] = krt_version(folder)
-    placement = placement_facts(record, folder)
+    digest = generation_inputs(script)
+    copy = _copy_family(script, pathlib.Path(work) / "workspace")
+    record, seconds = placemat_run(copy)
+    versions["krt"] = krt_version(copy.parent)
+    placement = placement_facts(record, copy.parent)
     kind, message = _failure(record)
     if kind:
         return MResult(name, NOT_RUN, placement.get("area_mm2", 0.0), 0.0, round(seconds, 1), versions, kind, message, digest,
                        placement)
     metrics = record["metrics"]
-    return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, folder), round(seconds, 1),
+    return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, copy.parent), round(seconds, 1),
                    versions, inputs_digest=digest, placement=placement)
-
-
-def _stage_generation(script: pathlib.Path) -> None:
-    """The module's layout/ as the cached generation, with the record of the files it stands for, so the run does not call
-    `pcb layout` (the fixtures keep what it wrote)."""
-    from placemat import runner
-    from placemat.project import find_board, generator_inputs
-    src = find_board(script)
-    layout = src.board_dir / "layout"
-    cache = src.board_dir / ".placemat" / "generated" / src.name
-    if layout.is_dir() and not cache.exists():
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(layout, cache)
-        runner._inputs_record(src).write_text(json.dumps(generator_inputs(src), indent=1, sort_keys=True))
 
 
 def _differ(old: dict, new, changing: str) -> list[str]:

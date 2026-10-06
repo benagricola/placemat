@@ -14,7 +14,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _digest(monkeypatch):
-    monkeypatch.setattr(place_ref, "generation_inputs", lambda script: ("d1", False))
+    monkeypatch.setattr(place_ref, "generation_inputs", lambda script: "d1")
 
 
 def _m(**over):
@@ -139,7 +139,6 @@ def test_a_module_run_reads_closure_area_and_score(tmp_path, monkeypatch):
     record = {"status": "ok", "failure": None, "metrics": {"closure_clean": 0.75, "extent": [10.0, 4.5], "measures": {}}}
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (record, 2.0))
     monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 3.0)
-    monkeypatch.setattr(place_ref, "_stage_generation", lambda script: None)
     monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     r = place_ref.run_module("mnb/A", folder / "A_layout.py", tmp_path / "work", versions=VERSIONS)
     assert (r.script, r.closure_clean, r.area_mm2, r.run_score, r.seconds, r.failure) == ("mnb/A", 0.75, 45.0, 3.0, 2.0, "")
@@ -160,31 +159,53 @@ def test_a_changed_capture_is_a_difference_not_a_regression():
     assert (c.status, c.differ) == ("not comparable", ["inputs"])
 
 
-def test_a_module_whose_kept_inputs_record_differs_is_a_stale_layout(tmp_path, monkeypatch):
-    folder = tmp_path / "mnb" / "modules" / "A"
-    folder.mkdir(parents=True)
-    (folder / "A_layout.py").write_text("")
-    monkeypatch.setattr(place_ref, "generation_inputs", lambda script: ("d9", True))
-    monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: raise_("a stale layout must not run"))
-    r = place_ref.run_module("mnb/A", folder / "A_layout.py", tmp_path / "work", versions=VERSIONS)
-    assert (r.failure, r.inputs_digest) == ("stale layout", "d9")
-
-
-def test_the_generation_digest_follows_the_capture_and_flags_a_kept_record(tmp_path, monkeypatch):
+def test_the_generation_digest_follows_the_capture(tmp_path, monkeypatch):
     monkeypatch.undo()   # the autouse stand-in
     folder = tmp_path / "M"
     folder.mkdir()
     (folder / "M.zen").write_text('Board(name="M")\n')
     (folder / "M_layout.py").write_text("")
-    first, stale = place_ref.generation_inputs(folder / "M_layout.py")
-    assert not stale
+    first = place_ref.generation_inputs(folder / "M_layout.py")
+    assert first == place_ref.generation_inputs(folder / "M_layout.py")
     (folder / "M.zen").write_text('Board(name="M")\n# changed\n')
-    second, _ = place_ref.generation_inputs(folder / "M_layout.py")
-    assert second != first
-    kept = folder / ".placemat" / "generated"
-    kept.mkdir(parents=True)
-    (kept / "M.inputs.json").write_text(json.dumps({"M.zen": "old"}))
-    assert place_ref.generation_inputs(folder / "M_layout.py")[1]
+    assert place_ref.generation_inputs(folder / "M_layout.py") != first
+    (folder / "layout").mkdir()
+    (folder / "layout" / "layout.kicad_pcb").write_text("(segment)")   # the checked-in board is not an input
+    assert place_ref.generation_inputs(folder / "M_layout.py") != first
+
+
+def _family(tmp_path):
+    root = tmp_path / "mnb"
+    for rel, text in (("pcb.toml", "[workspace]"), ("parts/p.zen", "p"), ("modules/B/B.zen", "b"),
+                      ("modules/A/A_layout.py", ""), ("modules/A/A.zen", "a"),
+                      ("modules/A/layout/layout.kicad_pcb", "(segment) (via)"),       # an old run's copper
+                      ("modules/A/layout_side/layout.kicad_pcb", "(segment)"),
+                      ("modules/A/.placemat/runs/x/run.json", "{}")):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    return root
+
+
+def test_a_module_runs_on_a_fresh_generation_inside_a_copy_of_its_workspace(tmp_path, monkeypatch):
+    root = _family(tmp_path)
+    seen = {}
+
+    def run(script, extra=()):
+        c = script.parents[2]
+        seen.update(script=script, parts=(c / "parts/p.zen").exists(), sibling=(c / "modules/B/B.zen").exists(),
+                    pcb_toml=(c / "pcb.toml").exists(), cached=(script.parent / ".placemat/generated").exists(),
+                    state=(script.parent / ".placemat/runs").exists(), side=(script.parent / "layout_side").exists())
+        return {**PLACED, "metrics": dict(PLACED["metrics"], closure_clean=1.0)}, 1.0
+    monkeypatch.setattr(place_ref, "placemat_run", run)
+    monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 3.0)
+    monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
+    r = place_ref.run_module("mnb/A", root / "modules/A/A_layout.py", tmp_path / "work", versions=VERSIONS)
+    assert r.failure == ""
+    assert seen["script"] == tmp_path / "work/workspace/modules/A/A_layout.py"
+    assert seen["parts"] and seen["sibling"] and seen["pcb_toml"] and seen["side"]
+    assert not seen["cached"] and not seen["state"]       # nothing staged: placemat generates
+    assert not (root / "modules/A/.placemat/generated").exists()
+    assert (root / "modules/A/layout/layout.kicad_pcb").read_text() == "(segment) (via)"
 
 
 PLACED = {"status": "ok", "failure": None, "metrics": {"placed": 5, "findings": 1, "crossings": 2, "airwire_mm": 40.5,
@@ -209,7 +230,6 @@ def test_a_module_records_its_placement_measures(tmp_path, monkeypatch):
     folder = tmp_path / "mnb" / "modules" / "A"
     folder.mkdir(parents=True)
     (folder / "A_layout.py").write_text("")
-    monkeypatch.setattr(place_ref, "_stage_generation", lambda script: None)
     monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 3.0)
     monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (PLACED, 2.0))
