@@ -529,8 +529,8 @@ class Occupancy:
         self.edge_margin = edge_margin
         self.vias_block_courtyards = vias_block_courtyards
         # The hole kinds whose rule the board's severities (`[drc] severities`, written into its .kicad_pro, over
-        # KiCad's default) set below error: a firm placement may stand with a courtyard over such a hole, as
-        # KiCad's DRC then accepts it (`legal`, `_hole_waived`).
+        # KiCad's default) set below error: a place the script states (`legal(decided=)`) may stand with a courtyard
+        # over such a hole, as KiCad's DRC then accepts it (`_hole_waived`).
         severities = self.settings.drc_severities or {}
         self._holes_waived = frozenset(kind for kind, rule in _COURTYARD_HOLE_RULES.items()
                                        if severities.get(rule, _KICAD_COURTYARD_HOLE_SEVERITY) != "error")
@@ -1947,7 +1947,7 @@ class Occupancy:
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
               past_edge: bool = False, blame: list | None = None, by_corners: bool = False,
-              board: bool = True, overhang: float = 0.0) -> Refusal | None:
+              board: bool = True, overhang: float = 0.0, decided: bool = False) -> Refusal | None:
         """None when `item` may sit at `placement`, else a Refusal saying
         what stops it. The first failure found is reported. `others` is a
         prefiltered obstacle list from `obstacles()`; without one every
@@ -1959,9 +1959,12 @@ class Occupancy:
         found: the same refusal in parts rather than prose, so a scan can
         count who was in the way rather than only how often. `board=False`
         judges `others` alone: not the edge, not the reservations.
-        `by_corners` marks a place the script decided: there a courtyard may
-        stand over another part's hole whose rule the board's severities set
-        below error (`_hole_waived`); a searched place keeps off it."""
+        `decided` marks a place the script itself states (a fixed or edge
+        place, a Beside at its stated offset, a rider of such an item): there
+        a courtyard may stand over another part's hole whose rule the board's
+        severities set below error (`_hole_waived`). A place placemat chose -
+        a search's, a Beside stepped out, a rider of a searched host - keeps
+        off it."""
         geom = self._geometry(item)
         body = self.shifted_body_box(item, placement)
         why = self._edge_or_reservation_conflict(geom, body, placement, past_edge, blame, by_corners, overhang) \
@@ -1971,7 +1974,7 @@ class Occupancy:
         if others is None:
             others = self.obstacles(geom)
         dx, dy = placement.location.x, placement.location.y
-        waive = by_corners and bool(self._holes_waived)
+        waive = decided and bool(self._holes_waived)
         native_entry = getattr(others, "_native", None)
         if native_entry is not None and self._silk_as_drawn and self.silk_clearance != self.geometry.silk_clearance:
             native_entry = None             # the native judge holds the silk margin (see silk_as_drawn)
@@ -2064,7 +2067,7 @@ class Occupancy:
 
     def legal_giving_way(self, item, placement: Placement, clearance: float | None = None, others=None,
                          past_edge: bool = False, blame: list | None = None, by_corners: bool = False,
-                         overhang: float = 0.0) -> tuple:
+                         overhang: float = 0.0, decided: bool = False) -> tuple:
         """(why, resolution): `legal()`, except that where it refuses the
         item, the item less its carried vias is judged, and the vias - its
         own and those of items already placed - may give way (giveway.py).
@@ -2073,7 +2076,7 @@ class Occupancy:
         else why a via cannot give way."""
         from . import giveway
         why = self.legal(item, placement, clearance, others=others, past_edge=past_edge, blame=blame,
-                         by_corners=by_corners, overhang=overhang)
+                         by_corners=by_corners, overhang=overhang, decided=decided)
         if why is None or not giveway.enabled(self.settings):
             return why, None
         geom = self._geometry(item)
@@ -2083,7 +2086,7 @@ class Occupancy:
             return why, None
         less = self.obstacles(geom, region, carried=False)
         if self.legal(WithoutCarried(item), placement, clearance, others=less, past_edge=past_edge,
-                      by_corners=by_corners, overhang=overhang) is not None:
+                      by_corners=by_corners, overhang=overhang, decided=decided) is not None:
             return why, None
         res = giveway.resolve(self, item, placement, clearance, self.obstacles(geom, region))
         if blame is not None:

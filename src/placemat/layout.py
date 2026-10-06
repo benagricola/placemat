@@ -2967,20 +2967,24 @@ class Board:
         past = self._firm_past_edge(i)
 
         def fits(s: float) -> bool:
-            """Whether the part stands at `s` with nothing giving way: the cheap answer, all the move out asks."""
-            p = at(s)
-            if group and real.legal(i.item, p, clr, others=ShapeIndex(group), board=False, by_corners=True) is not None:
+            """Whether the part stands at `s` with nothing giving way: the cheap answer, all the move out asks. The
+            standoff is the script's own place; a step out is placemat's, which keeps off a hole whatever its severity."""
+            p, decided = at(s), s == 0.0
+            if group and real.legal(i.item, p, clr, others=ShapeIndex(group), board=False,
+                                    decided=decided) is not None:
                 return False
-            return real.legal(i.item, p, clr, others=others, past_edge=past, by_corners=True, overhang=i.overhang) is None
+            return real.legal(i.item, p, clr, others=others, past_edge=past, by_corners=True, overhang=i.overhang,
+                              decided=decided) is None
 
         def stands_at_standoff() -> bool:
             """As a firm item is judged: a via of its own or placed before it may give way."""
             if fits(0.0):
                 return True
-            if group and real.legal(i.item, at(0.0), clr, others=ShapeIndex(group), board=False, by_corners=True) is not None:
+            if group and real.legal(i.item, at(0.0), clr, others=ShapeIndex(group), board=False,
+                                    decided=True) is not None:
                 return False
             return real.legal_giving_way(i.item, at(0.0), clr, others=others, past_edge=past, by_corners=True,
-                                         overhang=i.overhang)[0] is None
+                                         overhang=i.overhang, decided=True)[0] is None
 
         stands = fits
         if stands_at_standoff():
@@ -3008,9 +3012,9 @@ class Board:
         `fixed.room`; a firm Beside part placed before it is noted, for the next pass to place the two the other way round."""
         blame: list = []
         if not (group and real.legal(i.item, placement, clr, others=ShapeIndex(group), board=False, blame=blame,
-                                     by_corners=True) is not None):
+                                     decided=True) is not None):
             real.legal(i.item, placement, clr, others=others, past_edge=self._firm_past_edge(i), overhang=i.overhang,
-                       blame=blame, by_corners=True)
+                       blame=blame, by_corners=True, decided=True)
         if not blame:
             return
         owner = blame[0].owner
@@ -10525,10 +10529,12 @@ class Board:
             # the group's own shapes stand where the script put them: silk at the board's clearance
             with occ.silk_as_drawn():
                 in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex([x for x in group if not x.carried]),
-                                     board=False, by_corners=True)
-            # on the board its carried vias, and those placed before it, may give way (giveway.py)
+                                     board=False, decided=i.freedom.decided)
+            # on the board its carried vias, and those placed before it, may give way (giveway.py); a rider of a
+            # searched host stands where placemat put the host, so keeps off a hole whatever its severity
             on_board = occ.legal_giving_way(r.item, p, self.clearance, others=others,
-                                            past_edge=self._firm_past_edge(r), overhang=r.overhang, by_corners=True)[0] \
+                                            past_edge=self._firm_past_edge(r), overhang=r.overhang, by_corners=True,
+                                            decided=i.freedom.decided)[0] \
                 if board and not in_group else None
             out.append((r, p, chose, on_board, in_group))
             if (on_board or in_group) and stop:
@@ -10604,7 +10610,8 @@ class Board:
             for r, p, in_group in riders:
                 p = Placement(Location(round(p.location.x + dx, 6), round(p.location.y + dy, 6)), p.rotation, p.face)
                 why = in_group or occ.legal_giving_way(r.item, p, self.clearance, others=obstacles[r.key],
-                                                       past_edge=self._firm_past_edge(r), overhang=r.overhang, by_corners=True)[0]
+                                                       past_edge=self._firm_past_edge(r), overhang=r.overhang, by_corners=True,
+                                                       decided=i.freedom.decided)[0]
                 if why:
                     return Refusal(Code.RIDER, key=r.key, why=why)
             return None
@@ -10857,7 +10864,7 @@ class Board:
         clearance."""
         with occ.silk_as_drawn():
             return occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), overhang=i.overhang,
-                                        by_corners=True)
+                                        by_corners=True, decided=True)
 
     def _firm_trials(self, occ, plan, i, placed, clr, push_sources) -> list:
         """Decided cell `i` laid in each arrangement it may take (`_arrangement_ids`), in order, as `_Trial`s: the declaration laid
@@ -11445,7 +11452,7 @@ class Board:
             extra = arr_cost if ident else 0.0
             best = None
             for rot, (p, chose) in laid.items():
-                why, resolution = occ.legal_giving_way(j.item, p, clr, others=others, by_corners=True)
+                why, resolution = occ.legal_giving_way(j.item, p, clr, others=others, by_corners=True, decided=True)
                 if why is None and exposed is not None:
                     why = exposed(p)
                 if why is None and accept is not None:

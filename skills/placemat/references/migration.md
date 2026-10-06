@@ -21,7 +21,8 @@ section for each hand-written pattern a newer form replaces.
   `npth_inside_courtyard` (an unplated hole) or `pth_inside_courtyard` (a plated lead) to `warning` or `ignore`, a
   placement the script decided may stand with its courtyard over such a hole, as KiCad's DRC accepts it; placemat
   refused it ("J2 courtyard sits over a npth (J1)") whatever the severity. At KiCad's default, `error`, it is refused
-  as before, and a searched placement keeps off the hole at any severity. Scripts need no change.
+  as before. A place placemat chooses - a search's, a rider's of a searched item, a `Beside` item's moved out from its
+  offset - keeps off the hole at any severity. Scripts need no change.
 
 ## To 0.99.34
 

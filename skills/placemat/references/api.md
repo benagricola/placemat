@@ -1456,8 +1456,9 @@ also keeps off another part's unplated hole (`npth_inside_courtyard`: `J2
 courtyard sits over a npth (J1)`). A placement the script decided follows the
 board's severity for these two rules, `[drc.severities]` over KiCad's default
 of `error`: at `warning` or `ignore` its courtyard may stand over the hole or
-lead, and KiCad's DRC reports it at that severity. A searched placement keeps
-off them whatever the severity. Under every
+lead, and KiCad's DRC reports it at that severity. A place placemat chooses
+keeps off them whatever the severity: a searched item's, a rider's of a
+searched item, and a `Beside` item's moved out from its offset. Under every
 envelope a footprint's own copper graphics (a net-tie's winding, a printed
 antenna) are copper of no net: every other part, track and via - placed,
 drawn by the script, or found by `FreeSpot` and `--via-near` - keeps the
