@@ -6899,7 +6899,10 @@ class Board:
         may be vias as well as pads (what `via()` and `vias()` return, a lane's
         `.via`): a via counts on the pour's layer when its span includes it, as
         its copper ring there, and one that does not span it is a finding. The
-        pour is planned after its vias.
+        pour is planned after its vias. A via joins the pad a `vias(along=)`
+        row stands out of and any pad of the net it stands on: a pad member
+        with no copper on the pour's layer that a via member joins holds
+        none, and `reach=Reach.CURRENT` credits the via with the pad's current.
 
         `reach=mm` on a fitted pour grows its copper into the room round it:
         the fitted outline grown by `reach` (arcs no more than
@@ -7043,6 +7046,8 @@ class Board:
         sag = max(self.settings.geometry_arc_sag - slack, self.settings.geometry_arc_sag / 2.0)
         holds, boxes = [], []
         member_pads, member_vias = [], []       # what Reach.CURRENT measures the pour between
+        joins = self._via_member_pads(occ, net, [p for p in pads if isinstance(p, CopperIntent)], ctx.ops_at)
+        joined = {pd for got in joins.values() for pd in got}
         for p in pads:
             if isinstance(p, CopperIntent):
                 ops = ctx.ops_at.get(p.index)
@@ -7062,7 +7067,12 @@ class Board:
                         return []
                     holds.append((label, pourfit.hull(op.polygon)))
                     boxes.append(op.box)
-                    member_vias.append(op.polygon)
+                    # a via joining a pad carries that pad's current: on the pour's layer it stands in for it
+                    pd = joins.get(id(op))
+                    if pd:
+                        member_pads.append((pd[0][0], pd[0][1], op.polygon))
+                    else:
+                        member_vias.append(op.polygon)
                 continue
             owner, number, _, _ = self._pad_ref(p)
             label = ("pad", owner, number)
@@ -7071,6 +7081,8 @@ class Board:
                     ctx.note(C.COPPER_NOT_DRAWN, {"variant": "pour_pad_net", "net": net, "member": list(label),
                                                   "on_net": sh.net})
                     return []
+                if layer not in sh.layers and (owner, number) in joined:
+                    continue            # off the layer, and a via member joins it to the pour
                 if layer not in sh.layers:
                     ctx.note(C.COPPER_NOT_DRAWN, {"variant": "pour_pad_layer", "net": net, "member": list(label),
                                                   "layer": layer.value})
@@ -7127,6 +7139,32 @@ class Board:
                                          "need_mm": need})
         return [res.outline]
 
+    def _via_member_pads(self, occ, net: str, members, ops_at) -> dict:
+        """The pads of `net` each via of a fitted pour's via `members` joins, {id(Via op): [(owner, number)]}:
+        the pad a `vias(along=PadRef(...))` row stands out of, and every pad of the net the via's copper
+        stands on, on a layer it spans. A via joining none is left out."""
+        out: dict = {}
+        pads = None
+        for it in members:
+            ops = [op for op in ops_at.get(it.index) or () if isinstance(op, Via)]
+            row = None
+            if it.key.startswith("via row") and it.refs:
+                owner, number, _, _ = self._pad_ref(it.refs[0])
+                row = (owner, number)
+            for op in ops:
+                got = [row] if row is not None else []
+                if pads is None:
+                    pads = [sh for g in occ.items.values() for sh in g.shapes
+                            if sh.kind in ("pad", "through") and sh.net == net and sh.label]
+                for sh in pads:
+                    if (op.layers and not sh.layers & set(op.layers)) or not sh.box.overlaps(op.box):
+                        continue
+                    if polys_overlap(op.polygon, sh.poly) and (sh.owner, sh.label) not in got:
+                        got.append((sh.owner, sh.label))
+                if got:
+                    out[id(op)] = got
+        return out
+
     def _grown(self, outline, reach: float, pieces) -> list:
         """The loops of `outline` grown by `reach` and cut back by every clearance outline in `pieces`,
         the parts joined to `outline` (polyops.grow_and_cut); arcs lie no more than `geometry.arc_sag` off."""
@@ -7163,7 +7201,17 @@ class Board:
             ctx.note(C.SETUP_PCBNEW, {"variant": "current", "net": net})
             return []
         have = {p[0] for p in member_pads}
-        carriers = {r: a for r, a in checks.carriers_of(self.geometry).get(net, {}).items() if r in have}
+        on_net = checks.carriers_of(self.geometry).get(net, {})
+        carriers = {r: a for r, a in on_net.items() if r in have}
+        by_pad = False
+        if len(carriers) == 1:
+            # two pads of one carrier (a receptacle's two contacts): each pad is an end, at the current the
+            # check judges between that part and another carrier of the net
+            (ref, amps), = carriers.items()
+            ends = sorted({"%s.%s" % (r, n) for r, n, _ in member_pads if r == ref})
+            others = [a for r, a in on_net.items() if r != ref]
+            if len(ends) >= 2 and others:
+                carriers, by_pad = {e: min(amps, max(others)) for e in ends}, True
         if len(carriers) < 2:
             ctx.note(C.COPPER_NOT_DRAWN, {"variant": "pour_carriers", "net": net, "carriers": sorted(carriers)[:1]})
             return []
@@ -7177,7 +7225,7 @@ class Board:
                 reading = checks.pour_current(net, layer, member_pads, member_vias,
                                               [pourfit.offset(o, stroke / 2.0) for o in loops], carriers,
                                               self.geometry.copper_mm, s.check_rise_c, checks.COPPER_OZ,
-                                              s.check_zone_step)
+                                              s.check_zone_step, by_pad=by_pad)
                 tried[k] = (loops, reading)
             return tried[k]
 

@@ -1515,8 +1515,9 @@ def _meets(nodes, reading, need_of) -> bool:
 
 
 def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, copper_oz: float,
-           zone_step: float = ZONE_STEP, measure_necks: bool = True):
-    """The routes the load takes on `net`, carriers being {ref: amps}: for
+           zone_step: float = ZONE_STEP, measure_necks: bool = True, by_pad: bool = False):
+    """The routes the load takes on `net`, carriers being {ref: amps} (with
+    `by_pad`, {"ref.number": amps}: each pad its own end): for
     each two carriers, the widest route from any pad of one to any pad of the
     other, at the lesser current - what can flow between them; with one
     carrier, its widest route to any other part's pad at its own current.
@@ -1540,7 +1541,7 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
     `_UNMEASURED`)] - a route through pads and vias alone, which has no
     copper width to judge - and apart: the pairs no copper joins yet)."""
     nodes, near = _net_graph(geometry, net)
-    owner = {i: n[0].split(".")[0] for i, n in enumerate(nodes) if n[0] != "zone" and "." in n[0]
+    owner = {i: n[0] if by_pad else n[0].split(".")[0] for i, n in enumerate(nodes) if n[0] != "zone" and "." in n[0]
              and math.isinf(n[1])}
     pads = {ref: [i for i, o in owner.items() if o == ref] for ref in set(owner.values())}
     refs = sorted(carriers)
@@ -1703,12 +1704,13 @@ class PourReading:
 
 
 def pour_current(net: str, layer, pads, vias, copper, carriers: dict, copper_mm: dict, rise_c: float,
-                 copper_oz: float, zone_step: float):
+                 copper_oz: float, zone_step: float, by_pad: bool = False):
     """`current-path`'s reading of a drawn pour as the plan holds it, by the
     check's own route search (`_pairs`): `pads` are (ref, number, outline) of
     the pour's members, `vias` the outlines of its via members, `copper` the
     outlines of the pour (one polygon each), `carriers` {ref: amps} of the
-    parts carrying current on `net`. The worst route, as a PourReading, or
+    parts carrying current on `net` - with `by_pad`, {"ref.number": amps},
+    each pad an end of its own (two pads of one part). The worst route, as a PourReading, or
     None where no route is narrowed by the pour (its pads touch). A pour
     that joins no two carriers reads width 0."""
     layers = frozenset([layer])
@@ -1719,7 +1721,8 @@ def pour_current(net: str, layer, pads, vias, copper, carriers: dict, copper_mm:
             for ref, number, outline in pads],
         copper=[CopperItem("via", net, layers, (o,), Box.of_points(o)) for o in vias]
         + [CopperItem("poly", net, layers, (o,), Box.of_points(o)) for o in copper])
-    judged, _, apart = _pairs(stand_in, net, carriers, rise_c, copper_oz, zone_step, measure_necks=False)
+    judged, _, apart = _pairs(stand_in, net, carriers, rise_c, copper_oz, zone_step, measure_necks=False,
+                              by_pad=by_pad)
     if not judged:
         return PourReading(0.0, 0.0, 0.0, "", "", (0.0, 0.0)) if apart else None
     w, need, amps, a, b, _, point = min(judged, key=lambda j: j[0] / j[1])[:7]

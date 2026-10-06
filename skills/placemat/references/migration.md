@@ -13,6 +13,15 @@ section for each hand-written pattern a newer form replaces.
   scanned over the whole face; when the part owns a net tie or meets another part's, that scan took several seconds
   (8 s on one 6-part module, 0.7 s now). It places the same parts at the same spots. Nothing in a script changes.
 
+- **Reach.CURRENT over via members.** A via member of a fitted pour carries the current of the pad it joins: the pad a
+  `board.vias(net, along=PadRef(...))` row stands out of, or a pad of the net the via stands on. A pour on an inner
+  layer over via rows out of two contacts was not drawn with `reach=Reach.CURRENT` ("none of its pads' parts carries
+  current"), since only pad members were credited; it is now drawn and sized for the contacts' current, measured
+  between the via rows on the pour's own layer. Two pads of one part that carries current are each an end, at the
+  lesser of the part's `Pm.I` and the net's largest other carrier's. A pad member with no copper on the pour's layer
+  that a via member joins is no longer refused ("pad ... has no copper on In2.Cu"); the via joins it. A script that
+  dropped `reach=Reach.CURRENT` from such a pour, or took the contacts out of its members, can put them back.
+
 ## To 0.99.22
 
 ### Fixed
