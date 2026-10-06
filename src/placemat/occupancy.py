@@ -2983,6 +2983,10 @@ def edge_refusal(code: int, body: Box, margin: float, silk_margin: float = 0.0) 
                    verdict=EDGE_OF_NATIVE[code], margin_mm=margin)
 
 
+FIRST_WINDOW = 1024
+"""How many candidates `NativeSweeper._first_with_ties` hands the native pass at first; the window doubles from it."""
+
+
 class NativeSweeper:
     """One scan's native legality: its turns' shapes and origin body boxes,
     the reservations that apply to the item, registered once; `run` judges a
@@ -3064,16 +3068,16 @@ class NativeSweeper:
         are scored natively."""
         if self.recheck is None:
             return self._native_run(triples, stop_at_first, scoring)
-        legal, refused, start, scores = [], {}, 0, None
-        while start < len(triples):
-            found, _, refusals = self._native_run(triples[start:], stop_at_first, None)
-            for bucket, count, first, reason, blocker in refusals:
-                self._merge(refused, bucket, count, start + first, reason, blocker)
-            if not found:
-                break
-            sure, scores = self._with_ties([triples[start + j] for j in found], None if stop_at_first else scoring)
-            for at, j in enumerate(found):
-                i = start + j
+        if stop_at_first:
+            return self._first_with_ties(triples)
+        refused = {}
+        found, _, refusals = self._native_run(triples, False, None)
+        for bucket, count, first, reason, blocker in refusals:
+            self._merge(refused, bucket, count, first, reason, blocker)
+        legal, scores = [], None
+        if found:
+            sure, scores = self._with_ties([triples[j] for j in found], scoring)
+            for at, i in enumerate(found):
                 if at in sure:
                     legal.append(i)
                     continue
@@ -3082,11 +3086,35 @@ class NativeSweeper:
                     legal.append(i)
                     continue
                 self._merge(refused, hit[0], 1, i, hit[1], self._blocker(blame))
-            if not stop_at_first or legal:
-                break
-            start = start + found[-1] + 1       # the one accepted was refused: on to the next
         out = sorted(((b, c, f, r, k) for (b, k), (c, f, r) in refused.items()), key=lambda e: e[2])
         return legal, scores if len(legal) == len(scores or ()) else None, out
+
+    def _first_with_ties(self, triples):
+        """`run` with `stop_at_first` for a sweep with net ties left out: the first candidate legal in full, and the
+        refusals of every candidate before it. The native pass judges a window of `triples` at a time, all of it, and
+        the candidates it accepts are judged here in order until one is legal; the window doubles each time none is.
+        A pass from each refused candidate to the next would hand the native sweep the rest of `triples` each time."""
+        refused, legal, start, size = {}, [], 0, FIRST_WINDOW
+        while start < len(triples) and not legal:
+            window = triples[start:start + size]
+            found, _, refusals = self._native_run(window, False, None)
+            sure, _ = self._with_ties([window[j] for j in found], None) if found else (frozenset(), None)
+            for at, j in enumerate(found):
+                if at not in sure:
+                    hit, blame = self._judge(window[j])
+                    if hit is not None:
+                        self._merge(refused, hit[0], 1, start + j, hit[1], self._blocker(blame))
+                        continue
+                legal.append(start + j)
+                if any(first > j for _, _, first, _, _ in refusals):         # the ones past it are not a first-legal pass's
+                    refusals = self._native_run(window[:j], False, None)[2] if j else []
+                break
+            for bucket, count, first, reason, blocker in refusals:
+                self._merge(refused, bucket, count, start + first, reason, blocker)
+            start += len(window)
+            size *= 2
+        out = sorted(((b, c, f, r, k) for (b, k), (c, f, r) in refused.items()), key=lambda e: e[2])
+        return legal, None, out
 
     def _with_ties(self, triples, scoring) -> tuple:
         """(positions in `triples` that the native pass accepts with the net ties in, their scores): the
