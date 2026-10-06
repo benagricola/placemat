@@ -95,3 +95,12 @@ def test_notes_of_every_board_are_read_with_no_script_chosen_each_with_its_scrip
 def test_a_run_compare_with_no_script_chosen_is_none_not_a_crash(project):
     s = Studio(None, port=0, open_browser=False, root=project.parents[2])
     assert s.compare_run("abcd1234") is None and s.run_doc("abcd1234") is None
+
+
+def test_a_failed_command_says_what_failed_and_keeps_where(project):
+    s = Studio(None, port=0, open_browser=False, root=project.parents[2])
+    s._on_channel(4, {"ev": "hello", "pid": 99999998, "command": "run", "script": str(project), "args": ["run"]})
+    s._on_channel(4, {"ev": "error", "kind": "run_failure", "failure": "script", "detail": "NameError: x", "file": str(project), "line": 12})
+    d = s.cmd_detail(4)
+    assert "NameError: x" in d["summary"]["message"]
+    assert [(e["file"], e["line"]) for e in d["events"] if e.get("ev") == "error"] == [(str(project), 12)]

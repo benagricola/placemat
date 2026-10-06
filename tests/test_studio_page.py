@@ -3716,3 +3716,39 @@ def test_a_view_reads_its_own_found_store_and_applied_log_and_shows_its_own_scri
     assert 'class="sgbad"' in out["findings"] and "Could not read what it found: no found suggestion" in out["findings"]
     assert "write the change to B_layout.py; nothing resolves here, so re-run it to see the result" in out["row"]
     assert out["undo"] == ['{"view":{"kind":"cmd","ref":"4"}}']
+
+
+@needs_node
+def test_a_view_shows_its_own_progress_error_and_run_result_and_nothing_of_the_studios_own_resolve(tmp_path):
+    """A followed command running shows its own step and phase; one that failed its error and source line; a past run its DRC, checks
+    and failure. The studio's own error, timing and compare arrows are not shown over a view, and the tab title names the view."""
+    out = run_more(tmp_path, r"""
+WIDE = true;
+full([item("a", 1)], [st("a")]);
+ev('S.error = {message: "own resolve failed", file: "x_layout.py", line: 3}');
+send("cmd", {id: 4, pid: 70, command: "preview", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "running", items: 0, variants: 0, probe: null, route: null});
+ev("S").cmdView = {id: 4, plan: ev("blankPlan()"), summary: {script: "/p/b/B_layout.py", run: ""}, next: 0, fitted: false};
+send("cmdev", {id: 4, n: 0, ev: {ev: "resolve"}});
+send("cmdev", {id: 4, n: 1, ev: {ev: "begin", kind: "total", items: 9, copper: 0}});
+send("cmdev", {id: 4, n: 2, ev: {ev: "begin", kind: "begin", item: "u7", what: "searched", rank: 2, of: 9}});
+send("cmdev", {id: 4, n: 3, ev: {ev: "begin", kind: "phase", stage: "coarse"}});
+ev("renderStatus()"); ev("renderSteps()");
+out.running = [els["#runhead"].innerHTML, els["#tab-steps"].innerHTML, ev("S.resolving"), els["#notice"].style.display, els["#stats"].innerHTML, ev("document.title")];
+send("cmdev", {id: 4, n: 4, ev: {ev: "error", kind: "run_failure", failure: "script", detail: "NameError: x", file: "/p/b/B_layout.py", line: 12}});
+send("cmd", {id: 4, pid: 70, command: "preview", script: "/p/b/B_layout.py", args: [], started: clock / 1000, state: "error", message: "the layout script raised: NameError: x", items: 0, variants: 0, probe: null, route: null});
+ev("renderStatus()");
+out.failed = [els["#notice"].innerHTML, els["#notice"].className, els["#runhead"].hidden];
+const rec = {id: "abcd1234", status: "failed", drc: {drc_real: {clearance: 2}}, checks: {checks_failed: 1}, verdicts: [{check: "creepage", subject: "J1", note: "too close"}], severities: {}, timing: {},
+  arrangements: [], failure: {message: "DRC found real violations", file: "/p/b/B_layout.py", line: 20, source: "board.place(x)"}, findings: 0, at: 0};
+ev("S").cmdView = {id: "run:abcd1234", plan: ev("blankPlan()"), summary: {command: "run", kind: "run", script: "/p/b/B_layout.py", run: "abcd1234", record: rec}, next: 0, fitted: false, record: true};
+ev("renderRuns()"); ev("renderStatus()");
+out.run = [els["#tab-runs"].innerHTML, els["#notice"].style.display, ev("document.title")];
+""")
+    head, steps, resolving, notice, stats, title = out["running"]
+    assert "u7" in head and "coarse pass" in head and "step 0 of ~9" in head and resolving is None
+    assert 'id="pendrow"' in steps and "u7" in steps
+    assert notice == "none" and ">s<" not in stats and title == "B_layout.py - preview - placemat studio"
+    assert "the layout script raised: NameError: x" in out["failed"][0] and "B_layout.py line 12" in out["failed"][0] and out["failed"][1] == "err" and out["failed"][2]
+    runs, notice, title = out["run"]
+    assert "This run abcd1234" in runs and "2 real" in runs and "1 failed" in runs and "creepage" in runs and "DRC found real violations" in runs and 'data-line="20"' in runs
+    assert notice == "none" and title.startswith("B_layout.py - ")

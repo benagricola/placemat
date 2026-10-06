@@ -893,14 +893,29 @@ on("started", d => {
 });
 const serverMs = sec => sec * 1000 - (S.skew || 0);
 const ensureWork = () => { if (S.resolving && !S.work) S.work = {t0: Date.now(), total: null, cur: null, replayed: 0}; return S.work; };
-on("begin", d => {                         // the engine is starting an item, or says what a long step is doing
-  if (!S.live || d.id !== S.live.id || !ensureWork()) return;
-  const w = S.work;
+// A `begin` event (the engine starting an item, or saying what a long step is doing) on the work of a resolve: the studio's own, or
+// that of a followed command (its events carry the same records).
+function applyBegin(w, d) {
   if (d.kind === "total") { w.total = d; schedule("status"); return; }
   if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: d.at ? serverMs(d.at) : Date.now(), stage: "", face: null, within: null, hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
   if (d.firm_pass) w.firmPass = d.firm_pass;          // the firm items are placed again on each pass: the count stays at the items, the pass is said
   if (w.cur) { w.cur.stage = d.stage || ""; w.cur.face = d.face || null; w.cur.within = d.within || null; if (d.hint) w.cur.hint = d.hint; updatePending(); if (d.hint) drawWorkMark(); }
+}
+// A step settled: the item being worked on is done.
+function settleWork(w, it) {
+  const replaying = !!(w && w.cur && w.cur.replaying);
+  if (w) { if (replaying) w.replayed++; if (w.cur && (w.cur.item === it.key || it.kind === "copper")) { w.last = Object.assign({}, w.cur, {stage: "", took: Date.now() - w.cur.t}); w.cur = null; } }
+  return replaying;
+}
+on("begin", d => {
+  if (!S.live || d.id !== S.live.id || !ensureWork()) return;
+  applyBegin(S.work, d);
 });
+// Whether what is shown is a resolve still growing (the studio's own, or a followed command still running), and its work: the progress
+// strip, the pending step and the ring at the item being tried are of what is shown, never of the studio's own resolve under a view.
+const cmdRunning = V => !!V && typeof V.id === "number" && (S.cmds.get(V.id) || V.summary || {}).state === "running";
+const liveRun = () => S.cmdView ? cmdRunning(S.cmdView) : !!S.resolving;
+const viewWork = () => S.cmdView ? (cmdRunning(S.cmdView) ? S.cmdView.work || null : null) : S.xv ? null : (S.resolving ? S.work : null);
 let liveTimer = null;
 const liveRender = () => { if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; schedule("board", "steps", "replay", "counts"); }, 300); };
 on("board", d => { if (!S.live || d.id !== S.live.id) return; S.live.board = d.board; S.live.keepouts = d.keepouts; S.live.reservations = d.reservations; S.live.layers = d.layers; if (!S.view) fit(); schedule("board"); });
@@ -919,8 +934,7 @@ function applyStepTo(L, d) {
 on("step", d => {                          // a step as it settles: it joins the timeline, the list and the drawing at once
   if (!S.live || d.id !== S.live.id) return;
   const it = applyStepTo(S.live, d);
-  const w = S.work, replaying = !!(w && w.cur && w.cur.replaying);
-  if (w) { if (replaying) w.replayed++; if (w.cur && (w.cur.item === it.key || it.kind === "copper")) { w.last = Object.assign({}, w.cur, {stage: "", took: Date.now() - w.cur.t}); w.cur = null; } }
+  const replaying = settleWork(S.work, it);
   if (replaying) liveRender();                // a replay of unchanged steps is a quick run of them: drawn a few times a second
   else schedule("board", "steps", "replay", "counts", "status");
 });
@@ -1029,16 +1043,25 @@ function renderStatus() {
   const head = vs ? [baseName(vs.script) || "placemat studio", [vs.label, vs.pid ? "pid " + vs.pid : "", vs.run ? "run " + vs.run : ""].filter(Boolean).join(", ")]
     : pick ? ["placemat studio", ""] : [(S.hello && (S.hello.title || S.hello.script)) || "placemat studio", (S.hello && S.hello.subtitle) || ""];
   $("#board-title").textContent = head[0]; $("#board-sub").textContent = head[1];
+  if (vs || S.hello) document.title = vs ? (baseName(vs.script) || kindWord(vs.kind)) + " - " + kindWord(vs.kind) + " - placemat studio" : S.hello.picker ? "placemat studio" : (S.hello.title || S.hello.script) + " - placemat studio";
   $("#nothing").hidden = !(pick && !vs && !S.start && !S.latestOn);
   const label = vs ? STATE_WORD[vs.state] : pick ? "nothing open" : S.run && S.run.regenerate ? "regenerating" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = label;
   const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Full run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
   rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = $("#sharebtn").hidden = !!(S.hello && S.hello.picker);
   b.className = "pill " + (vs ? STATE_PILL[vs.state] : pick ? "accent" : S.run && S.run.regenerate ? "busy" : {live: "live", resolving: "busy", stale: "stale", error: "error", try: "stale", disconnected: "error"}[S.status] || "accent");
-  const rec = S.docs.get(S.shownId), p = plan();
+  const viewed = !!(S.cmdView || S.xv), rec = viewed ? null : S.docs.get(S.shownId), p = plan();       // a view's numbers are its own, never the studio's resolve's
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
-  const n = $("#notice");
-  if (S.error) {
+  const n = $("#notice"), verr = S.cmdView && S.cmdView.error;
+  if (viewed) {                       // under a view the studio's own error, waiting and regeneration are not said: the view's own error is
+    if (verr) {
+      const msg = ((S.cmds.get(S.cmdView.id) || {}).message) || verr.message || verr.detail || "it failed";
+      n.className = "err"; n.style.display = "block";
+      n.innerHTML = "<b>" + esc(msg) + "</b>" + (verr.file && verr.line ? ' <a href="#" id="goerr">' + esc(baseName(verr.file)) + " line " + verr.line + "</a>" : "");
+      const a = $("#goerr");
+      if (a) a.onclick = e => { e.preventDefault(); openScript(verr.file, verr.line); };
+    } else n.style.display = "none";
+  } else if (S.error) {
     n.className = "err"; n.style.display = "block";
     n.innerHTML = "<b>" + esc(S.error.message) + "</b>" + (S.error.line ? ' <a href="#" id="goerr">' + esc(S.error.file || "") + " line " + S.error.line + "</a>" : "") + (S.error.source ? ' <code>' + esc(String(S.error.source).trim()) + "</code>" : "") + " (showing the last good plan)";
     const a = $("#goerr");
@@ -1060,7 +1083,7 @@ function renderStatus() {
     $("#regen").onclick = () => startRun(true);
     $("#stalex").onclick = () => { dismissStale(rec.stale); schedule("status", "board"); };
   } else n.style.display = "none";
-  $("#boardwrap").classList.toggle("stale", S.stale && !S.resolving);
+  $("#boardwrap").classList.toggle("stale", !viewed && S.stale && !S.resolving);
   renderProgress();
 }
 // The stale generation's banner: a stale record (runner.stale_record) in words, and its dismissal, kept per script in this browser.
@@ -1110,11 +1133,11 @@ const isSettled = w => !w.cur && !!w.last && !w.last.replaying;
 // The distinct items the resolve has settled: a firm pass places an item again, which is not a new step of the whole.
 const doneItems = p => p ? new Set((p.steps || []).map(s => s.item)).size : 0;
 function renderProgress() {
-  const w = S.work, on = !!(S.resolving && w), wide = !narrow(), el = $("#runstrip"), hd = $("#runhead");
-  el.hidden = wide || !(on || S.done);
-  hd.hidden = !wide || !(on || S.done);
+  const w = viewWork(), on = !!w, wide = !narrow(), el = $("#runstrip"), hd = $("#runhead"), done = !S.cmdView && !S.xv && S.done;
+  el.hidden = wide || !(on || done);
+  hd.hidden = !wide || !(on || done);
   if (!on) {
-    if (S.done) {
+    if (done) {
       $("#rs-el").textContent = ""; $("#rs-steps").textContent = S.done; $("#rs-work").innerHTML = ""; $("#progbarbox").classList.remove("ind"); $("#progbar").style.width = "100%"; $("#proginn").style.width = "0%";
       hd.className = "flds"; hd.innerHTML = '<span class="f-steps" style="width:auto">' + esc(S.done) + "</span>";
     }
@@ -1164,7 +1187,7 @@ const workFields = c =>
 const whatClass = what => what === "searched" ? "searched" : what === "decided" ? "decided" : what === "copper" ? "copper" : what === "cutout" ? "cutout" : what === "replay" ? "decided" : "keepout";
 const itemField = name => '<b class="f-item" title="' + escRaw(name) + '">' + esc(name) + "</b>";
 function pendingRow() {
-  const w = S.work; if (!S.resolving || !w) return "";
+  const w = viewWork(); if (!w) return "";
   const c = w.cur, R = w.total ? w.total.replay : 0, spin = '<span class="i"><i class="spin"></i></span>';
   if (w.replayed && (c ? c.replaying : w.last && w.last.replaying)) {
     return '<div class="row pending" id="pendrow">' + spin + '<div class="sb"><div class="flds">' + pill("replay", "decided") + itemField("replaying unchanged steps") + '</div><div class="flds" id="pendtext"></div>' +
@@ -1180,7 +1203,7 @@ const pendHead = (c, ms) => '<div class="l1"><b title="' + escRaw(c.item) + '">'
 const phaseField = c => '<span class="f-phase">' + (c.stage || c.what === "copper" ? pill(phaseShort(c), "phase") : "") + "</span>";
 // The pending row's own text and the header's, refreshed without drawing the lists again.
 function updatePending() {
-  const w = S.work, c = w && w.cur, el = $("#pendtext");
+  const w = viewWork(), c = w && w.cur, el = $("#pendtext");
   if (c && el && !c.replaying) {
     el.innerHTML = phaseField(c);
     const t = $("#pendtime"); if (t) t.textContent = ((Date.now() - c.t) / 1000).toFixed(1) + " s";
@@ -1188,12 +1211,12 @@ function updatePending() {
   renderStepNow();
   renderProgress();
 }
-setInterval(() => { if (S.resolving && S.work) updatePending(); }, 500);
+setInterval(() => { if (viewWork()) updatePending(); }, 500);
 // The item being worked on is marked where it is being tried: a pulsing ring at its hint, once the engine has one.
 function drawWorkMark() {
   if (!B.svg || !B.svg.querySelectorAll) return;
   for (const e of B.svg.querySelectorAll(".workmark")) e.remove();
-  const c = S.work && S.resolving && S.work.cur;
+  const w = viewWork(), c = w && w.cur;
   if (!c || !c.hint) return;
   const g = '<g class="workmark"><circle class="wm1" cx="' + num(c.hint[0]) + '" cy="' + num(c.hint[1]) + '" r="1.2"/><circle class="wm2" cx="' + num(c.hint[0]) + '" cy="' + num(c.hint[1]) + '" r="1.2"/></g>';
   for (const panel of B.svg.querySelectorAll(".panel")) panel.insertAdjacentHTML("beforeend", g);
@@ -1575,7 +1598,7 @@ function renderBoard() {
   S.opStep = new Map(); S.loopStep = new Map(); S.stepN = new Map(order.map(s => [s.at, s.n]));
   for (const s of order) { for (const c of s.copper || []) S.opStep.set(c, s.n); if (s.loop != null) S.loopStep.set(s.loop, s.n); }
   S.lastStep = order.length - 1;
-  const showDiff = S.cmp && !S.resolving && S.cmp.b === S.shownId && !S.cmp.diff.empty;
+  const showDiff = S.cmp && !S.cmdView && !S.xv && !S.resolving && S.cmp.b === S.shownId && !S.cmp.diff.empty;
   const itemsA = showDiff && S.docs.get(S.cmp.a) ? itemMap(S.docs.get(S.cmp.a).doc) : new Map();
   const diffLayer = showDiff ? (f, pn) => diffLayerSVG(S.cmp.diff, itemsA, S.itemAt, f, pn) : () => "";
   const defs = "<defs>" + arrowMarker("arrow", "") + arrowMarker("ar-ok", "ok") + arrowMarker("ar-over", "over") + arrowMarker("ar-free", "free") + "</defs>";
@@ -2553,11 +2576,11 @@ function renderReplay() {
     if (S.replay != null && rows[k - 1]) rows[k - 1].classList.add("now");
     R.k = k; R.n = rows.length;
   }
-  $("#steplabel").textContent = n ? k + " / " + n + (S.resolving ? " so far" : "") : S.resolving ? "..." : "0";
-  const fb = $("#follow"); fb.hidden = !(S.resolving && S.replay != null);
+  $("#steplabel").textContent = n ? k + " / " + n + (liveRun() ? " so far" : "") : liveRun() ? "..." : "0";
+  const fb = $("#follow"); fb.hidden = !(liveRun() && S.replay != null);
   renderStepNow();
-  $("#play").textContent = S.play ? "Pause" : S.resolving ? "Restart" : "Play";
-  $("#play").title = S.resolving && !S.play ? "replay from step 1 through the steps so far, then follow the live end" : "replay the placement, one item at a time";
+  $("#play").textContent = S.play ? "Pause" : liveRun() ? "Restart" : "Play";
+  $("#play").title = liveRun() && !S.play ? "replay from step 1 through the steps so far, then follow the live end" : "replay the placement, one item at a time";
   $("#play").disabled = !n;
   $("#stepprev").disabled = !n || k <= 0;
   $("#stepnext").disabled = !n || k >= n;
@@ -2606,14 +2629,14 @@ function togglePlay() {
   if (S.play) { stopPlay(); schedule("replay"); return; }
   const n = replayCount(); if (!n) return;
   // While a resolve runs the button restarts: from step 1 through what has settled, then it follows the live end.
-  const k0 = S.resolving ? 0 : S.replay == null ? 0 : S.replay;                   // from the end it starts again
+  const k0 = liveRun() ? 0 : S.replay == null ? 0 : S.replay;                   // from the end it starts again
   S.play = {t0: Date.now(), k0, rate: playRate(n) * S.speed, n};
   setReplay(k0);
   requestAnimationFrame(playTick);
 }
 function playTick() {
   const play = S.play; if (!play) return;
-  const total = S.resolving ? replayCount() : play.n;               // a live replay's end is the newest step so far, and it moves
+  const total = liveRun() ? replayCount() : play.n;               // a live replay's end is the newest step so far, and it moves
   const k = Math.max(playPosition(Object.assign({}, play, {n: total}), Date.now()), S.replay == null ? 0 : S.replay);
   setReplay(k);
   if (k >= total) { S.play = null; schedule("replay"); return; }      // caught up: the slider is at the live end and follows it
@@ -2687,7 +2710,7 @@ function renderSteps() {
   const order = replaySteps(p), other = otherSteps(p);
   const unplaced = p.unplaced || [];
   const head = (title, n, id, info) => "<h3>" + title + (info ? infoBtn(info) : "") + ' <span class="c"' + (id ? ' id="' + id + '"' : "") + ">" + n + "</span></h3>";
-  let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + (p.seconds != null ? '<div class="dim" id="steptotal" style="padding:0 12px 4px;text-align:right">resolved in ' + esc(dur(p.seconds)) + "</div>" : "") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + pendingRow() + "</div>";
+  let out = head("Steps", order.length + (liveRun() ? " so far" : ""), "stepcount", "steps") + (p.seconds != null ? '<div class="dim" id="steptotal" style="padding:0 12px 4px;text-align:right">resolved in ' + esc(dur(p.seconds)) + "</div>" : "") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + pendingRow() + "</div>";
   if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row unp" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><div class="n wrap unpbody">' + unplacedBlock(unplacedParts(reasonTexts(u), unplacedFindingOf(p, u.item))) + "</div></div>").join("");
   if (other.length) {
     out += '<h3 class="fold" data-fold="other">' + (S.showOther ? "&#9662;" : "&#9656;") + " Keepouts and setup steps" + infoBtn("other") + ' <span class="c">' + other.length + "</span></h3>";
@@ -2695,7 +2718,7 @@ function renderSteps() {
   }
   const near = el.scrollHeight - el.scrollTop - el.clientHeight < 60, top = el.scrollTop;
   el.innerHTML = out;
-  el.scrollTop = S.resolving && S.replay == null && near ? el.scrollHeight : top;                    // following the newest step, or where the viewer was
+  el.scrollTop = liveRun() && S.replay == null && near ? el.scrollHeight : top;                    // following the newest step, or where the viewer was
   collectRows();
   el.onclick = e => {
     if (e.target.closest(".info")) return;
@@ -3121,9 +3144,12 @@ on("run_progress", d => { if (S.run && S.run.id === d.id) { S.run.step = d.item;
 function cmdEvent(ev, n) {
   const V = S.cmdView; if (!V) return;
   const P = V.plan;
-  if (ev.ev === "resolve") { Object.assign(P, blankPlan()); }
+  const fresh = () => ({t0: (S.cmds.get(V.id) || {}).started ? serverMs(S.cmds.get(V.id).started) : Date.now(), total: null, cur: null, replayed: 0});
+  if (ev.ev === "resolve") { Object.assign(P, blankPlan()); V.work = fresh(); }
+  else if (ev.ev === "begin") { V.work = V.work || fresh(); applyBegin(V.work, ev); V.next = Math.max(V.next || 0, (n || 0) + 1); return; }      // a long step's phases come often: only the progress is drawn
+  else if (ev.ev === "error") { V.error = ev; renderCmdBar(); }
   else if (ev.ev === "board") { P.board = ev.board; P.keepouts = ev.keepouts || []; P.reservations = ev.reservations || []; P.layers = ev.layers; if (!V.fitted) { V.fitted = true; S.view = null; lay = null; } }
-  else if (ev.ev === "item") { applyStepTo(P, ev); }
+  else if (ev.ev === "item") { settleWork(V.work, applyStepTo(P, ev)); }
   else if (ev.ev === "plan") { const doc = ev.doc || {}; Object.assign(P, {items: doc.items || [], steps: doc.steps || [], copper: doc.copper || [], links: doc.links || [], congestion: doc.congestion, findings: doc.findings || [], unplaced: doc.unplaced || [],
       pocketed: doc.pocketed || [], keepouts: doc.keepouts || P.keepouts, reservations: doc.reservations || P.reservations, board: doc.board || P.board, layers: doc.layers, counts: doc.counts || P.counts, seconds: doc.seconds}); }
   else if (ev.ev && ev.ev.startsWith("route_")) routeEvent(V, P, ev);
@@ -3724,7 +3750,7 @@ document.querySelectorAll("#modebar button").forEach(b => b.onclick = () => setM
 document.querySelectorAll("#viewbar button").forEach(b => b.onclick = () => { if (V3) { V3.setView(b.dataset.v); document.querySelectorAll("#viewbar button").forEach(x => x.classList.toggle("on", x === b)); } });
 function sync3d() {
   if (!V3) return;
-  const live = !!(S.resolving && !(S.work && S.work.cur && S.work.cur.replaying));
+  const w = viewWork(), live = !!(w && !(w.cur && w.cur.replaying));
   V3.sync({k: S.replay, animate: live, play: !!S.play});
   V3.select(S.sel);
 }
@@ -3898,7 +3924,16 @@ function rowRoute(r) {
     '</div><div class="l2">' + r.nets + " nets, " + r.routed + " routed" + (r.failed ? ", " + r.failed + " failed" : "") + (r.closure != null ? ", closure " + Math.round(r.closure * 1000) / 10 + "%" : "") + (r.seconds ? ", " + r.seconds + " s" : "") + "</div></div></div>";
 }
 // A tap on a row of those lists opens what it names: a command is followed, a past run, explore or route is looked at.
+// The run record of what is shown: a past run's (its /runview summary), or a finished command's that wrote one (found among the project's
+// runs by its folder). Null for anything else.
+function viewRunRecord() {
+  const V = S.cmdView; if (!V) return null;
+  if (V.summary && V.summary.record && V.summary.record.drc !== undefined) return V.summary.record;
+  const c = typeof V.id === "number" ? S.cmds.get(V.id) : null, m = c && c.state !== "running" && /\/runs\/([^/]+)\/run\.json$/.exec(String(c.record || ""));
+  return m ? S.projectRuns.find(r => r.id === m[1]) || null : null;
+}
 function runsClick(e) {
+  const sl = e.target.closest("[data-act=src]"); if (sl) { openScript(sl.dataset.file, +sl.dataset.line); return true; }
   const c = e.target.closest("[data-cmd]"); if (c) { leaveLatest(); openCmd(+c.dataset.cmd); return true; }
   const v = e.target.closest("[data-runview]"); if (v) { leaveLatest(); openRunRecord(v.dataset.runview); return true; }
   const x = e.target.closest("[data-explore]"); if (x) { leaveLatest(); openExploreRecord(x.dataset.explore); return true; }
@@ -3907,7 +3942,8 @@ function runsClick(e) {
 }
 function renderRuns() {
   const el = $("#tab-runs"), cmds = [...S.cmds.values()].sort((a, b) => (b.state === "running") - (a.state === "running") || b.started - a.started);
-  el.innerHTML = exploreHTML() + '<h3>Commands in this project ' + infoBtn("runsview") + ' <span class="c">' + cmds.length + "</span></h3>" + (cmds.length ? cmds.map(rowCmd).join("") : '<div class="pad8 dim">No placemat command has reported to this studio yet. Run one in this project (run, preview, an explore) and it shows here.</div>') +
+  const rr = viewRunRecord();
+  el.innerHTML = (rr ? "<h3>This run " + esc(rr.id) + "</h3>" + runDetail(rr) : "") + exploreHTML() + '<h3>Commands in this project ' + infoBtn("runsview") + ' <span class="c">' + cmds.length + "</span></h3>" + (cmds.length ? cmds.map(rowCmd).join("") : '<div class="pad8 dim">No placemat command has reported to this studio yet. Run one in this project (run, preview, an explore) and it shows here.</div>') +
     '<h3>Past runs <span class="c">' + S.projectRuns.length + "</span></h3>" + (S.projectRuns.length ? S.projectRuns.map(rowRun).join("") : '<div class="pad8 dim">No recorded run yet. A full run records one.</div>') +
     (S.explores.length ? "<h3>Recorded explores</h3>" + S.explores.map(rowExplore).join("") : "") + (S.routes.length ? "<h3>Recorded routes</h3>" + S.routes.map(rowRoute).join("") : "");
   el.onclick = e => { if (e.target.closest(".info")) return; if (!runsClick(e)) exploreClick(e); };

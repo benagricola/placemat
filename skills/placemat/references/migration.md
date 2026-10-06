@@ -21,6 +21,11 @@ section for each hand-written pattern a newer form replaces.
   they were left for. Apply on a view of a script other than the chosen one is refused with "choose it", as Try is; with no
   script chosen, Apply says it writes the view's script and nothing resolves here. Undo with nothing applied, and a run
   compare with no script chosen, are refused rather than failing.
+- **A view in the studio shows its own progress, error and run result.** A followed command still running shows the item
+  it is on, its step count and phase. One that failed shows its error in red with a link to the source line. A past run
+  (or a finished command that recorded one) shows its DRC, failed checks, arrangements and failure under "This run" in the
+  Runs tab. The studio's own resolve no longer shows through a view: its compare arrows, timing, error, waiting and
+  Regenerate notices are hidden while a view is open, and the browser tab title names the view.
 
 ## To 0.99.29
 
