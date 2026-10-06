@@ -117,13 +117,13 @@ def test_the_contacts_with_the_via_rows_are_drawn_too():
     assert got.width >= got.need
 
 
-def test_the_current_is_the_lesser_of_the_contacts_and_the_load_shared_by_the_pads():
+def test_the_current_is_the_parts_own_rating_shared_by_its_pads_whatever_the_load():
     b = _board(receptacle="3A", load="0.5A")
     b.pour(Net("VBUS"), list(_rows(b)), layer=IN2, swallow_pads=True, reach=Reach.CURRENT)
     plan = b.resolve()
     assert not [f for f in declared_findings(plan) if f.startswith("pour")], plan.findings
-    assert _reading(plan, amps=0.25).width >= _reading(plan, amps=0.25).need
-    assert _reading(plan, amps=SHARE).width < _reading(plan, amps=SHARE).need
+    got = _reading(plan, amps=SHARE)
+    assert got.width >= got.need and got.amps == pytest.approx(SHARE)
 
 
 def test_via_rows_out_of_a_part_that_carries_no_current_are_the_none_carries_finding():

@@ -7239,15 +7239,14 @@ class Board:
         carriers = {r: a for r, a in on_net.items() if r in have}
         by_pad = False
         if len(carriers) == 1:
-            # two pads of one carrier (a receptacle's two contacts): each pad is an end, at its share of the current
-            # the check judges between that part and another carrier of the net, shared by the part's pads on the net
-            # (Ben, 2026-10-06: two pads of a 3 A part carry 1.5 A each)
+            # two pads of one carrier (a receptacle's two contacts): each pad is an end, at the part's own rating
+            # shared by its pads on the net, whatever the rest of the net draws: two pads of a 3 A part carry 1.5 A each
             (ref, amps), = carriers.items()
             ends = sorted({"%s.%s" % (r, n) for r, n, _ in member_pads if r == ref})
             others = [a for r, a in on_net.items() if r != ref]
             if len(ends) >= 2 and others:
                 share = len({p.number for p in self.geometry.footprint(ref).pads if p.net == net})
-                carriers, by_pad = {e: min(amps, max(others)) / share for e in ends}, True
+                carriers, by_pad = {e: amps / share for e in ends}, True
         if len(carriers) < 2:
             ctx.note(C.COPPER_NOT_DRAWN, {"variant": "pour_carriers", "net": net, "carriers": sorted(carriers)[:1]})
             return []
