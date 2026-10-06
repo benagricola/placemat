@@ -21,7 +21,6 @@ section for each hand-written pattern a newer form replaces.
   a real DRC violation in the routed copy, a hole_to_hole between two of its own vias included. It now reads
   `with DRC violations: NET (hole_to_hole)`, with the kinds. `route.json` and the route record keep `shorted` and add
   `violations`, `{net: [kinds]}` for the same nets. Scripts need no change.
-
 - **A replay reuses the planned copper.** When every step of a preview, run or studio resolve replays and the script
   ran from the same files as the record's (the script, the modules it imports from beside it and the folders above,
   and every file it read, such as a TOML or JSON of dimensions), the declared copper and the room kept for it are put
@@ -38,6 +37,9 @@ section for each hand-written pattern a newer form replaces.
   `Between` as declared, not the point it resolves to); a change to any of them places every step again, and an edit
   to a comment alone still replays every step. The first run after upgrading replays nothing, as after
   any upgrade. Scripts need no change.
+- **The native sweep applies KiCad's net-tie exclusion.** A part near a net tie is judged in the native module like any
+  other, with no Python recheck: a module with net-tie parts places faster again (the bench's ring sensor module 0.2 s,
+  from 0.7 s). Placements are unchanged. Rebuild the native module after updating (`uv pip install -e ".[native]"`).
 
 ## To 0.99.23
 
@@ -48,7 +50,7 @@ section for each hand-written pattern a newer form replaces.
 
 - **A module with net-tie parts searched over a whole face places faster.** A part that no free pocket takes is
   scanned over the whole face; when the part owns a net tie or meets another part's, that scan took several seconds
-  (8 s on one 6-part module, 0.2 s now). It places the same parts at the same spots. Nothing in a script changes.
+  (8 s on one 6-part module, 0.7 s now). It places the same parts at the same spots. Nothing in a script changes.
 
 - **Reach.CURRENT over via members.** A via member of a fitted pour carries the current of the pad it joins: the pad a
   `board.vias(net, along=PadRef(...))` row stands out of, or a pad of the net the via stands on. A pour on an inner
