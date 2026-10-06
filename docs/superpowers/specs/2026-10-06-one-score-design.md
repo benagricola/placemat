@@ -30,6 +30,28 @@ uses a different formula or an estimate standing in for it.
 Routing results stay outside this score and rank above it. The loop ranks by the phases' closures in order, then the
 clean closure, then the run score (loop spec). This is the one ordering used everywhere a board is compared.
 
+## Boards and modules want different things
+
+The same mechanism serves both. What changes between them is which terms count and the order in which results rank.
+
+- **A board** has a fixed outline. It must fit the outline and route every phase, then have the fewest crossings and the
+  shortest wire.
+- **A module** is a script whose frame is fitted to its content (`board.rect(fit=True)` or `fit=Axis.X/Y`). It must
+  route 100%, then take the smallest footprint, then have the fewest crossings and the shortest wire.
+
+Today nothing scores a module's footprint: the fitted frame wraps whatever was placed, and compactness comes only
+indirectly from short wires. The score gains an **area** term:
+- **Whole form:** the fitted frame's area, the content's bounding box plus the frame margin, on the axes that are
+  fitted.
+- **Incremental form:** the bounding box recomputed from the moved items' boxes against the others' running extents.
+- **Weight:** `score.area`, per mm2. It is zero on a board with a fixed outline, and on by default for a fitted frame.
+
+**Ranking order:**
+- **Board:** the phases' closures in order, then the clean closure, then the run score.
+- **Module:** the phases' closures (100% expected), then the area, then the rest of the run score.
+
+The loop, restarts and refine all use the order for the script's context, as one function in `score.py`.
+
 ## Each term, whole and incremental
 
 Each run-score term is defined once, with two forms:
@@ -49,6 +71,7 @@ difference of the whole-board values, across the bench fixtures.
 | back_face, unplaced | counts | the touched items |
 | escapes (`escape_*`) | finding counts | the touched items' escapes, re-judged |
 | congestion (RUDY) | the worst cell | the touched items' nets' boxes re-added to the grid |
+| area (fitted frame only) | the frame's area | the bounding box from the moved items' boxes and the others' extents |
 | findings by kind | counts | not incremental: rechecked once at the end of refine and of each construction |
 
 The weights are the existing `[score]` settings, and the only weights. The search's own weights that duplicate them
@@ -93,7 +116,8 @@ now). The native ratsnest and a spatial index of edges are the means. This is me
   planes and pushes.
 - **One set of weights:** a change to a `[score]` weight changes the search's choice, refine's choice, the turn
   check's verdict and the pin study's result in the same direction.
-- **The ordering:** a board with a better earlier phase ranks above one with a better clean closure.
+- **The ordering:** a board with a better earlier phase ranks above one with a better clean closure. A fitted module at
+  100% routed with the smaller area ranks above a larger one with a better run score.
 - **The gate,** as above.
 
 ## Out of scope
