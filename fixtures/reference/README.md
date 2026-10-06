@@ -65,6 +65,19 @@ placemat rather than the quirks of a script.
 - **A check:** a script lint in the runner lists every declaration by its basis. A reviewer checks each new or changed
   reference script against these rules before it is accepted.
 
+## Using the set in a step
+
+`results.json` holds the recorded baseline: test (a) at class and human widths, test (b) on the two open boards, and
+the module runs. Each entry carries the placemat, router and zener versions it was made with.
+
+Before a release, run `route_ref.py`, `place_ref.py` and `place_ref.py --modules`, and put each board's and module's
+tally in the release commit. A run compares each entry with the recorded one and prints new, same, better, worse or
+not comparable (a different version of a component other than the one named in `--changing`).
+
+The ratchet: no board or module may get worse without the user's approval. `--update` writes the entries that are
+new, same, better or not comparable, and holds back an entry that is worse. `--accept-worse` writes it anyway and
+records that the user approved the loss; it is never passed without that approval.
+
 ## The script lint
 
     .venv/bin/python fixtures/reference/lint.py <board name>
