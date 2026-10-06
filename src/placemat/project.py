@@ -276,8 +276,13 @@ def generator_inputs(src: BoardSource) -> dict:
         text = zen.read_text(errors="replace")
         # A Project's path is where the generator writes the schematic project: output.
         written = [(zen.parent / w).resolve() for w in _PROJECT_PATH_RE.findall(text)]
+        here = str(zen.parent)
         for ref in _QUOTED_RE.findall(text):
             if ref.startswith("@") or "://" in ref or ref.startswith("/"):
+                continue
+            # Most quoted strings are names, not paths. One stat drops them before the
+            # resolve and the parents walk below, which cost most of a preview's scan.
+            if not os.path.exists(os.path.join(here, ref)):
                 continue
             p = (zen.parent / ref).resolve()
             if any(p == w or w in p.parents for w in written):

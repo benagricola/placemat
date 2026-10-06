@@ -74,6 +74,18 @@ def test_a_changed_input_changes_its_digest_and_an_unrelated_file_does_not(tmp_p
     assert [k for k in changed if changed[k] != first.get(k)] == ["sub/layout.kicad_pcb"]
 
 
+def test_a_file_named_through_a_symlink_is_an_input_and_a_quoted_name_counts_once_a_file_has_it(tmp_path):
+    root, board, src = _project(tmp_path)
+    _write(root / "parts" / "R1" / "R1.kicad_mod", "(footprint R1)\n")
+    (board / "parts").symlink_to("../../parts")
+    (board / "Sub.zen").write_text('Layout(name = "Sub", path = "sub")\n'
+                                   'F = "parts/R1/R1.kicad_mod"\nN = "GND"\n')
+    names = set(generator_inputs(src))
+    assert "../../parts/R1/R1.kicad_mod" in names and "GND" not in names
+    _write(board / "GND", "now a file\n")
+    assert "GND" in generator_inputs(src)
+
+
 def _fake_pcb(calls):
     def sh(cmd, cwd, log, timeout, env=None):
         calls.append(cmd)

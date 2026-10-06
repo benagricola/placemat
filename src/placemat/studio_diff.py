@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import ast
 from collections import Counter
-import copy
 import difflib
+import functools
 import json
 
 
@@ -147,15 +147,17 @@ def line_diff(old: str, new: str, context: int = 3) -> dict:
             "added": len(changed_new), "removed": len(changed_old)}
 
 
-def declaration_span(text: str, line: int) -> tuple:
-    """The lines of the statement that holds `line`: what a declaration is,
-    whichever of its lines the interpreter named. A compound statement is its
-    header alone. (line, line) when the text does not parse."""
+@functools.lru_cache(maxsize=16)
+def _statement_spans(text: str) -> tuple | None:
+    """Each statement's (start, end) lines in `text`, in ast.walk order, a
+    compound statement's end being its header's last line; None when the
+    text does not parse. Keyed on the whole text, so one parse serves every
+    item a file declares, and the next resolve when the file is unchanged."""
     try:
         tree = ast.parse(text)
     except SyntaxError:
-        return (line, line)
-    best = None
+        return None
+    out = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.stmt):
             continue
@@ -163,6 +165,19 @@ def declaration_span(text: str, line: int) -> tuple:
         body = getattr(node, "body", None)
         if isinstance(body, list) and body:
             end = max(start, body[0].lineno - 1)        # the header: up to the line before its body
+        out.append((start, end))
+    return tuple(out)
+
+
+def declaration_span(text: str, line: int) -> tuple:
+    """The lines of the statement that holds `line`: what a declaration is,
+    whichever of its lines the interpreter named. A compound statement is its
+    header alone. (line, line) when the text does not parse."""
+    spans = _statement_spans(text)
+    if spans is None:
+        return (line, line)
+    best = None
+    for start, end in spans:
         if start <= line <= end and (best is None or end - start <= best[1] - best[0]):
             best = (start, end)
     return best if best is not None else (line, line)
@@ -170,12 +185,17 @@ def declaration_span(text: str, line: int) -> tuple:
 
 def with_spans(doc: dict, texts: dict) -> dict:
     """`doc` with each item's `span` - the statement that declared it, in the
-    text of its file - added. The original is left alone."""
-    out = copy.deepcopy(doc)
-    for item in out.get("items", ()):
-        text = texts.get(item.get("file"))
-        if text is not None and item.get("line"):
-            item["span"] = list(declaration_span(text, item["line"]))
+    text of its file - added. The original is left alone: the items are
+    copied, the rest of the document is shared."""
+    out = dict(doc)
+    if "items" in doc:
+        items = []
+        for item in doc["items"]:
+            text = texts.get(item.get("file"))
+            if text is not None and item.get("line"):
+                item = dict(item, span=list(declaration_span(text, item["line"])))
+            items.append(item)
+        out["items"] = items
     return out
 
 

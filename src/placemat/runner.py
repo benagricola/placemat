@@ -373,9 +373,11 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
     elif src is not None:                               # a try writes nothing, the pin map study's record included
         board.pin_study_cache = Path(src.board_dir) / ".placemat" / "pinmap" / (Path(script).stem + ".json")
     try:
-        run_script(script, board)
-        board.refuse_board_alternatives()               # an alternative on a board that is not a module
-        board.finish_declarations()                     # an only= naming no arrangement is the script's error
+        with context_mod.reads() as opened:
+            run_script(script, board)
+            board.refuse_board_alternatives()           # an alternative on a board that is not a module
+            board.finish_declarations()                 # an only= naming no arrangement is the script's error
+        board.copper_inputs = context_mod.inputs_digest(opened, script)     # what a replay's copper may be reused under
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)
         from .project import script_files

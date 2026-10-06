@@ -6,8 +6,10 @@ from contextlib import contextmanager
 import importlib.abc
 import importlib.machinery
 import importlib.util
+import os
 from pathlib import Path
 import sys
+import threading
 
 _active = None
 _overlay: dict | None = None        # {absolute path: text} read in place of the files on disk while a try runs (see `overlay`)
@@ -102,6 +104,67 @@ def read_source(path) -> str:
         return text
     with open(path, encoding="utf-8") as f:
         return f.read()
+
+
+_reads: tuple | None = None         # (thread id, [paths]) while `reads` collects
+_hooked = False
+
+
+def _audit(event, args):
+    r = _reads
+    if r is not None and event == "open" and threading.get_ident() == r[0] and args and \
+            isinstance(args[0], (str, bytes, os.PathLike)):
+        r[1].append(os.path.abspath(os.fsdecode(args[0])))
+
+
+@contextmanager
+def reads():
+    """The files this thread opens while inside, as a list of paths, filled in as they are opened: the script, the modules
+    it imports and every file it reads (an audit hook, added once per process, sees each open)."""
+    global _reads, _hooked
+    if not _hooked:
+        sys.addaudithook(_audit)
+        _hooked = True
+    previous, got = _reads, []
+    _reads = (threading.get_ident(), got)
+    try:
+        yield got
+    finally:
+        _reads = previous
+
+
+def _python_dir(p: str) -> str:
+    """The folder of the source a .py or .pyc path is for (a .pyc under __pycache__ or under sys.pycache_prefix)."""
+    if not p.endswith(".pyc"):
+        return os.path.dirname(p)
+    pre = sys.pycache_prefix
+    if pre and p.startswith(os.path.join(pre, "")):
+        return os.path.dirname(p[len(pre):])
+    return os.path.dirname(os.path.dirname(p))
+
+
+def inputs_digest(paths, script) -> str:
+    """A digest of what `script` ran from: each file of `paths` (as `reads` collected them) by its path and content, and
+    the overlay's texts while a try runs. Two runs of the same script with the same digest declared the same board, given
+    the same generated board and settings (the reuse context's). Python files are counted from the folders run_script
+    imports afresh each run; a module from anywhere else (placemat, a library) is read once per process."""
+    import hashlib
+    dirs = [str(d) for d in _import_dirs(Path(script).resolve())]
+    h = hashlib.sha256()
+    for p in sorted({os.path.realpath(p) for p in paths}):
+        if p.endswith((".py", ".pyc")):
+            here = _python_dir(p)
+            if not any(here == d or here.startswith(os.path.join(d, "")) for d in dirs):
+                continue
+        h.update(p.encode("utf-8", "surrogateescape") + b"\0")
+        try:
+            with open(p, "rb") as f:
+                h.update(hashlib.sha256(f.read()).digest())
+        except OSError as e:            # gone, or a folder: what it was is still part of the digest
+            h.update(("<%s>" % type(e).__name__).encode())
+    for p, text in sorted((_overlay or {}).items()):
+        h.update(b"overlay\0" + p.encode("utf-8", "surrogateescape") + b"\0" + text.encode("utf-8", "surrogateescape"))
+    return h.hexdigest()
 
 
 def run_script(path, real):

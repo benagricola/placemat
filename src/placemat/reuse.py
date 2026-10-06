@@ -220,6 +220,24 @@ def summary(record: dict, previous: dict | None, source: str | None) -> str:
     return summary_text(summary_record(record, previous, source))
 
 
+def pack(data) -> str:
+    """Planned copper and what it changed, for a record (layout `_plan_copper`, `_rooms_after_recorded`): the objects
+    pickled, so a replay gets back exactly what was planned, compressed and as text for the JSON record. The record's
+    context holds the tool version, so a build only reads what the same version packed. None when something in it cannot be
+    pickled: that is left out of the record, and planned again next time."""
+    import base64, pickle, zlib
+    try:
+        raw = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
+    except (pickle.PicklingError, TypeError, AttributeError):
+        return None
+    return base64.b64encode(zlib.compress(raw, 1)).decode("ascii")
+
+
+def unpack(text: str):
+    import base64, pickle, zlib
+    return pickle.loads(zlib.decompress(base64.b64decode(text)))
+
+
 def write(path, record: dict) -> None:
     import json
     path.write_text(json.dumps(record, separators=(",", ":")))

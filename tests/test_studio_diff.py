@@ -129,6 +129,15 @@ def test_a_declaration_is_its_statement_whatever_line_the_call_names():
     assert declaration_span("def f(:\n", 1) == (1, 1)
 
 
+def test_a_span_follows_an_edit_to_the_text_it_was_read_from():
+    text = "a = 1\nb = f(\n    2)\n"
+    assert declaration_span(text, 3) == (2, 3)
+    edited = "a = 1\nb = f(\n    2,\n    3)\n"
+    assert declaration_span(edited, 3) == (2, 4)
+    assert declaration_span(text, 3) == (2, 3)
+    assert declaration_span("b = f(\n", 1) == (1, 1)             # no longer parses
+
+
 def test_a_changed_line_traces_to_the_item_it_moved_and_back():
     a, b = _plan(), _plan(u1_at=(34, 10))
     texts_a = {a["items"][0]["file"]: OLD}
