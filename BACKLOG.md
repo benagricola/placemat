@@ -298,6 +298,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Island layers, island pours as zones, leg-room finding** (0.99.28):
+  `[route] islands "NET=W@F,B"` routes an island on those layers; an
+  island net's own fitted pours reach the router as zones, so it no longer
+  lays a mesh of stubs over them; a refused track's not-drawn finding says
+  no room was kept and why.
+
 - **Routed width judged on the board, idempotent adopt, studio routed copper, rank after remap** (0.99.27):
   width islands are judged on the routed board per layer (inner rating
   inside); adopting a route twice keeps one entry per net and duplicates
