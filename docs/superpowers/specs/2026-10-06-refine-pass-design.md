@@ -48,11 +48,14 @@ Decided with the user. Refine runs in two stages.
 
 **Coarse refine** runs once, after the constructive search and before any routing.
 - **Items:** cells stay rigid, so the items are whole cells and standalone parts.
-- **Poses:** for each cell and each part with more than two pins, it tries every turn and face the declaration allows.
+- **Poses:** for every cell and every part, two-pin parts included, it tries every turn and face the declaration allows.
   For each one it runs a short local refine: the item held at that pose, free to shift within its declaration, its
   neighbours free to make room. It keeps the best pose by the one score, on the pins as captured. This is the turn
   study, done by refine rather than reported afterwards.
-- **Two-pin parts:** they get ordinary turn moves inside the annealing, with no per-pose search.
+- **Why every part:** a resistor turned end for end so its MCU-side pad faces away from the MCU is a pose error, like a
+  turned IC. The display terminations were one, and only a per-pose check catches it reliably. A two-pin part has at
+  most four turns, and its local refine is small, so the cost stays within the coarse stage's budget
+  (`refine.pose_moves` per pose, set by measurement).
 - **The pin study** runs inside this stage (see "The pin study, in coarse refine").
 - **Annealing:** the moves below, over cells and parts.
 

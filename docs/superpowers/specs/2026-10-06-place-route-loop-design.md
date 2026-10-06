@@ -24,7 +24,7 @@ command, or a few, that runs the loop the same way every time.
 
 1. **Place:** the constructive search, starting from the last run's placement (the snapshot), with each item searched
    only where it is new or its declaration changed.
-2. **Coarse refine:** poses and rough places of whole cells and parts, each pose tried with a short local refine. The
+2. **Coarse refine:** poses and rough places of whole cells and every part, each pose tried with a short local refine. The
    pin study's remap advice comes from here.
 2b. **Fine refine:** cell members freed (those not joined by module pours), and parts and members refined.
 3. **Route** every phase in `placemat.toml`.
