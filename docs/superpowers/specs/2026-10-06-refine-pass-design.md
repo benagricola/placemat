@@ -71,6 +71,32 @@ After the searched tier and before the late copper (where cleanup runs now), ref
    score is an estimate of it), the board before refine is kept and a notice says so.
 8. **Records** the accepted moves in the reuse record, as `_recorded_cleanup` does, so an unchanged rerun replays them.
 
+## The script's constraints bound every move
+
+Refine adds no constraint form of its own. Each item's freedom comes from its declaration, read the way the search
+reads it: the same freedom model (`Freedom`, the one-axis `Location`/`Centre`, `rotations=`), and the same legality the
+search applies. A move refine proposes is one the search could itself have chosen for that item at that point:
+- **place:**
+  - a fixed or edge place does not move;
+  - an item with one free axis moves only along it, for example a `Centre` on a line;
+  - a `Near` keeps its radius;
+  - an `OnEdge` stays on its edge and slides along it;
+  - a row or block member moves with its row or block;
+- **turn:** only among the turns `rotation=` or `rotations=` allows, and a `Facing` or `Turned` is kept;
+- **face:** a fixed face is kept; only a `Face.EITHER` item flips;
+- **arrangement:** only among those the cell's module offers, and the alternatives the script names;
+- **regions and keepouts:** every keepout, rule area and region the script or the capture declares;
+- **links:** a link's limit is a hard bound, as in the search; its length is a cost;
+- **pushes:** a push's limit is a hard bound, as in the search;
+- **declared copper:** stays legal; an item whose move would break a declared track's plan is not moved.
+
+So the display FFC connector, declared on the board's N-S centre line with `rotations=(0, 180)`, is only nudged along
+that line and only turned between 0 and 180, because that is what its declaration leaves free. Nothing is added to the
+script for refine.
+
+The check: for each accepted move, the item's new place, turn and face must be in the set the search's own scan would
+accept for that item. A test asserts this over the bench fixtures.
+
 ## The speed needed, and the native call
 
 Each move needs one legality check and one score. In Python a `legal()` is about 30 us. Each scan call carries setup
@@ -103,7 +129,8 @@ constraints are the only thing that holds an item.
   refines. A changed declaration, a gone anchor, or no legal spot near it means the item is searched from nothing, with a
   note, as a released lock entry is today. Items new to the script are searched.
 - **`--fresh`** ignores the snapshot and searches everything, for a new construction. Explore's restarts use this.
-- **Pins live in the script.** An item that must not move is placed by its constraint. The forms already exist:
+- **Pins live in the script.** An item that must not move, or may move only so far, is held by its declaration (see "The
+  script's constraints bound every move"). The forms already exist:
   - a fixed or edge place;
   - one free axis, for example `Centre` on a line, so the item slides only along it;
   - a stated turn, or `rotations=` narrowed to the allowed turns, for example `(0, 180)`;
