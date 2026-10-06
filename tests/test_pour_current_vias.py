@@ -144,8 +144,9 @@ def test_via_rows_on_a_net_with_no_current_are_refused():
 
 
 def test_a_pad_off_the_layer_with_no_via_joining_it_is_still_refused():
+    """Only the west row: a row out of A4B9, even one outside the pour's call, would join it (test_pour_board_vias)."""
     b = _board()
-    west, _ = _rows(b)
+    west = b.vias(Net("VBUS"), along=PadRef(Part("j1"), "B4A9"), count=3, size=0.6, drill=0.3)
     b.pour(Net("VBUS"), [west, PadRef(Part("j1"), "A4B9")], layer=IN2, swallow_pads=True)
     plan = b.resolve()
     assert not [c for c in plan.copper if isinstance(c, Pour)]

@@ -5,6 +5,28 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A fitted pour ends on the board's vias at a pad off its layer.** A pad member with no copper on the pour's layer
+  was accepted only when a via member of the same pour call joined it; otherwise the pad was refused ("pad ... has no
+  copper on In3.Cu"). Where no via member joins it, the pour now takes the vias of the pad's net already on the board
+  that join that pad (standing on it, or a `vias(along=)` row out of it) and reach the layer: a stamped cell's own,
+  or the script's placed outside the call. They are the pour's ends at the pad, `Reach.CURRENT` credits them with
+  its current, and a notice names them. With none the pad is refused as before. A script that repeated a cell's
+  vias as members to get past the refusal can drop them:
+
+  ```python
+  # before: vias declared again, in the pad, only to join the back pad to the pour
+  v = board.via(Net("VIN"), PadRef(Part("guard.q_rev"), 2))
+  board.pour(Net("VIN"), [PadRef(Part("power.j_in"), 2), v, PadRef(Part("guard.q_rev"), 2)],
+             layer=CopperLayer.IN3, swallow_pads=True, reach=Reach.CURRENT)
+  # after: the guard cell's own vias in the pad join it
+  board.pour(Net("VIN"), [PadRef(Part("power.j_in"), 2), PadRef(Part("guard.q_rev"), 2)],
+             layer=CopperLayer.IN3, swallow_pads=True, reach=Reach.CURRENT)
+  ```
+
 ## To 0.99.24
 
 ### New

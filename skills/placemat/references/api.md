@@ -3165,7 +3165,21 @@ the part's own `Pm.I` divided by the number of its pads on that net,
 whatever the rest of the net draws (two pads at 3 A: 1.5 A each). A pour joining different parts
 is measured at the current the check judges between them.
 A pad member with no copper on the pour's layer that a via member joins
-holds no copper in the pour; the via joins it.
+holds no copper in the pour; the via joins it. Where no via member joins
+such a pad, the vias of its net already on the board that join it by the
+same test (they stand on the pad, or are a `vias(along=)` row out of it)
+and reach the pour's layer are the pour's ends at that pad, exactly as via
+members would be, and `Reach.CURRENT` credits them with the pad's current.
+They may be a stamped cell's own vias (its module script's `via()`,
+`vias()` or `stitch()`) or the script's own placed outside the pour's call.
+A notice names the pad and the vias that joined it. Only vias that join the
+pad named count: a via in another pad of the part on the same net does not.
+
+```python
+# the reverse FET's source pads are on the back; the guard cell's own vias stand in them
+board.pour(Net("VIN"), [PadRef(Part("power.j_in"), 2), PadRef(Part("guard.q_rev"), 2)],
+           layer=CopperLayer.IN3, swallow_pads=True, reach=Reach.CURRENT)
+```
 
 ```python
 j = Part("j1")
@@ -3197,7 +3211,8 @@ carve it from - or two pads cannot be joined at all, the pour is not drawn
 and a copper finding names the copper and the pads it stands between. Where
 the outline narrows, between its pads, to less than its net's track width, a
 finding names where, and the pour is drawn. A pad that is on another net, or
-has no copper on the pour's layer, is a finding and the pour is not drawn.
+has no copper on the pour's layer and no via joining it there, is a finding
+and the pour is not drawn.
 
 A fitted pour's members may be vias as well as pads: what `board.via()` and
 `board.vias()` return (a `vias()` result counts as all its vias) and an

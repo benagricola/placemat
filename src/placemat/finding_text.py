@@ -783,6 +783,9 @@ _NOTE = {
     "between_gap": lambda f: "track %s: the gap between %s.%s and %s.%s is %.3f mm, not enough for a %.2f mm track with "
                              "clearance to each (%.3f mm needed)" % (
                                  f["net"], f["a"][0], f["a"][1], f["b"][0], f["b"][1], f["gap_mm"], f["width_mm"], f["need_mm"]),
+    "pour_pad_vias": lambda f: "pour %s: pad %s has no copper on %s; the pour ends on the %s that join%s it there: %s" % (
+        f["net"], _member(f["member"]), f["layer"], "via" if len(f["vias"]) == 1 else "%d vias" % len(f["vias"]),
+        "s" if len(f["vias"]) == 1 else "", ", ".join("(%.2f, %.2f)" % (x, y) for x, y in f["vias"])),
     "pour_narrow": lambda f: "pour %s: narrows to %.2f mm at (%.2f, %.2f), under its net's %.2f mm track" % (
         f["net"], f["width_mm"], f["at"][0], f["at"][1], f["need_mm"]),
     "pour_neck": lambda f: ("pour %s: the room runs out at %.2f mm of reach (up to %.2f mm tried): it narrows to %.2f mm at "
