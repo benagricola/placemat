@@ -424,10 +424,18 @@ the script.
 
 `run`, `preview` (an `--explore` especially) and `check` can take minutes. Each listens, while it works, on a
 socket in the project (`.placemat/sockets/<pid>.sock`) and streams what it is doing: the step it is on, the plan so
-far, each explore variant's score, and for a route each net as it is routed. To run one without blocking yourself, start it detached (a background shell with
-its output to a file) and follow it:
+far, each explore variant's score, and for a route each net as it is routed.
+
+For one longer than a foreground command may take (an explore of minutes), give `run`, `preview` or `route` `--detach`:
+it starts the command apart from your shell, its output to a log, and returns at once with the pid. Then start
+`placemat watch <pid> --summary` as a background task: it prints nothing until the command ends, then its outcome (the
+explore's result, the run's status, DRC, score, record and folder), so one notification arrives when it is done. Do not
+hand-roll `setsid nohup ... &` or loop on `sleep` and `kill -0`. `kill <pid>` (SIGTERM) stops it as it stops a foreground
+command, keeping its work.
 
 ```
+placemat run <script> --explore 1200 --label wide --detach    # prints the pid and the log
+placemat watch <pid> --summary                                # as a background task: the outcome, when it ends
 placemat watch                # every command running in this project, a line per step or variant
 placemat watch <pid|label>    # one of them; --json prints the events as sent
 ```

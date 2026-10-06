@@ -311,6 +311,9 @@ def parser() -> argparse.ArgumentParser:
                                        "a line per step, per variant, until it ends; exit 0 done, 1 error, 2 died or not found")
     wt.add_argument("which", nargs="?", help="the command's pid or label (default: every command running in the project)")
     wt.add_argument("--json", action="store_true", help="the events as the command sends them, one JSON object per line")
+    wt.add_argument("--summary", action="store_true",
+                    help="print nothing until the command ends, then its outcome: the explore's result, the run's status, "
+                         "DRC, score, record and folder (with --json, as one JSON object); for a background task")
 
     fz = sub.add_parser("freeze", help="move lock entries into the script's place() calls, if the script then "
                                        "places exactly as the lock did")
@@ -357,6 +360,13 @@ def parser() -> argparse.ArgumentParser:
     fa.add_argument("--confirm", action="store_true",
                     help="record the printed facts' digest in the nearest placemat.toml's [facts.boards], keyed by this script")
     fa.add_argument("--json", action="store_true")
+
+    # The long commands, which a stop keeps the work of, can run apart from the shell (detach.py).
+    for name in ("run", "preview", "route"):
+        sub.choices[name].add_argument(
+            "--detach", action="store_true",
+            help="start the command in a session of its own, its output to a log under the project's .placemat/detached, "
+                 "and return at once with its pid; `placemat watch <pid> --summary` prints its outcome when it ends")
 
     # One way to ask for the report's form and place, whatever the command.
     for sp in sub.choices.values():
@@ -1448,7 +1458,26 @@ def cmd_studio(args) -> int:
 def cmd_watch(args) -> int:
     from . import channel
     from .studio import project_root
+    if args.summary:
+        if not args.which:
+            raise SystemExit("--summary follows one command: give its pid or label")
+        from . import detach
+        return detach.summary(project_root(Path.cwd()), args.which, args.json)
     return channel.watch(project_root(Path.cwd()), args.which, args.json)
+
+
+def cmd_detach(args, argv) -> int:
+    """`--detach`: the same command started in a session of its own (detach.start); prints its pid, label, log and how to
+    follow it. The explore's flags are checked here, so a mistake in them is said now, not in the log."""
+    from . import detach
+    if args.command in ("run", "preview"):
+        _explore_options(args)
+    entry = detach.start(args, argv)
+    if args.json:
+        console.data(json.dumps(entry, indent=2))
+    else:
+        console.lines("detach", "\n".join(detach.started_text(entry)))
+    return 0
 
 
 def cmd_occupancy(args) -> int:
@@ -1735,9 +1764,12 @@ STOPPABLE = ("run", "preview", "route")
 
 
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
     args = parser().parse_args(argv)
     if args.format == "json":
         args.json = True
+    if getattr(args, "detach", False):
+        return cmd_detach(args, argv)
     previous = stop.install() if args.command in STOPPABLE or (args.command == "apply" and args.search) else {}
     if previous and args.command in ("run", "preview"):         # bounded in time: the cap stops through the handlers just installed
         from . import timecap

@@ -7,6 +7,16 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **`placemat run|preview|route ... --detach`.** Starts the command in a session of its own, its output to
+  `.placemat/detached/<pid>.log` in the project, and returns at once with the pid, the label and the log. A SIGTERM to
+  the pid stops it as in the foreground, keeping its work. Scripts need no change.
+- **`placemat watch <pid|label> --summary`.** Prints nothing until the command ends, then its outcome from the records it
+  left: for an explore the variants, the best seed and its score, the score after pin remap, the route closures and
+  whether it was accepted; for a run its status, DRC, airwires, score, folder and record. Exit codes are `watch`'s (0
+  done, 1 error, 2 died or not found). Run it as a background task after `--detach` in place of a sleep loop.
+
 ### Fixed
 
 - **`placemat lock --accept-seed` no longer refuses after a comment edit.** A saved explore compared the script's text,
