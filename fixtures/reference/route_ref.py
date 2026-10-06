@@ -100,6 +100,15 @@ def compare(old: dict | None, new: AResult, changing: str) -> Comparison:
     return Comparison("same", [])
 
 
+def ratchet(results: list, statuses: list[str], accept_worse: bool) -> tuple[list, list]:
+    """(what --update writes, what it holds back): a result that compares "worse" is held back unless `accept_worse`, so a
+    baseline is never lowered without the user's approval. "not comparable" results are written (a re-baseline)."""
+    if accept_worse:
+        return list(results), []
+    held = [r for r, st in zip(results, statuses) if st == "worse"]
+    return [r for r, st in zip(results, statuses) if st != "worse"], held
+
+
 def asdict(result: AResult) -> dict:
     return dataclasses.asdict(result)
 
@@ -189,6 +198,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("names", nargs="*", help="boards (default: every test (a) board)")
     ap.add_argument("--update", action="store_true", help="write the results into results.json")
+    ap.add_argument("--accept-worse", action="store_true", help="with --update: also write results that are worse than the recorded ones")
     ap.add_argument("--changing", choices=COMPONENTS, default="placemat", help="the component under change")
     ap.add_argument("--work", help="where boards are prepared (default: a temporary folder)")
     ap.add_argument("--results", default=str(RESULTS))
@@ -199,19 +209,23 @@ def main(argv=None) -> int:
     recorded = load_results(pathlib.Path(args.results)).get("a", {})
     versions = current_versions()
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
-    results = []
+    results, statuses = [], []
     try:
         with lock.realboard():
-            worse = _run_boards(boards, root, recorded, versions, args.changing, results)
+            worse = _run_boards(boards, root, recorded, versions, args.changing, results, statuses)
     finally:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
+    held = []
     if args.update:
-        save_results(pathlib.Path(args.results), results)
-    return 1 if worse else 0
+        write, held = ratchet(results, statuses, args.accept_worse)
+        save_results(pathlib.Path(args.results), write)
+        for r in held:
+            print("held back, worse than the recorded result: %s %s (--accept-worse writes it)" % (r.board, r.widths))
+    return 1 if worse or held else 0
 
 
-def _run_boards(boards, root, recorded, versions, changing, results) -> bool:
+def _run_boards(boards, root, recorded, versions, changing, results, statuses) -> bool:
     worse = False
     for board in boards:
         work = root / board.name
@@ -224,6 +238,7 @@ def _run_boards(boards, root, recorded, versions, changing, results) -> bool:
             print(line(r, c), flush=True)
             worse = worse or c.status == "worse"
             results.append(r)
+            statuses.append(c.status)
     return worse
 
 

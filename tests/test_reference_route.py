@@ -129,3 +129,25 @@ def test_a_work_root_given_with_work_is_kept(tmp_path, monkeypatch):
     work.mkdir()
     root = _main_with_work_root_seen(tmp_path, monkeypatch, "--work", str(work))
     assert root == work and work.exists()
+
+
+def test_route_update_holds_back_a_worse_entry_unless_accepted(tmp_path, monkeypatch, capsys):
+    import contextlib
+    path = tmp_path / "results.json"
+
+    def main(status, *extra):
+        path.write_text(json.dumps({"a": {"x": {"class": {"old": 1}}}}))
+        monkeypatch.setattr(route_ref.fetch, "load_manifest", lambda: [])
+        monkeypatch.setattr(route_ref.lock, "realboard", contextlib.nullcontext)
+        monkeypatch.setattr(route_ref, "current_versions", lambda: {})
+        monkeypatch.setattr(route_ref, "_run_boards", lambda boards, root, rec, v, ch, results, statuses:
+                            results.append(_result()) or statuses.append(status) or False)
+        rc = route_ref.main(["--update", "--results", str(path), *extra])
+        return rc, json.loads(path.read_text())
+
+    rc, data = main("worse")
+    assert rc == 1 and data["a"]["x"]["class"] == {"old": 1} and "held back" in capsys.readouterr().out
+    rc, data = main("worse", "--accept-worse")
+    assert data["a"]["x"]["class"]["passed"] is True
+    rc, data = main("not comparable")
+    assert rc == 0 and data["a"]["x"]["class"]["passed"] is True

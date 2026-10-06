@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import pathlib
 import shutil
@@ -40,6 +41,8 @@ LINT = "lint"           # failure kinds of the runner's own; a refused run carri
 NO_RECORD = "no run record"
 NO_ROUTE = "no route"
 TIMEOUT = "timeout"
+STALE = "stale layout"   # a module whose layout/ was generated from other files than its capture now holds
+DIGEST_CHARS = 16
 STATE_DIRS = (".placemat", "__pycache__")   # never copied into the clean board folder
 RUN_ARGS = ("--route", "--no-render", "--no-resume")
 FULL_ROUTE = ("--route-full",)
@@ -61,6 +64,8 @@ class BResult:
     versions: dict          # placemat, krt, pcb
     failure: str = ""       # "" when the run routed; else lint, a placemat failure kind, "no run record" or "no route"
     detail: str = ""        # what the failure said
+    inputs_digest: str = ""   # of the capture's generator inputs: a changed capture is a difference, not a regression
+    placement: dict = dataclasses.field(default_factory=dict)   # placement_facts: kept when the route fails or is refused
 
 
 @dataclasses.dataclass(frozen=True)
@@ -73,6 +78,8 @@ class MResult:
     versions: dict
     failure: str = ""
     detail: str = ""
+    inputs_digest: str = ""
+    placement: dict = dataclasses.field(default_factory=dict)
 
 
 def asdict(result) -> dict:
@@ -86,6 +93,41 @@ def module_scripts(root: pathlib.Path = FIXTURES) -> dict[str, pathlib.Path]:
     for script in sorted(pathlib.Path(root).glob("*/modules/*/*_layout.py")):
         found["%s/%s" % (script.parents[2].name, script.name[:-len("_layout.py")])] = script
     return found
+
+
+def placement_facts(record: dict | None, folder: pathlib.Path) -> dict:
+    """What the placement alone measured, from run.json's metrics, before any route: crossings, airwire_mm, area_mm2, placed,
+    findings and run_score. {} when the run recorded no placement (a refused script)."""
+    metrics = (record or {}).get("metrics") or {}
+    if "placed" not in metrics:
+        return {}
+    facts = {"crossings": metrics.get("crossings"), "airwire_mm": metrics.get("airwire_mm"), "area_mm2": _area(metrics),
+             "placed": metrics["placed"], "findings": metrics.get("findings")}
+    if metrics.get("measures"):
+        facts["run_score"] = run_score(record, folder)
+    return facts
+
+
+def generation_inputs(script: pathlib.Path) -> tuple[str, bool]:
+    """(digest, stale) of the board a script is for: the digest covers the generator inputs (the .zen and what it names) and
+    the files of a kept layout/, so a changed capture or a regenerated layout shows as a difference; stale is True when the
+    fixture keeps a record of the inputs its layout/ was generated from (.placemat/generated/<name>.inputs.json) and the
+    capture's inputs are now other than that. A fixture with no record cannot be told stale: only the digest shows it."""
+    from placemat.project import find_board, generator_inputs
+    src = find_board(pathlib.Path(script))
+    inputs = generator_inputs(src)
+    digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode())
+    for f in sorted((src.board_dir / "layout").glob("*")) if (src.board_dir / "layout").is_dir() else ():
+        if f.suffix in (".net", ".kicad_pcb") and f.is_file():
+            digest.update(f.read_bytes())
+    kept = src.board_dir / ".placemat" / "generated" / (src.name + ".inputs.json")
+    stale = False
+    if kept.exists():
+        try:
+            stale = json.loads(kept.read_text()) != inputs
+        except ValueError:
+            stale = True
+    return digest.hexdigest()[:DIGEST_CHARS], stale
 
 
 def krt_version(folder: pathlib.Path) -> str:
@@ -146,14 +188,13 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     the fixed parts' own places are not counted. The runner does not take the lock; main does."""
     work = pathlib.Path(work)
     versions = dict(versions if versions is not None else route_ref.current_versions())
-    if prepared is None:
-        prepared = prepare.prepare(board, fetch.fetch(board), work / "human")
-    human = prepared.human
+    human = prepared.human if prepared is not None else prepare.HumanCopper(0, 0.0)
+    digest = generation_inputs(lint.find_script(board.name, ref_dir.parent))[0]
 
     def result(**over) -> BResult:
         fields = dict(board=board.name, closure_clean=NOT_RUN, open=0, new_violations=[], vias=0, track_mm=0.0, run_score=0.0,
                       ref_vias=human.vias, ref_track_mm=human.track_mm, a_closure_clean=a_closure_clean, seconds=0.0,
-                      versions=versions)
+                      versions=versions, inputs_digest=digest)
         return BResult(**dict(fields, **over))
 
     script = lint.find_script(board.name, ref_dir.parent)
@@ -161,21 +202,25 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     if report.problems:
         detail = "; ".join("line %d %s %s" % (p.line, p.rule, p.ref) for p in report.problems)
         return result(failure=LINT, detail=detail)
+    if prepared is None:   # after the lint: a refused script costs no fetch or DRC
+        prepared = prepare.prepare(board, fetch.fetch(board), work / "human")
+        human = prepared.human
     folder = work / "board"
     _copy_folder(ref_dir, folder)
     record, seconds = placemat_run(folder / script.name, FULL_ROUTE)
     versions["krt"] = krt_version(folder)
+    placement = placement_facts(record, folder)
     kind, message = _failure(record)
     if kind:
-        return result(failure=kind, detail=message, seconds=round(seconds, 1), versions=versions)
+        return result(failure=kind, detail=message, seconds=round(seconds, 1), versions=versions, placement=placement)
     route = record["metrics"].get("route")
     if not route or not route.get("routed_pcb"):
-        return result(failure=NO_ROUTE, seconds=round(seconds, 1), versions=versions)
+        return result(failure=NO_ROUTE, seconds=round(seconds, 1), versions=versions, placement=placement)
     _, routed = prepare.measure(pathlib.Path(route["routed_pcb"]))
     new = route_ref.new_violations(prepare.violations(pathlib.Path(route["drc_after"])), prepared.baseline)
     return result(closure_clean=route.get("closure_clean", NOT_RUN), open=route.get("open_after", 0), new_violations=new,
                   vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder), seconds=round(seconds, 1),
-                  versions=versions)
+                  versions=versions, placement=placement)
 
 
 def _area(metrics: dict) -> float:
@@ -189,16 +234,22 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
     script = pathlib.Path(script)
     versions = dict(versions if versions is not None else route_ref.current_versions())
     folder = pathlib.Path(work) / "module"
+    digest, stale = generation_inputs(script)
+    if stale:
+        return MResult(name, NOT_RUN, 0.0, 0.0, 0.0, versions, STALE, "layout/ was generated from other inputs than the capture's now",
+                       digest)
     _copy_folder(script.parent, folder)
     _stage_generation(folder / script.name)
     record, seconds = placemat_run(folder / script.name)
     versions["krt"] = krt_version(folder)
+    placement = placement_facts(record, folder)
     kind, message = _failure(record)
     if kind:
-        return MResult(name, NOT_RUN, 0.0, 0.0, round(seconds, 1), versions, kind, message)
+        return MResult(name, NOT_RUN, placement.get("area_mm2", 0.0), 0.0, round(seconds, 1), versions, kind, message, digest,
+                       placement)
     metrics = record["metrics"]
     return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, folder), round(seconds, 1),
-                   versions)
+                   versions, inputs_digest=digest, placement=placement)
 
 
 def _stage_generation(script: pathlib.Path) -> None:
@@ -215,6 +266,13 @@ def _stage_generation(script: pathlib.Path) -> None:
         runner._inputs_record(src).write_text(json.dumps(generator_inputs(src), indent=1, sort_keys=True))
 
 
+def _differ(old: dict, new, changing: str) -> list[str]:
+    """What differs between two runs other than what is under change: component versions, and "inputs" when the capture's
+    digest differs (a changed capture re-baselines, it is not a regression)."""
+    differ = route_ref.comparable(old.get("versions", {}), new.versions, changing)
+    return differ + (["inputs"] if old.get("inputs_digest", "") != new.inputs_digest else [])
+
+
 def _worse_closure(old: dict, new) -> bool:
     return bool(new.failure) and not old.get("failure") or new.closure_clean < old["closure_clean"]
 
@@ -223,7 +281,7 @@ def compare_b(old: dict | None, new: BResult, changing: str) -> route_ref.Compar
     """An open board's result against the recorded one: worse is a lower clean closure or a lint failure."""
     if old is None:
         return route_ref.Comparison("new", [])
-    differ = route_ref.comparable(old.get("versions", {}), new.versions, changing)
+    differ = _differ(old, new, changing)
     if differ:
         return route_ref.Comparison("not comparable", differ)
     if _worse_closure(old, new):
@@ -237,7 +295,7 @@ def compare_module(old: dict | None, new: MResult, changing: str) -> route_ref.C
     """A module's result against the recorded one: worse is a lower clean closure, or at equal closure a larger area."""
     if old is None:
         return route_ref.Comparison("new", [])
-    differ = route_ref.comparable(old.get("versions", {}), new.versions, changing)
+    differ = _differ(old, new, changing)
     if differ:
         return route_ref.Comparison("not comparable", differ)
     if _worse_closure(old, new):
@@ -283,6 +341,7 @@ def main(argv=None) -> int:
                                              "(default: every open board, or every module)")
     ap.add_argument("--modules", action="store_true", help="run the module fixtures instead of the boards")
     ap.add_argument("--update", action="store_true", help="write the results into results.json")
+    ap.add_argument("--accept-worse", action="store_true", help="with --update: also write results that are worse than the recorded ones")
     ap.add_argument("--changing", choices=route_ref.COMPONENTS, default="placemat", help="the component under change")
     ap.add_argument("--work", help="where runs are made (default: a temporary folder)")
     ap.add_argument("--results", default=str(RESULTS))
@@ -290,7 +349,7 @@ def main(argv=None) -> int:
     recorded = route_ref.load_results(pathlib.Path(args.results))
     versions = route_ref.current_versions()
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
-    boards, modules, worse = [], [], False
+    boards, modules, statuses, worse = [], [], [], False
     try:
         if args.modules:
             found = module_scripts()
@@ -298,22 +357,28 @@ def main(argv=None) -> int:
             if args.names and not chosen:
                 ap.error("no module among: %s" % ", ".join(args.names))
             with lock.realboard():
-                worse = _run_modules(chosen, root, recorded.get("modules", {}), versions, args.changing, modules)
+                worse = _run_modules(chosen, root, recorded.get("modules", {}), versions, args.changing, modules, statuses)
         else:
             chosen = [b for b in fetch.load_manifest() if "b" in b.tests and (not args.names or b.name in args.names)]
             if args.names and len(chosen) != len(args.names):
                 ap.error("no test (b) board among: %s" % ", ".join(sorted(set(args.names) - {b.name for b in chosen})))
             with lock.realboard():
-                worse = _run_boards(chosen, root, recorded, versions, args.changing, boards)
+                worse = _run_boards(chosen, root, recorded, versions, args.changing, boards, statuses)
     finally:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
+    held = []
     if args.update:
-        save_results(pathlib.Path(args.results), boards, modules)
-    return 1 if worse else 0
+        done = boards + modules
+        write, held = route_ref.ratchet(done, statuses, args.accept_worse)
+        save_results(pathlib.Path(args.results), [r for r in write if isinstance(r, BResult)],
+                     [r for r in write if isinstance(r, MResult)])
+        for r in held:
+            print("held back, worse than the recorded result: %s (--accept-worse writes it)" % (getattr(r, "board", None) or r.script))
+    return 1 if worse or held else 0
 
 
-def _run_boards(boards, root, recorded, versions, changing, results) -> bool:
+def _run_boards(boards, root, recorded, versions, changing, results, statuses) -> bool:
     worse = False
     for board in boards:
         work = root / board.name
@@ -325,10 +390,11 @@ def _run_boards(boards, root, recorded, versions, changing, results) -> bool:
         print(line_b(r, c), flush=True)
         worse = worse or c.status == "worse"
         results.append(r)
+        statuses.append(c.status)
     return worse
 
 
-def _run_modules(chosen, root, recorded, versions, changing, results) -> bool:
+def _run_modules(chosen, root, recorded, versions, changing, results, statuses) -> bool:
     worse = False
     for name, script in chosen.items():
         r = run_module(name, script, root / name.replace("/", "_"), versions=versions)
@@ -336,6 +402,7 @@ def _run_modules(chosen, root, recorded, versions, changing, results) -> bool:
         print(line_module(r, c), flush=True)
         worse = worse or c.status == "worse"
         results.append(r)
+        statuses.append(c.status)
     return worse
 
 
