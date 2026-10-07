@@ -85,7 +85,7 @@ change: it moves placements. It is measured on the bench before it is adopted (s
 ## Who changes
 
 - **Search** (`Scorer` and the native scorer): it scores a candidate by the incremental run-score change of putting
-  the item there. Pruning stays: a candidate whose wire change alone exceeds the best total seen is dropped.
+  the item there. Pruning stays, on proved lower bounds only (amendment below): a candidate is dropped when the terms computed so far plus a lower bound of each term not yet computed reach the best total seen.
 - **Refine:** it scores a move by the same incremental change. It is built on this, never on its own formula.
 - **The turn check** (turn.better): it reports a turn when the incremental change of turning is below zero by
   `place.turn_gain_*`. Its own wire and crossing terms are removed.
@@ -141,3 +141,15 @@ Decided with the user while planning step 2 (docs/superpowers/plans/2026-10-07-o
   compared on it.
 
 These add terms the "Out of scope" section excluded; the user approved each.
+
+Amended 2026-10-07, from a review of the plan: **the incremental changes are signed, and pruning needs a proved lower
+bound.** Adding pads can shorten a net's tree (three pads on a 1 mm equilateral triangle have an MST of 2.0 mm; a pad
+at the centre makes it 1.732 mm, checked with `ratsnest.mst`), and the dropped airwires can take crossings with them.
+A new pad can also become a nearer target for a pad of its net and open its escape, and re-adding a net's grown box can
+lower a congestion cell. So no term's change is assumed non-negative except where it is proved:
+- wire and crossings are computed together, exactly, from the MST change;
+- each later term carries a lower bound (link, link_over, push and area cannot fall on the lifted board; escapes and
+  congestion carry the bounds their sections give);
+- a candidate is pruned only when the exact terms so far plus the remaining lower bounds reach the best total;
+- a test holds the pruned search's choice equal to the exhaustive one on adversarial scenes, beside the
+  incremental-against-whole test.

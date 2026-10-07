@@ -89,13 +89,18 @@ stays as it is: a finding on the finished board, not priced.
 - **Incremental:** when items are lifted and put down elsewhere, the pads re-judged are:
   - the moved items' own pads;
   - every placed pad whose lanes or via spots the moved items' copper enters or leaves. Those lanes lie within
-    `score.escape_reach` plus a lane's half width of the pad, so they are found from a grid of lanes by box.
+    `score.escape_reach` plus a lane's half width of the pad, so they are found from a grid of lanes by box;
+  - every pad whose airwire neighbours change: the ends of the airwires the move adds to or drops from its nets' trees
+    (the MST change). A pad's target is its nearest airwire neighbour, so a new pad of its net, however far away, can
+    turn its open lane toward or away from the target.
 
-  The change is the re-judged pads' new prices less their old.
+  The change is the re-judged pads' new prices less their old. It is signed: a moved pad can become a nearer target
+  and open another pad's escape.
 - **Native:** the lanes are kept per pad in the native escapes index (escapes.rs) and judged there. The search calls
-  the incremental form per candidate, after the cheaper terms. Placing an item on the lifted board only adds copper, and
-  its own pads start unjudged. So the escape change of a candidate is never negative, and the prune on the cheaper terms
-  stays exact.
+  the incremental form per candidate, after the cheaper terms.
+- **Lower bound for pruning:** on the lifted board the moved items' copper only adds obstacles, and their own pads start
+  unjudged, so only a pad whose target changes can get cheaper. The change is therefore at least minus the sum of the
+  current prices of the pads whose airwire neighbours change. The search prunes on that bound, never on zero.
 
 ## Settings
 
@@ -124,7 +129,8 @@ order). Before it is adopted:
   lane past the capacitor at 45 degrees when there is room, and is priced 0; with no room it is priced as a via-only
   pad.
 - A pad that can leave only by a via is priced `score.escape_via` and reported `escape_via`.
-- Whole against incremental, per pad and in total, on the bench fixtures and on synthetic boards.
+- Whole against incremental, per pad and in total, on the bench fixtures and on synthetic boards, including a move that
+  makes a far pad of the same net a nearer target and opens its escape.
 - A quiet net's pad and a no-connect pad are never judged.
 
 ## Out of scope
