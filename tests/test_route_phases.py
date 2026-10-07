@@ -23,6 +23,12 @@ FAKE = textwrap.dedent('''
     if fail and fail in a:
         sys.exit(3)
     shutil.copy(a[0], a[1])
+    if os.environ.get("FAKE_ROUTER_LOWER_HOLE"):
+        import pathlib
+        project = pathlib.Path(a[0]).with_suffix(".kicad_pro")
+        doc = json.load(open(project))
+        doc["board"]["design_settings"]["rules"]["min_hole_clearance"] = 0.2
+        pathlib.Path(a[1]).with_suffix(".kicad_pro").write_text(json.dumps(doc))
     if "--json-out" in a:
         doc = {}
         if "--connections" in a:
@@ -473,3 +479,28 @@ def test_a_truncated_task_summary_fails_without_dropping_obligations(rig, monkey
     with pytest.raises(RouterFailed) as err:
         rig.route({"name": "leg", "width": 0.5, "connections": [{"from": {"part": "U1", "pad": "3"}, "to": {"part": "J1", "pad": "2"}}]})
     assert err.value.code == "malformed_summary" and err.value.facts["reason"] == "task_count"
+
+
+@needs_kicad
+def test_router_rule_writeback_cannot_weaken_phase_or_final_grading(rig, monkeypatch):
+    from placemat.kicad import route
+    from pathlib import Path
+    project = rig.pcb.with_suffix(".kicad_pro")
+    data = json.loads(project.read_text()) if project.exists() else {}
+    data.setdefault("board", {}).setdefault("design_settings", {}).setdefault("rules", {})["min_hole_clearance"] = 0.25
+    project.write_text(json.dumps(data))
+    custom = rig.pcb.with_suffix(".kicad_dru")
+    custom.write_text('(version 1)\n(rule "original" (constraint hole_clearance (min 0.25mm)))\n')
+    monkeypatch.setenv("FAKE_ROUTER_LOWER_HOLE", "1")
+    checked = []
+    real = route.run_drc
+    def original_rules(pcb, *args, **kwargs):
+        pcb = Path(pcb)
+        assert json.loads(pcb.with_suffix(".kicad_pro").read_text())["board"]["design_settings"]["rules"]["min_hole_clearance"] == 0.25
+        assert pcb.with_suffix(".kicad_dru").read_bytes() == custom.read_bytes()
+        checked.append(pcb.name)
+        return real(pcb, *args, **kwargs)
+    monkeypatch.setattr(route, "run_drc", original_rules)
+    monkeypatch.setattr(phase_run, "run_drc", original_rules)
+    rig.route(FB, {"name": "signals"})
+    assert {"in.kicad_pcb", "p0_drc.kicad_pcb", "p1_drc.kicad_pcb", "routed.kicad_pcb"} <= set(checked)
