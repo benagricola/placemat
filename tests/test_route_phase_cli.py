@@ -61,3 +61,25 @@ def test_a_join_under_its_width_is_said_with_its_narrowest_copper():
     (line,) = phase_lines([{"name": "legs", "selector": "current_paths", "asked": 1, "joined": 0, "closure_clean": 0.0,
                             "seconds": 1.0, "open": [vb]}])
     assert line.endswith("; open: VB J1.1-J2.1 under F.Cu 0.2")
+
+
+def test_missing_width_policy_cli_is_structured_refusal(tmp_path, monkeypatch, capsys):
+    import json
+    from placemat import channel, runner, settings
+    from placemat.cli import main
+    from placemat.kicad import route
+    board = tmp_path / 'board.kicad_pcb'
+    board.write_text('unused: capability refuses before route')
+    monkeypatch.setattr(runner, 'missing_rules', lambda _: [])
+    monkeypatch.setattr(route, 'plane_nets_of', lambda _: [])
+    monkeypatch.setattr(settings, 'load', lambda *a, **k: settings.Settings())
+    monkeypatch.setattr(channel, 'reporter', lambda *a: None)
+    monkeypatch.setattr(channel, 'error', lambda *a, **k: None)
+    def unavailable(*args, **kwargs):
+        raise route.RouteRefused('width_policy_unavailable', router='old-krt',
+                                 receipt='width_policy.json', reason='missing nominal helper')
+    monkeypatch.setattr(route, 'route_board', unavailable)
+    assert main(['route', str(board), '--json']) == 2
+    record = json.loads(capsys.readouterr().out)
+    assert record == {'code': 'width_policy_unavailable', 'router': 'old-krt',
+                      'receipt': 'width_policy.json', 'reason': 'missing nominal helper'}

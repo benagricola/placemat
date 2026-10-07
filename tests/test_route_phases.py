@@ -103,8 +103,10 @@ def test_phases_route_in_order_each_on_the_board_the_one_before_left(rig):
 @needs_kicad
 def test_a_net_phase_names_each_connection_it_left_open(rig):
     report = rig.route(FB)                                  # the stand-in router lays no copper
-    assert report.phases[0]["open"] == [{"net": "FB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "U1", "pad": "2"},
-                                         "widths": None, "outcome": None, "evidence": None}]
+    open_entry = dict(report.phases[0]["open"][0])
+    assert len(open_entry.pop("width_policy_contract")) == 64
+    assert [open_entry] == [{"net": "FB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "U1", "pad": "2"},
+                                         "widths": {"F.Cu": 0.2, "B.Cu": 0.2}, "outcome": None, "evidence": None}]
 
 
 @needs_kicad
@@ -504,3 +506,15 @@ def test_router_rule_writeback_cannot_weaken_phase_or_final_grading(rig, monkeyp
     monkeypatch.setattr(phase_run, "run_drc", original_rules)
     rig.route(FB, {"name": "signals"})
     assert {"in.kicad_pcb", "p0_drc.kicad_pcb", "p1_drc.kicad_pcb", "routed.kicad_pcb"} <= set(checked)
+
+
+@needs_kicad
+def test_missing_width_policy_refuses_before_any_router_call(rig):
+    krt = rig.work.parent / 'krt'
+    (krt / 'py_router/nominal_width_policy.py').unlink()
+    with pytest.raises(RouteRefused) as error:
+        rig.route(FB)
+    assert error.value.code == 'width_policy_unavailable'
+    assert rig.calls() == []
+    receipt = json.loads((rig.work / 'width_policy.json').read_text())
+    assert receipt['failure']['code'] == 'unavailable'

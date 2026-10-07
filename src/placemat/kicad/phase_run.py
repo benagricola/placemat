@@ -303,7 +303,8 @@ def comparison_obligations(selections, geometry, skip) -> list:
 def comparison_contract(phase, obligations) -> str:
     """The phase definition and stable electrical obligations, excluding every placement coordinate."""
     from .route_state import digest
-    stable = sorted(obligations, key=lambda o: repr(_pair_key(o)))
+    stable = sorted(({k: v for k, v in o.items() if k != 'width_policy_reason'} for o in obligations),
+                    key=lambda o: repr(_pair_key(o)))
     return digest(phase.record(), stable)
 
 def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None) -> list:
@@ -339,7 +340,9 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
             if spans is None:
                 spans = joining_spans(geometry, o)
             under = width_shortfall(spans, o["widths"], neck_mm) if spans is not None else {}
-        unknown = bool(j and o.get("widths") and (geometry is None or spans is None or getattr(spans, "width_unknown", False) or bool(under)))
+        unknown = bool(j and (o.get("width_policy_unknown") or
+                              (o.get("widths") and (geometry is None or spans is None or
+                                                    getattr(spans, "width_unknown", False) or bool(under)))))
         out.append({"joined": j, "violated": o["net"] in violated, "under": under, **({"width_unknown": True} if unknown else {})})
     return out
 

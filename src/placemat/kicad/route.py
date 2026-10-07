@@ -106,6 +106,8 @@ _REFUSED = {
     "unknown_phase": "route: no phase %(phase)r; the phases are %(phases)s",
     "capture": "route: %(path)s: %(reason)s %(detail)s",
     "router_old": "route: the router at %(router)s lacks %(missing)s: route with the placemat fork of KiCadRoutingTools",
+    "width_policy_unavailable": "route: the router at %(router)s cannot provide required width proof: %(reason)s; "
+                                "configure a router shipping nominal_width_policy.py; receipt %(receipt)s",
     "router_refused": "route: phase %(phase)r: the router refused %(what)s",
     "pair_flag": "route: phase %(phase)r: router_args %(flag)s is not a flag of the pair router (route_diff.py), which "
                  "this phase's pair call runs",
@@ -1310,6 +1312,16 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     env.pop("KICAD_ROUTE_TRACE", None)
     env.pop("KICAD_SMOOTH_ROUTE", None)     # it overrides the router's smoothing flag: [route] smoothing decides
     env["KRT_DIR"] = str(router_dir_path)
+    from . import width_policy
+    width_receipt = width_policy.resolve(rpy, router_dir_path, pcb, run_list,
+                                        [picked[p.name] for p in run_list], cfg, env, timeout=timeout)
+    (work / "width_policy.json").write_text(json.dumps(width_receipt, sort_keys=True) + "\n")
+    if width_receipt.get('failure', {}).get('code') == 'unavailable':
+        raise RouteRefused("width_policy_unavailable", router=str(router_dir_path),
+                           receipt=str(work / "width_policy.json"), reason=width_receipt.get('unknown', ''))
+    asked = width_policy.apply(asked, [picked[p.name] for p in run_list], run_list, width_receipt)
+    comparison_asked = width_policy.apply(comparison_asked, [picked[p.name] for p in run_list], run_list,
+                                          width_receipt)
     stated = {n: c for n, c in (capture.clearances() if capture else {}).items() if n in geometry.nets}
     trapped = net_clearance.trapped(geometry, stated, judged={n for n in open0 if open0[n]}) if stated else []
     clearance_findings = net_clearance.findings(trapped)
@@ -1328,9 +1340,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from .. import __version__
     settings_part = {k: v for k, v in sorted(json.loads(cfg.json()).items())
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
-    base = digest("phase-widths-and-comparison-v1", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
+    base = digest("effective-phase-widths-and-comparison-v2", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
-                  router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c)     # rise_c: current widths
+                  router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c,
+                  width_policy.authority(width_receipt))     # rise_c: current widths
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
     script = str(ONE_ROUND) if quick else str(route_py)
     ctx = PhaseContext(rpy, script, router_dir_path, work, layers, iterations, probe, quick, timeout, env, cfg,
@@ -1421,6 +1434,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.final_judged = []
     for rec, obs, phase in zip(records, comparison_asked, run_list):
         rec["comparison_contract"] = comparison_contract(phase, obs)
+        rec["width_policy"] = [p for p in width_receipt['policies'] if p['name'] == phase.name]
         rec["final_asked"] = len(obs)
         got = judge_obligations(pcb_out, obs, work / "drc_after.json", phase_neck(cfg, phase), after.is_real)
         report.final_judged.append(got)
