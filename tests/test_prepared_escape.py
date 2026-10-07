@@ -194,9 +194,16 @@ def test_full_prepared_cell_copper_carried_and_given_shapes_keep_exact_roles(mon
     for face in (Face.FRONT, Face.BACK):
         prepared, reason = prepare(delta, rotations, face)
         assert prepared is not None, reason
+        cached, reason = prepare(delta, rotations, face, rest_cache=True)
+        assert cached is not None, reason
+        # Every turn shares validated owner metadata. Moving cell members and
+        # carried/given copper are excluded from immutable rest-field reuse.
         for turn, rotation in enumerate(rotations):
             candidate = replace(original, location=Location(25.0000000005, 25.0000000005), rotation=rotation, face=face)
-            _, crossed, via, away, walled, ways, walls = prepared.evaluate(candidate, turn, inspect=True)
+            result = prepared.evaluate(candidate, turn, inspect=True)
+            assert cached.evaluate(candidate, turn, inspect=True) == result
+            assert cached.surface.cache_usage()[1] >= 1
+            _, crossed, via, away, walled, ways, walls = result
             view, _, _ = delta._view(candidate)
             monkeypatch.setattr(geometry, '_native', None)
             oracle = judging(view)
