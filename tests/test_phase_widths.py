@@ -111,12 +111,13 @@ def test_intermediate_pad_bridges_track_ends_and_a_wider_alternative_is_used():
                   _track((5, 10), (5, 20), 1.0), _track((5, 20), (40, 20), 1.0),
                   _track((40, 20), (40, 10), 1.0))
     ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1.0}}
-    wide = joining_spans(base, ob, full_width=True)
+    wide = joining_spans(_at_track_terminals(base), ob, full_width=True)
     assert wide is not None and width_shortfall(wide, ob["widths"], 0.0) == {}
     midpoint = footprint("U3", 20.6 + 1.0, 10.0, nets=("V", "X"))
     bridged = _board(_track((5, 10), (20, 10), 1.0), _track((20.3, 10), (40, 10), 1.0))
     bridged = replace(bridged, footprints=bridged.footprints + (midpoint,))
-    assert joining_spans(bridged, ob, full_width=True) is not None
+    assert joining_spans(bridged, ob, full_width=True) is None
+    assert joining_spans(bridged, ob).width_unknown
 
 
 def test_mixed_filled_region_and_narrow_track_keeps_track_shortfall():
@@ -133,7 +134,8 @@ def test_mixed_filled_region_and_narrow_track_keeps_track_shortfall():
     assert spans is not None and width_shortfall(spans, ob["widths"], 0.0) == {"F.Cu": 0.2}
     all_outline = ((4, 9), (41, 9), (41, 11), (4, 11))
     pure = _board(CopperItem("poly", "V", frozenset((F,)), (all_outline,), Box.of_points(all_outline)))
-    assert joining_spans(pure, ob, full_width=True) == []
+    assert joining_spans(pure, ob, full_width=True) is None
+    assert joining_spans(pure, ob).width_unknown
 
 
 def test_pair_width_is_refused_instead_of_ignored():
@@ -170,6 +172,76 @@ def test_compliant_neck_path_is_found_beside_a_shorter_narrow_path():
                       _track((40, 12), (40, 10), 0.2))
     obligation = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"},
                   "widths": {"F.Cu": 1.0}}
-    assert width_shortfall(joining_spans(geometry, obligation), obligation["widths"], 3.0)
-    spans = joining_spans(geometry, obligation, full_width=True, neck_mm=3.0)
+    assert width_shortfall(joining_spans(_at_track_terminals(geometry), obligation), obligation["widths"], 3.0)
+    spans = joining_spans(_at_track_terminals(geometry), obligation, full_width=True, neck_mm=3.0)
     assert spans is not None and width_shortfall(spans, obligation["widths"], 3.0) == {}
+
+
+def _at_track_terminals(geometry):
+    """The synthetic tracks start at (5,10)/(40,10); give their endpoint pads those actual anchors."""
+    from dataclasses import replace
+    from placemat.values import Location
+    return replace(geometry, footprints=tuple(replace(fp, pads=tuple(
+        replace(p, anchor=Location(5 if fp.ref == "U1" else 40, 10)) if p.number == "1" else p
+        for p in fp.pads)) if fp.ref in ("U1", "U2") else fp for fp in geometry.footprints))
+
+
+def test_filled_copper_is_not_a_width_certificate_across_islands_or_a_narrow_neck():
+    from placemat.kicad.phase_run import joining_spans, width_shortfall
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box
+    from tests.test_route_widths_board import _board, _track
+    left = ((4, 9), (20, 9), (20, 11), (4, 11))
+    right = ((25, 9), (41, 9), (41, 11), (25, 11))
+    hourglass = ((4, 9), (20, 9), (20, 9.9), (25, 9.9), (25, 9), (41, 9),
+                 (41, 11), (25, 11), (25, 10.1), (20, 10.1), (20, 11), (4, 11))
+    ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"},
+          "widths": {"F.Cu": 1.0}}
+    def zone(outlines):
+        return CopperItem("zone", "V", frozenset((F,)), outlines, Box.of_points(tuple(p for poly in outlines for p in poly)))
+    disconnected = _at_track_terminals(_board(zone((left, right))))
+    assert joining_spans(disconnected, ob) is None
+    mixed = _at_track_terminals(_board(zone((left, right)), _track((19, 10), (26, 10), 0.2)))
+    assert joining_spans(mixed, ob, full_width=True) is None
+    spans = joining_spans(mixed, ob)
+    assert spans.width_unknown and width_shortfall(spans, ob["widths"], 0) == {"F.Cu": 0.2}
+    neck = _at_track_terminals(_board(zone((hourglass,))))
+    assert joining_spans(neck, ob, full_width=True, neck_mm=3) is None
+    assert joining_spans(neck, ob).width_unknown
+    alternate = _at_track_terminals(_board(zone((hourglass,)), _track((5, 10), (5, 20), 1),
+                                           _track((5, 20), (40, 20), 1), _track((40, 20), (40, 10), 1)))
+    assert not joining_spans(alternate, ob, full_width=True).width_unknown
+
+
+def test_disconnected_custom_pad_islands_do_not_bridge_track_ends():
+    from dataclasses import replace
+    from placemat.kicad.phase_run import joining_spans
+    from placemat.values import Box
+    from tests.test_route_widths_board import _board, _track
+    middle = footprint("U3", 21.6, 10, nets=("V", "X"))
+    a = ((19.8, 9.9), (20.1, 9.9), (20.1, 10.1), (19.8, 10.1))
+    b = ((20.3, 9.9), (20.6, 9.9), (20.6, 10.1), (20.3, 10.1))
+    pad = replace(middle.pads[0], custom=True, outlines=(a, b), box=Box.of_points(a + b))
+    middle = replace(middle, pads=(pad,) + middle.pads[1:])
+    geometry = _at_track_terminals(_board(_track((5, 10), (20, 10), 1), _track((20.4, 10), (40, 10), 1)))
+    geometry = replace(geometry, footprints=geometry.footprints + (middle,))
+    ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1}}
+    assert joining_spans(geometry, ob) is None
+
+
+def test_joined_pour_width_unknown_reaches_final_cleanliness(monkeypatch, tmp_path):
+    from placemat.kicad import phase_run
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box
+    from tests.test_route_widths_board import _board
+    poly = ((4, 9), (41, 9), (41, 11), (4, 11))
+    geometry = _at_track_terminals(_board(CopperItem("zone", "V", frozenset((F,)), (poly,), Box.of_points(poly))))
+    monkeypatch.setattr("placemat.kicad.read.read_board", lambda _: geometry)
+    monkeypatch.setattr(phase_run, "joined_pairs", lambda *_: [True])
+    drc = tmp_path / "drc.json"
+    drc.write_text('{"violations": [], "unconnected_items": []}')
+    ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1}}
+    (judged,) = phase_run.judge_obligations("board.kicad_pcb", [ob], drc, is_real=lambda _: True)
+    assert judged == {"joined": True, "violated": False, "under": {}, "width_unknown": True}
+    assert not phase_run.is_clean(judged, None)
+    assert phase_run.widths_failed([{}], [[ob]], [[judged]]) == 1

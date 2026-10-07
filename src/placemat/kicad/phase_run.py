@@ -312,8 +312,7 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
     in `drc_json`. violated: its net is in a real error of `drc_json` (drc.real_errors: the `real` bucket at severity
     error, as drc_new counts them; `is_real` is the board's DrcReport.is_real, None: the bound `[drc] real_kinds`). under: for a joined
     obligation with widths, the narrowest track per layer on its joining path (joining_path) under the width asked
-    there, past `neck_mm` at either end (width_shortfall); {} when it meets them, has no widths, or is joined only
-    through a pour. The DRC is the board's own."""
+    there, past `neck_mm` at either end (width_shortfall); {} when it meets them or has no widths. Unmeasured copper interiors set width_unknown. The DRC is the board's own."""
     from .drc import real_errors
     from .read import read_board
     data = json.loads(Path(drc_json).read_text())
@@ -340,7 +339,7 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
             if spans is None:
                 spans = joining_spans(geometry, o)
             under = width_shortfall(spans, o["widths"], neck_mm) if spans is not None else {}
-        unknown = bool(j and o.get("widths") and (geometry is None or spans is None or bool(under)))
+        unknown = bool(j and o.get("widths") and (geometry is None or spans is None or getattr(spans, "width_unknown", False) or bool(under)))
         out.append({"joined": j, "violated": o["net"] in violated, "under": under, **({"width_unknown": True} if unknown else {})})
     return out
 
@@ -355,7 +354,7 @@ def joining_path(geometry, o):
     """The tracks (CopperItems) of the shortest track path joining an obligation's two end pads (joining_spans), each
     once, ordered from the "to" end; None when no track path joins them."""
     spans = joining_spans(geometry, o)
-    if spans is None:
+    if spans is None or getattr(spans, "width_unknown", False):
         return None
     path = []
     for t, _ in spans:
@@ -364,12 +363,18 @@ def joining_path(geometry, o):
     return path
 
 
+class _JoiningSpans(list):
+    """Measured track spans, with an explicit flag for unmeasured interior bridges."""
+    width_unknown = False
+
+
 def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0):
-    """A joining path as (track, length) pieces; filled copper and every same-net pad bridge graph joints.
+    """A joining path as (track, length) pieces with width_unknown for unmeasured interior bridges.
 
     Tracks split at ends and vias on their straight centreline. Full-width search removes narrow edges except
     spans reachable within an endpoint neck budget. The caller checks the recovered path's actual neck lengths.
-    Curved tracks and joins absent from this graph return None, an unproven width rather than a successful proof.
+    Full-width search excludes filled-region and intermediate-pad bridges: their interior corridor widths
+    are unproved. Fallback retains measured tracks and marks width_unknown. Curved or absent paths return None.
     """
     import heapq
     import math
@@ -420,27 +425,36 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0):
         layers = sorted(v.layers, key=lambda l: str(l.value))
         for a, b in zip(layers, layers[1:]):
             link((pt(v.anchors[0]), a), (pt(v.anchors[0]), b), 0.0, None)
-    # Every pad and fitted/filled copper region bridges the track joints it touches, including intermediate pads.
-    # Regions are connected by polygon contact on a shared layer; an unfilled outline never bridges its interior.
+    # Polygon connectivity cannot certify a corridor's width. Separate outlines and layers; only
+    # an endpoint's anchor-containing pad polygon is a terminal. Other interiors remain unmeasured.
+    unmeasured = object()
     regions = []
     for fp in geometry.footprints:
-        regions += [(p.outlines, p.layers, ("pad", fp.ref, p.number, i))
-                    for i, p in enumerate(fp.pads) if p.net == net]
-    regions += [(c.outlines, c.layers, ("region", i)) for i, c in enumerate(geometry.copper)
-                if c.net == net and c.kind in ("poly", "zone") and c.filled]
+        for i, pad in enumerate(fp.pads):
+            if pad.net != net:
+                continue
+            anchor = tuple(pad.airwire_end)
+            for layer in pad.layers:
+                for j, poly in enumerate(pad.outlines):
+                    terminals = [tag for tag, end in (("A", o["from"]), ("B", o["to"]))
+                                 if (fp.ref, pad.number) == (end.get("ref"), end.get("pad"))
+                                 and point_in_polygon(anchor, poly)]
+                    regions.append((poly, layer, ("pad", fp.ref, pad.number, i, layer, j), terminals, anchor))
+    for i, copper in enumerate(geometry.copper):
+        if copper.net == net and copper.kind in ("poly", "zone") and copper.filled:
+            regions += [(poly, layer, ("region", i, layer, j), [], None)
+                        for layer in copper.layers for j, poly in enumerate(copper.outlines)]
     nodes = list(adj)
-    for outlines, layers, tag in regions:
+    for poly, layer, tag, terminals, anchor in regions:
         for node in nodes:
-            if node[1] in layers and any(point_in_polygon(node[0], poly) for poly in outlines):
-                link(tag, node, 0.0, None)
-    for i, (outlines, layers, tag) in enumerate(regions):
-        for other, other_layers, other_tag in regions[:i]:
-            if layers & other_layers and any(poly_distance(a, b) <= 1e-6 for a in outlines for b in other):
-                link(tag, other_tag, 0.0, None)
-        if tag[0] == "pad":
-            for end_tag, end in (("A", o["from"]), ("B", o["to"])):
-                if tag[1:3] == (end.get("ref"), end.get("pad")):
-                    link(end_tag, tag, 0.0, None)
+            if node[1] == layer and point_in_polygon(node[0], poly):
+                link(tag, node, 0.0, None if terminals and math.dist(node[0], anchor) <= 1e-3 else unmeasured)
+        for terminal in terminals:
+            link(terminal, tag, 0.0, None)
+    for i, (poly, layer, tag, _, _) in enumerate(regions):
+        for other, other_layer, other_tag, _, _ in regions[:i]:
+            if layer == other_layer and poly_distance(poly, other) <= 1e-6:
+                link(tag, other_tag, 0.0, unmeasured)
     if full_width:
         # End distances bound permitted pad necks. Every narrow graph span must fit wholly within one end's
         # neck budget; the recovered path is checked again by its own length, including the half-path cap.
@@ -450,7 +464,9 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0):
                 d, _, u = heapq.heappop(heap)
                 if d > dist.get(u, math.inf):
                     continue
-                for v, length, _ in adj.get(u, ()):
+                for v, length, track in adj.get(u, ()):
+                    if track is unmeasured:
+                        continue
                     if d + length <= neck_mm and d + length < dist.get(v, math.inf):
                         seq += 1
                         dist[v] = d + length
@@ -458,6 +474,8 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0):
             return dist
         ends_dist = [end_distances(tag) for tag in ("A", "B")]
         def allowed(u, v, length, track):
+            if track is unmeasured:
+                return False
             if track is None:
                 return True
             need = (o.get("widths") or {}).get(next(iter(track.layers)).value, 0.0)
@@ -483,11 +501,13 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0):
                 heapq.heappush(heap, (d + length, n, v))
     if "B" not in dist:
         return None
-    spans, u = [], "B"
+    spans, u = _JoiningSpans(), "B"
     while u != "A":
         v = u
         u, track = prev[u]
-        if track is not None:
+        if track is unmeasured:
+            spans.width_unknown = True
+        elif track is not None:
             spans.append((track, dist[v] - dist[u]))
     return spans
 
