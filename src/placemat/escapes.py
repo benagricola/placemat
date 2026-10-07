@@ -251,7 +251,7 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
     direction of its target, for each lane's `toward_ok`. `polys` maps a pad number to its copper outlines: each lane
     then starts where its ray from the pad's centre first leaves that copper, so no ground between the copper and the
     lane goes unchecked (the path search starts on the copper itself); without it, at the pad's box. A pad number whose
-    centre is on none of its outlines gets via spots and no lanes. Every judged pad has via spots.
+    centre is on none of its outlines has no lanes; its via spots must touch actual copper.
 
     The first leg runs from the pad's edge along its pin normal out of the box round the part's other pads, and on
     until a second leg at 45 degrees from its end keeps a lane's reach (half the track and the clearance) from each of
@@ -327,6 +327,11 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
             t = max(first, out + r + nc.clearance)
             at.append((start[0] + d[0] * t, start[1] + d[1] * t))
         for x, y in at:
+            if blind and not any(
+                    _point_poly_distance((x, y), poly) <= r + 1e-9
+                    and max(math.hypot(px - x, py - y) for px, py in poly) >= nc.via_drill / 2.0 - 1e-9
+                    for poly in own):
+                continue
             spots.append(ViaSpot(ref, number, net, Box(x - r, y - r, x + r, y + r), (x, y, r)))
     return lanes, spots
 
@@ -702,10 +707,13 @@ class Escapes:
         lanes_all, spots_all, pads = self._lanes_of(ref)
         lanes = [l for l in lanes_all if l.number == number]
         spots = [p for p in spots_all if p.number == number]
-        if not spots:                       # every judged pad has via spots; one with no lanes goes to the search
-            return None
         occ = self.occ
-        net = spots[0].net
+        pad = pads.get(number)
+        if pad is None or len(pads) < occ.settings.place_escape_min_pads:
+            return None
+        net = pad[0]
+        if not net or _net_sizes(occ).get(net, 0) < 2 or _unconnected(occ, ref, number, net):
+            return None
         quiet = net in occ.quiet_nets
         aim = None
         if not quiet:
@@ -714,7 +722,7 @@ class Escapes:
                 return None
         if self._joined(ref, number, net) or self._on_own_net_pad(ref, number, net):
             return None
-        region = Box.union([l.box for l in lanes] + [p.box for p in spots])
+        region = Box.union([pads[number][2]] + [l.box for l in lanes] + [p.box for p in spots])
         foes = self._foes(self._reach(region, net), net, ref, number)
         shut = {id(l): self._lane_blocked(l, foes) for l in lanes}
         reach = occ.settings.score_escape_reach
@@ -802,7 +810,7 @@ class Escapes:
         for ref in sorted(occ.items):
             if ref in occ.pending or not occ.geometry.has_footprint(ref):
                 continue
-            for number, net in dict.fromkeys((p.number, p.net) for p in self._lanes_of(ref)[1]):
+            for number, (net, _, _) in self._lanes_of(ref)[2].items():
                 v = self._verdict(ref, number, bans, near)
                 if v is not None:
                     out.append((ref, number, net, v[0], v[1]))

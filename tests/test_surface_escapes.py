@@ -475,3 +475,42 @@ def test_the_board_s_escapes_follow_a_via_that_gives_way_and_one_put_back():
     agrees()
     giveway.undo(occ, next(iter(occ.given_way)))
     agrees()
+
+
+def test_blind_split_pad_has_only_via_spots_touching_actual_copper(monkeypatch):
+    from placemat import escapes
+    from placemat.occupancy import Occupancy
+    from tests.fixtures import board_geometry, pad
+    main = _part_of('P1', 'p1', [pad('P1', 'p1', 1, 'S', 28, 29, 0.6, 0.6),
+                                pad('P1', 'p1', 1, 'S', 32, 31, 0.6, 0.6)], 30, 30)
+    target = _part_of('T1', 't1', [pad('T1', 't1', 1, 'S', 10, 10, 0.6, 0.6)], 10, 10)
+    occ = Occupancy(board_geometry([main, target]))
+    esc = judging(occ)
+    lanes, spots, _ = esc._lanes_of('P1')
+    assert lanes == []
+    assert spots == []  # union-box side centres stand between the two copper islands
+    monkeypatch.setattr(escapes, 'path_out', lambda *a, **k: False)
+    assert esc.judge('P1', '1') is Way.WALLED
+    assert any(r == 'P1' and n == '1' and way is Way.WALLED for r, n, _, way, _ in esc.judged())
+
+
+def test_blind_split_pad_keeps_via_spots_on_actual_annular_copper():
+    from placemat.escapes import _point_poly_distance
+    from placemat.occupancy import Occupancy
+    from placemat.values import CopperLayer
+    from tests.fixtures import board_geometry, pad
+    islands = [pad('P1', 'p1', 1, 'S', 28, 30, 0.6, 0.6),
+               pad('P1', 'p1', 1, 'S', 32, 30, 0.6, 0.6)]
+    # Through vias reach a pad on either available copper face.
+    for layers in [frozenset([CopperLayer.F]), frozenset([CopperLayer.B])]:
+        parts = [dataclasses.replace(p, layers=layers) for p in islands]
+        main = _part_of('P1', 'p1', parts, 30, 30)
+        target = _part_of('T1', 't1', [pad('T1', 't1', 1, 'S', 10, 10, 0.6, 0.6)], 10, 10)
+        esc = judging(Occupancy(board_geometry([main, target])))
+        lanes, spots, _ = esc._lanes_of('P1')
+        assert not lanes
+        assert len(spots) == 2
+        for spot in spots:
+            x, y, radius = spot.circle
+            assert any(_point_poly_distance((x, y), poly) <= radius + 1e-9
+                       for part in parts for poly in part.outlines)
