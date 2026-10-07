@@ -765,8 +765,14 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                                                  crossings=remap["crossings"])
                     r = router.route(pcb, d / "route", exclude_nets=set(p.plane_nets) | set(routing.exclude), quick=True,
                                      resume=routing.resume)
-                entry.update(closure_clean=r.closure_clean, closure=r.closure, open_before=r.open_before,
-                             open_after=r.open_after, valid=r.valid)
+                # Keep the authoritative final report intact, apart from worker
+                # identity/timing. Legacy test routers report only what they measured.
+                final = r.as_dict() if hasattr(r, 'as_dict') else dict(vars(r))
+                entry['route_report'] = final
+                for key in ('closure_clean', 'closure', 'open_before', 'open_after', 'valid',
+                            'drc_new', 'widths_failed', 'phases', 'vias', 'track_mm', 'segments'):
+                    if key in final:
+                        entry[key] = final[key]
             except Exception as e:
                 entry["error"] = {"type": type(e).__name__, "message": str(e)}
             entry["seconds"] = round(time.perf_counter() - t0, 3)
@@ -1070,8 +1076,8 @@ def _write_variant(make_board, board, plan, folder: Path) -> Path:
 def _taken(routes: list, measures: dict, cfg):
     """The seed of the routed variant that ranks first (`score.rank`: the validity tier, the clean closure, the quality
     key once fully routed, the run score, exactly: `_exact`) by its measures (`measures`, {seed: measures}) and its route's
-    clean closure;
-    the earlier seed of a tie; None when every route failed. A route record has no phases: its closures are ()."""
+    clean closure and phase contracts from the authoritative final report;
+    the earlier seed of a tie; None when every route failed."""
     import functools
     from . import score as _score
     closed = sorted((r for r in routes if "error" not in r), key=lambda r: r["seed"])
@@ -1081,10 +1087,7 @@ def _taken(routes: list, measures: dict, cfg):
 
     def standing(r):
         m = dict(measures.get(r["seed"]) or {})
-        for k in _score.QUALITY_TERMS:
-            if k in r:
-                m[k] = r[k]
-        return _score.Standing(m, _score.Validity.of(m), (), r["closure_clean"])
+        return _score.Standing.of_route(m, r)
     return min(closed, key=functools.cmp_to_key(lambda a, b: _score.rank(standing(a), standing(b), cfg)))["seed"]
 
 

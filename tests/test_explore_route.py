@@ -310,3 +310,20 @@ def test_a_search_that_ends_with_nothing_left_to_route_says_nothing_of_it(tmp_pa
     _search(tmp_path, seeds, route_best=False)
     assert not [e for e in events if e["ev"] == "explore_search_done"]
     assert [e for e in events if e["ev"] == "explore"][0]["route"] is False
+
+
+def test_taken_uses_final_route_validity_phases_and_quality():
+    from placemat import explore
+    from placemat.settings import Settings
+    base = {'closure_clean': 1.0, 'drc_new': 0, 'widths_failed': 0,
+            'phases': [{'comparison_contract': 'stable', 'final_closure_clean': 1.0}],
+            'vias': 4, 'track_mm': 50.0, 'segments': 10}
+    rows = [{'seed': 1, **base, 'drc_new': 1}, {'seed': 2, **base, 'vias': 2}]
+    measures = {1: {'airwire_mm': 1.0}, 2: {'airwire_mm': 50.0, 'drc': 9}}
+    assert explore._taken(rows, measures, Settings()) == 2
+    rows[0] = {'seed': 1, **base, 'drc_new': None, 'vias': 0}
+    assert explore._taken(rows, measures, Settings()) == 2
+    rows[0] = {'seed': 1, **base, 'phases': [{'comparison_contract': 'stable', 'final_closure_clean': 0.9}]}
+    assert explore._taken(rows, measures, Settings()) == 2
+    rows[0] = {'seed': 1, **base, 'vias': 1}
+    assert explore._taken(rows, measures, Settings()) == 1

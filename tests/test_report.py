@@ -210,3 +210,24 @@ def test_a_differential_pairs_own_crossing_is_counted_apart():
     ]}
     aw = airwires_from_drc(drc, partners={"USB_P": "USB_N", "USB_N": "USB_P"})
     assert aw["crossings"] == 3 and aw["crossings_pair"] == 1       # USB_P x USB_N; the two with C are ordinary
+
+
+def test_routed_report_ranking_uses_final_drc_instead_of_placement_drc():
+    from placemat import score
+    from placemat.report import is_better, regression_of, standing
+    route = {'closure_clean': 1.0, 'drc_new': 0, 'widths_failed': 0, 'phases': [],
+             'vias': 1, 'track_mm': 10.0, 'segments': 2}
+    def record(placement, final):
+        return _rec(metrics={'drc_real': {'clearance': placement}, 'airwire_mm': 0.0,
+                             'closure_clean': 0.5, 'measures': {'v': score.MEASURES_VERSION, 'drc': placement},
+                             'route': {**route, 'drc_new': final}})
+    clean = record(9, 0)
+    dirty = record(0, 1)
+    assert standing(clean).validity.valid and standing(clean).clean == 1.0
+    assert not standing(dirty).validity.valid
+    assert is_better(clean, dirty)
+    assert not is_better(dirty, clean)
+    assert regression_of(dirty, clean)['tier'] == 'validity'
+    unknown = record(0, None)
+    assert not standing(unknown).validity.valid
+    assert not is_better(unknown, clean)

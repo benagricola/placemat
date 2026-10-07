@@ -134,14 +134,15 @@ class Validity:
     drc_new: int | None = None   # "real" DRC errors beyond the board's baseline (D14); None when no DRC ran
     widths_failed: int = 0       # connections whose required width is not met on the final board
     critical: int = 0            # critical findings the measures count (HARD_FINDINGS)
+    unmeasured: tuple = ()       # required final-route evidence that was not measured
 
     @property
     def valid(self) -> bool:
         return not any(self.key())
 
     def key(self) -> tuple:
-        """(*unplaced, drc_new, widths_failed, critical), lower better: two invalid boards compare by it."""
-        return (*self.unplaced, self.drc_new or 0, self.widths_failed, self.critical)
+        """(*unplaced, drc_new, widths_failed, critical, unmeasured), lower better."""
+        return (*self.unplaced, self.drc_new or 0, self.widths_failed, self.critical, len(self.unmeasured))
 
     @classmethod
     def of(cls, measures: dict, drc_new: int | None = None, widths_failed: int = 0) -> "Validity":
@@ -160,15 +161,51 @@ class Standing:
     validity: Validity = Validity()
     closures: tuple = ()        # each phase's final clean closure, in phase order; () when not routed
     clean: float | None = None  # the route's clean closure; None when not routed
+    phase_contracts: tuple = () # identities of the stable obligations behind closures
+    routed: bool = False       # includes a routed result whose closure could not be measured
 
     @classmethod
     def of_route(cls, measures: dict, report) -> "Standing":
         """A routed board from its route report (step 1's RouteReport): the phases' closures and the clean closure, the
         DRC errors beyond the baseline and the failed widths into the validity tier, and the routed vias, copper and
         segments into the measures, for the quality key."""
-        m = dict(measures, vias=report.vias, copper_mm=report.track_mm, segments=report.segments)
-        return cls(m, Validity.of(m, drc_new=report.drc_new, widths_failed=report.widths_failed),
-                   tuple(p["final_closure_clean"] for p in report.phases), report.closure_clean)
+        from dataclasses import replace
+        if not isinstance(report, dict):
+            report = report.as_dict() if hasattr(report, 'as_dict') else vars(report)
+        report = report.get('route_report', report)
+        def count(value):
+            return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+        def closure(value):
+            return value if not isinstance(value, bool) and isinstance(value, (int, float)) \
+                and math.isfinite(value) and 0.0 <= value <= 1.0 else None
+        m = dict(measures)
+        # Never retain placement-era quality when final quality is unavailable.
+        for key, source in (('vias', 'vias'), ('copper_mm', 'track_mm'), ('segments', 'segments')):
+            m.pop(key, None)
+            if source in report:
+                m[key] = report[source]
+            elif key in report:
+                m[key] = report[key]
+        missing = []
+        drc = count(report.get('drc_new'))
+        widths = count(report.get('widths_failed'))
+        if drc is None:
+            missing.append('drc_new')
+        if widths is None:
+            missing.append('widths_failed')
+        clean = closure(report.get('closure_clean'))
+        if clean is None:
+            missing.append('closure_clean')
+        phases = report.get('phases') or ()
+        closures = tuple(closure(p.get('final_closure_clean')) for p in phases)
+        contracts = tuple(p.get('comparison_contract') if isinstance(p.get('comparison_contract'), str)
+                          else None for p in phases)
+        if any(c is None for c in closures):
+            missing.append('phase_closure')
+        if any(not c for c in contracts):
+            missing.append('phase_contract')
+        validity = replace(Validity.of(m, drc_new=drc, widths_failed=widths), unmeasured=tuple(missing))
+        return cls(m, validity, closures, clean, contracts, True)
 
 
 QUALITY_TERMS = ("vias", "copper_mm", "segments")
@@ -192,7 +229,7 @@ def quality_key(measures: dict) -> tuple:
 
 
 def _routed(s: Standing) -> bool:
-    return s.clean is not None
+    return s.routed or s.clean is not None
 
 
 def _complete(s: Standing) -> bool:
@@ -222,16 +259,21 @@ def rank(a: Standing, b: Standing, cfg) -> int:
     5. the run score, within its noise band (area is a term of it).
     A tie (0) keeps the incumbent: callers replace a held board only on -1, and never replace a valid board with an
     invalid one (D12)."""
+    if _routed(a) and _routed(b):
+        if (len(a.closures) != len(b.closures) or len(a.phase_contracts) != len(a.closures)
+                or len(b.phase_contracts) != len(b.closures) or a.phase_contracts != b.phase_contracts
+                or any(not c for c in a.phase_contracts)):
+            raise ValueError('Routed boards have incomparable phase obligations')
     s = validity_order(a, b)
     if s:
         return s
     va = a.validity.valid
     if _routed(a) and _routed(b):
         for ca, cb in zip(a.closures, b.closures):
-            s = _sign(cb, ca)
+            s = _sign(cb if cb is not None else -math.inf, ca if ca is not None else -math.inf)
             if s:
                 return s
-        s = _sign(b.clean, a.clean)
+        s = _sign(b.clean if b.clean is not None else -math.inf, a.clean if a.clean is not None else -math.inf)
         if s:
             return s
         if va and _complete(a) and _complete(b):
