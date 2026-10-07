@@ -26,6 +26,21 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
+- **A route needs routing phases.** `placemat route`, `run --route` and explore's `--route-best` route the project's
+  `[[route.phase]]` tables in order and refuse a project with none. Start from the default phases
+  (`placemat settings <board> --example`), or write the one phase that routes what the old fixed stages' main pass did:
+
+      [[route.phase]]
+      name = "signals"
+
+  `[route] islands`, `[route] pair_layers` and `[route] net_halos` are refused, and `placemat route --islands`: an
+  island net becomes a phase with `nets` and `width` (and `layers` for its `@LAYER` list), a pair's layers a phase
+  with `pairs` and `layers`, a halo the clearance field of the net's type in the capture.
+  A pour net (a net with a zone or a filled pour; `run --route`'s plane nets) is left to its pours unless a phase names
+  it, as `[route] islands` named it. Each phase's record (`phases` in `route.json`) names what it was asked, what it
+  left open and how the final board judges it; the report also has `vias`, `track_mm`, `segments`, `drc_new` and
+  `widths_failed`. The route's work folder keeps a phase's files as `p<i>_*`; a route kept from an earlier version
+  routes again.
 - **A route needs its router named.** placemat no longer falls back to a router folder of its own: set `[route]
   router_dir` in placemat.toml or `$KRT_DIR` to the KiCadRoutingTools checkout. With neither, `placemat route` and
   `run --route` refuse (`router_unset`, naming both); a folder without the router is refused as `router_not_found`.

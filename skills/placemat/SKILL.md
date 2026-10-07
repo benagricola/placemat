@@ -383,7 +383,15 @@ not a measure of how hard a step is (a candidate budget is, `place.step_budget`,
 9. **Route only when the placement has settled** - crossings and
    congestion no longer falling, big parts no longer moving:
    `placemat run ... --route` or `placemat route <board>`. It routes a copy
-   and reports closure; `still open` names the next placement problem. The
+   through the project's routing phases (`[[route.phase]]` in placemat.toml,
+   api.md "Routing phases"), in order, each on the board the one before
+   left: power legs, pairs and buses are phases of their own, at their own
+   widths and layers, before a last phase takes every connection still
+   open. A project with no phase is refused; `placemat settings --example`
+   writes the default ones. Declare copper in the script only for geometry
+   that is fixed (a lane, a stitch, a thermal tie), not to route a leg the
+   router can route as a phase. A route reports closure per phase and for
+   the board; `still open` names the next placement problem. The
    routed copy is evidence, not the layout: never paste its coordinates
    into the script as `board.track()` calls. To keep what the router found,
    `placemat route <script> --adopt NET ...` stores it relative to its pads
@@ -399,11 +407,8 @@ not a measure of how hard a step is (a candidate budget is, `place.step_budget`,
    `escape.via_unneeded` finding. The router's own choices (net
    order, via cost, layer costs) are its flags, passed through
    `[route] router_args`; its `--help` lists them.
-   Keep other nets off a switch node with `[route] net_halos` (`{"SW" =
-   2.0}`, mm). The router cannot lead a pad out of a halo, so the module
-   that draws a pad near the node draws its escape out past the halo
-   (`board.escape(..., run=)` and the lane's track); a pad whose copper
-   still ends inside is a `setup.net_halo` finding before the route starts.
+   Keep other nets off a switch node by its clearance in the capture (the
+   clearance field of its net type); `[route] net_halos` is refused.
 
 **Where a change goes:**
 
