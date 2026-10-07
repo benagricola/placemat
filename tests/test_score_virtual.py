@@ -103,3 +103,16 @@ def test_inconsistent_context_or_baseline_refuses_virtual_certificate(field):
     record['digest'] = digest({k: v for k, v in record.items() if k != 'digest'})
     validity, objective = standing(row, record)
     assert validity.unmeasured and objective == float('inf')
+
+
+def test_unknown_comparison_cannot_beat_known_invalid_placement():
+    unknown = (1, 0.0, {'drc': 0})
+    measured_invalid = (2, 20.0, {'drc': 0, 'findings': {'fixed': 1}})
+    assert score.placement_key(measured_invalid) < score.placement_key(unknown, {1: 0.0})
+
+
+def test_unknown_rows_retain_baseline_even_when_source_counts_differ():
+    baseline = (0, 100.0, {'drc': 0, 'findings': {'fixed': 2}})
+    unknown = (1, 0.0, {'drc': 0})
+    ranks = {0: 100.0, 1: 0.0}
+    assert score.placement_key(baseline, ranks) < score.placement_key(unknown, ranks)

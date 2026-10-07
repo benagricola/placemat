@@ -324,12 +324,17 @@ def placement_key(row, ranks=None):
     """
     seed, objective, measures = row
     if measures is None:
-        return (1, True, (), math.inf, seed)
+        return (1, True, True, (), math.inf, seed)
     validity = Validity.of(measures, drc_new=measures.get("drc"))
     if seed in (ranks or {}) or 'placement_comparison' in measures:
         from .score_virtual import standing
         validity, objective = standing(row, measures.get('placement_comparison'))
-    return (0, not validity.valid, validity.key(), objective, seed)
+        if 'placement_comparison_unmeasured' in validity.unmeasured:
+            # Unknown proposals never beat measured invalid placements either.
+            # Within unknown rows retain the deterministic ensemble incumbent;
+            # their source counts cannot certify the absent virtual candidate.
+            return (0, True, True, (), math.inf, seed)
+    return (0, False, not validity.valid, validity.key(), objective, seed)
 
 
 # Measured from the plan itself, not counted from its findings: unplaced by
