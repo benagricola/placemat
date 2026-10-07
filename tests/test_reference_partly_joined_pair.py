@@ -59,7 +59,13 @@ def test_an_actual_half_joined_pair_routes_without_changing_its_joined_leg(tmp_p
         report = route_ref._route(board, tmp_path / "route", (source / "placemat.toml").read_text())
         pair, signals = report["phases"]
         assert pair["name"] == "diff-pairs" and pair["calls"] > 0
-        assert pair["pairs"] is not None     # retain coupling/fallback attribution from the actual router
+        categories = pair["pairs"]
+        name = "USB_D_P/USB_D_N"
+        completed = [value for kind in ("coupled", "single_ended") for value in categories[kind]]
+        assert completed.count(name) == 1, categories
+        assert name not in categories["partial"] and name not in categories["failed"], categories
+        assert signals["calls"] == 0
+        assert (pair["final_asked"], pair["final_joined"], pair["final_open"]) == (2, 2, [])
         final = pathlib.Path(report["routed_pcb"])
         final_drc = tmp_path / "final-drc.json"
         run_drc(final, final_drc)
