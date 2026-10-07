@@ -19,6 +19,10 @@ State as of 2026-10-07 evening. Step 0 (the reference set) is merged on main (17
    .superpowers/sdd/2026-10-07-routing-phases/progress.md (git-ignored, on this machine). The task briefs, reports
    and review diffs are in the same folder. constraints.md there is what every subagent brief carried.
 
+All the 0.100 documents (roadmap, the step specs, plans, handovers and ledgers) are listed in
+docs/superpowers/plan-0.100-index.md. The sibling step's handover is docs/superpowers/handover-0.100-step2.md and its
+ledger is .superpowers/sdd/2026-10-07-one-score/progress.md.
+
 Method: superpowers:subagent-driven-development, as the user chose. One implementer per task, a task review, fix
 rounds with a scoped re-review, the ledger updated after every step.
 
