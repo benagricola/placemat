@@ -170,3 +170,48 @@ def test_native_certificate_keeps_equal_bound_edges_and_connects_new_only_nets(r
     delta = native.NativeDelta(rn.mirror, ['N'], [[('n', a.ref, a.number, a.x, a.y) for a in new]],
                               ['n'], (4.0, 3.0, 5.0, 0.0, 2.0))
     assert delta.wire_cross(0.0, 0.0, 0)[0] == pytest.approx(_length(mst('n', rest + new)) - _length(mst('n', rest)))
+
+
+@pytest.mark.parametrize('fitted,push', [(False, False), (True, False), (False, True)])
+def test_python_delta_matches_raw_live_whole_terms_without_mutation(fitted, push):
+    from dataclasses import replace
+    from placemat import score
+    from placemat.board_geometry import members_of
+    from placemat.score_delta import Delta
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _push_board, _two_part_board
+    if push:
+        board = _push_board()
+    else:
+        board = _two_part_board()
+        if fitted:
+            board.rect(fit=True)
+        board.place(Part('u1'), at=Location(10, 10))
+        board.place(Part('c1'), at=Location(30, 30))
+    plan = board.resolve()
+    occ = plan.occupancy
+    rng = random.Random(33)
+    for step in plan.steps:
+        if step.placement is None or step.item not in plan._items:
+            continue
+        item = plan._items[step.item]
+        refs = [fp.ref for fp in members_of(item)]
+        original = step.placement
+        baseline = score.whole(board, occ, plan)
+        occ.lift(refs)
+        lifted = score.whole(board, occ, plan)
+        delta = Delta(board, occ, item, plan.links, plan=plan)
+        for _ in range(20):
+            candidate = replace(original, location=Location(original.location.x + rng.uniform(-0.1, 0.1),
+                                                           original.location.y + rng.uniform(-0.1, 0.1)))
+            change = delta(candidate, prune_above=-math.inf)
+            assert score.whole(board, occ, plan) == lifted
+            occ.commit(item, candidate)
+            after = score.whole(board, occ, plan)
+            for term, value in change.terms.items():
+                assert value == pytest.approx(after[term] - lifted[term], abs=1e-6), (step.item, term)
+            assert change.total == sum(change.terms.values())
+            occ.lift(refs)
+        occ.commit(item, original)
+        restored = score.whole(board, occ, plan)
+        assert restored == pytest.approx(baseline, abs=1e-6)

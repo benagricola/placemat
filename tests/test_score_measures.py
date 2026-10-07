@@ -101,7 +101,9 @@ def test_a_push_is_measured_as_the_search_priced_it_the_whole_value_over_its_lim
     plan = b.resolve()
     assert plan.pushes
     m = score.plan_measures(b, plan)
-    want = sum(p.achieved_value / p.limit for p in plan.pushes)
+    occ = plan.occupancy
+    distance = occ.geometry_of("M1").reference.location.distance(occ.geometry_of("U2").body.center)
+    want = 3.2 * (2.0 / distance) ** 3 / 0.3
     assert want > 0 and m["pushes"] == pytest.approx(want, rel=1e-4)
     assert score.terms(m, CFG)["push"] == pytest.approx(CFG.score_push * want, rel=1e-4)
 
@@ -276,3 +278,86 @@ def test_a_board_resolved_twice_keeps_no_stale_link_length():
     plan = b.resolve()
     assert plan.links[0].achieved_mm is None
     assert score.plan_measures(b, plan)["link_mm"] == 0.0
+
+
+@pytest.mark.parametrize('moving', ['M1', 'U2'])
+def test_whole_push_tracks_either_endpoint_and_forgets_lifted_pairs(moving):
+    b = _push_board()
+    plan = b.resolve()
+    occ = plan.occupancy
+    before = score.whole(b, occ, plan)['push']
+    for push in plan.pushes:
+        push.achieved_value = 999999.0  # presentation facts never drive live geometry
+    assert score.whole(b, occ, plan)['push'] == before
+    item = next(item for item in plan._items.values() if getattr(item, 'ref', None) == moving)
+    occ.lift([moving])
+    assert score.whole(b, occ, plan)['push'] == 0
+    original = next(step.placement for step in plan.steps if plan._items.get(step.item) is item)
+    occ.commit(item, dataclasses.replace(original, location=Location(original.location.x + 0.000123, original.location.y)))
+    distance = occ.geometry_of('M1').reference.location.distance(occ.geometry_of('U2').body.center)
+    assert score.whole(b, occ, plan)['push'] == pytest.approx(b.settings.score_push * 3.2 * (2.0 / distance) ** 3 / 0.3)
+    assert score.whole(b, occ, plan)['push'] != before
+
+
+def test_whole_ignores_stale_link_and_fit_facts_and_keeps_small_geometry_changes():
+    from placemat.values import LinkWeight
+    b = _two_part_board()
+    b.rect(fit=True)
+    b.place(Part('u1'), at=Location(10, 10))
+    b.place(Part('c1'), at=Location(30, 30))
+    b.link(PadRef(Part('c1'), 1), PadRef(Part('u1'), 1), weight=LinkWeight.SHORT)
+    plan = b.resolve()
+    occ = plan.occupancy
+    before = score.whole(b, occ, plan)
+    plan.links[0].achieved_mm = 999999.0
+    assert score.whole(b, occ, plan) == before
+    item = plan._items['c1']
+    occ.lift(['C1'])
+    lifted = score.whole(b, occ, plan)
+    assert lifted['link'] == 0 and lifted['area'] < before['area']
+    original = plan.placement('c1')
+    occ.commit(item, dataclasses.replace(original, location=Location(30.000123, 30)))
+    after = score.whole(b, occ, plan)
+    assert after['area'] > before['area']
+    assert 0 < after['airwire'] - before['airwire'] < 0.001
+    assert after['link'] > before['link']
+
+
+@pytest.mark.parametrize('moving', ['M1', 'U1'])
+def test_annotation_pushes_follow_live_emission_and_sense_points(moving):
+    fps = [footprint('M1', 10, 10, inst='m1', fields={'Pm.Emits': 'heat:1C@1mm^1', 'Pm.EmitsAt': '2,0'}),
+           footprint('U1', 30, 10, inst='u1', fields={'Pm.Limit': 'heat:1C'})]
+    b = Board(board_geometry(fps, width=60, height=60))
+    b.place(Part('m1'), at=Location(10, 10))
+    b.place(Part('u1'), at=Location(30, 10))
+    plan = b.resolve()
+    occ = plan.occupancy
+    assert score.whole(b, occ, plan)['push'] == pytest.approx(b.settings.score_push / 18.0)
+    item = plan._items[moving.lower()]
+    original = plan.placement(moving.lower())
+    occ.lift([moving])
+    assert score.whole(b, occ, plan)['push'] == 0.0
+    occ.commit(item, dataclasses.replace(original, location=Location(original.location.x + 1, 10)))
+    expected_distance = 17.0 if moving == 'M1' else 19.0
+    assert score.whole(b, occ, plan)['push'] == pytest.approx(b.settings.score_push / expected_distance)
+
+
+
+def test_live_fit_area_includes_committed_candidate_before_step_facts_are_updated():
+    b = _two_part_board()
+    b.rect(fit=True)
+    b.place(Part('u1'), at=Location(10, 10))
+    b.place(Part('c1'), at=Location(30, 30))
+    plan = b.resolve()
+    occ = plan.occupancy
+    area = score.whole(b, occ, plan)['area']
+    step = next(s for s in plan.steps if s.item == 'c1')
+    placement = step.placement
+    step.placement = None
+    occ.lift(['C1'])
+    assert score.whole(b, occ, plan)['area'] < area
+    occ.commit(plan._items['c1'], placement)
+    assert score.whole(b, occ, plan)['area'] == area
+    occ.lift(['C1'])
+    occ.unlift(['C1'])
+    assert score.whole(b, occ, plan)['area'] == area

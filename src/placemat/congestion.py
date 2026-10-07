@@ -93,3 +93,91 @@ def _spans(lo: float, hi: float, origin: float, cell: float, n: int):
         o = min(hi, a + cell) - max(lo, a)
         if o > 0:
             yield k, o
+
+
+class RudyGrid:
+    """Per-net RUDY demand, with signed candidate changes on scratch cells.
+
+    The grid frame stays fixed during a search. Replacing a touched net's
+    box can reduce demand as well as increase it; unchanged cells retain
+    their congestion-step counts without a full candidate grid scan.
+    """
+    def __init__(self, board: Box, layers: int, pitch: float, step: float, cell: float = 0.5):
+        self.board, self.cell, self.step = board, cell, step
+        self.nx = max(1, math.ceil(board.width / cell))
+        self.ny = max(1, math.ceil(board.height / cell))
+        self.capacity = layers * cell * cell / pitch
+        self.demand = [0.0] * (self.nx * self.ny)
+        self.nets = {}
+        self.cells = [{} for _ in self.demand]
+        self.counts = {0: len(self.demand)}
+
+    def _step(self, value):
+        return int(max(0.0, value) / self.capacity / self.step + 1e-9) if self.step else 0
+
+    def _contribution(self, points):
+        if len(points) < 2:
+            return {}
+        x0, x1 = min(p.x for p in points), max(p.x for p in points)
+        y0, y1 = min(p.y for p in points), max(p.y for p in points)
+        wire = (x1 - x0) + (y1 - y0)
+        if x1 - x0 < self.cell:
+            x0, x1 = (x0 + x1 - self.cell) / 2, (x0 + x1 + self.cell) / 2
+        if y1 - y0 < self.cell:
+            y0, y1 = (y0 + y1 - self.cell) / 2, (y0 + y1 + self.cell) / 2
+        density = max(wire, self.cell) / ((x1 - x0) * (y1 - y0))
+        return {j * self.nx + i: density * ox * oy
+                for j, oy in _spans(y0, y1, self.board.top, self.cell, self.ny)
+                for i, ox in _spans(x0, x1, self.board.left, self.cell, self.nx)}
+
+    def _apply(self, net, contribution, remove=False):
+        for index, amount in contribution.items():
+            old = self._step(self.demand[index])
+            self.counts[old] -= 1
+            if not self.counts[old]:
+                del self.counts[old]
+            if remove:
+                self.cells[index].pop(net, None)
+            else:
+                self.cells[index][net] = amount
+            self.demand[index] = math.fsum(self.cells[index].values())
+            new = self._step(self.demand[index])
+            self.counts[new] = self.counts.get(new, 0) + 1
+
+    def add_net(self, net, points):
+        self.remove_net(net)
+        contribution = self._contribution(points)
+        self.nets[net] = contribution
+        self._apply(net, contribution)
+
+    def remove_net(self, net):
+        contribution = self.nets.pop(net, None)
+        if contribution is not None:
+            self._apply(net, contribution, remove=True)
+
+    def worst(self):
+        return max(self.demand, default=0.0) / self.capacity
+
+    def steps(self):
+        return max(self.counts, default=0)
+
+    def change(self, replacements):
+        """Signed worst-step change for {net: points}; never mutate this grid."""
+        contributions = {net: self._contribution(points) for net, points in replacements.items()}
+        touched = set()
+        for net, contribution in contributions.items():
+            touched.update(self.nets.get(net, {}))
+            touched.update(contribution)
+        counts = dict(self.counts)
+        for index in touched:
+            old = self._step(self.demand[index])
+            counts[old] -= 1
+            if not counts[old]:
+                del counts[old]
+            # Re-sum only changed cells. Compensated summation prevents
+            # repeated lift/commit subtraction drift at a step boundary.
+            value = math.fsum([amount for net, amount in self.cells[index].items() if net not in replacements]
+                              + [c[index] for c in contributions.values() if index in c])
+            new = self._step(value)
+            counts[new] = counts.get(new, 0) + 1
+        return max(counts, default=0) - self.steps()

@@ -1255,6 +1255,8 @@ class Occupancy:
             self._ratsnest_refresh(owners)
         if self.__dict__.get("_escapes") is not None:
             self._escapes.refresh(owners)
+        if self.__dict__.get("_congestion") is not None:
+            self._congestion_refresh(owners)
 
     def lift(self, refs) -> None:
         """Take placed items off the board for a moment: they are no obstacle,
@@ -1266,6 +1268,8 @@ class Occupancy:
             self._ratsnest_refresh(refs)
         if self.__dict__.get("_escapes") is not None:
             self._escapes.refresh(refs)
+        if self.__dict__.get("_congestion") is not None:
+            self._congestion_refresh(refs)
 
     def unlift(self, refs) -> None:
         refs = set(refs)
@@ -1274,6 +1278,44 @@ class Occupancy:
             self._ratsnest_refresh(refs)
         if self.__dict__.get("_escapes") is not None:
             self._escapes.refresh(refs)
+        if self.__dict__.get("_congestion") is not None:
+            self._congestion_refresh(refs)
+
+    def congestion(self):
+        """Live placed-pad RUDY demand on a fixed occupancy frame."""
+        grid = self.__dict__.get("_congestion")
+        frame = self.board_box or Box(0.0, 0.0, 0.0, 0.0)
+        if grid is None or grid.board != frame:
+            from .congestion import RudyGrid
+            classes = self.geometry.netclasses.values()
+            width = min((c.track_width for c in classes), default=0.2)
+            pitch = width + (self.geometry.default_clearance or 0.2)
+            grid = RudyGrid(frame, max(1, len(self.geometry.layers)), pitch,
+                            self.settings.score_congestion_step)
+            self.__dict__["_congestion"] = grid
+            self.__dict__["_congestion_pads"] = {}
+            self._congestion_refresh(set(self.items))
+        return grid
+
+    def _congestion_refresh(self, refs):
+        pads = self.__dict__["_congestion_pads"]
+        touched = set()
+        for net, points in pads.items():
+            for key in [k for k in points if k[0] in refs]:
+                del points[key]
+                touched.add(net)
+        for ref in refs:
+            geom = self.items.get(ref)
+            if geom is None or ref in self.pending:
+                continue
+            for index, shape in enumerate(geom.shapes):
+                if shape.kind in ("pad", "through") and shape.owner == ref and shape.net \
+                        and shape.net not in self.quiet_nets:
+                    pads.setdefault(shape.net, {})[(ref, index)] = shape.box.center
+                    touched.add(shape.net)
+        grid = self.__dict__["_congestion"]
+        for net in sorted(touched):
+            grid.add_net(net, list(pads.get(net, {}).values()))
 
     def escapes(self):
         """The corridors out of every placed pad (escapes.py), kept as items commit."""
@@ -1333,8 +1375,8 @@ class Occupancy:
         for net in sorted(touched):               # a set of names: the ratsnest keeps its airwires in the order they are set
             rn.set_net(net, sorted(anchors.get(net, {}).values(), key=lambda a: (a.ref, a.number)))
 
-    def candidate_anchors(self, item, placement: Placement) -> list:
-        """(net, x, y) of each of the item's pads at a candidate placement,
+    def candidate_named_anchors(self, item, placement: Placement) -> list:
+        """(net, ref, pad, x, y) of each of the item's pads at a candidate placement,
         at their airwire anchors: turned and faced once per rotation and face,
         then shifted."""
         geom = self._geometry(item)
@@ -1349,11 +1391,15 @@ class Occupancy:
                         and self.geometry.has_footprint(s.owner):
                     seen.add((s.owner, s.label))
                     a = t.apply_location(self.pad_anchor(s.owner, s.label))
-                    out.append((s.net, a.x, a.y))
+                    out.append((s.net, s.owner, s.label, a.x, a.y))
             hit = (geom, out)
             cache[key] = hit
         dx, dy = placement.location.x, placement.location.y
-        return [(net, x + dx, y + dy) for net, x, y in hit[1]]
+        return [(net, ref, pad, x + dx, y + dy) for net, ref, pad, x, y in hit[1]]
+
+    def candidate_anchors(self, item, placement: Placement) -> list:
+        """(net, x, y) for the existing leaf scorer and native sweep."""
+        return [(net, x, y) for net, _, _, x, y in self.candidate_named_anchors(item, placement)]
 
     def placed_geometries(self, item, placement: Placement) -> tuple[dict, list]:
         """What commit() records for `item` at `placement`, without recording

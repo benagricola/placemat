@@ -294,15 +294,11 @@ def _signal_edges(board, occ):
 
 def _links_mm(board, occ, plan) -> tuple:
     """(sum of weight x length over the links with both pads placed, the excess past the limits). A resolved plan has
-    each link's achieved length; a board part way through has not, and the links are measured on the occupancy."""
+    each link's declared obligation; current geometry always comes from the occupancy."""
     mm, excess = 0.0, 0.0
-    if plan.links:
-        pairs = [(l, l.achieved_mm) for l in plan.links]
-    else:
-        pairs = []
-        for l in board._links:
-            if all(r in occ.items and r not in occ.pending for r in (l.a[0], l.b[0])):
-                pairs.append((l, occ.pad_location(*l.a).distance(occ.pad_location(*l.b))))
+    pairs = [(l, occ.pad_location(*l.a).distance(occ.pad_location(*l.b)))
+             for l in (plan.links or board._links)
+             if all(r in occ.items and r not in occ.pending for r in (l.a[0], l.b[0]))]
     for l, d in pairs:
         if d is None:
             continue
@@ -313,17 +309,60 @@ def _links_mm(board, occ, plan) -> tuple:
 
 
 def _frame_area(board, occ, plan) -> float:
-    """A fitted frame's area: the plan's outline once the frame is fitted, else the frame the placed content makes
-    now (as layout fits it); 0.0 on a fixed outline. A frame fitted on one axis has the other declared, so its
-    width times its height is the fitted side times the declared one."""
+    """Current occupied fit area, respecting each fixed axis; zero on a fixed outline."""
     if not board._fit:
         return 0.0
-    from .geometry import Box
-    frame = plan.outline if any(plan.fitted_axes) and plan.outline is not None else None
-    if frame is None:
-        content = board._placed_box(occ, plan) or Box(0.0, 0.0, 0.0, 0.0)
-        frame = board._fit_bound(content.inflate(board._fit_margin))
-    return (frame.right - frame.left) * (frame.bottom - frame.top)
+    frame = _fit_frame(board, occ, plan)
+    return frame.width * frame.height
+
+
+def _placed_content(occ, plan):
+    """Current placed shape/copper bounds; pending owners contribute nothing."""
+    from .board_geometry import CellGeom, members_of
+    from .copper import Track, Via, Pour, Text
+    from .values import Box
+    boxes = [shape.box for ref, geom in occ.items.items() if ref not in occ.pending for shape in geom.shapes]
+    for item in plan._items.values():
+        if isinstance(item, CellGeom):
+            refs = {fp.ref for fp in members_of(item)}
+            if not refs & occ.pending:
+                boxes.extend(c.box for c in occ.copper if c.owner == item.name)
+    boxes.extend(op.box for op in plan.copper if isinstance(op, (Track, Via, Pour, Text)))
+    return Box.union(boxes) if boxes else None
+
+
+def _fit_frame(board, occ, plan):
+    from .values import Box
+    content = _placed_content(occ, plan) or Box(0.0, 0.0, 0.0, 0.0)
+    return board._fit_bound(content.inflate(board._fit_margin))
+
+
+def _pushes(board, occ, plan):
+    """Declared pushes and annotation pairs at their current physical points."""
+    from .layout import _push_value
+    value, seen = 0.0, set()
+    for push in plan.pushes:
+        if id(push) in seen or push.kind or not push.limit:
+            continue
+        seen.add(id(push))
+        ref = push.target_member_ref
+        if ref not in occ.items or ref in occ.pending:
+            continue
+        if board._push_needs(push.source) & occ.pending:
+            continue
+        point = occ.pad_location(*push.target_pad_key) if push.target_pad_key else occ.geometry_of(ref).body.center
+        source = board._push_source_point(occ, plan, push.source)
+        value += _push_value(source, point, push)[0] / push.limit
+    ann = board._annotations
+    if ann:
+        placed = set(occ.items) - occ.pending
+        for sens in sorted(placed & ann.sensitives.keys()):
+            point = board._sense_point(occ, sens)
+            for kind, limit, _ in ann.sensitives[sens].limits:
+                for src in sorted((placed & ann.sources.keys()) - {sens}):
+                    distance = board._emission_point(occ, src).distance(point)
+                    value += sum(e.at(distance) / limit for e in ann.sources[src].emissions if e.kind == kind)
+    return value
 
 
 def _incremental(board, occ, plan, escapes: bool = True) -> dict:
@@ -341,29 +380,22 @@ def _incremental(board, occ, plan, escapes: bool = True) -> dict:
     for e in edges:
         if e.net in quiet:
             continue
-        d = ((e.a.x - e.b.x) ** 2 + (e.a.y - e.b.y) ** 2) ** 0.5
+        d = math.hypot(e.a.x - e.b.x, e.a.y - e.b.y)
         wire += d
         if kinds.get(e.net) == KIND_IMPEDANCE:
             impedance += d
     link_mm, excess = _links_mm(board, occ, plan)
-    # a push is placed once per item, but the same Push object may be recorded again by a re-settle
-    pushes, seen = 0.0, set()
-    for p in plan.pushes:
-        if id(p) in seen or p.achieved_value is None or not p.limit:
-            continue
-        seen.add(id(p))
-        pushes += p.achieved_value / p.limit
+    pushes = _pushes(board, occ, plan)
     found: dict = {}
     if escapes:
         from .escapes import judging
         found = {k: len(v) for k, v in judging(occ).found().items() if v}
-    out = {"crossings": per_class, "airwire_mm": round(wire, 3),
-           "airwire_impedance_mm": round(impedance, 3), "link_mm": round(link_mm, 6),
-           "link_excess": round(excess, 6), "pushes": round(pushes, 6), "findings": found,
-           "area_mm2": round(_frame_area(board, occ, plan), 3)}
+    out = {"crossings": per_class, "airwire_mm": wire,
+           "airwire_impedance_mm": impedance, "link_mm": link_mm,
+           "link_excess": excess, "pushes": pushes, "findings": found,
+           "area_mm2": _frame_area(board, occ, plan)}
     if cfg.score_congestion_step:
-        rudy = plan.rudy if plan.rudy is not None else board._rudy(occ, plan)
-        out["rudy_steps"] = int((getattr(rudy, "worst", 0.0) or 0.0) / cfg.score_congestion_step + 1e-9)
+        out["rudy_steps"] = occ.congestion().steps()
     return out
 
 

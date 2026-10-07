@@ -67,3 +67,62 @@ def test_the_grid_is_kept_and_its_worst_cell_is_the_worst():
     assert (r.origin.x, r.origin.y) == (0, 0)
     i, j = int((r.worst_at.x - r.origin.x) // r.cell), int((r.worst_at.y - r.origin.y) // r.cell)
     assert r.util[j][i] == pytest.approx(r.worst, abs=1e-4)
+
+
+def test_grid_signed_changes_match_rebuilt_grid_and_leave_baseline_unchanged():
+    import random
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    rng = random.Random(4)
+    box = Box(0, 0, 20, 20)
+    points = {str(i): [Location(rng.uniform(0, 20), rng.uniform(0, 20)) for _ in range(4)] for i in range(6)}
+    grid = RudyGrid(box, 2, 0.4, 0.05)
+    for net, pads in points.items():
+        grid.add_net(net, pads)
+    baseline = grid.steps()
+    saved = list(grid.demand)
+    for _ in range(100):
+        replacements = {net: [Location(rng.uniform(0, 20), rng.uniform(0, 20)) for _ in range(4)]
+                        for net in rng.sample(list(points), 2)}
+        rebuilt = RudyGrid(box, 2, 0.4, 0.05)
+        for net, pads in dict(points, **replacements).items():
+            rebuilt.add_net(net, pads)
+        assert grid.change(replacements) == rebuilt.steps() - baseline
+        assert grid.demand == saved and grid.steps() == baseline
+
+
+def test_spreading_a_net_can_lower_congestion():
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    grid = RudyGrid(Box(0, 0, 20, 20), 2, 0.4, 0.05)
+    grid.add_net('n', [Location(1, 1), Location(1.1, 1.1)])
+    assert grid.change({'n': [Location(1, 1), Location(15, 15)]}) < 0
+
+
+def test_grid_repeated_net_changes_do_not_drift_at_step_boundaries():
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    grid = RudyGrid(Box(0, 0, 10, 10), 2, 0.4, 0.05)
+    baseline = [Location(1, 1), Location(1.000000001, 1.000000001)]
+    grid.add_net('a', baseline)
+    grid.add_net('b', baseline)
+    before = list(grid.demand), grid.steps()
+    for _ in range(1000):
+        grid.remove_net('a')
+        grid.add_net('a', [Location(1, 1), Location(8, 8)])
+        grid.add_net('a', baseline)
+    assert (grid.demand, grid.steps()) == before
+
+
+def test_grid_worst_matches_display_rudy_and_removing_all_pads_clears_it():
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    box = Box(0, 0, 10, 10)
+    grid = RudyGrid(box, 2, 0.4, 0.05)
+    points = [Location(1.2, 2.3), Location(6.7, 8.9)]
+    grid.add_net('a', points)
+    display = rudy([_pad('a', p.x, p.y) for p in points], box, 2, 0.4)
+    assert grid.worst() == pytest.approx(display.worst, abs=0.00005)
+    assert grid.change({'a': []}) == -grid.steps()
+    grid.remove_net('a')
+    assert grid.steps() == 0 and grid.worst() == 0
