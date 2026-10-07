@@ -124,3 +124,20 @@ now). The native ratsnest and a spatial index of edges are the means. This is me
 
 - New score terms. This is a unification, not a new objective.
 - The routing score itself, which is the router's.
+
+## Amendments, 2026-10-07
+
+Decided with the user while planning step 2 (docs/superpowers/plans/2026-10-07-one-score.md, "Decisions"):
+- The airwire term counts nets that pull only: plane and free nets leave it, as the search's clique skips them.
+- A declared link's weight is carried by a new `link` term (weight x length, at `score.link`), since an MST has no
+  per-pair weight.
+- Crossings are priced by net kind at the pin study's values (`score.crossing_pair_net` 5, `score.impedance` 3), a
+  crossing of two kinds at the dearer price; an impedance net's airwire length also counts `score.impedance` times.
+- Escapes are a new judgement by surface lanes (2026-10-07-surface-escapes-design.md), in place of today's corridors
+  and confirmed findings.
+- `score.area`'s default is chosen from a sweep on the fitted reference modules.
+- The speed limit is about 5 us a candidate for parts; a cell's candidate is no slower than today's scorer.
+- The new definition lands first with the clique search, the baselines are re-recorded on it, and clique and MST are
+  compared on it.
+
+These add terms the "Out of scope" section excluded; the user approved each.
