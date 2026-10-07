@@ -5,6 +5,36 @@ the shared machine, the release line and the merge rules; read that first, then 
 
 State as of 2026-10-07 evening. Step 0 (the reference set) is merged on main (175358af) and released with 0.99.35.
 
+## Reviewer-led continuation on 2026-10-07
+
+The historical task state below is superseded by this continuation and the worktree's ignored execution ledger.
+The reviewer assigned step 1 to one agent and the router/reference lane to its child, with independent review before
+merging to main. Main was merged into the feature branch at 9b4f8be4; step 1 has not been merged, pushed or released.
+
+- Parent scoped review accepted the Placemat changes through 45dbfd89 and the repeated-current-alias correction
+  f57d94fa. Tasks 15/16/18/18a/19/20/22/25 now have implementation and targeted validation. Required-width proof
+  explicitly fails closed when geometry cannot establish it; final phase comparisons use stable electrical intent.
+- Task 24's current-name correction handles qualified names and repeated aliases conservatively. Circuit-capture
+  documentation changes are local commits 1efad41 and 1475634 (versions 0.1.7 and 0.1.8), awaiting reviewed publication.
+- Router changes and Tasks 5a/5b/5c/17/17a reference work remain in the child lane. A bounded legacy-first fallback
+  is undergoing router gates because unconditional pocket recovery regressed previously complete ESP routes.
+  No unexplained reference regression may be accepted or repinned.
+- Task 26 remains open: final whole-suite, reference comparisons, slow-test list, and release gates. The earlier
+  broad run omitted KRT_DIR and lacked local socket access; it is diagnostic evidence, not a successful gate.
+  The unchanged main OCR confidence test also fails independently; see /tmp/placemat-main-ocr-baseline.log.
+- Use /tmp/placemat-step1-venv/bin/python for branch validation. It has genuine editable branch metadata and a
+  locally built native extension, with read-only dependency paths shared from main. Reinstall the editable package
+  after commits so installed metadata matches the checkout. Always set PYTHONPATH to this branch and KRT_DIR to
+  the finalized connections worktree, and use approved local socket access for server tests.
+- Isolated targeted gates passed: version/phase commands/capture selectors 41 tests; full width/selector/settings/
+  capture/check/studio/resume scope 345 passed, 4 skipped; socket-capable studio/CLI scope 50 passed. Vulture is clean.
+  These support scoped review and do not replace the final whole-suite or real-board gates.
+- Step 2 owns final routed-board electrical judgments and the common Standing/report adapter in its Task 17 after
+  consuming reviewed step 1. The final integrated review must check that routed results supersede placement checks.
+
+Keep the real-board lock and two-worker limits below. Reference runners acquire the lock internally: do not wrap
+them in another flock on the same file. The reviewer must approve concrete final changes before merge or release.
+
 ## Read, in order
 
 1. ~/.claude/CLAUDE.md, this repo's CLAUDE.md, CHARTER.md and the memory index (loaded for you).
