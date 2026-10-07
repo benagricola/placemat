@@ -230,3 +230,24 @@ rounds with a scoped re-review, the ledger updated after every step.
   identical to the finalized fork. The exact local sibling part closure was added identically after the first missing-file
   refusal. Original project inputs were untouched. Actual per-phase map provenance and the two full routing comparisons
   remain required; no project-specific metrics are recorded here.
+- Shared reference subprocess boundary `aa1f0652`/`660b2c34` is accepted after parent independently repeated 60
+  focused full tests. Route and placement calls own their process groups, defer interruption across spawn, preserve
+  late shutdown logs, reject expired deadlines, and require fresh valid placement records with successful process
+  status. Original failed artifacts remain inspectable; unrelated processes remain untouched.
+- Family phase prerequisites are explicit: fairing root `5c2bde04` supplies the planned class-width signals phase;
+  MNB root and USB-C child `b132c7fc` supply signals and pairs-then-signals respectively. Parent accepted source scope;
+  physical family/reference gates remain pending. The original USB-C fixture had no phase settings, so its attempted
+  route correctly refused `no_phases`; that refusal is not a successful baseline route.
+- Actual partly joined pair proof passed: initial P connected/N open, one pair-router call, both finally connected,
+  original locked P track coordinates, layer, width and UUID unchanged, no new manufacturing violations. The router
+  explicitly reported a single-ended fallback, so this proves OR selection and counterpart preservation, not coupled
+  geometry. The portable fixture regression still requires its actual reproduction/final full gate.
+- USB-C capture proof is narrower: its pair copper already existed, so the actual pair phase made zero calls. Named
+  interface capture and phase integration passed; synthetic N-only-open selection is not actual routing evidence.
+  Saved original/captured DRC reports retain the same manufacturing faults, and no manufacturing-success pin is taken.
+- Scratch core comparison uses equal bounded fresh full searches and preserves runtime source hashes across subsequent
+  fixture/harness-only commits. The completed declared result was recovered without rerouting after the collector
+  counted its label symlink and canonical run path twice; both resolved to the same file. Actual saved-board checks
+  retain raw measurements and apply identical original settings and acceptance intent to both variants. Width-unknown,
+  current-path failure and unjudged outcomes remain distinct from manufacturing validity. The second comparison and
+  all project-specific numeric findings remain outside repository documentation.
