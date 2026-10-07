@@ -20,6 +20,11 @@ human actually used (`human_track_mm` in the manifest). Vias and track length ar
 2. placemat places everything else and routes it.
 3. The result is compared with the human board, and with placemat's own test (a) route of the human placement.
 
+The human board in test (b) is the manifest's original board, fetched and stripped as for test (a): its vias, track
+length and stripped DRC are what the routed board's are judged against. It is not the board `pcb layout` generates from
+the imported capture, because the preparation works on the original and the generated board has the standard library's
+footprints rather than the human's.
+
 Test (a) runs on all eight boards. Test (b) needs the board to import with `pcb import`, so it runs on the boards
 listed with `b` in `tests`.
 
@@ -72,11 +77,18 @@ the module runs. Each entry carries the placemat, router and zener versions it w
 
 Before a release, run `route_ref.py`, `place_ref.py` and `place_ref.py --modules`, and put each board's and module's
 tally in the release commit. A run compares each entry with the recorded one and prints new, same, better, worse or
-not comparable (a different version of a component other than the one named in `--changing`).
+not comparable. An entry is not comparable when a component not named in `--changing` has another version; the line
+then also gives what the values alone say. `--changing` takes one or more of `placemat`, `krt` and `pcb` (default
+`placemat`) and goes after the board names: a step that changes the router and placemat together passes
+`--changing placemat krt`.
+
+A board or module whose preparation or run raises is a failed result, with the exception's type as its failure, and the
+run goes on to the next. A failure where the recorded entry had none is worse.
 
 The ratchet: no board or module may get worse without the user's approval. `--update` writes the entries that are
-new, same, better or not comparable, and holds back an entry that is worse. `--accept-worse` writes it anyway and
-records that the user approved the loss; it is never passed without that approval.
+new, same, better or not comparable, and holds back an entry that is worse, and one that is not comparable but worse
+on its values. `--accept-worse` writes them anyway and records that the user approved the loss; it is never passed
+without that approval. `--update` writes after each board or module, so a run that stops keeps the ones it finished.
 
 ## The script lint
 

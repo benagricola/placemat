@@ -1,11 +1,13 @@
 """Test (a) of the reference set: route each board's human placement with its copper stripped, and judge clean closure and
 the DRC errors the route adds to the stripped board's baseline.
 
-    .venv/bin/python fixtures/reference/route_ref.py [name ...] [--update] [--changing placemat|krt|pcb]
+    .venv/bin/python fixtures/reference/route_ref.py [name ...] [--update] [--changing placemat|krt|pcb ...]
 
 For each test (a) board it runs the route with the net classes' widths, then with the human's track width where the manifest
 gives one, and compares each result with results.json["a"]. Results of runs whose placemat, router or zener versions differ
-in a component other than --changing are not compared. --update writes the boards it ran into results.json["a"].
+in a component other than those named in --changing are not compared. --update writes the boards it ran into
+results.json["a"], after each board. A board whose preparation or route raises is a failed result, not an error of the
+runner.
 Real boards: it takes the realboard lock (lock.py) for the whole run, so it waits for the other real-board runs.
 """
 from __future__ import annotations
@@ -51,12 +53,20 @@ class AResult:
     passed: bool
     seconds: float
     versions: dict   # placemat, krt, pcb
+    failure: str = ""   # "" when the route ran; else the type of the exception that stopped it
+    detail: str = ""    # what the exception said
 
 
 @dataclasses.dataclass(frozen=True)
 class Comparison:
     status: str   # new, same, better, worse or not comparable
     differ: list[str]   # with "not comparable": the components whose versions differ
+    value: str = ""     # with "not comparable": what the values alone say (same, better or worse), versions ignored
+
+
+def lower(c: Comparison) -> bool:
+    """Whether a result is below the recorded one: worse, or not comparable and worse on the values alone."""
+    return c.status == "worse" or (c.status == "not comparable" and c.value == "worse")
 
 
 def new_violations(after: list[prepare.Violation], baseline: list[prepare.Violation],
@@ -79,39 +89,57 @@ def judge(route_json: dict, new: list[prepare.Violation], template: AResult) -> 
         passed=closure == CLEAN and not new, seconds=route_json.get("seconds", template.seconds))
 
 
-def comparable(old: dict, new: dict, changing: str) -> list[str]:
-    """The components other than `changing` whose versions differ between two results' `versions`."""
-    return [c for c in COMPONENTS if c != changing and old.get(c) != new.get(c)]
+def comparable(old: dict, new: dict, changing: set[str]) -> list[str]:
+    """The components not in `changing` whose versions differ between two results' `versions`."""
+    return [c for c in COMPONENTS if c not in changing and old.get(c) != new.get(c)]
 
 
-def compare(old: dict | None, new: AResult, changing: str) -> Comparison:
+def by_value(old: dict, new: AResult) -> str:
+    """same, better or worse: a result's values against the recorded one's, whatever the versions. A failure where the
+    recorded entry had none is worse."""
+    if new.failure and not old.get("failure"):
+        return "worse"
+    gained = len(new.new_violations) - len(old.get("new_violations", ()))
+    if (old["passed"] and not new.passed) or new.closure_clean < old["closure_clean"]:
+        return "worse"
+    if new.closure_clean == old["closure_clean"] and gained > 0:
+        return "worse"
+    if (new.passed and not old["passed"]) or new.closure_clean > old["closure_clean"] or (old.get("failure") and not new.failure):
+        return "better"
+    return "same"
+
+
+def compare(old: dict | None, new: AResult, changing: set[str]) -> Comparison:
     """A result against the recorded one (its dict): new, same, better, worse, or not comparable."""
     if old is None:
         return Comparison("new", [])
+    value = by_value(old, new)
     differ = comparable(old.get("versions", {}), new.versions, changing)
     if differ:
-        return Comparison("not comparable", differ)
-    gained = len(new.new_violations) - len(old.get("new_violations", ()))
-    if (old["passed"] and not new.passed) or new.closure_clean < old["closure_clean"]:
-        return Comparison("worse", [])
-    if new.closure_clean == old["closure_clean"] and gained > 0:
-        return Comparison("worse", [])
-    if (new.passed and not old["passed"]) or new.closure_clean > old["closure_clean"]:
-        return Comparison("better", [])
-    return Comparison("same", [])
+        return Comparison("not comparable", differ, value)
+    return Comparison(value, [])
 
 
-def ratchet(results: list, statuses: list[str], accept_worse: bool) -> tuple[list, list]:
-    """(what --update writes, what it holds back): a result that compares "worse" is held back unless `accept_worse`, so a
-    baseline is never lowered without the user's approval. "not comparable" results are written (a re-baseline)."""
+def ratchet(results: list, comparisons: list[Comparison], accept_worse: bool) -> tuple[list, list]:
+    """(what --update writes, what it holds back): a result that is `lower` than the recorded one is held back unless
+    `accept_worse`, so a baseline is never lowered without the user's approval. Other "not comparable" results are
+    written (a re-baseline)."""
     if accept_worse:
         return list(results), []
-    held = [r for r, st in zip(results, statuses) if st == "worse"]
-    return [r for r, st in zip(results, statuses) if st != "worse"], held
+    held = [r for r, c in zip(results, comparisons) if lower(c)]
+    return [r for r, c in zip(results, comparisons) if not lower(c)], held
 
 
-def asdict(result: AResult) -> dict:
-    return dataclasses.asdict(result)
+def _violation_key(v) -> tuple:
+    return (v["type"], list(v["nets"]), list(v["at_mm"]))
+
+
+def asdict(result) -> dict:
+    """A result as results.json holds it, its new violations sorted so a rerun does not reorder them."""
+    out = dataclasses.asdict(result)
+    if "new_violations" in out:
+        out["new_violations"] = sorted(out["new_violations"], key=_violation_key)
+    return out
 
 
 def load_results(path: pathlib.Path = RESULTS) -> dict:
@@ -188,12 +216,31 @@ def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = No
     return judge(dict(report, vias=routed.vias, track_mm=routed.track_mm), new, template)
 
 
+def failed(board: fetch.Board, widths: str, error: Exception, versions: dict, human: prepare.HumanCopper,
+           krt_from: pathlib.Path) -> AResult:
+    """The result of a run that raised `error`: the exception's type as the failure, its message as the detail. "krt" is
+    the router a route of `krt_from` resolves, where that can be read."""
+    try:
+        krt = _krt_version(krt_from)
+    except Exception:   # the failure is the result; an unreadable router version leaves it "unknown"
+        krt = "unknown"
+    return AResult(board.name, widths, 0.0, 0, [], [], 0, 0.0, human.vias, human.track_mm, False, 0.0,
+                   dict(versions, krt=krt), type(error).__name__, str(error))
+
+
+def said(c: Comparison) -> str:
+    """A comparison as the console lines give it."""
+    if c.status == "not comparable":
+        return "not comparable: %s differ, values %s" % (", ".join(c.differ), c.value)
+    return c.status
+
+
 def line(r: AResult, c: Comparison) -> str:
     """The console line of a result."""
-    said = {"not comparable": "not comparable: %s differ" % ", ".join(c.differ)}.get(c.status, c.status)
-    return "%-22s %-5s %s closure_clean %.1f%% open %d new DRC %d vias %d/%d track %.0f/%.0f mm %.0fs  %s" % (
+    return "%-22s %-5s %s closure_clean %.1f%% open %d new DRC %d vias %d/%d track %.0f/%.0f mm %.0fs  %s%s" % (
         r.board, r.widths, "pass" if r.passed else "FAIL", 100 * r.closure_clean, r.open, len(r.new_violations),
-        r.vias, r.human_vias, r.track_mm, r.human_track_mm, r.seconds, said)
+        r.vias, r.human_vias, r.track_mm, r.human_track_mm, r.seconds, said(c),
+        "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
 
 
 def main(argv=None) -> int:
@@ -201,7 +248,8 @@ def main(argv=None) -> int:
     ap.add_argument("names", nargs="*", help="boards (default: every test (a) board)")
     ap.add_argument("--update", action="store_true", help="write the results into results.json")
     ap.add_argument("--accept-worse", action="store_true", help="with --update: also write results that are worse than the recorded ones")
-    ap.add_argument("--changing", choices=COMPONENTS, default="placemat", help="the component under change")
+    ap.add_argument("--changing", nargs="+", choices=COMPONENTS, default=["placemat"],
+                    help="the components under change (after the board names)")
     ap.add_argument("--work", help="where boards are prepared (default: a temporary folder)")
     ap.add_argument("--results", default=str(RESULTS))
     args = ap.parse_args(argv)
@@ -211,36 +259,50 @@ def main(argv=None) -> int:
     recorded = load_results(pathlib.Path(args.results)).get("a", {})
     versions = current_versions()
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
-    results, statuses = [], []
+    results, comparisons, held = [], [], []
+
+    def save() -> None:   # after each board, so a run that stops keeps the boards it finished
+        if args.update:
+            write, held[:] = ratchet(results, comparisons, args.accept_worse)
+            save_results(pathlib.Path(args.results), write)
+
     try:
         with lock.realboard():
-            worse = _run_boards(boards, root, recorded, versions, args.changing, results, statuses)
+            worse = _run_boards(boards, root, recorded, versions, set(args.changing), results, comparisons, save)
     finally:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
-    held = []
-    if args.update:
-        write, held = ratchet(results, statuses, args.accept_worse)
-        save_results(pathlib.Path(args.results), write)
-        for r in held:
-            print("held back, worse than the recorded result: %s %s (--accept-worse writes it)" % (r.board, r.widths))
+    for r in held:
+        print("held back, worse than the recorded result: %s %s (--accept-worse writes it)" % (r.board, r.widths))
     return 1 if worse or held else 0
 
 
-def _run_boards(boards, root, recorded, versions, changing, results, statuses) -> bool:
+def _run_boards(boards, root, recorded, versions, changing, results, comparisons, save) -> bool:
+    """Test (a) on each board, at each width; a board whose preparation raises fails at every width, a route that raises
+    fails at its own. `save` is called after each board."""
     worse = False
     for board in boards:
         work = root / board.name
-        prepare.prepare(board, fetch.fetch(board), work)
-        for widths in WIDTHS:
-            if widths == "human" and not board.human_track_mm:
-                continue
-            r = run_a(board, work, track_mm=board.human_track_mm if widths == "human" else None, versions=versions)
+        runs = [w for w in WIDTHS if w == "class" or board.human_track_mm]
+        try:
+            human = prepare.prepare(board, fetch.fetch(board), work).human
+            error = None
+        except Exception as e:   # a failed result, so the other boards still run and are kept
+            human, error = prepare.HumanCopper(0, 0.0), e
+        for widths in runs:
+            if error is None:
+                try:
+                    r = run_a(board, work, track_mm=board.human_track_mm if widths == "human" else None, versions=versions)
+                except Exception as e:
+                    r = failed(board, widths, e, versions, human, work / prepare.TEST)
+            else:
+                r = failed(board, widths, error, versions, human, work / prepare.TEST)
             c = compare(recorded.get(board.name, {}).get(widths), r, changing)
             print(line(r, c), flush=True)
-            worse = worse or c.status == "worse"
+            worse = worse or lower(c)
             results.append(r)
-            statuses.append(c.status)
+            comparisons.append(c)
+        save()
     return worse
 
 

@@ -1,16 +1,17 @@
 """Test (b) of the reference set: place and route a reference board from its minimal intent script, and run our own
 module fixtures, judging closure.
 
-    .venv/bin/python fixtures/reference/place_ref.py [name ...] [--modules] [--update] [--changing placemat|krt|pcb]
+    .venv/bin/python fixtures/reference/place_ref.py [name ...] [--modules] [--update] [--changing placemat|krt|pcb ...]
 
 An open board (a manifest board with test "b") is run from a clean copy of fixtures/reference/boards/<name>/ with
 `placemat run --route --route-full`: the script is linted first and a lint failure is a failed result. The result is
 compared with results.json["b"] and carries the human board's vias and track length and test (a)'s clean closure of
 the same board. With --modules the module fixtures (every fixtures/*/modules/*/*_layout.py) are run with
 `placemat run --route` instead of the boards, and compared with results.json["modules"]: closure, then the area of the
-fitted frame. Results of runs whose placemat, router or zener versions differ in a component other than --changing are
-not compared. --update rewrites the entries of the boards or modules it ran in results.json and keeps the rest.
-A refused or failed run is a result with its failure kind, not an error of the runner.
+fitted frame. Results of runs whose placemat, router or zener versions differ in a component other than those named in
+--changing are not compared. --update rewrites the entries of the boards or modules it ran in results.json, after each
+one, and keeps the rest. A refused or failed run is a result with its failure kind, not an error of the runner; so is a
+board or module whose preparation raises, with the exception's type as its kind.
 Real boards: it takes the realboard lock (lock.py) for the whole run, so it waits for the other real-board runs.
 """
 from __future__ import annotations
@@ -70,7 +71,7 @@ class BResult:
 
 @dataclasses.dataclass(frozen=True)
 class MResult:
-    script: str             # "<family>/<module>", e.g. "mnb/SwdHeader"
+    script: str             # "<family>/<module>"
     closure_clean: float
     area_mm2: float         # the fitted frame's width x height
     run_score: float
@@ -83,7 +84,7 @@ class MResult:
 
 
 def asdict(result) -> dict:
-    return dataclasses.asdict(result)
+    return route_ref.asdict(result)
 
 
 def module_scripts(root: pathlib.Path = FIXTURES) -> dict[str, pathlib.Path]:
@@ -170,6 +171,9 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     """Test (b) of one board: lint the script in `ref_dir` (fixtures/reference/boards/<name>/), run it from a clean copy in
     `work` and judge the routed board against the human board. `prepared` is prepare.prepare's of the board, which gives the
     human copper and the baseline DRC the violations are judged against; it is made in work/human when not given.
+    The human board here is the manifest's original board, fetched and stripped as for test (a), not the board `pcb
+    layout` generates from the imported capture: prepare works on the original, and the generated board has the standard
+    library's footprints, not the human's. So ref_vias, ref_track_mm and the baseline DRC are the original board's.
     A DRC error counts as new unless the stripped human board has one of its type and nets where it is, so the violations of
     the fixed parts' own places are not counted. The runner does not take the lock; main does."""
     work = pathlib.Path(work)
@@ -249,45 +253,55 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
                    versions, inputs_digest=digest, placement=placement)
 
 
-def _differ(old: dict, new, changing: str) -> list[str]:
+def _differ(old: dict, new, changing: set[str]) -> list[str]:
     """What differs between two runs other than what is under change: component versions, and "inputs" when the capture's
-    digest differs (a changed capture re-baselines, it is not a regression)."""
+    digest differs (a changed capture re-baselines, it is not a regression). A run that failed before its digest was read
+    has none and is not called "inputs"."""
     differ = route_ref.comparable(old.get("versions", {}), new.versions, changing)
-    return differ + (["inputs"] if old.get("inputs_digest", "") != new.inputs_digest else [])
+    return differ + (["inputs"] if new.inputs_digest and old.get("inputs_digest", "") != new.inputs_digest else [])
 
 
 def _worse_closure(old: dict, new) -> bool:
     return bool(new.failure) and not old.get("failure") or new.closure_clean < old["closure_clean"]
 
 
-def compare_b(old: dict | None, new: BResult, changing: str) -> route_ref.Comparison:
-    """An open board's result against the recorded one: worse is a lower clean closure or a lint failure."""
+def _compared(old: dict | None, new, changing: set[str], value) -> route_ref.Comparison:
     if old is None:
         return route_ref.Comparison("new", [])
     differ = _differ(old, new, changing)
     if differ:
-        return route_ref.Comparison("not comparable", differ)
+        return route_ref.Comparison("not comparable", differ, value(old, new))
+    return route_ref.Comparison(value(old, new), [])
+
+
+def b_by_value(old: dict, new: BResult) -> str:
+    """same, better or worse on the values alone: worse is a lower clean closure or a failure the recorded run had not."""
     if _worse_closure(old, new):
-        return route_ref.Comparison("worse", [])
+        return "worse"
     if new.closure_clean > old["closure_clean"] or (old.get("failure") and not new.failure):
-        return route_ref.Comparison("better", [])
-    return route_ref.Comparison("same", [])
+        return "better"
+    return "same"
 
 
-def compare_module(old: dict | None, new: MResult, changing: str) -> route_ref.Comparison:
-    """A module's result against the recorded one: worse is a lower clean closure, or at equal closure a larger area."""
-    if old is None:
-        return route_ref.Comparison("new", [])
-    differ = _differ(old, new, changing)
-    if differ:
-        return route_ref.Comparison("not comparable", differ)
+def module_by_value(old: dict, new: MResult) -> str:
+    """same, better or worse on the values alone: worse is a lower clean closure, or at equal closure a larger area."""
     if _worse_closure(old, new):
-        return route_ref.Comparison("worse", [])
+        return "worse"
     if new.closure_clean > old["closure_clean"]:
-        return route_ref.Comparison("better", [])
+        return "better"
     if new.area_mm2 > old["area_mm2"]:
-        return route_ref.Comparison("worse", [])
-    return route_ref.Comparison("better" if new.area_mm2 < old["area_mm2"] else "same", [])
+        return "worse"
+    return "better" if new.area_mm2 < old["area_mm2"] else "same"
+
+
+def compare_b(old: dict | None, new: BResult, changing: set[str]) -> route_ref.Comparison:
+    """An open board's result against the recorded one: new, same, better, worse, or not comparable."""
+    return _compared(old, new, changing, b_by_value)
+
+
+def compare_module(old: dict | None, new: MResult, changing: set[str]) -> route_ref.Comparison:
+    """A module's result against the recorded one: new, same, better, worse, or not comparable."""
+    return _compared(old, new, changing, module_by_value)
 
 
 def save_results(path: pathlib.Path, boards: list[BResult] = (), modules: list[MResult] = ()) -> None:
@@ -300,22 +314,18 @@ def save_results(path: pathlib.Path, boards: list[BResult] = (), modules: list[M
     pathlib.Path(path).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
-def _said(c: route_ref.Comparison) -> str:
-    return "not comparable: %s differ" % ", ".join(c.differ) if c.status == "not comparable" else c.status
-
-
 def line_b(r: BResult, c: route_ref.Comparison) -> str:
     a = "n/a" if r.a_closure_clean is None else "%.1f%%" % (100 * r.a_closure_clean)
     head = "%-22s b     closure_clean %.1f%% (a %s) open %d new DRC %d vias %d/%d track %.0f/%.0f mm score %.1f %.0fs" % (
         r.board, 100 * r.closure_clean, a, r.open, len(r.new_violations), r.vias, r.ref_vias, r.track_mm, r.ref_track_mm,
         r.run_score, r.seconds)
-    return "%s  %s%s" % (head, _said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
+    return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
 
 
 def line_module(r: MResult, c: route_ref.Comparison) -> str:
     head = "%-28s closure_clean %.1f%% area %.1f mm2 score %.1f %.0fs" % (
         r.script, 100 * r.closure_clean, r.area_mm2, r.run_score, r.seconds)
-    return "%s  %s%s" % (head, _said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
+    return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
 
 
 def main(argv=None) -> int:
@@ -325,14 +335,23 @@ def main(argv=None) -> int:
     ap.add_argument("--modules", action="store_true", help="run the module fixtures instead of the boards")
     ap.add_argument("--update", action="store_true", help="write the results into results.json")
     ap.add_argument("--accept-worse", action="store_true", help="with --update: also write results that are worse than the recorded ones")
-    ap.add_argument("--changing", choices=route_ref.COMPONENTS, default="placemat", help="the component under change")
+    ap.add_argument("--changing", nargs="+", choices=route_ref.COMPONENTS, default=["placemat"],
+                    help="the components under change (after the names)")
     ap.add_argument("--work", help="where runs are made (default: a temporary folder)")
     ap.add_argument("--results", default=str(RESULTS))
     args = ap.parse_args(argv)
     recorded = route_ref.load_results(pathlib.Path(args.results))
     versions = route_ref.current_versions()
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
-    boards, modules, statuses, worse = [], [], [], False
+    boards, modules, comparisons, held, worse = [], [], [], [], False
+    changing = set(args.changing)
+
+    def save() -> None:   # after each board or module, so a run that stops keeps the ones it finished
+        if args.update:
+            write, held[:] = route_ref.ratchet(boards + modules, comparisons, args.accept_worse)
+            save_results(pathlib.Path(args.results), [r for r in write if isinstance(r, BResult)],
+                         [r for r in write if isinstance(r, MResult)])
+
     try:
         if args.modules:
             found = module_scripts()
@@ -340,52 +359,75 @@ def main(argv=None) -> int:
             if args.names and not chosen:
                 ap.error("no module among: %s" % ", ".join(args.names))
             with lock.realboard():
-                worse = _run_modules(chosen, root, recorded.get("modules", {}), versions, args.changing, modules, statuses)
+                worse = _run_modules(chosen, root, recorded.get("modules", {}), versions, changing, modules, comparisons, save)
         else:
             chosen = [b for b in fetch.load_manifest() if "b" in b.tests and (not args.names or b.name in args.names)]
             if args.names and len(chosen) != len(args.names):
                 ap.error("no test (b) board among: %s" % ", ".join(sorted(set(args.names) - {b.name for b in chosen})))
             with lock.realboard():
-                worse = _run_boards(chosen, root, recorded, versions, args.changing, boards, statuses)
+                worse = _run_boards(chosen, root, recorded, versions, changing, boards, comparisons, save)
     finally:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
-    held = []
-    if args.update:
-        done = boards + modules
-        write, held = route_ref.ratchet(done, statuses, args.accept_worse)
-        save_results(pathlib.Path(args.results), [r for r in write if isinstance(r, BResult)],
-                     [r for r in write if isinstance(r, MResult)])
-        for r in held:
-            print("held back, worse than the recorded result: %s (--accept-worse writes it)" % (getattr(r, "board", None) or r.script))
+    for r in held:
+        print("held back, worse than the recorded result: %s (--accept-worse writes it)" % (getattr(r, "board", None) or r.script))
     return 1 if worse or held else 0
 
 
-def _run_boards(boards, root, recorded, versions, changing, results, statuses) -> bool:
+def _failed_versions(versions: dict, folder: pathlib.Path) -> dict:
+    """`versions` with the router a route of `folder` resolves, "unknown" where that cannot be read."""
+    try:
+        krt = krt_version(folder)
+    except Exception:   # the failure is the result; an unreadable router version does not hide it
+        krt = "unknown"
+    return dict(versions, krt=krt)
+
+
+def _failed_digest(script_of) -> str:
+    """generation_inputs of the script `script_of()` gives, "" where it cannot be read: a failed run's digest."""
+    try:
+        return generation_inputs(script_of())
+    except Exception:   # what raised is the failure recorded
+        return ""
+
+
+def _run_boards(boards, root, recorded, versions, changing, results, comparisons, save) -> bool:
+    """Test (b) on each board; a board whose preparation or run raises is a failed result. `save` is called after each."""
     worse = False
     for board in boards:
         work = root / board.name
-        a = recorded.get("a", {}).get(board.name, {}).get("class", {})
-        prepared = prepare.prepare(board, fetch.fetch(board), work / "human")
-        r = run_b(board, lint.BOARDS_DIR / board.name, work, prepared=prepared, versions=versions,
-                  a_closure_clean=a.get("closure_clean"))
+        ref_dir = lint.BOARDS_DIR / board.name
+        a = recorded.get("a", {}).get(board.name, {}).get("class", {}).get("closure_clean")
+        try:
+            prepared = prepare.prepare(board, fetch.fetch(board), work / "human")
+            r = run_b(board, ref_dir, work, prepared=prepared, versions=versions, a_closure_clean=a)
+        except Exception as e:   # a failed result, so the other boards still run and are kept
+            r = BResult(board.name, NOT_RUN, 0, [], 0, 0.0, 0.0, 0, 0.0, a, 0.0, _failed_versions(versions, ref_dir),
+                        type(e).__name__, str(e), _failed_digest(lambda: lint.find_script(board.name, ref_dir.parent)))
         c = compare_b(recorded.get("b", {}).get(board.name), r, changing)
         print(line_b(r, c), flush=True)
-        worse = worse or c.status == "worse"
+        worse = worse or route_ref.lower(c)
         results.append(r)
-        statuses.append(c.status)
+        comparisons.append(c)
+        save()
     return worse
 
 
-def _run_modules(chosen, root, recorded, versions, changing, results, statuses) -> bool:
+def _run_modules(chosen, root, recorded, versions, changing, results, comparisons, save) -> bool:
+    """Each module fixture; a module whose copy or run raises is a failed result. `save` is called after each."""
     worse = False
     for name, script in chosen.items():
-        r = run_module(name, script, root / name.replace("/", "_"), versions=versions)
+        try:
+            r = run_module(name, script, root / name.replace("/", "_"), versions=versions)
+        except Exception as e:   # a failed result, so the other modules still run and are kept
+            r = MResult(name, NOT_RUN, 0.0, 0.0, 0.0, _failed_versions(versions, pathlib.Path(script).parent),
+                        type(e).__name__, str(e), _failed_digest(lambda: script))
         c = compare_module(recorded.get(name), r, changing)
         print(line_module(r, c), flush=True)
-        worse = worse or c.status == "worse"
+        worse = worse or route_ref.lower(c)
         results.append(r)
-        statuses.append(c.status)
+        comparisons.append(c)
+        save()
     return worse
 
 
