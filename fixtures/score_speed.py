@@ -13,7 +13,6 @@ import hashlib
 import importlib
 import json
 import pathlib
-import os
 import shutil
 import statistics
 import subprocess
@@ -57,8 +56,10 @@ def git_identity(path):
 
 
 def runtime_identity(paths, native_path):
+    from placemat.kicad.route import router_dir
+    from placemat.settings import Settings
     root = pathlib.Path(__file__).resolve().parents[1]
-    krt = pathlib.Path(os.environ.get('KRT_DIR', '/home/ben/work/KiCadRoutingTools'))
+    krt = pathlib.Path(router_dir(Settings()))
     pcb = shutil.which('pcb')
     kicad = shutil.which('kicad-cli')
     binaries = [native_path] + [pathlib.Path(p).resolve() for p in (pcb, kicad) if p]
@@ -68,7 +69,7 @@ def runtime_identity(paths, native_path):
     sources = list((root / 'src' / 'placemat').rglob('*.py')) + list((root / 'native' / 'src').rglob('*.rs'))
     sources.extend(p for p in krt.rglob('*.py') if 'tests' not in p.parts and '__pycache__' not in p.parts)
     sources.extend([root / 'native' / 'Cargo.toml', root / 'native' / 'Cargo.lock', pathlib.Path(__file__),
-                    root / 'fixtures' / 'bench.py'])
+                    root / 'native' / 'build.rs', root / 'pyproject.toml', root / 'fixtures' / 'bench.py'])
     return {'placemat': git_identity(root), 'krt': git_identity(krt),
             'pcb': git_identity(pathlib.Path(pcb).resolve().parent) if pcb else None,
             'binaries': identity(binaries), 'sources': identity(sources), 'inputs': identity(paths),
