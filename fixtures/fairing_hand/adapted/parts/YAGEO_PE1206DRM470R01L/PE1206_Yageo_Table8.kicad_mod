@@ -1,0 +1,15 @@
+(footprint "PE1206_Yageo_Table8"
+	(version 20240108)
+	(generator "fairing-instrument")
+	(layer "F.Cu")
+	(descr "Yageo PE1206 current sensor, recommended land: PE series Product Specification V.13 (2024-08-07) Fig. 19 / Table 8: A 3.9, B 0.76, C 1.57, D 1.78 mm")
+	(attr smd)
+	(fp_text reference "REF**" (at 0 -2) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))
+	(fp_text value "PE1206DRM470R01L" (at 0 2) (layer "F.Fab") (effects (font (size 1 1) (thickness 0.15))))
+	(fp_rect (start -1.6 -0.8) (end 1.6 0.8) (stroke (width 0.05) (type solid)) (fill none) (layer "F.Fab"))
+	(fp_rect (start -2.050 -0.990) (end 2.050 0.990) (stroke (width 0.05) (type solid)) (fill none) (layer "F.CrtYd"))
+	(pad "1" smd rect (at -1.165 0) (size 1.57 1.78) (layers "F.Cu" "F.Paste" "F.Mask"))
+	(pad "2" smd rect (at 1.165 0) (size 1.57 1.78) (layers "F.Cu" "F.Paste" "F.Mask"))
+	(model "${KIPRJMOD}/../../../parts/YAGEO_PE1206DRM470R01L/R1206_L3.2-W1.6-H0.6.step"
+		(offset (xyz 0 0 0)) (scale (xyz 1 1 1)) (rotate (xyz 0 0 0)))
+)

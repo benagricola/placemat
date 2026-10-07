@@ -1,0 +1,43 @@
+# Backlight: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+# Layout facts (placemat-design Pm.*): roles, hot loops, aggressors, sensitive nets,
+# full-load currents and dissipation, worked in
+# ../../../../docs/decisions/schematics/power-stage-facts-2026-09-27.md.
+
+BLDRV = Module("../../adapted/parts/PowTech_CR_PowTech_Shanghai_PT4115B89E.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+D = Module("../../adapted/parts/MDD_Microdiode_Semiconductor_B5819W.zen")
+L_BL = Module("../../adapted/parts/Sunlord_SWPA4030S331MT.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+
+bl_ledk = io("BL_LEDK", Net)
+bl_pwm = io("BL_PWM", Net)
+gnd = io("GND", Net)
+shunt = io("VSHUNT", Net)
+vled = io("VLED", Net)
+
+sw_bl = Net("SW_BL")
+
+BLDRV(name = "bl", VIN = shunt, GND = gnd, SW = sw_bl, CSN = vled, DIM = bl_pwm,
+      annotations = {"Pm.Role": "switcher", "Pm.Loop": "buck", "Pm.Aggressor": "true", "Pm.I": "0.04A"})
+R(name = "r_bl_dim", value = "4.7kohm", package = "0402", P1 = bl_pwm, P2 = gnd)
+R(name = "r_bl_sense", value = "2.55ohm", package = "0603", P1 = shunt, P2 = vled,
+  annotations = {"Pm.Role": "sense", "Pm.I": "0.04A"})
+L_BL(name = "l_bl", P_1 = bl_ledk, P_2 = sw_bl,
+     annotations = {"Pm.Role": "inductor", "Pm.Aggressor": "true", "Pm.I": "0.04A"})
+D(name = "d_bl", A = sw_bl, K = shunt,
+  annotations = {"Pm.Loop": "buck", "Pm.Aggressor": "true", "Pm.I": "0.04A"})
+C(name = "c_bl_in", value = "10uF", package = "0805", voltage = "50V", mpn = "GRM21BR61H106KE43L", manufacturer = "Murata Electronics", P1 = shunt, P2 = gnd,
+  annotations = {"LCSC": "C440198", "Pm.Role": "bypass", "Pm.Loop": "buck"})
+# Optional standalone stamp; Core places this same circuit as a driver block
+# and separate coil/diode to use available space between neighbouring circuits.
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+
+# A Board() rather than a Layout(), so the fragment is laid out by the core's
+# design rules (board_rules.zen). Its project registers only when this file
+# is built on its own.
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "Backlight", layout_path = "layout", layers = LAYERS, config = CONFIG)
+
+Project(name = "Backlight", path = "kicad", schematic = True, layout = False)

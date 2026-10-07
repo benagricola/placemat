@@ -1,0 +1,24 @@
+# CSD15380F3: imported native symbol and footprint.
+
+D = io("D", Net, optional = True)
+G = io("G", Net, optional = True)
+S = io("S", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C529568", "MPN": "CSD15380F3"}
+_properties.update(annotations)
+
+Component(
+    name = "Texas_Instruments_CSD15380F3",
+    footprint = File("../../parts/Texas_Instruments_CSD15380F3/PICOSTAR-3_L0.7-W0.6-P0.35-TL.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_CSD15380F3/CSD15380F3.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "CSD15380F3", manufacturer = "Texas Instruments"),
+    properties = _properties,
+    pins = {
+        "D": D,
+        "G": G,
+        "S": S,
+    },
+)

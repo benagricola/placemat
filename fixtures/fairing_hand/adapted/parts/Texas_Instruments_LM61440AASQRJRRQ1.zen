@@ -1,0 +1,47 @@
+# Texas_Instruments_LM61440AASQRJRRQ1 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-LM61440AASQRJRRQ1_C3038666.pdf
+
+BIAS = io("BIAS", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+AGND = io("AGND", Net, optional = True)
+FB = io("FB", Net, optional = True)
+PGOOD = io("PGOOD", Net, optional = True)
+RT = io("RT", Net, optional = True)
+EN_SYNC = io("EN_SYNC", Net, optional = True)
+VIN1 = io("VIN1", Net, optional = True)
+PGND1 = io("PGND1", Net, optional = True)
+SW = io("SW", Net, optional = True)
+PGND2 = io("PGND2", Net, optional = True)
+VIN2 = io("VIN2", Net, optional = True)
+RBOOT = io("RBOOT", Net, optional = True)
+CBOOT = io("CBOOT", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C3038666", "MPN": "LM61440AASQRJRRQ1"}
+_properties.update(annotations)
+
+Component(
+    name = "Texas_Instruments_LM61440AASQRJRRQ1",
+    footprint = File("../../parts/Texas_Instruments_LM61440AASQRJRRQ1/VQFN-14_L4.0-W3.5-P0.5-BL-RJR0014A.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_LM61440AASQRJRRQ1/LM61440AASQRJRRQ1.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LM61440AASQRJRRQ1", manufacturer = "Texas Instruments"),
+    properties = _properties,
+    pins = {
+        "BIAS": BIAS,
+        "VCC": VCC,
+        "AGND": AGND,
+        "FB": FB,
+        "PGOOD": PGOOD,
+        "RT": RT,
+        "EN/SYNC": EN_SYNC,
+        "VIN1": VIN1,
+        "PGND1": PGND1,
+        "SW": SW,
+        "PGND2": PGND2,
+        "VIN2": VIN2,
+        "RBOOT": RBOOT,
+        "CBOOT": CBOOT,
+    },
+)

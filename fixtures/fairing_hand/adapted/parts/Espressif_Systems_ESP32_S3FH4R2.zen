@@ -1,0 +1,129 @@
+# Espressif_Systems_ESP32_S3FH4R2 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Espressif_Systems-ESP32_S3FH4R2_C3013940.pdf
+
+LNA_IN = io("LNA_IN", Net, optional = True)
+VDD3P3 = io("VDD3P3", Net, optional = True)
+CHIP_PU = io("CHIP_PU", Net, optional = True)
+GPIO0 = io("GPIO0", Net, optional = True)
+GPIO1 = io("GPIO1", Net, optional = True)
+GPIO2 = io("GPIO2", Net, optional = True)
+GPIO3 = io("GPIO3", Net, optional = True)
+GPIO4 = io("GPIO4", Net, optional = True)
+GPIO5 = io("GPIO5", Net, optional = True)
+GPIO6 = io("GPIO6", Net, optional = True)
+GPIO7 = io("GPIO7", Net, optional = True)
+GPIO8 = io("GPIO8", Net, optional = True)
+GPIO9 = io("GPIO9", Net, optional = True)
+GPIO10 = io("GPIO10", Net, optional = True)
+GPIO11 = io("GPIO11", Net, optional = True)
+GPIO12 = io("GPIO12", Net, optional = True)
+GPIO13 = io("GPIO13", Net, optional = True)
+GPIO14 = io("GPIO14", Net, optional = True)
+VDD3P3_RTC = io("VDD3P3_RTC", Net, optional = True)
+XTAL_32K_P = io("XTAL_32K_P", Net, optional = True)
+XTAL_32K_N = io("XTAL_32K_N", Net, optional = True)
+GPIO17 = io("GPIO17", Net, optional = True)
+GPIO18 = io("GPIO18", Net, optional = True)
+GPIO19 = io("GPIO19", Net, optional = True)
+GPIO20 = io("GPIO20", Net, optional = True)
+GPIO21 = io("GPIO21", Net, optional = True)
+SPICS1 = io("SPICS1", Net, optional = True)
+VDD_SPI = io("VDD_SPI", Net, optional = True)
+SPIHD = io("SPIHD", Net, optional = True)
+SPIWP = io("SPIWP", Net, optional = True)
+SPICS0 = io("SPICS0", Net, optional = True)
+SPICLK = io("SPICLK", Net, optional = True)
+SPIQ = io("SPIQ", Net, optional = True)
+SPID = io("SPID", Net, optional = True)
+SPICLK_N = io("SPICLK_N", Net, optional = True)
+SPICLK_P = io("SPICLK_P", Net, optional = True)
+GPIO33 = io("GPIO33", Net, optional = True)
+GPIO34 = io("GPIO34", Net, optional = True)
+GPIO35 = io("GPIO35", Net, optional = True)
+GPIO36 = io("GPIO36", Net, optional = True)
+GPIO37 = io("GPIO37", Net, optional = True)
+GPIO38 = io("GPIO38", Net, optional = True)
+MTCK = io("MTCK", Net, optional = True)
+MTDO = io("MTDO", Net, optional = True)
+VDD3P3_CPU = io("VDD3P3_CPU", Net, optional = True)
+MTDI = io("MTDI", Net, optional = True)
+MTMS = io("MTMS", Net, optional = True)
+U0TXD = io("U0TXD", Net, optional = True)
+U0RXD = io("U0RXD", Net, optional = True)
+GPIO45 = io("GPIO45", Net, optional = True)
+GPIO46 = io("GPIO46", Net, optional = True)
+XTAL_N = io("XTAL_N", Net, optional = True)
+XTAL_P = io("XTAL_P", Net, optional = True)
+VDDA = io("VDDA", Net, optional = True)
+GND = io("GND", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C3013940", "MPN": "ESP32-S3FH4R2"}
+_properties.update(annotations)
+
+Component(
+    name = "Espressif_Systems_ESP32_S3FH4R2",
+    footprint = File("../../parts/Espressif_Systems_ESP32_S3FH4R2/QFN-56_L7.0-W7.0-P0.40-BL-EP5.7.kicad_mod"),
+    symbol = Symbol("Espressif_Systems_ESP32_S3FH4R2/ESP32_S3FH4R2.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "ESP32-S3FH4R2", manufacturer = "Espressif Systems"),
+    properties = _properties,
+    pins = {
+        "LNA_IN": LNA_IN,
+        "VDD3P3": VDD3P3,
+        "CHIP_PU": CHIP_PU,
+        "GPIO0": GPIO0,
+        "GPIO1": GPIO1,
+        "GPIO2": GPIO2,
+        "GPIO3": GPIO3,
+        "GPIO4": GPIO4,
+        "GPIO5": GPIO5,
+        "GPIO6": GPIO6,
+        "GPIO7": GPIO7,
+        "GPIO8": GPIO8,
+        "GPIO9": GPIO9,
+        "GPIO10": GPIO10,
+        "GPIO11": GPIO11,
+        "GPIO12": GPIO12,
+        "GPIO13": GPIO13,
+        "GPIO14": GPIO14,
+        "VDD3P3_RTC": VDD3P3_RTC,
+        "XTAL_32K_P": XTAL_32K_P,
+        "XTAL_32K_N": XTAL_32K_N,
+        "GPIO17": GPIO17,
+        "GPIO18": GPIO18,
+        "GPIO19": GPIO19,
+        "GPIO20": GPIO20,
+        "GPIO21": GPIO21,
+        "SPICS1": SPICS1,
+        "VDD_SPI": VDD_SPI,
+        "SPIHD": SPIHD,
+        "SPIWP": SPIWP,
+        "SPICS0": SPICS0,
+        "SPICLK": SPICLK,
+        "SPIQ": SPIQ,
+        "SPID": SPID,
+        "SPICLK_N": SPICLK_N,
+        "SPICLK_P": SPICLK_P,
+        "GPIO33": GPIO33,
+        "GPIO34": GPIO34,
+        "GPIO35": GPIO35,
+        "GPIO36": GPIO36,
+        "GPIO37": GPIO37,
+        "GPIO38": GPIO38,
+        "MTCK": MTCK,
+        "MTDO": MTDO,
+        "VDD3P3_CPU": VDD3P3_CPU,
+        "MTDI": MTDI,
+        "MTMS": MTMS,
+        "U0TXD": U0TXD,
+        "U0RXD": U0RXD,
+        "GPIO45": GPIO45,
+        "GPIO46": GPIO46,
+        "XTAL_N": XTAL_N,
+        "XTAL_P": XTAL_P,
+        "VDDA": VDDA,
+        "GND": GND,
+    },
+)

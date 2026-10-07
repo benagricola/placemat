@@ -1,0 +1,7 @@
+(version 1)
+(rule "the 0201 RF_50 shunt's own lands"
+  (condition "(A.NetName == 'RF_50' && B.NetName == 'GND') || (A.NetName == 'GND' && B.NetName == 'RF_50')")
+  (constraint clearance (min 0.18mm)))
+(rule "the 0201 match inductor's own lands"
+  (condition "(A.NetName == 'RF_CHIP' && B.NetName == 'RF_50') || (A.NetName == 'RF_50' && B.NetName == 'RF_CHIP')")
+  (constraint clearance (min 0.18mm)))

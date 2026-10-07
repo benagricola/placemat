@@ -1,0 +1,8 @@
+[workspace]
+name = "fairing-instrument-modular"
+pcb-version = "0.4"
+
+# Toolchain: pcbc 0.4.52, symlinked as ~/.local/bin/pcb. The stdlib ships INSIDE
+# that checkout (lib/std) and is discovered next to the binary, so no stdlib
+# dependency is declared here. Pin the binary and re-verify syntax when it
+# moves: pcb is pre-1.0 and releases weekly.

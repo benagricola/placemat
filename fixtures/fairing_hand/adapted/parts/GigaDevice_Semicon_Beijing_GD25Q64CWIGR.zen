@@ -1,0 +1,37 @@
+# GigaDevice_Semicon_Beijing_GD25Q64CWIGR - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: GigaDevice_Semicon_Beijing-GD25Q64CWIGR_C395511.pdf
+
+CS = io("CS", Net, optional = True)
+SO_IO1 = io("SO_IO1", Net, optional = True)
+WP_IO2 = io("WP_IO2", Net, optional = True)
+VSS = io("VSS", Net, optional = True)
+SI_IO0 = io("SI_IO0", Net, optional = True)
+SCLK = io("SCLK", Net, optional = True)
+HOLD_IO3 = io("HOLD_IO3", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+EP = io("EP", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C395511", "MPN": "GD25Q64CWIGR"}
+_properties.update(annotations)
+
+Component(
+    name = "GigaDevice_Semicon_Beijing_GD25Q64CWIGR",
+    footprint = File("../../parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR/WSON-8_L6.0-W5.0-P1.27-BL-EP.kicad_mod"),
+    symbol = Symbol("GigaDevice_Semicon_Beijing_GD25Q64CWIGR/GD25Q64CWIGR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "GD25Q64CWIGR", manufacturer = "GigaDevice Semicon Beijing"),
+    properties = _properties,
+    pins = {
+        "~{CS}": CS,
+        "SO(IO1)": SO_IO1,
+        "WP#(IO2)": WP_IO2,
+        "VSS": VSS,
+        "SI(IO0)": SI_IO0,
+        "SCLK": SCLK,
+        "HOLD#(IO3)": HOLD_IO3,
+        "VCC": VCC,
+        "EP": EP,
+    },
+)

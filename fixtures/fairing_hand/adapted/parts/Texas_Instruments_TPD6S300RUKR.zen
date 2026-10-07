@@ -1,0 +1,54 @@
+# TPD6S300RUKR: imported native symbol and footprint.
+
+C_SBU1 = io("C_SBU1", Net, optional = True)
+C_SBU2 = io("C_SBU2", Net, optional = True)
+VBIAS = io("VBIAS", Net, optional = True)
+C_CC1 = io("C_CC1", Net, optional = True)
+C_CC2 = io("C_CC2", Net, optional = True)
+RPD_G2 = io("RPD_G2", Net, optional = True)
+RPD_G1 = io("RPD_G1", Net, optional = True)
+GND = io("GND", Net, optional = True)
+FLT = io("FLT", Net, optional = True)
+VPWR = io("VPWR", Net, optional = True)
+CC2 = io("CC2", Net, optional = True)
+CC1 = io("CC1", Net, optional = True)
+SBU2 = io("SBU2", Net, optional = True)
+SBU1 = io("SBU1", Net, optional = True)
+N_C = io("N_C", Net, optional = True)
+D2 = io("D2", Net, optional = True)
+D1 = io("D1", Net, optional = True)
+EP = io("EP", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C2649810", "MPN": "TPD6S300RUKR"}
+_properties.update(annotations)
+
+Component(
+    name = "Texas_Instruments_TPD6S300RUKR",
+    footprint = File("../../parts/Texas_Instruments_TPD6S300RUKR/WQFN-20_L3.0-W3.0-P0.40-BL-EP1.7.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TPD6S300RUKR/TPD6S300RUKR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TPD6S300RUKR", manufacturer = "Texas Instruments"),
+    properties = _properties,
+    pins = {
+        "C_SBU1": C_SBU1,
+        "C_SBU2": C_SBU2,
+        "VBIAS": VBIAS,
+        "C_CC1": C_CC1,
+        "C_CC2": C_CC2,
+        "RPD_G2": RPD_G2,
+        "RPD_G1": RPD_G1,
+        "GND": GND,
+        "~{FLT}": FLT,
+        "VPWR": VPWR,
+        "CC2": CC2,
+        "CC1": CC1,
+        "SBU2": SBU2,
+        "SBU1": SBU1,
+        "N.C.": N_C,
+        "D2": D2,
+        "D1": D1,
+        "EP": EP,
+    },
+)

@@ -1,0 +1,51 @@
+# UsbSink: the 5 V PC input - the TPS259470L from VBUS to the protected
+# rail with its setting parts and bypasses - stamped as the cell
+# `usbpd.sink`. It starts itself: with the core off the RT1715 shows Rd, a
+# PC supplies 5 V, and EN/UVLO rises past its 1.20 V threshold through a
+# divider from VBUS (TPS259470 datasheet 7.5, VUVLO(R) 1.183-1.223 V):
+# 1.20 x (1 + 220k/100k) = 3.84 V. A 5.1 V Zener holds EN/UVLO inside its 5 V
+# operating range (7.3) when the port sources up to 21 V; the 6 V OVLO
+# divider turns the switch off above a PC's 5 V. Its reverse-current block
+# keeps the rail off VBUS when VBUS is below it.
+# Layout facts (placemat-design Pm.*): roles, hot loops, aggressors, sensitive nets,
+# full-load currents and dissipation, worked in
+# ../../../../docs/decisions/schematics/power-stage-facts-2026-09-27.md.
+EFUSE = Module("../../adapted/parts/Texas_Instruments_TPS259470LRPWR.zen")
+ZENER = Module("../../adapted/parts/onsemi_MM3Z5V1ST1G.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+gnd = io("GND", Net)
+vbus = io("VBUS", Net)
+vsys = io("VSHUNT", Net)
+sink = Net("SINK_EN")
+sink_limit = Net("SINK_LIMIT")
+sink_ov = Net("SINK_OVLO")
+sink_slew = Net("SINK_SLEW")
+# Only a 5 V PC contract is accepted. A nominal 6 V independent OVLO
+# prevents a higher USB voltage reaching the device through this path.
+EFUSE(name = "sink_switch", IN = vbus, OUT = vsys, GND = gnd,
+      EN_UVLO = sink, OVLO_OVCSEL = sink_ov, ILM = sink_limit, DVDT = sink_slew,
+      ITIMER = NotConnected(), PG_AUXOFF = NotConnected(), FLT_PGTH = NotConnected(),
+      annotations = {"Pm.I": "VBUS:0.5A VSHUNT:0.5A", "Pm.Pd": "0.01W", "Pm.ThetaJb": "20C/W", "Pm.TjMax": "125C"})
+R(name = "r_sink_en_top", mpn = "0402WGF2203TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", value = "220kohm", package = "0402", P1 = vbus, P2 = sink,
+  annotations = {"LCSC": "C25767"})
+R(name = "r_sink_en", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = sink, P2 = gnd)
+ZENER(name = "d_sink_en", K = sink, A = gnd)
+# 1.20 V x (1 + 402k / 100k) = 6.02 V OVLO; 400 kOhm is not stocked:
+# ../../../../docs/decisions/schematics/generic-pin-drift-2026-10-01.md.
+R(name = "r_sink_ov_top", mpn = "0402WGF4023TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", value = "402kohm", package = "0402", P1 = vbus, P2 = sink_ov,
+  annotations = {"LCSC": "C25785"})
+R(name = "r_sink_ov_bottom", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = sink_ov, P2 = gnd)
+# 0.5 A nominal fault limit (+/-15%). Firmware must enforce the actual
+# USB advertised/enumerated current budget; this resistor is not that budget.
+R(name = "r_sink_limit", mpn = "ERJ-2RKF6651X", manufacturer = "Panasonic Industry", value = "6.65kohm", package = "0402", P1 = sink_limit, P2 = gnd)
+C(name = "c_sink_slew", value = "10nF", package = "0402", voltage = "50V", mpn = "CL05B103KB5NNNC", manufacturer = "Samsung Electro-Mechanics", annotations = {"LCSC": "C15195"}, P1 = sink_slew, P2 = gnd)
+C(name = "c_sink_in", value = "100nF", package = "0402", voltage = "50V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = vbus, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+C(name = "c_sink_out", value = "2.2uF", package = "0805", voltage = "50V", mpn = "CL21A225KBQNNNE", manufacturer = "Samsung Electro-Mechanics", P1 = vsys, P2 = gnd,
+  annotations = {"LCSC": "C377773", "Pm.Role": "output"})
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "UsbSink", layout_path = "layout", layers = LAYERS, config = CONFIG)
+Project(name = "UsbSink", path = "kicad", schematic = True, layout = False)

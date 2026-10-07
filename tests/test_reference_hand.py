@@ -1,11 +1,35 @@
 """Hand reference facts accompany module results without changing the placement ratchet."""
 import dataclasses
 import json
+import hashlib
+import pathlib
+import tomllib
 
 from fixtures.reference import hand, place_ref, prepare, route_ref
 from tests.conftest import needs_kicad
 
 VERSIONS = {'placemat': '0', 'krt': '0', 'pcb': '0'}
+
+
+def test_historical_hand_fixture_integrity_and_protocol_provenance():
+    family = pathlib.Path(__file__).resolve().parents[1] / 'fixtures' / 'fairing_hand'
+    manifest = json.loads((family / 'source-provenance.json').read_text())
+    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    assert manifest['route_omitted_for_prephase_baseline'] is True
+    assert manifest['checked_in_route_phase_names'] == ['signals']
+    assert tomllib.loads((family / 'placemat.toml').read_text())['route']['phase'] == [{'name': 'signals'}]
+    assert len(manifest['modules']) == 11
+    for module in manifest['modules']:
+        assert digest(family / 'hand' / (module['name'] + '.kicad_pcb')) == module['hand_sha256']
+        assert digest(family / 'hand' / (module['name'] + '.kicad_pro')) == module['project_sha256']
+        if module.get('hand_rules_sha256'):
+            assert digest(family / 'hand' / (module['name'] + '.kicad_dru')) == module['hand_rules_sha256']
+        folder = family / 'modules' / module['module']
+        assert digest(folder / 'fragment_frame.py') == module['helper_sha256']
+        assert digest(folder / (module['name'] + '_layout.py')) == module['checked_in_script_sha256']
+        for record in module['staged_dependencies'].values():
+            assert digest(family / record['staged_file']) == record['staged_sha256']
+    assert not list((family / 'modules').rglob('*.kicad_pcb'))
 
 
 def test_hand_reference_is_found_beside_family(tmp_path):

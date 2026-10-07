@@ -1,0 +1,23 @@
+# Hubei_KENTO_Elec_KT_0603YG - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Hubei_KENTO_Elec-KT_0603YG_C2289.pdf
+
+K = io("K", Net, optional = True)
+A = io("A", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C2289", "MPN": "KT-0603YG"}
+_properties.update(annotations)
+
+Component(
+    name = "Hubei_KENTO_Elec_KT_0603YG",
+    footprint = File("../../parts/Hubei_KENTO_Elec_KT_0603YG/LED0603-RD.kicad_mod"),
+    symbol = Symbol("Hubei_KENTO_Elec_KT_0603YG/KT_0603YG.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "KT-0603YG", manufacturer = "Hubei KENTO Elec"),
+    properties = _properties,
+    pins = {
+        "K": K,
+        "A": A,
+    },
+)

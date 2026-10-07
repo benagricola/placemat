@@ -1,0 +1,24 @@
+# APV APH404012C1R5MP01: 1.5 uH molded power inductor, 4.1 x 4.1 x 1.2 mm, 7.0 A Isat (30 % drop),
+# 5.0 A heat rating, 34.5 mOhm max (APH-C series p21), on APV's recommended land for the
+# APH404012 package, the one the 3.3 V buck's APH404012C2R2MP01 uses (APH-C series p2).
+
+P_2 = io("P_2", Net, optional = True)
+P_1 = io("P_1", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C54123730", "MPN": "APH404012C1R5MP01"}
+_properties.update(annotations)
+
+Component(
+    name = "APV_APH404012C1R5MP01",
+    footprint = File("APV_APH404012C2R2MP01/APH404012_APV_land.kicad_mod"),
+    symbol = Symbol("APV_APH404012C1R5MP01/APH404012C1R5MP01.kicad_sym"),
+    prefix = "L",
+    part = Part(mpn = "APH404012C1R5MP01", manufacturer = "APV"),
+    properties = _properties,
+    pins = {
+        "2": P_2,
+        "1": P_1,
+    },
+)

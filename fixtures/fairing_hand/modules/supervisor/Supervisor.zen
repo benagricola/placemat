@@ -1,0 +1,83 @@
+# Supervisor: the always-on power controller. A TPS7B6933 keeps V_AON up
+# from VPROT_IN; an MSPM0L1106 on it measures the bike input, holds the
+# eFuse off through its SHDN while the bike is parked, and turns the
+# LM74700 off with it. It releases both when the input shows the bike
+# charging, or when it resets, so the core fails on. The ESP32 sets its
+# thresholds over the sensor I2C bus (0x48, also the ROM bootloader's
+# address, which a blank part starts in).
+# ../../../../docs/decisions/schematics/idle-shutdown-2026-09-28.md.
+C = Module("@stdlib/generics/Capacitor.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+# 40 V operating, 45 V for 200 ms, 15 uA typical (TI SLVSDI2 6.1, 6.5).
+LDO = Module("../../adapted/parts/Texas_Instruments_TPS7B6933DBVR.zen")
+# ROM bootloader over I2C on PA0/PA1, STANDBY 1.0 uA with a timer running
+# (TI SLASEX5C). The 24-pin VQFN keeps NRST apart from PA1, the
+# bootloader's SCL: on the 16- and 20-pin packages they share a pin.
+MCU = Module("../../adapted/parts/Texas_Instruments_MSPM0L1106TRGER.zen")
+# 60 V: its drain follows the bike input through the EN pull-up.
+NFET = Module("../../adapted/parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002.zen")
+
+gnd = io("GND", Net)
+vbike = io("VBIKE", Net)
+vprot_in = io("VPROT_IN", Net)
+sda = io("SDA", Net)
+scl = io("SCL", Net)
+efuse_shdn = io("EFUSE_SHDN", Net)
+rev_en = io("REV_EN", Net)
+
+v_aon = Net("V_AON")
+vin_sense = Net("VIN_SENSE")
+vcore = Net("SUP_VCORE")
+nrst = Net("SUP_NRST")
+en_gate = Net("REV_EN_GATE")
+bsl_invoke = Net("SUP_BSL")
+
+LDO(name = "ldo_aon", IN = vprot_in, OUT = v_aon, GND = gnd, NC = NotConnected())
+C(name = "c_aon_in", mpn = "CL10A105KB8NNNC", manufacturer = "Samsung Electro-Mechanics", value = "1uF", package = "0603", voltage = "50V", P1 = vprot_in, P2 = gnd)
+# The regulator asks for 2.2 uF or more (SLVSDI2 6.3); TI asks for 10 uF and
+# 100 nF at the MCU's VDD (SLASEX5C 9.1.1). One 10 uF serves both.
+C(name = "c_aon_out", value = "10uF", package = "0805", voltage = "50V", mpn = "GRM21BR61H106KE43L",
+  manufacturer = "Murata Electronics", annotations = {"LCSC": "C440198"}, P1 = v_aon, P2 = gnd)
+C(name = "c_sup", value = "100nF", package = "0402", voltage = "50V", mpn = "CL05B104KB54PNC",
+  manufacturer = "Samsung Electro-Mechanics", annotations = {"LCSC": "C307331", "Pm.Role": "bypass"}, P1 = v_aon, P2 = gnd)
+C(name = "c_vcore", value = "470nF", package = "0603", voltage = "25V", mpn = "CL10B474KA8NNNC",
+  manufacturer = "Samsung Electro-Mechanics", annotations = {"LCSC": "C1623", "Pm.Role": "bypass"}, P1 = vcore, P2 = gnd)
+R(name = "r_nrst", mpn = "ERJ-2RKF4702X", manufacturer = "Panasonic Industry", value = "47kohm", package = "0402", P1 = v_aon, P2 = nrst)
+C(name = "c_nrst", value = "10nF", package = "0402", voltage = "50V", mpn = "CL05B103KB5NNNC",
+  manufacturer = "Samsung Electro-Mechanics", annotations = {"LCSC": "C15195"}, P1 = nrst, P2 = gnd)
+MCU(name = "mcu", VDD = v_aon, VSS = gnd, EP = gnd, VCORE = vcore, NRST = nrst,
+    PA0 = sda, PA1 = scl, PA25_A2 = vin_sense, PA2_ROSC = efuse_shdn, PA3 = en_gate,
+    PA18_A7 = bsl_invoke,
+    PA4 = NotConnected(), PA9 = NotConnected(), PA10 = NotConnected(), PA11 = NotConnected(),
+    PA15_A9 = NotConnected(), PA16_A8 = NotConnected(), PA17 = NotConnected(),
+    PA19_SWDIO = NotConnected(), PA20_A6_SWCLK = NotConnected(), PA21_A5_VREF_N = NotConnected(),
+    PA22_A4 = NotConnected(), PA23_VREF_P = NotConnected(), PA24_A3 = NotConnected(),
+    PA26_A1 = NotConnected())
+# The bike input, divided by 11 to 1.18 V at 13 V, full scale 27.5 V on the
+# 2.5 V reference. It is taken ahead of the reverse FET, which the supervisor
+# turns off while parked. Reversed, 14 uA flows into the pin's clamp; 42 V
+# surges put 38 uA in; both are inside its +/-2 mA (SLASEX5C 7.1).
+R(name = "r_sense_top", mpn = "ERJ-2RKF1004X", manufacturer = "Panasonic Industry", value = "1Mohm", package = "0402", P1 = vbike, P2 = vin_sense)
+R(name = "r_sense_bot", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = vin_sense, P2 = gnd)
+C(name = "c_sense", value = "100nF", package = "0402", voltage = "50V", mpn = "CL05B104KB54PNC",
+  manufacturer = "Samsung Electro-Mechanics", annotations = {"LCSC": "C307331"}, P1 = vin_sense, P2 = gnd)
+# LM74700 EN: pulled up from the input, so the controller runs unless the
+# supervisor holds the FET's gate high; parked, the pull-up costs 13 uA in
+# place of the controller's 80 uA (ZHCSHV4G 6.5: EN high above 2.6 V, sink
+# 5 uA at most, shutdown 0.9 uA). The gate pull-down keeps it off while the
+# supervisor is in reset.
+R(name = "r_en_pull", mpn = "ERJ-2RKF1004X", manufacturer = "Panasonic Industry", value = "1Mohm", package = "0402", P1 = vbike, P2 = rev_en)
+NFET(name = "q_en", D = rev_en, G = en_gate, S = gnd)
+R(name = "r_en_gate", mpn = "ERJ-2RKF1004X", manufacturer = "Panasonic Industry", value = "1Mohm", package = "0402", P1 = en_gate, P2 = gnd)
+# PA18 high through reset starts the ROM bootloader whatever the flash holds
+# (TI SLAU887 3.2): the pull-down keeps it low. A pad to pull it to 3.3 V
+# and recover a supervisor whose firmware no longer answers belongs with the
+# board's other test points, which are to be chosen (Ben, 2026-09-29).
+R(name = "r_bsl", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = bsl_invoke, P2 = gnd)
+
+# Laid out once by Supervisor_layout.py and stamped onto the core as one cell.
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "Supervisor", layout_path = "layout", layers = LAYERS, config = CONFIG)
+Project(name = "Supervisor", path = "kicad", schematic = True, layout = False)

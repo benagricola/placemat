@@ -158,3 +158,15 @@ polygons include KiCad's stroke extent; they can extend beyond the drawing's
 centreline. The same method applies to both boards, including side and rotation.
 These facts accompany the existing module closure/area comparison. A failed
 hand preparation or route remains visible as a failed reference fact.
+The hand runner retains the full family configuration and script context in its
+owned copy, checks effective settings against the source, and refuses ambiguous
+module-specific routing overrides. A completed invalid route stays failed;
+`route_diagnostic` separately records its electrical closure and manufacturing
+findings, with fresh report, board and completion-record hashes.
+
+`fairing_hand` holds eleven historical module references. Its source manifest
+records original hand/project/helper hashes and the required API migrations.
+The fitted-pour migrations change geometry and are shared by the old-source and
+feature comparisons. These hand boards have no physical outline, and Mcu also
+has an inherited clearance violation; their diagnostics do not certify finished
+boards. See the family's notes for the migrated placements' additional findings.

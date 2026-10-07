@@ -1,0 +1,38 @@
+# TPS259470LRPWR: imported native symbol and footprint; datasheet qualification in review.
+
+EN_UVLO = io("EN_UVLO", Net, optional = True)
+OVLO_OVCSEL = io("OVLO_OVCSEL", Net, optional = True)
+PG_AUXOFF = io("PG_AUXOFF", Net, optional = True)
+FLT_PGTH = io("FLT_PGTH", Net, optional = True)
+IN = io("IN", Net, optional = True)
+OUT = io("OUT", Net, optional = True)
+DVDT = io("DVDT", Net, optional = True)
+GND = io("GND", Net, optional = True)
+ILM = io("ILM", Net, optional = True)
+ITIMER = io("ITIMER", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C3662793", "MPN": "TPS259470LRPWR"}
+_properties.update(annotations)
+
+Component(
+    name = "Texas_Instruments_TPS259470LRPWR",
+    footprint = File("Texas_Instruments_TPS259470LRPWR/RPW0010A.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TPS259470LRPWR/TPS259470LRPWR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TPS259470LRPWR", manufacturer = "Texas Instruments"),
+    properties = _properties,
+    pins = {
+        "EN/UVLO": EN_UVLO,
+        "OVLO/OVCSEL": OVLO_OVCSEL,
+        "PG/AUXOFF": PG_AUXOFF,
+        "~{FLT}/PGTH": FLT_PGTH,
+        "IN": IN,
+        "OUT": OUT,
+        "DVDT": DVDT,
+        "GND": GND,
+        "ILM": ILM,
+        "ITIMER": ITIMER,
+    },
+)

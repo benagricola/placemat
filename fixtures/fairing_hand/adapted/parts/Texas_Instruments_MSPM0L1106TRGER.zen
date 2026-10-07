@@ -1,0 +1,69 @@
+# Texas_Instruments_MSPM0L1106TRGER - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-MSPM0L1106TRGER_C19189331.pdf
+
+PA1 = io("PA1", Net, optional = True)
+NRST = io("NRST", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+VSS = io("VSS", Net, optional = True)
+PA2_ROSC = io("PA2_ROSC", Net, optional = True)
+PA3 = io("PA3", Net, optional = True)
+PA4 = io("PA4", Net, optional = True)
+PA9 = io("PA9", Net, optional = True)
+PA10 = io("PA10", Net, optional = True)
+PA11 = io("PA11", Net, optional = True)
+PA15_A9 = io("PA15_A9", Net, optional = True)
+PA16_A8 = io("PA16_A8", Net, optional = True)
+PA17 = io("PA17", Net, optional = True)
+PA18_A7 = io("PA18_A7", Net, optional = True)
+PA19_SWDIO = io("PA19_SWDIO", Net, optional = True)
+PA20_A6_SWCLK = io("PA20_A6_SWCLK", Net, optional = True)
+PA21_A5_VREF_N = io("PA21_A5_VREF_N", Net, optional = True)
+PA22_A4 = io("PA22_A4", Net, optional = True)
+PA23_VREF_P = io("PA23_VREF_P", Net, optional = True)
+PA24_A3 = io("PA24_A3", Net, optional = True)
+PA25_A2 = io("PA25_A2", Net, optional = True)
+PA26_A1 = io("PA26_A1", Net, optional = True)
+VCORE = io("VCORE", Net, optional = True)
+PA0 = io("PA0", Net, optional = True)
+EP = io("EP", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C19189331", "MPN": "MSPM0L1106TRGER"}
+_properties.update(annotations)
+
+Component(
+    name = "Texas_Instruments_MSPM0L1106TRGER",
+    footprint = File("../../parts/Texas_Instruments_MSPM0L1106TRGER/VQFN-24_L4.0-W4.0-P0.50-TL-EP2.5.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_MSPM0L1106TRGER/MSPM0L1106TRGER.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "MSPM0L1106TRGER", manufacturer = "Texas Instruments"),
+    properties = _properties,
+    pins = {
+        "PA1": PA1,
+        "NRST": NRST,
+        "VDD": VDD,
+        "VSS": VSS,
+        "PA2/ROSC": PA2_ROSC,
+        "PA3": PA3,
+        "PA4": PA4,
+        "PA9": PA9,
+        "PA10": PA10,
+        "PA11": PA11,
+        "PA15/A9": PA15_A9,
+        "PA16/A8": PA16_A8,
+        "PA17": PA17,
+        "PA18/A7": PA18_A7,
+        "PA19/SWDIO": PA19_SWDIO,
+        "PA20/A6/SWCLK": PA20_A6_SWCLK,
+        "PA21/A5/VREF-": PA21_A5_VREF_N,
+        "PA22/A4": PA22_A4,
+        "PA23/VREF+": PA23_VREF_P,
+        "PA24/A3": PA24_A3,
+        "PA25/A2": PA25_A2,
+        "PA26/A1": PA26_A1,
+        "VCORE": VCORE,
+        "PA0": PA0,
+        "EP": EP,
+    },
+)
