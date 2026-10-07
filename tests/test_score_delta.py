@@ -81,6 +81,39 @@ def test_python_escape_delta_matches_whole_and_carries_unpriced_wall_evidence():
     occ.commit(main, original)
 
 
+def test_new_nearer_target_can_reduce_a_remote_pads_escape_price():
+    from dataclasses import replace
+    from placemat import score
+    from placemat.escapes import Way, judging
+    from placemat.score_delta import Delta
+    from placemat.values import CopperLayer, Location, Net
+    from tests.fixtures import footprint
+    from tests.test_escape_findings import _walled_in
+    from tests.test_surface_escapes import _via_only_board
+    parts = _walled_in(0.1)
+    ring = parts[1]
+    parts[1] = replace(ring, pads=tuple(p for p in ring.pads
+        if not (p.box.center.x > 30.5 and abs(p.box.center.y - 30) < 0.1)))
+    parts[2] = footprint('T1', 10, 30, inst='t1', nets=('IN', 'Z'))
+    moving = footprint('N1', 50, 50, inst='n1', nets=('IN', 'Z'))
+    board = _via_only_board(parts + [moving])
+    for y in (29.25, 30.75):
+        board.track(Net('Z'), [Location(31.9, y), Location(34, y)], layer=CopperLayer.F,
+                    width=0.2, why='fixture gap walls')
+    plan = board.resolve()
+    occ = plan.occupancy
+    occ.lift({'N1'})
+    assert judging(occ).judge('U9', '1') is Way.AWAY
+    before = score.whole(board, occ, plan)
+    delta = Delta(board, occ, moving, plan.links, plan=plan)
+    candidate = replace(plan.placement('n1'), location=Location(40, 30))
+    change = delta(candidate)
+    occ.commit(moving, candidate)
+    assert judging(occ).judge('U9', '1') is Way.SURFACE
+    after = score.whole(board, occ, plan)
+    assert change.terms['escape_closed'] == after['escape_closed'] - before['escape_closed'] < 0
+
+
 def test_mst_addition_refuses_prejoined_copper_clusters():
     rest = [Anchor("R1", "1", 0, 0), Anchor("R2", "1", 1, 0)]
     previous = mst("n", rest, joined=[(0, 1)])

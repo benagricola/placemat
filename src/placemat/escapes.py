@@ -694,7 +694,7 @@ class Escapes:
                 best = (d, (a.x - at.x, a.y - at.y))
         return None if best is None else best[1]
 
-    def _verdict(self, ref: str, number: str, bans, near=None) -> tuple | None:
+    def _verdict(self, ref: str, number: str, bans, near=None, *, native=False) -> tuple | None:
         """(way, what blocks) for one pad, None when it is not judged: it is unconnected, its net has no other pad placed,
         or copper of its own net (planned copper, another part's pad) already leaves it: its way out is made.
 
@@ -724,6 +724,9 @@ class Escapes:
             return None
         region = Box.union([pads[number][2]] + [l.box for l in lanes] + [p.box for p in spots])
         foes = self._foes(self._reach(region, net), net, ref, number)
+        if native:
+            return self._native_way(ref, number, net, pads[number][2].center, aim, quiet,
+                                    lanes, spots, foes, bans, near), []
         shut = {id(l): self._lane_blocked(l, foes) for l in lanes}
         reach = occ.settings.score_escape_reach
 
@@ -756,6 +759,45 @@ class Escapes:
             by |= {_by(occ, s) if s.kind != "viaban" else Owner("who", s.owner) for b in spot_shut for s in b}
         named = sorted(by, key=str)
         return way, [b for b in named if str(b) != ref] or named
+
+    def _native_way(self, ref, number, net, centre, aim, quiet, lanes, spots, foes, bans, near):
+        """Classification twin only; diagnostic blockers still use Python."""
+        from .geometry import _native
+        if _native is None or not hasattr(_native, 'surface_judge'):
+            raise RuntimeError('native surface escape judge unavailable')
+        occ = self.occ
+        mine = [s for s in occ.items[ref].shapes if s.kind in ('pad', 'through')
+                and s.owner == ref and s.label == number]
+        layers = frozenset().union(*(s.layers for s in mine))
+        win = Box.union(s.box for s in mine).inflate(occ.settings.score_escape_reach)
+        nc = occ.geometry.netclass(net)
+        track, via = nc.track_width / 2 + nc.clearance, nc.via_diameter / 2 + nc.clearance
+        reach = win.inflate(max(track, via))
+        near = search_near(occ) if near is None else near
+        walls = [s for s in near if (s.net != net or not net) and not (s.owner == ref and s.label == number)
+                 and s.kind != 'npth' and s.box.overlaps(reach)]
+        holes, path_bans = extra_walls(occ, reach, net)
+        delta = {id(s): occ.geometry.hole_clearance - nc.clearance for s in holes}
+        delta.update({id(s): -nc.clearance for s in path_bans})
+        def bounds(b):
+            return b.left, b.top, b.right, b.bottom
+        def shape(s):
+            return _surface_shape(s, delta.get(id(s), 0.0))
+        path = ([shape(s) for s in mine], [shape(s) for s in walls + holes], _layer_bits(layers),
+                bounds(win), track, via, aim, [shape(s) for s in path_bans],
+                occ.settings.place_escape_cell, occ.geometry.drc_epsilon, False)
+        result = _native.surface_judge(
+            [(list(l.legs), _layer_bits(l.layers), bounds(l.box)) for l in lanes],
+            [((s.circle[0], s.circle[1]), s.circle[2], bounds(s.box)) for s in spots],
+            [(shape(s), lane, clearance, s.kind == 'npth') for s, lane, clearance in foes],
+            [shape(s) for s in bans if net not in s.net.split(ALLOW_SEP)],
+            aim, (centre.x, centre.y), quiet, path)
+        return (Way.SURFACE, Way.VIA, Way.AWAY, Way.WALLED, None)[result]
+
+    def judge_native(self, ref, number):
+        """Explicit classification parity entry point, not adopted by search."""
+        result = self._verdict(ref, number, self._bans(), search_near(self.occ), native=True)
+        return None if result is None else result[0]
 
     def _toward_lanes(self, lanes, aim, centre) -> list:
         """The lanes whose end lies toward `aim` from the pad's centre, as the path search judges an edge cell, by one
@@ -1147,7 +1189,7 @@ class Escapes:
 
 
 def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None, near=None, own=(),
-             exact: bool = False, via_exit: bool = True, window: Box | None = None) -> bool:
+             exact: bool = False, via_exit: bool = True, window: Box | None = None, *, native: bool = False) -> bool:
     """Whether a track of the pad's net can get out of it: a path, at the
     net's track width and clearance from every other net's copper on the
     pad's layers, from the pad to the edge of a window `depth` round it or
@@ -1183,6 +1225,9 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     delta = {id(h): occ.geometry.hole_clearance - nc.clearance for h in holes}
     delta.update({id(b): -nc.clearance for b in bans})
     if exact:
+        if native:
+            return _path_out_native(occ, mine + list(own), foes + holes, layers, win, track, via,
+                                    toward, bans, delta, via_exit)
         return _path_out_exact(occ, mine + list(own), foes + holes, layers, win, track, via, toward, bans, delta, via_exit)
     walls = [s.box.inflate(track) for s in foes if s.layers & layers] + [h.box.inflate(track + delta[id(h)]) for h in holes]
     vias = [s.box.inflate(via) for s in foes] + [s.box.inflate(via + delta[id(s)]) for s in holes + bans]
@@ -1233,6 +1278,29 @@ def extra_walls(occ, box: Box, net: str) -> tuple:
     bans = [s for pool in ([occ.copper] + [g.shapes for r, g in occ.items.items() if r not in occ.pending])
             for s in pool if s.kind == "viaban" and s.box.overlaps(box) and net not in s.net.split(ALLOW_SEP)]
     return holes, bans
+
+
+def _path_out_native(occ, start_shapes, foes, layers, win, track, via, toward, bans=(), delta=None, via_exit=True):
+    """Explicit native twin used by parity gates; no search adoption yet.
+
+    Refused snapshots propagate rather than silently certifying a way out.
+    The Python oracle remains independently callable by `_path_out_exact`.
+    """
+    from .geometry import _native
+    if _native is None or not hasattr(_native, 'surface_path_out'):
+        raise RuntimeError('native surface escape search unavailable')
+    delta = delta or {}
+    def shape(s):
+        return _surface_shape(s, delta.get(id(s), 0.0))
+    return _native.surface_path_out([shape(s) for s in start_shapes], [shape(s) for s in foes],
+        _layer_bits(layers), (win.left, win.top, win.right, win.bottom), track, via, toward,
+        [shape(s) for s in bans], occ.settings.place_escape_cell, occ.geometry.drc_epsilon, via_exit)
+
+
+def _surface_shape(s, delta=0.0):
+    b = s.box
+    return (list(map(tuple, s.poly)), (b.left, b.top, b.right, b.bottom), _layer_bits(s.layers),
+            list(map(tuple, s.ends or ())), delta)
 
 
 def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via: float, toward, bans=(), delta=None, via_exit: bool = True) -> bool:

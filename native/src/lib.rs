@@ -8,6 +8,7 @@ mod cutouts;
 mod delta;
 mod score_layout;
 mod escapes;
+mod surface;
 mod exact;
 mod fill;
 mod geometry;
@@ -1563,6 +1564,8 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("PLACEMAT_VERSION"))?;      // the release (git tag) it was built from: build.rs
     m.add_function(wrap_pyfunction!(profile::sweep_profile, m)?)?;
     m.add_function(wrap_pyfunction!(polys_overlap, m)?)?;
+    m.add_function(wrap_pyfunction!(surface::surface_path_out, m)?)?;
+    m.add_function(wrap_pyfunction!(surface::surface_judge, m)?)?;
     m.add_function(wrap_pyfunction!(poly_distance, m)?)?;
     m.add_function(wrap_pyfunction!(point_segment_distance, m)?)?;
     m.add_function(wrap_pyfunction!(conflict, m)?)?;
