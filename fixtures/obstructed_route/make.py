@@ -30,10 +30,10 @@ def main():
                    '\t\t(1 "F.Mask" user)\n\t\t(3 "B.Mask" user)\n'
                    '\t\t(5 "F.SilkS" user)\n\t\t(29 "F.Fab" user)\n\t)\n'
                    + "".join('\t(net %d "%s")\n' % (i + 1, n) for i, n in enumerate(NETS))
-                   + tht("J1", 3, 6, [("1", 0, "VB")], [("Pm.I", "vb:3A")])
-                   + tht("J2", 27, 6, [("1", 0, "VB")], [("Pm.I", "vb:3A")])
-                   + tht("U1", 15, 6, wall)
-                   + '\t(gr_rect (start 0 0) (end 30 12) (stroke (width 0.1) (type solid)) '
+                   + tht("J1", 3, 6.5, [("1", 0, "VB")], [("Pm.I", "vb:3A")])
+                   + tht("J2", 27, 6.5, [("1", 0, "VB")], [("Pm.I", "vb:3A")])
+                   + tht("U1", 15, 6.5, wall)
+                   + '\t(gr_rect (start 0 0) (end 30 13) (stroke (width 0.1) (type solid)) '
                      '(fill no) (layer "Edge.Cuts") (uuid "%s"))\n)\n' % item_id("outline"))
     pcb.with_suffix(".kicad_pro").write_text(json.dumps({
         "board": {"design_settings": {"rules": {"min_clearance": 0.2, "min_track_width": 0.2}}},

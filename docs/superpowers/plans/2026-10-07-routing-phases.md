@@ -6525,9 +6525,16 @@ route between its two parts because a part on neither end stands in the way. It 
 records what the router reports (the failed connection's evidence, naming the blocker), joins the reference set's
 tracked results in `results.json`, and tests pin it.
 
-The board: 30 x 12 mm, two layers. J1 (one THT pad, VB) at (3, 6) and J2 (one THT pad, VB) at (27, 6), each with
+Reviewer correction on 2026-10-07: the original height 12/Y6 contract gave 0.07 mm edge clearance and violated
+its unchanged 0.5 mm manufacturing minimum. Increase height only to 13 and shift every component Y to 6.5;
+retain X, pads, pitch, currents and all manufacturing rules. The edge gap becomes 0.57 mm, so input is legal,
+but the 0.5 mm edge plus 0.2 mm pad clearance still prevents an edge bypass. Old invalid runs are diagnostics,
+not passing pins. The fixture's explicit recorded search protocol disables fine rescue (`KICAD_NET_RESCUE=0`);
+search exhaustion remains an unknown diagnosis, not a router proof of impossibility.
+
+The board: 30 x 13 mm, two layers. J1 (one THT pad, VB) at (3, 6.5) and J2 (one THT pad, VB) at (27, 6.5), each with
 `Pm.I` "vb:3A"; U1, five THT pads at 2.54 mm pitch across the board at x = 15 on single-pad nets N1-N5, so its gaps
-are 0.84 mm and its end pads sit 0.07 mm from the board edge. THT pads 1.7 mm, drill 1.0. Rules: `min_clearance` 0.2,
+are 0.84 mm and its end pads sit 0.57 mm from the board edge. THT pads 1.7 mm, drill 1.0. Rules: `min_clearance` 0.2,
 `min_track_width` 0.2; the Default class clearance 0.2, track 0.2, via 0.6/0.3. At 3 A the legs phase asks a track
 wider than 0.84 - 2 x 0.2 = 0.44 mm, so it cannot pass U1 on either layer; the `signals` phase then routes VB at the
 class width 0.2 through a gap. Expected: `legs` asks one connection (J1.1-J2.1), joins none, and its open entry
