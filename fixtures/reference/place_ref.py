@@ -316,7 +316,7 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
     found = hand.reference_of(script)
     if found is not None:
         config = script.parents[2] / "placemat.toml"
-        facts = hand.measure_hand(found, pathlib.Path(work) / "hand", config.read_text() if config.exists() else None)
+        facts = hand.measure_hand(found, pathlib.Path(work) / "hand", config.read_text() if config.exists() else None, script)
         placed = _placed_board(copy)
         extra = {"hand": dataclasses.asdict(facts),
                  "placed_area_mm2": hand.footprint_area(placed) if placed.exists() else None}

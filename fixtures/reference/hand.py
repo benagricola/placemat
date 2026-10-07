@@ -45,14 +45,51 @@ def footprint_area(pcb: pathlib.Path) -> float:
     return round(pcbnew.ToMM(max(xs) - min(xs)) * pcbnew.ToMM(max(ys) - min(ys)), 2)
 
 
-def measure_hand(pcb: pathlib.Path, work: pathlib.Path, toml: str | None) -> HandFacts:
+def measure_hand(pcb: pathlib.Path, work: pathlib.Path, toml: str | None,
+                 context_script: pathlib.Path | None = None) -> HandFacts:
     from placemat.kicad.drc import run_drc
     from placemat.report import airwires_from_drc
     pcb, work = pathlib.Path(pcb), pathlib.Path(work)
     work.mkdir(parents=True, exist_ok=True)
-    ref, test = work / 'hand.kicad_pcb', work / prepare.TEST
     area, airwires = 0.0, {'crossings': 0, 'total_mm': 0.0}
     try:
+        board_dir = work
+        if context_script is not None:
+            from placemat.settings import load
+            from .place_ref import _copy_family
+            source_family = pathlib.Path(context_script).parents[2]
+            source_config = source_family / 'placemat.toml'
+            original_toml = source_config.read_text() if source_config.exists() else None
+            if toml != original_toml:
+                raise ValueError('hand context must retain the original family configuration')
+            copied_script = _copy_family(pathlib.Path(context_script), work / 'family')
+            # Keep the original configuration's script paths valid. The hand
+            # board is not a layout script, so its settings do not apply any
+            # per-script placement overrides.
+            board_dir = copied_script.parents[2] / 'hand-board'
+            board_dir.mkdir(exist_ok=True)
+            original_settings = load(source_family)
+            copied_settings = load(board_dir)
+            if original_settings != copied_settings:
+                raise ValueError('copied hand context changed effective family settings')
+            scripted_settings = load(pathlib.Path(context_script).parent, script=context_script)
+            routing_keys = [field.name for field in dataclasses.fields(original_settings)
+                            if field.name.startswith(('route_', 'check_', 'copper_', 'drc_', 'timeout_'))]
+            changed = [key for key in routing_keys
+                       if getattr(scripted_settings, key) != getattr(original_settings, key)]
+            if changed:
+                raise ValueError('hand routing has module-specific settings requiring an explicit association: '
+                                 + ', '.join(changed))
+            compared = [field.name for field in dataclasses.fields(original_settings) if field.compare]
+            (work / 'context-settings.json').write_text(json.dumps({
+                'source_family': str(source_family), 'copied_family': str(copied_script.parents[2]),
+                'script_overrides_applied': False,
+                'module_route_check_settings_equal': True,
+                'effective_settings': {key: getattr(original_settings, key) for key in compared},
+                'copied_settings_equal': True,
+            }, indent=2) + '\n')
+            toml = None     # inherit the intact family file above the board
+        ref, test = board_dir / 'hand.kicad_pcb', board_dir / prepare.TEST
         shutil.copy2(pcb, ref)
         prepare._copy_project(pcb, ref, prepare.PROJECT_SUFFIXES)
         prepare.strip(ref, test)

@@ -1,5 +1,6 @@
 """Hand reference facts accompany module results without changing the placement ratchet."""
 import dataclasses
+import json
 
 from fixtures.reference import hand, place_ref, prepare, route_ref
 from tests.conftest import needs_kicad
@@ -59,6 +60,64 @@ def test_hand_failure_preserves_measures_and_source(tmp_path, monkeypatch):
     facts = hand.measure_hand(source, tmp_path / 'work', None)
     assert (facts.area_mm2, facts.crossings, facts.airwire_mm) == (80.0, 3, 120.0)
     assert (facts.failure, facts.detail) == ('RuntimeError', 'route failed')
+    assert source.read_text() == 'source'
+
+
+def test_hand_routing_preserves_full_family_context_without_placement_overrides(tmp_path, monkeypatch):
+    import placemat.kicad.drc
+    import placemat.report
+    from placemat.settings import load
+    script = tmp_path / 'family' / 'modules' / 'module' / 'Thing_layout.py'
+    script.parent.mkdir(parents=True)
+    script.write_text('# original layout script\n')
+    family = script.parents[2]
+    config = '[check]\nrise_c = 7.0\n[scripts."modules/module/Thing_layout.py".solve]\nenabled = false\n'
+    (family / 'placemat.toml').write_text(config)
+    source = family / 'hand' / 'Thing.kicad_pcb'
+    source.parent.mkdir()
+    source.write_text('original copper')
+    source.with_suffix('.kicad_pro').write_text('original manufacturing and netclass rules')
+    monkeypatch.setattr(prepare, 'strip', lambda src, dst: dst.write_text(src.read_text()))
+    monkeypatch.setattr(hand, 'footprint_area', lambda pcb: 80.0)
+    monkeypatch.setattr(placemat.kicad.drc, 'run_drc', lambda pcb, out, refill_zones: out.write_text('{}'))
+    monkeypatch.setattr(placemat.report, 'airwires_from_drc', lambda report: {'crossings': 3, 'total_mm': 120.0})
+
+    routed_boards = []
+
+    def routed(pcb, work, toml):
+        routed_boards.append(pcb)
+        assert toml is None
+        assert load(pcb.parent) == load(family)
+        assert load(pcb.parent).check_rise_c == 7.0
+        assert pcb.parent.parent.joinpath('placemat.toml').read_text() == config
+        assert pcb.parent.parent.joinpath('modules/module/Thing_layout.py').read_text() == script.read_text()
+        assert pcb.with_suffix('.kicad_pro').read_text() == source.with_suffix('.kicad_pro').read_text()
+        return {'closure_clean': 1.0, 'open_after': 0}
+
+    monkeypatch.setattr(route_ref, '_route', routed)
+    facts = hand.measure_hand(source, tmp_path / 'work', config, script)
+    assert facts.failure == '' and facts.closure_clean == 1.0
+    again = hand.measure_hand(source, tmp_path / 'work', config, script)
+    assert again == facts
+    assert len(routed_boards) == 2 and routed_boards[0] == routed_boards[1]
+    audit = json.loads((tmp_path / 'work/context-settings.json').read_text())
+    assert audit['script_overrides_applied'] is False
+    assert audit['copied_settings_equal'] and audit['module_route_check_settings_equal']
+    assert source.read_text() == 'original copper'
+    assert (family / 'placemat.toml').read_text() == config
+
+
+def test_hand_context_refuses_ambiguous_module_routing_overrides(tmp_path):
+    script = tmp_path / 'family' / 'modules' / 'module' / 'Thing_layout.py'
+    script.parent.mkdir(parents=True)
+    script.write_text('')
+    config = '[scripts."modules/module/Thing_layout.py".route]\nrouter_args = ["--track-width", "0.4"]\n'
+    (script.parents[2] / 'placemat.toml').write_text(config)
+    source = script.parents[2] / 'hand.kicad_pcb'
+    source.write_text('source')
+    facts = hand.measure_hand(source, tmp_path / 'work', config, script)
+    assert facts.failure == 'ValueError'
+    assert 'route_router_args' in facts.detail
     assert source.read_text() == 'source'
 
 
