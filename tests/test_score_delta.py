@@ -803,6 +803,8 @@ def test_native_configuration_failure_is_not_cached(monkeypatch):
     class Refused:
         def __init__(self, *args):
             pass
+        def configure_affines(self, *args):
+            pass
         def configure_layout(self, *args):
             attempts.append(1)
             raise ValueError('invalid grid snapshot')
@@ -831,6 +833,7 @@ def test_lift_owner_closure_is_independent_of_cell_mapping_order():
 
 
 def test_candidate_anchors_match_committed_affine_at_half_nanometre_translations():
+    from placemat.score_delta import Delta
     from placemat.values import Face, Location, Part
     from placemat.placement import Placement
     from tests.test_score_measures import _two_part_board
@@ -846,8 +849,46 @@ def test_candidate_anchors_match_committed_affine_at_half_nanometre_translations
                 candidate = Placement(Location(20 + offset, 20 - offset), rotation, face)
                 occ.lift(['C1'])
                 actual = occ.candidate_named_anchors(item, candidate)
+                delta = Delta(board, occ, item, plan.links, plan=plan)
+                kernel = delta.native([rotation], face)
+                change = delta(candidate)
+                if kernel is not None:
+                    wire, crossings = kernel.wire_cross(candidate.location.x, candidate.location.y, 0)
+                    assert wire == pytest.approx(change.terms['airwire'], abs=1e-12, rel=0)
+                    assert crossings == change.terms['crossings']
                 occ.commit(item, candidate)
                 expected = [(net, ref, pad, occ.pad_anchor(ref, pad).x, occ.pad_anchor(ref, pad).y)
                             for net, ref, pad, _, _ in actual]
                 assert actual == expected, (candidate, actual, expected)
                 occ.commit(item, original)
+
+
+def test_native_anchor_affine_configuration_refuses_malformed_records_atomically():
+    from placemat.score_delta import Delta
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _two_part_board
+    board = _two_part_board()
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(20, 20))
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['c1']
+    original = plan.placement('c1')
+    occ.lift(['C1'])
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    kernel = delta.native([original.rotation], original.face)
+    if kernel is None:
+        pytest.skip('exact native affine kernel unavailable')
+    records = occ.candidate_anchor_affines(item, original)
+    baseline = kernel.wire_cross(20, 20, 0)
+    invalid = [[], [[*records, records[0]]], [[(records[0][0], records[0][1], records[0][2], [0.0])]]]
+    for value in invalid:
+        with pytest.raises(ValueError):
+            kernel.configure_affines(value)
+        assert kernel.wire_cross(20, 20, 0) == baseline
+    for bad in (float('inf'), float('nan'), 1e20):
+        values = list(records[0][3])
+        values[9] = bad
+        row = records[0][:3] + (values,)
+        with pytest.raises(ValueError):
+            kernel.configure_affines([[row] + records[1:]])
+        assert kernel.wire_cross(20, 20, 0) == baseline

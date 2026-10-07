@@ -210,6 +210,9 @@ class Delta:
                 (cfg.score_crossing, cfg.score_impedance, cfg.score_crossing_pair_net,
                  cfg.score_crossing_plane, cfg.score_pair_crossing))
             origins = [Placement(Location(0, 0), r, face) for r in rots]
+            if not hasattr(kernel, 'configure_affines'):
+                return None  # old native origin+translation cannot preserve categorical ties
+            kernel.configure_affines([self.occ.candidate_anchor_affines(self.item, p) for p in origins])
             boxes, links, pad_boxes = [], [], []
             def bounds(box):
                 return box.left, box.top, box.right, box.bottom

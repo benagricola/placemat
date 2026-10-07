@@ -322,6 +322,7 @@ pub struct Delta {
     prices: Vec<Vec<f64>>,
     signal: HashSet<String>,
     impedance: f64,
+    affines: Option<Vec<HashMap<(String, String, String), Vec<f64>>>>,
 }
 
 impl Delta {
@@ -420,8 +421,38 @@ impl Delta {
             prices,
             signal: signal.into_iter().collect(),
             impedance,
+            affines: None,
         };
         Ok(delta)
+    }
+
+    pub fn configure_affines(&mut self, turns: Vec<Vec<(String, String, String, Vec<f64>)>>) -> Result<(), String> {
+        if turns.len() != self.turns.len() {
+            return Err("NativeDelta affine turn count differs".into());
+        }
+        let mut prepared = Vec::new();
+        for (turn, touched) in turns.into_iter().zip(&self.turns) {
+            let mut map = HashMap::new();
+            for (net, reference, number, values) in turn {
+                if values.len() != 17 || values.iter().any(|v| !v.is_finite() || v.abs() > 1e9)
+                    || (values[0] != 0.0 && values[0] != 1.0) {
+                    return Err("NativeDelta affine record invalid".into());
+                }
+                if map.insert((net, reference, number), values).is_some() {
+                    return Err("NativeDelta duplicate affine anchor".into());
+                }
+            }
+            for t in touched {
+                for p in &t.added {
+                    if !map.contains_key(&(self.snapshots[t.index].name.clone(), p.2.clone(), p.3.clone())) {
+                        return Err("NativeDelta missing affine anchor".into());
+                    }
+                }
+            }
+            prepared.push(map);
+        }
+        self.affines = Some(prepared);
+        Ok(())
     }
 
     fn crossing_change(&self, touched: &[Touched]) -> f64 {
@@ -476,7 +507,22 @@ impl Delta {
         }
         let mut wire = 0.0;
         for touched in &mut self.turns[turn] {
-            let change = touched.tree.solve(x, y, &touched.added);
+            let change = if let Some(affines) = &self.affines {
+                let mut added = touched.added.clone();
+                for p in &mut added {
+                    let v = &affines[turn][&(self.snapshots[touched.index].name.clone(), p.2.clone(), p.3.clone())];
+                    let member = if v[0] == 1.0 {
+                        (crate::exact::clean9(v[1]*v[7]+v[2]*v[8]+(v[5]+x)),
+                         crate::exact::clean9(v[3]*v[7]+v[4]*v[8]+(v[6]+y)))
+                    } else { (x, y) };
+                    p.0 = crate::exact::clean9(v[9]*v[15]+v[10]*v[16]+(v[13]+member.0));
+                    p.1 = crate::exact::clean9(v[11]*v[15]+v[12]*v[16]+(v[14]+member.1));
+                    if !point_valid(p.0, p.1) {
+                        return Err("NativeDelta affine anchor exceeds representable nm".into());
+                    }
+                }
+                touched.tree.solve(0.0, 0.0, &added)
+            } else { touched.tree.solve(x, y, &touched.added) };
             let net = &self.snapshots[touched.index];
             if self.signal.contains(&net.name) {
                 wire += change * if net.kind == 1 { self.impedance } else { 1.0 };

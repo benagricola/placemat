@@ -811,6 +811,10 @@ impl NativeDelta {
         self.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err)
     }
 
+    fn configure_affines(&mut self, turns: Vec<Vec<(String,String,String,Vec<f64>)>>) -> PyResult<()> {
+        self.inner.configure_affines(turns).map_err(PyValueError::new_err)
+    }
+
     fn escape_cross(&mut self, x: f64, y: f64, turn: usize, depth: f64) -> PyResult<i64> {
         if !depth.is_finite() || depth < 0.0 {
             return Err(PyValueError::new_err("NativeDelta escape depth invalid"));

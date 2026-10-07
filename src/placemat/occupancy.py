@@ -1428,6 +1428,36 @@ class Occupancy:
         """(net, x, y) for the existing leaf scorer and native sweep."""
         return [(net, x, y) for net, _, _, x, y in self.candidate_named_anchors(item, placement)]
 
+    def candidate_anchor_affines(self, item, placement: Placement) -> list:
+        """Prepared exact two-stage member/read anchor transforms at zero translation.
+
+        Preserve coefficients and expression order: combining affine constants
+        before evaluation can change half-nanometre rounding. Cells round their
+        member reference first; parts use the requested location directly.
+        """
+        origin = Placement(Location(0, 0), placement.rotation, placement.face)
+        geometries, _ = self.placed_geometries(item, origin)
+        cell = not isinstance(item, Footprint)
+        members = self._member_geometries(item) if cell and item.arrangement else self.items
+        transform = self._transform(self._geometry(item), origin) if cell else None
+        out = []
+        def coefficients(t, p):
+            return [t.a, t.b, t.c, t.d, t.tx, t.ty, p.x, p.y]
+        for ref, geom in geometries.items():
+            fp = self.geometry.footprint(ref)
+            read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                                frozenset())
+            t = self._transform(read, Placement(Location(0, 0), geom.reference.rotation, geom.reference.face))
+            member = coefficients(transform, members[ref].reference.location) if cell else [0.0] * 8
+            seen = set()
+            for shape in geom.shapes:
+                if shape.kind not in ('pad', 'through') or not shape.net or shape.owner != ref or shape.label in seen:
+                    continue
+                seen.add(shape.label)
+                pad = next(p for p in fp.pads if p.number == shape.label)
+                out.append((shape.net, ref, shape.label, [float(cell)] + member + coefficients(t, pad.airwire_end)))
+        return out
+
     def placed_geometries(self, item, placement: Placement) -> tuple[dict, list]:
         """What commit() records for `item` at `placement`, without recording
         it: {refdes: ItemGeometry} for its footprints, and a cell's own
