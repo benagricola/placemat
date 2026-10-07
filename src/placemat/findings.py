@@ -22,6 +22,7 @@ class FindingKind(str, Enum):
     ESCAPE_CROSSED = "escape_crossed"   # two escapes from one part's pins cross near its pin row
     ESCAPE_CLOSED = "escape_closed"     # a pad's last route toward what it connects to is closed
     ESCAPE_WALLED = "escape_walled"     # a pad with no route out at all
+    ESCAPE_VIA = "escape_via"           # a pad whose only way out toward what it connects to is a via beside it
     ESCAPE_LANE = "escape_lane"         # a declared escape lane (board.escape) that another net's pad, hole or copper blocks
     PAIR_CROSSED = "pair_crossed"       # a differential pair's two halves cross: a swap or a turn uncrosses it
     SETUP = "setup"                     # the same every run of the script: an undeclared part, a layer the board lacks, a pad a net's halo traps
@@ -92,6 +93,7 @@ class FindingCause(str, Enum):
     ESCAPE_CROSSED = (FindingKind.ESCAPE_CROSSED, "escape_crossed")
     ESCAPE_CLOSED = (FindingKind.ESCAPE_CLOSED, "escape_closed")
     ESCAPE_WALLED = (FindingKind.ESCAPE_WALLED, "escape_walled")
+    ESCAPE_VIA = (FindingKind.ESCAPE_VIA, "escape_via")
     ESCAPE_LANE = (FindingKind.ESCAPE_LANE, "escape_lane")
     ESCAPE_VIA_UNNEEDED = (FindingKind.ESCAPE, "escape.via_unneeded")
     ESCAPE_PINCHED = (FindingKind.ESCAPE, "escape.pinched")
@@ -163,6 +165,7 @@ SEVERITY = {
     FindingKind.ESCAPE_CROSSED: "warning",
     FindingKind.ESCAPE_CLOSED: "warning",
     FindingKind.ESCAPE_WALLED: "critical",
+    FindingKind.ESCAPE_VIA: "warning",
     FindingKind.ESCAPE_LANE: "warning",
     FindingKind.PAIR_CROSSED: "warning",
     FindingKind.SETUP: "warning",

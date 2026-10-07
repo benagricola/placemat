@@ -1350,6 +1350,11 @@ def escape_crossed(f, settings):
     return []
 
 
+@case(C.ESCAPE_VIA)
+def escape_via(f, settings):
+    return []               # the finding names what closes its lanes
+
+
 @case(C.ESCAPE_LANE)
 def escape_lane(f, settings):
     return []

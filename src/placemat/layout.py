@@ -5487,22 +5487,21 @@ class Board:
                 step.say("split", facts=facts)
 
     def _report_escapes(self, occ: Occupancy, plan: Plan):
-        """Escapes left crossed at a pin row, and pads the path search finds
-        closed toward what they join or walled off (escapes.py); and each
-        differential pair whose two halves' airwires cross. Measured at
-        `score.escape_depth`, whatever depth the search used: the run score
-        counts these, and a shallower corridor is crossed less without being
-        any easier to route."""
-        from .escapes import Escapes
-        depth = occ.settings.score_escape_depth
-        esc = occ.escapes() if depth == occ.escapes().depth else Escapes(occ, mirror=False, depth=depth)
+        """Escapes left crossed at a pin row; pads whose cheapest way out the surface-lane judgement finds is a via,
+        a lane away from what they join, or none (escapes.py `Escapes.found`, placemat's own rule); and each
+        differential pair whose two halves' airwires cross. Crossed escapes are measured at `score.escape_depth`,
+        whatever depth the search used: the run score counts these, and a shallower corridor is crossed less without
+        being any easier to route."""
+        from .escapes import judging
+        esc = judging(occ)
+        found = esc.found()
         rn = occ.ratsnest()
         from .pairs import pair_key
         for e, f in rn.pair_crossings():
             parts = sorted({v.ref for v in (e.a, e.b, f.a, f.b) if v.ref})
             pos, neg = (e.net, f.net) if (pair_key(e.net) or (0, True))[1] else (f.net, e.net)
             plan.findings.append(Finding(C.PAIR_CROSSED, {"pos": pos, "neg": neg, "parts": parts}))
-        for n, e, f in rn.crossed_pair_list(esc.depth):
+        for n, e, f in found["escape_crossed"]:
             ends = []
             for edge in (e, f):
                 mine, other = (edge.a, edge.b) if edge.a.ref == n else (edge.b, edge.a)
@@ -5510,17 +5509,15 @@ class Board:
             ends.sort(key=lambda t: (int(t[0]) if t[0].isdigit() else 1 << 30, t[0]))
             (pa, xa, na), (pb, xb, nb) = ends
             plan.findings.append(Finding(C.ESCAPE_CROSSED, {"ref": n, "pins": [pa, pb], "targets": [[xa, na], [xb, nb]]}))
-        closed, walled = esc.confirmed()
         from . import suggest_facts
-        for ref, number, net, by, joins in closed:
+        for ref, number, net, by in found["escape_via"]:
+            plan.findings.append(self._finding(C.ESCAPE_VIA, suggest_facts.escape_facts(self, occ, plan, ref, number, net, by)))
+        for ref, number, net, by, joins in found["escape_closed"]:
             plan.findings.append(self._finding(C.ESCAPE_CLOSED, dict(
                 suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), joins=list(joins))))
-        for ref, number, net, by, _ in walled:
+        for ref, number, net, by, variant in found["escape_walled"]:
             plan.findings.append(self._finding(C.ESCAPE_WALLED, dict(
-                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant="walled")))
-        for ref, number, net, by in esc.handoffs_walled():
-            plan.findings.append(self._finding(C.ESCAPE_WALLED, dict(
-                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant="handoff")))
+                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant=variant)))
         if not self._draw_outline:
             self._report_vias_unneeded(occ, plan, esc)
         if self._explore is None:           # an explore's variant is scored, and the score does not count this

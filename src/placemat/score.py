@@ -18,7 +18,7 @@ measures:
     crossings    {key: n}: ratsnest crossings by what crosses, whatever they are priced at
                  (ratsnest.crossing_key): "plane" when either net is a plane's or free net, "pair" between a
                  differential pair's two halves, else the two nets' kinds, the lower first ("plain+plain",
-                 "impedance+plain", "pair_net+plain", ...); `terms` prices each at the dearer kind
+                 "plain+impedance", "plain+pair_net", ...); `terms` prices each at the dearer kind
     airwire_mm   the ratsnest's length over the nets that pull (not planes or free nets), each net once
     airwire_impedance_mm  the part of airwire_mm that is controlled-impedance nets (`terms` counts it
                  score.impedance times in all)
@@ -43,8 +43,8 @@ TERMS = ("unplaced", "drc", "link_over", "fixed", "copper", "label", "escape_cro
 # measured apart (by priority, and by how far over), not counted as findings
 _FINDING_WEIGHTS = {"fixed": "score_fixed", "copper": "score_copper", "label": "score_label",
                     "escape_crossed": "score_escape_crossed", "escape_closed": "score_escape_closed",
-                    "escape_walled": "score_escape_walled", "escape_lane": "score_escape_lane",
-                    "setup": "score_setup"}
+                    "escape_walled": "score_escape_walled", "escape_via": "score_escape_via",
+                    "escape_lane": "score_escape_lane", "setup": "score_setup"}
 
 
 def terms(m: dict, cfg) -> dict:
@@ -65,7 +65,6 @@ def terms(m: dict, cfg) -> dict:
     out["crossings"] = cfg.score_pair_crossing * cross.get("pair", 0) + cfg.score_crossing * sum(
         n * (price["plane"] if key == "plane" else max(price[k] for k in key.split("+")))
         for key, n in cross.items() if key != "pair")
-    out["escape_via"] = 0.0     # no measure yet: the surface-lane judgement (a later task) counts the vias it needs
     out["airwire"] = float(m.get("airwire_mm") or 0.0) \
         + (cfg.score_impedance - 1.0) * float(m.get("airwire_impedance_mm") or 0.0)
     out["link"] = cfg.score_link * float(m.get("link_mm") or 0.0)
@@ -136,7 +135,7 @@ _MEASURED_APART = ("unplaced", "link_over", "pair_crossed", "arrangement")     #
 # (`whole`). The rest (unplaced, drc, findings, give-way, back face) are counted from the plan alone.
 WHOLE_TERMS = ("airwire", "crossings", "link", "link_over", "push", "escape_crossed", "escape_closed", "escape_walled",
                "escape_via", "congestion", "area")
-_ESCAPE_KINDS = ("escape_crossed", "escape_closed", "escape_walled")
+_ESCAPE_KINDS = ("escape_crossed", "escape_closed", "escape_walled", "escape_via")
 
 
 def _signal_edges(board, occ):
@@ -194,10 +193,11 @@ def _frame_area(board, occ, plan) -> float:
     return (frame.right - frame.left) * (frame.bottom - frame.top)
 
 
-def _incremental(board, occ, plan) -> dict:
+def _incremental(board, occ, plan, escapes: bool = True) -> dict:
     """The raw measures of the terms in WHOLE_TERMS, of the board as the occupancy stands: the plan supplies the
-    links, pushes, findings and the fit. Escapes are the plan's findings (so counted once a run has reported them)."""
-    from .findings import Finding
+    links, pushes and the fit. Escapes are counted as the escape findings judge them on the occupancy
+    (`escapes.Escapes.found`), so the count is right at any moment of a resolve; `escapes=False` leaves them out, for
+    a caller that counts the plan's findings."""
     from .ratsnest import KIND_IMPEDANCE
     cfg = board.settings
     edges, quiet, kinds, partners = _signal_edges(board, occ)
@@ -221,10 +221,9 @@ def _incremental(board, occ, plan) -> dict:
         seen.add(id(p))
         pushes += p.achieved_value / p.limit
     found: dict = {}
-    for f in plan.findings:
-        kind = f.kind if isinstance(f, Finding) else "setup"
-        if kind in _ESCAPE_KINDS:
-            found[kind] = found.get(kind, 0) + 1
+    if escapes:
+        from .escapes import judging
+        found = {k: len(v) for k, v in judging(occ).found().items() if v}
     out = {"crossings": per_class, "airwire_mm": round(wire, 3),
            "airwire_impedance_mm": round(impedance, 3), "link_mm": round(link_mm, 6),
            "link_excess": round(excess, 6), "pushes": round(pushes, 6), "findings": found,
@@ -236,8 +235,8 @@ def _incremental(board, occ, plan) -> dict:
 
 
 def whole(board, occ, plan) -> dict:
-    """{term: mm} of WHOLE_TERMS for the board as the occupancy stands (R3): `plan` supplies its links, pushes,
-    escape findings and fit. Congestion is the worst RUDY cell over the occupancy as `Board._rudy` takes it."""
+    """{term: mm} of WHOLE_TERMS for the board as the occupancy stands (R3): `plan` supplies its links, pushes and
+    fit; escapes are judged on the occupancy. Congestion is the worst RUDY cell over the occupancy as `Board._rudy` takes it."""
     t = terms(_incremental(board, occ, plan), board.settings)
     return {k: t[k] for k in WHOLE_TERMS}
 
@@ -262,7 +261,7 @@ def plan_measures(board, plan) -> dict:
         kind = f.kind if isinstance(f, Finding) else "setup"
         if kind not in _MEASURED_APART:
             found[kind] = found.get(kind, 0) + 1
-    out = _incremental(board, plan.occupancy, plan)
+    out = _incremental(board, plan.occupancy, plan, escapes=False)
     out.update({"v": MEASURES_VERSION, "unplaced": unplaced, "drc": 0, "findings": found,
                 "giveway": round(sum(a.cost for a in plan.given_way), 6),
                 "back_face": sum(1 for s in plan.steps if s.back_face and s.placement is not None

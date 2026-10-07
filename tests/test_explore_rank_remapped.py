@@ -17,8 +17,8 @@ from tests.pinmap_boards import quad_footprint, settings
 
 NETS = ["A", "B", "C", "D", "E", "F"]
 FOCUS = frozenset("r%d" % k for k in range(1, 7))
-# seeds of PoolBoard: 29 has the best run score, 28 the best after its remap (one weighted crossing, 4 mm, removed)
-PLAIN_BEST, REMAPPED_BEST = 29, 28
+# seeds of PoolBoard: 104 has the best run score, 194 the best after its remap (one weighted crossing, 4 mm, removed)
+PLAIN_BEST, REMAPPED_BEST = 104, 194
 SEEDS = [0, REMAPPED_BEST, PLAIN_BEST]
 
 
@@ -59,17 +59,17 @@ def _search(tmp_path, make, **kw):
 
 
 def test_the_seeds_score_as_the_tests_say():
-    """The premise: seed 28 is worse than 29 by run score, better after its remap."""
+    """The premise: seed 194 is worse than 104 by run score, better after its remap."""
     got = {}
     for seed in SEEDS[1:]:
         b = PoolBoard(rank=True)()
         p = b.resolve(explore=explore.Explore(seed, FOCUS))
         total = explore.score(b, p)
         got[seed] = (total, explore.ranked(b, p, total))
-    (plain28, r28), (plain29, r29) = got[REMAPPED_BEST], got[PLAIN_BEST]
-    assert plain28 > plain29 and r28["score_remapped"] < r29["score_remapped"]
-    assert r28["remap"]["crossings"] == 1.0 and r28["remap"]["saving"] == 4.0          # score.crossing's 4 mm
-    (g,) = r28["remap"]["groups"]
+    (plain_r, r_r), (plain_p, r_p) = got[REMAPPED_BEST], got[PLAIN_BEST]
+    assert plain_r > plain_p and r_r["score_remapped"] < r_p["score_remapped"]
+    assert r_r["remap"]["crossings"] == 1.0 and r_r["remap"]["saving"] == 4.0          # score.crossing's 4 mm
+    (g,) = r_r["remap"]["groups"]
     assert g["refs"] == ["U1"] and g["map"] and g["best"] < g["present"]
 
 

@@ -23,10 +23,11 @@ walls it off."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 import math
 import re
 
-from .geometry import point_in_polygon, point_segment_distance, polys_overlap
+from .geometry import point_in_polygon, point_segment_distance, polys_overlap, segments_intersect
 from .occupancy import ALLOW_SEP
 from .values import Box, CopperLayer, Location
 
@@ -148,6 +149,178 @@ def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> l
     return out
 
 
+# ------------------------------------------------------------ surface lanes
+# The escape findings and the run score judge a pad by the cheapest way its track can leave it (placemat's own rule, not
+# a KiCad rule; docs/superpowers/specs/2026-10-07-surface-escapes-design.md). A surface lane is a straight track of the
+# net's class, kept its clearance (`Occupancy.pair_clearance`) from every other net's pads, planned tracks and vias on
+# one of the pad's own layers, and `hole_clearance` from unplated holes. It runs in two legs: out of the pin field along
+# the pin's normal (empty for a part of two pads or one), then straight in one of eight compass directions until it is
+# `score.escape_reach` from the pad's centre. A lane is toward the pad's target when its second leg is within 90 degrees
+# of the direction to the nearest other placed pad of its net. A via spot is a via of the net's class touching the pad's
+# edge in each direction a corridor takes (`pad_corridors`), and one where the first leg leaves the pin field (on the
+# leg, a via's clearance past the box round the part's other pads); it is clear of every other net's copper on every
+# layer, of unplated holes and of via bans. A pad whose own net's copper already leaves it is not judged: its way out is
+# made.
+class Way(Enum):
+    """A judged pad's cheapest way out (`price`)."""
+    SURFACE = "surface"     # a surface lane toward its target
+    VIA = "via"             # none, but a via fits beside it
+    AWAY = "away"           # neither, but a surface lane another way
+    WALLED = "walled"       # none of these
+
+
+def price(way: Way, settings) -> float:
+    """What a pad whose cheapest way out is `way` costs in the run score."""
+    return {Way.SURFACE: 0.0, Way.VIA: settings.score_escape_via, Way.AWAY: settings.score_escape_closed,
+            Way.WALLED: settings.score_escape_walled}[way]
+
+
+@dataclass(frozen=True)
+class Lane:
+    ref: str
+    number: str
+    net: str
+    layers: frozenset
+    legs: tuple             # ((a, b), (b', c)): the track's centre line out of the pin field, then on; an empty leg is (p, p)
+    box: Box                # round the legs' centre lines
+    direction: tuple        # the second leg's unit direction, board frame
+    toward_ok: bool = True  # the second leg is within 90 degrees of `pad_lanes`'s `toward` for the pad (True without one)
+
+
+@dataclass(frozen=True)
+class ViaSpot:
+    ref: str
+    number: str
+    net: str
+    box: Box                # round the via's copper
+    circle: tuple           # (x, y, radius) of the via's copper
+
+
+_COMPASS = tuple((round(math.cos(math.radians(a)), 12) + 0.0, round(math.sin(math.radians(a)), 12) + 0.0)
+                 for a in range(0, 360, 45))
+
+
+def _exit(box: Box, ux: float, uy: float) -> float:
+    """How far from the box's centre a ray along (ux, uy) leaves it."""
+    tx = box.width / 2.0 / abs(ux) if abs(ux) > 1e-12 else math.inf
+    ty = box.height / 2.0 / abs(uy) if abs(uy) > 1e-12 else math.inf
+    return min(tx, ty)
+
+
+def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = None) -> tuple:
+    """(lanes, via spots) of one part's judged pads: `pads` maps a pad number to (net, layers, box) as the part stands
+    (or would stand). A pad is judged when its net is not quiet, the pad is not left unconnected (`_unconnected`) and its
+    net has two pads or more. `toward` maps a pad number to the direction of its target, for each lane's `toward_ok`.
+
+    The first leg runs from the pad's edge along its pin normal out of the box round the part's other pads, and on
+    until a second leg at 45 degrees from its end keeps a lane's reach (half the track and the clearance) from each of
+    those pads' corners: on a fine pitch the neighbours' tips stand within that reach of a diagonal from the box's edge.
+    A part of two pads or one has no first leg, and its second legs start at the pad's edge in their own direction."""
+    from .placer import _pin_normal
+    if len(pads) < occ.settings.place_escape_min_pads:
+        return [], []
+    centres = {(ref, n): b.center for n, (_, _, b) in pads.items()}
+    body = Box.union([b for _, _, b in pads.values()]).center
+    reach = occ.settings.score_escape_reach
+    sizes = _net_sizes(occ)
+    lanes, spots = [], []
+    for number, (net, layers, box) in sorted(pads.items()):
+        if not net or sizes.get(net, 0) < 2 or net in occ.quiet_nets or _unconnected(occ, ref, number, net):
+            continue
+        c = box.center
+        d = _pin_normal(centres, ref, c, rotation, box)
+        if d is None:
+            ux, uy = c.x - body.x, c.y - body.y
+            n = math.hypot(ux, uy)
+            d = (ux / n, uy / n) if n > 1e-9 else (1.0, 0.0)
+        d = (round(d[0], 9) + 0.0, round(d[1], 9) + 0.0)
+        nc = occ.geometry.netclass(net)
+        half = nc.track_width / 2.0 + nc.clearance
+        r = nc.via_diameter / 2.0
+        h = _exit(box, *d)
+        start = (c.x + d[0] * h, c.y + d[1] * h)
+        first = out = 0.0
+        if len(pads) > 2:
+            others = [b for n, (_, _, b) in pads.items() if n != number]
+            first = out = max(0.0, max((qx - start[0]) * d[0] + (qy - start[1]) * d[1]
+                                       for qx, qy in _box_poly(Box.union(others))))
+            # on until a 45-degree leg from its end keeps a lane's reach from every corner of those pads: a corner
+            # `back` behind the end and `side` to one side is (side + back) / sqrt 2 from that leg's centre line
+            ex, ey = start[0] + d[0] * first, start[1] + d[1] * first
+            more = 0.0
+            for b in others:
+                for qx, qy in _box_poly(b):
+                    along = (qx - ex) * d[0] + (qy - ey) * d[1]
+                    side = abs((qx - ex) * d[1] - (qy - ey) * d[0])
+                    more = max(more, half * math.sqrt(2.0) - side + along)
+            first += more
+        end = (start[0] + d[0] * first, start[1] + d[1] * first)
+        aim = None if toward is None else toward.get(number)
+        field = len(pads) > 2
+        for ux, uy in _COMPASS:
+            if field:
+                a = end
+            else:
+                e = _exit(box, ux, uy)
+                a = (c.x + ux * e, c.y + uy * e)
+            px, py = a[0] - c.x, a[1] - c.y
+            b = px * ux + py * uy
+            q = b * b - (px * px + py * py - reach * reach)
+            length = max(0.0, -b + math.sqrt(q)) if q > 0.0 else 0.0
+            f = (a[0] + ux * length, a[1] + uy * length)
+            legs = ((start, end), (a, f)) if field else ((a, a), (a, f))
+            ok = aim is None or ux * aim[0] + uy * aim[1] > 1e-9
+            lanes.append(Lane(ref, number, net, frozenset(layers), legs, Box.of_points([p for leg in legs for p in leg]),
+                              (ux, uy), ok))
+        dirs = [d]
+        if len(pads) <= 2:
+            dirs += [(-d[1], d[0]), (d[1], -d[0])]
+            if len(pads) == 1:
+                dirs.append((-d[0], -d[1]))
+        at = [(c.x + ux * (_half(box, ux, uy) + r), c.y + uy * (_half(box, ux, uy) + r)) for ux, uy in dirs]
+        if first > 0.0:                     # where the lane leaves the pin field: a via's clearance past its box
+            t = max(first, out + r + nc.clearance)
+            at.append((start[0] + d[0] * t, start[1] + d[1] * t))
+        for x, y in at:
+            spots.append(ViaSpot(ref, number, net, Box(x - r, y - r, x + r, y + r), (x, y, r)))
+    return lanes, spots
+
+
+def _seg_poly_distance(a, b, poly) -> float:
+    """The least distance from segment a-b to the polygon, 0 when they meet."""
+    if point_in_polygon(a, poly):
+        return 0.0
+    n = len(poly)
+    best = math.inf
+    for k in range(n):
+        p, q = poly[k], poly[(k + 1) % n]
+        if segments_intersect(a, b, p, q):
+            return 0.0
+        best = min(best, point_segment_distance(p, a, b), point_segment_distance(a, p, q), point_segment_distance(b, p, q))
+    return best
+
+
+def _point_poly_distance(p, poly) -> float:
+    if point_in_polygon(p, poly):
+        return 0.0
+    n = len(poly)
+    return min(point_segment_distance(p, poly[k], poly[(k + 1) % n]) for k in range(n))
+
+
+def _box_gap(a: Box, b: Box) -> float:
+    dx = max(a.left - b.right, b.left - a.right, 0.0)
+    dy = max(a.top - b.bottom, b.top - a.bottom, 0.0)
+    return math.hypot(dx, dy)
+
+
+def judging(occ):
+    """The Escapes the escape findings and the run score are judged with: the board's own when it keeps
+    `score.escape_depth` (the depth of the walled lanes' and hand-offs' path search), else one at that depth."""
+    depth = occ.settings.score_escape_depth
+    esc = occ.escapes()
+    return esc if depth == esc.depth else Escapes(occ, mirror=False, depth=depth)
+
+
 def _pads_of(shapes, ref) -> dict:
     pads: dict = {}
     for s in shapes:
@@ -210,6 +383,7 @@ class Escapes:
         # every refresh, it answers `closed`. `_nid` is each corridor's id there.
         self.mirror = occ.ratsnest().mirror if mirror else None
         self._nid: dict = {}
+        self._lane_cache: dict = {}     # ref -> (lanes, via spots, pads) where it stands: the surface-lane judgement's
         if self.mirror is not None:
             self.mirror.esc_set_quiet(sorted(occ.quiet_nets))
         self.refresh(set(occ.items), copper=True)
@@ -221,6 +395,7 @@ class Escapes:
         vacated = []
         touched = []
         for ref in refs:
+            self._lane_cache.pop(ref, None)
             for c in self._corr.pop(ref, ()):
                 self._cgrid.remove(c, c.box)
                 self._open.pop(id(c), None)
@@ -360,6 +535,182 @@ class Escapes:
     @staticmethod
     def _toward(c, targets) -> bool:
         return c.via or targets is None or any(c.direction[0] * dx + c.direction[1] * dy > 1e-9 for dx, dy in targets)
+
+    # ------------------------------------------------------------ surface lanes
+    def _lanes_of(self, ref) -> tuple:
+        hit = self._lane_cache.get(ref)
+        if hit is None:
+            g = self.occ.items[ref]
+            pads = _pads_of(g.shapes, ref)
+            lanes, spots = pad_lanes(self.occ, ref, pads, g.reference.rotation)
+            hit = (lanes, spots, pads)
+            self._lane_cache[ref] = hit
+        return hit
+
+    def lanes(self, ref: str, number: str) -> list:
+        """The pad's surface lanes where it stands (none when it is not judged)."""
+        return [l for l in self._lanes_of(ref)[0] if l.number == number]
+
+    def _bans(self) -> list:
+        """Every rule area that forbids vias, of the planned copper and the placed parts."""
+        occ = self.occ
+        return [s for pool in ([occ.copper] + [g.shapes for r, g in occ.items.items() if r not in occ.pending])
+                for s in pool if s.kind == "viaban"]
+
+    def _foes(self, box: Box, net: str, ref: str, number: str) -> list:
+        """(shape, a track centre's reach from it, a via centre's reach less the via's radius) of what stands near
+        `box` that a lane or via of `net` from pad `ref` `number` keeps clear of: other nets' pads, tracks, vias and
+        escape lanes, and unplated holes. Pours give way to a track and are left out."""
+        occ = self.occ
+        geom = occ.geometry
+        nc = geom.netclass(net)
+        half = nc.track_width / 2.0
+        eps = geom.drc_epsilon
+        out = []
+        for s in self._bgrid.near(box):
+            if s.kind == "npth":
+                clr = geom.hole_clearance
+            elif ((s.kind in ("pad", "through") or (s.kind == "copper" and (s.wire or s.lane)))
+                  and (s.net != net or not net) and not (s.owner == ref and s.label == number)):
+                clr = occ.pair_clearance(net, s.net, "", s.owner, True, s.wire)[0]
+            else:
+                continue
+            out.append((s, half + clr - eps, clr - eps))
+        return out
+
+    def _lane_blocked(self, lane: Lane, foes) -> list:
+        """The foes that close the lane on every layer it could run on: the lane is open when this is empty."""
+        hit: dict = {}                      # layer -> [shape]
+        for s, reach, _ in foes:
+            if s.kind != "npth" and not (s.layers & lane.layers):
+                continue
+            if _box_gap(s.box, lane.box) >= reach:
+                continue
+            if any(_seg_poly_distance(a, b, s.poly) < reach for a, b in lane.legs):
+                for layer in (lane.layers if s.kind == "npth" else s.layers & lane.layers):
+                    hit.setdefault(layer, []).append(s)
+        if any(layer not in hit for layer in lane.layers):
+            return []
+        return [s for ss in hit.values() for s in ss]
+
+    def _spot_blocked(self, spot: ViaSpot, foes, bans) -> list:
+        x, y, r = spot.circle
+        out = []
+        for s, _, clr in foes:
+            if _box_gap(s.box, spot.box) < clr and _point_poly_distance((x, y), s.poly) < r + clr:
+                out.append(s)
+        for s in bans:
+            if s.box.overlaps(spot.box) and spot.net not in s.net.split(ALLOW_SEP) \
+                    and _point_poly_distance((x, y), s.poly) < r:
+                out.append(s)
+        return out
+
+    def lane_open(self, lane: Lane) -> bool:
+        """Whether nothing closes the lane where the board stands."""
+        return not self._lane_blocked(lane, self._foes(self._reach(lane.box, lane.net), lane.net, lane.ref, lane.number))
+
+    def _reach(self, box: Box, net: str) -> Box:
+        """`box` grown by as far as any foe can reach a track or via of `net`."""
+        geom = self.occ.geometry
+        nc = geom.netclass(net)
+        rules = self.occ.rules.largest() if self.occ.rules else 0.0
+        clr = max(nc.clearance, geom.hole_clearance, rules,
+                  max([c.clearance for c in geom.netclasses.values()], default=0.0))
+        return box.inflate(max(nc.track_width / 2.0, nc.via_diameter / 2.0) + clr)
+
+    def _aim(self, ref: str, number: str, net: str, at: Location):
+        """The direction from the pad to the nearest other placed pad of its net, None when there is none."""
+        best = None
+        for a in self.occ.ratsnest()._anchors.get(net, ()):
+            if (a.ref, a.number) == (ref, number):
+                continue
+            d = (a.x - at.x) ** 2 + (a.y - at.y) ** 2
+            if best is None or d < best[0]:
+                best = (d, (a.x - at.x, a.y - at.y))
+        return None if best is None else best[1]
+
+    def _verdict(self, ref: str, number: str, bans) -> tuple | None:
+        """(way, what blocks) for one pad, None when it is not judged: its net is quiet, unconnected or has no other pad
+        placed, or copper of its own net (planned copper, another part's pad) already leaves it: its way out is made."""
+        lanes_all, spots_all, pads = self._lanes_of(ref)
+        lanes = [l for l in lanes_all if l.number == number]
+        if not lanes:
+            return None
+        net = lanes[0].net
+        centre = pads[number][2].center
+        aim = self._aim(ref, number, net, centre)
+        if aim is None or self._joined(ref, number, net) or self._on_own_net_pad(ref, number, net):
+            return None
+        spots = [p for p in spots_all if p.number == number]
+        region = Box.union([l.box for l in lanes] + [p.box for p in spots])
+        foes = self._foes(self._reach(region, net), net, ref, number)
+        toward = [l for l in lanes if abs(aim[0]) + abs(aim[1]) < 1e-12
+                  or l.direction[0] * aim[0] + l.direction[1] * aim[1] > 1e-9]
+        shut = {id(l): self._lane_blocked(l, foes) for l in lanes}
+        if any(not shut[id(l)] for l in toward):
+            return Way.SURFACE, []
+        occ = self.occ
+        by = {_by(occ, s) for l in toward for s in shut[id(l)]}
+        spot_shut = [self._spot_blocked(p, foes, bans) for p in spots]
+        if any(not b for b in spot_shut):
+            way = Way.VIA
+        elif any(not shut[id(l)] for l in lanes):
+            way = Way.AWAY
+        else:
+            way = Way.WALLED
+            by |= {_by(occ, s) for l in lanes for s in shut[id(l)]}
+            by |= {_by(occ, s) if s.kind != "viaban" else Owner("who", s.owner) for b in spot_shut for s in b}
+        named = sorted(by, key=str)
+        return way, [b for b in named if str(b) != ref] or named
+
+    def _on_own_net_pad(self, ref: str, number: str, net: str) -> bool:
+        """Whether another part's pad of the pad's own net stands on it (a pad on a net tie's pad): joined already."""
+        for p in self._blockers.get(ref, ()):
+            if p.label != number:
+                continue
+            for s in self._bgrid.near(p.box):
+                if (s.kind in ("pad", "through") and s.net == net and s.owner != ref and s.layers & p.layers
+                        and s.box.overlaps(p.box) and polys_overlap(s.poly, p.poly)):
+                    return True
+        return False
+
+    def judge(self, ref: str, number: str) -> Way | None:
+        """The pad's cheapest way out where the board stands, None when it is not judged."""
+        v = self._verdict(ref, number, self._bans())
+        return None if v is None else v[0]
+
+    def judged(self) -> list:
+        """(ref, number, net, way, what blocks) of every judged pad on the board as it stands, by ref and pad number."""
+        occ = self.occ
+        bans = self._bans()
+        out = []
+        for ref in sorted(occ.items):
+            if ref in occ.pending or not occ.geometry.has_footprint(ref):
+                continue
+            for number, net in dict.fromkeys((l.number, l.net) for l in self._lanes_of(ref)[0]):
+                v = self._verdict(ref, number, bans)
+                if v is not None:
+                    out.append((ref, number, net, v[0], v[1]))
+        return out
+
+    def found(self) -> dict:
+        """The escape findings' records over the board as it stands, by kind: `escape_crossed` (part, edge, edge)
+        crossed within this Escapes' depth; `escape_via` (ref, number, net, by); `escape_closed` (ref, number, net, by,
+        joins); `escape_walled` (ref, number, net, by, variant): a pad judged walled, a declared lane that runs out
+        (`lanes_walled`) or a hand-off pin walled in (`handoffs_walled`, variant "handoff")."""
+        via, closed, walled = [], [], []
+        for ref, number, net, way, by in self.judged():
+            if way is Way.VIA:
+                via.append((ref, number, net, by))
+            elif way is Way.AWAY:
+                closed.append((ref, number, net, by, self._joins(ref, number, net)))
+            elif way is Way.WALLED:
+                walled.append((ref, number, net, by, "walled"))
+        seen = {(w[0], w[1]) for w in walled}
+        walled += [(r, n, net, by, "walled") for r, n, net, by, _ in self.lanes_walled() if (r, n) not in seen]
+        walled += [(r, n, net, by, "handoff") for r, n, net, by in self.handoffs_walled()]
+        return {"escape_crossed": self.occ.ratsnest().crossed_pair_list(self.depth), "escape_via": via,
+                "escape_closed": closed, "escape_walled": walled}
 
     def confirmed(self) -> tuple:
         """(closed, walled): the pads the path search confirms, each as

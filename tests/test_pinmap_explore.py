@@ -74,7 +74,7 @@ def test_an_explore_reports_the_study_of_its_best_variant_first(tmp_path):
     assert all(m["groups"] and m["groups"][0]["refs"] == ["U1"] for m in maps)
 
 
-# seeds 0-7 of `_searched_board` rank 2, 6, 5 first: the best is not seed 0, and the other two are resolved again
+# seeds 0-7 of `_searched_board` rank 2, 1, 3 first: the best is not seed 0, and the other two are resolved again
 SEEDS = range(0, 8)
 
 
@@ -107,7 +107,7 @@ def test_the_best_variant_is_studied_on_the_plan_the_search_resolved_for_it(tmp_
     make = _Counting()
     calls = _spied(monkeypatch, make)
     report, _ = search(make, tmp_path / "Board_layout.py", seconds=60, jobs=1, seeds=SEEDS)
-    assert report["best_seed"] == 2 and [m["seed"] for m in report["pin_maps"]] == [2, 6, 5]
+    assert report["best_seed"] == 2 and [m["seed"] for m in report["pin_maps"]] == [2, 1, 3]
     assert calls == [{"entries": [], "seeds": [0, 2], "made": 2}]
 
 
@@ -118,7 +118,7 @@ def test_with_accept_the_variants_are_studied_under_the_lock_they_were_ranked_un
     report, entries = search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, accept=True)
     assert report["accepted"] and entries and lock.path_for(script).exists()
     assert [c["entries"] for c in calls] == [[]]
-    assert [m["seed"] for m in report["pin_maps"]] == [2, 6, 5]
+    assert [m["seed"] for m in report["pin_maps"]] == [2, 1, 3]
 
 
 def test_pins_explore_top_sets_how_many_variants_are_studied():
