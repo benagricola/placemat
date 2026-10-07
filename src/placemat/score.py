@@ -318,7 +318,7 @@ def placement_key(row, ranks=None):
     digest, so the recorded objective remains authoritative on resume. Validity
     precedes that objective using available placement evidence (including known
     DRC counts); plan-only rows do not certify DRC. Optional pin-remapped
-    objectives replace it. Seed
+    objectives replace it only with a bound physical comparison receipt. Seed
     order breaks exact ties deterministically across worker completion orders,
     with the plain seed 0 retained on a tie. Missing evidence ranks last.
     """
@@ -326,7 +326,10 @@ def placement_key(row, ranks=None):
     if measures is None:
         return (1, True, (), math.inf, seed)
     validity = Validity.of(measures, drc_new=measures.get("drc"))
-    return (0, not validity.valid, validity.key(), (ranks or {}).get(seed, objective), seed)
+    if seed in (ranks or {}) or 'placement_comparison' in measures:
+        from .score_virtual import standing
+        validity, objective = standing(row, measures.get('placement_comparison'))
+    return (0, not validity.valid, validity.key(), objective, seed)
 
 
 # Measured from the plan itself, not counted from its findings: unplaced by

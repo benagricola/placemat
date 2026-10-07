@@ -163,11 +163,14 @@ class RemapRouter(eb.StandInRouter):
 
 
 def test_the_checkpoint_ranks_by_the_remapped_score_and_a_resume_keeps_it(tmp_path):
+    from tests.test_score_virtual import proof
+    rows = [proof(seed=seed, objective=value, source_critical=0, final_critical=0, gain=gain)
+            for seed, value, gain in [(0, 100.0, 4.0), (1, 98.0, 0.0), (2, 99.0, 8.0)]]
     ck = checkpoint.Checkpoint(tmp_path, {"script": "s", "lock": "l"}, ["r1"])
-    ck.start(100.0, {}, 10.0, None, rank=96.0)
+    ck.start(100.0, rows[0][2], 10.0, None, rank=96.0)
     payload = {"entries": [], "orders": {}}
-    ck.variant(1, 98.0, {"m": 1}, 1.0, payload, rank=98.0)       # better by run score, worse ranked
-    ck.variant(2, 99.0, {"m": 2}, 2.0, payload, rank=91.0)
+    ck.variant(1, 98.0, rows[1][2], 1.0, payload, rank=98.0)       # better by run score, worse ranked
+    ck.variant(2, 99.0, rows[2][2], 2.0, payload, rank=91.0)
     ck.close()
     assert checkpoint.read_best(tmp_path)["seed"] == 2 and checkpoint.read_best(tmp_path)["score_remapped"] == 91.0
     prior = checkpoint.Checkpoint(tmp_path, {"script": "s", "lock": "l"}, ["r1"]).load()

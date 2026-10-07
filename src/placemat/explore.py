@@ -285,6 +285,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         else:                                   # the baseline is the saved one: it is the same board and settings
             baseline, base_m = prior.baseline, prior.measures
         base_rank = ranked(base_board, plain, baseline)     # studied again on a resume: the study is deterministic
+        _bind_comparison(base_board, plain, base_rank, 0, baseline, base_m)
     ranks = dict(prior.ranks) if prior is not None else {}  # {seed: score_remapped}: what the variants are ranked by
     if base_rank:
         ranks[0] = base_rank["score_remapped"]
@@ -623,6 +624,21 @@ def ranked(board, plan, total: float) -> dict:
     return {"score_remapped": total - r["saving"], "remap": r}
 
 
+def _bind_comparison(board, plan, extra, seed, total, measures):
+    """Publish the same physical receipt to live and checkpoint ranking."""
+    if not extra:
+        return
+    from .score_virtual import FIELD, receipt
+    proposal = extra.get('remap') or {}
+    if 'baseline' not in proposal or 'final' not in proposal:
+        measures[FIELD] = {'v': 1, 'scope': 'placement', 'state': 'unknown'}
+        return
+    proof = receipt(board, plan, proposal, seed, total, measures)
+    measures[FIELD] = proof
+    if proof['state'] == 'measured':
+        extra['score_remapped'] = proof['objective']
+
+
 def _context_of(make_board):
     from contextlib import nullcontext
     ctx = getattr(make_board, "context", None)
@@ -690,6 +706,7 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, pa
                 total = _total(b, m)
                 payload = _payload(b, p, focus)     # every variant carries its lock entries: any of them can be accepted
                 extra = {"placements": _placements(p, focus), "order": _order(p, focus), **ranked(b, p, total)}
+                _bind_comparison(b, p, extra if 'remap' in extra else {}, seed, total, m)
             out.put(("v", seed, total, m, payload, round(time.time() - t0, 3), extra))
     except BaseException:
         out.put(("err", idx, traceback.format_exc()))

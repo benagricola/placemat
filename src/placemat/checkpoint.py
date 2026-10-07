@@ -34,7 +34,7 @@ import time
 from typing import NamedTuple
 
 BEST_VERSION = 1
-FORMAT = 2
+FORMAT = 3
 ENTRIES = "entries.jsonl"
 
 # What the digest is made of, and what a change to each is called.
