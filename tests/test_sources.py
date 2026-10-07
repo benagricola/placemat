@@ -125,6 +125,52 @@ def test_a_cache_with_no_record_of_its_inputs_is_generated_again(tmp_path, monke
     assert len(calls) == 1
 
 
+def test_fresh_generation_keeps_old_exports_without_replacing_the_new_capture(tmp_path, monkeypatch):
+    import hashlib
+    import json
+    from placemat.capture_nets import read_capture
+
+    _, board, src = _project(tmp_path)
+    _write(src.layout_dir / "default.net", "old connectivity\n")
+    _write(src.layout_dir / "fp-lib-table", "old libraries\n")
+    _write(src.layout_dir / "notes.txt", "handwritten notes\n")
+    calls = []
+    fake_board = _fake_pcb(calls)
+
+    def generate(cmd, cwd, log, timeout, env=None):
+        result = fake_board(cmd, cwd, log, timeout, env)
+        netlist = "new connectivity\n"
+        _write(src.layout_dir / "default.net", netlist)
+        _write(src.layout_dir / "fp-lib-table", "new libraries\n")
+        _write(src.layout_dir / "nets.layout.json", json.dumps({
+            "version": 1, "netlist": {"file": "default.net", "sha256": hashlib.sha256(netlist.encode()).hexdigest()},
+            "nets": {"NEW": {"type": "Net", "fields": {}}},
+        }))
+        return result
+
+    monkeypatch.setattr(runner, "_sh", generate)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assert runner.generate(src, run_dir, fresh=True, quiet=True)
+    assert set(read_capture(src.layout_dir / "nets.layout.json").nets) == {"NEW"}
+    assert (src.layout_dir / "default.net").read_text() == "new connectivity\n"
+    assert (src.layout_dir / "fp-lib-table").read_text() == "new libraries\n"
+    assert (run_dir / "kept/default.net").read_text() == "old connectivity\n"
+    assert (run_dir / "kept/fp-lib-table").read_text() == "old libraries\n"
+    assert (src.layout_dir / "notes.txt").read_text() == "handwritten notes\n"
+    assert "original kept" in (run_dir / "generate.log").read_text()
+
+    # A later cache restore preserves the same fresh export/capture pair and
+    # still restores the file the generator never produced.
+    (src.layout_dir / "default.net").write_text("edited connectivity\n")
+    again = tmp_path / "again"
+    again.mkdir()
+    assert not runner.generate(src, again, fresh=False, quiet=True)
+    assert len(calls) == 1
+    assert set(read_capture(src.layout_dir / "nets.layout.json").nets) == {"NEW"}
+    assert (src.layout_dir / "notes.txt").read_text() == "handwritten notes\n"
+
+
 def test_the_generate_arguments_are_an_input(tmp_path):
     root, board, src = _project(tmp_path)
     import dataclasses

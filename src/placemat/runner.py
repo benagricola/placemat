@@ -188,8 +188,8 @@ def _set_aside(src: BoardSource, run_dir: Path, cache: Path, quiet: bool, keep_r
     notes = []
     hand = [r for r in foreign if str(r) not in _RENDERS]
     if hand:
-        notes.append("kept %d file(s) placemat did not write, put back after generation: %s" % (
-            len(hand), ", ".join(str(r) for r in hand)))
+        notes.append("kept %d file(s) placemat did not write in %s: %s" % (
+            len(hand), kept_dir, ", ".join(str(r) for r in hand)))
     try:
         last = latest_for(src.board_dir / ".placemat" / "runs", src.name)
     except (ValueError, OSError):
@@ -204,10 +204,21 @@ def _set_aside(src: BoardSource, run_dir: Path, cache: Path, quiet: bool, keep_r
     return foreign, notes
 
 
-def _put_back(src: BoardSource, run_dir: Path, foreign: list) -> None:
+def _put_back(src: BoardSource, run_dir: Path, foreign: list, quiet: bool) -> list:
+    """Restore files generation did not replace. A freshly generated file
+    wins a name collision; its previous contents remain in the run's kept/.
+    In particular, restoring an old netlist must not stale its new sidecar."""
+    notes = []
     for rel in foreign:
-        (src.layout_dir / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(run_dir / "kept" / rel, src.layout_dir / rel)
+        target = src.layout_dir / rel
+        if target.exists() or target.is_symlink():
+            note = "generation replaced %s; original kept as %s" % (rel, run_dir / "kept" / rel)
+            notes.append(note)
+            _say(quiet, "board   " + note)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(run_dir / "kept" / rel, target)
+    return notes
 
 
 # KiCad's lock files (~name.kicad_pro.lck) belong to an open session and may vanish while a folder is copied: never copied
@@ -235,7 +246,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
     if cache.exists() and not fresh and not stale:
         shutil.rmtree(src.layout_dir, ignore_errors=True)
         shutil.copytree(cache, src.layout_dir, ignore=_KICAD_LOCKS)
-        _put_back(src, run_dir, foreign)
+        notes.extend(_put_back(src, run_dir, foreign, quiet))
         log.write_text("restored the cached generation from %s\n" % cache + "".join(n + "\n" for n in notes))
         _say(quiet, "board   restored from cache (%s)" % cache.relative_to(src.board_dir))
         return False
@@ -256,7 +267,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
                           "exit_code": rc, "log": str(log), "tail": _tail(log)})
     shutil.rmtree(cache, ignore_errors=True)
     shutil.copytree(src.layout_dir, cache, ignore=_KICAD_LOCKS)
-    _put_back(src, run_dir, foreign)            # after the cache is taken: it holds only what was generated
+    notes.extend(_put_back(src, run_dir, foreign, quiet))  # cache holds only what was generated
     with open(log, "a") as f:
         f.writelines(n + "\n" for n in notes)
     _inputs_record(src).write_text(json.dumps(inputs, indent=1, sort_keys=True))
