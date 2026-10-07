@@ -158,6 +158,7 @@ def test_fresh_generation_keeps_old_exports_without_replacing_the_new_capture(tm
     assert (run_dir / "kept/default.net").read_text() == "old connectivity\n"
     assert (run_dir / "kept/fp-lib-table").read_text() == "old libraries\n"
     assert (src.layout_dir / "notes.txt").read_text() == "handwritten notes\n"
+
     assert "original kept" in (run_dir / "generate.log").read_text()
 
     # A later cache restore preserves the same fresh export/capture pair and
@@ -169,6 +170,33 @@ def test_fresh_generation_keeps_old_exports_without_replacing_the_new_capture(tm
     assert len(calls) == 1
     assert set(read_capture(src.layout_dir / "nets.layout.json").nets) == {"NEW"}
     assert (src.layout_dir / "notes.txt").read_text() == "handwritten notes\n"
+
+
+def test_generation_preserves_saved_nested_files_when_a_fresh_prefix_is_a_file_or_link(tmp_path, monkeypatch):
+    _, _, src = _project(tmp_path)
+    _write(src.layout_dir / "assets/note.txt", "original asset note\n")
+    _write(src.layout_dir / "linked/note.txt", "original linked note\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    fake_board = _fake_pcb([])
+
+    def generate(cmd, cwd, log, timeout, env=None):
+        result = fake_board(cmd, cwd, log, timeout, env)
+        _write(src.layout_dir / "assets", "fresh generated asset\n")
+        (src.layout_dir / "linked").symlink_to(outside, target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(runner, "_sh", generate)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assert runner.generate(src, run_dir, fresh=True, quiet=True)
+    assert (src.layout_dir / "assets").read_text() == "fresh generated asset\n"
+    assert (src.layout_dir / "linked").is_symlink()
+    assert not list(outside.iterdir())
+    assert (run_dir / "kept/assets/note.txt").read_text() == "original asset note\n"
+    assert (run_dir / "kept/linked/note.txt").read_text() == "original linked note\n"
+    assert "generation occupies assets" in (run_dir / "generate.log").read_text()
+    assert "generation occupies linked" in (run_dir / "generate.log").read_text()
 
 
 def test_the_generate_arguments_are_an_input(tmp_path):

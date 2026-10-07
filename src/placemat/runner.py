@@ -211,8 +211,17 @@ def _put_back(src: BoardSource, run_dir: Path, foreign: list, quiet: bool) -> li
     notes = []
     for rel in foreign:
         target = src.layout_dir / rel
-        if target.exists() or target.is_symlink():
-            note = "generation replaced %s; original kept as %s" % (rel, run_dir / "kept" / rel)
+        ancestor, collision = src.layout_dir, None
+        for part in rel.parts[:-1]:
+            ancestor /= part
+            if ancestor.is_symlink() or (ancestor.exists() and not ancestor.is_dir()):
+                collision = ancestor
+                break
+        if collision is None and (target.exists() or target.is_symlink()):
+            collision = target
+        if collision is not None:
+            note = "generation occupies %s; original kept as %s" % (
+                collision.relative_to(src.layout_dir), run_dir / "kept" / rel)
             notes.append(note)
             _say(quiet, "board   " + note)
             continue
