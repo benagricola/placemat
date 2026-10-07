@@ -26,6 +26,16 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
+- **A route that fails keeps the placed board.** When `run --route` places the board and the route then fails or is
+  refused, the layout folder keeps the placed, unrouted board instead of going back to the last run's, and the run
+  says so; `run.json`'s `failure.layout` is `placed_unrouted`. Run the same command again to route it: the route
+  takes the phases the failed one finished. A failure before the board is written still puts the folder back
+  (`failure.layout` `restored`). Scripts need no change.
+- **A route that is stopped keeps the placed board.** A stop (Ctrl-C, SIGTERM, SIGHUP, `--max-time`) during the route
+  of `run --route` keeps the placed, unrouted board in the layout folder instead of going back to the last run's, and
+  the run says so; the run is recorded as `stopped`, with `failure.layout` `placed_unrouted`. Run the same command
+  again to resume the route from the phases it finished. A stop in any other stage still puts the folder back.
+  Scripts need no change.
 - **A route needs routing phases.** `placemat route`, `run --route` and explore's `--route-best` route the project's
   `[[route.phase]]` tables in order and refuse a project with none. Start from the default phases
   (`placemat settings <board> --example`), or write the one phase that routes what the old fixed stages' main pass did:

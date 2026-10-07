@@ -4587,10 +4587,18 @@ written on a stop, even with `--accept`, and `placemat lock <script>
 --accept-seed S` writes variant S from `<board>/.placemat/explore/<script
 stem>/` (refused when the lock or the script changed since). A
 stopped run's `run.json` has `status: "stopped"` and `failure: {kind:
-"stopped", signal, stage, elapsed_s, explore}`, the layout folder is as the
-last run left it, a final line names the stage and the signal, and the exit
+"stopped", signal, stage, elapsed_s, explore, layout}`, the layout folder is as the
+last run left it (except after a stop during the route: it then keeps the
+placed, unrouted board, says so, and a rerun resumes the route), a final line names the stage and the signal, and the exit
 status is 128 + the signal. While a run works its `run.json` says `status:
 "running"` and its `pid`; a record whose pid is gone died without finishing.
+
+**A failed run.** A run that fails records `status: "failed"` and `failure: {kind, message, ..., layout}`. `layout`
+says what the layout folder holds: `placed_unrouted` when the route failed or was refused after the placement was
+written (the folder keeps the placed board, and the run's last lines say so; run the same command again to route it,
+and the route takes the phases the failed one finished), `restored` when the folder was put back as the last run left
+it (a failure before the board was written), `as_written` when a critical item's failure wrote the board as it stood.
+A stopped run's `failure` carries the same `layout`.
 
 **Stages alongside.** Once the board is written, a run starts kicad-cli's DRC and its renders and runs the design
 checks while they work (`run.parallel`, on by default). The console lines, `run.json` and the exit status are those of

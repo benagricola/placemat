@@ -551,7 +551,7 @@ shapes and files: `references/api.md`, "Live progress".
 - Long commands (`run`, `preview`, `route`, above all `--explore`) stop
   safely on SIGTERM, SIGHUP or Ctrl-C and say so: the run is recorded as
   `stopped` (`status: "running"` with a `pid` while it works; a record whose
-  pid is gone died), the layout folder is as it was, the exit status is
+  pid is gone died), the layout folder is as it was (a stop during the route keeps the placed board, unrouted, and a rerun resumes the route), the exit status is
   128 + the signal (`--max-time` stops the same way, exit 143, and says how far it got), and a stopped explore prints `explore stopped by SIGTERM
   after N variants ...; nothing accepted; accept it with: placemat lock
   <script> --accept-seed N`. The lock is never written on a stop. Run a long

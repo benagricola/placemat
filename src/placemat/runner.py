@@ -213,6 +213,13 @@ def _put_back(src: BoardSource, run_dir: Path, foreign: list) -> None:
 # KiCad's lock files (~name.kicad_pro.lck) belong to an open session and may vanish while a folder is copied: never copied
 _KICAD_LOCKS = shutil.ignore_patterns("~*.lck", "*.lck")
 
+# What a failed run's last lines say of the layout folder, by `failure.layout` ("as_written" says nothing)
+_LAYOUT_SAID = {
+    "placed_unrouted": "the layout folder holds the placed board, unrouted; run the same command again to route it: "
+                       "the route's work is kept in %(route)s",
+    "restored": "the layout folder is as the last run left it",
+}
+
 
 def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
              timeout: int = 900, keep_renders: bool = False) -> bool:
@@ -832,10 +839,19 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         channel.error("run_failure", str(e.details.get("script") or ""), e.details.get("line"), **e.record())
         say("fail", str(e), level="fail")
         kept = run_dir / "before"
-        if kept.exists() and "item" not in e.details:     # a critical item's failure writes the board as it stood
+        if e.kind == "route":
+            # the placement finished and the board is written: keep it, unrouted, with the route's work in
+            # run_dir/route for the rerun (a failed long command keeps its work)
+            layout = "placed_unrouted"
+        elif kept.exists() and "item" not in e.details:     # a critical item's failure writes the board as it stood
             shutil.rmtree(src.layout_dir, ignore_errors=True)
             shutil.copytree(kept, src.layout_dir, ignore=_KICAD_LOCKS)
-            say("fail", "the layout folder is as the last run left it")
+            layout = "restored"
+        else:
+            layout = "as_written"
+        rec.failure["layout"] = layout
+        if layout in _LAYOUT_SAID:
+            say("fail", _LAYOUT_SAID[layout] % {"route": run_dir / "route"})
         for k in ("script", "line", "source", "error", "command", "cwd", "exit_code", "log"):
             if e.details.get(k) is not None:
                 say("fail", "%-9s %s" % (k, e.details[k]))
@@ -850,9 +866,19 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         rec.failure = {"kind": "stopped", "signal": s.name, "stage": s.stage, "elapsed_s": round(time.time() - began, 1),
                        "explore": s.explore, **stop.cause_fields(s)}
         kept = run_dir / "before"
-        if kept.exists():                  # whatever the stop left half written: the folder as the last run left it
+        if stage == "route":
+            # the placement finished and the board is written: keep it, unrouted, with the route's work in
+            # run_dir/route for the rerun (a stopped long command keeps its work)
+            layout = "placed_unrouted"
+        elif kept.exists():                # whatever the stop left half written: the folder as the last run left it
             shutil.rmtree(src.layout_dir, ignore_errors=True)
             shutil.copytree(kept, src.layout_dir, ignore=_KICAD_LOCKS)
+            layout = "restored"
+        else:
+            layout = "as_written"
+        rec.failure["layout"] = layout
+        if layout == "placed_unrouted":
+            say("stop", _LAYOUT_SAID[layout] % {"route": run_dir / "route"})
     if rec.status == "ok":
         shutil.rmtree(run_dir / "before", ignore_errors=True)    # only a failure needs it
     try:
@@ -874,7 +900,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     if stopped is not None:
         say("record", str(run_dir / "run.json"))
         info = stop.record(stopped, run_id=rec.run_id, elapsed_s=rec.failure["elapsed_s"], record=str(run_dir / "run.json"),
-                           explore=stopped.explore)
+                           explore=stopped.explore,
+                           layout=rec.failure["layout"])
         stop.say(stop.line(info))
         stopped.said = True
         channel.stopped(info)               # the studios and `placemat watch` are told it was stopped, not that it died
