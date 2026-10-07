@@ -16,6 +16,28 @@
 //!   Rust's `{:.9}` (also correctly rounded from the exact value, ties to
 //!   even) and parses the decimal back.
 
+// float_pow calls the platform C pow even for exponent 2. Multiplication
+// or powi may differ by one ulp, which can change an equal-distance target.
+// Keep the C call and opaque exponent so LLVM cannot fold a known exponent
+// into x*x while simplifying standard library calls during LTO.
+#[cfg_attr(unix, link(name = "m"))]
+unsafe extern "C" {
+    #[link_name = "pow"]
+    fn c_pow(x: f64, exponent: f64) -> f64;
+}
+
+pub fn square(x: f64) -> f64 {
+    // The caller supplies finite coordinate differences within the native
+    // geometry bound; exponent 2 is always a real, finite result there.
+    // float_pow normalizes a negative base before the C call for an even
+    // exponent, and returns directly for 0/1 (CPython 3.12 floatobject.c).
+    let x = x.abs();
+    if x == 0.0 || x == 1.0 {
+        return x;
+    }
+    unsafe { c_pow(x, std::hint::black_box(2.0)) }
+}
+
 /// 2**k exactly, for k in [-1074, 1023].
 fn pow2(k: i32) -> f64 {
     if k >= -1022 {

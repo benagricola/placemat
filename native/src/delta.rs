@@ -315,6 +315,15 @@ struct Touched {
     added: Vec<Node>,
     tree: TreeDelta,
     evaluated: Vec<Node>,
+    anchor_order: Vec<usize>,
+}
+
+fn anchor_order(nodes: &[Node]) -> Vec<usize> {
+    let mut order: Vec<_> = (0..nodes.len()).collect();
+    // Python's candidate ratsnest sorts by (ref, number), stably. Neither
+    // nm endpoint order nor the MST edge order defines a nearest-target tie.
+    order.sort_by(|&a, &b| (&nodes[a].2, &nodes[a].3).cmp(&(&nodes[b].2, &nodes[b].3)));
+    order
 }
 
 struct AnchorAffine {
@@ -355,6 +364,8 @@ pub struct Delta {
     signal: HashSet<String>,
     impedance: f64,
     affines: Option<Vec<Vec<Vec<AnchorPose>>>>,
+    net_index: HashMap<String, usize>,
+    anchor_orders: Vec<Vec<usize>>,
 }
 
 impl Delta {
@@ -425,7 +436,8 @@ impl Delta {
                 }
                 let tree = TreeDelta::new(&snapshot.nodes, &snapshot.edges, &added)?;
                 let evaluated = added.clone();
-                touched.push(Touched { index, added, tree, evaluated });
+                let anchor_order = anchor_order(&tree.nodes);
+                touched.push(Touched { index, added, tree, evaluated, anchor_order });
             }
             turns.push(touched);
         }
@@ -448,6 +460,8 @@ impl Delta {
                     .collect()
             })
             .collect();
+        let net_index = snapshots.iter().enumerate().map(|(i, s)| (s.name.clone(), i)).collect();
+        let anchor_orders = snapshots.iter().map(|s| anchor_order(&s.nodes)).collect();
         let delta = Self {
             snapshots,
             turns,
@@ -455,6 +469,8 @@ impl Delta {
             signal: signal.into_iter().collect(),
             impedance,
             affines: None,
+            net_index,
+            anchor_orders,
         };
         Ok(delta)
     }
@@ -561,6 +577,33 @@ impl Delta {
             }
         }
         Ok((wire, self.crossing_change(&self.turns[turn])))
+    }
+
+    /// Query after this turn's wire_cross: retain raw CPython squared-distance
+    /// and stable ref/pad tie semantics. Prepared escapes call directly in Rust
+    /// after one evaluation, without Python anchor reconstruction/callbacks.
+    pub fn aim(&self, turn: usize, net: &str, owner: &str, number: &str,
+               at: (f64, f64)) -> Result<Option<(f64, f64)>, String> {
+        if turn >= self.turns.len() || !point_valid(at.0, at.1) {
+            return Err("NativeDelta aim turn/centre invalid".into());
+        }
+        let Some(&index) = self.net_index.get(net) else { return Ok(None); };
+        // A quiet net never asks for a directional target in _verdict.
+        if !self.signal.contains(net) { return Ok(None); }
+        let (nodes, order) = if let Some(touched) = self.turns[turn].iter().find(|t| t.index == index) {
+            (&touched.tree.nodes, &touched.anchor_order)
+        } else {
+            (&self.snapshots[index].nodes, &self.anchor_orders[index])
+        };
+        let mut best = None;
+        for &index in order {
+            let p = &nodes[index];
+            if p.2 == owner && p.3 == number { continue; }
+            let direction = (p.0 - at.0, p.1 - at.1);
+            let distance = crate::exact::square(direction.0) + crate::exact::square(direction.1);
+            if best.is_none_or(|(d, _)| distance < d) { best = Some((distance, direction)); }
+        }
+        Ok(best.map(|(_, direction)| direction))
     }
 
     /// After wire_cross solved this turn: the same signed bilinear expansion

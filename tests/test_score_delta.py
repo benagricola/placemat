@@ -167,6 +167,10 @@ def test_sparse_candidate_view_preserves_raw_nearest_ties_and_multiland_anchor_i
     occ = plan.occupancy
     occ.lift({moving_ref})
     delta = Delta(board, occ, moving, plan.links, plan=plan)
+    from placemat import geometry
+    kernel = None if geometry._native is None else delta.native([plan.placement('m').rotation], plan.placement('m').face)
+    if geometry._native is not None:
+        assert kernel is not None and hasattr(kernel, 'aim')
     before = score.whole(board, occ, plan)
     baseline_anchors = dict(occ.ratsnest()._anchors)
     baseline_mirror = occ.ratsnest().mirror
@@ -182,6 +186,19 @@ def test_sparse_candidate_view_preserves_raw_nearest_ties_and_multiland_anchor_i
     first = delta(plan.placement('m'))
     assert delta(plan.placement('m')) == first
     assert observed == [(0.0, -2.0) if moving_ref == 'A0' else (-2.0, 0.0)] * 2
+    if kernel is not None:
+        candidate = plan.placement('m')
+        expected = observed[0]
+        assert kernel.aim(candidate.location.x, candidate.location.y, 0,
+                          'S', 'P0', '1', (30, 30)) == expected
+        # Sub-nm raw distance breaks an otherwise quantized/MST tie. Rest
+        # anchors and stable ref order must not override that strict change.
+        for shift in [-0.0000000005, 0.0000000005, 0.0]:
+            candidate = replace(plan.placement('m'), location=Location(30, 28 + shift))
+            view, _, _ = delta._view(candidate)
+            aim = judging(view)._aim('P0', '1', 'S', Location(30, 30))
+            assert kernel.aim(candidate.location.x, candidate.location.y, 0,
+                              'S', 'P0', '1', (30, 30)) == aim
     assert occ.ratsnest()._anchors == baseline_anchors and occ.ratsnest().mirror is baseline_mirror
     occ.commit(moving, plan.placement('m'))
     after = score.whole(board, occ, plan)
@@ -1026,6 +1043,58 @@ def test_native_prepared_candidate_polygons_match_full_affine_and_layer_flip_exa
     occ.lift(refs)
     with pytest.raises(ValueError, match='occupancy changed'):
         delta.native_shapes(turns, Face.FRONT)
+
+
+def test_native_prepared_aim_uses_raw_squared_distance_before_stable_pad_ties():
+    from placemat import geometry
+    from placemat.ratsnest import Ratsnest
+    module = geometry._native
+    if module is None or not hasattr(getattr(module, 'NativeDelta', None), 'aim'):
+        pytest.skip('native prepared aim not built')
+    rn = Ratsnest(mirror=module.NativeRatsnest())
+    # These target lengths quantize to the same nm MST weight, but B0 is
+    # strictly farther in the escape oracle's raw squared-distance comparison.
+    rest = [Anchor('P0', '1', 0, 0), Anchor('B0', '1', 2, 0.000001), Anchor('Y0', '1', 2, 0)]
+    rn.set_net('S', rest)
+    rn.set_net('untouched', [Anchor('Q1', '1', -2, 0), Anchor('Q0', '1', 2, 0)])
+    # On glibc this square differs from multiplication by one ulp. A0 and
+    # Z0 tie under x*x, while the CPython pow oracle prefers Z0. Calculate
+    # the expected answer with Python so the test retains the platform's
+    # own C-pow semantics on other wheel targets too.
+    pow_targets = [Anchor('A0', '1', 0.1, 910.4575114352892),
+                   Anchor('Z0', '1', -910.4575169270337, 0)]
+    rn.set_net('pow', pow_targets)
+    kernel = module.NativeDelta(rn.mirror, ['Z0'], [[('S', 'Z0', '1', 3, 0)]],
+                                ['S', 'untouched', 'pow'], (4, 3, 5, 0, 2))
+    assert kernel.aim(0, 0, 0, 'S', 'P0', '1', (0, 0)) == (2, 0)
+    assert kernel.aim(-5, 0, 0, 'S', 'P0', '1', (0, 0)) == (2, 0)
+    assert kernel.aim(-3.5, 0, 0, 'S', 'P0', '1', (0, 0)) == (-0.5, 0)
+    assert kernel.aim(0, 0, 0, 'untouched', 'absent', '1', (0, 0)) == (2, 0)
+    expected = min(pow_targets, key=lambda a: a.x ** 2 + a.y ** 2)
+    assert kernel.aim(0, 0, 0, 'pow', 'absent', '1', (0, 0)) == (expected.x, expected.y)
+    assert kernel.aim(0, 0, 0, 'absent', 'P0', '1', (0, 0)) is None
+    for centre in [(float('nan'), 0), (float('inf'), 0), (1e20, 0)]:
+        with pytest.raises(ValueError, match='aim'):
+            kernel.aim(0, 0, 0, 'S', 'P0', '1', centre)
+
+
+def test_native_prepared_aim_matches_python_pow_distance_on_repeated_candidates():
+    from placemat import geometry
+    from placemat.ratsnest import Ratsnest
+    module = geometry._native
+    if module is None or not hasattr(getattr(module, 'NativeDelta', None), 'aim'):
+        pytest.skip('native prepared aim not built')
+    rng = random.Random(79)
+    rest = [Anchor(str(i), '1', rng.uniform(-1000, 1000), rng.uniform(-1000, 1000)) for i in range(20)]
+    rn = Ratsnest(mirror=module.NativeRatsnest())
+    rn.set_net('S', list(reversed(rest)))  # snapshot insertion order must not define ties
+    kernel = module.NativeDelta(rn.mirror, ['N'], [[('S', 'N', '1', 0, 0)]], ['S'], (4, 3, 5, 0, 2))
+    for _ in range(200):
+        x, y = rng.uniform(-1000, 1000), rng.uniform(-1000, 1000)
+        centre = (rng.uniform(-1000, 1000), rng.uniform(-1000, 1000))
+        nodes = sorted(rest + [Anchor('N', '1', x, y)], key=lambda a: (a.ref, a.number))
+        expected = min(nodes, key=lambda a: (a.x - centre[0]) ** 2 + (a.y - centre[1]) ** 2)
+        assert kernel.aim(x, y, 0, 'S', 'unplaced', '1', centre) == (expected.x - centre[0], expected.y - centre[1])
 
 
 def test_native_prepared_candidate_refuses_malformed_geometry_and_recovers_after_bad_candidate():

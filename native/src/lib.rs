@@ -825,6 +825,14 @@ impl NativeDelta {
         self.inner.escape_cross(turn,depth).map_err(PyValueError::new_err)
     }
 
+    /// Parity inspection; the prepared escape kernel calls inner.aim after
+    /// its single wire evaluation rather than solving once per pad.
+    fn aim(&mut self, x: f64, y: f64, turn: usize, net: &str, owner: &str, number: &str,
+           centre: (f64, f64)) -> PyResult<Option<(f64, f64)>> {
+        self.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err)?;
+        self.inner.aim(turn, net, owner, number, centre).map_err(PyValueError::new_err)
+    }
+
     #[allow(clippy::type_complexity)]
     fn configure_layout(&mut self, links: Vec<Vec<score_layout::Link>>, boxes: Vec<score_layout::Bounds>,
         fit: Option<(Option<score_layout::Bounds>, f64, Option<f64>, Option<f64>, f64)>,
