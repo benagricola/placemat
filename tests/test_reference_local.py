@@ -128,8 +128,8 @@ def test_failed_route_cannot_reuse_stale_report(tmp_path, monkeypatch, rc, fresh
         assert not report.exists()
         if fresh:
             report.write_text('{"error": "failed invocation"}')
-        return SimpleNamespace(returncode=rc, stderr="failed", stdout="")
-    monkeypatch.setattr(route_ref.subprocess, "run", fail)
+        return SimpleNamespace(returncode=rc, communicate=lambda **_: ("", "failed"))
+    monkeypatch.setattr(route_ref.subprocess, "Popen", fail)
     with pytest.raises(RuntimeError):
         route_ref._route(tmp_path / "board.kicad_pcb", work, None)
     assert report.exists() == fresh and diagnostic.read_text() == "prior diagnostic"
@@ -141,3 +141,45 @@ def test_local_provenance_write_failure_is_not_reported_as_success(tmp_path, mon
     monkeypatch.setattr(route_ref, "_route", lambda *args, **kwargs: {"phases": []})
     with pytest.raises(IsADirectoryError):
         route_ref.run_local("obstructed-route", tmp_path, {})
+
+
+def test_reference_deadline_preserves_earlier_inherited_budget(tmp_path, monkeypatch):
+    import time
+    from types import SimpleNamespace
+    earlier = time.time() + 1
+    seen = {}
+    work = tmp_path / "route"
+    work.mkdir()
+    def run(*args, **kwargs):
+        seen.update(kwargs)
+        (work / "route.json").write_text('{"closure_clean": 0.5}')
+        return SimpleNamespace(returncode=0, communicate=lambda **_: ("", ""))
+    monkeypatch.setattr(route_ref.subprocess, "Popen", run)
+    assert route_ref._route(tmp_path / "board.kicad_pcb", work, None,
+                            env={"KRT_ROUTE_DEADLINE_UTC": str(earlier)})["closure_clean"] == 0.5
+    assert float(seen["env"]["KRT_ROUTE_DEADLINE_UTC"]) == earlier
+    assert seen["start_new_session"] is True
+
+
+def test_reference_timeout_reaps_its_process_group_and_deadlined_candidate(tmp_path, monkeypatch):
+    import os
+    import subprocess
+    import sys
+    # Emulate the independently sessioned KRT candidate, which the shared deadline must bound.
+    candidate = "import time; time.sleep(100)"
+    main = ("import os,signal,subprocess,sys,time; "
+            "p=subprocess.Popen([sys.executable,'-c',%r],start_new_session=True); "
+            "open(%r,'w').write(str(os.getpid())+' '+str(p.pid)); "
+            "time.sleep(max(0,float(os.environ['KRT_ROUTE_DEADLINE_UTC'])-time.time())); "
+            "os.killpg(p.pid,signal.SIGKILL); p.wait(); time.sleep(100)") % (candidate, str(tmp_path / "pids"))
+    real = subprocess.Popen
+    def run(cmd, **kwargs):
+        return real([sys.executable, "-c", main], **kwargs)
+    monkeypatch.setattr(route_ref.subprocess, "Popen", run)
+    monkeypatch.setattr(route_ref, "ROUTE_TIMEOUT_S", 0.5)
+    with pytest.raises(RuntimeError, match="timed out"):
+        route_ref._route(tmp_path / "board.kicad_pcb", tmp_path / "route", None)
+    parent, child = map(int, (tmp_path / "pids").read_text().split())
+    for pid in (parent, child):
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)

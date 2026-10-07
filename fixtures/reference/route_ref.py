@@ -310,11 +310,44 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
     cmd = [sys.executable, "-m", "placemat", "route", str(pcb), "--full", "--no-resume", "--out", str(work)]
     out = pathlib.Path(work) / "route.json"
     out.unlink(missing_ok=True)     # only this invocation's report can establish its result
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=ROUTE_TIMEOUT_S, env=env)
+    import math
+    import signal
+    import time
+    child_env = dict(os.environ if env is None else env)
+    deadline = time.time() + ROUTE_TIMEOUT_S - min(10.0, ROUTE_TIMEOUT_S / 4)
+    if "KRT_ROUTE_DEADLINE_UTC" in child_env:
+        try:
+            inherited = float(child_env["KRT_ROUTE_DEADLINE_UTC"])
+            if not math.isfinite(inherited):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise RuntimeError("invalid inherited router deadline") from None
+        deadline = min(deadline, inherited)
+    child_env["KRT_ROUTE_DEADLINE_UTC"] = str(deadline)
+    # Placemat's ordinary children share this owned group. KRT's isolated candidate/grader groups
+    # receive the earlier absolute deadline above and are reaped by their own supervising process.
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            start_new_session=True, env=child_env)
+    try:
+        stdout, stderr = proc.communicate(timeout=ROUTE_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.communicate()
+        raise RuntimeError("placemat route timed out after %s seconds" % ROUTE_TIMEOUT_S) from None
     if proc.returncode != 0:
-        raise RuntimeError("placemat route exited %d: %s" % (proc.returncode, (proc.stderr or proc.stdout)[-500:]))
+        raise RuntimeError("placemat route exited %d: %s" % (proc.returncode, (stderr or stdout)[-500:]))
     if not out.exists():
-        raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, (proc.stderr or proc.stdout)[-500:]))
+        raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, (stderr or stdout)[-500:]))
     report = json.loads(out.read_text())
     if report.get("error"):
         raise RuntimeError("placemat route failed: %s" % report["error"])
