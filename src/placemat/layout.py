@@ -713,6 +713,8 @@ class Plan:
     footprints: list = field(default_factory=list)                # courtyard mode: footprints whose courtyard understates the part
     cleanup: dict = field(default_factory=dict)                   # what the cleanup pass did, when it ran
     rudy: object = None                                           # congestion.Rudy of the placed board
+    fitted_axes: tuple = (False, False)                           # (x fitted, y fitted): the axes of a fit frame (board.rect(fit=...)) the content sized
+    fit_margin: float = 0.0                                       # a fit frame's margin round its content
     reuse: dict = field(default_factory=dict)                     # this run's record, for the next run to replay
     seconds: float = 0.0                                          # how long the resolve took, in all
     turns: dict = field(default_factory=dict, repr=False)        # each searched item's turn: where it went and the pad it depends on (lock.py)
@@ -8262,6 +8264,8 @@ class Board:
             frame = self._fit_bound(grown)
             self._check_fit_content(occ, plan, frame)
             plan.outline = self._outline = occ.board_box = frame
+            plan.fitted_axes = (self._fit_axis in (None, Axis.X), self._fit_axis in (None, Axis.Y))     # None: both fit
+            plan.fit_margin = self._fit_margin
             self._plan_copper(occ, ctx, [c for c in self._copper if c.index in held], plan, progress, slot="held")
         self._check_keepouts(plan)
         plan.rudy = self._rudy(occ, plan)

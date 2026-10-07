@@ -173,7 +173,7 @@ def _resolve(g, overrides: dict, planes: set, size) -> dict:
     from placemat import score
     m = score.plan_measures(board, plan)
     return {"placed": len(placed), "findings": len(plan.findings), "hpwl": hpwl(pads, planes),
-            "crossings": m["crossings"]["signal"], "score": round(score.total(m, board.settings), 1), "measures": m}
+            "crossings": score.signal_crossings(m), "score": round(score.total(m, board.settings), 1), "measures": m}
 
 
 def _hand_pads(g) -> list:

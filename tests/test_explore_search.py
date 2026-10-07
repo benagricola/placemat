@@ -1,4 +1,5 @@
 """Scoring a variant and searching seeds in parallel under a deadline."""
+import dataclasses
 import time
 
 from placemat.explore import explore, score
@@ -31,8 +32,10 @@ def test_a_variant_is_scored_by_the_run_score_with_the_worst_cell_in_it():
     m = measure(b, plan)
     assert m["unplaced"] == {} and m["rudy_steps"] == int(plan.rudy.worst / 0.05 + 1e-9)
     assert score(b, plan) == run_score.total(m, b.settings)
-    assert "rudy_steps" not in measure(b, plan, step=0)          # left out
-    assert b.settings.explore_congestion_step == 0.05             # the default, from the settings
+    assert b.settings.score_congestion_step == 0.05               # the default, from the settings
+    b0 = _make()
+    b0.settings = dataclasses.replace(b0.settings, score_congestion_step=0.0)
+    assert "rudy_steps" not in measure(b0, b0.resolve())          # left out
 
 
 def test_the_same_seeds_give_the_same_best_whatever_the_jobs():

@@ -180,3 +180,85 @@ def test_a_real_module_resolves_and_records_the_new_measures(tmp_path):
     assert {"giveway", "push", "back_face"} <= set(score.terms(m, CFG))
     copper = [f for f in result.record.findings if getattr(f, "kind", "") == "copper"]
     assert m["findings"].get("copper", 0) == len(copper)
+
+
+# ------------------------------------------------------------ airwire on signal nets, links, area (step 2)
+def _pad_distance(plan, a, b):
+    pa, pb = plan.occupancy.pad_anchor(*a), plan.occupancy.pad_anchor(*b)
+    return ((pa.x - pb.x) ** 2 + (pa.y - pb.y) ** 2) ** 0.5
+
+
+def _two_part_board(**kw):
+    fps = [footprint("U1", 10, 10, w=6, h=2, inst="u1", nets=("VIN", "GND")),
+           footprint("C1", 30, 30, inst="c1", nets=("VIN", "GND"))]
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, **kw)
+
+
+def test_the_airwire_is_the_signal_nets_alone_and_an_impedance_net_counts_thrice():
+    import dataclasses
+    from placemat.board_geometry import NetClass
+    from placemat.values import CopperLayer, Net
+    b = _two_part_board()
+    b.plane(Net("GND"), [CopperLayer.B])
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("c1"), at=Location(30, 30))
+    plan = b.resolve()
+    d = _pad_distance(plan, ("U1", "1"), ("C1", "1"))
+    m = score.plan_measures(b, plan)
+    assert m["airwire_mm"] == pytest.approx(d, abs=1e-2)         # GND, a plane's, leaves the airwire
+    classes = dict(b.geometry.netclasses)
+    classes["VIN"] = NetClass("SE50", 0.1, 0.2, 0.6, 0.3, tuning_profile="SE50")
+    b2 = _two_part_board()
+    b2.geometry = dataclasses.replace(b2.geometry, netclasses=classes)
+    b2.plane(Net("GND"), [CopperLayer.B])
+    b2.place(Part("u1"), at=Location(10, 10))
+    b2.place(Part("c1"), at=Location(30, 30))
+    m2 = score.plan_measures(b2, b2.resolve())
+    assert m2["airwire_mm"] == pytest.approx(d * b2.settings.score_impedance, abs=1e-2)
+
+
+def test_a_declared_link_is_measured_at_its_weight_times_the_pads_distance():
+    from placemat.values import LinkWeight
+    b = _two_part_board()
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("c1"), at=Location(30, 30))
+    b.link(PadRef(Part("c1"), 1), PadRef(Part("u1"), 1), weight=LinkWeight.SHORT)
+    plan = b.resolve()
+    d = _pad_distance(plan, ("U1", "1"), ("C1", "1"))
+    m = score.plan_measures(b, plan)
+    assert m["link_mm"] == pytest.approx(8 * d, abs=1e-2)
+    assert m["v"] == score.MEASURES_VERSION and m["area_mm2"] == 0.0
+    assert "rudy_steps" in m
+
+
+def test_a_fitted_frames_area_counts_on_the_axes_it_fits():
+    from placemat.values import Axis
+    for fit, declared in ((True, {}), (Axis.X, {"height": 40.0}), (Axis.Y, {"width": 50.0})):
+        b = _two_part_board()
+        b.rect(fit=fit, **declared)
+        b.place(Part("u1"), at=Location(10, 10))
+        b.place(Part("c1"), at=Location(30, 30))
+        plan = b.resolve()
+        o = plan.outline
+        want = {True: (o.right - o.left) * (o.bottom - o.top),
+                Axis.X: (o.right - o.left) * 40.0, Axis.Y: 50.0 * (o.bottom - o.top)}[fit]
+        assert plan.fitted_axes == {True: (True, True), Axis.X: (True, False), Axis.Y: (False, True)}[fit]
+        assert score.plan_measures(b, plan)["area_mm2"] == pytest.approx(want, abs=1e-3)
+    fixed = _two_part_board()
+    fixed.place(Part("u1"), at=Location(10, 10))
+    plan = fixed.resolve()
+    assert plan.fitted_axes == (False, False)
+
+
+def test_whole_prices_the_incremental_terms_of_the_board_as_it_stands():
+    from placemat.values import LinkWeight
+    b = _two_part_board()
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("c1"), at=Location(30, 30))
+    b.link(PadRef(Part("c1"), 1), PadRef(Part("u1"), 1), weight=LinkWeight.SHORT)
+    plan = b.resolve()
+    w = score.whole(b, plan.occupancy, plan)
+    t = score.terms(score.plan_measures(b, plan), b.settings)
+    for k, v in w.items():
+        assert v == pytest.approx(t[k]), k
+    assert {"airwire", "crossings", "link", "link_over", "push", "congestion", "area"} <= set(w)

@@ -692,15 +692,22 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 t0 = time.time()
                 quiet = set(board._plane_nets()) | set(board._free_nets)
                 from .pairs import board_pairs
+                from .occupancy import net_kinds
+                from .ratsnest import KIND_IMPEDANCE
+                kinds = net_kinds(board.geometry, quiet)
                 aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()), quiet,
-                                       board_pairs(board.geometry.netclasses))
+                                       board_pairs(board.geometry.netclasses), kinds=kinds,
+                                       prices=(1.0, cfg.score_impedance, cfg.score_crossing_pair_net,
+                                               cfg.score_crossing_plane,
+                                               cfg.score_pair_crossing / cfg.score_crossing if cfg.score_crossing > 0 else 1.0))
                 free = plan.occupancy.free_area()
                 metrics.update(drc_metrics(report, aw, free))
                 # KiCad's own ratsnest and DRC replace the plan's estimates in the score
-                metrics["measures"].update(drc=_drc_total(metrics), airwire_mm=aw["total_mm"],
-                                           crossings={"signal": aw["crossings"] - aw["crossings_quiet"],
-                                                      "plane": aw["crossings_quiet"],
-                                                      "pair": aw.get("crossings_pair", 0)})
+                # the airwire of the nets that pull, an impedance net's counted score.impedance times, as the plan's is
+                pulling = sum(mm * (cfg.score_impedance if kinds.get(n) == KIND_IMPEDANCE else 1.0)
+                              for n, mm in aw["per_net"].items() if n not in quiet)
+                metrics["measures"].update(drc=_drc_total(metrics), airwire_mm=round(pulling, 3),
+                                           crossings=dict(aw["classes"]))
                 cong = metrics["congestion"]
                 rec.timing_s["drc"] = round(drc_job.seconds + time.time() - t0, 1)
                 say("check", "%s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (

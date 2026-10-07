@@ -236,7 +236,7 @@ impl Ratsnest {
 
     /// `Ratsnest._kept`: a crossing with `net` counts something.
     fn kept(&self, net: u32) -> bool {
-        self.prices[self.kind(net)] > 0.0 || self.partners.contains_key(&net)
+        !(self.kind(net) == 3 && self.prices[3] <= 0.0 && !self.partners.contains_key(&net))
     }
 
     /// ratsnest.crossing_price: a plane's price when either net is quiet, the pair's own for a pair's two

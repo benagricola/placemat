@@ -308,8 +308,6 @@ class Settings:
         "the chance two focused items next in the placement order trade turns")
     explore_rank_power: float = S(1.0, "exponent",
         "an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best")
-    explore_congestion_step: float = S(0.05, "fraction",
-        "variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out)")
     explore_jobs: int = S(0, "count",
         "worker processes for `--explore`; 0 is the CPU count less one")
     explore_stall_variants: int = S(0, "count",
@@ -461,7 +459,13 @@ class Settings:
     score_escape_lane: float = S(400.0, "mm",
         "mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding")
     score_congestion: float = S(10.0, "mm",
-        "explore: mm per `explore.congestion_step` of the worst RUDY cell")
+        "mm per `score.congestion_step` of the worst RUDY cell, in every run's score")
+    score_congestion_step: float = S(0.05, "fraction",
+        "the worst RUDY cell is counted in steps of this, at `score.congestion` each (0 leaves congestion out)")
+    score_link: float = S(1.0, "multiplier",
+        "the run score's link term: each declared link's weight times its pad-to-pad length, times this")
+    score_area: float = S(0.25, "mm",
+        "mm of score per mm2 of a fitted frame (`board.rect(fit=...)`), on the axes it fits; 0 on a fixed outline")
     score_via_share: float = S(1.0, "mm",
         "mm the search adds to a spot for each carried via that shares a via of its net there")
     score_via_move: float = S(2.0, "mm",
@@ -768,6 +772,7 @@ _AT_LEAST_ZERO = frozenset((
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_crossing_pair_net", "score_impedance", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
+    "score_congestion_step", "score_link", "score_area",
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
@@ -884,6 +889,11 @@ _RETIRED = {
     "route_diff_pairs": "a net class's diff_pair_width/diff_pair_gap in the board's .zen",
 }
 
+# Keys renamed: {old key: the key that took its place}, the value meaning the same.
+_MOVED = {
+    "explore_congestion_step": "score_congestion_step",
+}
+
 # Keys retired because what they set is now counted another way: {key: what replaced it}. A time is not a count of
 # steps, so the old value is not carried over; the project is told what to set instead.
 _REPLACED = {
@@ -895,6 +905,10 @@ _REPLACED = {
 
 def _replaced(where, name: str) -> SettingsError:
     return SettingsError("%s: %s.%s is retired; set %s" % ((where,) + split_key(name) + (_REPLACED[name],)))
+
+
+def _moved(where, name: str) -> SettingsError:
+    return SettingsError("%s: %s.%s is now %s.%s" % ((where,) + split_key(name) + split_key(_MOVED[name])))
 
 
 def _flatten(data: dict, path) -> dict:
@@ -918,6 +932,8 @@ def _flatten(data: dict, path) -> dict:
                 out[join_key(full, "")] = dict(value)
                 continue
             name = join_key(section, key)
+            if name in _MOVED:
+                raise _moved(path, name)
             if name in _REPLACED:
                 raise _replaced(path, name)
             if name in _RETIRED:
@@ -995,6 +1011,8 @@ def load(start, overrides=None, script=None) -> Settings:
                 values[name] = value
                 sources[name] = "%s [scripts.%s]" % (path, json.dumps(key))
     for name, value in (overrides or {}).items():
+        if name in _MOVED:
+            raise _moved("flag", name)
         if name in _REPLACED:
             raise _replaced("flag", name)
         if name not in set(Settings.keys()):

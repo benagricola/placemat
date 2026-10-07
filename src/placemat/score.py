@@ -8,27 +8,34 @@ is worked out whenever two runs are compared: a weight changed in
 placemat.toml re-ranks the runs already recorded, the stored best included.
 
 measures:
+    v            MEASURES_VERSION: how the measures below were counted; a run recorded under another version is
+                 not compared (report.comparable)
     unplaced     {priority: parts} not placed, by their declaration's priority
     drc          real DRC violations (a run; a plan has none)
     link_excess  the sum over links past their limit of (mm past it x the link's weight)
+    link_mm      the sum over declared links with both pads placed of the link's weight x its pad-to-pad length
     findings     {kind: count} of the other findings (findings.KINDS)
-    crossings    {"signal": n, "plane": n, "pair": n}: ratsnest crossings, those
-                 with a plane's or free net's airwire counted apart, and
-                 "pair" those of the signal crossings between a
-                 differential pair's two halves (priced score.pair_crossing)
-    airwire_mm   the ratsnest's length
+    crossings    {"plain", "impedance", "pair_net", "plane", "pair"}: ratsnest crossings, each counted once in the
+                 class that priced it (ratsnest.crossing_class): "plane" when either net is a plane's or free
+                 net, "pair" between a differential pair's two halves, else the dearer kind of the two nets
+    airwire_mm   the ratsnest's length over the nets that pull (not planes or free nets), a controlled-impedance
+                 net's length counted score.impedance times
+    area_mm2     a fitted frame's area (`board.rect(fit=...)`), 0.0 on a fixed outline
     giveway      the sum of the costs of the carried vias' actions (giveway.Action.cost: share, move,
                  leave, route, shorten, drop, and a field relay's once), as the search priced them
     pushes       the sum over placed pushes of value / limit at the final placement: the whole modelled
                  value over its limit, not only the excess, as the search prices a push (priced score.push)
     back_face    items a Face.EITHER search put on the back (priced score.back_face)
-    rudy_steps   explore only: the worst RUDY cell, in explore.congestion_step steps
+    rudy_steps   the worst RUDY cell, in score.congestion_step steps (absent when the step is 0)
 """
 from __future__ import annotations
 
+# How the measures are counted. A run recorded under another version is not comparable (report.comparable).
+MEASURES_VERSION = 2
+
 TERMS = ("unplaced", "drc", "link_over", "fixed", "copper", "label", "escape_crossed", "escape_closed",
-         "escape_walled", "escape_lane", "setup", "crossings", "airwire", "giveway", "push", "back_face",
-         "congestion")
+         "escape_walled", "escape_via", "escape_lane", "setup", "crossings", "airwire", "link", "giveway", "push",
+         "back_face", "congestion", "area")
 
 # a finding kind -> the setting that weighs one; unplaced and link_over are
 # measured apart (by priority, and by how far over), not counted as findings
@@ -51,10 +58,15 @@ def terms(m: dict, cfg) -> dict:
     }
     for kind, setting in _FINDING_WEIGHTS.items():
         out[kind] = getattr(cfg, setting) * found.get(kind, 0)
-    pair = cross.get("pair", 0)             # within "signal", priced apart
-    out["crossings"] = (cfg.score_crossing * (cross.get("signal", 0) - pair + cfg.score_crossing_plane * cross.get("plane", 0))
-                        + cfg.score_pair_crossing * pair)
+    out["crossings"] = (cfg.score_crossing * (cross.get("plain", 0)
+                                              + cfg.score_impedance * cross.get("impedance", 0)
+                                              + cfg.score_crossing_pair_net * cross.get("pair_net", 0)
+                                              + cfg.score_crossing_plane * cross.get("plane", 0))
+                        + cfg.score_pair_crossing * cross.get("pair", 0))
+    out["escape_via"] = 0.0     # no measure yet: the surface-lane judgement (a later task) counts the vias it needs
     out["airwire"] = float(m.get("airwire_mm") or 0.0)
+    out["link"] = cfg.score_link * float(m.get("link_mm") or 0.0)
+    out["area"] = cfg.score_area * float(m.get("area_mm2") or 0.0)
     out["giveway"] = float(m.get("giveway") or 0.0)         # costs already weighed by the search's score_via_* settings
     out["push"] = cfg.score_push * float(m.get("pushes") or 0.0)
     out["back_face"] = cfg.score_back_face * (m.get("back_face") or 0)
@@ -74,6 +86,15 @@ def hard_clear(m: dict) -> bool:
     """Whether measures `m` have none of the hard terms: nothing unplaced and no critical finding."""
     found = m.get("findings") or {}
     return not (m.get("unplaced") or {}) and not any(found.get(k, 0) for k in HARD_FINDINGS)
+
+
+def signal_crossings(m: dict) -> int:
+    """How many of measures `m`'s crossings are not a plane's or free net's (a record before version 2 counts them
+    as "signal")."""
+    c = m.get("crossings") or {}
+    if "signal" in c:
+        return int(c["signal"])
+    return int(sum(v for k, v in c.items() if k != "plane"))
 
 
 def total(m: dict, cfg) -> float:
@@ -108,35 +129,19 @@ _MEASURED_APART = ("unplaced", "link_over", "pair_crossed", "arrangement")     #
 
 
 # ------------------------------------------------------------ measuring a plan
-def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
-    """The measures of a resolved plan, without DRC: its own ratsnest gives
-    the crossings and the airwire. `congestion_step` adds the worst RUDY
-    cell in those steps (explore)."""
-    from .board_geometry import members_of
-    from .findings import Finding
-    from .values import Face
-    from .ratsnest import KIND_PLANE, Anchor, crossings, mst
-    steps = {s.item: s for s in plan.steps}
-    unplaced: dict = {}
-    for i in board._placements():
-        s = steps.get(i.key)
-        if s is None or s.placement is not None:
-            continue
-        prio = i.priority.value if getattr(i, "priority_source", "") == "script" and i.priority is not None \
-            else "default"
-        unplaced[prio] = unplaced.get(prio, 0) + len(members_of(i.item))
-    excess = 0.0
-    for l in plan.links:
-        if l.limit_mm is not None and l.achieved_mm is not None and l.achieved_mm > l.limit_mm:
-            excess += (l.achieved_mm - l.limit_mm) * int(l.weight)
-    found: dict = {}
-    for f in plan.findings:
-        kind = f.kind if isinstance(f, Finding) else "setup"
-        if kind not in _MEASURED_APART:
-            found[kind] = found.get(kind, 0) + 1
+# The terms that grow and shrink as the board is made, priced: what the search and refine add to at a candidate
+# (`whole`). The rest (unplaced, drc, findings, give-way, back face) are counted from the plan alone.
+WHOLE_TERMS = ("airwire", "crossings", "link", "link_over", "push", "escape_crossed", "escape_closed", "escape_walled",
+               "escape_via", "congestion", "area")
+_ESCAPE_KINDS = ("escape_crossed", "escape_closed", "escape_walled")
 
+
+def _signal_edges(board, occ):
+    """(edges of every net the occupancy has two or more placed pads on, the quiet nets, net -> kind, partners)."""
+    from .occupancy import net_kinds
+    from .pairs import board_pairs
+    from .ratsnest import Anchor, mst
     quiet = set(board._plane_nets()) | set(board._free_nets)
-    occ = plan.occupancy
     by_net: dict = {}
     for ref, g in occ.items.items():
         if ref in occ.pending:
@@ -146,14 +151,65 @@ def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
                 a = occ.pad_anchor(ref, s.label)
                 by_net.setdefault(s.net, {})[(ref, s.label)] = Anchor(ref, s.label, a.x, a.y)
     edges = [e for net in sorted(by_net) for e in mst(net, list(by_net[net].values()))]
-    every = crossings(edges)[0]
-    signal = crossings(edges, kinds={n: KIND_PLANE for n in quiet}, prices=(1.0, 1.0, 1.0, 0.0, 1.0))[0]
-    from .pairs import board_pairs
+    kinds = net_kinds(board.geometry, quiet)
     partners = {n: m for n, m in board_pairs(board.geometry.netclasses).items()
                 if n not in quiet and m not in quiet}
-    # only a pair's own crossings count here: every other crossing weighs 0
-    pair = crossings(edges, partners=partners,
-                    prices=(0.0, 0.0, 0.0, 0.0, 1.0))[0]
+    return edges, quiet, kinds, partners
+
+
+def _links_mm(board, occ, plan) -> tuple:
+    """(sum of weight x length over the links with both pads placed, the excess past the limits). A resolved plan has
+    each link's achieved length; a board part way through has not, and the links are measured on the occupancy."""
+    mm, excess = 0.0, 0.0
+    if plan.links:
+        pairs = [(l, l.achieved_mm) for l in plan.links]
+    else:
+        pairs = []
+        for l in board._links:
+            if all(r in occ.items and r not in occ.pending for r in (l.a[0], l.b[0])):
+                pairs.append((l, occ.pad_location(*l.a).distance(occ.pad_location(*l.b))))
+    for l, d in pairs:
+        if d is None:
+            continue
+        mm += int(l.weight) * d
+        if l.limit_mm is not None and d > l.limit_mm:
+            excess += (d - l.limit_mm) * int(l.weight)
+    return mm, excess
+
+
+def _frame_area(board, occ, plan) -> float:
+    """A fitted frame's area: the plan's outline once the frame is fitted, else the frame the placed content makes
+    now (as layout fits it); 0.0 on a fixed outline. A frame fitted on one axis has the other declared, so its
+    width times its height is the fitted side times the declared one."""
+    if not board._fit:
+        return 0.0
+    from .geometry import Box
+    frame = plan.outline if any(plan.fitted_axes) and plan.outline is not None else None
+    if frame is None:
+        content = board._placed_box(occ, plan) or Box(0.0, 0.0, 0.0, 0.0)
+        frame = board._fit_bound(content.inflate(board._fit_margin))
+    return (frame.right - frame.left) * (frame.bottom - frame.top)
+
+
+def _incremental(board, occ, plan) -> dict:
+    """The raw measures of the terms in WHOLE_TERMS, of the board as the occupancy stands: the plan supplies the
+    links, pushes, findings and the fit. Escapes are the plan's findings (so counted once a run has reported them)."""
+    from .findings import Finding
+    from .ratsnest import KIND_IMPEDANCE
+    cfg = board.settings
+    edges, quiet, kinds, partners = _signal_edges(board, occ)
+    prices = (1.0, cfg.score_impedance, cfg.score_crossing_pair_net, cfg.score_crossing_plane,
+              cfg.score_pair_crossing / cfg.score_crossing if cfg.score_crossing > 0 else 1.0)
+    from .ratsnest import crossings
+    # a quiet net's edges are counted whatever score.crossing_plane is, so a changed weight re-ranks recorded runs
+    _, _, per_class = crossings(edges, kinds=kinds, partners=partners, prices=prices)
+    wire = 0.0
+    for e in edges:
+        if e.net in quiet:
+            continue
+        wire += ((e.a.x - e.b.x) ** 2 + (e.a.y - e.b.y) ** 2) ** 0.5 \
+            * (cfg.score_impedance if kinds.get(e.net) == KIND_IMPEDANCE else 1.0)
+    link_mm, excess = _links_mm(board, occ, plan)
     # a push is placed once per item, but the same Push object may be recorded again by a re-settle
     pushes, seen = 0.0, set()
     for p in plan.pushes:
@@ -161,13 +217,50 @@ def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
             continue
         seen.add(id(p))
         pushes += p.achieved_value / p.limit
-    out = {"unplaced": unplaced, "drc": 0, "link_excess": round(excess, 6), "findings": found,
-           "crossings": {"signal": int(signal), "plane": int(every - signal), "pair": int(pair)},
-           "airwire_mm": round(sum(((e.a.x - e.b.x) ** 2 + (e.a.y - e.b.y) ** 2) ** 0.5 for e in edges), 3),
-           "giveway": round(sum(a.cost for a in plan.given_way), 6), "pushes": round(pushes, 6),
-           "back_face": sum(1 for s in plan.steps if s.back_face and s.placement is not None
-                            and s.placement.face is Face.BACK)}
-    if congestion_step:
-        worst = getattr(getattr(plan, "rudy", None), "worst", 0.0) or 0.0
-        out["rudy_steps"] = int(worst / congestion_step + 1e-9)
+    found: dict = {}
+    for f in plan.findings:
+        kind = f.kind if isinstance(f, Finding) else "setup"
+        if kind in _ESCAPE_KINDS:
+            found[kind] = found.get(kind, 0) + 1
+    out = {"crossings": per_class, "airwire_mm": round(wire, 3), "link_mm": round(link_mm, 6),
+           "link_excess": round(excess, 6), "pushes": round(pushes, 6), "findings": found,
+           "area_mm2": round(_frame_area(board, occ, plan), 3)}
+    if cfg.score_congestion_step:
+        rudy = plan.rudy if plan.rudy is not None else board._rudy(occ, plan)
+        out["rudy_steps"] = int((getattr(rudy, "worst", 0.0) or 0.0) / cfg.score_congestion_step + 1e-9)
+    return out
+
+
+def whole(board, occ, plan) -> dict:
+    """{term: mm} of WHOLE_TERMS for the board as the occupancy stands (R3): `plan` supplies its links, pushes,
+    escape findings and fit. Congestion is the worst RUDY cell over the occupancy as `Board._rudy` takes it."""
+    t = terms(_incremental(board, occ, plan), board.settings)
+    return {k: t[k] for k in WHOLE_TERMS}
+
+
+def plan_measures(board, plan) -> dict:
+    """The measures of a resolved plan, without DRC: `_incremental`'s for the terms the search adds to, and the
+    plan's own count of the rest."""
+    from .board_geometry import members_of
+    from .findings import Finding
+    from .values import Face
+    steps = {s.item: s for s in plan.steps}
+    unplaced: dict = {}
+    for i in board._placements():
+        s = steps.get(i.key)
+        if s is None or s.placement is not None:
+            continue
+        prio = i.priority.value if getattr(i, "priority_source", "") == "script" and i.priority is not None \
+            else "default"
+        unplaced[prio] = unplaced.get(prio, 0) + len(members_of(i.item))
+    found: dict = {}
+    for f in plan.findings:
+        kind = f.kind if isinstance(f, Finding) else "setup"
+        if kind not in _MEASURED_APART:
+            found[kind] = found.get(kind, 0) + 1
+    out = _incremental(board, plan.occupancy, plan)
+    out.update({"v": MEASURES_VERSION, "unplaced": unplaced, "drc": 0, "findings": found,
+                "giveway": round(sum(a.cost for a in plan.given_way), 6),
+                "back_face": sum(1 for s in plan.steps if s.back_face and s.placement is not None
+                                 and s.placement.face is Face.BACK)})
     return out

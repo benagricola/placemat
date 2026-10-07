@@ -148,23 +148,32 @@ def _cells(p, q):
 KIND_PLAIN, KIND_IMPEDANCE, KIND_PAIR, KIND_PLANE = 0, 1, 2, 3     # pinmap_input.KINDS' order
 
 
-def crossing_price(kinds, partners, prices, a, b) -> float:
-    """What a crossing of nets `a` and `b` counts, in crossings (the run score multiplies by score.crossing): a quiet
-    net's crossing is priced as a plane's; a differential pair's two halves crossing each other at the pair's own price;
-    else the dearer of the two nets' kinds. `prices` is (plain, impedance, pair net, plane, a pair with itself). The
-    pin study's rule (native/src/pinmap.rs `crossing`), with the run score's own price for a pair crossing itself."""
+CLASS_NAMES = ("plain", "impedance", "pair_net", "plane", "pair")     # the classes a crossing is priced in, `prices`' order
+
+
+def crossing_class(kinds, partners, prices, a, b) -> int:
+    """The class (an index into `prices`, `CLASS_NAMES`) a crossing of nets `a` and `b` is priced in: plane when either
+    net is quiet; a differential pair's two halves crossing each other, the pair's own; else the dearer of the two
+    nets' kinds (the higher kind on a tie). The pin study's rule (native/src/pinmap.rs `crossing`), with the run
+    score's own price for a pair crossing itself."""
     ka, kb = kinds.get(a, KIND_PLAIN), kinds.get(b, KIND_PLAIN)
     if ka == KIND_PLANE or kb == KIND_PLANE:
-        return prices[3]
+        return KIND_PLANE
     if partners and partners.get(a) == b:
-        return prices[4]
-    return max(prices[ka], prices[kb])
+        return 4
+    return max((ka, kb), key=lambda k: (prices[k], k))
+
+
+def crossing_price(kinds, partners, prices, a, b) -> float:
+    """What a crossing of nets `a` and `b` counts, in crossings (the run score multiplies by score.crossing): the
+    price of its `crossing_class`. `prices` is (plain, impedance, pair net, plane, a pair with itself)."""
+    return prices[crossing_class(kinds, partners, prices, a, b)]
 
 
 def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0)) -> tuple:
-    """(priced count, crossings per net) over `edges`: each crossing of two different nets counts
-    `crossing_price` (`kinds`, net -> kind, plain when absent; `partners`, net -> its pair's other half); per net
-    counts every crossing."""
+    """(priced count, crossings per net, crossings per class) over `edges`: each crossing of two different nets
+    counts `crossing_price` (`kinds`, net -> kind, plain when absent; `partners`, net -> its pair's other half); per
+    net counts every crossing; per class (`CLASS_NAMES`) counts each crossing once, in the class that priced it."""
     kinds = kinds or {}
     grid: dict = {}
     for k, e in enumerate(edges):
@@ -172,6 +181,7 @@ def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0)
             grid.setdefault(c, []).append(k)
     seen = set()
     total, per_net = 0.0, {}
+    per_class = dict.fromkeys(CLASS_NAMES, 0)
     for bucket in grid.values():
         for x in range(len(bucket)):
             for y in range(x + 1, len(bucket)):
@@ -183,16 +193,18 @@ def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0)
                     continue
                 seen.add((i, j))
                 if segments_cross(*_ends(e), *_ends(f)):
-                    total += crossing_price(kinds, partners, prices, e.net, f.net)
+                    k = crossing_class(kinds, partners, prices, e.net, f.net)
+                    total += prices[k]
+                    per_class[CLASS_NAMES[k]] += 1
                     for n in (e.net, f.net):
                         per_net[n] = per_net.get(n, 0) + 1
-    return total, dict(sorted(per_net.items(), key=lambda kv: (-kv[1], kv[0])))
+    return total, dict(sorted(per_net.items(), key=lambda kv: (-kv[1], kv[0]))), per_class
 
 
 class Ratsnest:
     """The airwires of the pads placed so far, net by net, kept so a
     candidate can be asked what it would add without recounting the board.
-    A net whose kind's price is 0 (and that is no pair's half) is not kept: nothing it crosses counts."""
+    A quiet net is not kept when a plane crossing weighs 0 (and it is no pair's half): nothing it crosses counts."""
 
     def __init__(self, kinds: dict | None = None, mirror=None, partners: dict | None = None,
                  prices: tuple = (1.0, 1.0, 1.0, 1.0, 1.0)):
@@ -215,8 +227,9 @@ class Ratsnest:
         self._nmends: dict = {}         # id(edge) -> its ends in whole nanometres
 
     def _kept(self, net: str) -> bool:
-        """Whether a crossing with `net` counts anything: its kind's price is above 0, or it is a pair's half."""
-        return self.prices[self.kinds.get(net, KIND_PLAIN)] > 0 or net in self.partners
+        """Whether `net`'s edges are kept: all but a quiet net's when a plane crossing weighs nothing (and it is no
+        pair's half). Any other net can cross a dearer kind, so it is kept whatever its own kind's price."""
+        return not (self.kinds.get(net, KIND_PLAIN) == KIND_PLANE and self.prices[3] <= 0 and net not in self.partners)
 
     def set_net(self, net: str, anchors, joined=()) -> None:
         """The placed pads of `net` are now `anchors` (with `joined` as mst takes it)."""

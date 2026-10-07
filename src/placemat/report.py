@@ -100,13 +100,16 @@ def resolve_run(runs_dir, ref: str) -> Path:
     raise ValueError("%r matches %d runs in %s: %s" % (ref, len(matches), runs_dir, ", ".join(m.name for m in matches)))
 
 
-def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None) -> dict:
+def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None, kinds: dict | None = None,
+                      prices: tuple = (1.0, 1.0, 1.0, 1.0, 1.0)) -> dict:
     """The ratsnest KiCad reports as unconnected items: count, straight-line
     length, crossings between different nets, and length per net.
     `crossings_quiet` counts the crossings with a `quiet` net's airwire (a
     plane's or a free net's), and `crossings_pair` those between a
     differential pair's two halves (`partners`, from pairs.board_pairs),
-    which the score weighs apart."""
+    which the score weighs apart. `classes` counts each crossing once in the class `ratsnest.crossing_class` prices
+    it in (`kinds`, net -> kind, as `occupancy.net_kinds`; `prices` as `Ratsnest` takes them)."""
+    from .ratsnest import CLASS_NAMES, KIND_PLANE, crossing_class
     edges = []
     for u in drc.get("unconnected_items", []):
         items = u.get("items", [])
@@ -123,11 +126,14 @@ def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None) -> dict
     crossings = quiet_crossings = pair_crossings = 0
     quiet = set(quiet)
     partners = partners or {}
+    kinds = {**(kinds or {}), **{n: KIND_PLANE for n in quiet}}
+    classes = dict.fromkeys(CLASS_NAMES, 0)
     crossings_per_net: dict = {}
     for i in range(len(edges)):
         for j in range(i + 1, len(edges)):
             if edges[i][0] != edges[j][0] and cross(edges[i], edges[j]):
                 crossings += 1
+                classes[CLASS_NAMES[crossing_class(kinds, partners, prices, edges[i][0], edges[j][0])]] += 1
                 if edges[i][0] in quiet or edges[j][0] in quiet:
                     quiet_crossings += 1
                 elif partners.get(edges[i][0]) == edges[j][0]:
@@ -141,7 +147,7 @@ def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None) -> dict
         total += d
         per_net[net] = round(per_net.get(net, 0.0) + d, 3)
     return {"count": len(edges), "total_mm": round(total, 3), "crossings": crossings,
-            "crossings_quiet": quiet_crossings, "crossings_pair": pair_crossings, "per_net": per_net,
+            "crossings_quiet": quiet_crossings, "crossings_pair": pair_crossings, "classes": classes, "per_net": per_net,
             "crossings_per_net": dict(sorted(crossings_per_net.items(), key=lambda kv: (-kv[1], kv[0])))}
 
 
@@ -341,8 +347,12 @@ def comparable(rec: RunRecord) -> bool:
     then "regressed" against airwire 0. Presence is the test, not value: zero
     airwire after DRC means everything is joined, and is a real measurement.
     A run recorded before the score (0.32 and earlier) has no measures, so a
-    stored best from then reads as absent and the next run takes its place."""
-    return all(k in rec.metrics for k in ("drc_real", "airwire_mm", "measures"))
+    stored best from then reads as absent and the next run takes its place. So does a run recorded before the
+    current measures (`score.MEASURES_VERSION`): its airwire, crossings and terms were counted another way, so it
+    cannot be ranked against this run."""
+    from . import score as _score
+    return all(k in rec.metrics for k in ("drc_real", "airwire_mm", "measures")) \
+        and (rec.metrics["measures"] or {}).get("v") == _score.MEASURES_VERSION
 
 
 def is_better(now: RunRecord, best: RunRecord | None, cfg=None) -> bool:

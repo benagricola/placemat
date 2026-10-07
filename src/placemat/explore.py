@@ -79,20 +79,18 @@ def draw(candidates, rng, slack: float, power: float):
 
 
 # ------------------------------------------------------------ scoring
-def measure(board, plan, step: float | None = None) -> dict:
-    """A variant's measures for the run score (score.py): its own ratsnest's
-    crossings and airwire, and the worst RUDY cell in `step`s, the measure
-    that agreed with the router (congestion.py). `step` 0 leaves the worst
-    cell out."""
+def measure(board, plan) -> dict:
+    """A variant's measures for the run score (score.py): its own ratsnest's crossings and airwire, its links, a
+    fitted frame's area and the worst RUDY cell in `score.congestion_step` steps, the measure that agreed with the
+    router (congestion.py)."""
     from . import score as _score
-    step = board.settings.explore_congestion_step if step is None else step
-    return _score.plan_measures(board, plan, congestion_step=step or None)
+    return _score.plan_measures(board, plan)
 
 
-def score(board, plan, step: float | None = None) -> float:
+def score(board, plan) -> float:
     """A variant's run score, in millimetres: lower is better."""
     from . import score as _score
-    return _score.total(measure(board, plan, step), board.settings)
+    return _score.total(measure(board, plan), board.settings)
 
 
 def _members(item):

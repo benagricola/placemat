@@ -4488,10 +4488,10 @@ seconds into the explore; `budget`, the time given; `finishing`, a list of `{see
 the explore). Nothing is stopped. The studio's explore view shows `time passed, finishing #41, #42` in yellow beside
 its time, each variant leaving the list as it lands. An explore of fixed seeds has no time to pass.
 
-**Judging a variant.** By the run score (Commands), with the worst congestion
-cell (RUDY) added in steps of `[explore] congestion_step` at
-`score.congestion` each: the measure that agreed with the router in the
-congestion study. Lower wins; it is one weighted sum, not a tiered
+**Judging a variant.** By the run score (Commands), which counts the worst
+congestion cell (RUDY) in steps of `[score] congestion_step` at
+`score.congestion` each in every run: the measure that agreed with the router
+in the congestion study. Lower wins; it is one weighted sum, not a tiered
 comparison.
 
 **What a run says.** `explore  N variants in S s over K focused items:
@@ -5441,7 +5441,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.spot_slack` | `0.25` | fraction | an explored item draws among spots scoring within this fraction of its best |
 | `explore.swap_chance` | `0.2` | probability | the chance two focused items next in the placement order trade turns |
 | `explore.rank_power` | `1.0` | exponent | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
-| `explore.congestion_step` | `0.05` | fraction | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
 | `explore.jobs` | `0` | count | worker processes for `--explore`; 0 is the CPU count less one |
 | `explore.stall_variants` | `0` | count | end an explore after this many finished variants without an improvement; 0 is off |
 | `explore.stall_seconds` | `0.0` | seconds | end an explore this many seconds after its last improvement; 0 is off |
@@ -5517,7 +5516,10 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.escape_closed` | `50.0` | mm | mm a pad whose last route toward what it connects to is closed costs |
 | `score.escape_walled` | `400.0` | mm | mm a pad with no route out at all costs. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends. What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and where a via is wanted the rule areas that forbid vias) is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
 | `score.escape_lane` | `400.0` | mm | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
-| `score.congestion` | `10.0` | mm | explore: mm per `explore.congestion_step` of the worst RUDY cell |
+| `score.congestion` | `10.0` | mm | mm per `score.congestion_step` of the worst RUDY cell, in every run's score |
+| `score.congestion_step` | `0.05` | fraction | the worst RUDY cell is counted in steps of this, at `score.congestion` each (0 leaves congestion out) |
+| `score.link` | `1.0` | multiplier | the run score's link term: each declared link's weight times its pad-to-pad length, times this |
+| `score.area` | `0.25` | mm | mm of score per mm2 of a fitted frame (`board.rect(fit=...)`), on the axes it fits; 0 on a fixed outline |
 | `score.via_share` | `1.0` | mm | mm the search adds to a spot for each carried via that shares a via of its net there |
 | `score.via_move` | `2.0` | mm | mm for each carried via that moves there |
 | `score.via_drop` | `10.0` | mm | mm for each plane drop dropped there |
@@ -5594,7 +5596,7 @@ and the overflow; the run prints the worst cell as `congestion`. On a study
 of the fixture modules the worst cell was the one congestion measure that
 picked the better-routing of two placements more often than chance (about
 three times in four). The search does not weigh it; explore ranks variants
-by it (`score.congestion`).
+by it (`score.congestion`), as does every run's score.
 
 Every verb whose default appears here takes an explicit argument that still
 wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.

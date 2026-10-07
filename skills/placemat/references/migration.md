@@ -7,6 +7,16 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### Changed
+
+- **`[explore] congestion_step` is now `[score] congestion_step`; congestion counts in every run's score.** A
+  placemat.toml (or `--set`) that sets `explore.congestion_step` is refused with `explore.congestion_step is now
+  score.congestion_step`; set the same value there. Run scores are measured anew: the airwire is the length of the nets
+  that pull (planes and free nets leave it, a controlled-impedance net's length counts `score.impedance` times), each
+  declared link adds its weight times its pad-to-pad length (`score.link`), a crossing is priced by its nets' kinds, and
+  a fitted frame adds its area (`score.area`). A best run recorded before this release is not compared: the next run
+  takes its place.
+
 ### New
 
 - **A firm placement may state `overhang=` with a why.** `board.place(item, at=..., overhang=0.8, why=...)` lets the

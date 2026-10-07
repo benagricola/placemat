@@ -72,7 +72,7 @@ def test_segments_cross_only_where_they_properly_intersect():
 def test_crossings_count_each_pair_of_different_nets_once_and_never_one_net_with_itself():
     edges = mst("A", [A("a1", 0, 0), A("a2", 2, 2)]) + mst("B", [A("b1", 0, 2), A("b2", 2, 0)]) \
         + mst("C", [A("c1", 1, -1), A("c2", 1, 3)])
-    n, per_net = crossings(edges)
+    n, per_net, _ = crossings(edges)
     assert n == 3 and per_net == {"A": 2, "B": 2, "C": 2}
     same = mst("A", [A("x", 0, 0), A("y", 2, 2), A("z", 0, 2), A("w", 2, 0)])
     assert crossings(same)[0] == 0

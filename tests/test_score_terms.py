@@ -78,3 +78,113 @@ def test_native_prices_by_kind_as_python_does(seed):
                 for _ in range(rng.randint(1, 5))]
         own = frozenset(rng.sample(["P%d" % i for i in range(8)], rng.randint(0, 2)))
         assert nat.leaf_costs(pads, own, 1.0) == Ratsnest.leaf_costs(py, pads, own, 1.0)
+
+
+# ------------------------------------------------------------ the keep rule and net kinds
+def test_a_zero_priced_impedance_net_still_crosses_a_pair_net_at_the_pair_price():
+    prices = (1.0, 0.0, 5.0, 0.0, 25.0)
+    kinds = {"Z": KIND_IMPEDANCE, "P": KIND_PAIR, "N": KIND_PAIR}
+    partners = {"P": "N", "N": "P"}
+    edges = _x("Z", "P")
+    assert crossings(edges, kinds=kinds, partners=partners, prices=prices)[0] == 5.0
+    rn = Ratsnest(kinds, partners=partners, prices=prices)
+    rn.set_net("Z", [Anchor("U1", "1", 0, 0), Anchor("R1", "1", 10, 10)])
+    rn.set_net("P", [Anchor("U1", "2", 0, 10)])
+    assert rn.edges()                                   # the impedance net is kept
+    assert rn.leaf_costs([("P", 10.0, 0.0)])[0] == 5.0
+    # a quiet net at price 0 is not kept, unless it is a pair's half
+    rq = Ratsnest({"G": KIND_PLANE}, prices=prices)
+    rq.set_net("G", [Anchor("U1", "1", 0, 0), Anchor("R1", "1", 10, 10)])
+    assert rq.edges() == []
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_native_keeps_a_zero_priced_kind_as_python_does(seed):
+    rng = random.Random(900 + seed)
+    prices = (1.0, 0.0, 5.0, 0.0, 25.0)
+    kinds = {"N%d" % n: rng.choice((KIND_PLAIN, KIND_IMPEDANCE, KIND_PAIR, KIND_PLANE)) for n in range(10)}
+    py = Ratsnest(kinds, prices=prices)
+    nat = Ratsnest(kinds, mirror=native.NativeRatsnest(), prices=prices)
+    for n in range(10):
+        pts = [Anchor("P%d" % rng.randint(0, 6), str(i), round(rng.uniform(0, 20) / 0.5) * 0.5,
+                      round(rng.uniform(0, 20) / 0.5) * 0.5) for i in range(rng.randint(1, 5))]
+        py.set_net("N%d" % n, pts)
+        nat.set_net("N%d" % n, pts)
+    names = sorted(kinds)
+    for _ in range(200):
+        pads = [(rng.choice(names), round(rng.uniform(0, 20) / 0.25) * 0.25, round(rng.uniform(0, 20) / 0.25) * 0.25)
+                for _ in range(rng.randint(1, 5))]
+        assert nat.leaf_costs(pads, frozenset(), 1.0) == Ratsnest.leaf_costs(py, pads, frozenset(), 1.0)
+
+
+def test_net_kinds_and_the_ratsnest_prices_of_a_board():
+    import dataclasses
+    from placemat.board_geometry import NetClass
+    from placemat.occupancy import Occupancy, net_kinds
+    from placemat.settings import Settings
+    from tests.fixtures import board_geometry, footprint
+    fps = [footprint("U1", 10, 10, inst="u1", nets=("DP", "DN")),
+           footprint("U2", 30, 10, inst="u2", nets=("Z", "GND")),
+           footprint("R1", 30, 30, inst="r1", nets=("S", "DP"))]
+    g = board_geometry(fps)
+    classes = dict(g.netclasses)
+    classes["DP"] = NetClass("USB", 0.2, 0.2, 0.6, 0.3, diff_pair_width=0.15, diff_pair_gap=0.15)
+    classes["DN"] = NetClass("USB", 0.2, 0.2, 0.6, 0.3, diff_pair_width=0.15, diff_pair_gap=0.15)
+    classes["Z"] = NetClass("SE50", 0.1, 0.2, 0.6, 0.3, tuning_profile="SE50")
+    g = dataclasses.replace(g, netclasses=classes)
+    assert net_kinds(g, frozenset({"GND"})) == {"DP": KIND_PAIR, "DN": KIND_PAIR, "Z": KIND_IMPEDANCE, "GND": KIND_PLANE}
+    s = Settings()
+    occ = Occupancy(g, 0.5, settings=s)
+    occ.quiet_nets = frozenset({"GND"})
+    assert occ.ratsnest().prices == (1.0, s.score_impedance, s.score_crossing_pair_net, s.score_crossing_plane,
+                                     s.score_pair_crossing / s.score_crossing)
+
+
+# ------------------------------------------------------------ the new terms
+from placemat import score  # noqa: E402
+from placemat.settings import Settings  # noqa: E402
+
+
+def test_link_and_area_are_priced():
+    m = {"v": 2, "link_mm": 12.5, "area_mm2": 100.0, "airwire_mm": 10.0, "crossings": {}, "rudy_steps": 2}
+    s = Settings()
+    t = score.terms(m, s)
+    assert t["link"] == s.score_link * 12.5
+    assert t["area"] == s.score_area * 100.0
+    assert t["congestion"] == s.score_congestion * 2
+
+
+def test_crossings_by_kind():
+    s = Settings()
+    m = {"v": 2, "crossings": {"plain": 2, "impedance": 1, "pair_net": 1, "plane": 3, "pair": 1}}
+    want = s.score_crossing * (2 + s.score_impedance + s.score_crossing_pair_net
+                               + s.score_crossing_plane * 3) + s.score_pair_crossing
+    assert abs(score.terms(m, s)["crossings"] - want) < 1e-9
+
+
+def test_old_measures_are_not_comparable():
+    from placemat.report import RunRecord, comparable
+    old = RunRecord.of({"run_id": "x", "board": "b", "status": "ok",
+                       "metrics": {"drc_real": 0, "airwire_mm": 1.0, "measures": {"airwire_mm": 1.0}}})
+    assert not comparable(old)
+    new = RunRecord.of({"run_id": "y", "board": "b", "status": "ok",
+                       "metrics": {"drc_real": 0, "airwire_mm": 1.0,
+                                    "measures": {"airwire_mm": 1.0, "v": score.MEASURES_VERSION}}})
+    assert comparable(new)
+
+
+def test_the_moved_congestion_step_is_refused_naming_its_new_key(tmp_path):
+    from placemat.settings import SettingsError, load
+    (tmp_path / "placemat.toml").write_text("[explore]\ncongestion_step = 0.1\n")
+    with pytest.raises(SettingsError, match=r"explore\.congestion_step is now score\.congestion_step"):
+        load(tmp_path)
+
+
+def test_crossings_are_tallied_in_the_class_that_priced_them():
+    kinds = {"P": KIND_PAIR, "N": KIND_PAIR, "Z": KIND_IMPEDANCE, "G": KIND_PLANE}
+    partners = {"P": "N", "N": "P"}
+    prices = (1.0, 3.0, 5.0, 0.0, 25.0)
+    for a, b, want in (("P", "S", "pair_net"), ("Z", "S", "impedance"), ("S", "T", "plain"), ("P", "G", "plane"),
+                       ("P", "N", "pair"), ("P", "Z", "pair_net")):
+        total, _, tally = crossings(_x(a, b), kinds=kinds, partners=partners, prices=prices)
+        assert tally[want] == 1 and sum(tally.values()) == 1, (a, b)

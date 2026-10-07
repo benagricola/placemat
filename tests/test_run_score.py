@@ -14,7 +14,7 @@ CFG = Settings()
 
 
 def M(**kw):
-    base = {"unplaced": {}, "drc": 0, "link_excess": 0.0, "findings": {}, "crossings": {"signal": 0, "plane": 0},
+    base = {"unplaced": {}, "drc": 0, "link_excess": 0.0, "findings": {}, "crossings": {"plain": 0, "plane": 0},
             "airwire_mm": 0.0}
     base.update(kw)
     return base
@@ -24,7 +24,7 @@ def test_each_term_is_its_measure_times_its_weight():
     cfg = dataclasses.replace(CFG, score_crossing=2.0)
     t = score.terms(M(unplaced={"default": 1, "high": 1, "low": 2}, drc=3, link_excess=0.5,
                       findings={"fixed": 1, "copper": 2, "label": 1, "setup": 4, "escape_walled": 1},
-                      crossings={"signal": 10, "plane": 6}, airwire_mm=123.0), cfg)
+                      crossings={"plain": 10, "plane": 6}, airwire_mm=123.0), cfg)
     assert t["unplaced"] == pytest.approx(cfg.score_unplaced * (1 * 1 + 1 * 2 + 2 * 0.5))
     assert t["drc"] == 3 * cfg.score_drc
     assert t["link_over"] == pytest.approx(0.5 * cfg.score_link_over)
@@ -53,8 +53,8 @@ def test_runs_within_the_noise_band_tie_and_the_deciding_term_is_named():
 
 
 def test_a_changed_weight_reranks_two_recorded_runs_without_running_either():
-    fewer_crossings = M(crossings={"signal": 10, "plane": 0}, airwire_mm=1000.0)
-    shorter_wire = M(crossings={"signal": 30, "plane": 0}, airwire_mm=960.0)
+    fewer_crossings = M(crossings={"plain": 10, "plane": 0}, airwire_mm=1000.0)
+    shorter_wire = M(crossings={"plain": 30, "plane": 0}, airwire_mm=960.0)
     light = dataclasses.replace(CFG, score_crossing=1.0)
     heavy = dataclasses.replace(CFG, score_crossing=5.0)
     assert score.compare(shorter_wire, fewer_crossings, light)[0] == -1
@@ -96,7 +96,7 @@ def test_a_plan_measures_its_own_crossings_with_plane_nets_apart():
     for fp in fps:
         b.place(Part(fp.inst), at=fp.location)
     m = score.plan_measures(b, b.resolve())
-    assert m["crossings"]["signal"] >= 1                     # S1 (a1-a2) crosses S2/S3 (b1-b2) on the diagonals
+    assert m["crossings"]["plain"] >= 1                     # S1 (a1-a2) crosses S2/S3 (b1-b2) on the diagonals
     assert m["crossings"]["plane"] >= 1                      # GND (a1-a2) crosses them too, counted apart
     assert m["airwire_mm"] > 0
 
