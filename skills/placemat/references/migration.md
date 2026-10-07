@@ -33,6 +33,9 @@ section for each hand-written pattern a newer form replaces.
 - **A route that fails fails the run.** An error while routing left `run.json` at "running"; the run now records a
   failure of kind `route`, with the router's exit code, log and the log's last lines where the router failed, and exits
   non-zero. Scripts need no change.
+- **A teardrop is not a pour.** KiCad keeps a teardrop as a zone on its net, and placemat took it for the net's pour: a
+  net whose only zones were teardrops was left out of the route and counted as closed. Such a net is now routed and
+  counted in closure, and no plane is raised over a teardrop or guarded as a partial pour. Scripts need no change.
 
 ## To 0.99.34
 
