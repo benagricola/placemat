@@ -103,3 +103,26 @@ def test_failed_resolve_timing_restores_all_observers(monkeypatch):
     with pytest.raises(RuntimeError, match='injected adoption failure'):
         resolve_measure(board)
     assert (Occupancy.commit, NativeSweeper.run, Board._scorer, Scorer.native, MSTScorer.native) == methods
+
+
+def test_paired_resolve_timing_uses_fresh_boards_and_labels_nudge_origin(capsys):
+    from fixtures.score_speed import run_fixture
+    from placemat.values import Location, Near, Part
+    from tests.test_score_measures import _two_part_board
+    from types import SimpleNamespace
+    import json
+    made = []
+    def make():
+        board = _two_part_board()
+        board.place(Part('u1'), at=Location(10, 10))
+        board.place(Part('c1'), at=Near(Location(20, 20)), radius=0.4, rotations=(0,))
+        made.append(board)
+        return board
+    rows = run_fixture('synthetic', make, SimpleNamespace(items=1, candidates=4, repeats=1), 'mst')
+    output = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    resolves = [row for row in output if row['type'] == 'resolve']
+    assert len(made) == 2 and made[0] is not made[1]
+    assert [row['instrumented'] for row in resolves] == [False, True]
+    assert resolves[0]['score'] == resolves[1]['score']
+    assert all(row['search'] == 'mst' for row in resolves)
+    assert rows and all(row['measurement_board_search'] == 'mst' for row in rows)

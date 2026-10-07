@@ -173,7 +173,8 @@ def resolve_measure(board):
             elapsed = (time.perf_counter_ns() - start) / 1000
             stats['commit_us'] += elapsed
             item = args[0] if args else kwargs.get('item')
-            stats['commit_events'].append({'item': getattr(item, 'name', getattr(item, 'ref', str(item))), 'us': elapsed})
+            key = getattr(item, 'name', None) or getattr(item, 'ref', None)
+            stats['commit_events'].append({'item': key if key is not None else str(item), 'us': elapsed})
     def run(self, triples, *args, **kwargs):
         start = time.perf_counter_ns()
         result = originals[1][2](self, triples, *args, **kwargs)
@@ -243,11 +244,21 @@ def resolve_measure(board):
     return plan, stats
 
 
-def run_fixture(label, board, args):
+def run_fixture(label, make, args, mode):
     from placemat import score
+    board = make()
+    board.settings = replace(board.settings, place_search_wire=mode)
+    start = time.perf_counter()
+    plain = board.resolve()
+    print(json.dumps({'type': 'resolve', 'fixture': label, 'search': mode,
+                      'instrumented': False, 'seconds': time.perf_counter() - start,
+                      'score': score.total(score.plan_measures(board, plain), board.settings),
+                      'effective_settings': asdict(board.settings)}), flush=True)
+    board = make()
+    board.settings = replace(board.settings, place_search_wire=mode)
     plan, production = resolve_measure(board)
     print(json.dumps({'type': 'resolve', 'fixture': label, 'search': board.settings.place_search_wire,
-                      **production,
+                      'instrumented': True, **production,
                       'score': score.total(score.plan_measures(board, plan), board.settings),
                       'effective_settings': asdict(board.settings)}), flush=True)
     rows = []
@@ -257,6 +268,7 @@ def run_fixture(label, board, args):
     for step in selected:
         print(json.dumps({'type': 'item_start', 'fixture': label, 'item': step.item}), flush=True)
         row = measure(board, plan, step, count=args.candidates, repeats=args.repeats)
+        row['measurement_board_search'] = mode
         rows.append(row)
         print(json.dumps({'type': 'item', 'fixture': label, **row}, sort_keys=True), flush=True)
     return rows
@@ -299,51 +311,53 @@ def main(argv=None):
         for path in paths:
             g = read_board(path)
             for mode in ('clique', 'mst') if args.search == 'both' else (args.search,):
-                board = bench.ModuleBoard(g, {}, bench._planes(g), bench._size(g, False))()
-                board.settings = replace(board.settings, place_search_wire=mode)
-                rows.extend(run_fixture(bench._name(path), board, args))
+                make = bench.ModuleBoard(g, {}, bench._planes(g), bench._size(g, False))
+                rows.extend(run_fixture(bench._name(path), make, args, mode))
         if args.core or args.core_fixed:
             from placemat.layout import Board
             from placemat.occupancy import Occupancy
             from placemat.values import Cell, Part
             written = read_board(bench.BOARD_FIXTURE / 'layout' / 'layout.kicad_pcb')
+            def core_make(g, fixed):
+                def make():
+                    board = Board(g, keep_going=True)
+                    board.outline(written.board_polygon[0], holes=written.board_polygon[1:])
+                    for name, cell in sorted(g.cells.items()):
+                        if cell.members:
+                            if fixed:
+                                pose = Occupancy(g)._geometry(cell).reference
+                                board.place(Cell(name), at=pose.location, rotation=pose.rotation, face=pose.face)
+                            else:
+                                board.place(Cell(name))
+                    for fp in sorted(g.footprints, key=lambda f: f.inst):
+                        if fp.cell is None:
+                            if fixed:
+                                board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
+                            else:
+                                board.place(Part(fp.inst))
+                    return board
+                return make
+            cases = []
             if args.core:
                 generated = read_board(bench.BOARD_FIXTURE / 'generated' / 'layout.kicad_pcb')
+                cases.append(('generated-core-search', core_make(generated, False)))
+            if args.core_fixed:
+                cases.append(('written-core-fixed-poses', core_make(written, True)))
+            for label, make in cases:
                 for mode in ('clique', 'mst') if args.search == 'both' else (args.search,):
-                    board = Board(generated, keep_going=True)
-                    board.settings = replace(board.settings, place_search_wire=mode)
-                    board.outline(written.board_polygon[0], holes=written.board_polygon[1:])
-                    for name, cell in sorted(generated.cells.items()):
-                        if cell.members:
-                            board.place(Cell(name))
-                    for fp in sorted(generated.footprints, key=lambda f: f.inst):
-                        if fp.cell is None:
-                            board.place(Part(fp.inst))
-                    rows.extend(run_fixture('generated-core-search', board, args))
-            g = written
-            for mode in (('clique', 'mst') if args.search == 'both' else (args.search,)) if args.core_fixed else ():
-                board = Board(g, keep_going=True)
-                board.settings = replace(board.settings, place_search_wire=mode)
-                board.outline(g.board_polygon[0], holes=g.board_polygon[1:])
-                for name, cell in sorted(g.cells.items()):
-                    if cell.members:
-                        pose = Occupancy(g)._geometry(cell).reference
-                        board.place(Cell(name), at=pose.location, rotation=pose.rotation, face=pose.face)
-                for fp in g.footprints:
-                    if fp.cell is None:
-                        board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
-                rows.extend(run_fixture('written-core-fixed-poses', board, args))
+                    rows.extend(run_fixture(label, make, args, mode))
         after = runtime_identity(inputs, native_path)
         print(json.dumps({'type': 'provenance_end', 'identity': after, 'unchanged': before == after}), flush=True)
         if before != after:
             raise RuntimeError('runtime or input bytes changed during timing; results are uncertified')
-    for kind in ('part', 'cell'):
-        found = [r for r in rows if r['kind'] == kind and r['legal']]
-        if found:
-            print(json.dumps({'type': 'median', 'kind': kind, 'items': len(found),
-                              'old_score_us': statistics.median(r['old_score_us'] for r in found),
-                              'delta_score_us': statistics.median(r['delta_score_us'] for r in found),
-                              'fallbacks': dict(Counter(r['fallback_reason'] for r in found if r['fallback_reason']))}), flush=True)
+    for mode in ('clique', 'mst'):
+        for kind in ('part', 'cell'):
+            found = [r for r in rows if r['kind'] == kind and r['legal'] and r['measurement_board_search'] == mode]
+            if found:
+                print(json.dumps({'type': 'median', 'kind': kind, 'measurement_board_search': mode, 'items': len(found),
+                                  'old_score_us': statistics.median(r['old_score_us'] for r in found),
+                                  'delta_score_us': statistics.median(r['delta_score_us'] for r in found),
+                                  'fallbacks': dict(Counter(r['fallback_reason'] for r in found if r['fallback_reason']))}), flush=True)
     return 0
 
 
