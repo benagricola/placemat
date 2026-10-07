@@ -323,14 +323,14 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
         except (TypeError, ValueError):
             raise RuntimeError("invalid inherited router deadline") from None
         deadline = min(deadline, inherited)
+    if deadline <= time.time():
+        raise RuntimeError("inherited router deadline has expired")
     child_env["KRT_ROUTE_DEADLINE_UTC"] = str(deadline)
     # Placemat's ordinary children share this owned group. KRT's isolated candidate/grader groups
     # receive the earlier absolute deadline above and are reaped by their own supervising process.
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             start_new_session=True, env=child_env)
-    try:
-        stdout, stderr = proc.communicate(timeout=ROUTE_TIMEOUT_S)
-    except subprocess.TimeoutExpired:
+    def stop_owned():
         try:
             os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -343,7 +343,14 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
             except ProcessLookupError:
                 pass
             proc.communicate()
+    try:
+        stdout, stderr = proc.communicate(timeout=ROUTE_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        stop_owned()
         raise RuntimeError("placemat route timed out after %s seconds" % ROUTE_TIMEOUT_S) from None
+    except BaseException:
+        stop_owned()
+        raise
     if proc.returncode != 0:
         raise RuntimeError("placemat route exited %d: %s" % (proc.returncode, (stderr or stdout)[-500:]))
     if not out.exists():

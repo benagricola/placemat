@@ -183,3 +183,39 @@ def test_reference_timeout_reaps_its_process_group_and_deadlined_candidate(tmp_p
     for pid in (parent, child):
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)
+
+
+def test_expired_inherited_deadline_refuses_before_launch(tmp_path, monkeypatch):
+    import time
+    def unexpected(*args, **kwargs):
+        pytest.fail("expired route launched a child")
+    monkeypatch.setattr(route_ref.subprocess, "Popen", unexpected)
+    with pytest.raises(RuntimeError, match="expired"):
+        route_ref._route(tmp_path / "board.kicad_pcb", tmp_path / "route", None,
+                         env={"KRT_ROUTE_DEADLINE_UTC": str(time.time() - 1)})
+
+
+def test_interrupted_reference_wait_reaps_owned_parent(tmp_path, monkeypatch):
+    import os
+    import subprocess
+    import sys
+    real = subprocess.Popen
+    seen = []
+    def run(cmd, **kwargs):
+        proc = real([sys.executable, "-c", "import time; time.sleep(100)"], **kwargs)
+        seen.append(proc.pid)
+        communicate = proc.communicate
+        first = True
+        def interrupted(**options):
+            nonlocal first
+            if first:
+                first = False
+                raise KeyboardInterrupt
+            return communicate(**options)
+        proc.communicate = interrupted
+        return proc
+    monkeypatch.setattr(route_ref.subprocess, "Popen", run)
+    with pytest.raises(KeyboardInterrupt):
+        route_ref._route(tmp_path / "board.kicad_pcb", tmp_path / "route", None)
+    with pytest.raises(ProcessLookupError):
+        os.kill(seen[0], 0)
