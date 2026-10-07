@@ -21,7 +21,10 @@ merging to main. Main was merged into the feature branch at 9b4f8be4; step 1 has
   No unexplained reference regression may be accepted or repinned.
 - Task 26 remains open: final whole-suite, reference comparisons, slow-test list, and release gates. The earlier
   broad run omitted KRT_DIR and lacked local socket access; it is diagnostic evidence, not a successful gate.
-  The unchanged main OCR confidence test also fails independently; see /tmp/placemat-main-ocr-baseline.log.
+  The unchanged main OCR confidence test also failed independently; see /tmp/placemat-main-ocr-baseline.log.
+  Its assertion contradicted the documented line-admission/weakest-word confidence contract. The reviewer's exact
+  approved test-only correction from step 2 c18d0f81 is cherry-picked as 4a9140b2; 53 PDF/datasheet tests pass with
+  OCR implementation and thresholds unchanged.
 - Use /tmp/placemat-step1-venv/bin/python for branch validation. It has genuine editable branch metadata and a
   locally built native extension, with read-only dependency paths shared from main. Reinstall the editable package
   after commits so installed metadata matches the checkout. Always set PYTHONPATH to this branch and KRT_DIR to
