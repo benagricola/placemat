@@ -119,8 +119,10 @@ def refused_text(code: str, facts: dict) -> str:
         facts = dict(facts, what=", ".join("%s %s.%s-%s.%s %s" % (t["net"], t["from"]["ref"], t["from"]["pad"],
                                                                   t["to"]["ref"], t["to"]["pad"], t["reason"])
                                            for t in facts["tasks"]))
-    elif code == "legacy_setting" and "instead" not in facts:
+    elif code == "legacy_setting":
         facts = dict(facts, instead=_INSTEAD.get(facts.get("setting"), "routing phases"))
+    elif code == "capture":
+        facts = dict(facts, detail=", ".join("%s %s" % kv for kv in sorted((facts.get("detail") or {}).items())))
     return _REFUSED[code] % facts
 
 
@@ -639,8 +641,9 @@ def read_pairs(log: str) -> Pairs:
 
 
 def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float = 0.0, width: float = 0.0,
-                 iterations: int | None = None, probe: int | None = None, clearances: Path | None = None) -> list:
-    """The pair router's command line. Width and gap are the net class's
+                 iterations: int | None = None, probe: int | None = None, clearances: Path | None = None,
+                 extra_args=()) -> list:
+    """The pair router's command line. `extra_args` are a phase's own router flags, after `[route] pair_router_args`. Width and gap are the net class's
     unless set (route_diff.py reads them from the board's project).
     `clearances`: the per-net clearance map placemat wrote (net_halos.py);
     None leaves the router to build its own from the net classes."""
@@ -656,7 +659,7 @@ def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float =
         cmd += ["--max-probe-iterations", str(probe)]
     if clearances is not None:
         cmd += ["--net-clearances", str(clearances)]
-    return cmd + list(active_settings().route_pair_router_args)
+    return cmd + list(active_settings().route_pair_router_args) + list(extra_args)
 
 
 def resolve_pair_layers(table: dict, pairs, classes: dict, board_layers) -> tuple:
@@ -755,7 +758,7 @@ def rename_nets(pcb_path: str, names: dict) -> None:
 
 def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, cfg, iterations, probe,
                 timeout, env, events=None, pair_layers: dict | None = None, halos: dict | None = None,
-                stem: str = "pairs") -> tuple:
+                stem: str = "pairs", extra_args=()) -> tuple:
     """Route the differential pairs `pairs` ([(p_net, n_net), ...], from
     pairs.board_pair_list): returns (the board to route the rest on,
     Pairs). No pairs comes back as it went in.
@@ -811,7 +814,8 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
     for i, (group_layers, group) in enumerate(groups):
         out = pcb_out if i == len(groups) - 1 else work / ("%s_%d.kicad_pcb" % (stem, i))
         cmd = pair_command(rpy, script, board, out, tuple(alias_of[pair] for pair in group), group_layers,
-                           cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe, clearances)
+                           cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe, clearances,
+                           extra_args)
         log = work / (stem + ".log" if i == 0 else "%s_%d.log" % (stem, i))
         with open(log, "w") as f:
             f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
@@ -1174,19 +1178,19 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
     return final, breaches
 
 
-def route_pour_net(ctx, board: Path, out: Path, net: str, width, layers, stem: str, pours, neckdown: bool = True,
-                   extra_args=()) -> tuple:
-    """Route one net the board serves by a pour, alone (D15, as route_islands routes an island net): its pads and the
-    pieces its pours leave apart, the router counting the net's own zones as joining what they reach; the other pour
-    nets' partial pours (`pours`) kept clear of it. Writes `out`, its copper locked and its own partial pours guarded
-    so later calls are judged against them. Returns (the breaches of another pour net's guard, the guards added:
-    "NET on LAYER" each)."""
+def route_pour_net(ctx, board: Path, out: Path, net: str, width, layers, stem: str, neckdown: bool = True,
+                   extra_args=()) -> list:
+    """Route one net the board serves by a pour, alone (D15), on `layers` (the phase's): its pads and the pieces its
+    pours leave apart, the router counting the net's own zones as joining what they reach. Every pour net's partial
+    inner-layer pours are guarded on the route's input board, on the route's layers (`ctx.layers`); this call takes
+    its own net's guard off for itself and puts it back on `out`, as route_islands did for an island net, so the
+    calls before and after it keep clear of its pour. Writes `out`, its copper locked. Returns the guards put back
+    ("NET on LAYER" each)."""
     share = ctx.cfg.route_plane_share
     inp = ctx.work / (stem + "_in.kicad_pcb")
     shutil.copy(board, inp)
     _copy_project(board, inp)
-    drop_pour_guards(str(inp), set(pours))
-    guard_partial_pours(str(inp), set(pours) - {net}, layers, share)
+    drop_pour_guards(str(inp), {net})
     pours_as_zones(str(inp), net)
     # A net's own layers go to the router as its --layers. The router appends every board copper layer left out
     # of --layers with the forbidden cost, the same as `--layer-costs -1` on it (KRT py_router/route.py:1291-1310):
@@ -1207,10 +1211,13 @@ def route_pour_net(ctx, board: Path, out: Path, net: str, width, layers, stem: s
     _copy_project(inp, out)
     pours_back(str(out), board)
     lock_copper(str(out))
-    others = tuple("%s %s " % (POUR_GUARD, n) for n in pours if n != net)
-    breaches = [b for b in router_breaches(inp, out) if any(g in b for g in others)]
-    kept = guard_partial_pours(str(out), {net}, layers, share)     # the other pours' guards came from `inp`
-    return breaches, kept
+    return guard_partial_pours(str(out), {net}, ctx.layers, share)
+
+
+def own_pour_breach(breach: str, nets) -> bool:
+    """A breach (keepout_breaches' record) that is a pour net's own copper inside its own pour's guard: the guard keeps
+    other nets out, not the net it guards."""
+    return any(("of %s inside %s %s " % (n, POUR_GUARD, n)) in breach for n in nets)
 
 
 def routing_clearance(default: float, args, env) -> float:
@@ -1301,25 +1308,25 @@ def new_error_count(before_json, after_json, is_real) -> int | None:
 
 def routed_copper(given_pcb, routed_pcb) -> tuple:
     """(vias, track mm, straight segments) of the copper the route added: the final board's tracks and vias that the
-    given board has not, keyed by kind, net, layer and ends. KRT's quality key counts a board's vias, segment length
-    and straight segments (KRT-upstream c98d38eb py_tools/board_score.py:1048-1052, py_router/ledger_score.py:76-82);
-    this counts the same over routed copper only, and track_mm is each track's own GetLength (an arc's path)."""
+    given board has not, keyed by kind, net, layer and ends. KRT's quality key counts a board's vias and its straight
+    segments, and its copper_mm is those segments' lengths end to end (KRT-upstream c98d38eb py_tools/board_score.py:
+    1048-1052, py_router/ledger_score.py:76-82): this counts the same over routed copper only, arcs left out as there."""
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
 
     def items(path):
         with quiet_stderr():
             board = _load_board(str(path))
-        out = {}
+        out = set()
         for t in board.GetTracks():
             kind = "via" if t.Type() == pcbnew.PCB_VIA_T else "arc" if t.Type() == pcbnew.PCB_ARC_T else "segment"
             ends = tuple(round(pcbnew.ToMM(v), 4) for p in (t.GetStart(), t.GetEnd()) for v in (p.x, p.y))
-            out[(kind, t.GetNetname(), t.GetLayer(), ends)] = pcbnew.ToMM(t.GetLength()) if kind != "via" else 0.0
+            out.add((kind, t.GetNetname(), t.GetLayer(), ends))
         return out
-    given, routed = items(given_pcb), items(routed_pcb)
-    new = {k: v for k, v in routed.items() if k not in given}
-    return (sum(1 for k in new if k[0] == "via"), round(sum(new.values()), 3),
-            sum(1 for k in new if k[0] == "segment"))
+    new = items(routed_pcb) - items(given_pcb)
+    segs = [k for k in new if k[0] == "segment"]
+    mm = sum(((k[3][2] - k[3][0]) ** 2 + (k[3][3] - k[3][1]) ** 2) ** 0.5 for k in segs)
+    return sum(1 for k in new if k[0] == "via"), round(mm, 3), len(segs)
 
 
 def _phase_nets(sel) -> set:
@@ -1366,10 +1373,9 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from ..capture_nets import CaptureError, capture_beside, read_capture
     from ..checks import COPPER_OZ
     from .route_state import RouteState, digest, file_digest
-    from .phase_run import (PhaseContext, is_clean, judge_obligations, obligations_of, open_connections, outcome_of,
-                            run_phase)
+    from .phase_run import (PhaseContext, Routed, is_clean, judge_obligations, judge_phase, obligations_of,
+                            open_connections, outcome_of, phase_neck, route_calls)
     from .phase_select import select
-    from .route_widths import neck_allowance
     cfg = active()
     phases = phases_of(cfg) if phases is None else tuple(phases)
     if not phases:
@@ -1377,7 +1383,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     for key in ("route_islands", "route_pair_layers", "route_net_halos"):
         if getattr(cfg, key):
             name = key.split("_", 1)[1]
-            raise RouteRefused("legacy_setting", setting=name, instead=_INSTEAD[name])
+            raise RouteRefused("legacy_setting", setting=name)
     names = [p.name for p in phases]
     if upto is not None and upto not in names:
         raise RouteRefused("unknown_phase", phase=upto, phases=", ".join(names))
@@ -1396,10 +1402,12 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     missing = _router_lacks(rpy, router_dir_path, run_list)
     if missing:
         raise RouteRefused("router_old", router=str(router_dir_path), missing=", ".join(missing))
+    from ..capture_nets import SIDECAR
     try:
         capture = read_capture(capture_path) if capture_path else capture_beside(pcb)
     except CaptureError as e:
-        raise RouteRefused("capture", path=str(capture_path or pcb), reason=e.code, detail=e.facts) from None
+        raise RouteRefused("capture", path=str(capture_path or Path(pcb).with_name(SIDECAR)), reason=e.code,
+                           detail=dict(e.facts)) from None
     state = RouteState(work, resume)
     from .. import channel, route_progress, route_view
     global _HOOK
@@ -1444,7 +1452,9 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     open0 = {n: v for n, v in before.open_nets.items() if n not in counted}
     valid = not before.real
     guard_footprint_copper(str(pcb_in))          # after the placement's own DRC: the guards are the router's
-    kept_pours = guard_partial_pours(str(pcb_in), pours - chosen_pours, layers, cfg.route_plane_share)
+    # every pour net's partial inner-layer pours kept clear of other nets, on the route's layers: a pour net a phase
+    # routes takes its own guard off for its own call only (route_pour_net)
+    kept_pours = guard_partial_pours(str(pcb_in), pours, layers, cfg.route_plane_share)
     from . import net_halos
     env = child_env(headless=False)
     env.pop("KICAD_ROUTE_TRACE", None)
@@ -1461,7 +1471,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
     base = digest(file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
-                  router_version(router_dir_path), __version__, settings_part)
+                  router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c)     # rise_c: current widths
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
     script = str(ONE_ROUND) if quick else str(route_py)
     ctx = PhaseContext(rpy, script, router_dir_path, work, layers, iterations, probe, quick, timeout, env, cfg,
@@ -1469,22 +1479,26 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     pcb_out = work / "routed.kicad_pcb"
     raw_out = work / "router_out.kicad_pcb"      # the last phase's board: post-processing is made on a copy
     board, prev, records, summaries, spent, resumed = pcb_in, base, [], [], 0.0, []
-    breaches_seen, guarded, pours_made = [], [], []
     open_now = dict(before.open_nets)
     for i, phase in enumerate(run_list):
         key = digest(base, "only", phase.key()) if only else digest(prev, phase.key())
         label = state.order[i]
         saved = state.result(label, key)
-        if saved is not None and (work / saved["board"]).exists():
-            board, open_now = work / saved["board"], dict(saved["open_nets"])
-            records.append(dict(saved["record"], reused=True))
-            summaries += [tuple(s) for s in saved["summaries"]]
-            breaches_seen += saved["breaches"]
-            guarded += [(n, work / b) for n, b in saved["guarded"]]
-            pours_made += saved["pours_kept"]
-            spent += saved["record"]["seconds"]
+        if saved is not None and (work / saved["routed"]["board"]).exists():
+            routed = Routed.of(saved["routed"], work)
+            if "record" not in saved:           # routed, not judged: a failure judging it keeps the routing (keep-work)
+                sel = select(phase, geometry, capture, open_nets={n for n, v in open_now.items() if v},
+                             excluded=excluded, pour_nets=pours, route_layers=layers, rise_c=cfg.check_rise_c,
+                             copper_oz=COPPER_OZ)
+                record, judged_open = judge_phase(ctx, i, phase, sel, routed, asked[i])
+                saved = dict(saved, record=record, open_nets=judged_open)
+                state.record(label, key, saved)
             resumed.append(phase.name)
             rev.resumed(phase.name, saved["record"]["seconds"])
+            board, open_now = routed.board, dict(saved["open_nets"])
+            records.append(dict(saved["record"], reused=True))
+            summaries += [tuple(x) for x in routed.summaries]
+            spent += saved["record"]["seconds"]
             prev = key
             continue
         state.drop_from(label)
@@ -1493,22 +1507,18 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         rev.begin(phase.name, nets=len(_phase_nets(sel)))
         done = False
         try:
-            outcome = run_phase(ctx_for(ctx, rev, phase.name), i, phase, sel, board, asked[i])
+            outcome = route_calls(ctx_for(ctx, rev, phase.name), i, phase, sel, board)
             done = True
         finally:
             rev.end(phase.name, complete=done)
-        board, open_now = outcome.board, outcome.open_nets
-        records.append(outcome.record)
-        made = [(n, k, str(s)) for n, k, s in outcome.summaries]
-        summaries += made
-        breaches_seen += outcome.breaches
-        guarded += outcome.guarded
-        pours_made += outcome.pours_kept
-        spent += outcome.record["seconds"]
-        state.record(label, key, {"board": board.name, "record": outcome.record, "open_nets": open_now,
-                                  "summaries": made, "breaches": outcome.breaches,
-                                  "guarded": [(n, Path(b).name) for n, b in outcome.guarded],
-                                  "pours_kept": outcome.pours_kept})
+        state.record(label, key, {"routed": outcome.routed})
+        routed = Routed.of(outcome.routed, work)
+        record, open_now = judge_phase(ctx, i, phase, sel, routed, asked[i])
+        state.record(label, key, {"routed": outcome.routed, "record": record, "open_nets": open_now})
+        board = routed.board
+        records.append(record)
+        summaries += [tuple(x) for x in routed.summaries]
+        spent += record["seconds"]
         prev = key
     seconds = round(spent, 1)
     shutil.copy(board, raw_out)
@@ -1526,10 +1536,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     by_net = _violations_by_net(json.loads((work / "drc_after.json").read_text()))
     violated = set(by_net)
     sc = score(open0, open1, {n for n in violated if n not in counted})
-    breaches = router_breaches(pcb_in, pcb_out) + breaches_seen
-    for net, gboard in guarded:     # a pour net's own pour was guarded after its call: the later copper against it
-        own = "%s %s " % (POUR_GUARD, net)
-        breaches += [b for b in router_breaches(gboard, pcb_out) if own in b]
+    breaches = [b for b in router_breaches(pcb_in, pcb_out) if not own_pour_breach(b, chosen_pours)]
     log = work / "route.json"
     for i in reversed(range(len(run_list))):
         logs = sorted(work.glob("p%d_*.log" % i))
@@ -1545,7 +1552,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                          dict(sorted(open1.items())), sc.shorted, sorted(counted), layers, seconds,
                          router_version(router_dir_path), after.by_type, pcb_out, log, work,
                          "" if valid else "placement DRC not clean before routing: %s" % before.real, quick,
-                         breaches, pairs.as_dict(), plane_dropped, list(kept_pours) + pours_made, {}, [], resumed)
+                         breaches, pairs.as_dict(), plane_dropped, list(kept_pours), {}, [], resumed)
     report.violations = {n: by_net[n] for n in sc.shorted}
     # the widths the router reports under what it was asked, per phase call (route_widths.stage_widths)
     from .route_widths import _read, stage_widths
@@ -1556,11 +1563,13 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     # ruling S6: every phase's asked set judged again on the final board, after the last phase and the clean-up
     report.final_judged = []
     for rec, obs, phase in zip(records, asked, run_list):
-        neck = neck_allowance(tuple(cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
-        got = judge_obligations(pcb_out, obs, work / "drc_after.json", neck)
+        got = judge_obligations(pcb_out, obs, work / "drc_after.json", phase_neck(cfg, phase), after.is_real)
         report.final_judged.append(got)
         connections = rec.get("connections") or []
-        clean = [is_clean(j, outcome_of(o, connections)) for o, j in zip(obs, got)]
+        outcomes = [outcome_of(o, connections) for o in obs]
+        # joined on the final board narrower than asked along its path, or reported joined_narrow by the router (D3)
+        report.widths_failed += sum(1 for j, oc in zip(got, outcomes) if j["joined"] and (j["under"] or oc == "joined_narrow"))
+        clean = [is_clean(j, oc) for j, oc in zip(got, outcomes)]
         rec["final_closure_clean"] = round(sum(clean) / len(obs), 4) if obs else 1.0
         rec["final_open"] = [dict(o, **({"violated": True} if j["joined"] and j["violated"] else {}),
                                   **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}))

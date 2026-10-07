@@ -14,10 +14,26 @@ from tests.conftest import needs_breakout, needs_kicad
 from tests.phase_helpers import phases
 
 
+ROUTE_LAYERS = ["F.Cu", "In2.Cu", "B.Cu"]
+
+
 def _ctx(tmp_path, work):
     """What route_pour_net reads of a route's phase context (kicad/phase_run.PhaseContext)."""
     return SimpleNamespace(cfg=Settings(), work=work, rpy="py", script="route.py", router_dir=str(tmp_path),
-                           iterations=None, probe=None, quick=True, clearances_file=None, env={}, timeout=60)
+                           iterations=None, probe=None, quick=True, clearances_file=None, env={}, timeout=60,
+                           layers=ROUTE_LAYERS)
+
+
+def _guarded(pcb, nets):
+    """The route's input board as the engine leaves it: every pour net's partial pours guarded on the route's layers."""
+    from placemat.kicad.route import guard_partial_pours
+    guard_partial_pours(str(pcb), set(nets), ROUTE_LAYERS, 0.9)
+    return pcb
+
+
+def _rule_areas(pcb):
+    import pcbnew
+    return sorted(z.GetZoneName() for z in pcbnew.LoadBoard(str(pcb)).Zones() if z.GetIsRuleArea())
 
 
 def test_an_island_net_may_carry_a_width():
@@ -137,12 +153,13 @@ def _four_layer_with_pours(breakout_pcb, dest, nets):
 @needs_kicad
 @needs_breakout
 def test_each_pour_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp_path, monkeypatch):
-    """Two pour nets, each in a call of its own: each call routes one, the other's partial pour kept clear of it, and
-    the board it leaves has its own pour guarded too, so the calls after it are judged against it."""
+    """Two pour nets, each in a call of its own: each call takes off its own net's guard for itself alone, the other's
+    partial pour kept clear of it, and the board it leaves has its own pour guarded again."""
     import subprocess
     import pcbnew
     import placemat.kicad.route as route_mod
-    pcb = _four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"])
+    pcb = _guarded(_four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"]),
+                   ["PERMIT_A", "PERMIT_B"])
     passes = []
 
     def stand_in(cmd, **kw):          # the router: copies its input to its output
@@ -155,15 +172,13 @@ def test_each_pour_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp
     monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
     work = tmp_path / "work"
     work.mkdir()
-    ctx, pours, layers = _ctx(tmp_path, work), {"PERMIT_A", "PERMIT_B"}, ["F.Cu", "In2.Cu", "B.Cu"]
+    ctx = _ctx(tmp_path, work)
     a, b = work / "p0_0.kicad_pcb", work / "p0_1.kicad_pcb"
-    breaches, kept = route_mod.route_pour_net(ctx, pcb, a, "PERMIT_A", None, layers, "p0_0", pours)
-    assert breaches == [] and kept == ["PERMIT_A on In2.Cu"]
-    route_mod.route_pour_net(ctx, a, b, "PERMIT_B", None, layers, "p0_1", pours)
+    assert route_mod.route_pour_net(ctx, pcb, a, "PERMIT_A", None, ROUTE_LAYERS, "p0_0") == ["PERMIT_A on In2.Cu"]
+    route_mod.route_pour_net(ctx, a, b, "PERMIT_B", None, ROUTE_LAYERS, "p0_1")
     assert passes == [(["PERMIT_A"], ["placemat pour PERMIT_B In2.Cu"]),
                       (["PERMIT_B"], ["placemat pour PERMIT_A In2.Cu"])]
-    assert sorted(z.GetZoneName() for z in pcbnew.LoadBoard(str(b)).Zones() if z.GetIsRuleArea()) == [
-        "placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
+    assert _rule_areas(b) == ["placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
 
 
 @needs_kicad
@@ -212,10 +227,14 @@ def test_the_report_records_each_islands_layers():
 
 @needs_kicad
 @needs_breakout
-def test_a_pour_net_routes_on_its_phases_layers_at_its_width(breakout_pcb, tmp_path, monkeypatch):
+def test_a_pour_net_routes_on_its_phases_layers_at_its_width_and_keeps_the_inner_guards(breakout_pcb, tmp_path,
+                                                                                         monkeypatch):
+    """A phase on F and B: the call routes on those layers, and the inner-layer guards of the other pour net (and
+    its own, put back) stay on the route's layers for the calls after it."""
     import subprocess
     import placemat.kicad.route as route_mod
-    pcb = _four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"])
+    pcb = _guarded(_four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"]),
+                   ["PERMIT_A", "PERMIT_B"])
     seen = []
 
     def stand_in(cmd, **kw):
@@ -226,8 +245,9 @@ def test_a_pour_net_routes_on_its_phases_layers_at_its_width(breakout_pcb, tmp_p
     monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
     work = tmp_path / "work"
     work.mkdir()
-    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, work / "p0_0.kicad_pcb", "PERMIT_A", 0.5, ["F.Cu", "B.Cu"],
-                             "p0_0", {"PERMIT_A", "PERMIT_B"})
+    out = work / "p0_0.kicad_pcb"
+    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, out, "PERMIT_A", 0.5, ["F.Cu", "B.Cu"], "p0_0")
+    assert _rule_areas(out) == ["placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
     (cmd,) = seen
     assert cmd[cmd.index("--layers") + 1:cmd.index("--escalation")] == ["F.Cu", "B.Cu"]
     assert cmd[cmd.index("--power-nets") + 1] == "PERMIT_A" and cmd[cmd.index("--power-nets-widths") + 1] == "0.5"
@@ -294,8 +314,7 @@ def test_a_pour_nets_own_graphic_pour_reaches_the_router_as_a_zone(breakout_pcb,
     work = tmp_path / "work"
     work.mkdir()
     board = work / "p0_0.kicad_pcb"
-    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ["F.Cu", "In2.Cu", "B.Cu"], "p0_0",
-                             {"PERMIT_A"})
+    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ROUTE_LAYERS, "p0_0")
     (zones, graphics), = seen
     assert graphics == []
     (net, layer, area, filled), = [z for z in zones if z[1] == "In2.Cu"]
@@ -343,8 +362,7 @@ def test_a_cells_graphic_pour_goes_back_into_its_group(breakout_pcb, tmp_path, m
     work = tmp_path / "work"
     work.mkdir()
     board = work / "p0_0.kicad_pcb"
-    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ["F.Cu", "In2.Cu", "B.Cu"], "p0_0",
-                             {"PERMIT_A"})
+    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ROUTE_LAYERS, "p0_0")
     out = pcbnew.LoadBoard(str(board))
     back, = [d for d in out.GetDrawings() if d.m_Uuid.AsString() == uuid]
     assert back.GetParentGroup() is not None and back.GetParentGroup().GetName() == "cell_a"

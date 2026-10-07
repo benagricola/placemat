@@ -15,7 +15,7 @@ import time
 
 from .. import route_progress
 from .drc import run_drc
-from .route import (RouteRefused, RouterFailed, _copy_project, _violations_by_net, clearance_groups, fill_zones,
+from .route import (RouteRefused, RouterFailed, _copy_project, clearance_groups, fill_zones,
                     group_clearance, lock_copper, main_pass_nets, remove_guards, route_pairs, route_pour_net,
                     router_command)
 
@@ -124,9 +124,31 @@ class PhaseOutcome:
     open_nets: dict                                     # {net: open items} on that board, from the phase's DRC
     summaries: list = field(default_factory=list)       # (phase name, call index, summary path)
     calls: list = field(default_factory=list)           # (Call, board in, board out) (ruling S1, Task 15)
-    breaches: list = field(default_factory=list)        # a pour call's copper inside another pour net's guard
-    guarded: list = field(default_factory=list)         # (net, board): the board a pour call left, its pour guarded
-    pours_kept: list = field(default_factory=list)      # "NET on LAYER" for each such guard
+    routed: dict = field(default_factory=dict)          # Routed.record(): what the calls left, kept before judging
+
+
+@dataclass
+class Routed:
+    """What a phase's router calls left, before its judgement: kept in the route's state as soon as the calls end, so a
+    failure judging it (its DRC) costs only the judgement on a rerun."""
+    board: Path
+    seconds: float
+    ncalls: int
+    pairs: dict | None = None
+    connections: list = field(default_factory=list)
+    bus_groups: list = field(default_factory=list)
+    summaries: list = field(default_factory=list)       # (phase name, call index, summary path as str)
+
+    def record(self) -> dict:
+        return {"board": Path(self.board).name, "seconds": round(self.seconds, 1), "ncalls": self.ncalls,
+                "pairs": self.pairs, "connections": list(self.connections), "bus_groups": list(self.bus_groups),
+                "summaries": [list(s) for s in self.summaries]}
+
+    @staticmethod
+    def of(doc: dict, work) -> "Routed":
+        return Routed(Path(work) / doc["board"], doc["seconds"], doc["ncalls"], doc.get("pairs"),
+                      list(doc.get("connections") or ()), list(doc.get("bus_groups") or ()),
+                      [tuple(s) for s in doc.get("summaries") or ()])
 
 
 def _run(cmd, log: Path, ctx) -> int:
@@ -186,6 +208,22 @@ def _ob_key(o) -> tuple:
     return (o["net"], _end_key(o["from"]), _end_key(o["to"]))
 
 
+def _pair_key(o) -> tuple:
+    return (o["net"],) + tuple(sorted((_end_key(o["from"]), _end_key(o["to"])), key=repr))
+
+
+def _unique(obs) -> list:
+    """The obligations with each pad pair once (the first): the DRC can list two open connections between the same two
+    pads, and a phase may state a task twice."""
+    seen, out = set(), []
+    for o in obs:
+        k = _pair_key(o)
+        if k not in seen:
+            seen.add(k)
+            out.append(o)
+    return out
+
+
 def obligations_of(selections, input_open, skip) -> list:
     """Each phase's asked set, fixed from the input board before any phase runs (ruling S6): a candidate route cannot
     change its own denominator. One list per selection, in phase order. An obligation is {"net", "from", "to",
@@ -206,21 +244,28 @@ def obligations_of(selections, input_open, skip) -> list:
                     | {n for q in sel.pairs for n in q})
             widths = {layer: sel.width for layer in sel.layers} if sel.width and sel.layers else None
             obs = [dict(o, widths=dict(widths) if widths else None) for o in input_open if o["net"] in nets]
+        obs = _unique(obs)
         named |= {o["net"] for o in obs}
         out.append(obs)
     return out
 
 
-def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0) -> list:
+def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None) -> list:
     """Each obligation on a board, in order: {"joined", "violated", "under"}. joined: KiCad's connectivity joins the two
     ends' pads (joined_pairs); an obligation with an end that is no pad is joined when its net has no open connection
-    in `drc_json`. violated: its net is in a real DRC violation of `drc_json` (_violations_by_net). under: for a joined
+    in `drc_json`. violated: its net is in a real error of `drc_json` (drc.real_errors: the `real` bucket at severity
+    error, as drc_new counts them; `is_real` is the board's DrcReport.is_real, None: the bound `[drc] real_kinds`). under: for a joined
     obligation with widths, the narrowest track per layer on its joining path (joining_path) under the width asked
     there, past `neck_mm` at either end (width_shortfall); {} when it meets them, has no widths, or is joined only
     through a pour. The DRC is the board's own."""
+    from .drc import real_errors
     from .read import read_board
     data = json.loads(Path(drc_json).read_text())
-    violated = set(_violations_by_net(data))
+    if is_real is None:
+        from ..settings import active
+        kinds = set(active().drc_real_kinds)
+        is_real = kinds.__contains__
+    violated = {n for e in real_errors(data, is_real) for n in e["nets"]}
     pads = [o for o in obligations if o["from"].get("ref") and o["to"].get("ref")]
     joined = dict(zip(map(_ob_key, pads), joined_pairs(pcb_path, [((o["from"]["ref"], o["from"]["pad"]),
                                                                     (o["to"]["ref"], o["to"]["pad"])) for o in pads])))
@@ -233,8 +278,8 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0) -> list:
         j = joined[_ob_key(o)] if _ob_key(o) in joined else o["net"] not in open_nets
         under = {}
         if j and o.get("widths") and geometry is not None:
-            path = joining_path(geometry, o)
-            under = width_shortfall(path, o["widths"], neck_mm) if path else {}
+            spans = joining_spans(geometry, o)
+            under = width_shortfall(spans, o["widths"], neck_mm) if spans else {}
         out.append({"joined": j, "violated": o["net"] in violated, "under": under})
     return out
 
@@ -246,10 +291,23 @@ def is_clean(j: dict, outcome) -> bool:
 
 
 def joining_path(geometry, o):
-    """The tracks (CopperItems) of the shortest track path joining an obligation's two end pads: Dijkstra over its net's
-    tracks (by length, each split at the track ends and vias that lie on it) and vias (zero length, joining the layers
-    they span); a joint inside a pad's outline on one of the pad's layers joins the pad. Ordered from the "to" end.
-    None when no track path joins them (a pour join, or not joined). An arc is taken by its chord."""
+    """The tracks (CopperItems) of the shortest track path joining an obligation's two end pads (joining_spans), each
+    once, ordered from the "to" end; None when no track path joins them."""
+    spans = joining_spans(geometry, o)
+    if spans is None:
+        return None
+    path = []
+    for t, _ in spans:
+        if not path or path[-1] is not t:
+            path.append(t)
+    return path
+
+
+def joining_spans(geometry, o):
+    """The shortest track path joining an obligation's two end pads, as (track, length along the path) pieces ordered
+    from the "to" end: Dijkstra over its net's tracks (by length, each split at the track ends and vias that lie on it)
+    and vias (zero length, joining the layers they span); a joint inside a pad's outline on one of the pad's layers
+    joins the pad. None when no track path joins them (a pour join, or not joined). An arc is taken by its chord."""
     import heapq
     import math
     from ..geometry import point_in_polygon
@@ -315,28 +373,46 @@ def joining_path(geometry, o):
                 heapq.heappush(heap, (d + length, n, v))
     if "B" not in dist:
         return None
-    path, u = [], "B"
+    spans, u = [], "B"
     while u != "A":
+        v = u
         u, track = prev[u]
-        if track is not None and (not path or path[-1] is not track):
-            path.append(track)
-    return path
+        if track is not None:
+            spans.append((track, dist[v] - dist[u]))
+    return spans
 
 
 def width_shortfall(path, widths, neck_mm) -> dict:
-    """{layer name: narrowest mm} over the path's tracks under the width asked on their layer, leaving out a track that
-    lies wholly within `neck_mm` of either end of the path; {} when the path meets its widths."""
+    """{layer name: narrowest mm} of the copper on `path` under the width asked on its layer, past the neck allowance;
+    {} when the path meets its widths. `path` is joining_spans' (track, length) pieces, or tracks taken whole.
+
+    The rule is on points of the path, not on how its copper is split into tracks (route_widths._neck_lengths judges
+    the same way): with L the path's length and a = min(neck_mm, L / 2), copper at a distance under `a` from either end
+    is the router's pad neck-down and is not counted; copper strictly between a and L - a must be at full width. So
+    every connection keeps copper at full width (the user's decision of 2026-10-07): on a path too short to hold both
+    necks (a = L / 2) its middle point must lie on full-width copper. neck_mm 0 (`neckdown = false`): no allowance."""
     from ..values import CopperLayer
     from .route_widths import _UNDER_MM
+    eps = 1e-6
+    pieces = [p if isinstance(p, tuple) else (p, p.length_mm) for p in path]
     names = {CopperLayer.of(name): name for name in widths}
-    total, run, out = sum(t.length_mm for t in path), 0.0, {}
-    for t in path:
-        a, run = run, run + t.length_mm
-        if neck_mm and (run <= neck_mm or a >= total - neck_mm):
-            continue
+    spans, run = [], 0.0
+    for t, length in pieces:
         layer = names.get(next(iter(t.layers)))
-        if layer is not None and t.width_mm < widths[layer] - _UNDER_MM:
-            out[layer] = min(out.get(layer, t.width_mm), t.width_mm)
+        narrow = layer is not None and t.width_mm < widths[layer] - _UNDER_MM
+        spans.append((run, run + length, t, layer, narrow))
+        run += length
+    total = run
+    a = min(max(neck_mm, 0.0), total / 2)
+    if total - 2 * a > eps:                             # an open stretch at full width: no narrow copper inside it
+        counted = [sp for sp in spans if sp[4] and sp[1] > a + eps and sp[0] < total - a - eps]
+    else:                                               # too short for both necks: the middle point decides
+        mid = total / 2
+        at_mid = [sp for sp in spans if sp[0] - eps <= mid <= sp[1] + eps]
+        counted = [sp for sp in at_mid if sp[4]] if all(sp[4] for sp in at_mid) else []
+    out = {}
+    for _, _, t, layer, _ in counted:
+        out[layer] = min(out.get(layer, t.width_mm), t.width_mm)
     return out
 
 
@@ -426,10 +502,10 @@ def open_connections(pcb_path, drc_json) -> list:
     return out
 
 
-def run_phase(ctx, index, phase, sel, board, obligations) -> PhaseOutcome:
-    """Route one phase on `board`: its calls (plan_calls) in order, each on the board the one before left, its copper
-    locked; then a DRC of the phase's board (guards off, zones filled) judges its obligations. A task the router
-    refuses stops the route (RouteRefused "router_refused"); a call that fails raises RouterFailed."""
+def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
+    """Route one phase's calls (plan_calls) on `board`, in order, each on the board the one before left, its copper
+    locked. The outcome's `routed` is what judge_phase needs. A task the router refuses stops the route (RouteRefused
+    "router_refused"); a call that fails raises RouterFailed."""
     t0 = time.time()
     calls = plan_calls(sel, ctx.clearance_map, ctx.base_clearance, set(ctx.excluded) | set(ctx.pour_nets))
     layers = list(sel.layers)
@@ -443,19 +519,18 @@ def run_phase(ctx, index, phase, sel, board, obligations) -> PhaseOutcome:
         nxt = ctx.work / (stem + ".kicad_pcb")
         summary = ctx.work / (stem + "_summary.json")
         if call.kind == "pairs":
+            # the phase's own router flags go to the pair router too; its neck-down is route.py's only (route_diff.py
+            # has no --no-power-tap-neckdown), so `neckdown` does not reach a pair call
             got, found = route_pairs(ctx.rpy, ctx.router_dir, board, ctx.work, list(sel.pairs), layers, ctx.cfg,
-                                     ctx.iterations, ctx.probe, ctx.timeout, ctx.env, events=ctx.events, stem=stem)
+                                     ctx.iterations, ctx.probe, ctx.timeout, ctx.env, events=ctx.events, stem=stem,
+                                     extra_args=tuple(phase.router_args))
             pairs = found.as_dict()
             if Path(got) != nxt:
                 shutil.copy(got, nxt)
                 _copy_project(got, nxt)
         elif call.kind == "pour":
-            breaches, kept = route_pour_net(ctx, board, nxt, call.nets[0], call.width, layers, stem,
-                                            set(sel.pour_nets) | set(ctx.pour_nets), phase.neckdown,
-                                            tuple(phase.router_args))
-            out.breaches += breaches
-            out.pours_kept += kept
-            out.guarded.append((call.nets[0], nxt))
+            route_pour_net(ctx, board, nxt, call.nets[0], call.width, layers, stem, phase.neckdown,
+                           tuple(phase.router_args))
             out.summaries.append((phase.name, k, summary))
         elif call.kind == "tasks":
             pending, j, src = list(call.tasks), 0, board
@@ -504,8 +579,8 @@ def run_phase(ctx, index, phase, sel, board, obligations) -> PhaseOutcome:
                 _failed(rc, log, what)
             _copy_project(board, nxt)
             out.summaries.append((phase.name, k, summary))
-            if call.kind == "bus":
-                bus_groups += json.loads(summary.read_text()).get("bus_groups") or [] if summary.exists() else []
+            if call.kind == "bus" and summary.exists():
+                bus_groups += json.loads(summary.read_text()).get("bus_groups") or []
         lock_copper(str(nxt))
         out.calls.append((call, board, nxt))
         board = nxt
@@ -514,23 +589,47 @@ def run_phase(ctx, index, phase, sel, board, obligations) -> PhaseOutcome:
         shutil.copy(board, nxt)
         _copy_project(board, nxt)
         board = nxt
+    out.board = board
+    out.routed = Routed(board, time.time() - t0, len(calls), pairs, connections, bus_groups,
+                        [(n, k, str(sp)) for n, k, sp in out.summaries]).record()
+    return out
+
+
+def judge_phase(ctx, index, phase, sel, routed: Routed, obligations) -> tuple:
+    """A phase's judgement on the board its calls left: a DRC of a copy (guards off, zones filled), then each obligation
+    judged on it. Returns (phase_record, {net: open items} from that DRC)."""
+    t0 = time.time()
     judged = ctx.work / ("p%d_drc.kicad_pcb" % index)
     drc_json = ctx.work / ("p%d_drc.json" % index)
-    shutil.copy(board, judged)
-    _copy_project(board, judged)
+    shutil.copy(routed.board, judged)
+    _copy_project(routed.board, judged)
     remove_guards(str(judged))
     fill_zones(str(judged))
     drc = run_drc(judged, drc_json, refill_zones=False)
-    out.board, out.open_nets = board, dict(drc.open_nets)
     net_evidence = {}
-    for _, _, path in out.summaries:                # a later call's record of a net wins
+    for _, _, path in routed.summaries:             # a later call's record of a net wins
         if Path(path).exists():
             try:
                 net_evidence.update(json.loads(Path(path).read_text()).get("net_evidence") or {})
             except ValueError:
                 pass
+    neck = phase_neck(ctx.cfg, phase)
+    record = phase_record(phase, index, sel, obligations,
+                          judge_obligations(judged, obligations, drc_json, neck, drc.is_real),
+                          routed.seconds + time.time() - t0, routed.ncalls, routed.pairs, routed.connections,
+                          routed.bus_groups, net_evidence)
+    return record, dict(drc.open_nets)
+
+
+def phase_neck(cfg, phase) -> float:
+    """The neck allowance a phase's widths are judged with: the router's (route_widths.neck_allowance, from
+    `[route] router_args` and the phase's), none with `neckdown = false`."""
     from .route_widths import neck_allowance
-    neck = neck_allowance(tuple(ctx.cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
-    out.record = phase_record(phase, index, sel, obligations, judge_obligations(judged, obligations, drc_json, neck),
-                              time.time() - t0, len(calls), pairs, connections, bus_groups, net_evidence)
+    return neck_allowance(tuple(cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
+
+
+def run_phase(ctx, index, phase, sel, board, obligations) -> PhaseOutcome:
+    """Route one phase on `board` (route_calls), then judge its obligations on the board it left (judge_phase)."""
+    out = route_calls(ctx, index, phase, sel, board)
+    out.record, out.open_nets = judge_phase(ctx, index, phase, sel, Routed.of(out.routed, ctx.work), obligations)
     return out

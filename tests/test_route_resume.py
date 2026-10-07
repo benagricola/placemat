@@ -207,7 +207,7 @@ def test_a_pair_phase_is_kept_and_reused_like_any_other(rig, monkeypatch):
     calls = []
 
     def stand_in(rpy, router_dir_path, pcb_in, work, pairs, layers, cfg, iterations, probe, timeout, env, events=None,
-                 pair_layers=None, halos=None, stem="pairs"):
+                 pair_layers=None, halos=None, stem="pairs", extra_args=()):
         calls.append(list(pairs))
         out = work / (stem + ".kicad_pcb")
         shutil.copy(pcb_in, out)

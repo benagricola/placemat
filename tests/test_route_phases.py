@@ -33,7 +33,7 @@ FAKE = textwrap.dedent('''
                   "blocked_by": [{"found_by": "static", "kind": "pad", "net": "X", "ref": "U9", "pad": "1",
                                   "layer": None, "at": [0.0, 0.0], "cells": 3, "seen_from": "forward",
                                   "near_source_cells": None, "near_target_cells": None}]}
-            status = "refused" if refuse else "failed" if failed else "routed"
+            status = ("refused" if refuse else "failed" if failed else os.environ.get("FAKE_ROUTER_STATUS") or "routed")
             doc["connections"] = [dict(t, status=status, reason=refuse, joined=status == "routed", length_mm=1.0,
                                        min_width_mm=t["widths"], layers=list(t["widths"]),
                                        evidence=ev if failed else None) for t in tasks]
@@ -63,8 +63,8 @@ def rig(tmp_path, monkeypatch):
             log = tmp_path / "calls"
             return [json.loads(l) for l in log.read_text().splitlines()] if log.exists() else []
 
-        def route(self, *raw, **kw):
-            with bind(Settings()):
+        def route(self, *raw, settings=None, **kw):
+            with bind(Settings(**(settings or {}))):
                 return route_board(self.pcb, self.work, router_dir_override=str(krt), layers=["F.Cu", "B.Cu"],
                                    phases=phases(*raw), **kw)
     return Rig()
@@ -133,12 +133,20 @@ def test_each_phase_asks_a_set_fixed_from_the_input_board():
 
 def test_a_later_short_never_makes_an_obligation_clean(tmp_path, monkeypatch):
     drc = tmp_path / "drc.json"
-    drc.write_text(json.dumps({"violations": [{"type": "shorting_items", "items": [
-        {"description": "Track [FB] on F.Cu"}, {"description": "Track [VIN] on F.Cu"}]}], "unconnected_items": []}))
+    drc.write_text(json.dumps({"violations": [
+        {"type": "shorting_items", "severity": "error",
+         "items": [{"description": "Track [FB] on F.Cu"}, {"description": "Track [VIN] on F.Cu"}]},
+        {"type": "clearance", "severity": "warning",
+         "items": [{"description": "Track [EN] on F.Cu"}, {"description": "Track [VIN] on F.Cu"}]},
+        {"type": "silk_overlap", "severity": "error", "items": [{"description": "Track [SW] on F.Cu"}]}],
+        "unconnected_items": []}))
     monkeypatch.setattr(phase_run, "joined_pairs", lambda pcb, pairs: [True] * len(pairs))
-    ob = {"net": "FB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "U1", "pad": "2"}, "widths": None}
-    (j,) = phase_run.judge_obligations(tmp_path / "x.kicad_pcb", [ob], drc)
-    assert j == {"joined": True, "violated": True, "under": {}} and not phase_run.is_clean(j, None)
+    obs = [{"net": n, "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "U1", "pad": "2"}, "widths": None}
+           for n in ("FB", "EN", "SW")]
+    fb, en, sw = phase_run.judge_obligations(tmp_path / "x.kicad_pcb", obs, drc)
+    assert fb == {"joined": True, "violated": True, "under": {}} and not phase_run.is_clean(fb, None)
+    # one rule with drc_new: the real bucket at severity error; a warning, or a kind outside the bucket, is no fault
+    assert not en["violated"] and not sw["violated"]
 
 
 def test_a_join_narrower_than_asked_is_not_clean():
@@ -276,3 +284,101 @@ def test_the_route_command_says_a_refusal_and_exits_2(tmp_path, monkeypatch, cap
     pcb.write_text("")
     assert cli.main(["route", str(pcb)]) == 2
     assert "route: no routing phases in placemat.toml" in capsys.readouterr().out
+
+
+def _spans(*pieces):
+    from tests.fixtures import track
+    out, x = [], 0.0
+    for length, w in pieces:
+        out.append(track("VB", x, 10, x + length, 10, w=w))
+        x += length
+    return out
+
+
+def test_the_width_rule_is_on_points_of_the_path_not_on_how_its_copper_is_split():
+    asked = {"F.Cu": 0.4}
+    whole = _spans((3.0, 0.2), (14.0, 0.4), (3.0, 0.2))                # necks of 3 mm at each end of 20 mm
+    split = _spans((1.0, 0.2), (2.0, 0.2), (7.0, 0.4), (7.0, 0.4), (2.0, 0.2), (1.0, 0.2))
+    assert phase_run.width_shortfall(whole, asked, 3.0) == phase_run.width_shortfall(split, asked, 3.0) == {}
+    long_neck = _spans((5.0, 0.2), (15.0, 0.4))                        # 5 mm narrow: 2 mm past the allowance
+    long_split = _spans((3.0, 0.2), (2.0, 0.2), (15.0, 0.4))
+    assert phase_run.width_shortfall(long_neck, asked, 3.0) == phase_run.width_shortfall(long_split, asked, 3.0) \
+        == {"F.Cu": 0.2}
+    assert phase_run.width_shortfall(whole, asked, 0.0) == {"F.Cu": 0.2}         # neckdown = false: no allowance
+
+
+def test_a_short_connection_keeps_its_width_obligation():
+    asked = {"F.Cu": 0.4}
+    assert phase_run.width_shortfall(_spans((4.0, 0.2)), asked, 3.0) == {"F.Cu": 0.2}
+    assert phase_run.width_shortfall(_spans((2.0, 0.2), (2.0, 0.2)), asked, 3.0) == {"F.Cu": 0.2}
+    assert phase_run.width_shortfall(_spans((1.5, 0.2), (1.0, 0.4), (1.5, 0.2)), asked, 3.0) == {}   # full width mid
+
+
+def test_the_widths_are_judged_on_the_part_of_a_track_the_path_runs_along():
+    from tests.fixtures import board_geometry, footprint, track
+    j1 = footprint("J1", 5, 10, nets=("VB", "GND"))         # pad 1 at (3.6, 10)
+    c1 = footprint("C1", 15, 16, nets=("VB", "GND"))        # pad 1 at (13.6, 16)
+    long = track("VB", 3.6, 10, 33.6, 10, w=1.0)            # runs on past the T to C1
+    branch = track("VB", 13.6, 10, 13.6, 16, w=1.0)
+    g = board_geometry([j1, c1], copper=[long, branch])
+    ob = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "C1", "pad": "1"}, "widths": {"F.Cu": 1.0}}
+    assert sum(length for _, length in phase_run.joining_spans(g, ob)) == pytest.approx(16.0)
+
+
+def test_each_pad_pair_is_asked_once():
+    from types import SimpleNamespace as N
+    fb = {"net": "FB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "U1", "pad": "2"}}
+    flipped = {"net": "FB", "from": {"ref": "U1", "pad": "2"}, "to": {"ref": "J1", "pad": "1"}}
+    sel = N(tasks=(), rest=True, nets=(), pour_nets=(), buses=(), pairs=(), width=None, layers=())
+    assert phase_run.obligations_of([sel], [fb, dict(fb), flipped], skip=set()) == [[dict(fb, widths=None)]]
+
+
+@needs_kicad
+def test_a_changed_rise_c_routes_every_phase_again(rig):
+    rig.route(LEG, FB)
+    again = rig.route(LEG, FB, settings={"check_rise_c": 20.0})
+    assert [p["reused"] for p in again.phases] == [False, False]
+
+
+@needs_kicad
+def test_a_phase_whose_judgement_failed_keeps_its_routing_and_is_judged_on_the_rerun(rig, monkeypatch):
+    real = phase_run.judge_phase
+
+    def broken(*a, **kw):
+        raise RuntimeError("kicad-cli drc wrote no report")
+    monkeypatch.setattr(phase_run, "judge_phase", broken)
+    with pytest.raises(RuntimeError):
+        rig.route(LEG)
+    n = len(rig.calls())
+    monkeypatch.setattr(phase_run, "judge_phase", real)
+    report = rig.route(LEG)
+    assert len(rig.calls()) == n and report.phases[0]["asked"] == 1 and report.resumed == ["vin"]
+
+
+@needs_kicad
+def test_widths_failed_counts_joined_narrow_outcomes(rig, monkeypatch):
+    monkeypatch.setenv("FAKE_ROUTER_STATUS", "joined_narrow")
+    monkeypatch.setattr(phase_run, "judge_obligations",
+                        lambda pcb, obs, drc, neck=0.0, is_real=None: [{"joined": True, "violated": False, "under": {}}
+                                                                        for _ in obs])
+    report = rig.route({"name": "leg", "width": 0.4, "connections": [{"from": {"part": "U1", "pad": "3"},
+                                                                    "to": {"part": "J1", "pad": "2"}}]})
+    assert report.widths_failed == 1 and report.phases[0]["final_closure_clean"] == 0.0
+
+
+def test_a_refusal_carries_facts_not_sentences(tmp_path):
+    from placemat.kicad.route import refused_text
+    with bind(Settings(route_islands=("VB=0.5",))):
+        with pytest.raises(RouteRefused) as e:
+            route_board(tmp_path / "x.kicad_pcb", tmp_path / "w", phases=phases())
+    assert e.value.facts == {"setting": "islands"}
+    text = refused_text("capture", {"path": "b/nets.layout.json", "reason": "stale",
+                                    "detail": {"file": "default.net"}})
+    assert text == "route: b/nets.layout.json: stale file default.net"
+
+
+def test_a_pair_call_takes_the_phases_router_flags():
+    from placemat.kicad.route import pair_command
+    with bind(Settings()):
+        cmd = pair_command("py", "route_diff.py", "i", "o", ("P",), ["F.Cu"], extra_args=("--via-cost", "9"))
+    assert cmd[-2:] == ["--via-cost", "9"]
