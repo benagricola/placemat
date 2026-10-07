@@ -103,7 +103,7 @@ SAMPLES = [
      "U1 pin 3 (A): closed toward J1 by R1"),
     (C.ESCAPE_WALLED, {"variant": "walled", "ref": "U1", "pin": "3", "net": "A", "by": []}, "U1 pin 3 (A): walled off by copper"),
     (C.ESCAPE_VIA, {"ref": "U1", "pin": "3", "net": "A", "by": [OWNER]},
-     "U1 pin 3 (A): leaves only by a via, its surface lanes closed by R1"),
+     "U1 pin 3 (A): leaves only by a via, its straight lanes closed by R1"),
     (C.ESCAPE_LANE, {"ref": "U1", "pin": "3", "net": "A", "blocked": [Refusal(Code.LANE_PAD, pin="4", gap_mm=0.1, need_mm=0.2).to_json()]},
      "U1 pin 3 (A): its lane is blocked by pad 4 of its own part, 0.100 mm off (needs 0.200)"),
     (C.ESCAPE_VIA_UNNEEDED, {"ref": "U1", "part": "u1", "pin": "3", "net": "A", "layers": ["F.Cu"],

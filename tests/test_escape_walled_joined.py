@@ -3,8 +3,6 @@ to look for and is not walled off, whether the part is laid out as a module alon
 import dataclasses
 import json
 
-import pytest
-
 from placemat.board_geometry import CopperItem, Footprint
 from placemat.geometry import circle_polygon
 from placemat.layout import Board
@@ -72,8 +70,6 @@ def _cell(copper):
     return b.resolve()
 
 
-@pytest.mark.xfail(strict=True, reason="the surface-lane rule judges no pad of a plane's net (its via into the plane is its "
-                   "way out), so a plane pad with no room for that via is not reported: a concern raised with the user")
 def test_the_pad_with_no_copper_is_walled_off_as_a_module_and_as_a_cell():
     assert _walled(_module(False)) == ["U9 pin GND (GND): walled off by N1"]
     assert _walled(_cell(False)) == ["U9 pin GND (GND): walled off by N1"]

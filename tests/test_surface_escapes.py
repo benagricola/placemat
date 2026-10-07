@@ -20,9 +20,33 @@ def test_cap_across_the_normal_closes_the_straight_lane_but_not_the_45():
     assert esc.judge("U1", "1") is Way.SURFACE
 
 
-def test_no_room_past_the_cap_leaves_a_via():
-    occ, esc = ic_with_cap(offset_mm=1.0, lateral_mm=0.0, room=False)     # neighbours block both diagonals
-    assert esc.judge("U1", "1") is Way.VIA
+def test_with_no_lane_past_the_cap_the_path_search_decides_and_finds_the_way_round():
+    """C2 and C3 close both diagonals west; the pin still gets out north along its row's end and on west, which no
+    straight lane is: the exact path search decides, and the pad needs no via."""
+    occ, esc = ic_with_cap(offset_mm=1.0, lateral_mm=0.0, room=False)
+    assert not any(esc.lane_open(l) for l in esc.lanes("U1", "1") if l.direction[0] < -0.5)
+    assert esc.judge("U1", "1") is Way.SURFACE and esc.searched == 1
+
+
+def _via_only(gap=0.8):
+    """U9's IN pad ringed `gap` mm off by R9's pads (tests.test_escape_findings._walled_in): the slits between the ring's
+    pads are under a track and its clearances, and a via fits at the pad's edge."""
+    import dataclasses as dc
+    from placemat.layout import Board
+    from placemat.values import Part
+    from tests.fixtures import board_geometry
+    from tests.test_escape_findings import _walled_in
+    fps = _walled_in(gap)
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0,
+              settings=dc.replace(Settings(), cleanup_enabled=False), keep_going=True)
+    for fp in fps:
+        b.place(Part(fp.inst), at=fp.location)
+    return b
+
+
+def test_a_pad_with_no_surface_way_out_and_a_via_spot_leaves_by_a_via():
+    occ = _via_only().resolve().occupancy
+    assert judging(occ).judge("U9", "1") is Way.VIA
     assert price(Way.VIA, Settings()) == Settings().score_escape_via
 
 
@@ -89,28 +113,28 @@ def test_a_pad_with_no_via_room_and_no_lane_toward_its_target_is_closed_and_with
 
 
 def test_a_via_only_pad_is_reported_escape_via_naming_what_blocks_its_lanes():
-    plan = ic_with_cap_board(offset_mm=1.0, room=False).resolve()
+    plan = _via_only().resolve()
     vias = [f for f in plan.findings if f.kind == "escape_via"]
-    assert [(f.facts["ref"], f.facts["pin"], f.facts["net"]) for f in vias] == [("U1", "1", "SIG")]
-    assert {b.get("name") for b in vias[0].facts["by"]} == {"C1", "C2", "C3"}
+    assert [(f.facts["ref"], f.facts["pin"], f.facts["net"]) for f in vias] == [("U9", "1", "IN")]
+    assert {b.get("name") for b in vias[0].facts["by"]} == {"R9"}
     assert vias[0].severity == "warning"
-    assert str(vias[0]).startswith("U1 pin 1 (SIG): ")
+    assert str(vias[0]) == "U9 pin 1 (IN): leaves only by a via, its straight lanes closed by R9"
 
 
 def test_a_clearance_rule_between_the_nets_closes_a_lane_the_classes_leave_open():
-    b = ic_with_cap_board(offset_mm=1.5, room=True)
-    occ = b.resolve().occupancy
-    assert judging(occ).judge("U1", "1") is Way.SURFACE
+    def open_45s(b):
+        esc = judging(b.resolve().occupancy)
+        return [l.direction for l in esc.lanes("U1", "1") if esc.lane_open(l) and l.direction[0] < -0.5 and l.direction[1]]
+    assert open_45s(ic_with_cap_board(offset_mm=1.5, room=True))
     b = ic_with_cap_board(offset_mm=1.5, room=True)
     b.rule(clearance=0.6, between=(Net("SIG"), Net("CA")), why="a wider gap to C1")
     b.rule(clearance=0.6, between=(Net("SIG"), Net("CB")), why="a wider gap to C1")
-    occ = b.resolve().occupancy
-    assert judging(occ).judge("U1", "1") is not Way.SURFACE
+    assert open_45s(b) == []
 
 
 def test_the_run_score_prices_the_judgement_and_whole_agrees_with_the_plan():
     from placemat import score
-    b = ic_with_cap_board(offset_mm=1.0, room=False)
+    b = _via_only()
     plan = b.resolve()
     m = score.plan_measures(b, plan)
     assert m["findings"].get("escape_via") == 1
@@ -119,6 +143,16 @@ def test_the_run_score_prices_the_judgement_and_whole_agrees_with_the_plan():
     w = score.whole(b, plan.occupancy, plan)
     for k in ("escape_crossed", "escape_closed", "escape_walled", "escape_via"):
         assert w[k] == pytest.approx(t[k]), k
+
+
+def test_a_plane_pad_is_judged_for_walled_only():
+    """A quiet net's pad drops to its plane by a via: with a via spot it is not reported, with none and no surface
+    route it is walled."""
+    from tests.test_escape_walled_joined import _module
+    assert [str(f) for f in _module(False).findings if f.kind.startswith("escape_")] == [
+        "U9 pin GND (GND): walled off by N1"]
+    occ, esc = ic_with_cap(pin1_net="GND", plane=True)
+    assert esc.judge("U1", "1") is None
 
 
 def test_the_settings_default_as_decided():

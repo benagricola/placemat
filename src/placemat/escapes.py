@@ -160,7 +160,8 @@ def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> l
 # edge in each direction a corridor takes (`pad_corridors`), and one where the first leg leaves the pin field (on the
 # leg, a via's clearance past the box round the part's other pads); it is clear of every other net's copper on every
 # layer, of unplated holes and of via bans. A pad whose own net's copper already leaves it is not judged: its way out is
-# made.
+# made. The lanes are a first check only: where they find no surface way toward the target, the exact path search
+# (`path_out(exact=True)`) decides (`Escapes._verdict`), so the judgement is the path search's.
 class Way(Enum):
     """A judged pad's cheapest way out (`price`)."""
     SURFACE = "surface"     # a surface lane toward its target
@@ -209,8 +210,9 @@ def _exit(box: Box, ux: float, uy: float) -> float:
 
 def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = None) -> tuple:
     """(lanes, via spots) of one part's judged pads: `pads` maps a pad number to (net, layers, box) as the part stands
-    (or would stand). A pad is judged when its net is not quiet, the pad is not left unconnected (`_unconnected`) and its
-    net has two pads or more. `toward` maps a pad number to the direction of its target, for each lane's `toward_ok`.
+    (or would stand). A pad is judged when the pad is not left unconnected (`_unconnected`) and its net has two pads or
+    more; a pad of a quiet net is judged for walled only (`Escapes._verdict`). `toward` maps a pad number to the
+    direction of its target, for each lane's `toward_ok`.
 
     The first leg runs from the pad's edge along its pin normal out of the box round the part's other pads, and on
     until a second leg at 45 degrees from its end keeps a lane's reach (half the track and the clearance) from each of
@@ -225,7 +227,7 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
     sizes = _net_sizes(occ)
     lanes, spots = [], []
     for number, (net, layers, box) in sorted(pads.items()):
-        if not net or sizes.get(net, 0) < 2 or net in occ.quiet_nets or _unconnected(occ, ref, number, net):
+        if not net or sizes.get(net, 0) < 2 or _unconnected(occ, ref, number, net):
             continue
         c = box.center
         d = _pin_normal(centres, ref, c, rotation, box)
@@ -384,6 +386,7 @@ class Escapes:
         self.mirror = occ.ratsnest().mirror if mirror else None
         self._nid: dict = {}
         self._lane_cache: dict = {}     # ref -> (lanes, via spots, pads) where it stands: the surface-lane judgement's
+        self.searched = 0               # pads the judgement has sent to the path search, its lanes not deciding
         if self.mirror is not None:
             self.mirror.esc_set_quiet(sorted(occ.quiet_nets))
         self.refresh(set(occ.items), copper=True)
@@ -630,31 +633,56 @@ class Escapes:
         return None if best is None else best[1]
 
     def _verdict(self, ref: str, number: str, bans) -> tuple | None:
-        """(way, what blocks) for one pad, None when it is not judged: its net is quiet, unconnected or has no other pad
-        placed, or copper of its own net (planned copper, another part's pad) already leaves it: its way out is made."""
+        """(way, what blocks) for one pad, None when it is not judged: it is unconnected, its net has no other pad placed,
+        or copper of its own net (planned copper, another part's pad) already leaves it: its way out is made.
+
+        The exact path search (`path_out(exact=True)`, a window `score.escape_reach` round the pad) decides, in the
+        order of the prices: a surface route toward the target is SURFACE, else an open via spot VIA, else a surface
+        route any way AWAY, else WALLED. The lanes are a first check only: an open lane toward the target is SURFACE,
+        an open lane any way passes the third test, without the search. A pad of a quiet net (a plane's, a free net's)
+        drops to the plane by a via: it is judged for walled only, and is not reported (None) when a via spot or a
+        surface route any way is open."""
         lanes_all, spots_all, pads = self._lanes_of(ref)
         lanes = [l for l in lanes_all if l.number == number]
         if not lanes:
             return None
+        occ = self.occ
         net = lanes[0].net
-        centre = pads[number][2].center
-        aim = self._aim(ref, number, net, centre)
-        if aim is None or self._joined(ref, number, net) or self._on_own_net_pad(ref, number, net):
+        quiet = net in occ.quiet_nets
+        aim = None
+        if not quiet:
+            aim = self._aim(ref, number, net, pads[number][2].center)
+            if aim is None:
+                return None
+        if self._joined(ref, number, net) or self._on_own_net_pad(ref, number, net):
             return None
         spots = [p for p in spots_all if p.number == number]
         region = Box.union([l.box for l in lanes] + [p.box for p in spots])
         foes = self._foes(self._reach(region, net), net, ref, number)
-        toward = [l for l in lanes if abs(aim[0]) + abs(aim[1]) < 1e-12
-                  or l.direction[0] * aim[0] + l.direction[1] * aim[1] > 1e-9]
         shut = {id(l): self._lane_blocked(l, foes) for l in lanes}
-        if any(not shut[id(l)] for l in toward):
-            return Way.SURFACE, []
-        occ = self.occ
-        by = {_by(occ, s) for l in toward for s in shut[id(l)]}
+        reach = occ.settings.score_escape_reach
+
+        def search(toward) -> bool:
+            return bool(path_out(occ, ref, number, depth=reach, toward=toward, exact=True, via_exit=False))
+        if not quiet:
+            toward = [l for l in lanes if abs(aim[0]) + abs(aim[1]) < 1e-12
+                      or l.direction[0] * aim[0] + l.direction[1] * aim[1] > 1e-9]
+            if any(not shut[id(l)] for l in toward):
+                return Way.SURFACE, []
+            self.searched += 1
+            if search(aim if abs(aim[0]) + abs(aim[1]) >= 1e-12 else None):
+                return Way.SURFACE, []
+            by = {_by(occ, s) for l in toward for s in shut[id(l)]}
+        else:
+            by = set()
         spot_shut = [self._spot_blocked(p, foes, bans) for p in spots]
         if any(not b for b in spot_shut):
+            if quiet:
+                return None
             way = Way.VIA
-        elif any(not shut[id(l)] for l in lanes):
+        elif any(not shut[id(l)] for l in lanes) or search(None):
+            if quiet:
+                return None
             way = Way.AWAY
         else:
             way = Way.WALLED

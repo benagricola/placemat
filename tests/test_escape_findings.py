@@ -46,12 +46,11 @@ def test_a_pad_walled_in_is_a_finding_naming_what_walls_it():
     assert walled == ["U9 pin 1 (IN): walled off by R9"]
 
 
-def test_a_pad_whose_straight_lanes_are_closed_but_a_via_fits_beside_it_leaves_by_the_via():
-    """The ring's pads stand 1.0 mm off: a straight lane from the pad meets a ring pad or a corner of one in all eight
-    directions (the 0.75 mm gaps between them lie off those lines, a dog-leg away), and a via fits at the pad's edge."""
+def test_a_pad_whose_lanes_are_closed_but_a_track_still_gets_out_is_no_finding():
+    """The ring's pads stand 1.0 mm off: no straight lane leaves the pad, and the path search finds a track out through
+    the 0.75 mm gaps between them."""
     plan = _fixed(_walled_in(1.0), keep_going=True)
-    assert [str(f) for f in plan.findings if f.kind.startswith("escape_")] == [
-        "U9 pin 1 (IN): leaves only by a via, its surface lanes closed by R9"]
+    assert not [f for f in plan.findings if f.kind.startswith("escape_")]
 
 
 def test_the_findings_keep_their_kind_through_reuse():

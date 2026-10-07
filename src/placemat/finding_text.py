@@ -130,7 +130,7 @@ def _escape_walled(f):
 
 @renders(C.ESCAPE_VIA, "ref", "pin", "net", "by")
 def _escape_via(f):
-    return "%s pin %s (%s): leaves only by a via, its surface lanes closed by %s" % (
+    return "%s pin %s (%s): leaves only by a via, its straight lanes closed by %s" % (
         f["ref"], f["pin"], f["net"], _by_list(f["by"]))
 
 

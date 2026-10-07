@@ -16,20 +16,19 @@ section for each hand-written pattern a newer form replaces.
   declared link adds its weight times its pad-to-pad length (`score.link`), a crossing is priced by its nets' kinds, and
   a fitted frame adds its area (`score.area`). A best run recorded before this release is not compared: the next run
   takes its place.
-- **Escape findings are judged by surface lanes.** `escape_closed` and `escape_walled` (and the run score's terms for
-  them) no longer come from 1.5 mm corridors confirmed by a path search. Each pad is judged by the cheapest way its
-  track can leave it: a straight lane on its own layer toward what it joins, out of the pin field and then at one of
-  eight angles for `score.escape_reach` (3.0 mm), is free; else a via beside the pad is the new `escape_via`; else a
-  lane another way is `escape_closed`; else the pad is `escape_walled`. This is placemat's own rule, not a KiCad rule. A
-  pad of a plane's or free net is not judged, a pour does not block a lane, and a route round a part that needs a
-  dog-leg within the reach is not a lane, so a pad the path search let out may now read `escape_via`, and one it judged
-  walled behind a pour may read clear. Crossed escapes are unchanged. Scripts need no change.
+- **Escape findings are judged by the cheapest way out.** `escape_closed` and `escape_walled` (and the run score's
+  terms for them) no longer come from 1.5 mm corridors. Each pad is judged by the exact path search within
+  `score.escape_reach` (3.0 mm): a surface route toward what it joins is free; else a via beside the pad is the new
+  `escape_via`; else a surface route another way is `escape_closed`; else the pad is `escape_walled`. This is placemat's
+  own rule, not a KiCad rule. A pad that could leave only by a via was counted as having its way out; it is now
+  `escape_via`. A pad of a plane's or free net is reported only when it is walled. Crossed escapes are unchanged.
+  Scripts need no change.
 
 ### New
 
 - **`escape_via` finding and two settings.** `escape_via` (warning) names a pad that can leave toward what it joins
-  only by a via, with `ref`, `part`, `pin`, `net`, `by` (what closes its lanes) and `side`; it costs `score.escape_via`
-  (10.0 mm). `score.escape_reach` (3.0 mm) is how far a pad's surface lanes run from its centre.
+  only by a via, with `ref`, `part`, `pin`, `net`, `by` (what closes its straight lanes) and `side`; it costs `score.escape_via`
+  (10.0 mm). `score.escape_reach` (3.0 mm) is how far round a pad its way out is looked for.
 - **A firm placement may state `overhang=` with a why.** `board.place(item, at=..., overhang=0.8, why=...)` lets the
   item's courtyard and body reach up to 0.8 mm past the board's outer edge, on any side, where the script puts it; it
   does not move the item, a cutout or a bore is judged as without it, and its pads and copper are still held to
