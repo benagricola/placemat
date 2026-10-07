@@ -828,3 +828,26 @@ def test_lift_owner_closure_is_independent_of_cell_mapping_order():
         occ = Occupancy(replace(geometry, cells=cells))
         assert occ._lift_owners({'both'}) == {'both', 'a', 'b', 'U1', 'U2'}
         assert occ._lift_owners({'U1', 'U2'}) == {'both', 'a', 'b', 'U1', 'U2'}
+
+
+def test_candidate_anchors_match_committed_affine_at_half_nanometre_translations():
+    from placemat.values import Face, Location, Part
+    from placemat.placement import Placement
+    from tests.test_score_measures import _two_part_board
+    board = _two_part_board()
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(20, 20))
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['c1']
+    original = plan.placement('c1')
+    for face in (Face.FRONT, Face.BACK, Face.FRONT):
+        for rotation in (0, 37, 90, 143):
+            for offset in (-0.0000000005, 0.0000000005):
+                candidate = Placement(Location(20 + offset, 20 - offset), rotation, face)
+                occ.lift(['C1'])
+                actual = occ.candidate_named_anchors(item, candidate)
+                occ.commit(item, candidate)
+                expected = [(net, ref, pad, occ.pad_anchor(ref, pad).x, occ.pad_anchor(ref, pad).y)
+                            for net, ref, pad, _, _ in actual]
+                assert actual == expected, (candidate, actual, expected)
+                occ.commit(item, original)

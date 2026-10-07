@@ -1395,27 +1395,34 @@ class Occupancy:
         for net in sorted(touched):               # a set of names: the ratsnest keeps its airwires in the order they are set
             rn.set_net(net, sorted(anchors.get(net, {}).values(), key=lambda a: (a.ref, a.number)))
 
-    def candidate_named_anchors(self, item, placement: Placement) -> list:
-        """(net, ref, pad, x, y) of each of the item's pads at a candidate placement,
-        at their airwire anchors: turned and faced once per rotation and face,
-        then shifted."""
-        geom = self._geometry(item)
-        cache = self.__dict__.setdefault("_anchor_cache", {})
-        key = (id(geom), placement.rotation, placement.face)
-        hit = cache.get(key)
-        if hit is None or hit[0] is not geom:
-            t = self._transform(geom, Placement(Location(0.0, 0.0), placement.rotation, placement.face))
-            seen, out = set(), []
-            for s in geom.shapes:
-                if s.kind in ("pad", "through") and s.net and (s.owner, s.label) not in seen \
-                        and self.geometry.has_footprint(s.owner):
-                    seen.add((s.owner, s.label))
-                    a = t.apply_location(self.pad_anchor(s.owner, s.label))
-                    out.append((s.net, s.owner, s.label, a.x, a.y))
-            hit = (geom, out)
-            cache[key] = hit
-        dx, dy = placement.location.x, placement.location.y
-        return [(net, ref, pad, x + dx, y + dy) for net, ref, pad, x, y in hit[1]]
+    def candidate_named_anchors(self, item, placement: Placement, *, geometries=None) -> list:
+        """Candidate anchors with the same affine expression and final rounding as commit.
+
+        Rounding a turn at the origin then adding the candidate translation
+        can change raw nearest-target ties and nanometre MST ordering. Use
+        each resulting member reference exactly as pad_anchor does instead.
+        Callers that already assembled a candidate may supply its geometries.
+        """
+        if geometries is None:
+            geometries, _ = self.placed_geometries(item, placement)
+        out = []
+        for ref, geom in geometries.items():
+            fp = self.geometry.footprint(ref)
+            read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                                frozenset())
+            transform = self._transform(read, geom.reference)
+            seen = set()
+            for shape in geom.shapes:
+                if shape.kind not in ('pad', 'through') or not shape.net or shape.owner != ref \
+                        or shape.label in seen:
+                    continue
+                seen.add(shape.label)
+                pad = next((p for p in fp.pads if p.number == shape.label), None)
+                if pad is None:
+                    raise ValueError(f'candidate pad {ref}.{shape.label} has no source anchor')
+                anchor = transform.apply_location(pad.airwire_end)
+                out.append((shape.net, ref, shape.label, anchor.x, anchor.y))
+        return out
 
     def candidate_anchors(self, item, placement: Placement) -> list:
         """(net, x, y) for the existing leaf scorer and native sweep."""

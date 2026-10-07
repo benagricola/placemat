@@ -132,7 +132,8 @@ class Delta:
         cfg = self.board.settings
         if self.grid is not None and self.grid.board != (self.occ.board_box or Box(0, 0, 0, 0)):
             raise ValueError("Delta frame changed; rebuild the lifted snapshot")
-        named = self.occ.candidate_named_anchors(self.item, placement)
+        view, geometries, copper = self._view(placement)
+        named = self.occ.candidate_named_anchors(self.item, placement, geometries=geometries)
         added = {}
         for net, ref, pad, x, y in named:
             added.setdefault(net, []).append(Anchor(ref, pad, x, y))
@@ -145,7 +146,6 @@ class Delta:
             changed[net] = ([e for e in old if frozenset((e.a, e.b)) not in identities] + new, new, dropped)
             if net not in self.quiet:
                 wire += difference * (cfg.score_impedance if self.kinds.get(net) == KIND_IMPEDANCE else 1.0)
-        view, geometries, copper = self._view(placement)
         view._ratsnest = self._candidate_ratsnest(added, changed)
         view._rn_anchors = {net: {(a.ref, a.number): a for a in nodes}
                             for net, nodes in view._ratsnest._anchors.items()}
