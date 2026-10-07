@@ -2,7 +2,7 @@
 //! unjoined tree is the certificate; only edges incident to added pads are
 //! offered alongside it. Scratch buffers are retained between candidates.
 use crate::ratsnest::{nm, segments_cross};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub type Node = (f64, f64, String, String);
 pub type Pair = (usize, usize);
@@ -23,6 +23,10 @@ pub struct TreeDelta {
     pub rest: usize,
     pub old: Vec<Pair>,
     pub tree: Vec<Pair>,
+    pub added: Vec<Pair>,
+    pub dropped: Vec<Pair>,
+    old_index: HashMap<Pair, usize>,
+    retained: Vec<bool>,
     candidates: Vec<OrderedEdge>,
     order: Vec<usize>,
     tags: Vec<usize>,
@@ -116,6 +120,14 @@ impl TreeDelta {
             rest: rest.len(),
             old: old.to_vec(),
             tree: Vec::with_capacity(n),
+            added: Vec::with_capacity(n),
+            dropped: Vec::with_capacity(old.len()),
+            old_index: old
+                .iter()
+                .enumerate()
+                .map(|(index, &(i, j))| ((i.min(j), i.max(j)), index))
+                .collect(),
+            retained: vec![false; old.len()],
             candidates: Vec::with_capacity(old.len() + added.len() * n),
             order: (0..n).collect(),
             tags: vec![0; n],
@@ -179,6 +191,9 @@ impl TreeDelta {
         self.candidates.retain(|e| e.0 <= bound);
         self.candidates.sort_unstable();
         self.tree.clear();
+        self.added.clear();
+        self.dropped.clear();
+        self.retained.fill(false);
         // Unchanged edges keep their relative total order even as added
         // endpoint tags interleave. Merge their cached order with new edges.
         let (mut old, mut new) = (0, 0);
@@ -215,11 +230,22 @@ impl TreeDelta {
             if a != b {
                 self.parent[a] = b;
                 self.tree.push((i, j));
+                if let Some(&index) = self.old_index.get(&(i.min(j), i.max(j))) {
+                    self.retained[index] = true;
+                } else {
+                    self.added.push((i, j));
+                }
                 if self.tree.len() == self.nodes.len().saturating_sub(1) {
                     break;
                 }
             }
         }
+        self.dropped.extend(
+            self.old
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &edge)| (!self.retained[i]).then_some(edge)),
+        );
         length(&self.nodes, &self.tree) - self.old_length
     }
 }
@@ -264,7 +290,6 @@ pub struct Delta {
     prices: Vec<Vec<f64>>,
     signal: HashSet<String>,
     impedance: f64,
-    base_cross: Vec<f64>,
 }
 
 impl Delta {
@@ -357,51 +382,45 @@ impl Delta {
                     .collect()
             })
             .collect();
-        let mut delta = Self {
+        let delta = Self {
             snapshots,
             turns,
             prices,
             signal: signal.into_iter().collect(),
             impedance,
-            base_cross: Vec::new(),
         };
-        delta.base_cross = delta
-            .turns
-            .iter()
-            .map(|t| delta.crossings(t, false))
-            .collect();
         Ok(delta)
     }
 
-    fn crossings(&self, touched: &[Touched], candidate: bool) -> f64 {
+    fn crossing_change(&self, touched: &[Touched]) -> f64 {
         let mut sum = 0.0;
         for (k, a) in touched.iter().enumerate() {
-            let old = &self.snapshots[a.index];
-            let (nodes, edges) = if candidate {
-                (&a.tree.nodes, &a.tree.tree)
-            } else {
-                (&old.nodes, &old.edges)
-            };
+            let tree = &a.tree;
             for (i, other) in self.snapshots.iter().enumerate() {
                 if touched.iter().any(|t| t.index == i) {
                     continue;
                 }
                 let price = self.prices[a.index][i];
                 if price != 0.0 {
-                    sum += price * crossed(nodes, edges, &other.nodes, &other.edges) as f64;
+                    sum += price
+                        * (crossed(&tree.nodes, &tree.added, &other.nodes, &other.edges) as f64
+                            - crossed(&tree.nodes, &tree.dropped, &other.nodes, &other.edges)
+                                as f64);
                 }
             }
             for b in &touched[k + 1..] {
-                let other = &self.snapshots[b.index];
-                let (bn, be) = if candidate {
-                    (&b.tree.nodes, &b.tree.tree)
-                } else {
-                    (&other.nodes, &other.edges)
-                };
                 let price = self.prices[a.index][b.index];
-                if price != 0.0 {
-                    sum += price * crossed(nodes, edges, bn, be) as f64;
+                if price == 0.0 {
+                    continue;
                 }
+                let old = &self.snapshots[a.index];
+                // F(A',B')-F(A,B) = F(added_A-dropped_A,B')
+                // + F(A,added_B-dropped_B). Joint changes counted once.
+                sum += price
+                    * (crossed(&tree.nodes, &tree.added, &b.tree.nodes, &b.tree.tree) as f64
+                        - crossed(&tree.nodes, &tree.dropped, &b.tree.nodes, &b.tree.tree) as f64
+                        + crossed(&old.nodes, &old.edges, &b.tree.nodes, &b.tree.added) as f64
+                        - crossed(&old.nodes, &old.edges, &b.tree.nodes, &b.tree.dropped) as f64);
             }
         }
         sum
@@ -431,10 +450,7 @@ impl Delta {
                 wire += change * if net.kind == 1 { self.impedance } else { 1.0 };
             }
         }
-        Ok((
-            wire,
-            self.crossings(&self.turns[turn], true) - self.base_cross[turn],
-        ))
+        Ok((wire, self.crossing_change(&self.turns[turn])))
     }
 }
 

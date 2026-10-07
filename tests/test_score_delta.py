@@ -77,12 +77,27 @@ def test_native_wire_and_crossings_match_exact_whole_changes(crossing, plane):
         terms = score.terms({'crossings': classes, 'airwire_mm': wire, 'airwire_impedance_mm': impedance}, cfg)
         return terms['airwire'], terms['crossings']
     before = measured(rest)
+    from placemat.score_delta import Delta
+    twin = object.__new__(Delta)
+    twin.kinds, twin.partners = kinds, partners
+    twin.old = {net: mst(net, anchors) for net, anchors in rest.items()}
+    twin.cross_prices = (cfg.score_crossing, cfg.score_crossing * cfg.score_impedance,
+                         cfg.score_crossing * cfg.score_crossing_pair_net,
+                         cfg.score_crossing * cfg.score_crossing_plane, cfg.score_pair_crossing)
     for _ in range(500):
         x, y = rng.uniform(0, 20), rng.uniform(0, 20)
         nodes = {net: list(anchors) for net, anchors in rest.items()}
         for net, ref, number, px, py in origins:
             nodes[net].append(Anchor(ref, number, px + x, py + y))
         after = measured(nodes)
+        changed = {}
+        for net, anchors in nodes.items():
+            new_tree = mst(net, anchors)
+            previous = _identities(twin.old[net])
+            current = _identities(new_tree)
+            changed[net] = (new_tree, [e for e in new_tree if frozenset((e.a, e.b)) not in previous],
+                            [e for e in twin.old[net] if frozenset((e.a, e.b)) not in current])
+        assert twin._crossing_change(changed) == pytest.approx(after[1] - before[1], abs=1e-8)
         change = delta.wire_cross(x, y, 0)
         assert change == pytest.approx((after[0] - before[0], after[1] - before[1]), abs=1e-8)
 

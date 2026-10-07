@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from . import score
 from .board_geometry import members_of
-from .ratsnest import Anchor, KIND_IMPEDANCE, crossings, mst, mst_change
+from .ratsnest import Anchor, KIND_IMPEDANCE, crossing_price, mst_change, prices_of, segments_cross
 from .values import Box
 
 
@@ -34,8 +34,11 @@ class Delta:
         self.rn = occ.ratsnest()
         self.before_edges, self.quiet, self.kinds, self.partners = score._signal_edges(board, occ)
         self.rest = {net: list(anchors) for net, anchors in self.rn._anchors.items()}
-        self.old = {net: mst(net, anchors) for net, anchors in self.rest.items()}
-        self.base_cross = self._crossing(self.before_edges)
+        self.old = {net: [] for net in self.rest}
+        for edge in self.before_edges:
+            self.old[edge.net].append(edge)
+        cfg = board.settings
+        self.cross_prices = tuple(p * cfg.score_crossing for p in prices_of(cfg)[:4]) + (cfg.score_pair_crossing,)
         self.base_link = score._links_mm(board, occ, plan, self.links)
         self.base_push = score._pushes(board, occ, plan)
         self.others_box = score._placed_content(occ, plan)
@@ -45,9 +48,26 @@ class Delta:
         self.grid = occ.congestion() if board.settings.score_congestion_step else None
         self._native = {}
 
-    def _crossing(self, edges):
-        _, _, classes = crossings(edges, self.kinds, self.partners)
-        return score.terms({'crossings': classes}, self.board.settings)['crossings']
+    def _crossing_change(self, changed):
+        def count(a, b):
+            return sum(segments_cross((e.a.x, e.a.y), (e.b.x, e.b.y), (f.a.x, f.a.y), (f.b.x, f.b.y))
+                       for e in a for f in b)
+        result = 0.0
+        nets = sorted(changed)
+        for index, net in enumerate(nets):
+            _, added, dropped = changed[net]
+            for other in sorted(self.old.keys() - changed.keys()):
+                price = crossing_price(self.kinds, self.partners, self.cross_prices, net, other)
+                if price:
+                    result += price * (count(added, self.old[other]) - count(dropped, self.old[other]))
+            for other in nets[index + 1:]:
+                price = crossing_price(self.kinds, self.partners, self.cross_prices, net, other)
+                if price:
+                    new, a, d = changed[other]
+                    # Signed bilinear expansion counts simultaneous changes once.
+                    result += price * (count(added, new) - count(dropped, new)
+                                       + count(self.old.get(net, []), a) - count(self.old.get(net, []), d))
+        return result
 
     def _view(self, placement):
         """A candidate geometry view, without a commit or shared-cache mutation."""
@@ -74,19 +94,18 @@ class Delta:
         added = {}
         for net, ref, pad, x, y in named:
             added.setdefault(net, []).append(Anchor(ref, pad, x, y))
-        after_edges = [e for e in self.before_edges if e.net not in added]
+        changed = {}
         wire = 0.0
         for net, nodes in added.items():
             old = self.old.get(net, [])
             new, dropped, difference = mst_change(self.rest.get(net, []), old, nodes, net=net)
             identities = {frozenset((e.a, e.b)) for e in dropped}
-            after_edges.extend(e for e in old if frozenset((e.a, e.b)) not in identities)
-            after_edges.extend(new)
+            changed[net] = ([e for e in old if frozenset((e.a, e.b)) not in identities] + new, new, dropped)
             if net not in self.quiet:
                 wire += difference * (cfg.score_impedance if self.kinds.get(net) == KIND_IMPEDANCE else 1.0)
         view, geometries, copper = self._view(placement)
         link, excess = score._links_mm(self.board, view, self.plan, self.links)
-        terms = {'airwire': wire, 'crossings': self._crossing(after_edges) - self.base_cross,
+        terms = {'airwire': wire, 'crossings': self._crossing_change(changed),
                  'link': cfg.score_link * (link - self.base_link[0]),
                  'link_over': cfg.score_link_over * (excess - self.base_link[1]),
                  'push': cfg.score_push * (score._pushes(self.board, view, self.plan) - self.base_push),
