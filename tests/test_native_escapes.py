@@ -66,6 +66,7 @@ def test_native_surface_judge_matches_every_pad_of_three_modules(monkeypatch):
     module = geometry._native
     if module is None or not hasattr(module, 'surface_judge'):
         pytest.skip('native surface judge not built')
+    assert hasattr(module, 'surface_lanes'), 'designated gate requires the native lane generator'
     assert len(MODULES) == 3
     with realboard():
         for pcb in MODULES:
@@ -154,9 +155,12 @@ def test_native_surface_judge_matches_python_for_signal_quiet_and_unconnected_pa
 
 def test_native_lane_generation_keeps_empty_net_pad_field_without_class_lookup(monkeypatch):
     from dataclasses import replace
+    from placemat import geometry
     from placemat.escapes import judging, native_pad_lanes, pad_lanes
     from tests.test_escape_findings import _walled_in
     from tests.test_surface_escapes import _via_only_board
+    if geometry._native is None or not hasattr(geometry._native, 'surface_lanes'):
+        pytest.skip('native surface lane generator not built')
     occ = _via_only_board(_walled_in(0.1)).resolve().occupancy
     pads = dict(judging(occ)._lanes_of('R9')[2])
     number = sorted(pads)[0]
