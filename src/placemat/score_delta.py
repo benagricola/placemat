@@ -50,6 +50,7 @@ class Delta:
         self.cross_prices = tuple(p * cfg.score_crossing for p in prices_of(cfg)[:4]) + (cfg.score_pair_crossing,)
         self.base_link = score._links_mm(board, occ, plan, self.links)
         self.base_push = score._pushes(board, occ, plan)
+        self.base_lane = board._declared_lanes_blocked(occ, plan)
         self.others_box = score._placed_content(occ, plan)
         self.base_area = score._frame_area(board, occ, plan)
         if board.settings.score_congestion_step and occ.board_box is None:
@@ -166,6 +167,8 @@ class Delta:
                  'link': cfg.score_link * (link - self.base_link[0]),
                  'link_over': cfg.score_link_over * (excess - self.base_link[1]),
                  'push': cfg.score_push * (score._pushes(self.board, view, self.plan) - self.base_push),
+                 'escape_lane': cfg.score_escape_lane * (self.board._declared_lanes_blocked(view, self.plan)
+                                                        - self.base_lane),
                  'area': 0.0, 'congestion': 0.0}
         if self.board._fit:
             boxes = ([self.others_box] if self.others_box is not None else [])

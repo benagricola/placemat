@@ -338,7 +338,7 @@ _MEASURED_APART = ("unplaced", "link_over", "pair_crossed", "arrangement")     #
 # The terms that grow and shrink as the board is made, priced: what the search and refine add to at a candidate
 # (`whole`). The rest (unplaced, drc, findings, give-way, back face) are counted from the plan alone.
 WHOLE_TERMS = ("airwire", "crossings", "link", "link_over", "push", "escape_crossed", "escape_closed", "escape_via",
-               "congestion", "area")
+               "escape_lane", "congestion", "area")
 
 
 def _signal_edges(board, occ):
@@ -457,6 +457,7 @@ def _incremental(board, occ, plan, escapes: bool = True) -> dict:
     if escapes:
         from .escapes import judging
         found = {k: len(v) for k, v in judging(occ).found().items() if v}
+        found['escape_lane'] = board._declared_lanes_blocked(occ, plan)
     out = {"crossings": per_class, "airwire_mm": wire,
            "airwire_impedance_mm": impedance, "link_mm": link_mm,
            "link_excess": excess, "pushes": pushes, "findings": found,
@@ -494,6 +495,9 @@ def plan_measures(board, plan) -> dict:
         if kind not in _MEASURED_APART:
             found[kind] = found.get(kind, 0) + 1
     out = _incremental(board, plan.occupancy, plan, escapes=False)
+    # Declaration notices were emitted during resolve; later movement can
+    # change them. The recorded raw objective uses the live oracle once.
+    found['escape_lane'] = board._declared_lanes_blocked(plan.occupancy, plan)
     out.update({"v": MEASURES_VERSION, "unplaced": unplaced, "drc": 0, "findings": found,
                 "giveway": round(sum(a.cost for a in plan.given_way), 6),
                 "back_face": sum(1 for s in plan.steps if s.back_face and s.placement is not None

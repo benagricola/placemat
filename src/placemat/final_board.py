@@ -66,6 +66,7 @@ def _judge(board, plan, pcb, measures) -> Judgement:
     m = dict(measures)
     m['findings'] = dict(measures.get('findings') or {})
     m['findings'].update({kind: len(records) for kind, records in found.items()})
+    m['findings']['escape_lane'] = board._declared_lanes_blocked(occ, final)
     # Critical check verdicts are separate from the escape/placement findings;
     # accepted verdicts have no severity and are not counted twice.
     m['critical_checks'] = sum(v.severity == 'critical' for v in verdicts)

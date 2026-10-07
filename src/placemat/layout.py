@@ -4484,7 +4484,7 @@ class Board:
             raise ValueError("pin %s's lane runs at 45, and has no line to stand a pad on" % lane.number)
         return geom.line
 
-    def _escape_layout(self, occ, decl: EscapeDecl, placement=None):
+    def _escape_layout(self, occ, decl: EscapeDecl, placement=None, *, context=None):
         """The escape laid out for the part where it stands in `occ`, or at a
         candidate `placement`. A pin off the row's way out, or a way out off
         the board's axes, is an EscapeError."""
@@ -4510,7 +4510,28 @@ class Board:
                 way = ((box.center.x - body.x) / d, (box.center.y - body.y) / d)
             return (round(way[0], 6) + 0.0, round(way[1], 6) + 0.0)
         axis, lands = row_way(decl.key, list(decl.pins), boxes, way_of)
-        return Layouter(decl, pads, axis, _LaneEnv(self, occ, decl, pads, face), lands).lay_out()
+        return Layouter(decl, pads, axis, _LaneEnv(self, occ, decl, pads, face, context=context), lands).lay_out()
+
+    def _declared_lanes_blocked(self, occ, plan):
+        """Raw declared escape failures on this occupancy, independent of weight.
+
+        Fresh context binds keepouts and via checks to the candidate view.
+        Already drawn physical copper remains authoritative; this judgement
+        does not regenerate or relocate unowned escape tracks.
+        """
+        if not self._escapes:
+            return 0
+        context = _CopperContext(self, occ)
+        context.plan = plan
+        count = 0
+        for decl in self._escapes:
+            if decl.ref in occ.pending or decl.ref not in occ.items:
+                continue
+            try:
+                count += len(self._escape_layout(occ, decl, context=context).blocked())
+            except EscapeError:
+                count += len(decl.pins)
+        return count
 
     def _lane_pricer(self, occ, plan, i):
         """A candidate's lane cost (see Scorer): how many of the lanes the part's
@@ -12098,8 +12119,9 @@ class _LaneEnv:
     """What a laid-out escape asks of the board (lanes.py): the clearances the
     script's rules give, and what already stands where a lane or a via would."""
 
-    def __init__(self, board: "Board", occ, decl: EscapeDecl, pads: dict, face: Face):
+    def __init__(self, board: "Board", occ, decl: EscapeDecl, pads: dict, face: Face, *, context=None):
         self.board = board
+        self.context = context
         self.occ = getattr(occ, "_occ", occ)            # a candidate's view reads the real occupancy's copper
         self.layer = face.copper
         s = board.settings
@@ -12127,7 +12149,7 @@ class _LaneEnv:
     def via_site(self, at: Location, net: str, size: float, drill: float):
         """Why a via of `net` may not stand at `at` among what is placed (the
         edge, other nets' copper, holes, keepouts), or None."""
-        ctx = self.board.__dict__.get("_escape_ctx") or _CopperContext(self.board, self.occ)
+        ctx = self.context or self.board.__dict__.get("_escape_ctx") or _CopperContext(self.board, self.occ)
         if self._obstacles is None:
             self._obstacles = self.board._via_obstacles(ctx)
         return self.board._via_site_why(ctx, at, net, size, drill, self._obstacles)

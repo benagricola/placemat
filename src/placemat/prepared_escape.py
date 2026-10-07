@@ -65,6 +65,8 @@ def prepare(delta, rotations, face):
     certified result. Callers can separately invoke the independent oracle.
     """
     delta._check_snapshot()
+    if delta.board._escapes:
+        return None, 'declared escape lanes require the exact Python objective'
     native = geometry._native
     if native is None or not hasattr(native, 'PreparedSurface'):
         return None, 'full native escape kernel unavailable'
