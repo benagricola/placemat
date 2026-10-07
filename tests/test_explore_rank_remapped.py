@@ -67,10 +67,13 @@ def test_the_seeds_score_as_the_tests_say():
         total = explore.score(b, p)
         got[seed] = (total, explore.ranked(b, p, total))
     (plain_r, r_r), (plain_p, r_p) = got[REMAPPED_BEST], got[PLAIN_BEST]
-    assert plain_r > plain_p and r_r["score_remapped"] < r_p["score_remapped"]
-    assert r_r["remap"]["crossings"] == 1.0 and r_r["remap"]["saving"] == 4.0          # score.crossing's 4 mm
-    (g,) = r_r["remap"]["groups"]
-    assert g["refs"] == ["U1"] and g["map"] and g["best"] < g["present"]
+    assert plain_r > plain_p and r_r["score_remapped"] > r_p["score_remapped"]
+    # This legacy scene has twelve physical critical findings; crossing-only
+    # gain is not a common placement improvement and cannot change its winner.
+    for result in (r_r, r_p):
+        assert result["remap"]["baseline"]["validity"]["critical"] == 12
+        assert result["remap"]["saving"] == 0 and result["remap"]["groups"] == []
+        assert not result["remap"]["actionable"]
 
 
 def test_without_the_setting_the_run_score_ranks_and_nothing_is_studied_per_variant(tmp_path, events):
@@ -81,29 +84,13 @@ def test_without_the_setting_the_run_score_ranks_and_nothing_is_studied_per_vari
     assert "best_remapped" not in record
 
 
-def test_with_the_setting_a_variant_better_after_its_remap_wins(tmp_path, events):
+def test_uncertified_crossing_only_gain_does_not_change_the_explore_winner(tmp_path, events):
     report, _ = _search(tmp_path, PoolBoard(rank=True))
-    assert report["best_seed"] == REMAPPED_BEST
-    assert report["best_remapped"] == pytest.approx(report["best"] - 4.0, abs=1e-3)
-    assert report["baseline_remapped"] <= report["baseline"]
-    lines = explore.report_lines(report)
-    assert any(l.startswith("  ranked after each variant's pin remap: ") and l.endswith("the best's remap saving 4.0 mm")
-               for l in lines)
+    assert report["best_seed"] == PLAIN_BEST
+    assert report["best_remapped"] == pytest.approx(report["best"], abs=1e-6)
     record = json.loads(open(report["record"]).read())
-    by_seed = {v["seed"]: v for v in record["variants"]}
-    assert set(by_seed) == set(SEEDS)
-    best = by_seed[REMAPPED_BEST]
-    assert best["score_remapped"] == pytest.approx(best["score"] - 4.0, abs=1e-3)
-    assert best["remap"]["saving"] == 4.0 and best["remap"]["groups"][0]["map"] and best["remap"]["seconds"] >= 0
+    assert all(v["remap"]["saving"] == 0 and not v["remap"]["actionable"] for v in record["variants"])
     assert record["best_remapped"] == report["best_remapped"]
-    assert [c["seed"] for c in record["curve"] if c["best"]][-1] == REMAPPED_BEST
-    assert all("score_remapped" in c for c in record["curve"])
-    sent = [e for e in events if e["ev"] == "variant"]
-    assert {e["seed"]: e["score_remapped"] for e in sent}[REMAPPED_BEST] == best["score_remapped"]
-    (done,) = [e for e in events if e["ev"] == "explore_done"]
-    assert done["best_remapped"] == report["best_remapped"]
-    maps = {m["seed"]: m for m in report["pin_maps"]}
-    assert report["pin_maps"][0]["seed"] == REMAPPED_BEST and "score_remapped" in maps[REMAPPED_BEST]
 
 
 def test_accept_writes_the_variants_placement_and_says_the_remap_is_the_users_to_make(tmp_path, events):
@@ -111,7 +98,7 @@ def test_accept_writes_the_variants_placement_and_says_the_remap_is_the_users_to
     script = tmp_path / "Board_layout.py"
     report, entries = _search(tmp_path, PoolBoard(rank=True), accept=True)
     assert report["accepted"] and lock.path_for(script).exists()
-    plan = PoolBoard()().resolve(explore=explore.Explore(REMAPPED_BEST, FOCUS))
+    plan = PoolBoard()().resolve(explore=explore.Explore(PLAIN_BEST, FOCUS))
     held = PoolBoard()().resolve(lock=lock.read(lock.path_for(script)))
     for key in FOCUS:
         assert held.placement(key).location.distance(plan.placement(key).location) < 1e-6, key
@@ -132,19 +119,37 @@ def test_a_board_with_no_pin_pool_explores_as_without_the_setting(tmp_path, even
     assert all("score_remapped" not in c for c in record["curve"])
 
 
-def test_the_routing_worker_makes_the_remap_on_the_board_it_routes(tmp_path, events):
-    report, _ = _search(tmp_path, PoolBoard(rank=True), route_best=True, variants_dir=tmp_path / "explore",
-                        router=RemapRouter(tmp_path / "routes.log"))
-    log = [json.loads(l) for l in (tmp_path / "routes.log").read_text().splitlines()]
-    remaps = [r for r in log if r.get("kind") == "remap"]
-    assert remaps and all(r["groups"][0]["refs"] == ["U1"] for r in remaps)
-    routed = {r["seed"]: r for r in report["routes"]}
-    assert routed[REMAPPED_BEST]["remapped"]["saving"] == 4.0 and routed[REMAPPED_BEST]["remapped"]["pads"] >= 2
-    assert routed[REMAPPED_BEST]["score_remapped"] == round(report["best_remapped"], 1)
-    line = explore.route_line(routed[REMAPPED_BEST])
-    assert line.startswith("  route, seed %d at %.1f mm, %.1f mm after its pin remap: " % (
-        REMAPPED_BEST, routed[REMAPPED_BEST]["score"], routed[REMAPPED_BEST]["score_remapped"]))
-    assert line.endswith("; routed with its pin remap made on its pads")
+class SupportedPoolBoard:
+    def __call__(self):
+        from dataclasses import replace
+        from tests.test_pinmap_wiring import board
+        from placemat.values import Near
+        source = board()
+        out = Board(source.geometry, edge_margin=1.0,
+                    settings=replace(source.settings, explore_rank_remapped=True))
+        out.place(Part('u1'), at=Near(Location(10, 10)), radius=.01, rotations=(0,))
+        for index in range(4):
+            out.place(Part('r%d' % (index + 1)), at=Location(25, 7 + 2 * index))
+        return out
+
+
+def test_routed_remap_without_logical_proof_is_source_diagnostic_only(tmp_path, events):
+    report, _ = explore.search(SupportedPoolBoard(), tmp_path / "Board_layout.py", seconds=30, jobs=1,
+                                seeds=[0, 104], keys=['u1'], route_best=True, variants_dir=tmp_path / "explore",
+                                router=RemapRouter(tmp_path / "routes.log"), accept=True)
+    routed = {row["seed"]: row for row in report["routes"]}
+    log = [json.loads(line) for line in (tmp_path / "routes.log").read_text().splitlines()]
+    assert not [row for row in log if row.get('kind') == 'remap']
+    assert report['routed_comparison_refusals']
+    assert 'taken_seed' not in report
+    assert not report['accepted'] and report['accept_refusal']['code'] == 'routed_remap_comparison_unsupported'
+    for row in routed.values():
+        assert row['remap_refusal']['code'] == 'logical_terminal_proof_missing'
+        assert row['route_scope'] == 'source_diagnostic' and not row['comparison_supported']
+        assert 'remapped' not in row
+        line = explore.route_line(row)
+        assert 'source-board diagnostic only' in line and 'unsupported' in line
+        assert 'after its pin remap' not in line
 
 
 class RemapRouter(eb.StandInRouter):

@@ -29,7 +29,8 @@ def remaps(plan):
 def test_a_resolve_ends_with_the_study_and_keeps_its_record():
     plan = board().resolve()
     (f,) = remaps(plan)
-    assert f.startswith("U1: a pin map with 6 fewer weighted crossings exists at its present rotation")
+    assert f.startswith("U1: a pin map lowers the run score by ")
+    assert f.facts["common"]["actionable"]
     assert plan.pin_study["reused"] is False and plan.pin_study["parts"] == 1
     assert f.suggestions and f.suggestions[0].lever == "pins" and f.suggestions[0].id
 
@@ -49,16 +50,17 @@ def test_the_study_moves_nothing_the_placement_is_the_one_without_a_pool():
     assert remaps(without) == [] and without.pin_study == {}
 
 
-def test_a_resolve_reading_what_the_last_one_read_reuses_its_study(tmp_path):
+def test_plan_bound_finalists_are_rejudged_even_with_a_generator_cache(tmp_path):
     first = board()
     first.pin_study_cache = tmp_path / "pinmap" / "layout.json"
     a = first.resolve()
     second = board()
     second.pin_study_cache = first.pin_study_cache
     b = second.resolve()
-    assert (a.pin_study["reused"], b.pin_study["reused"]) == (False, True)
+    assert (a.pin_study["reused"], b.pin_study["reused"]) == (False, False)
     assert [str(f) for f in remaps(a)] == [str(f) for f in remaps(b)]
-    assert study_line(b.pin_study).startswith("1 part, the last study reused")
+    assert not second.pin_study_cache.exists()
+    assert study_line(b.pin_study).startswith("1 part")
 
 
 def _scripted(tmp_path, monkeypatch, overlay=None):

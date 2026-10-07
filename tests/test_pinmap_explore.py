@@ -23,11 +23,11 @@ def test_the_best_variants_are_studied_in_the_explores_order_and_reported_beside
     maps = _pin_maps(make, [], frozenset({"r1"}), RESULT, {0: (b, b.resolve())})
     assert [(m["seed"], m["score"]) for m in maps] == [(0, 10.0), (2, 11.0), (5, 12.5)] and len(made) == 2
     (g,) = maps[0]["groups"]
-    assert g["refs"] == ["U1"] and g["best"]["weighted"] < g["present"]["weighted"] and g["map"]
+    assert g["refs"] == ["U1"] and g["best"]["total"] < g["present"]["total"] and g["map"]
     report = {"tried": 4, "seconds": 1.0, "focus": ["r1"], "baseline": 10.0, "best": 10.0, "best_seed": 2,
               "moves": [], "accepted": False, "pin_maps": maps}
     lines = _report_lines(report)
-    assert "  pin map, seed 2 at 11.0 mm: U1 6 -> 0 weighted crossings after remapping" in lines
+    assert any("pin map, seed 2 at 11.0 mm: U1" in line and "common placement score" in line for line in lines)
     assert lines[0].endswith("score 10.0 -> 10.0 mm; 0 items would move")
 
 

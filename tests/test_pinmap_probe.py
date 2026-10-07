@@ -17,7 +17,9 @@ def advice_of(plan):
 
 def kept_worse(tmp_path, monkeypatch, b, plan):
     s = advice_of(plan)
-    s = sg.Suggestion(s.text, (), 1, "pins", "s1a", how="advice", advice=dict(s.advice, total=s.advice["total"] + 1.0))
+    s = sg.Suggestion(s.text, (), 1, "pins", "s1a", how="advice", advice=dict(s.advice, total=s.advice["total"] + 1.0, map=[],
+                                                           turns=[dict(t, turn_deg=0.0, rotation_deg=0.0, flip=False, face="front")
+                                                                  for t in s.advice["turns"]]))
     script = tmp_path / "x_layout.py"
     script.write_text("")
     sg.keep(tmp_path, script, "run 1", [s])
@@ -33,7 +35,8 @@ def test_a_longer_study_offers_a_map_only_when_it_beats_the_one_suggested():
     assert longer_advice(b, plan, s.advice, 60000)[0] is None             # this board has nothing better to find
     worse = dict(s.advice, total=s.advice["total"] + 1.0)
     better, g = longer_advice(b, plan, worse, 60000)
-    assert better["total"] == g["best"]["total"] < worse["total"] and better["map"] == s.advice["map"]
+    assert better is None
+    assert g["incoming"]["total"] == s.advice["total"]  # Stored scalar is never comparison evidence.
 
 
 def test_the_search_keeps_a_better_map_as_the_next_id(tmp_path, monkeypatch, capsys):

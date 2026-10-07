@@ -3324,7 +3324,7 @@ ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
     assert 'data-pmrot="0:1"' in rows[1] and ">best<" in rows[1] and ">present<" not in rows[1]
     assert "<td>3</td>" in rows[0] and "12.3 mm" in rows[0] and "180°" in rows[0] and "<td>7</td>" in rows[0] and ">2<" in rows[0]   # saving 9 - 7
     assert "90°" in rows[1] and "10.0 mm" in rows[1] and "<td>2.5</td>" in rows[1] and ">6.5<" in rows[1]
-    for head in ("turn", "crossings", "length", "bends", "total", "saving"):
+    for head in ("turn", "generator crossings", "generator length", "generator bends", "generator total", "signed gain"):
         assert "<th>" + head + "</th>" in out["html"]
 
 
@@ -3393,11 +3393,11 @@ ev("S.xv.auto = false; S.xv.drawn = S.xv.variants.find(v => v.seed === 4)"); out
     h = out["html"]
     assert 'data-xpin="3"' in h and 'data-xpin="4"' in h and 'data-xpin="5"' in h
     one = h[h.index('data-xpin="3"'):h.index('data-xpin="4"')]
-    assert "#3" in one and "8.0" in one and "U1" in one and "6 -&gt; 0 crossings" in one
+    assert "#3" in one and "8.0" in one and "U1" in one and "6 -&gt; 0 generator crossings (diagnostic only)" in one
     assert "data-xpa" not in one and "GPIO7" not in one                       # the map is offered on the variant shown
     err = h[h.index('data-xpin="5"'):]
     assert '<span class="chip bad">error</span>' in err and "RuntimeError: boom" in err
-    assert "(" not in re.sub(r"<[^>]*>", "", h[h.index('class="xpins"'):h.index("<h3>Commands")])
+    assert "NaN" not in h and "undefined" not in h
 
 
 @needs_node
@@ -3801,3 +3801,41 @@ out.files = els["#file"].innerHTML;
     assert [d for h, d, t in out["chosen"]] == [False, False, False, False]
     assert out["foreign"][0] is True and "it is of B_layout.py, not the script this studio watches" in out["foreign"][1] and out["own"] is True
     assert ">helper.py - imported<" in out["files"] and "(" not in out["files"]
+
+
+@needs_node
+def test_common_pin_rows_do_not_price_unknown_candidates_as_zero(tmp_path):
+    out = run_more(tmp_path, SUGGEST + PINMAP + PM_ROTS + r"""
+PM_FACTS.score_scope = "placement"; PM_FACTS.rotations[0].total = null;
+full([item("a", 1)], [st("a")], {findings: PM_FND});
+ev("renderFindings()"); out.html = els["#tab-findings"].innerHTML;
+""")
+    assert "<th>common score</th>" in out["html"]
+    first = re.findall(r'<tr[^>]*data-pmrot="[^"]*"[^>]*>.*?</tr>', out["html"])[0]
+    assert '<td>-</td><td class="">-</td>' in first
+    assert 'class="gain"' not in first
+
+
+@needs_node
+def test_explore_common_pin_score_is_labeled_independent(tmp_path):
+    out = run_more(tmp_path, EXPLORE_PINS + r"""
+ev("S.xv.done.pin_maps[0].groups[0].score_scope = 'placement'; S.xv.done.pin_maps[0].groups[0].common = {actionable: false}; S.xv.done.pin_maps[0].groups[0].best.total = null");
+out.html = runs();
+""")
+    assert "9 -&gt; unmeasured common placement score (independent proposal)" in out["html"]
+    assert "diagnostic only" in out["html"]
+    assert "NaN" not in out["html"]
+
+
+@needs_node
+def test_source_route_diagnostic_cannot_present_virtual_remap_closure(tmp_path):
+    out = run_more(tmp_path, EXPLORE_ROUTES + r"""
+ev("S.xv.done.routes[0].score_remapped = 1; S.xv.done.routes[0].remap_refusal = {code: 'logical_terminal_proof_missing', facts: {}}; S.xv.done.taken_seed = null; S.xv.done.routed_comparison_refusals = [{code: 'logical_terminal_proof_missing'}]");
+out.html = runs();
+""")
+    three = out['html'][out['html'].index('data-xroute="3"'):out['html'].index('data-xroute="4"')]
+    assert 'source-board diagnostic only' in three and 'logical_terminal_proof_missing' in three
+    assert 'remapped-route comparison unsupported' in three
+    assert 'after its pin remap' not in three and 'taken' not in three
+    assert 'Remapped-route comparison unsupported; source routes are diagnostics.' in out['html']
+    assert 'every route failed' not in out['html']

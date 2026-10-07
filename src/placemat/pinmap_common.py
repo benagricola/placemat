@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 import math
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 
 from placemat import score
 from placemat.values import Face, Location, PadRef, CellPadRef
@@ -106,6 +106,11 @@ class Evaluation:
         """Explanatory text for display; callers dispatch on refusal codes."""
         return tuple(record['message'] for record in self.refusals)
 
+    def record(self):
+        return {'total': self.total if math.isfinite(self.total) else None,
+                'terms': dict(self.terms), 'validity': asdict(self.validity),
+                'refusals': list(self.refusals)}
+
 
 @dataclass(frozen=True)
 class Selection:
@@ -115,6 +120,12 @@ class Selection:
     gain: float
     reason: str
     actionable: bool
+
+    def record(self):
+        return {'scope': 'placement', 'baseline': self.baseline.record(),
+                'finalists': [final.record() for final in self.finalists],
+                'best': self.best, 'gain': self.gain, 'reason': self.reason,
+                'actionable': self.actionable}
 
 
 class Finalists:

@@ -83,10 +83,11 @@ def test_a_cell_at_90_degrees_gives_both_levers_the_cell_turned_on_the_board_and
     assert "re-lay module Mcu with U1 at 180 degrees in its frame" in f
     assert "next run re-places the board" in f
     assert "module Mcu's capture, which its 2 stamps share" in f
-    best_advice = sg.suggest(f.cause, f.facts)[0]
-    assert "turn cell logic to 270 degrees on the board" in best_advice.text
-    assert "re-lay module Mcu with U1 at 180 degrees in its frame" in best_advice.text
-    assert "turn U1 to" not in best_advice.text
+    assert sg.suggest(f.cause, f.facts) == []
+    diagnostic = sg.pin_advice_text(sg.pin_advice(f.facts, f.facts["best"]))
+    assert "turn cell logic to 270 degrees on the board" in diagnostic
+    assert "re-lay module Mcu with U1 at 180 degrees in its frame" in diagnostic
+    assert "turn U1 to" not in diagnostic
 
 
 def two_stamps():
@@ -210,8 +211,8 @@ def test_an_explore_line_names_the_cell_turn():
     turn = {"ref": "U1", "turn_deg": 90.0, "rotation_deg": 90.0, "face": "front", "flip": False, "cell": "logic",
             "module": "Mcu", "stamps": 1, "cell_rotation_deg": 180.0, "module_rotation_deg": 90.0}
     report = {"pin_maps": [{"seed": 0, "score": 12.0, "seconds": 0.1, "groups": [
-        {"refs": ["U1"], "present": {"weighted": 6.0}, "best": {"weighted": 2.0}, "turns": [turn]}]}]}
-    assert pin_map_lines(report)[0] == ("  pin map, seed 0 at 12.0 mm: U1 6 -> 2 weighted crossings after remapping, "
+        {"refs": ["U1"], "present": {"total": 6.0}, "best": {"total": 2.0}, "turns": [turn]}]}]}
+    assert pin_map_lines(report)[0] == ("  pin map, seed 0 at 12.0 mm: U1 6.0 -> 2.0 common placement score after remapping, "
                                         "with cell logic turned to 180 degrees")
 
 
@@ -274,7 +275,8 @@ def test_the_relay_lever_says_it_relays_every_stamp():
     found, _ = study_findings(pads, parts, {}, frozenset(), {}, {}, settings(), cells=cells)
     f = next(f for f in found if f.cause is C.PINS_REMAP)
     assert "which re-lays all 2 of its stamps" in f
-    assert "which re-lays all 2 of its stamps" in sg.suggest(f.cause, f.facts)[0].text
+    assert sg.suggest(f.cause, f.facts) == []
+    assert "which re-lays all 2 of its stamps" in sg.pin_advice_text(sg.pin_advice(f.facts, f.facts["best"]))
 
 
 def series_in_cell():

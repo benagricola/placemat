@@ -352,3 +352,139 @@ def test_map_only_never_retags_item_hosted_given_through_shape():
     assert retained == [fixed]
     assert result.validity.critical > 0
     assert (dict(occ.items), dict(occ._pristine), tuple(occ.copper)) == before
+
+
+def test_plan_bound_findings_and_summary_use_current_common_score():
+    from placemat.pinmap import plan_findings, plan_summary
+    from placemat.suggestions import suggest, Suggestion
+    board, plan, inp, group = scene()
+    selection = Finalists(board, plan).select(inp, group)
+    found = plan_findings(board, plan)
+    finding = next(f for f in found if f.facts.get('score_scope') == 'placement')
+    assert finding.facts['common']['gain'] == pytest.approx(selection.gain)
+    assert 'run score' in finding
+    picks = suggest(finding.cause, finding.facts)
+    assert picks and picks[0].advice['score_scope'] == 'placement'
+    assert picks[0].advice['total'] == selection.finalists[selection.best].total
+    summary, = plan_summary(board, plan)
+    assert summary['best']['total'] == picks[0].advice['total']
+    assert summary['independent'] and summary['generator']['best']['total'] != summary['best']['total']
+
+
+def test_plan_bound_findings_withhold_generator_gain_that_loses_common_score():
+    from placemat.pinmap import plan_findings
+    board, plan, inp, group = scene(points=((11, 22), (18, 12), (9, 26), (8, 25)),
+                                     paired=True, source_nets=('B', 'D', 'C', 'A'))
+    board.settings = replace(board.settings, score_crossing_pair_net=1)
+    plan.occupancy.settings = board.settings
+    assert not any(f.facts.get('score_scope') == 'placement' and f.facts['common']['actionable']
+                   for f in plan_findings(board, plan))
+
+
+def test_longer_advice_rejudges_incoming_map_instead_of_stored_total():
+    from placemat.pinmap import plan_findings, longer_advice
+    from placemat.suggestions import suggest
+    board, plan, _, _ = scene()
+    finding = next(f for f in plan_findings(board, plan) if f.facts.get('score_scope') == 'placement')
+    advice = suggest(finding.cause, finding.facts)[0].advice
+    stale = dict(advice, total=advice['total'] + 100000)
+    better, summary = longer_advice(board, plan, stale, board.settings.pins_budget_steps)
+    assert better is None
+    assert summary['incoming']['total'] == pytest.approx(advice['total'])
+    missing = dict(advice, score_scope='generator')
+    assert longer_advice(board, plan, missing, board.settings.pins_budget_steps)[1]['incoming_refusal']['code'] == 'common_proof_missing'
+
+
+def test_combined_caller_never_sums_independent_group_gains(monkeypatch):
+    from placemat import pinmap
+    board, plan, inp, group = scene()
+    first = group.results[0]
+    other_assign = dict(first.assign)
+    other_assign['A'], other_assign['B'] = first.assign['B'], first.assign['A']
+    second = replace(group, results=(replace(first, assign=other_assign),))
+    judge = Finalists(board, plan)
+    left, right = judge.select(inp, group), judge.select(inp, second)
+    assert left.actionable and right.actionable
+    monkeypatch.setattr(pinmap, '_plan_choices', lambda *args, **kwargs: (inp, [(group, left), (second, right)]))
+    proposal = pinmap.plan_remap(board, plan)
+    assert len(proposal['groups']) == 2
+    assert not proposal['actionable'] and proposal['saving'] == 0
+    assert proposal['final']['refusals'][0]['code'] == 'combined_pad_conflict'
+
+
+def test_renderer_names_validity_repair_without_positive_score_saving():
+    from placemat.pinmap import group_facts
+    from placemat.findings import Finding, FindingCause
+    board, plan, inp, group = scene(points=((11, 22), (18, 12), (9, 26), (8, 25)),
+                                     paired=True, source_nets=('B', 'D', 'C', 'A'),
+                                     fields={'Pm.PinDeny': 'A:4'})
+    cfg = replace(board.settings, score_crossing_pair_net=1)
+    facts = group_facts(inp, group, frozenset(), cfg, Finalists(board, plan, cfg))
+    assert facts['common']['reason'] == 'validity repair' and facts['common']['gain'] < 0
+    finding = Finding(FindingCause.PINS_REMAP, facts)
+    assert 'repairs a critical constraint' in finding and 'gain is -' in finding
+    assert 'lowers the run score' not in finding
+
+
+def test_cell_advice_rebase_refusal_is_structured():
+    from placemat.pinmap import plan_findings, longer_advice
+    from placemat.suggestions import suggest
+    board, plan, _, _ = scene(cell='module')
+    finding = next(f for f in plan_findings(board, plan) if f.facts.get('score_scope') == 'placement')
+    advice = suggest(finding.cause, finding.facts)[0].advice
+    better, summary = longer_advice(board, plan, advice, board.settings.pins_budget_steps)
+    assert better is None
+    assert summary['incoming_refusal'] == {'code': 'cell_advice_rebase_unavailable', 'facts': {'ref': 'U1'}}
+
+
+def test_study_stamp_path_checks_simultaneous_candidates_before_advice(monkeypatch):
+    from placemat import pinmap_core
+    from placemat.pinmap import study_findings, placed_from_plan
+    from placemat.suggestions import suggest
+    board, plan, inp, group = scene(cell='module')
+    first = group.results[0]
+    other_assign = dict(first.assign)
+    other_assign['A'], other_assign['B'] = first.assign['B'], first.assign['A']
+    second = replace(group, results=(replace(first, assign=other_assign),))
+    judge = Finalists(board, plan)
+    assert judge.select(inp, group).actionable and judge.select(inp, second).actionable
+    generated = iter((group, second))
+    # Exercise the real caller against inconsistent independent generator output.
+    monkeypatch.setattr(pinmap_core, 'linked_groups', lambda current: [('U1',), ('U1',)])
+    monkeypatch.setattr(pinmap_core, 'study_group', lambda *args, **kwargs: next(generated))
+    placed = placed_from_plan(board, plan)
+    findings, _ = study_findings(placed.pads, placed.parts, board.geometry.pin_names,
+                                 frozenset(), {}, board.geometry.netclasses, board.settings,
+                                 cells=placed.cells, evaluator=judge)
+    assert len(findings) == 2
+    for finding in findings:
+        assert finding.facts['common']['actionable']  # Independent proposal remains identified.
+        assert not finding.facts['stamp_common']['actionable']
+        assert finding.facts['stamp_common']['final']['refusals'][0]['code'] == 'combined_pad_conflict'
+        assert finding.facts['stamp_refusal']['code'] == 'module_stamp_proof_missing'
+        assert suggest(finding.cause, finding.facts) == []
+        assert 'no map or turn is advised' in finding
+
+
+def test_longer_advice_rejudges_both_maps_after_pair_price_changes(monkeypatch):
+    from placemat import pinmap
+    from placemat.suggestions import pin_advice
+    board, plan, inp, group = scene(points=((19, 8), (14, 16), (32, 12), (12.8, 12.8)), paired=True)
+    candidates = tuple(replace(group.results[0], assign={net: (('U1', pin),) for net, pin in zip('ABCD', pins)})
+                       for pins in ('3412', '1423'))
+    group = replace(group, results=candidates)
+    low = replace(board.settings, score_crossing_pair_net=.1, score_escape_crossed=0,
+                  score_escape_closed=0, score_escape_via=0)
+    old_facts = pinmap.group_facts(inp, group, frozenset(), low, Finalists(board, plan, low))
+    assert old_facts['best'] == 0 and old_facts['common']['actionable']
+    advice = pin_advice(old_facts, 0)
+    high = replace(low, score_crossing_pair_net=80)
+    board.settings = plan.occupancy.settings = high
+    choice = Finalists(board, plan, high).select(inp, group)
+    assert choice.best == 1 and choice.actionable
+    # Supply the already generated finalists; both physical judgments remain real.
+    monkeypatch.setattr(pinmap, '_plan_choices', lambda *args, **kwargs: (inp, [(group, choice)]))
+    better, summary = pinmap.longer_advice(board, plan, advice, high.pins_budget_steps)
+    assert better is not None and better['map'] != advice['map']
+    assert summary['incoming']['total'] == choice.finalists[0].total > advice['total'] + 600
+    assert better['total'] == choice.finalists[1].total < summary['incoming']['total']

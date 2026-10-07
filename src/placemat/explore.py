@@ -597,35 +597,9 @@ def _total(board, m) -> float:
 
 
 def remap_of(board, plan) -> dict | None:
-    """What the pin map study's best remap of a resolved variant saves, priced as the run score prices a crossing
-    (`explore.rank_remapped`): {"saving": mm, "crossings": the weighted crossings it removes, "groups"}. A group is
-    counted when its best map removes weighted crossings: {"refs", "present" and "best" (its weighted crossings),
-    "map" and "turns" (pinmap.plan_summary's)}; a turn that turns or flips its part also carries "pivot", the centre of
-    the part's courtyard box, which the study turns it about. A group past its wall-clock guard, or whose best map
-    removes none, adds nothing. None for a board with no `Pm.PinPool` part."""
-    from .pinmap_rules import has_pools
-    if not has_pools(board.geometry.footprints):
-        return None
+    """A simultaneously judged common placement proposal; routed proof is separate."""
     from . import pinmap
-    groups, crossings = [], 0.0
-    for g in pinmap.plan_summary(board, plan):
-        if g.get("slow"):
-            continue
-        cut = g["present"]["weighted"] - g["best"]["weighted"]
-        if cut <= 1e-9:
-            continue
-        crossings += cut
-        turns = []
-        for t in g["turns"]:
-            t = dict(t)
-            if t["turn_deg"] or t["flip"]:
-                c = plan.occupancy.courtyard_box(t["ref"]).center
-                t["pivot"] = [round(c.x, 4), round(c.y, 4)]
-            turns.append(t)
-        groups.append({"refs": g["refs"], "present": g["present"]["weighted"], "best": g["best"]["weighted"],
-                       "map": g["map"], "turns": turns})
-    return {"saving": round(board.settings.score_crossing * crossings, 3), "crossings": round(crossings, 3),
-            "groups": groups}
+    return pinmap.plan_remap(board, plan)
 
 
 def ranked(board, plan, total: float) -> dict:
@@ -646,7 +620,7 @@ def ranked(board, plan, total: float) -> dict:
     if r is None:
         return {}
     r["seconds"] = round(time.perf_counter() - t0, 3)
-    return {"score_remapped": round(total - r["saving"], 6), "remap": r}
+    return {"score_remapped": total - r["saving"], "remap": r}
 
 
 def _context_of(make_board):
@@ -751,7 +725,7 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
             if seed is None:
                 break
             d = Path(routing.folder) / ("seed-%d" % seed)
-            entry = {"seed": seed, "dir": str(d)}
+            entry = {"seed": seed, "dir": str(d), "route_scope": "source"}
             t0 = time.perf_counter()
             try:
                 with _context_of(make_board):
@@ -760,9 +734,12 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                         b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
                     pcb = router.write(make_board, b, p, d)
                     remap = ranked(b, p, 0.0).get("remap")
-                    if remap and remap["groups"]:            # routed as it would stand once the remap is made
-                        entry["remapped"] = dict(router.remap(pcb, remap["groups"]), saving=remap["saving"],
-                                                 crossings=remap["crossings"])
+                    if remap and remap["groups"]:
+                        # Placement evidence cannot authorize weakening a routed
+                        # physical terminal contract or modifying fixed copper.
+                        entry["remap_refusal"] = remap["routed_comparison"]
+                        entry["route_scope"] = "source_diagnostic"
+                        entry["comparison_supported"] = False
                     r = router.route(pcb, d / "route", exclude_nets=set(p.plane_nets) | set(routing.exclude), quick=True,
                                      resume=routing.resume)
                 # Keep the authoritative final report intact, apart from worker
@@ -1016,6 +993,9 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["routes"], report["routes_skipped"] = [], "no_board"
     elif on:
         report["routes"] = result.routes
+        refusals = [r["remap_refusal"] for r in result.routes if r.get("remap_refusal")]
+        if refusals:
+            report["routed_comparison_refusals"] = refusals
         closed = _taken(result.routes, {r[0]: r[2] for r in result.results}, base.settings)
         if closed is not None:
             taken = report["taken_seed"] = closed
@@ -1032,7 +1012,9 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
                 report["moves"].append(m)
     # before the accept: the variants are studied under the lock they were ranked under
     _study(report, make_board, entries, focus, result, have)
-    if accept and taken:
+    if accept and report.get("routed_comparison_refusals"):
+        report["accept_refusal"] = {"code": "routed_remap_comparison_unsupported", "facts": {}}
+    if accept and taken and not report.get("accept_refusal"):
         placed = [k for k in focus if chosen.placement(k) is not None]
         total = next(r[1] for r in result.results if r[0] == taken)
         new = _lock.entries(board, chosen, placed, release, run_id, round(total, 1))
@@ -1084,7 +1066,7 @@ def _taken(routes: list, measures: dict, cfg):
     the earlier seed of a tie; None when every route failed."""
     import functools
     from . import score as _score
-    closed = sorted((r for r in routes if "error" not in r), key=lambda r: r["seed"])
+    closed = sorted((r for r in routes if "error" not in r and not r.get("remap_refusal")), key=lambda r: r["seed"])
     if not closed:
         return None
     cfg = _exact(cfg)
@@ -1432,14 +1414,15 @@ def route_line(r: dict) -> str:
     """One route of the routing worker (`_route_work`), as it is said when it comes: its closure, clean and raw, the
     signal items it left open and the time it took, or that writing or routing it failed."""
     at = "  route, seed %d at %.1f mm%s: " % (r["seed"], r["score"], ", %.1f mm after its pin remap" % r["score_remapped"]
-                                               if r.get("score_remapped") is not None else "")
+                                               if r.get("score_remapped") is not None and r.get("remapped") else "")
     if r.get("error"):
         message = (r["error"]["message"] or "").splitlines()
         return at + "the route failed with %s%s" % (r["error"]["type"], ": " + message[0] if message else "")
     return at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s%s" % (
         100 * r["closure_clean"], 100 * r["closure"], r["open_after"], duration(r["seconds"]),
         "" if r.get("valid", True) else "; the placement's DRC was not clean before routing",
-        "; routed with its pin remap made on its pads" if r.get("remapped") else "")
+        ("; source-board diagnostic only; remapped-route comparison unsupported (%s)" % r["remap_refusal"]["code"]
+         if r.get("remap_refusal") else "; routed with its pin remap made on its pads" if r.get("remapped") else ""))
 
 
 def budget_passed_line(ev: dict) -> str:
@@ -1501,8 +1484,8 @@ def pin_map_lines(report) -> list:
                                                          g["steps"], g["budget_steps"]))
                 continue
             turned = [t for t in g["turns"] if t["turn_deg"] or t["flip"]]
-            out.append("  pin map, seed %d at %.1f mm: %s %g -> %g weighted crossings after remapping%s" % (
-                v["seed"], v["score"], " and ".join(g["refs"]), g["present"]["weighted"], g["best"]["weighted"],
+            out.append("  pin map, seed %d at %.1f mm: %s %s -> %s common placement score after remapping%s" % (
+                v["seed"], v["score"], " and ".join(g["refs"]), g["present"]["total"], g["best"]["total"],
                 ", " + at_pose(turned) if turned else ""))
     if maps:
         out.append("  pin map study: %d variant%s in %.2f s, after the explore's time" % (

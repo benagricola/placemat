@@ -420,6 +420,21 @@ def _pins_remap(f):
     if not f["first_map"]:
         return "%s: the pin map study had no steps for a first map: its budget is %d steps; pins.budget_steps sets it" % (
             who, f["budget_steps"])
+    if f.get('score_scope') == 'placement':
+        common = f['common']
+        if f.get('stamp_refusal'):
+            return '%s: independent pin choices lack a compatible combined module judgment; no map or turn is advised' % who
+        if not common['actionable']:
+            return "%s: the pin finalists lack a complete current-board judgment; no map or turn is advised" % who
+        if common['reason'] == 'validity repair':
+            text = "%s: a pin map repairs a critical constraint; its run-score gain is %g" % (who, common['gain'])
+        else:
+            text = "%s: a pin map lowers the run score by %g" % (who, common['gain'])
+        changed = [turn for turn in turns if turn['turn_deg'] or turn['flip']]
+        text += ('; ' + at_pose(changed) if changed else ' at its present pose')
+        if f['routed']:
+            text += '; fixed copper remains on: ' + ', '.join(f['routed'])
+        return text
     rs, p = f["rotations"], f["present"]
     here, best = rs[0], rs[f["best"]]
     if here["total"] < p["total"] - 1e-9:
@@ -459,6 +474,8 @@ def _pins_remap(f):
     if f["budget_out"]:
         text += "; the study stopped at its budget of %d steps after %d of %d poses" % (f["budget_steps"], f["searched"],
                                                                                          f["of"])
+    if f.get('score_scope') == 'generator':
+        text += '; generator study only: common-board gain is unavailable, and no map or turn is advised'
     return text
 
 
@@ -1343,5 +1360,6 @@ def _setup_centre_flag_default(f):
 # ------------------------------------------------------------------ schema versions of causes whose facts have changed
 FACTS_V[C.FIXED_ROOM_UNSETTLED] = 2     # a firm cell whose arrangement did not settle: item and arrangements, not copper
 FACTS_V[C.ARRANGEMENT_LIMIT] = 2        # excluded: how many combinations the module's exclusions leave out
-FACTS_V[C.PINS_REMAP] = 3               # 2: controlled impedances' length, groups' spread, cohesion and landing;
+FACTS_V[C.PINS_REMAP] = 4               # 2: controlled impedances' length, groups' spread, cohesion and landing;
                                         # 3: steps and budget_steps in place of budget_ms
+                                        # 4: generator scope versus current-board common judgment

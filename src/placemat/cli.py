@@ -66,9 +66,9 @@ def parser() -> argparse.ArgumentParser:
                           "The route in hand and the one waiting when the search ends are finished after it, so the run "
                           "can last past the --explore SECONDS")
     run.add_argument("--rank-remapped", action="store_true", default=None,
-                     help="with --explore: give every variant the pin map study and rank the variants on the run score "
-                          "less what each one's best pin remap saves, its weighted crossings at score.crossing each; with "
-                          "--route-best a variant is routed with that remap on its pads (default [explore] rank_remapped)")
+                     help="with --explore: judge simultaneous pin finalists by the common placement score; "
+                          "routed remap comparison requires a logical-terminal proof and currently refuses "
+                          "(default [explore] rank_remapped)")
     run.add_argument("--resume", action="store_true",
                      help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
                           "its time) or refuse, saying what changed; without it a saved explore that is this one is "
@@ -1379,8 +1379,12 @@ def _pin_search(args, board_dir, script, s) -> int:
             record["reason"] = "not_studied"
         elif slow:
             record["reason"] = "slow"
+        elif g.get("incoming_refusal"):
+            record["reason"] = g["incoming_refusal"]["code"]
+        elif g["best"]["total"] is None:
+            record["reason"] = "common_judgment_unmeasured"
         console.data(json.dumps(record, indent=2))
-        return 0 if g is not None and not slow else 1
+        return 0 if g is not None and not slow and not record.get("reason") else 1
     if g is None:
         console.say("probe", "%s: %s is no longer studied on this board" % (s.id, " and ".join(s.advice["refs"])), level="fail")
         return 1
@@ -1389,8 +1393,15 @@ def _pin_search(args, board_dir, script, s) -> int:
                     "steps; no map is given" % (s.id, " and ".join(g["refs"]), g["guard_ms"], g["steps"],
                                                 g["budget_steps"]), level="fail")
         return 1
-    console.say("probe", "%s: %d of %d poses in %d of its %d steps: best total %.1f, the suggestion's %.1f" % (
-        s.id, g["searched"], g["of"], g["steps"], g["budget_steps"], g["best"]["total"], s.advice["total"]))
+    refusal = g.get("incoming_refusal")
+    if refusal or g["best"]["total"] is None:
+        code = refusal["code"] if refusal else "common_judgment_unmeasured"
+        console.say("probe", "%s: current-board comparison unavailable (%s); no map is advised" % (s.id, code), level="fail")
+        return 1
+    incoming = g.get("incoming", {}).get("total")
+    console.say("probe", "%s: %d of %d poses in %d of its %d steps: best common total %.1f, incoming map now %s" % (
+        s.id, g["searched"], g["of"], g["steps"], g["budget_steps"], g["best"]["total"],
+        "unmeasured" if incoming is None else "%.1f" % incoming))
     console.say("probe", "%s: %s; it is advice for the capture, which placemat apply does not write" % (found.id, found.text)
                 if found is not None else "no better map than %s's" % s.id)
     return 0
