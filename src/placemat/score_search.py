@@ -45,7 +45,7 @@ class MSTScorer:
         rotations = tuple(rotations)
         key = rotations, face
         if key not in self._native:
-            prepared, reason = prepare(self.delta, rotations, face)
+            prepared, reason = prepare(self.delta, rotations, face, rest_cache=True)
             if prepared is None or not hasattr(geometry._native, 'NativeDeltaScoring'):
                 self.refusals[key] = reason or 'complete native sweep adapter unavailable'
                 self._native[key] = None

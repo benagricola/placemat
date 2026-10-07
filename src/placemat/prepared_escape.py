@@ -66,7 +66,7 @@ class PreparedEscape:
         return self.surface.evaluate(self.candidate, self.scoring, placement.location.x, placement.location.y, turn, inspect)
 
 
-def prepare(delta, rotations, face):
+def prepare(delta, rotations, face, *, rest_cache=False):
     """Return a full prepared snapshot or an explicit unsupported reason.
 
     Refused native geometry propagates: it must not become a zero-price or
@@ -162,4 +162,31 @@ def prepare(delta, rotations, face):
         [fp.ref for fp in geom.footprints], rest_roles, moving_roles, fields, net_records,
         (cfg.score_escape_reach, cfg.score_escape_depth, cfg.place_escape_cell, cfg.place_escape_min_pads,
          geom.drc_epsilon, geom.hole_clearance, cfg.place_escape_lane_via_exit))
+    if rest_cache:
+        if not hasattr(surface, 'configure_rest_cache'):
+            return None, 'complete native rest-field cache unavailable'
+        baseline = delta._escape_delta
+        from .escapes import Way
+        regular = {key for key, way in baseline.ways.items() if way is Way.WALLED}
+        declared = {(r, n) for r, n, *_ in baseline.base.lanes_walled()}
+        handoffs = {(r, n) for r, n, *_ in baseline.base.handoffs_walled()}
+        numbers = {None: 4, Way.SURFACE: 0, Way.VIA: 1, Way.AWAY: 2, Way.WALLED: 3}
+        records = []
+        moving_owners = {shape.owner for shape in moving_shapes[0]}
+        for ref, pads, _ in fields:
+            if ref in moving_owners or any((ref, number) not in baseline.regions for number, _, _ in pads):
+                continue
+            cached = []
+            for number, net, unconnected in pads:
+                key = ref, number
+                # Extra conservative margin for the two-mm blocker buckets
+                # and supplemental depth+1 grid prefilter. The full baseline
+                # region already includes every lane/spot and own-copper chain
+                # with maximal class/rule/hole/via reach and one search cell.
+                region = baseline.regions[key].inflate(3.0)
+                cached.append((number, net, unconnected, numbers[baseline.ways.get(key)],
+                               (region.left, region.top, region.right, region.bottom),
+                               key in regular or key in declared, key in handoffs))
+            records.append((ref, cached))
+        surface.configure_rest_cache(candidate, kernel, records)
     return PreparedEscape(delta, candidate, kernel, surface, tuple(rotations), face), None

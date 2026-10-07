@@ -57,10 +57,17 @@ struct Pad {
     net: String,
     unconnected: bool,
 }
+// Baseline facts are produced by the independent lifted-board oracle.
+// owner, (number, net, unconnected, way, full influence region, wall, handoff)
+type RestCacheRecord = (String, Vec<(String, String, bool, u8, Bounds, bool, bool)>);
+struct CachedPad {
+    number: String, way: u8, region: Bounds, wall: bool, handoff: bool,
+}
 struct Field {
     owner: String,
     pads: Vec<Pad>,
     turns: Vec<(f64, f64, f64)>,
+    cached: Option<Vec<CachedPad>>,
 }
 struct Net {
     size: usize,
@@ -97,6 +104,7 @@ pub struct PreparedSurface {
     fields: Vec<Field>,
     nets: HashMap<String, Net>,
     settings: Settings,
+    cache_usage: (usize, usize),
 }
 fn bounds_union(boxes: impl Iterator<Item = Bounds>) -> Bounds {
     boxes.fold(
@@ -413,6 +421,7 @@ impl PreparedSurface {
                     })
                     .collect(),
                 turns,
+                cached: None,
             });
         }
         let identity = candidate.identity.clone();
@@ -443,8 +452,62 @@ impl PreparedSurface {
                 hole_clearance,
                 lane_via_exit,
             },
+            cache_usage: (0, 0),
         })
     }
+
+    /// Bind independent baseline facts atomically to this exact manifest.
+    fn configure_rest_cache(&mut self, candidate: PyRef<'_, PreparedCandidate>,
+                            delta: PyRef<'_, NativeDelta>, records: Vec<RestCacheRecord>) -> PyResult<()> {
+        if !Arc::ptr_eq(&self.identity, &candidate.identity)
+            || !Arc::ptr_eq(&self.delta_identity, &delta.identity)
+            || self.delta_revision != delta.revision {
+            return Err(PyValueError::new_err("rest cache snapshot identity changed"));
+        }
+        let mut prepared = Vec::new();
+        let mut owners = HashSet::new();
+        for (owner, pads) in records {
+            let Some(index) = self.fields.iter().position(|field| field.owner == owner) else {
+                return Err(PyValueError::new_err("rest cache field is missing"));
+            };
+            let field = &self.fields[index];
+            if !owners.insert(owner.clone()) || pads.len() != field.pads.len()
+                || candidate.turn(0).shapes.iter().any(|shape| shape.owner == owner) {
+                return Err(PyValueError::new_err("rest cache field source is moving or duplicated"));
+            }
+            let mut cached = Vec::new();
+            for ((number, net, unconnected, way, region, wall, handoff), expected) in pads.into_iter().zip(&field.pads) {
+                if number != expected.number || net != expected.net || unconnected != expected.unconnected
+                    || way > 4 || (way == 3 && !wall)
+                    || [region.0, region.1, region.2, region.3].iter().any(|v| !v.is_finite())
+                    || region.0 > region.2 || region.1 > region.3 {
+                    return Err(PyValueError::new_err("rest cache pad manifest invalid"));
+                }
+                let net_record = self.nets.get(&net);
+                if handoff && !net_record.is_some_and(|n| n.size < 2) {
+                    return Err(PyValueError::new_err("rest cache handoff intent invalid"));
+                }
+                let mine = self.mine(&candidate, 0, &owner, &number);
+                if mine.is_empty() || mine.iter().any(|&i| i >= self.rest_roles.len()) {
+                    return Err(PyValueError::new_err("rest cache pad is not immutable rest geometry"));
+                }
+                let bounds = bounds_union(mine.iter().map(|&i| self.contacts.shape(&candidate, 0, i).bounds));
+                let minimum = inflate(inflate(inflate(bounds, self.settings.reach.max(self.settings.depth)),
+                                               net_record.map_or(0.0, |n| n.foe_reach)), self.settings.cell);
+                if region.0 > minimum.0 || region.1 > minimum.1 || region.2 < minimum.2 || region.3 < minimum.3 {
+                    return Err(PyValueError::new_err("rest cache influence omits the pad search window"));
+                }
+                cached.push(CachedPad { number, way, region, wall, handoff });
+            }
+            prepared.push((index, cached));
+        }
+        // No partial cache publication after a later malformed record.
+        for field in &mut self.fields { field.cached = None; }
+        for (index, pads) in prepared { self.fields[index].cached = Some(pads); }
+        Ok(())
+    }
+
+    fn cache_usage(&self) -> (usize, usize) { self.cache_usage }
 
     /// Full native geometry, eligibility, aim and supplemental judgements.
     /// Counts are absolute except signed crossed-edge change. Returned ways
@@ -507,6 +570,17 @@ impl PreparedSurface {
             delta.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err))?;
         let crossed = profiled!(profile, escape_cross,
             delta.inner.escape_cross(turn, self.settings.depth).map_err(PyValueError::new_err))?;
+        let physical: Vec<_> = (0..candidate.turn(turn).shapes.len())
+            .filter(|&i| self.moving_roles[turn][i] != 0)
+            .map(|i| {
+                let shape = self.contacts.shape(&candidate, turn, self.rest_roles.len() + i);
+                shape.bounds
+            }).collect();
+        let touched: HashSet<_> = candidate.turn(turn).shapes.iter().enumerate()
+            .filter(|(i, shape)| self.moving_roles[turn][*i] != 0 && !shape.net.is_empty())
+            .map(|(_, shape)| shape.net.as_str()).collect();
+        let mut reused = 0;
+        let mut rejudged = 0;
         let mut vias = 0;
         let mut away = 0;
         let mut walls = HashSet::new();
@@ -517,6 +591,26 @@ impl PreparedSurface {
             if field.pads.len() < self.settings.minimum {
                 continue;
             }
+            // The rest board was already lifted: only added physical geometry
+            // can alter contact/path obstacles. All touched nets are rejudged,
+            // even quiet ones; nearest changes do not need an MST edge change.
+            if let Some(cached) = &field.cached {
+                let affected = field.pads.iter().any(|pad| touched.contains(pad.net.as_str()))
+                    || cached.iter().any(|pad| physical.iter().any(|bounds| overlaps(pad.region, *bounds)));
+                if !affected {
+                    reused += 1;
+                    for (pad, intent) in cached.iter().zip(&field.pads) {
+                        if !self.nets.contains_key(&intent.net) { continue; }
+                        if pad.way == 1 { vias += 1; }
+                        else if pad.way == 2 { away += 1; }
+                        if pad.wall { walls.insert((field.owner.clone(), pad.number.clone())); }
+                        if pad.handoff { handoffs.push((field.owner.clone(), pad.number.clone())); }
+                        if inspect { ways.push((field.owner.clone(), pad.number.clone(), pad.way)); }
+                    }
+                    continue;
+                }
+            }
+            rejudged += 1;
             let records_started = profile.as_ref().map(|_| std::time::Instant::now());
             let mut records = Vec::new();
             let mut pad_mines = Vec::new();
@@ -766,6 +860,7 @@ impl PreparedSurface {
             Vec::new()
         };
         identities.sort();
+        self.cache_usage = (reused, rejudged);
         Ok((
             (wire, cross, link, over, area, congestion),
             crossed,

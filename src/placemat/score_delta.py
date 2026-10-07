@@ -33,6 +33,7 @@ class Delta:
     """
     def __init__(self, board, occ, item, links, pushes=(), lanes=None, *, plan):
         self.board, self.occ, self.item, self.plan = board, occ, item, plan
+        self._metadata = board.settings, occ.settings, occ.geometry, occ.rules, occ.quiet_nets
         self._revision = occ.__dict__.get('_score_revision', 0)
         self._pending, self._frame = frozenset(occ.pending), occ.board_box
         self.links, self.pushes, self.lanes = tuple(links), tuple(pushes), lanes
@@ -152,6 +153,9 @@ class Delta:
         return rn
 
     def _check_snapshot(self):
+        current = self.board.settings, self.occ.settings, self.occ.geometry, self.occ.rules, self.occ.quiet_nets
+        if any(now is not old for now, old in zip(current, self._metadata)):
+            raise ValueError('Delta settings, geometry or rules changed; rebuild the lifted snapshot')
         if not self.own <= self.occ.pending:
             raise ValueError('Delta snapshot requires the moving item to remain lifted')
         if self.occ.__dict__.get('_score_revision', 0) != self._revision:
