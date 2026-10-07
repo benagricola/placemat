@@ -190,3 +190,28 @@ rounds with a scoped re-review, the ledger updated after every step.
   at a time.
 - The one-score session (step 2) consumes step 1's RouteReport fields; tell it if a field name changes.
 - The consolidation session (`placemat`) releases 0.99.x from main and knows the close-via fix ships with step 1.
+
+## Reviewer completion gates (2026-10-07, latest)
+
+- Whole repository `pytest --full -n2` at clean `b6cc86b0` passed: 6,707 passed, 22 skipped, no failures or errors,
+  1,216.29 seconds. The genuine isolated editable install reported `0.99.35.post1.dev69+gb6cc86b0f`; its actual
+  native library and PCB executable hashes were recorded. `step1-final-full.xml`, `.log` and start/end provenance
+  artifacts are retained in the review scratch directory. All five recorded checkout HEAD/status identities matched
+  before and after the run, and the PCB executable hash was unchanged. Parent independently read and accepted the gate.
+- Skipped coverage: 14 track/via airwire-end oracle cases, two optional `FIT_REFERENCE` cases, two optional disc-board
+  cases, one antenna-datasheet case and three connector-datasheet cases. The required reference, current core comparison,
+  generated USB-C and partly joined pair physical checks remain separate completion requirements.
+- `tests/slow_tests.txt` was refreshed only from that completed XML: 230 cases exceeded the two-second threshold.
+  This is a measured scheduling list, not evidence that any skipped optional case passed.
+- The legal obstruction fixture record `4550801d` came from the actual run, with original manufacturing rules retained.
+  Its focused physical reproduction plus reference/local tests passed 43 cases, no skips or failures. The earlier broad
+  default run's sole missing-record failure is resolved by this actual record and focused gate. The old illegal fixture
+  observations remain diagnostic only.
+- The frozen full gate used PCB executable SHA256 `902f2d6327459fde16e425a4b68012166b8d68725f6237a607f0f3bdc16a1e99`.
+  Actual generated sidecars embedded Git `10b389aa12c1` despite the checkout being `318b4b0d`; build metadata was stale.
+  Exact original build source is not claimed. A controlled clean tracked-source rebuild and independent actual interface
+  capture proof are required before the remaining generation/comparison runs; the executable was not replaced during
+  the full gate.
+- Remaining: common-contract grading of saved baseline/candidate copper, historical hand-module matching and C/M
+  references, final A/B/M gates, generated USB-C and partly joined pair physical integration, and the scratch-only D28
+  comparison. No main merge, fork push or release is authorized by this gate alone.
