@@ -56,6 +56,7 @@ def git_identity(path):
 
 
 def runtime_identity(paths, native_path):
+    from placemat import geometry
     from placemat.kicad.route import router_dir
     from placemat.settings import Settings
     root = pathlib.Path(__file__).resolve().parents[1]
@@ -67,13 +68,20 @@ def runtime_identity(paths, native_path):
                        for p in krt.glob(pattern) if p.is_file()]
     binaries.extend(router_binaries)
     sources = list((root / 'src' / 'placemat').rglob('*.py')) + list((root / 'native' / 'src').rglob('*.rs'))
-    sources.extend(p for p in krt.rglob('*.py') if 'tests' not in p.parts and '__pycache__' not in p.parts)
+    excluded = {'tests', '__pycache__', '.venv', 'venv', 'target', 'build'}
+    sources.extend(p for p in krt.rglob('*.py') if not excluded.intersection(p.relative_to(krt).parts))
     sources.extend([root / 'native' / 'Cargo.toml', root / 'native' / 'Cargo.lock', pathlib.Path(__file__),
                     root / 'native' / 'build.rs', root / 'pyproject.toml', root / 'fixtures' / 'bench.py'])
+    def version(command):
+        if command is None:
+            return None
+        result = subprocess.run([command, '--version'], capture_output=True, text=True, timeout=10)
+        return {'exit': result.returncode, 'stdout': result.stdout.strip(), 'stderr': result.stderr.strip()}
     return {'placemat': git_identity(root), 'krt': git_identity(krt),
             'pcb': git_identity(pathlib.Path(pcb).resolve().parent) if pcb else None,
             'binaries': identity(binaries), 'sources': identity(sources), 'inputs': identity(paths),
-            'krt_dir': str(krt), 'pcb_command': pcb, 'kicad_command': kicad}
+            'krt_dir': str(krt), 'pcb_command': pcb, 'kicad_command': kicad,
+            'versions': {'native': asdict(geometry.native_status()), 'pcb': version(pcb), 'kicad_cli': version(kicad)}}
 
 
 def measure(board, plan, step, *, count, repeats):
