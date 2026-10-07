@@ -1,0 +1,9 @@
+# U1 blocks the current-width legs; signals then joins VB at the class width.
+[[route.phase]]
+name = "legs"
+current_paths = true
+width = "current"
+neckdown = false
+
+[[route.phase]]
+name = "signals"
