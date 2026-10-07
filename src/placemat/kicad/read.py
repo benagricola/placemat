@@ -230,6 +230,11 @@ def courtyard_box(fp) -> Box:
     return box if box is not None else phys_box(fp)
 
 
+def courtyard_drawn(fp) -> bool:
+    """Whether the footprint draws a courtyard; when it does not, `courtyard_box` is its physical box."""
+    return any(d.GetLayer() in _COURTYARD_LAYERS for d in fp.GraphicalItems())
+
+
 def courtyard_margin(fp) -> float:
     """How far KiCad's own courtyard polygon - what its DRC tests - lies
     inside `courtyard_box` on its nearest side. The box is the drawn lines'
@@ -459,7 +464,8 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      models=_models(fp),
                      silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp),
                      copper=copper, copper_shapes=copper_shapes,
-                     courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
+                     courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp),
+                     courtyard_drawn=courtyard_drawn(fp))
 
 
 def _via_size(via) -> float:
@@ -787,7 +793,8 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                      lib_id=fp.GetFPIDAsString(), dnp=fp.IsDNP(),
                      bom_excluded=fp.IsExcludedFromBOM(), board_only=fp.IsBoardOnly(),
                      silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), copper=copper, copper_shapes=copper_shapes,
-                     courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
+                     courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp),
+                     courtyard_drawn=courtyard_drawn(fp))
     return geom, digest
 
 

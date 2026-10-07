@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from .cutouts import EdgeWhy, NM as _NM, Arc, Where, flatten_path, segment_box as _segment_box, signed_area as _area
+from .cutouts import EdgeWhy, NM as _NM, Arc, Where, flatten_path, poly_loops_why, segment_box as _segment_box, signed_area as _area
 from .values import Box, Location, bearing, bearing_of, bearing_vector
 
 
@@ -205,6 +205,16 @@ class Outline:
             if _segment_box(x1, y1, x2, y2, box) < margin - _NM:
                 return EdgeWhy.PAST_CUTOUT
         return None
+
+    def poly_why_not(self, poly, margin: float) -> EdgeWhy | None:
+        """`why_not` of a polygon, by its own legs (`poly_loops_why`): a part's shape, not its box."""
+        return poly_loops_why(self._index(), self.loops, poly, margin, board=True)
+
+    def cutouts_poly_why_not(self, poly, margin: float) -> EdgeWhy | None:
+        """`poly_why_not` of the cutouts alone."""
+        if len(self.loops) < 2:
+            return None
+        return poly_loops_why(self._index(), self.loops, poly, margin, board=True, holes_only=True)
 
     def outside_by(self, x: float, y: float) -> float:
         """How far the point lies outside the board's own path: 0 on or
