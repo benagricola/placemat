@@ -4516,24 +4516,26 @@ score that changed in brackets, then one line per item that would move. `metrics
 With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part, or `, with cell logic turned to 90 degrees` when it turns the part's cell), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking, unless the explore ranks by it (below).
 Without `--accept` nothing persists.
 
-**Ranking after the pin remap.** By default a variant is judged on today's pinout, so the explore can pick one that
-is best as the pins stand over one that would be better once its pins were remapped. With `--rank-remapped`
-(`[explore] rank_remapped`, off by default) every variant the explore keeps, the plain placement too, gets the pin
-map study as it finishes, and the variants are ranked, and the best and the new bests (the ones `--route-best` routes)
-chosen, on `score_remapped`: the run score less what the variant's best remap saves. The saving is the weighted
-crossings the best map removes (the study's `present` less its `best` weighted crossings, summed over the groups
-whose best map removes some) at `score.crossing` each, the run score's price of a crossing (4 mm by default). A
-variant's record and `variant` event keep `score` as before and add `score_remapped` and `remap` (`saving` in mm,
-`crossings`, `seconds` the study took, and `groups`: per group `refs`, `present`, `best`, `map` and `turns`, or
-`error` when the study raised, the variant then ranked at its run score). The report, the record and `explore_done`
-add `baseline_remapped` and `best_remapped`; `best` stays the run score of the variant ranked best, and the run says
-`ranked after each variant's pin remap: 130.2 -> 118.4 mm, the best's remap saving 8.0 mm` under its first line.
-`pin_maps` entries and route entries carry `score_remapped`. The study runs in the search's workers, as each variant
-finishes, so it counts in the explore's time: about 0.1 s a variant on a large board whose variants take minutes to
-resolve. `--accept` writes the variant's placement as
-always; its remap is not made anywhere but reported for you to make in the capture (`accepted: written to the lock;
-its pin remap is not, make it in the capture`). A board with no `Pm.PinPool` part explores exactly as without it.
-The studio's explore view shows `, 118.4 remapped` beside a variant's score and ranks, plots and follows the best by it.
+**Common pin finalist proposals.** `--rank-remapped` (`[explore] rank_remapped`,
+off by default) generates maps, then judges complete physical finalists against
+the current common placement context. Independent group gains are not summed:
+`remap.baseline` and `remap.final` judge all selected maps and poses together.
+Records include `scope="placement"`, signed `gain`, `actionable`, `reason`,
+`groups` and stable refusal codes. The temporary scalar `score_remapped` shortcut
+uses a saving only within the same validity tier; a validity repair keeps its
+signed gain visible and is not represented as a positive soft saving. Full
+virtual-candidate validity ranking is still pending integration.
+
+Routed comparison of a changed pinout requires a validated logical-terminal
+bijection, exact written-board readback and fresh phase/width-policy receipts.
+That proof is currently unavailable: the worker records
+`remap_refusal.code="logical_terminal_proof_missing"`,
+`route_scope="source_diagnostic"` and `comparison_supported=false`. It may route
+the unchanged source for diagnostics; that route cannot certify the virtual
+remap or be selected as its routed evidence. Requested acceptance refuses with
+`routed_remap_comparison_unsupported`. Generic phase contracts remain strict.
+A board with no `Pm.PinPool` part explores as without this setting.
+
 
 **Routing as it searches.** The run score's ratsnest crossings do not reliably predict how well a board routes, so a
 run can quick-route its explore's bests as the search finds them and take the one that closes best. With
@@ -4833,7 +4835,7 @@ A part or cell standing off the axes (at 45 degrees, say) is studied in its own
 frame: its body is its courtyard (or envelope) as turned, its pins face that
 body's sides, and the turns are from where it stands.
 
-**The score.** Built on placemat's ratsnest. The nets come from the pads alone:
+**The generator score.** Built on placemat's ratsnest. The nets come from the pads alone:
 a laid board's tracks, vias and pours are ignored, so a routed net keeps its
 airwire and a first preview and a laid board are scored alike. A pin's airwire
 leaves along its outward normal to a point `pins.exit_mm` past the courtyard's
@@ -4856,6 +4858,29 @@ neighbouring nets, in the group's written order, stand apart beyond the part's
 pin pitch (the least distance between two of its pads) times the slots between
 them. An intact group costs 0, reversed or not; a split across a corner or
 across pins outside the pool costs the extra distance between the pads.
+
+**Current-board judgment and advice.** Plan-bound findings and summaries rescore
+every kept physical finalist with the common placement objective and validity.
+All lands of a numbered pad share its logical assignment; fixed current copper
+and vias retain their geometry and nets. Original numeric pad obligations stay
+fixed. Required electrical intent that cannot be judged authoritatively carries
+unmeasured evidence and withholds advice. Findings expose `score_scope="placement"`,
+`common` baseline/finalist records and a signed gain; a validity repair is labeled
+separately even when that gain is negative. Multiple module stamp choices need
+one simultaneous physical judgment and compatible module choices before advice.
+
+Standalone studies expose `score_scope="generator"`, `generator_gain` and
+`common_unavailable=true`. Their maps and per-pose airwires remain useful
+read-only diagnostics, but they produce no executable map or turn suggestion.
+The generator's bend/crossing breakdown is never a certified common saving.
+
+Common finalists are rebuilt rather than read from the generator findings cache.
+`apply <id> --search` rejudges the incoming map and new finalists in the same
+current context; its stored total is not comparison evidence. Malformed saved
+advice returns an `incoming_*_invalid` refusal. Legacy advice without common
+proof refuses with `common_proof_missing`; cell pose rebasing currently refuses
+with `cell_advice_rebase_unavailable`. These refusals withhold advice and do not
+relax routed terminal contracts.
 
 **Groups.** A `Pm.PinGroup` is soft unless its name ends in `!` (capture.md,
 "Pin pools"). A soft group's nets move one by one and pay the cohesion; a hard

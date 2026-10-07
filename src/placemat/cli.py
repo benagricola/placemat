@@ -1394,7 +1394,7 @@ def _pin_search(args, board_dir, script, s) -> int:
                                                 g["budget_steps"]), level="fail")
         return 1
     refusal = g.get("incoming_refusal")
-    if refusal or g["best"]["total"] is None:
+    if refusal or g.get("best", {}).get("total") is None:
         code = refusal["code"] if refusal else "common_judgment_unmeasured"
         console.say("probe", "%s: current-board comparison unavailable (%s); no map is advised" % (s.id, code), level="fail")
         return 1

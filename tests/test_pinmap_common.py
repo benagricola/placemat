@@ -488,3 +488,28 @@ def test_longer_advice_rejudges_both_maps_after_pair_price_changes(monkeypatch):
     assert better is not None and better['map'] != advice['map']
     assert summary['incoming']['total'] == choice.finalists[0].total > advice['total'] + 600
     assert better['total'] == choice.finalists[1].total < summary['incoming']['total']
+
+
+@pytest.mark.parametrize('payload,code', [
+    (None, 'incoming_advice_invalid'),
+    ({}, 'incoming_refs_invalid'),
+    ({'refs': 'U1'}, 'incoming_refs_invalid'),
+    ({'refs': ['U1', 'U1']}, 'incoming_refs_invalid'),
+    ({'refs': [[]]}, 'incoming_refs_invalid'),
+    ({'refs': ['U1'], 'map': None, 'turns': []}, 'incoming_map_invalid'),
+    ({'refs': ['U1'], 'map': [None], 'turns': []}, 'incoming_map_invalid'),
+    ({'refs': ['U1'], 'map': [{'ref': 'U1', 'net': 'A', 'to': []}], 'turns': []}, 'incoming_map_invalid'),
+    ({'refs': ['U1'], 'map': [{'ref': 'U1', 'net': 'A', 'to': {'pin': 1}}], 'turns': []}, 'incoming_map_invalid'),
+    ({'refs': ['U1'], 'map': [], 'turns': None}, 'incoming_pose_invalid'),
+    ({'refs': ['U1'], 'map': [], 'turns': [False]}, 'incoming_pose_invalid'),
+    *[({'refs': ['U1'], 'map': [], 'turns': [{'ref': 'U1', 'face': 'front', 'rotation_deg': rotation}]},
+       'incoming_pose_invalid') for rotation in ('90', None, True, float('nan'), float('inf'), 10 ** 400)],
+])
+def test_malformed_saved_advice_refuses_before_study_or_mutation(monkeypatch, payload, code):
+    from placemat import pinmap
+    board, plan, _, _ = scene()
+    before = dict(plan.occupancy.items), tuple(plan.occupancy.copper), set(plan.occupancy.pending)
+    monkeypatch.setattr(pinmap, 'plan_summary', lambda *args, **kwargs: pytest.fail('malformed advice reached study'))
+    better, summary = pinmap.longer_advice(board, plan, payload, board.settings.pins_budget_steps)
+    assert better is None and summary['incoming_refusal']['code'] == code
+    assert (dict(plan.occupancy.items), tuple(plan.occupancy.copper), set(plan.occupancy.pending)) == before

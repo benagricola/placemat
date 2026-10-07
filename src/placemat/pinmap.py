@@ -567,12 +567,55 @@ def plan_remap(board, plan):
             "routed_comparison": {"code": "logical_terminal_proof_missing", "facts": {}}}
 
 
+def _incoming_advice_problem(advice):
+    """Validate persisted data before reconstructing any physical proposal."""
+    import math
+    def refusal(field, code):
+        return {"code": code, "facts": {"field": field}}
+    if not isinstance(advice, dict):
+        return refusal("advice", "incoming_advice_invalid")
+    refs = advice.get("refs")
+    if (not isinstance(refs, (list, tuple)) or not refs
+            or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs)):
+        return refusal("refs", "incoming_refs_invalid")
+    maps = advice.get("map")
+    if not isinstance(maps, (list, tuple)):
+        return refusal("map", "incoming_map_invalid")
+    for move in maps:
+        if (not isinstance(move, dict) or not isinstance(move.get("net"), str) or not move["net"]
+                or move.get("ref") not in refs or not isinstance(move.get("to"), dict)
+                or not isinstance(move["to"].get("pin"), str) or not move["to"]["pin"]):
+            return refusal("map", "incoming_map_invalid")
+    turns = advice.get("turns")
+    if not isinstance(turns, (list, tuple)):
+        return refusal("turns", "incoming_pose_invalid")
+    seen = set()
+    for turn in turns:
+        if not isinstance(turn, dict):
+            return refusal("turns", "incoming_pose_invalid")
+        rotation = turn.get("rotation_deg")
+        try:
+            finite = (not isinstance(rotation, bool) and isinstance(rotation, (int, float))
+                      and math.isfinite(rotation))
+        except OverflowError:
+            finite = False
+        ref = turn.get("ref")
+        if (ref not in refs or ref in seen or turn.get("face") not in ("front", "back")
+                or not finite):
+            return refusal("turns", "incoming_pose_invalid")
+        seen.add(ref)
+    return None
+
+
 def longer_advice(board, plan, advice: dict, budget_steps: int) -> tuple:
     """(better advice or None, the group's summary or None): the advice's parts studied again with `budget_steps` for
     each part (`placemat apply <id> --search`), its wall-clock guard scaled with it. The advice is better when its total
     is below the incoming map rejudged in this same current context, never its
     stored total. Legacy generator advice and unsupported cell pose rebasing
     carry structured refusal codes. A study that raises raises here: the caller says so."""
+    problem = _incoming_advice_problem(advice)
+    if problem is not None:
+        return None, {"incoming_refusal": problem}
     from dataclasses import replace
     was = board.settings
     s = replace(was, pins_budget_steps=budget_steps, pins_guard_ms=was.pins_guard_ms * budget_steps / was.pins_budget_steps)
