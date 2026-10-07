@@ -249,6 +249,8 @@ def test_delta_refuses_changed_or_outside_frames_instead_of_clipping_demand():
     occ.board_box = Box(0, 0, 120, 120)
     with pytest.raises(ValueError, match='frame changed'):
         delta(original)
+    with pytest.raises(ValueError, match='frame changed'):
+        delta.native([original.rotation], original.face)
 
 
 def test_cell_candidate_view_replaces_its_copper_and_matches_real_commit():
@@ -481,3 +483,113 @@ def test_whole_cell_lift_owns_copper_but_partial_member_move_does_not():
     assert any(s.owner == 'U2' for s in search_near(occ))
     occ.unlift({'U1'})
     assert search_near(occ) == before
+
+
+@pytest.mark.slow
+def test_repository_module_and_core_non_escape_delta_parity():
+    """Actual benchmark module resolves plus the written core's rigid cells."""
+    from dataclasses import replace
+    from fixtures import bench
+    from fixtures.reference.lock import realboard
+    from placemat import score
+    from placemat.board_geometry import members_of
+    from placemat.kicad.read import read_board
+    from placemat.layout import Board
+    from placemat.score_delta import Delta
+    from placemat.values import Cell, Location, Part
+    rng = random.Random(11)
+    keys = ('airwire', 'crossings', 'link', 'link_over', 'push', 'area', 'congestion')
+
+    def check(board, plan, limit):
+        occ = plan.occupancy
+        selected = [s for s in plan.steps if s.placement is not None and s.item in plan._items][:limit]
+        for step in selected:
+            item = plan._items[step.item]
+            owners = [fp.ref for fp in members_of(item)]
+            original = score.whole(board, occ, plan)
+            occ.lift(owners)
+            before = score.whole(board, occ, plan)
+            delta = Delta(board, occ, item, plan.links, plan=plan)
+            kernel = delta.native([step.placement.rotation], step.placement.face)
+            candidates = [step.placement]
+            for _ in range(4):
+                candidate = replace(step.placement, location=Location(
+                    step.placement.location.x + rng.uniform(-0.1, 0.1),
+                    step.placement.location.y + rng.uniform(-0.1, 0.1)))
+                if occ.legal(item, candidate, board.geometry.default_clearance) is None:
+                    candidates.append(candidate)
+            for candidate in candidates:
+                change = delta(candidate)
+                native = kernel.terms(candidate.location.x, candidate.location.y, 0) if kernel else None
+                occ.commit(item, candidate)
+                after = score.whole(board, occ, plan)
+                expected = {k: after[k] - before[k] for k in keys}
+                assert change.terms == pytest.approx(expected, abs=1e-6), (step.item, candidate)
+                if native is not None:
+                    assert dict(zip(('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion'), native)) == pytest.approx(
+                        {k: expected[k] for k in keys if k != 'push'}, abs=1e-6)
+                occ.lift(owners)
+            occ.commit(item, step.placement)
+            assert score.whole(board, occ, plan) == pytest.approx(original, abs=1e-6)
+
+    with realboard():
+        for path in bench.boards()[:6]:
+            geometry = read_board(path)
+            board = bench.ModuleBoard(geometry, {}, bench._planes(geometry), bench._size(geometry, False))()
+            check(board, board.resolve(), 8)
+        geometry = read_board(bench.BOARD_FIXTURE / 'layout' / 'layout.kicad_pcb')
+        board = Board(geometry, keep_going=True)
+        board.outline(geometry.board_polygon[0], holes=geometry.board_polygon[1:])
+        # The written core supplies a real placed board; no unrelated search is needed.
+        for name, cell in sorted(geometry.cells.items()):
+            if cell.members:
+                from placemat.occupancy import Occupancy
+                reference = Occupancy(geometry)._geometry(cell).reference
+                board.place(Cell(name), at=reference.location, rotation=reference.rotation, face=reference.face)
+        for fp in geometry.footprints:
+            if fp.cell is None:
+                board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
+        check(board, board.resolve(), 8)
+
+
+def test_native_configuration_failure_is_not_cached(monkeypatch):
+    from placemat import geometry
+    from placemat.score_delta import Delta
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _two_part_board
+    board = _two_part_board()
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(20, 20))
+    plan = board.resolve()
+    occ = plan.occupancy
+    occ.lift(['C1'])
+    delta = Delta(board, occ, plan._items['c1'], plan.links, plan=plan)
+    attempts = []
+    class Refused:
+        def __init__(self, *args):
+            pass
+        def configure_layout(self, *args):
+            attempts.append(1)
+            raise ValueError('invalid grid snapshot')
+    if geometry._native is None:
+        pytest.skip('native module unavailable')
+    monkeypatch.setattr(geometry._native, 'NativeDelta', Refused)
+    for _ in range(2):
+        with pytest.raises(ValueError, match='invalid grid snapshot'):
+            delta.native([0.0], plan.placement('c1').face)
+        assert delta._native == {}
+    assert len(attempts) == 2
+
+
+def test_lift_owner_closure_is_independent_of_cell_mapping_order():
+    from dataclasses import replace
+    from placemat.occupancy import Occupancy
+    from tests.fixtures import board_geometry, footprint
+    geometry = board_geometry([footprint('U1', 10, 10, cell='a'),
+                               footprint('U2', 20, 20, cell='b')], cells=['a', 'b'])
+    a, b = geometry.cells['a'], geometry.cells['b']
+    both = replace(a, name='both', members=a.members + b.members)
+    for cells in [dict(both=both, a=a, b=b), dict(b=b, a=a, both=both)]:
+        occ = Occupancy(replace(geometry, cells=cells))
+        assert occ._lift_owners({'both'}) == {'both', 'a', 'b', 'U1', 'U2'}
+        assert occ._lift_owners({'U1', 'U2'}) == {'both', 'a', 'b', 'U1', 'U2'}

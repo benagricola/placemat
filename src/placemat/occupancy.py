@@ -1267,12 +1267,15 @@ class Occupancy:
         callers must restore the same owner set they lifted.
         """
         refs = set(refs)
-        for name, cell in self.geometry.cells.items():
-            members = {fp.ref for fp in cell.members}
-            if name in refs:
-                refs |= members
-            elif members and members <= refs:
-                refs.add(name)
+        previous = None
+        while previous != refs:
+            previous = refs.copy()
+            for name, cell in self.geometry.cells.items():
+                members = {fp.ref for fp in cell.members}
+                if name in refs:
+                    refs |= members
+                elif members and members <= refs:
+                    refs.add(name)
         return refs
 
     def lift(self, refs) -> None:

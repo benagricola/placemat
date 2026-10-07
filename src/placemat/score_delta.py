@@ -138,6 +138,8 @@ class Delta:
 
     def native(self, rots, face):
         """Six non-escape terms for prepared turns; no sweep adoption yet."""
+        if self.grid is not None and self.grid.board != (self.occ.board_box or Box(0, 0, 0, 0)):
+            raise ValueError("Delta frame changed; rebuild the lifted snapshot")
         if self.has_push or self.lanes is not None or self.rn.mirror is None:
             return None
         if self.grid is not None:
@@ -154,7 +156,7 @@ class Delta:
         if key not in self._native:
             cfg = self.board.settings
             anchors = [self.occ.candidate_named_anchors(self.item, Placement(Location(0, 0), r, face)) for r in rots]
-            self._native[key] = _native.NativeDelta(self.rn.mirror, sorted(self.own), anchors,
+            kernel = _native.NativeDelta(self.rn.mirror, sorted(self.own), anchors,
                 sorted(net for net in self.rest.keys() | {a[0] for turn in anchors for a in turn} if net not in self.quiet),
                 (cfg.score_crossing, cfg.score_impedance, cfg.score_crossing_pair_net,
                  cfg.score_crossing_plane, cfg.score_pair_crossing))
@@ -198,6 +200,7 @@ class Delta:
                         for point in points.values()]
                 grid = (bounds(self.grid.board), max(1, len(self.board.geometry.layers)), pitch,
                         self.grid.step, self.grid.cell, rest, pad_boxes)
-            self._native[key].configure_layout(links, boxes, fit, grid,
+            kernel.configure_layout(links, boxes, fit, grid,
                 (cfg.score_link, cfg.score_link_over, cfg.score_area, cfg.score_congestion))
+            self._native[key] = kernel
         return self._native[key]
