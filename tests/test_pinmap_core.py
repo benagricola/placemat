@@ -40,7 +40,7 @@ def test_four_nets_in_reverse_order_cross_six_times_and_are_uncrossed_at_the_pre
     assert (g.present.among, g.present.against, g.present.weighted) == (6, 0, 6.0)
     assert r.breakdown.among == 0 and [pin(r, n) for n in "ABCD"] == ["4", "3", "2", "1"]
     s = settings()
-    assert r.breakdown.total == pytest.approx(s.pins_length_weight * r.breakdown.length_mm
+    assert r.breakdown.total == pytest.approx((1.0 / s.score_crossing) * r.breakdown.length_mm
                                               + s.pins_bend_weight * r.breakdown.bend_deg)
 
 

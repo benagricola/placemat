@@ -7,6 +7,8 @@ section for each hand-written pattern a newer form replaces.
 
 ## To 0.100
 
+- **`pins.pair_weight`, `pins.impedance_weight` and `pins.length_weight` are retired.** Set `score.crossing_pair_net` and `score.impedance` for both placement and pin candidate generation. The generator normalizes airwire to crossing units as `1 / score.crossing`, or zero when that price is zero. The old independent values are refused with a message naming their replacement; remove them from `placemat.toml` and `--set`. Pin cache records now bind every shared generator weight.
+
 - **`place.turn_crossings_min` is retired.** Crossings now contribute their `[score]` price to the same exact change as wire, links, area, congestion and escapes. Set `place.turn_gain_mm` for the minimum run-score gain and `place.turn_gain_share` for the minimum share of the item's wire/link contribution. A turn that increases walled pads is refused. `turn.better` facts replace `shorter`, `longer`, `weighted_mm` and `crossings_delta` with signed per-term `change` and total `gain`; clients reading those facts must migrate. A body-centred alternative that would move a position anchor has `held_by="anchor"` and no executable edit; the notice states that its position anchor would need changing. Invalid candidates outside the fixed congestion domain are skipped without certifying a score or dropping existing invalid-board findings.
 
 ## To 0.99.35

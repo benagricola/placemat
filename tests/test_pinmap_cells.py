@@ -421,8 +421,8 @@ def test_a_controlled_impedances_length_counts_impedance_weight_times_so_a_cell_
     (g,) = study(rf, s)
     turned = next(r for r in g.results if r.poses[0][1] == 180.0)
     assert turned.breakdown.impedance_length_mm > g.present.impedance_length_mm + 5.0     # RF goes round the cell
-    extra = s.pins_length_weight * (s.pins_impedance_weight - 1.0)
-    assert g.present.total == pytest.approx(g.present.weighted + s.pins_length_weight * g.present.length_mm
+    extra = (1.0 / s.score_crossing) * (s.score_impedance - 1.0)
+    assert g.present.total == pytest.approx(g.present.weighted + (1.0 / s.score_crossing) * g.present.length_mm
                                             + s.pins_bend_weight * g.present.bend_deg
                                             + extra * g.present.impedance_length_mm)
     assert best_turn(rf, s) == 0.0

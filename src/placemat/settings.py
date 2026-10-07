@@ -326,12 +326,6 @@ class Settings:
         "the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn")
     pins_follow_series: bool = S(True, "bool",
         "the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection")
-    pins_pair_weight: float = S(5.0, "weight",
-        "the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1)")
-    pins_impedance_weight: float = S(3.0, "weight",
-        "the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance, and how many times over such a net's airwire length counts (a differential pair's half too)")
-    pins_length_weight: float = S(0.25, "weight",
-        "the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing)")
     pins_bend_weight: float = S(0.005, "weight",
         "the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target")
     pins_group_weight: float = S(4.0, "weight",
@@ -767,7 +761,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch",
-    "pins_exit_mm", "pins_pair_weight", "pins_impedance_weight", "pins_length_weight", "pins_bend_weight", "pins_group_weight", "pins_anneal_start",
+    "pins_exit_mm", "pins_bend_weight", "pins_group_weight", "pins_anneal_start",
     "pins_anneal_end", "pins_gain_min", "pins_placed_share_min", "pins_explore_top", "pins_guard_ms"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
@@ -889,6 +883,9 @@ _MOVED = {
 _VALIDITY = ("counts in the validity tier of the board comparison (score.rank), before closure and the run score, "
              "with no weight")
 _REPLACED = {
+    "pins_pair_weight": "set score.crossing_pair_net; pin candidates use the common pair crossing price",
+    "pins_impedance_weight": "set score.impedance; pin candidates use the common impedance price",
+    "pins_length_weight": "the generator uses 1 / score.crossing (or 0 when crossing is 0); finalists use the common run score",
     "place_turn_crossings_min": "crossings are priced in the common run score; set place.turn_gain_mm and place.turn_gain_share",
     "score_unplaced": "an unplaced part " + _VALIDITY,
     "score_unplaced_high": "an unplaced part " + _VALIDITY + ", a high priority one before a default before a low",

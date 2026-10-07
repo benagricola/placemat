@@ -201,8 +201,8 @@ def guard_of(settings, refs, budget_steps: int | None = None) -> float:
 
 
 def params_of(settings, refs, budget_steps: int | None = None, guard_ms: float | None = None) -> dict:
-    return {"weights": (settings.pins_pair_weight, settings.pins_impedance_weight, settings.score_crossing_plane,
-                        settings.pins_length_weight, settings.pins_bend_weight, settings.pins_group_weight),
+    return {"weights": (settings.score_crossing_pair_net, settings.score_impedance, settings.score_crossing_plane,
+                        1.0 / settings.score_crossing if settings.score_crossing > 0 else 0.0, settings.pins_bend_weight, settings.pins_group_weight),
             "seeds": int(settings.pins_seeds), "moves": int(settings.pins_anneal_moves),
             "t0": float(settings.pins_anneal_start), "t1": float(settings.pins_anneal_end),
             "budget_steps": budget_of(settings, refs, budget_steps),

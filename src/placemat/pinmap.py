@@ -24,7 +24,7 @@ from .pinmap_input import Placed, PlacedCell, PlacedPad, PlacedPart, build, cell
 from .pinmap_rules import Problem, has_pools, natural
 from .values import Box
 
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 # `[pins]` settings a kept result does not depend on: the explore's and the probe's, and the wall-clock guard (a study
 # that trips it is never kept, so a kept result is always complete)
 _NOT_READ = ("pins_explore_top", "pins_probe_budget_steps", "pins_guard_ms")
@@ -236,10 +236,10 @@ def _stamp_maps(inp, facts_of: list, kept: dict) -> None:
 
 def digest(inp, problems, copper, settings) -> str:
     """What a study's result depends on: the input, the problems, the nets with copper, the `[pins]` settings and the
-    plane weight, the release and the findings' schemas."""
+    shared generator weights, the release and the findings' schemas."""
     from . import __version__, finding_text, reuse
     keys = {k: v for k, v in json.loads(settings.json()).items()
-            if (k.startswith("pins_") and k not in _NOT_READ) or k == "score_crossing_plane"}
+            if (k.startswith("pins_") and k not in _NOT_READ) or k in ("score_crossing_plane", "score_crossing", "score_crossing_pair_net", "score_impedance")}
     text = "\0".join([str(CACHE_VERSION), __version__, finding_text.schemas_digest(), reuse.canonical(inp),
                       reuse.canonical(list(problems)), ",".join(sorted(copper)), json.dumps(keys, sort_keys=True)])
     return hashlib.sha256(text.encode()).hexdigest()

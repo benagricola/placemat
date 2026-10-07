@@ -4840,16 +4840,16 @@ leaves along its outward normal to a point `pins.exit_mm` past the courtyard's
 box, then goes the shorter way round the box to its target; a net of several
 pads is scored on its minimum spanning tree; a net through a two-pad series
 part (a reference whose leading letters are one of `pins.follow_prefixes`, any case) is followed
-to the far net (`pins.follow_series`). A crossing counts 1, `pins.pair_weight`
-for a differential pair's airwire, `pins.impedance_weight` for a net whose
+to the far net (`pins.follow_series`). A crossing counts 1, `score.crossing_pair_net`
+for a differential pair's airwire, `score.impedance` for a net whose
 class names a KiCad tuning profile, `score.crossing_plane` for a plane's or a
 free net's. The total is the weighted crossings against every other airwire and
-among the studied nets, plus `pins.length_weight` times the airwire length in
+among the studied nets, plus the reciprocal of `score.crossing` (zero when it is zero) times the airwire length in
 mm, plus `pins.bend_weight` times the summed bend in degrees (the angle between
 a pin's outward normal and the bearing to its target), plus the soft groups'
 cohesion. A studied net whose class (or, for a net followed through a series
 part, its far net's class) names a tuning profile counts its length
-`pins.impedance_weight` times over, a differential pair's half too, whether its
+`score.impedance` times over, a differential pair's half too, whether its
 pin may move or not: a turn that lengthens an RF net from a fixed pin or a cell
 member weighs that. The cohesion is `pins.group_weight` times each soft group's spread: the mm its
 neighbouring nets, in the group's written order, stand apart beyond the part's
@@ -5496,9 +5496,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.rank_remapped` | `false` | bool | every variant an explore keeps gets the pin map study, and variants are ranked, and the best chosen, on the run score less what its best pin remap saves: the weighted crossings it removes at `score.crossing` each. With `explore.route_best` a variant is routed on its board with that remap applied to its pads. Nothing changes on a board with no `Pm.PinPool` part (`--rank-remapped`) |
 | `pins.exit_mm` | `0.5` | mm | the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn |
 | `pins.follow_series` | `true` | bool | the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection |
-| `pins.pair_weight` | `5.0` | weight | the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1) |
-| `pins.impedance_weight` | `3.0` | weight | the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance, and how many times over such a net's airwire length counts (a differential pair's half too) |
-| `pins.length_weight` | `0.25` | weight | the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing) |
 | `pins.bend_weight` | `0.005` | weight | the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target |
 | `pins.group_weight` | `4.0` | weight | the pin map study: weighted crossings per mm a soft `Pm.PinGroup`'s neighbouring nets stand apart beyond the part's pin pitch |
 | `pins.follow_prefixes` | `["R", "L", "FB"]` | list | the pin map study follows a net on through a two-pad series part only when its reference's leading letters, in any case, equal one of these: a resistor, an inductor, a ferrite bead by default; RT1 is not followed for R, nor a two-pin connector |
