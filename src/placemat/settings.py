@@ -690,13 +690,23 @@ def router_flag(args, name: str):
 ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
                            "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
                            "--max-probe-iterations", "--json-out", "--net-clearances", "--connections",
-                           "--bus-nets"))
+                           "--bus-nets", "--output"))
 
 
 def router_owned(arg: str) -> str | None:
-    """The owned flag a router argument names, `--flag` or `--flag=value`, else None."""
+    """Owned option, including argparse's long-option abbreviations and short aliases."""
     flag = arg.split("=", 1)[0]
-    return flag if flag in ROUTER_OWNED else None
+    # KRT defines --bus as a complete flag as well as --bus-nets. Argparse
+    # chooses the exact flag before considering an abbreviation.
+    if flag == "--bus":
+        return None
+    if not flag.startswith("--"):
+        for alias, owned in (("-n", "--nets"), ("-l", "--layers")):
+            if flag.startswith(alias):
+                return owned
+    if flag.startswith("--") and len(flag) > 2:
+        return next((owned for owned in sorted(ROUTER_OWNED) if owned.startswith(flag)), None)
+    return None
 
 
 # A copper layer's name as KiCad spells it: F.Cu, In1.Cu to In30.Cu, B.Cu.

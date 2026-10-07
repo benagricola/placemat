@@ -193,8 +193,10 @@ def _one(t, index: int, seen: set) -> Phase:
         raise PhaseError("bad_router_args", name=name, value=args)
     for a in args:
         flag = a.split("=", 1)[0]
-        if flag in PHASE_OWNED:
-            raise PhaseError("router_owned", name=name, flag=flag, by=PHASE_OWNED[flag])
+        owned = next((owned for owned in PHASE_OWNED if flag.startswith("--") and
+                      len(flag) > 2 and owned.startswith(flag)), None)
+        if owned:
+            raise PhaseError("router_owned", name=name, flag=flag, by=PHASE_OWNED[owned])
         if router_owned(a):
             raise PhaseError("router_owned", name=name, flag=flag, by="the phase's selector, layers and width")
     return Phase(name, selector, width=float(width) if isinstance(width, (int, float)) else width, layers=layers,

@@ -76,9 +76,27 @@ def test_the_new_router_flags_are_placemats_own(tmp_path, flag):
 
 
 def test_a_flag_that_only_starts_like_an_owned_one_is_the_projects(tmp_path):
-    assert parse_phases([{"name": "x", "router_args": ["--bus", "A"]}])[0].router_args == ("--bus", "A")
-    (tmp_path / "placemat.toml").write_text('[route]\nrouter_args = ["--bus", "A"]\n')
-    assert load(tmp_path).route_router_args == ("--bus", "A")
+    args = ["--bus", "--clearance", "-0.2"]
+    assert parse_phases([{"name": "x", "router_args": args}])[0].router_args == tuple(args)
+    (tmp_path / "placemat.toml").write_text('[route]\nrouter_args = ["--bus", "--clearance", "-0.2"]\n')
+    assert load(tmp_path).route_router_args == tuple(args)
+
+
+@pytest.mark.parametrize("arg", ["--lay", "--out=f", "--max-iter", "--power-net", "--bus-n",
+                                 "-l", "-n", "-lB.Cu", "-nVIN"])
+def test_owned_option_abbreviations_cannot_override_phase_intent(tmp_path, arg):
+    with pytest.raises(PhaseError) as failure:
+        parse_phases([{"name": "x", "layers": ["F.Cu"], "router_args": [arg, "B.Cu"]}])
+    assert failure.value.code == "router_owned"
+    (tmp_path / "placemat.toml").write_text('[route]\nrouter_args = ["%s", "B.Cu"]\n' % arg)
+    with pytest.raises(SettingsError, match="is set by placemat itself"):
+        load(tmp_path)
+
+
+def test_phase_neckdown_cannot_be_overridden_by_an_abbreviation():
+    with pytest.raises(PhaseError) as failure:
+        parse_phases([{"name": "x", "router_args": ["--no-power-tap-neck"]}])
+    assert failure.value.code == "router_owned"
 
 
 @pytest.mark.parametrize("arg", ["--bus-nets", "--connections=f"])
