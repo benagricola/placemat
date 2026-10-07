@@ -9,7 +9,7 @@ net's type, fields, interfaces and differential pairs in `nets.layout.json`.
 **Architecture:** Three repositories change, in this order (D1): the Zener fork gains a `clearance` field and the
 `nets.layout.json` sidecar (stage 1); the KRT fork gains the board floors, `--connections` and `--bus-nets`; placemat
 gains the phase form, a sidecar reader, phase selection, a phase engine that replaces `_route_board`'s stages (one chain
-of kept results, a DRC per phase), a run whose route fails keeping its placed board (Task 14), per-phase reports,
+of kept results, a DRC per phase), a run whose route fails or is stopped keeping its placed board (Task 14), per-phase reports,
 `route --phase/--only` and `explore --route-rank`; then Zener stage 2 (interfaces, `DiffPair`), the placemat selectors
 that need it, and the circuit-capture rules. The reference set's skill gaps are fixed in both skills (Task 24); the
 last placemat task removes the step's removal-ledger rows; the release follows. 26 tasks.
@@ -107,7 +107,10 @@ Decided by the user on 2026-10-07, beyond the list above:
   roadmap's rules and fixtures/reference/README.md say so, as lint.py does.
 - A route that fails after a good placement keeps the placed, unrouted board in the layout folder and says so; other
   failures still restore the folder (Task 14).
-- The skill gaps the reference set recorded are fixed in step 1 (Task 24).
+- The skill gaps the reference set recorded are fixed in step 1 (Task 24). Its furniture rule wording ("on a board
+  with no enclosure, leave it searched") is confirmed as written.
+- A stop during the route stage keeps the placed board too, says so, records the run as `stopped`, and a rerun
+  resumes the route (Task 14).
 
 ## Review Focus
 
@@ -3515,21 +3518,24 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 14: placemat: a route that fails keeps the placed board
+## Task 14: placemat: a route that fails or is stopped keeps the placed board
 
 The user decided on 2026-10-07: when a run's placement succeeded and its route then fails, the layout folder keeps the
 placed, unrouted board and the run's output says so; every other failure still puts the folder back as the last run
-left it. Today every `RunFailure` without an `item` restores the folder from `before` (runner.py:815-823 at
+left it. A second decision the same day: a stop (Ctrl-C or a signal) during the route stage keeps the placed board
+too, says so, records the run as `stopped`, and a rerun resumes the route; a stop in any other stage still puts the
+folder back. Today every `RunFailure` without an `item` restores the folder from `before` (runner.py:815-823 at
 55f9005b), so a route failure throws away a good placement. This is the user's standing rule for long commands: a
 failed command keeps its work, and a rerun continues from it. The route's own work already carries over:
 `keep_route` (runner.py:293-312) moves `route/` into a rerun of the same run id, and Task 13's kept-result chain
 reuses each phase whose key holds.
 
 **Files:**
-- Modify: `$WT/src/placemat/runner.py` (the `except RunFailure` branch of `_run`, runner.py:815-831 at 55f9005b;
-  after Task 13 it is a few lines lower)
+- Modify: `$WT/src/placemat/runner.py` (the `except RunFailure` branch of `_run`, runner.py:815-831 at 55f9005b, and
+  the `except stop.Stopped` branch, runner.py:832-841; after Task 13 both are a few lines lower)
 - Create: `$WT/tests/test_route_failure_layout.py`
-- Docs: `skills/placemat/references/api.md` (a paragraph after "**Stopping.**", api.md:4566-4577),
+- Docs: `skills/placemat/references/api.md` ("**Stopping.**", api.md:4566-4577, and a paragraph after it),
+  `skills/placemat/SKILL.md` (the long-commands bullet, SKILL.md:546-549: "the layout folder is as it was"),
   `skills/placemat/references/migration.md` ("## Unreleased", "### Changed")
 
 **Interfaces:**
@@ -3537,8 +3543,9 @@ reuses each phase whose key holds.
   any other route exception to `RunFailure("route", ...)`.
 - Produces: `run.json`'s `failure.layout`, one of `"placed_unrouted"` (a route failure: the layout folder holds the
   placed board), `"restored"` (the folder was put back from `before`), `"as_written"` (a critical item's failure, or a
-  first run with no earlier folder: the folder is as the run left it). Read by nothing in placemat yet; the studio and
-  `watch` may show it later.
+  first run with no earlier folder: the folder is as the run left it). A stopped run's `failure` (`kind: "stopped"`)
+  carries the same `layout`: `placed_unrouted` for a stop during the route stage, else `restored` or `as_written`.
+  Read by nothing in placemat yet; the studio and `watch` may show it later.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3645,13 +3652,52 @@ def test_a_failure_before_the_board_is_written_still_restores_the_folder(staged,
     result = staged.run()
     assert result.status == "failed" and result.record.failure["layout"] == "restored"
     assert (staged.src.layout_dir / "earlier.txt").exists()
+
+
+def _record(src):
+    import json
+    runs = [p for p in (src.board_dir / ".placemat" / "runs").glob("*/run.json") if not p.parent.name.startswith(".")]
+    return json.loads(max(runs, key=lambda p: p.stat().st_mtime).read_text())
+
+
+def test_a_stop_during_the_route_keeps_the_placed_board_and_the_rerun_resumes(staged, monkeypatch):
+    import signal
+    from placemat import stop
+    seen = []
+    _failing(monkeypatch, stop.Stopped(signal.SIGTERM), seen)
+    with pytest.raises(stop.Stopped):
+        staged.run()
+    rec = _record(staged.src)
+    assert rec["status"] == "stopped" and rec["failure"]["stage"] == "route"
+    assert rec["failure"]["layout"] == "placed_unrouted"
+    assert staged.src.pcb.read_bytes() == seen[0]["placed"]
+    assert not (staged.src.layout_dir / "earlier.txt").exists()
+    assert any("holds the placed board, unrouted" in text for _, text in staged.said)
+    with pytest.raises(stop.Stopped):
+        staged.run()
+    assert [s["kept_before"] for s in seen] == [False, True]
+
+
+def test_a_stop_before_the_route_still_restores_the_folder(staged, monkeypatch):
+    import signal
+    from placemat import runner, stop
+
+    def stopped(src, run_dir, fresh, quiet, timeout=900, keep_renders=False):
+        shutil.rmtree(src.layout_dir, ignore_errors=True)
+        src.layout_dir.mkdir(parents=True)
+        raise stop.Stopped(signal.SIGTERM)
+    monkeypatch.setattr(runner, "generate", stopped)
+    with pytest.raises(stop.Stopped):
+        staged.run()
+    assert (staged.src.layout_dir / "earlier.txt").exists()
 ```
 
 - [ ] **Step 2: Run them to see them fail**
 
 Run: `cd /home/ben/work/placemat/.claude/worktrees/routing-phases && PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_route_failure_layout.py -p no:cacheprovider`
 Expected: FAIL: the route tests find `earlier.txt` put back and no `layout` in `failure`; the restore test fails on
-`failure["layout"]` (KeyError). The rerun test passes already (keep_route); it stays as the guard on the rule.
+`failure["layout"]` (KeyError); the route-stop test finds `earlier.txt` put back and no `layout`. The rerun test and
+the stop-before-the-route test pass already (keep_route, the restore); they stay as guards on the rule.
 
 - [ ] **Step 3: Implement**
 
@@ -3685,7 +3731,27 @@ The `except RunFailure` branch, from `kept = run_dir / "before"` to the restore'
             say("fail", _LAYOUT_SAID[layout] % {"route": run_dir / "route"})
 ```
 
-The `stop.Stopped` branch is unchanged: a stop still puts the folder back.
+The `except stop.Stopped` branch, from `kept = run_dir / "before"` to its restore, becomes (the runner's own `stage`
+says where the stop landed; `s.stage` may name something inside the route):
+
+```python
+        kept = run_dir / "before"
+        if stage == "route":
+            # the placement finished and the board is written: keep it, unrouted, with the route's work in
+            # run_dir/route for the rerun (a stopped long command keeps its work)
+            layout = "placed_unrouted"
+        elif kept.exists():                # whatever the stop left half written: the folder as the last run left it
+            shutil.rmtree(src.layout_dir, ignore_errors=True)
+            shutil.copytree(kept, src.layout_dir, ignore=_KICAD_LOCKS)
+            layout = "restored"
+        else:
+            layout = "as_written"
+        rec.failure["layout"] = layout
+        if layout == "placed_unrouted":
+            say("stop", _LAYOUT_SAID[layout] % {"route": run_dir / "route"})
+```
+
+The stop's own final line (`stop.say`, after the record is saved) is unchanged.
 
 - [ ] **Step 4: Run the tests and the neighbours**
 
@@ -3707,7 +3773,13 @@ says what the layout folder holds: `placed_unrouted` when the route failed or wa
 written (the folder keeps the placed board, and the run's last lines say so; run the same command again to route it,
 and the route takes the phases the failed one finished), `restored` when the folder was put back as the last run left
 it (a failure before the board was written), `as_written` when a critical item's failure wrote the board as it stood.
+A stopped run's `failure` carries the same `layout`.
 ```
+
+In "**Stopping.**", "the layout folder is as the last run left it" becomes "the layout folder is as the last run left
+it, except after a stop during the route: it then keeps the placed, unrouted board, says so, and a rerun resumes the
+route". SKILL.md's long-commands bullet: "the layout folder is as it was" becomes "the layout folder is as it was (a
+stop during the route keeps the placed board, unrouted, and a rerun resumes the route)".
 
 migration.md "## Unreleased", under "### Changed" (Task 13 made the heading):
 
@@ -3717,14 +3789,19 @@ migration.md "## Unreleased", under "### Changed" (Task 13 made the heading):
   says so; `run.json`'s `failure.layout` is `placed_unrouted`. Run the same command again to route it: the route
   takes the phases the failed one finished. A failure before the board is written still puts the folder back
   (`failure.layout` `restored`). Scripts need no change.
+- **A route that is stopped keeps the placed board.** A stop (Ctrl-C, SIGTERM, SIGHUP, `--max-time`) during the route
+  of `run --route` keeps the placed, unrouted board in the layout folder instead of going back to the last run's, and
+  the run says so; the run is recorded as `stopped`, with `failure.layout` `placed_unrouted`. Run the same command
+  again to resume the route from the phases it finished. A stop in any other stage still puts the folder back.
+  Scripts need no change.
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
 cd /home/ben/work/placemat/.claude/worktrees/routing-phases
-git add src/placemat/runner.py tests/test_route_failure_layout.py skills/placemat/references/api.md skills/placemat/references/migration.md
-git commit -m "Run: a route that fails after a good placement keeps the placed, unrouted board and says so"
+git add src/placemat/runner.py tests/test_route_failure_layout.py skills/placemat/SKILL.md skills/placemat/references/api.md skills/placemat/references/migration.md
+git commit -m "Run: a route that fails or is stopped after a good placement keeps the placed, unrouted board and says so"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -5038,7 +5115,7 @@ layout script of its own. `placemat parts` lists it as `cell <name>`. Flatten su
 capture when its parts must sit apart.
 ```
 
-SKILL.md (H, A): "Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone and slides to the room left; `along=`
+SKILL.md (H, A; the furniture wording confirmed by the user on 2026-10-07): "Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone and slides to the room left; `along=`
 is a mechanical fact, never spacing." becomes "Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone where an
 enclosure gives it an edge (a window, a cut-out), and slides to the room left; on a board with no enclosure, leave it
 searched. `along=` is a mechanical fact, never spacing." The bullet "Cells are rigid on the board: ..." gains a last
