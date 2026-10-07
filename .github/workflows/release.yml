@@ -24,6 +24,7 @@ jobs:
           uv venv --python 3.12
           uv pip install -e ".[dev]"
           PLACEMAT_NATIVE=0 .venv/bin/python -m pytest --full -n 2
+          .venv/bin/python -m vulture src/placemat tools/release/vulture_allow.py --min-confidence 80
       - name: The version is the tag, and the plugin manifests say so too
         run: |
           want="${GITHUB_REF_NAME#v}"
@@ -37,6 +38,7 @@ jobs:
           uv pip install -e ".[dev,native]"
           .venv/bin/python -c "import placemat.geometry as g; assert g._native is not None"
           .venv/bin/python -m pytest --full -n 2
+          RUSTFLAGS="-D dead_code" cargo build --manifest-path native/Cargo.toml
 
   native-wheels:
     needs: test
