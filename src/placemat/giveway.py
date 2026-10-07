@@ -1254,6 +1254,21 @@ def _refused(occ, res: Resolution, why: Refusal, o) -> Resolution:
     return res
 
 
+def _escapes_follow(occ, home: str, gone=(), put=()) -> None:
+    """Keep the board's Escapes (when built) in step with copper a via giving way (or put back) changed: the part's pads
+    and copper taken out and put back, or the planned copper `gone` and `put`."""
+    esc = occ.__dict__.get("_escapes")
+    if esc is None:
+        return
+    if home in occ.items and occ.geometry.has_footprint(home):
+        esc.refresh({home})
+        return
+    if gone:
+        esc.remove_copper(gone)
+    if put:
+        esc.add_copper(put)
+
+
 def apply(occ, res: Resolution, by: str) -> None:
     """Leave on the board what `res` decided, `by` the item placed: each via
     that gave way taken out of its item, and what it left in its place put
@@ -1264,9 +1279,12 @@ def apply(occ, res: Resolution, by: str) -> None:
             occ._pristine.setdefault(a.home, occ.items[a.home])
             g = occ.items[a.home]
             occ.items[a.home] = replace(g, shapes=tuple(x for x in g.shapes if x.carried != a.via) + a.shapes)
+            _escapes_follow(occ, a.home)
         else:
             occ._pristine_copper.setdefault(a.home, [c for c in occ.copper if c.owner == a.home])
+            gone = [c for c in occ.copper if c.carried == a.via]
             occ.copper = [c for c in occ.copper if c.carried != a.via] + list(a.shapes)
+            _escapes_follow(occ, a.home, gone, list(a.shapes))
         before = occ.given_way.get(a.via)
         if before is not None:
             a = replace(a, at=before.at, old_tail=before.old_tail if before.old_tail is not None else a.old_tail,
@@ -1301,9 +1319,12 @@ def undo(occ, via: str) -> None:
         g = occ.items[a.home]
         occ.items[a.home] = replace(g, shapes=tuple(x for x in g.shapes if x.carried != via and x.given != via)
                                     + tuple(drawn))
+        _escapes_follow(occ, a.home)
     elif a.home in occ._pristine_copper:
         drawn = [x for x in occ._pristine_copper[a.home] if x.carried == via]
+        gone = [c for c in occ.copper if c.carried == via or c.given == via]
         occ.copper = [c for c in occ.copper if c.carried != via and c.given != via] + drawn
+        _escapes_follow(occ, a.home, gone, drawn)
     occ._changed()
 
 

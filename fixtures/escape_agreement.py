@@ -4,7 +4,7 @@ Each module under fixtures/*/modules/ is resolved as fixtures/bench.py resolves 
 pad the judgement judges (escapes.Escapes.judged), "a surface way out toward the target" is asked twice: the lanes say
 yes when the pad's way is Way.SURFACE; the path search says yes when `path_out(exact=True, via_exit=False)` finds a
 track from the pad to the edge of a window `score.escape_reach` round it, on the side facing the pad's nearest other
-placed pad of its net. Prints one JSON line per disagreement, then one per module with its agreement share, how many
+placed pad of its net, against the copper the judgement's own search reads (`escapes.search_near`). Prints one JSON line per disagreement, then one per module with its agreement share, how many
 pads the judgement sent to the path search (its lanes not deciding) and the seconds the judgement took, then the
 totals. Since the judgement is the path search's with the lanes as a first check, a disagreement is a lane open
 toward the target where the search finds no way (`lanes_only`).
@@ -30,7 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 def agreement(path: str) -> dict:
     from bench import ModuleBoard, _name, _planes, _size
-    from placemat.escapes import Way, judging, path_out
+    from placemat.escapes import Way, judging, path_out, search_near
     from placemat.kicad.read import read_board
     p = pathlib.Path(path)
     g = read_board(p)
@@ -40,6 +40,7 @@ def agreement(path: str) -> dict:
     esc = judging(occ)
     reach = occ.settings.score_escape_reach
     rows, agree = [], 0
+    near = search_near(occ)                 # the copper the judgement's search reads
     t0 = time.perf_counter()
     judged = esc.judged()
     seconds = time.perf_counter() - t0
@@ -50,7 +51,7 @@ def agreement(path: str) -> dict:
         centre = esc._lanes_of(ref)[2][number][2].center
         aim = esc._aim(ref, number, net, centre)
         lanes = way is Way.SURFACE
-        path = bool(path_out(occ, ref, number, depth=reach, toward=aim, exact=True, via_exit=False))
+        path = bool(path_out(occ, ref, number, depth=reach, toward=aim, near=near, exact=True, via_exit=False))
         if lanes == path:
             agree += 1
         else:

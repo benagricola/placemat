@@ -221,7 +221,7 @@ def _to_edge(p, u, win: Box) -> float:
 
 def _poly_exit(c, u, polys) -> float:
     """How far from `c` a ray along `u` first leaves the pad's copper (`polys`, its outlines): where the path search's
-    start cells end. 0 when `c` is on none of them, so the lane is checked from the centre."""
+    start cells end. 0 when `c` is on none of them."""
     inside = [poly for poly in polys if point_in_polygon(c, poly)]
     if not inside:
         return 0.0
@@ -248,7 +248,8 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
     more; a pad of a quiet net is judged for walled only (`Escapes._verdict`). `toward` maps a pad number to the
     direction of its target, for each lane's `toward_ok`. `polys` maps a pad number to its copper outlines: each lane
     then starts where its ray from the pad's centre first leaves that copper, so no ground between the copper and the
-    lane goes unchecked (the path search starts on the copper itself); without it, at the pad's box.
+    lane goes unchecked (the path search starts on the copper itself); without it, at the pad's box. A pad number whose
+    centre is on none of its outlines gets via spots and no lanes. Every judged pad has via spots.
 
     The first leg runs from the pad's edge along its pin normal out of the box round the part's other pads, and on
     until a second leg at 45 degrees from its end keeps a lane's reach (half the track and the clearance) from each of
@@ -278,6 +279,9 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
         half = nc.track_width / 2.0 + nc.clearance
         r = nc.via_diameter / 2.0
         own = None if polys is None else polys.get(number)
+        # a pad number whose centre is on none of its outlines (an SOT-223's pin and tab, split pads) has no lanes: a lane
+        # from the centre of its box would cross ground that is none of its copper, and the path search decides alone
+        blind = own is not None and not any(point_in_polygon((c.x, c.y), poly) for poly in own)
         h = _exit(box, *d) if own is None else _poly_exit((c.x, c.y), d, own)
         start = (c.x + d[0] * h, c.y + d[1] * h)
         first = out = 0.0
@@ -299,7 +303,7 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
         end = (start[0] + d[0] * min(first, _to_edge(start, d, win)), start[1] + d[1] * min(first, _to_edge(start, d, win)))
         aim = None if toward is None else toward.get(number)
         field = len(pads) > 2
-        for ux, uy in _COMPASS:
+        for ux, uy in (() if blind else _COMPASS):
             if field:
                 a = end
             else:
@@ -350,6 +354,13 @@ def _box_gap(a: Box, b: Box) -> float:
     dx = max(a.left - b.right, b.left - a.right, 0.0)
     dy = max(a.top - b.bottom, b.top - a.bottom, 0.0)
     return math.hypot(dx, dy)
+
+
+def search_near(occ) -> list:
+    """The copper the judgement's path search judges against: the placed items' pads and the planned copper, leaving
+    out what a pending item owns, read from the board as it stands (a via that gave way included)."""
+    return [s for r, h in occ.items.items() if r not in occ.pending for s in h.shapes if s.kind in ("pad", "through")] \
+        + [s for s in occ.copper if s.kind in ("copper", "through") and s.owner not in occ.pending]
 
 
 def judging(occ):
@@ -676,7 +687,7 @@ class Escapes:
                 best = (d, (a.x - at.x, a.y - at.y))
         return None if best is None else best[1]
 
-    def _verdict(self, ref: str, number: str, bans) -> tuple | None:
+    def _verdict(self, ref: str, number: str, bans, near=None) -> tuple | None:
         """(way, what blocks) for one pad, None when it is not judged: it is unconnected, its net has no other pad placed,
         or copper of its own net (planned copper, another part's pad) already leaves it: its way out is made.
 
@@ -688,10 +699,11 @@ class Escapes:
         surface route any way is open."""
         lanes_all, spots_all, pads = self._lanes_of(ref)
         lanes = [l for l in lanes_all if l.number == number]
-        if not lanes:
+        spots = [p for p in spots_all if p.number == number]
+        if not spots:                       # every judged pad has via spots; one with no lanes goes to the search
             return None
         occ = self.occ
-        net = lanes[0].net
+        net = spots[0].net
         quiet = net in occ.quiet_nets
         aim = None
         if not quiet:
@@ -700,14 +712,12 @@ class Escapes:
                 return None
         if self._joined(ref, number, net) or self._on_own_net_pad(ref, number, net):
             return None
-        spots = [p for p in spots_all if p.number == number]
         region = Box.union([l.box for l in lanes] + [p.box for p in spots])
         foes = self._foes(self._reach(region, net), net, ref, number)
         shut = {id(l): self._lane_blocked(l, foes) for l in lanes}
         reach = occ.settings.score_escape_reach
 
-        window = pads[number][2].inflate(reach + 1.0)
-        near = list(self._bgrid.near(window))   # the copper the lanes see: the search judges the same board
+        near = search_near(occ) if near is None else near
 
         def search(toward) -> bool:
             return bool(path_out(occ, ref, number, depth=reach, toward=toward, near=near, exact=True, via_exit=False))
@@ -777,20 +787,21 @@ class Escapes:
 
     def judge(self, ref: str, number: str) -> Way | None:
         """The pad's cheapest way out where the board stands, None when it is not judged."""
-        v = self._verdict(ref, number, self._bans())
+        v = self._verdict(ref, number, self._bans(), search_near(self.occ))
         return None if v is None else v[0]
 
     def judged(self) -> list:
         """(ref, number, net, way, what blocks) of every judged pad on the board as it stands, by ref and pad number."""
         occ = self.occ
         bans = self._bans()
+        near = search_near(occ)
         self.searched = 0
         out = []
         for ref in sorted(occ.items):
             if ref in occ.pending or not occ.geometry.has_footprint(ref):
                 continue
-            for number, net in dict.fromkeys((l.number, l.net) for l in self._lanes_of(ref)[0]):
-                v = self._verdict(ref, number, bans)
+            for number, net in dict.fromkeys((p.number, p.net) for p in self._lanes_of(ref)[1]):
+                v = self._verdict(ref, number, bans, near)
                 if v is not None:
                     out.append((ref, number, net, v[0], v[1]))
         return out

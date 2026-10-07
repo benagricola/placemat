@@ -311,13 +311,21 @@ def test_a_lane_starts_at_the_round_pads_copper_not_its_box():
 
 def _shape_board(rnd):
     """A random small board for the subset test: the pad under test (`P1`) is a large round pad, an SOIC-8 turned 45
-    degrees, or a rectangle pad at a random angle, among other nets' pads, a pour, a through-hole part and a back-layer
+    degrees, a rectangle pad at a random angle, one pad number on two pads apart, or a pin with its tab, among other nets' pads, a pour, a through-hole part and a back-layer
     track; every net of P1 joins a far pad."""
     import math as m
     from tests.escape_fixtures import one_pad, soic8, turned_pad
     from tests.fixtures import footprint, pad
-    kind = rnd.choice(("round", "soic45", "rect"))
-    if kind == "round":
+    kind = rnd.choice(("round", "soic45", "rect", "split", "pintab"))
+    if kind == "split":                 # one pad number on two copper pads apart: its centre on neither
+        d = rnd.uniform(0.8, 2.5)
+        main = _part_of("P1", "p1", [pad("P1", "p1", 1, "S1", 30 - d, 30, 0.6, 0.6),
+                                     pad("P1", "p1", 1, "S1", 30 + d, 30, 0.6, 0.6)], 30, 30)
+    elif kind == "pintab":              # a pin with its tab: one outline on the centre, one beside it
+        main = _part_of("P1", "p1", [pad("P1", "p1", 1, "S1", 30, 30, 0.8, 0.8),
+                                     turned_pad("P1", "p1", 1, "S1", 30 + rnd.uniform(0.3, 2.0), 30 + rnd.uniform(-1.0, 1.0),
+                                                1.5, 0.6, rnd.uniform(0, 180))], 30, 30)
+    elif kind == "round":
         main = _part_of("P1", "p1", [_round_pad("P1", "p1", 1, "S1", 30, 30, rnd.uniform(0.8, 2.5))], 30, 30)
     elif kind == "rect":
         main = _part_of("P1", "p1", [turned_pad("P1", "p1", 1, "S1", 30, 30, rnd.uniform(0.6, 2.5), rnd.uniform(0.3, 1.2),
@@ -332,7 +340,18 @@ def _shape_board(rnd):
                                    p.box.width, p.box.height, 45.0))
         main = _part_of("P1", "p1", pads, 30, 30)
     nets = sorted({p.net for p in main.pads})
-    fps = [main] + [one_pad("T%d" % k, "t%d" % k, net, 8.0 + 5.0 * k, 52.0) for k, net in enumerate(nets)]
+    extra = []
+    if kind == "split":                 # each of its pads fenced close, with a narrow gap
+        fence = []
+        for p in main.pads:
+            gap = rnd.uniform(0, 360)
+            for i in range(16):
+                a = 2 * m.pi * i / 16
+                if abs((22.5 * i - gap + 180) % 360 - 180) > rnd.uniform(0, 12):
+                    fence.append(pad("V1", "v1", len(fence) + 1, "ZV", p.box.center.x + 0.75 * m.cos(a),
+                                     p.box.center.y + 0.75 * m.sin(a), 0.1, 0.1))
+        extra.append(_part_of("V1", "v1", fence, 30, 30))
+    fps = [main] + extra + [one_pad("T%d" % k, "t%d" % k, net, 8.0 + 5.0 * k, 52.0) for k, net in enumerate(nets)]
     reach = max(m.hypot(x - 30, y - 30) for p in main.pads for poly in p.outlines for x, y in poly)
     for k in range(9):                  # near the copper's edge, where a box's corner stands past it
         a, r = rnd.uniform(0, 2 * m.pi), rnd.uniform(0.7 * reach, reach + 1.5)
@@ -351,7 +370,7 @@ def _shape_board(rnd):
     return fps
 
 
-@pytest.mark.parametrize("seed", range(24))
+@pytest.mark.parametrize("seed", range(30))
 def test_a_lane_finds_only_what_the_search_finds_on_round_turned_and_angled_pads(seed):
     import math as m
     import random
@@ -381,3 +400,75 @@ def test_a_lane_finds_only_what_the_search_finds_on_round_turned_and_angled_pads
             assert path_out(occ, "P1", number, depth=reach, toward=aim, exact=True, via_exit=False), number
         if any_way:
             assert path_out(occ, "P1", number, depth=reach, exact=True, via_exit=False), number
+
+
+def test_a_pad_number_whose_centre_is_on_none_of_its_copper_has_no_lanes_and_the_search_decides():
+    """P1's pad 1 is two 0.6 mm pads 4 mm apart, each fenced by sixteen 0.1 mm Z pads 0.75 mm out: the centre of their
+    box lies on neither. A lane from there would cross open ground; the search finds no way out of either pad."""
+    import math as m
+    from placemat.escapes import path_out, search_near
+    from placemat.values import Location, Part
+    from tests.escape_fixtures import board_with, one_pad
+    from tests.fixtures import pad
+    fence = []
+    for cx in (28.0, 32.0):
+        for i in range(16):
+            a = 2 * m.pi * i / 16
+            fence.append(pad("Z1", "z1", len(fence) + 1, "Z", cx + 0.75 * m.cos(a), 30 + 0.75 * m.sin(a), 0.1, 0.1))
+    fps = [_part_of("P1", "p1", [pad("P1", "p1", 1, "S", 28, 30, 0.6, 0.6), pad("P1", "p1", 1, "S", 32, 30, 0.6, 0.6)],
+                    30, 30),
+           _part_of("Z1", "z1", fence, 30, 30), one_pad("T1", "t1", "S", 30, 10)]
+    b = board_with(fps, keep_going=True)
+    for fp in fps:
+        b.place(Part(fp.inst), at=fp.location)
+    occ = b.resolve().occupancy
+    esc = judging(occ)
+    assert esc.lanes("P1", "1") == [] and esc.lane_check("P1", "1") is None
+    reach = occ.settings.score_escape_reach
+    near = search_near(occ)
+    assert not path_out(occ, "P1", "1", depth=reach, toward=(0.0, -20.0), near=near, exact=True, via_exit=False)
+    assert not path_out(occ, "P1", "1", depth=reach, near=near, exact=True, via_exit=False)
+    esc.searched = 0
+    assert esc.judge("P1", "1") in (Way.VIA, Way.WALLED) and esc.searched == 1
+
+
+def test_the_board_s_escapes_follow_a_via_that_gives_way_and_one_put_back():
+    """The cell's GND via lands on R9's back pad S and gives way to a GND via 0.95 mm off: the board's Escapes drops it and
+    takes the via and tail it left, so R9's pad is judged on the board as it stands, as a fresh judgement and the path
+    search judge it; and again once the via is put back as the cell drew it."""
+    from placemat import giveway
+    from placemat.escapes import Escapes, search_near
+    from placemat.values import Cell, Near
+    from tests.test_vias_give_way import _via
+    from tests.fixtures import board_geometry, footprint, track
+    from placemat.occupancy import Occupancy
+    from placemat.layout import Board
+    from placemat.values import Face, Location, Part
+    vx, vy = 39.1, 41.9
+    copper = [_via("GND", vx, vy, owner="m"), track("GND", 39.1, 40.0, vx, vy, w=0.2, owner="m"), _via("GND", 19.1, 22.85)]
+    fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=("GND", "X"), cell="m"),
+           footprint("R9", 19.5, vy - 20, w=2, h=1, inst="r9", nets=("S", "T"), face=Face.BACK),
+           footprint("T9", 8, 30, w=2, h=1, inst="t9", nets=("S", "Q"), face=Face.BACK)]
+    g = board_geometry(fps, cells=["m"], copper=copper, width=50, height=50, extra_nets=("GND", "Y"))
+    centre = Occupancy(g)._geometry(g.cells["m"]).reference.location
+    b = Board(g, edge_margin=0.5, keep_going=True)
+    b.place(Part("r9"), at=Location(19.5, vy - 20), face=Face.BACK)
+    b.place(Part("t9"), at=Location(8, 30), face=Face.BACK)
+    b.place(Cell("m"), at=Near(Location(centre.x - 20, centre.y - 20), radius=0, rotations=(0,)))
+    occ = b.resolve().occupancy
+    assert occ.given_way
+
+    def held(esc):
+        return {id(s) for s in esc._blockers.get(":copper", ())}
+
+    def live():
+        return {id(s) for s in occ.copper if s.kind in ("copper", "through") and s.owner not in occ.pending}
+
+    def agrees():
+        esc = occ.escapes()
+        assert held(esc) == live()
+        fresh = Escapes(occ, mirror=False)
+        assert esc._verdict("R9", "1", esc._bans()) == fresh._verdict("R9", "1", fresh._bans(), search_near(occ))
+    agrees()
+    giveway.undo(occ, next(iter(occ.given_way)))
+    agrees()
