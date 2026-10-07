@@ -176,11 +176,12 @@ def test_a_real_stop_then_a_resume_skips_the_seeds_already_tried(tmp_path):
     assert report["tried"] == top + 1
 
 
-def test_checkpoint_keeps_valid_incumbent_over_lower_invalid_score(tmp_path):
+@pytest.mark.parametrize("failure", [{"findings": {"escape_walled": 1}}, {"drc": 1}])
+def test_checkpoint_keeps_valid_incumbent_over_lower_invalid_score(tmp_path, failure):
     parts = {k: 'digest' for k in checkpoint.PARTS}
     ck = checkpoint.Checkpoint(tmp_path / 'state', parts, [])
     valid = {'v': 2, 'unplaced': {}, 'findings': {}, 'airwire_mm': 20.0}
-    invalid = dict(valid, findings={'escape_walled': 1}, airwire_mm=1.0)
+    invalid = dict(valid, airwire_mm=1.0, **failure)
     payload = {'entries': [], 'orders': []}
     ck.start(30.0, valid, 60, range(3))
     ck.variant(1, 20.0, valid, 1.0, payload)

@@ -246,14 +246,16 @@ def placement_key(row, ranks=None):
 
     Rows are (seed, objective, measures). Settings are fixed by the checkpoint
     digest, so the recorded objective remains authoritative on resume. Validity
-    precedes that objective; optional pin-remapped objectives replace it. Seed
+    precedes that objective using available placement evidence (including known
+    DRC counts); plan-only rows do not certify DRC. Optional pin-remapped
+    objectives replace it. Seed
     order breaks exact ties deterministically across worker completion orders,
     with the plain seed 0 retained on a tie. Missing evidence ranks last.
     """
     seed, objective, measures = row
     if measures is None:
         return (1, True, (), math.inf, seed)
-    validity = Validity.of(measures)
+    validity = Validity.of(measures, drc_new=measures.get("drc"))
     return (0, not validity.valid, validity.key(), (ranks or {}).get(seed, objective), seed)
 
 
