@@ -161,7 +161,7 @@ class Standing:
     validity: Validity = Validity()
     closures: tuple = ()        # each phase's final clean closure, in phase order; () when not routed
     clean: float | None = None  # the route's clean closure; None when not routed
-    phase_contracts: tuple = () # identities of the stable obligations behind closures
+    phase_contracts: tuple | None = () # None when the final phase evidence is missing
     routed: bool = False       # includes a routed result whose closure could not be measured
 
     @classmethod
@@ -182,10 +182,10 @@ class Standing:
         # Never retain placement-era quality when final quality is unavailable.
         for key, source in (('vias', 'vias'), ('copper_mm', 'track_mm'), ('segments', 'segments')):
             m.pop(key, None)
-            if source in report:
-                m[key] = report[source]
-            elif key in report:
-                m[key] = report[key]
+            value = report.get(source, report.get(key))
+            value = count(value) if key in ('vias', 'segments') else _quality_term(value)
+            if value is not None and value != math.inf:
+                m[key] = value
         missing = []
         drc = count(report.get('drc_new'))
         widths = count(report.get('widths_failed'))
@@ -196,13 +196,17 @@ class Standing:
         clean = closure(report.get('closure_clean'))
         if clean is None:
             missing.append('closure_clean')
-        phases = report.get('phases') or ()
+        phases = report.get('phases')
+        phases_known = isinstance(phases, (list, tuple)) and all(isinstance(p, dict) for p in phases)
+        if not phases_known:
+            missing.append('phases')
+            phases = ()
         closures = tuple(closure(p.get('final_closure_clean')) for p in phases)
         contracts = tuple(p.get('comparison_contract') if isinstance(p.get('comparison_contract'), str)
-                          else None for p in phases)
+                          else None for p in phases) if phases_known else None
         if any(c is None for c in closures):
             missing.append('phase_closure')
-        if any(not c for c in contracts):
+        if contracts is not None and any(not c for c in contracts):
             missing.append('phase_contract')
         validity = replace(Validity.of(m, drc_new=drc, widths_failed=widths), unmeasured=tuple(missing))
         return cls(m, validity, closures, clean, contracts, True)
@@ -216,7 +220,7 @@ def _quality_term(v):
     # a bool is not a count
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         return math.inf
-    if isinstance(v, int) or math.isfinite(v):
+    if v >= 0 and (isinstance(v, int) or math.isfinite(v)):
         return v
     return math.inf
 
@@ -260,7 +264,8 @@ def rank(a: Standing, b: Standing, cfg) -> int:
     A tie (0) keeps the incumbent: callers replace a held board only on -1, and never replace a valid board with an
     invalid one (D12)."""
     if _routed(a) and _routed(b):
-        if (len(a.closures) != len(b.closures) or len(a.phase_contracts) != len(a.closures)
+        if (a.phase_contracts is None or b.phase_contracts is None
+                or len(a.closures) != len(b.closures) or len(a.phase_contracts) != len(a.closures)
                 or len(b.phase_contracts) != len(b.closures) or a.phase_contracts != b.phase_contracts
                 or any(not c for c in a.phase_contracts)):
             raise ValueError('Routed boards have incomparable phase obligations')

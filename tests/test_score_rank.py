@@ -183,3 +183,27 @@ def test_invalid_route_evidence_remains_unmeasured(key, value):
     standing = Standing.of_route(M, {**report, key: value})
     assert not standing.validity.valid
     assert key in standing.validity.unmeasured
+
+
+@pytest.mark.parametrize('phases', [None, {}, 'not measured', [None]])
+def test_absent_or_malformed_phase_record_cannot_certify_a_final_route(phases):
+    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0}
+    if phases is not None:
+        report['phases'] = phases
+    unknown = Standing.of_route(M, report)
+    known = Standing.of_route(M, {**report, 'phases': []})
+    assert not unknown.validity.valid and 'phases' in unknown.validity.unmeasured
+    assert unknown.phase_contracts is None
+    assert known.validity.valid and known.phase_contracts == ()
+    with pytest.raises(ValueError, match='incomparable phase obligations'):
+        rank(unknown, known, Settings())
+
+
+@pytest.mark.parametrize('field,value', [('vias', -1), ('vias', 1.5), ('segments', -1),
+                                        ('segments', 1.5), ('track_mm', -0.5)])
+def test_invalid_final_quality_cannot_beat_known_quality(field, value):
+    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [],
+              'vias': 3, 'track_mm': 10.0, 'segments': 4}
+    invalid = Standing.of_route({**M, 'vias': 0, 'copper_mm': 0, 'segments': 0}, {**report, field: value})
+    valid = Standing.of_route(M, report)
+    assert rank(valid, invalid, Settings()) < 0
