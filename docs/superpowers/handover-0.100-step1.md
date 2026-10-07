@@ -99,9 +99,9 @@ rounds with a scoped re-review, the ledger updated after every step.
     base. Then re-record test (a) (Task 5a).
 - **Task 6 (`--bus-nets`)** is done (e0870e1c, 3a818aae on placemat/connections; a net in two stated groups stays in
   the first). **Task 6a (failure evidence)** is being built on placemat/connections.
-- **Task 13**: fix round 1 (f5a3e38f) re-reviewed, 9 of 11 fixed; fix round 2 in flight: refuse, when the phases
-  are read, a pair phase whose router_args name a flag route_diff.py does not accept. Release gate: the clearance docs
+- **Task 13** is complete (83d70735, 908feac3, f5a3e38f, 0e4fbe7b, 5ec25683). Release gate: the clearance docs
   (api.md, SKILL.md, migration) already describe Task 16's behaviour, so Task 16 must land before 0.100.0.
+- **Task 14** (a failed or stopped route keeps the placed board) was dispatched next.
 
 ## Next, in order
 
