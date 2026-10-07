@@ -9,11 +9,11 @@ use std::collections::{HashMap, HashSet};
 type Point = (f64, f64);
 type Bounds = (f64, f64, f64, f64);
 /// polygon, exact box, layer bits, track-end anchors, clearance adjustment
-type Shape = (Vec<Point>, Bounds, u32, Vec<Point>, f64);
-type Lane = (Vec<(Point, Point)>, u32, Bounds);
-type Spot = (Point, f64, Bounds);
-type Foe = (Shape, f64, f64, bool);
-type Path = (
+pub(crate) type Shape = (Vec<Point>, Bounds, u32, Vec<Point>, f64);
+pub(crate) type Lane = (Vec<(Point, Point)>, u32, Bounds);
+pub(crate) type Spot = (Point, f64, Bounds);
+pub(crate) type Foe = (Shape, f64, f64, bool);
+pub(crate) type Path = (
     Vec<Shape>,
     Vec<Shape>,
     u32,
@@ -30,7 +30,7 @@ type Path = (
 /// number, layers, box, optional copper outlines, eligible, track reach,
 /// via radius, via drill radius, clearance. Eligibility is original intent, supplied
 /// by the prepared snapshot rather than weakened by candidate geometry.
-type PadRecord = (
+pub(crate) type PadRecord = (
     String,
     u32,
     Bounds,
@@ -660,6 +660,125 @@ fn validate_search(
         ));
     }
     Ok((nx as i64, ny as i64))
+}
+
+/// Python path_out(exact=False), retained for handoffs' initial box check.
+/// That check admits a box path before trying the exact polygons; replacing
+/// it with only the exact search would change existing handoff validity.
+#[pyfunction]
+pub fn surface_box_path_out(
+    py: Python<'_>,
+    start: Vec<Shape>,
+    foes: Vec<Shape>,
+    holes: Vec<Shape>,
+    layers: u32,
+    window: Bounds,
+    track: f64,
+    via: f64,
+    toward: Option<Point>,
+    bans: Vec<Shape>,
+    cell: f64,
+) -> PyResult<bool> {
+    let (nx, ny) = validate_search(
+        &start, &foes, layers, window, track, via, toward, &bans, cell, 0.0,
+    )?;
+    if !holes.iter().all(validate_shape) {
+        return Err(PyValueError::new_err("invalid boxed escape hole geometry"));
+    }
+    py.check_signals()?;
+    let cw = (window.2 - window.0) / nx as f64;
+    let ch = (window.3 - window.1) / ny as f64;
+    let pad = union(start.iter().map(|s| s.1));
+    let pad_centre = centre(pad);
+    let centre = |i: i64, j: i64| {
+        (
+            window.0 + (i as f64 + 0.5) * cw,
+            window.1 + (j as f64 + 0.5) * ch,
+        )
+    };
+    let inside = |b: Bounds, p: Point| b.0 < p.0 && p.0 < b.2 && b.1 < p.1 && p.1 < b.3;
+    let inflate = |b: Bounds, r: f64| (b.0 - r, b.1 - r, b.2 + r, b.3 + r);
+    let mut walls: Vec<_> = foes
+        .iter()
+        .filter(|s| s.2 & layers != 0)
+        .map(|s| inflate(s.1, track))
+        .collect();
+    let mut vias: Vec<_> = foes.iter().map(|s| inflate(s.1, via)).collect();
+    for hole in &holes {
+        if track + hole.4 < 0.0 || via + hole.4 < 0.0 {
+            return Err(PyValueError::new_err("invalid boxed escape hole clearance"));
+        }
+        walls.push(inflate(hole.1, track + hole.4));
+        vias.push(inflate(hole.1, via + hole.4));
+    }
+    for ban in &bans {
+        if via + ban.4 < 0.0 {
+            return Err(PyValueError::new_err("invalid boxed escape ban clearance"));
+        }
+        vias.push(inflate(ban.1, via + ban.4));
+    }
+    let slot = |i: i64, j: i64| (i * ny + j) as usize;
+    let mut blocked = vec![false; (nx * ny) as usize];
+    for b in walls {
+        let indices = [
+            (b.0 - window.0) / cw,
+            (b.2 - window.0) / cw,
+            (b.1 - window.1) / ch,
+            (b.3 - window.1) / ch,
+        ];
+        if indices
+            .iter()
+            .any(|v| !v.is_finite() || v.abs() > i64::MAX as f64 / 2.0)
+        {
+            return Err(PyValueError::new_err("boxed escape cell index invalid"));
+        }
+        // int() truncates toward zero; do not replace these with floor.
+        let (i0, i1) = ((indices[0] as i64).max(0), (indices[1] as i64).min(nx - 1));
+        let (j0, j1) = ((indices[2] as i64).max(0), (indices[3] as i64).min(ny - 1));
+        for i in i0..=i1 {
+            py.check_signals()?;
+            for j in j0..=j1 {
+                if inside(b, centre(i, j)) {
+                    blocked[slot(i, j)] = true;
+                }
+            }
+        }
+    }
+    let mut seen = vec![false; (nx * ny) as usize];
+    let mut todo = Vec::new();
+    for i in 0..nx {
+        py.check_signals()?;
+        for j in 0..ny {
+            if inside(pad, centre(i, j)) {
+                seen[slot(i, j)] = true;
+                todo.push((i, j));
+            }
+        }
+    }
+    let mut visits = 0;
+    while let Some((i, j)) = todo.pop() {
+        visits += 1;
+        if visits % 1024 == 0 {
+            py.check_signals()?;
+        }
+        let at = centre(i, j);
+        if (i == 0 || i == nx - 1 || j == 0 || j == ny - 1)
+            && toward
+                .is_none_or(|d| d.0 * (at.0 - pad_centre.0) + d.1 * (at.1 - pad_centre.1) > 0.0)
+        {
+            return Ok(true);
+        }
+        if !inside(pad, at) && !vias.iter().any(|&b| inside(b, at)) {
+            return Ok(true);
+        }
+        for (a, b) in [(i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)] {
+            if a >= 0 && a < nx && b >= 0 && b < ny && !seen[slot(a, b)] && !blocked[slot(a, b)] {
+                seen[slot(a, b)] = true;
+                todo.push((a, b));
+            }
+        }
+    }
+    Ok(false)
 }
 
 #[pyfunction]

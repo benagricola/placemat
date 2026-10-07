@@ -109,6 +109,85 @@ def test_native_exact_surface_path_matches_python_ring_and_lattices(monkeypatch)
                                 via_exit=via_exit, native=True) == expected, (gap, toward, via_exit)
 
 
+def test_native_box_handoff_path_matches_python_with_holes_bans_and_layers(monkeypatch):
+    from dataclasses import replace
+    from placemat import geometry
+    from placemat.escapes import _layer_bits, _surface_shape, extra_walls, path_out, search_near
+    from placemat.occupancy import ban_shape
+    from placemat.values import Box, Location
+    from tests.fixtures import board_geometry
+    from tests.test_final_board import _placed
+    from tests.test_surface_escapes import _shape_board
+    module = geometry._native
+    if module is None or not hasattr(module, 'surface_box_path_out'):
+        pytest.skip('native boxed handoff path not built')
+    results = set()
+    for seed in range(8):
+        fps = _shape_board(random.Random(1000 + seed))
+        fps[-1] = replace(fps[-1], npth=((Location(31, 30), 0.8),))
+        _, plan = _placed(board_geometry(fps, width=60, height=60))
+        occ = plan.occupancy
+        occ.copper.append(ban_shape('fixture-ban', ((29, 29), (31, 29), (31, 31), (29, 31)), None, ()))
+        mine = [s for s in occ.items['P1'].shapes if s.kind in ('pad', 'through')
+                and s.owner == 'P1' and s.label == '1']
+        net = mine[0].net
+        nc = occ.geometry.netclass(net)
+        layers = frozenset().union(*(s.layers for s in mine))
+        near = search_near(occ)
+        for depth in (0.5, 2.3):
+            window = Box.union(s.box for s in mine).inflate(depth)
+            track, via = nc.track_width / 2 + nc.clearance, nc.via_diameter / 2 + nc.clearance
+            reach = window.inflate(max(track, via))
+            foes = [s for s in near if s.net != net and s.kind != 'npth'
+                    and not (s.owner == 'P1' and s.label == '1') and s.box.overlaps(reach)]
+            holes, bans = extra_walls(occ, reach, net)
+            for toward in (None, (1, 0), (-1, 1)):
+                monkeypatch.setattr(geometry, '_native', None)
+                expected = path_out(occ, 'P1', '1', depth, toward=toward, near=near)
+                monkeypatch.setattr(geometry, '_native', module)
+                actual = module.surface_box_path_out(
+                    [_surface_shape(s) for s in mine], [_surface_shape(s) for s in foes],
+                    [_surface_shape(s, occ.geometry.hole_clearance-nc.clearance) for s in holes],
+                    _layer_bits(layers), (window.left, window.top, window.right, window.bottom), track, via, toward,
+                    [_surface_shape(s, -nc.clearance) for s in bans], occ.settings.place_escape_cell)
+                assert actual == expected, (seed, depth, toward)
+                results.add(actual)
+    assert results == {False, True}
+
+
+def test_native_box_handoff_path_refuses_unbounded_work_and_obeys_stop():
+    import signal
+    from placemat import geometry
+    module = geometry._native
+    if module is None or not hasattr(module, 'surface_box_path_out'):
+        pytest.skip('native boxed handoff path not built')
+    start = ([(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)],
+             (-0.5, -0.5, 0.5, 0.5), 1, [], 0.0)
+    args = ([start], [], [], 1, (-3, -3, 3, 3), 0.2, 0.4, None, [], 0.2)
+    for index, value in [(3, 0), (4, (-100, -100, 100, 100)), (9, float('nan'))]:
+        malformed = list(args)
+        malformed[index] = value
+        if index == 4:
+            malformed[9] = 0.01
+        with pytest.raises(ValueError):
+            module.surface_box_path_out(*malformed)
+    def stop(*_):
+        raise TimeoutError('boxed handoff stopped')
+    previous = signal.signal(signal.SIGALRM, stop)
+    # Prevent the coarse walk's immediate via exit so the bounded million-cell
+    # traversal actually runs long enough for the timer to interrupt it.
+    ban = ([(-100, -100), (100, -100), (100, 100), (-100, 100)],
+           (-100, -100, 100, 100), 0, [], 0.0)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 0.01)
+        with pytest.raises(TimeoutError, match='boxed handoff stopped'):
+            module.surface_box_path_out([start], [], [], 1, (-100, -100, 100, 100),
+                                        0.2, 0.4, (0, 0), [ban], 0.2)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def test_native_surface_path_refuses_malformed_or_unbounded_search():
     from placemat import geometry
     module = geometry._native
