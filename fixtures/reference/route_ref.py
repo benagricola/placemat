@@ -396,7 +396,6 @@ def main(argv=None) -> int:
         ap.error("unknown board or fixture: %s; available: %s" % (", ".join(sorted(unknown)), ", ".join(available)))
     recorded_data = load_results(pathlib.Path(args.results))
     recorded, recorded_fixtures = recorded_data.get("a", {}), recorded_data.get("fixtures", {})
-    versions = current_versions()
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
     results, comparisons, held = [], [], []
 
@@ -407,6 +406,7 @@ def main(argv=None) -> int:
 
     try:
         with lock.realboard():
+            versions = current_versions()
             worse = _run_boards(boards, root, recorded, versions, set(args.changing), results, comparisons, save)
             for name in local_names:
                 result = run_local(name, root / name, versions)

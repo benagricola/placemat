@@ -81,12 +81,12 @@ def test_main_runs_only_the_named_local_fixture_under_the_shared_lock(tmp_path, 
         events.append("unlock")
     monkeypatch.setattr(route_ref.lock, "realboard", locked)
     monkeypatch.setattr(route_ref, "LOCAL", {"wall": tmp_path})
-    monkeypatch.setattr(route_ref, "current_versions", lambda: {})
+    monkeypatch.setattr(route_ref, "current_versions", lambda: events.append("versions") or {})
     monkeypatch.setattr(route_ref, "run_local", lambda name, work, versions: events.append(name) or result())
     monkeypatch.setattr(route_ref, "_run_boards", lambda boards, *args: events.append(boards) or False)
     path = tmp_path / "results.json"
     assert route_ref.main(["wall", "--update", "--results", str(path)]) == 0
-    assert events == ["lock", [], "wall", "unlock"]
+    assert events == ["lock", "versions", [], "wall", "unlock"]
     assert "wall" in json.loads(path.read_text())["fixtures"]
     assert "wall" in capsys.readouterr().out
 
