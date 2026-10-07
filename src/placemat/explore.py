@@ -769,8 +769,12 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                 # identity/timing. Legacy test routers report only what they measured.
                 final = r.as_dict() if hasattr(r, 'as_dict') else dict(vars(r))
                 entry['route_report'] = final
+                if getattr(r, 'routed_pcb', None) is not None:
+                    from . import final_board, score
+                    final.update(final_board.judge(b, p, r.routed_pcb, score.plan_measures(b, p)).evidence())
                 for key in ('closure_clean', 'closure', 'open_before', 'open_after', 'valid',
-                            'drc_new', 'widths_failed', 'phases', 'vias', 'track_mm', 'segments'):
+                            'drc_new', 'widths_failed', 'phases', 'vias', 'track_mm', 'segments',
+                            'critical_checks', 'critical_unknown', 'final_findings'):
                     if key in final:
                         entry[key] = final[key]
             except Exception as e:

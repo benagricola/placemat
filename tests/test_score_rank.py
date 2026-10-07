@@ -133,7 +133,7 @@ def test_the_quality_key_is_not_compared_when_either_board_is_invalid():
 
 def test_a_routed_standing_is_read_from_the_route_report():
     report = SimpleNamespace(phases=[{"final_closure_clean": 1.0, "comparison_contract": "a"}, {"final_closure_clean": 0.75, "comparison_contract": "b"}], widths_failed=2,
-                             drc_new=3, closure_clean=0.8, vias=7, track_mm=123.4, segments=55)
+                             drc_new=3, closure_clean=0.8, vias=7, track_mm=123.4, segments=55, critical_checks=0, critical_unknown=[], final_findings={"copper": 1})
     s = Standing.of_route({**M, "unplaced": {"low": 1}, "findings": {"copper": 1}}, report)
     assert s.closures == (1.0, 0.75) and s.clean == 0.8
     assert s.validity == Validity(unplaced=(0, 0, 1), drc_new=3, widths_failed=2, critical=1)
@@ -141,17 +141,17 @@ def test_a_routed_standing_is_read_from_the_route_report():
 
 
 def test_a_route_with_no_drc_has_no_drc_count():
-    report = SimpleNamespace(phases=[], widths_failed=0, drc_new=None, closure_clean=1.0, vias=0, track_mm=0.0, segments=0)
+    report = SimpleNamespace(phases=[], widths_failed=0, drc_new=None, closure_clean=1.0, vias=0, track_mm=0.0, segments=0, critical_checks=0, critical_unknown=[], final_findings={})
     s = Standing.of_route(dict(M), report)
     assert s.validity.drc_new is None and not s.validity.valid and s.validity.unmeasured == ("drc_new",) and s.closures == ()
 
 
 def test_final_route_validity_overrides_placement_drc_and_retains_missing_evidence():
     clean = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [],
-             'vias': 2, 'track_mm': 12.0, 'segments': 4}
+             'vias': 2, 'track_mm': 12.0, 'segments': 4, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
     final_clean = Standing.of_route({**M, 'drc': 9}, clean)
-    final_dirty = Standing.of_route({**M, 'drc': 0}, {**clean, 'drc_new': 1})
-    unknown = Standing.of_route({**M, 'drc': 0, 'vias': 0}, {**clean, 'drc_new': None})
+    final_dirty = Standing.of_route({**M, 'drc': 0}, {**clean, 'drc_new': 1, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}})
+    unknown = Standing.of_route({**M, 'drc': 0, 'vias': 0}, {**clean, 'drc_new': None, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}})
     assert final_clean.validity.valid and final_clean.validity.drc_new == 0
     assert not final_dirty.validity.valid and final_dirty.validity.drc_new == 1
     assert not unknown.validity.valid and unknown.validity.unmeasured == ('drc_new',)
@@ -169,7 +169,7 @@ def test_final_route_validity_overrides_placement_drc_and_retains_missing_eviden
 ])
 def test_routed_standings_refuse_different_or_unidentified_phase_obligations(phases):
     report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0,
-              'phases': [{'comparison_contract': 'stable', 'final_closure_clean': 1.0}]}
+              'phases': [{'comparison_contract': 'stable', 'final_closure_clean': 1.0}], 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
     a = Standing.of_route(M, report)
     b = Standing.of_route(M, {**report, 'phases': phases})
     with pytest.raises(ValueError, match='incomparable phase obligations'):
@@ -179,7 +179,7 @@ def test_routed_standings_refuse_different_or_unidentified_phase_obligations(pha
 @pytest.mark.parametrize('key,value', [('drc_new', False), ('drc_new', -1),
                                       ('widths_failed', float('nan')), ('closure_clean', float('nan'))])
 def test_invalid_route_evidence_remains_unmeasured(key, value):
-    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': []}
+    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [], 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
     standing = Standing.of_route(M, {**report, key: value})
     assert not standing.validity.valid
     assert key in standing.validity.unmeasured
@@ -187,7 +187,7 @@ def test_invalid_route_evidence_remains_unmeasured(key, value):
 
 @pytest.mark.parametrize('phases', [None, {}, 'not measured', [None]])
 def test_absent_or_malformed_phase_record_cannot_certify_a_final_route(phases):
-    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0}
+    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
     if phases is not None:
         report['phases'] = phases
     unknown = Standing.of_route(M, report)
@@ -203,7 +203,22 @@ def test_absent_or_malformed_phase_record_cannot_certify_a_final_route(phases):
                                         ('segments', 1.5), ('track_mm', -0.5)])
 def test_invalid_final_quality_cannot_beat_known_quality(field, value):
     report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [],
-              'vias': 3, 'track_mm': 10.0, 'segments': 4}
+              'vias': 3, 'track_mm': 10.0, 'segments': 4, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
     invalid = Standing.of_route({**M, 'vias': 0, 'copper_mm': 0, 'segments': 0}, {**report, field: value})
     valid = Standing.of_route(M, report)
     assert rank(valid, invalid, Settings()) < 0
+
+
+def test_final_critical_evidence_replaces_stale_placement_checks_and_escape_walls():
+    before = {**M, 'critical_checks': 2, 'findings': {'escape_walled': 3}}
+    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [],
+              'critical_checks': 0, 'critical_unknown': [], 'final_findings': {'escape_walled': 0}}
+    final = Standing.of_route(before, report)
+    assert final.validity.valid and final.validity.critical == 0
+    assert before['critical_checks'] == 2 and before['findings']['escape_walled'] == 3
+    missing = Standing.of_route(before, {k: v for k, v in report.items()
+                                        if k not in ('critical_checks', 'critical_unknown', 'final_findings')})
+    assert not missing.validity.valid
+    assert missing.validity.critical == 0  # no stale placement evidence presented as final
+    assert set(missing.validity.unmeasured) == {'critical_checks', 'critical_unknown', 'critical_findings'}
+    assert rank(final, missing, Settings()) < 0

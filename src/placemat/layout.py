@@ -5486,7 +5486,7 @@ class Board:
             if step is not None:
                 step.say("split", facts=facts)
 
-    def _report_escapes(self, occ: Occupancy, plan: Plan):
+    def _report_escapes(self, occ: Occupancy, plan: Plan, *, final: bool = False):
         """Escapes left crossed at a pin row; pads whose cheapest way out the surface-lane judgement finds is a via,
         a lane away from what they join, or none (escapes.py `Escapes.found`, placemat's own rule); and each
         differential pair whose two halves' airwires cross. Crossed escapes are measured at `score.escape_depth`,
@@ -5518,6 +5518,8 @@ class Board:
         for ref, number, net, by, variant in found["escape_walled"]:
             plan.findings.append(self._finding(C.ESCAPE_WALLED, dict(
                 suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant=variant)))
+        if final:
+            return found
         if not self._draw_outline:
             self._report_vias_unneeded(occ, plan, esc)
         if self._explore is None:           # an explore's variant is scored, and the score does not count this

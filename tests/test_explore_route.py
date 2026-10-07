@@ -317,11 +317,11 @@ def test_taken_uses_final_route_validity_phases_and_quality():
     from placemat.settings import Settings
     base = {'closure_clean': 1.0, 'drc_new': 0, 'widths_failed': 0,
             'phases': [{'comparison_contract': 'stable', 'final_closure_clean': 1.0}],
-            'vias': 4, 'track_mm': 50.0, 'segments': 10}
-    rows = [{'seed': 1, **base, 'drc_new': 1}, {'seed': 2, **base, 'vias': 2}]
+            'vias': 4, 'track_mm': 50.0, 'segments': 10, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
+    rows = [{'seed': 1, **base, 'drc_new': 1, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}, {'seed': 2, **base, 'vias': 2}]
     measures = {1: {'airwire_mm': 1.0}, 2: {'airwire_mm': 50.0, 'drc': 9}}
     assert explore._taken(rows, measures, Settings()) == 2
-    rows[0] = {'seed': 1, **base, 'drc_new': None, 'vias': 0}
+    rows[0] = {'seed': 1, **base, 'drc_new': None, 'vias': 0, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
     assert explore._taken(rows, measures, Settings()) == 2
     rows[0] = {'seed': 1, **base, 'phases': [{'comparison_contract': 'stable', 'final_closure_clean': 0.9}]}
     assert explore._taken(rows, measures, Settings()) == 2

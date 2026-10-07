@@ -216,11 +216,11 @@ def test_routed_report_ranking_uses_final_drc_instead_of_placement_drc():
     from placemat import score
     from placemat.report import is_better, regression_of, standing
     route = {'closure_clean': 1.0, 'drc_new': 0, 'widths_failed': 0, 'phases': [],
-             'vias': 1, 'track_mm': 10.0, 'segments': 2}
+             'vias': 1, 'track_mm': 10.0, 'segments': 2, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
     def record(placement, final):
         return _rec(metrics={'drc_real': {'clearance': placement}, 'airwire_mm': 0.0,
                              'closure_clean': 0.5, 'measures': {'v': score.MEASURES_VERSION, 'drc': placement},
-                             'route': {**route, 'drc_new': final}})
+                             'route': {**route, 'drc_new': final, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}})
     clean = record(9, 0)
     dirty = record(0, 1)
     assert standing(clean).validity.valid and standing(clean).clean == 1.0

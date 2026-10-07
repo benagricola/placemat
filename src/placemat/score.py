@@ -151,7 +151,8 @@ class Validity:
         unplaced = measures.get("unplaced") or {}
         found = measures.get("findings") or {}
         return cls(unplaced=tuple(int(unplaced.get(p, 0)) for p in _PRIORITIES), drc_new=drc_new,
-                   widths_failed=int(widths_failed or 0), critical=sum(int(found.get(k, 0)) for k in HARD_FINDINGS))
+                   widths_failed=int(widths_failed or 0), critical=sum(int(found.get(k, 0)) for k in HARD_FINDINGS)
+                   + int(measures.get('critical_checks') or 0))
 
 
 @dataclass(frozen=True)
@@ -187,6 +188,28 @@ class Standing:
             if value is not None and value != math.inf:
                 m[key] = value
         missing = []
+        m.pop('critical_checks', None)
+        critical_checks = count(report.get('critical_checks'))
+        if critical_checks is None:
+            missing.append('critical_checks')
+        else:
+            m['critical_checks'] = critical_checks
+        unknown_checks = report.get('critical_unknown')
+        m.pop('critical_unknown', None)
+        if not isinstance(unknown_checks, list) or unknown_checks:
+            missing.append('critical_unknown')
+        if isinstance(unknown_checks, list):
+            m['critical_unknown'] = list(unknown_checks)
+        final_findings = report.get('final_findings')
+        m['findings'] = dict(m.get('findings') or {})
+        # Placement-era critical copper/escape evidence is diagnostic, never
+        # substituted for a missing final judgement.
+        for kind in HARD_FINDINGS:
+            m['findings'].pop(kind, None)
+        if isinstance(final_findings, dict) and all(count(v) is not None for v in final_findings.values()):
+            m['findings'].update(final_findings)
+        else:
+            missing.append('critical_findings')
         drc = count(report.get('drc_new'))
         widths = count(report.get('widths_failed'))
         if drc is None:
