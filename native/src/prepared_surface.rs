@@ -437,6 +437,29 @@ impl PreparedSurface {
         Vec<(String, String, u8)>,
         Vec<(String, String)>,
     )> {
+        self.evaluate_inner(py, &mut candidate, &mut delta, x, y, turn, inspect)
+    }
+}
+
+impl PreparedSurface {
+    pub(crate) fn evaluate_inner(
+        &mut self,
+        py: Python<'_>,
+        candidate: &mut PreparedCandidate,
+        delta: &mut NativeDelta,
+        x: f64,
+        y: f64,
+        turn: usize,
+        inspect: bool,
+    ) -> PyResult<(
+        (f64, f64, f64, f64, f64, f64),
+        i64,
+        usize,
+        usize,
+        usize,
+        Vec<(String, String, u8)>,
+        Vec<(String, String)>,
+    )> {
         if !Arc::ptr_eq(&self.identity, &candidate.identity) {
             return Err(PyValueError::new_err(
                 "prepared surface candidate identity changed",

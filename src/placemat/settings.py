@@ -208,6 +208,8 @@ class Settings:
         "how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding")
     place_turn_gain_mm: float = S(2.0, "mm",
         "the least reduction of the common run score for another legal turn at the same body centre to produce a `turn.better` finding")
+    place_search_wire: str = S("clique", "choice",
+        "temporary measured search comparison: clique keeps the existing scorer; mst evaluates the complete common objective exhaustively")
     place_turn_gain_share: float = S(0.05, "share",
         "the least share of the item's wire and declared-link contribution the common run-score gain must reach for a `turn.better` finding")
     place_turn_held_words: tuple = S(("turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"), "list",
@@ -736,6 +738,7 @@ class SettingsError(ValueError):
 
 # Keys with a fixed set of values.
 _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotations": ("all", "declared"), "place_order": ("freedoms", "room"),
+            "place_search_wire": ("clique", "mst"),
             "copper_cell_zones_under_planes": ("drop", "keep"), "write_split_groups": ("lift", "split", "keep"),
             "write_keepout_drawings": ("admitting", "all", "none")}
 

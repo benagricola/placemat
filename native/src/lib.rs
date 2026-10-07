@@ -9,6 +9,7 @@ mod delta;
 mod candidate;
 mod escape_contacts;
 mod prepared_surface;
+mod prepared_scoring;
 mod score_layout;
 mod escapes;
 mod surface;
@@ -1209,9 +1210,12 @@ fn sweep(
     let edge_parts = edge_parts.unwrap_or_default();
     let mut search: Option<PyRefMut<'_, NativeScoring>> = None;
     let mut tidy: Option<PyRefMut<'_, NativeCleanupScoring>> = None;
+    let mut common: Option<PyRefMut<'_, prepared_scoring::NativeDeltaScoring>> = None;
     if let Some(sc) = scoring.as_ref() {
         if let Ok(s) = sc.cast::<NativeScoring>() {
             search = Some(s.borrow_mut());
+        } else if let Ok(s) = sc.cast::<prepared_scoring::NativeDeltaScoring>() {
+            common = Some(s.borrow_mut());
         } else {
             tidy = Some(sc.cast::<NativeCleanupScoring>()?.borrow_mut());
         }
@@ -1228,6 +1232,10 @@ fn sweep(
         _ => Vec::new(),
     };
     let esc_turns: Vec<PyRef<'_, NativeEscTurn>> = turn_handles.iter().map(|t| t.borrow(py)).collect();
+    // Complete composition handles stay borrowed throughout the production
+    // pass: no Python callback or per-candidate handle cloning.
+    let common_handles = common.as_ref().map(|s| (s.candidate.clone_ref(py), s.delta.clone_ref(py), s.surface.clone_ref(py)));
+    let mut common_borrows = common_handles.as_ref().map(|(c, d, s)| (c.borrow_mut(py), d.borrow_mut(py), s.borrow_mut(py)));
     let turn_yards: Vec<judge::TurnYards> = yards.iter().map(|y| judge::TurnYards::new(y)).collect();
     // per turn, a box holding the item's body, parts and courtyards at the origin; and, past them, every place
     // a candidate's boxes and courtyards can be: the reservations clear of it are never asked
@@ -1345,11 +1353,14 @@ fn sweep(
             None => {
                 profile::add(4, t_obs);
                 legal.push(idx);
-                scores.push(match (search.as_mut(), tidy.as_mut(), rn.as_ref()) {
+                let scored = if let (Some(sc), Some((candidate, delta, surface))) = (common.as_mut(), common_borrows.as_mut()) {
+                    sc.score(py, candidate, delta, surface, x, y, turn)?
+                } else { match (search.as_mut(), tidy.as_mut(), rn.as_ref()) {
                     (Some(sc), _, Some(rn)) => sc.score(rn, &esc_turns, x, y, turn),
                     (_, Some(tc), rn) => tc.score(rn.map(|r| &**r), &esc_turns, x, y, turn),
                     _ => (0.0, 0),
-                });
+                }};
+                scores.push(scored);
                 if stop_at_first {
                     break;
                 }
@@ -1642,6 +1653,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<candidate::PreparedCandidate>()?;
     m.add_class::<escape_contacts::PreparedContacts>()?;
     m.add_class::<prepared_surface::PreparedSurface>()?;
+    m.add_class::<prepared_scoring::NativeDeltaScoring>()?;
     m.add_class::<NativeCleanupScoring>()?;
     m.add_function(wrap_pyfunction!(sweep, m)?)?;
     Ok(())

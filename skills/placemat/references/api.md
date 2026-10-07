@@ -5437,6 +5437,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.approach_reach` | `8.0` | mm | how far along a pad's airwire toward its nearest target the `escape.pinched` check looks for a gap between two other parts' copper that the pad's track does not fit through |
 | `place.approach_detour` | `2.0` | mm | how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding |
 | `place.turn_gain_mm` | `2.0` | mm | the least reduction of the common run score for another legal turn at the same body centre to produce a `turn.better` finding |
+| `place.search_wire` | `"clique"` | choice | temporary measured search comparison: clique keeps the existing scorer; mst evaluates the complete common objective exhaustively. One of: clique, mst. |
 | `place.turn_gain_share` | `0.05` | share | the least share of the item's wire and declared-link contribution the common run-score gain must reach for a `turn.better` finding |
 | `place.turn_held_words` | `["turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"]` | list | words that, in the `why=` of an item whose turn the script fixes, say the turn was chosen: a better turn is then a `turn.better` notice with `held_by` "why" and no edit |
 | `place.split_min_group` | `2` | count | the least members a group needs to count as one, in a cell's `split` finding |

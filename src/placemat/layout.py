@@ -4997,12 +4997,15 @@ class Board:
         oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
         return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
 
-    def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True, pushes=(), lanes=None):
+    def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True, pushes=(), lanes=None, *, plan):
         """A candidate's cost: each connection's weight times its length,
         `score.crossing` for each ratsnest crossing its airwires would add,
         the escape weights, score.push times each push's modelled
         value over its limit, and `score.escape_lane` for each declared
         escape lane it would block (`lanes`). See `Scorer`."""
+        if self.settings.place_search_wire == 'mst':
+            from .score_search import MSTScorer
+            return MSTScorer(self, occ, item, plan=plan, pushes=pushes, lanes=lanes)
         return Scorer(self.settings, item, occ, targets, prune, pushes, lanes)
 
     def _push_source_point(self, occ: Occupancy, plan: Plan, source) -> Location:
@@ -10315,8 +10318,8 @@ class Board:
             else:
                 hint = Placement(current.location, i.rotation, i.face)
             score = None
-            if targets:
-                anchor_score = self._scorer(spec.anchor, occ, targets, prune=self._pick(i) is None)
+            if targets or self.settings.place_search_wire == 'mst':
+                anchor_score = self._scorer(spec.anchor, occ, targets, prune=self._pick(i) is None, plan=plan)
 
                 def score(members):
                     return anchor_score(members[spec.anchor.inst])
@@ -10940,12 +10943,12 @@ class Board:
             self._tight.pop(i.key, None)
             if before is not None:
                 self._tight[i.key] = before
-        priced = bool(targets or push_sources or any(x[6] for x in laid))
+        priced = self.settings.place_search_wire == 'mst' or bool(targets or push_sources or any(x[6] for x in laid))
         out = []
         for ident, j, p, chose, why, resolution, lanes, tight in laid:
             score, walled = None, 0
             if why is None and priced:
-                walled, score = self._scorer(j.item, occ, targets, prune=False, pushes=push_sources, lanes=lanes)(p)
+                walled, score = self._scorer(j.item, occ, targets, prune=False, pushes=push_sources, lanes=lanes, plan=plan)(p)
                 score += resolution.cost if resolution is not None else 0.0
             out.append(_Trial(ident, j, p, chose, why, score, tight, walled))
         return out
@@ -11324,7 +11327,8 @@ class Board:
             accept = ahead if accept is None else (lambda c, a=accept, b=ahead: a(c) or b(c))
         lanes = self._lane_pricer(occ, plan, j)
         score = self._scorer(j.item, occ, targets, prune=self._pick(j) is None and accept is None,
-                             pushes=push_sources, lanes=lanes) if targets or push_sources or lanes else None
+                             pushes=push_sources, lanes=lanes, plan=plan) \
+            if targets or push_sources or lanes or self.settings.place_search_wire == 'mst' else None
         if score is not None and floor is not None and hasattr(score, "best"):
             score.best[0] = min(score.best[0], floor - cost)
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
@@ -11506,7 +11510,8 @@ class Board:
             accept = self._accept(j)            # the items riding it, asked of each turn that is otherwise legal
             lanes = self._lane_pricer(occ, plan, j)
             score = self._scorer(j.item, occ, targets, prune=exposed is None and accept is None, pushes=push_sources,
-                                 lanes=lanes) if targets or push_sources or lanes else None
+                                 lanes=lanes, plan=plan) \
+                if targets or push_sources or lanes or self.settings.place_search_wire == 'mst' else None
             scored = scored or score is not None
             extra = arr_cost if ident else 0.0
             best = None
