@@ -1137,8 +1137,10 @@ def pair_flags_refused(caps, phases) -> list:
     (KRT py_router/route_diff.py, parse_args), so such a flag would fail the call mid-route. The accepted set is the
     router's own listing (`flags["route_diff.py"]`); with none, no flag is accepted."""
     accepted = set(((caps or {}).get("flags") or {}).get("route_diff.py") or ())
+    def flag(a):            # a negative number ("-1", "-.5") is a value, not a flag
+        return a.startswith("--") or (len(a) > 1 and a[0] == "-" and not (a[1].isdigit() or a[1] == "."))
     return [{"phase": p.name, "flag": a.split("=", 1)[0]} for p in phases if p.selector == "pairs"
-            for a in p.router_args if a.startswith("-") and a.split("=", 1)[0] not in accepted]
+            for a in p.router_args if flag(a) and a.split("=", 1)[0] not in accepted]
 
 
 def router_capable(rpy, router_dir) -> list:

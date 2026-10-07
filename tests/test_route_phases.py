@@ -401,3 +401,10 @@ def test_a_route_with_such_a_pair_phase_is_refused_before_it_routes(rig):
     assert e.value.code == "pair_flag" and e.value.facts == {"phase": "pair", "flag": "--neckdown-length"}
     assert str(e.value).startswith("route: phase 'pair': router_args --neckdown-length is not a flag of the pair router")
     assert rig.calls() == []
+
+
+def test_a_negative_number_in_a_pair_phases_router_args_is_a_value_not_a_flag():
+    from placemat.kicad.route import pair_flags_refused
+    caps = {"flags": {"route_diff.py": ["--track-width", "--via-cost"]}}
+    (pair,) = phases({"name": "usb", "pairs": [["P", "N"]], "router_args": ["--track-width", "-1", "--via-cost=9"]})
+    assert pair_flags_refused(caps, [pair]) == []
