@@ -20,6 +20,8 @@ from .values import Box
 class Change:
     terms: dict
     total: float
+    walled_change: int
+    walled: int
 
 
 class Delta:
@@ -47,6 +49,24 @@ class Delta:
             raise ValueError("Delta requires a fixed search frame for congestion")
         self.grid = occ.congestion() if board.settings.score_congestion_step else None
         self._native = {}
+        self._escape_base = None
+
+    def _escape_change(self, view):
+        """Complete Python judgement oracle, including unpriced validity.
+
+        A nearest target can change without an MST endpoint changing, and an
+        off-lane obstacle can change the exact path search. Full judgement is
+        the conservative twin until affected-pad pruning has a complete proof.
+        """
+        from .escapes import judging
+        if self._escape_base is None:
+            self._escape_base = {k: len(v) for k, v in judging(self.occ).found().items()}
+        after = {k: len(v) for k, v in judging(view).found().items()}
+        cfg = self.board.settings
+        terms = {kind: getattr(cfg, 'score_' + kind) * (after.get(kind, 0) - self._escape_base.get(kind, 0))
+                 for kind in ('escape_crossed', 'escape_closed', 'escape_via')}
+        walled = after.get('escape_walled', 0)
+        return terms, walled - self._escape_base.get('escape_walled', 0), walled
 
     def _crossing_change(self, changed):
         def count(a, b):
@@ -132,9 +152,11 @@ class Delta:
             pads = self.occ.__dict__['_congestion_pads']
             replacements = {net: list(pads.get(net, {}).values()) + points for net, points in new.items()}
             terms['congestion'] = cfg.score_congestion * self.grid.change(replacements)
-        # Escapes are added in Task 9. Pruning is intentionally absent until
-        # every remaining signed term has a proved lower bound.
-        return Change(terms, sum(terms.values()))
+        escaped, walled_change, walled = self._escape_change(view)
+        terms.update(escaped)
+        # Pruning is intentionally absent until every remaining signed term
+        # has a proved lower bound. Walled evidence never enters the scalar.
+        return Change(terms, sum(terms.values()), walled_change, walled)
 
     def native(self, rots, face):
         """Six non-escape terms for prepared turns; no sweep adoption yet."""

@@ -41,6 +41,46 @@ def test_mst_addition_can_reduce_wire():
     assert len(added) == 3 and len(dropped) == 2
 
 
+def test_python_escape_delta_matches_whole_and_carries_unpriced_wall_evidence():
+    from dataclasses import replace
+    from placemat import score
+    from placemat.score_delta import Delta
+    from placemat.values import Location
+    from tests.fixtures import board_geometry, pad, track
+    from tests.test_final_board import _placed
+    from tests.test_surface_escapes import _part_of, _round_pad
+    main = _part_of('P1', 'p1', [_round_pad('P1', 'p1', 1, 'S', 30, 30, 1.0)], 30, 30)
+    target = _part_of('T1', 't1', [pad('T1', 't1', 1, 'S', 10, 30, 1.0, 1.0)], 10, 30)
+    ring = []
+    for i in range(96):
+        angle = 2 * math.pi * i / 96
+        x, y = 30 + 1.3 * math.cos(angle), 30 + 1.3 * math.sin(angle)
+        ring.append(track('Z', x, y, x + 0.001, y, w=0.1))
+    board, plan = _placed(board_geometry([main, target], copper=ring))
+    occ = plan.occupancy
+    original = plan.placement('p1')
+    occ.lift({'P1'})
+    before = score.whole(board, occ, plan)
+    baseline_wall = score._incremental(board, occ, plan)['findings'].get('escape_walled', 0)
+    delta = Delta(board, occ, main, plan.links, plan=plan)
+    counts = []
+    for candidate in (original, replace(original, location=Location(30, 20)), original):
+        change = delta(candidate, prune_above=-math.inf)
+        assert score.whole(board, occ, plan) == before
+        occ.commit(main, candidate)
+        after = score.whole(board, occ, plan)
+        wall = score._incremental(board, occ, plan)['findings'].get('escape_walled', 0)
+        for term in ('escape_crossed', 'escape_closed', 'escape_via'):
+            assert change.terms[term] == pytest.approx(after[term] - before[term])
+        assert change.walled == wall
+        assert change.walled_change == wall - baseline_wall
+        assert 'escape_walled' not in change.terms
+        counts.append(wall)
+        occ.lift({'P1'})
+    assert counts[0] > counts[1] and counts[2] == counts[0]
+    occ.commit(main, original)
+
+
 def test_mst_addition_refuses_prejoined_copper_clusters():
     rest = [Anchor("R1", "1", 0, 0), Anchor("R2", "1", 1, 0)]
     previous = mst("n", rest, joined=[(0, 1)])
@@ -524,7 +564,7 @@ def test_repository_module_and_core_non_escape_delta_parity():
                 occ.commit(item, candidate)
                 after = score.whole(board, occ, plan)
                 expected = {k: after[k] - before[k] for k in keys}
-                assert change.terms == pytest.approx(expected, abs=1e-6), (step.item, candidate)
+                assert {k: change.terms[k] for k in keys} == pytest.approx(expected, abs=1e-6), (step.item, candidate)
                 if native is not None:
                     assert dict(zip(('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion'), native)) == pytest.approx(
                         {k: expected[k] for k in keys if k != 'push'}, abs=1e-6)
