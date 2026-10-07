@@ -237,3 +237,31 @@ def test_legacy_regeneration_imports_an_existing_upgraded_project_and_copies_she
     assert prepare.regenerate(board, src, tmp_path / "work").is_file()
     assert len([c for c in calls if c[0] == "kicad-cli"]) == 2
     assert source.read_text() == "legacy board" and not source.with_suffix(".kicad_pro").exists()
+
+
+def test_legacy_regeneration_passes_the_real_kicad_upgrade_project_to_import(tmp_path, monkeypatch):
+    import dataclasses
+    import pathlib
+    import subprocess
+    src = tmp_path / 'cache'
+    src.mkdir()
+    original = src / 'tiny.kicad_pcb'
+    original.write_text(KICAD5_BOARD)
+    original.with_suffix('.pro').write_text('[pcbnew]\n')
+    imported = []
+
+    def run(command, **kwargs):
+        if command[1] == 'import':
+            project = pathlib.Path(command[2])
+            assert project.is_file()
+            classes = json.loads(project.read_text())['net_settings']['classes']
+            assert {c['name'] for c in classes} == {'Default', 'save'}
+            imported.append(project)
+            (pathlib.Path(command[3]) / 'layout').mkdir(parents=True)
+        else:
+            (pathlib.Path(kwargs['cwd']) / 'layout' / 'tiny.kicad_pcb').write_text('generated')
+        return subprocess.CompletedProcess(command, 0, '', '')
+
+    monkeypatch.setattr(prepare.subprocess, 'run', run)
+    prepare.regenerate(dataclasses.replace(BOARD, kicad5=True), src, tmp_path / 'work')
+    assert len(imported) == 1 and not original.with_suffix('.kicad_pro').exists()
