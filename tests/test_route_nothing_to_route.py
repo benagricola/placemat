@@ -1,4 +1,4 @@
-"""A route with nothing left for the main pass (every net excluded, as on a
+"""A route with nothing left for its rest phase (every net excluded, as on a
 module whose nets all have pours) records a route of zero connections rather
 than calling the router, which refuses a net list that matches nothing (KRT
 route.py: "No nets matched the given patterns!", exit 1). A router that fails
@@ -9,6 +9,7 @@ import shutil
 
 import pytest
 
+from tests.phase_helpers import phases
 from tests.test_route_resume import rig  # noqa: F401  (the stand-in router)
 
 
@@ -18,7 +19,7 @@ def _all_nets(pcb):
 
 
 def test_with_every_net_excluded_the_router_is_not_called_and_the_route_closes_zero_of_zero(rig):  # noqa: F811
-    report = rig.route(islands={}, exclude_nets=_all_nets(rig.pcb))
+    report = rig.route(exclude_nets=_all_nets(rig.pcb))
     assert rig.calls() == []
     assert (report.open_before, report.open_after, report.closure, report.closure_clean) == (0, 0, 1.0, 1.0)
     assert report.routed_pcb.exists()
@@ -29,9 +30,9 @@ def test_a_router_that_fails_raises_router_failed_with_its_exit_code_and_log(rig
     from placemat.kicad.route import RouterFailed
     monkeypatch.setenv("FAKE_ROUTER_MAIN", "fail")
     with pytest.raises(RouterFailed) as e:
-        rig.route(islands={})
-    assert e.value.exit_code == 3 and e.value.log == rig.work / "router.log"
-    assert e.value.what == "router exited 3 without a routed board"
+        rig.route(phases=phases())
+    assert e.value.exit_code == 3 and e.value.log == rig.work.resolve() / "p0_0.log"
+    assert e.value.what == "the router exited 3 routing phase signals"
 
 
 def _run_with_route(tmp_path, monkeypatch, fail):

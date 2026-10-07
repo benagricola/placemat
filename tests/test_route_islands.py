@@ -1,14 +1,23 @@
-"""A pour net's pads the pours do not reach: `[route] islands` (or
-`placemat route --islands NET[=WIDTH]`) routes those nets first, alone, the
-pours counted as joined copper by the router, at the net's class width or
-the width given; the main pass then leaves them to their pours as before."""
+"""A pour net's pads the pours do not reach: a routing phase that names a net the board serves by a pour routes it
+alone (kicad/route.py route_pour_net, D15), the pours counted as joined copper by the router, the other pour nets'
+partial pours kept clear of it; the phases after leave it to its pours. `[route] islands` and `placemat route
+--islands`, which did this before the phases, are refused; their parsing stays until they are removed."""
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from placemat.kicad.route import parse_islands, router_command
+from placemat.settings import Settings
 from tests.conftest import needs_breakout, needs_kicad
+from tests.phase_helpers import phases
+
+
+def _ctx(tmp_path, work):
+    """What route_pour_net reads of a route's phase context (kicad/phase_run.PhaseContext)."""
+    return SimpleNamespace(cfg=Settings(), work=work, rpy="py", script="route.py", router_dir=str(tmp_path),
+                           iterations=None, probe=None, quick=True, clearances_file=None, env={}, timeout=60)
 
 
 def test_an_island_net_may_carry_a_width():
@@ -26,30 +35,15 @@ def test_the_islands_pass_names_its_nets_and_their_widths():
     assert cmd[j + 1] == "VIN" and cmd[cmd.index("--power-nets-widths") + 1] == "0.5"
 
 
-@needs_kicad
-def test_the_route_command_passes_the_setting_and_the_flag(tmp_path, monkeypatch):
+def test_the_route_command_refuses_the_islands_flag(tmp_path, monkeypatch, capsys):
     from placemat import cli
     import placemat.kicad.route as route_mod
-    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["V_HI"]\n')
     pcb = tmp_path / "layout.kicad_pcb"
     pcb.write_text("")
-    seen = {}
-
-    class Report:
-        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths, pair_layers_refused = True, [], {}, pcb, [], [], []
-
-        def has_findings(self):
-            return False
-
-        def summary(self):
-            return "stand-in"
-
-    def stand_in(pcb, work, exclude_nets=(), islands=None, **kw):
-        seen["islands"] = islands
-        return Report()
-    monkeypatch.setattr(route_mod, "route_board", stand_in)
-    assert cli.main(["route", str(pcb), "--islands", "VIN=0.5"]) == 0
-    assert seen["islands"] == {"V_HI": None, "VIN": 0.5}
+    monkeypatch.setattr(route_mod, "route_board", lambda *a, **kw: pytest.fail("routed"))
+    assert cli.main(["route", str(pcb), "--islands", "VIN=0.5"]) == 2
+    assert ("route: [route] islands is replaced by routing phases: a phase with `nets` and `width`"
+            in capsys.readouterr().out)
 
 
 @needs_kicad
@@ -91,10 +85,10 @@ def test_a_router_run_joins_the_pads_a_partial_pour_leaves_apart(breakout_pcb, t
     brd.Add(z)
     brd.Save(str(pcb))
     outline = pcbnew.SHAPE_POLY_SET(z.Outline())
-    report = route_board(pcb, tmp_path / "route", exclude_nets={net, "GND", "V48P"}, layers=["F.Cu", "In2.Cu", "B.Cu"],
-                         quick=True, islands={net: None})
-    before, after = report.islands[net]
-    assert before > 0 and after < before, report.islands
+    report = route_board(pcb, tmp_path / "route", pour_nets={net, "GND", "V48P"}, layers=["F.Cu", "In2.Cu", "B.Cu"],
+                         quick=True, phases=phases({"name": "pour", "nets": [net]}, {"name": "signals"}))
+    pour = report.phases[0]
+    assert pour["asked"] > 0 and pour["joined"] > 0, pour
     routed = pcbnew.LoadBoard(str(report.routed_pcb))
     assert any(t.GetNetname() == net for t in routed.GetTracks())
     lid = routed.GetLayerID("In2.Cu")
@@ -108,33 +102,6 @@ def test_a_malformed_island_entry_is_refused_when_the_settings_load(tmp_path):
         (tmp_path / "placemat.toml").write_text('[route]\nislands = [%s]\n' % bad)
         with pytest.raises(SettingsError, match="route.islands"):
             load(tmp_path)
-
-
-@needs_kicad
-def test_a_bare_flag_keeps_the_width_the_setting_gives(tmp_path, monkeypatch):
-    from placemat import cli
-    import placemat.kicad.route as route_mod
-    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["VIN=0.5"]\n')
-    pcb = tmp_path / "layout.kicad_pcb"
-    pcb.write_text("")
-    seen = {}
-
-    class Report:
-        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths, pair_layers_refused = True, [], {}, pcb, [], [], []
-
-        def has_findings(self):
-            return False
-
-        def summary(self):
-            return "stand-in"
-
-    def stand_in(pcb, work, exclude_nets=(), islands=None, **kw):
-        seen["islands"] = islands
-        return Report()
-    monkeypatch.setattr(route_mod, "route_board", stand_in)
-    assert cli.main(["route", str(pcb), "--islands", "VIN", "V_HI"]) == 0
-    assert seen["islands"] == {"VIN": 0.5, "V_HI": None}
-    assert cli.main(["route", str(pcb), "--islands", "VIN=wide"]) == 2
 
 
 def _four_layer_with_pours(breakout_pcb, dest, nets):
@@ -169,10 +136,9 @@ def _four_layer_with_pours(breakout_pcb, dest, nets):
 
 @needs_kicad
 @needs_breakout
-def test_each_island_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp_path, monkeypatch):
-    """Two island nets: each pass routes one, the other's partial pour kept
-    clear of it, and the board the main pass gets has neither guard (the
-    main pass guards both)."""
+def test_each_pour_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp_path, monkeypatch):
+    """Two pour nets, each in a call of its own: each call routes one, the other's partial pour kept clear of it, and
+    the board it leaves has its own pour guarded too, so the calls after it are judged against it."""
     import subprocess
     import pcbnew
     import placemat.kicad.route as route_mod
@@ -189,13 +155,15 @@ def test_each_island_net_is_routed_with_the_others_pours_guarded(breakout_pcb, t
     monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
     work = tmp_path / "work"
     work.mkdir()
-    board, breaches = route_mod.route_islands("py", "route.py", str(tmp_path), pcb, work,
-                                              {"PERMIT_A": None, "PERMIT_B": None}, ["F.Cu", "In2.Cu", "B.Cu"],
-                                              None, None, True, 60, {}, 0.9)
+    ctx, pours, layers = _ctx(tmp_path, work), {"PERMIT_A", "PERMIT_B"}, ["F.Cu", "In2.Cu", "B.Cu"]
+    a, b = work / "p0_0.kicad_pcb", work / "p0_1.kicad_pcb"
+    breaches, kept = route_mod.route_pour_net(ctx, pcb, a, "PERMIT_A", None, layers, "p0_0", pours)
+    assert breaches == [] and kept == ["PERMIT_A on In2.Cu"]
+    route_mod.route_pour_net(ctx, a, b, "PERMIT_B", None, layers, "p0_1", pours)
     assert passes == [(["PERMIT_A"], ["placemat pour PERMIT_B In2.Cu"]),
                       (["PERMIT_B"], ["placemat pour PERMIT_A In2.Cu"])]
-    assert breaches == []
-    assert not [z for z in pcbnew.LoadBoard(str(board)).Zones() if z.GetIsRuleArea()]
+    assert sorted(z.GetZoneName() for z in pcbnew.LoadBoard(str(b)).Zones() if z.GetIsRuleArea()) == [
+        "placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
 
 
 @needs_kicad
@@ -243,54 +211,26 @@ def test_the_report_records_each_islands_layers():
 
 
 @needs_kicad
-def test_the_route_command_passes_each_islands_layers(tmp_path, monkeypatch):
-    from placemat import cli
-    import placemat.kicad.route as route_mod
-    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["VBUS=1.37@F,B", "VIN@B"]\n')
-    pcb = tmp_path / "layout.kicad_pcb"
-    pcb.write_text("")
-    seen = {}
-
-    class Report:
-        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths, pair_layers_refused = True, [], {}, pcb, [], [], []
-
-        def has_findings(self):
-            return False
-
-        def summary(self):
-            return "stand-in"
-
-    def stand_in(pcb, work, exclude_nets=(), islands=None, island_layers=None, **kw):
-        seen["islands"], seen["layers"] = islands, island_layers
-        return Report()
-    monkeypatch.setattr(route_mod, "route_board", stand_in)
-    assert cli.main(["route", str(pcb), "--islands", "VBUS", "VIN@F", "V_HI"]) == 0
-    assert seen["islands"] == {"VBUS": 1.37, "VIN": None, "V_HI": None}
-    assert seen["layers"] == {"VBUS": ("F.Cu", "B.Cu"), "VIN": ("F.Cu",)}       # a bare flag keeps the setting's layers
-    assert cli.main(["route", str(pcb), "--islands", "VIN@Z"]) == 2
-
-
-@needs_kicad
 @needs_breakout
-def test_an_island_with_layers_routes_on_them_and_a_bare_one_on_the_routes(breakout_pcb, tmp_path, monkeypatch):
+def test_a_pour_net_routes_on_its_phases_layers_at_its_width(breakout_pcb, tmp_path, monkeypatch):
     import subprocess
     import placemat.kicad.route as route_mod
     pcb = _four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"])
-    passes = {}
+    seen = []
 
     def stand_in(cmd, **kw):
-        nets = cmd[cmd.index("--nets") + 1:cmd.index("--layers")]
-        passes[nets[0]] = cmd[cmd.index("--layers") + 1:cmd.index("--escalation")]
+        seen.append(cmd)
         assert "--layer-costs" not in cmd
         shutil.copy(cmd[2], cmd[3])
         return subprocess.CompletedProcess(cmd, 0)
     monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
     work = tmp_path / "work"
     work.mkdir()
-    route_mod.route_islands("py", "route.py", str(tmp_path), pcb, work, {"PERMIT_A": 0.5, "PERMIT_B": None},
-                            ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"], None, None, True, 60, {}, 0.9,
-                            island_layers={"PERMIT_A": ["F.Cu", "B.Cu"]})
-    assert passes == {"PERMIT_A": ["F.Cu", "B.Cu"], "PERMIT_B": ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]}
+    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, work / "p0_0.kicad_pcb", "PERMIT_A", 0.5, ["F.Cu", "B.Cu"],
+                             "p0_0", {"PERMIT_A", "PERMIT_B"})
+    (cmd,) = seen
+    assert cmd[cmd.index("--layers") + 1:cmd.index("--escalation")] == ["F.Cu", "B.Cu"]
+    assert cmd[cmd.index("--power-nets") + 1] == "PERMIT_A" and cmd[cmd.index("--power-nets-widths") + 1] == "0.5"
 
 
 def _graphic_pour(breakout_pcb, dest, net, group=None):
@@ -332,9 +272,9 @@ def _graphic_pour(breakout_pcb, dest, net, group=None):
 
 @needs_kicad
 @needs_breakout
-def test_an_island_nets_own_graphic_pour_reaches_the_router_as_a_zone(breakout_pcb, tmp_path, monkeypatch):
+def test_a_pour_nets_own_graphic_pour_reaches_the_router_as_a_zone(breakout_pcb, tmp_path, monkeypatch):
     """The router credits a net's zones as joining what they reach, but not its filled copper graphics (KRT models
-    each as scanline bands and takes every band for an island of the net to join). So the island pass hands the
+    each as scanline bands and takes every band for an island of the net to join). So the pour net's call hands the
     router the net's own pour as a zone over its copper, and the board it leaves has the pour back as drawn."""
     import subprocess
     import pcbnew
@@ -353,8 +293,9 @@ def test_an_island_nets_own_graphic_pour_reaches_the_router_as_a_zone(breakout_p
     monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
     work = tmp_path / "work"
     work.mkdir()
-    board, _ = route_mod.route_islands("py", "route.py", str(tmp_path), pcb, work, {"PERMIT_A": None},
-                                       ["F.Cu", "In2.Cu", "B.Cu"], None, None, True, 60, {}, 0.9)
+    board = work / "p0_0.kicad_pcb"
+    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ["F.Cu", "In2.Cu", "B.Cu"], "p0_0",
+                             {"PERMIT_A"})
     (zones, graphics), = seen
     assert graphics == []
     (net, layer, area, filled), = [z for z in zones if z[1] == "In2.Cu"]
@@ -368,7 +309,7 @@ def test_an_island_nets_own_graphic_pour_reaches_the_router_as_a_zone(breakout_p
 
 @needs_kicad
 @needs_breakout
-def test_a_router_run_lays_no_copper_over_the_island_nets_own_graphic_pour(breakout_pcb, tmp_path):
+def test_a_router_run_lays_no_copper_over_the_pour_nets_own_graphic_pour(breakout_pcb, tmp_path):
     import pcbnew
     from placemat.kicad.route import route_board
     from tests.conftest import router_missing
@@ -376,10 +317,9 @@ def test_a_router_run_lays_no_copper_over_the_island_nets_own_graphic_pour(break
         pytest.skip(router_missing())
     net = "PERMIT_A"
     pcb, uuid, outline = _graphic_pour(breakout_pcb, tmp_path / "in", net)
-    report = route_board(pcb, tmp_path / "route", exclude_nets={net, "GND", "V48P"}, layers=["F.Cu", "In2.Cu", "B.Cu"],
-                         quick=True, islands={net: None})
-    before, after = report.islands[net]
-    assert after <= before, report.islands
+    report = route_board(pcb, tmp_path / "route", pour_nets={net, "GND", "V48P"}, layers=["F.Cu", "In2.Cu", "B.Cu"],
+                         quick=True, phases=phases({"name": "pour", "nets": [net]}, {"name": "signals"}))
+    assert report.phases[0]["asked"] > 0, report.phases[0]
     routed = pcbnew.LoadBoard(str(report.routed_pcb))
     lid = routed.GetLayerID("In2.Cu")
     inside = [t for t in routed.GetTracks() if t.GetNetname() == net and t.GetClass() == "PCB_TRACK"
@@ -402,8 +342,9 @@ def test_a_cells_graphic_pour_goes_back_into_its_group(breakout_pcb, tmp_path, m
     monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
     work = tmp_path / "work"
     work.mkdir()
-    board, _ = route_mod.route_islands("py", "route.py", str(tmp_path), pcb, work, {"PERMIT_A": None},
-                                       ["F.Cu", "In2.Cu", "B.Cu"], None, None, True, 60, {}, 0.9)
+    board = work / "p0_0.kicad_pcb"
+    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ["F.Cu", "In2.Cu", "B.Cu"], "p0_0",
+                             {"PERMIT_A"})
     out = pcbnew.LoadBoard(str(board))
     back, = [d for d in out.GetDrawings() if d.m_Uuid.AsString() == uuid]
     assert back.GetParentGroup() is not None and back.GetParentGroup().GetName() == "cell_a"

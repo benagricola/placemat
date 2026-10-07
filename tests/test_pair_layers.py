@@ -2,7 +2,6 @@
 route's own layers. The pair router takes one layer list per call, so the pairs are routed in one call per distinct
 list, the named ones first; each call's copper is fixed for the next."""
 import json
-import math
 import shutil
 from pathlib import Path
 
@@ -202,98 +201,6 @@ def test_with_no_entry_the_pairs_are_one_call(tmp_path, monkeypatch):
                           Settings(), None, None, 60, {})
     assert len(calls) == 1
     assert calls[0][calls[0].index("--layers") + 1:calls[0].index("--escalation")] == ["F.Cu", "B.Cu"]
-
-
-# ---------------------------------------------------------------- routed
-
-from tests.test_route_pairs import needs_router  # noqa: E402
-
-
-def _copper(pcb: Path, nets) -> dict:
-    """{net: {"tracks": [(layer, x1, y1, x2, y2)], "vias": [(x, y)]}} in mm."""
-    from placemat.kicad.quiet import import_pcbnew
-    p = import_pcbnew()
-    board = p.LoadBoard(str(pcb))
-    out = {n: {"tracks": [], "vias": []} for n in nets}
-    for t in board.GetTracks():
-        n = t.GetNetname()
-        if n not in out:
-            continue
-        if isinstance(t, p.PCB_VIA):
-            out[n]["vias"].append((round(p.ToMM(t.GetPosition().x), 3), round(p.ToMM(t.GetPosition().y), 3)))
-        else:
-            out[n]["tracks"].append((t.GetLayerName(), round(p.ToMM(t.GetStart().x), 3), round(p.ToMM(t.GetStart().y), 3),
-                                     round(p.ToMM(t.GetEnd().x), 3), round(p.ToMM(t.GetEnd().y), 3)))
-    return out
-
-
-# Each B net's escape lane on F.Cu: from its pad at J1 (110, 108) down, and at J2 (130, 120) up, ending in a via.
-LANES = {"B_P": [((111.2, 108.0), (111.2, 111.5)), ((131.2, 120.0), (131.2, 116.5))],
-         "B_N": [((112.0, 108.0), (112.0, 111.5)), ((132.0, 120.0), (132.0, 116.5))]}
-
-
-def _with_lanes(pcb: Path) -> None:
-    from placemat.kicad.quiet import import_pcbnew
-    p = import_pcbnew()
-    board = p.LoadBoard(str(pcb))
-    for net, lanes in LANES.items():
-        code = board.GetNetcodeFromNetname(net)
-        for a, b in lanes:
-            t = p.PCB_TRACK(board)
-            t.SetStart(p.VECTOR2I(p.FromMM(a[0]), p.FromMM(a[1])))
-            t.SetEnd(p.VECTOR2I(p.FromMM(b[0]), p.FromMM(b[1])))
-            t.SetWidth(p.FromMM(0.2))
-            t.SetLayer(p.F_Cu)
-            t.SetNetCode(code)
-            board.Add(t)
-            v = p.PCB_VIA(board)
-            v.SetPosition(p.VECTOR2I(p.FromMM(b[0]), p.FromMM(b[1])))
-            v.SetWidth(p.FromMM(0.5))
-            v.SetDrill(p.FromMM(0.3))
-            v.SetNetCode(code)
-            board.Add(v)
-    board.Save(str(pcb))
-
-
-def _on_segment(pt, a, b, tol=0.05) -> bool:
-    (px, py), (ax, ay), (bx, by) = pt, a, b
-    ux, uy = bx - ax, by - ay
-    t = max(0.0, min(1.0, ((px - ax) * ux + (py - ay) * uy) / (ux * ux + uy * uy)))
-    return math.hypot(ax + t * ux - px, ay + t * uy - py) <= tol
-
-
-@needs_kicad
-@needs_router
-def test_a_named_pair_routes_on_its_layers_from_its_lanes_vias_and_the_other_on_the_routes_own(tmp_path):
-    """Pair B's ends are F.Cu escape lanes ending in vias, and its layers leave F.Cu out: the pair router starts from the
-    vias on In2.Cu or B.Cu, lays nothing on F.Cu and drops no via of its own on a lane. Pair A, with no entry, routes on
-    the route's own layers. Whether the pair router couples B from its two vias or routes its halves apart (its own
-    single-ended fallback, still in the pair stage and on the pair's layers) is the router's call: from a via pair
-    wider than its coupled pitch it does the latter."""
-    from placemat.kicad.route import route_board
-    from placemat.settings import Settings, bind
-    pcb = _board(tmp_path)
-    _with_lanes(pcb)
-    with bind(Settings(route_pair_layers={"Slow": ["In2.Cu", "B.Cu"]})):
-        report = route_board(pcb, tmp_path / "route", layers=["F.Cu", "B.Cu"], quick=False)
-    assert "A_P/A_N" in report.pairs["coupled"], report.pairs
-    assert "B_P/B_N" in report.pairs["coupled"] + report.pairs["single_ended"], report.pairs
-    assert report.pair_layers == {"B_P/B_N": ["In2.Cu", "B.Cu"]} and report.pair_layers_refused == []
-    copper = _copper(report.work / "pairs.kicad_pcb", NETS)
-    for net, lanes in LANES.items():
-        lane_set = {("F.Cu",) + a + b for a, b in lanes}
-        on_f = {t for t in copper[net]["tracks"] if t[0] == "F.Cu"}
-        assert on_f == lane_set, (net, on_f)
-        laid = [t for t in copper[net]["tracks"] if t[0] != "F.Cu"]
-        assert laid and {t[0] for t in laid} <= {"In2.Cu", "B.Cu"}, (net, laid)
-        ends = [(t[1], t[2]) for t in laid] + [(t[3], t[4]) for t in laid]
-        for _, via in lanes:
-            assert any(math.hypot(x - via[0], y - via[1]) < 0.25 for x, y in ends), (net, via, laid)      # inside the via
-        for v in copper[net]["vias"]:
-            if v not in [b for _, b in lanes]:
-                assert not any(_on_segment(v, a, b, 0.3) for a, b in lanes), (net, v)
-    assert {t[0] for n in ("A_P", "A_N") for t in copper[n]["tracks"]} <= {"F.Cu", "B.Cu"}
-    assert report.open_after == 0, report.open_nets
 
 
 def test_the_route_command_prints_a_refused_entry_and_json_carries_it(tmp_path, monkeypatch, capsys):

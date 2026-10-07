@@ -96,13 +96,13 @@ class StandInRouter:
         (folder / "layout.kicad_pcb").write_text("stand-in")
         return folder / "layout.kicad_pcb"
 
-    def route(self, pcb, work, exclude_nets=(), quick=False, resume=True):
+    def route(self, pcb, work, exclude_nets=(), pour_nets=(), quick=False, resume=True, capture_path=None):
         import json
         from pathlib import Path
         from types import SimpleNamespace
         seed = int(Path(pcb).parent.name.split("-")[1])
         with open(self.log, "a") as f:
-            f.write(json.dumps({"seed": seed, "work": str(work), "exclude": sorted(exclude_nets), "quick": quick,
+            f.write(json.dumps({"seed": seed, "work": str(work), "exclude": sorted(exclude_nets), "pour_nets": sorted(pour_nets), "quick": quick,
                                 "resume": resume, "at": time.time()}) + "\n")
         time.sleep(self.delay)
         got = self.closures.get(seed, self.default)

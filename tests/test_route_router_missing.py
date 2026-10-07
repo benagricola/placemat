@@ -23,6 +23,7 @@ def test_a_route_with_no_router_named_refuses_and_says_where_to_name_one(tmp_pat
     import pcbnew
     pcb = tmp_path / "b.kicad_pcb"
     pcbnew.CreateEmptyBoard().Save(str(pcb))
+    (tmp_path / "placemat.toml").write_text('[[route.phase]]\nname = "signals"\n')     # a route needs a phase first
     said = _route(pcb)
     assert said.returncode == 2
     assert "[route] router_dir" in said.stdout + said.stderr and "$KRT_DIR" in said.stdout + said.stderr

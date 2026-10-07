@@ -1,7 +1,7 @@
 """A route's progress, on placemat's side: the events the hooked router sends (kicad/route_events.py) over a pipe while it runs, forwarded on the
 command's own socket, and kept as the route's record.
 
-For each stage (`pairs`, `islands`, `classes`, `main`) `RouteEvents` opens a pipe and gives its write end to the router's process (the descriptor's number in
+For each stage - a routing phase, named as the project names it - `RouteEvents` opens a pipe and gives its write end to the router's process (the descriptor's number in
 $PLACEMAT_ROUTE_EVENTS_FD); a thread reads newline-delimited JSON from the read end, sends each event with the channel's sender (`Beacon.send`,
 which never blocks the route) and keeps it. The record, `route_record.json`, is the only file: it holds every stage's events in laid order with
 the board it routed, is written when each stage ends and again at the end of the route, and is what the studio replays a finished route from. A
@@ -16,7 +16,6 @@ from pathlib import Path
 import threading
 import time
 
-STAGES = ("pairs", "islands", "classes", "main")
 RECORD = "route_record.json"
 BOARD = "route_board.json"
 SUMMARY = "route_summary.json"
@@ -92,7 +91,7 @@ class RouteEvents:
     def __init__(self, work, send=None, info=None):
         self.work, self.send, self.info = Path(work).resolve(), send, info or {}       # absolute: the router runs in its own folder
         self.stages: list = []                # [{"stage", "resumed", "seconds", "events"}] in order
-        self.names: dict = {}                 # the pair router's aliases -> the board's names, for the pairs stage
+        self.names: dict = {}                 # the pair router's aliases -> the board's names, for the stage that set them
         prior = read_record(self.work / RECORD)
         self._prior_stage = {st["stage"]: st for st in (prior or {}).get("stages", ())}
         self._prior = {k: st.get("events", []) for k, st in self._prior_stage.items()}      # what a resumed stage had made
@@ -102,8 +101,7 @@ class RouteEvents:
 
     def _forward(self, stage: str):
         def give(ev):
-            if stage == "pairs":
-                ev = _renamed(ev, self.names)
+            ev = _renamed(ev, self.names)
             if self.send is not None:
                 self.send(dict(ev, ev=ev["ev"] if ev["ev"].startswith("route_") else "route_" + ev["ev"], stage=stage))
         return give
@@ -116,6 +114,7 @@ class RouteEvents:
         """A stage starts. `nets`: how many nets it will take up when that is known before the router says (a stage that launches the router
         once a net, as the islands do): the stage's count of nets is then this, not what each launch's queue adds up to."""
         global _active
+        self.names = {}                       # a pair call sets its aliases (kicad/route.py route_pairs) within its stage
         if self.send is not None:
             self.send(dict({"ev": "route_stage", "stage": stage, "resumed": False}, **({"nets": nets} if nets is not None else {})))
         self._t0 = time.time()
@@ -139,8 +138,7 @@ class RouteEvents:
             self._w = None
             events = self._reader.finish()
             unreadable, self._reader = self._reader.unreadable, None
-        if stage == "pairs":
-            events = [_renamed(e, self.names) for e in events]
+        events = [_renamed(e, self.names) for e in events]
         lost = unreadable + sum(int(e.get("n") or 0) for e in events if e.get("ev") == "dropped")
         self.stages.append({"stage": stage, "resumed": False, "complete": complete, "dropped": lost, "seconds": round(time.time() - self._t0, 1), "events": events})
         self.save()

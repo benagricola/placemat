@@ -1,5 +1,5 @@
 """A run's route on a real module (tests/real_modules.py) with the real
-router: a rerun of the same inputs takes the stages the first finished
+router: a rerun of the same inputs takes the phases the first finished
 instead of routing again, and gets the same route."""
 import shutil
 
@@ -34,21 +34,26 @@ def _run(script, monkeypatch, **kw):
     return runner.run(script, render=False, quiet=True, route=True, keep_going=True, **kw)
 
 
-def test_a_rerun_takes_the_stages_the_first_run_finished_and_gets_the_same_route(tmp_path, monkeypatch):
+PHASES = '[[route.phase]]\nname = "pour"\nnets = ["GND"]\n\n[[route.phase]]\nname = "signals"\n'
+
+
+def test_a_rerun_takes_the_phases_the_first_run_finished_and_gets_the_same_route(tmp_path, monkeypatch):
     script = rm.stage(tmp_path, "usb5v")
-    (tmp_path / "board" / "placemat.toml").write_text('[route]\nislands = ["GND"]\n')      # two stages: islands, main
+    (tmp_path / "board" / "placemat.toml").write_text(PHASES)      # two phases: the pour net GND, then the rest
     first = _run(script, monkeypatch)
     assert first.status == "ok", first.record.failure
     route = first.record.metrics["route"]
     assert route["resumed"] == []
     work = first.run_dir / "route"
-    assert RouteState(work).finished == ["islands", "main"]
+    state = RouteState(work)
+    state.set_order(["pour", "signals"])
+    assert state.finished == ["pour", "signals"]
 
     again = _run(script, monkeypatch)
     assert again.status == "ok" and again.run_dir == first.run_dir
     again_route = again.record.metrics["route"]
-    assert again_route["resumed"] == ["islands", "main"]
-    for k in ("closure", "closure_clean", "open_after", "islands", "shorted", "violations"):
+    assert again_route["resumed"] == ["pour", "signals"]
+    for k in ("closure", "closure_clean", "open_after", "shorted", "violations", "vias", "track_mm", "drc_new"):
         assert again_route[k] == route[k], k
 
     fresh = _run(script, monkeypatch, resume=False)

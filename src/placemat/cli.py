@@ -74,22 +74,21 @@ def parser() -> argparse.ArgumentParser:
                           "its time) or refuse, saying what changed; without it a saved explore that is this one is "
                           "continued anyway")
     run.add_argument("--no-resume", action="store_true",
-                     help="start over: drop a saved explore (with --explore) and route every stage again (with --route)")
+                     help="start over: drop a saved explore (with --explore) and route every phase again (with --route)")
 
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     rt.add_argument("--exclude", nargs="*", default=[], help="nets to leave unrouted (planes, pours)")
     rt.add_argument("--islands", nargs="*", default=[], metavar="NET[=WIDTH][@LAYER,...]",
-                    help="nets with pours whose pads the pours do not reach: routed first and alone, at the "
-                         "netclass width or WIDTH mm, their tracks on the LAYERs given (F, In1, B, ...) or on the "
-                         "route's own (adds to [route] islands)")
+                    help="replaced by routing phases: a [[route.phase]] with `nets` and `width` routes a poured net "
+                         "alone; a route given --islands is refused")
     rt.add_argument("--layers", nargs="*", help="copper layers to route on (default: all)")
     rt.add_argument("--full", action="store_true", help="the router's full run, not one round")
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
     rt.add_argument("--out", help="work directory (default: <board dir>/.placemat/route)")
     rt.add_argument("--no-resume", action="store_true",
-                    help="route every stage again; by default the stages (pairs, islands, main) an earlier route of "
-                         "the same inputs finished in the work directory are taken, not routed again")
+                    help="route every phase again; by default the phases an earlier route of the same inputs "
+                         "finished in the work directory are taken, not routed again")
     rt.add_argument("--json", action="store_true")
     keep = rt.add_mutually_exclusive_group()
     keep.add_argument("--adopt", nargs="+", metavar="NET",
@@ -723,31 +722,34 @@ def cmd_route(args) -> int:
     cfg = load(src.board_dir if src is not None else pcb.parent, script=_script_of(p))       # the board's own [route] settings
     from .kicad.route import plane_nets_of
     planes = plane_nets_of(pcb)             # served by their pours, as run --route leaves them
+    from .kicad.route import RouteRefused, RouterMissing, refused_text, router_missing_text
+    if args.islands:
+        console.say("route", refused_text("legacy_setting", {"setting": "islands"}), level="fail")
+        return 2
     with bind(cfg):
-        from .settings import active, parse_island_layers, parse_islands
-        try:
-            flag, flag_layers = parse_islands(args.islands), parse_island_layers(args.islands)
-        except ValueError as e:
-            console.say("route", "--islands: %s" % e, level="fail")
-            return 2
-        islands = parse_islands(active().route_islands)
-        islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
-        island_layers = dict(parse_island_layers(active().route_islands), **flag_layers)      # and its layers
         from . import channel
+        from .route_phase import PhaseError
         channel.reporter(p)                 # the route's own socket: readers follow it net by net
         said = (lambda fs: None) if args.json else (lambda fs: [console.finding(f, "route") for f in fs])
-        from .kicad.route import RouterMissing, router_missing_text
         try:
-            report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
-                                 quick=not args.full, iterations=args.iterations, islands=islands, island_layers=island_layers,
+            report = route_board(pcb, work, exclude_nets=set(args.exclude), pour_nets=planes, layers=args.layers,
+                                 quick=not args.full, iterations=args.iterations,
                                  resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {},
                                  on_setup=said)
-        except RouterMissing as e:
+        except (RouterMissing, RouteRefused) as e:
             channel.error("route_refused", **e.record())
             if args.json:
                 console.data(json.dumps(e.record(), indent=2))
             else:
-                console.say("route", router_missing_text(e.code, e.facts), level="fail")
+                console.say("route", router_missing_text(e.code, e.facts) if isinstance(e, RouterMissing) else str(e),
+                            level="fail")
+            return 2
+        except PhaseError as e:
+            channel.error("route_phase", code=e.code, facts=e.facts)
+            if args.json:
+                console.data(json.dumps({"code": e.code, "facts": e.facts}, indent=2))
+            else:
+                console.say("route", str(e), level="fail")
             return 2
         except Exception as e:
             channel.exception(e)

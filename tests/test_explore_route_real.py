@@ -19,6 +19,7 @@ if router_missing():
 
 def test_a_real_explore_routes_the_plain_placement_and_its_new_bests_as_it_goes(tmp_path):
     mod, script, src = _searched_module(tmp_path)
+    (mod / "placemat.toml").write_text('[[route.phase]]\nname = "signals"\n')      # the rest phase alone
     done = subprocess.run([sys.executable, "-m", "placemat", "run", str(script), "--no-render", "--keep-going", "--explore", "8",
                            "--jobs", "2", "--route-best", "--accept"], cwd=ROOT, capture_output=True, text=True, timeout=900)
     out = done.stdout + done.stderr

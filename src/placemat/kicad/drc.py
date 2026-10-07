@@ -295,3 +295,32 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
                 report.open_nets[m.group(1)] += 1
                 break
     return report
+
+
+NEAR_MM = 0.05      # test (a)'s match distance (fixtures/reference/route_ref.py NEAR_MM)
+
+
+def real_errors(data: dict, is_real) -> list:
+    """The violations of a kicad-cli DRC report in the `real` bucket (`is_real(kind)`, DrcReport.is_real: the
+    `[drc] real_kinds`) at severity error, not set aside by a keepout's allow list: {"type", "nets", "at_mm"}, nets
+    sorted (each item's "[NET]", as route._violations_by_net reads them), at_mm the least item position. Warnings and
+    the other buckets never count."""
+    out = []
+    for v in data.get("violations", []):
+        if v.get("severity") != "error" or not is_real(v.get("type", "")) or _permitted(v, {}):
+            continue
+        items = v.get("items", [])
+        nets = tuple(sorted({m.group(1) for i in items for m in [_NET_RE.search(i.get("description", ""))] if m}))
+        at = min(((float((i.get("pos") or {}).get("x", 0.0)), float((i.get("pos") or {}).get("y", 0.0))) for i in items),
+                 default=(0.0, 0.0))
+        out.append({"type": v.get("type", ""), "nets": nets, "at_mm": at})
+    return out
+
+
+def new_errors(after: list, baseline: list, tol_mm: float = NEAR_MM) -> list:
+    """What `after` (real_errors) has that no baseline error of the same type and nets matches within `tol_mm` on
+    each axis (test (a)'s rule, fixtures/reference/route_ref.py new_violations)."""
+    def known(v):
+        return any(b["type"] == v["type"] and b["nets"] == v["nets"] and abs(b["at_mm"][0] - v["at_mm"][0]) <= tol_mm
+                   and abs(b["at_mm"][1] - v["at_mm"][1]) <= tol_mm for b in baseline)
+    return [v for v in after if not known(v)]

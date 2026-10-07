@@ -3,10 +3,7 @@ per-net clearance map itself (the router's own class map, each halo net at the l
 halo) and hands it to every router pass. Before the route, a pad of another net inside a halo whose own copper ends
 inside it too is a `setup.net_halo` finding: the router cannot lead it out."""
 import json
-import os
 import shutil
-import sys
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -129,22 +126,6 @@ def test_every_router_command_carries_the_map_when_given_one():
     assert "--net-clearances" not in plain
 
 
-FAKE = textwrap.dedent('''
-    import json, os, shutil, sys
-    a = sys.argv[1:]
-    with open(os.environ["FAKE_ROUTER_LOG"], "a") as f:
-        f.write(json.dumps(a) + "\\n")
-    shutil.copy(a[0], a[1])
-    if "--json-out" in a:
-        open(a[a.index("--json-out") + 1], "w").write("{}")
-''')
-
-FAKE_LIST_NETS = textwrap.dedent('''
-    def net_clearance_map_by_id(pcb_path, nets, design_rules=None):
-        return {nid: 0.3 for nid, name in nets.items() if name in ("SW", "VIN")}
-''')
-
-
 def _two_part_board(tmp_path) -> Path:
     """Two parts: U1 with SW, FB and VIN pads, J1 with FB and VIN; SW also drawn as a short track."""
     def part(ref, x, y, pads):
@@ -167,59 +148,15 @@ def _two_part_board(tmp_path) -> Path:
     return pcb
 
 
-@pytest.fixture
-def rig(tmp_path, monkeypatch):
-    pytest.importorskip("pcbnew")
-    krt = tmp_path / "krt"
-    (krt / ".venv/bin").mkdir(parents=True)
-    (krt / ".venv/bin/python").symlink_to(sys.executable)
-    (krt / "py_router").mkdir()
-    (krt / "py_router/route.py").write_text(FAKE)
-    (krt / "py_router/list_nets.py").write_text(FAKE_LIST_NETS)
-    (krt / "VERSION").write_text("fake-1\n")
-    monkeypatch.setenv("FAKE_ROUTER_LOG", str(tmp_path / "calls"))
-
-    class Rig:
-        pcb = _two_part_board(tmp_path)
-        work = tmp_path / "route"
-        router = krt
-
-        def calls(self):
-            log = tmp_path / "calls"
-            return [json.loads(l) for l in log.read_text().splitlines()] if log.exists() else []
-    return Rig()
-
-
-@needs_kicad
-def test_the_island_and_main_passes_carry_one_map_and_the_report_and_its_findings_say_so(rig):
-    from placemat.kicad.route import route_board
-    said = []
-    with bind(Settings(route_net_halos={"SW": 2.0, "GONE": 1.0})):
-        report = route_board(rig.pcb, rig.work, router_dir_override=str(rig.router), layers=["F.Cu", "B.Cu"],
-                             islands={"VIN": None}, on_setup=said.extend)
-    calls = rig.calls()
-    assert len(calls) == 2                                           # the island net, then the main pass
-    maps = {c[c.index("--net-clearances") + 1] for c in calls}
-    assert maps == {str(rig.work.resolve() / "net_clearances.json")}
-    assert json.loads(Path(maps.pop()).read_text()) == {"SW": 2.0, "VIN": 0.3}
-    assert report.net_halos == {"SW": 2.0} and report.net_halos_missing == ["GONE"]
-    # U1.2 (FB) sits 0.4 mm from the SW pad, no copper of its own: trapped. VIN at U1.3 is 3.4 mm off: not judged.
-    assert [(r["ref"], r["number"], r["pad_net"]) for r in report.net_halo_trapped] == [("U1", "2", "FB")]
-    # the findings were handed over before the first router call ran, and the report carries the same ones
-    assert [f.cause for f in said] == [C.SETUP_NET_HALO, C.SETUP_NET_HALO]
-    assert {f.facts["variant"] for f in said} == {"trapped", "no_net"}
-    assert [f.facts for f in report.findings() if f.cause is C.SETUP_NET_HALO] == [f.facts for f in said]
-    d = report.as_dict()
-    assert d["net_halos"] == {"SW": 2.0} and d["net_halos_missing"] == ["GONE"] and len(d["net_halo_trapped"]) == 1
-
-
-@needs_kicad
-def test_with_no_halo_on_the_board_no_map_is_passed(rig):
-    from placemat.kicad.route import route_board
-    with bind(Settings(route_net_halos={"GONE": 1.0})):
-        report = route_board(rig.pcb, rig.work, router_dir_override=str(rig.router), layers=["F.Cu", "B.Cu"], islands={})
-    assert all("--net-clearances" not in c for c in rig.calls())
-    assert report.net_halos == {} and report.net_halos_missing == ["GONE"]
+def test_a_route_with_net_halos_set_is_refused_naming_what_replaces_them(tmp_path):
+    from placemat.kicad.route import RouteRefused, route_board
+    from tests.phase_helpers import phases
+    with bind(Settings(route_net_halos={"SW": 2.0})):
+        with pytest.raises(RouteRefused) as e:
+            route_board(_two_part_board(tmp_path), tmp_path / "route", phases=phases())
+    assert e.value.code == "legacy_setting" and e.value.facts["setting"] == "net_halos"
+    assert str(e.value) == ("route: [route] net_halos is replaced by routing phases: the clearance field of the net's "
+                            "type in the capture")
 
 
 @needs_kicad
@@ -338,59 +275,6 @@ def test_a_pad_outside_the_halo_or_on_another_layer_or_of_a_net_not_judged_is_le
 
 
 # ---------------------------------------------------------------- a real route
-
-def _halo_board(tmp_path) -> Path:
-    """A two-layer board. SW is drawn whole: a 0.6 mm track from U1's SW pad up to L1's, a wall from y 104 to y 115.
-    FB's pad sits 0.4 mm east of the SW pad with an escape that runs 3.5 mm south, out past a 2 mm halo, to J1 at the
-    east edge. EN's pad sits 0.4 mm west of it with no escape. SIG joins J2 west of the wall to J3 east of it."""
-    def part(ref, x, y, pads):
-        body = "".join('\t\t(pad "%d" smd rect (at %g 0) (size 0.6 0.6) (layers "F.Cu" "F.Mask") (net %d "%s"))\n'
-                       % (i + 1, at, NET_IDS[net], net) for i, (net, at) in enumerate(pads))
-        return ('\t(footprint "t:p" (layer "F.Cu") (at %g %g)\n\t\t(property "Reference" "%s" (at 0 -2 0) '
-                '(layer "F.SilkS"))\n%s\t)\n' % (x, y, ref, body))
-    pcb = tmp_path / "board" / "layout.kicad_pcb"
-    pcb.parent.mkdir()
-    pcb.write_text('(kicad_pcb\n\t(version 20241229)\n\t(generator "test")\n\t(general (thickness 1.6))\n'
-                   '\t(layers\n\t\t(0 "F.Cu" signal)\n\t\t(2 "B.Cu" signal)\n\t\t(25 "Edge.Cuts" user)\n'
-                   '\t\t(1 "F.Mask" user)\n\t\t(5 "F.SilkS" user)\n\t)\n'
-                   + "".join('\t(net %d "%s")\n' % (i, n) for n, i in NET_IDS.items())
-                   + part("U1", 114.5, 115, [("SW", 0.0), ("FB", 1.0), ("EN", -1.0)])
-                   + part("L1", 114.5, 104, [("SW", 0.0)])
-                   + part("J1", 140, 125, [("FB", 0.0), ("EN", 2.0)])
-                   + part("J2", 104, 110, [("SIG", 0.0)])
-                   + part("J3", 126, 110, [("SIG", 0.0)])
-                   + '\t(segment (start 114.5 115) (end 114.5 104) (width 0.6) (layer "F.Cu") (net %d))\n' % NET_IDS["SW"]
-                   + '\t(segment (start 115.5 115) (end 115.5 118.5) (width 0.25) (layer "F.Cu") (net %d))\n' % NET_IDS["FB"]
-                   + '\t(gr_rect (start 100 98) (end 150 130) (stroke (width 0.1) (type solid)) (fill no) (layer "Edge.Cuts"))\n)\n')
-    _project(pcb, [{"name": "Default", "clearance": 0.15, "track_width": 0.25, "via_diameter": 0.6, "via_drill": 0.3}])
-    return pcb
-
-
-NET_IDS = {"SW": 1, "FB": 2, "EN": 3, "SIG": 4}
-
-
-@needs_kicad
-@needs_router
-def test_a_real_route_keeps_new_copper_the_halo_from_the_switch_net_and_reaches_a_pad_led_out_past_it(tmp_path):
-    from placemat.board_geometry import added_copper
-    from placemat.geometry import poly_distance
-    from placemat.kicad.read import read_board
-    from placemat.kicad.route import route_board
-    pcb = _halo_board(tmp_path)
-    said = []
-    with bind(Settings(route_net_halos={"SW": 2.0})):
-        report = route_board(pcb, tmp_path / "route", layers=["F.Cu", "B.Cu"], islands={}, on_setup=said.extend)
-    # EN has no copper out of the halo: said before the route; FB's escape leads out past it
-    assert [(f.facts["ref"], f.facts["number"], f.facts["pad_net"]) for f in said] == [("U1", "3", "EN")]
-    assert said[0].facts["reach_mm"] == pytest.approx(0.7, abs=0.01)
-    assert "FB" not in report.open_nets and "SIG" not in report.open_nets, report.open_nets
-    given, routed = read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb)
-    sw = [c for c in routed.copper if c.net == "SW"]
-    new = [c for c in added_copper(given.copper, routed.copper) if c.net in ("FB", "SIG")]
-    assert {c.net for c in new} == {"FB", "SIG"}
-    gaps = [poly_distance(a, b) for c in new for s in sw if c.layers & s.layers for a in c.outlines for b in s.outlines]
-    assert gaps and min(gaps) >= 2.0 - 0.005, min(gaps)
-
 
 def test_the_route_command_says_a_trapped_pad_before_the_route_once_and_json_carries_it(tmp_path, monkeypatch, capsys):
     from placemat import cli

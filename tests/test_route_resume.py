@@ -1,7 +1,6 @@
-"""A route that is stopped or fails keeps the stages it finished (pairs,
-islands, main) in its work folder, and a rerun with the same inputs skips
-them. The router is a stand-in script here (it copies its board and logs the
-call): what is tested is placemat's stage handling, not routing."""
+"""A route that is stopped or fails keeps the phases it finished in its work folder, and a rerun with the same inputs
+skips them. The router is a stand-in script here (it copies its board and logs the call): what is tested is placemat's
+phase handling, not routing. The rig routes two phases: the pour net GND alone, then the rest."""
 import json
 import os
 import shutil
@@ -16,6 +15,7 @@ import pytest
 
 from placemat.kicad import route_state
 from placemat.kicad.route_state import RouteState
+from tests.phase_helpers import fake_capabilities, phases
 
 ROOT = Path(__file__).resolve().parent.parent
 BOARD = ROOT / "fixtures/fairing/keep_out/modules/usb5v/generated/Usb5v"
@@ -113,6 +113,9 @@ def test_a_state_file_that_is_not_readable_is_no_state(tmp_path):
 
 
 # ---------------------------------------------------------------- route_board, with a stand-in router
+PHASES = phases({"name": "pour", "nets": ["GND"]}, {"name": "signals"})
+
+
 @pytest.fixture
 def rig(tmp_path, monkeypatch):
     pytest.importorskip("pcbnew")
@@ -123,6 +126,7 @@ def rig(tmp_path, monkeypatch):
     (krt / "py_router/route.py").write_text(FAKE)
     (krt / "py_router/list_nets.py").write_text("def net_clearance_map_by_id(pcb_path, nets, design_rules=None):\n    return {}\n")
     (krt / "VERSION").write_text("fake-1\n")
+    fake_capabilities(krt)
     board = tmp_path / "board"
     board.mkdir()
     for ext in (".kicad_pcb", ".kicad_pro"):
@@ -142,38 +146,46 @@ def rig(tmp_path, monkeypatch):
         def route(self, **kw):
             from placemat.kicad.route import route_board
             kw.setdefault("layers", ["F.Cu", "B.Cu"])
-            kw.setdefault("islands", {"GND": None})
+            kw.setdefault("pour_nets", {"GND"})
             kw.setdefault("exclude_nets", {"VBUS"})
+            kw.setdefault("phases", PHASES)
             return route_board(self.pcb, self.work, router_dir_override=str(krt), **kw)
     return Rig()
 
 
-def test_a_rerun_with_the_same_inputs_skips_every_stage_the_first_finished(rig):
+def _finished(work, order=("pour", "signals")) -> list:
+    s = RouteState(work)
+    s.set_order(list(order))
+    return s.finished
+
+
+def test_a_rerun_with_the_same_inputs_skips_every_phase_the_first_finished(rig):
     first = rig.route()
     assert rig.calls() == ["island", "main"] and first.resumed == []
-    assert RouteState(rig.work).finished == ["islands", "main"]
+    assert _finished(rig.work) == ["pour", "signals"]
     again = rig.route()
     assert rig.calls() == ["island", "main"]                          # no router ran
-    assert again.resumed == ["islands", "main"]
-    assert (again.closure, again.open_after, again.islands) == (first.closure, first.open_after, first.islands)
+    assert again.resumed == ["pour", "signals"] and [p["reused"] for p in again.phases] == [True, True]
+    assert (again.closure, again.open_after) == (first.closure, first.open_after)
+    assert [p["asked"] for p in again.phases] == [p["asked"] for p in first.phases]
     assert Path(again.routed_pcb).exists() and abs(again.seconds - first.seconds) < 0.5
 
 
-def test_a_main_pass_that_fails_leaves_the_islands_done_and_the_rerun_does_only_the_main(rig, monkeypatch):
+def test_a_rest_phase_that_fails_leaves_the_pour_phase_done_and_the_rerun_does_only_the_rest(rig, monkeypatch):
     monkeypatch.setenv("FAKE_ROUTER_MAIN", "fail")
     with pytest.raises(RuntimeError, match="router exited 3"):
         rig.route()
     assert rig.calls() == ["island", "main"]
-    assert RouteState(rig.work).finished == ["islands"]
-    assert (rig.work / "islands.kicad_pcb").exists()
+    assert _finished(rig.work) == ["pour"]
+    assert (rig.work / "p0_0.kicad_pcb").exists()
     monkeypatch.delenv("FAKE_ROUTER_MAIN")
     done = rig.route()
-    assert rig.calls() == ["island", "main", "main"] and done.resumed == ["islands"]
+    assert rig.calls() == ["island", "main", "main"] and done.resumed == ["pour"]
 
 
-def test_a_changed_input_reruns_the_stages_it_reaches(rig, monkeypatch):
+def test_a_changed_input_reruns_the_phases_it_reaches(rig, monkeypatch):
     rig.route()
-    # the excluded nets decide which pours are guarded in the board every stage routes on: every stage is new
+    # the excluded nets are in every phase's key: every phase is new
     again = rig.route(exclude_nets={"VBUS", "V3V3"})
     assert rig.calls() == ["island", "main", "island", "main"] and again.resumed == []
     # a changed board is new for the same reason
@@ -183,43 +195,46 @@ def test_a_changed_input_reruns_the_stages_it_reaches(rig, monkeypatch):
     assert rig.calls() == ["island", "main"] * 3 and third.resumed == []
 
 
-def test_without_resume_every_stage_runs_again(rig):
+def test_without_resume_every_phase_runs_again(rig):
     rig.route()
     again = rig.route(resume=False)
     assert rig.calls() == ["island", "main"] * 2 and again.resumed == []
 
 
-def test_pairs_are_a_stage_too(rig, monkeypatch):
-    import placemat.kicad.route as route_mod
+def test_a_pair_phase_is_kept_and_reused_like_any_other(rig, monkeypatch):
+    import placemat.kicad.phase_run as phase_run
     from placemat.kicad.route import Pairs
     calls = []
 
-    def stand_in(rpy, router_dir_path, pcb_in, work, pairs, layers, cfg, iterations, probe, timeout, env, events=None, pair_layers=None, halos=None):
-        calls.append(1)
-        out = work / "pairs.kicad_pcb"
+    def stand_in(rpy, router_dir_path, pcb_in, work, pairs, layers, cfg, iterations, probe, timeout, env, events=None,
+                 pair_layers=None, halos=None, stem="pairs"):
+        calls.append(list(pairs))
+        out = work / (stem + ".kicad_pcb")
         shutil.copy(pcb_in, out)
-        return out, Pairs(["USB"], [], [], [], {"USB_P", "USB_N"})
-    monkeypatch.setattr(route_mod, "route_pairs", stand_in)
-    monkeypatch.setattr("placemat.pairs.board_pair_list", lambda netclasses: [("USB_P", "USB_N")])
-    first = rig.route()
-    assert calls == [1] and first.pairs["coupled"] == ["USB"]
-    again = rig.route()
-    assert calls == [1] and again.resumed == ["pairs", "islands", "main"] and again.pairs["coupled"] == ["USB"]
-    # the main pass leaves the pair's nets alone: they are in its command, so in its digest
+        return out, Pairs(["FB_5V/FB_5V_GND"], [], [], [], {"FB_5V", "FB_5V_GND"})
+    monkeypatch.setattr(phase_run, "route_pairs", stand_in)
+    three = phases({"name": "pair", "pairs": [["FB_5V", "FB_5V_GND"]]}, {"name": "pour", "nets": ["GND"]},
+                   {"name": "signals"})
+    first = rig.route(phases=three)
+    assert calls == [[("FB_5V", "FB_5V_GND")]] and first.pairs["coupled"] == ["FB_5V/FB_5V_GND"]
+    again = rig.route(phases=three)
+    assert len(calls) == 1 and again.resumed == ["pair", "pour", "signals"]
+    assert again.pairs["coupled"] == ["FB_5V/FB_5V_GND"]
     assert rig.calls() == ["island", "main"]
 
 
 # ---------------------------------------------------------------- a real stop
-def test_a_stopped_route_keeps_the_finished_stages_ends_the_router_and_resumes(rig, monkeypatch):
+def test_a_stopped_route_keeps_the_finished_phases_ends_the_router_and_resumes(rig, monkeypatch):
     code = textwrap.dedent("""
         import sys
         from pathlib import Path
         from placemat import stop
         from placemat.kicad.route import route_board
+        from tests.test_route_resume import PHASES
         stop.install()
         try:
             route_board(Path(sys.argv[1]), Path(sys.argv[2]), router_dir_override=sys.argv[3], layers=["F.Cu", "B.Cu"],
-                        islands={"GND": None}, exclude_nets={"VBUS"})
+                        pour_nets={"GND"}, exclude_nets={"VBUS"}, phases=PHASES)
         except stop.Stopped as s:
             print("stopped", flush=True)
             sys.exit(s.exit_code)
@@ -242,6 +257,6 @@ def test_a_stopped_route_keeps_the_finished_stages_ends_the_router_and_resumes(r
     assert proc.returncode == 143 and "stopped" in out, (out, err)
     time.sleep(0.5)
     assert not Path("/proc/%d" % router).exists(), "the router outlived the stop"
-    assert RouteState(rig.work).finished == ["islands"] and (rig.work / "islands.kicad_pcb").exists()
+    assert _finished(rig.work) == ["pour"] and (rig.work / "p0_0.kicad_pcb").exists()
     done = rig.route()
-    assert rig.calls() == ["island", "main", "main"] and done.resumed == ["islands"]
+    assert rig.calls() == ["island", "main", "main"] and done.resumed == ["pour"]

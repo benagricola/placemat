@@ -193,6 +193,7 @@ def test_the_router_directory_prefers_the_settings_over_the_environment(monkeypa
 
 def test_with_no_router_named_a_route_refuses_naming_the_setting_and_the_variable(monkeypatch, tmp_path):
     from placemat.kicad import route
+    from tests.phase_helpers import phases
     monkeypatch.delenv("KRT_DIR", raising=False)
     with pytest.raises(route.RouterMissing) as e:
         route.router_dir(Settings())
@@ -200,14 +201,15 @@ def test_with_no_router_named_a_route_refuses_naming_the_setting_and_the_variabl
     assert e.value.record() == {"code": "router_unset", "setting": "[route] router_dir", "env": "KRT_DIR"}
     assert "[route] router_dir" in str(e.value) and "$KRT_DIR" in str(e.value)
     with bind(Settings()), pytest.raises(route.RouterMissing):
-        route.route_board(tmp_path / "b.kicad_pcb", tmp_path / "work")
+        route.route_board(tmp_path / "b.kicad_pcb", tmp_path / "work", phases=phases())
 
 
 def test_a_router_folder_without_a_router_is_refused_with_what_it_lacks(monkeypatch, tmp_path):
     from placemat.kicad import route
+    from tests.phase_helpers import phases
     monkeypatch.setenv("KRT_DIR", str(tmp_path))
     with bind(Settings()), pytest.raises(route.RouterMissing) as e:
-        route.route_board(tmp_path / "b.kicad_pcb", tmp_path / "work")
+        route.route_board(tmp_path / "b.kicad_pcb", tmp_path / "work", phases=phases())
     assert e.value.record() == {"code": "router_not_found", "path": str(tmp_path), "source": "$KRT_DIR",
                                 "missing": [".venv/bin/python", "py_router/route.py"]}
 

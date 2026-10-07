@@ -36,6 +36,14 @@ class RunFailure(Exception):
         return {"failure": self.kind, **({"item": self.details["item"]} if self.details.get("item") else {}), "detail": detail}
 
 
+def _capture_beside(pcb) -> Path | None:
+    """The capture's nets.layout.json beside the run's board, for routes made on boards written elsewhere (an
+    explore's variants); None when there is none."""
+    from .capture_nets import SIDECAR
+    path = Path(pcb).with_name(SIDECAR)
+    return path if path.is_file() else None
+
+
 def _merged_by_cell(merged) -> list:
     """(cell, "GND on In1.Cu, In4.Cu; V3V3 on In3.Cu (its pads were ...)")
     per cell, in the order the write met them."""
@@ -529,7 +537,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 lock_entries, explored = explore_mod.before_resolve(
                     script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
                     explore, say, run_id=rid, keep_state=True, variants_dir=run_dir / "explore",
-                    route_exclude=route_exclude, route_resume=resume)
+                    route_exclude=route_exclude, route_resume=resume, route_capture=_capture_beside(src.pcb))
         except (explore_mod.FocusError, ResumeRefused) as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         stage = "resolve"
@@ -749,11 +757,15 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                     (run_dir / "plan.json").write_text(json.dumps(plan_json(plan, declared_sites(board)), separators=(",", ":")))
                 except Exception as e:                  # a courtesy: the run goes on without it
                     say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
-                from .kicad.route import RouterFailed, RouterMissing
+                from .kicad.route import RouteRefused, RouterFailed, RouterMissing
+                from .route_phase import PhaseError
                 try:
-                    report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
-                                         quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)},
+                    report = route_board(src.pcb, run_dir / "route", exclude_nets=set(route_exclude),
+                                         pour_nets=set(plan.plane_nets), quick=route_quick, resume=resume,
+                                         board_info={"run": rec.run_id, "script": str(script)},
                                          on_setup=lambda fs: [console.finding(f, "route") for f in fs])
+                except (RouteRefused, PhaseError) as e:
+                    raise RunFailure("route", "Routing refused", {"code": e.code, "facts": e.facts, "error": str(e)}) from e
                 except RouterFailed as e:
                     raise RunFailure("route", "Routing failed", {"error": e.what, "exit_code": e.exit_code, "log": str(e.log),
                                                                  "tail": e.tail}) from e

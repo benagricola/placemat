@@ -674,7 +674,9 @@ FAILURES = {"generation": "Schematic generation failed", "script": "Layout scrip
 def failure_text(ev: dict) -> str:
     """What an `error` event says, as a person reads it. Its `kind`: `run_failure` (`failure` is the stage, `detail` the free text of
     what raised it, `item` the item a placement failure names), `exception` (`type`, `detail`), `probe_refused` (probe.refusal_text),
-    `route_refused` (no router to route with: kicad.route.router_missing_text of its `code` and facts),
+    `route_refused` (no router to route with: kicad.route.router_missing_text of its `code` and facts; or a route placemat will not
+    start or go on with: kicad.route.refused_text of its `code` and facts), `route_phase` (a routing phase that cannot be obeyed:
+    route_phase.phase_error_text of its `code` and `facts`),
     `lost` (the connection ended with no `done`; `last` is the last event seen), `died` (the same, from the trail), `cannot_follow`
     (`detail`)."""
     kind = ev.get("kind")
@@ -693,8 +695,14 @@ def failure_text(ev: dict) -> str:
         from . import probe
         return probe.refusal_text(ev)
     if kind == "route_refused":
-        from .kicad.route import router_missing_text
+        from .kicad.route import _REFUSED, refused_text, router_missing_text
+        if ev.get("code") in _REFUSED:
+            return refused_text(ev["code"], ev)
         return router_missing_text(ev.get("code"), ev)
+    if kind == "route_phase":
+        from .route_phase import _TEXT, phase_error_text
+        code, facts = ev.get("code"), ev.get("facts") or {}
+        return phase_error_text(code, facts) if code in _TEXT else "route.phase: %s %s" % (code, json.dumps(facts))
     if kind == "lost":
         last = ev.get("last")
         return "the command stopped without saying it was done" + ((" (last: %s)" % describe(last)) if last else "")

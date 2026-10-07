@@ -18,10 +18,6 @@ VERSION = 2
 FINAL = ("router*", "routed*", "drc_after.json", "route.json", "route_record.json", "route_summary.json")
 
 
-# Transitional (Task 13 removes it): what the fixed-stage route leaves for each of its stages.
-LEGACY_FILES = {"pairs": ("pairs*",), "islands": ("islands*",), "classes": ("classes*",)}
-
-
 def digest(*parts) -> str:
     return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -55,8 +51,7 @@ class RouteState:
 
     @property
     def finished(self) -> list:
-        # Before set_order, the saved route's own order.
-        return [n for n in (self.order or self._saved_order) if n in self.phases]
+        return [n for n in self.order if n in self.phases]
 
     def _load(self) -> None:
         try:
@@ -97,9 +92,6 @@ class RouteState:
     def _delete_from(self, index: int) -> None:
         last = max(len(self._saved_order), len(self.order))       # every index either phase list used
         patterns = [p for i in range(index, max(index, last)) for p in files_of(i)] + list(FINAL)
-        # Transitional, until the phase engine replaces the fixed-stage route (Task 13): the files of its stages.
-        for name in self.order[index:] + self._saved_order[index:]:
-            patterns += LEGACY_FILES.get(name, ())
         for pattern in patterns:
             for p in self.work.glob(pattern):
                 try:
