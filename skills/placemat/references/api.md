@@ -3964,7 +3964,9 @@ A phase has at most one selector:
 | `net_types` | every net of these Zener net types (the capture) |
 
 A phase with none is the rest: every connection still open when it runs, pour nets left out. A phase selects only
-connections still open when it runs; a connection an earlier phase joined is not routed again. A selector that names a
+connections still open when it runs; a connection an earlier phase joined is not routed again. A pair is selected
+when either member remains open. The connected member's input copper stays fixed; the pair router may report
+`single_ended` fallback for the remaining member, which does not certify coupled pair geometry. A selector that names a
 net, class, part, pad, type or layer the board lacks, or a glob that matches nothing, refuses the route naming it
 (`route.phase 'NAME': no net 'X' on this board`); so does a selector the board's generator cannot answer (`interfaces`,
 `net_types` and `pairs = true` need the capture's `nets.layout.json` beside the board).
@@ -3972,7 +3974,8 @@ net, class, part, pad, type or layer the board lacks, or a glob that matches not
 `width`: a number is that width in mm on every layer; `"current"` sizes each connection from the lesser current of its
 two carriers by IPC-2221 at `[check] rise_c`, per layer; a current bus retains one
 call boundary per selected bus, passing both its connection tasks and its bus group (a selected net with fewer than two carriers is refused); left
-out, the net classes' widths. `layers`: the copper layers the phase's tracks may use, by `F`, `In1` to `In30`, `B` or
+out, the net classes' widths. Pair phases use their net classes' widths and refuse an explicit phase width.
+`layers`: the copper layers the phase's tracks may use, by `F`, `In1` to `In30`, `B` or
 their `.Cu` names; vias still pass the others. `neckdown`: the router's pad neck-down, on by default (route.py's
 only: the pair router has none). `router_args`: the router's flags for this phase's calls, its pair call included,
 after `[route] router_args` (`[route] pair_router_args` for the pair call); the flags placemat sets itself are refused,
@@ -3981,7 +3984,9 @@ and so, in a phase that routes pairs, is a flag the pair router does not take (`
 A phase's nets keep their net classes' clearances (`clearance` is not a phase key). The router spaces every net of one
 call at the largest clearance among the nets it routes, so a phase whose nets have different clearances routes one call
 per clearance, widest first, then the Default's; each call's copper is locked before the next. A `--clearance` or
-`--clearance-ceiling` in `route.router_args` is applied to both sides as the router applies it. Pad-to-pad tasks of one
+`--clearance-ceiling` in the effective global and phase `router_args` is applied in that order, as the router
+applies it. A ceiling caps the class contribution; the capture's stated net clearance remains an immutable lower
+bound and cannot be reduced by either override. Pad-to-pad tasks of one
 net at different widths route one call per width, widest first. A phase's pairs, buses, pour nets, tasks and nets route
 in that order.
 
@@ -4024,15 +4029,22 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
 - `open`: each obligation not clean, with `outcome` (its task record's `status`; null for a whole-net call),
   `evidence` (the router's own record of why, as it gave it; null when it gave none), `violated: true` when joined
   but its net has a real DRC error, and `under` (`{layer: mm}`) when joined narrower than asked.
-- `final_closure_clean`, `final_open`: the same obligations judged again on the final board, after the last phase and
-  the clean-up. A short or narrow join a later phase made shows here; a fault is not attributed to a phase.
+- `final_asked`, `final_closure_clean`, `final_open`: the stable comparison obligations judged on the final board,
+  after the last phase and the clean-up. Explicit tasks retain their selected ends and widths. Whole-net selections
+  use all selected pad identities and net membership, with a deterministic spanning set solely to judge their
+  connectivity; these pairs never direct routing. The `comparison_contract` binds the phase definition and these electrical
+  obligations, independent of placement coordinates and the router's airwire topology. Initial `asked` and `open`
+  remain diagnostic records. A short, narrow or unproven join left by a later phase shows in the final fields; a fault
+  is not attributed to a phase.
 
 The report also has `vias`, `track_mm` and `segments` (the copper the route added on the final board, as the router's
 own quality key counts a board's: vias, the straight segments' length end to end, and their count; arcs are left out
 as there), `drc_new` (errors in the DRC's `real` bucket on
 the final board that the unrouted board does not have, matched by type, nets and position within 0.05 mm; warnings and
 the other buckets never count; null when a DRC wrote no report) and `widths_failed` (obligations joined on the final
-board narrower than asked along their path, or reported `joined_narrow` by the router). The board-wide `closure`, `closure_clean` and `open_nets` are as before.
+board narrower than asked along their path, reported `joined_narrow` by the router, or lacking a required-width
+proof (`width_unknown`)). Unproven width is conservative uncertified evidence, not a measured narrow path or proof
+of physical impossibility. The board-wide `closure`, `closure_clean` and `open_nets` are as before.
 
 **Refusals.** A route placemat will not start says why and exits 2 (`placemat route --json` and the live channel carry
 the code and its facts):
