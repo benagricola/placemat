@@ -352,10 +352,21 @@ def _end_on(p, q) -> bool:
     return abs(p.x - q.x) < MERGE_EPS_NM and abs(p.y - q.y) < MERGE_EPS_NM
 
 
-def merge_close_vias(board, mine: set, pcbnew, keep_nets=frozenset()) -> tuple:
+def _via_rank(via, ends, mine) -> tuple:
+    """The order the router's vias are taken in, the first of a close pair kept: the via the most copper that cannot
+    move ends on (given tracks and arcs), then the most track ends, then the lower x and y. Diverges from KRT, which
+    takes its new vias in the order it placed them: the routed file lists them by uuid, so board order would make the
+    choice by uuid. A via with more ends on it leaves fewer to move."""
+    fixed = sum(1 for t in ends if t.GetClass() != "PCB_TRACK" or t.m_Uuid.AsString() not in mine)
+    at = via.GetPosition()
+    return (-fixed, -len(ends), at.x, at.y)
+
+
+def merge_close_vias(board, mine: set, pcbnew, keep_nets=frozenset(), swapped=frozenset()) -> tuple:
     """KRT's merge_close_same_net_vias (pcb_modification.py:6755-6880) over
     the router's vias (uuid in `mine`) on the nets not in `keep_nets`, in
-    board order. A via is dropped for the first survivor of its net with
+    `_via_rank` order, reversed on the nets in `swapped` (a second try when
+    the first order's merges were undone). A via is dropped for the first survivor of its net with
         distance < drill_a/2 + drill_b/2 + hole_to_hole - EPS
     whose layer span covers the via's; the survivors are the vias not in
     `mine` and the plated through-hole pads (KRT #479), then the router's
@@ -386,6 +397,16 @@ def merge_close_vias(board, mine: set, pcbnew, keep_nets=frozenset()) -> tuple:
         if pad.GetNetCode() > 0 and pad.GetAttribute() == pcbnew.PAD_ATTRIB_PTH and max(d.x, d.y) > 0:
             survivors.setdefault(pad.GetNetname(), []).append(
                 (pad.GetEffectiveHoleShape().GetSeg().Center(), max(d.x, d.y), frozenset(cu)))
+    def ends_on(via):
+        at = via.GetPosition()
+        return [t for t in board.GetTracks() if t.GetClass() != "PCB_VIA" and t.GetNetname() == via.GetNetname()
+                and (_end_on(t.GetStart(), at) or _end_on(t.GetEnd(), at))]
+
+    def order(via):
+        rank = _via_rank(via, ends_on(via), mine)
+        return tuple(-r for r in rank) if via.GetNetname() in swapped else rank
+
+    vias.sort(key=order)
     merges, kept, moved = [], [], {}
     for via in vias:
         net = via.GetNetname()
@@ -483,7 +504,8 @@ def remove_dangling_router_copper(pcb_path: str, given_path: str) -> Cleanup:
     `pcb_path`, repeating as each deletion can leave another dangling, then
     merge the router's collinear pieces, and save. First the router's vias
     within hole-to-hole of a same-net hole are merged (`merge_close_vias`),
-    except on a net whose pads the merges would part. `given_path` is the
+    except on a net whose pads the merges would part or whose moved tracks
+    come within clearance of another net, both ways round (`swapped`). `given_path` is the
     board the router was given: its copper is never touched. A net whose
     pads are not all joined keeps its dangling router copper, and so does a
     net whose pads the deletion would part. Zones are expected filled
@@ -499,9 +521,9 @@ def remove_dangling_router_copper(pcb_path: str, given_path: str) -> Cleanup:
         return Cleanup()
     before = _unconnected(board)
     groups = pad_groups(board, pcbnew)
-    close_refused, kept_close = set(), []
+    close_refused, swapped, kept_close = set(), set(), []
     while True:
-        close_merges, kept, moved = merge_close_vias(board, mine, pcbnew, close_refused)
+        close_merges, kept, moved = merge_close_vias(board, mine, pcbnew, close_refused, swapped)
         parted = {n for n, g in pad_groups(board, pcbnew).items() if g > groups.get(n, 0)} if close_merges else set()
         clash = {}
         for n in sorted(set(moved) - parted):
@@ -511,10 +533,14 @@ def remove_dangling_router_copper(pcb_path: str, given_path: str) -> Cleanup:
         if not (parted or clash):
             break
         undone = parted | set(clash)
-        close_refused |= undone           # those nets' vias as the router wrote them: start over from the file
-        kept_close += [dict(m, reason="parts_net") for m in close_merges if m["net"] in parted]
-        kept_close += [dict(m, reason="clearance", other_net=clash[m["net"]]) for m in close_merges if m["net"] in clash]
-        kept_close += [k for k in kept if k["net"] in undone]
+        retry = undone - swapped          # a net's merges undone the first time are tried again the other way round
+        swapped |= retry
+        given_up = undone - retry
+        close_refused |= given_up          # those nets' vias as the router wrote them: start over from the file
+        kept_close += [dict(m, reason="parts_net") for m in close_merges if m["net"] in parted & given_up]
+        kept_close += [dict(m, reason="clearance", other_net=clash[m["net"]]) for m in close_merges
+                       if m["net"] in set(clash) & given_up]
+        kept_close += [k for k in kept if k["net"] in given_up]
         with quiet_stderr():
             board = _load_board(pcb_path)
     kept_close += kept
