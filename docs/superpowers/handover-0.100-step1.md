@@ -215,3 +215,18 @@ rounds with a scoped re-review, the ledger updated after every step.
 - Remaining: common-contract grading of saved baseline/candidate copper, historical hand-module matching and C/M
   references, final A/B/M gates, generated USB-C and partly joined pair physical integration, and the scratch-only D28
   comparison. No main merge, fork push or release is authorized by this gate alone.
+
+- Post-gate runtime correction `f6ad747a`/`7570b3d9`: a fresh generated export wins over a saved same-name or blocked
+  ancestor path; the original remains in `kept/` and collision notes are logged. The generation-level regression
+  reproduced a stale sidecar before the fix. Fresh/cached exports, saved handwritten files and generated file/symlink
+  prefixes pass 38 focused full tests; parent independently repeated and accepted them. The same old helper exists on
+  main, so this was preexisting. A final whole full suite must cover this latest production code after batching.
+- Controlled PCB rebuild completed from clean tracked `318b4b0d` source with offline two-job Cargo: executable SHA256
+  `9464bb2aa1fccbd945e90e7cf984da8d657633967c1b6dd069c1916a491d097f`, correct embedded `318b4b0d19ce`, actual independent
+  DiffPair/member capture proof passed. Old executable and clean source digest/archive remain in review scratch.
+  `BACKLOG.md` records the permanent linked-worktree build-metadata follow-up; no PCB build-script source change landed.
+- Both scratch core variants passed fresh official capture generation with the controlled PCB executable: identical
+  board/sidecar bytes, qualified switch-net clearance and actual effective class-map floor 2 mm, resolved stdlib hashes
+  identical to the finalized fork. The exact local sibling part closure was added identically after the first missing-file
+  refusal. Original project inputs were untouched. Actual per-phase map provenance and the two full routing comparisons
+  remain required; no project-specific metrics are recorded here.

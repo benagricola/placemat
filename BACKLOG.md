@@ -18,6 +18,14 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Next, in order
 
+- **PCB fork capture build revision in linked worktrees** (routing-phases completion review, 2026-10-07):
+  `pcb-layout/build.rs` watches `.git/HEAD` as though `.git` were a directory. A linked worktree has a `.git` file,
+  so changing its branch/ref can leave an old Git revision embedded in a newly used capture tool. Resolve the actual
+  HEAD and branch ref with `git rev-parse --git-path` and emit `rerun-if-changed` for those paths. Add a linked-worktree
+  build regression. Completion used a controlled clean-source rebuild triggered by unchanged `build.rs` bytes with a
+  fresh mtime, then verified the executable hash and actual generated capture revision/interface records; the permanent
+  build-script fix remains separate work.
+
 - **Rust dead code** (cargo's warnings): `judge::reference`,
   `ShapeGrid::first_conflict_shifted_excluding` and an unused
   `point_segment_distance` import in giveway.rs.
