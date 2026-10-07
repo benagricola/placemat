@@ -63,3 +63,43 @@ def test_timing_rotated_cell_restores_geometry_copper_and_score():
     row = measure(b, plan, step, count=4, repeats=1)
     assert row['legal'] > 0
     assert (dict(occ.items), tuple(occ.copper), frozenset(occ.pending), score.whole(b, occ, plan)) == before
+
+
+def test_actual_resolve_timing_records_commits_and_restores_observers():
+    from fixtures.score_speed import resolve_measure
+    from placemat.layout import Board, Scorer
+    from placemat.occupancy import Occupancy, NativeSweeper
+    from placemat.score_search import MSTScorer
+    from placemat.values import Location, Near, Part
+    from dataclasses import replace
+    from tests.test_score_measures import _two_part_board
+    methods = (Occupancy.commit, NativeSweeper.run, Board._scorer, Scorer.native, MSTScorer.native)
+    for mode in ('clique', 'mst'):
+        board = _two_part_board()
+        board.settings = replace(board.settings, place_search_wire=mode, cleanup_enabled=False)
+        board.place(Part('u1'), at=Location(10, 10))
+        board.place(Part('c1'), at=Near(Location(20, 20)), radius=0.4, rotations=(0,))
+        plan, stats = resolve_measure(board)
+        assert plan.placement('c1') is not None
+        assert stats['commit_calls'] >= 2 and stats['commit_us'] > 0
+        assert stats['scorer_setup_calls'] > 0 and stats['scorer_setup_us'] > 0
+        assert stats['seconds'] > 0
+        assert (Occupancy.commit, NativeSweeper.run, Board._scorer, Scorer.native, MSTScorer.native) == methods
+
+
+def test_failed_resolve_timing_restores_all_observers(monkeypatch):
+    from fixtures.score_speed import resolve_measure
+    from placemat.layout import Board, Scorer
+    from placemat.occupancy import Occupancy, NativeSweeper
+    from placemat.score_search import MSTScorer
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _two_part_board
+    def fail(*args, **kwargs):
+        raise RuntimeError('injected adoption failure')
+    monkeypatch.setattr(Occupancy, 'commit', fail)
+    methods = (Occupancy.commit, NativeSweeper.run, Board._scorer, Scorer.native, MSTScorer.native)
+    board = _two_part_board()
+    board.place(Part('u1'), at=Location(10, 10))
+    with pytest.raises(RuntimeError, match='injected adoption failure'):
+        resolve_measure(board)
+    assert (Occupancy.commit, NativeSweeper.run, Board._scorer, Scorer.native, MSTScorer.native) == methods

@@ -424,3 +424,76 @@ def test_native_common_adapter_refuses_malformed_inputs_before_scoring():
     for x, y, turn in [(math.nan, 19, 0), (25, math.inf, 0), (1e300, 19, 0), (25, 19, 1)]:
         with pytest.raises(ValueError):
             native.evaluate(x, y, turn)
+
+
+@pytest.mark.parametrize('native', [False, True])
+def test_giveway_action_weight_changes_actual_mst_winner(monkeypatch, native):
+    from tests.test_vias_give_way import _moving_board
+    from placemat.occupancy import Occupancy
+    from placemat.placement import Placement
+    monkeypatch.setattr(placer, 'NATIVE_SWEEP', native)
+    chosen = []
+    for cost in (0, 100):
+        board = _moving_board((39.1, 42.2), True, (19.5, 23.0),
+                             settings=replace(Settings(), place_search_wire='mst',
+                                              score_via_move=cost, cleanup_enabled=False))
+        plan = board.resolve()
+        occ = Occupancy(board.geometry, 0.5, settings=board.settings)
+        item = board.geometry.cells['m']
+        centre = occ._geometry(item).reference.location
+        hint = Placement(Location(round(centre.x - 20, 9), round(centre.y - 20, 9)), 0, Face.FRONT)
+        occ.lift({fp.ref for fp in item.members})
+        scoring = MSTScorer(board, occ, item, plan=plan)
+        result = placer.scan(occ, item, hint, 0.2, 0.2, (0,), score=scoring)
+        assert result.chosen is not None
+        assert scoring.best[0] == result.score
+        chosen.append(result.chosen)
+    assert chosen[0].location == hint.location
+    assert chosen[1].location == Location(hint.location.x, round(hint.location.y - 0.2, 9))
+
+
+@pytest.mark.parametrize('native', [False, True])
+def test_actual_mst_push_fallback_preserves_complete_winner_and_floor(monkeypatch, native):
+    board, item, plan = triangle()
+    board.push(Part('m'), from_=Part('a'), falloff=3, reference=(20, 3.2), limit=0.3)
+    occ = plan.occupancy
+    hint = occ._geometry(item).reference
+    occ.lift({item.ref})
+    scoring = MSTScorer(board, occ, item, plan=plan)
+    assert scoring.native((0,), Face.FRONT) is None
+    baseline = score.whole(board, occ, plan)
+    expected = []
+    for distance, x, y in placer._grid(hint.location, 0.4, 0.2):
+        candidate = replace(hint, location=Location(x, y), rotation=0)
+        if occ.legal(item, candidate, board.geometry.default_clearance) is not None:
+            continue
+        change = scoring.delta(candidate)
+        view, _, _ = scoring.delta._view(candidate)
+        after = score.whole(board, view, plan)
+        assert change.terms['push'] == after['push'] - baseline['push']
+        expected.append(((change.walled, change.total), distance, candidate))
+    expected.sort(key=lambda row: row[:2])
+    monkeypatch.setattr(placer, 'NATIVE_SWEEP', native)
+    result = placer.scan(occ, item, hint, 0.4, 0.2, (0,), score=scoring)
+    assert result.chosen == expected[0][2]
+    assert (result.walled, result.score) == expected[0][0]
+    assert scoring.best[0] == result.score
+
+
+@pytest.mark.parametrize('native', [False, True])
+def test_arrangement_action_cost_changes_mst_winner_without_pruning_signed_objective(monkeypatch, native):
+    from tests.test_arrangement_search import board as arrangement_board, _consistent
+    from placemat.values import Cell
+    monkeypatch.setattr(placer, 'NATIVE_SWEEP', native)
+    arrangements = []
+    for cost in (0, 100):
+        board = arrangement_board((60, 30), replace(Settings(), place_search_wire='mst',
+                                                   score_arrangement=cost, cleanup_enabled=False))
+        board.place(Cell('mod'), at=Near(Location(40, 30), radius=0.5, step=0.5))
+        plan = board.resolve()
+        arrangements.append(plan.placement('mod').arrangement)
+        note = next(n for n in plan.step('mod').notes if n['kind'] == 'arrangement')
+        _consistent(note)
+        rows = {row['id']: row for row in note['tried']}
+        assert rows['c_in.east']['score'] - cost < rows['default']['score']
+    assert arrangements == ['c_in.east', '']

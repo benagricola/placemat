@@ -1,8 +1,8 @@
 """Complete candidate/setup timings, without adopting the new search.
 
 Run sequentially under the reference-board lock. JSON lines distinguish score
-calls from legality and setup. Resolve comparisons remain explicitly pending
-until place.search_wire is integrated; this script never labels clique as MST.
+calls from legality and setup. Resolve comparisons use fresh boards under the temporary measurement flag.
+The clique default remains unchanged.
 """
 from __future__ import annotations
 
@@ -87,8 +87,7 @@ def runtime_identity(paths, native_path):
 def measure(board, plan, step, *, count, repeats):
     from placemat.board_geometry import Footprint, members_of
     from placemat.layout import Scorer
-    from placemat.prepared_escape import prepare
-    from placemat.score_delta import Delta
+    from placemat.score_search import MSTScorer
     occ, item = plan.occupancy, plan._items[step.item]
     original = occ._geometry(item).reference
     owners = {fp.ref for fp in members_of(item)}
@@ -106,8 +105,10 @@ def measure(board, plan, step, *, count, repeats):
         old_native = old.native(rotations, original.face)
         old_setup_us = (time.perf_counter_ns() - start) / 1000
         start = time.perf_counter_ns()
-        delta = Delta(board, occ, item, plan.links, plan=plan)
-        full, refusal = prepare(delta, rotations, original.face)
+        common = MSTScorer(board, occ, item, plan=plan)
+        delta = common.delta
+        full = common.native(rotations, original.face)
+        refusal = common.refusals.get((tuple(rotations), original.face))
         setup_us = (time.perf_counter_ns() - start) / 1000
         start = time.perf_counter_ns()
         legal = [row for row in rows if occ.legal(item, row[0], board.geometry.default_clearance) is None]
@@ -117,7 +118,8 @@ def measure(board, plan, step, *, count, repeats):
                     'legal': 0, 'attempted': count, 'refusal': 'no legal nudge candidates'}
         old_call = (lambda row: old_native.evaluate(row[0].location.x, row[0].location.y, row[1])) \
             if old_native is not None else (lambda row: old(row[0]))
-        new_call = (lambda row: full.evaluate(row[0], row[1])) if full is not None else (lambda row: delta(row[0]))
+        new_call = (lambda row: full.evaluate(row[0].location.x, row[0].location.y, row[1])) \
+            if full is not None else (lambda row: common(row[0]))
         old_us, delta_us = timed(old_call, legal, repeats), timed(new_call, legal, repeats)
         kernel = delta.native(rotations, original.face)
         six_us = timed(lambda row: kernel.terms(row[0].location.x, row[0].location.y, row[1]), legal, repeats) \
@@ -129,7 +131,7 @@ def measure(board, plan, step, *, count, repeats):
                 'old_python_share': int(old_native is None), 'delta_python_share': int(full is None),
                 'fallback_reason': refusal, 'python_legality_us_per_attempt': legality_us,
                 'legal_per_second_python_legality': len(legal) / (count * legality_us + len(legal) * delta_us) * 1e6,
-                'production_sweep_timing': 'pending search integration',
+                'production_sweep_timing': 'actual resolve records separately',
                 'six_term_us': six_us,
                 'escape_increment_estimate_us': None if six_us is None else delta_us - six_us,
                 'split_status': 'six-term combined; independent per-term instrumentation pending'}
@@ -139,23 +141,121 @@ def measure(board, plan, step, *, count, repeats):
         restore_us = (time.perf_counter_ns() - start) / 1000
         # Emitted separately even if evaluation fails; restoration is mandatory.
         print(json.dumps({'type': 'restore', 'item': step.item, 'restore_us': restore_us,
-                          'commit_timing': 'pending actual search adoption'}), flush=True)
+                          'commit_timing': 'actual adoption commits recorded in resolve; this is snapshot unlift'}), flush=True)
+
+
+def resolve_measure(board):
+    """Time actual setup, production native passes and adoption commits.
+
+    Wrappers observe existing calls and restore their class methods even on
+    failure. Resolve wall time includes the observer overhead in both modes.
+    """
+    from placemat.layout import Scorer
+    from placemat.score_search import MSTScorer
+    from placemat.occupancy import Occupancy, NativeSweeper
+    stats = {'commit_calls': 0, 'commit_us': 0.0, 'commit_events': [],
+             'python_score_calls': {}, 'python_score_us': {}, 'native_passes': 0,
+             'native_attempted': 0, 'native_legal': 0, 'native_sweep_us': 0.0,
+             'native_passes_by_scorer': {},
+             'scorer_setup_us': 0.0, 'scorer_setup_calls': 0,
+             'native_setup_us': 0.0, 'native_setup_calls': 0, 'native_refusals': 0,
+             'native_refusal_reasons': {}}
+    originals = [(Occupancy, 'commit', Occupancy.commit), (NativeSweeper, 'run', NativeSweeper.run),
+                 (type(board), '_scorer', type(board)._scorer),
+                 (Scorer, 'native', Scorer.native), (MSTScorer, 'native', MSTScorer.native),
+                 (Scorer, '__call__', Scorer.__call__), (MSTScorer, '__call__', MSTScorer.__call__)]
+    def commit(self, *args, **kwargs):
+        start = time.perf_counter_ns()
+        try:
+            return originals[0][2](self, *args, **kwargs)
+        finally:
+            stats['commit_calls'] += 1
+            elapsed = (time.perf_counter_ns() - start) / 1000
+            stats['commit_us'] += elapsed
+            item = args[0] if args else kwargs.get('item')
+            stats['commit_events'].append({'item': getattr(item, 'name', getattr(item, 'ref', str(item))), 'us': elapsed})
+    def run(self, triples, *args, **kwargs):
+        start = time.perf_counter_ns()
+        result = originals[1][2](self, triples, *args, **kwargs)
+        stats['native_passes'] += 1
+        stats['native_attempted'] += len(triples)
+        stats['native_legal'] += len(result[0])
+        elapsed = (time.perf_counter_ns() - start) / 1000
+        stats['native_sweep_us'] += elapsed
+        scoring = args[1] if len(args) > 1 else kwargs.get('scoring')
+        kind = type(scoring).__name__ if scoring is not None else 'legality_only'
+        row = stats['native_passes_by_scorer'].setdefault(kind, {'calls': 0, 'attempted': 0, 'legal': 0, 'us': 0.0})
+        row['calls'] += 1
+        row['attempted'] += len(triples)
+        row['legal'] += len(result[0])
+        row['us'] += elapsed
+        return result
+    def scorer(self, *args, **kwargs):
+        start = time.perf_counter_ns()
+        result = originals[2][2](self, *args, **kwargs)
+        stats['scorer_setup_calls'] += 1
+        stats['scorer_setup_us'] += (time.perf_counter_ns() - start) / 1000
+        return result
+    def native_wrapper(original):
+        def native(self, *args, **kwargs):
+            start = time.perf_counter_ns()
+            result = original(self, *args, **kwargs)
+            stats['native_setup_calls'] += 1
+            stats['native_refusals'] += int(result is None)
+            if result is None:
+                reasons = getattr(self, 'refusals', {})
+                reason = next(reversed(reasons.values()), 'clique native unavailable')
+                counts = stats['native_refusal_reasons']
+                counts[reason] = counts.get(reason, 0) + 1
+            stats['native_setup_us'] += (time.perf_counter_ns() - start) / 1000
+            return result
+        return native
+    def python_wrapper(original):
+        def call(self, *args, **kwargs):
+            start = time.perf_counter_ns()
+            try:
+                return original(self, *args, **kwargs)
+            finally:
+                kind = type(self).__name__
+                counts, times = stats['python_score_calls'], stats['python_score_us']
+                counts[kind] = counts.get(kind, 0) + 1
+                times[kind] = times.get(kind, 0) + (time.perf_counter_ns() - start) / 1000
+        return call
+    replacements = [commit, run, scorer, native_wrapper(Scorer.native), native_wrapper(MSTScorer.native),
+                    python_wrapper(Scorer.__call__), python_wrapper(MSTScorer.__call__)]
+    start = time.perf_counter()
+    try:
+        for (cls, name, _), replacement in zip(originals, replacements):
+            setattr(cls, name, replacement)
+        plan = board.resolve()
+    finally:
+        for cls, name, original in originals:
+            setattr(cls, name, original)
+    stats['seconds'] = time.perf_counter() - start
+    stats['native_pass_legal_per_second'] = (stats['native_legal'] * 1e6 / stats['native_sweep_us']) \
+        if stats['native_sweep_us'] else None
+    python_common = stats['python_score_calls'].get('MSTScorer', 0)
+    native_common = stats['native_passes_by_scorer'].get('NativeDeltaScoring', {}).get('legal', 0)
+    stats['common_python_evaluation_share'] = python_common / (python_common + native_common) \
+        if python_common + native_common else None
+    stats['evaluation_share_scope'] = 'common objective evaluation calls; repeated giveway candidates count again; clique pruning is not inferred from legal counts'
+    stats['throughput_scope'] = 'native pass only; legality_only excludes later Python scoring; giveway phases can repeat candidates'
+    return plan, stats
 
 
 def run_fixture(label, board, args):
     from placemat import score
-    start = time.perf_counter()
-    plan = board.resolve()
-    print(json.dumps({'type': 'resolve', 'fixture': label, 'search': 'clique',
-                      'seconds': time.perf_counter() - start,
+    plan, production = resolve_measure(board)
+    print(json.dumps({'type': 'resolve', 'fixture': label, 'search': board.settings.place_search_wire,
+                      **production,
                       'score': score.total(score.plan_measures(board, plan), board.settings),
-                      'mst_comparison': 'pending search integration',
                       'effective_settings': asdict(board.settings)}), flush=True)
     rows = []
     selected = [s for s in plan.steps if s.placement is not None and s.item in plan._items]
     if args.items:
         selected = selected[:args.items]
     for step in selected:
+        print(json.dumps({'type': 'item_start', 'fixture': label, 'item': step.item}), flush=True)
         row = measure(board, plan, step, count=args.candidates, repeats=args.repeats)
         rows.append(row)
         print(json.dumps({'type': 'item', 'fixture': label, **row}, sort_keys=True), flush=True)
@@ -168,7 +268,9 @@ def main(argv=None):
     parser.add_argument('--items', type=int, default=0, help='limit per fixture, zero means all')
     parser.add_argument('--candidates', type=int, default=2000)
     parser.add_argument('--repeats', type=int, default=3)
-    parser.add_argument('--core', action='store_true', help='also measure written core cells')
+    parser.add_argument('--search', choices=('clique', 'mst', 'both'), default='both')
+    parser.add_argument('--core', action='store_true', help='also time actual generated-core search')
+    parser.add_argument('--core-fixed', action='store_true', help='also measure written-core fixed poses separately')
     args = parser.parse_args(argv)
     if args.items < 0 or args.candidates < 1 or args.repeats < 1:
         parser.error('items must be nonnegative; candidates and repeats must be positive')
@@ -186,30 +288,51 @@ def main(argv=None):
             parser.error('build native timing entry point before running')
         native_path = pathlib.Path(importlib.import_module('placemat_native.placemat_native').__file__)
         inputs = [f for p in paths for f in p.parent.glob('*') if f.is_file()]
-        if args.core:
+        if args.core or args.core_fixed:
             inputs.extend((bench.BOARD_FIXTURE / 'layout').glob('*'))
+        if args.core:
+            inputs.extend((bench.BOARD_FIXTURE / 'generated').glob('*'))
         before = runtime_identity(inputs, native_path)
         print(json.dumps({'type': 'provenance_start', 'identity': before,
                           'candidates': args.candidates, 'repeats': args.repeats,
                           'timing': 'complete one-boundary calls; old inspection validates inputs and borrows mirrors'}), flush=True)
         for path in paths:
             g = read_board(path)
-            rows.extend(run_fixture(bench._name(path), bench.ModuleBoard(g, {}, bench._planes(g), bench._size(g, False))(), args))
-        if args.core:
+            for mode in ('clique', 'mst') if args.search == 'both' else (args.search,):
+                board = bench.ModuleBoard(g, {}, bench._planes(g), bench._size(g, False))()
+                board.settings = replace(board.settings, place_search_wire=mode)
+                rows.extend(run_fixture(bench._name(path), board, args))
+        if args.core or args.core_fixed:
             from placemat.layout import Board
             from placemat.occupancy import Occupancy
             from placemat.values import Cell, Part
-            g = read_board(bench.BOARD_FIXTURE / 'layout' / 'layout.kicad_pcb')
-            board = Board(g, keep_going=True)
-            board.outline(g.board_polygon[0], holes=g.board_polygon[1:])
-            for name, cell in sorted(g.cells.items()):
-                if cell.members:
-                    pose = Occupancy(g)._geometry(cell).reference
-                    board.place(Cell(name), at=pose.location, rotation=pose.rotation, face=pose.face)
-            for fp in g.footprints:
-                if fp.cell is None:
-                    board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
-            rows.extend(run_fixture('written-core', board, args))
+            written = read_board(bench.BOARD_FIXTURE / 'layout' / 'layout.kicad_pcb')
+            if args.core:
+                generated = read_board(bench.BOARD_FIXTURE / 'generated' / 'layout.kicad_pcb')
+                for mode in ('clique', 'mst') if args.search == 'both' else (args.search,):
+                    board = Board(generated, keep_going=True)
+                    board.settings = replace(board.settings, place_search_wire=mode)
+                    board.outline(written.board_polygon[0], holes=written.board_polygon[1:])
+                    for name, cell in sorted(generated.cells.items()):
+                        if cell.members:
+                            board.place(Cell(name))
+                    for fp in sorted(generated.footprints, key=lambda f: f.inst):
+                        if fp.cell is None:
+                            board.place(Part(fp.inst))
+                    rows.extend(run_fixture('generated-core-search', board, args))
+            g = written
+            for mode in (('clique', 'mst') if args.search == 'both' else (args.search,)) if args.core_fixed else ():
+                board = Board(g, keep_going=True)
+                board.settings = replace(board.settings, place_search_wire=mode)
+                board.outline(g.board_polygon[0], holes=g.board_polygon[1:])
+                for name, cell in sorted(g.cells.items()):
+                    if cell.members:
+                        pose = Occupancy(g)._geometry(cell).reference
+                        board.place(Cell(name), at=pose.location, rotation=pose.rotation, face=pose.face)
+                for fp in g.footprints:
+                    if fp.cell is None:
+                        board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
+                rows.extend(run_fixture('written-core-fixed-poses', board, args))
         after = runtime_identity(inputs, native_path)
         print(json.dumps({'type': 'provenance_end', 'identity': after, 'unchanged': before == after}), flush=True)
         if before != after:
