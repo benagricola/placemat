@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from dataclasses import replace
+from dataclasses import asdict, replace
 import hashlib
 import importlib
 import json
 import pathlib
+import os
+import shutil
 import statistics
+import subprocess
 import time
 
 
@@ -38,6 +41,38 @@ def timed(call, rows, repeats):
             call(row)
         samples.append((time.perf_counter_ns() - start) / len(rows))
     return statistics.median(samples) / 1000
+
+
+def identity(paths):
+    """Hash exact runtime/input bytes; git commit alone misses local edits."""
+    return {str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(set(paths)) if p.is_file()}
+
+
+def git_identity(path):
+    def git(*args):
+        result = subprocess.run(['git', '-C', str(path), *args], capture_output=True, text=True)
+        return result.stdout.strip() if result.returncode == 0 else None
+    return {'root': git('rev-parse', '--show-toplevel'), 'commit': git('rev-parse', 'HEAD')}
+
+
+def runtime_identity(paths, native_path):
+    root = pathlib.Path(__file__).resolve().parents[1]
+    krt = pathlib.Path(os.environ.get('KRT_DIR', '/home/ben/work/KiCadRoutingTools'))
+    pcb = shutil.which('pcb')
+    kicad = shutil.which('kicad-cli')
+    binaries = [native_path] + [pathlib.Path(p).resolve() for p in (pcb, kicad) if p]
+    router_binaries = [p for pattern in ('rust_router/target/release/*.so', '**/pcbnew*.so')
+                       for p in krt.glob(pattern) if p.is_file()]
+    binaries.extend(router_binaries)
+    sources = list((root / 'src' / 'placemat').rglob('*.py')) + list((root / 'native' / 'src').rglob('*.rs'))
+    sources.extend(p for p in krt.rglob('*.py') if 'tests' not in p.parts and '__pycache__' not in p.parts)
+    sources.extend([root / 'native' / 'Cargo.toml', root / 'native' / 'Cargo.lock', pathlib.Path(__file__),
+                    root / 'fixtures' / 'bench.py'])
+    return {'placemat': git_identity(root), 'krt': git_identity(krt),
+            'pcb': git_identity(pathlib.Path(pcb).resolve().parent) if pcb else None,
+            'binaries': identity(binaries), 'sources': identity(sources), 'inputs': identity(paths),
+            'krt_dir': str(krt), 'pcb_command': pcb, 'kicad_command': kicad}
 
 
 def measure(board, plan, step, *, count, repeats):
@@ -101,7 +136,8 @@ def run_fixture(label, board, args):
     print(json.dumps({'type': 'resolve', 'fixture': label, 'search': 'clique',
                       'seconds': time.perf_counter() - start,
                       'score': score.total(score.plan_measures(board, plan), board.settings),
-                      'mst_comparison': 'pending search integration'}), flush=True)
+                      'mst_comparison': 'pending search integration',
+                      'effective_settings': asdict(board.settings)}), flush=True)
     rows = []
     selected = [s for s in plan.steps if s.placement is not None and s.item in plan._items]
     if args.items:
@@ -129,17 +165,20 @@ def main(argv=None):
     if unknown:
         parser.error('unknown modules: ' + ', '.join(sorted(unknown)))
     from fixtures.reference.lock import realboard
-    from placemat import geometry
-    from placemat.kicad.read import read_board
-    if geometry._native is None or not hasattr(geometry._native.NativeScoring, 'evaluate'):
-        parser.error('build native timing entry point before running')
-    native_path = pathlib.Path(importlib.import_module('placemat_native.placemat_native').__file__)
-    print(json.dumps({'type': 'provenance', 'native': str(native_path),
-                      'sha256': hashlib.sha256(native_path.read_bytes()).hexdigest(),
-                      'candidates': args.candidates, 'repeats': args.repeats,
-                      'timing': 'complete one-boundary calls; old inspection validates inputs and borrows mirrors'}), flush=True)
     rows = []
     with realboard():
+        from placemat import geometry
+        from placemat.kicad.read import read_board
+        if geometry._native is None or not hasattr(geometry._native.NativeScoring, 'evaluate'):
+            parser.error('build native timing entry point before running')
+        native_path = pathlib.Path(importlib.import_module('placemat_native.placemat_native').__file__)
+        inputs = [f for p in paths for f in p.parent.glob('*') if f.is_file()]
+        if args.core:
+            inputs.extend((bench.BOARD_FIXTURE / 'layout').glob('*'))
+        before = runtime_identity(inputs, native_path)
+        print(json.dumps({'type': 'provenance_start', 'identity': before,
+                          'candidates': args.candidates, 'repeats': args.repeats,
+                          'timing': 'complete one-boundary calls; old inspection validates inputs and borrows mirrors'}), flush=True)
         for path in paths:
             g = read_board(path)
             rows.extend(run_fixture(bench._name(path), bench.ModuleBoard(g, {}, bench._planes(g), bench._size(g, False))(), args))
@@ -158,6 +197,10 @@ def main(argv=None):
                 if fp.cell is None:
                     board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
             rows.extend(run_fixture('written-core', board, args))
+        after = runtime_identity(inputs, native_path)
+        print(json.dumps({'type': 'provenance_end', 'identity': after, 'unchanged': before == after}), flush=True)
+        if before != after:
+            raise RuntimeError('runtime or input bytes changed during timing; results are uncertified')
     for kind in ('part', 'cell'):
         found = [r for r in rows if r['kind'] == kind and r['legal']]
         if found:
