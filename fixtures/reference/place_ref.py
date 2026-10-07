@@ -409,6 +409,10 @@ def line_module(r: MResult, c: route_ref.Comparison) -> str:
             p.get("crossings", "n/a"), "n/a" if p.get("airwire_mm") is None else "%.0f mm" % p["airwire_mm"])
         if h.get("failure"):
             head += "  hand FAILED %s: %s" % (h["failure"], h.get("detail", "")[:200])
+            diagnostic = h.get('route_diagnostic', {})
+            if diagnostic:
+                head += "  hand INVALID diagnostic closure_clean %.1f%% open %d" % (
+                    100 * diagnostic['closure_clean'], diagnostic['open_after'])
     return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
 
 

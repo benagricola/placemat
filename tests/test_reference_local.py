@@ -219,3 +219,61 @@ def test_interrupted_reference_wait_reaps_owned_parent(tmp_path, monkeypatch):
         route_ref._route(tmp_path / "board.kicad_pcb", tmp_path / "route", None)
     with pytest.raises(ProcessLookupError):
         os.kill(seen[0], 0)
+
+
+@pytest.mark.parametrize('case', ['complete', 'stale_report', 'stale_board', 'stale_completion',
+                                  'partial', 'mismatched_completion', 'mismatched_drc', 'mismatched_violations', 'malformed', 'nan', 'negative_open',
+                                  'other_exit', 'interrupted_exit', 'traceback'])
+def test_failed_route_retains_only_fresh_completed_invalid_diagnostics(tmp_path, monkeypatch, case):
+    import json
+    from types import SimpleNamespace
+    work = tmp_path / 'route'
+    work.mkdir()
+    board, record, out = work / 'routed.kicad_pcb', work / 'route_record.json', work / 'route.json'
+    board.write_text('prior board')
+    values = {'valid': False, 'closure_clean': 0.75, 'open_before': 4, 'open_after': 1,
+              'seconds': 2.0, 'drc_after': {'invalid_outline': 1}, 'violations': {'VIN': ['clearance']},
+              'invalid_reason': 'original fragment has no outline', 'routed_pcb': str(board), 'record': str(record)}
+    record.write_text(json.dumps({'complete': True, 'report': values}))
+    out.write_text(json.dumps(values))
+
+    def run(*args, **kwargs):
+        assert not out.exists()
+        if case != 'stale_board':
+            board.write_text('new routed board')
+        if case != 'stale_completion':
+            completion = dict(values)
+            if case == 'mismatched_completion':
+                completion['open_after'] = 3
+            if case == 'mismatched_drc':
+                completion['drc_after'] = {'invalid_outline': 2}
+            if case == 'mismatched_violations':
+                completion['violations'] = {}
+            record.write_text(json.dumps({'complete': case != 'partial', 'report': completion}))
+        report = dict(values)
+        if case == 'nan':
+            report['closure_clean'] = float('nan')
+        if case == 'negative_open':
+            report['open_after'] = -1
+        if case != 'stale_report':
+            out.write_text('not JSON' if case == 'malformed' else json.dumps(report))
+        rc = 2 if case == 'other_exit' else 143 if case == 'interrupted_exit' else 1
+        stderr = 'Traceback (most recent call last):\nfailed' if case == 'traceback' else 'benign channel warning'
+        return SimpleNamespace(returncode=rc, stdout='full final route explanation', stderr=stderr)
+
+    monkeypatch.setattr(route_ref, 'run_owned', run)
+    with pytest.raises(route_ref.RouteFailure) as failed:
+        route_ref._route(tmp_path / 'input.kicad_pcb', work, None)
+    diagnostic = failed.value.diagnostic
+    assert bool(diagnostic) == (case in ('complete', 'traceback'))
+    if diagnostic:
+        assert diagnostic['valid'] is False and diagnostic['closure_clean'] == 0.75
+        assert diagnostic['open_after'] == 1
+        assert 'original fragment' in str(failed.value)
+        assert diagnostic['routed_pcb_sha256'] and diagnostic['completion_record_sha256']
+    receipt = json.loads((work / 'process.json').read_text())
+    assert receipt['returncode'] == (2 if case == 'other_exit' else 143 if case == 'interrupted_exit' else 1)
+    assert receipt['cwd']
+    assert receipt['outcome'] == 'failed' and receipt['elapsed_s'] >= 0
+    assert (work / 'stdout.log').read_text() == 'full final route explanation'
+    assert (work / 'stderr.log').read_text()

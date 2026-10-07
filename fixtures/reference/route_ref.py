@@ -410,8 +410,84 @@ def run_owned(cmd, *, timeout, env=None):
             signal.signal(sig, handler)
 
 
+class RouteFailure(RuntimeError):
+    """A failed invocation may retain a completed, explicitly invalid diagnostic."""
+
+    def __init__(self, message, diagnostic=None):
+        super().__init__(message)
+        self.diagnostic = diagnostic or {}
+
+
+def _artifact_identity(path):
+    import hashlib
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _invalid_route_diagnostic(report, out, work, previous_artifacts):
+    """Recognize only the final report schema used by the CLI's RC1 contract."""
+    import hashlib
+    import math
+    if not isinstance(report, dict) or report.get('valid') is not False or report.get('error'):
+        return {}
+    for key in ('closure_clean', 'seconds'):
+        value = report.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            return {}
+    if report['closure_clean'] > 1:
+        return {}
+    for key in ('open_before', 'open_after'):
+        value = report.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return {}
+    if not isinstance(report.get('drc_after'), dict) or not isinstance(report.get('violations'), dict):
+        return {}
+    if any(not isinstance(key, str) or isinstance(value, bool) or not isinstance(value, int) or value < 0
+           for key, value in report['drc_after'].items()):
+        return {}
+    if any(not isinstance(net, str) or not isinstance(kinds, list) or not all(isinstance(kind, str) for kind in kinds)
+           for net, kinds in report['violations'].items()):
+        return {}
+    try:
+        board = pathlib.Path(report['routed_pcb']).resolve()
+        if not board.is_relative_to(work.resolve()) or not board.is_file():
+            return {}
+        if previous_artifacts.get(board) == _artifact_identity(board):
+            return {}
+        record = pathlib.Path(report['record']).resolve()
+        if not record.is_relative_to(work.resolve()) or not record.is_file():
+            return {}
+        if previous_artifacts.get(record) == _artifact_identity(record):
+            return {}
+        completion = json.loads(record.read_text())
+        if not isinstance(completion, dict) or completion.get('complete') is not True:
+            return {}
+        recorded_report = completion.get('report')
+        required = ('closure_clean', 'open_before', 'open_after', 'seconds', 'violations')
+        if not isinstance(recorded_report, dict) or any(recorded_report.get(key) != report[key] for key in required):
+            return {}
+        corroborated = [key for key in report if key in recorded_report]
+        if any(recorded_report[key] != report[key] for key in corroborated):
+            return {}
+    except (KeyError, TypeError, ValueError, OSError):
+        return {}
+    return {'valid': False, 'closure_clean': report['closure_clean'], 'open_after': report['open_after'],
+            'drc_after': report['drc_after'], 'violations': report['violations'],
+            'invalid_reason': report.get('invalid_reason', ''), 'report_path': str(out),
+            'report_sha256': hashlib.sha256(out.read_bytes()).hexdigest(), 'routed_pcb': str(board),
+            'routed_pcb_sha256': hashlib.sha256(board.read_bytes()).hexdigest(),
+            'completion_record': str(record), 'completion_record_sha256': hashlib.sha256(record.read_bytes()).hexdigest(),
+            'completion_corroborated_fields': corroborated,
+            'final_report_only_fields': [key for key in ('valid', 'routed_pcb', 'drc_after') if key not in corroborated],
+            'process_path': str(work / 'process.json')}
+
+
 def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None) -> dict:
     """`placemat route pcb --full` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict."""
+    import time
+    started = time.monotonic()
+    work = pathlib.Path(work)
+    work.mkdir(parents=True, exist_ok=True)
     config = pathlib.Path(pcb).with_name("placemat.toml")
     if toml is None:
         config.unlink(missing_ok=True)
@@ -419,19 +495,70 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
         config.write_text(toml)
     cmd = [sys.executable, "-m", "placemat", "route", str(pcb), "--full", "--no-resume", "--out", str(work)]
     out = pathlib.Path(work) / "route.json"
+    previous_artifacts = {path.resolve(): _artifact_identity(path) for path in work.rglob('*')
+                          if path.is_file() and path.suffix in ('.kicad_pcb', '.json')}
     out.unlink(missing_ok=True)     # only this invocation's report can establish its result
+    facts = {'argv': cmd, 'cwd': str(pathlib.Path.cwd()), 'timeout_s': ROUTE_TIMEOUT_S,
+             'protocol': 'fresh report, RC0 success; RC1 completed invalid report is diagnostic only'}
+    if pathlib.Path(pcb).is_file():
+        facts['input_pcb_identity'] = _artifact_identity(pathlib.Path(pcb))
+
+    def log(stdout, stderr):
+        def text(value):
+            return value.decode(errors='replace') if isinstance(value, bytes) else value or ''
+        (work / 'stdout.log').write_text(text(stdout))
+        (work / 'stderr.log').write_text(text(stderr))
+        facts['elapsed_s'] = time.monotonic() - started
+        (work / 'process.json').write_text(json.dumps(facts, indent=2) + '\n')
+
     try:
-        proc = run_owned(cmd, timeout=ROUTE_TIMEOUT_S, env=env)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("placemat route timed out after %s seconds" % ROUTE_TIMEOUT_S) from None
+        child_env = owned_env(ROUTE_TIMEOUT_S, env)
+        facts['router_deadline_utc'] = child_env['KRT_ROUTE_DEADLINE_UTC']
+        proc = run_owned(cmd, timeout=ROUTE_TIMEOUT_S, env=child_env)
+    except BaseException as error:
+        facts['exception'] = type(error).__name__
+        facts['exitcode'] = error.code if isinstance(error, SystemExit) else None
+        facts['outcome'] = 'interrupted' if isinstance(error, (KeyboardInterrupt, SystemExit)) else 'failed'
+        log(getattr(error, 'output', None), getattr(error, 'stderr', None))
+        if isinstance(error, subprocess.TimeoutExpired):
+            raise RuntimeError("placemat route timed out after %s seconds" % ROUTE_TIMEOUT_S) from None
+        raise
     stdout, stderr = proc.stdout, proc.stderr
+    facts['returncode'] = proc.returncode
+    facts['outcome'] = 'failed' if proc.returncode else 'exited; report not yet validated'
+    log(stdout, stderr)
     if proc.returncode != 0:
-        raise RuntimeError("placemat route exited %d: %s" % (proc.returncode, (stderr or stdout)[-500:]))
+        diagnostic = {}
+        if proc.returncode == 1 and out.is_file():
+            try:
+                diagnostic = _invalid_route_diagnostic(json.loads(out.read_text()), out, work, previous_artifacts)
+            except (OSError, ValueError):
+                pass
+        reason = diagnostic.get('invalid_reason') or (stderr or stdout)[-500:]
+        if diagnostic:
+            diagnostic['process_returncode'] = proc.returncode
+            diagnostic['process_outcome'] = 'failed invocation with completed invalid artifacts; diagnostic only'
+            facts['diagnostic'] = 'completed invalid artifacts; post-report failure cause is not inferred'
+            log(stdout, stderr)
+        raise RouteFailure("placemat route exited %d: %s" % (proc.returncode, reason), diagnostic)
     if not out.exists():
+        facts['outcome'] = 'failed: missing report'
+        log(stdout, stderr)
         raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, (stderr or stdout)[-500:]))
-    report = json.loads(out.read_text())
+    try:
+        report = json.loads(out.read_text())
+        if not isinstance(report, dict):
+            raise ValueError('placemat route report must be an object')
+    except (OSError, ValueError):
+        facts['outcome'] = 'failed: unreadable or malformed report'
+        log(stdout, stderr)
+        raise
     if report.get("error"):
+        facts['outcome'] = 'failed: report error'
+        log(stdout, stderr)
         raise RuntimeError("placemat route failed: %s" % report["error"])
+    facts['outcome'] = 'success'
+    log(stdout, stderr)
     return report
 
 
