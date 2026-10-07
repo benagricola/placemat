@@ -602,6 +602,34 @@ def open_connections(pcb_path, drc_json) -> list:
     return out
 
 
+def connection_summary(path, pending, phase, log):
+    """Ordered task results must identify every submitted task before any widths or deferrals are consumed."""
+    reason, index = None, None
+    try:
+        data = json.loads(Path(path).read_text())
+        recs = data.get("connections")
+        if not isinstance(recs, list) or len(recs) != len(pending):
+            reason = "task_count"
+        else:
+            for index, (task, record) in enumerate(zip(pending, recs)):
+                asked = task.record()
+                if not isinstance(record, dict) or any(record.get(k) != asked[k] for k in ("net", "from", "to", "widths")):
+                    reason = "task_identity"
+                    break
+                if record.get("status") not in {"routed", "joined_before", "joined_narrow", "failed", "deferred", "refused"}:
+                    reason = "task_status"
+                    break
+    except (OSError, ValueError, AttributeError, TypeError):
+        reason, data = "unreadable", {}
+    if reason:
+        facts = {"phase": phase, "summary": str(path), "reason": reason, "asked": len(pending)}
+        if index is not None:
+            facts["index"] = index
+        raise RouterFailed("the router wrote malformed connection results for phase %s (%s)" % (phase, reason),
+                           0, log, "", code="malformed_summary", facts=facts)
+    return data
+
+
 def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     """Route one phase's calls (plan_calls) on `board`, in order, each on the board the one before left, its copper
     locked. The outcome's `routed` is what judge_phase needs. A task the router refuses stops the route (RouteRefused
@@ -659,7 +687,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 _copy_project(src, part)
                 lock_copper(str(part))
                 out.summaries.append((phase.name, k, psum))
-                data = json.loads(psum.read_text())
+                data = connection_summary(psum, pending, phase.name, log)
                 recs = data.get("connections") or []
                 if call.kind == "bus_tasks":
                     bus_groups += data.get("bus_groups") or []

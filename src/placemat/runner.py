@@ -774,8 +774,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 except (RouteRefused, PhaseError) as e:
                     raise RunFailure("route", "Routing refused", {"code": e.code, "facts": e.facts, "error": str(e)}) from e
                 except RouterFailed as e:
-                    raise RunFailure("route", "Routing failed", {"error": e.what, "exit_code": e.exit_code, "log": str(e.log),
-                                                                 "tail": e.tail}) from e
+                    raise RunFailure("route", "Routing failed", {"error": e.what, "code": e.code, "facts": e.facts,
+                                                                 "exit_code": e.exit_code, "log": str(e.log), "tail": e.tail}) from e
                 except RouterMissing as e:
                     raise RunFailure("route", "Routing refused", {"error": str(e), **e.record()}) from e
                 except Exception as e:                  # anything else the route raises fails the run too

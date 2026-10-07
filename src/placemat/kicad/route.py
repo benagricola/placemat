@@ -141,9 +141,10 @@ class RouterFailed(RuntimeError):
     """A router call that exited non-zero or wrote no board: `what` failed, the call's `exit_code`, its `log` and the log's
     last lines (`tail`)."""
 
-    def __init__(self, what: str, exit_code, log, tail: str):
+    def __init__(self, what: str, exit_code, log, tail: str, *, code="router_failed", facts=None):
         super().__init__("%s; log %s\n%s" % (what, log, tail))
         self.what, self.exit_code, self.log, self.tail = what, exit_code, Path(log), tail
+        self.code, self.facts = code, dict(facts or {})
 
 
 @dataclass

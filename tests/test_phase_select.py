@@ -240,6 +240,6 @@ def test_current_bus_keeps_its_bundle_and_sizes_each_connection():
 
 def test_current_interface_keeps_bus_and_derived_width_tasks():
     from placemat.capture_nets import Capture, Instance
-    cap = Capture("x", "d", {}, frozenset({"interfaces"}), {}, {"B": Instance("B", "Spi", {"CLK": "VB"})})
+    cap = Capture("x", "d", {}, frozenset({"interfaces"}), {}, {"B": Instance("B", "Spi", {"CLK": "VB"})}, ())
     got = one({"name": "b", "interfaces": ["B"], "width": "current"}, cap)
     assert got.buses == (("VB",),) and got.tasks and all(t.amps is not None for t in got.tasks)

@@ -37,6 +37,8 @@ FAKE = textwrap.dedent('''
             doc["connections"] = [dict(t, status=status, reason=refuse, joined=status == "routed", length_mm=1.0,
                                        min_width_mm=t["widths"], layers=list(t["widths"]),
                                        evidence=ev if failed else None) for t in tasks]
+        if os.environ.get("FAKE_ROUTER_TRUNCATE") and "connections" in doc:
+            doc["connections"] = doc["connections"][:-1]
         open(a[a.index("--json-out") + 1], "w").write(json.dumps(doc))
 ''')
 CLASSES = 'def net_clearance_map_by_id(pcb_path, nets, design_rules=None):\n    return {}\n'
@@ -462,3 +464,11 @@ def test_current_bus_call_carries_tasks_and_bundle_flags(rig):
     task, = json.loads(open(call[call.index("--connections") + 1]).read())
     assert task["net"] == "VIN" and all(w > 0 for w in task["widths"].values())
     assert result.phases[0]["connections"][0]["net"] == "VIN"
+
+
+@needs_kicad
+def test_a_truncated_task_summary_fails_without_dropping_obligations(rig, monkeypatch):
+    monkeypatch.setenv("FAKE_ROUTER_TRUNCATE", "1")
+    with pytest.raises(RouterFailed) as err:
+        rig.route({"name": "leg", "width": 0.5, "connections": [{"from": {"part": "U1", "pad": "3"}, "to": {"part": "J1", "pad": "2"}}]})
+    assert err.value.code == "malformed_summary" and err.value.facts["reason"] == "task_count"
