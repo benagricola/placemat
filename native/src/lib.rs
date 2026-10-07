@@ -897,6 +897,27 @@ struct NativeScoring {
 
 #[pymethods]
 impl NativeScoring {
+    /// Inspection/timing entry point for the exact score used by sweep.
+    fn evaluate(&mut self, py: Python<'_>, x: f64, y: f64, turn: usize) -> PyResult<(f64, i64)> {
+        if !x.is_finite() || !y.is_finite() || x.abs() > 1e9 || y.abs() > 1e9
+            || turn >= self.transforms.len() || turn >= self.anchors.len() || turn >= self.turns.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err("invalid scoring candidate or turn"));
+        }
+        let (a, b, c, d, tx, ty) = self.transforms[turn];
+        let bounded = |v: f64| v.is_finite() && v.abs() <= 1e9;
+        if self.targets.iter().any(|&((px, py), (gx, gy), w)|
+            !bounded(a * px + b * py + (tx + x)) || !bounded(c * px + d * py + (ty + y))
+                || !bounded(gx) || !bounded(gy) || !w.is_finite())
+            || self.anchors[turn].iter().any(|&(_, px, py)| !bounded(px + x) || !bounded(py + y)) {
+            return Err(pyo3::exceptions::PyValueError::new_err("scoring geometry exceeds coordinate domain"));
+        }
+        let rn_handle = self.rn.clone_ref(py);
+        let turn_handles: Vec<_> = self.turns.iter().map(|t| t.clone_ref(py)).collect();
+        let rn = rn_handle.borrow(py);
+        let turns: Vec<_> = turn_handles.iter().map(|t| t.borrow(py)).collect();
+        Ok(self.score(&rn, &turns, x, y, turn))
+    }
+
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (rn, targets, transforms, anchors, turns, own, crossing, escaping, weights, depth, prune, pruned, floor))]
