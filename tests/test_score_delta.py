@@ -826,8 +826,8 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
                 assert change.walled == oracle_counts.get('escape_walled', 0)
                 assert change.walled_change == change.walled - delta._escape_base.get('escape_walled', 0)
                 kind = 'part' if isinstance(item, Footprint) else 'cell'
-                row = coverage.setdefault(kind, {'native': 0, 'fallback': Counter()})
-                total = total_coverage.setdefault(kind, {'native': 0, 'fallback': Counter()})
+                row = coverage.setdefault(kind, {'native': 0, 'fallback': Counter(), 'cache_reused': 0, 'cache_rejudged': 0})
+                total = total_coverage.setdefault(kind, {'native': 0, 'fallback': Counter(), 'cache_reused': 0, 'cache_rejudged': 0})
                 if kernel is None:
                     why = refusal(delta)
                     row['fallback'][why] += 1
@@ -839,6 +839,14 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
                     full, reason = prepare(delta, [candidate.rotation], candidate.face)
                     assert full is not None, (step.item, reason)
                     full_terms, full_crossed, full_vias, full_away, full_walled, ways, walls = full.evaluate(candidate, 0, inspect=True)
+                    cached, reason = prepare(delta, [candidate.rotation], candidate.face, rest_cache=True)
+                    assert cached is not None, (step.item, reason)
+                    assert cached.evaluate(candidate, 0, inspect=True) == (
+                        full_terms, full_crossed, full_vias, full_away, full_walled, ways, walls)
+                    reused, rejudged = cached.surface.cache_usage()
+                    for measured in (row, total):
+                        measured['cache_reused'] += reused
+                        measured['cache_rejudged'] += rejudged
                     # The independent oracle rebuilds its own ratsnest and
                     # classifies geometry in Python; the native snapshot is
                     # immutable and cannot provide cached answers to it.
@@ -904,6 +912,8 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
         check(board, board.resolve(), 8, 'written-core')
         print('FULL_PREPARED_SECONDS', 'written-core', perf_counter() - started, flush=True)
     assert total_coverage['part']['native'] > 0, total_coverage
+    assert total_coverage['part']['cache_reused'] > 0, total_coverage
+    assert total_coverage['part']['cache_rejudged'] > 0, total_coverage
     assert total_coverage.get('cell', {}).get('native', 0) > 0 or (
         total_coverage.get('cell', {}).get('fallback')
         and set(total_coverage['cell']['fallback']) <= {'documented push/exposure intent fallback',
