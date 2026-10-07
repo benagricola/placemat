@@ -11,6 +11,7 @@ own interpreter; $KRT_DIR is the checkout, which the route sets.
 import os
 import sys
 
+os.environ["KRT_ROUTE_QUICK"] = "1"
 router_dir = os.environ.get("KRT_DIR")
 if not router_dir:
     sys.exit("route_one_round: $KRT_DIR is not set; placemat's route sets it to the router checkout")

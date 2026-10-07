@@ -165,7 +165,20 @@ def _run(cmd, log: Path, ctx) -> int:
     with open(log, "w") as f:
         f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
         f.flush()
-        return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(ctx.router_dir), env=ctx.env,
+        env = dict(ctx.env)
+        deadline = time.time() + ctx.timeout
+        if "KRT_ROUTE_DEADLINE_UTC" in env:
+            import math
+            try:
+                earlier = float(env["KRT_ROUTE_DEADLINE_UTC"])
+                if not math.isfinite(earlier):
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise RouterFailed("invalid router deadline", None, log, "", code="invalid_deadline",
+                                   facts={"variable": "KRT_ROUTE_DEADLINE_UTC"}) from None
+            deadline = min(deadline, earlier)
+        env["KRT_ROUTE_DEADLINE_UTC"] = str(deadline)
+        return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(ctx.router_dir), env=env,
                               timeout=ctx.timeout, pass_fds=route_progress.pass_fds()).returncode
 
 
