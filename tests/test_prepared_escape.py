@@ -255,3 +255,25 @@ def test_prepared_pose_must_match_frozen_source_before_native_evaluation():
     for index in (-1, 1, True):
         with pytest.raises(ValueError, match='rotation set'):
             prepared.evaluate(original, index)
+
+
+def test_diagnostic_stage_profile_preserves_exact_evaluation_and_identity_guards():
+    from tests.test_score_search import triangle
+    board, item, plan = triangle()
+    occ = plan.occupancy
+    occ.lift({item.ref})
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    prepared, reason = prepare(delta, (0, 37), Face.FRONT)
+    assert prepared is not None, reason
+    assert hasattr(prepared.surface, 'profile')
+    for x, y, turn in [(25, 19, 0), (24.8, 19.2, 1)]:
+        expected = prepared.surface.evaluate(prepared.candidate, prepared.scoring, x, y, turn, True)
+        actual, timings = prepared.surface.profile(prepared.candidate, prepared.scoring, x, y, turn)
+        assert actual == expected
+        stages = dict(timings)
+        assert set(stages) == {'candidate_us', 'wire_cross_us', 'escape_cross_us', 'records_us',
+                               'lanes_us', 'contacts_us', 'surface_judge_us', 'supplemental_us', 'layout_us'}
+        assert all(value >= 0 for value in stages.values())
+        assert stages['lanes_us'] > 0 and stages['surface_judge_us'] > 0
+    with pytest.raises(ValueError):
+        prepared.surface.profile(prepared.candidate, prepared.scoring, float('nan'), 19, 0)

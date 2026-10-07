@@ -10,6 +10,34 @@ use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+type Evaluation = ((f64, f64, f64, f64, f64, f64), i64, usize, usize, usize,
+                   Vec<(String, String, u8)>, Vec<(String, String)>);
+#[derive(Default)]
+struct Profile {
+    candidate: f64, wire_cross: f64, escape_cross: f64, records: f64,
+    lanes: f64, contacts: f64, judge: f64, supplemental: f64, layout: f64,
+}
+impl Profile {
+    fn rows(self) -> Vec<(&'static str, f64)> {
+        vec![("candidate_us", self.candidate), ("wire_cross_us", self.wire_cross),
+             ("escape_cross_us", self.escape_cross), ("records_us", self.records),
+             ("lanes_us", self.lanes), ("contacts_us", self.contacts),
+             ("surface_judge_us", self.judge), ("supplemental_us", self.supplemental),
+             ("layout_us", self.layout)]
+    }
+}
+// Only inspection supplies Some: production does not read the clock.
+macro_rules! profiled {
+    ($profile:expr, $stage:ident, $call:expr) => {{
+        if let Some(timing) = $profile.as_mut() {
+            let started = std::time::Instant::now();
+            let result = $call;
+            timing.$stage += started.elapsed().as_secs_f64() * 1e6;
+            result
+        } else { $call }
+    }};
+}
+
 const CONTACT: u8 = 1;
 const PATH: u8 = 2;
 const HOLE: u8 = 4;
@@ -439,27 +467,26 @@ impl PreparedSurface {
     )> {
         self.evaluate_inner(py, &mut candidate, &mut delta, x, y, turn, inspect)
     }
+
+    /// Diagnostic stage timings include timer overhead; never used by sweep.
+    fn profile(&mut self, py: Python<'_>, mut candidate: PyRefMut<'_, PreparedCandidate>,
+               mut delta: PyRefMut<'_, NativeDelta>, x: f64, y: f64, turn: usize)
+               -> PyResult<(Evaluation, Vec<(&'static str, f64)>)> {
+        let mut timings = Some(Profile::default());
+        let result = self.evaluate_profiled(py, &mut candidate, &mut delta, x, y, turn, true, &mut timings)?;
+        Ok((result, timings.unwrap().rows()))
+    }
 }
 
 impl PreparedSurface {
-    pub(crate) fn evaluate_inner(
-        &mut self,
-        py: Python<'_>,
-        candidate: &mut PreparedCandidate,
-        delta: &mut NativeDelta,
-        x: f64,
-        y: f64,
-        turn: usize,
-        inspect: bool,
-    ) -> PyResult<(
-        (f64, f64, f64, f64, f64, f64),
-        i64,
-        usize,
-        usize,
-        usize,
-        Vec<(String, String, u8)>,
-        Vec<(String, String)>,
-    )> {
+    pub(crate) fn evaluate_inner(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
+        delta: &mut NativeDelta, x: f64, y: f64, turn: usize, inspect: bool) -> PyResult<Evaluation> {
+        self.evaluate_profiled(py, candidate, delta, x, y, turn, inspect, &mut None)
+    }
+
+    fn evaluate_profiled(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
+        delta: &mut NativeDelta, x: f64, y: f64, turn: usize, inspect: bool,
+        profile: &mut Option<Profile>) -> PyResult<Evaluation> {
         if !Arc::ptr_eq(&self.identity, &candidate.identity) {
             return Err(PyValueError::new_err(
                 "prepared surface candidate identity changed",
@@ -472,15 +499,11 @@ impl PreparedSurface {
                 "prepared surface delta snapshot changed",
             ));
         }
-        candidate.evaluate(py, (x, y), turn)?;
-        let (wire, cross) = delta
-            .inner
-            .wire_cross(x, y, turn)
-            .map_err(PyValueError::new_err)?;
-        let crossed = delta
-            .inner
-            .escape_cross(turn, self.settings.depth)
-            .map_err(PyValueError::new_err)?;
+        profiled!(profile, candidate, candidate.evaluate(py, (x, y), turn))?;
+        let (wire, cross) = profiled!(profile, wire_cross,
+            delta.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err))?;
+        let crossed = profiled!(profile, escape_cross,
+            delta.inner.escape_cross(turn, self.settings.depth).map_err(PyValueError::new_err))?;
         let mut vias = 0;
         let mut away = 0;
         let mut walls = HashSet::new();
@@ -491,6 +514,7 @@ impl PreparedSurface {
             if field.pads.len() < self.settings.minimum {
                 continue;
             }
+            let records_started = profile.as_ref().map(|_| std::time::Instant::now());
             let mut records = Vec::new();
             let mut pad_mines = Vec::new();
             for pad in &field.pads {
@@ -537,29 +561,33 @@ impl PreparedSurface {
                 ));
                 pad_mines.push((mine, b));
             }
+            if let (Some(timing), Some(started)) = (profile.as_mut(), records_started) {
+                timing.records += started.elapsed().as_secs_f64() * 1e6;
+            }
             let (rotation, cos, sin) = field.turns[turn];
-            let (lanes, spots) = surface::surface_lanes(
+            let (lanes, spots) = profiled!(profile, lanes, surface::surface_lanes(
                 py,
                 records,
                 rotation,
                 (cos, sin),
                 self.settings.reach,
                 self.settings.minimum,
-            )?;
+            ))?;
             for (pad, (mine, b)) in field.pads.iter().zip(pad_mines) {
                 py.check_signals()?;
                 let Some(net) = self.nets.get(&pad.net) else {
                     continue;
                 };
-                let facts = self.contacts.inspect(
+                let facts = profiled!(profile, contacts, self.contacts.inspect(
                     py,
                     &candidate,
                     turn,
                     &field.owner,
                     &pad.number,
                     &pad.net,
-                )?;
+                ))?;
                 let own = self.contacts.chain().to_vec();
+                let judge_started = profile.as_ref().map(|_| std::time::Instant::now());
                 let mut way = 4;
                 if net.size >= 2 && !pad.unconnected && !facts.joined && !facts.on_pad {
                     let centre = ((b.0 + b.2) / 2.0, (b.1 + b.3) / 2.0);
@@ -647,9 +675,13 @@ impl PreparedSurface {
                         }
                     }
                 }
+                if let (Some(timing), Some(started)) = (profile.as_mut(), judge_started) {
+                    timing.judge += started.elapsed().as_secs_f64() * 1e6;
+                }
                 if inspect {
                     ways.push((field.owner.clone(), pad.number.clone(), way));
                 }
+                let supplemental_started = profile.as_ref().map(|_| std::time::Instant::now());
                 let declared = net.size >= 2
                     && !own.is_empty()
                     && !facts.through
@@ -702,6 +734,9 @@ impl PreparedSurface {
                         }
                     }
                 }
+                if let (Some(timing), Some(started)) = (profile.as_mut(), supplemental_started) {
+                    timing.supplemental += started.elapsed().as_secs_f64() * 1e6;
+                }
             }
         }
         let layout = delta
@@ -709,7 +744,7 @@ impl PreparedSurface {
             .as_mut()
             .ok_or_else(|| PyValueError::new_err("prepared surface layout is not configured"))?;
         let (link, over, area, congestion) =
-            layout.terms(x, y, turn).map_err(PyValueError::new_err)?;
+            profiled!(profile, layout, layout.terms(x, y, turn).map_err(PyValueError::new_err))?;
         let mut identities = if inspect {
             walls
                 .iter()
