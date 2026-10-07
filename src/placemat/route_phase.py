@@ -38,11 +38,26 @@ _TEXT = {
     "bad_neckdown": "route.phase %(name)r: neckdown is true or false, not %(value)r",
     "bad_router_args": "route.phase %(name)r: router_args is a list of strings, not %(value)r",
     "router_owned": "route.phase %(name)r: router_args: %(flag)s is set by placemat itself (%(by)s)",
+    "needs_capture": "route.phase %(name)r: %(selector)s needs the capture's nets.layout.json with what it selects by; "
+                     "this board's generator (%(generator)s) does not export it: generate the board with the Zener fork",
+    "not_on_board": "route.phase %(name)r: no %(kind)s %(value)r on this board",
+    "layer_missing": "route.phase %(name)r: the board has no %(layers)s (its copper layers: %(board_layers)s)",
+    "no_current": "route.phase %(name)r: width = \"current\" needs a stated current (Pm.I) at both ends; none for %(what)s",
+    "ends_on_two_nets": "route.phase %(name)r: connection %(index)d joins two nets, %(nets)s",
 }
 
 
 def phase_error_text(code: str, facts: dict) -> str:
     """A PhaseError as a sentence: the edge's rendering of its code and facts."""
+    facts = dict(facts)
+    if code == "no_current":
+        facts["what"] = ", ".join(facts["nets"] if "nets" in facts else
+                                  ("%(net)s %(from)s to %(to)s" % c for c in facts["connections"]))
+    elif code == "needs_capture":
+        g = facts.get("generator")
+        facts["generator"] = (g.get("name") if isinstance(g, dict) else g) or "none"
+    elif code in ("layer_missing", "ends_on_two_nets"):
+        facts = {k: ", ".join(v) if k in ("layers", "board_layers", "nets") else v for k, v in facts.items()}
     return _TEXT[code] % facts
 
 
