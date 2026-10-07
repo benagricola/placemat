@@ -137,3 +137,16 @@ order). Before it is adopted:
 
 - Dog-leg lanes and paths round more than one part: routing judges those.
 - Lane direction by the router's own preferred directions per layer.
+
+## Amendment, 2026-10-07: the exact search decides
+
+Measured on the first build (35 bench modules, 801 pads): the two-leg lanes agreed with the exact path search on 572
+pads (71%). All 229 disagreements erred one way: the path search found a surface way out the lanes did not (195 read
+via-only, 29 walled, 5 away), many on fine-pitch rows. Since a walled pad makes a board invalid (one-score ranking), a
+false walled is not acceptable. Decided with the user:
+- **The definition is the exact path search** (`path_out(exact=True)`, escapes.py), in the order of the table above:
+  a surface route toward the target within `score.escape_reach` (`via_exit=False`, `toward` the target), else a via
+  spot, else a surface route in any direction, else walled.
+- **The lanes are a first check only.** A pad whose lanes find a surface way toward its target is judged on them;
+  otherwise the path search decides. The judgement equals the path search's by construction.
+- **Pads of quiet nets are judged for walled only:** a plane pad with no via spot and no way out is walled.
