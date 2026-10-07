@@ -750,6 +750,7 @@ def test_whole_cell_lift_owns_copper_but_partial_member_move_does_not():
 def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
     """Actual module/core raw objective and complete prepared escape parity."""
     from dataclasses import replace
+    from time import perf_counter
     from fixtures import bench
     from fixtures.reference.lock import realboard
     from placemat import score
@@ -874,13 +875,20 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
             # Zero supported rows are only admitted with an individually
             # proved, documented exclusion from the current native contract.
             assert row['native'] > 0 or row['fallback'], (label, kind, row)
-        print('FULL_PREPARED_COVERAGE', label, coverage)
+        print('FULL_PREPARED_COVERAGE', label, coverage, flush=True)
 
     with realboard():
         for path in bench.boards()[:6]:
+            label, started = bench._name(path), perf_counter()
+            print('FULL_PREPARED_START', label, flush=True)
             geometry = read_board(path)
             board = bench.ModuleBoard(geometry, {}, bench._planes(geometry), bench._size(geometry, False))()
-            check(board, board.resolve(), 8, bench._name(path))
+            plan = board.resolve()
+            print('FULL_PREPARED_RESOLVED', label, perf_counter() - started, flush=True)
+            check(board, plan, 8, label)
+            print('FULL_PREPARED_SECONDS', label, perf_counter() - started, flush=True)
+        started = perf_counter()
+        print('FULL_PREPARED_START', 'written-core', flush=True)
         geometry = read_board(bench.BOARD_FIXTURE / 'layout' / 'layout.kicad_pcb')
         board = Board(geometry, keep_going=True)
         board.outline(geometry.board_polygon[0], holes=geometry.board_polygon[1:])
@@ -894,12 +902,13 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
             if fp.cell is None:
                 board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
         check(board, board.resolve(), 8, 'written-core')
+        print('FULL_PREPARED_SECONDS', 'written-core', perf_counter() - started, flush=True)
     assert total_coverage['part']['native'] > 0, total_coverage
     assert total_coverage.get('cell', {}).get('native', 0) > 0 or (
         total_coverage.get('cell', {}).get('fallback')
         and set(total_coverage['cell']['fallback']) <= {'documented push/exposure intent fallback',
                                                     'documented invalid fixed-frame geometry fallback'}), total_coverage
-    print('FULL_PREPARED_TOTAL', total_coverage)
+    print('FULL_PREPARED_TOTAL', total_coverage, flush=True)
 
 
 def test_native_configuration_failure_is_not_cached(monkeypatch):
