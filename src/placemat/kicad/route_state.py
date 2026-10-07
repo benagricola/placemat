@@ -1,14 +1,11 @@
-"""What a route keeps in its work folder so a stop or a failure costs only the
-stage in hand: `state.json` names each finished stage (pairs, islands, classes, main)
-with the digest of everything that stage's result depends on, chained from
-the stage before it. A rerun whose digest for a stage matches takes that
-stage's saved result instead of running the router again; the first stage
-that does not match drops itself, its files and every later stage's, and
-runs.
+"""What a route keeps in its work folder so a stop or a failure costs only the phase in hand: `state.json` names each
+finished routing phase with the digest of everything its result depends on, chained from the phase before it (the
+board and its rules, the capture, the route's settings, the earlier phases' keys, the phase's own definition, the
+router's and placemat's versions). A rerun whose digest for a phase matches takes that phase's saved result instead of
+routing it again; the first phase that does not match drops itself, its files and every later phase's, and routes.
 
-Only whole stages: inside the main router pass nothing is kept (the router's
-own checkpoint_stop, KICAD_STOP_AFTER / KICAD_STOP_FILE in its
-single_ended_loop.py, writes a partial board and could be a later step)."""
+Phase i's files are `p<i>_*`; what the end of the route makes (FINAL) goes with any dropped phase. Only whole phases
+are kept: inside a router call nothing is."""
 from __future__ import annotations
 
 import hashlib
@@ -17,16 +14,15 @@ import os
 from pathlib import Path
 import shutil
 
-VERSION = 1
-STAGES = ("pairs", "islands", "classes", "main")
-# What each stage leaves in the work folder (the folder's other files are
-# made again every time, from the board and the settings).
-FILES = {"pairs": ("pairs*",), "islands": ("islands*",), "classes": ("classes*",),
-         "main": ("router*", "routed*", "drc_after.json", "route.json", "route_record.json", "route_summary.json")}
+VERSION = 2
+FINAL = ("router*", "routed*", "drc_after.json", "route.json", "route_record.json", "route_summary.json")
+
+
+# Transitional (Task 13 removes it): what the fixed-stage route leaves for each of its stages.
+LEGACY_FILES = {"pairs": ("pairs*",), "islands": ("islands*",), "classes": ("classes*",)}
 
 
 def digest(*parts) -> str:
-    """A digest of `parts` (JSON values, or text): equal parts, equal digest."""
     return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()
 
 
@@ -37,13 +33,16 @@ def file_digest(path) -> str:
         return ""
 
 
-class RouteState:
-    """The finished stages of the route in `work`. With `resume` False the
-    folder is emptied: nothing is taken from what was there."""
+def files_of(index: int) -> tuple:
+    return ("p%d_*" % index,)
 
+
+class RouteState:
     def __init__(self, work, resume: bool = True):
         self.work = Path(work)
-        self.stages: dict = {}
+        self.order: list = []
+        self.phases: dict = {}
+        self._saved_order: list = []
         if not resume:
             shutil.rmtree(self.work, ignore_errors=True)
         self.work.mkdir(parents=True, exist_ok=True)
@@ -56,41 +55,60 @@ class RouteState:
 
     @property
     def finished(self) -> list:
-        return [s for s in STAGES if s in self.stages]
+        # Before set_order, the saved route's own order.
+        return [n for n in (self.order or self._saved_order) if n in self.phases]
 
     def _load(self) -> None:
         try:
             doc = json.loads(self.path.read_text())
         except (OSError, ValueError):
             return
-        if isinstance(doc, dict) and doc.get("version") == VERSION and isinstance(doc.get("stages"), dict):
-            self.stages = {k: v for k, v in doc["stages"].items() if k in STAGES and isinstance(v, dict)}
+        if isinstance(doc, dict) and doc.get("version") == VERSION and isinstance(doc.get("phases"), dict):
+            self._saved_order = [n for n in doc.get("order", []) if isinstance(n, str)]
+            self.phases = {k: v for k, v in doc["phases"].items() if isinstance(v, dict)}
+
+    def set_order(self, names) -> None:
+        self.order = list(names)
+        head = 0
+        while head < min(len(self.order), len(self._saved_order)) and self.order[head] == self._saved_order[head]:
+            head += 1
+        keep = set(self.order[:head])
+        for name in list(self.phases):
+            if name not in keep:
+                self.phases.pop(name)
+        self._delete_from(head)
+        self._saved_order = list(self.order)
+        self._save()
 
     def _save(self) -> None:
         tmp = self.path.with_name("state.json.tmp")
-        tmp.write_text(json.dumps({"version": VERSION, "stages": self.stages}, indent=1) + "\n")
+        tmp.write_text(json.dumps({"version": VERSION, "order": self.order, "phases": self.phases}, indent=1) + "\n")
         os.replace(tmp, self.path)
 
-    def result(self, stage: str, digest_: str):
-        """The saved result of a finished `stage` whose inputs digest to
-        `digest_`, or None."""
-        saved = self.stages.get(stage)
+    def result(self, name: str, digest_: str):
+        saved = self.phases.get(name)
         return saved["result"] if saved is not None and saved.get("digest") == digest_ else None
 
-    def record(self, stage: str, digest_: str, result: dict) -> None:
-        """`stage` is finished, with this result, on inputs that digest to `digest_`."""
-        self.stages[stage] = {"digest": digest_, "result": result}
+    def record(self, name: str, digest_: str, result: dict) -> None:
+        self.phases[name] = {"digest": digest_, "result": result}
         self._save()
 
-    def drop_from(self, stage: str) -> None:
-        """Forget `stage` and every stage after it, and delete their files:
-        what a partial stage left is not to be taken for a finished one."""
-        for later in STAGES[STAGES.index(stage):]:
-            self.stages.pop(later, None)
-            for pattern in FILES[later]:
-                for p in self.work.glob(pattern):
-                    try:
-                        p.unlink() if p.is_file() else shutil.rmtree(p)
-                    except OSError:
-                        pass
+    def _delete_from(self, index: int) -> None:
+        last = len(self._saved_order) + len(self.order)       # every index either phase list used
+        patterns = [p for i in range(index, max(index, last)) for p in files_of(i)] + list(FINAL)
+        # Transitional, until the phase engine replaces the fixed-stage route (Task 13): the files of its stages.
+        for name in self.order[index:] + self._saved_order[index:]:
+            patterns += LEGACY_FILES.get(name, ())
+        for pattern in patterns:
+            for p in self.work.glob(pattern):
+                try:
+                    p.unlink() if p.is_file() else shutil.rmtree(p)
+                except OSError:
+                    pass
+
+    def drop_from(self, name: str) -> None:
+        index = self.order.index(name)
+        for later in self.order[index:]:
+            self.phases.pop(later, None)
+        self._delete_from(index)
         self._save()

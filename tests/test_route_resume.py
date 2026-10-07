@@ -46,46 +46,59 @@ FAKE = textwrap.dedent('''
 
 
 # ---------------------------------------------------------------- the state file, alone
-def test_a_finished_stage_is_found_by_its_digest_and_only_by_it(tmp_path):
+def test_a_finished_phase_is_found_by_its_digest_and_only_by_it(tmp_path):
     s = RouteState(tmp_path)
-    s.record("pairs", "d1", {"board": "pairs.kicad_pcb", "seconds": 2.0})
+    s.set_order(["legs", "signals"])
+    s.record("legs", "d1", {"board": "p0_0.kicad_pcb", "seconds": 2.0})
     again = RouteState(tmp_path)
-    assert again.result("pairs", "d1") == {"board": "pairs.kicad_pcb", "seconds": 2.0}
-    assert again.result("pairs", "other") is None and again.result("islands", "d1") is None
-    assert json.loads((tmp_path / "state.json").read_text())["stages"]["pairs"]["digest"] == "d1"
+    again.set_order(["legs", "signals"])
+    assert again.result("legs", "d1") == {"board": "p0_0.kicad_pcb", "seconds": 2.0}
+    assert again.result("legs", "other") is None and again.result("signals", "d1") is None
 
 
-def test_dropping_a_stage_drops_it_its_files_and_every_stage_after_it(tmp_path):
+def test_dropping_a_phase_drops_it_its_files_and_every_phase_after_it(tmp_path):
     s = RouteState(tmp_path)
-    for st in route_state.STAGES:
-        s.record(st, "d-" + st, {"seconds": 1.0})
-    for name in ("pairs.kicad_pcb", "pairs.log", "islands0.kicad_pcb", "islands.kicad_pcb", "router.log", "router_out.kicad_pcb",
-                 "routed.kicad_pcb", "route.json", "in.kicad_pcb", "drc_before.json"):
-        (tmp_path / name).write_text("x")
-    s.drop_from("islands")
-    left = sorted(p.name for p in tmp_path.iterdir())
-    assert left == ["drc_before.json", "in.kicad_pcb", "pairs.kicad_pcb", "pairs.log", "state.json"]
-    assert RouteState(tmp_path).finished == ["pairs"]
+    s.set_order(["a", "b", "c"])
+    for i, name in enumerate("abc"):
+        (tmp_path / ("p%d_0.kicad_pcb" % i)).write_text("x")
+        s.record(name, "d" + name, {})
+    (tmp_path / "routed.kicad_pcb").write_text("x")
+    s.drop_from("b")
+    assert s.finished == ["a"] and (tmp_path / "p0_0.kicad_pcb").exists()
+    assert not (tmp_path / "p1_0.kicad_pcb").exists() and not (tmp_path / "p2_0.kicad_pcb").exists()
+    assert not (tmp_path / "routed.kicad_pcb").exists()
+
+
+def test_a_reordered_or_renamed_phase_list_keeps_only_the_common_head(tmp_path):
+    s = RouteState(tmp_path)
+    s.set_order(["a", "b", "c"])
+    for name in "abc":
+        s.record(name, "d", {})
+    again = RouteState(tmp_path)
+    again.set_order(["a", "c", "b"])
+    assert again.finished == ["a"]
+
+
+def test_a_state_file_of_the_old_stages_is_no_state(tmp_path):
+    (tmp_path / "state.json").write_text(json.dumps({"version": 1, "stages": {"pairs": {"digest": "d", "result": {}}}}))
+    s = RouteState(tmp_path)
+    s.set_order(["pairs"])
+    assert s.finished == []
+
+
+def test_without_resume_everything_is_dropped(tmp_path):
+    (tmp_path / "p0_0.kicad_pcb").write_text("x")
+    RouteState(tmp_path, resume=False)
+    assert not (tmp_path / "p0_0.kicad_pcb").exists()
 
 
 def test_a_state_file_that_is_not_readable_is_no_state(tmp_path):
     (tmp_path / "state.json").write_text("{not json")
     assert RouteState(tmp_path).finished == []
-    (tmp_path / "state.json").write_text(json.dumps({"version": 99, "stages": {"pairs": {"digest": "d"}}}))
-    assert RouteState(tmp_path).finished == []
-
-
-def test_without_resume_everything_is_dropped(tmp_path):
-    RouteState(tmp_path).record("pairs", "d", {})
-    (tmp_path / "pairs.kicad_pcb").write_text("x")
-    s = RouteState(tmp_path, resume=False)
-    assert s.finished == [] and not (tmp_path / "pairs.kicad_pcb").exists()
-
-
-def test_the_pairs_outcome_survives_the_state_file():
-    from placemat.kicad.route import Pairs
-    p = Pairs(["A"], ["B"], ["C"], ["D"], {"A_P", "A_N"})
-    assert Pairs.from_dict(json.loads(json.dumps(p.to_dict()))) == p
+    (tmp_path / "state.json").write_text(json.dumps({"version": 99, "phases": {"a": {"digest": "d"}}}))
+    s = RouteState(tmp_path)
+    s.set_order(["a"])
+    assert s.finished == []
 
 
 # ---------------------------------------------------------------- route_board, with a stand-in router

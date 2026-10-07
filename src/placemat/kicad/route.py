@@ -1081,6 +1081,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         raise FileNotFoundError("router not found at %s (expected .venv/bin/python and py_router/route.py); "
                                 "set KRT_DIR or [route] router_dir" % router_dir_path)
     state = RouteState(work, resume)
+    state.set_order(["pairs", "islands", "classes", "main"])      # transitional: the phase engine (Task 13) gives the real list
     from .. import channel, route_progress, route_view
     global _HOOK
     rep = channel.current()
