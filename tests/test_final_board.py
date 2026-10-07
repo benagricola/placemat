@@ -151,6 +151,26 @@ def test_unjudged_critical_check_retains_which_subject_is_unknown(monkeypatch):
                for r in final.measures['critical_unknown'])
 
 
+@pytest.mark.parametrize('current', [False, True], ids=['informational-only', 'missing-load'])
+def test_only_required_unjudged_current_prevents_final_certification(monkeypatch, current):
+    fields = {'Pm.Loop': 'hot', **({'Pm.I': 'vin:3A'} if current else {})}
+    geometry = board_geometry([footprint('U1', 10, 10, nets=('VIN', 'GND'), fields=fields)])
+    board, plan = _placed(geometry)
+    monkeypatch.setattr('placemat.kicad.read.read_board', lambda path: geometry)
+    before = score.plan_measures(board, plan)
+    final = final_board.judge(board, plan, Path('routed.kicad_pcb'), before)
+    informational = [v for v in final.verdicts if v.check == 'hot-loop']
+    assert informational and all(v.ok is None and v.limit is None for v in informational)
+    assert final.measures['critical_checks'] == 0
+    unknown = final.measures['critical_unknown']
+    assert bool(unknown) is current
+    if current:
+        assert unknown == [{'check': 'current-path', 'subject': 'VIN', 'reason': 'not judged'}]
+    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [], **final.evidence()}
+    standing = score.Standing.of_route(before, report)
+    assert ('critical_unknown' in standing.validity.unmeasured) is current
+
+
 def test_pending_part_has_no_final_captured_intent_obligation(monkeypatch):
     from dataclasses import replace
     part = footprint('U1', 10, 10, fields={'Pm.note': 'inactive fixture intent'})
