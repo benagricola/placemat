@@ -120,6 +120,28 @@ def strip(src: pathlib.Path, dst: pathlib.Path) -> None:
         raise RuntimeError("strip_copper_only failed (rc %d): %s" % (proc.returncode, proc.stderr.strip()[-500:]))
 
 
+def _generation_step(command, cwd, work, stage, label):
+    """Retain complete diagnostics before reporting a bounded summary."""
+    work = pathlib.Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    (work / (stage + ".command.json")).write_text(json.dumps({
+        "argv": command, "cwd": str(cwd) if cwd is not None else None}, indent=2) + "\n")
+    def save(stdout, stderr):
+        for stream, text in (("stdout", stdout), ("stderr", stderr)):
+            if isinstance(text, bytes):
+                text = text.decode("utf-8", errors="replace")
+            (work / (stage + "." + stream + ".log")).write_text(text or "")
+    try:
+        proc = subprocess.run(command, capture_output=True, text=True, cwd=cwd, timeout=PCB_TIMEOUT_S)
+    except subprocess.TimeoutExpired as error:
+        save(error.stdout, error.stderr)
+        raise
+    save(proc.stdout, proc.stderr)
+    if proc.returncode != 0:
+        raise RuntimeError("%s failed (rc %d): %s" % (
+            label, proc.returncode, (proc.stderr or proc.stdout).strip()[-500:]))
+
+
 def regenerate(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
     """Generate test (b)'s reference from the pinned source import, in work."""
     project = (pathlib.Path(src) / board.board).with_suffix(".kicad_pro")
@@ -132,22 +154,16 @@ def regenerate(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> pat
         copied_board = legacy / board.board
         _upgrade(copied_board)
         project = copied_board.with_suffix(".kicad_pro")
-        for schematic in sorted(legacy.rglob("*.sch")):
-            proc = subprocess.run(["kicad-cli", "sch", "upgrade", str(schematic)],
-                                  capture_output=True, text=True, timeout=PCB_TIMEOUT_S)
-            if proc.returncode != 0:
-                raise RuntimeError("legacy schematic upgrade failed (rc %d): %s" % (
-                    proc.returncode, (proc.stderr or proc.stdout).strip()[-500:]))
+        for index, schematic in enumerate(sorted(legacy.rglob("*.sch"))):
+            _generation_step(["kicad-cli", "sch", "upgrade", str(schematic)], None,
+                             work, "legacy-upgrade-%d" % index, "legacy schematic upgrade")
     if not project.is_file():
         raise RuntimeError("pcb import source project missing: %s" % project)
     out = pathlib.Path(work) / REGENERATED
     shutil.rmtree(out, ignore_errors=True)
     for command, cwd in ((["pcb", "import", str(project), str(out)], None),
                          (["pcb", "layout", "-S", "errors", project.stem + ".zen"], out)):
-        proc = subprocess.run(command, capture_output=True, text=True, cwd=cwd, timeout=PCB_TIMEOUT_S)
-        if proc.returncode != 0:
-            raise RuntimeError("pcb %s failed (rc %d): %s" % (
-                command[1], proc.returncode, (proc.stderr or proc.stdout).strip()[-500:]))
+        _generation_step(command, cwd, work, "regenerated-" + command[1], "pcb " + command[1])
     pcb = out / "layout" / (project.stem + ".kicad_pcb")
     if not pcb.exists():
         raise RuntimeError("pcb layout wrote no %s" % pcb)

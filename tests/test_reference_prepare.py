@@ -173,12 +173,29 @@ def test_regenerated_reference_uses_pinned_import_and_reports_failures(tmp_path,
     assert result.read_text() == 'generated'
     assert calls == [(['pcb', 'import', str(src / 'tiny.kicad_pro'), str(tmp_path / 'work' / 'regenerated')], None),
                      (['pcb', 'layout', '-S', 'errors', 'tiny.zen'], tmp_path / 'work' / 'regenerated')]
-    monkeypatch.setattr(prepare.subprocess, 'run', lambda command, **kw: subprocess.CompletedProcess(command, 1, '', 'bad project'))
-    with pytest.raises(RuntimeError, match='pcb import failed .*bad project'):
+    diagnostics = 'full error context\n' * 100 + 'bad project'
+    monkeypatch.setattr(prepare.subprocess, 'run', lambda command, **kw: subprocess.CompletedProcess(command, 1, 'full stdout', diagnostics))
+    with pytest.raises(RuntimeError, match='(?s)pcb import failed .*bad project'):
         prepare.regenerate(BOARD, src, tmp_path / 'work')
+    assert (tmp_path / 'work' / 'regenerated-import.stderr.log').read_text() == diagnostics
+    assert (tmp_path / 'work' / 'regenerated-import.stdout.log').read_text() == 'full stdout'
+    assert json.loads((tmp_path / 'work' / 'regenerated-import.command.json').read_text()) == {
+        'argv': calls[0][0], 'cwd': None}
     monkeypatch.setattr(prepare.subprocess, 'run', lambda command, **kw: subprocess.CompletedProcess(command, 0, '', ''))
     with pytest.raises(RuntimeError, match='pcb layout wrote no'):
         prepare.regenerate(BOARD, src, tmp_path / 'work')
+
+
+def test_regeneration_timeout_keeps_partial_command_output(tmp_path, monkeypatch):
+    import subprocess
+    command = ['pcb', 'layout', 'tiny.zen']
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(command, 900, output=b'partial stdout', stderr=b'partial stderr')
+    monkeypatch.setattr(prepare.subprocess, 'run', timeout)
+    with pytest.raises(subprocess.TimeoutExpired):
+        prepare._generation_step(command, tmp_path, tmp_path, 'regenerated-layout', 'pcb layout')
+    assert (tmp_path / 'regenerated-layout.stdout.log').read_text() == 'partial stdout'
+    assert (tmp_path / 'regenerated-layout.stderr.log').read_text() == 'partial stderr'
 
 
 def test_prepare_regenerated_reference_preserves_generated_rules(tmp_path, monkeypatch):
