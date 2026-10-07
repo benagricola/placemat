@@ -60,26 +60,26 @@ impl Affine {
     }
 }
 
-struct Source {
-    owner: String,
-    kind: String,
-    net: String,
-    pad: String,
-    layers: u32,
+pub(crate) struct Source {
+    pub(crate) owner: String,
+    pub(crate) kind: String,
+    pub(crate) net: String,
+    pub(crate) pad: String,
+    pub(crate) layers: u32,
     polygon: Vec<Point>,
     ends: Vec<Point>,
-    lane: bool,
-    wire: bool,
+    pub(crate) lane: bool,
+    pub(crate) wire: bool,
 }
 pub struct Placed {
     pub polygon: Vec<Point>,
     pub bounds: Bounds,
     pub ends: Vec<Point>,
 }
-struct Turn {
+pub(crate) struct Turn {
     affine: Affine,
-    shapes: Vec<Source>,
-    placed: Vec<Placed>,
+    pub(crate) shapes: Vec<Source>,
+    pub(crate) placed: Vec<Placed>,
 }
 
 fn valid_point(p: Point) -> bool {
@@ -92,6 +92,10 @@ pub struct PreparedCandidate {
 }
 
 impl PreparedCandidate {
+    pub(crate) fn turn(&self, turn: usize) -> &Turn {
+        // The caller must first evaluate, which checks the turn index.
+        &self.turns[turn]
+    }
     pub fn evaluate(&mut self, py: Python<'_>, location: Point, turn: usize) -> PyResult<()> {
         if !valid_point(location) {
             return Err(PyValueError::new_err("candidate location invalid"));
