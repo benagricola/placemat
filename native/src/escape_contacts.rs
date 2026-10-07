@@ -207,11 +207,21 @@ impl PreparedContacts {
                 py.check_signals()?;
             }
             let mine = self.shape(&candidate, turn, index);
+            if crate::shapes::Kind::from_str(mine.kind).is_none() {
+                return Err(PyValueError::new_err(
+                    "escape contact candidate kind invalid",
+                ));
+            }
             if (pad(mine.kind) || copper(mine.kind))
                 && (mine.layers == 0 || !nondegenerate(mine.polygon))
             {
                 return Err(PyValueError::new_err(
                     "escape contact candidate copper invalid",
+                ));
+            }
+            if matches!(mine.kind, "npth" | "viaban") && !nondegenerate(mine.polygon) {
+                return Err(PyValueError::new_err(
+                    "escape contact candidate wall invalid",
                 ));
             }
             if mine.owner == owner && mine.pad == number && pad(mine.kind) {

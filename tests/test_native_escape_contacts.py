@@ -70,6 +70,17 @@ def test_prepared_contacts_refuse_bad_bounds_missing_pad_and_weakened_net():
     for number, net in [('absent', 'S'), ('1', 'OTHER')]:
         with pytest.raises(ValueError):
             snapshot.contacts(candidate, 0, 0, 0, 'U1', number, net)
+    for invalid in [_shape('U1', 'unsupported', 'S', '1', (0, 0, 1, 1)),
+                    _shape('U1', 'pad', 'S', '1', (0, 0, 1, 1), layers=0)]:
+        with pytest.raises(ValueError):
+            snapshot.contacts(_candidate(module, invalid), 0, 0, 0, 'U1', '1', 'S')
+    # Known non-contact shapes are deliberately ignored; malformed wall
+    # geometry is refused even when this pad's contact facts would be empty.
+    bad_wall = ('rule', 'viaban', '', '', 0, [(0, 0), (1, 1), (2, 2)], [], False, False)
+    source = shape[:6] + shape[7:]
+    invalid = module.PreparedCandidate([((1, 0, 0, 1, 0, 0), [source, bad_wall])])
+    with pytest.raises(ValueError):
+        snapshot.contacts(invalid, 0, 0, 0, 'U1', '1', 'S')
     assert snapshot.contacts(candidate, 0, 0, 0, 'U1', '1', 'S') == (
         False, False, [], False, False, True)
     # Analytic pad extents may conservatively contain their polygon. This is
