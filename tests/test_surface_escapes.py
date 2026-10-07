@@ -257,3 +257,127 @@ def test_a_lane_the_first_check_finds_open_is_a_way_the_path_search_finds(seed):
         if any_way:
             assert path_out(occ, "U1", number, depth=reach, exact=True, via_exit=False), number
     assert checked
+
+
+def _round_pad(owner, inst, number, net, cx, cy, radius):
+    """A round pad of `radius` centred at (cx, cy), its outline a 32-gon."""
+    import dataclasses as dc
+    from placemat.geometry import circle_polygon
+    from placemat.values import Box, Location
+    from tests.fixtures import pad
+    outline = circle_polygon(Location(cx, cy), radius, 32)
+    return dc.replace(pad(owner, inst, number, net, cx, cy, 2 * radius, 2 * radius), outlines=(outline,),
+                      box=Box.of_points(outline))
+
+
+def _part_of(ref, inst, pads, cx, cy):
+    from placemat.board_geometry import Footprint
+    from placemat.values import Box, Face, Location
+    body = Box.union([p.box for p in pads])
+    return Footprint(ref, inst, None, ref, Location(cx, cy), 0.0, Face.FRONT, body, body, body, tuple(pads))
+
+
+def test_a_lane_starts_at_the_round_pads_copper_not_its_box():
+    """A round pad 2 mm in radius ringed by 0.1 mm pads of another net 2.3 mm from its centre, with a 15-degree gap toward
+    its target: the box's corners lie past the ring, the copper's edge inside it. No lane gets out from the copper, and
+    neither does the path search: the pad is no surface way out."""
+    import math as m
+    from placemat.escapes import path_out
+    from tests.escape_fixtures import board_with, one_pad
+    from placemat.values import Location, Part
+    from tests.fixtures import pad
+    ring = []
+    k = 0
+    for i in range(96):
+        a = 2 * m.pi * i / 96
+        if abs(m.degrees(a) - 45.0) < 7.5:
+            continue
+        k += 1
+        ring.append(pad("Z1", "z1", k, "Z", 30 + 2.3 * m.cos(a), 30 + 2.3 * m.sin(a), 0.1, 0.1))
+    fps = [_part_of("P1", "p1", [_round_pad("P1", "p1", 1, "S", 30, 30, 2.0)], 30, 30),
+           _part_of("Z1", "z1", ring, 30, 30), one_pad("T1", "t1", "S", 45, 45)]
+    b = board_with(fps, keep_going=True)
+    for fp in fps:
+        b.place(Part(fp.inst), at=Location(30, 30) if fp.ref != "T1" else Location(45, 45))
+    occ = b.resolve().occupancy
+    esc = judging(occ)
+    toward, any_way, aim = esc.lane_check("P1", "1")
+    reach = occ.settings.score_escape_reach
+    assert not path_out(occ, "P1", "1", depth=reach, toward=aim, exact=True, via_exit=False)
+    assert not path_out(occ, "P1", "1", depth=reach, exact=True, via_exit=False)
+    assert (toward, any_way) == (False, False)
+    assert esc.judge("P1", "1") is not Way.SURFACE
+
+
+def _shape_board(rnd):
+    """A random small board for the subset test: the pad under test (`P1`) is a large round pad, an SOIC-8 turned 45
+    degrees, or a rectangle pad at a random angle, among other nets' pads, a pour, a through-hole part and a back-layer
+    track; every net of P1 joins a far pad."""
+    import math as m
+    from tests.escape_fixtures import one_pad, soic8, turned_pad
+    from tests.fixtures import footprint, pad
+    kind = rnd.choice(("round", "soic45", "rect"))
+    if kind == "round":
+        main = _part_of("P1", "p1", [_round_pad("P1", "p1", 1, "S1", 30, 30, rnd.uniform(0.8, 2.5))], 30, 30)
+    elif kind == "rect":
+        main = _part_of("P1", "p1", [turned_pad("P1", "p1", 1, "S1", 30, 30, rnd.uniform(0.6, 2.5), rnd.uniform(0.3, 1.2),
+                                                rnd.uniform(0, 180))], 30, 30)
+    else:
+        base = soic8("P1", "p1", nets={k: "S%d" % k for k in range(1, 9)})
+        c, s_ = m.cos(m.radians(45)), m.sin(m.radians(45))
+        pads = []
+        for p in base.pads:
+            x, y = p.box.center.x - 30, p.box.center.y - 30
+            pads.append(turned_pad("P1", "p1", p.number, p.net, 30 + x * c - y * s_, 30 + x * s_ + y * c,
+                                   p.box.width, p.box.height, 45.0))
+        main = _part_of("P1", "p1", pads, 30, 30)
+    nets = sorted({p.net for p in main.pads})
+    fps = [main] + [one_pad("T%d" % k, "t%d" % k, net, 8.0 + 5.0 * k, 52.0) for k, net in enumerate(nets)]
+    reach = max(m.hypot(x - 30, y - 30) for p in main.pads for poly in p.outlines for x, y in poly)
+    for k in range(9):                  # near the copper's edge, where a box's corner stands past it
+        a, r = rnd.uniform(0, 2 * m.pi), rnd.uniform(0.7 * reach, reach + 1.5)
+        fps.append(one_pad("F%d" % k, "f%d" % k, "Z%d" % k, 30 + r * m.cos(a), 30 + r * m.sin(a),
+                           size=rnd.uniform(0.1, 0.6)))
+    if True:                            # a fence of another net's pads round it, with a gap of a random width
+        rr = reach + rnd.uniform(0.1, 0.6)
+        n = int(2 * m.pi * rr / 0.3)
+        gap, width = rnd.uniform(0, 360), rnd.uniform(5, 25)
+        fence = [pad("W1", "w1", i + 1, "ZW", 30 + rr * m.cos(2 * m.pi * i / n), 30 + rr * m.sin(2 * m.pi * i / n), 0.1, 0.1)
+                 for i in range(n) if abs((360.0 * i / n - gap + 180) % 360 - 180) > width / 2]
+        fps.append(_part_of("W1", "w1", fence, 30, 30))
+    a = rnd.uniform(0, 2 * m.pi)
+    fps.append(footprint("H1", 30 + 5.5 * m.cos(a), 30 + 5.5 * m.sin(a), w=2.6, h=1.0, inst="h1", nets=("ZH", "ZH2"),
+                         through=True))
+    return fps
+
+
+@pytest.mark.parametrize("seed", range(24))
+def test_a_lane_finds_only_what_the_search_finds_on_round_turned_and_angled_pads(seed):
+    import math as m
+    import random
+    from placemat.escapes import path_out
+    from placemat.values import CopperLayer, Location, Part
+    from tests.escape_fixtures import board_with
+    rnd = random.Random(1000 + seed)
+    fps = _shape_board(rnd)
+    b = board_with(fps, keep_going=True)
+    for fp in fps:
+        b.place(Part(fp.inst), at=fp.location)
+    a = rnd.uniform(0, 2 * m.pi)
+    px, py = 30 + 3.5 * m.cos(a), 30 + 3.5 * m.sin(a)
+    b.pour(Net("Z0"), [Location(px, py), Location(px + 1.2, py), Location(px + 1.2, py + 1.5), Location(px, py + 1.5)],
+           layer=CopperLayer.F, why="another net's pour")
+    ty = 30.0 + rnd.uniform(-3.0, 3.0)
+    b.track(Net("ZH"), [Location(24.0, ty), Location(36.0, ty)], layer=CopperLayer.B, width=0.2, why="a back-layer track")
+    occ = b.resolve().occupancy
+    esc = judging(occ)
+    reach = occ.settings.score_escape_reach
+    for number in sorted({p.number for p in fps[0].pads}):
+        found = esc.lane_check("P1", number)
+        if found is None:
+            continue
+        toward, any_way, aim = found
+        if toward:
+            assert path_out(occ, "P1", number, depth=reach, toward=aim, exact=True, via_exit=False), number
+        if any_way:
+            assert path_out(occ, "P1", number, depth=reach, exact=True, via_exit=False), number

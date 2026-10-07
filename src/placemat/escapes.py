@@ -185,7 +185,7 @@ class Lane:
     legs: tuple             # ((a, b), (b', c)): the track's centre line out of the pin field, then on; an empty leg is (p, p)
     box: Box                # round the legs' centre lines
     direction: tuple        # the second leg's unit direction, board frame
-    toward_ok: bool = True  # the second leg is within 90 degrees of `pad_lanes`'s `toward` for the pad (True without one)
+    toward_ok: bool = True  # the lane's end lies toward `pad_lanes`'s `toward` from the pad's centre (True without one)
 
 
 @dataclass(frozen=True)
@@ -219,11 +219,36 @@ def _to_edge(p, u, win: Box) -> float:
     return max(0.0, t)
 
 
-def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = None) -> tuple:
+def _poly_exit(c, u, polys) -> float:
+    """How far from `c` a ray along `u` first leaves the pad's copper (`polys`, its outlines): where the path search's
+    start cells end. 0 when `c` is on none of them, so the lane is checked from the centre."""
+    inside = [poly for poly in polys if point_in_polygon(c, poly)]
+    if not inside:
+        return 0.0
+    t = math.inf
+    far = (c[0] + u[0] * 1e3, c[1] + u[1] * 1e3)
+    for poly in inside:
+        n = len(poly)
+        for k in range(n):
+            (x1, y1), (x2, y2) = poly[k], poly[(k + 1) % n]
+            ex, ey = x2 - x1, y2 - y1
+            den = u[0] * ey - u[1] * ex
+            if abs(den) < 1e-15:
+                continue
+            tt = ((x1 - c[0]) * ey - (y1 - c[1]) * ex) / den
+            ss = ((x1 - c[0]) * u[1] - (y1 - c[1]) * u[0]) / den
+            if tt > 0.0 and -1e-12 <= ss <= 1.0 + 1e-12:
+                t = min(t, tt)
+    return 0.0 if t == math.inf else t
+
+
+def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = None, polys: dict | None = None) -> tuple:
     """(lanes, via spots) of one part's judged pads: `pads` maps a pad number to (net, layers, box) as the part stands
     (or would stand). A pad is judged when the pad is not left unconnected (`_unconnected`) and its net has two pads or
     more; a pad of a quiet net is judged for walled only (`Escapes._verdict`). `toward` maps a pad number to the
-    direction of its target, for each lane's `toward_ok`.
+    direction of its target, for each lane's `toward_ok`. `polys` maps a pad number to its copper outlines: each lane
+    then starts where its ray from the pad's centre first leaves that copper, so no ground between the copper and the
+    lane goes unchecked (the path search starts on the copper itself); without it, at the pad's box.
 
     The first leg runs from the pad's edge along its pin normal out of the box round the part's other pads, and on
     until a second leg at 45 degrees from its end keeps a lane's reach (half the track and the clearance) from each of
@@ -252,7 +277,8 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
         nc = occ.geometry.netclass(net)
         half = nc.track_width / 2.0 + nc.clearance
         r = nc.via_diameter / 2.0
-        h = _exit(box, *d)
+        own = None if polys is None else polys.get(number)
+        h = _exit(box, *d) if own is None else _poly_exit((c.x, c.y), d, own)
         start = (c.x + d[0] * h, c.y + d[1] * h)
         first = out = 0.0
         if len(pads) > 2:
@@ -277,7 +303,7 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
             if field:
                 a = end
             else:
-                e = _exit(box, ux, uy)
+                e = _exit(box, ux, uy) if own is None else _poly_exit((c.x, c.y), (ux, uy), own)
                 a = (c.x + ux * e, c.y + uy * e)
             length = _to_edge(a, (ux, uy), win)
             f = (a[0] + ux * length, a[1] + uy * length)
@@ -556,7 +582,11 @@ class Escapes:
         if hit is None:
             g = self.occ.items[ref]
             pads = _pads_of(g.shapes, ref)
-            lanes, spots = pad_lanes(self.occ, ref, pads, g.reference.rotation)
+            polys: dict = {}
+            for sh in g.shapes:
+                if sh.kind in ("pad", "through") and sh.owner == ref:
+                    polys.setdefault(sh.label, []).append(sh.poly)
+            lanes, spots = pad_lanes(self.occ, ref, pads, g.reference.rotation, polys=polys)
             hit = (lanes, spots, pads)
             self._lane_cache[ref] = hit
         return hit
@@ -676,8 +706,11 @@ class Escapes:
         shut = {id(l): self._lane_blocked(l, foes) for l in lanes}
         reach = occ.settings.score_escape_reach
 
+        window = pads[number][2].inflate(reach + 1.0)
+        near = list(self._bgrid.near(window))   # the copper the lanes see: the search judges the same board
+
         def search(toward) -> bool:
-            return bool(path_out(occ, ref, number, depth=reach, toward=toward, exact=True, via_exit=False))
+            return bool(path_out(occ, ref, number, depth=reach, toward=toward, near=near, exact=True, via_exit=False))
         if not quiet:
             toward = self._toward_lanes(lanes, aim, pads[number][2].center)
             if any(not shut[id(l)] for l in toward):
