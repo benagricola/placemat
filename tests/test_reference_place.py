@@ -51,6 +51,7 @@ def test_a_refused_run_is_a_failed_result_with_its_failure_kind(tmp_path, monkey
     folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
     refused = {"status": "failed", "failure": {"kind": "placement", "message": "Firm placements collide"}, "metrics": {}}
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (refused, 3.0))
+    monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     r = place_ref.run_b(BOARD, folder, tmp_path / "work", prepared=PREPARED, versions=VERSIONS, a_closure_clean=1.0)
     assert (r.failure, r.closure_clean, r.seconds) == ("placement", 0.0, 3.0)
     assert "Firm placements collide" in r.detail
@@ -59,6 +60,7 @@ def test_a_refused_run_is_a_failed_result_with_its_failure_kind(tmp_path, monkey
 def test_a_run_with_no_record_is_a_failed_result(tmp_path, monkeypatch):
     folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (None, 1.0))
+    monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     r = place_ref.run_b(BOARD, folder, tmp_path / "work", prepared=PREPARED, versions=VERSIONS, a_closure_clean=None)
     assert (r.failure, r.a_closure_clean) == ("no run record", None)
 
