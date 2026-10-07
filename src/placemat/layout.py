@@ -6851,7 +6851,7 @@ class Board:
         forbidding = [(k.poly, k.layers, frozenset(k.allow)) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
                       if "vias" in k.excludes]
         forbidding += [(area.polygon, area.layers, area.source.allow)
-                       for areas in occ._cell_rule_areas.values() for area in areas
+                       for owner, areas in occ._cell_rule_areas.items() if owner not in occ.pending for area in areas
                        if "vias" in area.source.excludes]
         forbidding += [(ra.polygon, ra.layers, ra.allow) for ra in self.geometry.rule_areas
                        if ra.cell is None and "vias" in ra.excludes]

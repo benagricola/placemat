@@ -52,9 +52,17 @@ class PreparedEscape:
     candidate: object
     scoring: object
     surface: object
+    rotations: tuple
+    face: object
 
     def evaluate(self, placement, turn, *, inspect=False):
         self.snapshot._check_snapshot()
+        if type(turn) is not int or not 0 <= turn < len(self.rotations):
+            raise ValueError('prepared escape turn is outside the frozen rotation set')
+        if placement.face != self.face or placement.rotation != self.rotations[turn]:
+            raise ValueError('prepared escape pose differs from its frozen face or turn; rebuild the snapshot')
+        if placement.arrangement and placement.arrangement != getattr(self.snapshot.item, 'arrangement', ''):
+            raise ValueError('prepared escape arrangement differs from its frozen source; rebuild the snapshot')
         return self.surface.evaluate(self.candidate, self.scoring, placement.location.x, placement.location.y, turn, inspect)
 
 
@@ -153,4 +161,4 @@ def prepare(delta, rotations, face):
         [fp.ref for fp in geom.footprints], rest_roles, moving_roles, fields, net_records,
         (cfg.score_escape_reach, cfg.score_escape_depth, cfg.place_escape_cell, cfg.place_escape_min_pads,
          geom.drc_epsilon, geom.hole_clearance, cfg.place_escape_lane_via_exit))
-    return PreparedEscape(delta, candidate, kernel, surface), None
+    return PreparedEscape(delta, candidate, kernel, surface, tuple(rotations), face), None

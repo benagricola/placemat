@@ -41,6 +41,8 @@ def test_cell_via_area_moves_flips_allows_and_restores_across_candidate_and_comm
         new_point = Location(*transform.apply((old_point.x, old_point.y)))
         originals = dict(occ._cell_rule_areas), dict(occ._cell_fill_areas)
         occ.lift({'U1'})
+        assert verdict(occ, old_point, CopperLayer.F) is None
+        assert verdict(occ, old_point, CopperLayer.B) is None
         delta = Delta(board, occ, item, plan.links, plan=plan)
         view, _, _ = delta._view(candidate)
         layer, = old_area.layers

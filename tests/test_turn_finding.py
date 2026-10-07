@@ -298,6 +298,68 @@ def test_native_turn_diagnostic_matches_exact_python_notices_and_changes(tmp_pat
     assert [f.facts for f in turns(plan)] == native_facts
 
 
+def test_native_turn_failure_restores_every_occupancy_state(tmp_path, monkeypatch):
+    from placemat import score
+    b, _ = board(tmp_path)
+    plan = b.resolve()
+    occ = plan.occupancy
+    before = (dict(occ.items), tuple(occ.copper), frozenset(occ.pending), score.whole(b, occ, plan))
+    class Failing:
+        def evaluate(self, *args):
+            raise RuntimeError('injected native candidate failure')
+    monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args: (Failing(), None))
+    with pytest.raises(RuntimeError, match='injected native candidate failure'):
+        b._report_turns(occ, plan)
+    assert (dict(occ.items), tuple(occ.copper), frozenset(occ.pending), score.whole(b, occ, plan)) == before
+
+
+def test_native_and_python_turn_decisions_match_one_ulp_around_gain_threshold(tmp_path, monkeypatch):
+    import math
+    from placemat import geometry, prepared_escape
+    from placemat.score_delta import Delta
+    if geometry._native is None or not hasattr(geometry._native, 'PreparedSurface'):
+        pytest.skip('complete native kernel unavailable')
+    body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
+                        'at=Location(25, 25), rotation=180')
+    b, _ = board(tmp_path, body, place_turn_gain_share=0.0)
+    plan = b.resolve()
+    target = turns(plan, 'term')[0].facts['to_deg']
+    intent = next(i for i in b._placements() if i.key == 'term')
+    monkeypatch.setattr(b, '_placements', lambda: [intent])
+    item, occ = b.geometry.cells['term'], plan.occupancy
+    base = occ._geometry(item).reference
+    centre = occ.body_box(item, base).center
+    turn = dataclasses.replace(base, rotation=base.rotation + target - plan.placement('term').rotation)
+    turned_centre = occ.body_box(item, turn).center
+    candidate = dataclasses.replace(turn, location=Location(base.location.x + centre.x - turned_centre.x,
+                                                           base.location.y + centre.y - turned_centre.y))
+    own = {fp.ref for fp in item.members}
+    occ.lift(own)
+    try:
+        delta = Delta(b, occ, item, plan.links, plan=plan)
+        now, then = delta(base), delta(candidate)
+        gain = -sum(then.terms[k] - v for k, v in now.terms.items())
+    finally:
+        occ.unlift(own)
+    real_prepare = prepared_escape.prepare
+    supported = []
+    def native(*args):
+        result = real_prepare(*args)
+        supported.append(result[0] is not None)
+        return result
+    for limit in (math.nextafter(gain, -math.inf), gain, math.nextafter(gain, math.inf)):
+        b.settings = dataclasses.replace(b.settings, place_turn_gain_mm=limit)
+        monkeypatch.setattr(prepared_escape, 'prepare', native)
+        plan.findings = []
+        b._report_turns(occ, plan)
+        native_facts = [f.facts for f in turns(plan)]
+        monkeypatch.setattr(prepared_escape, 'prepare', lambda *args: (None, 'forced independent oracle'))
+        plan.findings = []
+        b._report_turns(occ, plan)
+        assert [f.facts for f in turns(plan)] == native_facts, limit
+    assert supported and all(supported)
+
+
 def test_cheaper_turn_cannot_increase_walled_pad_evidence(tmp_path, monkeypatch):
     from placemat import score_delta
     monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args: (None, 'injected oracle'))

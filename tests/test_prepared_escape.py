@@ -232,3 +232,26 @@ def test_full_prepared_minimum_pad_skip_needs_no_unused_net_class(monkeypatch):
     result = prepared.evaluate(original, 0, inspect=True)
     assert result[2:5] == (0, 0, 0)
     assert result[5:] == ([], [])
+
+
+def test_prepared_pose_must_match_frozen_source_before_native_evaluation():
+    from tests.test_score_measures import _two_part_board
+    board = _two_part_board()
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(20, 20))
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['c1']
+    original = occ._geometry(item).reference
+    occ.lift({'C1'})
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    prepared, reason = prepare(delta, [original.rotation], original.face)
+    assert prepared is not None, reason
+    expected = prepared.evaluate(original, 0)
+    for candidate in (replace(original, rotation=original.rotation + 360),
+                      replace(original, face=Face.BACK), replace(original, arrangement='different')):
+        with pytest.raises(ValueError, match='frozen'):
+            prepared.evaluate(candidate, 0)
+        assert prepared.evaluate(original, 0) == expected
+    for index in (-1, 1, True):
+        with pytest.raises(ValueError, match='rotation set'):
+            prepared.evaluate(original, index)
