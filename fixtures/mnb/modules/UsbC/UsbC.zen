@@ -40,6 +40,8 @@
 # the MCU cell rev (which followed featherweight.zen's USB-C front end).
 # =============================================================================
 
+load("@stdlib/interfaces.zen", "DiffPair")
+
 USBC = Module("../../parts/Korean_Hroparts_Elec_TYPE_C_31_M_12.zen")
 USBLC6 = Module("../../parts/STMicroelectronics_USBLC6_2SC6.zen")
 C = Module("@stdlib/generics/Capacitor.zen")
@@ -65,6 +67,8 @@ usb_vbus = io("VBUS", Net, optional = True)   # ESD-clamped + bypassed; sense or
 # sides of the part.
 usb_conn_p = net("USB_CONN_P")
 usb_conn_n = net("USB_CONN_N")
+# Preserve the existing connector-side nets and expose their physical pair.
+USB_CONN = DiffPair(P=usb_conn_p, N=usb_conn_n)
 usb_cc1 = net("USB_CC1")
 usb_cc2 = net("USB_CC2")
 

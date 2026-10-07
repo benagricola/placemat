@@ -1,0 +1,7 @@
+[[route.phase]]
+name = "diff-pairs"
+pairs = true
+
+[[route.phase]]
+name = "signals"
+width = 0.25

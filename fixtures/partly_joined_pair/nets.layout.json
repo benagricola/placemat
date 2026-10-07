@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "generator": {
+    "name": "placemat-static-fixture",
+    "version": "1"
+  },
+  "netlist": {
+    "file": "default.net",
+    "sha256": "94a3caabd76b9cc2dc0a1c59a9ff48a58f93ca5a3376bb4f7e1387aa1f6bc0cc"
+  },
+  "exports": [
+    "types",
+    "fields",
+    "interfaces"
+  ],
+  "nets": {
+    "USB_D_P": {
+      "type": "Net",
+      "fields": {}
+    },
+    "USB_D_N": {
+      "type": "Net",
+      "fields": {}
+    }
+  },
+  "interfaces": {
+    "USB.D": {
+      "type": "DiffPair",
+      "members": {
+        "P": "USB_D_P",
+        "N": "USB_D_N"
+      }
+    }
+  },
+  "pairs": [
+    {
+      "instance": "USB.D",
+      "p": "USB_D_P",
+      "n": "USB_D_N"
+    }
+  ]
+}

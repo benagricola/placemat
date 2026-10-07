@@ -1,0 +1,7 @@
+# Connector-side pair identity comes from the capture; dimensions remain in its project.
+[[route.phase]]
+name = "diff-pairs"
+pairs = true
+
+[[route.phase]]
+name = "signals"
