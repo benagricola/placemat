@@ -53,8 +53,9 @@ indirectly from short wires. The score gains an **area** term:
    invalid board never replaces a valid one.
 2. **The phases' closures** in order, judged on the final board over each phase's fixed asked set.
 3. **The clean closure.**
-4. **The run score:** placement quality, and after a route the routed results (vias at `score.via`, routed length at
-   `score.track`). A fitted module's area is a term of it, not a tier.
+4. **The router's quality key,** when both boards are valid and fully routed: fewer vias, then less copper, then fewer
+   segments, lexicographic, as KRT's own board score ranks them (py_tools/board_score.py, py_router/ledger_score.py).
+5. **The run score:** placement quality. A fitted module's area is a term of it, not a tier.
 Ties within the run score's noise keep the incumbent. Boards and modules rank the same way.
 
 The hard terms leave the run score (`unplaced`, `drc`, `fixed`, `copper`, `escape_walled` and their settings): each
