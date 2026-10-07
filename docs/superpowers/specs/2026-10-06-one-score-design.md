@@ -46,13 +46,19 @@ indirectly from short wires. The score gains an **area** term:
 - **Incremental form:** the bounding box recomputed from the moved items' boxes against the others' running extents.
 - **Weight:** `score.area`, per mm2. It is zero on a board with a fixed outline, and on by default for a fitted frame.
 
-**Ranking order** (amended 2026-10-07: legality first):
-- **Both:** first legality: no DRC error beyond the board's baseline, every required width met on the final board, no
-  critical finding (unplaced, walled escape, copper clash). A buildable board beats a better-connected one that is not.
-- **Board:** then the phases' closures in order, judged on the final board over each phase's fixed asked set, then the
-  clean closure, then the run score.
-- **Module:** then the phases' closures (100% expected), then the area, then the rest of the run score.
-- **Ties** within the run score's noise keep the incumbent.
+**Ranking order** (amended 2026-10-07 with the user, twice):
+1. **Validity:** a buildable board beats one that is not. Counted, never priced: unplaced parts (by priority), DRC
+   errors beyond the board's baseline (errors only; a warning such as silkscreen clipped by copper does not make a board
+   unbuildable), required widths not met on the final board, critical findings (fixed, copper clash, walled pad). An
+   invalid board never replaces a valid one.
+2. **The phases' closures** in order, judged on the final board over each phase's fixed asked set.
+3. **The clean closure.**
+4. **The run score:** placement quality, and after a route the routed results (vias at `score.via`, routed length at
+   `score.track`). A fitted module's area is a term of it, not a tier.
+Ties within the run score's noise keep the incumbent. Boards and modules rank the same way.
+
+The hard terms leave the run score (`unplaced`, `drc`, `fixed`, `copper`, `escape_walled` and their settings): each
+has one home, the validity tier.
 
 The loop, restarts and refine all use the order for the script's context, as one function in `score.py`.
 
