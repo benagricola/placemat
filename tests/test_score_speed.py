@@ -43,3 +43,23 @@ def test_old_native_inspection_matches_exact_python_score_and_refuses_bad_candid
                 native.evaluate(x, y, turn)
     finally:
         occ.commit(item, original)
+
+
+def test_timing_rotated_cell_restores_geometry_copper_and_score():
+    from fixtures.score_speed import measure
+    from placemat import geometry, score
+    from placemat.layout import Board
+    from placemat.values import Cell, Location
+    from tests.test_cell_drops import _geom
+    if geometry._native is None or not hasattr(geometry._native.NativeScoring, 'evaluate'):
+        pytest.skip('native timing entry point unavailable')
+    b = Board(_geom(), keep_going=True)
+    b.rect(width=80, height=80)
+    b.place(Cell('m'), at=Location(20, 20), rotation=90)
+    plan = b.resolve()
+    step = next(s for s in plan.steps if s.item == 'm')
+    occ = plan.occupancy
+    before = (dict(occ.items), tuple(occ.copper), frozenset(occ.pending), score.whole(b, occ, plan))
+    row = measure(b, plan, step, count=4, repeats=1)
+    assert row['legal'] > 0
+    assert (dict(occ.items), tuple(occ.copper), frozenset(occ.pending), score.whole(b, occ, plan)) == before

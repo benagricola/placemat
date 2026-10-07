@@ -82,11 +82,14 @@ def measure(board, plan, step, *, count, repeats):
     from placemat.prepared_escape import prepare
     from placemat.score_delta import Delta
     occ, item = plan.occupancy, plan._items[step.item]
-    original = step.placement
+    original = occ._geometry(item).reference
     owners = {fp.ref for fp in members_of(item)}
+    lifted = occ._lift_owners(owners)
+    if lifted & occ.pending:
+        raise ValueError('timing requires the complete item to be active')
     rotations, rows = candidates(original, count)
     start = time.perf_counter_ns()
-    occ.lift(owners)
+    occ.lift(lifted)
     lift_us = (time.perf_counter_ns() - start) / 1000
     try:
         start = time.perf_counter_ns()
@@ -124,10 +127,11 @@ def measure(board, plan, step, *, count, repeats):
                 'split_status': 'six-term combined; independent per-term instrumentation pending'}
     finally:
         start = time.perf_counter_ns()
-        occ.commit(item, original)
-        commit_us = (time.perf_counter_ns() - start) / 1000
+        occ.unlift(lifted)
+        restore_us = (time.perf_counter_ns() - start) / 1000
         # Emitted separately even if evaluation fails; restoration is mandatory.
-        print(json.dumps({'type': 'restore', 'item': step.item, 'commit_us': commit_us}), flush=True)
+        print(json.dumps({'type': 'restore', 'item': step.item, 'restore_us': restore_us,
+                          'commit_timing': 'pending actual search adoption'}), flush=True)
 
 
 def run_fixture(label, board, args):
