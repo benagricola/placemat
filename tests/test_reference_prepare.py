@@ -194,3 +194,46 @@ def test_prepare_regenerated_reference_preserves_generated_rules(tmp_path, monke
     got = prepare.prepare(BOARD, tmp_path / 'missing-source', tmp_path / 'work', regenerated=True)
     assert got.ref.read_text() == 'generated board'
     assert json.loads(got.test.with_suffix('.kicad_pro').read_text()) == {"generated_rules": True}
+
+
+
+def test_legacy_regeneration_imports_an_existing_upgraded_project_and_copies_sheets(tmp_path, monkeypatch):
+    import dataclasses
+    import pathlib
+    import subprocess
+    src = tmp_path / "cache"
+    source = src / "nested" / "tiny.kicad_pcb"
+    source.parent.mkdir(parents=True)
+    source.write_text("legacy board")
+    source.with_suffix(".pro").write_text("legacy rules")
+    source.with_suffix(".sch").write_text("legacy root schematic")
+    child = source.parent / "sheets" / "child.sch"
+    child.parent.mkdir()
+    child.write_text("child schematic")
+    board = dataclasses.replace(BOARD, board="nested/tiny.kicad_pcb", kicad5=True)
+    calls = []
+
+    def upgrade(copied):
+        assert copied != source and copied.read_text() == "legacy board"
+        assert copied.with_suffix(".pro").read_text() == "legacy rules"
+        assert (copied.parent / "sheets" / "child.sch").is_file()
+        copied.with_suffix(".kicad_pro").write_text('{"upgraded": true}')
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if command[0] == "kicad-cli":
+            assert pathlib.Path(command[-1]).is_file()
+        elif command[1] == "import":
+            project = pathlib.Path(command[2])
+            assert project.is_file() and json.loads(project.read_text())["upgraded"]
+            assert project.parent != source.parent
+            (pathlib.Path(command[3]) / "layout").mkdir(parents=True)
+        else:
+            (pathlib.Path(kwargs["cwd"]) / "layout" / "tiny.kicad_pcb").write_text("generated")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(prepare, "_upgrade", upgrade)
+    monkeypatch.setattr(prepare.subprocess, "run", run)
+    assert prepare.regenerate(board, src, tmp_path / "work").is_file()
+    assert len([c for c in calls if c[0] == "kicad-cli"]) == 2
+    assert source.read_text() == "legacy board" and not source.with_suffix(".kicad_pro").exists()

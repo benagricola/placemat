@@ -123,6 +123,23 @@ def strip(src: pathlib.Path, dst: pathlib.Path) -> None:
 def regenerate(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
     """Generate test (b)'s reference from the pinned source import, in work."""
     project = (pathlib.Path(src) / board.board).with_suffix(".kicad_pro")
+    if board.kicad5:
+        # Upgrade only an isolated family copy: legacy projects and sheet paths
+        # must remain beside the board while KiCad migrates their settings.
+        legacy = pathlib.Path(work) / "legacy-source"
+        shutil.rmtree(legacy, ignore_errors=True)
+        shutil.copytree(src, legacy)
+        copied_board = legacy / board.board
+        _upgrade(copied_board)
+        project = copied_board.with_suffix(".kicad_pro")
+        for schematic in sorted(legacy.rglob("*.sch")):
+            proc = subprocess.run(["kicad-cli", "sch", "upgrade", str(schematic)],
+                                  capture_output=True, text=True, timeout=PCB_TIMEOUT_S)
+            if proc.returncode != 0:
+                raise RuntimeError("legacy schematic upgrade failed (rc %d): %s" % (
+                    proc.returncode, (proc.stderr or proc.stdout).strip()[-500:]))
+    if not project.is_file():
+        raise RuntimeError("pcb import source project missing: %s" % project)
     out = pathlib.Path(work) / REGENERATED
     shutil.rmtree(out, ignore_errors=True)
     for command, cwd in ((["pcb", "import", str(project), str(out)], None),
