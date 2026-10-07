@@ -351,7 +351,7 @@ def native_pad_lanes(occ, ref, pads, rotation, toward=None, polys=None):
         layers_by_bits[bits] = frozenset(layers)
         eligible = bool(net and sizes.get(net, 0) >= 2 and not _unconnected(occ, ref, number, net))
         records.append((number, bits, (box.left, box.top, box.right, box.bottom),
-                        None if polys is None else [list(poly) for poly in polys.get(number, ())], eligible,
+                        None if polys is None or number not in polys else [list(poly) for poly in polys[number]], eligible,
                         nc.track_width / 2.0 + nc.clearance, nc.via_diameter / 2.0,
                         nc.via_drill / 2.0, nc.clearance))
     angle = math.radians(rotation)

@@ -61,7 +61,7 @@ def test_closed_is_the_pythons_on_a_real_board(pcb):
 def test_native_surface_judge_matches_every_pad_of_three_modules(monkeypatch):
     from fixtures.reference.lock import realboard
     from placemat import geometry
-    from placemat.escapes import judging
+    from placemat.escapes import judging, native_pad_lanes
     from placemat.kicad.read import read_board
     module = geometry._native
     if module is None or not hasattr(module, 'surface_judge'):
@@ -75,7 +75,14 @@ def test_native_surface_judge_matches_every_pad_of_three_modules(monkeypatch):
             for ref in sorted(plan.occupancy.items):
                 if ref in plan.occupancy.pending:
                     continue
-                for number in esc._lanes_of(ref)[2]:
+                lanes, spots, pads = esc._lanes_of(ref)
+                shapes = plan.occupancy.items[ref].shapes
+                polys = {number: [s.poly for s in shapes
+                                  if s.kind in ('pad', 'through') and s.owner == ref and s.label == number]
+                         for number in pads}
+                assert native_pad_lanes(plan.occupancy, ref, pads,
+                                        plan.occupancy.items[ref].reference.rotation, polys=polys) == (lanes, spots)
+                for number in pads:
                     monkeypatch.setattr(geometry, '_native', None)
                     expected = esc.judge(ref, number)
                     monkeypatch.setattr(geometry, '_native', module)
@@ -256,7 +263,7 @@ def test_native_lane_generation_preserves_blind_split_pad_contacts_and_toward_fl
     geom = occ.items['P1']
     pads = _pads_of(geom.shapes, 'P1')
     polys = {'1': [s.poly for s in geom.shapes if s.kind in ('pad', 'through')]}
-    for outlines in (polys, None):
+    for outlines in (polys, None, {}):
         aims = {'1': (10.0, 0.0)}
         expected = pad_lanes(occ, 'P1', pads, 0, toward=aims, polys=outlines)
         actual = native_pad_lanes(occ, 'P1', pads, 0, toward=aims, polys=outlines)
@@ -279,5 +286,10 @@ def test_native_lane_generator_refuses_invalid_boundary_records():
         with pytest.raises(ValueError):
             module.surface_lanes(rows, 0.0, (1.0, 0.0), 2.0, 1)
     edge = good[:2] + ((1e9 - 1, 0, 1e9, 1),) + good[3:]
+    for outline in ([(-2, -1), (1, -1), (1, 1), (-2, 1)],
+                    [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)]):
+        inconsistent = good[:3] + ([outline],) + good[4:]
+        with pytest.raises(ValueError, match='pad invalid'):
+            module.surface_lanes([inconsistent], 0.0, (1.0, 0.0), 2.0, 1)
     with pytest.raises(ValueError, match='coordinate bounds'):
         module.surface_lanes([edge], 0.0, (1.0, 0.0), 2.0, 1)

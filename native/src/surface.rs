@@ -30,7 +30,7 @@ type Path = (
 /// number, layers, box, optional copper outlines, eligible, track reach,
 /// via radius, via drill radius, clearance. Eligibility is original intent, supplied
 /// by the prepared snapshot rather than weakened by candidate geometry.
-type Pad = (
+type PadRecord = (
     String,
     u32,
     Bounds,
@@ -41,6 +41,44 @@ type Pad = (
     f64,
     f64,
 );
+
+struct Pad {
+    number: String,
+    layers: u32,
+    box_: Bounds,
+    polys: Option<Vec<Vec<Point>>>,
+    eligible: bool,
+    track_reach: f64,
+    via_radius: f64,
+    drill_radius: f64,
+    clearance: f64,
+}
+impl Pad {
+    fn from_record(record: PadRecord) -> Self {
+        let (
+            number,
+            layers,
+            box_,
+            polys,
+            eligible,
+            track_reach,
+            via_radius,
+            drill_radius,
+            clearance,
+        ) = record;
+        Self {
+            number,
+            layers,
+            box_,
+            polys,
+            eligible,
+            track_reach,
+            via_radius,
+            drill_radius,
+            clearance,
+        }
+    }
+}
 
 fn centre(box_: Bounds) -> Point {
     ((box_.0 + box_.2) / 2.0, (box_.1 + box_.3) / 2.0)
@@ -113,13 +151,14 @@ fn copper_exit(c: Point, u: Point, polys: &[Vec<Point>]) -> f64 {
 #[pyfunction]
 pub fn surface_lanes(
     py: Python<'_>,
-    mut pads: Vec<Pad>,
+    records: Vec<PadRecord>,
     rotation: f64,
     turn: Point,
     reach: f64,
     minimum: usize,
 ) -> PyResult<(Vec<(String, Lane, Point)>, Vec<(String, Spot)>)> {
     py.check_signals()?;
+    let mut pads: Vec<_> = records.into_iter().map(Pad::from_record).collect();
     if !rotation.is_finite()
         || !valid_point(turn)
         || turn.0.abs() > 1.0
@@ -133,23 +172,23 @@ pub fn surface_lanes(
         return Err(PyValueError::new_err("surface lane snapshot invalid"));
     }
     let mut numbers = HashSet::new();
-    for p in &pads {
-        if !numbers.insert(&p.0)
-            || !valid_bounds(p.2)
-            || p.1 == 0
-            || [p.5, p.6, p.7, p.8]
-                .iter()
-                .any(|v| !v.is_finite() || *v < 0.0 || *v > 1e9)
-            || p.3.as_ref().is_some_and(|polys| {
+    for pad in &pads {
+        if !numbers.insert(&pad.number)
+            || !valid_bounds(pad.box_)
+            || pad.layers == 0
+            || [
+                pad.track_reach,
+                pad.via_radius,
+                pad.drill_radius,
+                pad.clearance,
+            ]
+            .iter()
+            .any(|v| !v.is_finite() || *v < 0.0 || *v > 1e9)
+            || pad.polys.as_ref().is_some_and(|polys| {
                 polys.iter().any(|poly| {
-                    !validate_shape(&(
-                        poly.clone(),
-                        union(poly.iter().map(|p| (p.0, p.1, p.0, p.1))),
-                        p.1,
-                        Vec::new(),
-                        0.0,
-                    ))
-                })
+                    !validate_shape(&(poly.clone(), pad.box_, pad.layers, Vec::new(), 0.0))
+                }) || (!polys.is_empty()
+                    && union(polys.iter().flatten().map(|p| (p.0, p.1, p.0, p.1))) != pad.box_)
             })
         {
             return Err(PyValueError::new_err("surface lane pad invalid"));
@@ -158,7 +197,7 @@ pub fn surface_lanes(
     if pads.len() < minimum || pads.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
-    pads.sort_by(|a, b| a.0.cmp(&b.0));
+    pads.sort_by(|a, b| a.number.cmp(&b.number));
     let (cos, sin) = turn;
     let local = |p: Point| {
         (
@@ -167,10 +206,10 @@ pub fn surface_lanes(
         )
     };
     let field = union(pads.iter().map(|p| {
-        let c = local(centre(p.2));
+        let c = local(centre(p.box_));
         (c.0, c.1, c.0, c.1)
     }));
-    let body = centre(union(pads.iter().map(|p| p.2)));
+    let body = centre(union(pads.iter().map(|p| p.box_)));
     let compass = [
         (1.0, 0.0),
         (0.707106781187, 0.707106781187),
@@ -187,10 +226,10 @@ pub fn surface_lanes(
         if index % 32 == 0 {
             py.check_signals()?;
         }
-        if !pad.4 {
+        if !pad.eligible {
             continue;
         }
-        let c = centre(pad.2);
+        let c = centre(pad.box_);
         let at = local(c);
         let fc = centre(field);
         let (hw, hh) = ((field.2 - field.0) / 2.0, (field.3 - field.1) / 2.0);
@@ -206,7 +245,7 @@ pub fn surface_lanes(
         };
         let mut fallback = false;
         if (rx - ry).abs() < 1e-6 {
-            let (mut w, mut h) = (pad.2 .2 - pad.2 .0, pad.2 .3 - pad.2 .1);
+            let (mut w, mut h) = (pad.box_.2 - pad.box_.0, pad.box_.3 - pad.box_.1);
             if rotation.rem_euclid(180.0) == 90.0 {
                 std::mem::swap(&mut w, &mut h);
             }
@@ -243,20 +282,24 @@ pub fn surface_lanes(
         };
         let d = (crate::exact::clean9(d.0), crate::exact::clean9(d.1));
         let blind = pad
-            .3
+            .polys
             .as_ref()
             .is_some_and(|polys| !polys.iter().any(|p| point_in_polygon(c, p)));
         let exit = |u| {
-            pad.3
+            pad.polys
                 .as_ref()
-                .map_or_else(|| ray_exit(pad.2, u), |p| copper_exit(c, u, p))
+                .map_or_else(|| ray_exit(pad.box_, u), |p| copper_exit(c, u, p))
         };
         let h = exit(d);
         let start = (c.0 + d.0 * h, c.1 + d.1 * h);
         let mut first = 0.0;
         let mut out = 0.0;
         if pads.len() > 2 {
-            let others: Vec<_> = pads.iter().filter(|p| p.0 != pad.0).map(|p| p.2).collect();
+            let others: Vec<_> = pads
+                .iter()
+                .filter(|p| p.number != pad.number)
+                .map(|p| p.box_)
+                .collect();
             first = corners(union(others.iter().copied()))
                 .iter()
                 .map(|q| (q.0 - start.0) * d.0 + (q.1 - start.1) * d.1)
@@ -267,15 +310,15 @@ pub fn surface_lanes(
             for q in others.iter().flat_map(|b| corners(*b)) {
                 let along = (q.0 - e.0) * d.0 + (q.1 - e.1) * d.1;
                 let side = ((q.0 - e.0) * d.1 - (q.1 - e.1) * d.0).abs();
-                more = more.max(pad.5 * 2.0f64.sqrt() - side + along);
+                more = more.max(pad.track_reach * 2.0f64.sqrt() - side + along);
             }
             first += more;
         }
         let win = (
-            pad.2 .0 - reach,
-            pad.2 .1 - reach,
-            pad.2 .2 + reach,
-            pad.2 .3 + reach,
+            pad.box_.0 - reach,
+            pad.box_.1 - reach,
+            pad.box_.2 + reach,
+            pad.box_.3 + reach,
         );
         let length = first.min(to_edge(start, d, win));
         let end = (start.0 + d.0 * length, start.1 + d.1 * length);
@@ -299,7 +342,7 @@ pub fn surface_lanes(
                         .flat_map(|(a, b)| [a, b])
                         .map(|p| (p.0, p.1, p.0, p.1)),
                 );
-                lanes.push((pad.0.clone(), (legs, pad.1, box_), u));
+                lanes.push((pad.number.clone(), (legs, pad.layers, box_), u));
             }
         }
         let mut directions = vec![d];
@@ -312,34 +355,42 @@ pub fn surface_lanes(
         let mut at: Vec<_> = directions
             .iter()
             .map(|u| {
-                let half = u.0.abs() * (pad.2 .2 - pad.2 .0) / 2.0
-                    + u.1.abs() * (pad.2 .3 - pad.2 .1) / 2.0;
-                (c.0 + u.0 * (half + pad.6), c.1 + u.1 * (half + pad.6))
+                let half = u.0.abs() * (pad.box_.2 - pad.box_.0) / 2.0
+                    + u.1.abs() * (pad.box_.3 - pad.box_.1) / 2.0;
+                (
+                    c.0 + u.0 * (half + pad.via_radius),
+                    c.1 + u.1 * (half + pad.via_radius),
+                )
             })
             .collect();
         if first > 0.0 {
-            let t = first.max(out + pad.6 + pad.8);
+            let t = first.max(out + pad.via_radius + pad.clearance);
             at.push((start.0 + d.0 * t, start.1 + d.1 * t));
         }
         for p in at {
             if blind
-                && !pad.3.as_ref().unwrap().iter().any(|poly| {
-                    point_distance(p, poly) <= pad.6 + 1e-9
+                && !pad.polys.as_ref().unwrap().iter().any(|poly| {
+                    point_distance(p, poly) <= pad.via_radius + 1e-9
                         && poly
                             .iter()
                             .map(|q| crate::exact::hypot(q.0 - p.0, q.1 - p.1))
                             .fold(0.0, f64::max)
-                            >= pad.7 - 1e-9
+                            >= pad.drill_radius - 1e-9
                 })
             {
                 continue;
             }
             spots.push((
-                pad.0.clone(),
+                pad.number.clone(),
                 (
                     p,
-                    pad.6,
-                    (p.0 - pad.6, p.1 - pad.6, p.0 + pad.6, p.1 + pad.6),
+                    pad.via_radius,
+                    (
+                        p.0 - pad.via_radius,
+                        p.1 - pad.via_radius,
+                        p.0 + pad.via_radius,
+                        p.1 + pad.via_radius,
+                    ),
                 ),
             ));
         }
