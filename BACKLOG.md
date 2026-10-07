@@ -298,6 +298,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Shapes at the outline, overhang, holes under firm parts, teardrops, empty routes** (0.99.35):
+  a decided part is judged at the rim, a hole and a cutout by its shapes;
+  `overhang=` on a firm place; a firm courtyard over a hole follows the DRC
+  severity; a teardrop is not a pour; a route with nothing to route completes
+  and a failed route fails the run. With the reference set (fixtures/reference).
+
 - **Boards with user-named copper layers** (0.99.34): read and routed by the
   layers' standard names.
 
