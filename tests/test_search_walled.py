@@ -27,4 +27,3 @@ def test_among_spots_that_wall_pads_the_fewest_wins():
 def test_an_unweighed_spot_ranks_below_one_that_walls_a_pad():
     r = _scan(lambda p: (UNWEIGHED, 1e6) if p.location.x < 31.5 else (3, 500.0 + abs(p.location.y - 30)))
     assert r.chosen.location.x >= 31.5 and r.walled == 3
-

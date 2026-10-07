@@ -210,3 +210,74 @@ def test_native_surface_path_keeps_exact_clearance_ties_and_negative_coordinates
         monkeypatch.setattr(geometry, '_native', module)
         for _ in range(3):
             assert _path_out_native(*args, via_exit=False) == expected
+
+
+def test_native_lane_generation_matches_exact_pad_fields_split_lands_and_turns():
+    from placemat import geometry
+    from placemat.escapes import _pads_of, native_pad_lanes, pad_lanes
+    from placemat.placement import Placement
+    from placemat.values import Face, Location
+    from tests.test_escape_findings import _walled_in
+    from tests.test_surface_escapes import _via_only_board
+    if not hasattr(geometry._native, 'surface_lanes'):
+        pytest.skip('native surface lane generator not built')
+    board = _via_only_board(_walled_in(0.1))
+    plan = board.resolve()
+    occ = plan.occupancy
+    moving = board.geometry.footprint('R9')
+    for face in (Face.FRONT, Face.BACK, Face.FRONT):
+        for rotation in (0, 37, 90, 143):
+            occ.commit(moving, Placement(Location(30.0000000005, 29.9999999995), rotation, face))
+            for ref, geom in occ.items.items():
+                pads = _pads_of(geom.shapes, ref)
+                polys = {number: [s.poly for s in geom.shapes
+                                  if s.owner == ref and s.label == number and s.kind in ('pad', 'through')]
+                         for number in pads}
+                for outlines in (None, polys):
+                    expected = pad_lanes(occ, ref, pads, geom.reference.rotation, polys=outlines)
+                    actual = native_pad_lanes(occ, ref, pads, geom.reference.rotation, polys=outlines)
+                    assert actual == expected, (ref, rotation, face, outlines is None)
+
+
+def test_native_lane_generation_preserves_blind_split_pad_contacts_and_toward_flags():
+    from placemat import geometry
+    from placemat.escapes import _pads_of, native_pad_lanes, pad_lanes
+    from placemat.values import Face
+    from tests.fixtures import pad
+    from tests.test_surface_escapes import _part_of, _via_only_board
+    if not hasattr(geometry._native, 'surface_lanes'):
+        pytest.skip('native surface lane generator not built')
+    split = _part_of('P1', 'p1', [pad('P1', 'p1', 1, 'S', -1.6, -10, 0.4, 0.4),
+                                 pad('P1', 'p1', 1, 'S', 1.6, -10, 0.4, 0.4, face=Face.BACK)], 0, -10)
+    target = _part_of('T1', 't1', [pad('T1', 't1', 1, 'S', 10, -10, 0.4, 0.4)], 10, -10)
+    board = _via_only_board([split, target])
+    plan = board.resolve()
+    occ = plan.occupancy
+    geom = occ.items['P1']
+    pads = _pads_of(geom.shapes, 'P1')
+    polys = {'1': [s.poly for s in geom.shapes if s.kind in ('pad', 'through')]}
+    for outlines in (polys, None):
+        aims = {'1': (10.0, 0.0)}
+        expected = pad_lanes(occ, 'P1', pads, 0, toward=aims, polys=outlines)
+        actual = native_pad_lanes(occ, 'P1', pads, 0, toward=aims, polys=outlines)
+        assert actual == expected
+    assert not native_pad_lanes(occ, 'P1', pads, 0, polys=polys)[0]
+
+
+def test_native_lane_generator_refuses_invalid_boundary_records():
+    from placemat import geometry
+    if not hasattr(geometry._native, 'surface_lanes'):
+        pytest.skip('native surface lane generator not built')
+    module = geometry._native
+    good = ('1', 1, (-1.0, -1.0, 1.0, 1.0), None, True, 0.3, 0.3, 0.15, 0.2)
+    for turn in ((0.0, 0.0), (float('nan'), 0.0), (2.0, 0.0)):
+        with pytest.raises(ValueError):
+            module.surface_lanes([good], 0.0, turn, 2.0, 1)
+    for rows in ([good, good], [good[:1] + (0,) + good[2:]],
+                 [good[:2] + ((0, 0, float('inf'), 1),) + good[3:]],
+                 [good[:3] + ([[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]],) + good[4:]]):
+        with pytest.raises(ValueError):
+            module.surface_lanes(rows, 0.0, (1.0, 0.0), 2.0, 1)
+    edge = good[:2] + ((1e9 - 1, 0, 1e9, 1),) + good[3:]
+    with pytest.raises(ValueError, match='coordinate bounds'):
+        module.surface_lanes([edge], 0.0, (1.0, 0.0), 2.0, 1)

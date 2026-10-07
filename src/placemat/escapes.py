@@ -337,6 +337,39 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
     return lanes, spots
 
 
+def native_pad_lanes(occ, ref, pads, rotation, toward=None, polys=None):
+    """Explicit native lane-generation twin; not selected by live search yet."""
+    from .geometry import _native
+    if _native is None or not hasattr(_native, 'surface_lanes'):
+        raise RuntimeError('native surface lane generator unavailable')
+    sizes = _net_sizes(occ)
+    records = []
+    layers_by_bits = {}
+    for number, (net, layers, box) in sorted(pads.items()):
+        nc = occ.geometry.netclass(net)
+        bits = _layer_bits(layers)
+        layers_by_bits[bits] = frozenset(layers)
+        eligible = bool(net and sizes.get(net, 0) >= 2 and not _unconnected(occ, ref, number, net))
+        records.append((number, bits, (box.left, box.top, box.right, box.bottom),
+                        None if polys is None else [list(poly) for poly in polys.get(number, ())], eligible,
+                        nc.track_width / 2.0 + nc.clearance, nc.via_diameter / 2.0,
+                        nc.via_drill / 2.0, nc.clearance))
+    angle = math.radians(rotation)
+    raw_lanes, raw_spots = _native.surface_lanes(records, rotation, (math.cos(angle), math.sin(angle)),
+                                               occ.settings.score_escape_reach, occ.settings.place_escape_min_pads)
+    lanes, spots = [], []
+    for number, (legs, bits, bounds), direction in raw_lanes:
+        aim = None if toward is None else toward.get(number)
+        centre = pads[number][2].center
+        end = legs[-1][-1]
+        ok = aim is None or (end[0] - centre.x) * aim[0] + (end[1] - centre.y) * aim[1] > 1e-9
+        lanes.append(Lane(ref, number, pads[number][0], layers_by_bits[bits], tuple(map(tuple, legs)),
+                          Box(*bounds), tuple(direction), ok))
+    for number, (point, radius, bounds) in raw_spots:
+        spots.append(ViaSpot(ref, number, pads[number][0], Box(*bounds), (*point, radius)))
+    return lanes, spots
+
+
 def _seg_poly_distance(a, b, poly) -> float:
     """The least distance from segment a-b to the polygon, 0 when they meet."""
     if point_in_polygon(a, poly):

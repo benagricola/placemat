@@ -1578,6 +1578,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(polys_overlap, m)?)?;
     m.add_function(wrap_pyfunction!(surface::surface_path_out, m)?)?;
     m.add_function(wrap_pyfunction!(surface::surface_judge, m)?)?;
+    m.add_function(wrap_pyfunction!(surface::surface_lanes, m)?)?;
     m.add_function(wrap_pyfunction!(poly_distance, m)?)?;
     m.add_function(wrap_pyfunction!(point_segment_distance, m)?)?;
     m.add_function(wrap_pyfunction!(conflict, m)?)?;

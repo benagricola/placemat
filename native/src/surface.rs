@@ -27,6 +27,340 @@ type Path = (
     bool,
 );
 
+/// number, layers, box, optional copper outlines, eligible, track reach,
+/// via radius, via drill radius, clearance. Eligibility is original intent, supplied
+/// by the prepared snapshot rather than weakened by candidate geometry.
+type Pad = (
+    String,
+    u32,
+    Bounds,
+    Option<Vec<Vec<Point>>>,
+    bool,
+    f64,
+    f64,
+    f64,
+    f64,
+);
+
+fn centre(box_: Bounds) -> Point {
+    ((box_.0 + box_.2) / 2.0, (box_.1 + box_.3) / 2.0)
+}
+fn union(boxes: impl Iterator<Item = Bounds>) -> Bounds {
+    boxes.fold(
+        (
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ),
+        |a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)),
+    )
+}
+fn corners(b: Bounds) -> [Point; 4] {
+    [(b.0, b.1), (b.2, b.1), (b.2, b.3), (b.0, b.3)]
+}
+fn ray_exit(b: Bounds, u: Point) -> f64 {
+    let x = if u.0.abs() > 1e-12 {
+        (b.2 - b.0) / 2.0 / u.0.abs()
+    } else {
+        f64::INFINITY
+    };
+    let y = if u.1.abs() > 1e-12 {
+        (b.3 - b.1) / 2.0 / u.1.abs()
+    } else {
+        f64::INFINITY
+    };
+    x.min(y)
+}
+fn to_edge(p: Point, u: Point, b: Bounds) -> f64 {
+    let mut t = f64::INFINITY;
+    for (v, k, lo, hi) in [(p.0, u.0, b.0, b.2), (p.1, u.1, b.1, b.3)] {
+        if k > 1e-12 {
+            t = t.min((hi - v) / k);
+        } else if k < -1e-12 {
+            t = t.min((lo - v) / k);
+        }
+    }
+    t.max(0.0)
+}
+fn copper_exit(c: Point, u: Point, polys: &[Vec<Point>]) -> f64 {
+    let mut t = f64::INFINITY;
+    for poly in polys.iter().filter(|p| point_in_polygon(c, p)) {
+        for i in 0..poly.len() {
+            let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+            let (ex, ey) = (b.0 - a.0, b.1 - a.1);
+            let den = u.0 * ey - u.1 * ex;
+            if den.abs() < 1e-15 {
+                continue;
+            }
+            let tt = ((a.0 - c.0) * ey - (a.1 - c.1) * ex) / den;
+            let ss = ((a.0 - c.0) * u.1 - (a.1 - c.1) * u.0) / den;
+            if tt > 0.0 && (-1e-12..=1.0 + 1e-12).contains(&ss) {
+                t = t.min(tt);
+            }
+        }
+    }
+    if t == f64::INFINITY {
+        0.0
+    } else {
+        t
+    }
+}
+
+/// Exact pad-lane generation twin. Rotation coefficients are computed once
+/// with Python's math functions when preparing turns. Local centres and the
+/// returned row normal use the same clean9 applications as _pin_normal.
+#[pyfunction]
+pub fn surface_lanes(
+    py: Python<'_>,
+    mut pads: Vec<Pad>,
+    rotation: f64,
+    turn: Point,
+    reach: f64,
+    minimum: usize,
+) -> PyResult<(Vec<(String, Lane, Point)>, Vec<(String, Spot)>)> {
+    py.check_signals()?;
+    if !rotation.is_finite()
+        || !valid_point(turn)
+        || turn.0.abs() > 1.0
+        || turn.1.abs() > 1.0
+        || (crate::exact::hypot(turn.0, turn.1) - 1.0).abs() > 1e-9
+        || !reach.is_finite()
+        || reach < 0.0
+        || reach > 1e9
+        || pads.len() > 100_000
+    {
+        return Err(PyValueError::new_err("surface lane snapshot invalid"));
+    }
+    let mut numbers = HashSet::new();
+    for p in &pads {
+        if !numbers.insert(&p.0)
+            || !valid_bounds(p.2)
+            || p.1 == 0
+            || [p.5, p.6, p.7, p.8]
+                .iter()
+                .any(|v| !v.is_finite() || *v < 0.0 || *v > 1e9)
+            || p.3.as_ref().is_some_and(|polys| {
+                polys.iter().any(|poly| {
+                    !validate_shape(&(
+                        poly.clone(),
+                        union(poly.iter().map(|p| (p.0, p.1, p.0, p.1))),
+                        p.1,
+                        Vec::new(),
+                        0.0,
+                    ))
+                })
+            })
+        {
+            return Err(PyValueError::new_err("surface lane pad invalid"));
+        }
+    }
+    if pads.len() < minimum || pads.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    pads.sort_by(|a, b| a.0.cmp(&b.0));
+    let (cos, sin) = turn;
+    let local = |p: Point| {
+        (
+            crate::exact::clean9(cos * p.0 - sin * p.1),
+            crate::exact::clean9(sin * p.0 + cos * p.1),
+        )
+    };
+    let field = union(pads.iter().map(|p| {
+        let c = local(centre(p.2));
+        (c.0, c.1, c.0, c.1)
+    }));
+    let body = centre(union(pads.iter().map(|p| p.2)));
+    let compass = [
+        (1.0, 0.0),
+        (0.707106781187, 0.707106781187),
+        (0.0, 1.0),
+        (-0.707106781187, 0.707106781187),
+        (-1.0, 0.0),
+        (-0.707106781187, -0.707106781187),
+        (0.0, -1.0),
+        (0.707106781187, -0.707106781187),
+    ];
+    let mut lanes = Vec::new();
+    let mut spots = Vec::new();
+    for (index, pad) in pads.iter().enumerate() {
+        if index % 32 == 0 {
+            py.check_signals()?;
+        }
+        if !pad.4 {
+            continue;
+        }
+        let c = centre(pad.2);
+        let at = local(c);
+        let fc = centre(field);
+        let (hw, hh) = ((field.2 - field.0) / 2.0, (field.3 - field.1) / 2.0);
+        let mut rx = if hw > 1e-6 {
+            (at.0 - fc.0).abs() / hw
+        } else {
+            0.0
+        };
+        let mut ry = if hh > 1e-6 {
+            (at.1 - fc.1).abs() / hh
+        } else {
+            0.0
+        };
+        let mut fallback = false;
+        if (rx - ry).abs() < 1e-6 {
+            let (mut w, mut h) = (pad.2 .2 - pad.2 .0, pad.2 .3 - pad.2 .1);
+            if rotation.rem_euclid(180.0) == 90.0 {
+                std::mem::swap(&mut w, &mut h);
+            }
+            if (w - h).abs() < 1e-6 {
+                fallback = true;
+            } else if w > h {
+                rx = 1.0;
+                ry = 0.0;
+            } else {
+                rx = 0.0;
+                ry = 1.0;
+            }
+        }
+        let d = if fallback {
+            let u = (c.0 - body.0, c.1 - body.1);
+            let n = crate::exact::hypot(u.0, u.1);
+            if n > 1e-9 {
+                (u.0 / n, u.1 / n)
+            } else {
+                (1.0, 0.0)
+            }
+        } else {
+            let n = if rx > ry {
+                (if at.0 >= fc.0 { 1.0 } else { -1.0 }, 0.0)
+            } else {
+                (0.0, if at.1 >= fc.1 { 1.0 } else { -1.0 })
+            };
+            let u = (
+                crate::exact::clean9(cos * n.0 + sin * n.1),
+                crate::exact::clean9(-sin * n.0 + cos * n.1),
+            );
+            let size = crate::exact::hypot(u.0, u.1);
+            (u.0 / size, u.1 / size)
+        };
+        let d = (crate::exact::clean9(d.0), crate::exact::clean9(d.1));
+        let blind = pad
+            .3
+            .as_ref()
+            .is_some_and(|polys| !polys.iter().any(|p| point_in_polygon(c, p)));
+        let exit = |u| {
+            pad.3
+                .as_ref()
+                .map_or_else(|| ray_exit(pad.2, u), |p| copper_exit(c, u, p))
+        };
+        let h = exit(d);
+        let start = (c.0 + d.0 * h, c.1 + d.1 * h);
+        let mut first = 0.0;
+        let mut out = 0.0;
+        if pads.len() > 2 {
+            let others: Vec<_> = pads.iter().filter(|p| p.0 != pad.0).map(|p| p.2).collect();
+            first = corners(union(others.iter().copied()))
+                .iter()
+                .map(|q| (q.0 - start.0) * d.0 + (q.1 - start.1) * d.1)
+                .fold(0.0, f64::max);
+            out = first;
+            let e = (start.0 + d.0 * first, start.1 + d.1 * first);
+            let mut more: f64 = 0.0;
+            for q in others.iter().flat_map(|b| corners(*b)) {
+                let along = (q.0 - e.0) * d.0 + (q.1 - e.1) * d.1;
+                let side = ((q.0 - e.0) * d.1 - (q.1 - e.1) * d.0).abs();
+                more = more.max(pad.5 * 2.0f64.sqrt() - side + along);
+            }
+            first += more;
+        }
+        let win = (
+            pad.2 .0 - reach,
+            pad.2 .1 - reach,
+            pad.2 .2 + reach,
+            pad.2 .3 + reach,
+        );
+        let length = first.min(to_edge(start, d, win));
+        let end = (start.0 + d.0 * length, start.1 + d.1 * length);
+        if !blind {
+            for u in compass {
+                let a = if pads.len() > 2 {
+                    end
+                } else {
+                    let e = exit(u);
+                    (c.0 + u.0 * e, c.1 + u.1 * e)
+                };
+                let length = to_edge(a, u, win);
+                let f = (a.0 + u.0 * length, a.1 + u.1 * length);
+                let legs = if pads.len() > 2 {
+                    vec![(start, end), (a, f)]
+                } else {
+                    vec![(a, a), (a, f)]
+                };
+                let box_ = union(
+                    legs.iter()
+                        .flat_map(|(a, b)| [a, b])
+                        .map(|p| (p.0, p.1, p.0, p.1)),
+                );
+                lanes.push((pad.0.clone(), (legs, pad.1, box_), u));
+            }
+        }
+        let mut directions = vec![d];
+        if pads.len() <= 2 {
+            directions.extend([(-d.1, d.0), (d.1, -d.0)]);
+            if pads.len() == 1 {
+                directions.push((-d.0, -d.1));
+            }
+        }
+        let mut at: Vec<_> = directions
+            .iter()
+            .map(|u| {
+                let half = u.0.abs() * (pad.2 .2 - pad.2 .0) / 2.0
+                    + u.1.abs() * (pad.2 .3 - pad.2 .1) / 2.0;
+                (c.0 + u.0 * (half + pad.6), c.1 + u.1 * (half + pad.6))
+            })
+            .collect();
+        if first > 0.0 {
+            let t = first.max(out + pad.6 + pad.8);
+            at.push((start.0 + d.0 * t, start.1 + d.1 * t));
+        }
+        for p in at {
+            if blind
+                && !pad.3.as_ref().unwrap().iter().any(|poly| {
+                    point_distance(p, poly) <= pad.6 + 1e-9
+                        && poly
+                            .iter()
+                            .map(|q| crate::exact::hypot(q.0 - p.0, q.1 - p.1))
+                            .fold(0.0, f64::max)
+                            >= pad.7 - 1e-9
+                })
+            {
+                continue;
+            }
+            spots.push((
+                pad.0.clone(),
+                (
+                    p,
+                    pad.6,
+                    (p.0 - pad.6, p.1 - pad.6, p.0 + pad.6, p.1 + pad.6),
+                ),
+            ));
+        }
+    }
+    if lanes.iter().any(|(_, lane, _)| {
+        !valid_bounds(lane.2)
+            || lane
+                .0
+                .iter()
+                .any(|(a, b)| !valid_point(*a) || !valid_point(*b))
+    }) || spots
+        .iter()
+        .any(|(_, spot)| !valid_point(spot.0) || !valid_bounds(spot.2))
+    {
+        return Err(PyValueError::new_err(
+            "generated surface lanes exceed coordinate bounds",
+        ));
+    }
+    Ok((lanes, spots))
+}
+
 fn box_gap(a: Bounds, b: Bounds) -> f64 {
     crate::exact::hypot(
         (a.0 - b.2).max(b.0 - a.2).max(0.0),
@@ -114,11 +448,11 @@ pub fn surface_judge(
         .iter()
         .filter(|l| {
             !foes.iter().any(|f| {
-                (f.3 || f.0.2 & l.1 != 0)
-                    && box_gap(f.0.1, l.2) < f.1
+                (f.3 || f.0 .2 & l.1 != 0)
+                    && box_gap(f.0 .1, l.2) < f.1
                     && l.0
                         .iter()
-                        .any(|&(a, b)| segment_distance(a, b, &f.0.0) < f.1)
+                        .any(|&(a, b)| segment_distance(a, b, &f.0 .0) < f.1)
             })
         })
         .collect();
@@ -160,12 +494,12 @@ pub fn surface_judge(
     if spots.iter().any(|s| {
         !foes
             .iter()
-            .any(|f| box_gap(f.0.1, s.2) < f.2 && point_distance(s.0, &f.0.0) < s.1 + f.2)
+            .any(|f| box_gap(f.0 .1, s.2) < f.2 && point_distance(s.0, &f.0 .0) < s.1 + f.2)
             && !bans.iter().any(|b| {
-                b.1.0 <= s.2.2
-                    && s.2.0 <= b.1.2
-                    && b.1.1 <= s.2.3
-                    && s.2.1 <= b.1.3
+                b.1 .0 <= s.2 .2
+                    && s.2 .0 <= b.1 .2
+                    && b.1 .1 <= s.2 .3
+                    && s.2 .1 <= b.1 .3
                     && point_distance(s.0, &b.0) < s.1
             })
     }) {
@@ -259,8 +593,8 @@ fn validate_search(
         || !start.iter().all(|s| {
             s.2 != 0
                 && s.2 & layers != 0
-                && contains(window, (s.1.0, s.1.1))
-                && contains(window, (s.1.2, s.1.3))
+                && contains(window, (s.1 .0, s.1 .1))
+                && contains(window, (s.1 .2, s.1 .3))
         })
     {
         return Err(PyValueError::new_err(
@@ -316,10 +650,10 @@ pub fn surface_path_out(
         ),
         |b, s| {
             (
-                b.0.min(s.1.0),
-                b.1.min(s.1.1),
-                b.2.max(s.1.2),
-                b.3.max(s.1.3),
+                b.0.min(s.1 .0),
+                b.1.min(s.1 .1),
+                b.2.max(s.1 .2),
+                b.3.max(s.1 .3),
             )
         },
     );
@@ -376,7 +710,7 @@ pub fn surface_path_out(
     let mut anchors = Vec::new();
     for s in &start {
         let points = if s.3.is_empty() {
-            vec![((s.1.0 + s.1.2) / 2.0, (s.1.1 + s.1.3) / 2.0)]
+            vec![((s.1 .0 + s.1 .2) / 2.0, (s.1 .1 + s.1 .3) / 2.0)]
         } else {
             s.3.clone()
         };
