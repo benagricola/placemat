@@ -58,9 +58,9 @@ def test_a_halo_naming_no_net_is_a_warning_and_is_not_used():
 
 def test_a_halo_net_with_open_connections_routes_in_its_own_class_stage():
     """The router spaces every net of a call at the largest clearance among them: a halo net is not routed with the
-    rest but in the class stage of its halo (kicad/route.py class_stages)."""
-    from placemat.kicad.route import class_stages
-    assert class_stages(net_halos.merged({"VIN": 0.3}, {"SW": 2.0}), 0.15, {"SW", "VIN", "FB"}) == [(2.0, ["SW"]), (0.3, ["VIN"])]
+    rest but in the class stage of its halo (kicad/route.py clearance_groups)."""
+    from placemat.kicad.route import clearance_groups
+    assert clearance_groups(net_halos.merged({"VIN": 0.3}, {"SW": 2.0}), 0.15, {"SW", "VIN", "FB"}) == [(2.0, ["SW"]), (0.3, ["VIN"])]
 
 
 # ---------------------------------------------------------------- the clearance map

@@ -178,7 +178,7 @@ def trapped(geometry, halos: dict, judged=None) -> list:
 
 def findings(trapped_records: list, missing: list, halos: dict) -> list:
     """The `setup.net_halo` findings: an entry naming no net on the board, then each trapped pad. A halo net with open
-    connections routes in the class stage of its halo (kicad/route.py class_stages), alone with nets of the same clearance."""
+    connections routes in the class stage of its halo (kicad/route.py clearance_groups), alone with nets of the same clearance."""
     from ..findings import Finding, FindingCause as C
     return ([Finding(C.SETUP_NET_HALO, {"variant": "no_net", "net": n, "halo_mm": float(halos[n])}) for n in missing]
             + [Finding(C.SETUP_NET_HALO, dict(r)) for r in trapped_records])

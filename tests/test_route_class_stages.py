@@ -8,7 +8,7 @@ import textwrap
 
 import pytest
 
-from placemat.kicad.route import class_stages, routing_clearance
+from placemat.kicad.route import clearance_groups, routing_clearance
 from placemat.settings import Settings, bind
 from tests.conftest import needs_kicad
 from tests.test_net_halos import FAKE, ROUTER, _two_part_board, needs_router
@@ -16,10 +16,10 @@ from tests.test_net_halos import FAKE, ROUTER, _two_part_board, needs_router
 
 def test_nets_above_the_default_are_grouped_by_clearance_widest_first():
     clearances = {"RF": 0.2, "RF2": 0.2, "WIDE": 0.3, "EQ": 0.127, "LOW": 0.1, "DONE": 0.25}
-    got = class_stages(clearances, 0.127, {"RF", "RF2", "WIDE", "EQ", "LOW", "SIG"})
+    got = clearance_groups(clearances, 0.127, {"RF", "RF2", "WIDE", "EQ", "LOW", "SIG"})
     assert got == [(0.3, ["WIDE"]), (0.2, ["RF", "RF2"])]
-    assert class_stages(clearances, 0.3, {"RF", "WIDE"}) == []
-    assert class_stages({}, 0.127, {"RF"}) == []
+    assert clearance_groups(clearances, 0.3, {"RF", "WIDE"}) == []
+    assert clearance_groups({}, 0.127, {"RF"}) == []
 
 
 def test_the_routing_clearance_is_the_routers_default_class_clearance():
@@ -128,7 +128,7 @@ def test_each_stage_routes_at_its_own_clearance_and_prices_the_earlier_stages_at
     earlier stages' copper is priced at its class, and the main pass (SIG) routes at the Default."""
     import subprocess
     clearances = {"RF": 0.2, "ANT": 0.2, "MID": 0.15, "EQ": 0.127}
-    stages = class_stages(clearances, 0.127, {"RF", "ANT", "MID", "EQ", "SIG"})
+    stages = clearance_groups(clearances, 0.127, {"RF", "ANT", "MID", "EQ", "SIG"})
     assert stages == [(0.2, ["ANT", "RF"]), (0.15, ["MID"])]
     proc = subprocess.run([str(ROUTER / ".venv/bin/python"), "-c", _FLOORS], cwd=str(ROUTER / "py_router"), text=True,
                           input=json.dumps({"map": clearances, "base": 0.127, "stages": [n for _, n in stages]}),

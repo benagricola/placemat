@@ -187,7 +187,7 @@ class RouteReport:
     # "vias_merged": {net: n} (router vias merged into a same-net hole within hole-to-hole),
     # "vias_kept_close": [{"net", "at_mm", "near_mm", "distance_mm", "reason"}] (such vias left in place)}.
     dangling_removed: dict = field(default_factory=dict)
-    # The class stages (`class_stages`), widest clearance first: each {"clearance_mm": mm, "nets": {net: [open items before,
+    # The class stages (`clearance_groups`), widest clearance first: each {"clearance_mm": mm, "nets": {net: [open items before,
     # after]}}. Their nets route in their own router call before the main pass, which does not route them again.
     class_stages: list = field(default_factory=list)
     # The nets `shorted` lists, with the kinds of the real DRC violations each is in: {net: [kind, ...]}. A net named there need not be
@@ -968,24 +968,43 @@ def main_pass_nets(nets, excluded) -> set:
     return result
 
 
+def _net_arg(name: str) -> str:
+    """A net name as KRT's --nets and --bus-nets read it: a leading '!' is an exclusion there, so a net named '!RST' is
+    written '\\!RST' (py_router/net_queries.py:17-52, split_net_patterns)."""
+    return "\\" + name if name.startswith("!") else name
+
+
 def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
                    iterations: int | None = None, probe: int | None = None, quick: bool = False,
-                   nets=None, widths=None, clearances: Path | None = None) -> list:
-    """The router's command line. The search budget is the router's own
-    default unless the caller sets one. A quick route is a measurement, so
-    it runs one routing round (route_one_round.py). The router's own
-    smoothing runs unless `[route] smoothing` is off. `nets` routes those
-    alone rather than every net but the excluded; `widths` ({net: mm}) sets
-    their track widths over the netclass's. `clearances` is the per-net
-    clearance map placemat wrote (net_halos.py); None leaves the router to
-    build its own from the net classes."""
-    chosen = sorted(nets) if nets is not None else ["*"] + ["!" + n for n in sorted(excluded)]
-    cmd = _launch(python, script) + [str(pcb_in), str(pcb_out), "--nets"] + chosen + \
+                   nets=None, widths=None, clearances: Path | None = None, connections: Path | None = None,
+                   bus_nets=None, neckdown: bool = True, extra_args=()) -> list:
+    """The router's command line. The search budget is the router's own default unless the caller sets one. A quick
+    route is a measurement, so it runs one routing round (route_one_round.py). The router's own smoothing runs unless
+    `[route] smoothing` is off. `nets` routes those alone rather than every net but the excluded; `connections` (a
+    file, phase_run.write_connections) routes given pad pairs instead and names no nets; `bus_nets` routes `nets` as
+    one stated bus (`--bus-nets`); `widths` ({net: mm}) sets whole nets' widths over the netclass's; `neckdown` False
+    turns the router's neck-down of a wide tap off for this call; `extra_args` are a phase's own router flags, after
+    `[route] router_args`. `clearances` is the per-net clearance map placemat wrote (net_halos.py); None leaves the
+    router to build its own from the net classes."""
+    if connections is not None:
+        chosen = []
+    elif nets is not None:
+        chosen = ["--nets"] + [_net_arg(n) for n in sorted(nets)]
+    else:
+        chosen = ["--nets", "*"] + ["!" + n for n in sorted(excluded)]
+    cmd = _launch(python, script) + [str(pcb_in), str(pcb_out)] + chosen + \
           ["--layers"] + list(layers) + ["--escalation", "off"] + \
           ["--keep-input-copper"] + _tuning()      # the script's copper is its intent: no cleanup pass removes it
+    if connections is not None:
+        cmd += ["--connections", str(connections)]
+    if bus_nets:
+        cmd += ["--bus-nets"] + [_net_arg(n) for n in bus_nets]
     if widths:
+        # --power-nets is plain fnmatch (KRT net_queries.py:916-954, identify_power_nets), no '\!' escape there
         named = sorted(widths)
         cmd += ["--power-nets"] + named + ["--power-nets-widths"] + ["%g" % widths[n] for n in named]
+    if not neckdown:
+        cmd.append("--no-power-tap-neckdown")
     if not active_settings().route_smoothing:
         cmd.append("--no-smoothing")
     if iterations is not None:
@@ -994,7 +1013,35 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
         cmd += ["--max-probe-iterations", str(probe)]
     if clearances is not None:
         cmd += ["--net-clearances", str(clearances)]
-    return cmd + list(active_settings().route_router_args) + ["--json-out", str(summary)]
+    return cmd + list(active_settings().route_router_args) + list(extra_args) + ["--json-out", str(summary)]
+
+
+REQUIRES = ("route.py:--connections", "route.py:--bus-nets")
+
+
+def router_capable(rpy, router_dir) -> list:
+    """The REQUIRES this router lacks, from its capability list (KRT krt_capabilities.py, JSON: `modules` {name:
+    present}, `flags` {module: [flag, ...]}): a router older than the fork's phase work is refused by name rather
+    than failing in a call. A router with no capability list, or one that cannot give it, lacks every one.
+    Divergence from `krt_capabilities.py --require`, which answers in sentences: the JSON is read instead, and each
+    token checked as `missing()` there checks it (krt_capabilities.py:481-512)."""
+    script = Path(router_dir) / "krt_capabilities.py"
+    if not script.exists():
+        return list(REQUIRES)
+    try:
+        r = subprocess.run([str(rpy), str(script)], capture_output=True, text=True, cwd=str(router_dir), timeout=60,
+                           env=child_env())
+        caps = json.loads(r.stdout) if r.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        caps = None
+    if not isinstance(caps, dict):
+        return list(REQUIRES)
+    out = []
+    for token in REQUIRES:
+        mod, _, flag = token.partition(":")
+        if not (caps.get("modules") or {}).get(mod) or flag not in ((caps.get("flags") or {}).get(mod) or ()):
+            out.append(token)
+    return out
 
 
 def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands: dict, layers, iterations, probe,
@@ -1055,9 +1102,9 @@ def routing_clearance(default: float, args, env) -> float:
     return out if cap is None else min(out, cap)
 
 
-def class_stages(clearances: dict, base: float, nets) -> list:
-    """The class stages: the nets of `nets` whose clearance in `clearances` ({net: mm}, the router's map) is above `base`
-    (the Default class's), grouped by clearance, widest first: [(mm, [net, ...])].
+def clearance_groups(clearances: dict, base: float, nets) -> list:
+    """The clearance groups (the class stages): the nets of `nets` whose clearance in `clearances` ({net: mm}, the
+    router's map) is above `base` (the Default class's), grouped by clearance, widest first: [(mm, [net, ...])].
 
     The router spaces every net of one call at the largest clearance among the nets the call routes (KRT
     routing_config.py set_net_clearances, the routing-side floor), and prices each foreign net's copper at the larger of
@@ -1073,7 +1120,7 @@ def class_stages(clearances: dict, base: float, nets) -> list:
 
 def route_class_stages(rpy, script, router_dir_path, board: Path, work: Path, stages: list, layers, iterations, probe,
                        quick, timeout, env, clearances: Path | None = None) -> Path:
-    """Route the class stages (`class_stages`), one router call each, in order, each on the board the one before left with
+    """Route the class stages (`clearance_groups`), one router call each, in order, each on the board the one before left with
     its copper locked. Returns the board the main pass routes on."""
     for i, (mm, nets) in enumerate(stages):
         out = work / ("classes%d.kicad_pcb" % i)
@@ -1109,7 +1156,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     first: the `setup.net_halo` findings go to `on_setup` (a callable taking
     the list) before the first router call, and stay on the report.
 
-    The stages - the differential pairs, the islands, the class stages (class_stages), the main pass - are
+    The stages - the differential pairs, the islands, the class stages (clearance_groups), the main pass - are
     kept in `work` as they finish (route_state.py): a route that is stopped
     or fails leaves them, and a rerun whose inputs digest the same takes them
     instead of routing again (`resume` False starts over). The report's
@@ -1254,7 +1301,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                                                 "seconds": round(time.time() - t1, 1)})
     guarded = board                              # the island nets' pours are guarded on it: the later copper is judged against them
     # the nets whose clearance is above the Default's, a stage per clearance: the router spaces every net of one call at
-    # the largest clearance among them (class_stages), so routed in the main pass they would space every net at theirs
+    # the largest clearance among them (clearance_groups), so routed in the main pass they would space every net at theirs
     if halos:
         clearance_map = json.loads(Path(clearances).read_text())
     else:
@@ -1268,8 +1315,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             if pad.net:
                 pads[pad.net] = pads.get(pad.net, 0) + 1
     routed_later = {n for n, k in pads.items() if k >= 2 and n not in excluded | pairs.routed_nets}
-    stages = class_stages(clearance_map, routing_clearance(geometry.default_clearance, cfg.route_router_args, env),
-                          routed_later)
+    stages = clearance_groups(clearance_map, routing_clearance(geometry.default_clearance, cfg.route_router_args, env),
+                              routed_later)
     staged = {n for _, nets in stages for n in nets}
     d_classes = digest(d_islands, "classes", stages)
     if stages:
