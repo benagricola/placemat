@@ -674,6 +674,7 @@ FAILURES = {"generation": "Schematic generation failed", "script": "Layout scrip
 def failure_text(ev: dict) -> str:
     """What an `error` event says, as a person reads it. Its `kind`: `run_failure` (`failure` is the stage, `detail` the free text of
     what raised it, `item` the item a placement failure names), `exception` (`type`, `detail`), `probe_refused` (probe.refusal_text),
+    `route_refused` (no router to route with: kicad.route.router_missing_text of its `code` and facts),
     `lost` (the connection ended with no `done`; `last` is the last event seen), `died` (the same, from the trail), `cannot_follow`
     (`detail`)."""
     kind = ev.get("kind")
@@ -691,6 +692,9 @@ def failure_text(ev: dict) -> str:
     if kind == "probe_refused":
         from . import probe
         return probe.refusal_text(ev)
+    if kind == "route_refused":
+        from .kicad.route import router_missing_text
+        return router_missing_text(ev.get("code"), ev)
     if kind == "lost":
         last = ev.get("last")
         return "the command stopped without saying it was done" + ((" (last: %s)" % describe(last)) if last else "")

@@ -28,4 +28,4 @@ def test_a_route_with_no_router_named_refuses_and_says_where_to_name_one(tmp_pat
     assert "[route] router_dir" in said.stdout + said.stderr and "$KRT_DIR" in said.stdout + said.stderr
     data = _route(pcb, "--json")
     assert data.returncode == 2
-    assert json.loads(data.stdout) == {"refused": "router_unset", "setting": "[route] router_dir", "env": "KRT_DIR"}
+    assert json.loads(data.stdout) == {"code": "router_unset", "setting": "[route] router_dir", "env": "KRT_DIR"}

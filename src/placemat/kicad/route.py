@@ -42,11 +42,11 @@ class RouterMissing(RuntimeError):
         super().__init__(router_missing_text(code, self.facts))
 
     def record(self) -> dict:
-        return {"refused": self.code, **self.facts}
+        return {"code": self.code, **self.facts}
 
 
 def router_missing_text(code: str, facts: dict) -> str:
-    """The console sentence of a RouterMissing."""
+    """The console sentence of a RouterMissing (its code, and its facts or the whole record)."""
     if code == "router_unset":
         return "no router: set %s in placemat.toml or $%s to a KiCadRoutingTools checkout" % (facts["setting"], facts["env"])
     return "no router at %s (named by %s): it has no %s" % (facts["path"], facts["source"], " or ".join(facts["missing"]))
@@ -1122,7 +1122,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     island_layers = {n: v for n, v in (parse_island_layers(cfg.route_islands) if island_layers is None
                                        else island_layers).items() if n in islands}
     if router_dir_override:
-        router_dir_path = checked_router(router_dir_override, "router_dir_override")
+        router_dir_path = checked_router(router_dir_override, ROUTER_SETTING)
     else:
         router_dir_path = checked_router(router_dir(cfg), configured_router(cfg)[1])
     timeout = cfg.timeout_route if timeout is None else timeout

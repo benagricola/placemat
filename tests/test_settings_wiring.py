@@ -197,7 +197,7 @@ def test_with_no_router_named_a_route_refuses_naming_the_setting_and_the_variabl
     with pytest.raises(route.RouterMissing) as e:
         route.router_dir(Settings())
     assert e.value.code == "router_unset"
-    assert e.value.record() == {"refused": "router_unset", "setting": "[route] router_dir", "env": "KRT_DIR"}
+    assert e.value.record() == {"code": "router_unset", "setting": "[route] router_dir", "env": "KRT_DIR"}
     assert "[route] router_dir" in str(e.value) and "$KRT_DIR" in str(e.value)
     with bind(Settings()), pytest.raises(route.RouterMissing):
         route.route_board(tmp_path / "b.kicad_pcb", tmp_path / "work")
@@ -208,7 +208,7 @@ def test_a_router_folder_without_a_router_is_refused_with_what_it_lacks(monkeypa
     monkeypatch.setenv("KRT_DIR", str(tmp_path))
     with bind(Settings()), pytest.raises(route.RouterMissing) as e:
         route.route_board(tmp_path / "b.kicad_pcb", tmp_path / "work")
-    assert e.value.record() == {"refused": "router_not_found", "path": str(tmp_path), "source": "$KRT_DIR",
+    assert e.value.record() == {"code": "router_not_found", "path": str(tmp_path), "source": "$KRT_DIR",
                                 "missing": [".venv/bin/python", "py_router/route.py"]}
 
 

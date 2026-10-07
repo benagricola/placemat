@@ -168,7 +168,7 @@ def _git_head(root: str) -> str:
 
 
 def _krt_version(board_pcb: pathlib.Path) -> str:
-    """The commit of the router the route of this board resolves: [route] router_dir of the board's folder, else $KRT_DIR, else the built-in."""
+    """The commit of the router the route of this board resolves: [route] router_dir of the board's folder, else $KRT_DIR (route.RouterMissing with neither)."""
     from placemat.kicad.route import router_dir
     from placemat.settings import load
     return _git_head(router_dir(load(pathlib.Path(board_pcb).parent)))

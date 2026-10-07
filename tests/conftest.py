@@ -19,9 +19,17 @@ def outside_file_missing(path, env) -> str:
     return "" if Path(path).exists() else "%s not found ($%s)" % (path, env)
 
 
+ROUTER_NEEDS = (".venv/bin/python", "py_router/route.py", "py_router/route_diff.py", "py_router/list_nets.py")
+
+
 def router_missing() -> str:
-    """Why a test that runs the router cannot, or "" when it can."""
-    return outside_file_missing(ROUTER / ".venv/bin/python" if ROUTER else None, ROUTER_ENV)
+    """Why a test that runs the router cannot, or "" when it can: $KRT_DIR unset, or a checkout without one of
+    ROUTER_NEEDS (the interpreter, the router, the pair router, the net lister net_halos runs)."""
+    for f in ROUTER_NEEDS:
+        why = outside_file_missing(ROUTER / f if ROUTER else None, ROUTER_ENV)
+        if why:
+            return why
+    return ""
 
 
 needs_router = pytest.mark.skipif(bool(router_missing()), reason=router_missing() or "router found")

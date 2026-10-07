@@ -743,7 +743,7 @@ def cmd_route(args) -> int:
                                  resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {},
                                  on_setup=said)
         except RouterMissing as e:
-            channel.error("refused", **e.record())
+            channel.error("route_refused", **e.record())
             if args.json:
                 console.data(json.dumps(e.record(), indent=2))
             else:

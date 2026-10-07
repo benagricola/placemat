@@ -40,7 +40,7 @@ section for each hand-written pattern a newer form replaces.
   by id, differed from run to run. Every board placemat loads to route, clean up or write is now loaded with KiCad's
   id generator seeded from the file. Scripts need no change.
 - **Of two close same-net router vias, the one kept is chosen by the copper on it.** The route's cleanup kept
-  whichever the routed file listed first. It now keeps the via more copper ends on (copper the route was given first),
+  whichever the routed file listed first. It now keeps the via more copper ends on (first copper a merge cannot move: tracks the route was given, and arcs),
   then the lower x and y, and a net whose merge would part its pads or come within clearance of another net is tried
   the other way round before both vias are kept. Scripts need no change.
 - **A route with nothing left to route completes.** `run --route` on a board whose nets are all served by planes, pours

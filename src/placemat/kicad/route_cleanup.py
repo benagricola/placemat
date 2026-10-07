@@ -354,7 +354,7 @@ def _end_on(p, q) -> bool:
 
 def _via_rank(via, ends, mine) -> tuple:
     """The order the router's vias are taken in, the first of a close pair kept: the via the most copper that cannot
-    move ends on (given tracks and arcs), then the most track ends, then the lower x and y. Diverges from KRT, which
+    move ends on (tracks the route was given, and any arc: a merge moves neither), then the most track ends, then the lower x and y. Diverges from KRT, which
     takes its new vias in the order it placed them: the routed file lists them by uuid, so board order would make the
     choice by uuid. A via with more ends on it leaves fewer to move."""
     fixed = sum(1 for t in ends if t.GetClass() != "PCB_TRACK" or t.m_Uuid.AsString() not in mine)
@@ -385,11 +385,14 @@ def merge_close_vias(board, mine: set, pcbnew, keep_nets=frozenset(), swapped=fr
         return frozenset(l for l in cu if v.IsOnLayer(l))
 
     survivors, vias = {}, []          # survivors: {net: [(position, drill, span)]}
+    lines = {}                        # {net: [track or arc]}: the ends a via's rank counts
     for t in board.GetTracks():
         if t.GetClass() != "PCB_VIA":
+            lines.setdefault(t.GetNetname(), []).append(t)
             continue
         if t.m_Uuid.AsString() in mine:
-            vias.append(t)
+            if t.GetNetname() not in keep_nets:
+                vias.append(t)
         else:
             survivors.setdefault(t.GetNetname(), []).append((t.GetPosition(), t.GetDrillValue(), span(t)))
     for pad in board.GetPads():
@@ -399,8 +402,7 @@ def merge_close_vias(board, mine: set, pcbnew, keep_nets=frozenset(), swapped=fr
                 (pad.GetEffectiveHoleShape().GetSeg().Center(), max(d.x, d.y), frozenset(cu)))
     def ends_on(via):
         at = via.GetPosition()
-        return [t for t in board.GetTracks() if t.GetClass() != "PCB_VIA" and t.GetNetname() == via.GetNetname()
-                and (_end_on(t.GetStart(), at) or _end_on(t.GetEnd(), at))]
+        return [t for t in lines.get(via.GetNetname(), ()) if _end_on(t.GetStart(), at) or _end_on(t.GetEnd(), at)]
 
     def order(via):
         rank = _via_rank(via, ends_on(via), mine)
@@ -410,8 +412,6 @@ def merge_close_vias(board, mine: set, pcbnew, keep_nets=frozenset(), swapped=fr
     merges, kept, moved = [], [], {}
     for via in vias:
         net = via.GetNetname()
-        if net in keep_nets:
-            continue
         at, drill, own = via.GetPosition(), via.GetDrillValue(), span(via)
         found = blocked = None
         for sp, sdrill, sspan in survivors.get(net, []):

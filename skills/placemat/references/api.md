@@ -3803,7 +3803,7 @@ worse is a finding naming the score and the term that moved it most, and
 part starts a new family. Routing needs
 KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR`, with its own venv; with neither set, a
 route refuses (`route: no router: set [route] router_dir in placemat.toml or $KRT_DIR ...`, exit 2; with `--json`,
-`{"refused": "router_unset", "setting", "env"}`), and a folder without the router is refused as `router_not_found`
+`{"code": "router_unset", "setting", "env"}`), and a folder without the router is refused as `router_not_found`
 with the files it lacks; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: a small two-layer board routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
@@ -3987,7 +3987,7 @@ dangling router copper was kept) and `refused_nets` (the nets kept because the d
 Before that cleanup, a router via closer than the board's hole-to-hole to another hole of its net (a via or a plated through-hole
 pad) is merged into it, as the router's own plane passes merge theirs: the via is deleted and the router's tracks ending on it move
 onto the other hole, where the other hole covers the via's layers. Of two router vias, the one kept is the one more copper ends on
-(copper the router was given first, then any track), then the lower x and y; a net whose merges part its pads or bring a track
+(first copper a merge cannot move: tracks the router was given, and arcs; then any track), then the lower x and y; a net whose merges part its pads or bring a track
 within clearance is tried once more the other way round. KiCad's own cleanup merges only vias at the same spot, but its
 hole_to_hole check ignores nets, so such a pair is a DRC violation. A via stays where the merge would part its net's pads, where a
 moved track would come within clearance of another net's copper (the netclass clearance; a zone by its fill), where the other hole
