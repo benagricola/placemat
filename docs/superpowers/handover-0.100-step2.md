@@ -2,7 +2,8 @@
 
 For the agent that takes over step 2 of the 0.100 roadmap. Read `docs/superpowers/handover-0.100.md` first (lanes,
 shared machine, forks, release line), then `docs/superpowers/handover-step2-one-score.md` (the original brief for this
-step), then this. The sibling handover for step 1 is `docs/superpowers/handover-0.100-step1.md`.
+step), then this. The sibling handover for step 1 is `docs/superpowers/handover-0.100-step1.md`; every step's
+documents are indexed in `docs/superpowers/plan-0.100-index.md`.
 
 ## Where things are
 
