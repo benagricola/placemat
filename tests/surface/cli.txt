@@ -139,7 +139,6 @@ route --detach
 route --exclude
 route --format
 route --full
-route --islands
 route --iterations
 route --json
 route --layers

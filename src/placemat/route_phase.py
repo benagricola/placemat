@@ -214,8 +214,9 @@ def default_phases(*, pairs: bool, interface_types: list, wide_classes: list, cu
     out = []
     if pairs:
         out.append({"name": "diff-pairs", "pairs": True})
+    interface_types = sorted(set(interface_types) - {"DiffPair"})
     if interface_types:
-        out.append({"name": "buses", "interfaces": sorted(interface_types)})
+        out.append({"name": "buses", "interfaces": interface_types})
     if wide_classes:
         out.append({"name": "wide-clearance", "net_classes": sorted(wide_classes)})
     if currents:

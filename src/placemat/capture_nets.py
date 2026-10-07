@@ -119,6 +119,11 @@ def _capture(path, raw, doc) -> Capture:
     for record in nets.values():
         record.clearance_mm
     instances = {p: Instance(p, r["type"], dict(r["members"])) for p, r in (doc.get("interfaces") or {}).items()}
+    for instance in instances.values():
+        if instance.type == "DiffPair" and (set(instance.members) != {"P", "N"} or
+                any(not isinstance(n, str) or not n for n in instance.members.values()) or
+                instance.members["P"] == instance.members["N"]):
+            raise CaptureError("unreadable", path=str(path), missing="DiffPair %s P/N members" % instance.path)
     pairs = tuple((p["instance"], p["p"], p["n"]) for p in doc.get("pairs") or ())
     return Capture(str(path), hashlib.sha256(raw).hexdigest(), dict(doc.get("generator") or {}),
                    frozenset(doc.get("exports") or ()), nets, instances, pairs)

@@ -1,14 +1,12 @@
-"""A pour net's pads the pours do not reach: a routing phase that names a net the board serves by a pour routes it
-alone (kicad/route.py route_pour_net, D15), the pours counted as joined copper by the router, the other pour nets'
-partial pours kept clear of it; the phases after leave it to its pours. `[route] islands` and `placemat route
---islands`, which did this before the phases, are refused; their parsing stays until they are removed."""
+"""A named routing phase routes pour nets alone while preserving other pours.
+"""
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from placemat.kicad.route import parse_islands, router_command
+from placemat.kicad.route import router_command
 from placemat.settings import Settings
 from tests.conftest import needs_breakout, needs_kicad
 from tests.phase_helpers import phases
@@ -36,13 +34,9 @@ def _rule_areas(pcb):
     return sorted(z.GetZoneName() for z in pcbnew.LoadBoard(str(pcb)).Zones() if z.GetIsRuleArea())
 
 
-def test_an_island_net_may_carry_a_width():
-    assert parse_islands(["V_HI", "VIN=0.5"]) == {"V_HI": None, "VIN": 0.5}
-    with pytest.raises(ValueError, match="VIN=wide"):
-        parse_islands(["VIN=wide"])
 
 
-def test_the_islands_pass_names_its_nets_and_their_widths():
+def test_the_pour_call_names_its_nets_and_their_widths():
     cmd = router_command("py", "route.py", "in", "out", set(), ["F.Cu", "B.Cu"], "s.json",
                          nets=["V_HI", "VIN"], widths={"VIN": 0.5})
     i = cmd.index("--nets")
@@ -51,15 +45,6 @@ def test_the_islands_pass_names_its_nets_and_their_widths():
     assert cmd[j + 1] == "VIN" and cmd[cmd.index("--power-nets-widths") + 1] == "0.5"
 
 
-def test_the_route_command_refuses_the_islands_flag(tmp_path, monkeypatch, capsys):
-    from placemat import cli
-    import placemat.kicad.route as route_mod
-    pcb = tmp_path / "layout.kicad_pcb"
-    pcb.write_text("")
-    monkeypatch.setattr(route_mod, "route_board", lambda *a, **kw: pytest.fail("routed"))
-    assert cli.main(["route", str(pcb), "--islands", "VIN=0.5"]) == 2
-    assert ("route: [route] islands is replaced by routing phases: a phase with `nets` and `width`"
-            in capsys.readouterr().out)
 
 
 @needs_kicad
@@ -112,12 +97,6 @@ def test_a_router_run_joins_the_pads_a_partial_pour_leaves_apart(breakout_pcb, t
                    and (outline.Contains(t.GetStart()) or outline.Contains(t.GetEnd())) for t in routed.GetTracks())
 
 
-def test_a_malformed_island_entry_is_refused_when_the_settings_load(tmp_path):
-    from placemat.settings import SettingsError, load
-    for bad in ('"VIN=wide"', '"=0.5"', '"VIN=0"'):
-        (tmp_path / "placemat.toml").write_text('[route]\nislands = [%s]\n' % bad)
-        with pytest.raises(SettingsError, match="route.islands"):
-            load(tmp_path)
 
 
 def _four_layer_with_pours(breakout_pcb, dest, nets):
@@ -181,48 +160,16 @@ def test_each_pour_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp
     assert _rule_areas(b) == ["placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
 
 
-@needs_kicad
-@needs_breakout
-def test_an_island_net_not_on_the_board_is_said_and_skipped(breakout_pcb):
-    from placemat.kicad.route import islands_on_board
-    kept, missing = islands_on_board(breakout_pcb, {"PERMIT_A": None, "NO_SUCH_NET": 0.5})
-    assert kept == {"PERMIT_A": None} and missing == ["NO_SUCH_NET"]
 
 
-def test_an_island_net_may_carry_its_own_layers():
-    from placemat.settings import parse_island_layers
-    items = ["VBUS=1.37@F,B", "V_HI@In2.Cu", "V_LO=0.4@B.Cu,in1,F.Cu", "VIN"]
-    assert parse_islands(items) == {"VBUS": 1.37, "V_HI": None, "V_LO": 0.4, "VIN": None}
-    assert parse_island_layers(items) == {"VBUS": ("F.Cu", "B.Cu"), "V_HI": ("In2.Cu",),
-                                          "V_LO": ("F.Cu", "In1.Cu", "B.Cu")}     # in stack order, F first and B last
 
 
-def test_an_unknown_island_layer_is_refused():
-    for bad, said in (("VBUS=1.37@F,X", "X"), ("VBUS@In31", "In31"), ("VBUS@", "VBUS@"), ("VBUS=1@F,,B", "VBUS=1@F,,B")):
-        with pytest.raises(ValueError, match=said):
-            parse_islands([bad])
 
 
-def test_an_unknown_island_layer_is_refused_when_the_settings_load(tmp_path):
-    from placemat.settings import SettingsError, load
-    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["VBUS=1.37@F,Q"]\n')
-    with pytest.raises(SettingsError, match=r"route\.islands.*'Q' is not a copper layer"):
-        load(tmp_path)
 
 
-def test_an_island_layer_the_board_lacks_is_refused():
-    from placemat.kicad.route import island_layers_on_board
-    assert island_layers_on_board({"VBUS": ("F.Cu", "B.Cu")}, ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]) == {"VBUS": ["F.Cu", "B.Cu"]}
-    with pytest.raises(ValueError, match="VBUS.*In3.Cu"):
-        island_layers_on_board({"VBUS": ("F.Cu", "In3.Cu")}, ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"])
 
 
-def test_the_report_records_each_islands_layers():
-    from placemat.kicad.route import RouteReport
-    r = RouteReport(True, 1.0, 1.0, 0, 0, {}, [], [], ["F.Cu", "B.Cu"], 0.0, "", {}, Path("r"), Path("l"), Path("w"),
-                    island_layers={"VBUS": ["F.Cu", "B.Cu"]})
-    assert r.as_dict()["island_layers"] == {"VBUS": ["F.Cu", "B.Cu"]}
-    assert "VBUS on F.Cu, B.Cu" in r.summary()
 
 
 @needs_kicad

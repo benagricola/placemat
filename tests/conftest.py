@@ -24,7 +24,7 @@ ROUTER_NEEDS = (".venv/bin/python", "py_router/route.py", "py_router/route_diff.
 
 def router_missing() -> str:
     """Why a test that runs the router cannot, or "" when it can: $KRT_DIR unset, or a checkout without one of
-    ROUTER_NEEDS (the interpreter, the router, the pair router, the net lister net_halos runs)."""
+    ROUTER_NEEDS (the interpreter, the router, the pair router, the net lister net_clearance runs)."""
     for f in ROUTER_NEEDS:
         why = outside_file_missing(ROUTER / f if ROUTER else None, ROUTER_ENV)
         if why:

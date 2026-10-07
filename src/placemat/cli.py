@@ -80,9 +80,6 @@ def parser() -> argparse.ArgumentParser:
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     rt.add_argument("--exclude", nargs="*", default=[], help="nets to leave unrouted (planes, pours)")
-    rt.add_argument("--islands", nargs="*", default=[], metavar="NET[=WIDTH][@LAYER,...]",
-                    help="replaced by routing phases: a [[route.phase]] with `nets` and `width` routes a poured net "
-                         "alone; a route given --islands is refused")
     rt.add_argument("--phase", metavar="NAME", help="route up to this phase, reusing matching earlier results")
     rt.add_argument("--only", action="store_true", help="with --phase: route just that phase against existing copper")
     rt.add_argument("--layers", nargs="*", help="copper layers to route on (default: all)")
@@ -749,9 +746,6 @@ def cmd_route(args) -> int:
     from .kicad.route import plane_nets_of
     planes = plane_nets_of(pcb)             # served by their pours, as run --route leaves them
     from .kicad.route import RouteRefused, RouterMissing, refused_text, router_missing_text
-    if args.islands:
-        console.say("route", refused_text("legacy_setting", {"setting": "islands"}), level="fail")
-        return 2
     with bind(cfg):
         from . import channel
         from .route_phase import PhaseError
@@ -1804,6 +1798,9 @@ STOPPABLE = ("run", "preview", "route")
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "route" and any(a == "--islands" or a.startswith("--islands=") for a in argv[1:]):
+        console.say("route", "route --islands is retired; use a phase with nets and width in [[route.phase]]", level="fail")
+        return 2
     args = parser().parse_args(argv)
     if args.format == "json":
         args.json = True

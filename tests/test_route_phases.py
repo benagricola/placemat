@@ -255,13 +255,6 @@ def test_a_route_with_no_phases_is_refused_with_the_specs_words(tmp_path):
                             "placemat.toml with the default phases")
 
 
-@pytest.mark.parametrize("setting, value", [("route_islands", ("VB=0.5",)), ("route_pair_layers", {"A/B": ["F.Cu"]}),
-                                            ("route_net_halos", {"SW": 2.0})])
-def test_a_setting_the_phases_replaced_is_refused(tmp_path, setting, value):
-    with bind(Settings(**{setting: value})):
-        with pytest.raises(RouteRefused) as e:
-            route_board(tmp_path / "x.kicad_pcb", tmp_path / "w", phases=phases())
-    assert e.value.code == "legacy_setting" and e.value.facts["setting"] == setting.split("_", 1)[1]
 
 
 def test_a_refusal_on_the_channel_reads_as_the_console_says_it():
@@ -368,10 +361,6 @@ def test_widths_failed_counts_joined_narrow_outcomes(rig, monkeypatch):
 
 def test_a_refusal_carries_facts_not_sentences(tmp_path):
     from placemat.kicad.route import refused_text
-    with bind(Settings(route_islands=("VB=0.5",))):
-        with pytest.raises(RouteRefused) as e:
-            route_board(tmp_path / "x.kicad_pcb", tmp_path / "w", phases=phases())
-    assert e.value.facts == {"setting": "islands"}
     text = refused_text("capture", {"path": "b/nets.layout.json", "reason": "stale",
                                     "detail": {"file": "default.net"}})
     assert text == "route: b/nets.layout.json: stale file default.net"

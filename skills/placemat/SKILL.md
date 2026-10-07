@@ -408,7 +408,7 @@ not a measure of how hard a step is (a candidate budget is, `place.step_budget`,
    order, via cost, layer costs) are its flags, passed through
    `[route] router_args`; its `--help` lists them.
    Keep other nets off a switch node by its clearance in the capture (the
-   clearance field of its net type); `[route] net_halos` is refused.
+   clearance field of its net type).
 
 **Where a change goes:**
 
@@ -488,14 +488,16 @@ shapes and files: `references/api.md`, "Live progress".
   `[place] order = "room"` goes by how many legal spots each item has left instead.
 - `required=True` is the only thing that stops a run for a placement; use
   it for an item with nowhere else to go. Firm only what is mechanical.
-  Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone and
-  slides to the room left; `along=` is a mechanical fact, never spacing.
+  Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone where an
+  enclosure gives it an edge (a window, a cut-out), and slides to the room
+  left; on a board with no enclosure, leave it searched; `along=` is a mechanical fact, never spacing.
 - Leave a searched part's rotation out unless its turn is a fact (a
   polarised part read by assembly, a connector's mouth): the search tries
   all four.
 - Cells are rigid on the board: place them, never their members. A cell
   that does not fit is changed in its own module's layout script ("Shaping
-  modules for the board", below), or captured differently.
+  modules for the board", below), or captured differently. A sheet imported
+  into the capture is a cell too (capture.md, "Cells for placement").
 - A cell drops a via only for ground and a rail it owns. A net the board
   chooses and a signal that leaves the cell end at their part; the board
   routes them.

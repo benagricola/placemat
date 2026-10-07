@@ -72,6 +72,9 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- Per-net `Pm.I` matches the whole net name or the last path part, as `Pm.KeepOut`
+  does. Module currents now reach `/sheet/VCC` and `CELL.VCC` without capture changes.
+
 - **A route's item ids are the same in every run.** pcbnew gives an item its file names no id (an older KiCad format
   leaves many out) a random one as it loads, so the route's working copy, and the DRC that names a violation's items
   by id, differed from run to run. Every board placemat loads to route, clean up or write is now loaded with KiCad's
@@ -90,6 +93,18 @@ section for each hand-written pattern a newer form replaces.
 - **A teardrop is not a pour.** KiCad keeps a teardrop as a zone on its net, and placemat took it for the net's pour: a
   net whose only zones were teardrops was left out of the route and counted as closed. Such a net is now routed and
   counted in closure, and no plane is raised over a teardrop or guarded as a partial pour. Scripts need no change.
+
+### Removed
+
+- `[route] islands` and `route --islands`: use a phase with `nets`, `width` and `layers`.
+- `[route] pair_layers`: use a phase with `pairs = true` and `layers`.
+- `[route] net_halos`: state the net type's `clearance` field in the capture.
+  `setup.net_halo` is now `setup.net_clearance`.
+- Fixed route stages and their report fields: phase results live in `route.json`'s
+  `phases`; old top-level `pairs`, `islands`, `islands_missing`, `island_layers`,
+  `class_stages`, `pair_layers`, `pair_layers_refused` and `net_halos*` are gone.
+- Routing no longer selects differential pairs from net classes. Capture
+  `DiffPair` instances or explicit phase pairs select them; classes retain geometry.
 
 ## To 0.99.34
 

@@ -1041,7 +1041,9 @@ modules/X/X_layout.py` finds the `Layout(name=, path=)` (or the
 beside it, generates the fragment and applies the script. A zen may
 declare one Layout per variant (an `if` on a `config()`), each with its
 own script named for it; the script's first line `# placemat generate:
---config key=value` tells the generator which. A fragment has no outline
+--config key=value` tells the generator which. The line passes any `pcb layout` arguments: `# placemat
+generate: -S bom.unspecified` lets a capture whose parts have no part numbers yet
+generate. A fragment has no outline
 to write, but its script may give it a frame, `board.rect(w, h,
 draw=False)`, sized from its own rows, so the controls that must meet
 a board edge are a `row` on the frame's edge; the board supplies the
@@ -3847,16 +3849,14 @@ no board net has, routes that pair, and names them back in the routed copy
 before its copper is read or kept. The renamed nets keep their net classes.
 Placement weighs every pair's crossings the same way, by its net class.
 
-A pair's layers are its phase's `layers`. `[route] pair_layers`, which named them before the phases, is refused
-(`legacy_setting`, below).
+A pair's layers are its phase's `layers`.
 
 A pour net whose pours do not reach every pad of it (a rail's small taps on the far side of a cell) is routed by a
 phase that names it (`nets` and `width`, on the phase's `layers`): the pour net alone in a router call of its own, its
-pours handed to the router as zones so it joins only the pads and pieces they leave apart. `[route] islands` and
-`placemat route --islands`, which did this before the phases, are refused.
+pours handed to the router as zones so it joins only the pads and pieces they leave apart.
 
 A net that should keep other nets' copper further off than its class clearance, such as a switch node, states it in
-the capture, as the clearance field of its net type. `[route] net_halos`, which did this before, is refused.
+the capture, as the clearance field of its net type.
 
 A wide route the router cannot lay is retried at its default track width (its "neck-down"), so a width asked for is not a width
 delivered. Each obligation of a phase given a width is judged on the board along the path that joins its two pads (see "Routing
@@ -4039,7 +4039,6 @@ the code and its facts):
 | Code | When |
 |---|---|
 | `no_phases` | the project has no `[[route.phase]]`: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with the default phases` |
-| `legacy_setting` | `[route] islands`, `pair_layers` or `net_halos` is set, or `--islands` given (`setting`): the sentence names what replaces it |
 | `unknown_phase` | a phase named to route up to is not one of the project's |
 | `capture` | the capture's `nets.layout.json` cannot be read, or was written for another netlist (`path`, the sidecar; `reason`; `detail`) |
 | `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses) |
@@ -5073,7 +5072,7 @@ its kind.
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
-| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`, a pin annotation the pin map study runs without or a present map that breaks its own rule: `setup.pins`) | warning | the script is incomplete or wrong |
+| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a pin annotation the pin map study runs without or a present map that breaks its own rule: `setup.pins`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `setup` (`setup.net_clearance`: a pad trapped by another net's capture clearance) | warning | the router cannot lead the pad out |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
@@ -5503,9 +5502,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.smoothing` | `true` | bool | the router's own octolinear smoothing, as it defaults; false skips it |
 | `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to every route.py call of every routing phase, before the phase's own `router_args`; one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused. Its `--grid-step` also sets the room turned escape lanes leave for the router's grid snap |
 | `route.pair_router_args` | `[]` | list | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
-| `route.pair_layers` | `{}` | table | replaced by routing phases: a route with it set is refused (`legacy_setting`); use a phase with `pairs` and `layers` (api.md "Routing phases") |
-| `route.net_halos` | `{}` | table | replaced by routing phases: a route with it set is refused (`legacy_setting`); state the clearance on the net's type in the capture (api.md "Routing phases") |
-| `route.islands` | `[]` | list | replaced by routing phases: a route with it set is refused (`legacy_setting`); use a phase with `nets` and `width` (api.md "Routing phases") |
 | `route.phase` | `[]` | list | the routing phases, in order: `[[route.phase]]` tables, each a `name`, at most one selector (`nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`, `net_types`; none takes every connection still open), and `width` (mm or "current"), `layers`, `neckdown`, `router_args`. A route needs at least one; `placemat settings --example` writes the default phases for a board (api.md "Routing phases") |
 | `route.diff_pair_gap` | `0.0` | mm | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | `0.0` | mm | mm, a pair's track width; 0 is the net class's diff pair width |
@@ -5641,3 +5637,6 @@ A pair phase takes its width from the net class; an explicit phase width is refu
 `settings <board> --example` writes default phases for capture pairs, interfaces, wide-clearance classes,
 current paths and remaining signals. Without a board it writes the signals phase.
 `run --explore SECONDS --route-best --route-rank PHASE[,PHASE...]` prioritises those phases' final clean closure.
+
+A run's start is the end reached first while walking the declared outline path
+(or the chained edge order for a read board); `run.at(0)[0]` is that point.

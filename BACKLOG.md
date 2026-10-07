@@ -33,6 +33,16 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Open
 
+- **Swapping the gates of a multi-gate part** (reference skill gaps, 2026-10-07):
+  the pin map study moves individual nets or consecutive blocks, but cannot restrict
+  a block to interchangeable gate pin sets. A new form: after consolidation.
+- **Facts read from a board's own files still need the user** (reference skill gaps,
+  2026-10-07): `facts --confirm` asks the user even when all values came from board
+  project files. Whether a script author may confirm these is the user's call.
+- **A cell with no layout of its own is placed as generated, and nothing says so**
+  (reference skill gaps, 2026-10-07): a finding naming that rigid generated cell
+  would help the agent understand its arrangement before placement.
+
 - **A board of stamped cells only costs about 2x with arrangements on**
   (module-arrangements build notes, 1.11 s off, 2.27 s on): each arrangement
   of a cell is one more full scan of the board; parts that tie nets together

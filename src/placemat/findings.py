@@ -109,7 +109,6 @@ class FindingCause(str, Enum):
     SETUP_STEP_BUDGET = (FindingKind.SETUP, "setup.step_budget")
     SETUP_PCBNEW = (FindingKind.SETUP, "setup.pcbnew")
     SETUP_NATIVE = (FindingKind.SETUP, "setup.native")
-    SETUP_PAIR_LAYERS = (FindingKind.SETUP, "setup.pair_layers")
     SETUP_PINS = (FindingKind.SETUP, "setup.pins")
     SETUP_NET_CLEARANCE = (FindingKind.SETUP, "setup.net_clearance")
     ROUTE_DROPPED = (FindingKind.ROUTE, "route.dropped")

@@ -1,7 +1,7 @@
-"""The widths a route delivered against the widths it asked for, from the router's per-stage summaries.
+"""The widths a route delivered against the widths it asked for, from the router's per-call summaries.
 
 The router measures the copper it ships, not what a pass requested (KRT py_router/routing_common.py `power_width_report`, written as
-JSON_SUMMARY `power_widths` by py_router/route.py when the run has `--power-nets-widths`, which placemat gives an island net that has a
+JSON_SUMMARY `power_widths` by py_router/route.py when the run has `--power-nets-widths`, which placemat gives a phase call that asks for a
 width). A wide route that is blocked is retried at the default track width, the "neck-down" (single_ended_routing.py, a log line only),
 and nothing in the route's outcome says so but these summary fields:
 
@@ -10,7 +10,7 @@ and nothing in the route's outcome says so but these summary fields:
   `length_mm` (the length under), `site` (fab_tiers.py `replace_power_track_rows`);
 - `power_trace_ampacity[]`: `net`, `bottleneck_width_mm`, `bottleneck_layer`, `max_current_a` (IPC-2152) (route.py).
 
-`power_widths` and `power_trace_ampacity` exist only in a stage that was given power nets; `design_rules.narrowed` is in every stage's
+`power_widths` and `power_trace_ampacity` exist only in a call that was given power nets; `design_rules.narrowed` is in every call's
 summary, and holds a net-class or pair narrowing only where the router's own escalation recorded one. The pair router writes no summary.
 
 `power_widths` is written only by a run with its final reconciliation on (route.py, the `# ---- POWER WIDTHS (#1033)` block, gated

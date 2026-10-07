@@ -207,7 +207,7 @@ def test_a_pair_phase_is_kept_and_reused_like_any_other(rig, monkeypatch):
     calls = []
 
     def stand_in(rpy, router_dir_path, pcb_in, work, pairs, layers, cfg, iterations, probe, timeout, env, events=None,
-                 pair_layers=None, halos=None, stem="pairs", extra_args=()):
+                 clearances=None, stem="pairs", extra_args=()):
         calls.append(list(pairs))
         out = work / (stem + ".kicad_pcb")
         shutil.copy(pcb_in, out)
@@ -216,10 +216,10 @@ def test_a_pair_phase_is_kept_and_reused_like_any_other(rig, monkeypatch):
     three = phases({"name": "pair", "pairs": [["FB_5V", "FB_5V_GND"]]}, {"name": "pour", "nets": ["GND"]},
                    {"name": "signals"})
     first = rig.route(phases=three)
-    assert calls == [[("FB_5V", "FB_5V_GND")]] and first.pairs["coupled"] == ["FB_5V/FB_5V_GND"]
+    assert calls == [[("FB_5V", "FB_5V_GND")]] and first.phases[0]["pairs"]["coupled"] == ["FB_5V/FB_5V_GND"]
     again = rig.route(phases=three)
     assert len(calls) == 1 and again.resumed == ["pair", "pour", "signals"]
-    assert again.pairs["coupled"] == ["FB_5V/FB_5V_GND"]
+    assert again.phases[0]["pairs"]["coupled"] == ["FB_5V/FB_5V_GND"]
     assert rig.calls() == ["island", "main"]
 
 

@@ -232,7 +232,7 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
         for n in (n for pn in phase.pairs for n in pn):
             if n not in geometry.nets:
                 raise PhaseError("not_on_board", name=phase.name, kind="net", value=n)
-        return Selection(pairs=tuple(pn for pn in phase.pairs if all(n in open_nets and n not in excluded for n in pn)),
+        return Selection(pairs=tuple(pn for pn in phase.pairs if any(n in open_nets for n in pn) and all(n not in excluded for n in pn)),
                          **base)
     if phase.selector == "pairs":
         # the sidecar lists one physical pair once per instance path that reaches it: dedupe by (p, n)
@@ -242,6 +242,30 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
         for n in (n for pn in pairs for n in pn):
             if n not in geometry.nets:
                 raise PhaseError("not_on_board", name=phase.name, kind="net", value=n)
-        return Selection(pairs=tuple(pn for pn in pairs if all(n in open_nets and n not in excluded for n in pn)),
+        return Selection(pairs=tuple(pn for pn in pairs if any(n in open_nets for n in pn) and all(n not in excluded for n in pn)),
                          **base)
+    if phase.selector == "interfaces":
+        chosen = []
+        for want in phase.interfaces:
+            hit = [i for i in capture.instances.values() if i.path == want or i.type == want]
+            if not hit:
+                raise PhaseError("not_on_board", name=phase.name, kind="interface", value=want)
+            chosen += [i for i in hit if i not in chosen]
+        routable = {n for n in geometry.nets if sum(1 for fp in geometry.footprints for p in fp.pads if p.net == n) >= 2}
+        pairs, buses = [], []
+        for inst in chosen:
+            if inst.type == "DiffPair":
+                pair = (inst.members["P"], inst.members["N"])
+                for n in pair:
+                    if n not in geometry.nets:
+                        raise PhaseError("not_on_board", name=phase.name, kind="net", value=n)
+                if any(n in open_nets for n in pair) and all(n not in excluded for n in pair) and pair not in pairs:
+                    pairs.append(pair)
+                continue
+            nets = tuple(sorted({n for n in inst.members.values() if n in routable and n in open_nets and n not in excluded}))
+            if nets and nets not in buses:
+                buses.append(nets)
+        if pairs and numeric is not None:
+            raise PhaseError("pair_width", name=phase.name)
+        return Selection(pairs=tuple(pairs), buses=tuple(buses), width=numeric, **base)
     raise PhaseError("needs_capture", name=phase.name, selector=phase.selector, generator=capture.generator)

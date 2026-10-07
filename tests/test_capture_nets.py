@@ -110,3 +110,11 @@ def test_malformed_field_records_are_structured(tmp_path):
     with pytest.raises(CaptureError) as err:
         read_capture(write(tmp_path, nets={"V": {"type": "Power", "fields": [1, 2]}}))
     assert err.value.code == "unreadable"
+
+
+@pytest.mark.parametrize("members", [{"P": "A"}, {"P": "A", "N": "A"}, {"P": "A", "N": None}])
+def test_malformed_diffpair_members_are_structured_capture_errors(tmp_path, members):
+    side = write(tmp_path, interfaces={"D": {"type": "DiffPair", "members": members}}, exports=["interfaces"])
+    with pytest.raises(CaptureError) as err:
+        read_capture(side)
+    assert err.value.code == "unreadable" and "DiffPair" in err.value.facts["missing"]

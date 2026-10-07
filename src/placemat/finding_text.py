@@ -460,13 +460,6 @@ def _pins_remap(f):
     return text
 
 
-@renders(C.SETUP_PAIR_LAYERS, "key", "variant", "layers", "missing", "board_layers")
-def _setup_pair_layers(f):
-    if f["variant"] == "no_pair":
-        return ("route.pair_layers %s: no differential pair on this board has those two nets or that net class; the entry is "
-                "not used" % f["key"])
-    return "route.pair_layers %s: names %s, which this board does not have (it has %s); the pair routes on the route's own layers" % (
-        f["key"], ", ".join(f["missing"]), ", ".join(f["board_layers"]))
 
 
 @renders(C.SETUP_NET_CLEARANCE, "variant", "net", "clearance_mm")

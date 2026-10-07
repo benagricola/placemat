@@ -129,7 +129,7 @@ def test_a_pairs_selection_from_the_capture_lists_each_physical_pair_once():
     cap = Capture("x", "d", {"name": "g"}, frozenset({"interfaces"}), {}, {},
                   (("a.usb", "SDA", "SCL"), ("b.usb", "SDA", "SCL")))
     assert one({"name": "p", "pairs": True}, cap).pairs == (("SDA", "SCL"),)
-    assert one({"name": "p", "pairs": True}, cap, open_nets={"SDA"}).pairs == ()
+    assert one({"name": "p", "pairs": True}, cap, open_nets={"SDA"}).pairs == (("SDA", "SCL"),)
 
 
 def test_every_new_refusal_renders_its_text():
@@ -211,8 +211,8 @@ def test_pairs_by_name_need_no_capture_and_keep_p_first():
     assert one({"name": "p", "pairs": [["SDA", "SCL"]]}).pairs == (("SDA", "SCL"),)
 
 
-def test_a_named_pair_with_a_net_already_joined_is_not_routed():
-    assert one({"name": "p", "pairs": [["SDA", "SCL"]]}, open_nets={"SDA"}).pairs == ()
+def test_a_named_pair_with_one_net_open_remains_selected():
+    assert one({"name": "p", "pairs": [["SDA", "SCL"]]}, open_nets={"SDA"}).pairs == (("SDA", "SCL"),)
 
 
 def test_a_named_pair_net_the_board_lacks_is_refused():

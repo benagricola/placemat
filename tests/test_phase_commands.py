@@ -121,7 +121,7 @@ def test_a_power_width_names_an_active_low_net_as_it_is(tmp_path):
     assert cmd[cmd.index("--power-nets") + 1] == "!EN" and cmd[cmd.index("--power-nets-widths") + 1] == "0.4"
 
 
-def test_clearance_groups_are_the_class_stages_rule():
+def test_clearance_groups_route_the_widest_clearance_first():
     assert clearance_groups({"RF": 0.2, "W": 0.3, "EQ": 0.127}, 0.127, {"RF", "W", "EQ", "S"}) == [(0.3, ["W"]), (0.2, ["RF"])]
 
 

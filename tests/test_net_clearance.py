@@ -129,15 +129,6 @@ def _two_part_board(tmp_path) -> Path:
     return pcb
 
 
-def test_a_route_with_net_clearance_set_is_refused_naming_what_replaces_them(tmp_path):
-    from placemat.kicad.route import RouteRefused, route_board
-    from tests.phase_helpers import phases
-    with bind(Settings(route_net_halos={"SW": 2.0})):
-        with pytest.raises(RouteRefused) as e:
-            route_board(_two_part_board(tmp_path), tmp_path / "route", phases=phases())
-    assert e.value.code == "legacy_setting" and e.value.facts["setting"] == "net_halos"
-    assert str(e.value) == ("route: [route] net_halos is replaced by routing phases: the clearance field of the net's "
-                            "type in the capture")
 
 
 @needs_kicad
@@ -145,7 +136,7 @@ def test_the_pair_stage_carries_a_map_of_its_renamed_nets(tmp_path, monkeypatch)
     """The pair router routes a copy whose pair nets are renamed: its map is built on that copy, under those names."""
     import types
     import placemat.kicad.route as route_mod
-    from tests.test_pair_layers import _board, _router
+    from tests.pair_helpers import _board, _router
     calls, asked = [], []
 
     def stand_in(cmd, stdout=None, **kw):

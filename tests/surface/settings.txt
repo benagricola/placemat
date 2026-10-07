@@ -151,10 +151,7 @@ rank.pins_weight
 route.adopt_tolerance
 route.diff_pair_gap
 route.diff_pair_width
-route.islands
 route.max_iterations
-route.net_halos
-route.pair_layers
 route.pair_router_args
 route.phase
 route.plane_share
