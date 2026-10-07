@@ -54,18 +54,13 @@ class Delta:
             raise ValueError("Delta requires a fixed search frame for congestion")
         self.grid = occ.congestion() if board.settings.score_congestion_step else None
         self._native = {}
-        from .escapes import judging
-        self._escape_base = {k: len(v) for k, v in judging(occ).found().items()}
+        from .escapes import EscapeDelta
+        self._escape_delta = EscapeDelta(occ, self.own)
+        self._escape_base = self._escape_delta.counts
 
-    def _escape_change(self, view):
-        """Complete Python judgement oracle, including unpriced validity.
-
-        A nearest target can change without an MST endpoint changing, and an
-        off-lane obstacle can change the exact path search. Full judgement is
-        the conservative twin until affected-pad pruning has a complete proof.
-        """
-        from .escapes import judging
-        after = {k: len(v) for k, v in judging(view).found().items()}
+    def _escape_change(self, view, geometries, copper, *, native=False):
+        """Signed escape terms and unpriced validity from the lifted snapshot."""
+        after, _ = self._escape_delta.change(view, geometries, copper, native=native)
         cfg = self.board.settings
         terms = {kind: getattr(cfg, 'score_' + kind) * (after.get(kind, 0) - self._escape_base.get(kind, 0))
                  for kind in ('escape_crossed', 'escape_closed', 'escape_via')}
@@ -182,7 +177,7 @@ class Delta:
             pads = self.occ.__dict__['_congestion_pads']
             replacements = {net: list(pads.get(net, {}).values()) + points for net, points in new.items()}
             terms['congestion'] = cfg.score_congestion * self.grid.change(replacements)
-        escaped, walled_change, walled = self._escape_change(view)
+        escaped, walled_change, walled = self._escape_change(view, geometries, copper)
         terms.update(escaped)
         # Pruning is intentionally absent until every remaining signed term
         # has a proved lower bound. Walled evidence never enters the scalar.

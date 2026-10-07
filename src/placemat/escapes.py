@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import copy
 import math
 import re
 
@@ -877,6 +878,21 @@ class Escapes:
         return {"escape_crossed": self.occ.ratsnest().crossed_pair_list(self.depth), "escape_via": via,
                 "escape_closed": closed, "escape_walled": walled}
 
+    def counts(self, ways=None) -> dict:
+        """Raw counts, including declared lanes and handoffs independently.
+
+        `ways` may supply a complete per-pad classification snapshot; default
+        judgement remains the full Python oracle used by findings.
+        """
+        if ways is None:
+            ways = {(r, n): way for r, n, _, way, _ in self.judged()}
+        walls = {key for key, way in ways.items() if way is Way.WALLED}
+        return {'escape_crossed': self.occ.ratsnest().crossed_pairs(self.depth),
+                'escape_via': sum(way is Way.VIA for way in ways.values()),
+                'escape_closed': sum(way is Way.AWAY for way in ways.values()),
+                'escape_walled': len(walls) + sum((r, n) not in walls for r, n, *_ in self.lanes_walled())
+                                 + len(self.handoffs_walled())}
+
     def confirmed(self) -> tuple:
         """(closed, walled): the pads the path search confirms, each as
         (ref, number, net, what closes its corridors, what it joins): walled
@@ -1186,6 +1202,95 @@ class Escapes:
         if crossed is None:                 # the scorer passes it, from the leaf search it made anyway
             crossed = rn.crossed_escapes(occ.candidate_anchors(item, placement), own, self.depth)
         return crossed, closed, walled
+
+
+class _OverlayGrid:
+    """Read-only rest index plus one candidate's independently indexed metal."""
+    def __init__(self, rest, added):
+        self.rest = rest
+        self.added = _Grid()
+        for shape in added:
+            self.added.add(shape, shape.box)
+
+    def near(self, box):
+        yield from self.rest.near(box)
+        yield from self.added.near(box)
+
+
+class EscapeDelta:
+    """Conservative affected-pad twin for one already-lifted rest board.
+
+    Old moving geometry is absent before this snapshot is built. A different
+    net's pad is skipped only when every lane/spot, exact-search window and
+    own-copper chain, with maximal foe reach, misses all added geometry.
+    All pads of touched nets are rejudged: raw nearest targets and joins can
+    change without an MST endpoint changing. Supplemental lane/handoff
+    validity remains a full recheck, independent of this pad skip proof.
+    """
+    def __init__(self, occ, own):
+        self.occ, self.own = occ, frozenset(own)
+        if not self.own <= occ.pending:
+            raise ValueError('EscapeDelta requires the moving item to be lifted')
+        # Own index/caches: later verification commits cannot refresh this
+        # snapshot through the live occupancy's Escapes object.
+        self.base = Escapes(occ, mirror=False, depth=occ.settings.score_escape_depth)
+        self.ways, self.regions, self.nets = {}, {}, {}
+        for ref in sorted(occ.items):
+            if ref in occ.pending or not occ.geometry.has_footprint(ref):
+                continue
+            lanes, spots, pads = self.base._lanes_of(ref)
+            for number, (net, _, box) in pads.items():
+                key = ref, number
+                self.ways[key] = None
+                self.nets[key] = net
+                chain = self.base._own_copper(ref, number, net)
+                boxes = [box.inflate(max(self.base.depth, occ.settings.score_escape_reach))]
+                boxes += [l.box for l in lanes if l.number == number]
+                boxes += [s.box for s in spots if s.number == number]
+                if chain:
+                    boxes.append(Box.union([box] + [s.box for s in chain]).inflate(self.base.depth))
+                # Includes class/rule/hole clearance and the extra search cell
+                # of the lane subset predicate. This is deliberately broad.
+                self.regions[key] = self.base._reach(Box.union(boxes), net).inflate(occ.settings.place_escape_cell)
+        self.ways.update({(r, n): way for r, n, _, way, _ in self.base.judged()})
+        self.counts = self.base.counts(self.ways)
+
+    def change(self, view, geometries, copper, *, native=False):
+        """Return candidate counts and number of rejudged pads, signed by caller.
+
+        `native` uses the proved native classification twin; supplemental
+        validity and snapshot assembly still run in Python. It is a hybrid
+        parity entry point, not the final prepared native candidate kernel.
+        """
+        if not self.own <= self.occ.pending:
+            raise ValueError('EscapeDelta snapshot requires the moving item to remain lifted')
+        esc = copy.copy(self.base)
+        esc.occ, esc.mirror, esc.searched = view, None, 0
+        esc._lane_cache = dict(self.base._lane_cache)
+        esc._blockers = dict(self.base._blockers)
+        added = []
+        candidate_shapes = list(copper)
+        for ref, geometry in geometries.items():
+            esc._lane_cache.pop(ref, None)
+            shapes = [s for s in geometry.shapes if s.owner == ref and s.kind in ('pad', 'through', 'npth')]
+            esc._blockers[ref] = shapes
+            added += shapes
+            candidate_shapes += [s for s in geometry.shapes if s.kind in ('pad', 'through', 'npth', 'copper', 'viaban')]
+        metal = [s for s in copper if s.kind in ('copper', 'through')]
+        esc._blockers[':copper'] = self.base._blockers.get(':copper', []) + metal
+        added += metal
+        esc._bgrid = _OverlayGrid(self.base._bgrid, added)
+        touched = {s.net for s in candidate_shapes if s.net}
+        selected = {key for key, net in self.nets.items() if net in touched
+                    or any(self.regions[key].overlaps(s.box) for s in candidate_shapes)}
+        for ref in geometries:
+            selected.update((ref, number) for number in esc._lanes_of(ref)[2])
+        ways = dict(self.ways)
+        bans, near = esc._bans(), search_near(view)
+        for ref, number in sorted(selected):
+            verdict = esc._verdict(ref, number, bans, near, native=native)
+            ways[ref, number] = None if verdict is None else verdict[0]
+        return esc.counts(ways), len(selected)
 
 
 def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None, near=None, own=(),

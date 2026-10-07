@@ -171,12 +171,12 @@ def test_sparse_candidate_view_preserves_raw_nearest_ties_and_multiland_anchor_i
     baseline_mirror = occ.ratsnest().mirror
     observed = []
     original = delta._escape_change
-    def check(view):
+    def check(view, geometries, copper):
         rn = view.ratsnest()
         assert len([a for a in rn._anchors['S'] if a.ref == moving_ref]) == 1
         assert [(a.ref, a.number) for a in rn._anchors['S']] == sorted((a.ref, a.number) for a in rn._anchors['S'])
         observed.append(judging(view)._aim('P0', '1', 'S', Location(30, 30)))
-        return original(view)
+        return original(view, geometries, copper)
     delta._escape_change = check
     first = delta(plan.placement('m'))
     assert delta(plan.placement('m')) == first
@@ -185,6 +185,45 @@ def test_sparse_candidate_view_preserves_raw_nearest_ties_and_multiland_anchor_i
     occ.commit(moving, plan.placement('m'))
     after = score.whole(board, occ, plan)
     assert first.terms == pytest.approx({k: after[k] - before[k] for k in first.terms}, abs=1e-6)
+
+
+def test_affected_escape_snapshot_rechecks_exact_window_and_skips_disjoint_other_nets():
+    from dataclasses import replace
+    from placemat.escapes import EscapeDelta, Way, judging
+    from placemat.score_delta import Delta
+    from placemat.values import Location
+    from tests.fixtures import pad
+    from tests.test_escape_findings import _walled_in
+    from tests.test_surface_escapes import _part_of, _via_only_board
+    moving = _part_of('B1', 'b1', [pad('B1', 'b1', 1, 'Z', 10, 10, 6, 6)], 10, 10)
+    remote = [_part_of(ref, ref.lower(), [pad(ref, ref.lower(), 1, 'Q', x, 40, 0.3, 0.3)], x, 40)
+              for ref, x in [('D1', 40), ('D2', 45)]]
+    board = _via_only_board(_walled_in(1.0) + [moving] + remote)
+    plan = board.resolve()
+    occ = plan.occupancy
+    occ.lift({'B1'})
+    delta = Delta(board, occ, moving, plan.links, plan=plan)
+    snapshot = delta._escape_delta
+    assert snapshot.base.judge('U9', '1') is Way.SURFACE
+    assert not snapshot.base.lane_check('U9', '1')[1]  # only the exact path gets out
+    candidate = replace(plan.placement('b1'), location=Location(30, 30))
+    view, geometries, copper = delta._view(candidate)
+    expected = {key: len(value) for key, value in judging(view).found().items()}
+    assert judging(view).judge('U9', '1') is Way.WALLED
+    before = snapshot.counts.copy()
+    for native in (False, True, False):
+        from placemat import geometry
+        if native and not hasattr(geometry._native, 'surface_judge'):
+            continue
+        actual, rejudged = snapshot.change(view, geometries, copper, native=native)
+        assert actual == expected
+        assert rejudged < len(snapshot.ways) + 1  # disjoint Q pads retain their proved baseline
+    assert snapshot.counts == before and not snapshot.base._lane_cache.get('B1')
+    occ.commit(moving, candidate)
+    with pytest.raises(ValueError, match='remain lifted'):
+        snapshot.change(view, geometries, copper)
+    with pytest.raises(ValueError, match='lifted'):
+        EscapeDelta(occ, {'B1'})
 
 
 def test_native_signed_escape_crossings_match_whole_including_cancelled_joint_changes():
@@ -685,7 +724,8 @@ def test_repository_module_and_core_non_escape_delta_parity():
     from placemat.score_delta import Delta
     from placemat.values import Cell, Location, Part
     rng = random.Random(11)
-    keys = ('airwire', 'crossings', 'link', 'link_over', 'push', 'area', 'congestion')
+    keys = ('airwire', 'crossings', 'link', 'link_over', 'push', 'area', 'congestion',
+            'escape_crossed', 'escape_closed', 'escape_via')
 
     def check(board, plan, limit):
         occ = plan.occupancy
@@ -707,6 +747,14 @@ def test_repository_module_and_core_non_escape_delta_parity():
                     candidates.append(candidate)
             for candidate in candidates:
                 change = delta(candidate)
+                view, geometries, copper = delta._view(candidate)
+                from placemat.escapes import judging
+                oracle_counts = {key: len(value) for key, value in judging(view).found().items()}
+                for classifier in (False, True):
+                    counts, _ = delta._escape_delta.change(view, geometries, copper, native=classifier)
+                    assert counts == oracle_counts, (step.item, candidate, classifier)
+                assert change.walled == oracle_counts.get('escape_walled', 0)
+                assert change.walled_change == change.walled - delta._escape_base.get('escape_walled', 0)
                 native = kernel.terms(candidate.location.x, candidate.location.y, 0) if kernel else None
                 occ.commit(item, candidate)
                 after = score.whole(board, occ, plan)
@@ -714,7 +762,7 @@ def test_repository_module_and_core_non_escape_delta_parity():
                 assert {k: change.terms[k] for k in keys} == pytest.approx(expected, abs=1e-6), (step.item, candidate)
                 if native is not None:
                     assert dict(zip(('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion'), native)) == pytest.approx(
-                        {k: expected[k] for k in keys if k != 'push'}, abs=1e-6)
+                        {k: expected[k] for k in ('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion')}, abs=1e-6)
                 occ.lift(owners)
             occ.commit(item, step.placement)
             assert score.whole(board, occ, plan) == pytest.approx(original, abs=1e-6)
