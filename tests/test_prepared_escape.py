@@ -244,7 +244,7 @@ def test_prepared_pose_must_match_frozen_source_before_native_evaluation():
     original = occ._geometry(item).reference
     occ.lift({'C1'})
     delta = Delta(board, occ, item, plan.links, plan=plan)
-    prepared, reason = prepare(delta, [original.rotation], original.face)
+    prepared, reason = prepare(delta, (rotation for rotation in [original.rotation]), original.face)
     assert prepared is not None, reason
     expected = prepared.evaluate(original, 0)
     for candidate in (replace(original, rotation=original.rotation + 360),

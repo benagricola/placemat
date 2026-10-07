@@ -72,6 +72,7 @@ def prepare(delta, rotations, face):
     Refused native geometry propagates: it must not become a zero-price or
     certified result. Callers can separately invoke the independent oracle.
     """
+    rotations = tuple(rotations)
     delta._check_snapshot()
     if delta.board._escapes:
         return None, 'declared escape lanes require the exact Python objective'
