@@ -111,3 +111,23 @@ def test_local_search_protocol_is_explicit_and_does_not_change_parent_environmen
     old = route_ref.asdict(got)
     old["protocol"] = {"KICAD_NET_RESCUE": "1"}
     assert route_ref.compare_local(old, got, set()).status == "changed"
+
+
+@pytest.mark.parametrize("rc,fresh", [(3, False), (3, True), (0, False)])
+def test_failed_route_cannot_reuse_stale_report(tmp_path, monkeypatch, rc, fresh):
+    from types import SimpleNamespace
+    work = tmp_path / "route"
+    work.mkdir()
+    report = work / "route.json"
+    report.write_text('{"closure_clean": 1.0}')
+    diagnostic = work / "route.log"
+    diagnostic.write_text("prior diagnostic")
+    def fail(*args, **kwargs):
+        assert not report.exists()
+        if fresh:
+            report.write_text('{"error": "failed invocation"}')
+        return SimpleNamespace(returncode=rc, stderr="failed", stdout="")
+    monkeypatch.setattr(route_ref.subprocess, "run", fail)
+    with pytest.raises(RuntimeError):
+        route_ref._route(tmp_path / "board.kicad_pcb", work, None)
+    assert report.exists() == fresh and diagnostic.read_text() == "prior diagnostic"

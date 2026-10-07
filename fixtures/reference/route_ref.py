@@ -302,11 +302,17 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
     else:
         config.write_text(toml)
     cmd = [sys.executable, "-m", "placemat", "route", str(pcb), "--full", "--no-resume", "--out", str(work)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=ROUTE_TIMEOUT_S, env=env)
     out = pathlib.Path(work) / "route.json"
+    out.unlink(missing_ok=True)     # only this invocation's report can establish its result
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=ROUTE_TIMEOUT_S, env=env)
+    if proc.returncode != 0:
+        raise RuntimeError("placemat route exited %d: %s" % (proc.returncode, (proc.stderr or proc.stdout)[-500:]))
     if not out.exists():
         raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, (proc.stderr or proc.stdout)[-500:]))
-    return json.loads(out.read_text())
+    report = json.loads(out.read_text())
+    if report.get("error"):
+        raise RuntimeError("placemat route failed: %s" % report["error"])
+    return report
 
 
 def phases_for(board: fetch.Board, pcb: pathlib.Path) -> str:
