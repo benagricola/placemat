@@ -203,6 +203,25 @@ The module's declarations are carried with the stamped cell as data, the same te
 the board's refine judges a member exactly as the module's search did. A member moves only within what both its module
 and the board allow.
 
+**Room for decided members** (decided with the user, 2026-10-07; research/2026-10-07-refine-spike.md). On the fairing
+core, 192 of 198 cell members are decided by their module (166 `Beside`, 26 fixed points), so a member bound only to its
+exact declared place could not move. A decided member therefore has room within what its declaration means:
+- a `Beside` slides along its side, and its gap may grow up to `refine.member_slack_mm`, a setting with a documented
+  default, set by measurement;
+- other relations keep their own meaning: a member placed at a pin stays on that pin's side;
+- turns stay as declared;
+- a fixed datum point stays fixed.
+
+The module scripts do not change. The module run writes a note of its resolved constraints, carried with the stamp like
+the arrangement note:
+- the rigid groups;
+- each decided member's relation and its room;
+- the links;
+- the bands dropped;
+- the pads each module track touches.
+
+The parent's refine checks members against that note, in board coordinates.
+
 **Identical cells.** Several cells stamped from one module may end up laid out differently. A module script can set
 `rigid=True` on the stamp, or the board on the cell, to keep that cell as stamped, for example for channels that must
 match.
