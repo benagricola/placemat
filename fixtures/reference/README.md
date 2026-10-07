@@ -137,3 +137,16 @@ J2; a later class-width route joins the net while the original width remains
 unfulfilled. Run it with `route_ref.py obstructed-route`; a default route_ref
 run includes all local fixtures alongside the manifest boards under the same
 shared real-board lock.
+
+
+### Hand-placed modules
+
+A family may keep `hand/<Name>.kicad_pcb` beside `modules/*/<Name>_layout.py`.
+The module runner strips and routes the hand reference with the same family
+settings, and records clean closure, open joins, airwire crossings and length.
+Both the hand board and the generated placement use the box around KiCad's
+cached front/back courtyard polygons (footprint bounds when absent). Cached
+polygons include KiCad's stroke extent; they can extend beyond the drawing's
+centreline. The same method applies to both boards, including side and rotation.
+These facts accompany the existing module closure/area comparison. A failed
+hand preparation or route remains visible as a failed reference fact.

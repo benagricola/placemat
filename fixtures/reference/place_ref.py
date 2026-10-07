@@ -5,7 +5,7 @@ module fixtures, judging closure.
 
 An open board (a manifest board with test "b") is run from a clean copy of fixtures/reference/boards/<name>/ with
 `placemat run --route --route-full`: the script is linted first and a lint failure is a failed result. The result is
-compared with results.json["b"] and carries the human board's vias and track length and test (a)'s clean closure of
+compared with results.json["b"] and carries the regenerated reference's vias and track length and test (a)'s clean closure of
 the same board. With --modules the module fixtures (every fixtures/*/modules/*/*_layout.py) are run with
 `placemat run --route` instead of the boards, and compared with results.json["modules"]: closure, then the area of the
 fitted frame. Results of runs whose placemat, router or zener versions differ in a component other than those named in
@@ -30,7 +30,7 @@ import time
 if __package__ in (None, ""):   # run as a script: the repository root, for `fixtures.reference`
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from fixtures.reference import fetch, lint, lock, prepare, route_ref   # noqa: E402
+from fixtures.reference import fetch, hand, lint, lock, prepare, route_ref   # noqa: E402
 
 HERE = pathlib.Path(__file__).resolve().parent
 FIXTURES = HERE.parent
@@ -42,7 +42,7 @@ LINT = "lint"           # failure kinds of the runner's own; a refused run carri
 NO_RECORD = "no run record"
 NO_ROUTE = "no route"
 TIMEOUT = "timeout"
-WORKSPACE_DIRS = ("modules", "parts")   # what a module needs of its family folder besides its own
+WORKSPACE_DIRS = ("modules", "parts", "adapted")   # what a module needs of its family folder besides its own
 DIGEST_CHARS = 16
 STATE_DIRS = (".placemat", ".pcb", "__pycache__")   # never copied into the clean board folder
 RUN_ARGS = ("--route", "--no-render", "--no-resume")
@@ -81,6 +81,8 @@ class MResult:
     detail: str = ""
     inputs_digest: str = ""
     placement: dict = dataclasses.field(default_factory=dict)
+    hand: dict = dataclasses.field(default_factory=dict)
+    placed_area_mm2: float | None = None
 
 
 def asdict(result) -> dict:
@@ -231,6 +233,11 @@ def _copy_family(script: pathlib.Path, dst: pathlib.Path) -> pathlib.Path:
     return dst / script.relative_to(root)
 
 
+def _placed_board(script: pathlib.Path) -> pathlib.Path:
+    from placemat.project import find_board
+    return find_board(script).pcb
+
+
 def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions: dict | None = None) -> MResult:
     """A module fixture run as a user runs it: `placemat run --route` on the script inside a copy of its family's workspace in
     `work`, so placemat generates the board fresh with `pcb layout` (the checked-in layout/ holds an old run's copper and is not
@@ -242,13 +249,21 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
     record, seconds = placemat_run(copy)
     versions["krt"] = krt_version(copy.parent)
     placement = placement_facts(record, copy.parent)
+    extra = {}
+    found = hand.reference_of(script)
+    if found is not None:
+        config = script.parents[2] / "placemat.toml"
+        facts = hand.measure_hand(found, pathlib.Path(work) / "hand", config.read_text() if config.exists() else None)
+        placed = _placed_board(copy)
+        extra = {"hand": dataclasses.asdict(facts),
+                 "placed_area_mm2": hand.footprint_area(placed) if placed.exists() else None}
     kind, message = _failure(record)
     if kind:
         return MResult(name, NOT_RUN, placement.get("area_mm2", 0.0), 0.0, round(seconds, 1), versions, kind, message, digest,
-                       placement)
+                       placement, **extra)
     metrics = record["metrics"]
     return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, copy.parent), round(seconds, 1),
-                   versions, inputs_digest=digest, placement=placement)
+                   versions, inputs_digest=digest, placement=placement, **extra)
 
 
 def _differ(old: dict, new, changing: set[str]) -> list[str]:
@@ -323,6 +338,14 @@ def line_b(r: BResult, c: route_ref.Comparison) -> str:
 def line_module(r: MResult, c: route_ref.Comparison) -> str:
     head = "%-28s closure_clean %.1f%% area %.1f mm2 score %.1f %.0fs" % (
         r.script, 100 * r.closure_clean, r.area_mm2, r.run_score, r.seconds)
+    if r.hand:
+        h, p = r.hand, r.placement
+        head += "  hand closure_clean %.1f%% area %.1f mm2 crossings %d airwire %.0f mm; placed area %s crossings %s airwire %s" % (
+            100 * h["closure_clean"], h["area_mm2"], h["crossings"], h["airwire_mm"],
+            "n/a" if r.placed_area_mm2 is None else "%.1f mm2" % r.placed_area_mm2,
+            p.get("crossings", "n/a"), "n/a" if p.get("airwire_mm") is None else "%.0f mm" % p["airwire_mm"])
+        if h.get("failure"):
+            head += "  hand FAILED %s: %s" % (h["failure"], h.get("detail", "")[:200])
     return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
 
 
