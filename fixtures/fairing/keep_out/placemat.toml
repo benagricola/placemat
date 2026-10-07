@@ -18,7 +18,25 @@ courtyards_overlap = "ignore"
 crossing = 8.0
 
 [route]
-islands = ["VSHUNT=0.3", "VBIKE", "GND", "V3V3"]
+[[route.phase]]
+name = "vshunt"
+nets = ["VSHUNT"]
+width = 0.3
+
+[[route.phase]]
+name = "vbike"
+nets = ["VBIKE"]
+
+[[route.phase]]
+name = "ground"
+nets = ["GND"]
+
+[[route.phase]]
+name = "rail"
+nets = ["V3V3"]
+
+[[route.phase]]
+name = "signals"
 
 [check]
 rise_c = 10.0

@@ -32,12 +32,31 @@ crossing = 8.0
 
 # VSHUNT and VBIKE are pour nets with taps no pour reaches (the PC sink
 # switch's output, the bike light's resistor, the supervisor's sense divider
-# and enable pull-up): they are routed as islands first, joining only what
+# and enable pull-up): they are routed in their own phases first, joining only what
 # their pours leave apart. GND is one too: routed tracks carve the outer
 # fills, and the pads left on a carved piece need joining back. V3V3 too:
 # where a pad's plane drop finds no free spot, the router joins it.
 [route]
-islands = ["VSHUNT=0.3", "VBIKE", "GND", "V3V3"]    # 0.3 mm: the sink switch's 0.5 A; VBIKE's taps carry microamps
+# 0.3 mm: the sink switch's 0.5 A; VBIKE's taps carry microamps
+[[route.phase]]
+name = "vshunt"
+nets = ["VSHUNT"]
+width = 0.3
+
+[[route.phase]]
+name = "vbike"
+nets = ["VBIKE"]
+
+[[route.phase]]
+name = "ground"
+nets = ["GND"]
+
+[[route.phase]]
+name = "rail"
+nets = ["V3V3"]
+
+[[route.phase]]
+name = "signals"
 
 # The rise the current-path widths are sized for: 10 C, IPC-2221's usual
 # figure, for a sealed case with no airflow (Ben, 2026-09-30).
