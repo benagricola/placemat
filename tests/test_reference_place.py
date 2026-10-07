@@ -357,3 +357,53 @@ def test_module_drc_errors_outrank_better_closure_and_score():
     old = place_ref.asdict(_m(measures=m, closure_clean=0.9))
     dirty = _m(measures=dict(m, drc=1, airwire_mm=1.0), closure_clean=1.0)
     assert place_ref.compare_module(old, dirty, {'placemat'}).status == 'worse'
+
+
+def test_place_only_records_measures_and_overrides_only_copied_workspace(tmp_path, monkeypatch):
+    script = tmp_path / "fixtures" / "family" / "modules" / "cell" / "Cell_layout.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("")
+    original = script.parent / "placemat.toml"
+    original.write_text("[score]\narea = 0.25\n")
+    record = {"status": "ok", "metrics": {"placed": 2, "crossings": 0, "airwire_mm": 5.0,
+              "extent": [10.0, 5.0],
+              "measures": {"v": 2, "airwire_mm": 5.0, "area_mm2": 50.0}}}
+    def run(copied, **kwargs):
+        from placemat.settings import load
+        assert kwargs == {"route": False}
+        assert load(copied.parent, script=copied).score_area == 1.0
+        assert copied != script
+        return record, 1.0
+    monkeypatch.setattr(place_ref, "placemat_run", run)
+    from contextlib import nullcontext
+    monkeypatch.setattr(place_ref.lock, "realboard", nullcontext)
+    monkeypatch.setattr(place_ref, "module_scripts", lambda: {"family/Cell": script})
+    monkeypatch.setattr(route_ref, "current_versions", lambda: VERSIONS)
+    path = tmp_path / "results.json"
+    assert place_ref.main(["--place-only", "--modules", "Cell", "--set", "score_area=1.0",
+                           "--results", str(path), "--update"]) == 0
+    row = json.loads(path.read_text())["placement"]["family/Cell"]
+    assert {"run_score", "crossings", "airwire_mm", "area_mm2", "placed", "versions"} <= row.keys()
+    assert row["run_score"] == 55.0
+    assert original.read_text() == "[score]\narea = 0.25\n"
+
+
+def test_placement_comparison_reweights_measures_and_keeps_validity_first():
+    row = {'versions': VERSIONS, 'inputs_digest': 'd', 'failure': '',
+           'measures': {'v': 2, 'airwire_mm': 100.0, 'area_mm2': 100.0, 'drc': 0}}
+    new = dict(row, score_settings={'score_area': 1.0},
+               measures=dict(row['measures'], airwire_mm=90.0, area_mm2=120.0))
+    assert place_ref.compare_placement(row, new, {'placemat'}) == 'worse'
+    new['score_settings']['score_area'] = 0.1
+    assert place_ref.compare_placement(row, new, {'placemat'}) == 'better'
+    new['measures']['drc'] = 1
+    assert place_ref.compare_placement(row, new, {'placemat'}) == 'worse'
+
+
+def test_place_only_refuses_invalid_override_before_lock_or_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(route_ref, "current_versions", lambda: VERSIONS)
+    monkeypatch.setattr(place_ref.lock, "realboard", lambda: raise_("must validate before taking lock"))
+    with pytest.raises(SystemExit) as stopped:
+        place_ref.main(["--place-only", "--modules", "--set", "score_area=-1",
+                        "--results", str(tmp_path / "results.json")])
+    assert stopped.value.code == 2

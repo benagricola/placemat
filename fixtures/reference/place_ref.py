@@ -98,7 +98,7 @@ def module_scripts(root: pathlib.Path = FIXTURES) -> dict[str, pathlib.Path]:
     return found
 
 
-def placement_facts(record: dict | None, folder: pathlib.Path) -> dict:
+def placement_facts(record: dict | None, folder: pathlib.Path, *, script=None) -> dict:
     """What the placement alone measured, from run.json's metrics, before any route: crossings, airwire_mm, area_mm2, placed,
     findings and run_score. {} when the run recorded no placement (a refused script)."""
     metrics = (record or {}).get("metrics") or {}
@@ -107,7 +107,7 @@ def placement_facts(record: dict | None, folder: pathlib.Path) -> dict:
     facts = {"crossings": metrics.get("crossings"), "airwire_mm": metrics.get("airwire_mm"), "area_mm2": _area(metrics),
              "placed": metrics["placed"], "findings": metrics.get("findings")}
     if metrics.get("measures"):
-        facts["run_score"] = run_score(record, folder)
+        facts["run_score"] = run_score(record, folder) if script is None else run_score(record, folder, script=script)
     return facts
 
 
@@ -124,10 +124,10 @@ def krt_version(folder: pathlib.Path) -> str:
     return route_ref._krt_version(pathlib.Path(folder) / "x.kicad_pcb")
 
 
-def run_score(record: dict, folder: pathlib.Path) -> float:
+def run_score(record: dict, folder: pathlib.Path, *, script=None) -> float:
     """The run score of run.json's measures, at the settings of the board folder."""
     from placemat import score, settings
-    return round(score.total(record["metrics"]["measures"], settings.load(pathlib.Path(folder))), 3)
+    return round(score.total(record["metrics"]["measures"], settings.load(pathlib.Path(folder), script=script)), 3)
 
 
 def _copy_folder(src: pathlib.Path, dst: pathlib.Path) -> None:
@@ -135,13 +135,14 @@ def _copy_folder(src: pathlib.Path, dst: pathlib.Path) -> None:
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*STATE_DIRS))
 
 
-def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, float]:
+def placemat_run(script: pathlib.Path, extra: tuple = (), *, route: bool = True) -> tuple[dict | None, float]:
     """`placemat run <script>` with RUN_ARGS and `extra`: (run.json as a dict, seconds). The record is the newest run of the
     script's folder, None when the run wrote none (a crash or the timeout); the folder is a clean copy, so it holds this
     run's only."""
     script = pathlib.Path(script)
     started = time.time()
-    cmd = [sys.executable, "-m", "placemat", "run", str(script), *RUN_ARGS, *extra]
+    args = RUN_ARGS if route else tuple(a for a in RUN_ARGS if a != "--route")
+    cmd = [sys.executable, "-m", "placemat", "run", str(script), *args, *extra]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=RUN_TIMEOUT_S)
     except subprocess.TimeoutExpired:
@@ -354,11 +355,113 @@ def line_module(r: MResult, c: route_ref.Comparison) -> str:
     return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
 
 
+def run_placement(name, script, work, *, module, versions, overrides):
+    """Placement only in a clean workspace, with overrides confined to that copy."""
+    from placemat import settings
+    from placemat.script_edit import toml_set
+    script = pathlib.Path(script)
+    digest = generation_inputs(script)
+    if module:
+        copied = _copy_family(script, work / "workspace")
+    else:
+        _copy_folder(script.parent, work / "board")
+        copied = work / "board" / script.name
+    settings.load(copied.parent, overrides=overrides, script=copied)  # validate before running
+    if overrides:
+        path = copied.parent / "placemat.toml"
+        text = path.read_text() if path.exists() else ""
+        for name_, value in overrides.items():
+            section, key = settings.split_key(name_)
+            text = toml_set(text, ["scripts", copied.name, section], key, value)
+        path.write_text(text)
+    cfg = settings.load(copied.parent, script=copied)
+    record, seconds = placemat_run(copied, route=False)
+    kind, message = _failure(record)
+    return dict(placement_facts(record, copied.parent, script=copied), versions=versions, inputs_digest=digest,
+                measures=((record or {}).get("metrics") or {}).get("measures") or {},
+                score_settings={k: getattr(cfg, k) for k in cfg.keys() if k.startswith("score_")},
+                seconds=round(seconds, 3), failure=kind, detail=message)
+
+
+def compare_placement(old, new, changing):
+    """Placement-only verdict under the current run's weights and common validity."""
+    from placemat import score
+    from placemat.settings import Settings
+    if old is None:
+        return "new"
+    if route_ref.comparable(old.get("versions", {}), new["versions"], changing) or old.get("inputs_digest") != new.get("inputs_digest"):
+        return "not comparable"
+    if bool(old.get("failure")) != bool(new.get("failure")):
+        return "worse" if new.get("failure") else "better"
+    if new.get("failure"):
+        return "same"
+    a, b = new.get("measures") or {}, old.get("measures") or {}
+    if a.get("v") != score.MEASURES_VERSION or b.get("v") != score.MEASURES_VERSION:
+        return "not comparable"
+    cfg = dataclasses.replace(Settings(), **new.get("score_settings", {}))
+    def standing(m):
+        return score.Standing(m, score.Validity.of(m, drc_new=m.get("drc")))
+    return {-1: "better", 0: "same", 1: "worse"}[score.rank(standing(a), standing(b), cfg)]
+
+
+def _placement_only(args, ap, root, recorded, versions):
+    """Record placement measures independently of the routed reference baseline."""
+    from placemat.settings import Settings, SettingsError, load
+    overrides = {}
+    for setting in args.set:
+        name, equal, value = setting.partition("=")
+        name = name.replace(".", "_")
+        if not equal or name not in Settings.keys():
+            ap.error("--set needs a known setting NAME=VALUE")
+        try:
+            overrides[name] = json.loads(value)
+        except json.JSONDecodeError:
+            overrides[name] = value
+    try:
+        load(root, overrides=overrides)
+    except SettingsError as e:
+        ap.error(str(e))
+    if args.modules:
+        found = module_scripts()
+        chosen = {n: p for n, p in found.items() if not args.names or n in args.names or n.split("/")[1] in args.names}
+    else:
+        boards = [b for b in fetch.load_manifest() if "b" in b.tests and (not args.names or b.name in args.names)]
+        chosen = {b.name: lint.find_script(b.name) for b in boards}
+    if args.names and not chosen:
+        ap.error("no placement fixture among: %s" % ", ".join(args.names))
+    results = dict(recorded.get("placement", {}))
+    worse = False
+    with lock.realboard():
+        for name, script in chosen.items():
+            try:
+                if not args.modules:
+                    fixed = next(b.fixed for b in boards if b.name == name)
+                    problems = lint.lint(script, fixed).problems
+                    if problems:
+                        raise ValueError("reference script failed intent lint: " + "; ".join(
+                            "line %d %s %s" % (p.line, p.rule, p.ref) for p in problems))
+                row = run_placement(name, script, root / name.replace("/", "_"), module=args.modules,
+                                    versions=versions, overrides=overrides)
+            except Exception as e:
+                row = dict(versions=versions, failure=type(e).__name__, detail=str(e), measures={})
+            status = compare_placement(results.get(name), row, set(args.changing))
+            worse = worse or status == "worse"
+            if status != "worse" or args.accept_worse:
+                results[name] = row
+            print(json.dumps(dict(name=name, comparison=status, **row), sort_keys=True), flush=True)
+            if args.update:
+                recorded["placement"] = results
+                pathlib.Path(args.results).write_text(json.dumps(recorded, indent=1, sort_keys=True) + "\n")
+    return int(worse or any(results.get(n, {}).get("failure") for n in chosen))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("names", nargs="*", help="boards, or with --modules the modules as <family>/<name> or <name> "
                                              "(default: every open board, or every module)")
     ap.add_argument("--modules", action="store_true", help="run the module fixtures instead of the boards")
+    ap.add_argument("--place-only", action="store_true", help="measure placement without routing")
+    ap.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="placement-only setting override in the copied workspace")
     ap.add_argument("--update", action="store_true", help="write the results into results.json")
     ap.add_argument("--accept-worse", action="store_true", help="with --update: also write results that are worse than the recorded ones")
     ap.add_argument("--changing", nargs="+", choices=route_ref.COMPONENTS, default=["placemat"],
@@ -371,6 +474,14 @@ def main(argv=None) -> int:
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
     boards, modules, comparisons, held, worse = [], [], [], [], False
     changing = set(args.changing)
+    if args.set and not args.place_only:
+        ap.error("--set currently requires --place-only")
+    if args.place_only:
+        try:
+            return _placement_only(args, ap, root, recorded, versions)
+        finally:
+            if not args.work:
+                shutil.rmtree(root, ignore_errors=True)
 
     def save() -> None:   # after each board or module, so a run that stops keeps the ones it finished
         if args.update:
