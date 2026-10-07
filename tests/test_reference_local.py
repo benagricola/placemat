@@ -43,6 +43,7 @@ def test_local_route_retains_deduplicated_blocker_evidence_and_final_widths(tmp_
     monkeypatch.setattr(route_ref, "_route", lambda *args, **kwargs: report)
     got = route_ref.run_local("obstructed-route", tmp_path, {"placemat": "p", "pcb": "z"})
     assert got.passed and got.widths_failed == 1 and got.versions["krt"] == "router"
+    assert json.loads((tmp_path / "local_result.json").read_text()) == route_ref.asdict(got)
     assert got.phases[0]["open"][0]["blockers"] == ["U1", "N1 copper"]
     assert got.phases[0]["final_closure_clean"] == 0.0
 
@@ -53,6 +54,7 @@ def test_router_resolution_failure_is_recorded_not_raised(tmp_path, monkeypatch)
     monkeypatch.setattr(route_ref, "_krt_version", missing)
     got = route_ref.run_local("obstructed-route", tmp_path, {"placemat": "p"})
     assert not got.passed and got.failure == "RuntimeError" and got.versions["krt"] == "unknown"
+    assert json.loads((tmp_path / "local_result.json").read_text()) == route_ref.asdict(got)
 
 
 def test_later_phase_break_is_recorded_and_compared_on_the_final_board(tmp_path, monkeypatch):
@@ -131,3 +133,11 @@ def test_failed_route_cannot_reuse_stale_report(tmp_path, monkeypatch, rc, fresh
     with pytest.raises(RuntimeError):
         route_ref._route(tmp_path / "board.kicad_pcb", work, None)
     assert report.exists() == fresh and diagnostic.read_text() == "prior diagnostic"
+
+
+def test_local_provenance_write_failure_is_not_reported_as_success(tmp_path, monkeypatch):
+    (tmp_path / "local_result.json").mkdir()
+    monkeypatch.setattr(route_ref, "_krt_version", lambda _: "router")
+    monkeypatch.setattr(route_ref, "_route", lambda *args, **kwargs: {"phases": []})
+    with pytest.raises(IsADirectoryError):
+        route_ref.run_local("obstructed-route", tmp_path, {})

@@ -226,9 +226,15 @@ def run_local(name: str, work: pathlib.Path, versions: dict | None = None) -> FR
                       if "final_open" in phase else {})}
                   for phase in report.get("phases") or ()]
     except Exception as error:   # like a failed reference board, keep the failure for inspection
-        return FResult(name, [], 0, None, 0, 0.0, False, 0.0, versions, type(error).__name__, str(error), protocol)
-    return FResult(name, phases, report.get("widths_failed", 0), report.get("drc_new"), report.get("vias", 0),
-                   report.get("track_mm", 0.0), True, report.get("seconds", 0.0), versions, protocol=protocol)
+        return _local_record(FResult(name, [], 0, None, 0, 0.0, False, 0.0, versions, type(error).__name__, str(error), protocol), work)
+    return _local_record(FResult(name, phases, report.get("widths_failed", 0), report.get("drc_new"), report.get("vias", 0),
+                                report.get("track_mm", 0.0), True, report.get("seconds", 0.0), versions, protocol=protocol), work)
+
+
+def _local_record(result: FResult, work: pathlib.Path) -> FResult:
+    """Retain this invocation's provenance even when the shared baseline is not updated."""
+    (work / "local_result.json").write_text(json.dumps(asdict(result), indent=2) + "\n")
+    return result
 
 
 def compare_local(old: dict | None, new: FResult, changing: set[str]) -> Comparison:
