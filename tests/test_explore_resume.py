@@ -195,7 +195,7 @@ def test_checkpoint_keeps_valid_incumbent_over_lower_invalid_score(tmp_path):
     assert _variant_order(Settings())((3, 0.0, None), resumed.done[1]) > 0
 
 
-def test_checkpoint_keeps_first_incumbent_on_objective_tie(tmp_path):
+def test_checkpoint_and_result_use_seed_order_on_objective_tie(tmp_path):
     parts = {k: 'digest' for k in checkpoint.PARTS}
     ck = checkpoint.Checkpoint(tmp_path / 'state', parts, [])
     m = {'v': 2, 'airwire_mm': 20.0}
@@ -204,5 +204,11 @@ def test_checkpoint_keeps_first_incumbent_on_objective_tie(tmp_path):
     ck.variant(9, 20.0, m, 1.0, payload)
     ck.variant(1, 20.0, m, 2.0, payload)
     ck.close()
-    assert checkpoint.read_best(ck.dir)['seed'] == 9
-    assert checkpoint.Checkpoint(ck.dir, parts, []).load().best_seed == 9
+    assert checkpoint.read_best(ck.dir)['seed'] == 1
+    prior = checkpoint.Checkpoint(ck.dir, parts, []).load()
+    assert prior.best_seed == 1
+    from placemat import explore
+    from placemat.settings import Settings
+    from functools import cmp_to_key
+    rows = [(0, prior.baseline, prior.measures), *prior.done.values()]
+    assert sorted(rows, key=cmp_to_key(explore._variant_order(Settings())))[0][0] == prior.best_seed

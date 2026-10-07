@@ -134,14 +134,8 @@ class Prior(NamedTuple):
 
 
 def _rank_key(score, seed, measures, rank=None):
-    """Exact placement ranking: validity first, then the recorded objective."""
-    from .score import Validity
-    validity = Validity.of(measures)
-    return (not validity.valid, validity.key(), score if rank is None else rank, seed)
-
-
-def _better_key(a, b):
-    return a[:2] < b[:2] or (a[:2] == b[:2] and a[2] < b[2] - 1e-9)
+    from .score import placement_key
+    return placement_key((seed, score, measures), None if rank is None else {seed: rank})
 
 
 class Checkpoint:
@@ -227,7 +221,7 @@ class Checkpoint:
             ranks[0] = self.baseline_rank
         best = _rank_key(base["score"], 0, base["measures"], self.baseline_rank)
         for candidate in scored:
-            if _better_key(candidate, best):
+            if candidate < best:
                 best = candidate
         self.best_key = best
         self._baseline_key = _rank_key(base["score"], 0, base["measures"], self.baseline_rank)
@@ -290,13 +284,13 @@ class Checkpoint:
             self.n += 1
             if self.n == self.max_variants:
                 self._open("a").write({"full": self.n})      # no more lines: a resume tries what follows again
-        if self.best_key is None or _better_key(key, self.best_key):
+        if self.best_key is None or key < self.best_key:
             self.best_key = key
         if payload is None or not seed:
             return
-        if not _better_key(key, self._baseline_key):
+        if key >= self._baseline_key:
             return
-        if self._best_written is not None and not _better_key(key, self._best_written):
+        if self._best_written is not None and key >= self._best_written:
             return
         self._best_written = key
         write_atomic(self.best_path, json.dumps({

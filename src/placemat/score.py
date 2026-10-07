@@ -241,6 +241,22 @@ def rank(a: Standing, b: Standing, cfg) -> int:
     return compare(a.measures, b.measures, cfg)[0]
 
 
+def placement_key(row, ranks=None):
+    """Exact placement-ensemble order, shared by explore and its checkpoint.
+
+    Rows are (seed, objective, measures). Settings are fixed by the checkpoint
+    digest, so the recorded objective remains authoritative on resume. Validity
+    precedes that objective; optional pin-remapped objectives replace it. Seed
+    order breaks exact ties deterministically across worker completion orders,
+    with the plain seed 0 retained on a tie. Missing evidence ranks last.
+    """
+    seed, objective, measures = row
+    if measures is None:
+        return (1, True, (), math.inf, seed)
+    validity = Validity.of(measures)
+    return (0, not validity.valid, validity.key(), (ranks or {}).get(seed, objective), seed)
+
+
 # Measured from the plan itself, not counted from its findings: unplaced by
 # priority, links by how far past their limit.
 _MEASURED_APART = ("unplaced", "link_over", "pair_crossed", "arrangement")     # a crossed pair is priced by the crossings term

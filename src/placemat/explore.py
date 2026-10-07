@@ -555,35 +555,22 @@ def _exact(cfg):
 
 
 def _variant_order(cfg, ranks=None):
-    """How two variants' rows (seed, run score, measures) compare, -1 when the first ranks above: `score.rank` of their
-    measures (the validity tier, then the run score, exactly: `_exact`); with `ranks` (`explore.rank_remapped`,
-    {seed: score_remapped}) the validity tier, then that score where a variant has one, exactly. A tie is 0, so a stable
-    sort keeps the earlier seed."""
-    from . import score as _score
-    cfg = _exact(cfg)
+    """Compare placement-ensemble rows by the shared exact `score.placement_key`.
+    `cfg` is retained for callers; each row already carries the objective at
+    those settings. Remapped objectives replace it when supplied. Seed order
+    resolves exact ties independently of worker completion order.
+    """
+    from .score import placement_key
 
-    def standing(row):
-        return _score.Standing(row[2] or {}, _score.Validity.of(row[2] or {}))
-
-    def cmp(a, b) -> int:
-        if a[2] is None or b[2] is None:
-            # Legacy rows have no validity evidence; never treat them as zero-cost valid boards.
-            return -1 if b[2] is None and a[2] is not None else 1 if a[2] is None and b[2] is not None else 0
-        sa, sb = standing(a), standing(b)
-        if not ranks:
-            return _score.rank(sa, sb, cfg)
-        v = _score.validity_order(sa, sb)
-        if v:
-            return v
-        x, y = ranks.get(a[0], a[1]), ranks.get(b[0], b[1])
-        return -1 if x < y - 1e-9 else 1 if y < x - 1e-9 else 0
+    def cmp(a, b):
+        ka, kb = placement_key(a, ranks), placement_key(b, ranks)
+        return -1 if ka < kb else 1 if ka > kb else 0
     return cmp
 
 
 def _result(results: dict, baseline, base_m, seconds: float, failures, variants=None, focus=(), jobs=0, curve=None,
             ended=None, routes=None, ranks=None, cfg=None) -> ExploreResult:
-    """The result, its rows best first (`_variant_order`): by `score.rank`, or with `ranks` (`explore.rank_remapped`,
-    {seed: score_remapped}) by the validity tier, then that score where a variant has one. A tie keeps the earlier seed."""
+    """The result ordered by `score.placement_key`, shared with its checkpoint."""
     import functools
     from .settings import Settings
     ranks = dict(ranks) if ranks else None
