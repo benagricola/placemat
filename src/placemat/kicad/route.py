@@ -107,6 +107,8 @@ _REFUSED = {
     "capture": "route: %(path)s: %(reason)s %(detail)s",
     "router_old": "route: the router at %(router)s lacks %(missing)s: route with the placemat fork of KiCadRoutingTools",
     "router_refused": "route: phase %(phase)r: the router refused %(what)s",
+    "pair_flag": "route: phase %(phase)r: router_args %(flag)s is not a flag of the pair router (route_diff.py), which "
+                 "this phase's pair call runs",
 }
 _INSTEAD = {"islands": "a phase with `nets` and `width`",
             "pair_layers": "a phase with `pairs = true` and `layers`",
@@ -128,7 +130,7 @@ def refused_text(code: str, facts: dict) -> str:
 
 class RouteRefused(ValueError):
     """A route placemat will not start or go on with: `code` (a key of _REFUSED: no_phases, legacy_setting,
-    unknown_phase, capture, router_old, router_refused) and its `facts`; refused_text renders it."""
+    unknown_phase, capture, router_old, pair_flag, router_refused) and its `facts`; refused_text renders it."""
 
     def __init__(self, code: str, **facts):
         self.code, self.facts = code, dict(facts)
@@ -1106,22 +1108,47 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
 REQUIRES = ("route.py:--connections", "route.py:--bus-nets")
 
 
+_CAPS: dict = {}            # (router folder, its capability script's mtime and size) -> its listing: one a process
+
+
+def router_capabilities(rpy, router_dir) -> dict | None:
+    """The router's capability listing (KRT krt_capabilities.py, JSON: `modules` {name: present}, `flags` {module:
+    [flag, ...]}), read once a process per router folder and script version; None when it has none or cannot give it."""
+    script = Path(router_dir) / "krt_capabilities.py"
+    try:
+        st = script.stat()
+    except OSError:
+        return None
+    key = (str(router_dir), st.st_mtime_ns, st.st_size)
+    if key not in _CAPS:
+        try:
+            r = subprocess.run([str(rpy), str(script)], capture_output=True, text=True, cwd=str(router_dir), timeout=60,
+                               env=child_env())
+            caps = json.loads(r.stdout) if r.returncode == 0 else None
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            caps = None
+        _CAPS[key] = caps if isinstance(caps, dict) else None
+    return _CAPS[key]
+
+
+def pair_flags_refused(caps, phases) -> list:
+    """Each flag a phase that routes pairs gives in its `router_args` that the pair router (route_diff.py) does not
+    accept, as {"phase", "flag"}: its pair call takes the phase's flags and route_diff.py parses its arguments strictly
+    (KRT py_router/route_diff.py, parse_args), so such a flag would fail the call mid-route. The accepted set is the
+    router's own listing (`flags["route_diff.py"]`); with none, no flag is accepted."""
+    accepted = set(((caps or {}).get("flags") or {}).get("route_diff.py") or ())
+    return [{"phase": p.name, "flag": a.split("=", 1)[0]} for p in phases if p.selector == "pairs"
+            for a in p.router_args if a.startswith("-") and a.split("=", 1)[0] not in accepted]
+
+
 def router_capable(rpy, router_dir) -> list:
     """The REQUIRES this router lacks, from its capability list (KRT krt_capabilities.py, JSON: `modules` {name:
     present}, `flags` {module: [flag, ...]}): a router older than the fork's phase work is refused by name rather
     than failing in a call. A router with no capability list, or one that cannot give it, lacks every one.
     Divergence from `krt_capabilities.py --require`, which answers in sentences: the JSON is read instead, and each
     token checked as `missing()` there checks it (krt_capabilities.py:481-512)."""
-    script = Path(router_dir) / "krt_capabilities.py"
-    if not script.exists():
-        return list(REQUIRES)
-    try:
-        r = subprocess.run([str(rpy), str(script)], capture_output=True, text=True, cwd=str(router_dir), timeout=60,
-                           env=child_env())
-        caps = json.loads(r.stdout) if r.returncode == 0 else None
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        caps = None
-    if not isinstance(caps, dict):
+    caps = router_capabilities(rpy, router_dir)
+    if caps is None:
         return list(REQUIRES)
     out = []
     for token in REQUIRES:
@@ -1277,23 +1304,12 @@ def route_class_stages(rpy, script, router_dir_path, board: Path, work: Path, st
     return board
 
 
-_CAPABLE: dict = {}          # (router folder, its capability script's mtime) -> router_capable: one listing a process
-
-
 def _router_lacks(rpy, router_dir_path, phases) -> list:
     """The REQUIRES this route needs that the router lacks: `--bus-nets` only when a phase states a bus. Divergence
     from Task 13's brief, which asks every REQUIRES always: the fork's `--bus-nets` (Task 6) has not landed, and
     asking it of a route with no bus would refuse every route until it does."""
-    script = Path(router_dir_path) / "krt_capabilities.py"
-    try:
-        stamp = script.stat().st_mtime
-    except OSError:
-        stamp = None
-    key = (str(router_dir_path), stamp)
-    if key not in _CAPABLE:
-        _CAPABLE[key] = router_capable(rpy, router_dir_path)
     buses = any(p.selector in ("buses", "interfaces") for p in phases)
-    return [m for m in _CAPABLE[key] if buses or not m.endswith(":--bus-nets")]
+    return [m for m in router_capable(rpy, router_dir_path) if buses or not m.endswith(":--bus-nets")]
 
 
 def new_error_count(before_json, after_json, is_real) -> int | None:
@@ -1402,6 +1418,9 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     missing = _router_lacks(rpy, router_dir_path, run_list)
     if missing:
         raise RouteRefused("router_old", router=str(router_dir_path), missing=", ".join(missing))
+    bad = pair_flags_refused(router_capabilities(rpy, router_dir_path), run_list)
+    if bad:
+        raise RouteRefused("pair_flag", **bad[0])
     from ..capture_nets import SIDECAR
     try:
         capture = read_capture(capture_path) if capture_path else capture_beside(pcb)

@@ -3974,7 +3974,8 @@ two carriers by IPC-2221 at `[check] rise_c`, per layer (a selected net with few
 out, the net classes' widths. `layers`: the copper layers the phase's tracks may use, by `F`, `In1` to `In30`, `B` or
 their `.Cu` names; vias still pass the others. `neckdown`: the router's pad neck-down, on by default (route.py's
 only: the pair router has none). `router_args`: the router's flags for this phase's calls, its pair call included,
-after `[route] router_args` (`[route] pair_router_args` for the pair call); the flags placemat sets itself are refused.
+after `[route] router_args` (`[route] pair_router_args` for the pair call); the flags placemat sets itself are refused,
+and so, in a phase that routes pairs, is a flag the pair router does not take (`pair_flag`).
 
 A phase's nets keep their net classes' clearances (`clearance` is not a phase key). The router spaces every net of one
 call at the largest clearance among the nets it routes, so a phase whose nets have different clearances routes one call
@@ -4042,6 +4043,7 @@ the code and its facts):
 | `unknown_phase` | a phase named to route up to is not one of the project's |
 | `capture` | the capture's `nets.layout.json` cannot be read, or was written for another netlist (`path`, the sidecar; `reason`; `detail`) |
 | `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses) |
+| `pair_flag` | a phase that routes pairs gives in `router_args` a flag the pair router (route_diff.py) does not take, by the router's own capability listing (`phase`, `flag`): its pair call would fail |
 | `router_refused` | the router refused a task placemat selected (`facts`: `phase`, `tasks` each `{net, from, to, reason}`); the route stops |
 
 A phase that cannot be obeyed on the board (a selector naming nothing, a layer the board lacks, a current not stated)

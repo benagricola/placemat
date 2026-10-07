@@ -386,8 +386,8 @@ def width_shortfall(path, widths, neck_mm) -> dict:
     """{layer name: narrowest mm} of the copper on `path` under the width asked on its layer, past the neck allowance;
     {} when the path meets its widths. `path` is joining_spans' (track, length) pieces, or tracks taken whole.
 
-    The rule is on points of the path, not on how its copper is split into tracks (route_widths._neck_lengths judges
-    the same way): with L the path's length and a = min(neck_mm, L / 2), copper at a distance under `a` from either end
+    The rule is on points of the path, not on how its copper is split into tracks (route_widths._neck_lengths also
+    judges by distance along the copper, but with no cap at half the path): with L the path's length and a = min(neck_mm, L / 2), copper at a distance under `a` from either end
     is the router's pad neck-down and is not counted; copper strictly between a and L - a must be at full width. So
     every connection keeps copper at full width (the user's decision of 2026-10-07): on a path too short to hold both
     necks (a = L / 2) its middle point must lie on full-width copper. neck_mm 0 (`neckdown = false`): no allowance."""
