@@ -115,6 +115,21 @@ search applies. A move refine proposes is one the search could itself have chose
 - **pushes:** a push's limit is a hard bound, as in the search;
 - **declared copper:** stays legal; an item whose move would break a declared track's plan is not moved.
 
+**Each relation's room.** This applies to every decided item, standalone parts and cell members alike. A decided
+item's room is the set of places its relation describes, not the one point the search chose within it. There is no
+global slack setting. How far an item may move follows from what was declared:
+- **`Beside(target, ...)`:** along the target's facing side, over that side's extent, at the declared gap. `Beside` a
+  whole IC slides along the IC's whole side. `Beside` a pad slides only along that pad's edge, so much less. An `align=`
+  that was stated holds the alignment. One left at its default does not.
+- **`OnEdge(edge, ...)`:** along that edge, within any `along=` range the script gives.
+- **`Centre` on a line or one free axis:** along that line or axis.
+- **`Near(target, radius)`:** within the radius.
+- **`Pin` on a pad, a fixed `Location` or a datum point:** no room.
+- **Turns:** within the turns `rotation=` or `rotations=` allows.
+
+Moving within that room never blocks another pin's escape or copper the script declares: the search's legality and
+escape terms judge each move, as they judged the item's first place.
+
 So the display FFC connector, declared on the board's N-S centre line with `rotations=(0, 180)`, is only nudged along
 that line and only turned between 0 and 180, because that is what its declaration leaves free. Nothing is added to the
 script for refine.
@@ -204,23 +219,17 @@ the board's refine judges a member exactly as the module's search did. A member 
 and the board allow.
 
 **Room for decided members** (decided with the user, 2026-10-07; research/2026-10-07-refine-spike.md). On the fairing
-core, 192 of 198 cell members are decided by their module (166 `Beside`, 26 fixed points), so a member bound only to its
-exact declared place could not move. A decided member therefore has room within what its declaration means:
-- a `Beside` slides along its side, and its gap may grow up to `refine.member_slack_mm`, a setting with a documented
-  default, set by measurement;
-- other relations keep their own meaning: a member placed at a pin stays on that pin's side;
-- turns stay as declared;
-- a fixed datum point stays fixed.
-
-The module scripts do not change. The module run writes a note of its resolved constraints, carried with the stamp like
-the arrangement note:
+core, 192 of 198 cell members are decided by their module (166 `Beside`, 26 fixed points), so a member bound to the
+exact point its search picked could not move. A decided member, like any decided item, has the room its relation
+describes: see "Each relation's room" below. The module scripts do not change. The module run writes a note of its
+resolved constraints, carried with the stamp like the arrangement note:
 - the rigid groups;
-- each decided member's relation and its room;
+- each decided member's relation, with its target and its terms;
 - the links;
 - the bands dropped;
 - the pads each module track touches.
 
-The parent's refine checks members against that note, in board coordinates.
+The parent's refine reads each member's room from that note, in board coordinates.
 
 **Identical cells.** Several cells stamped from one module may end up laid out differently. A module script can set
 `rigid=True` on the stamp, or the board on the cell, to keep that cell as stamped, for example for channels that must
