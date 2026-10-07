@@ -95,7 +95,8 @@ def test_pairs_take_net_names_p_first():
     assert q.pairs == ()
 
 
-@pytest.mark.parametrize("value", [[], [["A"]], [["A", "A"]], [["A", ""]], [["A", "B", "C"]], [[1, 2]]])
+@pytest.mark.parametrize("value", [[], [["A"]], [["A", "A"]], [["A", ""]], [["A", "B", "C"]], [[1, 2]],
+                                   [["A", "B"], ["B", "C"]], [["A", "B"], ["B", "A"]], [["A", "B"], ["A", "B"]], "A,B"])
 def test_a_pair_list_that_is_not_pairs_of_two_nets_is_refused(value):
     with pytest.raises(PhaseError) as e:
         parse_phases([{"name": "x", "pairs": value}])

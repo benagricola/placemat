@@ -219,3 +219,7 @@ def test_a_named_pair_net_the_board_lacks_is_refused():
     with pytest.raises(PhaseError) as e:
         one({"name": "p", "pairs": [["SDA", "NOPE"]]})
     assert e.value.code == "not_on_board" and e.value.facts == {"name": "p", "kind": "net", "value": "NOPE"}
+
+
+def test_an_excluded_net_drops_its_named_pair():
+    assert one({"name": "p", "pairs": [["SDA", "SCL"]]}, excluded={"SCL"}).pairs == ()

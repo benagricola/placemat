@@ -149,12 +149,13 @@ def _one(t, index: int, seen: set) -> Phase:
         raise PhaseError("two_selectors", name=name, selectors=", ".join(chosen))
     selector = chosen[0] if chosen else REST
     kw = {}
-    if selector in _FLAGS and t[selector] is not True and not (selector == "pairs" and isinstance(t[selector], list)):
+    if selector in _FLAGS and t[selector] is not True and not (selector == "pairs" and t[selector] is not False):
         raise PhaseError("flag_true", name=name, key=selector)
     if selector == "pairs" and t["pairs"] is not True:
         v = t["pairs"]
-        if not (v and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) and x for x in p)
-                          and p[0] != p[1] for p in v)):
+        if not (isinstance(v, list) and v and all(isinstance(p, list) and len(p) == 2
+                                                  and all(isinstance(x, str) and x for x in p)
+                          for p in v)) or len({x for p in v for x in p}) != 2 * len(v):
             raise PhaseError("bad_pairs", name=name, value=v)
         kw["pairs"] = tuple((p[0], p[1]) for p in v)
     if selector in ("nets", "net_classes", "interfaces", "net_types"):
