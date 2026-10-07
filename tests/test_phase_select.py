@@ -141,3 +141,67 @@ def test_every_new_refusal_renders_its_text():
                         ("no_current", {"name": "p", "connections": [{"net": "N", "from": "J1", "to": "Q1"}]}),
                         ("ends_on_two_nets", {"name": "p", "index": 0, "nets": ["A", "B"]})]:
         assert "route.phase 'p'" in phase_error_text(code, facts)
+
+
+def _plain(**kw):
+    j1 = footprint("J1", 5, 10, nets=("VB", ""), fields={"Pm.I": "4A"})
+    q1 = footprint("Q1", 20, 10, nets=("VB", ""), fields={"Pm.I": "4A"})
+    nc = footprint("J2", 30, 10, nets=("unconnected-(J2-Pad1)", "unconnected-(J2-Pad1)"))
+    g = board_geometry([j1, q1, nc])
+    return g
+
+
+def _sel(g, raw, **kw):
+    args = dict(open_nets=set(g.nets), excluded=set(), pour_nets=set(), route_layers=LAYERS, rise_c=10.0, copper_oz=1.0)
+    args.update(kw)
+    return select(parse_phases([raw])[0], g, None, **args)
+
+
+def test_current_paths_skip_pads_on_no_net():
+    s = _sel(_plain(), {"name": "p", "current_paths": True})
+    assert {t.net for t in s.tasks} == {"VB"}
+
+
+def test_the_wildcard_leaves_out_unconnected_nets_a_literal_takes_them():
+    g = _plain()
+    assert _sel(g, {"name": "p", "nets": ["*"]}).nets == ("VB",)
+    assert _sel(g, {"name": "p", "nets": ["unconnected-(J2-Pad1)"]}).nets == ("unconnected-(J2-Pad1)",)
+
+
+@pytest.mark.parametrize("patterns", [["*", "!GDN"], ["*", "!ZZ*"], ["!GDN"]])
+def test_an_exclusion_naming_no_net_is_refused(patterns):
+    with pytest.raises(PhaseError) as e:
+        one({"name": "p", "nets": patterns})
+    assert e.value.code == "not_on_board" and e.value.facts["kind"] == "net"
+
+
+def test_an_exclusion_only_list_takes_every_other_net():
+    assert "GND" not in one({"name": "p", "nets": ["!GND"]}).nets and "SDA" in one({"name": "p", "nets": ["!GND"]}).nets
+
+
+def test_a_connection_on_no_net_is_refused():
+    with pytest.raises(PhaseError) as e:
+        _sel(_plain(), {"name": "p", "connections": [{"from": {"part": "J1", "pad": "2"}, "to": {"part": "Q1", "pad": "2"}}]})
+    assert e.value.code == "not_on_board" and e.value.facts["kind"] == "pad"
+
+
+def test_a_connection_without_a_width_takes_the_default_class_width():
+    s = one({"name": "p", "connections": [{"from": {"part": "R1", "pad": "1"}, "to": {"part": "U1", "pad": "2"}}]})
+    assert dict(s.tasks[0].widths) == {"F.Cu": 0.2, "B.Cu": 0.2}
+
+
+def test_capture_pairs_the_board_lacks_or_none_are_refused():
+    from placemat.capture_nets import Capture
+    def cap(pairs):
+        return Capture("x", "d", {"name": "g"}, frozenset({"interfaces"}), {}, {}, pairs)
+    with pytest.raises(PhaseError) as e:
+        one({"name": "p", "pairs": True}, cap((("a", "SDA", "NOPE"),)))
+    assert e.value.facts["kind"] == "net" and e.value.facts["value"] == "NOPE"
+    with pytest.raises(PhaseError) as e:
+        one({"name": "p", "pairs": True}, cap(()))
+    assert e.value.facts["kind"] == "pair"
+
+
+def test_the_pour_nets_of_a_task_set_are_named():
+    s = one({"name": "p", "current_paths": True}, pour_nets={"VB"})
+    assert s.pour_nets == ("VB",) and s.tasks

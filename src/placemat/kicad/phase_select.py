@@ -30,16 +30,18 @@ class Selection:
     tasks: tuple = ()
     pairs: tuple = ()           # ((p, n), ...)
     buses: tuple = ()           # ((net, ...), ...)
-    pour_nets: tuple = ()       # selected nets served by a pour, routed one at a time
+    pour_nets: tuple = ()       # selected nets served by a pour, whole nets or the nets of tasks. The call planner
+                                # (kicad/phase_run.py) routes each such net alone in a call of its own, its pour
+                                # handed to the router as a zone (D15); a task set's pour nets are named here too
     width: float | None = None  # a numeric width for whole nets
     layers: tuple = ()          # the layers its tracks may use
     rest: bool = False          # every open net not excluded
 
 
 def net_matches(name: str, pattern: str) -> bool:
-    """One net against one pattern as KRT reads it (py_router/net_queries.py:41-73, net_pattern_matches): an fnmatch
+    """One net against one pattern as KRT reads it (py_router/net_queries.py:55-84, net_pattern_matches): an fnmatch
     glob, a pattern with no '/' also matching the last part of a sheet path. A leading backslash escapes the '!' of an
-    active-low net (split_net_patterns, net_queries.py:18-52)."""
+    active-low net (net_queries.py:17-52, split_net_patterns)."""
     if pattern.startswith("\\!"):
         pattern = pattern[1:]
     if fnmatch.fnmatch(name, pattern):
@@ -48,26 +50,41 @@ def net_matches(name: str, pattern: str) -> bool:
 
 
 def _expand(phase, patterns, nets) -> list:
-    """The nets the patterns take, as KRT's matches_net_filter (net_queries.py:81-130) reads them: "!X" excludes X
-    unless "!X" itself is a net of the board; with only exclusions every other net is taken. An include pattern that
-    names no net refuses the phase."""
-    keep, drop = [], []
-    for p in patterns:
-        if p.startswith("\\!"):
-            keep.append(p)
-        elif p.startswith("!") and p not in nets:
-            drop.append(p[1:])
-        else:
-            keep.append(p)
-    out = {}
-    for p in keep:
-        hit = sorted(n for n in nets if net_matches(n, p))
-        if not hit:
-            raise PhaseError("not_on_board", name=phase.name, kind="net", value=p)
+    """The nets the patterns take, as KRT's expand_net_patterns (net_queries.py:548-734, what route.py --nets uses):
+    the wildcard pool leaves out 'unconnected-*' nets (584-610) and a net with no name, a literal naming one still
+    takes it (719-725); "!X" excludes unless "!X" is a net of the board (655-660); a list of only exclusions implies
+    '*' (612-621); an exclusion removes what is already taken and keeps a later include of it out (690-707).
+    Divergence from upstream (which warns and carries on, 678-682, 727-732): a pattern that matches no net, include
+    or exclusion, refuses the phase (not_on_board) instead."""
+    known = set(nets)
+    pool = sorted(n for n in known if n and not n.lower().startswith("unconnected-"))
+    patterns = list(patterns)
+
+    def exclusion(p):
+        return p.startswith("!") and not p.startswith("\\!") and p not in known
+    if patterns and all(exclusion(p) for p in patterns):
+        patterns = ["*"] + patterns
+    out, excluded = {}, set()
+    for raw in patterns:
+        if exclusion(raw):
+            pat = raw[1:]
+            hit = [n for n in pool if net_matches(n, pat)]
+            if not hit and pat not in known:
+                raise PhaseError("not_on_board", name=phase.name, kind="net", value=pat)
+            if not any(c in pat for c in "*?"):
+                excluded.add(pat)
+            for n in hit:
+                excluded.add(n)
+                out.pop(n, None)
+            continue
+        pat = raw[1:] if raw.startswith("\\!") else raw
+        hit = [n for n in pool if net_matches(n, pat) and n not in excluded]
+        if not hit and pat in known and pat not in excluded:
+            hit = [pat]
+        if not hit and (any(c in pat for c in "*?") or pat not in known):
+            raise PhaseError("not_on_board", name=phase.name, kind="net", value=pat)
         out.update(dict.fromkeys(hit))      # in the order the patterns give them: a bus keeps its members' order
-    if not keep:
-        out = dict.fromkeys(sorted(nets))
-    return [n for n in out if not any(net_matches(n, p) for p in drop)]
+    return list(out)
 
 
 def layer_widths(amps: float, layers, geometry, rise_c: float, copper_oz: float) -> tuple:
@@ -124,8 +141,12 @@ def _end(phase, geometry, end):
 
 
 def _class_widths(geometry, net, layers) -> tuple:
-    nc = geometry.netclasses.get(net)
-    return tuple((l, nc.track_width if nc else geometry.min_track_width or 0.2) for l in layers)
+    nc = geometry.netclasses.get(net) or next((c for c in geometry.netclasses.values() if c.name == "Default"), None)
+    return tuple((l, nc.track_width if nc else geometry.min_track_width) for l in layers)
+
+
+def _pours(tasks, pour_nets) -> tuple:
+    return tuple(sorted({t.net for t in tasks} & set(pour_nets)))
 
 
 def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_layers, rise_c, copper_oz) -> Selection:
@@ -148,7 +169,7 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
             tasks, short = current_tasks(geometry, names, layers, rise_c, copper_oz)
             if short:
                 raise PhaseError("no_current", name=phase.name, nets=short)
-            return Selection(tasks=tasks, **base)
+            return Selection(tasks=tasks, pour_nets=_pours(tasks, pour_nets), **base)
         return Selection(nets=tuple(n for n in names if n not in pour_nets),
                          pour_nets=tuple(n for n in names if n in pour_nets), width=numeric, **base)
 
@@ -177,9 +198,10 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
     if phase.selector == "current_paths":
         # A numeric width is not used here: the tasks are sized from their currents (the user's decision of 2026-10-07).
         from ..checks import carriers_of
-        nets = sorted(n for n, on in carriers_of(geometry).items() if len(on) >= 2 and n not in excluded)
+        nets = sorted(n for n, on in carriers_of(geometry).items() if n and n in geometry.nets and len(on) >= 2
+                      and n not in excluded)
         tasks, _ = current_tasks(geometry, nets, layers, rise_c, copper_oz)
-        return Selection(tasks=tasks, **base)
+        return Selection(tasks=tasks, pour_nets=_pours(tasks, pour_nets), **base)
     if phase.selector == "connections":
         from ..checks import carriers_of
         carriers = carriers_of(geometry) if phase.width == CURRENT else {}
@@ -187,6 +209,9 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
         for i, c in enumerate(phase.connections):
             a_ref, a_pad, a_net = _end(phase, geometry, c.start)
             b_ref, b_pad, b_net = _end(phase, geometry, c.end)
+            for ref, pad, net in ((a_ref, a_pad, a_net), (b_ref, b_pad, b_net)):
+                if not net:
+                    raise PhaseError("not_on_board", name=phase.name, kind="pad", value="%s %s on a net" % (ref, pad))
             if a_net != b_net:
                 raise PhaseError("ends_on_two_nets", name=phase.name, index=i, nets=[a_net, b_net])
             if phase.width == CURRENT:
@@ -202,10 +227,15 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
             tasks.append(Task(a_net, (a_ref, a_pad), (b_ref, b_pad), widths, amps))
         if short:
             raise PhaseError("no_current", name=phase.name, connections=short)
-        return Selection(tasks=tuple(tasks), **base)
+        return Selection(tasks=tuple(tasks), pour_nets=_pours(tasks, pour_nets), **base)
     if phase.selector == "pairs":
         # the sidecar lists one physical pair once per instance path that reaches it: dedupe by (p, n)
         pairs = tuple(dict.fromkeys((p, n) for _, p, n in capture.pairs))
+        if not pairs:
+            raise PhaseError("not_on_board", name=phase.name, kind="pair", value="")
+        for n in (n for pn in pairs for n in pn):
+            if n not in geometry.nets:
+                raise PhaseError("not_on_board", name=phase.name, kind="net", value=n)
         return Selection(pairs=tuple(pn for pn in pairs if all(n in open_nets and n not in excluded for n in pn)),
                          **base)
     raise PhaseError("needs_capture", name=phase.name, selector=phase.selector, generator=capture.generator)
