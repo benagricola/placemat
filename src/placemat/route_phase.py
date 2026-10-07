@@ -5,7 +5,10 @@ kicad/route.py's `_route_board`."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
 import re
+
+from .settings import router_owned
 
 SELECTORS = ("nets", "net_classes", "pairs", "buses", "connections", "current_paths", "interfaces", "net_types")
 CAPTURE_SELECTORS = frozenset(("pairs", "interfaces", "net_types"))
@@ -109,7 +112,6 @@ def _end(raw, name: str, index: int) -> End:
 
 
 def _one(t, index: int, seen: set) -> Phase:
-    from .settings import _ROUTER_OWNED
     if not isinstance(t, dict):
         raise PhaseError("not_a_table", index=index)
     name = t.get("name")
@@ -149,7 +151,7 @@ def _one(t, index: int, seen: set) -> Phase:
                                   for i, c in enumerate(v))
     width = t.get("width")
     if width is not None and not (width == CURRENT or (isinstance(width, (int, float)) and not isinstance(width, bool)
-                                                         and width > 0)):
+                                                         and math.isfinite(width) and width > 0)):
         raise PhaseError("bad_width", name=name, value=width)
     layers = t.get("layers")
     if layers is not None:
@@ -166,7 +168,7 @@ def _one(t, index: int, seen: set) -> Phase:
         flag = a.split("=", 1)[0]
         if flag in PHASE_OWNED:
             raise PhaseError("router_owned", name=name, flag=flag, by=PHASE_OWNED[flag])
-        if flag.startswith("--") and any(o.startswith(flag) and len(flag) > 2 for o in _ROUTER_OWNED):
+        if router_owned(a):
             raise PhaseError("router_owned", name=name, flag=flag, by="the phase's selector, layers and width")
     return Phase(name, selector, width=float(width) if isinstance(width, (int, float)) else width, layers=layers,
                  neckdown=neckdown, router_args=tuple(args), **kw)

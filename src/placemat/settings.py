@@ -728,10 +728,16 @@ def router_flag(args, name: str):
 
 
 # The router flags placemat sets on every pass: [route] router_args may not name them.
-_ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
+ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
                            "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
                            "--max-probe-iterations", "--json-out", "--net-clearances", "--connections",
                            "--bus-nets"))
+
+
+def router_owned(arg: str) -> str | None:
+    """The owned flag a router argument names, `--flag` or `--flag=value`, else None."""
+    flag = arg.split("=", 1)[0]
+    return flag if flag in ROUTER_OWNED else None
 
 
 # A copper layer's name as KiCad spells it: F.Cu, In1.Cu to In30.Cu, B.Cu.
@@ -840,8 +846,7 @@ def _validate(name: str, value, path: str):
         if not all(isinstance(v, str) for v in value):
             raise SettingsError("%s: %s: every entry is a string (a command-line word), not %r" % (
                 path, dotted, next(v for v in value if not isinstance(v, str))))
-        owned = sorted({v.split("=", 1)[0] for v in value if v.startswith("-")
-                        and any(o.startswith(v.split("=", 1)[0]) and len(v.split("=", 1)[0]) > 2 for o in _ROUTER_OWNED)})
+        owned = sorted({router_owned(v) for v in value if router_owned(v)})
         if owned:
             raise SettingsError("%s: %s: %s is set by placemat itself (%s)" % (
                 path, dotted, ", ".join(owned), "[route] turn_cost, smoothing, islands, net_halos and route --iterations name them"))

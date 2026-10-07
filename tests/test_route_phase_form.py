@@ -35,6 +35,11 @@ def test_each_selector_parses_to_its_phase():
     ([{"name": "x", "pairs": False}], "flag_true"),
     ([{"name": "x", "width": -1}], "bad_width"),
     ([{"name": "x", "width": "wide"}], "bad_width"),
+    ([{"name": "x", "width": float("inf")}], "bad_width"),
+    ([{"name": "x", "width": float("nan")}], "bad_width"),
+    ([{"name": "x", "router_args": "--bus"}], "bad_router_args"),
+    ([{"name": "x", "router_args": ["--bus-nets", "A"]}], "router_owned"),
+    ([{"name": "x", "router_args": ["--connections=f"]}], "router_owned"),
     ([{"name": "x", "layers": ["Top"]}], "bad_layers"),
     ([{"name": "x", "neckdown": "no"}], "bad_neckdown"),
     ([{"name": "x", "router_args": ["--nets", "A"]}], "router_owned"),
@@ -66,5 +71,18 @@ def test_a_bad_phase_fails_the_settings_load_naming_the_file(tmp_path):
 @pytest.mark.parametrize("flag", ["--connections", "--bus-nets"])
 def test_the_new_router_flags_are_placemats_own(tmp_path, flag):
     (tmp_path / "placemat.toml").write_text('[route]\nrouter_args = ["%s", "x"]\n' % flag)
+    with pytest.raises(SettingsError, match="is set by placemat itself"):
+        load(tmp_path)
+
+
+def test_a_flag_that_only_starts_like_an_owned_one_is_the_projects(tmp_path):
+    assert parse_phases([{"name": "x", "router_args": ["--bus", "A"]}])[0].router_args == ("--bus", "A")
+    (tmp_path / "placemat.toml").write_text('[route]\nrouter_args = ["--bus", "A"]\n')
+    assert load(tmp_path).route_router_args == ("--bus", "A")
+
+
+@pytest.mark.parametrize("arg", ["--bus-nets", "--connections=f"])
+def test_an_owned_flag_is_refused_in_the_setting_as_well(tmp_path, arg):
+    (tmp_path / "placemat.toml").write_text('[route]\npair_router_args = ["%s"]\n' % arg)
     with pytest.raises(SettingsError, match="is set by placemat itself"):
         load(tmp_path)
