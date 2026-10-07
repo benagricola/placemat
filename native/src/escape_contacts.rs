@@ -117,7 +117,11 @@ impl PreparedContacts {
 #[pymethods]
 impl PreparedContacts {
     #[new]
-    fn new(py: Python<'_>, records: Vec<PlacedRecord>, footprints: Vec<String>) -> PyResult<Self> {
+    pub(crate) fn new(
+        py: Python<'_>,
+        records: Vec<PlacedRecord>,
+        footprints: Vec<String>,
+    ) -> PyResult<Self> {
         if records.len() > 100_000 {
             return Err(PyValueError::new_err("escape contact shape count invalid"));
         }
@@ -196,7 +200,7 @@ impl PreparedContacts {
     /// Freeze contact membership separately from path obstacle membership.
     /// Carried geometry can obstruct a path without being planned copper in
     /// the occupancy contact grid. Configuration is validated before publish.
-    fn configure_contact_roles(
+    pub(crate) fn configure_contact_roles(
         &mut self,
         candidate: PyRef<'_, PreparedCandidate>,
         rest: Vec<bool>,
@@ -258,7 +262,7 @@ pub(crate) struct ContactFacts {
 }
 
 impl PreparedContacts {
-    fn is_contact(&self, turn: usize, index: usize) -> bool {
+    pub(crate) fn is_contact(&self, turn: usize, index: usize) -> bool {
         if index < self.rest.len() {
             self.rest_contact[index]
         } else {
@@ -266,6 +270,14 @@ impl PreparedContacts {
                 .as_ref()
                 .map_or(true, |m| m[turn][index - self.rest.len()])
         }
+    }
+
+    pub(crate) fn shape_count(&self, candidate: &PreparedCandidate, turn: usize) -> usize {
+        self.rest.len() + candidate.turn(turn).shapes.len()
+    }
+
+    pub(crate) fn chain(&self) -> &[usize] {
+        &self.chain
     }
 
     /// Candidate geometry has already been evaluated for this turn. The

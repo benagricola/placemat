@@ -8,6 +8,7 @@ mod cutouts;
 mod delta;
 mod candidate;
 mod escape_contacts;
+mod prepared_surface;
 mod score_layout;
 mod escapes;
 mod surface;
@@ -798,7 +799,8 @@ impl NativeBoard {
 
 /// Exact signed wire and crossing changes of a lifted item's pad anchors.
 #[pyclass]
-struct NativeDelta { inner: delta::Delta, layout: Option<score_layout::Layout> }
+pub(crate) struct NativeDelta { pub(crate) inner: delta::Delta, pub(crate) layout: Option<score_layout::Layout>,
+    pub(crate) identity: std::sync::Arc<()>, pub(crate) revision: u64 }
 
 #[pymethods]
 impl NativeDelta {
@@ -806,7 +808,7 @@ impl NativeDelta {
     fn new(rn: &NativeRatsnest, own: Vec<String>, anchors: Vec<Vec<(String, String, String, f64, f64)>>,
            signal_nets: Vec<String>, settings: (f64, f64, f64, f64, f64)) -> PyResult<Self> {
         Ok(Self { inner: delta::Delta::new(rn.inner.snapshots().map_err(PyValueError::new_err)?, anchors, &own, signal_nets, settings)
-            .map_err(PyValueError::new_err)?, layout: None })
+            .map_err(PyValueError::new_err)?, layout: None, identity: std::sync::Arc::new(()), revision: 0 })
     }
 
     fn wire_cross(&mut self, x: f64, y: f64, turn: usize) -> PyResult<(f64, f64)> {
@@ -814,7 +816,10 @@ impl NativeDelta {
     }
 
     fn configure_affines(&mut self, turns: Vec<Vec<(String,String,String,Vec<f64>)>>) -> PyResult<()> {
-        self.inner.configure_affines(turns).map_err(PyValueError::new_err)
+        let revision = self.revision.checked_add(1).ok_or_else(|| PyValueError::new_err("NativeDelta revision exhausted"))?;
+        self.inner.configure_affines(turns).map_err(PyValueError::new_err)?;
+        self.revision = revision;
+        Ok(())
     }
 
     fn escape_cross(&mut self, x: f64, y: f64, turn: usize, depth: f64) -> PyResult<i64> {
@@ -838,9 +843,11 @@ impl NativeDelta {
         fit: Option<(Option<score_layout::Bounds>, f64, Option<f64>, Option<f64>, f64)>,
         grid: Option<(score_layout::Bounds, usize, f64, f64, f64, Vec<(String,f64,f64)>, Vec<Vec<(String,score_layout::Bounds)>>)>,
         weights: (f64,f64,f64,f64)) -> PyResult<()> {
+        let revision = self.revision.checked_add(1).ok_or_else(|| PyValueError::new_err("NativeDelta revision exhausted"))?;
         let grid = grid.map(|(frame,layers,pitch,step,cell,pads,turns)|
             score_layout::Grid::new(frame,layers,pitch,step,cell,pads,turns)).transpose().map_err(PyValueError::new_err)?;
         self.layout = Some(score_layout::Layout::new(links,boxes,fit,grid,weights).map_err(PyValueError::new_err)?);
+        self.revision = revision;
         Ok(())
     }
 
@@ -1613,6 +1620,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NativeDelta>()?;
     m.add_class::<candidate::PreparedCandidate>()?;
     m.add_class::<escape_contacts::PreparedContacts>()?;
+    m.add_class::<prepared_surface::PreparedSurface>()?;
     m.add_class::<NativeCleanupScoring>()?;
     m.add_function(wrap_pyfunction!(sweep, m)?)?;
     Ok(())
