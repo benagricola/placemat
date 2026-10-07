@@ -10,7 +10,7 @@
 
 use crate::board::{Reservation, B};
 use crate::exact::clean9;
-use crate::geometry::polys_overlap;
+#[cfg(test)] use crate::geometry::polys_overlap;
 
 type Point = (f64, f64);
 
@@ -53,6 +53,7 @@ impl TurnYards {
 /// The pass as first written: every reservation in `reservations` order, each allocating what it needs.
 /// `members` are the shifted boxes of a cell's parts (none for an item with no parts); `judged` and `yards`
 /// as `sweep` takes them.
+#[cfg(test)] // the parity test is its only caller
 #[allow(clippy::too_many_arguments)]
 pub fn reference(
     res: &[Reservation],

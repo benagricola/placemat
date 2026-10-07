@@ -759,6 +759,7 @@ impl ShapeGrid {
     /// every nearby offset. Python's `_Judge.near` excludes these same
     /// shapes from `pool` for the identical reason (`judge.hidden`); this
     /// mirrors that exclusion here.
+    #[cfg(test)] // the parity tests are its only callers
     pub fn first_conflict_shifted_excluding(
         &self,
         origin_shapes: &[Shape],
