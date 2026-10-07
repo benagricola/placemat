@@ -109,6 +109,81 @@ def mst(net: str, anchors, joined=()) -> list:
     return out
 
 
+def mst_change(rest_anchors, rest_edges, new_pads, *, net=None):
+    """Exact signed MST addition using the old tree as a sparse certificate.
+
+    Adding vertices needs only the old MST and edges incident to a new
+    vertex. Old edges can disappear, so both added and dropped edges are
+    returned. This placement objective uses unjoined pad anchors: a tree
+    with prejoined copper clusters is refused rather than losing its cluster
+    connectivity. `net` is needed when the old tree has no edges.
+    """
+    rest, previous, added_nodes = list(rest_anchors), list(rest_edges), list(new_pads)
+    if len(previous) != max(0, len(rest) - 1):
+        raise ValueError("mst_change requires an unjoined complete rest tree")
+    nodes = rest + added_nodes
+    if net is None and not previous and added_nodes:
+        raise ValueError("mst_change needs net when the rest tree has no edges")
+    net = net if net is not None else (previous[0].net if previous else "")
+    if not added_nodes:
+        return [], [], 0.0
+    if any(not math.isfinite(p.x) or not math.isfinite(p.y) for p in nodes):
+        raise ValueError("mst_change anchors must be finite")
+    indices = {anchor: i for i, anchor in enumerate(nodes)}
+    if len(indices) != len(nodes):
+        raise ValueError("mst_change anchors must be distinct")
+    parents = list(range(len(rest)))
+    def root(i):
+        while parents[i] != i:
+            parents[i] = parents[parents[i]]
+            i = parents[i]
+        return i
+    for edge in previous:
+        i, j = indices.get(edge.a), indices.get(edge.b)
+        if i is None or j is None or i >= len(rest) or j >= len(rest) or i == j:
+            raise ValueError("mst_change rest edge endpoint invalid")
+        a, b = root(i), root(j)
+        if a == b:
+            raise ValueError("mst_change rest tree must be connected and acyclic")
+        parents[a] = b
+    order = sorted(range(len(nodes)), key=lambda i: (_nm(nodes[i].x), _nm(nodes[i].y), nodes[i].ref, nodes[i].number))
+    tags = {i: tag for tag, i in enumerate(order)}
+    def end(i):
+        return (_nm(nodes[i].x), _nm(nodes[i].y), tags[i])
+    candidates = []
+    def offer(i, j):
+        i, j = sorted((i, j))
+        first, second = sorted((end(i), end(j)))
+        candidates.append((max(_dist(nodes[i], nodes[j]), 1), first, second, i, j))
+    for edge in previous:
+        offer(indices[edge.a], indices[edge.b])
+    for j in range(len(rest), len(nodes)):
+        for i in range(j):
+            offer(i, j)
+    candidates.sort()
+    parent = list(range(len(nodes)))
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    tree = []
+    for _, _, _, i, j in candidates:
+        a, b = find(i), find(j)
+        if a != b:
+            parent[a] = b
+            tree.append(Edge(net, nodes[i], nodes[j]))
+            if len(tree) == len(nodes) - 1:
+                break
+    def identity(edge):
+        return frozenset((edge.a, edge.b))
+    before, after = {identity(e) for e in previous}, {identity(e) for e in tree}
+    added = [e for e in tree if identity(e) not in before]
+    dropped = [e for e in previous if identity(e) not in after]
+    length = lambda edges: sum(math.hypot(e.a.x - e.b.x, e.a.y - e.b.y) for e in edges)
+    return added, dropped, length(added) - length(dropped)
+
+
 def _turn(ax, ay, bx, by, cx, cy) -> int:
     """-1, 0 or 1: which side of a-b the point c is on."""
     v = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)

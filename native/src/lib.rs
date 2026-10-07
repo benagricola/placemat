@@ -5,6 +5,7 @@
 
 mod board;
 mod cutouts;
+mod delta;
 mod escapes;
 mod exact;
 mod fill;
@@ -791,6 +792,24 @@ impl NativeBoard {
     }
 }
 
+/// Exact signed wire and crossing changes of a lifted item's pad anchors.
+#[pyclass]
+struct NativeDelta { inner: delta::Delta }
+
+#[pymethods]
+impl NativeDelta {
+    #[new]
+    fn new(rn: &NativeRatsnest, own: Vec<String>, anchors: Vec<Vec<(String, String, String, f64, f64)>>,
+           signal_nets: Vec<String>, settings: (f64, f64, f64, f64, f64)) -> PyResult<Self> {
+        Ok(Self { inner: delta::Delta::new(rn.inner.snapshots().map_err(PyValueError::new_err)?, anchors, &own, signal_nets, settings)
+            .map_err(PyValueError::new_err)? })
+    }
+
+    fn wire_cross(&mut self, x: f64, y: f64, turn: usize) -> PyResult<(f64, f64)> {
+        self.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err)
+    }
+}
+
 /// The pads walled off by a candidate the scorer did not weigh (pruned, or past a
 /// limit): more than any count, so it ranks below every candidate weighed in
 /// full, as `placer.UNWEIGHED`.
@@ -1544,6 +1563,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pinmap_search, m)?)?;
     m.add_class::<NativeEscTurn>()?;
     m.add_class::<NativeScoring>()?;
+    m.add_class::<NativeDelta>()?;
     m.add_class::<NativeCleanupScoring>()?;
     m.add_function(wrap_pyfunction!(sweep, m)?)?;
     Ok(())

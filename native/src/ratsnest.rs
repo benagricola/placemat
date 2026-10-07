@@ -307,6 +307,29 @@ impl Ratsnest {
         self.by_net.insert(n, ids);
     }
 
+    pub fn snapshots(&self) -> Result<Vec<crate::delta::Snapshot>, String> {
+        let name = |id| self.names.iter().find(|(_, n)| **n == id).map(|(s, _)| s.clone()).unwrap_or_default();
+        // Include declared kinds/partners even before any pad of a net is placed.
+        let mut nets: Vec<_> = self.anchors.keys().chain(self.kinds.keys()).chain(self.partners.keys()).copied().collect();
+        nets.sort_unstable_by_key(|id| name(*id));
+        nets.dedup();
+        nets.iter().map(|&net| {
+            let anchors = self.anchors.get(&net).map(Vec::as_slice).unwrap_or(&[]);
+            let nodes = anchors.iter().map(|a| {
+                let pad = name(a.pad);
+                let number = pad.split_once('\u{1f}').map(|p| p.1).unwrap_or("").to_string();
+                (a.x, a.y, name(a.part), number)
+            }).collect();
+            let edges = self.by_net.get(&net).into_iter().flatten().map(|id| {
+                let e = self.edges.get(*id).and_then(Option::as_ref).ok_or("missing ratsnest edge")?;
+                Ok((anchors.iter().position(|a| a.pad == e.a.pad).ok_or("edge endpoint not in rest anchors")?,
+                    anchors.iter().position(|a| a.pad == e.b.pad).ok_or("edge endpoint not in rest anchors")?))
+            }).collect::<Result<Vec<_>, String>>()?;
+            Ok(crate::delta::Snapshot { name: name(net), kind: self.kind(net),
+                partner: self.partners.get(&net).map(|id| name(*id)), nodes, edges })
+        }).collect()
+    }
+
     /// `Escapes._targets` without the quiet-net case: where the airwires of
     /// one placed pad go, as offsets from `at`; empty when it has none.
     pub fn neighbours(&self, net: u32, pad: u32, at: (f64, f64)) -> Vec<(f64, f64)> {
