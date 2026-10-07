@@ -56,6 +56,7 @@ class Delta:
             raise ValueError("Delta requires a fixed search frame for congestion")
         self.grid = occ.congestion() if board.settings.score_congestion_step else None
         self._native = {}
+        self._native_shapes = {}
         from .escapes import EscapeDelta
         self._escape_delta = EscapeDelta(occ, self.own)
         self._escape_base = self._escape_delta.counts
@@ -193,6 +194,34 @@ class Delta:
         # Pruning is intentionally absent until every remaining signed term
         # has a proved lower bound. Walled evidence never enters the scalar.
         return Change(terms, sum(terms.values()), walled_change, walled)
+
+    def native_shapes(self, rots, face):
+        """Exact prepared candidate polygons, explicitly for parity until integrated."""
+        self._check_snapshot()
+        from .geometry import _native
+        from .escapes import _layer_bits
+        from .placement import Placement
+        from .values import Location
+        if _native is None or not hasattr(_native, 'PreparedCandidate'):
+            return None
+        key = tuple(rots), face
+        if key not in self._native_shapes:
+            geom = self.occ._geometry(self.item)
+            records = []
+            for rotation in rots:
+                transform = self.occ._transform(geom, Placement(Location(0, 0), rotation, face))
+                flip = face != geom.reference.face
+                shapes = []
+                for shape in geom.shapes:
+                    layers = self.occ._flipped_layers(shape) if flip else shape.layers
+                    # _moved preserves ends only for ordinary shapes. Carried
+                    # via/track anchors use their separate `points` instead.
+                    ends = () if shape.carried or shape.given else shape.ends
+                    shapes.append((shape.owner, shape.kind, shape.net, shape.label, _layer_bits(layers),
+                                   list(shape.poly), list(ends), False, shape.wire))
+                records.append(((transform.a, transform.b, transform.c, transform.d, transform.tx, transform.ty), shapes))
+            self._native_shapes[key] = _native.PreparedCandidate(records)
+        return self._native_shapes[key]
 
     def native(self, rots, face):
         """Six non-escape terms for prepared turns; no sweep adoption yet."""

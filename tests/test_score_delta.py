@@ -762,7 +762,14 @@ def test_repository_module_and_core_non_escape_delta_parity():
                 kernel = delta.native([step.placement.rotation], step.placement.face)
                 change = delta(candidate)
                 view, geometries, copper = delta._view(candidate)
-                from placemat.escapes import judging
+                from placemat.escapes import judging, _layer_bits
+                prepared = delta.native_shapes([candidate.rotation], candidate.face)
+                assert prepared is not None
+                _, moved = occ.candidate_shapes(item, candidate)
+                expected_shapes = [(s.owner, s.kind, s.net, s.label, _layer_bits(s.layers), list(s.poly),
+                                    (s.box.left, s.box.top, s.box.right, s.box.bottom), list(s.ends), bool(s.lane), s.wire)
+                                   for s in moved]
+                assert prepared.shapes(candidate.location.x, candidate.location.y, 0) == expected_shapes
                 oracle_counts = {key: len(value) for key, value in judging(view).found().items()}
                 for classifier in (False, True):
                     counts, _ = delta._escape_delta.change(view, geometries, copper, native=classifier)
@@ -770,6 +777,10 @@ def test_repository_module_and_core_non_escape_delta_parity():
                 assert change.walled == oracle_counts.get('escape_walled', 0)
                 assert change.walled_change == change.walled - delta._escape_base.get('escape_walled', 0)
                 native = kernel.terms(candidate.location.x, candidate.location.y, 0) if kernel else None
+                if kernel is not None:
+                    assert kernel.escape_cross(candidate.location.x, candidate.location.y, 0,
+                                               board.settings.score_escape_depth) == (
+                        oracle_counts.get('escape_crossed', 0) - delta._escape_base.get('escape_crossed', 0))
                 occ.commit(item, candidate)
                 after = score.whole(board, occ, plan)
                 expected = {k: after[k] - before[k] for k in keys}
@@ -970,3 +981,68 @@ def test_delta_refuses_direct_pending_change_and_frame_change_without_congestion
         delta(original)
     with pytest.raises(ValueError, match='frame changed'):
         delta.native([original.rotation], original.face)
+
+
+@pytest.mark.parametrize('kind', ['part', 'cell'])
+def test_native_prepared_candidate_polygons_match_full_affine_and_layer_flip_exactly(kind):
+    from placemat import geometry
+    from placemat.escapes import _layer_bits
+    from placemat.layout import Board
+    from placemat.placement import Placement
+    from placemat.score_delta import Delta
+    from placemat.values import Cell, Face, Location, Part
+    from tests.test_cell_drops import _geom
+    from tests.test_score_measures import _two_part_board
+    if not hasattr(geometry._native, 'PreparedCandidate'):
+        pytest.skip('prepared native candidate geometry not built')
+    if kind == 'cell':
+        board = Board(_geom(), edge_margin=0.5)
+        board.rect(fit=True)
+        board.place(Cell('m'), at=Location(20, 20))
+        key, refs = 'm', ['U1']
+    else:
+        board = _two_part_board()
+        board.place(Part('u1'), at=Location(10, 10))
+        board.place(Part('c1'), at=Location(20, 20))
+        key, refs = 'c1', ['C1']
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items[key]
+    occ.lift(refs)
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    turns = [0, 37, 90, 143]
+    for face in (Face.FRONT, Face.BACK, Face.FRONT):
+        native = delta.native_shapes(turns, face)
+        assert native is not None
+        for index, rotation in enumerate(turns):
+            for offset in (-0.0000000005, 0.0000000005, 0.0):
+                placement = Placement(Location(20 + offset, 20 - offset), rotation, face)
+                _, expected = occ.candidate_shapes(item, placement)
+                records = [(s.owner, s.kind, s.net, s.label, _layer_bits(s.layers), list(s.poly),
+                            (s.box.left, s.box.top, s.box.right, s.box.bottom), list(s.ends), bool(s.lane), s.wire)
+                           for s in expected]
+                assert native.shapes(placement.location.x, placement.location.y, index) == records
+                assert native.shapes(placement.location.x, placement.location.y, index) == records
+    occ.commit(item, plan.placement(key))
+    occ.lift(refs)
+    with pytest.raises(ValueError, match='occupancy changed'):
+        delta.native_shapes(turns, Face.FRONT)
+
+
+def test_native_prepared_candidate_refuses_malformed_geometry_and_recovers_after_bad_candidate():
+    from placemat import geometry
+    if not hasattr(geometry._native, 'PreparedCandidate'):
+        pytest.skip('prepared native candidate geometry not built')
+    native = geometry._native.PreparedCandidate
+    shape = ('U1', 'pad', 'S', '1', 1, [(0, 0), (1, 0), (1, 1), (0, 1)], [(0.5, 0.5)], False, False)
+    identity = (1, 0, 0, 1, 0, 0)
+    for source in ([], [((float('nan'), 0, 0, 1, 0, 0), [shape])],
+                   [(identity, [shape[:5] + ([],) + shape[6:]])],
+                   [(identity, [shape[:5] + ([(float('inf'), 0)],) + shape[6:]])]):
+        with pytest.raises(ValueError):
+            native(source)
+    snapshot = native([(identity, [shape])])
+    baseline = snapshot.shapes(0, 0, 0)
+    for x, y, turn in ((float('nan'), 0, 0), (0, 0, 1), (1e9, 0, 0)):
+        with pytest.raises(ValueError):
+            snapshot.shapes(x, y, turn)
+        assert snapshot.shapes(0, 0, 0) == baseline

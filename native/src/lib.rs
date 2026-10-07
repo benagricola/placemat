@@ -6,6 +6,7 @@
 mod board;
 mod cutouts;
 mod delta;
+mod candidate;
 mod score_layout;
 mod escapes;
 mod surface;
@@ -1600,6 +1601,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NativeEscTurn>()?;
     m.add_class::<NativeScoring>()?;
     m.add_class::<NativeDelta>()?;
+    m.add_class::<candidate::PreparedCandidate>()?;
     m.add_class::<NativeCleanupScoring>()?;
     m.add_function(wrap_pyfunction!(sweep, m)?)?;
     Ok(())
