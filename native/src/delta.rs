@@ -314,6 +314,7 @@ struct Touched {
     index: usize,
     added: Vec<Node>,
     tree: TreeDelta,
+    evaluated: Vec<Node>,
 }
 
 struct AnchorAffine {
@@ -353,7 +354,7 @@ pub struct Delta {
     prices: Vec<Vec<f64>>,
     signal: HashSet<String>,
     impedance: f64,
-    affines: Option<Vec<HashMap<(String, String, String), AnchorPose>>>,
+    affines: Option<Vec<Vec<Vec<AnchorPose>>>>,
 }
 
 impl Delta {
@@ -423,7 +424,8 @@ impl Delta {
                     continue;
                 }
                 let tree = TreeDelta::new(&snapshot.nodes, &snapshot.edges, &added)?;
-                touched.push(Touched { index, added, tree });
+                let evaluated = added.clone();
+                touched.push(Touched { index, added, tree, evaluated });
             }
             turns.push(touched);
         }
@@ -477,14 +479,16 @@ impl Delta {
                     return Err("NativeDelta duplicate affine anchor".into());
                 }
             }
+            let mut aligned = Vec::new();
             for t in touched {
+                let mut nodes = Vec::new();
                 for p in &t.added {
-                    if !map.contains_key(&(self.snapshots[t.index].name.clone(), p.2.clone(), p.3.clone())) {
-                        return Err("NativeDelta missing affine anchor".into());
-                    }
+                    nodes.push(map.remove(&(self.snapshots[t.index].name.clone(), p.2.clone(), p.3.clone()))
+                        .ok_or("NativeDelta missing affine anchor")?);
                 }
+                aligned.push(nodes);
             }
-            prepared.push(map);
+            prepared.push(aligned);
         }
         self.affines = Some(prepared);
         Ok(())
@@ -541,17 +545,15 @@ impl Delta {
             );
         }
         let mut wire = 0.0;
-        for touched in &mut self.turns[turn] {
+        for (index, touched) in self.turns[turn].iter_mut().enumerate() {
             let change = if let Some(affines) = &self.affines {
-                let mut added = touched.added.clone();
-                for p in &mut added {
-                    let pose = &affines[turn][&(self.snapshots[touched.index].name.clone(), p.2.clone(), p.3.clone())];
+                for (p, pose) in touched.evaluated.iter_mut().zip(&affines[turn][index]) {
                     (p.0, p.1) = pose.at((x, y));
                     if !point_valid(p.0, p.1) {
                         return Err("NativeDelta affine anchor exceeds representable nm".into());
                     }
                 }
-                touched.tree.solve(0.0, 0.0, &added)
+                touched.tree.solve(0.0, 0.0, &touched.evaluated)
             } else { touched.tree.solve(x, y, &touched.added) };
             let net = &self.snapshots[touched.index];
             if self.signal.contains(&net.name) {
