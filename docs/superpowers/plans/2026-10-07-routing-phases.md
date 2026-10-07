@@ -87,7 +87,7 @@ with its reason. "Alt" is what changes if it is reversed.
 
 - D1 Order: Zener stage 1 and the KRT fork first, then the placemat engine, Zener stage 2 last. Controller ruling: the engine needs the forks' flags and the sidecar; only three selectors need stage 2. Alt: Zener stage 2 before the engine.
 - D2 `--connections` JSON ends are `{net, from: {ref, pad}, to: {ref, pad}, widths: {layer: mm}}`; the spec is amended in Task 5. Controller ruling: the spec's own decision that connections are structured tables, never strings to parse. Alt: the spec's "REF.PAD" strings.
-- D3 A task joined by copper narrower than its asked width on any layer is `joined_narrow` and routed; at or above width it is `joined_before`. User, 2026-10-07, with this fallback: if KRT cannot route such a task within the planned size (Task 5 step 3), the task is reported `joined_narrow` with its narrowest width, counted joined and not routed, and the phase's width judgement (Task 15) raises `route.width` on it.
+- D3 A task joined by copper narrower than its asked width on any layer is `joined_narrow` and routed; at or above width it is `joined_before`. User, 2026-10-07, with this fallback: if KRT cannot route such a task within the planned size (Task 5 step 3), the task is reported `joined_narrow` with its narrowest width and not routed, and the phase's width judgement (Task 15) raises `route.width` on it. Amended by the controller's ruling S6 (2026-10-07): a `joined_narrow` connection, like any connection that fails its width obligation, is not a clean join: it is left out of `closure_clean` and `final_closure_clean` and counted in `widths_failed`.
 - D4 Same-net pads of an end's footprint that are not task ends are obstacles (moved to the private net). Controller ruling: joining them would route connections the phase did not ask for. Alt: put them in the view so the call joins them too.
 - D5 Different widths on one net: one router call per distinct width map, widest first. Controller ruling: KRT holds one width map per net per call (routing_config.py:602-640). Alt: one call and KRT's `deferred` loop alone.
 - D6 KRT floors: clearance floored at the board's `min_clearance`; every neck floored at the board's `min_track_width`; both documented fork divergences. User, 2026-10-07: kept as built in Task 4. Alt: leave KRT as upstream and record the errors.
@@ -186,12 +186,23 @@ Not user decisions. Each line gives the ruling, its reason, and what it costs if
     obligation's connectivity on the final board, not only widths and DRC, and keeps the obligations apart from the
     copper the phase added; an obligation whose net has a DRC violation (a later short among them) is not clean. A
     fault is not attributed to a phase.
-  - `RouteReport.widths_failed: int`: connections whose required width is not met on the final board, `joined_narrow`
-    included (never read as meeting its width).
-  - `RouteReport.drc_new: int | None`: DRC errors on the final board beyond the unrouted input board's own baseline
-    (test (a)'s rule, moved into `kicad/drc.py`); None when no DRC ran.
-  - `RouteReport.vias: int` and `track_mm: float`, measured on the final board over routed copper only: rank's
-    tie-breakers (fewer vias, then shorter length, compared only when the satisfied obligation sets are equivalent).
+  - Connectivity alone is not a clean join (the reviewer: "Connectivity alone must not count as valid closure when the
+    connection fails its width obligation"). An obligation with widths is judged along the copper path that joins its
+    two pads (the narrowest track per layer on that path), not on every track of its net, so a thin branch to another
+    pad does not fail an obligation it does not carry. An obligation under its width, and every `joined_narrow`
+    outcome (D3: reported, not rerouted), is left out of `closure_clean` and `final_closure_clean`.
+  - `RouteReport.widths_failed: int`: obligations joined on the final board whose joining path is under their width,
+    `joined_narrow` outcomes included.
+  - `RouteReport.drc_new: int | None`: violations in the DRC's `real` bucket (kicad/drc.py `DrcReport.real`, the
+    `[drc] real_kinds`, default settings.DEFAULT_REAL_KINDS) at severity error on the final board that the unrouted
+    input board's baseline does not have (matched by type, nets and position within 0.05 mm, test (a)'s rule); the
+    other buckets (expected, outstanding, footprint, other) and warnings such as silk clipped by copper never count.
+    None when no DRC ran.
+  - `RouteReport.vias: int`, `track_mm: float` and `segments: int`, measured on the final board over routed copper
+    only, as KRT's quality key counts a board's copper (KRT-upstream c98d38eb: py_tools/board_score.py:1048-1052,
+    `vias`, `copper_mm`, `segments` = straight track segments, footprint graphics excluded; py_router/ledger_score.py:76-82
+    `quality_key`): rank's tie-breakers (fewer vias, then shorter length, then fewer segments, compared only when the
+    satisfied obligation sets are equivalent).
   Reason: rank compares final boards, and a denominator a candidate can change is no comparison. Cost if wrong: one
   more pcbnew load and DRC read per route, and closure figures that differ from the old per-net counts.
 - The "Decisions (to confirm)" heading became "Decisions", each entry naming who decided it. Reason: nothing applied is
@@ -264,7 +275,7 @@ placemat (`$WT`):
 - Studio (Task 18a): `src/placemat/studio_page.html` (`phasesHTML`, the "Routing phases" section).
 - Obstructed-route fixture (Task 17a): `fixtures/obstructed_route/` (`make.py`, the board, `placemat.toml`,
   `NOTES.md`); `fixtures/reference/route_ref.py` (`LOCAL`, `run_local`); `tests/test_reference_obstructed.py`.
-- Ruling S6 (Task 13): `src/placemat/kicad/drc.py` (`error_violations`, `new_errors`, from the reference runners).
+- Ruling S6 (Task 13): `src/placemat/kicad/drc.py` (`real_errors`, `new_errors`).
 - Docs: `skills/placemat/SKILL.md`, `skills/placemat/references/{api.md,capture.md,migration.md}`.
 
 circuit-capture (`/home/ben/work/circuit-capture`): `skills/circuit-capture/SKILL.md`, `.claude-plugin/plugin.json`
@@ -1009,7 +1020,8 @@ fallback:
 - `judge_joined` still sets `joined_narrow`, with `min_width_mm` the narrowest width per layer of the joining path;
 - a `joined_narrow` task is not routed: `choose_groups` and `split_nets` take only open tasks (`t.status is None`), and
   the passable private net in step 4 is not built;
-- its record has `"joined": true` and `"status": "joined_narrow"`, so placemat counts it joined, and one more key,
+- its record has `"joined": true` (connectivity, a fact) and `"status": "joined_narrow"`, which placemat does not count as
+  a clean join (ruling S6, Task 13), and one more key,
   `"path"`: the joining path's segments, each `{"layer": str, "start": [x, y], "end": [x, y], "width": mm}` in the
   board's mm, from `judge_joined`'s `path` (`[{"layer": s.layer, "start": [s.start_x, s.start_y], "end": [s.end_x,
   s.end_y], "width": s.width} for s in path]`); every other record has `"path": null`;
@@ -4515,9 +4527,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
   `route_islands` (:950-994), new `RouteRefused`
 - Modify: `$WT/src/placemat/kicad/phase_run.py` (`PhaseContext`, `PhaseOutcome`, `run_phase`, `joined_ends`,
   `joined_pairs`, `obligations_of`, `judge_obligations`, `open_entry`, `phase_record`)
-- Modify: `$WT/src/placemat/kicad/drc.py` (`error_violations`, `new_errors`, moved from the reference runners),
-  `$WT/fixtures/reference/prepare.py:62-80` (`violations_of` calls `error_violations`),
-  `$WT/fixtures/reference/route_ref.py:72-78` (`new_violations` calls `new_errors`) (ruling S6)
+- Modify: `$WT/src/placemat/kicad/drc.py` (`real_errors`, `new_errors`; ruling S6)
 - Modify: `$WT/src/placemat/route_progress.py:19, 88-130` (no fixed `STAGES`; a pair call's aliases renamed in any phase)
 - Modify: `$WT/src/placemat/cli.py:703-760` (`cmd_route`: `pour_nets`, refusals), `$WT/src/placemat/runner.py:743-760`,
   `$WT/src/placemat/explore.py:206-231, 703-745, 912-956` (`Routing.capture`, `pour_nets`)
@@ -4553,12 +4563,13 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override=Non
 RouteReport.phases: list[dict]       # phase_record per phase, in order, each with "final_closure_clean" and
                                      # "final_open" (ruling S6)
 RouteReport.phases_without_copper: list[str]   # with only: earlier phases none of whose nets has a track on the board (D26)
-RouteReport.widths_failed: int       # obligations whose required width is not met on the final board, joined_narrow
-                                     # included (Task 15 `widths_failed`; 0 until Task 15)
-RouteReport.drc_new: int | None      # DRC errors on the final board beyond the unrouted input board's own baseline
-                                     # (drc.new_errors); None when either DRC wrote no report
-RouteReport.vias: int                # vias of the routed copper only (added_copper of the input and the final board)
-RouteReport.track_mm: float          # track length of the routed copper only, mm
+RouteReport.widths_failed: int       # obligations joined on the final board whose joining path is under their
+                                     # width, joined_narrow outcomes included (Task 15 `widths_failed`; 0 until then)
+RouteReport.drc_new: int | None      # `real`-bucket errors on the final board beyond the input board's baseline
+                                     # (drc.real_errors, drc.new_errors); None when either DRC wrote no report
+RouteReport.vias: int                # routed copper only (routed_copper: the final board's against the input's)
+RouteReport.track_mm: float          # routed track length, mm (each track's GetLength)
+RouteReport.segments: int            # routed straight track segments, as KRT's quality key counts them
 # kicad/phase_run.py
 @dataclass class PhaseContext: rpy; script; router_dir; work; layers; iterations; probe; quick; timeout; env; cfg;
     geometry; clearance_map: dict; base_clearance: float; clearances_file; excluded: set; pour_nets: set; events
@@ -4573,14 +4584,27 @@ def obligations_of(selections, input_open: list, skip: set) -> list[list[dict]]
     # open_connections on the input board) on the nets its selection names (widths: its numeric width on its layers,
     # else None); the rest phase's: every input-board open connection whose net is not in `skip` and is named by no
     # other phase's set (widths None). Pure: selections are phase_select.Selection.
-def judge_obligations(pcb_path, obligations, drc_json) -> list[dict]
-    # per obligation, in order: {"joined": bool, "violated": bool}. joined: KiCad's connectivity joins the two ends'
-    # pads (joined_pairs); an obligation with an end that is no pad is joined when its net has no open connection in
-    # drc_json. violated: its net is in a real DRC violation of drc_json (_violations_by_net). Clean is joined and not
-    # violated, so a short laid by a later phase never makes an earlier obligation read clean.
+def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0) -> list[dict]
+    # per obligation, in order: {"joined": bool, "violated": bool, "under": {layer: mm}}. joined: KiCad's connectivity
+    # joins the two ends' pads (joined_pairs); an obligation with an end that is no pad is joined when its net has no
+    # open connection in drc_json. violated: its net is in a real DRC violation of drc_json (_violations_by_net).
+    # under: for a joined obligation with widths, the narrowest track per layer on its joining path (joining_path)
+    # where that is under the width asked on the layer, past `neck_mm` at either end (width_shortfall); {} when it
+    # meets them, has no widths, or is joined only through a pour (no track path).
+def is_clean(judged: dict, outcome: str | None) -> bool
+    # joined, not violated, not under its width, and not a joined_narrow outcome (ruling S6): a short laid by a later
+    # phase, or a join narrower than asked, never reads clean
+def joining_path(geometry, obligation) -> list | None
+    # the tracks (CopperItems) of the shortest track path joining the obligation's two end pads: Dijkstra over its
+    # net's tracks (by length, each split at the track ends and vias that lie on it) and vias (zero length, joining
+    # the layers they span); a joint inside a pad's outline on one of the pad's layers joins the pad. Ordered from the
+    # "to" end. None when no track path joins them (a pour join, or not joined). An arc is taken by its chord.
+def width_shortfall(path, widths: dict, neck_mm: float) -> dict
+    # {layer name: narrowest mm} over the path's tracks under the width asked on their layer, leaving out a track
+    # that lies wholly within neck_mm of either end of the path; {} when the path meets its widths
 def open_entry(obligation, judged, connections, net_evidence) -> dict
     # an obligation left open, as the record lists it: the obligation, "violated": true when its ends are joined but
-    # its net has a DRC error, "outcome" (its --connections record's status, None for a whole-net call) and "evidence"
+    # its net has a DRC error, "under": {layer: mm} when its ends are joined narrower than asked, "outcome" (its --connections record's status, None for a whole-net call) and "evidence"
     # (that record's `evidence`, or the net's entry in the calls' `net_evidence`; None when the router gave none).
     # Router facts only: placemat infers no cause here (Task 6a).
 def open_connections(pcb_path, drc_json) -> list[dict]
@@ -4590,9 +4614,9 @@ def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=N
                  net_evidence=None) -> dict
     # {"name", "index", "selector", "width", "layers", "neckdown", "asked", "joined", "open", "closure_clean",
     #  "seconds", "reused", "calls", "pairs", "connections", "bus_groups", "widths"}
-    # asked: len(obligations), the phase's fixed asked set; joined: those clean on the board after the phase (`judged`,
-    # judge_obligations); closure_clean: joined / asked (1.0 when nothing is asked); open: open_entry of each one not
-    # clean. _route_board adds "final_closure_clean" and "final_open": the same obligations re-judged on the final
+    # asked: len(obligations), the phase's fixed asked set; joined: those clean (is_clean) on the board after the phase
+    # (`judged`, judge_obligations); closure_clean: joined / asked (1.0 when nothing is asked); open: open_entry of
+    # each one not clean. _route_board adds "final_closure_clean" and "final_open": the same obligations re-judged on the final
     # board (after the last phase and the route's clean-up), stored apart from the copper the phase added. A fault is
     # not attributed to a phase.
 # tests/phase_helpers.py
@@ -4725,7 +4749,7 @@ def test_each_phase_asks_what_the_input_board_has_open_and_is_judged_again_on_th
     assert [(p["asked"], p["joined"]) for p in report.phases] == [(1, 0), (1, 0)]     # FB; then VIN, not FB again
     assert [p["final_closure_clean"] for p in report.phases] == [0.0, 0.0]
     assert report.phases[1]["final_open"][0]["net"] == "VIN"
-    assert (report.vias, report.track_mm, report.drc_new) == (0, 0.0, 0)
+    assert (report.vias, report.track_mm, report.segments, report.drc_new) == (0, 0.0, 0, 0)
 
 
 @needs_kicad
@@ -4757,7 +4781,33 @@ def test_a_later_short_never_makes_an_obligation_clean(tmp_path, monkeypatch):
         {"description": "Track [FB] on F.Cu"}, {"description": "Track [VIN] on F.Cu"}]}], "unconnected_items": []}))
     monkeypatch.setattr(phase_run, "joined_pairs", lambda pcb, pairs: [True] * len(pairs))
     ob = {"net": "FB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "U1", "pad": "2"}, "widths": None}
-    assert phase_run.judge_obligations(tmp_path / "x.kicad_pcb", [ob], drc) == [{"joined": True, "violated": True}]
+    (j,) = phase_run.judge_obligations(tmp_path / "x.kicad_pcb", [ob], drc)
+    assert j == {"joined": True, "violated": True, "under": {}} and not phase_run.is_clean(j, None)
+
+
+def test_a_join_narrower_than_asked_is_not_clean():
+    from placemat.kicad import phase_run
+    assert not phase_run.is_clean({"joined": True, "violated": False, "under": {"F.Cu": 0.2}}, None)
+    assert not phase_run.is_clean({"joined": True, "violated": False, "under": {}}, "joined_narrow")
+    assert phase_run.is_clean({"joined": True, "violated": False, "under": {}}, "routed")
+
+
+def test_widths_are_judged_on_the_path_that_joins_the_pair_not_on_a_branch():
+    from placemat.kicad import phase_run
+    from tests.fixtures import board_geometry, footprint, track
+    j1 = footprint("J1", 5, 10, nets=("VB", "GND"))         # pad 1 at (3.6, 10)
+    q1 = footprint("Q1", 25, 10, nets=("VB", "OUT"))        # pad 1 at (23.6, 10)
+    c1 = footprint("C1", 15, 16, nets=("VB", "GND"))        # pad 1 at (13.6, 16)
+    trunk = track("VB", 3.6, 10, 23.6, 10, w=1.0)
+    branch = track("VB", 13.6, 10, 13.6, 16, w=0.2)         # a T off the trunk to C1: not on the J1-Q1 path
+    g = board_geometry([j1, q1, c1], copper=[trunk, branch])
+    ob = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "widths": {"F.Cu": 1.0}}
+    path = phase_run.joining_path(g, ob)
+    assert path == [trunk] and phase_run.width_shortfall(path, ob["widths"], 0.0) == {}
+    narrow = board_geometry([j1, q1, c1], copper=[track("VB", 3.6, 10, 13.6, 10, w=0.3),
+                                                  track("VB", 13.6, 10, 23.6, 10, w=1.0), branch])
+    assert phase_run.width_shortfall(phase_run.joining_path(narrow, ob), ob["widths"], 0.0) == {"F.Cu": 0.3}
+    assert phase_run.joining_path(board_geometry([j1, q1, c1]), ob) is None
 
 
 @needs_kicad
@@ -4974,8 +5024,9 @@ def obligations_of(selections, input_open, skip) -> list:
             for obs in out]
 
 
-def judge_obligations(pcb_path, obligations, drc_json) -> list:
-    """Each obligation on a board: {"joined", "violated"} (see the interface). The DRC is the board's own."""
+def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0) -> list:
+    """Each obligation on a board: {"joined", "violated", "under"} (see the interface). The DRC is the board's own."""
+    from .read import read_board
     data = json.loads(Path(drc_json).read_text())
     violated = set(_violations_by_net(data))
     pads = [o for o in obligations if o["from"].get("ref") and o["to"].get("ref")]
@@ -4983,8 +5034,111 @@ def judge_obligations(pcb_path, obligations, drc_json) -> list:
                                                                     (o["to"]["ref"], o["to"]["pad"])) for o in pads])))
     loose = [o for o in obligations if _ob_key(o) not in joined]
     open_nets = {c["net"] for c in open_connections(pcb_path, drc_json)} if loose else set()
-    return [{"joined": joined[_ob_key(o)] if _ob_key(o) in joined else o["net"] not in open_nets,
-             "violated": o["net"] in violated} for o in obligations]
+    geometry = read_board(str(pcb_path)) if any(o.get("widths") and joined.get(_ob_key(o)) for o in obligations) else None
+    out = []
+    for o in obligations:
+        j = joined[_ob_key(o)] if _ob_key(o) in joined else o["net"] not in open_nets
+        under = {}
+        if j and o.get("widths") and geometry is not None:
+            path = joining_path(geometry, o)
+            under = width_shortfall(path, o["widths"], neck_mm) if path else {}
+        out.append({"joined": j, "violated": o["net"] in violated, "under": under})
+    return out
+
+
+def is_clean(j: dict, outcome) -> bool:
+    return j["joined"] and not j["violated"] and not j["under"] and outcome != "joined_narrow"
+
+
+def joining_path(geometry, o):
+    """The tracks of the shortest track path joining an obligation's two end pads (see the interface)."""
+    import heapq
+    import math
+    from ..geometry import point_in_polygon
+    net = o["net"]
+
+    def pt(p):
+        return (round(p[0], 3), round(p[1], 3))
+
+    def pads_of(end):
+        return [p for fp in geometry.footprints if fp.ref == end["ref"] for p in fp.pads
+                if p.number == end["pad"] and p.net == net]
+
+    start, goal = pads_of(o["from"]), pads_of(o["to"])
+    if not start or not goal:
+        return None
+    adj = {}
+
+    def link(a, b, length, track):
+        adj.setdefault(a, []).append((b, length, track))
+        adj.setdefault(b, []).append((a, length, track))
+
+    tracks = [c for c in geometry.copper if c.net == net and c.kind == "track" and len(c.anchors) == 2]
+    vias = [c for c in geometry.copper if c.net == net and c.kind == "via" and c.anchors]
+    ends = {}                                       # layer -> the track ends and vias on it: where copper joins
+    for t in tracks:
+        ends.setdefault(next(iter(t.layers)), set()).update(pt(a) for a in t.anchors)
+    for v in vias:
+        for layer in v.layers:
+            ends.setdefault(layer, set()).add(pt(v.anchors[0]))
+    for t in tracks:                                # a track is split at every joint on it (a T, a via mid-track)
+        layer = next(iter(t.layers))
+        (ax, ay), (bx, by) = t.anchors
+        dx, dy = bx - ax, by - ay
+        span = dx * dx + dy * dy
+        stops = []
+        for p in ends.get(layer, ()):
+            u = ((p[0] - ax) * dx + (p[1] - ay) * dy) / span if span else 0.0
+            if -1e-6 <= u <= 1 + 1e-6 and math.hypot(ax + u * dx - p[0], ay + u * dy - p[1]) <= t.width_mm / 2:
+                stops.append((u, p))
+        stops.sort()
+        for (u0, p0), (u1, p1) in zip(stops, stops[1:]):
+            link((p0, layer), (p1, layer), (u1 - u0) * t.length_mm, t)
+    for v in vias:
+        layers = sorted(v.layers, key=lambda l: l.value)
+        for a, b in zip(layers, layers[1:]):
+            link((pt(v.anchors[0]), a), (pt(v.anchors[0]), b), 0.0, None)
+    for tag, pads in (("A", start), ("B", goal)):
+        for p in pads:
+            for node in [n for n in adj if isinstance(n, tuple)]:
+                if node[1] in p.layers and any(point_in_polygon(node[0], poly) for poly in p.outlines):
+                    link(tag, node, 0.0, None)
+    dist, prev, heap, n = {"A": 0.0}, {}, [(0.0, 0, "A")], 0
+    while heap:
+        d, _, u = heapq.heappop(heap)
+        if u == "B":
+            break
+        if d > dist.get(u, float("inf")):
+            continue
+        for v, length, track in adj.get(u, ()):
+            if d + length < dist.get(v, float("inf")):
+                n += 1
+                dist[v], prev[v] = d + length, (u, track)
+                heapq.heappush(heap, (d + length, n, v))
+    if "B" not in dist:
+        return None
+    path, u = [], "B"
+    while u != "A":
+        u, track = prev[u]
+        if track is not None and (not path or path[-1] is not track):
+            path.append(track)
+    return path
+
+
+def width_shortfall(path, widths, neck_mm) -> dict:
+    """The narrowest track per layer on `path` under the width asked there (see the interface)."""
+    from ..values import CopperLayer
+    from .route_widths import _UNDER_MM
+    names = {CopperLayer.of(name): name for name in widths}
+    total, run, out = sum(t.length_mm for t in path), 0.0, {}
+    for t in path:
+        a, run = run, run + t.length_mm
+        if neck_mm and (run <= neck_mm or a >= total - neck_mm):
+            continue
+        layer = names.get(next(iter(t.layers)))
+        if layer is not None and t.width_mm < widths[layer] - _UNDER_MM:
+            out[layer] = min(out.get(layer, t.width_mm), t.width_mm)
+    return out
 
 
 def open_entry(o, j, connections, net_evidence) -> dict:
@@ -4995,14 +5149,22 @@ def open_entry(o, j, connections, net_evidence) -> dict:
                evidence=rec.get("evidence") if rec else net_evidence.get(o["net"]))
     if j["joined"] and j["violated"]:
         out["violated"] = True
+    if j["joined"] and j["under"]:
+        out["under"] = dict(j["under"])
     return out
+
+
+def outcome_of(o, connections):
+    rec = next((r for r in connections if r["net"] == o["net"] and r["from"] == o["from"] and r["to"] == o["to"]),
+               None)
+    return rec["status"] if rec else None
 
 
 def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=None, connections=(), bus_groups=(),
                  net_evidence=None) -> dict:
     rec = dict(phase.record(), index=index, seconds=round(seconds, 1), reused=False, calls=calls, pairs=pairs,
                connections=list(connections), bus_groups=list(bus_groups), widths=[])
-    clean = [j["joined"] and not j["violated"] for j in judged]
+    clean = [is_clean(j, outcome_of(o, list(connections))) for o, j in zip(obligations, judged)]
     rec.update(asked=len(obligations), joined=sum(clean),
                closure_clean=round(sum(clean) / len(obligations), 4) if obligations else 1.0,
                open=[open_entry(o, j, list(connections), net_evidence or {})
@@ -5140,13 +5302,15 @@ def run_phase(ctx, index, phase, sel, board, obligations) -> PhaseOutcome:
     for _, _, path in out.summaries:                # a later call's record of a net wins
         if Path(path).exists():
             net_evidence.update(json.loads(Path(path).read_text()).get("net_evidence") or {})
+    neck = neck_allowance(tuple(ctx.cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
     out.record = phase_record(phase, index, sel, obligations,
-                              judge_obligations(judged, obligations, ctx.work / ("p%d_drc.json" % index)),
+                              judge_obligations(judged, obligations, ctx.work / ("p%d_drc.json" % index), neck),
                               time.time() - t0, len(calls), pairs, connections, bus_groups, net_evidence)
     return out
 ```
 
 (`json`, `Path`, `plan_calls`, `write_connections`, `refused_records` are already in the module from Task 11;
+`neck_allowance` is route_widths.py's;
 import `RouteRefused` from `.route` beside `clearance_groups`.)
 
 - [ ] **Step 4: Implement the engine in route.py**
@@ -5211,7 +5375,9 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from ..route_phase import phases_of
     from ..capture_nets import CaptureError, capture_beside, read_capture
     from .route_state import RouteState, digest, file_digest
-    from .phase_run import PhaseContext, judge_obligations, obligations_of, open_connections, run_phase
+    from .phase_run import (PhaseContext, is_clean, judge_obligations, obligations_of, open_connections,
+                            outcome_of, run_phase)
+    from .route_widths import neck_allowance
     from .phase_select import select
     cfg = active()
     phases = phases_of(cfg) if phases is None else tuple(phases)
@@ -5265,7 +5431,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
     ctx = PhaseContext(rpy, script, router_dir_path, work, layers, iterations, probe, quick, timeout, env, cfg,
                        geometry, clearance_map, base_clearance, None, excluded, pours, rev)
-    board, prev, records, summaries, spent, phase_boards = pcb_in, base, [], [], 0.0, []
+    board, prev, records, summaries, spent = pcb_in, base, [], [], 0.0
     open_now = dict(before.open_nets)
     for i, phase in enumerate(run_list):
         key = digest(prev, phase.key()) if not only else digest(base, "only", phase.key())
@@ -5274,7 +5440,6 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         if saved is not None and (work / saved["board"]).exists():
             board, open_now = work / saved["board"], dict(saved["open_nets"])
             records.append(dict(saved["record"], reused=True))
-            phase_boards.append(board)
             summaries += [tuple(s) for s in saved["summaries"]]
             spent += saved["record"]["seconds"]
             rev.resumed(phase.name, saved["record"]["seconds"])
@@ -5292,7 +5457,6 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             rev.end(phase.name, complete=done)
         board, open_now = outcome.board, outcome.open_nets
         records.append(outcome.record)
-        phase_boards.append(board)
         summaries += [(n, k, str(s)) for n, k, s in outcome.summaries]
         spent += outcome.record["seconds"]
         state.record(label, key, {"board": board.name, "record": outcome.record, "open_nets": open_now,
@@ -5303,88 +5467,91 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
          # score over open0/open1 with `counted`, breaches against kept pour guards), then:
     report.phases = records
     # ruling S6: every phase's asked set re-judged on the final board, after the last phase and the clean-up
-    final = judge_obligations(pcb_out, [o for obs in asked for o in obs], work / "drc_after.json")
-    report.final_judged, k = [], 0
-    for rec, obs in zip(records, asked):
-        got, k = final[k:k + len(obs)], k + len(obs)
+    report.final_judged = []
+    for rec, obs, phase in zip(records, asked, run_list):
+        neck = neck_allowance(tuple(cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
+        got = judge_obligations(pcb_out, obs, work / "drc_after.json", neck)
         report.final_judged.append(got)
-        clean = [j["joined"] and not j["violated"] for j in got]
+        clean = [is_clean(j, outcome_of(o, rec.get("connections") or [])) for o, j in zip(obs, got)]
         rec["final_closure_clean"] = round(sum(clean) / len(obs), 4) if obs else 1.0
-        rec["final_open"] = [dict(o, violated=True) if j["joined"] else dict(o)
+        rec["final_open"] = [dict(o, **({"violated": True} if j["joined"] and j["violated"] else {}),
+                                  **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}))
                              for o, j, ok in zip(obs, got, clean) if not ok]
-    report.drc_new = new_error_count(work / "drc_before.json", work / "drc_after.json")
-    report.vias, report.track_mm = routed_copper(pcb, pcb_out)
-    report.asked, report.phase_boards = asked, phase_boards
+    report.drc_new = new_error_count(work / "drc_before.json", work / "drc_after.json", after.is_real)
+    report.vias, report.track_mm, report.segments = routed_copper(pcb, pcb_out)
+    report.asked = asked
     if only:
         report.phases_without_copper = without_copper(phases[:names.index(upto)], geometry, capture, excluded, pours,
                                                       layers, cfg)
 ```
 
 `ctx_for(ctx, rev, name)` returns `dataclasses.replace(ctx, env=dict(ctx.env, **rev.env(name)))`.
-`pcb_out` and `work / "drc_after.json"` are the final routed copy and its DRC that the kept postprocess writes
-(route.py:1338). `RouteReport` gains `widths_failed: int = 0`, `drc_new: int | None = None`, `vias: int = 0`,
-`track_mm: float = 0.0`, and, not in `as_dict`, `asked: list`, `final_judged: list` and `phase_boards: list`
-(Task 15 reads them). A record reused from the kept state is re-judged on the final board like a routed one; its
-`final_*` keys are set on every route and never read back from the state.
+`pcb_out`, `work / "drc_after.json"` and `after` (its DrcReport) are the final routed copy and its DRC that the kept
+postprocess writes (route.py:1338). `RouteReport` gains `widths_failed: int = 0`, `drc_new: int | None = None`,
+`vias: int = 0`, `track_mm: float = 0.0`, `segments: int = 0`, and, not in `as_dict`, `asked: list` and
+`final_judged: list` (Task 15 reads them). A record reused from the kept state is re-judged on the final board like a
+routed one; its `final_*` keys are set on every route and never read back from the state.
 
 ```python
-# kicad/drc.py: the rule of fixtures/reference/prepare.py violations_of and route_ref.py new_violations, moved here
-# with IGNORED_TYPES, IGNORED_PREFIXES, NET_IN_DESCRIPTION and NO_NET; prepare.violations_of and
-# route_ref.new_violations call these and build their Violation tuples from the records, so test (a) and the route
-# report count new errors the same way
-NEAR_MM = 0.05
+# kicad/drc.py
+NEAR_MM = 0.05      # test (a)'s match distance (fixtures/reference/route_ref.py NEAR_MM)
 
 
-def error_violations(report: dict) -> list:
-    """The errors of a kicad-cli DRC report without the silk, courtyard and library kinds: {"type", "nets", "at_mm"},
-    nets sorted, at_mm the least item position."""
+def real_errors(data: dict, is_real) -> list:
+    """The violations of a kicad-cli DRC report in the `real` bucket (`is_real(kind)`, DrcReport.is_real: the
+    `[drc] real_kinds`) at severity error, not set aside by a keepout's allow list: {"type", "nets", "at_mm"}, nets
+    sorted (each item's "[NET]", as route._violations_by_net reads them), at_mm the least item position. Warnings and
+    the other buckets never count."""
     out = []
-    for v in report.get("violations", []):
-        kind = v.get("type", "")
-        if v.get("severity") != "error" or kind in IGNORED_TYPES or kind.startswith(IGNORED_PREFIXES):
+    for v in data.get("violations", []):
+        if v.get("severity") != "error" or not is_real(v.get("type", "")) or _permitted(v, {}):
             continue
         items = v.get("items", [])
-        nets = tuple(sorted({m.group(1) for i in items for m in [NET_IN_DESCRIPTION.search(i.get("description", ""))]
-                             if m and m.group(1) != NO_NET}))
+        nets = tuple(sorted({m.group(1) for i in items for m in [re.search(r"\[([^\]]+)\]", i.get("description", ""))]
+                             if m}))
         at = min(((float(i.get("pos", {}).get("x", 0.0)), float(i.get("pos", {}).get("y", 0.0))) for i in items),
                  default=(0.0, 0.0))
-        out.append({"type": kind, "nets": nets, "at_mm": at})
+        out.append({"type": v.get("type", ""), "nets": nets, "at_mm": at})
     return out
 
 
 def new_errors(after: list, baseline: list, tol_mm: float = NEAR_MM) -> list:
-    """What `after` has that no baseline error of the same type and nets matches within `tol_mm`."""
+    """What `after` has that no baseline error of the same type and nets matches within `tol_mm` (test (a)'s rule,
+    route_ref.new_violations)."""
     def known(v):
         return any(b["type"] == v["type"] and b["nets"] == v["nets"] and abs(b["at_mm"][0] - v["at_mm"][0]) <= tol_mm
                    and abs(b["at_mm"][1] - v["at_mm"][1]) <= tol_mm for b in baseline)
     return [v for v in after if not known(v)]
 
 
-# kicad/route.py (its drc import becomes `from .drc import REAL_KINDS, error_violations, new_errors, run_drc`)
-def new_error_count(before_json: Path, after_json: Path) -> int | None:
+# kicad/route.py (its drc import becomes `from .drc import REAL_KINDS, new_errors, real_errors, run_drc`)
+def new_error_count(before_json: Path, after_json: Path, is_real) -> int | None:
     if not (Path(before_json).exists() and Path(after_json).exists()):
         return None
-    return len(new_errors(error_violations(json.loads(Path(after_json).read_text())),
-                          error_violations(json.loads(Path(before_json).read_text()))))
+    return len(new_errors(real_errors(json.loads(Path(after_json).read_text()), is_real),
+                          real_errors(json.loads(Path(before_json).read_text()), is_real)))
 
 
 def routed_copper(given_pcb, routed_pcb) -> tuple:
-    """(vias, track mm) of the copper the route added: the final board's tracks and vias not on the given board."""
-    from ..board_geometry import added_copper
-    from .read import read_board
-    new = added_copper(read_board(str(given_pcb)).copper, read_board(str(routed_pcb)).copper)
-    return sum(1 for c in new if c.kind == "via"), round(sum(c.length_mm for c in new if c.kind == "track"), 3)
+    """(vias, track mm, straight segments) of the copper the route added: the final board's tracks and vias that the
+    given board has not, keyed by kind, net, layer and ends. KRT's quality key counts a board's vias, segment length
+    and straight segments (KRT-upstream c98d38eb py_tools/board_score.py:1048-1052, py_router/ledger_score.py:76-82);
+    this counts the same over routed copper only, and track_mm is each track's own GetLength (an arc's path)."""
+    from .quiet import import_pcbnew
+    pcbnew = import_pcbnew()
+
+    def items(path):
+        board, out = _load_board(path), {}
+        for t in board.GetTracks():
+            kind = ("via" if t.Type() == pcbnew.PCB_VIA_T else "arc" if t.Type() == pcbnew.PCB_ARC_T else "segment")
+            ends = tuple(round(pcbnew.ToMM(v), 4) for p in (t.GetStart(), t.GetEnd()) for v in (p.x, p.y))
+            out[(kind, t.GetNetname(), t.GetLayer(), ends)] = pcbnew.ToMM(t.GetLength()) if kind != "via" else 0.0
+        return out
+    given, routed = items(given_pcb), items(routed_pcb)
+    new = {k: v for k, v in routed.items() if k not in given}
+    return (sum(1 for k in new if k[0] == "via"), round(sum(new.values()), 3),
+            sum(1 for k in new if k[0] == "segment"))
 ```
-`COPPER_OZ` is `checks.COPPER_OZ`. `without_copper` (D26): for each earlier phase, the nets its selection names
-(`select(..., open_nets=every, ...)`: nets, pour nets, bus and pair nets, task nets) and whether any of them has a
-track in `geometry.copper`; the names of those with none.
-
-Delete from `_route_board` the pairs, islands, classes and main blocks (:1130-1277). The functions they called
-(`route_islands`, `route_class_stages`, `resolve_pair_layers`, `pair_layer_groups`, `islands_on_board`,
-`island_layers_on_board`) stay defined until Task 25 deletes them; nothing calls them now.
-
-`route_progress.py`: drop `STAGES`; in `_forward` and `end`, rename by `self.names` whenever it is non-empty (the
-pair router's aliases, set by `route_pairs` for its call and cleared after it) instead of testing `stage == "pairs"`.
 
 - [ ] **Step 5: Callers**
 
@@ -5426,8 +5593,9 @@ api.md "Routing phases" (replacing the stage description at :4009-4050 and the `
 layers, neckdown, router_args, what a phase selects ("only connections still open"), clearance groups, pour nets
 (D15), the kept-result chain, the per-phase record keys (`asked`: the phase's obligations, fixed from the input board;
 `open`: each obligation left open, by its two pads, with the router's `outcome` and `evidence` as KRT gave them;
-`final_closure_clean` and `final_open`: the same obligations judged on the final board), the report's `widths_failed`,
-`drc_new`, `vias` and `track_mm`, the
+`final_closure_clean` and `final_open`: the same obligations judged on the final board; a join narrower than asked
+on its joining path, or `joined_narrow`, is not clean), the report's `widths_failed`, `drc_new` (the `real` bucket
+only), `vias`, `track_mm` and `segments`, the
 refusals with their codes (`router_refused` among them). SKILL.md: routing is stated
 as phases; power legs and buses are phases, declared copper only for fixed geometry. migration.md "## Unreleased":
 
@@ -5758,7 +5926,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 **Interfaces:**
 - Consumes: `PhaseOutcome.calls` ((Call, board in, board out)), `board_geometry.added_copper(given, routed)`;
-  Task 13's obligations and final re-judgement (`RouteReport.asked`, `final_judged`, `phase_boards`).
+  Task 13's obligations and final re-judgement (`RouteReport.asked`, `final_judged`).
 - Produces:
 
 ```python
@@ -5776,21 +5944,13 @@ def task_widths(phase, sel, connections) -> list
     # KRT `min_width_mm` is under the task's asked width on a layer; a record as stage_widths' with "from", "to",
     # "layers" and "source": "router", `length_under_mm` None. With neck-down on it returns nothing: a neck under the
     # width is expected within the allowance, which phase_widths judges on the board.
-def widths_failed(records, asked, final_judged, final_pcb, phase_boards, cfg) -> int
-    # in phase_run.py (ruling S6): obligations whose required width is not met on the final board, each counted once:
-    # - an obligation a width record of its phase names (phase_widths, narrow_join_widths, task_widths), while the
-    #   final board still has a track of the record's net on a layer the record names, under the width it needs
-    #   there; a record with "from"/"to" names one obligation, a board record names a net and counts every
-    #   obligation of its phase on that net;
-    # - an obligation whose --connections outcome is joined_narrow (it counts joined for closure, D3, and is never
-    #   read as meeting its width);
-    # - an obligation with widths that its phase left open and the final board joins: the tracks later phases added
-    #   on its net (the final board against its phase's output board) judged against its widths with no neck
-    #   allowance; every such track of the net is judged, so a later branch of the net to another pad counts too.
+def widths_failed(records, asked, final_judged) -> int
+    # in phase_run.py (ruling S6): obligations joined on the final board whose joining path is under their width
+    # (final_judged's "under", Task 13 judge_obligations), plus every joined_narrow outcome, each counted once
 ```
 
-  `_route_board` sets `report.widths_failed = widths_failed(records, report.asked, report.final_judged, pcb_out,
-  report.phase_boards, cfg)` after Task 13's final re-judgement.
+  `_route_board` sets `report.widths_failed = widths_failed(records, report.asked, report.final_judged)` after Task
+  13's final re-judgement.
 
   A `neckdown = false` phase's calls carry `--no-power-tap-neckdown` (Task 11 `router_command`; KRT route.py:7186),
   so the router lays no tap neck and its own per-task minimum is the delivered width. A `refused` task record has no
@@ -5856,37 +6016,19 @@ def test_a_task_left_joined_narrow_is_judged_on_its_joining_path(monkeypatch):
     assert phase_run.narrow_join_widths(phase, N(tasks=(task,)), [dict(rec, path=None)], "x", Settings()) == []
 
 
-def test_widths_failed_counts_obligations_under_width_on_the_final_board(monkeypatch):
+def test_widths_failed_counts_joins_under_width_on_their_path_and_joined_narrow():
     from placemat.kicad import phase_run
-    from placemat.settings import Settings
-    j1 = footprint("J1", 5, 10, nets=("VB", "GND"))
-    q1 = footprint("Q1", 25, 10, nets=("VB", "OUT"))
     a = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "widths": {"F.Cu": 1.0}}
     b = dict(a, to={"ref": "Q1", "pad": "2"})
     c = {"net": "SW", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "L1", "pad": "1"}, "widths": {"F.Cu": 0.5}}
-    legs = {"name": "legs", "widths": [{"net": "VB", "layers": [{"layer": "F.Cu", "need_mm": 1.0}]}], "connections": [],
-            "open": []}
-    sw = {"name": "sw", "widths": [], "connections": [dict(c, status="joined_narrow")], "open": []}
-    judged = [[{"joined": True, "violated": False}] * 2, [{"joined": True, "violated": False}]]
-    boards = {"final": board_geometry([j1, q1], copper=[track("VB", 8, 10, 20, 10, w=0.3)]),
-              "wide": board_geometry([j1, q1], copper=[track("VB", 8, 10, 20, 10, w=1.0)])}
-    monkeypatch.setattr("placemat.kicad.read.read_board", lambda path: boards[path])
-    assert phase_run.widths_failed([legs, sw], [[a, b], [c]], judged, "final", ["final", "final"], Settings()) == 3
-    assert phase_run.widths_failed([legs, sw], [[a, b], [c]], judged, "wide", ["wide", "wide"], Settings()) == 1
-
-
-def test_an_obligation_a_later_phase_joined_is_judged_on_the_copper_it_laid(monkeypatch):
-    from placemat.kicad import phase_run
-    from placemat.settings import Settings
-    j1 = footprint("J1", 5, 10, nets=("VB", "GND"))
-    q1 = footprint("Q1", 25, 10, nets=("VB", "OUT"))
-    a = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "widths": {"F.Cu": 1.0}}
-    legs = {"name": "legs", "widths": [], "connections": [], "open": [dict(a, outcome="failed", evidence=None)]}
-    boards = {"after_legs": board_geometry([j1, q1]),
-              "final": board_geometry([j1, q1], copper=[track("VB", 8, 10, 20, 10, w=0.2)])}
-    monkeypatch.setattr("placemat.kicad.read.read_board", lambda path: boards[path])
-    judged = [[{"joined": True, "violated": False}]]
-    assert phase_run.widths_failed([legs], [[a]], judged, "final", ["after_legs"], Settings()) == 1
+    legs = {"name": "legs", "connections": []}
+    sw = {"name": "sw", "connections": [dict(c, status="joined_narrow")]}
+    judged = [[{"joined": True, "violated": False, "under": {"F.Cu": 0.3}},
+               {"joined": True, "violated": False, "under": {}}],
+              [{"joined": True, "violated": False, "under": {"F.Cu": 0.2}}]]
+    assert phase_run.widths_failed([legs, sw], [[a, b], [c]], judged) == 2
+    judged[0][0] = {"joined": False, "violated": False, "under": {}}       # open: closure's, not a width failure
+    assert phase_run.widths_failed([legs, sw], [[a, b], [c]], judged) == 1
 
 
 def test_without_neckdown_the_routers_own_minimum_per_task_is_judged():
@@ -6049,42 +6191,14 @@ where `judged` is the nets of those records, and sends `route_width` events as t
 `phase_run.widths_failed` (ruling S6):
 
 ```python
-def widths_failed(records, asked, final_judged, final_pcb, phase_boards, cfg) -> int:
-    """Obligations whose required width is not met on the final board, each counted once (see the interface)."""
-    from ..board_geometry import added_copper
-    from ..values import CopperLayer
-    from .read import read_board
-    from .route_widths import _UNDER_MM, board_widths
-    final = read_board(str(final_pcb))
-
-    def key(o):
-        return (o["net"], o["from"].get("ref"), o["from"].get("pad"), o["to"].get("ref"), o["to"].get("pad"))
-
-    def under(net, rows):
-        return any(c.kind == "track" and c.net == net and any(
-            CopperLayer.of(r["layer"]) in c.layers and c.width_mm < r["need_mm"] - _UNDER_MM for r in rows)
-            for c in final.copper)
-
-    failed = set()
-    for i, (rec, obs) in enumerate(zip(records, asked)):
-        for r in rec.get("connections") or ():
-            if r.get("status") == "joined_narrow":
-                failed.add((i,) + key(r))
-        for w in rec.get("widths") or ():
-            if under(w["net"], w["layers"]):
-                failed |= {(i,) + key(w)} if w.get("from") else {(i,) + key(o) for o in obs if o["net"] == w["net"]}
-        left = {key(o) for o in rec.get("open") or () if not o.get("violated")}
-        later = None
-        for o, j in zip(obs, final_judged[i]):
-            if not o.get("widths") or key(o) not in left or not j["joined"]:
-                continue
-            if later is None:
-                later = added_copper(read_board(str(phase_boards[i])).copper, final.copper)
-            asks = {o["net"]: {CopperLayer.of(layer): mm for layer, mm in o["widths"].items()}}
-            only = [c for c in later if c.net == o["net"] and c.kind == "track"]
-            if board_widths(final, asks, rec["name"], cfg.check_rise_c, None, 0.0, only=only):
-                failed.add((i,) + key(o))
-    return len(failed)
+def widths_failed(records, asked, final_judged) -> int:
+    """Obligations joined on the final board under their width on their joining path, and joined_narrow outcomes."""
+    n = 0
+    for rec, obs, got in zip(records, asked, final_judged):
+        for o, j in zip(obs, got):
+            if j["joined"] and (j["under"] or outcome_of(o, rec.get("connections") or []) == "joined_narrow"):
+                n += 1
+    return n
 ```
 
 - [ ] **Step 4: Run the tests**
@@ -6417,8 +6531,9 @@ are 0.84 mm and its end pads sit 0.07 mm from the board edge. THT pads 1.7 mm, d
 `min_track_width` 0.2; the Default class clearance 0.2, track 0.2, via 0.6/0.3. At 3 A the legs phase asks a track
 wider than 0.84 - 2 x 0.2 = 0.44 mm, so it cannot pass U1 on either layer; the `signals` phase then routes VB at the
 class width 0.2 through a gap. Expected: `legs` asks one connection (J1.1-J2.1), joins none, and its open entry
-carries `outcome: "failed"` and evidence whose `blocked_by` names U1; its final closure is 1.0 (the `signals` phase
-joined it); `widths_failed` is 1 (Task 15's third rule: the copper `signals` laid is under the legs width).
+carries `outcome: "failed"` and evidence whose `blocked_by` names U1. The `signals` phase joins VB at 0.2 mm, so on
+the final board the legs obligation is joined but its joining path is under its width: its final closure is 0.0 (a
+join under its width is not clean, ruling S6) and `widths_failed` is 1.
 
 **Files:**
 - Create: `$WT/fixtures/obstructed_route/make.py` (writes the board text, then loads and saves it with
@@ -6432,7 +6547,7 @@ joined it); `widths_failed` is 1 (Task 15's third rule: the copper `signals` lai
 
 **Interfaces:**
 - Consumes: Task 6a (the record's `evidence`), Task 13 (phase records with `open[*].outcome/evidence` and
-  `final_closure_clean`; `RouteReport.drc_new`, `vias`, `track_mm`), Task 15 (`widths_failed`), Task 17
+  `final_closure_clean`; `RouteReport.drc_new`, `vias`, `track_mm`, `segments`), Task 15 (`widths_failed`), Task 17
   (`route_ref._route(pcb, work, toml)`, route.json carrying `phases`).
 - Produces:
 
@@ -6501,7 +6616,7 @@ def test_the_recorded_result_names_the_blocker():
     assert (o["net"], o["from"], o["to"], o["outcome"]) == ("VB", {"ref": "J1", "pad": "1"}, {"ref": "J2", "pad": "1"},
                                                             "failed")
     assert "U1" in o["blockers"]
-    assert legs["final_closure_clean"] == 1.0 and rec["widths_failed"] == 1
+    assert legs["final_closure_clean"] == 0.0 and rec["widths_failed"] == 1
 
 
 @needs_kicad
@@ -6721,7 +6836,8 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```python
 def phase_lines(phases: list, without_copper: list = ()) -> list[str]
     # one line per phase record: "phase NAME (SELECTOR): J of A joined clean (P%), T s[, reused][, final F%]
-    # [; open: ...]" ("final" when the final-board closure differs from the phase's own); each open connection with
+    # [; open: ...]" ("final" when the final-board closure differs from the phase's own); a connection joined under
+    # its width as "NET A-B under LAYER MM"; each other open connection with
     # what the router reported of it (its outcome, KRT's diagnosis unless unknown, and "against" what its search met:
     # parts by ref, other copper by net); then "earlier phases with no copper on this board: ..." when without_copper
 ```
@@ -6730,8 +6846,8 @@ def phase_lines(phases: list, without_copper: list = ()) -> list[str]
   the studio pill shows the same fields. `route_record.json`'s `report` keeps `phases`; `route_summary.json` gains
   `"phases": [{"name", "asked", "joined", "closure_clean", "final_closure_clean", "reused"}]`. `watch --summary` of
   a run prints `phase_lines` under the route's line. `RouteReport.as_dict` (route.json) gains `"phases"`,
-  `"phases_without_copper"`, `"widths_failed"`, `"drc_new"`, `"vias"` and `"track_mm"` (Task 13, ruling S6): the
-  inputs score.rank reads.
+  `"phases_without_copper"`, `"widths_failed"`, `"drc_new"`, `"vias"`, `"track_mm"` and `"segments"` (Task 13,
+  ruling S6): the inputs score.rank reads.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -6793,6 +6909,14 @@ def test_a_net_with_a_drc_error_is_said_once_and_a_diagnosis_is_said_when_krt_ga
     (line,) = phase_lines([{"name": "n", "selector": "nets", "asked": 3, "joined": 0, "closure_clean": 0.0,
                             "seconds": 1.0, "open": [sw, dict(sw, to={"ref": "C1", "pad": "1"}), fb]}])
     assert line.endswith("; open: SW has a DRC error, FB J1.1-U1.2 failed boxed_in_static")
+
+
+def test_a_join_under_its_width_is_said_with_its_narrowest_copper():
+    vb = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "J2", "pad": "1"}, "outcome": "joined_narrow",
+          "under": {"F.Cu": 0.2}}
+    (line,) = phase_lines([{"name": "legs", "selector": "current_paths", "asked": 1, "joined": 0, "closure_clean": 0.0,
+                            "seconds": 1.0, "open": [vb]}])
+    assert line.endswith("; open: VB J1.1-J2.1 under F.Cu 0.2")
 ```
 
 - [ ] **Step 2: Run it to see it fail**
@@ -6844,6 +6968,9 @@ def phase_lines(phases: list, without_copper=()) -> list:
                 if o["net"] not in said:
                     said.add(o["net"])
                     opened.append("%s has a DRC error" % o["net"])
+            elif o.get("under"):
+                opened.append("%s %s-%s under %s" % (o["net"], _phase_end(o["from"]), _phase_end(o["to"]), " ".join(
+                    "%s %g" % (layer, mm) for layer, mm in sorted(o["under"].items()))))
             else:
                 opened.append("%s %s-%s%s" % (o["net"], _phase_end(o["from"]), _phase_end(o["to"]), _router_said(o)))
         if opened:
@@ -6858,7 +6985,7 @@ def phase_lines(phases: list, without_copper=()) -> list:
 deletes them) and adds `"  phases: " + ", ".join("%s %.0f%%" % (p["name"], 100 * p["closure_clean"]) for p in self.phases)`,
 then `"  %d connection(s) under their width" % self.widths_failed` when it is non-zero and `"  %d new DRC error(s)" %
 self.drc_new` when it is non-zero. `as_dict` gains `"phases"`, `"phases_without_copper"`, `"widths_failed"`,
-`"drc_new"`, `"vias"` and `"track_mm"`. `RouteEvents.begin(stage, nets=None, phase=None, of=None)`
+`"drc_new"`, `"vias"`, `"track_mm"` and `"segments"`. `RouteEvents.begin(stage, nets=None, phase=None, of=None)`
 puts `phase`/`of` on the `route_stage` event; `_route_board` passes `i + 1, len(run_list)`. channel.py:615:
 `"route phase %d of %d, %s%s" % (ev["phase"], ev["of"], ev["stage"], " (taken from an earlier route)" ...)` when
 `phase` is present. detach.py `run_facts` keeps `m["route"]["phases"]` and `summary_lines` adds `phase_lines`.
