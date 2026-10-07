@@ -292,12 +292,13 @@ def _signal_edges(board, occ):
     return edges, quiet, kinds, partners
 
 
-def _links_mm(board, occ, plan) -> tuple:
+def _links_mm(board, occ, plan, links=None) -> tuple:
     """(sum of weight x length over the links with both pads placed, the excess past the limits). A resolved plan has
     each link's declared obligation; current geometry always comes from the occupancy."""
     mm, excess = 0.0, 0.0
+    declared = (plan.links or board._links) if links is None else links
     pairs = [(l, occ.pad_location(*l.a).distance(occ.pad_location(*l.b)))
-             for l in (plan.links or board._links)
+             for l in declared
              if all(r in occ.items and r not in occ.pending for r in (l.a[0], l.b[0]))]
     for l, d in pairs:
         if d is None:
@@ -341,7 +342,8 @@ def _pushes(board, occ, plan):
     """Declared pushes and annotation pairs at their current physical points."""
     from .layout import _push_value
     value, seen = 0.0, set()
-    for push in plan.pushes:
+    declared = [push for intent in board._placements() for push in intent.pushes]
+    for push in declared + list(plan.pushes):
         if id(push) in seen or push.kind or not push.limit:
             continue
         seen.add(id(push))

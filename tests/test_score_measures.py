@@ -361,3 +361,12 @@ def test_live_fit_area_includes_committed_candidate_before_step_facts_are_update
     occ.lift(['C1'])
     occ.unlift(['C1'])
     assert score.whole(b, occ, plan)['area'] == area
+
+
+
+def test_live_declared_push_exists_before_the_step_records_its_achieved_value():
+    b = _push_board()
+    plan = b.resolve()
+    before = score.whole(b, plan.occupancy, plan)['push']
+    plan.pushes.clear()
+    assert score.whole(b, plan.occupancy, plan)['push'] == before

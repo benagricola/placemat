@@ -215,3 +215,53 @@ def test_python_delta_matches_raw_live_whole_terms_without_mutation(fitted, push
         occ.commit(item, original)
         restored = score.whole(board, occ, plan)
         assert restored == pytest.approx(baseline, abs=1e-6)
+
+
+def test_delta_refuses_changed_or_outside_frames_instead_of_clipping_demand():
+    from dataclasses import replace
+    from placemat.score_delta import Delta
+    from placemat.values import Box, Location
+    from tests.test_score_measures import _push_board
+    board = _push_board()
+    plan = board.resolve()
+    occ = plan.occupancy
+    item = plan._items['u2']
+    original = plan.placement('u2')
+    occ.lift(['U2'])
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    with pytest.raises(ValueError, match='exceed'):
+        delta(replace(original, location=Location(100, 100)))
+    occ.board_box = Box(0, 0, 120, 120)
+    with pytest.raises(ValueError, match='frame changed'):
+        delta(original)
+
+
+def test_cell_candidate_view_replaces_its_copper_and_matches_real_commit():
+    from dataclasses import replace
+    from placemat import score
+    from placemat.layout import Board
+    from placemat.score_delta import Delta
+    from placemat.values import Box, Cell, Location
+    from tests.test_cell_drops import _geom
+    board = Board(_geom(), edge_margin=0.5)
+    board.rect(fit=True)
+    board.place(Cell('m'), at=Location(20, 20))
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['m']
+    occ.board_box = Box(0, 0, 80, 80)  # the legal search room before final fit
+    before_copper = list(occ.copper)
+    occ.lift(['U1'])
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    original = plan.placement('m')
+    candidate = replace(original, location=Location(25, 25))
+    view, _, new = delta._view(candidate)
+    assert new and [s for s in view.copper if s.owner == 'm'] == new
+    assert occ.copper == before_copper
+    expected = score.whole(board, view, plan)
+    change = delta(candidate)
+    lifted = score.whole(board, occ, plan)
+    occ.commit(item, candidate)
+    after = score.whole(board, occ, plan)
+    assert after == pytest.approx(expected, abs=1e-6)
+    for term, value in change.terms.items():
+        assert value == pytest.approx(after[term] - lifted[term], abs=1e-6), term
