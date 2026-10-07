@@ -68,12 +68,12 @@ def diff(run: dict, base: dict) -> list:
             new, old = new_m.get(c), old_m.get(c)
             if new is None and old is None:
                 continue
-            if old is None or "measures" not in old:        # a baseline from before the run score
+            if old is None or not old.get("measures"):     # a baseline from before the run score
                 kind = "new"
-            elif (old["measures"] or {}).get("v") != (new or {}).get("measures", {}).get("v"):
-                kind = "new"            # measured another way (score.MEASURES_VERSION): not compared, as report.comparable
             elif new is None:
                 kind = "gone"
+            elif old["measures"].get("v") != (new.get("measures") or {}).get("v"):
+                kind = "new"            # measured another way (score.MEASURES_VERSION): not compared, as report.comparable
             else:
                 kind = {1: "better", -1: "worse", 0: "same"}[verdict(new, old)]
             out.append((c, m, kind))
@@ -411,7 +411,7 @@ def report(run: dict, base: dict, say=print) -> None:
     for c, m, kind in changes:
         new = run["modules"].get(m, {}).get(c)
         old = base["modules"].get(m, {}).get(c)
-        if kind in ("new", "gone") and (new is None or old is None or "measures" not in old):
+        if kind in ("new", "gone") and (new is None or old is None or not old.get("measures")):
             say("%-8s %-28s %s" % (c, m, kind))
         elif kind == "new":
             say("%s   %s" % (_line(c, m, new, old), kind))

@@ -152,11 +152,11 @@ def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> l
 # ------------------------------------------------------------ surface lanes
 # The escape findings and the run score judge a pad by the cheapest way its track can leave it (placemat's own rule, not
 # a KiCad rule; docs/superpowers/specs/2026-10-07-surface-escapes-design.md). A surface lane is a straight track of the
-# net's class, kept its clearance (`Occupancy.pair_clearance`) from every other net's pads, planned tracks and vias on
-# one of the pad's own layers, and `hole_clearance` from unplated holes. It runs in two legs: out of the pin field along
-# the pin's normal (empty for a part of two pads or one), then straight in one of eight compass directions until it is
-# `score.escape_reach` from the pad's centre. A lane is toward the pad's target when its second leg is within 90 degrees
-# of the direction to the nearest other placed pad of its net. A via spot is a via of the net's class touching the pad's
+# net's class, kept what the exact path search keeps (the class's clearance, and a search cell more) from every other
+# net's pads, tracks, vias and pours on any of the pad's layers, and `hole_clearance` from unplated holes. It runs in two
+# legs: out of the pin field along the pin's normal (empty for a part of two pads or one), then straight in one of eight
+# compass directions to the edge of the search's window, the pad's box grown by `score.escape_reach`. A lane is toward
+# the pad's target when its end lies toward the nearest other placed pad of its net, as the search judges its edge. A via spot is a via of the net's class touching the pad's
 # edge in each direction a corridor takes (`pad_corridors`), and one where the first leg leaves the pin field (on the
 # leg, a via's clearance past the box round the part's other pads); it is clear of every other net's copper on every
 # layer, of unplated holes and of via bans. A pad whose own net's copper already leaves it is not judged: its way out is
@@ -208,6 +208,17 @@ def _exit(box: Box, ux: float, uy: float) -> float:
     return min(tx, ty)
 
 
+def _to_edge(p, u, win: Box) -> float:
+    """How far from `p` (inside `win`) a ray along `u` runs to the window's edge; 0 from a point on it or outside."""
+    t = math.inf
+    for v, k, lo, hi in ((p[0], u[0], win.left, win.right), (p[1], u[1], win.top, win.bottom)):
+        if k > 1e-12:
+            t = min(t, (hi - v) / k)
+        elif k < -1e-12:
+            t = min(t, (lo - v) / k)
+    return max(0.0, t)
+
+
 def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = None) -> tuple:
     """(lanes, via spots) of one part's judged pads: `pads` maps a pad number to (net, layers, box) as the part stands
     (or would stand). A pad is judged when the pad is not left unconnected (`_unconnected`) and its net has two pads or
@@ -217,7 +228,9 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
     The first leg runs from the pad's edge along its pin normal out of the box round the part's other pads, and on
     until a second leg at 45 degrees from its end keeps a lane's reach (half the track and the clearance) from each of
     those pads' corners: on a fine pitch the neighbours' tips stand within that reach of a diagonal from the box's edge.
-    A part of two pads or one has no first leg, and its second legs start at the pad's edge in their own direction."""
+    A part of two pads or one has no first leg, and its second legs start at the pad's edge in their own direction. The
+    second legs run to the edge of the path search's window, the pad's box grown by `score.escape_reach` (`path_out`),
+    and a lane is toward the target when its end, seen from the pad's centre, is (as the search judges its edge)."""
     from .placer import _pin_normal
     if len(pads) < occ.settings.place_escape_min_pads:
         return [], []
@@ -256,7 +269,8 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
                     side = abs((qx - ex) * d[1] - (qy - ey) * d[0])
                     more = max(more, half * math.sqrt(2.0) - side + along)
             first += more
-        end = (start[0] + d[0] * first, start[1] + d[1] * first)
+        win = box.inflate(reach)            # the path search's window (`path_out`): the lanes run to its edge
+        end = (start[0] + d[0] * min(first, _to_edge(start, d, win)), start[1] + d[1] * min(first, _to_edge(start, d, win)))
         aim = None if toward is None else toward.get(number)
         field = len(pads) > 2
         for ux, uy in _COMPASS:
@@ -265,13 +279,10 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
             else:
                 e = _exit(box, ux, uy)
                 a = (c.x + ux * e, c.y + uy * e)
-            px, py = a[0] - c.x, a[1] - c.y
-            b = px * ux + py * uy
-            q = b * b - (px * px + py * py - reach * reach)
-            length = max(0.0, -b + math.sqrt(q)) if q > 0.0 else 0.0
+            length = _to_edge(a, (ux, uy), win)
             f = (a[0] + ux * length, a[1] + uy * length)
             legs = ((start, end), (a, f)) if field else ((a, a), (a, f))
-            ok = aim is None or ux * aim[0] + uy * aim[1] > 1e-9
+            ok = aim is None or (f[0] - c.x) * aim[0] + (f[1] - c.y) * aim[1] > 1e-9
             lanes.append(Lane(ref, number, net, frozenset(layers), legs, Box.of_points([p for leg in legs for p in leg]),
                               (ux, uy), ok))
         dirs = [d]
@@ -561,40 +572,43 @@ class Escapes:
                 for s in pool if s.kind == "viaban"]
 
     def _foes(self, box: Box, net: str, ref: str, number: str) -> list:
-        """(shape, a track centre's reach from it, a via centre's reach less the via's radius) of what stands near
-        `box` that a lane or via of `net` from pad `ref` `number` keeps clear of: other nets' pads, tracks, vias and
-        escape lanes, and unplated holes. Pours give way to a track and are left out."""
+        """(shape, a lane centre's reach from it, a via centre's reach less the via's radius) of what stands near `box`
+        that a lane or via of `net` from pad `ref` `number` keeps clear of: other nets' pads, tracks, vias, pours and
+        escape lanes (a script's pour is static copper), and unplated holes.
+
+        A lane keeps what the path search keeps (`path_out`, exact): half the track and the net class's clearance (the
+        hole clearance from a hole), less the DRC epsilon, and one search cell more, so a lane found open is a way the
+        search's cells find too. A via keeps the pair's clearance, the script's rules included."""
         occ = self.occ
         geom = occ.geometry
         nc = geom.netclass(net)
-        half = nc.track_width / 2.0
+        track = nc.track_width / 2.0 + nc.clearance
         eps = geom.drc_epsilon
+        cell = occ.settings.place_escape_cell
         out = []
         for s in self._bgrid.near(box):
             if s.kind == "npth":
-                clr = geom.hole_clearance
-            elif ((s.kind in ("pad", "through") or (s.kind == "copper" and (s.wire or s.lane)))
-                  and (s.net != net or not net) and not (s.owner == ref and s.label == number)):
-                clr = occ.pair_clearance(net, s.net, "", s.owner, True, s.wire)[0]
+                lane, clr = track + geom.hole_clearance - nc.clearance, geom.hole_clearance
+            elif (s.kind in ("pad", "through", "copper") and (s.net != net or not net)
+                  and not (s.owner == ref and s.label == number)):
+                lane, clr = track, occ.pair_clearance(net, s.net, "", s.owner, True, s.wire)[0]
             else:
                 continue
-            out.append((s, half + clr - eps, clr - eps))
+            out.append((s, max(lane - eps, 0.0) + cell, clr - eps))
         return out
 
     def _lane_blocked(self, lane: Lane, foes) -> list:
-        """The foes that close the lane on every layer it could run on: the lane is open when this is empty."""
-        hit: dict = {}                      # layer -> [shape]
+        """The foes that close the lane: any on one of the pad's layers (a hole on every layer) within its reach, as the
+        path search walls a cell. The lane is open when this is empty."""
+        out = []
         for s, reach, _ in foes:
             if s.kind != "npth" and not (s.layers & lane.layers):
                 continue
             if _box_gap(s.box, lane.box) >= reach:
                 continue
             if any(_seg_poly_distance(a, b, s.poly) < reach for a, b in lane.legs):
-                for layer in (lane.layers if s.kind == "npth" else s.layers & lane.layers):
-                    hit.setdefault(layer, []).append(s)
-        if any(layer not in hit for layer in lane.layers):
-            return []
-        return [s for ss in hit.values() for s in ss]
+                out.append(s)
+        return out
 
     def _spot_blocked(self, spot: ViaSpot, foes, bans) -> list:
         x, y, r = spot.circle
@@ -665,8 +679,7 @@ class Escapes:
         def search(toward) -> bool:
             return bool(path_out(occ, ref, number, depth=reach, toward=toward, exact=True, via_exit=False))
         if not quiet:
-            toward = [l for l in lanes if abs(aim[0]) + abs(aim[1]) < 1e-12
-                      or l.direction[0] * aim[0] + l.direction[1] * aim[1] > 1e-9]
+            toward = self._toward_lanes(lanes, aim, pads[number][2].center)
             if any(not shut[id(l)] for l in toward):
                 return Way.SURFACE, []
             self.searched += 1
@@ -691,6 +704,33 @@ class Escapes:
         named = sorted(by, key=str)
         return way, [b for b in named if str(b) != ref] or named
 
+    def _toward_lanes(self, lanes, aim, centre) -> list:
+        """The lanes whose end lies toward `aim` from the pad's centre, as the path search judges an edge cell, by one
+        search cell to spare (a cell's centre stands up to half a cell from the end); every lane when `aim` is nil."""
+        n = math.hypot(*aim)
+        if n < 1e-12:
+            return list(lanes)
+        cell = self.occ.settings.place_escape_cell
+        return [l for l in lanes
+                if ((l.legs[1][1][0] - centre.x) * aim[0] + (l.legs[1][1][1] - centre.y) * aim[1]) / n > cell]
+
+    def lane_check(self, ref: str, number: str) -> tuple:
+        """(an open lane toward the target, an open lane any way, the direction to the target) for one pad, where the
+        board stands: the first check `_verdict` makes before the path search. None when the pad has no lanes or no
+        target."""
+        lanes_all, _, pads = self._lanes_of(ref)
+        lanes = [l for l in lanes_all if l.number == number]
+        if not lanes:
+            return None
+        net = lanes[0].net
+        centre = pads[number][2].center
+        aim = self._aim(ref, number, net, centre)
+        if aim is None:
+            return None
+        foes = self._foes(self._reach(Box.union([l.box for l in lanes]), net), net, ref, number)
+        open_ = [l for l in lanes if not self._lane_blocked(l, foes)]
+        return bool(set(map(id, open_)) & set(map(id, self._toward_lanes(lanes, aim, centre)))), bool(open_), aim
+
     def _on_own_net_pad(self, ref: str, number: str, net: str) -> bool:
         """Whether another part's pad of the pad's own net stands on it (a pad on a net tie's pad): joined already."""
         for p in self._blockers.get(ref, ()):
@@ -711,6 +751,7 @@ class Escapes:
         """(ref, number, net, way, what blocks) of every judged pad on the board as it stands, by ref and pad number."""
         occ = self.occ
         bans = self._bans()
+        self.searched = 0
         out = []
         for ref in sorted(occ.items):
             if ref in occ.pending or not occ.geometry.has_footprint(ref):

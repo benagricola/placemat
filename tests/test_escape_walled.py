@@ -83,13 +83,14 @@ def test_a_track_of_the_script_that_walls_a_pad_is_named_as_a_refusal_names_it()
     assert found == "U9 pin 1 (IN): walled off by R9, track RING"
 
 
-def test_a_pour_of_another_net_across_the_way_out_gives_way_to_the_pads_lane():
-    """A pour is filled round a track: the lane south through the gap is the pad's way out."""
+def test_a_pour_of_the_script_that_walls_a_pad_is_a_pour():
+    """A script's pour is static copper: across the gap it closes the pad's one way out, and no via spot clears the
+    ring 0.1 mm off, so the pad is walled, and the pour is named."""
     b = _board(_ring_open_south())
     b.pour(Net("RING"), [Location(29.0, 30.6), Location(31.0, 30.6), Location(31.0, 31.1), Location(29.0, 31.1)],
            layer=F, why="a pour across the way out")
-    plan = b.resolve()
-    assert [str(f) for f in plan.findings if f.kind.startswith("escape_")] == []
+    (found,) = _walled(b.resolve())
+    assert found == "U9 pin 1 (IN): walled off by R9, pour RING"
 
 
 def test_an_escape_lane_that_walls_a_pad_is_named_by_its_pin():

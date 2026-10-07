@@ -5066,14 +5066,15 @@ its kind.
 `escape_via`, `escape_closed` and `escape_walled` judge each pad by the cheapest way its track can leave it. This is
 placemat's own rule, not a KiCad rule. A pad is judged when it is not a no-connect pin, its net has another pad placed,
 and no copper of its own net (a track, a via, a pour, another part's pad) already leaves it. Its way out is looked for by
-the exact path search, a track of the net's class kept its clearance (the script's clearance rules included) from every
-other net's copper on the pad's own layers, within `score.escape_reach` of the pad: a surface route toward the nearest
+the exact path search, a track of the net's class kept the net class's clearance from every other net's copper (pads,
+tracks, vias and pours) on any of the pad's own layers, within `score.escape_reach` of the pad's box: a surface route toward the nearest
 other placed pad of its net is free; else a via spot is `escape_via` (`score.escape_via`); else a surface route any way
 is `escape_closed`; else the pad is `escape_walled`. A via spot is a via of the net's class touching the pad's edge
 (along the pin's normal; also to either side, and behind, for a part of two pads or one), and one where a track leaves
 the pin field, clear of every other net's copper on every layer, of unplated holes and of via bans. Straight surface
-lanes from the pad (out of the pin field along the normal, then at 0, 45, 90 ... 315 degrees) are tried first: a pad
-whose lane toward its target is open is judged free without the search. A pad of a plane's or free net drops to its
+lanes from the pad (out of the pin field along the normal, then at 0, 45, 90 ... 315 degrees to the edge of the
+search's window) are tried first, kept a search cell more than the search keeps: a pad whose lane toward its target is
+open is judged free without the search, which would find the same way. A pad of a plane's or free net drops to its
 plane by a via: it is reported only as `escape_walled`, when no via spot and no surface route is open. A pad whose own
 copper (a declared lane, a stub) ends in the air, and a hand-off pin, are judged walled by the path search from where
 that copper ends (`score.escape_walled`).
