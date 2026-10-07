@@ -223,3 +223,23 @@ def test_a_named_pair_net_the_board_lacks_is_refused():
 
 def test_an_excluded_net_drops_its_named_pair():
     assert one({"name": "p", "pairs": [["SDA", "SCL"]]}, excluded={"SCL"}).pairs == ()
+
+
+def test_current_rest_derives_width_tasks_and_refuses_missing_carriers():
+    rest = one({"name": "r", "width": "current"}, open_nets={"VB"})
+    assert rest.tasks and all(t.net == "VB" and t.amps is not None and t.widths for t in rest.tasks)
+    with pytest.raises(PhaseError) as err:
+        one({"name": "r", "width": "current"}, open_nets={"SDA"})
+    assert err.value.code == "no_current"
+
+
+def test_current_bus_keeps_its_bundle_and_sizes_each_connection():
+    got = one({"name": "b", "buses": [["VB"]], "width": "current"})
+    assert got.buses == (("VB",),) and got.tasks and all(t.widths for t in got.tasks)
+
+
+def test_current_interface_keeps_bus_and_derived_width_tasks():
+    from placemat.capture_nets import Capture, Instance
+    cap = Capture("x", "d", {}, frozenset({"interfaces"}), {}, {"B": Instance("B", "Spi", {"CLK": "VB"})})
+    got = one({"name": "b", "interfaces": ["B"], "width": "current"}, cap)
+    assert got.buses == (("VB",),) and got.tasks and all(t.amps is not None for t in got.tasks)

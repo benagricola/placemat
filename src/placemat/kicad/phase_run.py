@@ -71,8 +71,14 @@ def plan_calls(sel, clearance_map: dict, base: float, excluded: set) -> list:
         if width is None and own:
             width = max(w for t in own for _, w in t.widths)
         calls.append(Call("pour", (n,), tasks=own, width=width))
-    calls += [Call("bus", tuple(b), width=sel.width) for b in sel.buses]
-    tasks = [t for t in sel.tasks if t.net not in pours]
+    bus_nets = {n for b in sel.buses for n in b}
+    for bus in sel.buses:
+        own = tuple(t for t in sel.tasks if t.net in bus and t.net not in pours)
+        if own:
+            calls.append(Call("bus_tasks", tuple(n for n in bus if n not in pours), tasks=own))
+        elif not sel.tasks:
+            calls.append(Call("bus", tuple(bus), width=sel.width))
+    tasks = [t for t in sel.tasks if t.net not in pours and t.net not in bus_nets]
     if tasks:
         def clr(t):                                 # the same groups as whole nets' (clearance_groups)
             c = group_clearance(clearance_map, t.net, base)
@@ -638,13 +644,14 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             route_pour_net(ctx, board, nxt, call.nets[0], call.width, layers, stem, phase.neckdown,
                            tuple(phase.router_args))
             out.summaries.append((phase.name, k, summary))
-        elif call.kind == "tasks":
+        elif call.kind in ("tasks", "bus_tasks"):
             pending, j, src = list(call.tasks), 0, board
             while pending:
                 cfile = write_connections(pending, ctx.work / ("%s_%d_connections.json" % (stem, j)), layers)
                 part = ctx.work / ("%s_%d.kicad_pcb" % (stem, j))
                 psum = ctx.work / ("%s_%d_summary.json" % (stem, j))
-                cmd = router_command(ctx.rpy, ctx.script, src, part, set(), layers, psum, connections=cfile, **common)
+                cmd = router_command(ctx.rpy, ctx.script, src, part, set(), layers, psum, connections=cfile,
+                                     bus_nets=list(call.nets) if call.kind == "bus_tasks" else None, **common)
                 log = ctx.work / ("%s_%d.log" % (stem, j))
                 rc = _run(cmd, log, ctx)
                 if rc != 0 or not part.exists():
@@ -652,10 +659,16 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 _copy_project(src, part)
                 lock_copper(str(part))
                 out.summaries.append((phase.name, k, psum))
-                recs = json.loads(psum.read_text()).get("connections") or []
+                data = json.loads(psum.read_text())
+                recs = data.get("connections") or []
+                if call.kind == "bus_tasks":
+                    bus_groups += data.get("bus_groups") or []
                 refused = refused_records(recs)
                 if refused:
                     raise RouteRefused("router_refused", phase=phase.name, tasks=refused)
+                attempted = tuple(t for t, r in zip(pending, recs) if r.get("status") != "deferred")
+                if attempted:
+                    out.calls.append((replace(call, tasks=attempted), src, part))
                 deferred = [t for t, r in zip(pending, recs) if r.get("status") == "deferred"]
                 connections += [r for r in recs if r.get("status") != "deferred"]
                 if len(deferred) == len(pending):     # nothing moved: the router deferred every task; they stay so
@@ -689,7 +702,8 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             if call.kind == "bus" and summary.exists():
                 bus_groups += json.loads(summary.read_text()).get("bus_groups") or []
         lock_copper(str(nxt))
-        out.calls.append((call, board, nxt))
+        if call.kind not in ("tasks", "bus_tasks"):
+            out.calls.append((call, board, nxt))
         board = nxt
     if not calls:                                   # a phase that selected nothing open: its board is its input
         nxt = ctx.work / ("p%d_0.kicad_pcb" % index)
@@ -756,8 +770,13 @@ def phase_widths(phase, calls, cfg) -> list:
     neck = neck_allowance(tuple(cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
     out = []
     for call, before, after in calls:
-        if call.kind == "tasks":
-            asks = {t.net: {CopperLayer.of(l): w for l, w in t.widths} for t in call.tasks}
+        if call.kind in ("tasks", "bus_tasks"):
+            asks = {}
+            for task in call.tasks:
+                widths = asks.setdefault(task.net, {})
+                for layer, width in task.widths:
+                    key = CopperLayer.of(layer)
+                    widths[key] = max(widths.get(key, 0.0), width)
             by = "current" if any(t.amps is not None for t in call.tasks) else "asked"
         elif call.width:
             asks = {n: {CopperLayer.of(l): call.width for l in phase.layers or ()} or None for n in call.nets}

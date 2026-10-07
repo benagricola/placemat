@@ -36,5 +36,3 @@ def _board(tmp_path) -> Path:
                             "netclass_assignments": {"A_P": ["Fast"], "A_N": ["Fast"], "B_P": ["Slow"], "B_N": ["Slow"]}}}
     pcb.with_suffix(".kicad_pro").write_text(json.dumps(pro))
     return pcb
-
-

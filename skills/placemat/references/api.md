@@ -3970,7 +3970,8 @@ net, class, part, pad, type or layer the board lacks, or a glob that matches not
 `net_types` and `pairs = true` need the capture's `nets.layout.json` beside the board).
 
 `width`: a number is that width in mm on every layer; `"current"` sizes each connection from the lesser current of its
-two carriers by IPC-2221 at `[check] rise_c`, per layer (a selected net with fewer than two carriers is refused); left
+two carriers by IPC-2221 at `[check] rise_c`, per layer; a current bus retains one
+call boundary per selected bus, passing both its connection tasks and its bus group (a selected net with fewer than two carriers is refused); left
 out, the net classes' widths. `layers`: the copper layers the phase's tracks may use, by `F`, `In1` to `In30`, `B` or
 their `.Cu` names; vias still pass the others. `neckdown`: the router's pad neck-down, on by default (route.py's
 only: the pair router has none). `router_args`: the router's flags for this phase's calls, its pair call included,

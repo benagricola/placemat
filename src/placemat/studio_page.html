@@ -2773,9 +2773,12 @@ function phasesHTML(phases) {
   if (!phases || !phases.length) return "";
   return phases.map(p => {
     const closure = p.final_closure_clean ?? p.closure_clean;
+    const asked = p.final_asked ?? p.asked, joined = p.final_joined ??
+      (p.final_asked != null ? p.final_asked - (p.final_open || []).length : p.joined);
     const pct = (100 * closure).toFixed(1) + "%", w = (p.widths || []).length;
-    const open = (p.final_open || p.open || []).map(o => o.violated ? o.net + " has a DRC error" : o.net + " " + phaseEnd(o.from) + "-" + phaseEnd(o.to));
-    return '<div class="row"><span class="n wrap"><b>' + esc(p.name) + "</b> " + esc(p.selector + ": " + p.joined + " of " + p.asked + " joined clean, ") +
+    const open = (p.final_open || p.open || []).map(o => o.violated ? o.net + " has a DRC error" : o.net + " " + phaseEnd(o.from) + "-" + phaseEnd(o.to) +
+      (o.width_unknown ? " width unproven" : o.under ? " under " + Object.entries(o.under).map(([l, w]) => l + " " + w).join(", ") : ""));
+    return '<div class="row"><span class="n wrap"><b>' + esc(p.name) + "</b> " + esc(p.selector + ": " + joined + " of " + asked + " joined clean, ") +
       (closure < 1 ? pill(pct, "warn") : esc(pct)) + esc(", " + fmtDur(1000 * p.seconds) + (p.reused ? ", reused" : "")) +
       (w ? " " + pill(w + (w === 1 ? " width finding" : " width findings"), "bad") : "") +
       (open.length ? "<div>" + esc("open: " + open.join(", ")) + "</div>" : "") + "</span></div>";
@@ -3267,7 +3270,7 @@ function routeEvent(V, P, ev) {
   else if (ev.ev === "route_truncated") R.truncated = true;
 }
 const routeLine = (R, V) => !R || R.done == null ? "" : R.off ? "no progress for this route: " + R.off : (R.finished || (V && S.cmds.has(V.id) && S.cmds.get(V.id).state !== "running")) ? "route " + (R.partial ? "stopped before it finished: " : "finished: ") + R.done + " routed, " + R.failed + " failed" + (R.truncated ? " (more events than are kept)" : "") + (R.dropped ? ", " + R.dropped + " events were lost, so the copper drawn may be incomplete" : "") + (R.open ? ", " + R.open + " connection" + (R.open === 1 ? "" : "s") + " left open, marked in red" : "") :
-  "net " + Math.min(R.total || 1, R.seen + 1) + " of " + (R.total || "?") + (R.current ? ": " + R.current : "") + ", " + R.done + " routed, " + R.failed + " failed";
+  (R.phase != null ? "phase " + R.phase + " of " + R.of + ", " + R.stage + ": " : "") + "net " + Math.min(R.total || 1, R.seen + 1) + " of " + (R.total || "?") + (R.current ? ": " + R.current : "") + ", " + R.done + " routed, " + R.failed + " failed";
 // Why a finished route's copper is not drawn (route_view.route_doc and Studio.run_view say so in `unread`), or "" when it is.
 const UNREAD = {no_copper: u => "the route record carries no copper for the " + u.nets + " net" + (u.nets === 1 ? "" : "s") + " the router routed, so none is drawn",
   record_unreadable: () => "the run's route record could not be read, so its routed copper is not drawn"};

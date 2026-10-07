@@ -1687,8 +1687,13 @@ def carriers_of(geometry: BoardGeometry) -> dict[str, dict[str, float]]:
     for fp in geometry.footprints:
         fact = f[fp.ref]
         for p in fp.pads:
-            amps = fact.current_a if fact.currents is None else next(
-                (a for name, a in fact.currents.items() if _net_named(name, p.net)), None)
+            if fact.currents is None:
+                amps = fact.current_a
+            else:
+                matching = [(len(name), a) for name, a in fact.currents.items() if _net_named(name, p.net)]
+                # The exact name is longest, then the most qualified suffix. Equal specificity
+                # uses the conservative current, so field ordering cannot reduce required width.
+                amps = max(matching)[1] if matching else None
             if amps is not None and amps > 0:          # a net given no current, or 0, is not one it carries
                 on = carriers.setdefault(p.net, {})
                 on[fp.ref] = max(on.get(fp.ref, 0.0), amps)

@@ -451,3 +451,14 @@ def test_phase_clearance_ceiling_uses_full_arg_order_and_preserves_capture_floor
     maps = [json.loads(open(c[c.index("--net-clearances") + 1]).read()) for c in rig.calls()]
     assert maps and {m["FB"] for m in maps} == {0.4, 0.2}
     assert all(m["SW"] == 2.0 for m in maps)
+
+
+@needs_kicad
+def test_current_bus_call_carries_tasks_and_bundle_flags(rig):
+    rig.pcb.write_text(rig.pcb.read_text().replace('(property "Reference"', '(property "Pm.I" "VIN:1A") (property "Reference"'))
+    result = rig.route({"name": "bus", "buses": [["VIN"]], "width": "current"})
+    call, = rig.calls()
+    assert "--connections" in call and call[call.index("--bus-nets") + 1] == "VIN"
+    task, = json.loads(open(call[call.index("--connections") + 1]).read())
+    assert task["net"] == "VIN" and all(w > 0 for w in task["widths"].values())
+    assert result.phases[0]["connections"][0]["net"] == "VIN"

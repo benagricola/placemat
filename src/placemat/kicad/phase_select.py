@@ -175,7 +175,7 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
 
     if phase.selector == REST:
         nets = sorted(n for n in open_nets if n not in excluded and n not in pour_nets)
-        return Selection(nets=tuple(nets), rest=True, width=numeric, **base)
+        return whole(nets) if phase.width == CURRENT else Selection(nets=tuple(nets), rest=True, width=numeric, **base)
     if phase.selector == "nets":
         return whole(_expand(phase, phase.nets, geometry.nets))
     if phase.selector == "net_classes":
@@ -194,6 +194,11 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
     if phase.selector == "buses":
         buses = tuple(tuple(n for n in _expand(phase, bus, geometry.nets) if n in open_nets and n not in excluded)
                       for bus in phase.buses)
+        if phase.width == CURRENT:
+            tasks, short = current_tasks(geometry, {n for bus in buses for n in bus}, layers, rise_c, copper_oz)
+            if short:
+                raise PhaseError("no_current", name=phase.name, nets=short)
+            return Selection(buses=tuple(b for b in buses if b), tasks=tasks, pour_nets=_pours(tasks, pour_nets), **base)
         return Selection(buses=tuple(b for b in buses if b), width=numeric, **base)
     if phase.selector == "current_paths":
         # A numeric width is not used here: the tasks are sized from their currents (the user's decision of 2026-10-07).
@@ -265,7 +270,12 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
             nets = tuple(sorted({n for n in inst.members.values() if n in routable and n in open_nets and n not in excluded}))
             if nets and nets not in buses:
                 buses.append(nets)
-        if pairs and numeric is not None:
+        if pairs and phase.width is not None:
             raise PhaseError("pair_width", name=phase.name)
+        if phase.width == CURRENT:
+            tasks, short = current_tasks(geometry, {n for bus in buses for n in bus}, layers, rise_c, copper_oz)
+            if short:
+                raise PhaseError("no_current", name=phase.name, nets=short)
+            return Selection(buses=tuple(buses), tasks=tasks, pour_nets=_pours(tasks, pour_nets), **base)
         return Selection(pairs=tuple(pairs), buses=tuple(buses), width=numeric, **base)
     raise PhaseError("needs_capture", name=phase.name, selector=phase.selector, generator=capture.generator)

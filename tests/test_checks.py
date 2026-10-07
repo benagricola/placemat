@@ -279,3 +279,10 @@ def test_a_per_net_current_names_its_net_by_the_last_part_of_the_path():
     c = footprint("C1", 6, 2, nets=("CELL.VCC", "GND"), fields={"Pm.I": "VCC:0.5A"})
     w = footprint("W1", 10, 2, nets=("XVCC", "GND"), fields={"Pm.I": "vcc:0.5A"})
     assert carriers_of(board_geometry([u, c, w])) == {"/sheet/VCC": {"U1": 0.5}, "CELL.VCC": {"C1": 0.5}}
+
+
+@pytest.mark.parametrize("value", ["VIN:1A module/VIN:2A", "module/VIN:2A VIN:1A"])
+def test_per_net_current_prefers_the_most_specific_name_in_either_order(value):
+    from placemat.checks import carriers_of
+    u = footprint("U1", 2, 2, nets=("module/VIN", "GND"), fields={"Pm.I": value})
+    assert carriers_of(board_geometry([u])) == {"module/VIN": {"U1": 2.0}}

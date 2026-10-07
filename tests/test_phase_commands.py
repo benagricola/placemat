@@ -219,3 +219,12 @@ def test_the_router_reads_each_written_name_as_that_net_alone():
     assert taken == [leaf.get(n, [n]) for n in plain]
     assert power == [[n] for n in plain]
     assert excluded[:2] == [sorted(set(names) - {"D[0]", "/Sub/D[0]"}), sorted(set(names) - {"D0"})]
+
+
+def test_current_buses_preserve_each_bus_call_and_its_task_widths():
+    tasks = (Task("A", ("J1", "1"), ("Q1", "1"), W3, 1.0), Task("B", ("J1", "2"), ("Q1", "2"), W5, 4.0))
+    calls = plan_calls(Selection("p", "buses", buses=(("A",), ("B",)), tasks=tasks, layers=("F.Cu", "B.Cu")), {}, 0.15, set())
+    assert [c.kind for c in calls] == ["bus_tasks", "bus_tasks"]
+    assert [c.nets for c in calls] == [("A",), ("B",)] and [c.tasks for c in calls] == [(tasks[0],), (tasks[1],)]
+    cmd = router_command("py", "route.py", "in", "out", set(), ["F.Cu", "B.Cu"], "s.json", connections=Path("tasks.json"), bus_nets=["A", "B"])
+    assert cmd[cmd.index("--connections") + 1] == "tasks.json" and cmd[cmd.index("--bus-nets") + 1:cmd.index("--bus-nets") + 3] == ["A", "B"]
