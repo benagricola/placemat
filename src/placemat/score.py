@@ -115,7 +115,7 @@ def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
     from .board_geometry import members_of
     from .findings import Finding
     from .values import Face
-    from .ratsnest import Anchor, crossings, mst
+    from .ratsnest import KIND_PLANE, Anchor, crossings, mst
     steps = {s.item: s for s in plan.steps}
     unplaced: dict = {}
     for i in board._placements():
@@ -147,12 +147,13 @@ def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
                 by_net.setdefault(s.net, {})[(ref, s.label)] = Anchor(ref, s.label, a.x, a.y)
     edges = [e for net in sorted(by_net) for e in mst(net, list(by_net[net].values()))]
     every = crossings(edges)[0]
-    signal = crossings(edges, weights={n: 0.0 for n in quiet})[0]
+    signal = crossings(edges, kinds={n: KIND_PLANE for n in quiet}, prices=(1.0, 1.0, 1.0, 0.0, 1.0))[0]
     from .pairs import board_pairs
     partners = {n: m for n, m in board_pairs(board.geometry.netclasses).items()
                 if n not in quiet and m not in quiet}
     # only a pair's own crossings count here: every other crossing weighs 0
-    pair = crossings(edges, weights={n: 0.0 for n in by_net}, partners=partners, pair_weight=1.0)[0]
+    pair = crossings(edges, partners=partners,
+                    prices=(0.0, 0.0, 0.0, 0.0, 1.0))[0]
     # a push is placed once per item, but the same Push object may be recorded again by a re-settle
     pushes, seen = 0.0, set()
     for p in plan.pushes:

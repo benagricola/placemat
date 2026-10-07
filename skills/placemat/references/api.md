@@ -5510,6 +5510,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.crossing` | `4.0` | mm | mm a ratsnest crossing costs, in the run score and in the search |
 | `score.crossing_plane` | `0.0` | share | a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via |
 | `score.pair_crossing` | `100.0` | mm | mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
+| `score.crossing_pair_net` | `5.0` | share | what a ratsnest crossing counts, in crossings, where either airwire is a differential pair's half (and not its partner's) |
+| `score.impedance` | `3.0` | share | a net whose class names a tuning profile (a controlled impedance): what its ratsnest crossings count, in crossings, and how many times over its airwire length counts |
 | `score.escape_crossed` | `20.0` | mm | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_depth` | `1.5` | mm | the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.escape_closed` | `50.0` | mm | mm a pad whose last route toward what it connects to is closed costs |

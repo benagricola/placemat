@@ -446,6 +446,10 @@ class Settings:
         "a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via")
     score_pair_crossing: float = S(100.0, "mm",
         "mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire")
+    score_crossing_pair_net: float = S(5.0, "share",
+        "what a ratsnest crossing counts, in crossings, where either airwire is a differential pair's half (and not its partner's)")
+    score_impedance: float = S(3.0, "share",
+        "a net whose class names a tuning profile (a controlled impedance): what its ratsnest crossings count, in crossings, and how many times over its airwire length counts")
     score_escape_crossed: float = S(20.0, "mm",
         "mm two escapes from one part's pins crossing near its pin row cost")
     score_escape_depth: float = S(1.5, "mm",
@@ -763,7 +767,7 @@ _AT_LEAST_ZERO = frozenset((
     "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "place_turn_crossings_min", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
-    "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
+    "score_crossing_plane", "score_crossing_pair_net", "score_impedance", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",

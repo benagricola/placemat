@@ -8,12 +8,14 @@ import pytest
 
 native = pytest.importorskip("placemat_native")
 
-from placemat.ratsnest import Anchor, Ratsnest  # noqa: E402
+from placemat.ratsnest import KIND_IMPEDANCE, KIND_PAIR, KIND_PLANE, Anchor, Ratsnest  # noqa: E402
+
+PRICES = (1.0, 3.0, 5.0, 0.25, 25.0)
 
 
-def _random_board(rng, weights):
-    py = Ratsnest(weights)
-    nat = Ratsnest(weights, mirror=native.NativeRatsnest(weights))
+def _random_board(rng, kinds):
+    py = Ratsnest(kinds, prices=PRICES)
+    nat = Ratsnest(kinds, mirror=native.NativeRatsnest(), prices=PRICES)
     nets = {}
     parts = ["P%d" % i for i in range(30)] + [""]
     for n in range(rng.randint(5, 40)):
@@ -32,8 +34,8 @@ def _random_board(rng, weights):
 @pytest.mark.parametrize("seed", range(12))
 def test_leaf_costs_are_the_pythons_exactly(seed):
     rng = random.Random(seed)
-    weights = {"N0": 0.0, "N1": 0.25, "N2": 0.0}
-    py, nat, nets = _random_board(rng, weights)
+    kinds = {"N0": KIND_PLANE, "N1": KIND_IMPEDANCE, "N2": KIND_PLANE, "N3": KIND_PAIR}
+    py, nat, nets = _random_board(rng, kinds)
     names = sorted(nets)
     for trial in range(400):
         if trial % 50 == 49:                     # a part moves: its nets are worked out again
@@ -57,14 +59,13 @@ def test_leaf_costs_with_pairs_are_the_pythons_exactly(seed):
     """With pairs among the nets, a crossing between partners weighs the pair
     weight in the native mirror exactly as in Python."""
     rng = random.Random(100 + seed)
-    weights = {"N1": 0.25}
+    kinds = {"N1": KIND_PLANE, "N8": KIND_IMPEDANCE}
     partners = {}
     for a, b in (("N2", "N3"), ("N4", "N5"), ("N6", "N7")):
         partners[a], partners[b] = b, a
-    py = Ratsnest(weights, partners=partners, pair_weight=25.0)
-    mirror = native.NativeRatsnest(weights)
-    mirror.set_partners(sorted(partners.items()), 25.0)
-    nat = Ratsnest(weights, mirror=mirror, partners=partners, pair_weight=25.0)
+        kinds[a] = kinds[b] = KIND_PAIR
+    py = Ratsnest(kinds, partners=partners, prices=PRICES)
+    nat = Ratsnest(kinds, mirror=native.NativeRatsnest(), partners=partners, prices=PRICES)
     nets = {}
     for n in range(12):
         pts = [Anchor(rng.choice(["P%d" % i for i in range(8)] + [""]), str(i),

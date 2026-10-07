@@ -1426,18 +1426,24 @@ impl NativeRatsnest {
 #[pymethods]
 impl NativeRatsnest {
     #[new]
-    fn new(weights: HashMap<String, f64>) -> Self {
-        let mut inner = ratsnest::Ratsnest::new();
-        for (net, w) in weights {
-            inner.set_weight(&net, w);
-        }
-        NativeRatsnest { inner, esc: escapes::Escapes::default() }
+    fn new() -> Self {
+        NativeRatsnest { inner: ratsnest::Ratsnest::new(), esc: escapes::Escapes::default() }
+    }
+
+    /// A net's kind (`ratsnest.KIND_*`).
+    fn set_kind(&mut self, net: &str, kind: u8) {
+        self.inner.set_kind(net, kind);
+    }
+
+    /// What a crossing counts by kind: (plain, impedance, pair net, plane, a pair with itself).
+    fn set_prices(&mut self, prices: [f64; 5]) {
+        self.inner.set_prices(prices);
     }
 
     /// The differential pairs, (net, partner) both ways: a crossing between a
-    /// pair's two halves counts `pair_weight` (ratsnest._crossing_weight).
-    fn set_partners(&mut self, pairs: Vec<(String, String)>, pair_weight: f64) {
-        self.inner.set_partners(&pairs, pair_weight);
+    /// pair's two halves counts the pair's own price (ratsnest.crossing_price).
+    fn set_partners(&mut self, pairs: Vec<(String, String)>) {
+        self.inner.set_partners(&pairs);
     }
 
     /// The quiet nets (a plane's, a free net's): any way out of their pads will do.

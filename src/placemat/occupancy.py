@@ -468,6 +468,23 @@ class _ShiftedBoxes:
                 and b.top + dy < region.bottom + 1e-6 and region.top < b.bottom + dy + 1e-6)
 
 
+
+def net_kinds(board_geometry, quiet) -> dict:
+    """net -> its crossing kind (`ratsnest.KIND_*`), the pin study's classes (`pinmap_input.net_kind`): plane for a
+    quiet net, pair for a half of a net-class pair, impedance for a class that names a tuning profile, else plain.
+    Plain nets are left out (the default)."""
+    from .pairs import board_pairs
+    from .pinmap_input import KINDS, net_kind
+    netclasses = board_geometry.netclasses
+    partners = {n: m for n, m in board_pairs(netclasses).items() if n not in quiet and m not in quiet}
+    out = {}
+    for net in set(netclasses) | set(quiet):
+        k = KINDS.index(net_kind(net, quiet, partners, netclasses))
+        if k:
+            out[net] = k
+    return out
+
+
 class Occupancy:
     def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, board_box: Box | None = None,
                  vias_block_courtyards: bool = False, board_shape=None, board_cutouts=None,
@@ -1274,23 +1291,22 @@ class Occupancy:
     def ratsnest(self):
         """placemat's ratsnest (ratsnest.py) of every item placed so far, kept
         as items commit: what a candidate's crossings are counted against.
-        A quiet net (a plane's, a free net's) weighs `score.crossing_plane`."""
+        A crossing is priced by its nets' kinds (`ratsnest.crossing_price`)."""
         rn = self.__dict__.get("_ratsnest")
         if rn is None:
             from .pairs import board_pairs
             from .ratsnest import Ratsnest
-            weights = {n: self.settings.score_crossing_plane for n in self.quiet_nets}
+            s = self.settings
+            kinds = net_kinds(self.geometry, self.quiet_nets)
             # a pair crossing itself weighs score.pair_crossing; the search
-            # prices the ratsnest's weighted count at score.crossing
+            # prices the ratsnest's count at score.crossing
             partners = {n: m for n, m in board_pairs(self.geometry.netclasses).items()
                         if n not in self.quiet_nets and m not in self.quiet_nets}
-            s = self.settings
-            pair_weight = s.score_pair_crossing / s.score_crossing if s.score_crossing > 0 else 1.0
+            prices = (1.0, s.score_impedance, s.score_crossing_pair_net, s.score_crossing_plane,
+                      s.score_pair_crossing / s.score_crossing if s.score_crossing > 0 else 1.0)
             native = _geometry_module._native
-            mirror = native.NativeRatsnest(weights) if native is not None and hasattr(native, "NativeRatsnest") else None
-            if mirror is not None and partners and hasattr(mirror, "set_partners"):
-                mirror.set_partners(sorted(partners.items()), pair_weight)
-            rn = Ratsnest(weights, mirror=mirror, partners=partners, pair_weight=pair_weight)
+            mirror = native.NativeRatsnest() if native is not None and hasattr(native, "NativeRatsnest") else None
+            rn = Ratsnest(kinds, mirror=mirror, partners=partners, prices=prices)
             self.__dict__["_ratsnest"] = rn
             self.__dict__["_rn_anchors"] = {}
             self._ratsnest_refresh(set(self.items))

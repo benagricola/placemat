@@ -1,5 +1,5 @@
 //! The placed ratsnest, mirrored from `placemat.ratsnest.Ratsnest` for the
-//! one question a candidate asks of it: `leaf_costs` - the weighted
+//! one question a candidate asks of it: `leaf_costs` - the priced
 //! crossings its leaf airwires would add, and the escapes they would cross.
 //! Python computes each net's tree (`mst`) and hands the anchors and the
 //! airwires over after every `set_net`; this answers the question in
@@ -178,10 +178,12 @@ fn cells(p: (f64, f64), q: (f64, f64)) -> impl Iterator<Item = (i64, i64)> {
 #[derive(Default)]
 pub struct Ratsnest {
     names: HashMap<String, u32>,
-    weights: FxMap<u32, f64>,
-    // a differential pair's halves: their crossing counts pair_weight
+    // a net's kind (ratsnest.KIND_*: plain 0, impedance 1, pair 2, plane 3), plain when absent
+    kinds: FxMap<u32, u8>,
+    // a differential pair's halves: their crossing counts prices[4]
     partners: FxMap<u32, u32>,
-    pair_weight: f64,
+    // plain, impedance, pair net, plane, a pair with itself
+    prices: [f64; 5],
     anchors: FxMap<u32, Vec<Anchor>>,
     edges: Vec<Option<Edge>>,
     free: Vec<usize>,
@@ -192,6 +194,7 @@ pub struct Ratsnest {
 impl Ratsnest {
     pub fn new() -> Ratsnest {
         let mut r = Ratsnest::default();
+        r.prices = [1.0; 5];
         r.intern(""); // 0: no part
         r
     }
@@ -209,33 +212,45 @@ impl Ratsnest {
         self.names.get(s).copied()
     }
 
-    pub fn set_weight(&mut self, net: &str, w: f64) {
+    pub fn set_kind(&mut self, net: &str, kind: u8) {
         let n = self.intern(net);
-        self.weights.insert(n, w);
+        self.kinds.insert(n, kind);
     }
 
-    fn weight(&self, net: u32) -> f64 {
-        *self.weights.get(&net).unwrap_or(&1.0)
+    pub fn set_prices(&mut self, prices: [f64; 5]) {
+        self.prices = prices;
     }
 
-    /// `Ratsnest(partners=, pair_weight=)`: the pairs whose own crossing
-    /// counts `pair_weight` rather than the lighter net weight.
-    pub fn set_partners(&mut self, pairs: &[(String, String)], pair_weight: f64) {
+    fn kind(&self, net: u32) -> usize {
+        *self.kinds.get(&net).unwrap_or(&0) as usize
+    }
+
+    /// `Ratsnest(partners=)`: the pairs whose own crossing counts `prices[4]`.
+    pub fn set_partners(&mut self, pairs: &[(String, String)]) {
         self.partners.clear();
         for (a, b) in pairs {
             let (ia, ib) = (self.intern(a), self.intern(b));
             self.partners.insert(ia, ib);
         }
-        self.pair_weight = pair_weight;
     }
 
-    /// ratsnest._crossing_weight: the pair weight for a pair's two halves,
-    /// else the lighter of the two nets' weights.
-    fn crossing_weight(&self, a: u32, wa: f64, b: u32, wb: f64) -> f64 {
-        if self.partners.get(&a) == Some(&b) {
-            return self.pair_weight;
+    /// `Ratsnest._kept`: a crossing with `net` counts something.
+    fn kept(&self, net: u32) -> bool {
+        self.prices[self.kind(net)] > 0.0 || self.partners.contains_key(&net)
+    }
+
+    /// ratsnest.crossing_price: a plane's price when either net is quiet, the pair's own for a pair's two
+    /// halves, else the dearer of the two kinds' prices.
+    fn crossing_price(&self, a: u32, b: u32) -> f64 {
+        let (ka, kb) = (self.kind(a), self.kind(b));
+        if ka == 3 || kb == 3 {
+            return self.prices[3];
         }
-        if wa < wb { wa } else { wb }
+        if self.partners.get(&a) == Some(&b) {
+            return self.prices[4];
+        }
+        let (x, y) = (self.prices[ka], self.prices[kb]);
+        if x >= y { x } else { y }
     }
 
     /// `Ratsnest.set_net` with the tree already worked out: `anchors` in the
@@ -330,10 +345,9 @@ impl Ratsnest {
     /// for a candidate's pads (net, x, y), its own parts `own` left out.
     pub fn leaf_costs(&self, pads: &[(u32, f64, f64)], own: &[u32], depth: f64) -> (f64, i64) {
         // the leaves: each pad joined to the nearest placed anchor of its net
-        let mut leaves: Vec<(u32, f64, (f64, f64), (f64, f64), u32)> = Vec::new();
+        let mut leaves: Vec<(u32, (f64, f64), (f64, f64), u32)> = Vec::new();
         for &(net, x, y) in pads {
-            let w = self.weight(net);
-            if w <= 0.0 {
+            if !self.kept(net) {
                 continue;
             }
             let mut best: Option<(f64, &Anchor)> = None;
@@ -351,7 +365,7 @@ impl Ratsnest {
             }
             if let Some((d, a)) = best {
                 if d > 0.0 {
-                    leaves.push((net, w, (x, y), (a.x, a.y), a.part));
+                    leaves.push((net, (x, y), (a.x, a.y), a.part));
                 }
             }
         }
@@ -361,7 +375,7 @@ impl Ratsnest {
         // sits in every cell its box covers, so a long leaf meets it many times)
         let mut seen: Vec<u32> = vec![0; self.edges.len()];
         for k in 0..leaves.len() {
-            let (net, w, p, q, joined) = leaves[k];
+            let (net, p, q, joined) = leaves[k];
             let pn = (nm(p.0), nm(p.1), nm(q.0), nm(q.1));
             let stamp = k as u32 + 1;
             for c in cells(p, q) {
@@ -375,8 +389,7 @@ impl Ratsnest {
                     if !cross_nm(pn.0, pn.1, pn.2, pn.3, e.nm.0, e.nm.1, e.nm.2, e.nm.3) {
                         continue;
                     }
-                    let we = self.weight(e.net);
-                    total += self.crossing_weight(net, w, e.net, we);
+                    total += self.crossing_price(net, e.net);
                     if joined != 0 && (e.a.part == joined || e.b.part == joined) && !(e.a.part == joined && e.b.part == joined) {
                         if let Some(at) = crossing_point(p, q, (e.a.x, e.a.y), (e.b.x, e.b.y)) {
                             let mut m = hypot(at.0 - q.0, at.1 - q.1);
@@ -395,9 +408,9 @@ impl Ratsnest {
                     }
                 }
             }
-            for &(net2, w2, p2, q2, _) in &leaves[k + 1..] {
+            for &(net2, p2, q2, _) in &leaves[k + 1..] {
                 if net2 != net && segments_cross(p, q, p2, q2) {
-                    total += self.crossing_weight(net, w, net2, w2);
+                    total += self.crossing_price(net, net2);
                 }
             }
         }

@@ -145,25 +145,27 @@ def _cells(p, q):
             yield cx, cy
 
 
-def _weight(weights, net) -> float:
-    return 1.0 if weights is None else weights.get(net, 1.0)
+KIND_PLAIN, KIND_IMPEDANCE, KIND_PAIR, KIND_PLANE = 0, 1, 2, 3     # pinmap_input.KINDS' order
 
 
-def _crossing_weight(weights, partners, pair_weight, a, wa, b, wb) -> float:
-    """What a crossing of nets `a` and `b` (weights `wa`, `wb`) counts: the
-    pair weight when they are one pair's two halves (a pair crossing itself
-    must exchange sides to route coupled), else the lighter of the two."""
+def crossing_price(kinds, partners, prices, a, b) -> float:
+    """What a crossing of nets `a` and `b` counts, in crossings (the run score multiplies by score.crossing): a quiet
+    net's crossing is priced as a plane's; a differential pair's two halves crossing each other at the pair's own price;
+    else the dearer of the two nets' kinds. `prices` is (plain, impedance, pair net, plane, a pair with itself). The
+    pin study's rule (native/src/pinmap.rs `crossing`), with the run score's own price for a pair crossing itself."""
+    ka, kb = kinds.get(a, KIND_PLAIN), kinds.get(b, KIND_PLAIN)
+    if ka == KIND_PLANE or kb == KIND_PLANE:
+        return prices[3]
     if partners and partners.get(a) == b:
-        return pair_weight
-    return wa if wa < wb else wb
+        return prices[4]
+    return max(prices[ka], prices[kb])
 
 
-def crossings(edges, weights=None, partners=None, pair_weight: float = 1.0) -> tuple:
-    """(weighted count, crossings per net) over `edges`: each crossing of two
-    different nets counts the lighter of the two nets' weights (`weights`,
-    net -> weight, 1 when absent), or `pair_weight` when the two are one
-    differential pair's halves (`partners`, net -> its partner); per net
+def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0)) -> tuple:
+    """(priced count, crossings per net) over `edges`: each crossing of two different nets counts
+    `crossing_price` (`kinds`, net -> kind, plain when absent; `partners`, net -> its pair's other half); per net
     counts every crossing."""
+    kinds = kinds or {}
     grid: dict = {}
     for k, e in enumerate(edges):
         for c in _cells(*_ends(e)):
@@ -181,8 +183,7 @@ def crossings(edges, weights=None, partners=None, pair_weight: float = 1.0) -> t
                     continue
                 seen.add((i, j))
                 if segments_cross(*_ends(e), *_ends(f)):
-                    total += _crossing_weight(weights, partners, pair_weight, e.net, _weight(weights, e.net),
-                                              f.net, _weight(weights, f.net))
+                    total += crossing_price(kinds, partners, prices, e.net, f.net)
                     for n in (e.net, f.net):
                         per_net[n] = per_net.get(n, 0) + 1
     return total, dict(sorted(per_net.items(), key=lambda kv: (-kv[1], kv[0])))
@@ -191,21 +192,31 @@ def crossings(edges, weights=None, partners=None, pair_weight: float = 1.0) -> t
 class Ratsnest:
     """The airwires of the pads placed so far, net by net, kept so a
     candidate can be asked what it would add without recounting the board.
-    A net whose weight is 0 is not kept: nothing it crosses counts."""
+    A net whose kind's price is 0 (and that is no pair's half) is not kept: nothing it crosses counts."""
 
-    def __init__(self, weights: dict | None = None, mirror=None, partners: dict | None = None,
-                 pair_weight: float = 1.0):
-        self.weights = dict(weights or {})
-        # a differential pair's halves: their crossing counts pair_weight
+    def __init__(self, kinds: dict | None = None, mirror=None, partners: dict | None = None,
+                 prices: tuple = (1.0, 1.0, 1.0, 1.0, 1.0)):
+        self.kinds = dict(kinds or {})
+        # a differential pair's halves: their crossing counts prices[4]
         self.partners = dict(partners or {})
-        self.pair_weight = pair_weight
+        self.prices = tuple(prices)
         # placemat_native.NativeRatsnest, kept in step with every set_net:
         # it answers leaf_costs, the question every candidate asks
         self.mirror = mirror
+        if mirror is not None:
+            mirror.set_prices(list(self.prices))
+            for net, kind in self.kinds.items():
+                mirror.set_kind(net, kind)
+            if self.partners:
+                mirror.set_partners(sorted(self.partners.items()))
         self._anchors: dict = {}
         self._edges: dict = {}
         self._grid: dict = {}
         self._nmends: dict = {}         # id(edge) -> its ends in whole nanometres
+
+    def _kept(self, net: str) -> bool:
+        """Whether a crossing with `net` counts anything: its kind's price is above 0, or it is a pair's half."""
+        return self.prices[self.kinds.get(net, KIND_PLAIN)] > 0 or net in self.partners
 
     def set_net(self, net: str, anchors, joined=()) -> None:
         """The placed pads of `net` are now `anchors` (with `joined` as mst takes it)."""
@@ -216,7 +227,7 @@ class Ratsnest:
                 if bucket is not None:
                     bucket.remove(e)
         self._anchors[net] = list(anchors)
-        if _weight(self.weights, net) <= 0:
+        if not self._kept(net):
             self._edges[net] = []
             if self.mirror is not None:
                 self.mirror.set_net(net, [(a.ref, a.number, a.x, a.y) for a in self._anchors[net]], [])
@@ -235,11 +246,10 @@ class Ratsnest:
         return [e for net in sorted(self._edges) for e in self._edges[net]]
 
     def _leaves(self, pads, own):
-        """A candidate's leaf airwires: (net, weight, p, q, the anchor joined)."""
+        """A candidate's leaf airwires: (net, p, q, the anchor joined)."""
         out = []
         for net, x, y in pads:
-            w = _weight(self.weights, net)
-            if w <= 0:
+            if not self._kept(net):
                 continue
             best = None
             for a in self._anchors.get(net, ()):
@@ -249,7 +259,7 @@ class Ratsnest:
                 if best is None or d < best[0]:
                     best = (d, a)
             if best is not None and best[0] > 0:
-                out.append((net, w, (x, y), (best[1].x, best[1].y), best[1]))
+                out.append((net, (x, y), (best[1].x, best[1].y), best[1]))
         return out
 
     def leaf_costs(self, pads, own=frozenset(), depth: float = 1.0) -> tuple:
@@ -260,7 +270,7 @@ class Ratsnest:
             return self.mirror.leaf_costs(list(pads), list(own), depth)
         leaves = self._leaves(pads, own)
         total, crossed = 0.0, 0
-        for k, (net, w, p, q, joined) in enumerate(leaves):
+        for k, (net, p, q, joined) in enumerate(leaves):
             pn = (_nm(p[0]), _nm(p[1]), _nm(q[0]), _nm(q[1]))
             seen = set()
             for c in _cells(p, q):
@@ -270,17 +280,16 @@ class Ratsnest:
                     seen.add(id(e))
                     if not _cross_nm(*pn, *self._nmends[id(e)]):
                         continue
-                    total += _crossing_weight(self.weights, self.partners, self.pair_weight,
-                                              net, w, e.net, _weight(self.weights, e.net))
+                    total += crossing_price(self.kinds, self.partners, self.prices, net, e.net)
                     n = joined.ref
                     if n and n in (e.a.ref, e.b.ref) and not e.a.ref == e.b.ref == n:
                         at = _crossing_point(p, q, *_ends(e))
                         ends = [q] + [(v.x, v.y) for v in (e.a, e.b) if v.ref == n]
                         if at is not None and min(math.hypot(at[0] - ex, at[1] - ey) for ex, ey in ends) <= depth:
                             crossed += 1
-            for net2, w2, p2, q2, _ in leaves[k + 1:]:
+            for net2, p2, q2, _ in leaves[k + 1:]:
                 if net2 != net and segments_cross(p, q, p2, q2):
-                    total += _crossing_weight(self.weights, self.partners, self.pair_weight, net, w, net2, w2)
+                    total += crossing_price(self.kinds, self.partners, self.prices, net, net2)
         return total, crossed
 
     def crossed_escapes(self, pads, own=frozenset(), depth: float = 1.0) -> int:
