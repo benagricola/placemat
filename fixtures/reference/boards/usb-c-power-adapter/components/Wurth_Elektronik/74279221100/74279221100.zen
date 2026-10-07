@@ -1,0 +1,26 @@
+"""
+74279221100
+
+Auto-generated using `pcb import`.
+"""
+
+skip_bom = config(bool, default=False)
+
+
+skip_pos = config(bool, default=False)
+
+
+P1 = io(Net)
+P2 = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="74279221100",
+    skip_bom=skip_bom,
+    skip_pos=skip_pos,
+    symbol=Symbol(library="74279221100.kicad_sym"),
+    properties=annotations,
+    pin_defs={"1": "1", "2": "2"},
+    pins={"1": P1, "2": P2},
+)

@@ -1,0 +1,15 @@
+"""
+PMEG6002EJ_115
+
+Auto-generated using `pcb import`.
+"""
+
+A = io(Net)
+C = io(Net)
+
+Component(
+    name="PMEG6002EJ_115",
+    symbol=Symbol(library="PMEG6002EJ_115.kicad_sym"),
+    pin_defs={"C": "1", "A": "2"},
+    pins={"C": C, "A": A},
+)

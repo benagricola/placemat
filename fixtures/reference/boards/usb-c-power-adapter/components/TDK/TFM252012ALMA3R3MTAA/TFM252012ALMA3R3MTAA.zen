@@ -1,0 +1,18 @@
+"""
+TFM252012ALMA3R3MTAA
+
+Auto-generated using `pcb import`.
+"""
+
+P1 = io(Net)
+P2 = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="TFM252012ALMA3R3MTAA",
+    symbol=Symbol(library="TFM252012ALMA3R3MTAA.kicad_sym"),
+    properties=annotations,
+    pin_defs={"1": "1", "2": "2"},
+    pins={"1": P1, "2": P2},
+)

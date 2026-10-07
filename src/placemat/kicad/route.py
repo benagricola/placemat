@@ -50,6 +50,15 @@ def _launch(python, script) -> list:
     return [str(python), str(script)]
 
 
+class RouterFailed(RuntimeError):
+    """A router call that exited non-zero or wrote no board: `what` failed, the call's `exit_code`, its `log` and the log's
+    last lines (`tail`)."""
+
+    def __init__(self, what: str, exit_code, log, tail: str):
+        super().__init__("%s; log %s\n%s" % (what, log, tail))
+        self.what, self.exit_code, self.log, self.tail = what, exit_code, Path(log), tail
+
+
 @dataclass
 class Score:
     closure: float
@@ -232,13 +241,14 @@ def plane_nets_of(pcb) -> set:
     cell's local zone or pour (in its group) does not count, its net still
     runs to parts elsewhere."""
     from .quiet import import_pcbnew, quiet_stderr
+    from .read import is_pour
     pcbnew = import_pcbnew()
     with quiet_stderr():
         board = pcbnew.LoadBoard(str(pcb)) if Path(pcb).stat().st_size else None
     if board is None:
         return set()
     grouped = {it.m_Uuid.AsString() for g in board.Groups() for it in g.GetItems()}
-    nets = {z.GetNetname() for z in board.Zones() if not z.GetIsRuleArea() and z.GetNetname()
+    nets = {z.GetNetname() for z in board.Zones() if is_pour(z) and z.GetNetname()
             and z.m_Uuid.AsString() not in grouped}
     nets |= {d.GetNetname() for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_SHAPE) and d.GetNetname()
              and d.IsOnCopperLayer() and (d.IsSolidFill() if hasattr(d, "IsSolidFill") else False)
@@ -316,7 +326,7 @@ def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
     least `share` of the board is a plane, and an outer layer's pours hold
     other nets' surface pads: neither is guarded. "NET on LAYER" per guard."""
     from .quiet import import_pcbnew, quiet_stderr
-    from .read import standard_layer_name
+    from .read import is_pour, standard_layer_name
     pcbnew = import_pcbnew()
     with quiet_stderr():
         board = pcbnew.LoadBoard(pcb_path)
@@ -326,7 +336,7 @@ def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
     routed = set(layers or ())
     out = []
     for z in list(board.Zones()):
-        if z.GetIsRuleArea() or z.GetNetname() not in nets:
+        if not is_pour(z) or z.GetNetname() not in nets:
             continue
         if board_area and z.Outline().Area() >= share * board_area:
             continue
@@ -703,7 +713,7 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
             if "matched no differential pair" in text or "No differential pairs" in text:
                 continue
             tail = "\n".join(text.splitlines()[-8:])
-            raise RuntimeError("the pair router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
+            raise RouterFailed("the pair router exited %d without a routed board" % rc, rc, log, tail)
         found = _merged(found, read_pairs(text))
         _copy_project(router_in, out)             # the next call reads the renamed nets' classes beside its board
         lock_copper(str(out))                     # and keeps this call's copper as it stands
@@ -879,6 +889,35 @@ def _copy_project(src_pcb, dst_pcb) -> None:
             shutil.copy(Path(src_pcb).with_suffix(ext), Path(dst_pcb).with_suffix(ext))
 
 
+def main_pass_nets(nets, excluded) -> set:
+    """The nets of `nets` the main pass's `--nets '*' '!NET' ...` (router_command) matches, as the router expands it: a
+    port of KRT net_queries.py expand_net_patterns and net_pattern_matches. The wildcard takes every named net but the
+    'unconnected-*' ones; each '!NET' is an fnmatch pattern ('D[0]' matches D0, not D[0]) that also matches the last
+    path component of a sheet-qualified net when it names no path; and a '!NET' that is itself the name of a net on the
+    board is that net, included, not an exclusion of NET."""
+    import fnmatch
+
+    def matches(name, pattern):                  # net_pattern_matches
+        if fnmatch.fnmatch(name, pattern):
+            return True
+        return "/" not in pattern and "/" in name and fnmatch.fnmatch(name.rsplit("/", 1)[-1], pattern)
+    known = {n for n in nets if n}
+    pool = {n for n in known if not n.lower().startswith("unconnected-")}
+    result, dropped = set(pool), set()           # '*' first
+    for x in sorted(excluded):
+        raw = "!" + x
+        if raw in known:                         # a literal active-low net: an include
+            hit = {n for n in pool if matches(n, raw) and n not in dropped}
+            result |= hit if hit else ({raw} - dropped)
+            continue
+        hit = {n for n in pool if matches(n, x)}
+        if "*" not in x and "?" not in x:
+            dropped.add(x)
+        dropped |= hit
+        result -= hit
+    return result
+
+
 def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
                    iterations: int | None = None, probe: int | None = None, quick: bool = False,
                    nets=None, widths=None, clearances: Path | None = None) -> list:
@@ -941,7 +980,7 @@ def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands
                                 timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
         if rc != 0 or not out.exists():
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
-            raise RuntimeError("the router exited %d routing island net %s; log %s\n%s" % (rc, net, log, tail))
+            raise RouterFailed("the router exited %d routing island net %s" % (rc, net), rc, log, tail)
         _copy_project(inp, out)
         pours_back(str(out), board)
         lock_copper(str(out))
@@ -998,7 +1037,7 @@ def route_class_stages(rpy, script, router_dir_path, board: Path, work: Path, st
                                 timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
         if rc != 0 or not out.exists():
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
-            raise RuntimeError("the router exited %d routing the %g mm class nets; log %s\n%s" % (rc, mm, log, tail))
+            raise RouterFailed("the router exited %d routing the %g mm class nets" % (rc, mm), rc, log, tail)
         _copy_project(board, out)
         lock_copper(str(out))
         board = out
@@ -1213,21 +1252,27 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     else:
         state.drop_from("main")
         t1 = time.time()
-        cmd = router_command(rpy, script, board, raw_out, excluded | pairs.routed_nets | staged, layers, summary,
-                             iterations, probe, quick, clearances=clearances)
-        rev.begin("main")
-        rc = None
-        try:
-            with open(log, "w") as f:
-                f.write("$ %s\n\n" % " ".join(cmd))
-                f.flush()
-                rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=dict(env, **rev.env("main")),
-                                    timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
-        finally:
-            rev.end("main", complete=rc == 0)
-        if rc != 0 or not raw_out.exists():
-            tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
-            raise RuntimeError("router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
+        # the router refuses a net list that matches no net, exit 1 (KRT route.py main, "No nets matched the given
+        # patterns!"): with none, the board stands as the earlier stages left it
+        if not main_pass_nets(geometry.nets, excluded | pairs.routed_nets | staged):
+            shutil.copy(board, raw_out)
+            log.write_text("no net left for the main pass: the router was not called\n")
+        else:
+            cmd = router_command(rpy, script, board, raw_out, excluded | pairs.routed_nets | staged, layers, summary,
+                                 iterations, probe, quick, clearances=clearances)
+            rev.begin("main")
+            rc = None
+            try:
+                with open(log, "w") as f:
+                    f.write("$ %s\n\n" % " ".join(cmd))
+                    f.flush()
+                    rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=dict(env, **rev.env("main")),
+                                        timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
+            finally:
+                rev.end("main", complete=rc == 0)
+            if rc != 0 or not raw_out.exists():
+                tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
+                raise RouterFailed("router exited %d without a routed board" % rc, rc, log, tail)
         spent += time.time() - t1
         state.record("main", d_main, {"board": raw_out.name, "seconds": round(time.time() - t1, 1)})
     seconds = round(spent, 1)

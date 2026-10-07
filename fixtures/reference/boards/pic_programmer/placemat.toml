@@ -1,0 +1,6 @@
+# pic_programmer's reference-set settings. Every setting is at its default (`placemat settings --example`):
+# the reference set measures placemat as it ships. This file marks the board's project root, so its runs
+# are kept in this folder's .placemat/.
+#
+# Routing: the default route. The capture's currents (Pm.I on the input path, the 7805 and the LT1373
+# switch path) are judged by the current-path check; no interface or pair calls for a phase of its own.

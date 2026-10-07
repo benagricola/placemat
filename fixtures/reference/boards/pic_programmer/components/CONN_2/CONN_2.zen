@@ -1,0 +1,18 @@
+"""
+CONN_2
+
+Auto-generated using `pcb import`.
+"""
+
+P1 = io(Net)
+PM = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="CONN_2",
+    symbol=Symbol(library="CONN_2.kicad_sym"),
+    properties=annotations,
+    pin_defs={"P1": "1", "PM": "2"},
+    pins={"P1": P1, "PM": PM},
+)

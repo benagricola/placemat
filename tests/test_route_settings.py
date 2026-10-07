@@ -114,3 +114,96 @@ def test_a_cells_own_zone_leaves_its_net_to_the_router(breakout_pcb, tmp_path):
     grp.AddItem(z)
     brd.Save(str(pcb))
     assert net not in plane_nets_of(pcb)
+
+
+TEARDROP_ZONE = """	(zone
+		(net {code})
+		(net_name "{net}")
+		(layer "{layer}")
+		(uuid "{uid}")
+		(name "$teardrop_padvia$")
+		(hatch full 0.1)
+		(priority 30053)
+		(attr
+			(teardrop
+				(type padvia)
+			)
+		)
+		(connect_pads yes
+			(clearance 0)
+		)
+		(min_thickness 0.0254)
+		(filled_areas_thickness no)
+		(fill yes
+			(thermal_gap 0.5)
+			(thermal_bridge_width 0.5)
+			(island_removal_mode 1)
+			(island_area_min 10)
+		)
+		(polygon
+			(pts
+				(xy {x0} {y0}) (xy {x1} {y0}) (xy {x1} {y1}) (xy {x0} {y1})
+			)
+		)
+	)
+"""
+
+
+def add_teardrop_zone(pcb, net, layer="B.Cu", at=(10, 10), size=1):
+    """Append a KiCad teardrop zone (what the teardrop generator writes at a pad or via) on `net` to the board file: a
+    `size` mm square with its corner at `at`. Returns the zone's uuid."""
+    import pcbnew
+    import uuid
+    code = pcbnew.LoadBoard(str(pcb)).GetNetcodeFromNetname(net)
+    text = pcb.read_text().rstrip()
+    assert text.endswith(")")
+    uid = str(uuid.uuid4())
+    block = TEARDROP_ZONE.format(code=code, net=net, layer=layer, uid=uid, x0=at[0], y0=at[1], x1=at[0] + size, y1=at[1] + size)
+    pcb.write_text(text[:-1] + block + ")\n")
+    zone = next(z for z in pcbnew.LoadBoard(str(pcb)).Zones() if z.m_Uuid.AsString() == uid)
+    assert zone.IsTeardropArea() and zone.GetNetname() == net
+    return uid
+
+
+def _board_with_teardrop_zone(breakout_pcb, tmp_path):
+    """A copy of the breakout board with a teardrop zone on a net it has no pour on: (pcb, net)."""
+    import shutil
+    from placemat.kicad.route import plane_nets_of
+    for ext in (".kicad_pcb", ".kicad_pro"):
+        if breakout_pcb.with_suffix(ext).exists():
+            shutil.copy(breakout_pcb.with_suffix(ext), tmp_path / ("layout" + ext))
+    pcb = tmp_path / "layout.kicad_pcb"
+    net = next(n for n in ("V48P", "TERM_NEAR_MID") if n not in plane_nets_of(pcb))
+    add_teardrop_zone(pcb, net)
+    return pcb, net
+
+
+@needs_kicad
+@needs_breakout
+def test_a_teardrop_zone_is_not_a_pour(breakout_pcb, tmp_path):
+    """A teardrop zone widens a track at a pad or via; it serves no net by a pour, so the net is routed and
+    counted in the closure."""
+    from placemat.kicad.route import plane_nets_of
+    pcb, net = _board_with_teardrop_zone(breakout_pcb, tmp_path)
+    assert net not in plane_nets_of(pcb)
+
+
+@needs_kicad
+@needs_breakout
+def test_a_plane_is_not_raised_over_a_teardrop_zone(breakout_pcb, tmp_path):
+    """A teardrop zone has its own very high priority and KiCad does not report it as an intersecting zone:
+    a plane drawn over it keeps its priority."""
+    import pcbnew
+    from placemat.kicad.write import _raise_planes_over_zones
+    pcb, net = _board_with_teardrop_zone(breakout_pcb, tmp_path)
+    brd = pcbnew.LoadBoard(str(pcb))
+    z = pcbnew.ZONE(brd)
+    z.SetLayer(pcbnew.B_Cu)
+    z.SetNetCode(brd.GetNetcodeFromNetname(net))
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in ((9, 9), (12, 9), (12, 12), (9, 12)):
+        o.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
+    brd.Add(z)
+    _raise_planes_over_zones(brd, [z])
+    assert z.GetAssignedPriority() == 0

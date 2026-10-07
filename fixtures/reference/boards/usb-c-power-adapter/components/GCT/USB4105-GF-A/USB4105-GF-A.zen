@@ -1,0 +1,69 @@
+"""
+USB4105-GF-A
+
+Auto-generated using `pcb import`.
+"""
+
+CC_1 = io(Net)
+CC_2 = io(Net)
+D_A_NEG = io(Net)
+D_A_POS = io(Net)
+D_B_NEG = io(Net)
+D_B_POS = io(Net)
+GND_A1 = io(Net)
+GND_A12 = io(Net)
+GND_B1 = io(Net)
+GND_B12 = io(Net)
+SBU_1 = io(Net)
+SBU_2 = io(Net)
+SH = io(Net)
+VBUS_A4 = io(Net)
+VBUS_A9 = io(Net)
+VBUS_B4 = io(Net)
+VBUS_B9 = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="USB4105-GF-A",
+    symbol=Symbol(library="USB4105-GF-A.kicad_sym"),
+    properties=annotations,
+    pin_defs={
+        "GND__A1": "A1",
+        "GND__A12": "A12",
+        "VBUS__A4": "A4",
+        "CC_{1}": "A5",
+        "D_{A}+": "A6",
+        "D_{A}-": "A7",
+        "SBU_{1}": "A8",
+        "VBUS__A9": "A9",
+        "GND__B1": "B1",
+        "GND__B12": "B12",
+        "VBUS__B4": "B4",
+        "CC_{2}": "B5",
+        "D_{B}+": "B6",
+        "D_{B}-": "B7",
+        "SBU_{2}": "B8",
+        "VBUS__B9": "B9",
+        "SH": "SH",
+    },
+    pins={
+        "GND__A1": GND_A1,
+        "GND__A12": GND_A12,
+        "VBUS__A4": VBUS_A4,
+        "CC_{1}": CC_1,
+        "D_{A}+": D_A_POS,
+        "D_{A}-": D_A_NEG,
+        "SBU_{1}": SBU_1,
+        "VBUS__A9": VBUS_A9,
+        "GND__B1": GND_B1,
+        "GND__B12": GND_B12,
+        "VBUS__B4": VBUS_B4,
+        "CC_{2}": CC_2,
+        "D_{B}+": D_B_POS,
+        "D_{B}-": D_B_NEG,
+        "SBU_{2}": SBU_2,
+        "VBUS__B9": VBUS_B9,
+        "SH": SH,
+    },
+)

@@ -1,0 +1,19 @@
+"""
+7805
+
+Auto-generated using `pcb import`.
+"""
+
+GND = io(Net)
+VI = io(Net)
+VO = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="7805",
+    symbol=Symbol(library="7805.kicad_sym"),
+    properties=annotations,
+    pin_defs={"VI": "1", "GND": "2", "VO": "3"},
+    pins={"VI": VI, "GND": GND, "VO": VO},
+)

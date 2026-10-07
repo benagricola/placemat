@@ -369,7 +369,7 @@ class Settings:
     pins_guard_ms: float = S(10000.0, "ms",
         "a safety net on the pin map study's time for each studied part, scaled with its budget for a longer study: past it the study gives no map and says so in a `setup.pins` warning; 0 is off")
     drc_severities: dict = S(None, "table",
-        "a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC", factory=dict)
+        "a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC; a placement the script decided may put a courtyard over another part's hole where `npth_inside_courtyard` or `pth_inside_courtyard` is below `error`", factory=dict)
     route_router_dir: str = S("", "path",
         "the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream`")
     route_quick: bool = S(True, "bool",

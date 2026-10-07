@@ -1,0 +1,102 @@
+"""
+SIC477ED-T1-GE3
+
+Auto-generated using `pcb import`.
+"""
+
+AGND_23 = io(Net)
+AGND_28 = io(Net)
+BOOT = io(Net)
+EN = io(Net)
+F_SW = io(Net)
+GL = io(Net)
+I_LIMIT = io(Net)
+MODE = io(Net)
+NC_18 = io(Net)
+NC_21 = io(Net)
+PGND_10 = io(Net)
+PGND_11 = io(Net)
+PGND_17 = io(Net)
+PGND_9 = io(Net)
+PHASE_5 = io(Net)
+PHASE_6 = io(Net)
+P_GOOD = io(Net)
+SS = io(Net)
+SW_12 = io(Net)
+SW_13 = io(Net)
+SW_14 = io(Net)
+V_CIN = io(Net)
+V_DD = io(Net)
+V_DRV = io(Net)
+V_FB = io(Net)
+V_IN_7 = io(Net)
+V_IN_8 = io(Net)
+V_SNS = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="SIC477ED-T1-GE3",
+    symbol=Symbol(library="SIC477ED-T1-GE3.kicad_sym"),
+    properties=annotations,
+    pin_defs={
+        "V_{CIN}": "1",
+        "PGND__10": "10",
+        "PGND__11": "11",
+        "SW__12": "12",
+        "SW__13": "13",
+        "SW__14": "14",
+        "GL": "15",
+        "V_{DRV}": "16",
+        "PGND__17": "17",
+        "NC__18": "18",
+        "SS": "19",
+        "P_{GOOD}": "2",
+        "V_{SNS}": "20",
+        "NC__21": "21",
+        "V_{FB}": "22",
+        "AGND__23": "23",
+        "f_{SW}": "24",
+        "I_{LIMIT}": "25",
+        "V_{DD}": "26",
+        "MODE": "27",
+        "AGND__28": "28",
+        "EN": "3",
+        "BOOT": "4",
+        "PHASE__5": "5",
+        "PHASE__6": "6",
+        "V_{IN}__7": "7",
+        "V_{IN}__8": "8",
+        "PGND__9": "9",
+    },
+    pins={
+        "V_{CIN}": V_CIN,
+        "PGND__10": PGND_10,
+        "PGND__11": PGND_11,
+        "SW__12": SW_12,
+        "SW__13": SW_13,
+        "SW__14": SW_14,
+        "GL": GL,
+        "V_{DRV}": V_DRV,
+        "PGND__17": PGND_17,
+        "NC__18": NC_18,
+        "SS": SS,
+        "P_{GOOD}": P_GOOD,
+        "V_{SNS}": V_SNS,
+        "NC__21": NC_21,
+        "V_{FB}": V_FB,
+        "AGND__23": AGND_23,
+        "f_{SW}": F_SW,
+        "I_{LIMIT}": I_LIMIT,
+        "V_{DD}": V_DD,
+        "MODE": MODE,
+        "AGND__28": AGND_28,
+        "EN": EN,
+        "BOOT": BOOT,
+        "PHASE__5": PHASE_5,
+        "PHASE__6": PHASE_6,
+        "V_{IN}__7": V_IN_7,
+        "V_{IN}__8": V_IN_8,
+        "PGND__9": PGND_9,
+    },
+)

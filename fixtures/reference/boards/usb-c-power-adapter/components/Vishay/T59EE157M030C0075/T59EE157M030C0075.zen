@@ -1,0 +1,15 @@
+"""
+T59EE157M030C0075
+
+Auto-generated using `pcb import`.
+"""
+
+P1 = io(Net)
+P2 = io(Net)
+
+Component(
+    name="T59EE157M030C0075",
+    symbol=Symbol(library="T59EE157M030C0075.kicad_sym"),
+    pin_defs={"1": "1", "2": "2"},
+    pins={"1": P1, "2": P2},
+)

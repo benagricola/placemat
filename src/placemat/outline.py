@@ -191,6 +191,31 @@ class Outline:
                 return EdgeWhy.PAST_BOARD if n == 0 else EdgeWhy.PAST_CUTOUT
         return None
 
+    def cutouts_why_not(self, box: Box, margin: float) -> EdgeWhy | None:
+        """`why_not` of the cutouts alone: None when `box` is clear of every
+        cutout with `margin` to spare, else what it is in or too near."""
+        ix = self._index()
+        if ix.loops_around((box.left + box.right) / 2.0, (box.top + box.bottom) / 2.0) - {0}:
+            return EdgeWhy.IN_CUTOUT
+        left, top = box.left - margin, box.top - margin
+        right, bottom = box.right + margin, box.bottom + margin
+        for x1, y1, x2, y2, n, lo_x, lo_y, hi_x, hi_y in ix.near(left, top, right, bottom):
+            if n == 0 or hi_x < left or lo_x > right or hi_y < top or lo_y > bottom:
+                continue
+            if _segment_box(x1, y1, x2, y2, box) < margin - _NM:
+                return EdgeWhy.PAST_CUTOUT
+        return None
+
+    def outside_by(self, x: float, y: float) -> float:
+        """How far the point lies outside the board's own path: 0 on or
+        inside it (a cutout is not outside), else its distance to the
+        nearest leg of the path as flattened."""
+        if 0 in self._index().loops_around(x, y):
+            return 0.0
+        loop = self.loops[0]
+        at = Box(x, y, x, y)
+        return min(_segment_box(x1, y1, x2, y2, at) for (x1, y1), (x2, y2) in zip(loop, loop[1:] + loop[:1]))
+
     def polygon(self, inset: float = 0.0) -> tuple:
         """The board's own outline, pulled in by `inset`: what a plane is
         given. Each vertex moves along the bisector of its two legs, which

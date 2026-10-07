@@ -1,0 +1,15 @@
+"""
+AXGD10402KR
+
+Auto-generated using `pcb import`.
+"""
+
+A = io(Net)
+C = io(Net)
+
+Component(
+    name="AXGD10402KR",
+    symbol=Symbol(library="AXGD10402KR.kicad_sym"),
+    pin_defs={"C": "1", "A": "2"},
+    pins={"C": C, "A": A},
+)

@@ -34,6 +34,7 @@ request (SKILL.md, "When no form says it").
 | on a board edge, wherever there is room | `at=OnEdge(edge)` | Placement |
 | at a mechanical point along an edge | `at=OnEdge(edge, along=Along.MID)` | Placement |
 | at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
+| a firm part whose courtyard crosses the edge (a corner mounting hole) | `board.place(item, at=..., overhang=0.8, why=...)` | Placement ("The edge is the board's") |
 | its own pad on the pin it serves | `at=Pin(key, X(pin), Y(pin))`, or `Pin(key, pin)` | Placement |
 | its own pad against another pad's edge (a net tie at a shunt's inner edge) | `at=Pin(1, PadRef(part, n, edge=Edge.SOUTH, along=Along.END))` | Placement |
 | a cell placed by one of its members' pads | `at=Pin(CellPadRef(cell, net=), x, y)` | Placement |
@@ -251,6 +252,7 @@ board.place(cell, at=Polar(r, None, about=centre), rotations=Turns.TANGENT)  # o
 board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
 board.place(item, at=Near(Location(x, y)), radius=20, budget=5_000_000)  # a search that may judge this many candidates
 board.place(cell, arrangements=["default", "pair.upright"])          # a cell: the arrangements of its module the search may take
+board.place(item, at=Location(x, y), overhang=0.8, why="...")         # FIXED, its courtyard and body up to 0.8 mm past the edge
 ```
 `item` is a `Part` (schematic instance), a `Cell` (a stamped group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -808,6 +810,22 @@ a searched part may stand nearer the edge by its courtyard's margin. An edge
 item's reach (body, pads and silk together, `board.reach(item,
 rotation)`) lands there. A face that must stand proud of the edge says
 `OnEdge(edge, overhang=)` with a why. A row inboard of an edge row is `behind=` it.
+A firm placement whose courtyard or body crosses the edge where the script
+puts it (a mounting hole in a corner, its courtyard wider than its inset)
+says how far with `overhang=` on `board.place`, and why: the points of its
+courtyard and body shapes may then lie up to that many mm outside the
+board's outer edge, measured to the edge itself (round a rounded or
+chamfered corner too). The allowance is the outer edge's only: a cutout
+and a round board's bore are judged as without one. It does not move the
+item, and its pads and copper are still held to `board.keep_in`. A reach
+past the overhang is refused, saying how far the shapes cross ("body box
+... crosses the board edge by 0.74 mm, more than its overhang (0.50 mm)").
+An item accepted without an overhang is accepted with one. `overhang=`
+needs a `why=` (an empty one raises) and a decided place - a `Location`, a
+`Centre`, a `Pin`, a `Beside`, or `OnEdge`/`OnRim` with a position along it;
+a searched item raises. On `OnEdge`/`OnRim` it lets the courtyard cross the
+other edge at a corner; one that already says `overhang=` takes no second
+one. A part or a cell takes it; a block does not.
 
 **Beside another item.** `at=Beside(item, Edge.EAST, align=None, gap=None)`
 stands the item on that side of `item` - a `Part`, a `Cell`, a keepout
@@ -1433,7 +1451,14 @@ parts out. `union` is both. In
 `physical` a part's courtyard still keeps off another part's plated lead, and
 its plated leads out from under another part's courtyard, as KiCad's DRC
 judges them (`pth_inside_courtyard`); the refusal names the pad: `C1 courtyard
-sits over the through-hole lead of J1 pad 2`. Under every
+sits over the through-hole lead of J1 pad 2`. Under every envelope a courtyard
+also keeps off another part's unplated hole (`npth_inside_courtyard`: `J2
+courtyard sits over a npth (J1)`). A placement the script decided follows the
+board's severity for these two rules, `[drc.severities]` over KiCad's default
+of `error`: at `warning` or `ignore` its courtyard may stand over the hole or
+lead, and KiCad's DRC reports it at that severity. A place placemat chooses
+keeps off them whatever the severity: a searched item's, a rider's of a
+searched item, and a `Beside` item's moved out from its offset. Under every
 envelope a footprint's own copper graphics (a net-tie's winding, a printed
 antenna) are copper of no net: every other part, track and via - placed,
 drawn by the script, or found by `FreeSpot` and `--via-near` - keeps the
@@ -5446,7 +5471,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.explore_top` | `3` | count | the best variants of an explore, by run score, the pin map study runs on (0: none) |
 | `pins.probe_budget_steps` | `150000` | steps | the pin map study's search for each part, in steps, when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
 | `pins.guard_ms` | `10000.0` | ms | a safety net on the pin map study's time for each studied part, scaled with its budget for a longer study: past it the study gives no map and says so in a `setup.pins` warning; 0 is off |
-| `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
+| `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC; a placement the script decided may put a courtyard over another part's hole where `npth_inside_courtyard` or `pth_inside_courtyard` is below `error` |
 | `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream` |
 | `route.quick` | `true` | bool | one routing round rather than the router's full run |
 | `route.max_iterations` | `unset` | count | cap on the router's search per net; unset: the router's own default |

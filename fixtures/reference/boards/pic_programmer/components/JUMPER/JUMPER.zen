@@ -1,0 +1,19 @@
+"""
+JUMPER
+
+Auto-generated using `pcb import`.
+"""
+
+skip_bom = config(bool, default=True)
+
+
+P1 = io(Net)
+P2 = io(Net)
+
+Component(
+    name="JUMPER",
+    skip_bom=skip_bom,
+    symbol=Symbol(library="JUMPER.kicad_sym"),
+    pin_defs={"1": "1", "2": "2"},
+    pins={"1": P1, "2": P2},
+)

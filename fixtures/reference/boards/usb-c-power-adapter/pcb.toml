@@ -1,0 +1,11 @@
+[workspace]
+pcb-version = "0.4"
+vendor = ["code.diode.computer/diode/registry/**"]
+
+[board]
+name = "usb-c-power-adapter"
+path = "usb-c-power-adapter.zen"
+description = "Replace with concise board description."
+
+[access]
+allow = ["*"]

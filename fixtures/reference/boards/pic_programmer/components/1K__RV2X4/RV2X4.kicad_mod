@@ -1,0 +1,255 @@
+(footprint "RV2X4"
+	(version 20211014)
+	(generator pcbnew)
+	(fp_text reference "REF**"
+		(at 0 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(fp_text value "RV2X4"
+		(at 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(layer "F.Cu")
+	(descr "Resistance variable / Potentiometre")
+	(tags "R")
+	(units
+		(unit
+			(name "A")
+			(pins "1" "2" "3")
+		)
+	)
+	(attr through_hole)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start 11.43 3.81)
+		(end 8.89 6.35)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "5e7497bf-3556-47ea-90ff-ed080e3818ae")
+	)
+	(fp_line
+		(start 11.43 1.27)
+		(end 11.43 3.81)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "5064197d-ec37-44b0-b5c6-9f09d6d3c334")
+	)
+	(fp_line
+		(start 8.89 6.35)
+		(end -2.54 6.35)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "a2c049b2-c830-4679-953a-4242f85e6a19")
+	)
+	(fp_line
+		(start 8.89 -1.27)
+		(end 11.43 1.27)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "90d4281a-376f-495a-9c7a-ed6499e3ae6f")
+	)
+	(fp_line
+		(start 6.731 6.35)
+		(end 5.842 6.35)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "c2608614-fd5e-4e38-a5ea-0261db517695")
+	)
+	(fp_line
+		(start 5.842 -1.27)
+		(end 6.985 -1.27)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "168177c3-1353-4ffd-8b2c-ce72738f01e9")
+	)
+	(fp_line
+		(start 2.54 3.1)
+		(end 9 3.1)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "793ca34d-1ec2-468a-aded-54af2964cf65")
+	)
+	(fp_line
+		(start 2.54 2.032)
+		(end 9 2.032)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "274c36c9-6c72-4584-b5a3-0b89d7203f86")
+	)
+	(fp_line
+		(start -2.54 6.35)
+		(end -2.54 -1.27)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "6e879a0f-0e06-4720-ac79-491f47e2cc4a")
+	)
+	(fp_line
+		(start -2.54 -1.27)
+		(end 8.89 -1.27)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "e08c42c9-bfba-403f-a070-6ab4e7818a82")
+	)
+	(fp_arc
+		(start 9.941076 3.874447)
+		(mid 2.522492 2.536987)
+		(end 9.949999 1.250001)
+		(stroke
+			(width 0.3)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "04983edf-ead0-4222-ab2f-1c307edf4563")
+	)
+	(fp_line
+		(start 12.08 4.04)
+		(end 9.33 6.79)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "25535dc6-66a9-4eea-8884-86dd76ebdaa1")
+	)
+	(fp_line
+		(start 12.08 1.04)
+		(end 12.08 4.04)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "daa80ec1-8ec5-4734-96b8-6a54195d757c")
+	)
+	(fp_line
+		(start 9.33 6.79)
+		(end -2.92 6.79)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "ebdc7492-e673-47d7-93d1-07e26dbbc73b")
+	)
+	(fp_line
+		(start 9.33 -1.71)
+		(end 12.08 1.04)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "f31cd2c3-a75b-47f6-8d98-6e6360dcf6bb")
+	)
+	(fp_line
+		(start -2.92 6.79)
+		(end -2.92 -1.71)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "a9fc2f90-9361-4807-b2dc-af3de8092921")
+	)
+	(fp_line
+		(start -2.92 -1.71)
+		(end 9.33 -1.71)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "640ab7e7-6f68-4e14-81e4-77528cec1c6c")
+	)
+	(pad "1" thru_hole circle
+		(at 0 0)
+		(size 2.032 2.032)
+		(drill 1.27)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(pinfunction "1_1")
+		(pintype "passive")
+	)
+	(pad "2" thru_hole circle
+		(at 10.16 2.54)
+		(size 2.032 2.032)
+		(drill 1.27)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(pinfunction "2_2")
+		(pintype "passive")
+	)
+	(pad "3" thru_hole circle
+		(at 0 5.08)
+		(size 2.032 2.032)
+		(drill 1.27)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(pinfunction "3_3")
+		(pintype "passive")
+	)
+	(embedded_fonts no)
+	(model "${KIPRJMOD}/libs/3d_shapes/adjustable_rx2v4.wrl"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)

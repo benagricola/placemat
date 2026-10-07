@@ -1,0 +1,100 @@
+(footprint "L_Radial_D7.8mm_P5.00mm_Fastron_07HCP"
+	(version 20211014)
+	(generator pcbnew)
+	(layer "F.Cu")
+	(descr "Inductor, Radial series, Radial, pin pitch=5.00mm, diameter=7.8mm, height=7.5mm, Fastron, 07HCP, http://www.abracon.com/Magnetics/radial/AISR875.pdf")
+	(tags "Inductor Radial series Radial pin pitch 5.00mm  diameter 7.8mm height 7.5mm Fastron 07HCP")
+	(units
+		(unit
+			(name "A")
+			(pins "1" "2")
+		)
+	)
+	(attr through_hole)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_arc
+		(start 6.20497 1.56)
+		(mid 2.5 4.02)
+		(end -1.20497 1.56)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "8956dd72-0160-4481-b499-97ec53d5b487")
+	)
+	(fp_arc
+		(start -1.20497 -1.56)
+		(mid 2.5 -4.02)
+		(end 6.20497 -1.56)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "c5d19a55-f800-40f7-8577-88081578f46b")
+	)
+	(fp_circle
+		(center 2.5 0)
+		(end 6.85 0)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "efde9373-dd5a-44b4-85b0-0297546c8842")
+	)
+	(fp_circle
+		(center 2.5 0)
+		(end 6.4 0)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.Fab")
+		(uuid "dc1cd916-3ea8-4003-a14d-f5c8fa85322a")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 2.5 0)
+		(layer "F.Fab")
+		(uuid "f46fb739-3a72-47c2-b741-104c730505b2")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" thru_hole circle
+		(at 0 0)
+		(size 2.6 2.6)
+		(drill 1.3)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(pinfunction "1_1")
+		(pintype "passive")
+	)
+	(pad "2" thru_hole circle
+		(at 5 0)
+		(size 2.6 2.6)
+		(drill 1.3)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(pinfunction "2_2")
+		(pintype "passive")
+	)
+	(embedded_fonts no)
+	(model "${KICAD10_3DMODEL_DIR}/Inductor_THT.3dshapes/L_Radial_D7.8mm_P5.00mm_Fastron_07HCP.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)

@@ -1,0 +1,21 @@
+"""
+SQS401EN-T1_BE3
+
+Auto-generated using `pcb import`.
+"""
+
+D = io(Net)
+G = io(Net)
+S_1 = io(Net)
+S_2 = io(Net)
+S_3 = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="SQS401EN-T1_BE3",
+    symbol=Symbol(library="SQS401EN-T1_BE3.kicad_sym"),
+    properties=annotations,
+    pin_defs={"S__1": "1", "S__2": "2", "S__3": "3", "G": "4", "D": "5"},
+    pins={"S__1": S_1, "S__2": S_2, "S__3": S_3, "G": G, "D": D},
+)

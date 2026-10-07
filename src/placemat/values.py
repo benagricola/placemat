@@ -1083,12 +1083,20 @@ class Disc:
                   for x in (box.left, box.right) for y in (box.top, box.bottom))
         if far > self.radius - margin + _NM:
             return EdgeWhy.PAST_RIM
+        return self.cutouts_why_not(box, margin)
+
+    def cutouts_why_not(self, box: Box, margin: float):
+        """`why_not` of the bore and the cutouts alone."""
         if self.bore:
             dx = max(box.left - self.centre.x, 0.0, self.centre.x - box.right)
             dy = max(box.top - self.centre.y, 0.0, self.centre.y - box.bottom)
             if math.hypot(dx, dy) < self.bore + margin - _NM:
                 return EdgeWhy.INTO_BORE
         return self.cutouts.why_not(box, margin)
+
+    def outside_by(self, x: float, y: float) -> float:
+        """How far the point lies outside the rim: 0 on or inside it."""
+        return max(math.hypot(x - self.centre.x, y - self.centre.y) - self.radius, 0.0)
 
     def polygon(self, inset: float = 0.0, segments: int = 72) -> tuple:
         """The rim, inset, as a polygon: what a zone or a pour is given."""

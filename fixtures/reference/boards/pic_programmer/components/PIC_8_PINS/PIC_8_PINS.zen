@@ -1,0 +1,39 @@
+"""
+PIC_8_PINS
+
+Auto-generated using `pcb import`.
+"""
+
+GP0 = io(Net)
+GP1 = io(Net)
+GP2 = io(Net)
+GP3_MCLR = io(Net)
+GP4_OSC2 = io(Net)
+GP5_OSC1 = io(Net)
+VDD = io(Net)
+VSS = io(Net)
+
+Component(
+    name="PIC_8_PINS",
+    symbol=Symbol(library="PIC_8_PINS.kicad_sym"),
+    pin_defs={
+        "VDD": "1",
+        "GP5/OSC1": "2",
+        "GP4/OSC2": "3",
+        "GP3/MCLR": "4",
+        "GP2": "5",
+        "GP1": "6",
+        "GP0": "7",
+        "VSS": "8",
+    },
+    pins={
+        "VDD": VDD,
+        "GP5/OSC1": GP5_OSC1,
+        "GP4/OSC2": GP4_OSC2,
+        "GP3/MCLR": GP3_MCLR,
+        "GP2": GP2,
+        "GP1": GP1,
+        "GP0": GP0,
+        "VSS": VSS,
+    },
+)

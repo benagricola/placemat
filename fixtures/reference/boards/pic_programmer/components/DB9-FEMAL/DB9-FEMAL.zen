@@ -1,0 +1,22 @@
+"""
+DB9-FEMAL
+
+Auto-generated using `pcb import`.
+"""
+
+P1 = io(Net)
+P2 = io(Net)
+P3 = io(Net)
+P4 = io(Net)
+P5 = io(Net)
+P6 = io(Net)
+P7 = io(Net)
+P8 = io(Net)
+P9 = io(Net)
+
+Component(
+    name="DB9-FEMAL",
+    symbol=Symbol(library="DB9-FEMAL.kicad_sym"),
+    pin_defs={"1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "P6": "6", "P7": "7", "P8": "8", "P9": "9"},
+    pins={"1": P1, "2": P2, "3": P3, "4": P4, "5": P5, "P6": P6, "P7": P7, "P8": P8, "P9": P9},
+)

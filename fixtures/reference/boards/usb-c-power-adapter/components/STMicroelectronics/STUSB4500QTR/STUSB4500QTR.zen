@@ -1,0 +1,88 @@
+"""
+STUSB4500QTR
+
+Auto-generated using `pcb import`.
+"""
+
+ADDR0 = io(Net)
+ADDR1 = io(Net)
+ATTACH = io(Net)
+A_B_SIDE = io(Net)
+CC1 = io(Net)
+CC1DB = io(Net)
+CC2 = io(Net)
+CC2DB = io(Net)
+DISCH = io(Net)
+EP = io(Net)
+GND = io(Net)
+GPIO = io(Net)
+N_ALERT = io(Net)
+POWER_OK2 = io(Net)
+POWER_OK3 = io(Net)
+RESET = io(Net)
+SCL = io(Net)
+SDA = io(Net)
+VBUS_EN_SNK = io(Net)
+VBUS_VS_DISCH = io(Net)
+VDD = io(Net)
+VREG_1V2 = io(Net)
+VREG_2V7 = io(Net)
+VSYS = io(Net)
+
+Component(
+    name="STUSB4500QTR",
+    symbol=Symbol(library="STUSB4500QTR.kicad_sym"),
+    pin_defs={
+        "CC1DB": "1",
+        "GND": "10",
+        "ATTACH": "11",
+        "ADDR0": "12",
+        "ADDR1": "13",
+        "POWER_OK3": "14",
+        "GPIO": "15",
+        "VBUS_EN_SNK": "16",
+        "A_B_SIDE": "17",
+        "VBUS_VS_DISCH": "18",
+        "~{ALERT}": "19",
+        "CC1": "2",
+        "POWER_OK2": "20",
+        "VREG_1V2": "21",
+        "VSYS": "22",
+        "VREG_2V7": "23",
+        "VDD": "24",
+        "EP": "25",
+        "NC": "3",
+        "CC2": "4",
+        "CC2DB": "5",
+        "RESET": "6",
+        "SCL": "7",
+        "SDA": "8",
+        "DISCH": "9",
+    },
+    pins={
+        "CC1DB": CC1DB,
+        "GND": GND,
+        "ATTACH": ATTACH,
+        "ADDR0": ADDR0,
+        "ADDR1": ADDR1,
+        "POWER_OK3": POWER_OK3,
+        "GPIO": GPIO,
+        "VBUS_EN_SNK": VBUS_EN_SNK,
+        "A_B_SIDE": A_B_SIDE,
+        "VBUS_VS_DISCH": VBUS_VS_DISCH,
+        "~{ALERT}": N_ALERT,
+        "CC1": CC1,
+        "POWER_OK2": POWER_OK2,
+        "VREG_1V2": VREG_1V2,
+        "VSYS": VSYS,
+        "VREG_2V7": VREG_2V7,
+        "VDD": VDD,
+        "EP": EP,
+        "CC2": CC2,
+        "CC2DB": CC2DB,
+        "RESET": RESET,
+        "SCL": SCL,
+        "SDA": SDA,
+        "DISCH": DISCH,
+    },
+)

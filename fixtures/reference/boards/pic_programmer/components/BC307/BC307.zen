@@ -1,0 +1,19 @@
+"""
+BC307
+
+Auto-generated using `pcb import`.
+"""
+
+B = io(Net)
+C = io(Net)
+E = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="BC307",
+    symbol=Symbol(library="BC307.kicad_sym"),
+    properties=annotations,
+    pin_defs={"C": "1", "B": "2", "E": "3"},
+    pins={"C": C, "B": B, "E": E},
+)

@@ -1,0 +1,15 @@
+"""
+LG_L29K-G2J1-24-Z
+
+Auto-generated using `pcb import`.
+"""
+
+A = io(Net)
+C = io(Net)
+
+Component(
+    name="LG_L29K-G2J1-24-Z",
+    symbol=Symbol(library="LG_L29K-G2J1-24-Z.kicad_sym"),
+    pin_defs={"C": "1", "A": "2"},
+    pins={"C": C, "A": A},
+)

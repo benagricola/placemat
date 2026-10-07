@@ -56,7 +56,8 @@ def free_sides(board, occ, plan, i, around: str, near, rotation=None, face=None)
                 cand = dataclasses.replace(i, beside=spec, rotation=rot, face=face or (Face.FRONT if i.either else i.face))
                 p = board._beside_placement(occ, plan, cand, push=False)    # the standoff itself: judged just below
                 with occ.silk_as_drawn():
-                    why = occ.legal_giving_way(i.item, p, board.clearance, past_edge=False, by_corners=True)[0]
+                    why = occ.legal_giving_way(i.item, p, board.clearance, past_edge=False, by_corners=True,
+                                               overhang=i.overhang, decided=True)[0]
                 if why is None:
                     found.append((p.location.distance(near) if near is not None else 0.0, side.name))
             except (ValueError, TypeError, KeyError, AttributeError, IndexError):

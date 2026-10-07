@@ -24,7 +24,7 @@ from ..placement import Placement
 from ..board_geometry import (CellGeom, Footprint, allow_marker, cell_tagged, layer_marker, resolve_marker,
                               split_allow, split_marker, stackup_order, untagged)
 from ..cutouts import closes_itself
-from .read import FACES_PREFIX, standard_layer_name
+from .read import FACES_PREFIX, is_pour, standard_layer_name
 from .text import _mirror_for_layer, text_item
 from ..rules import RULE_PREFIX, rule_note
 from ..arrangement_note import ARRANGEMENT_PREFIX
@@ -784,7 +784,7 @@ def _raise_planes_over_zones(board, planes) -> None:
     for z in planes:
         later.discard(uid(z))               # what is left is the planes not yet raised
         layers = set(z.GetLayerSet().CuStack())
-        near = [o for o in board.Zones() if uid(o) != uid(z) and uid(o) not in later and not o.GetIsRuleArea()
+        near = [o for o in board.Zones() if uid(o) != uid(z) and uid(o) not in later and is_pour(o)
                 and o.GetNetname() == z.GetNetname() and layers & set(o.GetLayerSet().CuStack())
                 and _zones_overlap(z, o)]
         if near:

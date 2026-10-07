@@ -668,7 +668,7 @@ def describe_begin(ev: dict) -> str:
 
 
 FAILURES = {"generation": "Schematic generation failed", "script": "Layout script failed",
-            "placement": "Firm placements collide; fix the script (or --keep-going to see the rest)"}
+            "placement": "Firm placements collide; fix the script (or --keep-going to see the rest)", "route": "Routing failed"}
 
 
 def failure_text(ev: dict) -> str:

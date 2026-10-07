@@ -5,6 +5,38 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A firm placement may state `overhang=` with a why.** `board.place(item, at=..., overhang=0.8, why=...)` lets the
+  item's courtyard and body reach up to 0.8 mm past the board's outer edge, on any side, where the script puts it; it
+  does not move the item, a cutout or a bore is judged as without it, and its pads and copper are still held to
+  `board.keep_in`. Use it for a part whose courtyard crosses
+  the edge at a decided place, such as a corner mounting hole whose courtyard is wider than its inset, which placemat
+  refused ("body box ... crosses the board edge") and KiCad's DRC accepts. A reach past the stated overhang is refused
+  with how far the box crosses. It needs a `why=` and a decided place: on a searched item, on a block, or with an
+  `OnEdge`/`OnRim` that says its own `overhang=`, it raises. Scripts need no change.
+- **A firm part's courtyard over another part's hole follows the board's severity.** Where `[drc.severities]` sets
+  `npth_inside_courtyard` (an unplated hole) or `pth_inside_courtyard` (a plated lead) to `warning` or `ignore`, a
+  placement the script decided may stand with its courtyard over such a hole, as KiCad's DRC accepts it; placemat
+  refused it ("J2 courtyard sits over a npth (J1)") whatever the severity. At KiCad's default, `error`, it is refused
+  as before. A place placemat chooses - a search's, a rider's of a searched item, a `Beside` item's moved out from its
+  offset - keeps off the hole at any severity. Scripts need no change.
+
+### Fixed
+
+- **A route with nothing left to route completes.** `run --route` on a board whose nets are all served by planes, pours
+  or fingers called the router with a net list that matched nothing; the router exited 1 and the run crashed with its
+  record left at "running". The main pass is now skipped when no net is left for it, and the route records zero of zero
+  connections, closure 100%. Scripts need no change.
+- **A route that fails fails the run.** An error while routing left `run.json` at "running"; the run now records a
+  failure of kind `route`, with the router's exit code, log and the log's last lines where the router failed, and exits
+  non-zero. Scripts need no change.
+- **A teardrop is not a pour.** KiCad keeps a teardrop as a zone on its net, and placemat took it for the net's pour: a
+  net whose only zones were teardrops was left out of the route and counted as closed. Such a net is now routed and
+  counted in closure, and no plane is raised over a teardrop or guarded as a partial pour. Scripts need no change.
+
 ## To 0.99.34
 
 ### Fixed

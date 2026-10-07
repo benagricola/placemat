@@ -1,0 +1,13 @@
+# usb-c-power-adapter's reference-set settings. Every setting is at its default (`placemat settings --example`)
+# but the KiCad rule severities below: the reference set measures placemat as it ships. This file marks the
+# board's project root, so its runs are kept in this folder's .placemat/.
+#
+# Routing: the default route. The capture's currents (Pm.I on the PD input path, the 12 V path and the 5 V and
+# 3.3 V paths) are judged by the current-path check; no interface or pair calls for a phase of its own (the board
+# has no USB data pair: J1's D+ and D- are not connected).
+
+# The human board's own rule: its project (usb-c-power-adapter.kicad_pro) sets a courtyard over another part's
+# hole to warning, and its J2 courtyard stands over J1's unplated pegs. KiCad's default for both is error.
+[drc.severities]
+npth_inside_courtyard = "warning"
+pth_inside_courtyard = "warning"

@@ -1,0 +1,18 @@
+"""
+ASPIAIG-Q8080-4R7M-T
+
+Auto-generated using `pcb import`.
+"""
+
+P1 = io(Net)
+P2 = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="ASPIAIG-Q8080-4R7M-T",
+    symbol=Symbol(library="ASPIAIG-Q8080-4R7M-T.kicad_sym"),
+    properties=annotations,
+    pin_defs={"1": "1", "2": "2"},
+    pins={"1": P1, "2": P2},
+)

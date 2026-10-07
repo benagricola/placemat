@@ -1,0 +1,18 @@
+"""
+1N4004
+
+Auto-generated using `pcb import`.
+"""
+
+A = io(Net)
+K = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="1N4004",
+    symbol=Symbol(library="1N4004.kicad_sym"),
+    properties=annotations,
+    pin_defs={"K": "1", "A": "2"},
+    pins={"K": K, "A": A},
+)

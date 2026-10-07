@@ -1,0 +1,18 @@
+"""
+TP_0_75mm_SMD
+
+Auto-generated using `pcb import`.
+"""
+
+skip_bom = config(bool, default=True)
+
+
+P1 = io(Net)
+
+Component(
+    name="TP_0_75mm_SMD",
+    skip_bom=skip_bom,
+    symbol=Symbol(library="TP_0_75mm_SMD.kicad_sym"),
+    pin_defs={"1": "1"},
+    pins={"1": P1},
+)

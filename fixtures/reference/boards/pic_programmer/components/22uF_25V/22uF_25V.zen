@@ -1,0 +1,18 @@
+"""
+22uF_25V
+
+Auto-generated using `pcb import`.
+"""
+
+P1 = io(Net)
+P2 = io(Net)
+
+annotations = config(dict, default={}, optional=True, help="placemat facts (Pm.*), written as footprint fields")
+
+Component(
+    name="22uF_25V",
+    symbol=Symbol(library="22uF_25V.kicad_sym"),
+    properties=annotations,
+    pin_defs={"1": "1", "2": "2"},
+    pins={"1": P1, "2": P2},
+)
