@@ -741,8 +741,8 @@ def test_whole_cell_lift_owns_copper_but_partial_member_move_does_not():
 
 
 @pytest.mark.slow
-def test_repository_module_and_core_non_escape_delta_parity():
-    """Actual benchmark module resolves plus the written core's rigid cells."""
+def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
+    """Actual module/core raw objective and complete prepared escape parity."""
     from dataclasses import replace
     from fixtures import bench
     from fixtures.reference.lock import realboard
@@ -755,6 +755,12 @@ def test_repository_module_and_core_non_escape_delta_parity():
     rng = random.Random(11)
     keys = ('airwire', 'crossings', 'link', 'link_over', 'push', 'area', 'congestion',
             'escape_crossed', 'escape_closed', 'escape_via')
+
+    from placemat import geometry as geometry_kernel
+    from placemat.prepared_escape import prepare
+    from tests.test_prepared_escape import _assert_inspection
+    native_module = geometry_kernel._native
+    assert native_module is not None and hasattr(native_module, 'PreparedSurface'), 'designated full composition gate'
 
     def check(board, plan, limit):
         occ = plan.occupancy
@@ -793,6 +799,25 @@ def test_repository_module_and_core_non_escape_delta_parity():
                     assert counts == oracle_counts, (step.item, candidate, classifier)
                 assert change.walled == oracle_counts.get('escape_walled', 0)
                 assert change.walled_change == change.walled - delta._escape_base.get('escape_walled', 0)
+                if kernel is not None:
+                    full, reason = prepare(delta, [candidate.rotation], candidate.face)
+                    assert full is not None, (step.item, reason)
+                    full_terms, full_crossed, full_vias, full_away, full_walled, ways, walls = full.evaluate(candidate, 0, inspect=True)
+                    # The independent oracle rebuilds its own ratsnest and
+                    # classifies geometry in Python; the native snapshot is
+                    # immutable and cannot provide cached answers to it.
+                    python_view, _, _ = delta._view(candidate)
+                    with monkeypatch.context() as pure:
+                        pure.setattr(geometry_kernel, '_native', None)
+                        oracle = judging(python_view)
+                        full_counts = oracle.counts()
+                        _assert_inspection(oracle, ways, walls)
+                    assert (full_crossed, full_vias, full_away, full_walled) == (
+                        full_counts['escape_crossed'] - delta._escape_base['escape_crossed'],
+                        full_counts['escape_via'], full_counts['escape_closed'], full_counts['escape_walled']), (step.item,candidate)
+                    assert full_terms == pytest.approx(tuple(change.terms[k] for k in
+                        ('airwire','crossings','link','link_over','area','congestion')), abs=1e-6)
+                    assert full_terms[1] == change.terms['crossings']
                 native = kernel.terms(candidate.location.x, candidate.location.y, 0) if kernel else None
                 if kernel is not None:
                     assert kernel.escape_cross(candidate.location.x, candidate.location.y, 0,
