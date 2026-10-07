@@ -7,7 +7,7 @@ side, a 0.44 mm track can fit. The current-derived width exceeds that opening
 on both layers. End pads stop the wide route going around the wall. Their 0.57 mm edge gap
 satisfies the unchanged 0.5 mm copper-edge minimum. A route needs its own
 width plus 0.2 mm pad clearance and 0.5 mm edge clearance, so this edge gap
-provides no bypass. The gaps between pads still admit the 0.2 mm signal route.
+provides no legal 0.2 mm (or wider) bypass. The gaps between pads still admit the 0.2 mm signal route.
 
 The `legs` phase asks J1.1 to J2.1 at the current-derived width and must fail,
 with failure evidence naming U1. The `signals` phase then joins VB at the
