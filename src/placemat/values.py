@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 import math
 
-from .cutouts import Cutouts, EdgeWhy
+from .cutouts import Cutouts, EdgeWhy, poly_gap_to_point
 
 
 class _CopperLayerNames(str, Enum):
@@ -1093,6 +1093,20 @@ class Disc:
             if math.hypot(dx, dy) < self.bore + margin - _NM:
                 return EdgeWhy.INTO_BORE
         return self.cutouts.why_not(box, margin)
+
+    def poly_why_not(self, poly, margin: float):
+        """`why_not` of a polygon - a part's shape, not its box. The rim is convex, so a polygon whose corners are
+        inside it is inside; the bore is measured to the polygon's legs, which pass nearer it than their ends."""
+        far = max(math.hypot(x - self.centre.x, y - self.centre.y) for x, y in poly)
+        if far > self.radius - margin + _NM:
+            return EdgeWhy.PAST_RIM
+        return self.cutouts_poly_why_not(poly, margin)
+
+    def cutouts_poly_why_not(self, poly, margin: float):
+        """`poly_why_not` of the bore and the cutouts alone."""
+        if self.bore and poly_gap_to_point(poly, self.centre.x, self.centre.y) < self.bore + margin - _NM:
+            return EdgeWhy.INTO_BORE
+        return self.cutouts.poly_why_not(poly, margin)
 
     def outside_by(self, x: float, y: float) -> float:
         """How far the point lies outside the rim: 0 on or inside it."""

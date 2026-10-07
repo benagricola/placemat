@@ -26,6 +26,13 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **A decided part is judged at the outline by its shapes, not its box.** A part whose box crosses a disc's rim or
+  bore, a shaped outline or a cutout is judged again by its pads and copper graphics (at `board.keep_in`) and its
+  courtyard and body (at the edge itself), and refused only if one of those crosses; the refusal names the edge they
+  cross. A footprint that draws no courtyard and no body is judged by its copper: a ring of copper sectors with no
+  pads, courtyard or fab, fixed at a disc's centre, was refused as "body box ... is past the rim edge", which KiCad's
+  DRC accepts. A leg of a shape that passes over a bore or a cutout is now caught where only its corners were tested.
+  Searched places are judged by boxes as before. Scripts need no change.
 - **A route with nothing left to route completes.** `run --route` on a board whose nets are all served by planes, pours
   or fingers called the router with a net list that matched nothing; the router exited 1 and the run crashed with its
   record left at "running". The main pass is now skipped when no net is left for it, and the route records zero of zero
