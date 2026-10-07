@@ -5,7 +5,7 @@ from fixtures.reference import fetch, place_ref, prepare, route_ref
 
 VERSIONS = {"placemat": "0", "krt": "0", "pcb": "0"}
 BOARD = fetch.Board(name="x", repo="github:o/r", commit="c", files={}, board="x.kicad_pcb", licence="MIT", tests=("a", "b"),
-                    islands=(), fixed=("J1",), human_track_mm=None, kicad5=False)
+                    phases=(), fixed=("J1",), human_track_mm=None, kicad5=False)
 PREPARED = prepare.Prepared(None, None, [], 2, prepare.HumanCopper(4, 20.0))
 
 

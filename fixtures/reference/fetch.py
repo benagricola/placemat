@@ -39,7 +39,7 @@ class Board:
     board: str  # the .kicad_pcb path
     licence: str  # SPDX
     tests: tuple[str, ...]  # "a" and/or "b"
-    islands: tuple[str, ...]  # nets for --islands
+    phases: tuple[dict, ...]  # named routing phases, by net name
     fixed: tuple[str, ...]  # references held in test b
     human_track_mm: float | None
     kicad5: bool
@@ -57,7 +57,7 @@ class FetchError(Exception):
 def load_manifest(path: pathlib.Path = MANIFEST) -> list[Board]:
     boards = []
     for entry in json.loads(pathlib.Path(path).read_text()):
-        for key in ("tests", "islands", "fixed"):
+        for key in ("tests", "phases", "fixed"):
             entry[key] = tuple(entry.get(key, ()))
         boards.append(Board(**entry))
     return boards

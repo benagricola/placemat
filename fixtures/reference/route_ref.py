@@ -208,7 +208,7 @@ def run_local(name: str, work: pathlib.Path, versions: dict | None = None) -> FR
         for filename in ("layout.kicad_pcb", "layout.kicad_pro", "placemat.toml"):
             shutil.copy(src / filename, work / filename)
         versions["krt"] = _krt_version(work / "layout.kicad_pcb")
-        report = _route(work / "layout.kicad_pcb", work / "route", (), (src / "placemat.toml").read_text())
+        report = _route(work / "layout.kicad_pcb", work / "route", (src / "placemat.toml").read_text())
         if report.get("error"):
             raise RuntimeError("placemat route failed: %s" % report["error"])
         phases = [{"name": phase["name"], "asked": phase["asked"], "joined": phase["joined"],
@@ -277,21 +277,31 @@ def current_versions() -> dict:
     return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb or "unknown"}
 
 
-def _route(pcb: pathlib.Path, work: pathlib.Path, islands: tuple, toml: str | None) -> dict:
-    """`placemat route pcb --full --islands ...` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict."""
+def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None) -> dict:
+    """`placemat route pcb --full` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict."""
     config = pathlib.Path(pcb).with_name("placemat.toml")
     if toml is None:
         config.unlink(missing_ok=True)
     else:
         config.write_text(toml)
     cmd = [sys.executable, "-m", "placemat", "route", str(pcb), "--full", "--no-resume", "--out", str(work)]
-    if islands:
-        cmd += ["--islands", *islands]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=ROUTE_TIMEOUT_S)
     out = pathlib.Path(work) / "route.json"
     if not out.exists():
         raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, (proc.stderr or proc.stdout)[-500:]))
     return json.loads(out.read_text())
+
+
+def phases_for(board: fetch.Board, pcb: pathlib.Path) -> str:
+    """Manifest obligations first, then uncaptured board defaults."""
+    from placemat.kicad.read import read_board
+    from placemat.route_phase import default_phases, phases_toml
+    graph = read_board(str(pcb))
+    default = {nc.clearance for nc in graph.netclasses.values() if nc.name == "Default"}
+    base = min(default) if default else graph.default_clearance
+    wide = sorted({nc.name for nc in graph.netclasses.values() if nc.clearance > base + 1e-9})
+    return phases_toml(list(board.phases) + default_phases(
+        pairs=False, interface_types=[], wide_classes=wide, currents=False))
 
 
 def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = None,
@@ -300,9 +310,9 @@ def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = No
     for the "human" run."""
     work = pathlib.Path(work)
     widths = "class" if track_mm is None else "human"
-    toml = None if track_mm is None else '[route]\nrouter_args = ["--track-width", "%s"]\n' % track_mm
+    toml = ("" if track_mm is None else '[route]\nrouter_args = ["--track-width", "%s"]\n\n' % track_mm) + phases_for(board, work / prepare.TEST)
     out = work / ("route-" + widths)
-    report = _route(work / prepare.TEST, out, board.islands, toml)
+    report = _route(work / prepare.TEST, out, toml)
     _, routed = prepare.measure(pathlib.Path(report["routed_pcb"]))
     _, human = prepare.measure(work / prepare.REF)
     after = prepare.violations(out / "drc_after.json")

@@ -49,7 +49,7 @@ files.
 | `board` | Path of the `.kicad_pcb` |
 | `licence` | SPDX identifier |
 | `tests` | `a` and/or `b` |
-| `islands` | Nets passed to `--islands` |
+| `phases` | Named routing phases before the board defaults: explicit nets, pairs and buses |
 | `fixed` | References held at the human board's coordinates in test (b) |
 | `human_track_mm` | The human board's most-used track width |
 | `kicad5` | The board is a KiCad 5 file |
@@ -123,7 +123,7 @@ A coordinate on a fixed part is listed with the declaration (`[coordinate]`) and
 | spimux | MPL-2.0 | https://github.com/oxidecomputer/hw-spimux | a |
 | chainlinkDriver | Apache-2.0 | https://github.com/scottbez1/splitflap, `electronics/chainlinkDriver` | a |
 
-pic_programmer needs `--islands VCC`: its pour does not reach its pads.
+pic_programmer uses a `vcc` phase for VCC: its pour does not reach its pads.
 
 ## Local fixtures
 

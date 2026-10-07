@@ -8,7 +8,7 @@ from tests.conftest import needs_router
 pcbnew = pytest.importorskip("pcbnew")
 
 BOARD = fetch.Board(name="tiny", repo="github:o/r", commit="0" * 40, files={}, board="tiny.kicad_pcb", licence="MIT",
-                    tests=("a",), islands=(), fixed=(), human_track_mm=None, kicad5=False)
+                    tests=("a",), phases=(), fixed=(), human_track_mm=None, kicad5=False)
 
 
 def _two_layer_board(path, rename=False):
