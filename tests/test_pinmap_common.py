@@ -7,12 +7,13 @@ from placemat.layout import Board
 from placemat.pinmap import placed_from_plan
 from placemat.pinmap_common import Finalists, mapped_geometry
 from placemat.pinmap_core import study_group
-from placemat.values import Part, PadRef, Cell, Location
+from placemat.values import Part, PadRef, Cell, Location, Face, Near
 from tests.fixtures import board_geometry, footprint, pad, track
 from tests.pinmap_boards import input_of, quad_footprint, settings
 
 
-def scene(copper=(), *, points=None, paired=False, source_nets=('A', 'B', 'C', 'D'), cell='', fields=None):
+def scene(copper=(), *, points=None, paired=False, source_nets=('A', 'B', 'C', 'D'), cell='', fields=None,
+          either=False):
     parts = [quad_footprint('U1', 10, 10, {'E': source_nets},
                             fields={'Pm.PinPool': '1-4', **(fields or {})}, cell=cell or None,
                             inst='module.u1' if cell else 'u1')]
@@ -37,11 +38,15 @@ def scene(copper=(), *, points=None, paired=False, source_nets=('A', 'B', 'C', '
         if part.cell:
             board.place(Cell(part.cell), at=Location(10, 10))
             continue
+        if either and part.ref == 'U1':
+            board.place(Part(part.inst), at=Near(part.location), radius=.01, rotations=(0,), face=Face.EITHER)
+            continue
         board.place(Part(part.inst), at=part.location)
     plan = board.resolve()
     placed = placed_from_plan(board, plan)
     inp, problems = input_of(placed.pads, placed.parts, cells=placed.cells,
-                             partners={'A': 'OTHER', 'OTHER': 'A'} if paired else {})
+                             partners={'A': 'OTHER', 'OTHER': 'A'} if paired else {},
+                             netclasses=geometry.netclasses, names=geometry.pin_names)
     assert not problems
     group = study_group(inp, ('U1',), cfg, native=False)
     return board, plan, inp, group
@@ -128,6 +133,8 @@ def test_fixed_pad_links_and_logical_net_links_remain_distinct(selector, refused
     result = Finalists(board, plan).evaluate(inp, ((('U1',), group.results[0]),))
     if refused:
         assert result.reasons == ('pin finalist changes an explicit fixed pad link obligation',)
+        assert result.refusals[0]['code'] == 'fixed_pad_link_changed'
+        assert result.refusals[0]['facts']['original_endpoint'] == ['U1', '1']
     else:
         assert not result.reasons
         assert result.occupancy.pad_shapes('U1', '4')[0].net == 'A'
@@ -271,3 +278,77 @@ def test_combined_maps_must_agree_in_one_physical_board():
     current = replace(group.results[0], assign=group.present_assign)
     result = Finalists(board, plan).evaluate(inp, ((('U1',), group.results[0]), (('U1',), current)))
     assert result.reasons == ('combined pin finalists disagree on a physical pad net',)
+
+
+@pytest.mark.parametrize('change', ['net', 'pool', 'duplicate'])
+def test_stale_input_and_ambiguous_source_refuse(change):
+    board, plan, inp, group = scene()
+    geometry = plan.occupancy.geometry
+    first = geometry.footprints[0]
+    if change == 'net':
+        first = replace(first, pads=tuple(replace(pad, net='OTHER') if pad.number == '1' else pad
+                                          for pad in first.pads))
+        item = plan.occupancy.items['U1']
+        shapes = tuple(replace(shape, net='OTHER') if shape.kind == 'pad' and shape.label == '1' else shape
+                       for shape in item.shapes)
+        item = replace(item, shapes=shapes, nets=frozenset(shape.net for shape in shapes if shape.net))
+        plan.occupancy.items['U1'] = plan.occupancy._pristine['U1'] = item
+    elif change == 'pool':
+        first = replace(first, fields={**first.fields, 'Pm.PinPool': '1-2'})
+    parts = (first,) + geometry.footprints[1:]
+    if change == 'duplicate':
+        parts += (replace(first, inst='duplicate'),)
+    geometry = replace(geometry, footprints=parts, _by_ref={}, _by_inst={})
+    board.geometry = plan.geometry = plan.occupancy.geometry = geometry
+    before = dict(plan.occupancy.items), tuple(plan.occupancy.copper)
+    result = Finalists(board, plan).evaluate(inp, ((('U1',), group.results[0]),))
+    assert result.reasons
+    assert result.refusals[0]['code'] == ('ambiguous_reference' if change == 'duplicate' else 'study_context_stale')
+    assert not result.validity.valid
+    assert (dict(plan.occupancy.items), tuple(plan.occupancy.copper)) == before
+
+
+@pytest.mark.parametrize('source_face,flip', [(Face.FRONT, True), (Face.BACK, False), (Face.BACK, True)])
+def test_full_supported_back_and_flipped_pose_equivalence(source_face, flip):
+    board, plan, _, _ = scene(either=True)
+    occ = plan.occupancy
+    fp = occ.geometry.footprint('U1')
+    source = replace(occ._geometry(fp).reference, rotation=37.0, face=source_face)
+    occ.commit(fp, source)
+    plan.steps = [replace(step, placement=source, back_face=source_face is Face.BACK)
+                  if step.item == fp.inst else step for step in plan.steps]
+    placed = placed_from_plan(board, plan)
+    inp, problems = input_of(placed.pads, placed.parts, cells=placed.cells, netclasses=board.geometry.netclasses,
+                             names=board.geometry.pin_names)
+    assert not problems
+    cfg = replace(board.settings, pins_faces=True, pins_rotations=(0.0, 90.0))
+    group = study_group(inp, ('U1',), cfg, native=False)
+    candidate = replace(group.results[0], poses=(('U1', 90.0, flip),), assign=group.present_assign)
+    result = Finalists(board, plan, cfg).evaluate(inp, ((('U1',), candidate),))
+    assert not result.reasons
+    target_face = (Face.BACK if source_face is Face.FRONT else Face.FRONT) if flip else source_face
+    expected = replace(source, rotation=90.0 - 37.0 if flip else 37.0 + 90.0, face=target_face)
+    geoms, _ = occ.placed_geometries(fp, expected)
+    assert result.occupancy.items['U1'] == geoms['U1']
+    assert result.terms['back_face'] == cfg.score_back_face * int(target_face is Face.BACK)
+
+
+def test_map_only_never_retags_item_hosted_given_through_shape():
+    board, plan, _, _ = scene()
+    occ = plan.occupancy
+    original = next(shape for shape in occ.items['U1'].shapes if shape.kind == 'pad' and shape.label == '1')
+    fixed = replace(original, kind='through', given='fixed-via', wire=True)
+    item = replace(occ.items['U1'], shapes=occ.items['U1'].shapes + (fixed,))
+    occ.items['U1'] = occ._pristine['U1'] = item
+    placed = placed_from_plan(board, plan)
+    inp, problems = input_of(placed.pads, placed.parts, cells=placed.cells,
+                             netclasses=board.geometry.netclasses, names=board.geometry.pin_names)
+    assert not problems
+    group = study_group(inp, ('U1',), board.settings, native=False)
+    before = dict(occ.items), dict(occ._pristine), tuple(occ.copper)
+    result = Finalists(board, plan).evaluate(inp, ((('U1',), group.results[0]),))
+    assert not result.reasons
+    retained = [shape for shape in result.occupancy.items['U1'].shapes if shape.given == 'fixed-via']
+    assert retained == [fixed]
+    assert result.validity.critical > 0
+    assert (dict(occ.items), dict(occ._pristine), tuple(occ.copper)) == before
