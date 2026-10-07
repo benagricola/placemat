@@ -59,6 +59,15 @@ def test_a_clearance_ceiling_caps_the_classes_as_the_router_would_and_not_the_cl
     assert net_clearance.ceiling([], {}) is None
 
 
+def test_clearance_ceiling_aliases_follow_exact_priority_and_last_value():
+    assert net_clearance.ceiling(["--clearance-ceil", "0.25"], {}) == 0.25
+    assert net_clearance.ceiling(["--clearance-ceil=0.3"], {}) == 0.3
+    assert net_clearance.ceiling(["--clearance-ceiling", "0.4", "--clearance-c", "0.25"], {}) == 0.25
+    assert net_clearance.ceiling(["--clearance", "0.2"], {}) is None
+    assert net_clearance.ceiling(["--clear", "0.2"], {"KICAD_CLEARANCE_LEGACY_CEILING": "1"}) is None
+    assert net_clearance.ceiling(["--routing-clearance-margin", "0.2"], {}) is None
+
+
 def _project(path: Path, classes, assignments=None, patterns=None):
     ns = {"classes": classes, "netclass_assignments": assignments or {}}
     if patterns:
