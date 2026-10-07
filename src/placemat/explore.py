@@ -566,6 +566,9 @@ def _variant_order(cfg, ranks=None):
         return _score.Standing(row[2] or {}, _score.Validity.of(row[2] or {}))
 
     def cmp(a, b) -> int:
+        if a[2] is None or b[2] is None:
+            # Legacy rows have no validity evidence; never treat them as zero-cost valid boards.
+            return -1 if b[2] is None and a[2] is not None else 1 if a[2] is None and b[2] is not None else 0
         sa, sb = standing(a), standing(b)
         if not ranks:
             return _score.rank(sa, sb, cfg)

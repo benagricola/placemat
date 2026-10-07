@@ -350,3 +350,10 @@ def test_a_module_that_raises_is_a_failed_result_and_the_others_run(tmp_path, mo
 def dataclasses_replace(obj, **over):
     import dataclasses
     return dataclasses.replace(obj, **over)
+
+
+def test_module_drc_errors_outrank_better_closure_and_score():
+    m = {'v': 2, 'drc': 0, 'airwire_mm': 100.0}
+    old = place_ref.asdict(_m(measures=m, closure_clean=0.9))
+    dirty = _m(measures=dict(m, drc=1, airwire_mm=1.0), closure_clean=1.0)
+    assert place_ref.compare_module(old, dirty, {'placemat'}).status == 'worse'

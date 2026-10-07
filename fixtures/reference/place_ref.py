@@ -287,7 +287,7 @@ def _ranked(old: dict, new) -> str | None:
 
     def standing(r: dict):
         m = r["measures"]
-        drc = len(r["new_violations"]) if "new_violations" in r else None
+        drc = len(r["new_violations"]) if "new_violations" in r else m.get("drc")
         return score.Standing(m, score.Validity.of(m, drc_new=drc), (), r["closure_clean"])
     return {-1: "better", 0: "same", 1: "worse"}[score.rank(standing(asdict(new)), standing(old), Settings())]
 
