@@ -280,8 +280,10 @@ def comparison_obligations(selections, geometry, skip) -> list:
     Explicit tasks retain their declared ends and widths. Whole-net selections are judged by a deterministic
     spanning set of all selected pads. These pairs are used only to judge connectivity, never to direct routing.
     """
+    from .phase_select import validate_terminals
     out = []
     for sel in selections:
+        validate_terminals(sel.phase, sel, geometry, excluded=skip if not sel.tasks else ())
         if sel.tasks:
             out.append(_unique([t.record() for t in sel.tasks]))
             continue

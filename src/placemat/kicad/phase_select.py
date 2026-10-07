@@ -149,7 +149,7 @@ def _pours(tasks, pour_nets) -> tuple:
     return tuple(sorted({t.net for t in tasks} & set(pour_nets)))
 
 
-def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_layers, rise_c, copper_oz) -> Selection:
+def _select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_layers, rise_c, copper_oz) -> Selection:
     board_layers = [l.value for l in geometry.layers]
     layers = tuple(phase.layers or route_layers)
     missing = [l for l in layers if l not in board_layers]
@@ -279,3 +279,31 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
             return Selection(buses=tuple(buses), tasks=tasks, pour_nets=_pours(tasks, pour_nets), **base)
         return Selection(pairs=tuple(pairs), buses=tuple(buses), width=numeric, **base)
     raise PhaseError("needs_capture", name=phase.name, selector=phase.selector, generator=capture.generator)
+
+
+def validate_terminals(name, selection, geometry, excluded=()):
+    """A selected ref/pad must identify one footprint, allowing its repeated pad shapes."""
+    nets = (set(selection.nets) | set(selection.pour_nets) | {t.net for t in selection.tasks}
+            | {n for pair in selection.pairs for n in pair} | {n for bus in selection.buses for n in bus})
+    nets -= set(excluded)
+    selected, owners = set(), {}
+    for index, fp in enumerate(geometry.footprints):
+        for pad in fp.pads:
+            key = fp.ref, pad.number
+            owners.setdefault(key, {})[index] = {'footprint_index': index, 'instance': fp.inst,
+                                                 'at': [fp.location.x, fp.location.y]}
+            if pad.net in nets:
+                selected.add(key)
+    for ref, pad in sorted(selected):
+        distinct = owners[(ref, pad)]
+        if len(distinct) > 1:
+            raise PhaseError('ambiguous_terminal', name=name, ref=ref, pad=pad,
+                             owners=list(distinct.values()))
+
+
+def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_layers, rise_c, copper_oz) -> Selection:
+    """Select routing work, refusing terminal aliases across distinct footprints."""
+    result = _select(phase, geometry, capture, open_nets=open_nets, excluded=excluded, pour_nets=pour_nets,
+                     route_layers=route_layers, rise_c=rise_c, copper_oz=copper_oz)
+    validate_terminals(phase.name, result, geometry)
+    return result

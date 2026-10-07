@@ -21,6 +21,8 @@ _LAYER = re.compile(r"^(F|B|In([1-9]|[12][0-9]|30))\.Cu$")
 PHASE_OWNED = {"--no-power-tap-neckdown": "neckdown = false"}
 
 _TEXT = {
+    "ambiguous_terminal": "route: phase %(name)r: selected terminal %(ref)s.%(pad)s belongs to multiple distinct "
+                          "footprints; give each footprint a unique reference before routing",
     "not_a_table": "route.phase %(index)d: each phase is a table, [[route.phase]]",
     "no_name": "route.phase %(index)d: a phase needs a name",
     "bad_name": "route.phase %(name)r: a name is letters, digits, '-', '_' and '.', starting with a letter or digit",

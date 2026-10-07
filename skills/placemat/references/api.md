@@ -4063,6 +4063,7 @@ the code and its facts):
 | `capture` | the capture's `nets.layout.json` cannot be read, or was written for another netlist (`path`, the sidecar; `reason`; `detail`) |
 | `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses) |
 | `width_policy_unavailable` | the configured router lacks `py_router/nominal_width_policy.py` or its interpreter is unavailable; routing stops before changing copper and saves `width_policy.json`. Configure a router shipping the width-policy helper. |
+| `ambiguous_terminal` | a selected reference/pad belongs to multiple distinct footprints (`name`, `ref`, `pad`, `owners` with footprint index, instance and position). Give each footprint a unique reference. Repeated physical pad shapes within one footprint remain supported; excluded terminals do not create obligations. |
 | `pair_flag` | a phase that routes pairs gives in `router_args` a flag the pair router (route_diff.py) does not take, by the router's own capability listing (`phase`, `flag`): its pair call would fail |
 | `router_refused` | the router refused a task placemat selected (`facts`: `phase`, `tasks` each `{net, from, to, reason}`); the route stops |
 

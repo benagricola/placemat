@@ -243,3 +243,49 @@ def test_current_interface_keeps_bus_and_derived_width_tasks():
     cap = Capture("x", "d", {}, frozenset({"interfaces"}), {}, {"B": Instance("B", "Spi", {"CLK": "VB"})}, ())
     got = one({"name": "b", "interfaces": ["B"], "width": "current"}, cap)
     assert got.buses == (("VB",),) and got.tasks and all(t.amps is not None for t in got.tasks)
+
+
+@pytest.mark.parametrize('other_net', ['VB', 'OTHER'])
+def test_selected_terminal_shared_by_distinct_footprints_is_refused(other_net):
+    from placemat.kicad.phase_run import comparison_obligations
+    from placemat.kicad.phase_select import Selection
+    g = board_geometry([footprint('TP4', 5, 5, nets=('VB', '')),
+                        footprint('TP4', 15, 15, nets=(other_net, '')),
+                        footprint('J1', 25, 25, nets=('VB', ''))])
+    phase = parse_phases([{'name': 'power', 'nets': ['VB']}])[0]
+    kwargs = dict(open_nets={'VB'}, excluded=set(), pour_nets=set(), route_layers=LAYERS, rise_c=10, copper_oz=1)
+    with pytest.raises(PhaseError) as error:
+        select(phase, g, None, **kwargs)
+    assert error.value.code == 'ambiguous_terminal'
+    assert (error.value.facts['ref'], error.value.facts['pad']) == ('TP4', '1')
+    assert [o['footprint_index'] for o in error.value.facts['owners']] == [0, 1]
+    with pytest.raises(PhaseError, match='selected terminal TP4.1'):
+        comparison_obligations([Selection('power', 'nets', nets=('VB', ''))], g, set())
+
+
+def test_repeated_pad_shapes_within_one_footprint_are_legitimate():
+    from placemat.kicad.phase_run import comparison_obligations
+    fp = footprint('TP4', 5, 5, nets=('VB', ''))
+    fp = replace(fp, pads=(fp.pads[0], replace(fp.pads[1], number='1', net='VB')))
+    g = board_geometry([fp, footprint('J1', 25, 25, nets=('VB', ''))])
+    phase = parse_phases([{'name': 'power', 'nets': ['VB']}])[0]
+    sel = select(phase, g, None, open_nets={'VB'}, excluded=set(), pour_nets=set(),
+                 route_layers=LAYERS, rise_c=10, copper_oz=1)
+    assert len(comparison_obligations([sel], g, set())[0]) == 1
+
+
+def test_duplicate_unselected_terminals_do_not_refuse_selected_work():
+    g = board_geometry([footprint('TP5', 5, 5, nets=('GND', '')), footprint('TP5', 15, 15, nets=('GND', '')),
+                        footprint('J1', 25, 25, nets=('VB', '')), footprint('J2', 35, 25, nets=('VB', ''))])
+    phase = parse_phases([{'name': 'signals'}])[0]
+    sel = select(phase, g, None, open_nets={'VB', 'GND'}, excluded={'GND'}, pour_nets={'GND'},
+                 route_layers=LAYERS, rise_c=10, copper_oz=1)
+    assert sel.nets == ('VB',)
+
+
+def test_comparison_excluded_net_does_not_add_terminal_obligations():
+    from placemat.kicad.phase_run import comparison_obligations
+    from placemat.kicad.phase_select import Selection
+    g = board_geometry([footprint('TP5', 5, 5, nets=('GND', '')),
+                        footprint('TP5', 15, 15, nets=('GND', ''))])
+    assert comparison_obligations([Selection('signals', 'rest', nets=('GND',))], g, {'GND'}) == [[]]
