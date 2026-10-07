@@ -939,10 +939,33 @@ def _copy_project(src_pcb, dst_pcb) -> None:
             shutil.copy(Path(src_pcb).with_suffix(ext), Path(dst_pcb).with_suffix(ext))
 
 
+def router_net_pattern(name: str, form: str) -> str:
+    """One net name written as the router reads it for `form`, so that it takes that net and no other:
+    "include" (`--nets`, `--bus-nets`), "exclude" (a `'!NET'` after `--nets '*'`) or "power" (`--power-nets`).
+
+    KRT reads every one as an fnmatch pattern (net_queries.py:55-84 net_pattern_matches for --nets; :916-954
+    identify_power_nets, plain fnmatch, for --power-nets), so '[', '*' and '?' in a name are written '[[]', '[*]' and
+    '[?]': D[0] then takes the net D[0], not D0. In an include a leading '!' would be an exclusion, so a net named '!RST'
+    is written '\\!RST' (net_queries.py:17-52, split_net_patterns); --power-nets knows no such escape.
+
+    Limitation: a name with no '/' also takes a sheet-qualified net of the same last part (KRT's leaf rule,
+    net_pattern_matches: 'GND' takes '/Sub/GND'), and KRT has no pattern for an unqualified name that does not. The
+    phases select nets by the same rule (phase_select.net_matches), so what a phase selects and what its call routes
+    agree."""
+    lit = "".join("[%s]" % c if c in "[*?" else c for c in name)
+    if form == "include":
+        return "\\" + lit if lit.startswith("!") else lit
+    if form == "exclude":
+        return "!" + lit
+    if form == "power":
+        return lit
+    raise ValueError("pattern_form", form)
+
+
 def main_pass_nets(nets, excluded) -> set:
     """The nets of `nets` the main pass's `--nets '*' '!NET' ...` (router_command) matches, as the router expands it: a
     port of KRT net_queries.py expand_net_patterns and net_pattern_matches. The wildcard takes every named net but the
-    'unconnected-*' ones; each '!NET' is an fnmatch pattern ('D[0]' matches D0, not D[0]) that also matches the last
+    'unconnected-*' ones; each '!NET' is written by router_net_pattern, so it names NET alone, and also matches the last
     path component of a sheet-qualified net when it names no path; and a '!NET' that is itself the name of a net on the
     board is that net, included, not an exclusion of NET."""
     import fnmatch
@@ -955,23 +978,18 @@ def main_pass_nets(nets, excluded) -> set:
     pool = {n for n in known if not n.lower().startswith("unconnected-")}
     result, dropped = set(pool), set()           # '*' first
     for x in sorted(excluded):
-        raw = "!" + x
+        raw = router_net_pattern(x, "exclude")
+        pat = raw[1:]
         if raw in known:                         # a literal active-low net: an include
             hit = {n for n in pool if matches(n, raw) and n not in dropped}
             result |= hit if hit else ({raw} - dropped)
             continue
-        hit = {n for n in pool if matches(n, x)}
-        if "*" not in x and "?" not in x:
-            dropped.add(x)
+        hit = {n for n in pool if matches(n, pat)}
+        if "*" not in pat and "?" not in pat:
+            dropped.add(pat)
         dropped |= hit
         result -= hit
     return result
-
-
-def _net_arg(name: str) -> str:
-    """A net name as KRT's --nets and --bus-nets read it: a leading '!' is an exclusion there, so a net named '!RST' is
-    written '\\!RST' (py_router/net_queries.py:17-52, split_net_patterns)."""
-    return "\\" + name if name.startswith("!") else name
 
 
 def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
@@ -987,22 +1005,27 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
     `[route] router_args`. `clearances` is the per-net clearance map placemat wrote (net_halos.py); None leaves the
     router to build its own from the net classes."""
     if connections is not None:
+        # KRT refuses --nets and --power-nets beside --connections (exit 2, docs/connections.md), and a `*` call's
+        # exclusions would be dropped: either is a caller's mistake
+        given = [k for k, v in (("nets", nets), ("widths", widths), ("excluded", excluded)) if v]
+        if given:
+            raise ValueError("connections_with", given)
         chosen = []
     elif nets is not None:
-        chosen = ["--nets"] + [_net_arg(n) for n in sorted(nets)]
+        chosen = ["--nets"] + [router_net_pattern(n, "include") for n in sorted(nets)]
     else:
-        chosen = ["--nets", "*"] + ["!" + n for n in sorted(excluded)]
+        chosen = ["--nets", "*"] + [router_net_pattern(n, "exclude") for n in sorted(excluded)]
     cmd = _launch(python, script) + [str(pcb_in), str(pcb_out)] + chosen + \
           ["--layers"] + list(layers) + ["--escalation", "off"] + \
           ["--keep-input-copper"] + _tuning()      # the script's copper is its intent: no cleanup pass removes it
     if connections is not None:
         cmd += ["--connections", str(connections)]
     if bus_nets:
-        cmd += ["--bus-nets"] + [_net_arg(n) for n in bus_nets]
+        cmd += ["--bus-nets"] + [router_net_pattern(n, "include") for n in bus_nets]
     if widths:
-        # --power-nets is plain fnmatch (KRT net_queries.py:916-954, identify_power_nets), no '\!' escape there
         named = sorted(widths)
-        cmd += ["--power-nets"] + named + ["--power-nets-widths"] + ["%g" % widths[n] for n in named]
+        cmd += ["--power-nets"] + [router_net_pattern(n, "power") for n in named] + \
+               ["--power-nets-widths"] + ["%g" % widths[n] for n in named]
     if not neckdown:
         cmd.append("--no-power-tap-neckdown")
     if not active_settings().route_smoothing:
@@ -1112,10 +1135,17 @@ def clearance_groups(clearances: dict, base: float, nets) -> list:
     copper of an earlier stage keeps its own clearance against the later ones."""
     by = {}
     for n in nets:
-        c = clearances.get(n)
-        if c is not None and c > base + 1e-9:
-            by.setdefault(round(float(c), 6), []).append(n)
+        c = group_clearance(clearances, n, base)
+        if c is not None:
+            by.setdefault(c, []).append(n)
     return [(c, sorted(by[c])) for c in sorted(by, reverse=True)]
+
+
+def group_clearance(clearances: dict, net, base: float) -> float | None:
+    """The clearance group `net` routes in (clearance_groups): its clearance in `clearances` rounded to 6 places when
+    above `base` by more than 1e-9, else None (the Default group)."""
+    c = clearances.get(net)
+    return round(float(c), 6) if c is not None and c > base + 1e-9 else None
 
 
 def route_class_stages(rpy, script, router_dir_path, board: Path, work: Path, stages: list, layers, iterations, probe,

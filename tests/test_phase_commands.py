@@ -8,7 +8,7 @@ import pytest
 
 from placemat.kicad.phase_run import Call, plan_calls, refused_records, write_connections
 from placemat.kicad.phase_select import Selection, Task
-from placemat.kicad.route import REQUIRES, clearance_groups, router_capable, router_command
+from placemat.kicad.route import REQUIRES, clearance_groups, router_capable, router_command, router_net_pattern
 from placemat.settings import Settings, bind
 
 W5 = (("F.Cu", 0.5), ("B.Cu", 0.5))
@@ -146,8 +146,76 @@ def test_every_flag_a_phase_call_passes_is_one_the_router_parses(tmp_path):
     known = set(caps["flags"]["route.py"])
     lacking = {r.split(":", 1)[1] for r in router_capable(rpy, d)}
     with bind(Settings()):
-        cmd = router_command("py", "route.py", "in", "out", {"GND"}, ["F.Cu"], tmp_path / "s.json", iterations=5,
+        cmd = router_command("py", "route.py", "in", "out", set(), ["F.Cu"], tmp_path / "s.json", iterations=5,
                              probe=5, nets=["A", "B"], widths={"A": 0.5}, clearances=tmp_path / "c.json",
-                             connections=tmp_path / "k.json", bus_nets=["A", "B"], neckdown=False)
+                             bus_nets=["A", "B"], neckdown=False)
+        cmd += router_command("py", "route.py", "in", "out", set(), ["F.Cu"], tmp_path / "s.json",
+                              connections=tmp_path / "k.json")
     flags = {a for a in cmd if a.startswith("--")}
     assert flags - known <= lacking and lacking <= set(r.split(":", 1)[1] for r in REQUIRES)
+
+
+@pytest.mark.parametrize("given", [dict(nets=["A"]), dict(widths={"A": 0.5}), dict(excluded={"GND"})])
+def test_a_connections_call_with_nets_widths_or_exclusions_is_refused(tmp_path, given):
+    """KRT exits 2 on --nets or --power-nets beside --connections (docs/connections.md); exclusions would be dropped."""
+    excluded = given.pop("excluded", set())
+    with bind(Settings()), pytest.raises(ValueError) as e:
+        router_command("py", "route.py", "in", "out", excluded, ["F.Cu"], tmp_path / "s.json",
+                       connections=tmp_path / "c.json", **given)
+    assert e.value.args[0] == "connections_with"
+
+
+def test_task_clearances_group_as_whole_nets_do():
+    """Rounded to 6 places, and a clearance within 1e-9 of the base is the base (clearance_groups)."""
+    tasks = (Task("A", ("J1", "1"), ("Q1", "1"), W3), Task("B", ("J1", "2"), ("Q1", "2"), W3),
+             Task("C", ("J1", "3"), ("Q1", "3"), W3), Task("D", ("J1", "4"), ("Q1", "4"), W3))
+    sel = Selection("p", "connections", tasks=tasks, layers=("F.Cu", "B.Cu"))
+    calls = plan_calls(sel, {"A": 0.2 + 1e-12, "B": 0.2, "C": 0.15 + 1e-12}, 0.15, set())
+    assert [(c.clearance, [t.net for t in c.tasks]) for c in calls] == [(0.2, ["A", "B"]), (0.15, ["C", "D"])]
+
+
+def test_a_net_name_with_glob_characters_is_written_to_take_that_net_alone(tmp_path):
+    import fnmatch
+    from placemat.kicad.phase_select import net_matches
+    nets = ["D[0]", "D0", "D*", "DX", "D?", "!D[0]", "!D0"]
+    for name in nets:
+        assert [n for n in nets if net_matches(n, router_net_pattern(name, "include").replace("\\!", "!", 1))] == [name]
+        assert [n for n in nets if fnmatch.fnmatch(n, router_net_pattern(name, "power"))] == [name]
+    with bind(Settings()):
+        cmd = router_command("py", "route.py", "in", "out", set(), ["F.Cu"], tmp_path / "s.json",
+                             nets=["D[0]"], widths={"D[0]": 0.4}, bus_nets=["D[0]", "D0"])
+    assert cmd[cmd.index("--nets") + 1] == "D[[]0]" and cmd[cmd.index("--power-nets") + 1] == "D[[]0]"
+    assert cmd[cmd.index("--bus-nets") + 1:cmd.index("--bus-nets") + 3] == ["D[[]0]", "D0"]
+    with bind(Settings()):
+        cmd = router_command("py", "route.py", "in", "out", {"D[0]"}, ["F.Cu"], tmp_path / "s.json")
+    assert cmd[cmd.index("--nets") + 1:cmd.index("--nets") + 3] == ["*", "!D[[]0]"]
+
+
+_KRT_READS = """
+import contextlib, io, json, sys
+from types import SimpleNamespace as N
+import net_queries as q
+names, nets_args, excl_args, power_args = json.load(sys.stdin)
+pcb = N(nets={i + 1: N(name=n) for i, n in enumerate(names)}, pads_by_net={})
+with contextlib.redirect_stdout(io.StringIO()):
+    taken = [sorted(q.expand_net_patterns(pcb, [a])) for a in nets_args]
+    excluded = [sorted(q.expand_net_patterns(pcb, ["*", a])) for a in excl_args]
+    power = [sorted(pcb.nets[i].name for i in q.identify_power_nets(pcb, [a], [0.5])) for a in power_args]
+print(json.dumps([taken, excluded, power]))
+"""
+
+
+def test_the_router_reads_each_written_name_as_that_net_alone():
+    """KRT's own expand_net_patterns (--nets, and the '!NET' of a `*` call) and identify_power_nets (--power-nets) on
+    D[0] beside D0. A name with no '/' also takes a sheet-qualified net of the same last part (the leaf rule)."""
+    rpy, d = _krt()
+    names = ["D[0]", "D0", "D*", "DX", "!RST", "RST", "/Sub/D[0]"]
+    plain = names[:-1]
+    got = subprocess.run([rpy, "-c", _KRT_READS], cwd=str(Path(d) / "py_router"), capture_output=True, text=True,
+                         timeout=60, check=True, input=json.dumps([names] + [[router_net_pattern(n, f) for n in plain]
+                                                                  for f in ("include", "exclude", "power")]))
+    taken, excluded, power = json.loads(got.stdout)
+    leaf = {"D[0]": ["/Sub/D[0]", "D[0]"]}
+    assert taken == [leaf.get(n, [n]) for n in plain]
+    assert power == [[n] for n in plain]
+    assert excluded[:2] == [sorted(set(names) - {"D[0]", "/Sub/D[0]"}), sorted(set(names) - {"D0"})]

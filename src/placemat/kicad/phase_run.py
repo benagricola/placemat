@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
-from .route import clearance_groups
+from .route import clearance_groups, group_clearance
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,8 @@ def plan_calls(sel, clearance_map: dict, base: float, excluded: set) -> list:
     rest selection one `*` call leaving out `excluded` and the nets routed by name.
 
     A task set's pour nets (Selection.pour_nets) route in their pour call, not a task call (ruling S5): the call
-    carries that net's tasks, and, when the phase sets no numeric width, the widest width any of them asks."""
+    carries that net's tasks, and, when the phase sets no numeric width, the widest width any of them asks; each
+    task is still judged on its own path (Task 15)."""
     calls = []
     if sel.pairs:
         calls.append(Call("pairs", tuple(n for pair in sel.pairs for n in pair)))
@@ -65,8 +66,9 @@ def plan_calls(sel, clearance_map: dict, base: float, excluded: set) -> list:
     calls += [Call("bus", tuple(b), width=sel.width) for b in sel.buses]
     tasks = [t for t in sel.tasks if t.net not in pours]
     if tasks:
-        def clr(t):
-            return max(base, clearance_map.get(t.net, base))
+        def clr(t):                                 # the same groups as whole nets' (clearance_groups)
+            c = group_clearance(clearance_map, t.net, base)
+            return base if c is None else c
         # the widths tuple last breaks ties between groups of the same widest width, so the order is the same every run
         keys = sorted({(clr(t), t.widths) for t in tasks}, key=lambda k: (-k[0], -max(w for _, w in k[1]), k[1]))
         calls += [Call("tasks", tasks=tuple(t for t in tasks if (clr(t), t.widths) == k), clearance=k[0]) for k in keys]

@@ -88,12 +88,12 @@ def test_the_main_pass_matches_what_the_routers_wildcard_and_exclusions_match():
     assert main_pass_nets(nets, {"GND", "/GND_A", "SIG"}) == set()
 
 
-def test_an_excluded_name_is_an_fnmatch_pattern_to_the_router():
-    """KRT matches '!D[0]' with fnmatch (net_queries.py net_pattern_matches): the brackets are a set, so it excludes D0
-    and leaves the net called D[0] in."""
+def test_an_excluded_name_with_glob_characters_excludes_that_net_alone():
+    """KRT matches '!NET' with fnmatch (net_queries.py net_pattern_matches); router_net_pattern writes D[0] as
+    'D[[]0]', so the exclusion takes the net called D[0] and leaves D0 in."""
     from placemat.kicad.route import main_pass_nets
-    assert main_pass_nets({"D[0]", "D0", "SIG"}, {"D[0]"}) == {"D[0]", "SIG"}
-    assert main_pass_nets({"D[0]"}, {"D[0]"}) == {"D[0]"}
+    assert main_pass_nets({"D[0]", "D0", "SIG"}, {"D[0]"}) == {"D0", "SIG"}
+    assert main_pass_nets({"D[0]"}, {"D[0]"}) == set()
 
 
 def test_an_exclusion_that_names_a_net_itself_is_that_net_included():
@@ -115,7 +115,7 @@ out = []
 for nets, ex in json.load(sys.stdin):
     pcb = N(nets={i + 1: N(name=n) for i, n in enumerate(sorted(nets))}, pads_by_net={})
     with contextlib.redirect_stdout(io.StringIO()):
-        out.append(sorted(q.expand_net_patterns(pcb, ["*"] + ["!" + x for x in sorted(ex)])))
+        out.append(sorted(q.expand_net_patterns(pcb, ["*"] + ex)))
 print(json.dumps(out))
 """
 
@@ -128,7 +128,8 @@ def test_main_pass_nets_agrees_with_the_routers_own_expansion():
     if router_missing():
         pytest.skip(router_missing())
     krt = Path(ROUTER)
-    cases = [[sorted(n), sorted(e)] for n, e in _CASES]
+    from placemat.kicad.route import router_net_pattern
+    cases = [[sorted(n), [router_net_pattern(x, "exclude") for x in sorted(e)]] for n, e in _CASES]
     got = subprocess.run([str(krt / ".venv/bin/python"), "-c", _KRT_EXPAND], input=json.dumps(cases), capture_output=True,
                          text=True, cwd=str(krt / "py_router"), check=True)
     assert json.loads(got.stdout) == [sorted(main_pass_nets(n, e)) for n, e in _CASES]
