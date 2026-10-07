@@ -17,6 +17,30 @@ from tests.test_surface_escapes import _shape_board
 pytestmark = needs_native
 
 
+def test_imported_footprint_owned_via_declines_native_without_inventing_pad_identity():
+    from tests.fixtures import footprint
+    from tests.test_vias_give_way import _via
+    parts = [footprint('U1', 10, 10, inst='u1'), footprint('C1', 30, 10, inst='c1')]
+    imported = _via('A', 8.6, 10, owner='U1')
+    board = Board(board_geometry(parts, copper=(imported,)), keep_going=True)
+    board.rect(width=50, height=50)
+    for fp in parts:
+        board.place(Part(fp.inst), at=fp.location)
+    # This used to crash in turn diagnostics before resolve returned.
+    plan = board.resolve()
+    occ = plan.occupancy
+    assert all(number for _, number, *_ in judging(occ).judged())
+    before = dict(occ.items), tuple(occ.copper), set(occ.pending)
+    occ.lift({'U1'})
+    try:
+        kernel, reason = prepare(Delta(board, occ, parts[0], plan.links, plan=plan), (0, 90), Face.FRONT)
+        assert kernel is None
+        assert reason == 'footprint-owned imported via requires the exact Python objective'
+    finally:
+        occ.unlift({'U1'})
+    assert (dict(occ.items), tuple(occ.copper), set(occ.pending)) == before
+
+
 def _assert_inspection(oracle, ways, walls):
     numbers = {Way.SURFACE: 0, Way.VIA: 1, Way.AWAY: 2, Way.WALLED: 3, None: 4}
     expected = {}

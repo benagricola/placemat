@@ -76,6 +76,15 @@ def prepare(delta, rotations, face, *, rest_cache=False):
     delta._check_snapshot()
     if delta.board._escapes:
         return None, 'declared escape lanes require the exact Python objective'
+    # Imported vias can carry a footprint's owner without being one of its
+    # numbered pads. The prepared manifest currently identifies through
+    # contacts by owner/pad, so this admitted geometry needs the Python oracle
+    # until that manifest carries an explicit pad-versus-via source role.
+    footprint_refs = {fp.ref for fp in delta.occ.geometry.footprints}
+    pools = [delta.occ.copper] + [item.shapes for item in delta.occ.items.values()]
+    if any(shape.kind == 'through' and shape.wire and shape.owner in footprint_refs
+           for pool in pools for shape in pool):
+        return None, 'footprint-owned imported via requires the exact Python objective'
     native = geometry._native
     if native is None or not hasattr(native, 'PreparedSurface'):
         return None, 'full native escape kernel unavailable'
