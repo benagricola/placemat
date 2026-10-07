@@ -111,7 +111,9 @@ def test_ocr_reads_a_rendered_page(tmp_path):
     runs = read.ocr_runs(p, 1, tmp_path / "o")
     assert any("LAND PATTERN" in r.text.upper() for r in runs)
     assert all(r.source == "ocr" for r in runs)
-    assert all(70.0 <= r.confidence <= 100.0 for r in runs)
+    # Admission uses the strongest word, while a line reports its weakest
+    # scored word. A retained line can therefore report confidence below 70.
+    assert all(0.0 < r.confidence <= 100.0 for r in runs)
 
 
 def test_a_page_with_almost_no_text_is_thin():
