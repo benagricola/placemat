@@ -53,6 +53,7 @@ def test_a_new_record_wins_over_a_future_dated_old_record(tmp_path, monkeypatch)
     assert (audit / "stdout.log").read_text() == "complete stdout"
     facts = json.loads((audit / "process.json").read_text())
     assert facts["returncode"] == 0 and facts["record"].endswith("new/run.json")
+    assert facts["cwd"] == str(pathlib.Path.cwd())
     assert float(facts["router_deadline_utc"]) > time.time()
 
 
@@ -195,5 +196,30 @@ def test_expiration_is_recomputed_after_spawn(monkeypatch):
     monkeypatch.setattr(route_ref.subprocess, "Popen", spawn)
     with pytest.raises(subprocess.TimeoutExpired):
         route_ref.run_owned(["unused"], timeout=0.1)
+    with pytest.raises(ProcessLookupError):
+        os.kill(seen[0], 0)
+
+
+def test_stubborn_term_child_retains_output_from_shutdown_grace(tmp_path, monkeypatch):
+    path = script(tmp_path)
+    real = subprocess.Popen
+    seen = []
+    child = """import signal,sys,time
+signal.signal(signal.SIGTERM,lambda *a:(print('during TERM grace',flush=True),print('grace stderr',file=sys.stderr,flush=True)))
+print('before timeout',flush=True)
+print('before stderr',file=sys.stderr,flush=True)
+time.sleep(100)
+"""
+    def spawn(cmd, **kwargs):
+        proc = real([sys.executable, "-c", child], **kwargs)
+        seen.append(proc.pid)
+        return proc
+    monkeypatch.setattr(route_ref.subprocess, "Popen", spawn)
+    monkeypatch.setattr(place_ref, "RUN_TIMEOUT_S", 0.1)
+    got, _ = place_ref.placemat_run(path)
+    assert place_ref._failure(got)[0] == place_ref.TIMEOUT
+    (audit,) = (path.parent / ".placemat/reference-runs").iterdir()
+    assert (audit / "stdout.log").read_text() == "before timeout\nduring TERM grace\n"
+    assert (audit / "stderr.log").read_text() == "before stderr\ngrace stderr\n"
     with pytest.raises(ProcessLookupError):
         os.kill(seen[0], 0)

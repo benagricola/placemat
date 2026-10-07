@@ -326,7 +326,8 @@ def run_owned(cmd, *, timeout, env=None):
     """Capture one owned process group, reaping it on timeout, interruption or error.
 
     A router deadline leaves its supervisor time to reap independently sessioned
-    candidates. The outer wait, including that reserve, never exceeds `timeout`.
+    candidates. The ordinary outer wait is bounded by `timeout`; stopping adds
+    up to five seconds of TERM grace and one second to drain pipes after KILL.
     TERM/INT during Popen is deferred until the owned group is known. The helper
     runs on the main thread so it can restore the caller's signal handlers.
     """
@@ -354,15 +355,28 @@ def run_owned(cmd, *, timeout, env=None):
             os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
+        stdout, stderr = None, None
         try:
             return proc.communicate(timeout=5)
-        except BaseException:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+        except BaseException as error:
+            stdout = getattr(error, "output", None)
+            stderr = getattr(error, "stderr", None)
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            return proc.communicate(timeout=1)
+        except BaseException as error:
+            # A detached writer can keep a pipe open: preserve the latest partial
+            # output, close our read ends and reap only the process we spawned.
+            stdout = getattr(error, "output", None) or stdout
+            stderr = getattr(error, "stderr", None) or stderr
+            for stream in (proc.stdout, proc.stderr):
+                if stream is not None:
+                    stream.close()
             proc.wait()
-            return None, None
+            return stdout, stderr
 
     try:
         for sig in previous:

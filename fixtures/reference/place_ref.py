@@ -160,7 +160,7 @@ def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, 
     audits.mkdir(parents=True, exist_ok=True)
     audit = pathlib.Path(tempfile.mkdtemp(prefix="invocation-", dir=audits))
     cmd = [sys.executable, "-m", "placemat", "run", str(script), *RUN_ARGS, *extra]
-    facts = {"argv": cmd, "protocol": "fresh record, RC0, shared router deadline, owned process group",
+    facts = {"argv": cmd, "cwd": str(pathlib.Path.cwd()), "protocol": "fresh record, RC0, shared router deadline, owned process group",
              "timeout_s": RUN_TIMEOUT_S}
 
     def log(stdout, stderr):
@@ -180,7 +180,7 @@ def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, 
         facts["exitcode"] = error.code if isinstance(error, SystemExit) else None
         log(getattr(error, "output", None), getattr(error, "stderr", None))
         if isinstance(error, subprocess.TimeoutExpired):
-            return failed(TIMEOUT, "no result in %d s" % RUN_TIMEOUT_S)
+            return failed(TIMEOUT, "no result in %s s" % RUN_TIMEOUT_S)
         if isinstance(error, Exception):
             return failed(type(error).__name__, str(error))
         raise
