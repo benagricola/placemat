@@ -5661,24 +5661,44 @@ class Board:
                 delta = Delta(self, occ, item, plan.links, plan=plan)
                 if not delta.scorable(base):
                     continue
-                now = delta(base)
-                own_wire = max(0.0, now.terms['airwire'] + now.terms['link'])
-                for rot in others:
+                from .prepared_escape import prepare
+                rotations = [base.rotation] + [base.rotation + rot - here for rot in others]
+                prepared, _ = prepare(delta, rotations, base.face)
+
+                def measured(q, turn):
+                    if prepared is None:
+                        change = delta(q)
+                        return change.terms, change.walled
+                    raw, crossed, vias, closed, walled, _, _ = prepared.evaluate(q, turn)
+                    terms = dict(zip(('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion'), raw))
+                    terms.update(escape_crossed=s.score_escape_crossed * crossed,
+                                 escape_via=s.score_escape_via * vias,
+                                 escape_closed=s.score_escape_closed * closed,
+                                 push=0.0, escape_lane=0.0)
+                    # These absolute escape counts serve only a difference
+                    # between two candidates on the same frozen snapshot.
+                    # Their baseline constants cancel; they are not Change.
+                    return terms, walled
+
+                now, now_walled = measured(base, 0)
+                own_wire = max(0.0, now['airwire'] + now['link'])
+                for turn_index, rot in enumerate(others, 1):
                     turn = dataclasses.replace(base, rotation=base.rotation + rot - here)
                     c = occ.body_box(item, turn).center
                     q = dataclasses.replace(turn, location=Location(base.location.x + centre.x - c.x,
                                                                     base.location.y + centre.y - c.y))
                     if not legal(q) or not delta.scorable(q):
                         continue
-                    then = delta(q)
-                    gain = now.total - then.total
-                    if then.walled > now.walled or gain <= 1e-9:
+                    then, then_walled = measured(q, turn_index)
+                    change = {term: then[term] - value for term, value in now.items()}
+                    gain = -sum(change.values())
+                    if then_walled > now_walled or gain <= 1e-9:
                         continue
                     if gain < s.place_turn_gain_mm or gain < s.place_turn_gain_share * own_wire:
                         continue
                     if best is not None and gain <= best[0]:
                         continue
-                    best = (gain, rot, q, {term: then.terms[term] - value for term, value in now.terms.items()})
+                    best = (gain, rot, q, change)
             finally:
                 occ.unlift(lifted)
             if best is None:
@@ -6830,8 +6850,9 @@ class Board:
         # (polygon, layers, the nets it lets through): a keepout's allow= lets its nets' vias stand in it
         forbidding = [(k.poly, k.layers, frozenset(k.allow)) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
                       if "vias" in k.excludes]
-        forbidding += [(poly, ra.layers, ra.allow) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
-                       if "vias" in ra.excludes]
+        forbidding += [(area.polygon, area.layers, area.source.allow)
+                       for areas in occ._cell_rule_areas.values() for area in areas
+                       if "vias" in area.source.excludes]
         forbidding += [(ra.polygon, ra.layers, ra.allow) for ra in self.geometry.rule_areas
                        if ra.cell is None and "vias" in ra.excludes]
         return holes, bare, forbidding

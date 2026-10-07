@@ -58,9 +58,22 @@ class Delta:
         self.grid = occ.congestion() if board.settings.score_congestion_step else None
         self._native = {}
         self._native_shapes = {}
-        from .escapes import EscapeDelta
-        self._escape_delta = EscapeDelta(occ, self.own)
-        self._escape_base = self._escape_delta.counts
+        self._escape_snapshot = None
+
+    @property
+    def _escape_delta(self):
+        # Prepared native composition has its own exact rest-board snapshot.
+        # Build the independent Python oracle only when a caller needs it,
+        # after proving this is still the original lifted occupancy.
+        self._check_snapshot()
+        if self._escape_snapshot is None:
+            from .escapes import EscapeDelta
+            self._escape_snapshot = EscapeDelta(self.occ, self.own)
+        return self._escape_snapshot
+
+    @property
+    def _escape_base(self):
+        return self._escape_delta.counts
 
     def _escape_change(self, view, geometries, copper, *, native=False):
         """Signed escape terms and unpriced validity from the lifted snapshot."""
@@ -100,6 +113,14 @@ class Delta:
         owners = self.occ._geometry(self.item).owners
         view.pending = self.occ.pending - owners
         view.copper = [shape for shape in self.occ.copper if shape.owner not in owners] + copper
+        from .board_geometry import CellGeom
+        if isinstance(self.item, CellGeom):
+            arranged = self.occ._arranged(self.item, placement)
+            rules, fills = self.occ._placed_cell_areas(arranged, placement, self.occ._geometry(arranged))
+            view._cell_rule_areas = {**self.occ._cell_rule_areas, self.item.name: rules}
+            view._cell_fill_areas = {**self.occ._cell_fill_areas, self.item.name: fills}
+            view.fill_areas = {**self.occ.fill_areas, self.item.name: [
+                (area.source, area.polygon, area.layers) for area in fills]}
         view._pristine = {ref: geom for ref, geom in self.occ._pristine.items() if ref not in owners}
         view._pad_location_cache = {}
         view._cells = {}

@@ -272,8 +272,35 @@ def test_turn_check_restores_occupancy_when_delta_raises(tmp_path, monkeypatch):
     assert (frozenset(occ.pending), dict(occ.items), tuple(occ.copper), score.whole(b, occ, plan)) == before
 
 
+def test_native_turn_diagnostic_matches_exact_python_notices_and_changes(tmp_path, monkeypatch):
+    from placemat import geometry, prepared_escape
+    if geometry._native is None or not hasattr(geometry._native, 'PreparedSurface'):
+        pytest.skip('complete native kernel unavailable')
+    body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
+                        'at=Location(25, 25), rotation=180')
+    b, _ = board(tmp_path, body)
+    plan = b.resolve()
+    original = prepared_escape.prepare
+    supported = []
+    def counted(*args):
+        result = original(*args)
+        supported.append(result[0] is not None)
+        return result
+    monkeypatch.setattr(prepared_escape, 'prepare', counted)
+    plan.findings = []
+    b._report_turns(plan.occupancy, plan)
+    native_facts = [f.facts for f in turns(plan)]
+    assert any(supported), 'test must exercise complete native diagnostics'
+    assert native_facts
+    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args: (None, 'forced independent oracle'))
+    plan.findings = []
+    b._report_turns(plan.occupancy, plan)
+    assert [f.facts for f in turns(plan)] == native_facts
+
+
 def test_cheaper_turn_cannot_increase_walled_pad_evidence(tmp_path, monkeypatch):
     from placemat import score_delta
+    monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args: (None, 'injected oracle'))
     body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
                         'at=Location(25, 25), rotation=180')
     b, _ = board(tmp_path, body)

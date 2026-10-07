@@ -25,7 +25,7 @@ from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circ
 from .outline import Outline
 from .placement import Placement
 from .settings import Settings
-from .board_geometry import CellGeom, Footprint, BoardGeometry, stackup_order
+from .board_geometry import CellGeom, Footprint, BoardGeometry, RuleArea, stackup_order
 from .refusals import (Code, EDGE_OF_NATIVE, EdgeFault, EdgeWhy, FLAT_EDGE_MARGIN, Owner, Refusal, ReservedBy, first_word,
                        reserved_by)
 from .rules import ClearanceRules
@@ -485,6 +485,14 @@ def net_kinds(board_geometry, quiet) -> dict:
     return out
 
 
+@dataclass(frozen=True)
+class CellArea:
+    """Immutable source intent with its current-pose polygon and layers."""
+    source: RuleArea
+    polygon: tuple
+    layers: frozenset
+
+
 class Occupancy:
     def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, board_box: Box | None = None,
                  vias_block_courtyards: bool = False, board_shape=None, board_cutouts=None,
@@ -614,7 +622,9 @@ class Occupancy:
         for ra in geometry.rule_areas:
             self.copper.extend(_rule_area_shapes(ra))
             if ra.cell is not None and "fill" in ra.excludes:
-                self._cell_fill_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
+                self._cell_fill_areas.setdefault(ra.cell, []).append(CellArea(ra, tuple(ra.polygon), ra.layers))
+            if ra.cell is not None and ra.excludes & {'parts', 'vias'}:
+                self._cell_rule_areas.setdefault(ra.cell, []).append(CellArea(ra, tuple(ra.polygon), ra.layers))
             if "parts" not in ra.excludes:
                 continue
             if ra.cell is None:
@@ -622,8 +632,6 @@ class Occupancy:
                 if claims:
                     self.reserve(ra.polygon, "rule area %r on the generated board" % ra.name, layer=layer,
                                  courtyard=True)
-            else:
-                self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
 
     def _copper_shapes(self, items, carried: dict) -> list:
         """The shapes of stamped copper `items`: tracks, vias and polygons. A pad travels with its footprint and a zone's fill
@@ -1547,27 +1555,29 @@ class Occupancy:
             giveway.undo(self, via)
         self._changed()
 
-    def _commit_cell(self, item, placement: Placement, geom, own) -> None:
+    def _placed_cell_areas(self, item, placement, geom):
+        """Detached area state transformed by the same relative cell pose."""
         t = self._transform(geom, placement)
+        flipped = placement.face != geom.reference.face
+        def moved(stored, excludes):
+            areas = [CellArea(ra, tuple(ra.polygon), ra.layers) for ra in self._arranged_areas(item)
+                     if ra.excludes & excludes] if item.arrangement else stored.get(item.name, ())
+            return [CellArea(area.source, tuple(t.apply(p) for p in area.polygon),
+                             self._flip_layers(area.layers) if flipped else area.layers) for area in areas]
+        return moved(self._cell_rule_areas, {'parts', 'vias'}), moved(self._cell_fill_areas, {'fill'})
+
+    def _commit_cell(self, item, placement: Placement, geom, own) -> None:
         tag = "cell:%s" % item.name
         self.reservations = [r for r in self.reservations if r.source != tag]
-        if item.arrangement:
-            # the arrangement's areas stand in for the stamped ones; its geometry is built in the generated board's frame, so
-            # they are moved from there
-            self._cell_rule_areas[item.name] = [[ra, tuple(ra.polygon)] for ra in self._arranged_areas(item) if "parts" in ra.excludes]
-            self._cell_fill_areas[item.name] = [[ra, tuple(ra.polygon)] for ra in self._arranged_areas(item) if "fill" in ra.excludes]
-        flipped = placement.face != geom.reference.face
-        for pair in self._cell_fill_areas.get(item.name, ()):
-            pair[1] = tuple(t.apply(p) for p in pair[1])
+        rules, fills = self._placed_cell_areas(item, placement, geom)
+        self._cell_rule_areas = {**self._cell_rule_areas, item.name: rules}
+        self._cell_fill_areas = {**self._cell_fill_areas, item.name: fills}
         self.fill_areas = {**self.fill_areas, item.name: [
-            (ra, poly, self._flip_layers(ra.layers) if flipped else ra.layers)
-            for ra, poly in self._cell_fill_areas.get(item.name, ())]}
-        for pair in self._cell_rule_areas.get(item.name, ()):
-            ra, poly = pair
-            poly = tuple(t.apply(p) for p in poly)
-            pair[1] = poly
-            claims, layer = parts_claim(ra.layers, flip=placement.face != geom.reference.face)
-            if claims:
+            (area.source, area.polygon, area.layers) for area in fills]}
+        for area in rules:
+            ra, poly = area.source, area.polygon
+            claims, layer = parts_claim(area.layers)
+            if claims and 'parts' in ra.excludes:
                 what = ("label %r" % ra.name[len("label "):]) if ra.name.startswith("label ") else "rule area %r" % ra.name
                 self.reserve(poly, "%s from the %s cell" % (what, ra.cell), source=tag, layer=layer,
                              courtyard=not ra.name.startswith("label "))

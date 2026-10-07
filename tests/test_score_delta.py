@@ -1210,3 +1210,23 @@ def test_native_prepared_candidate_refuses_malformed_geometry_and_recovers_after
         with pytest.raises(ValueError):
             snapshot.shapes(x, y, turn)
         assert snapshot.shapes(0, 0, 0) == baseline
+
+
+def test_lazy_escape_oracle_refuses_changed_occupancy_before_setup(monkeypatch):
+    from placemat.score_delta import Delta
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _two_part_board
+    board = _two_part_board()
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(20, 20))
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['c1']
+    occ.lift({'C1'})
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    assert delta._escape_snapshot is None
+    def forbidden(*args):
+        pytest.fail('stale lazy oracle must refuse before geometry setup')
+    monkeypatch.setattr('placemat.escapes.EscapeDelta', forbidden)
+    occ.unlift({'C1'})
+    with pytest.raises(ValueError, match='snapshot|occupancy|lifted'):
+        _ = delta._escape_base
