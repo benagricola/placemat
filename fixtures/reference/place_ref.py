@@ -135,25 +135,88 @@ def _copy_folder(src: pathlib.Path, dst: pathlib.Path) -> None:
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*STATE_DIRS))
 
 
+def _run_identity(path: pathlib.Path) -> tuple:
+    """Identity of a saved result: unchanged files from an earlier invocation cannot stand for this one."""
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _process_text(value) -> str:
+    return value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+
+
 def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, float]:
-    """`placemat run <script>` with RUN_ARGS and `extra`: (run.json as a dict, seconds). The record is the newest run of the
-    script's folder, None when the run wrote none (a crash or the timeout); the folder is a clean copy, so it holds this
-    run's only."""
+    """Run one placement in an owned process group; only RC0 and a fresh run.json can be adopted.
+
+    Logs and the shared deadline protocol are retained beside the copied script.
+    A malformed fresh record, nonzero exit or timeout is a failed result. Signals
+    and KeyboardInterrupt reap the owned group before propagating.
+    """
     script = pathlib.Path(script)
-    started = time.time()
+    started = time.monotonic()
+    records = script.parent / ".placemat" / "runs"
+    before = {p: _run_identity(p) for p in records.glob("*/run.json")}
+    audits = script.parent / ".placemat" / "reference-runs"
+    audits.mkdir(parents=True, exist_ok=True)
+    audit = pathlib.Path(tempfile.mkdtemp(prefix="invocation-", dir=audits))
     cmd = [sys.executable, "-m", "placemat", "run", str(script), *RUN_ARGS, *extra]
+    facts = {"argv": cmd, "protocol": "fresh record, RC0, shared router deadline, owned process group",
+             "timeout_s": RUN_TIMEOUT_S}
+
+    def log(stdout, stderr):
+        (audit / "stdout.log").write_text(_process_text(stdout))
+        (audit / "stderr.log").write_text(_process_text(stderr))
+        (audit / "process.json").write_text(json.dumps(facts, indent=2) + "\n")
+
+    def failed(kind, message):
+        return {"status": "failed", "failure": {"kind": kind, "message": message}}, time.monotonic() - started
+
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=RUN_TIMEOUT_S)
-    except subprocess.TimeoutExpired:
-        return {"status": "failed", "failure": {"kind": TIMEOUT, "message": "no result in %d s" % RUN_TIMEOUT_S}}, time.time() - started
-    seconds = time.time() - started
-    records = sorted((script.parent / ".placemat" / "runs").glob("*/run.json"), key=lambda p: p.stat().st_mtime)
-    if not records:
-        return None, seconds
-    record = json.loads(records[-1].read_text())
-    if proc.returncode and not record.get("failure") and record.get("status") == "ok":
-        record["failure"] = {"kind": "exit %d" % proc.returncode, "message": (proc.stderr or proc.stdout)[-500:]}
-    return record, seconds
+        env = route_ref.owned_env(RUN_TIMEOUT_S)
+        facts["router_deadline_utc"] = env["KRT_ROUTE_DEADLINE_UTC"]
+        proc = route_ref.run_owned(cmd, timeout=RUN_TIMEOUT_S, env=env)
+    except BaseException as error:
+        facts["exception"] = type(error).__name__
+        facts["exitcode"] = error.code if isinstance(error, SystemExit) else None
+        log(getattr(error, "output", None), getattr(error, "stderr", None))
+        if isinstance(error, subprocess.TimeoutExpired):
+            return failed(TIMEOUT, "no result in %d s" % RUN_TIMEOUT_S)
+        if isinstance(error, Exception):
+            return failed(type(error).__name__, str(error))
+        raise
+    facts["returncode"] = proc.returncode
+    log(proc.stdout, proc.stderr)
+    try:
+        fresh = [p for p in records.glob("*/run.json") if before.get(p) != _run_identity(p)]
+    except OSError as error:
+        return failed("malformed run record", str(error))
+    record = None
+    malformed = None
+    if fresh:
+        chosen = max(fresh, key=lambda p: p.stat().st_mtime_ns)
+        facts["record"] = str(chosen)
+        try:
+            raw = chosen.read_bytes()
+            facts["record_sha256"] = hashlib.sha256(raw).hexdigest()
+            record = json.loads(raw)
+            if not isinstance(record, dict) or not isinstance(record.get("status"), str):
+                raise ValueError("run.json must be an object with a status")
+            if record.get("status") == "ok" and not isinstance(record.get("metrics"), dict):
+                raise ValueError("completed run.json must contain metrics")
+            if record.get("failure") is not None and not isinstance(record["failure"], dict):
+                raise ValueError("run.json failure must be an object")
+        except (OSError, ValueError) as error:
+            malformed = str(error)
+    log(proc.stdout, proc.stderr)
+    if proc.returncode:
+        # A CLI exit cannot be promoted by an apparently completed record.
+        message = (_process_text(proc.stderr) or _process_text(proc.stdout))[-500:]
+        if isinstance(record, dict) and record.get("failure"):
+            return dict(record, status="failed", returncode=proc.returncode), time.monotonic() - started
+        return failed("exit %d" % proc.returncode, message)
+    if malformed is not None:
+        return failed("malformed run record", malformed)
+    return record, time.monotonic() - started
 
 
 def _failure(record: dict | None) -> tuple[str, str]:

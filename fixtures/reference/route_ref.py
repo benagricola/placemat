@@ -300,21 +300,14 @@ def current_versions() -> dict:
     return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb_version()}
 
 
-def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None) -> dict:
-    """`placemat route pcb --full` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict."""
-    config = pathlib.Path(pcb).with_name("placemat.toml")
-    if toml is None:
-        config.unlink(missing_ok=True)
-    else:
-        config.write_text(toml)
-    cmd = [sys.executable, "-m", "placemat", "route", str(pcb), "--full", "--no-resume", "--out", str(work)]
-    out = pathlib.Path(work) / "route.json"
-    out.unlink(missing_ok=True)     # only this invocation's report can establish its result
+def owned_env(timeout, env=None) -> dict:
+    """One earlier router deadline, with time reserved for owned-process cleanup."""
     import math
-    import signal
     import time
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise RuntimeError("invalid reference process timeout")
     child_env = dict(os.environ if env is None else env)
-    deadline = time.time() + ROUTE_TIMEOUT_S - min(10.0, ROUTE_TIMEOUT_S / 4)
+    deadline = time.time() + timeout - min(10.0, timeout / 4)
     if "KRT_ROUTE_DEADLINE_UTC" in child_env:
         try:
             inherited = float(child_env["KRT_ROUTE_DEADLINE_UTC"])
@@ -326,31 +319,98 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
     if deadline <= time.time():
         raise RuntimeError("inherited router deadline has expired")
     child_env["KRT_ROUTE_DEADLINE_UTC"] = str(deadline)
-    # Placemat's ordinary children share this owned group. KRT's isolated candidate/grader groups
-    # receive the earlier absolute deadline above and are reaped by their own supervising process.
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            start_new_session=True, env=child_env)
+    return child_env
+
+
+def run_owned(cmd, *, timeout, env=None):
+    """Capture one owned process group, reaping it on timeout, interruption or error.
+
+    A router deadline leaves its supervisor time to reap independently sessioned
+    candidates. The outer wait, including that reserve, never exceeds `timeout`.
+    TERM/INT during Popen is deferred until the owned group is known. The helper
+    runs on the main thread so it can restore the caller's signal handlers.
+    """
+    import signal
+    import threading
+    import time
+    if threading.current_thread() is not threading.main_thread():
+        raise RuntimeError("reference process supervisor requires the main thread")
+    child_env = owned_env(timeout, env)
+    deadline = float(child_env["KRT_ROUTE_DEADLINE_UTC"])
+    reserve = min(10.0, timeout / 4)
+    proc = None
+    pending = None
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+
+    def interrupted(sig, frame):
+        nonlocal pending
+        if proc is None:
+            pending = sig
+        else:
+            raise SystemExit(128 + sig)
+
     def stop_owned():
         try:
             os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
         try:
-            proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
+            return proc.communicate(timeout=5)
+        except BaseException:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            proc.communicate()
+            proc.wait()
+            return None, None
+
     try:
-        stdout, stderr = proc.communicate(timeout=ROUTE_TIMEOUT_S)
-    except subprocess.TimeoutExpired:
-        stop_owned()
-        raise RuntimeError("placemat route timed out after %s seconds" % ROUTE_TIMEOUT_S) from None
-    except BaseException:
-        stop_owned()
+        for sig in previous:
+            signal.signal(sig, interrupted)
+        if deadline <= time.time():
+            raise RuntimeError("inherited router deadline has expired")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                start_new_session=True, env=child_env)
+        if pending is not None:
+            raise SystemExit(128 + pending)
+        now = time.time()
+        remaining = min(timeout, deadline - now + reserve)
+        if deadline <= now or remaining <= 0:
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        stdout, stderr = proc.communicate(timeout=remaining)
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    except BaseException as error:
+        if proc is not None:
+            for sig in previous:
+                signal.signal(sig, signal.SIG_IGN)
+            stdout, stderr = stop_owned()
+            if stdout:
+                error.output = stdout
+            if stderr:
+                error.stderr = stderr
+        elif pending is not None:
+            raise SystemExit(128 + pending)
         raise
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None) -> dict:
+    """`placemat route pcb --full` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict."""
+    config = pathlib.Path(pcb).with_name("placemat.toml")
+    if toml is None:
+        config.unlink(missing_ok=True)
+    else:
+        config.write_text(toml)
+    cmd = [sys.executable, "-m", "placemat", "route", str(pcb), "--full", "--no-resume", "--out", str(work)]
+    out = pathlib.Path(work) / "route.json"
+    out.unlink(missing_ok=True)     # only this invocation's report can establish its result
+    try:
+        proc = run_owned(cmd, timeout=ROUTE_TIMEOUT_S, env=env)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("placemat route timed out after %s seconds" % ROUTE_TIMEOUT_S) from None
+    stdout, stderr = proc.stdout, proc.stderr
     if proc.returncode != 0:
         raise RuntimeError("placemat route exited %d: %s" % (proc.returncode, (stderr or stdout)[-500:]))
     if not out.exists():

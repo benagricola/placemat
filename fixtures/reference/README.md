@@ -27,6 +27,13 @@ run use the imported capture's library footprints. The original human placement 
 Test (a) runs on all eight boards. Test (b) needs the board to import with `pcb import`, so it runs on the boards
 listed with `b` in `tests`.
 
+Reference subprocesses share a bounded router deadline and own their process groups. A timeout or interruption
+reaps that group; an earlier inherited router deadline is retained. Placement results require exit code zero and a
+new or rewritten `run.json` from that invocation. A stale or malformed record cannot supply a successful result.
+Full placement stdout/stderr, argv, deadline and record digest are retained under the copied script's
+`.placemat/reference-runs/`. Regenerated references retain each import/layout/legacy-upgrade command and its full
+stdout/stderr beside their output, including failed commands.
+
 ## Fetching
 
     .venv/bin/python fixtures/reference/fetch.py [name ...] [--offline]
