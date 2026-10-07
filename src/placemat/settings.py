@@ -392,6 +392,8 @@ class Settings:
         "a net mapped to a halo in mm (`{\"SW\" = 2.0}`): every router pass keeps other nets' new copper that far from the net's copper, and the net's own new copper that far from everything, to keep coupling off a switch node. Each net is given the larger of its net class clearance and its halo in the clearance map placemat hands the router. Before the route, a pad of another net within the halo whose own copper (an escape, a via) ends inside it is a `setup.net_halo` finding: the router cannot leave it. A key that names no net on the board is a `setup.net_halo` finding and the entry is not used", factory=dict)
     route_islands: tuple = S((), "list",
         "nets with pours whose pads the pours do not reach (a pour net's small taps), `\"NET\"` or `\"NET=WIDTH\"` (mm), either with `@LAYER,...` after it (`\"VBUS=1.37@F,B\"`; F, In1 to In30, B or their .Cu names): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH, its tracks on the layers given (its vias may still pass through the others) or on the route's own layers; `placemat route --islands` adds to them")
+    route_phase: tuple = S((), "list",
+        "the routing phases, in order: `[[route.phase]]` tables, each a `name`, at most one selector (`nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`, `net_types`; none takes every connection still open), and `width` (mm or \"current\"), `layers`, `neckdown`, `router_args`. A route needs at least one; `placemat settings --example` writes the default phases for a board (api.md \"Routing phases\")")
     route_diff_pair_gap: float = S(0.0, "mm",
         "mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance)")
     route_diff_pair_width: float = S(0.0, "mm",
@@ -728,7 +730,8 @@ def router_flag(args, name: str):
 # The router flags placemat sets on every pass: [route] router_args may not name them.
 _ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
                            "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
-                           "--max-probe-iterations", "--json-out", "--net-clearances"))
+                           "--max-probe-iterations", "--json-out", "--net-clearances", "--connections",
+                           "--bus-nets"))
 
 
 # A copper layer's name as KiCad spells it: F.Cu, In1.Cu to In30.Cu, B.Cu.
@@ -859,6 +862,12 @@ def _validate(name: str, value, path: str):
             parse_islands(value)
         except ValueError as e:
             raise SettingsError("%s: %s: %s" % (path, dotted, e)) from None
+    if name == "route_phase":
+        from .route_phase import PhaseError, parse_phases
+        try:
+            parse_phases(value)
+        except PhaseError as e:
+            raise SettingsError("%s: %s" % (path, e)) from None
     if name in _CHOICES and value not in _CHOICES[name]:
         raise SettingsError("%s: %s must be %s, not %r" % (
             path, dotted, ", ".join(_CHOICES[name][:-1]) + " or " + _CHOICES[name][-1], value))
