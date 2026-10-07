@@ -286,3 +286,10 @@ def test_per_net_current_prefers_the_most_specific_name_in_either_order(value):
     from placemat.checks import carriers_of
     u = footprint("U1", 2, 2, nets=("module/VIN", "GND"), fields={"Pm.I": value})
     assert carriers_of(board_geometry([u])) == {"module/VIN": {"U1": 2.0}}
+
+
+@pytest.mark.parametrize("value", ["VIN:1A vin:2A", "vin:2A VIN:1A"])
+def test_repeated_current_aliases_keep_the_largest_bound_in_either_order(value):
+    from placemat.checks import carriers_of
+    u = footprint("U1", 2, 2, nets=("module/VIN", "GND"), fields={"Pm.I": value})
+    assert carriers_of(board_geometry([u])) == {"module/VIN": {"U1": 2.0}}

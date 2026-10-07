@@ -277,7 +277,8 @@ def _facts_of(fp: Footprint) -> Facts:
             currents = {}
             for item in re.split(r"[\s,]+", get("i").strip()):
                 net, _, amps = item.partition(":")
-                currents[net.lower()] = _quantity(amps)
+                name, current = net.lower(), _quantity(amps)
+                currents[name] = max(currents.get(name, current), current)
         else:
             current_a = _quantity(get("i"))
     return Facts(ref=fp.ref, loop=get("loop"),
