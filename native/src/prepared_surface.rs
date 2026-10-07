@@ -15,13 +15,16 @@ type Evaluation = ((f64, f64, f64, f64, f64, f64), i64, usize, usize, usize,
 #[derive(Default)]
 struct Profile {
     candidate: f64, wire_cross: f64, escape_cross: f64, records: f64,
-    lanes: f64, contacts: f64, judge: f64, supplemental: f64, layout: f64,
+    lanes: f64, contacts: f64, classification: f64, aim: f64, blockers: f64,
+    path_setup: f64, judge: f64, supplemental: f64, layout: f64,
 }
 impl Profile {
     fn rows(self) -> Vec<(&'static str, f64)> {
         vec![("candidate_us", self.candidate), ("wire_cross_us", self.wire_cross),
              ("escape_cross_us", self.escape_cross), ("records_us", self.records),
              ("lanes_us", self.lanes), ("contacts_us", self.contacts),
+             ("classification_total_us", self.classification), ("aim_us", self.aim),
+             ("blockers_us", self.blockers), ("path_setup_us", self.path_setup),
              ("surface_judge_us", self.judge), ("supplemental_us", self.supplemental),
              ("layout_us", self.layout)]
     }
@@ -591,6 +594,7 @@ impl PreparedSurface {
                 let mut way = 4;
                 if net.size >= 2 && !pad.unconnected && !facts.joined && !facts.on_pad {
                     let centre = ((b.0 + b.2) / 2.0, (b.1 + b.3) / 2.0);
+                    let aim_started = profile.as_ref().map(|_| std::time::Instant::now());
                     let aim = if net.quiet {
                         None
                     } else {
@@ -599,7 +603,11 @@ impl PreparedSurface {
                             .aim(turn, &pad.net, &field.owner, &pad.number, centre)
                             .map_err(PyValueError::new_err)?
                     };
+                    if let (Some(timing), Some(started)) = (profile.as_mut(), aim_started) {
+                        timing.aim += started.elapsed().as_secs_f64() * 1e6;
+                    }
                     if net.quiet || aim.is_some() {
+                        let blockers_started = profile.as_ref().map(|_| std::time::Instant::now());
                         let pad_lanes: Vec<_> = lanes
                             .iter()
                             .filter(|l| l.0 == pad.number)
@@ -650,7 +658,10 @@ impl PreparedSurface {
                                 bans.push(record(&s, 0.0));
                             }
                         }
-                        let path = self.path(
+                        if let (Some(timing), Some(started)) = (profile.as_mut(), blockers_started) {
+                            timing.blockers += started.elapsed().as_secs_f64() * 1e6;
+                        }
+                        let path = profiled!(profile, path_setup, self.path(
                             &candidate,
                             turn,
                             field,
@@ -662,10 +673,10 @@ impl PreparedSurface {
                             aim,
                             false,
                             false,
-                        );
-                        way = surface::surface_judge(
+                        ));
+                        way = profiled!(profile, judge, surface::surface_judge(
                             py, pad_lanes, pad_spots, foes, bans, aim, centre, net.quiet, path.path,
-                        )?;
+                        ))?;
                         if way == 1 {
                             vias += 1;
                         } else if way == 2 {
@@ -676,7 +687,7 @@ impl PreparedSurface {
                     }
                 }
                 if let (Some(timing), Some(started)) = (profile.as_mut(), judge_started) {
-                    timing.judge += started.elapsed().as_secs_f64() * 1e6;
+                    timing.classification += started.elapsed().as_secs_f64() * 1e6;
                 }
                 if inspect {
                     ways.push((field.owner.clone(), pad.number.clone(), way));

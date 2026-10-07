@@ -272,7 +272,8 @@ def test_diagnostic_stage_profile_preserves_exact_evaluation_and_identity_guards
         assert actual == expected
         stages = dict(timings)
         assert set(stages) == {'candidate_us', 'wire_cross_us', 'escape_cross_us', 'records_us',
-                               'lanes_us', 'contacts_us', 'surface_judge_us', 'supplemental_us', 'layout_us'}
+                               'lanes_us', 'contacts_us', 'classification_total_us', 'aim_us', 'blockers_us',
+                               'path_setup_us', 'surface_judge_us', 'supplemental_us', 'layout_us'}
         assert all(value >= 0 for value in stages.values())
         assert stages['lanes_us'] > 0 and stages['surface_judge_us'] > 0
     with pytest.raises(ValueError):
