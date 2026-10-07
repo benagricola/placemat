@@ -51,7 +51,7 @@ def test_the_scan_step_is_the_declared_one():
     occ = Occupancy(g, edge_margin=0.0, settings=Settings())
     u1 = g.footprint("U1")
     hint = Placement(Location(20, 20), 0, Face.FRONT)
-    nowhere = lambda p: 0.0
+    nowhere = lambda p: (0, 0.0)
     coarse = scan(occ, u1, hint, radius=1.0, step=1.0, score=nowhere)
     fine = scan(occ, u1, hint, radius=1.0, step=0.25, score=nowhere)
     assert fine.tried > coarse.tried
@@ -64,7 +64,7 @@ def test_the_coarse_pass_is_skipped_below_the_declared_ratio():
     g = _geom()
     u1 = g.footprint("U1")
     hint = Placement(Location(20, 20), 0, Face.FRONT)
-    nowhere = lambda p: 0.0
+    nowhere = lambda p: (0, 0.0)
     never = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_min_radius_steps=1e9))
     always = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_min_radius_steps=1.0))
     direct = scan(never, u1, hint, radius=4.0, step=0.25, score=nowhere)

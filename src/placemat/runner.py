@@ -770,6 +770,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                         ", ".join(report.resumed))
                 metrics["route"] = report.as_dict()
                 metrics["closure_clean"] = report.closure_clean
+                # the routed board's vias, copper and tracks, the quality key's terms (score.quality_key): the DRC above
+                # judged the placement before the route, so they are read off the routed copy here
+                from .kicad.route import routed_quality
+                metrics["measures"].update(routed_quality(report.routed_pcb))
                 rec.timing_s["route"] = round(time.time() - t0, 1)
                 say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
                 for breach in report.keepout_breaches:
@@ -900,9 +904,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
 
 def _against_best(rec: RunRecord, best_path: Path, say, cfg) -> str | None:
     """Judge a finished run against the best of its family - the runs whose
-    script asked to place the same things - by the run score, and record it
-    if it is the new best. A regression becomes a note naming the score and
-    the term that moved it most.
+    script asked to place the same things - by `score.rank` (validity, closure,
+    routed quality, the run score), and record it if it is the new best. A
+    regression becomes a note naming the tier that decided it.
 
     It is appended after the measures were taken, so the score goes on
     measuring the layout rather than the verdict about it."""

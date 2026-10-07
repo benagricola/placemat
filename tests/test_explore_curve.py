@@ -120,7 +120,8 @@ def test_nothing_is_on_by_default_the_rules_are_settings():
 
 def test_which_terms_are_hard_is_derived_from_the_findings_severities():
     from placemat import findings
-    assert set(score.HARD_FINDINGS) == {k for k, sev in findings.SEVERITY.items() if sev == "critical"} & set(score._FINDING_WEIGHTS)
+    assert set(score.HARD_FINDINGS) == {"fixed", "copper", "escape_walled"}
+    assert all(findings.SEVERITY[k] == "critical" for k in score.HARD_FINDINGS)
     clear = {"unplaced": {}, "findings": {"label": 3, "setup": 1}}
     assert score.hard_clear(clear)
     assert not score.hard_clear({"unplaced": {"default": 1}, "findings": {}})

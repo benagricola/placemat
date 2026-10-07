@@ -11,21 +11,27 @@ from placemat.values import Face, Location
 from tests.fixtures import board_geometry, footprint
 
 
-def _cands(scores):
-    return [(s, 0.0, 0, "c%d" % k) for k, s in enumerate(scores)]
+def _cands(scores, walled=None):
+    return [((walled[k] if walled else 0, s), 0.0, 0, "c%d" % k) for k, s in enumerate(scores)]
 
 
 def test_a_draw_never_goes_beyond_the_slack():
     rng = random.Random(1)
     cands = _cands([10.0, 11.0, 12.4, 12.6, 30.0])
     for _ in range(2000):
-        assert draw(cands, rng, 0.25, 1.0)[0] <= 12.5
+        assert draw(cands, rng, 0.25, 1.0)[0][1] <= 12.5
 
 
 def test_with_a_best_of_nothing_the_slack_is_in_millimetres():
     rng = random.Random(1)
     cands = _cands([0.0, 0.2, 0.3])
-    assert {draw(cands, rng, 0.25, 1.0)[0] for _ in range(500)} == {0.0, 0.2}
+    assert {draw(cands, rng, 0.25, 1.0)[0][1] for _ in range(500)} == {0.0, 0.2}
+
+
+def test_a_draw_never_takes_a_spot_that_walls_more_pads_than_the_best():
+    rng = random.Random(1)
+    cands = _cands([10.0, 10.1, 10.2], walled=[0, 1, 0])
+    assert {draw(cands, rng, 0.25, 1.0)[3] for _ in range(500)} == {"c0", "c2"}
 
 
 def test_the_best_is_the_likeliest():
@@ -40,7 +46,7 @@ def test_a_scan_picks_as_told_and_by_default_takes_the_best():
     occ = Occupancy(board_geometry(fps, width=60, height=60), edge_margin=1.0)
     item = fps[0]
     hint = Placement(Location(30, 30), 0, Face.FRONT)
-    score = lambda p: abs(p.location.x - 30) + abs(p.location.y - 30)
+    score = lambda p: (0, abs(p.location.x - 30) + abs(p.location.y - 30))
     seen = []
 
     def last(cands):

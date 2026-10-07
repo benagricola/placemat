@@ -67,6 +67,7 @@ class BResult:
     detail: str = ""        # what the failure said
     inputs_digest: str = ""   # of the capture's generator inputs: a changed capture is a difference, not a regression
     placement: dict = dataclasses.field(default_factory=dict)   # placement_facts: kept when the route fails or is refused
+    measures: dict = dataclasses.field(default_factory=dict)    # the run's measures (score.py), routed quality included
 
 
 @dataclasses.dataclass(frozen=True)
@@ -81,6 +82,7 @@ class MResult:
     detail: str = ""
     inputs_digest: str = ""
     placement: dict = dataclasses.field(default_factory=dict)
+    measures: dict = dataclasses.field(default_factory=dict)    # the run's measures (score.py), routed quality included
 
 
 def asdict(result) -> dict:
@@ -210,7 +212,7 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     new = route_ref.new_violations(prepare.violations_of(route["drc_after"]), prepared.baseline)
     return result(closure_clean=route.get("closure_clean", NOT_RUN), open=route.get("open_after", 0), new_violations=new,
                   vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder), seconds=round(seconds, 1),
-                  versions=versions, placement=placement)
+                  versions=versions, placement=placement, measures=record["metrics"].get("measures") or {})
 
 
 def _area(metrics: dict) -> float:
@@ -250,7 +252,7 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
                        placement)
     metrics = record["metrics"]
     return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, copy.parent), round(seconds, 1),
-                   versions, inputs_digest=digest, placement=placement)
+                   versions, inputs_digest=digest, placement=placement, measures=metrics.get("measures") or {})
 
 
 def _differ(old: dict, new, changing: set[str]) -> list[str]:
@@ -274,8 +276,28 @@ def _compared(old: dict | None, new, changing: set[str], value) -> route_ref.Com
     return route_ref.Comparison(value(old, new), [])
 
 
+def _ranked(old: dict, new) -> str | None:
+    """same, better or worse by `score.rank` when both runs recorded their measures and neither failed: the new
+    violations as the DRC errors beyond the baseline (a board's; None for a module) and the clean closure, closures ()
+    as a run records no phases yet. None otherwise: a record from before the measures is judged as it was."""
+    if new.failure or old.get("failure") or not new.measures or not old.get("measures"):
+        return None
+    from placemat import score
+    from placemat.settings import Settings
+
+    def standing(r: dict):
+        m = r["measures"]
+        drc = len(r["new_violations"]) if "new_violations" in r else None
+        return score.Standing(m, score.Validity.of(m, drc_new=drc), (), r["closure_clean"])
+    return {-1: "better", 0: "same", 1: "worse"}[score.rank(standing(asdict(new)), standing(old), Settings())]
+
+
 def b_by_value(old: dict, new: BResult) -> str:
-    """same, better or worse on the values alone: worse is a lower clean closure or a failure the recorded run had not."""
+    """same, better or worse on the values alone: by `score.rank` when both recorded their measures (`_ranked`), else
+    worse is a lower clean closure or a failure the recorded run had not."""
+    ranked = _ranked(old, new)
+    if ranked is not None:
+        return ranked
     if _worse_closure(old, new):
         return "worse"
     if new.closure_clean > old["closure_clean"] or (old.get("failure") and not new.failure):
@@ -284,7 +306,11 @@ def b_by_value(old: dict, new: BResult) -> str:
 
 
 def module_by_value(old: dict, new: MResult) -> str:
-    """same, better or worse on the values alone: worse is a lower clean closure, or at equal closure a larger area."""
+    """same, better or worse on the values alone: by `score.rank` when both recorded their measures (`_ranked`: area is a
+    term of the run score, D16), else worse is a lower clean closure, or at equal closure a larger area."""
+    ranked = _ranked(old, new)
+    if ranked is not None:
+        return ranked
     if _worse_closure(old, new):
         return "worse"
     if new.closure_clean > old["closure_clean"]:

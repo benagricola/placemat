@@ -155,7 +155,7 @@ def test_routing_costs_score_via_route_in_the_search():
     occ.commit(b.geometry.footprint("R9"), Placement(Location(19.5, 23.0), 0.0, Face.BACK))
     centre = occ._geometry(b.geometry.cells["m"]).reference.location
     hint = Placement(Location(centre.x - 20, centre.y - 20), 0.0, Face.FRONT)
-    r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=lambda p: 0.0)
+    r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=lambda p: (0, 0.0))
     assert r.chosen is not None and r.score == 3.0
 
 

@@ -791,13 +791,20 @@ impl NativeBoard {
     }
 }
 
+/// The pads walled off by a candidate the scorer did not weigh (pruned, or past a
+/// limit): more than any count, so it ranks below every candidate weighed in
+/// full, as `placer.UNWEIGHED`.
+const UNWEIGHED: i64 = i64::MAX;
+
 /// A searched item's cost, as `Board._scorer` weighs a candidate: the wire
 /// (each target's weight times its distance, the item's pads moved as
 /// `Occupancy.candidate_pad_locations` moves them), `crossing` times the
 /// ratsnest crossings its leaf airwires add, and the escape weights times
-/// the escapes it crosses, closes and walls off. With `prune`, a candidate
-/// whose wire alone reaches the best cost weighed so far (`floor`) is not
-/// weighed further and scores its wire plus `pruned`.
+/// the escapes it crosses and closes; beside it, how many pads it walls off,
+/// compared before the cost (a candidate that walls a pad loses to any that
+/// does not). `floor` is the best cost weighed so far of a candidate that
+/// walls none: with `prune`, a candidate whose wire alone reaches it is not
+/// weighed further and scores its wire plus `pruned`, at `UNWEIGHED` pads.
 #[pyclass]
 struct NativeScoring {
     /// (pad centre at the item's reference, target, weight), in order.
@@ -811,7 +818,7 @@ struct NativeScoring {
     own: Vec<u32>,
     crossing: f64,
     escaping: bool,
-    weights: (f64, f64, f64), // escape crossed, closed, walled
+    weights: (f64, f64), // escape crossed, closed
     depth: f64,
     prune: bool,
     pruned: f64,
@@ -834,7 +841,7 @@ impl NativeScoring {
         own: Vec<String>,
         crossing: f64,
         escaping: bool,
-        weights: (f64, f64, f64),
+        weights: (f64, f64),
         depth: f64,
         prune: bool,
         pruned: f64,
@@ -854,8 +861,8 @@ impl NativeScoring {
 }
 
 impl NativeScoring {
-    /// The cost of the candidate at (x, y) on turn `turn`.
-    fn score(&mut self, rn: &NativeRatsnest, turns: &[PyRef<'_, NativeEscTurn>], x: f64, y: f64, turn: usize) -> f64 {
+    /// (the cost, the pads walled off) of the candidate at (x, y) on turn `turn`.
+    fn score(&mut self, rn: &NativeRatsnest, turns: &[PyRef<'_, NativeEscTurn>], x: f64, y: f64, turn: usize) -> (f64, i64) {
         // Transform.then(translate(x, y)), then apply: as geometry.py does it
         let (a0, b0, c0, d0, tx0, ty0) = self.transforms[turn];
         let a = 1.0 * a0 + 0.0 * c0;
@@ -872,22 +879,24 @@ impl NativeScoring {
         }
         let mut cost = wire.total();
         if self.prune && cost >= self.floor {
-            return cost + self.pruned;
+            return (cost + self.pruned, UNWEIGHED);
         }
         let pads: Vec<(u32, f64, f64)> = self.anchors[turn].iter().map(|&(n, px, py)| (n, px + x, py + y)).collect();
         let (added, crossed) = rn.inner.leaf_costs(&pads, &self.own, self.depth);
         if self.crossing > 0.0 {
             cost += self.crossing * added;
         }
+        let mut walls = 0i64;
         if self.escaping {
             let (closed, walled) = rn.esc.closed(&rn.inner, &turns[turn].turn, x, y, &self.own);
-            let (wc, wo, ww) = self.weights;
-            cost += wc * crossed as f64 + wo * closed as f64 + ww * walled as f64;
+            let (wc, wo) = self.weights;
+            cost += wc * crossed as f64 + wo * closed as f64;
+            walls = walled;
         }
-        if cost < self.floor {
+        if walls == 0 && cost < self.floor {
             self.floor = cost;
         }
-        cost
+        (cost, walls)
     }
 }
 
@@ -902,9 +911,10 @@ enum End {
 /// A part's cost as `cleanup.cleanup` weighs a move or a swap of it
 /// (`cost`, `limits_ok`, `satellite_ok`, `terms`), for the native sweep:
 /// the HPWL of its nets with every other pin where it stands, each link's
-/// weight times its length, the crossings and escapes at the escape
-/// weights; a candidate past a limit scores `over`, one whose wire reaches
-/// the best cost seen (`floor`) its wire plus `over`.
+/// weight times its length, the crossings and the escapes it crosses and
+/// closes at the escape weights, and beside it the pads it walls off; a
+/// candidate past a limit scores `over`, one whose wire reaches the best cost
+/// seen of a candidate that walls none (`floor`) its wire plus `over`.
 #[pyclass]
 struct NativeCleanupScoring {
     /// Per turn: the part's pads at the origin, as `pads_at` offsets.
@@ -923,7 +933,7 @@ struct NativeCleanupScoring {
     own: Vec<u32>,
     crossing: f64,
     escaping: bool,
-    weights: (f64, f64, f64),
+    weights: (f64, f64),
     depth: f64,
     over: f64,
     #[pyo3(get, set)]
@@ -947,7 +957,7 @@ impl NativeCleanupScoring {
         own: Vec<String>,
         crossing: f64,
         escaping: bool,
-        weights: (f64, f64, f64),
+        weights: (f64, f64),
         depth: f64,
         over: f64,
         floor: f64,
@@ -983,14 +993,14 @@ impl NativeCleanupScoring {
         }
     }
 
-    fn score(&mut self, rn: Option<&NativeRatsnest>, turns: &[PyRef<'_, NativeEscTurn>], x: f64, y: f64, turn: usize) -> f64 {
+    fn score(&mut self, rn: Option<&NativeRatsnest>, turns: &[PyRef<'_, NativeEscTurn>], x: f64, y: f64, turn: usize) -> (f64, i64) {
         // limits_ok, then satellite_ok
         for &(_, a, b, lim, now) in &self.links {
             if let Some(lim) = lim {
                 let (pa, pb) = (self.end(a, turn, x, y), self.end(b, turn, x, y));
                 let after = exact::hypot(pa.0 - pb.0, pa.1 - pb.1);
                 if after > lim + 1e-9 && after > now + 1e-9 {
-                    return self.over;
+                    return (self.over, UNWEIGHED);
                 }
             }
         }
@@ -1001,7 +1011,7 @@ impl NativeCleanupScoring {
             let dx = pymax3(ml - tr, tl - mr, 0.0);
             let dy = pymax3(mt - tb, tt - mb, 0.0);
             if !(exact::hypot(dx, dy) <= mm + 1e-9) {
-                return self.over;
+                return (self.over, UNWEIGHED);
             }
         }
         // cost: the HPWL of its nets, then its links
@@ -1027,25 +1037,27 @@ impl NativeCleanupScoring {
             }
         }
         if wire >= self.floor {
-            return wire + self.over;
+            return (wire + self.over, UNWEIGHED);
         }
         // terms: its crossings and escapes
         let mut terms = 0.0f64;
+        let mut walls = 0i64;
         if let Some(rn) = rn {
             let pads: Vec<(u32, f64, f64)> = self.anchors[turn].iter().map(|&(n, px, py)| (n, px + x, py + y)).collect();
             let (added, crossed) = rn.inner.leaf_costs(&pads, &self.own, self.depth);
             terms = self.crossing * added;
             if self.escaping {
                 let (closed, walled) = rn.esc.closed(&rn.inner, &turns[turn].turn, x, y, &self.own);
-                let (wc, wo, ww) = self.weights;
-                terms += wc * crossed as f64 + wo * closed as f64 + ww * walled as f64;
+                let (wc, wo) = self.weights;
+                terms += wc * crossed as f64 + wo * closed as f64;
+                walls = walled;
             }
         }
         let total = wire + terms;
-        if total < self.floor {
+        if walls == 0 && total < self.floor {
             self.floor = total;
         }
-        total
+        (total, walls)
     }
 }
 
@@ -1062,7 +1074,8 @@ fn pymax3(a: f64, b: f64, c: f64) -> f64 {
 /// does, then the edge, then the reservations in `reservations` order, then
 /// the near-obstacle conflict - the order `Occupancy.legal_bucket` tests
 /// them - stopping at the first refusal. Returns (the indexes of the legal
-/// candidates, in order; and each refusal as (kind, a, b, count, first
+/// candidates, in order; each one's (cost, pads walled off) under `scoring`,
+/// (0.0, 0) without it; and each refusal as (kind, a, b, count, first
 /// candidate index) in the order first met: kind 0 an edge refusal with
 /// a = its code (plus `COPPER_EDGE` when it is the copper's, judged at the
 /// keep-in; a courtyard or body is judged against the edge itself), 1 a reservation with a = its index, 2 a conflict with
@@ -1099,7 +1112,7 @@ fn sweep(
     yards: Option<Vec<Vec<Option<Vec<Point>>>>>,
     silk_edges: Option<Vec<Vec<PyBox>>>,
     silk_margin: f64,
-) -> PyResult<(Vec<usize>, Vec<f64>, Vec<(u8, i64, i64, usize, usize)>)> {
+) -> PyResult<(Vec<usize>, Vec<(f64, i64)>, Vec<(u8, i64, i64, usize, usize)>)> {
     let yards = yards.unwrap_or_default();
     let silk_edges = silk_edges.unwrap_or_default();
     let parts = parts.unwrap_or_default();
@@ -1245,7 +1258,7 @@ fn sweep(
                 scores.push(match (search.as_mut(), tidy.as_mut(), rn.as_ref()) {
                     (Some(sc), _, Some(rn)) => sc.score(rn, &esc_turns, x, y, turn),
                     (_, Some(tc), rn) => tc.score(rn.map(|r| &**r), &esc_turns, x, y, turn),
-                    _ => 0.0,
+                    _ => (0.0, 0),
                 });
                 if stop_at_first {
                     break;

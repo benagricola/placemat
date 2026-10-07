@@ -58,7 +58,8 @@ class ScanResult:
     rejected: Counter = field(default_factory=Counter)
     reasons: dict = field(default_factory=dict)
     blockers: Counter = field(default_factory=Counter)   # (kind, owner, face label) -> how often
-    score: float = 0.0
+    score: float = 0.0          # the chosen spot's cost
+    walled: int = 0             # the pads the chosen spot walls off (Escapes.closed), compared before the cost
     cut: dict | None = None      # set when the step's budget ended the search: `SearchBudget.measurement()` at that point
     bound: int = 0               # candidates with room that the score bound (`score.best`) cut: give-way candidates here, and a face
                                  # whose spots were all cut when Board._scan_faces merges the two faces
@@ -228,6 +229,11 @@ NATIVE_SWEEP = True
 # the item as it is only where that was legal: what the second judgment refuses the first does too, so each candidate
 # the pass refuses is judged once instead of twice, and the answers are the same (tests/test_scan_order.py).
 B_FIRST = True
+# The standing of a candidate an unscored scan finds: (pads walled off, cost), as a scorer's (layout.Scorer).
+UNSCORED = (0, 0.0)
+# The pads walled off by a candidate a scorer did not weigh (pruned, or past a limit): more than any count, so it ranks
+# below every candidate weighed in full, as a pruned cost ranked above any real one. The native scorers' i64::MAX.
+UNWEIGHED = 2 ** 63 - 1
 # Whether a candidate the sweeper judged legal less its carried vias (and, for the net ties, in Python) is judged again
 # before they give way: it need not be, and the answers are the same (tests/test_scan_order.py).
 JUDGE_ONCE = True
@@ -238,9 +244,11 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
          pick=None, accept=None, turns_at: SpotTurns | None = None, within=None) -> ScanResult:
     """A legal location within `radius` of `hint`, on a `step` grid, trying
     each rotation at each location. Without `score` it is the nearest legal
-    candidate to the hint; with `score(placement) -> float` it is the legal
-    candidate with the lowest score, ties broken by distance from the hint,
-    then rotation. Rotations are tried in numeric order regardless of how
+    candidate to the hint; with `score(placement) -> (walled, cost)` it is the
+    legal candidate with the lowest, compared in that order (a candidate that
+    walls a pad loses to any that walls none, D13), ties broken by distance
+    from the hint, then rotation. A scorer's `best[0]`, when it has one, is the
+    lowest cost of a candidate that walls none. Rotations are tried in numeric order regardless of how
     they were passed. A scored scan over a wide radius is coarse first,
     then fine around its best spots.
 
@@ -354,13 +362,15 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             hit = occ.legal_bucket(gw.item, cand, clearance, gw.others, blame)
             if hit is not None:
                 return hit[0], hit[1], [blocker_key(b) for b in blame]
-        sc, before = 0.0, None
+        sc, before = UNSCORED, None
         if score:
             before = best[0] if best is not None else None
             sc = score(cand)
             if best is not None:
                 best[0] = before
-            if bounded and sc + least > before:
+            # `before` is the lowest cost of a spot that walls nothing: this one cannot beat it walling a pad, nor at
+            # more than that cost even at the least its vias' giving way costs
+            if bounded and before < math.inf and (sc[0] > 0 or sc[1] + least > before):
                 n_bound[0] += 1
                 return None
         if afford(1) == 0:
@@ -372,9 +382,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             return _reason_key(res.why), (lambda why=res.why: why), [blocker_key(res.blocker)]
         if not (inline and refused(cand)):
             if best is not None:
-                best[0] = min(before, sc + res.cost)
+                best[0] = min(before, sc[1] + res.cost) if not sc[0] else before
             d = math.hypot(cand.location.x - hint.location.x, cand.location.y - hint.location.y)
-            legal.append((sc + res.cost, d, tie(cand), cand))
+            legal.append(((sc[0], sc[1] + res.cost), d, tie(cand), cand))
         return None
 
     def sweep(points, stop_at_first: bool) -> list:
@@ -415,7 +425,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     if inline and refused(cand):
                         continue
                     d = math.hypot(x - hint.location.x, y - hint.location.y)
-                    legal.append((score(cand) if score else 0.0, d, tie(cand), cand))
+                    legal.append((score(cand) if score else UNSCORED, d, tie(cand), cand))
                     if stop_at_first:
                         for c, h, bl in held:
                             tally(h[0], h[1], [blocker_key(b) for b in bl])
@@ -489,13 +499,13 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             budget.cut = True
         scored = scoring is not None and scores is not None
         legal = []
-        for i, sc in zip(found, scores if scored else [0.0] * len(found)):
+        for i, sc in zip(found, scores if scored else [None] * len(found)):
             x, y, k = triples[i]
             cand = Placement(Location(x, y), rots[k], hint.face)
             if inline and refused(cand):
                 continue
             d = math.hypot(x - hint.location.x, y - hint.location.y)
-            legal.append(((sc if scored else score(cand)) if score else 0.0, d, tie(cand), cand))
+            legal.append((((sc[1], sc[0]) if scored else score(cand)) if score else UNSCORED, d, tie(cand), cand))
             if stop_at_first:
                 break
         if gw is None or (stop_at_first and legal):
@@ -656,7 +666,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     if commit:
         occ.commit(item, chosen)
     result = ScanResult(chosen, hint, tried, rejected, reasons, blockers, cut=cut, bound=n_bound[0])
-    result.score = best[0]
+    result.walled, result.score = best[0]
     return result
 
 
@@ -1525,7 +1535,7 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
                     reasons.setdefault(key, why)
                     continue
                 d = math.hypot(x - hx, y - hy)
-                fits.append(((score(members) if score else 0.0, d, rot), cand, members))
+                fits.append(((score(members) if score else UNSCORED, d, rot), cand, members))
                 if stop_at_first:
                     return fits
         return fits

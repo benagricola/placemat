@@ -106,6 +106,22 @@ def test_a_module_with_lower_closure_is_worse_whatever_its_area():
     assert place_ref.compare_module(place_ref.asdict(_m(closure_clean=0.8)), _m(area_mm2=900.0), {"placemat"}).status == "better"
 
 
+def test_results_with_measures_are_ranked_by_score_rank():
+    """With the run's measures recorded, a board or module is judged by `score.rank`: a new violation outranks closure
+    (D11), a fitted module's area is traded in the run score (D16), and a complete board's routed quality decides
+    before the score (D17)."""
+    m = {"v": 2, "airwire_mm": 100.0, "crossings": {}, "area_mm2": 100.0, "vias": 5, "copper_mm": 50.0, "segments": 20}
+    old = place_ref.asdict(_b(measures=m))
+    assert place_ref.compare_b(old, _b(measures=m, closure_clean=0.9), {"placemat"}).status == "worse"
+    assert place_ref.compare_b(old, _b(measures=dict(m, vias=4)), {"placemat"}).status == "better"
+    assert place_ref.compare_b(place_ref.asdict(_b(measures=m, closure_clean=0.9)),
+                               _b(measures=dict(m, vias=1), new_violations=[prepare.Violation("clearance", ("A", "B"), (1.0, 2.0))]), {"placemat"}).status == "worse"
+    small = place_ref.asdict(_m(measures=m))
+    larger = dict(m, area_mm2=101.0, airwire_mm=99.5)   # 1 mm2 more area at score.area 0.25 against 0.5 mm less wire
+    assert place_ref.compare_module(small, _m(area_mm2=101.0, measures=larger), {"placemat"}).status == "same"
+    assert place_ref.compare_module(small, _m(area_mm2=140.0, measures=dict(m, area_mm2=140.0)), {"placemat"}).status == "worse"
+
+
 def test_other_versions_make_results_not_comparable():
     c = place_ref.compare_module(place_ref.asdict(_m()), _m(versions=dict(VERSIONS, krt="1")), {"placemat"})
     assert (c.status, c.differ) == ("not comparable", ["krt"])

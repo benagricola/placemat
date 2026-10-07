@@ -42,7 +42,7 @@ from .placement import Placement
 from .settings import Settings
 from .arrangements import (DEFAULT_SPEC, Alt, Enumeration, Exclusion, Group, GroupOption, Option, Spec, check_keywords, check_name,
                            enumerate_specs, merged_call, only_holds, units)
-from .placer import BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import UNWEIGHED, BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Tangent, Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, LabelKey, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
@@ -831,16 +831,17 @@ PRUNED = 1e6
 
 
 class Scorer:
-    """A searched item's cost at a candidate placement: each connection's
-    weight times its length, `score.crossing` for each ratsnest crossing its
-    airwires would add, and the escape weights for each escape it would
-    cross, close or wall off (escapes.py). With `prune`, a candidate whose
-    wire alone reaches the best cost weighed so far (`best[0]`) is not
-    weighed further: its crossings and escapes can only add. Explore draws
-    among candidates near the best and needs every one weighed.
+    """A searched item's standing at a candidate placement, as (pads it walls off, cost), compared in that order (D13):
+    a candidate that walls a pad (escapes.py, `Escapes.closed`) loses to any that walls none, then the cost decides.
+    The cost is each connection's weight times its length, `score.crossing` for each ratsnest crossing its airwires
+    would add, and the escape weights for each escape it would cross or close. `best[0]` is the lowest cost weighed so
+    far of a candidate that walls no pad: with `prune`, a candidate whose wire alone reaches it is not weighed further
+    (its crossings and escapes can only add, and walling a pad only loses) and stands at (placer.UNWEIGHED, its wire plus
+    PRUNED), below every candidate weighed in full.
+    Explore draws among candidates near the best and needs every one weighed.
 
     Called, it is the Python reference; `native(rots, face)` hands a scan
-    the same cost, worked out in the native sweep (placemat_native.NativeScoring),
+    the same standing, worked out in the native sweep (placemat_native.NativeScoring),
     sharing `best` with it."""
 
     def __init__(self, settings, item, occ: Occupancy, targets: list, prune: bool, pushes=(), lanes=None):
@@ -850,14 +851,13 @@ class Scorer:
         self.lanes = lanes          # placement -> how many of the item's declared escape lanes it would block
         self.crossing = s.score_crossing
         self.rn = occ.ratsnest() if self.crossing > 0 else None
-        self.escaping = s.score_escape_crossed > 0 or s.score_escape_closed > 0 or s.score_escape_walled > 0
-        self.esc = occ.escapes() if self.escaping else None
+        self.esc = occ.escapes()        # walled pads are counted whatever the escape weights are
         self.own = frozenset(fp.ref for fp in members_of(item))
         self.depth = s.place_escape_depth
         self.best = [math.inf]
         self._native = {}
 
-    def __call__(self, placement: Placement) -> float:
+    def __call__(self, placement: Placement) -> tuple:
         occ, s = self.occ, self.s
         pads = occ.candidate_pad_locations(self.item, placement)
         cost = sum(w * pads[key].distance(target) for key, target, w in self.targets if key in pads)
@@ -870,18 +870,18 @@ class Scorer:
                 value, _ = _push_value(source_point, point, push)
                 cost += s.score_push * value / push.limit
         if self.prune and cost >= self.best[0]:
-            return cost + PRUNED        # its crossings and escapes can only add: it cannot be the best
+            return UNWEIGHED, cost + PRUNED     # its crossings and escapes can only add: it cannot be the best
         crossed = None
         if self.rn is not None:
             added, crossed = self.rn.leaf_costs(occ.candidate_anchors(self.item, placement), self.own, self.depth)
             cost += self.crossing * added
-        if self.esc is not None:
-            crossed, closed, walled = self.esc.closed(self.item, placement, crossed)
-            cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed + s.score_escape_walled * walled
+        crossed, closed, walled = self.esc.closed(self.item, placement, crossed)
+        cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed
         if self.lanes is not None:
             cost += s.score_escape_lane * self.lanes(placement)
-        self.best[0] = min(self.best[0], cost)
-        return cost
+        if not walled:
+            self.best[0] = min(self.best[0], cost)
+        return walled, cost
 
     def native(self, rots, face):
         """The same cost for the native sweep over these turns, or None when
@@ -893,7 +893,7 @@ class Scorer:
         occ, s = self.occ, self.s
         rn = occ.ratsnest()
         mirror = rn.mirror
-        if mirror is None or (self.esc is not None and self.esc.mirror is None):
+        if mirror is None or self.esc.mirror is None:
             return None
         key = (tuple(rots), face)
         hit = self._native.get(key)
@@ -902,13 +902,13 @@ class Scorer:
             centres = occ.reference_pad_centres(self.item)
             targets = [((centres[k].x, centres[k].y), (t.x, t.y), w) for k, t, w in self.targets if k in centres]
             origin = [Placement(Location(0.0, 0.0), r, face) for r in rots]
-            esc = self.esc if self.esc is not None else occ.escapes()
+            esc = self.esc
             hit = occ.native_module().NativeScoring(
                 mirror, targets, [occ.turn_transform(geom, r, face) for r in rots],
                 [occ.candidate_anchors(self.item, pl) for pl in origin],
-                [esc._native_turn(self.item, pl) for pl in origin] if self.esc is not None else [],
-                sorted(self.own), self.crossing, self.esc is not None,
-                (s.score_escape_crossed, s.score_escape_closed, s.score_escape_walled), self.depth,
+                [esc._native_turn(self.item, pl) for pl in origin],
+                sorted(self.own), self.crossing, True,
+                (s.score_escape_crossed, s.score_escape_closed), self.depth,
                 self.prune, PRUNED, self.best[0])
             self._native[key] = hit
         hit.floor = self.best[0]
@@ -10897,11 +10897,11 @@ class Board:
         priced = bool(targets or push_sources or any(x[6] for x in laid))
         out = []
         for ident, j, p, chose, why, resolution, lanes, tight in laid:
-            score = None
+            score, walled = None, 0
             if why is None and priced:
-                score = self._scorer(j.item, occ, targets, prune=False, pushes=push_sources, lanes=lanes)(p) \
-                    + (resolution.cost if resolution is not None else 0.0)
-            out.append(_Trial(ident, j, p, chose, why, score, tight))
+                walled, score = self._scorer(j.item, occ, targets, prune=False, pushes=push_sources, lanes=lanes)(p)
+                score += resolution.cost if resolution is not None else 0.0
+            out.append(_Trial(ident, j, p, chose, why, score, tight, walled))
         return out
 
     def _take_tight(self, key: str, t: "_Trial") -> None:
@@ -10914,7 +10914,9 @@ class Board:
         """A decided cell that may take more than one arrangement, at its spot (`_firm_trials`). Each legal one is compared at its
         total (`_total_at`: its score, `score.arrangement` for one other than the default, `score.back_face`); the lowest wins and
         a tie keeps the one tried first. A non-default arrangement must also beat the default's total by
-        `place.arrangement_margin` (`_margin`) when the default is legal, as a searched cell's must. With nothing to score, the
+        `place.arrangement_margin` (`_margin`) when the default is legal, as a searched cell's must. One that walls off fewer
+        pads (`_Trial.walled`) wins before the totals are compared, and the margin is asked only of one that walls as many as
+        the default. With nothing to score, the
         first legal one stands. When none is legal it is a firm collision as for a cell with one arrangement: the default stands
         where its declaration puts it (the first `arrangements=` names when it does not name the default), and its `fixed.part`
         finding carries every other arrangement's refusal under `arrangements`. The one taken is recorded in `_arr_choice`."""
@@ -10941,11 +10943,11 @@ class Board:
         for t in legal:
             mine = total.get(t.ident)
             if t.ident and mine is not None and margin is not None and default_total is not None \
-                    and default_total - mine < margin:
+                    and t.walled == default.walled and default_total - mine < margin:
                 if mine < default_total and (held is None or mine < held[0]):
                     held = (mine, t.ident)
                 continue
-            if best is None or (mine is not None and mine < total[best.ident]):
+            if best is None or (mine is not None and (t.walled, mine) < (best.walled, total[best.ident])):
                 best = t
         scored = best.score is not None
         blamed = None
@@ -11018,8 +11020,9 @@ class Board:
     def _scan_arrangements(self, occ, i, plan, placed, ids, **kw) -> "_Scanned":
         """Scan item `i` in each arrangement of `ids` ("" the default), in order, each an ordinary scan of the arranged cell (its own
         geometry, sweeper, scorer, seed and lanes), the front before the back. A non-default arrangement costs `score.arrangement`
-        more and is taken only when its best score plus that is strictly below the best so far, or when nothing earlier has a legal
-        spot; the best so far, less the cost, is the next scorer's pruning floor. The default's scan takes no floor, so its score
+        more and is taken only when its best spot walls off fewer pads than the best so far (`ScanResult.walled`), or as many at a
+        score plus that strictly below it, or when nothing earlier has a legal spot; the best so far, less the cost, is the next
+        scorer's pruning floor when it walls none. The default's scan takes no floor, so its score
         is known whenever it has a legal spot. An unscored search (no links, pushes or lanes to price) takes the first arrangement
         with a legal spot and scans no further. Each scan has the step's budget afresh; the step's time limit stops between scans.
         `kw` are `_scan_one`'s keywords but `j`.
@@ -11053,7 +11056,8 @@ class Board:
                     and not (kw["wide_push"] or kw["wide_tangent"]):
                 hint = self._seed_hint(j.item, occ, kw["targets"], i.rotation, i.face)      # laid from the arranged item's pads
             extra = cost if ident else 0.0
-            floor = best[0] if best is not None and ident else None
+            # the best so far prunes the next scan only when it walls no pad: a spot that walls none beats it at any cost
+            floor = best[0][1] if best is not None and ident and not best[0][0] else None
             self._collect_into = [] if draw is not None else None
             try:
                 t = self._scan_one(occ, j, plan, placed, **{**kw, "hint": hint}, floor=floor, cost=extra)
@@ -11064,24 +11068,27 @@ class Board:
             if r is None or r.chosen is None:
                 continue
             back = self.settings.score_back_face if j.either else 0.0
-            pool += [(c[0] + extra + (back if c[3].face is Face.BACK else 0.0), c[1], c[2], c[3], ident, t) for c in got or ()]
+            pool += [((c[0][0], c[0][1] + extra + (back if c[3].face is Face.BACK else 0.0)), c[1], c[2], c[3], ident, t)
+                     for c in got or ()]
             if t.score is None:
-                best = (0.0, ident, t)                  # unscored: the first with a spot stands, nothing else is scanned
+                best = ((0, 0.0), ident, t)             # unscored: the first with a spot stands, nothing else is scanned
                 break
-            total = self._standing_total(t, extra)
+            total = (r.walled, self._standing_total(t, extra))     # (pads walled off, total), compared in that order
             if not ident:
                 default_total = total
-            elif margin is not None and default_total is not None and default_total - total < margin:
-                if total < default_total and (held is None or total < held[0]):
-                    held = (total, ident)
+            elif margin is not None and default_total is not None and default_total[0] == total[0] \
+                    and default_total[1] - total[1] < margin:
+                if total < default_total and (held is None or total[1] < held[0]):
+                    held = (total[1], ident)
                 continue
             if best is None or total < best[0]:
                 best = (total, ident, t)
-        within = self._within(held, default_total, margin) if best is not None and not best[1] and not pool else None
+        within = self._within(held, default_total[1] if default_total is not None else None, margin) \
+            if best is not None and not best[1] and not pool else None
         if pool:
             pool.sort(key=lambda c: c[:3])
             total, _, _, chosen, ident, t = draw(pool)  # explore.draw weighs by the total and the rank: the rest rides along
-            self._stand_drawn(t, chosen, total - (cost if ident else 0.0))
+            self._stand_drawn(t, chosen, total[1] - (cost if ident else 0.0), total[0])
             best = (total, ident, t)
         return self._chosen_scan(i, tried, best, cost, within)
 
@@ -11097,14 +11104,14 @@ class Board:
             return None
         return {"id": held[1], "by": round(default_total - held[0], 3), "margin": margin}
 
-    def _stand_drawn(self, t, chosen: Placement, total: float) -> None:
+    def _stand_drawn(self, t, chosen: Placement, total: float, walled: int) -> None:
         """Stand `t` (a `_Tried`) at the spot an explore drew from the pool, `total` its score with `score.back_face` and without
-        the arrangement's cost: its result becomes that face's own scan's, at the drawn spot, and its face note what that face
-        says."""
+        the arrangement's cost, `walled` the pads it walls off: its result becomes that face's own scan's, at the drawn spot,
+        and its face note what that face says."""
         back = chosen.face is Face.BACK and t.j.either
         raw = total - (self.settings.score_back_face if back else 0.0)
         own = (t.faces or {}).get(chosen.face, t.result)
-        t.result = dataclasses.replace(own, chosen=chosen, score=raw, cut=own.cut or t.result.cut)
+        t.result = dataclasses.replace(own, chosen=chosen, score=raw, walled=walled, cut=own.cut or t.result.cut)
         if t.j.either:
             t.face_note = self._back_face_note(t.faces[Face.FRONT], raw) if back else None
 
@@ -11302,7 +11309,8 @@ class Board:
         `i`. A fixed face is one scan. Face.EITHER
         scans the front and then the back, each at its own turn of the hint (`reseed`: the targets a
         seeded hint was made from, laid again for the back's pads), and takes the back only where
-        its score plus `score.back_face` is less than the front's, or the front has no legal spot.
+        it walls off fewer pads than the front's spot (`ScanResult.walled`), or as many at a score plus
+        `score.back_face` less than the front's, or the front has no legal spot.
         An unscored search takes the front when it has a spot: the back costs more and nothing else
         tells them apart. A failure carries both faces' refusals. `turns_at` is the front's SpotTurns and
         `turns_on(face)` makes the back's: a tangent turn depends on the face, as the item is mirrored there."""
@@ -11322,13 +11330,14 @@ class Board:
             back_hint = self._seed_hint(i.item, occ, reseed, i.rotation, Face.BACK)
         else:
             back_hint = Placement(hint.location, hint.rotation, Face.BACK)
-        if front.chosen is not None and hasattr(score, "best"):
+        if front.chosen is not None and not front.walled and hasattr(score, "best"):
             score.best[0] = min(score.best[0], front.score - cost)      # a back spot must beat the front's by it
         back_turns = turns_on(Face.BACK) if turns_at is not None and turns_on is not None else turns_at
         back = scan(occ, i.item, back_hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
                     turns_at=back_turns, within=within)
         faces = {Face.FRONT: front, Face.BACK: back}
-        if back.chosen is not None and back.score < PRUNED and (front.chosen is None or back.score + cost < front.score):
+        if back.chosen is not None and back.score < PRUNED and \
+                (front.chosen is None or (back.walled, back.score + cost) < (front.walled, front.score)):
             return back, self._back_face_note(front, back.score), faces
         if front.chosen is not None:
             return front, None, faces
@@ -11425,10 +11434,11 @@ class Board:
                                push_sources: list) -> Step:
         """The item stays on its point and its turn is searched: each turn `rotations=` names, in each arrangement of a cell, is
         laid as the declaration lays it, kept when the item is legal there as a decided place is judged, and scored as a search
-        scores a candidate (links, pushes, escape lanes, a via giving way) with its arrangement's scorer. The lowest score plus
-        `score.arrangement` (for an arrangement other than the default) wins; a tie goes to the arrangement tried first, then
-        the turn nearest `rotation=`, then the smaller angle. A non-default arrangement must also beat the default's lowest by
-        `place.arrangement_margin` (`_margin`) when the default has a legal turn. With nothing to score, the first arrangement
+        scores a candidate (links, pushes, escape lanes, a via giving way) with its arrangement's scorer. A turn that walls off
+        fewer pads (`Scorer`) wins, then the lowest score plus `score.arrangement` (for an arrangement other than the default);
+        a tie goes to the arrangement tried first, then the turn nearest `rotation=`, then the smaller angle. A non-default
+        arrangement must also beat the default's lowest by `place.arrangement_margin` (`_margin`) when the default has a legal
+        turn and it walls off as many pads. With nothing to score, the first arrangement
         with a legal turn stands and those after it are not laid."""
         turns = sorted({float(r) % 360.0 for r in i.rotations})
         ids = self._arrangement_ids(i)
@@ -11466,13 +11476,15 @@ class Board:
                     by_arrangement.setdefault(ident, Counter())[key] += 1
                     reasons.setdefault((ident, key), why)
                     continue
-                cost = (score(p) if score is not None else 0.0) + (resolution.cost if resolution is not None else 0.0)
+                walled, cost = score(p) if score is not None else (0, 0.0)
+                cost += resolution.cost if resolution is not None else 0.0
                 away = abs((rot - declared + 180.0) % 360.0 - 180.0)
-                found.append((cost + extra, k, away, rot, cost, p, chose, ident, j))
-                best = cost + extra if best is None else min(best, cost + extra)
-            rows.append(self._arrangement_row(ident, best if score is not None else None, best is not None))
+                found.append(((walled, cost + extra), k, away, rot, cost, p, chose, ident, j))
+                best = (walled, cost + extra) if best is None else min(best, (walled, cost + extra))
+            rows.append(self._arrangement_row(ident, best[1] if score is not None and best is not None else None,
+                                              best is not None))
             if not ident and best is not None and score is not None:
-                default_total = best
+                default_total = best        # (pads walled off, total)
             if score is None and best is not None:
                 break                           # unscored: the first arrangement with a legal turn stands
         if not found:
@@ -11483,9 +11495,12 @@ class Board:
                                                       for (a, _), w in reasons.items()])
         margin, held = self._margin(i), None
         if margin is not None and default_total is not None:
-            short = lambda f: f[7] and default_total - f[0] < margin      # an arrangement not the margin better than the default
-            held = min(((f[0], f[7]) for f in found if short(f) and f[0] < default_total), default=None)
+            # an arrangement walling off as many pads as the default, and not the margin better than it
+            short = lambda f: f[7] and f[0][0] == default_total[0] and default_total[1] - f[0][1] < margin
+            held = min(((f[0][1], f[7]) for f in found if short(f) and f[0] < default_total), default=None)
             found = [f for f in found if not short(f)]
+        if default_total is not None:
+            default_total = default_total[1]
         _, k, away, rot, cost, p, chose, ident, j = min(found, key=lambda f: f[:4])
         notes = [chose] if chose else []
         notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if scored else None,
@@ -11931,6 +11946,7 @@ class _Trial:
     why: object
     score: float | None
     tight: float | None = None      # how much nearer than its box a Beside laid it (`Board._tight`), None when not nearer
+    walled: int = 0                 # the pads it walls off there (`Scorer`), compared before the score
 
 
 @dataclass

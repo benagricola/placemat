@@ -7,8 +7,32 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### Removed
+
+- **`score.unplaced`, `score.unplaced_high`, `score.unplaced_default`, `score.unplaced_low`, `score.drc`, `score.fixed`,
+  `score.copper` and `score.escape_walled`.** What makes a board unbuildable is no longer weighed in the run score: it
+  is the validity tier of the one board comparison (`score.rank`), counted before closure and the run score. A
+  placemat.toml (or `--set`) that sets one is refused with `score.<key> is retired; ... counts in the validity tier of
+  the board comparison (score.rank), before closure and the run score, with no weight`; delete the line. There is
+  nothing to set in its place.
+
 ### Changed
 
+- **Runs, explore variants and the bench are ranked by tiers (`score.rank`).** First validity: unplaced parts (high
+  priority, then default, then low), real DRC violations, required widths a routed board misses and critical findings
+  (`fixed`, `copper`, `escape_walled`), as counts; a valid run ranks above an invalid one, and an invalid run never
+  becomes the best of a valid one. Then, for routed runs, each phase's clean closure and the clean closure; then, for
+  two valid fully routed runs, fewer vias, less routed copper and fewer track segments, in that order (the router's own
+  quality key); then the run score. A run with one more DRC violation than the best is worse however much shorter its
+  wire. The run score itself no longer counts unplaced parts, DRC violations or those findings, so its numbers are lower
+  where a run had any. A routed run records `vias`, `copper_mm` and `segments` in its measures. The regression finding
+  names the tier that decided it. `explore.route_best`'s `--accept` takes the routed variant that ranks first. Scripts
+  need no change.
+- **The placement search takes a spot that walls no pad over any that walls one.** A walled pad was 400 mm in the
+  search's cost; it is now compared first: a candidate that walls off a pad loses to any that does not, whatever their
+  costs, and the soft cost decides between the rest. A cell's arrangements, an either-face item's two faces and the
+  cleanup's moves and swaps compare the same way. Placements can move where a walled pad was worth less than the wire
+  it saved. Scripts need no change.
 - **`[explore] congestion_step` is now `[score] congestion_step`; congestion counts in every run's score.** A
   placemat.toml (or `--set`) that sets `explore.congestion_step` is refused with `explore.congestion_step is now
   score.congestion_step`; set the same value there. Run scores are measured anew: the airwire is the length of the nets

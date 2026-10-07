@@ -355,29 +355,81 @@ def comparable(rec: RunRecord) -> bool:
         and (rec.metrics["measures"] or {}).get("v") == _score.MEASURES_VERSION
 
 
+def standing(rec: RunRecord):
+    """A comparable run as `score.rank` compares it: its measures; the DRC's real violations as the errors beyond the
+    baseline (a run records no baseline, so all of them, D14) and the route's failed widths in the validity tier; and,
+    when it was routed, each phase's final clean closure and the clean closure."""
+    from . import score as _score
+    m = rec.metrics["measures"]
+    route = rec.metrics.get("route") or {}
+    drc_new = m.get("drc", 0) if "drc_real" in rec.metrics else None
+    return _score.Standing(m, _score.Validity.of(m, drc_new=drc_new, widths_failed=route.get("widths_failed", 0)),
+                           tuple(p["final_closure_clean"] for p in route.get("phases") or ()),
+                           rec.metrics.get("closure_clean"))
+
+
 def is_better(now: RunRecord, best: RunRecord | None, cfg=None) -> bool:
+    """Whether `now` takes `best`'s place: it ranks above it (`score.rank`), so a tie keeps the best and an invalid run
+    never replaces a valid one (D12)."""
     from . import score as _score
     if not comparable(now):
         return False
     if best is None:
         return True
-    return _score.compare(now.metrics["measures"], best.metrics["measures"], _cfg(cfg))[0] < 0
+    return _score.rank(standing(now), standing(best), _cfg(cfg)) < 0
 
 
-def regression(now: RunRecord, best: RunRecord | None, cfg=None) -> str | None:
-    """How this run's score is worse than the best's, said in numbers with
-    the term that moved it most. None when the run is at least as good."""
+def regression_of(now: RunRecord, best: RunRecord | None, cfg=None) -> dict | None:
+    """How this run ranks below the best (`score.rank`), by the tier that decided it: {"tier": "validity", "now" and
+    "best" each run's `Validity.key()` and "names" its fields}, {"tier": "closures" or "clean" or "quality", "now",
+    "best"}, or {"tier": "score", "now" and "best" the run scores, "term" the one that moved most, "term_now",
+    "term_best"}; each with "best_run". None when the run is at least as good."""
     from . import score as _score
     if best is None or not comparable(now):
         return None
     cfg = _cfg(cfg)
-    a, b = now.metrics["measures"], best.metrics["measures"]
-    sign, term = _score.compare(a, b, cfg)
-    if sign <= 0:
+    a, b = standing(now), standing(best)
+    if _score.rank(a, b, cfg) <= 0:
         return None
-    ta, tb = _score.terms(a, cfg), _score.terms(b, cfg)
+    out = {"best_run": best.run_id}
+    if a.validity.valid != b.validity.valid or a.validity.key() != b.validity.key():
+        return dict(out, tier="validity", now=list(a.validity.key()), best=list(b.validity.key()),
+                    names=["unplaced_high", "unplaced_default", "unplaced_low", "drc_new", "widths_failed", "critical"])
+    routed = a.clean is not None and b.clean is not None
+    if routed and a.closures[:len(b.closures)] != b.closures[:len(a.closures)]:
+        return dict(out, tier="closures", now=list(a.closures), best=list(b.closures))
+    if routed and a.clean != b.clean:
+        return dict(out, tier="clean", now=a.clean, best=b.clean)
+    complete = routed and a.validity.valid and min(a.clean, b.clean) >= 1.0 - 1e-9
+    if complete and _score.quality_key(a.measures) != _score.quality_key(b.measures):
+        return dict(out, tier="quality", now=list(_score.quality_key(a.measures)),
+                    best=list(_score.quality_key(b.measures)))
+    _, term = _score.compare(a.measures, b.measures, cfg)
+    ta, tb = _score.terms(a.measures, cfg), _score.terms(b.measures, cfg)
+    return dict(out, tier="score", now=sum(ta.values()), best=sum(tb.values()), term=term, term_now=ta[term],
+                term_best=tb[term])
+
+
+def regression_text(r: dict) -> str:
+    """A `regression_of` record as a sentence."""
+    if r["tier"] == "validity":
+        moved = ", ".join("%s %d (best %d)" % (n, x, y) for n, x, y in zip(r["names"], r["now"], r["best"]) if x != y)
+        return "more that makes the board unbuildable than the best run (%s): %s" % (r["best_run"], moved)
+    if r["tier"] in ("closures", "clean"):
+        what = "phase closures" if r["tier"] == "closures" else "clean closure"
+        return "%s %s against %s in the best run (%s)" % (what, r["now"], r["best"], r["best_run"])
+    if r["tier"] == "quality":
+        return "routed quality (vias, copper mm, segments) %s against %s in the best run (%s)" % (
+            tuple(r["now"]), tuple(r["best"]), r["best_run"])
     return "score %.1f mm against %.1f in the best run (%s); most of it %s, %.1f -> %.1f mm" % (
-        sum(ta.values()), sum(tb.values()), best.run_id, term, tb[term], ta[term])
+        r["now"], r["best"], r["best_run"], r["term"], r["term_best"], r["term_now"])
+
+
+def regression(now: RunRecord, best: RunRecord | None, cfg=None) -> str | None:
+    """How this run ranks below the best, said in numbers with the tier that decided it (`regression_of`). None when the
+    run is at least as good."""
+    r = regression_of(now, best, cfg)
+    return None if r is None else regression_text(r)
 
 
 def score_line(now: RunRecord, best: RunRecord | None, cfg=None) -> str:

@@ -171,9 +171,11 @@ class Way(Enum):
 
 
 def price(way: Way, settings) -> float:
-    """What a pad whose cheapest way out is `way` costs in the run score."""
-    return {Way.SURFACE: 0.0, Way.VIA: settings.score_escape_via, Way.AWAY: settings.score_escape_closed,
-            Way.WALLED: settings.score_escape_walled}[way]
+    """What a pad whose cheapest way out is `way` costs in the run score. A walled pad has no price: it is a critical
+    finding, counted in the validity tier (score.Validity), and asking its price is an error."""
+    if way is Way.WALLED:
+        raise ValueError("a walled pad is counted in the validity tier (score.Validity), not priced")
+    return {Way.SURFACE: 0.0, Way.VIA: settings.score_escape_via, Way.AWAY: settings.score_escape_closed}[way]
 
 
 @dataclass(frozen=True)

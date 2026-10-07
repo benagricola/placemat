@@ -3770,15 +3770,28 @@ folder when each module's script sits in a folder of its own
 
 Every finished run is judged against the best earlier run of the same parts -
 its **family**, the runs whose script asked to place the same items - and
-`.placemat/runs/best.json` keeps one best per family. Better means a lower
-**run score**: one number in millimetres of wire, each thing that can go
-wrong counted and weighted by a `[score]` setting (the table below):
+`.placemat/runs/best.json` keeps one best per family. Better means ranking
+above it (`score.rank`), tier by tier, each tier deciding only when the ones
+before it tie:
 
-- an unplaced part, times its declared priority's multiplier;
-- a real DRC violation;
+1. **Validity**: what makes a board unbuildable, as counts with no weight:
+   parts left unplaced (high priority, then default, then low), real DRC
+   violations (the `real` bucket; warnings such as silkscreen clipped by
+   copper are not counted), required widths a routed board does not meet,
+   and critical findings (a fixed item not legal where put, planned copper
+   that meets another net, a walled-off pad). A valid board ranks above an
+   invalid one, and two invalid boards by those counts in that order, so a
+   run with more of them never becomes the best of one with fewer.
+2. **Closure**, when both runs were routed: each phase's clean closure in
+   order, then the route's clean closure, higher better.
+3. **Routed quality**, when both are valid and fully routed: fewer vias, then
+   less routed copper (mm), then fewer track segments, compared in that order,
+   as the router ranks its own boards.
+4. The **run score**: one number in millimetres of wire, each soft thing that
+   can go wrong counted and weighted by a `[score]` setting (the table below):
+
 - each millimetre a link is past its limit, times the link's weight;
-- each finding by its kind: a fixed item not legal where put, copper that
-  breaks a rule, a label on a part, a crossed, closed or walled-off escape,
+- each finding by its kind: a label on a part, a crossed or closed escape or one that needs a via,
   a declared escape lane that something blocks (`board.escape`), and a setup finding (the same every run, 0 by default);
 - each ratsnest crossing, with a plane's or free net's crossing at
   `score.crossing_plane` of it;
@@ -3789,7 +3802,7 @@ wrong counted and weighted by a `[score]` setting (the table below):
   search prices it, not only what is past the limit;
 - each item a `face=Face.EITHER` search put on the back, `score.back_face`.
 
-A finding's severity does not enter the score. A run records these measures, not its score, so a weight changed in
+A finding's severity does not enter the score; the critical kinds above count in the validity tier instead. A run records these measures, not its score, so a weight changed in
 placemat.toml re-ranks the recorded runs at once, the stored best included.
 Two scores tie within `best.airwire_noise` of the airwire plus
 `best.crossing_noise` of the crossings' term, because kicad-cli picks
@@ -3798,8 +3811,9 @@ with `--no-drc` measured neither, so it is not judged and never becomes a
 best. The run prints a `score` line (each term, beside the
 best's where they differ) and one `best` line - first of its family,
 matches, better than, worse than, or not judged. **A run that comes out
-worse is a finding naming the score and the term that moved it most, and
-`placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
+worse is a finding naming the tier that decided it (the validity counts that
+differ, the closures, the routed quality, or the score and the term that moved
+it most), and `placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
 part starts a new family. Routing needs
 KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR` (default `~/work/KRT-upstream`) with
 its own venv; quick mode is one routing round with the router's post-route
@@ -4488,11 +4502,13 @@ seconds into the explore; `budget`, the time given; `finishing`, a list of `{see
 the explore). Nothing is stopped. The studio's explore view shows `time passed, finishing #41, #42` in yellow beside
 its time, each variant leaving the list as it lands. An explore of fixed seeds has no time to pass.
 
-**Judging a variant.** By the run score (Commands), which counts the worst
-congestion cell (RUDY) in steps of `[score] congestion_step` at
-`score.congestion` each in every run: the measure that agreed with the router
-in the congestion study. Lower wins; it is one weighted sum, not a tiered
-comparison.
+**Judging a variant.** As runs are judged (Commands, `score.rank`): the
+validity tier first (unplaced parts, critical findings; a variant has no
+DRC), then the run score, which counts the worst congestion cell (RUDY) in
+steps of `[score] congestion_step` at `score.congestion` each in every run:
+the measure that agreed with the router in the congestion study. A variant's
+measures are its plan's own, so the score has no noise band here: any lower
+score wins, and a tie keeps the earlier variant.
 
 **What a run says.** `explore  N variants in S s over K focused items:
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
@@ -4658,7 +4674,7 @@ checkpoint_max_variants` bounds the lines.
 **The curve and the stopping rules.** Each finished variant is a point
 `{i, seed, t, score, best}` (`i` the order it finished in, plain placement 0;
 `t` seconds since the explore began, over every session of a resumed one;
-`best` true when it beat all before it). The report (`metrics.explore`, the
+`best` true when it ranks above all before it, as variants are judged). The report (`metrics.explore`, the
 record in `.placemat/views/explore/`, the channel's `variant` events) keeps
 `curve`, `found` (`{i, seed, t, score, of_variants, of_seconds}`, the last
 improvement: the time-to-best) and `ended` (`{rule: "budget" | "stall_count" |
@@ -5077,7 +5093,20 @@ search's window) are tried first, kept a search cell more than the search keeps:
 open is judged free without the search, which would find the same way. A pad of a plane's or free net drops to its
 plane by a via: it is reported only as `escape_walled`, when no via spot and no surface route is open. A pad whose own
 copper (a declared lane, a stub) ends in the air, and a hand-off pin, are judged walled by the path search from where
-that copper ends (`score.escape_walled`).
+that copper ends. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the
+net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is
+the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends.
+What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and
+where a via is wanted the rule areas that forbid vias) is named by owner, "track NET", "via NET", "pour NET" or "the
+escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it;
+not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the
+end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane)
+where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin
+keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept.
+`escape_walled` is critical: it has no price in the run score and counts in the validity tier. The placement search
+compares a candidate the same way: one that walls off a pad (by its corridors, `place.escape_depth`) loses to any that
+walls none, then the soft cost decides; so do a cell's arrangements, an either-face item's two faces and the cleanup's
+moves and swaps.
 
 `setup.native` (warning) is on every run, preview and explore where the native module is not in use, so the placement ran in pure Python:
 the same results, 5-10x slower on a large board. Facts: `reason` (`version_mismatch`, `not_installed`, `import_error`),
@@ -5380,7 +5409,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |
 | `place.beside_step` | `0.01` | mm | the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands |
 | `place.beside_reach` | `2.0` | mm | how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported |
-| `place.escape_depth` | `1.0` | mm | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth` |
+| `place.escape_depth` | `1.0` | mm | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses or closes a pad's corridors (`score.escape_*`), and one that walls a pad off loses to any that does not; the run score measures them at `score.escape_depth` |
 | `place.escape_min_pads` | `1` | count | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
 | `place.escape_via_step` | `0.05` | mm | the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
 | `place.escape_via_reach` | `5.0` | mm | how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
@@ -5513,14 +5542,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `noise.patterns` | `[]` | list | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
 | `best.airwire_noise` | `0.01` | fraction | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board |
 | `best.crossing_noise` | `0.02` | fraction | how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run |
-| `score.unplaced` | `2000.0` | mm | mm a part left unplaced costs the run score, times its priority's multiplier |
-| `score.unplaced_high` | `2.0` | multiplier | the unplaced multiplier for a part declared `priority=HIGH` |
-| `score.unplaced_default` | `1.0` | multiplier | the unplaced multiplier for a part with no declared priority |
-| `score.unplaced_low` | `0.5` | multiplier | the unplaced multiplier for a part declared `priority=LOW` |
-| `score.drc` | `200.0` | mm | mm a real DRC violation costs |
 | `score.link_over` | `20.0` | mm | mm per millimetre a link is past its limit, times the link's weight |
-| `score.fixed` | `200.0` | mm | mm a decided item (fixed, a cutout, a keepout) not legal where it was put costs |
-| `score.copper` | `200.0` | mm | mm planned copper that meets another net, crosses a keepout or cannot bridge costs |
 | `score.label` | `50.0` | mm | mm a label with a part on it costs |
 | `score.setup` | `0.0` | mm | mm a setup finding costs: the same every run of a script (an undeclared part, a layer the board lacks) |
 | `score.crossing` | `4.0` | mm | mm a ratsnest crossing costs, in the run score and in the search |
@@ -5531,7 +5553,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.escape_crossed` | `20.0` | mm | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_depth` | `1.5` | mm | how near a part's pads two escapes' airwires that cross count as crossed (`escape_crossed`), and how far round a hand-off pin or the end of a declared lane the path search looks for a way out, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.escape_closed` | `50.0` | mm | mm a pad costs that has no surface route toward what it connects to and no via beside it, but a surface route another way (`score.escape_reach`) |
-| `score.escape_walled` | `400.0` | mm | mm a pad with no route out at all costs: no surface route any way (`score.escape_reach`) and no via beside it; a pad of a plane's or free net is counted only so. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends. What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and where a via is wanted the rule areas that forbid vias) is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
 | `score.escape_reach` | `3.0` | mm | how far round a pad its way out is looked for (the exact path search's window, and the reach of the straight lanes tried first): placemat's own rule, not KiCad's |
 | `score.escape_via` | `10.0` | mm | mm a pad costs whose only way out toward what it joins is a via beside it: no surface route toward its target, but a via of its class fits at the pad's edge or where its track leaves the pin field |
 | `score.escape_lane` | `400.0` | mm | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |

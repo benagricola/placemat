@@ -43,7 +43,7 @@ def _vias_give_way_by_position(monkeypatch):
 
 
 def _score(cand):
-    return round(cand.location.x * 0.013 + cand.location.y * 0.007 + cand.rotation * 1e-4, 6)
+    return 0, round(cand.location.x * 0.013 + cand.location.y * 0.007 + cand.rotation * 1e-4, 6)
 
 
 def _refuse_a_band(cand):

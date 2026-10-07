@@ -256,6 +256,31 @@ def plane_nets_of(pcb) -> set:
     return nets
 
 
+def routed_quality(pcb) -> dict:
+    """{"vias", "copper_mm", "segments"} of a routed board: its vias, the length of its tracks and how many there are, the
+    terms of the routed quality key (score.quality_key). As KRT's py_tools/board_score.py:1033 `quality`: routed copper
+    only (board.GetTracks(), never a footprint's own drawn copper), a track's length from its start to its end, copper_mm
+    rounded to 0.01 mm. Diverges for an arc track: KRT cuts one into straight pieces and counts each piece; here it
+    counts once at its own length. The router lays no arcs, so a routed board's key is the same."""
+    import math
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(str(pcb))
+    vias, mm, segments = 0, 0.0, 0
+    for t in board.GetTracks():
+        if isinstance(t, pcbnew.PCB_VIA):
+            vias += 1
+            continue
+        segments += 1
+        if isinstance(t, pcbnew.PCB_ARC):
+            mm += pcbnew.ToMM(t.GetLength())
+        else:
+            a, b = t.GetStart(), t.GetEnd()
+            mm += math.dist((pcbnew.ToMM(a.x), pcbnew.ToMM(a.y)), (pcbnew.ToMM(b.x), pcbnew.ToMM(b.y)))
+    return {"vias": vias, "copper_mm": round(mm, 2), "segments": segments}
+
+
 GUARD = "placemat footprint copper"
 
 

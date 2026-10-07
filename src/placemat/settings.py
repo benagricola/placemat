@@ -149,7 +149,7 @@ class Settings:
     place_beside_reach: float = S(2.0, "mm",
         "how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported")
     place_escape_depth: float = S(1.0, "mm",
-        "how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth`")
+        "how far each corridor out of a pad runs in the search: it weighs a candidate that crosses or closes a pad's corridors (`score.escape_*`), and one that walls a pad off loses to any that does not; the run score measures them at `score.escape_depth`")
     place_escape_min_pads: int = S(1, "count",
         "a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out)")
     place_escape_via_step: float = S(0.05, "mm",
@@ -418,22 +418,8 @@ class Settings:
         "how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board")
     best_crossing_noise: float = S(0.02, "fraction",
         "how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run")
-    score_unplaced: float = S(2000.0, "mm",
-        "mm a part left unplaced costs the run score, times its priority's multiplier")
-    score_unplaced_high: float = S(2.0, "multiplier",
-        "the unplaced multiplier for a part declared `priority=HIGH`")
-    score_unplaced_default: float = S(1.0, "multiplier",
-        "the unplaced multiplier for a part with no declared priority")
-    score_unplaced_low: float = S(0.5, "multiplier",
-        "the unplaced multiplier for a part declared `priority=LOW`")
-    score_drc: float = S(200.0, "mm",
-        "mm a real DRC violation costs")
     score_link_over: float = S(20.0, "mm",
         "mm per millimetre a link is past its limit, times the link's weight")
-    score_fixed: float = S(200.0, "mm",
-        "mm a decided item (fixed, a cutout, a keepout) not legal where it was put costs")
-    score_copper: float = S(200.0, "mm",
-        "mm planned copper that meets another net, crosses a keepout or cannot bridge costs")
     score_label: float = S(50.0, "mm",
         "mm a label with a part on it costs")
     score_setup: float = S(0.0, "mm",
@@ -454,8 +440,6 @@ class Settings:
         "how near a part's pads two escapes' airwires that cross count as crossed (`escape_crossed`), and how far round a hand-off pin or the end of a declared lane the path search looks for a way out, whatever `place.escape_depth` the search used, so runs at different search depths compare")
     score_escape_closed: float = S(50.0, "mm",
         "mm a pad costs that has no surface route toward what it connects to and no via beside it, but a surface route another way (`score.escape_reach`)")
-    score_escape_walled: float = S(400.0, "mm",
-        "mm a pad with no route out at all costs: no surface route any way (`score.escape_reach`) and no via beside it; a pad of a plane's or free net is counted only so. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends. What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and where a via is wanted the rule areas that forbid vias) is named by owner, \"track NET\", \"via NET\", \"pour NET\" or \"the escape lane of U1 pin 53\". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: \"no other pad is on the net, so it leaves the board here, and it is walled off by ...\". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept")
     score_escape_reach: float = S(3.0, "mm",
         "how far round a pad its way out is looked for (the exact path search's window, and the reach of the straight lanes tried first): placemat's own rule, not KiCad's")
     score_escape_via: float = S(10.0, "mm",
@@ -773,9 +757,9 @@ _ABOVE_ZERO = frozenset((
     "pins_seeds", "pins_anneal_moves", "pins_budget_steps", "pins_reversed_min", "pins_joint_combinations", "pins_probe_budget_steps"))
 _AT_LEAST_ZERO = frozenset((
     "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "place_turn_crossings_min", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
-    "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
-    "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
-    "score_crossing_plane", "score_crossing_pair_net", "score_impedance", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_escape_via", "score_congestion",
+    "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise",
+    "score_link_over", "score_label", "score_setup", "score_crossing",
+    "score_crossing_plane", "score_crossing_pair_net", "score_impedance", "score_escape_crossed", "score_escape_closed", "score_escape_lane", "score_escape_via", "score_congestion",
     "score_congestion_step", "score_link", "score_area",
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
@@ -899,16 +883,28 @@ _MOVED = {
 }
 
 # Keys retired because what they set is now counted another way: {key: what replaced it}. A time is not a count of
-# steps, so the old value is not carried over; the project is told what to set instead.
+# steps, so the old value is not carried over; the project is told what to set instead, or, for a term moved out of the
+# run score into the validity tier (D13), that it has no weight now.
+_VALIDITY = ("counts in the validity tier of the board comparison (score.rank), before closure and the run score, "
+             "with no weight")
 _REPLACED = {
-    "pins_budget_ms": "pins.budget_steps, a count of the study's steps, so a board gives the same map at any speed",
-    "pins_probe_budget_ms": "pins.probe_budget_steps, a count of the study's steps, so a board gives the same map at any speed",
-    "explore_route_top": "explore.route_best = true, which routes the plain placement and each new best as the search finds them",
+    "score_unplaced": "an unplaced part " + _VALIDITY,
+    "score_unplaced_high": "an unplaced part " + _VALIDITY + ", a high priority one before a default before a low",
+    "score_unplaced_default": "an unplaced part " + _VALIDITY + ", a high priority one before a default before a low",
+    "score_unplaced_low": "an unplaced part " + _VALIDITY + ", a high priority one before a default before a low",
+    "score_drc": "a real DRC error beyond the board's baseline " + _VALIDITY,
+    "score_fixed": "a decided item illegal where it stands (the critical fixed finding) " + _VALIDITY,
+    "score_copper": "planned copper that meets another net (the critical copper finding) " + _VALIDITY,
+    "score_escape_walled": "a walled pad (the critical escape_walled finding) " + _VALIDITY
+                           + "; the search takes a spot that walls no pad over any that walls one",
+    "pins_budget_ms": "set pins.budget_steps, a count of the study's steps, so a board gives the same map at any speed",
+    "pins_probe_budget_ms": "set pins.probe_budget_steps, a count of the study's steps, so a board gives the same map at any speed",
+    "explore_route_top": "set explore.route_best = true, which routes the plain placement and each new best as the search finds them",
 }
 
 
 def _replaced(where, name: str) -> SettingsError:
-    return SettingsError("%s: %s.%s is retired; set %s" % ((where,) + split_key(name) + (_REPLACED[name],)))
+    return SettingsError("%s: %s.%s is retired; %s" % ((where,) + split_key(name) + (_REPLACED[name],)))
 
 
 def _moved(where, name: str) -> SettingsError:

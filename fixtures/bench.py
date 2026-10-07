@@ -52,10 +52,14 @@ def hpwl(pads, skip=frozenset()) -> float:
 
 
 def verdict(new: dict, old: dict) -> int:
-    """1 when `new` scores better than `old`, -1 worse, 0 within the noise band."""
+    """1 when `new` ranks above `old` (`score.rank`: the validity tier, then the run score), -1 below, 0 a tie (the run
+    score within its noise band)."""
     from placemat import score
     from placemat.settings import Settings
-    return -score.compare(new["measures"], old["measures"], Settings())[0]
+
+    def standing(row):
+        return score.Standing(row["measures"], score.Validity.of(row["measures"]))
+    return -score.rank(standing(new), standing(old), Settings())
 
 
 def diff(run: dict, base: dict) -> list:

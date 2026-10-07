@@ -125,16 +125,17 @@ def _channel():
     return b, b.resolve()
 
 
-def test_two_parts_each_wanting_the_others_spot_are_swapped():
+def test_a_swap_that_walls_a_pad_is_refused_however_much_wire_it_saves():
+    """Each part wants the other's spot, and the swap saves wire, but in the channel it walls a pad off that neither
+    walls where it stands: a spot that walls a pad loses to any that does not (D13), so the parts stay."""
     b, plan = _channel()
     occ = plan.occupancy
     movable = {"big": b.geometry.footprint("B1"), "small": b.geometry.footprint("S1")}
-    # wire alone: in a channel this tight every pad is walled in somewhere, which is not the question here
-    wire = dataclasses.replace(b.settings, score_escape_crossed=0.0, score_escape_closed=0.0, score_escape_walled=0.0)
+    wire = dataclasses.replace(b.settings, score_escape_crossed=0.0, score_escape_closed=0.0)
     r = cleanup(occ, movable, _pins(b, plan), [], None, 1, 1.0, 0.25,
                 turns={"big": (0,), "small": (0,)}, settings=wire)
-    assert r.swaps == [("big", "small")] or r.swaps == [("small", "big")]
-    assert occ.items["B1"].reference.location.x > 30 and occ.items["S1"].reference.location.x < 30
+    assert r.swaps == []
+    assert occ.items["B1"].reference.location.x < 30 and occ.items["S1"].reference.location.x > 30
 
 
 def test_fixed_parts_are_never_offered_to_the_cleanup():

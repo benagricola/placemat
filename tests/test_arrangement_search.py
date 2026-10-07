@@ -234,7 +234,9 @@ def test_an_arrangement_whose_front_is_pruned_and_whose_back_wins_is_noted_by_th
     def pruned_front(occ, item, hint, *a, **k):
         r = real(occ, item, hint, *a, **k)
         if getattr(item, "arrangement", "") == "c_in.east" and r.chosen is not None:
-            r.score = r.score + layout.PRUNED if hint.face is Face.FRONT else 1.0     # the front cut by the floor, the back cheap
+            front = hint.face is Face.FRONT                 # the front cut by the floor (unweighed), the back cheap
+            r.score = r.score + layout.PRUNED if front else 1.0
+            r.walled = layout.UNWEIGHED if front else 0
         return r
     monkeypatch.setattr(layout, "scan", pruned_front)
     b = board((60.0, 30.0), dataclasses.replace(Settings(), score_back_face=2.0))

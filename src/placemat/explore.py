@@ -66,14 +66,14 @@ def focus_keys(board, keys=(), after_line: int | None = None, box=None, baseline
 
 
 def draw(candidates, rng, slack: float, power: float):
-    """One of a scan's legal candidates, best first as (score, distance,
-    rotation, placement): only those within `slack` of the best (a fraction
-    of it; for a best of 0, `slack` millimetres), the one at rank r weighted
-    1 / r ** power, so the best stays the likeliest ([explore] slack and
-    rank_power)."""
-    best = candidates[0][0]
+    """One of a scan's legal candidates, best first as ((walled, cost), distance,
+    rotation, placement): only those that wall off as few pads as the best and
+    cost within `slack` of it (a fraction of it; for a best of 0, `slack`
+    millimetres), the one at rank r weighted 1 / r ** power, so the best stays
+    the likeliest ([explore] slack and rank_power)."""
+    walled, best = candidates[0][0]
     limit = best * (1.0 + slack) if best > 0 else best + slack
-    pool = [c for c in candidates if c[0] <= limit + 1e-12]
+    pool = [c for c in candidates if c[0][0] == walled and c[0][1] <= limit + 1e-12]
     weights = [1.0 / (k + 1) ** power for k in range(len(pool))]
     return rng.choices(pool, weights=weights, k=1)[0]
 
@@ -320,14 +320,15 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                     base_board.settings.explore_stop_hard_clear, _score.hard_clear(base_m))
     curve = [dict({"i": 0, "seed": 0, "t": 0.0, "score": baseline, "best": True},
                   **({"score_remapped": ranks[0]} if 0 in ranks else {}))]
-    best_so_far = [ranks.get(0, baseline)]
+    ranking = _variant_order(base_board.settings, ranks)
+    best_so_far = [results[0]]
 
     def note(seed, total, t):
-        """A finished variant on the curve; whether it beat every one before it, by the score it is ranked by."""
-        by = ranks.get(seed, total)
-        better = by < best_so_far[0] - 1e-9
+        """A finished variant on the curve; whether it ranks above every one before it (`_variant_order`)."""
+        row = results.get(seed, (seed, total, {}))
+        better = ranking(row, best_so_far[0]) < 0
         if better:
-            best_so_far[0] = by
+            best_so_far[0] = row
         curve.append(dict({"i": len(curve), "seed": seed, "t": round(t, 3), "score": total, "best": better},
                           **({"score_remapped": ranks[seed]} if seed in ranks else {})))
         return better
@@ -343,7 +344,8 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         if routing is not None else None
     rs = {"inflight": None, "pending": None, "started": False, "dead": False}
     partial = lambda: _result(results, baseline, base_m, spent + time.time() - t0, failures, variants, focus, len(procs),
-                              curve, ended_by(), list(routes) if routing is not None else None, ranks)
+                              curve, ended_by(), list(routes) if routing is not None else None, ranks,
+                              base_board.settings)
 
     def dispatch():
         """The waiting best to the routing worker, when it is free."""
@@ -545,12 +547,45 @@ def _end(procs) -> None:
             pr.join(0.5)
 
 
+def _exact(cfg):
+    """`cfg` with no noise band: a variant's measures are its plan's own, not kicad-cli's ratsnest, so they do not vary
+    run to run and any difference in the run score counts."""
+    import dataclasses
+    return dataclasses.replace(cfg, best_airwire_noise=0.0, best_crossing_noise=0.0)
+
+
+def _variant_order(cfg, ranks=None):
+    """How two variants' rows (seed, run score, measures) compare, -1 when the first ranks above: `score.rank` of their
+    measures (the validity tier, then the run score, exactly: `_exact`); with `ranks` (`explore.rank_remapped`,
+    {seed: score_remapped}) the validity tier, then that score where a variant has one, exactly. A tie is 0, so a stable
+    sort keeps the earlier seed."""
+    from . import score as _score
+    cfg = _exact(cfg)
+
+    def standing(row):
+        return _score.Standing(row[2] or {}, _score.Validity.of(row[2] or {}))
+
+    def cmp(a, b) -> int:
+        sa, sb = standing(a), standing(b)
+        if not ranks:
+            return _score.rank(sa, sb, cfg)
+        v = _score.validity_order(sa, sb)
+        if v:
+            return v
+        x, y = ranks.get(a[0], a[1]), ranks.get(b[0], b[1])
+        return -1 if x < y - 1e-9 else 1 if y < x - 1e-9 else 0
+    return cmp
+
+
 def _result(results: dict, baseline, base_m, seconds: float, failures, variants=None, focus=(), jobs=0, curve=None,
-            ended=None, routes=None, ranks=None) -> ExploreResult:
-    """The result, its rows best first by the score each is ranked by: the run score, or with `ranks` (`explore.rank_remapped`,
-    {seed: score_remapped}) that score where a variant has one."""
+            ended=None, routes=None, ranks=None, cfg=None) -> ExploreResult:
+    """The result, its rows best first (`_variant_order`): by `score.rank`, or with `ranks` (`explore.rank_remapped`,
+    {seed: score_remapped}) by the validity tier, then that score where a variant has one. A tie keeps the earlier seed."""
+    import functools
+    from .settings import Settings
     ranks = dict(ranks) if ranks else None
-    rows = sorted(results.values(), key=lambda r: ((ranks or {}).get(r[0], r[1]), r[0]))
+    rows = sorted(sorted(results.values(), key=lambda r: r[0]),
+                  key=functools.cmp_to_key(_variant_order(cfg if cfg is not None else Settings(), ranks)))
     return ExploreResult(rows[0][0], rows[0][1], baseline, len(rows), rows, rows[0][2], base_m, round(seconds, 3),
                          list(failures), variants=variants, focus=sorted(focus), jobs=jobs,
                          plain=variants[0]["placements"] if variants else None,
@@ -981,7 +1016,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["routes"], report["routes_skipped"] = [], "no_board"
     elif on:
         report["routes"] = result.routes
-        closed = _taken(result.routes, {r[0]: result.rank_of(r[0], r[1]) for r in result.results})
+        closed = _taken(result.routes, {r[0]: r[2] for r in result.results}, base.settings)
         if closed is not None:
             taken = report["taken_seed"] = closed
     if saved(taken):
@@ -1042,13 +1077,25 @@ def _write_variant(make_board, board, plan, folder: Path) -> Path:
     return pcb
 
 
-def _taken(routes: list, scores: dict):
-    """The seed of the routed variant with the best clean closure, the better run score (`scores`, {seed: score}) of a
-    tie; None when every route failed."""
-    closed = [r for r in routes if "error" not in r]
+def _taken(routes: list, measures: dict, cfg):
+    """The seed of the routed variant that ranks first (`score.rank`: the validity tier, the clean closure, the quality
+    key once fully routed, the run score, exactly: `_exact`) by its measures (`measures`, {seed: measures}) and its route's
+    clean closure;
+    the earlier seed of a tie; None when every route failed. A route record has no phases: its closures are ()."""
+    import functools
+    from . import score as _score
+    closed = sorted((r for r in routes if "error" not in r), key=lambda r: r["seed"])
     if not closed:
         return None
-    return min(closed, key=lambda r: (-r["closure_clean"], scores.get(r["seed"], r["score"]), r["seed"]))["seed"]
+    cfg = _exact(cfg)
+
+    def standing(r):
+        m = dict(measures.get(r["seed"]) or {})
+        for k in _score.QUALITY_TERMS:
+            if k in r:
+                m[k] = r[k]
+        return _score.Standing(m, _score.Validity.of(m), (), r["closure_clean"])
+    return min(closed, key=functools.cmp_to_key(lambda a, b: _score.rank(standing(a), standing(b), cfg)))["seed"]
 
 
 def _send_done(report, kept: bool, **more) -> None:

@@ -176,7 +176,7 @@ def test_a_scored_block_search_is_coarse_first_then_fine():
     assert radius / step > COARSE_FROM                          # wide enough for the coarse pass to apply
     whole_grid = sum(1 for _ in _grid(Location(30.0, 30.0), radius, step))
     hint = Placement(Location(30.0, 30.0), 0.0, spec.item.anchor.face)
-    _, tried, _, _ = scan_block(occ, spec.item, hint, radius, step, (0.0,), None, score=lambda m: 0.0)
+    _, tried, _, _ = scan_block(occ, spec.item, hint, radius, step, (0.0,), None, score=lambda m: (0, 0.0))
     assert tried < whole_grid / 5, "%d block layouts of a %d point grid" % (tried, whole_grid)
 
 
@@ -199,7 +199,7 @@ def test_a_coarse_search_that_finds_nothing_still_walks_the_fine_grid():
     occ = plan.occupancy
     spec = [i for i in b._intents if i.kind == "block"][0].item
     hint = Placement(Location(30.0, 30.0), 0.0, Face.FRONT)
-    best, tried, _, _ = scan_block(occ, spec, hint, 6.0, 0.2, (0.0,), None, score=lambda m: 0.0)
+    best, tried, _, _ = scan_block(occ, spec, hint, 6.0, 0.2, (0.0,), None, score=lambda m: (0, 0.0))
     fine = sum(1 for _ in _grid(Location(30.0, 30.0), 6.0, 0.2))
     assert best is None                                     # there is genuinely nowhere
     assert tried >= fine, "gave up after %d of %d candidates" % (tried, fine)

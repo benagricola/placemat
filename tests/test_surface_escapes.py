@@ -163,8 +163,9 @@ def test_the_run_score_prices_the_judgement_and_whole_agrees_with_the_plan():
     t = score.terms(m, b.settings)
     assert t["escape_via"] == pytest.approx(b.settings.score_escape_via)
     w = score.whole(b, plan.occupancy, plan)
-    for k in ("escape_crossed", "escape_closed", "escape_walled", "escape_via"):
+    for k in ("escape_crossed", "escape_closed", "escape_via"):
         assert w[k] == pytest.approx(t[k]), k
+    assert "escape_walled" not in w                     # a walled pad is the validity tier's, not a run-score term
 
 
 def test_a_plane_pad_is_judged_for_walled_only():
@@ -181,7 +182,9 @@ def test_the_settings_default_as_decided():
     s = Settings()
     assert s.score_escape_reach == 3.0 and s.score_escape_via == 10.0
     assert price(Way.SURFACE, s) == 0.0
-    assert price(Way.AWAY, s) == s.score_escape_closed and price(Way.WALLED, s) == s.score_escape_walled
+    assert price(Way.AWAY, s) == s.score_escape_closed
+    with pytest.raises(ValueError, match="validity"):
+        price(Way.WALLED, s)
     cfg = dataclasses.replace(s, score_escape_via=7.0)
     assert price(Way.VIA, cfg) == 7.0
 
