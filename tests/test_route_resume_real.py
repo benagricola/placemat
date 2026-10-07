@@ -2,18 +2,17 @@
 router: a rerun of the same inputs takes the stages the first finished
 instead of routing again, and gets the same route."""
 import shutil
-from pathlib import Path
 
 import pytest
 
 pytest.importorskip("pcbnew")
 
-from placemat.kicad.route import ROUTER_DEFAULT
+from tests.conftest import router_missing
 from placemat.kicad.route_state import RouteState
 from tests import real_modules as rm
 
-if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
-    pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT, allow_module_level=True)
+if router_missing():
+    pytest.skip(router_missing(), allow_module_level=True)
 
 
 @pytest.fixture(autouse=True)

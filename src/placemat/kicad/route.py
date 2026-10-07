@@ -22,21 +22,64 @@ from .. import route_progress
 from ..childenv import child_env
 from .drc import REAL_KINDS, run_drc
 
-BUILTIN_ROUTER = os.path.expanduser("~/work/KRT-upstream")
-ROUTER_DEFAULT = os.environ.get("KRT_DIR", BUILTIN_ROUTER)   # kept: tests and callers import this name
-
+ROUTER_SETTING = "[route] router_dir"
+ROUTER_ENV = "KRT_DIR"
+ROUTER_FILES = (".venv/bin/python", "py_router/route.py")   # what a router checkout holds
 
 
 def active_settings():
     from ..settings import active
     return active()
 
-def router_dir(cfg=None) -> str:
-    """Where the router lives: the built-in default, then $KRT_DIR (a machine
-    fact), then placemat.toml (a project fact), which wins."""
+
+class RouterMissing(RuntimeError):
+    """No router to route with: `code` is "router_unset" (neither `[route] router_dir` nor $KRT_DIR names one) or
+    "router_not_found" (the folder named lacks ROUTER_FILES), and `facts` its values. The text is
+    router_missing_text's."""
+
+    def __init__(self, code: str, **facts):
+        self.code, self.facts = code, dict(facts)
+        super().__init__(router_missing_text(code, self.facts))
+
+    def record(self) -> dict:
+        return {"refused": self.code, **self.facts}
+
+
+def router_missing_text(code: str, facts: dict) -> str:
+    """The console sentence of a RouterMissing."""
+    if code == "router_unset":
+        return "no router: set %s in placemat.toml or $%s to a KiCadRoutingTools checkout" % (facts["setting"], facts["env"])
+    return "no router at %s (named by %s): it has no %s" % (facts["path"], facts["source"], " or ".join(facts["missing"]))
+
+
+def configured_router(cfg=None) -> tuple:
+    """(the router's folder, what named it) - placemat.toml's `[route] router_dir` (a project fact), else $KRT_DIR (a
+    machine fact) - or (None, None) when neither is set."""
     from ..settings import active
     cfg = active() if cfg is None else cfg
-    return cfg.route_router_dir or os.environ.get("KRT_DIR") or BUILTIN_ROUTER
+    if cfg.route_router_dir:
+        return cfg.route_router_dir, ROUTER_SETTING
+    if os.environ.get(ROUTER_ENV):
+        return os.environ[ROUTER_ENV], "$" + ROUTER_ENV
+    return None, None
+
+
+def router_dir(cfg=None) -> str:
+    """Where the router lives (configured_router); RouterMissing "router_unset" when nothing names it."""
+    path, _ = configured_router(cfg)
+    if path is None:
+        raise RouterMissing("router_unset", setting=ROUTER_SETTING, env=ROUTER_ENV)
+    return path
+
+
+def checked_router(path: str, source: str) -> str:
+    """`path`, when it holds a router checkout; RouterMissing "router_not_found" naming the files it lacks."""
+    missing = [f for f in ROUTER_FILES if not (Path(path) / f).exists()]
+    if missing:
+        raise RouterMissing("router_not_found", path=str(path), source=source, missing=missing)
+    return path
+
+
 ONE_ROUND = Path(__file__).with_name("route_one_round.py")
 HOOKED = Path(__file__).with_name("route_hooked.py")     # runs a router entry script with the progress hooks (route_events.py)
 _HOOK = False                                             # set by route_board while it routes with progress events
@@ -1078,15 +1121,15 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     islands, islands_missing = islands_on_board(pcb, islands) if islands else ({}, [])
     island_layers = {n: v for n, v in (parse_island_layers(cfg.route_islands) if island_layers is None
                                        else island_layers).items() if n in islands}
-    router_dir_path = router_dir_override or router_dir(cfg)
+    if router_dir_override:
+        router_dir_path = checked_router(router_dir_override, "router_dir_override")
+    else:
+        router_dir_path = checked_router(router_dir(cfg), configured_router(cfg)[1])
     timeout = cfg.timeout_route if timeout is None else timeout
     iterations = cfg.route_max_iterations if iterations is None else iterations
     pcb, work = Path(pcb).resolve(), Path(work).resolve()          # the router runs in its own folder: paths it is given are absolute
     rpy = Path(router_dir_path) / ".venv/bin/python"
     route_py = Path(router_dir_path) / "py_router/route.py"
-    if not (rpy.exists() and route_py.exists()):
-        raise FileNotFoundError("router not found at %s (expected .venv/bin/python and py_router/route.py); "
-                                "set KRT_DIR or [route] router_dir" % router_dir_path)
     state = RouteState(work, resume)
     state.set_order(["pairs", "islands", "classes", "main"])      # transitional: the phase engine (Task 13) gives the real list
     from .. import channel, route_progress, route_view

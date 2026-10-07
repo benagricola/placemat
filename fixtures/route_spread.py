@@ -209,12 +209,14 @@ def main(argv) -> int:
     ap.add_argument("--runs", type=int, default=8)
     ap.add_argument("--grid", type=float, default=0.1)
     ap.add_argument("--jobs", type=int, default=4)
-    ap.add_argument("--router", default=os.environ.get("KRT_DIR", os.path.expanduser("~/work/KRT-upstream")))
+    ap.add_argument("--router", default=os.environ.get("KRT_DIR"), help="the KiCadRoutingTools checkout (default: $KRT_DIR)")
     ap.add_argument("--perturb", choices=("order", "jitter", "offset"), default="order")
     ap.add_argument("--connectivity", action="store_true",
                     help="also list the nets KiCad's DRC finds unconnected on each output")
     ap.add_argument("--swaps", type=int, default=0, help="order: pairs swapped per run (default: a tenth of the nets)")
     a = ap.parse_args(argv)
+    if not a.router:
+        ap.error("no router: give --router or set $KRT_DIR")
     out = Path(a.out)
     if a.perturb == "offset":
         jobs = [(a.board, out / ("run%02d" % k), dx, dy, a.router, args, a.connectivity) for k, (dx, dy) in enumerate(offsets(a.runs, a.grid))]

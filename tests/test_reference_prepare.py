@@ -3,6 +3,7 @@ import json
 import pytest
 
 from fixtures.reference import fetch, prepare
+from tests.conftest import needs_router
 
 pcbnew = pytest.importorskip("pcbnew")
 
@@ -56,6 +57,7 @@ def _loaded(path):
     return pcbnew.LoadBoard(str(path))
 
 
+@needs_router
 @pytest.mark.parametrize("rename", [False, True])
 def test_prepare_strips_tracks_keeps_zone_and_layers_count(tmp_path, rename):
     src, work = tmp_path / "src", tmp_path / "work"
@@ -116,6 +118,7 @@ KICAD5_BOARD = """(kicad_pcb (version 20171130) (host pcbnew 5.1.10)
 """
 
 
+@needs_router
 def test_a_kicad5_board_is_upgraded_and_its_kicad_pro_holds_its_net_classes(tmp_path):
     src, work = tmp_path / "src", tmp_path / "work"
     src.mkdir()
@@ -128,6 +131,7 @@ def test_a_kicad5_board_is_upgraded_and_its_kicad_pro_holds_its_net_classes(tmp_
     assert len(_loaded(prepared.ref).GetTracks()) == 1 and len(_loaded(prepared.test).GetTracks()) == 0
 
 
+@needs_router
 def test_a_board_whose_file_leaves_ids_out_is_prepared_with_the_same_ids_every_time(tmp_path):
     """The source's pads and track carry no uuid (an older format leaves them out). The stripped board gets ids from
     a generator seeded by the file, so two preparations write the same board, and their baseline DRC names the same

@@ -736,11 +736,19 @@ def cmd_route(args) -> int:
         from . import channel
         channel.reporter(p)                 # the route's own socket: readers follow it net by net
         said = (lambda fs: None) if args.json else (lambda fs: [console.finding(f, "route") for f in fs])
+        from .kicad.route import RouterMissing, router_missing_text
         try:
             report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
                                  quick=not args.full, iterations=args.iterations, islands=islands, island_layers=island_layers,
                                  resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {},
                                  on_setup=said)
+        except RouterMissing as e:
+            channel.error("refused", **e.record())
+            if args.json:
+                console.data(json.dumps(e.record(), indent=2))
+            else:
+                console.say("route", router_missing_text(e.code, e.facts), level="fail")
+            return 2
         except Exception as e:
             channel.exception(e)
             raise

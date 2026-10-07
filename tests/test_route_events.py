@@ -455,9 +455,10 @@ def _breakout_with_a_partial_pour(breakout_pcb, tmp_path, net):
 def test_the_real_router_sends_its_nets_as_it_routes_them_and_the_record_replays(breakout_pcb, tmp_path, monkeypatch):
     from pathlib import Path
     from placemat import channel
-    from placemat.kicad.route import ROUTER_DEFAULT, route_board
-    if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
-        pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT)
+    from placemat.kicad.route import route_board
+    from tests.conftest import router_missing
+    if router_missing():
+        pytest.skip(router_missing())
     net = "PERMIT_A"
     pcb = _breakout_with_a_partial_pour(breakout_pcb, tmp_path, net)
     sent = []

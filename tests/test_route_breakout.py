@@ -1,15 +1,13 @@
 """placemat route on the placed Breakout: the router runs on the signal nets
 only, closure comes back as numbers, and the placed board is untouched."""
 import shutil
-from pathlib import Path
 
 import pytest
 
-from placemat.kicad.route import ROUTER_DEFAULT, route_board
-from tests.conftest import needs_breakout, needs_kicad
+from placemat.kicad.route import route_board
+from tests.conftest import needs_breakout, needs_kicad, needs_router
 
-needs_router = pytest.mark.skipif(not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists(),
-                                  reason="KiCadRoutingTools not at %s" % ROUTER_DEFAULT)
+
 pytestmark = [needs_kicad, needs_breakout, needs_router]
 
 

@@ -118,9 +118,10 @@ def _other_net_tracks_inside(pcb, net, layer, box_poly):
 def test_a_router_run_leaves_the_pour_to_its_net(breakout_pcb, tmp_path):
     import pcbnew
     from pathlib import Path
-    from placemat.kicad.route import ROUTER_DEFAULT, route_board
-    if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
-        pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT)
+    from placemat.kicad.route import route_board
+    from tests.conftest import router_missing
+    if router_missing():
+        pytest.skip(router_missing())
     pcb = _four_layer(breakout_pcb, tmp_path / "in", [("GND", ["In2.Cu"], (10, 10, 70, 70))])
     brd = pcbnew.LoadBoard(str(pcb))
     for t in list(brd.GetTracks()):

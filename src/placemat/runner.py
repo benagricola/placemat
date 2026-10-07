@@ -749,7 +749,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                     (run_dir / "plan.json").write_text(json.dumps(plan_json(plan, declared_sites(board)), separators=(",", ":")))
                 except Exception as e:                  # a courtesy: the run goes on without it
                     say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
-                from .kicad.route import RouterFailed
+                from .kicad.route import RouterFailed, RouterMissing
                 try:
                     report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
                                          quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)},
@@ -757,6 +757,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 except RouterFailed as e:
                     raise RunFailure("route", "Routing failed", {"error": e.what, "exit_code": e.exit_code, "log": str(e.log),
                                                                  "tail": e.tail}) from e
+                except RouterMissing as e:
+                    raise RunFailure("route", "Routing refused", {"error": str(e), **e.record()}) from e
                 except Exception as e:                  # anything else the route raises fails the run too
                     raise RunFailure("route", "Routing failed", {"error": "%s: %s" % (type(e).__name__, e),
                                                                  "traceback": traceback.format_exc()}) from e

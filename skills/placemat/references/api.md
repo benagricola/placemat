@@ -3801,8 +3801,10 @@ matches, better than, worse than, or not judged. **A run that comes out
 worse is a finding naming the score and the term that moved it most, and
 `placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
 part starts a new family. Routing needs
-KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR` (default `~/work/KRT-upstream`) with
-its own venv; quick mode is one routing round with the router's post-route
+KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR`, with its own venv; with neither set, a
+route refuses (`route: no router: set [route] router_dir in placemat.toml or $KRT_DIR ...`, exit 2; with `--json`,
+`{"refused": "router_unset", "setting", "env"}`), and a folder without the router is refused as `router_not_found`
+with the files it lacks; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: a small two-layer board routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
 unless `--iterations` caps it. Left to itself (no `--layers`), the router
@@ -5474,7 +5476,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.probe_budget_steps` | `150000` | steps | the pin map study's search for each part, in steps, when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
 | `pins.guard_ms` | `10000.0` | ms | a safety net on the pin map study's time for each studied part, scaled with its budget for a longer study: past it the study gives no map and says so in a `setup.pins` warning; 0 is off |
 | `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC; a placement the script decided may put a courtyard over another part's hole where `npth_inside_courtyard` or `pth_inside_courtyard` is below `error` |
-| `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream` |
+| `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`; with neither set, a route refuses |
 | `route.quick` | `true` | bool | one routing round rather than the router's full run |
 | `route.max_iterations` | `unset` | count | cap on the router's search per net; unset: the router's own default |
 | `route.plane_share` | `0.9` | share | how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing (the router's default layers come from each layer's declared role, not this) |

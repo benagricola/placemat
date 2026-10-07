@@ -371,7 +371,7 @@ class Settings:
     drc_severities: dict = S(None, "table",
         "a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC; a placement the script decided may put a courtyard over another part's hole where `npth_inside_courtyard` or `pth_inside_courtyard` is below `error`", factory=dict)
     route_router_dir: str = S("", "path",
-        "the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream`")
+        "the KiCadRoutingTools checkout; empty: `$KRT_DIR`; with neither set, a route refuses")
     route_quick: bool = S(True, "bool",
         "one routing round rather than the router's full run")
     route_max_iterations: int | None = S(None, "count",

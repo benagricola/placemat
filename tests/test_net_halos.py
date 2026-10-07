@@ -16,11 +16,9 @@ from placemat.findings import Finding, FindingCause as C
 from placemat.kicad import net_halos
 from placemat.settings import Settings, SettingsError, bind, load
 from placemat.values import Box, CopperLayer
-from tests.conftest import needs_kicad
+from tests.conftest import ROUTER, needs_kicad, needs_router
 from tests.fixtures import board_geometry, footprint, rect, track
 
-ROUTER = Path(os.environ.get("KRT_DIR", os.path.expanduser("~/work/KRT-upstream")))
-needs_router = pytest.mark.skipif(not (ROUTER / "py_router/list_nets.py").exists(), reason="no router at %s" % ROUTER)
 
 
 # ---------------------------------------------------------------- the setting

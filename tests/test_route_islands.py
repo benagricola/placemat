@@ -56,9 +56,10 @@ def test_the_route_command_passes_the_setting_and_the_flag(tmp_path, monkeypatch
 @needs_breakout
 def test_a_router_run_joins_the_pads_a_partial_pour_leaves_apart(breakout_pcb, tmp_path):
     import pcbnew
-    from placemat.kicad.route import ROUTER_DEFAULT, route_board
-    if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
-        pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT)
+    from placemat.kicad.route import route_board
+    from tests.conftest import router_missing
+    if router_missing():
+        pytest.skip(router_missing())
     net = "PERMIT_A"        # five plated pads and no copper graphics of its own (the router cannot land on one)
     dest = tmp_path / "in"
     dest.mkdir()
@@ -369,9 +370,10 @@ def test_an_island_nets_own_graphic_pour_reaches_the_router_as_a_zone(breakout_p
 @needs_breakout
 def test_a_router_run_lays_no_copper_over_the_island_nets_own_graphic_pour(breakout_pcb, tmp_path):
     import pcbnew
-    from placemat.kicad.route import ROUTER_DEFAULT, route_board
-    if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
-        pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT)
+    from placemat.kicad.route import route_board
+    from tests.conftest import router_missing
+    if router_missing():
+        pytest.skip(router_missing())
     net = "PERMIT_A"
     pcb, uuid, outline = _graphic_pour(breakout_pcb, tmp_path / "in", net)
     report = route_board(pcb, tmp_path / "route", exclude_nets={net, "GND", "V48P"}, layers=["F.Cu", "In2.Cu", "B.Cu"],

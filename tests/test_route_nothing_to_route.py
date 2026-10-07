@@ -123,10 +123,11 @@ print(json.dumps(out))
 def test_main_pass_nets_agrees_with_the_routers_own_expansion():
     import subprocess
     from pathlib import Path
-    from placemat.kicad.route import main_pass_nets, router_dir
-    krt = Path(router_dir())
-    if not (krt / ".venv/bin/python").exists():
-        pytest.skip("KiCadRoutingTools not at %s" % krt)
+    from placemat.kicad.route import main_pass_nets
+    from tests.conftest import ROUTER, router_missing
+    if router_missing():
+        pytest.skip(router_missing())
+    krt = Path(ROUTER)
     cases = [[sorted(n), sorted(e)] for n, e in _CASES]
     got = subprocess.run([str(krt / ".venv/bin/python"), "-c", _KRT_EXPAND], input=json.dumps(cases), capture_output=True,
                          text=True, cwd=str(krt / "py_router"), check=True)

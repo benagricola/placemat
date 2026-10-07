@@ -3,8 +3,28 @@ from pathlib import Path
 
 import pytest
 
-ECOSYSTEM = Path(os.environ.get("MNB_ECOSYSTEM", Path.home() / "Documents/Hardware/mnb-ecosystem"))
-BREAKOUT_PCB = ECOSYSTEM / "breakout/layout/Breakout/layout.kicad_pcb"
+# Files outside the repository are named by environment variables only; a test that needs one skips, saying which,
+# when it is unset.
+ECOSYSTEM_ENV = "MNB_ECOSYSTEM"     # the multi-board project whose committed Breakout board some tests read
+ROUTER_ENV = "KRT_DIR"              # the KiCadRoutingTools checkout the routing tests run
+ECOSYSTEM = Path(os.environ[ECOSYSTEM_ENV]) if os.environ.get(ECOSYSTEM_ENV) else None
+BREAKOUT_PCB = ECOSYSTEM / "breakout/layout/Breakout/layout.kicad_pcb" if ECOSYSTEM else None
+ROUTER = Path(os.environ[ROUTER_ENV]) if os.environ.get(ROUTER_ENV) else None
+
+
+def outside_file_missing(path, env) -> str:
+    """Why a test that reads `path` (from $`env`; None when unset) cannot run, or "" when it can."""
+    if path is None:
+        return "$%s is not set" % env
+    return "" if Path(path).exists() else "%s not found ($%s)" % (path, env)
+
+
+def router_missing() -> str:
+    """Why a test that runs the router cannot, or "" when it can."""
+    return outside_file_missing(ROUTER / ".venv/bin/python" if ROUTER else None, ROUTER_ENV)
+
+
+needs_router = pytest.mark.skipif(bool(router_missing()), reason=router_missing() or "router found")
 
 
 def _has_pcbnew():
@@ -102,11 +122,15 @@ def _placemat_native() -> bool:
 # placemat's own native path: the module built, of this release, and not
 # switched off with PLACEMAT_NATIVE=0
 needs_native = pytest.mark.skipif(not _placemat_native(), reason="placemat's native path is off or not built")
-needs_breakout = pytest.mark.skipif(not BREAKOUT_PCB.exists(), reason="committed Breakout board not found")
+needs_breakout = pytest.mark.skipif(bool(outside_file_missing(BREAKOUT_PCB, ECOSYSTEM_ENV)),
+                                    reason=outside_file_missing(BREAKOUT_PCB, ECOSYSTEM_ENV) or "Breakout board found")
 
 
 @pytest.fixture(scope="session")
 def breakout_pcb():
+    why = outside_file_missing(BREAKOUT_PCB, ECOSYSTEM_ENV)
+    if why:
+        pytest.skip(why)
     return BREAKOUT_PCB
 
 

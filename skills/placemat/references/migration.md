@@ -24,8 +24,25 @@ section for each hand-written pattern a newer form replaces.
   as before. A place placemat chooses - a search's, a rider's of a searched item, a `Beside` item's moved out from its
   offset - keeps off the hole at any severity. Scripts need no change.
 
+### Changed
+
+- **A route needs its router named.** placemat no longer falls back to a router folder of its own: set `[route]
+  router_dir` in placemat.toml or `$KRT_DIR` to the KiCadRoutingTools checkout. With neither, `placemat route` and
+  `run --route` refuse (`router_unset`, naming both); a folder without the router is refused as `router_not_found`.
+  placemat's own tests read files outside the repository from `$KRT_DIR` (the router) and `$MNB_ECOSYSTEM` (the
+  multi-board project some tests read boards and footprints from), and skip, saying which, when they are unset.
+  Scripts need no change.
+
 ### Fixed
 
+- **A route's item ids are the same in every run.** pcbnew gives an item its file names no id (an older KiCad format
+  leaves many out) a random one as it loads, so the route's working copy, and the DRC that names a violation's items
+  by id, differed from run to run. Every board placemat loads to route, clean up or write is now loaded with KiCad's
+  id generator seeded from the file. Scripts need no change.
+- **Of two close same-net router vias, the one kept is chosen by the copper on it.** The route's cleanup kept
+  whichever the routed file listed first. It now keeps the via more copper ends on (copper the route was given first),
+  then the lower x and y, and a net whose merge would part its pads or come within clearance of another net is tried
+  the other way round before both vias are kept. Scripts need no change.
 - **A route with nothing left to route completes.** `run --route` on a board whose nets are all served by planes, pours
   or fingers called the router with a net list that matched nothing; the router exited 1 and the run crashed with its
   record left at "running". The main pass is now skipped when no net is left for it, and the route records zero of zero

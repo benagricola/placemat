@@ -64,12 +64,10 @@ from pathlib import Path  # noqa: E402
 
 import pytest  # noqa: E402
 
-from placemat.kicad.route import router_dir  # noqa: E402
-from tests.conftest import needs_kicad  # noqa: E402
+from tests.conftest import ROUTER, needs_kicad  # noqa: E402
 
-_ROUTER = router_dir()
-needs_router = pytest.mark.skipif(not (Path(_ROUTER) / "py_router/route_diff.py").exists(),
-                                  reason="no router with a pair router at %s" % _ROUTER)
+needs_router = pytest.mark.skipif(not (ROUTER and (ROUTER / "py_router/route_diff.py").exists()),
+                                  reason="$KRT_DIR is not set" if ROUTER is None else "no pair router at %s" % ROUTER)
 
 NETS = ("D_P", "D_N", "SIG")
 
