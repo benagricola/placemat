@@ -31,6 +31,7 @@ _TEXT = {
     "two_selectors": "route.phase %(name)r: %(selectors)s: a phase has at most one selector",
     "flag_true": "route.phase %(name)r: %(key)s takes true; leave it out to not select by it",
     "bad_list": "route.phase %(name)r: %(key)s is a list of one or more names, not %(value)r",
+    "bad_pairs": "route.phase %(name)r: pairs is true or a list of pairs of two net names, P first, not %(value)r",
     "bad_buses": "route.phase %(name)r: buses is a list of buses, each a list of net names or globs, not %(value)r",
     "bad_connection": "route.phase %(name)r: connection %(index)d: from and to are each {part = \"...\", pad = \"...\"}",
     "bad_width": "route.phase %(name)r: width is a number in mm above 0 or \"current\", not %(value)r",
@@ -91,6 +92,7 @@ class Phase:
     connections: tuple = ()
     interfaces: tuple = ()
     net_types: tuple = ()
+    pairs: tuple = ()                   # ((p, n), ...) by net name; empty for pairs = true (the capture's)
     width: float | str | None = None    # mm on every layer, CURRENT, or None: the net classes'
     layers: tuple | None = None         # None: every layer the route uses
     neckdown: bool = True
@@ -147,8 +149,14 @@ def _one(t, index: int, seen: set) -> Phase:
         raise PhaseError("two_selectors", name=name, selectors=", ".join(chosen))
     selector = chosen[0] if chosen else REST
     kw = {}
-    if selector in _FLAGS and t[selector] is not True:
+    if selector in _FLAGS and t[selector] is not True and not (selector == "pairs" and isinstance(t[selector], list)):
         raise PhaseError("flag_true", name=name, key=selector)
+    if selector == "pairs" and t["pairs"] is not True:
+        v = t["pairs"]
+        if not (v and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) and x for x in p)
+                          and p[0] != p[1] for p in v)):
+            raise PhaseError("bad_pairs", name=name, value=v)
+        kw["pairs"] = tuple((p[0], p[1]) for p in v)
     if selector in ("nets", "net_classes", "interfaces", "net_types"):
         kw[selector] = _names(t, selector, name)
     if selector == "buses":

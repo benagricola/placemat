@@ -155,7 +155,7 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
     missing = [l for l in layers if l not in board_layers]
     if missing:
         raise PhaseError("layer_missing", name=phase.name, layers=missing, board_layers=board_layers)
-    if phase.selector in CAPTURE_SELECTORS:
+    if phase.selector in CAPTURE_SELECTORS and not (phase.selector == "pairs" and phase.pairs):
         need = "types" if phase.selector == "net_types" else "interfaces"
         if capture is None or need not in capture.exports:
             raise PhaseError("needs_capture", name=phase.name, selector=phase.selector,
@@ -228,6 +228,12 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
         if short:
             raise PhaseError("no_current", name=phase.name, connections=short)
         return Selection(tasks=tuple(tasks), pour_nets=_pours(tasks, pour_nets), **base)
+    if phase.selector == "pairs" and phase.pairs:
+        for n in (n for pn in phase.pairs for n in pn):
+            if n not in geometry.nets:
+                raise PhaseError("not_on_board", name=phase.name, kind="net", value=n)
+        return Selection(pairs=tuple(pn for pn in phase.pairs if all(n in open_nets and n not in excluded for n in pn)),
+                         **base)
     if phase.selector == "pairs":
         # the sidecar lists one physical pair once per instance path that reaches it: dedupe by (p, n)
         pairs = tuple(dict.fromkeys((p, n) for _, p, n in capture.pairs))

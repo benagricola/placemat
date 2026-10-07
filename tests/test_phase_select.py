@@ -205,3 +205,17 @@ def test_capture_pairs_the_board_lacks_or_none_are_refused():
 def test_the_pour_nets_of_a_task_set_are_named():
     s = one({"name": "p", "current_paths": True}, pour_nets={"VB"})
     assert s.pour_nets == ("VB",) and s.tasks
+
+
+def test_pairs_by_name_need_no_capture_and_keep_p_first():
+    assert one({"name": "p", "pairs": [["SDA", "SCL"]]}).pairs == (("SDA", "SCL"),)
+
+
+def test_a_named_pair_with_a_net_already_joined_is_not_routed():
+    assert one({"name": "p", "pairs": [["SDA", "SCL"]]}, open_nets={"SDA"}).pairs == ()
+
+
+def test_a_named_pair_net_the_board_lacks_is_refused():
+    with pytest.raises(PhaseError) as e:
+        one({"name": "p", "pairs": [["SDA", "NOPE"]]})
+    assert e.value.code == "not_on_board" and e.value.facts == {"name": "p", "kind": "net", "value": "NOPE"}

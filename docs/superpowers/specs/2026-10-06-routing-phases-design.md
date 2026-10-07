@@ -62,6 +62,10 @@ name = "diff-pairs"
 pairs = true                   # the differential pairs the net classes declare
 
 [[route.phase]]
+name = "usb-pair"
+pairs = [["USB_D+", "USB_D-"]]   # by net names, P first: a board without a capture
+
+[[route.phase]]
 name = "buses"
 interfaces = ["Spi", "I2c"]    # every instance in the capture, each routed together as one bus
 layers = ["F"]
@@ -92,7 +96,7 @@ A phase has at most one selector. A phase with none takes every connection still
 |---|---|---|
 | `nets` | nets by name or glob (`DISP_*`); `!NAME` excludes | the board's nets |
 | `net_classes` | every net in these KiCad net classes | the capture's `board_rules.zen` net classes, which reach `layout.kicad_pro` |
-| `pairs = true` | the differential pairs: the capture's `DiffPair` interface instances | the capture, through the Zener fork (below) |
+| `pairs = true`, or `pairs = [["P", "N"], ...]` | the differential pairs: the capture's `DiffPair` interface instances, or the pairs named by net (P first) on a board without a capture | the capture, through the Zener fork (below); or the board's nets |
 | `buses` | a list of buses, each a list of net names or globs | the board's nets |
 | `connections` | pad-to-pad connections, each `{from = {part, pad}, to = {part, pad}}`; a pad by number or by net, as `PadRef` takes it | the capture |
 | `current_paths = true` | every pair of carriers on each net with a `Pm.I`, pad to pad (`checks._pairs(by_pad=True)`) | the capture's `Pm.I` |

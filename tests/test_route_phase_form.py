@@ -86,3 +86,17 @@ def test_an_owned_flag_is_refused_in_the_setting_as_well(tmp_path, arg):
     (tmp_path / "placemat.toml").write_text('[route]\npair_router_args = ["%s"]\n' % arg)
     with pytest.raises(SettingsError, match="is set by placemat itself"):
         load(tmp_path)
+
+
+def test_pairs_take_net_names_p_first():
+    (p,) = parse_phases([{"name": "usb", "pairs": [["USB_D+", "USB_D-"], ["TX_P", "TX_N"]]}])
+    assert p.selector == "pairs" and p.pairs == (("USB_D+", "USB_D-"), ("TX_P", "TX_N"))
+    (q,) = parse_phases([{"name": "dp", "pairs": True}])
+    assert q.pairs == ()
+
+
+@pytest.mark.parametrize("value", [[], [["A"]], [["A", "A"]], [["A", ""]], [["A", "B", "C"]], [[1, 2]]])
+def test_a_pair_list_that_is_not_pairs_of_two_nets_is_refused(value):
+    with pytest.raises(PhaseError) as e:
+        parse_phases([{"name": "x", "pairs": value}])
+    assert e.value.code == "bad_pairs" and e.value.facts["value"] == value
