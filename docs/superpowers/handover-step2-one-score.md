@@ -51,6 +51,13 @@ and 3.
 - **Removal ledger.** Every row marked step 2 is removed in step 2, with its migration entry. The reference scripts are
   migrated in the same change.
 
+## Measured since the spec
+
+`docs/superpowers/research/2026-10-07-refine-spike.md` measured the search's `Scorer` on the fairing core's cells at
+136 us per legal candidate (the wire term alone 52 us). The one-score spec's speed limit of about 5 us per candidate
+assumed the sweep's 1-2 us. Plan for that gap: measure where the time goes before setting the gate, and tell the user
+if the limit is out of reach.
+
 ## Ask the user about
 
 - The `score.area` default weight, and any other weight the plan sets. Tunables are settings with documented defaults.
