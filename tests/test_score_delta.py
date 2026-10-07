@@ -762,7 +762,26 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
     native_module = geometry_kernel._native
     assert native_module is not None and hasattr(native_module, 'PreparedSurface'), 'designated full composition gate'
 
-    def check(board, plan, limit):
+    def refusal(delta):
+        if delta.has_push:
+            return 'documented push/exposure intent fallback'
+        if delta.lanes is not None:
+            return 'documented caller-provided lanes fallback'
+        if delta.rn.mirror is None:
+            pytest.fail('designated native gate lacks ratsnest mirror')
+        if delta.grid is not None:
+            frame = delta.grid.board
+            if any(not frame.contains_point(point) for pads in delta.occ.__dict__['_congestion_pads'].values()
+                   for point in pads.values()):
+                return 'documented invalid fixed-frame geometry fallback'
+        pytest.fail('unexplained native refusal in designated complete composition gate')
+
+    total_coverage = {}
+
+    def check(board, plan, limit, label):
+        from collections import Counter
+        from placemat.board_geometry import Footprint
+        coverage = {}
         occ = plan.occupancy
         selected = [s for s in plan.steps if s.placement is not None and s.item in plan._items][:limit]
         for step in selected:
@@ -799,6 +818,16 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
                     assert counts == oracle_counts, (step.item, candidate, classifier)
                 assert change.walled == oracle_counts.get('escape_walled', 0)
                 assert change.walled_change == change.walled - delta._escape_base.get('escape_walled', 0)
+                kind = 'part' if isinstance(item, Footprint) else 'cell'
+                row = coverage.setdefault(kind, {'native': 0, 'fallback': Counter()})
+                total = total_coverage.setdefault(kind, {'native': 0, 'fallback': Counter()})
+                if kernel is None:
+                    why = refusal(delta)
+                    row['fallback'][why] += 1
+                    total['fallback'][why] += 1
+                else:
+                    row['native'] += 1
+                    total['native'] += 1
                 if kernel is not None:
                     full, reason = prepare(delta, [candidate.rotation], candidate.face)
                     assert full is not None, (step.item, reason)
@@ -834,11 +863,18 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
             occ.commit(item, step.placement)
             assert score.whole(board, occ, plan) == pytest.approx(original, abs=1e-6)
 
+        assert coverage, (label, 'no candidates exercised')
+        for kind, row in coverage.items():
+            # Zero supported rows are only admitted with an individually
+            # proved, documented exclusion from the current native contract.
+            assert row['native'] > 0 or row['fallback'], (label, kind, row)
+        print('FULL_PREPARED_COVERAGE', label, coverage)
+
     with realboard():
         for path in bench.boards()[:6]:
             geometry = read_board(path)
             board = bench.ModuleBoard(geometry, {}, bench._planes(geometry), bench._size(geometry, False))()
-            check(board, board.resolve(), 8)
+            check(board, board.resolve(), 8, bench._name(path))
         geometry = read_board(bench.BOARD_FIXTURE / 'layout' / 'layout.kicad_pcb')
         board = Board(geometry, keep_going=True)
         board.outline(geometry.board_polygon[0], holes=geometry.board_polygon[1:])
@@ -851,7 +887,13 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
         for fp in geometry.footprints:
             if fp.cell is None:
                 board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
-        check(board, board.resolve(), 8)
+        check(board, board.resolve(), 8, 'written-core')
+    assert total_coverage['part']['native'] > 0, total_coverage
+    assert total_coverage.get('cell', {}).get('native', 0) > 0 or (
+        total_coverage.get('cell', {}).get('fallback')
+        and set(total_coverage['cell']['fallback']) <= {'documented push/exposure intent fallback',
+                                                    'documented invalid fixed-frame geometry fallback'}), total_coverage
+    print('FULL_PREPARED_TOTAL', total_coverage)
 
 
 def test_native_configuration_failure_is_not_cached(monkeypatch):
