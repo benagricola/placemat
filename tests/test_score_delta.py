@@ -1058,11 +1058,11 @@ def test_native_prepared_aim_uses_raw_squared_distance_before_stable_pad_ties():
     rn.set_net('S', rest)
     rn.set_net('untouched', [Anchor('Q1', '1', -2, 0), Anchor('Q0', '1', 2, 0)])
     # On glibc this square differs from multiplication by one ulp. A0 and
-    # Z0 tie under x*x, while the CPython pow oracle prefers Z0. Calculate
+    # Z9 tie under x*x, while the CPython pow oracle prefers Z9. Calculate
     # the expected answer with Python so the test retains the platform's
     # own C-pow semantics on other wheel targets too.
     pow_targets = [Anchor('A0', '1', 0.1, 910.4575114352892),
-                   Anchor('Z0', '1', -910.4575169270337, 0)]
+                   Anchor('Z9', '1', -910.4575169270337, 0)]
     rn.set_net('pow', pow_targets)
     kernel = module.NativeDelta(rn.mirror, ['Z0'], [[('S', 'Z0', '1', 3, 0)]],
                                 ['S', 'untouched', 'pow'], (4, 3, 5, 0, 2))
@@ -1095,6 +1095,19 @@ def test_native_prepared_aim_matches_python_pow_distance_on_repeated_candidates(
         nodes = sorted(rest + [Anchor('N', '1', x, y)], key=lambda a: (a.ref, a.number))
         expected = min(nodes, key=lambda a: (a.x - centre[0]) ** 2 + (a.y - centre[1]) ** 2)
         assert kernel.aim(x, y, 0, 'S', 'unplaced', '1', centre) == (expected.x - centre[0], expected.y - centre[1])
+
+
+def test_native_delta_refuses_unlifted_owner_even_on_net_without_added_anchors():
+    from placemat import geometry
+    from placemat.ratsnest import Ratsnest
+    module = geometry._native
+    if module is None or not hasattr(module, 'NativeDelta'):
+        pytest.skip('native delta not built')
+    rn = Ratsnest(mirror=module.NativeRatsnest())
+    rn.set_net('unmodified', [Anchor('N', '2', 1, 1), Anchor('R', '1', 2, 2)])
+    with pytest.raises(ValueError, match='lifted'):
+        module.NativeDelta(rn.mirror, ['N'], [[('modified', 'N', '1', 0, 0)]],
+                           ['modified', 'unmodified'], (4, 3, 5, 0, 2))
 
 
 def test_native_prepared_candidate_refuses_malformed_geometry_and_recovers_after_bad_candidate():

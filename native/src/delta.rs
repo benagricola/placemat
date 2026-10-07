@@ -396,6 +396,9 @@ impl Delta {
         if anchors.iter().flatten().any(|p| !point_valid(p.3, p.4)) {
             return Err("NativeDelta anchors must be finite and representable in nm".into());
         }
+        if snapshots.iter().flat_map(|s| &s.nodes).any(|p| own.contains(&p.2)) {
+            return Err("NativeDelta requires the item to be lifted on every net".into());
+        }
         for snapshot in &snapshots {
             if snapshot.kind != 3 || plane != 0.0 {
                 TreeDelta::validate(&snapshot.nodes, &snapshot.edges)?;
@@ -428,9 +431,6 @@ impl Delta {
                     snapshots.len() - 1
                 };
                 let snapshot = &snapshots[index];
-                if snapshot.nodes.iter().any(|p| own.contains(&p.2)) {
-                    return Err("NativeDelta requires the item to be lifted".into());
-                }
                 if snapshot.kind == 3 && plane == 0.0 {
                     continue;
                 }
