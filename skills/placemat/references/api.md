@@ -4513,7 +4513,15 @@ score wins, and a tie keeps the earlier variant.
 **What a run says.** `explore  N variants in S s over K focused items:
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
-With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part, or `, with cell logic turned to 90 degrees` when it turns the part's cell), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking, unless the explore ranks by it (below).
+With pin pools on the board, the best `pins.explore_top` variants are studied
+under the lock before acceptance. Each group reports its current common
+placement total and its independently judged finalist total (`pin map, seed 3
+at 120.4 mm: U1 140 -> 122 common placement score after remapping`), with its
+pose when it changes. Unknown totals remain unmeasured. These independent
+summary lines cannot certify several maps together. The last line gives the
+study's elapsed time; `pin_maps` records each variant's `seed`, `score`,
+`groups`, `seconds` and any study `error`. The separate combined proposal below
+is required before a virtual saving can affect ranking.
 Without `--accept` nothing persists.
 
 **Common pin finalist proposals.** `--rank-remapped` (`[explore] rank_remapped`,
@@ -4909,9 +4917,9 @@ Python fallback takes longer to get there. A wall-clock guard,
 `budget_steps`) says so, and the group gives no `no_legal_map` problem. A study
 that tripped the guard is not kept for reuse, so a kept result is always
 complete and the guard is not part of its digest.
-What a study reads is digested and kept in
-`.placemat/pinmap/<script>.json`; a run or a preview of an unchanged board
-reuses it. A study that raises leaves the run standing: the error is on
+Generator-only findings may be digested and kept in
+`.placemat/pinmap/<script>.json`. Current plan-bound common judgments bypass
+that findings cache, including on an otherwise unchanged run or preview. A study that raises leaves the run standing: the error is on
 `metrics.pin_study` and a `setup.pins` warning with code `study_failed` (facts
 `type`, `message`) says so, and the run has no pin map findings.
 
@@ -4919,8 +4927,11 @@ reuses it. A study that raises leaves the run standing: the error is on
 module instance) is studied as the cell: each pose turns the whole cell about
 its centre, every member's pads with it, and the body its airwires go round is
 the cell's envelope (its members' courtyards and its own copper), not the
-part's courtyard. The turn is theoretical: the cell stays where it is and
-nothing is checked for collisions or DRC; only the airwires are scored. The
+part's courtyard. Generator turns are theoretical and score only airwires.
+Plan-bound finalists additionally judge actual detached geometry, placement
+legality and copper/pad clashes. Manufacturing, current-path and routed
+certification remain separate; unmeasured required electrical checks withhold
+advice. The
 part's pins leave by the envelope side their own courtyard side faces; the other
 members' pads leave by the side they are nearest; a net with every pad inside
 the cell and none that may move turns with the cell and is not studied. A pool
@@ -4955,10 +4966,11 @@ takes a studied net on to (with `via` and `far`). When fewer than
 placement (`withheld`), with no suggestion.
 
 **The record.** `run.json`'s `metrics.pin_study` is `{seconds, reused, groups,
-parts}`, or `{error: {type, message}}` when the study raised. `reused` is true
-when the last study's findings were kept, and `groups` is then null. Run and
-preview print it as `pins  3 parts in 2 groups (0.41 s)`, `pins  3 parts, the
-last study reused (0.02 s)` or `pins  the study failed with <type>: <message>`.
+parts}`, or `{error: {type, message}}` when the study raised. `reused` can be
+true for cached standalone generator diagnostics, with `groups` null;
+plan-bound common judgments are rebuilt and report false. Run and preview
+print `pins  3 parts in 2 groups (0.41 s)` or a study failure; the reused
+wording applies only to generator diagnostics.
 
 **`setup.pins`.** A warning, facts `ref`, `key`, `entry`, `code`, `name`
 (and `held_net`, `held_pin`), by `code`:
@@ -4976,16 +4988,14 @@ last study reused (0.02 s)` or `pins  the study failed with <type>: <message>`.
 | `study_failed` | the study raised; `type` and `message` |
 | `study_slow` | the study of the part's group ran past `pins.guard_ms` and gives no map; `refs`, `guard_ms`, `steps` taken and `budget_steps` |
 
-**The finding.** `pins.remap`, a notice, when the best pose saves at least
-`pins.gain_min` of the present total. Its sentence names what each pose saves
-against the present map in the plainest term the pose wins on: weighted
-crossings, else mm of airwire, else degrees of turning; and what it gives up on
-weighted crossings or airwire to win: "U1: a pin map with 8 fewer weighted
-crossings exists at its present rotation; at 90 degrees, 11 fewer weighted
-crossings and 3.2 mm more airwire". A soft group the best map leaves split, 0.05 mm or more, is named with its
-spread ("group lcd ends split, 0.7 mm beyond its pin pitch"), and a map that
-closes a soft group up says so ("group lcd brought together", or "nearer
-together"). A study given no steps (a budget of 0, which only a direct call of
+**The finding.** Plan-bound `pins.remap` notices report common score gain
+when it meets `pins.gain_min`, or a separately labeled validity repair whose
+soft gain may be negative. Unknown required evidence and incompatible combined
+module choices explicitly advise no map or turn. Standalone generator notices
+retain diagnostic crossing/length/bend comparisons but say common-board gain
+is unavailable and offer no executable advice. Generator breakdowns are nested
+under `generator`; common records contain raw terms, validity and refusals.
+A study given no steps (a budget of 0, which only a direct call of
 the core can give) says so instead. Facts: `ref`, `refs`, `at`, `present` (the present
 map's score), `rotations` (the best map at each pose, the present pose first:
 `total`, `against`, `among` as crossing counts, `weighted`, `length_mm`,
@@ -4995,7 +5005,7 @@ length), `spread_mm` and its term `cohesion`, `groups` (each
 `nets` and `pins` in pin number order), `turns` with `ref`, `turn_deg`, `rotation_deg`, `face` and `flip`,
 `map` as `ref`, `net`, `from` and `to` each `{pin, name}`, `routed`, `paths`
 and `breaks`), `best` (the index of the best pose), `routed` (the best pose's
-moved nets with copper on the board now: a remap means routing them again),
+moved nets with fixed copper now: a proposed map cannot retag or delete it),
 `before` (the airwires now), `present_groups` (the groups as they stand),
 `held` (nets a constraint keeps, with `why` set to
 `fixed`, `allow`, `unplaced` or `in_cell`), `unplaced_ends` (each studied
@@ -5019,11 +5029,13 @@ the turn in the script. In the studio an advice suggestion has only Try, which
 draws the airwires before (dashed) and after (solid) and lists the map; it
 resolves and writes nothing. The finding's panel lists every pose in `rotations`,
 a row each: the turn (a part in a cell by its cell's turn), weighted crossings,
-length in mm, bends, total and the saving against the present map, with the
+generator length in mm and bends, common total (or generator-only total),
+and signed gain against the present map, with the
 best and the present pose marked. A row clicked draws that pose's airwires and
 lists its map as Try does; a second click, a Try, or a change of selection or
 run takes them away. In the studio's explore view each studied variant shows
-its groups' weighted crossings now and after remapping beside its score, `slow`
+its groups' common placement totals now and after remapping as independent
+proposals beside its score, `slow`
 for a group past its guard and `error` for a study that raised; on the variant
 shown, Map draws a group's airwires and lists its map. Each group of an
 explore's `pin_maps` carries `before` and `paths`, its airwires under the
@@ -5031,8 +5043,9 @@ present map and the best, as a finding's `before` and a rotation's `paths` do.
 
 `placemat apply <id> --search` on a pins suggestion studies its parts again, on
 the board as the last run placed it, with `pins.probe_budget_steps` a part. A
-better map is kept as `<id>.1`, as advice, and `--json` gives `{id, study,
-found}`. When the study raises, the command exits 1 with the error (`--json`:
+map that beats the incoming map rejudged in this same current physical context
+is kept as `<id>.1`, as advice; its stored scalar is ignored. `--json` gives
+`{id, study, found}` and a stable refusal `reason` when comparison is unavailable. When the study raises, the command exits 1 with the error (`--json`:
 `error` `{type, message}`, `study` and `found` null). When the parts are no
 longer studied on the board, it exits 1, and `--json` carries `reason:
 "not_studied"`. When the study runs past its wall-clock guard (`pins.guard_ms`
