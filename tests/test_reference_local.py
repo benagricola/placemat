@@ -1,0 +1,81 @@
+"""Local reference fixtures preserve observed evidence and unrelated result keys."""
+import contextlib
+import json
+
+import pytest
+
+from fixtures.reference import route_ref
+
+
+def result(**changes):
+    values = dict(fixture="wall", phases=[], widths_failed=1, drc_new=0, vias=0,
+                  track_mm=24.0, passed=True, seconds=1.0,
+                  versions={"placemat": "a", "krt": "b", "pcb": "c"})
+    return route_ref.FResult(**dict(values, **changes))
+
+
+def test_local_result_comparison_keeps_version_and_failure_changes():
+    old = route_ref.asdict(result())
+    assert route_ref.compare_local(old, result(), set()).status == "same"
+    different = result(versions={"placemat": "new", "krt": "b", "pcb": "c"})
+    compared = route_ref.compare_local(old, different, set())
+    assert (compared.status, compared.value, compared.differ) == ("not comparable", "same", ["placemat"])
+    assert route_ref.compare_local(old, different, {"placemat"}).status == "same"
+    assert route_ref.compare_local(old, result(passed=False, failure="RouterMissing"), set()).status == "changed"
+
+
+def test_local_save_preserves_board_module_and_other_fixture_results(tmp_path):
+    path = tmp_path / "results.json"
+    original = {"a": {"board": {}}, "b": {"board": {}}, "modules": {}, "fixtures": {"other": {"passed": True}}}
+    path.write_text(json.dumps(original))
+    route_ref.save_local(path, [result()])
+    got = json.loads(path.read_text())
+    assert got == dict(original, fixtures={"other": {"passed": True}, "wall": route_ref.asdict(result())})
+
+
+def test_local_route_retains_deduplicated_blocker_evidence_and_final_widths(tmp_path, monkeypatch):
+    monkeypatch.setattr(route_ref, "_krt_version", lambda path: "router")
+    opened = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "J2", "pad": "1"},
+              "outcome": "failed", "evidence": {"diagnosis": "blocked", "blocked_by": [
+                  {"ref": "U1"}, {"ref": "U1"}, {"net": "N1"}]}}
+    report = {"phases": [{"name": "legs", "asked": 1, "joined": 0, "closure_clean": 0.0,
+                          "final_closure_clean": 0.0, "open": [opened]}], "widths_failed": 1, "drc_new": 0}
+    monkeypatch.setattr(route_ref, "_route", lambda *args: report)
+    got = route_ref.run_local("obstructed-route", tmp_path, {"placemat": "p", "pcb": "z"})
+    assert got.passed and got.widths_failed == 1 and got.versions["krt"] == "router"
+    assert got.phases[0]["open"][0]["blockers"] == ["U1", "N1 copper"]
+    assert got.phases[0]["final_closure_clean"] == 0.0
+
+
+def test_router_resolution_failure_is_recorded_not_raised(tmp_path, monkeypatch):
+    def missing(path):
+        raise RuntimeError("missing router")
+    monkeypatch.setattr(route_ref, "_krt_version", missing)
+    got = route_ref.run_local("obstructed-route", tmp_path, {"placemat": "p"})
+    assert not got.passed and got.failure == "RuntimeError" and got.versions["krt"] == "unknown"
+
+
+def test_main_runs_only_the_named_local_fixture_under_the_shared_lock(tmp_path, monkeypatch, capsys):
+    events = []
+    @contextlib.contextmanager
+    def locked():
+        events.append("lock")
+        yield
+        events.append("unlock")
+    monkeypatch.setattr(route_ref.lock, "realboard", locked)
+    monkeypatch.setattr(route_ref, "LOCAL", {"wall": tmp_path})
+    monkeypatch.setattr(route_ref, "current_versions", lambda: {})
+    monkeypatch.setattr(route_ref, "run_local", lambda name, work, versions: events.append(name) or result())
+    monkeypatch.setattr(route_ref, "_run_boards", lambda boards, *args: events.append(boards) or False)
+    path = tmp_path / "results.json"
+    assert route_ref.main(["wall", "--update", "--results", str(path)]) == 0
+    assert events == ["lock", [], "wall", "unlock"]
+    assert "wall" in json.loads(path.read_text())["fixtures"]
+    assert "wall" in capsys.readouterr().out
+
+
+def test_unknown_name_lists_boards_and_local_fixtures(tmp_path, capsys):
+    with pytest.raises(SystemExit) as error:
+        route_ref.main(["absent", "--results", str(tmp_path / "results.json")])
+    assert error.value.code == 2
+    assert "obstructed-route" in capsys.readouterr().err

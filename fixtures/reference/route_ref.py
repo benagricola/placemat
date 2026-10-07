@@ -27,6 +27,8 @@ if __package__ in (None, ""):   # run as a script: the repository root, for `fix
 from fixtures.reference import fetch, lock, prepare   # noqa: E402
 
 HERE = pathlib.Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+LOCAL = {"obstructed-route": REPO / "fixtures/obstructed_route"}
 RESULTS = HERE / "results.json"
 COMPONENTS = ("placemat", "krt", "pcb")
 WIDTHS = ("class", "human")
@@ -55,6 +57,21 @@ class AResult:
     versions: dict   # placemat, krt, pcb
     failure: str = ""   # "" when the route ran; else the type of the exception that stopped it
     detail: str = ""    # what the exception said
+
+
+@dataclasses.dataclass(frozen=True)
+class FResult:
+    fixture: str
+    phases: list
+    widths_failed: int
+    drc_new: int | None
+    vias: int
+    track_mm: float
+    passed: bool
+    seconds: float
+    versions: dict
+    failure: str = ""
+    detail: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -156,6 +173,72 @@ def save_results(path: pathlib.Path, results: list[AResult]) -> None:
     pathlib.Path(path).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
+def save_local(path: pathlib.Path, results: list[FResult]) -> None:
+    """Keep local fixture evidence alongside the board and module results."""
+    data = load_results(path)
+    fixtures = data.setdefault("fixtures", {})
+    for result in results:
+        fixtures[result.fixture] = asdict(result)
+    pathlib.Path(path).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+def _blockers(evidence) -> list[str]:
+    names = []
+    for blocker in (evidence or {}).get("blocked_by") or ():
+        name = blocker.get("ref") or "%s copper" % blocker.get("net", "unidentified")
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def run_local(name: str, work: pathlib.Path, versions: dict | None = None) -> FResult:
+    """Route a local board unchanged, retaining phase closure and router failure evidence."""
+    src, work = LOCAL[name], pathlib.Path(work)
+    versions = dict(versions if versions is not None else current_versions())
+    versions.setdefault("krt", "unknown")
+    try:
+        work.mkdir(parents=True, exist_ok=True)
+        for filename in ("layout.kicad_pcb", "layout.kicad_pro", "placemat.toml"):
+            shutil.copy(src / filename, work / filename)
+        versions["krt"] = _krt_version(work / "layout.kicad_pcb")
+        report = _route(work / "layout.kicad_pcb", work / "route", (), (src / "placemat.toml").read_text())
+        if report.get("error"):
+            raise RuntimeError("placemat route failed: %s" % report["error"])
+        phases = [{"name": phase["name"], "asked": phase["asked"], "joined": phase["joined"],
+                   "closure_clean": phase["closure_clean"],
+                   "final_closure_clean": phase.get("final_closure_clean"),
+                   "open": [{"net": opened["net"], "from": opened["from"], "to": opened["to"],
+                             "outcome": opened.get("outcome"),
+                             "diagnosis": (opened.get("evidence") or {}).get("diagnosis"),
+                             "blockers": _blockers(opened.get("evidence"))}
+                            for opened in phase.get("open") or ()]}
+                  for phase in report.get("phases") or ()]
+    except Exception as error:   # like a failed reference board, keep the failure for inspection
+        return FResult(name, [], 0, None, 0, 0.0, False, 0.0, versions, type(error).__name__, str(error))
+    return FResult(name, phases, report.get("widths_failed", 0), report.get("drc_new"), report.get("vias", 0),
+                   report.get("track_mm", 0.0), True, report.get("seconds", 0.0), versions)
+
+
+def compare_local(old: dict | None, new: FResult, changing: set[str]) -> Comparison:
+    """A fixture records observed behavior; comparisons say same or changed, never better or worse."""
+    if old is None:
+        return Comparison("new", [])
+    keys = ("phases", "widths_failed", "drc_new", "passed", "failure")
+    value = "same" if all(old.get(key) == getattr(new, key) for key in keys) else "changed"
+    differ = comparable(old.get("versions", {}), new.versions, changing)
+    return Comparison("not comparable", differ, value) if differ else Comparison(value, [])
+
+
+def local_line(result: FResult, comparison: Comparison) -> str:
+    opened = ["%s %s %s" % (phase["name"], entry["outcome"] or "open",
+                             "/".join(entry["blockers"]) or "nothing named")
+              for phase in result.phases for entry in phase["open"]]
+    return "%-22s %s widths failed %d new DRC %s  %s  %s%s" % (
+        result.fixture, "ran" if result.passed else "FAIL", result.widths_failed,
+        "-" if result.drc_new is None else result.drc_new, "; ".join(opened) or "nothing open", said(comparison),
+        "  FAILED %s: %s" % (result.failure, result.detail[:200]) if result.failure else "")
+
+
 def _git(root: str, *args: str) -> str:
     return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, timeout=GIT_TIMEOUT_S).stdout.strip()
 
@@ -245,7 +328,7 @@ def line(r: AResult, c: Comparison) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("names", nargs="*", help="boards (default: every test (a) board)")
+    ap.add_argument("names", nargs="*", help="boards or local fixtures (default: all)")
     ap.add_argument("--update", action="store_true", help="write the results into results.json")
     ap.add_argument("--accept-worse", action="store_true", help="with --update: also write results that are worse than the recorded ones")
     ap.add_argument("--changing", nargs="+", choices=COMPONENTS, default=["placemat"],
@@ -254,9 +337,13 @@ def main(argv=None) -> int:
     ap.add_argument("--results", default=str(RESULTS))
     args = ap.parse_args(argv)
     boards = [b for b in fetch.load_manifest() if "a" in b.tests and (not args.names or b.name in args.names)]
-    if args.names and len(boards) != len(args.names):
-        ap.error("no test (a) board among: %s" % ", ".join(sorted(set(args.names) - {b.name for b in boards})))
-    recorded = load_results(pathlib.Path(args.results)).get("a", {})
+    local_names = [name for name in LOCAL if not args.names or name in args.names]
+    unknown = set(args.names) - {b.name for b in boards} - set(local_names)
+    if unknown:
+        available = sorted({b.name for b in fetch.load_manifest() if "a" in b.tests} | set(LOCAL))
+        ap.error("unknown board or fixture: %s; available: %s" % (", ".join(sorted(unknown)), ", ".join(available)))
+    recorded_data = load_results(pathlib.Path(args.results))
+    recorded, recorded_fixtures = recorded_data.get("a", {}), recorded_data.get("fixtures", {})
     versions = current_versions()
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
     results, comparisons, held = [], [], []
@@ -269,6 +356,12 @@ def main(argv=None) -> int:
     try:
         with lock.realboard():
             worse = _run_boards(boards, root, recorded, versions, set(args.changing), results, comparisons, save)
+            for name in local_names:
+                result = run_local(name, root / name, versions)
+                print(local_line(result, compare_local(recorded_fixtures.get(name), result, set(args.changing))), flush=True)
+                worse = worse or not result.passed
+                if args.update:
+                    save_local(pathlib.Path(args.results), [result])
     finally:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)

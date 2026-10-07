@@ -136,6 +136,7 @@ def test_route_update_holds_back_a_worse_entry_unless_accepted(tmp_path, monkeyp
     path = tmp_path / "results.json"
 
     def main(status, *extra):
+        monkeypatch.setattr(route_ref, "LOCAL", {})
         path.write_text(json.dumps({"a": {"x": {"class": {"old": 1}}}}))
         monkeypatch.setattr(route_ref.fetch, "load_manifest", lambda: [])
         monkeypatch.setattr(route_ref.lock, "realboard", contextlib.nullcontext)
@@ -161,6 +162,7 @@ def test_changing_takes_several_components():
 
 
 def test_the_command_line_takes_several_changing_components(tmp_path, monkeypatch):
+    monkeypatch.setattr(route_ref, "LOCAL", {})
     import contextlib
     seen = []
     monkeypatch.setattr(route_ref.fetch, "load_manifest", lambda: [])
@@ -206,6 +208,7 @@ BOARDS = [route_ref.fetch.Board(name=n, repo="github:o/r", commit="0" * 40, file
 
 
 def _boards_run(tmp_path, monkeypatch, prepare_fails, *extra):
+    monkeypatch.setattr(route_ref, "LOCAL", {})
     import contextlib
     path = tmp_path / "results.json"
     path.write_text(json.dumps({"a": {"bad": {"class": route_ref.asdict(_result(board="bad"))}}}))

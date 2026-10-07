@@ -124,3 +124,17 @@ A coordinate on a fixed part is listed with the declaration (`[coordinate]`) and
 | chainlinkDriver | Apache-2.0 | https://github.com/scottbez1/splitflap, `electronics/chainlinkDriver` | a |
 
 pic_programmer needs `--islands VCC`: its pour does not reach its pads.
+
+## Local fixtures
+
+The `fixtures` key in results.json records each local fixture's phase requests,
+joins, final clean closure and open connections, including router diagnoses and
+blocker names. These comparisons say `same` or `changed`; an intentional failed
+connection can be the behavior the fixture verifies.
+
+`obstructed-route` is the local two-layer current-path fixture in
+`fixtures/obstructed_route`. U1 blocks the requested wide route between J1 and
+J2; a later class-width route joins the net while the original width remains
+unfulfilled. Run it with `route_ref.py obstructed-route`; a default route_ref
+run includes all local fixtures alongside the manifest boards under the same
+shared real-board lock.
