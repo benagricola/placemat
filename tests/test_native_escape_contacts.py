@@ -61,6 +61,8 @@ def test_prepared_contacts_refuse_bad_bounds_missing_pad_and_weakened_net():
     assert module is not None and hasattr(module, 'PreparedContacts')
     shape = _shape('U1', 'pad', 'S', '1', (0, 0, 1, 1))
     for invalid in (shape[:6] + ((0, 0, 0.5, 0.5),) + shape[7:],
+                    shape[:7] + ([(float('nan'), 0)],) + shape[8:],
+                    shape[:7] + ([(2, 2)],) + shape[8:],
                     _shape('U1', 'pad', 'S', '1', (0, 0, 1, 1), layers=0),
                     _shape('U1', 'unknown', 'S', '1', (0, 0, 1, 1))):
         with pytest.raises(ValueError):
@@ -131,3 +133,70 @@ def test_prepared_contacts_match_python_drawn_chain_and_pad_contact_after_moves(
         assert got[5] == all(s.lane or s.wire for s in own)
         monkeypatch.setattr(geometry, '_native', module)
         occ.lift({'U1'})
+
+
+def test_prepared_contacts_keep_path_only_carried_shapes_out_of_contact_grid():
+    module = geometry._native
+    assert module is not None and hasattr(module, 'PreparedContacts')
+    main = _shape('U1', 'pad', 'S', '1', (0, 0, 1, 1))
+    carried = _shape('carried-via', 'through', 'S', '', (0.5, 0, 1.5, 1))
+    candidate = module.PreparedCandidate([((1, 0, 0, 1, 0, 0),
+                                          [main[:6] + main[7:], carried[:6] + carried[7:]])])
+    rest = [_shape('carried-rest', 'through', 'S', '', (0.5, 0, 1.5, 1))]
+    snapshot = module.PreparedContacts(rest, ['U1'])
+    assert snapshot.contacts(candidate, 0, 0, 0, 'U1', '1', 'S')[0] is True
+    snapshot.configure_contact_roles(candidate, [False], [[True, False]])
+    expected = (False, False, [], False, False, True)
+    assert snapshot.contacts(candidate, 0, 0, 0, 'U1', '1', 'S') == expected
+    # A refused configuration cannot replace the valid membership snapshot.
+    for r, m in [([], [[True, False]]), ([True], []), ([True], [[True]])]:
+        with pytest.raises(ValueError, match='role dimensions'):
+            snapshot.configure_contact_roles(candidate, r, m)
+        assert snapshot.contacts(candidate, 0, 0, 0, 'U1', '1', 'S') == expected
+    # Reusing the record with a different candidate shape layout is explicit
+    # refusal rather than indexing a stale role table or inventing a join.
+    with pytest.raises(ValueError, match='candidate identity'):
+        snapshot.contacts(_candidate(module, main), 0, 0, 0, 'U1', '1', 'S')
+
+    same_layout = module.PreparedCandidate([((1, 0, 0, 1, 0, 0),
+                                          [main[:6] + main[7:], carried[:6] + carried[7:]])])
+    with pytest.raises(ValueError, match='candidate identity'):
+        snapshot.contacts(same_layout, 0, 0, 0, 'U1', '1', 'S')
+
+
+def test_carried_member_shape_matches_python_contact_and_path_pool_split(monkeypatch):
+    from dataclasses import replace
+    from placemat.escapes import judging, search_near
+    from placemat.score_delta import Delta
+    from tests.fixtures import board_geometry, pad
+    from tests.test_final_board import _placed
+    from tests.test_surface_escapes import _part_of
+    module = geometry._native
+    assert module is not None and hasattr(module, 'PreparedContacts')
+    parts = [_part_of('U1', 'u1', [pad('U1', 'u1', 1, 'S', 10, 10, 1, 1)], 10, 10),
+             _part_of('U2', 'u2', [pad('U2', 'u2', 1, 'S', 20, 10, 1, 1)], 20, 10)]
+    board, plan = _placed(board_geometry(parts))
+    occ, item = plan.occupancy, parts[0]
+    original = plan.placement('u1')
+    own_pad = next(s for s in occ.items['U1'].shapes if s.kind == 'pad')
+    carried = replace(own_pad, owner='carried-via', kind='through', label='')
+    occ.carry('U1', [carried])
+    # Contact pool excludes this carried owner, but path search still sees
+    # it among the member's through shapes after a canonical commit.
+    monkeypatch.setattr(geometry, '_native', None)
+    current = judging(occ)
+    assert not current._joined('U1', '1', 'S')
+    assert not current._on_own_net_pad('U1', '1', 'S')
+    assert current._own_copper('U1', '1', 'S') == []
+    assert any(s.owner == 'carried-via' for s in search_near(occ))
+    monkeypatch.setattr(geometry, '_native', module)
+    occ.lift({'U1'})
+    candidate = Delta(board, occ, item, plan.links, plan=plan).native_shapes([0], original.face)
+    assert candidate is not None
+    shapes = occ.candidate_shapes(item, original)[1]
+    mask = [s.kind in ('pad', 'through') and s.owner == 'U1' for s in shapes]
+    assert any(s.owner == 'carried-via' and not included for s, included in zip(shapes, mask))
+    snapshot = module.PreparedContacts([], ['U1', 'U2'])
+    snapshot.configure_contact_roles(candidate, [], [mask])
+    assert snapshot.contacts(candidate, original.location.x, original.location.y, 0, 'U1', '1', 'S') == (
+        False, False, [], False, False, True)

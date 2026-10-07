@@ -88,10 +88,15 @@ fn valid_point(p: Point) -> bool {
 
 #[pyclass]
 pub struct PreparedCandidate {
+    pub(crate) identity: std::sync::Arc<()>,
     turns: Vec<Turn>,
 }
 
 impl PreparedCandidate {
+    pub(crate) fn turn_count(&self) -> usize {
+        self.turns.len()
+    }
+
     pub(crate) fn turn(&self, turn: usize) -> &Turn {
         // The caller must first evaluate, which checks the turn index.
         &self.turns[turn]
@@ -201,7 +206,10 @@ impl PreparedCandidate {
                 placed,
             });
         }
-        Ok(Self { turns })
+        Ok(Self {
+            identity: std::sync::Arc::new(()),
+            turns,
+        })
     }
 
     /// Parity inspection only. Hot native consumers borrow the evaluated
