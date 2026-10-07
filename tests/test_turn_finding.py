@@ -419,3 +419,22 @@ def test_asymmetric_origin_turn_does_not_offer_an_edit_that_moves_position_ancho
             edited, _ = b._firm_placement(plan.occupancy, plan,
                                          dataclasses.replace(intent, rotation=finding.facts['to_deg']))
             assert (edited.location.x, edited.location.y) == pytest.approx(finding.facts['at'], abs=1e-4)
+
+
+def test_shared_pair_net_price_changes_actionable_turn_advice(tmp_path):
+    from placemat.board_geometry import NetClass
+    body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
+                        'at=Location(25, 25), rotation=180')
+    plans = []
+    for price in (0.1, 80.0):
+        b, _ = board(tmp_path, body, score_crossing_pair_net=price, score_crossing=1.0,
+                     score_link=0.0, score_congestion=0.0, score_escape_crossed=0.0,
+                     score_escape_closed=0.0, score_escape_via=0.0, place_turn_gain_mm=50.0)
+        pair = NetClass('Pair', 0.2, 0.2, 0.6, 0.3, 0.2, 0.2)
+        b.geometry.netclasses.update({'A1': pair, 'OTHER': pair})
+        plans.append(b.resolve())
+    assert turns(plans[0]) == []
+    (finding,) = turns(plans[1])
+    assert finding.suggestions
+    assert finding.facts['change']['crossings'] == -162.0
+    assert finding.facts['gain'] > 150.0

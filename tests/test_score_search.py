@@ -497,3 +497,39 @@ def test_arrangement_action_cost_changes_mst_winner_without_pruning_signed_objec
         rows = {row['id']: row for row in note['tried']}
         assert rows['c_in.east']['score'] - cost < rows['default']['score']
     assert arrangements == ['c_in.east', '']
+
+
+@pytest.mark.parametrize('native', [False, True])
+def test_shared_pair_net_price_changes_actual_scan_winner(monkeypatch, native):
+    from placemat.board_geometry import NetClass
+    if native and not hasattr(geometry._native, 'NativeDeltaScoring'):
+        pytest.skip('complete native sweep scorer unavailable')
+    monkeypatch.setattr(placer, 'NATIVE_SWEEP', native)
+    winners = []
+    for price in (0.1, 80.0):
+        parts = [footprint(ref, x, y, nets=(net, 'Q'), inst=ref.lower())
+                 for ref, x, y, net in [('A', 10, 10, 'S'), ('B', 40, 10, 'S'),
+                                       ('C', 25, 36, 'S'), ('X', 10, 16, 'V'),
+                                       ('Y', 40, 16, 'V'), ('M', 25, 19, 'S')]]
+        physical = board_geometry(parts, width=60, height=60)
+        pair = NetClass('Pair', 0.2, 0.2, 0.6, 0.3, 0.2, 0.2)
+        physical.netclasses.update({'S': pair, 'OTHER': pair})
+        board = Board(physical, keep_going=True, settings=replace(
+            Settings(), place_search_wire='mst', cleanup_enabled=False,
+            score_crossing_pair_net=price, score_crossing=0.01, score_congestion=0.0,
+            score_escape_crossed=0.0, score_escape_closed=0.0, score_escape_via=0.0))
+        board.rect(width=60, height=60)
+        board.plane(Net('Q'), [CopperLayer.B])
+        for part in parts:
+            board.place(Part(part.inst), at=part.location)
+        plan = board.resolve()
+        occ, item = plan.occupancy, parts[-1]
+        hint = occ._geometry(item).reference
+        occ.lift({item.ref})
+        scoring = MSTScorer(board, occ, item, plan=plan)
+        result = placer.scan(occ, item, hint, 12.0, 2.0, rotations=(0,), score=scoring)
+        winners.append((result.chosen, scoring.delta(result.chosen).terms))
+    assert winners[0][0].location == Location(25.0, 19.0)
+    assert winners[1][0].location == Location(25.0, 15.0)
+    assert winners[0][1]['airwire'] < winners[1][1]['airwire']
+    assert winners[0][1]['crossings'] > winners[1][1]['crossings'] == 0.0
