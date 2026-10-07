@@ -342,18 +342,26 @@ def native_pad_lanes(occ, ref, pads, rotation, toward=None, polys=None):
     from .geometry import _native
     if _native is None or not hasattr(_native, 'surface_lanes'):
         raise RuntimeError('native surface lane generator unavailable')
+    if len(pads) < occ.settings.place_escape_min_pads:
+        return [], []
     sizes = _net_sizes(occ)
     records = []
     layers_by_bits = {}
     for number, (net, layers, box) in sorted(pads.items()):
-        nc = occ.geometry.netclass(net)
         bits = _layer_bits(layers)
         layers_by_bits[bits] = frozenset(layers)
         eligible = bool(net and sizes.get(net, 0) >= 2 and not _unconnected(occ, ref, number, net))
+        # Unconnected pads still define the pin field. Python pad_lanes skips
+        # their class lookup entirely; no class for the empty net is required.
+        if eligible:
+            nc = occ.geometry.netclass(net)
+            params = (nc.track_width / 2.0 + nc.clearance, nc.via_diameter / 2.0,
+                      nc.via_drill / 2.0, nc.clearance)
+        else:
+            params = (0.0, 0.0, 0.0, 0.0)  # unused by the native ineligible-pad branch
         records.append((number, bits, (box.left, box.top, box.right, box.bottom),
                         None if polys is None or number not in polys else [list(poly) for poly in polys[number]], eligible,
-                        nc.track_width / 2.0 + nc.clearance, nc.via_diameter / 2.0,
-                        nc.via_drill / 2.0, nc.clearance))
+                        *params))
     angle = math.radians(rotation)
     raw_lanes, raw_spots = _native.surface_lanes(records, rotation, (math.cos(angle), math.sin(angle)),
                                                occ.settings.score_escape_reach, occ.settings.place_escape_min_pads)

@@ -152,6 +152,29 @@ def test_native_surface_judge_matches_python_for_signal_quiet_and_unconnected_pa
                     assert esc.judge_native(ref, number) == expected, (gap, quiet, ref, number)
 
 
+def test_native_lane_generation_keeps_empty_net_pad_field_without_class_lookup(monkeypatch):
+    from dataclasses import replace
+    from placemat.escapes import judging, native_pad_lanes, pad_lanes
+    from tests.test_escape_findings import _walled_in
+    from tests.test_surface_escapes import _via_only_board
+    occ = _via_only_board(_walled_in(0.1)).resolve().occupancy
+    pads = dict(judging(occ)._lanes_of('R9')[2])
+    number = sorted(pads)[0]
+    _, layers, box = pads[number]
+    pads[number] = ('', layers, box)
+    original = occ.geometry.netclass
+    def netclass(net):
+        assert net, 'empty net must not require a net class'
+        return original(net)
+    monkeypatch.setattr(type(occ.geometry), 'netclass', lambda self, net: netclass(net))
+    rotation = occ.items['R9'].reference.rotation
+    expected = pad_lanes(occ, 'R9', pads, rotation)
+    assert native_pad_lanes(occ, 'R9', pads, rotation) == expected
+    occ.settings = replace(occ.settings, place_escape_min_pads=len(pads) + 1)
+    monkeypatch.setattr(type(occ.geometry), 'netclass', lambda self, net: pytest.fail('unused class lookup'))
+    assert native_pad_lanes(occ, 'R9', pads, rotation) == pad_lanes(occ, 'R9', pads, rotation) == ([], [])
+
+
 def test_native_surface_judge_validates_search_even_when_a_lane_is_open():
     from placemat import geometry
     module = geometry._native
