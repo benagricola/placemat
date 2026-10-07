@@ -319,15 +319,10 @@ def _frame_area(board, occ, plan) -> float:
 
 def _placed_content(occ, plan):
     """Current placed shape/copper bounds; pending owners contribute nothing."""
-    from .board_geometry import CellGeom, members_of
     from .copper import Track, Via, Pour, Text
     from .values import Box
     boxes = [shape.box for ref, geom in occ.items.items() if ref not in occ.pending for shape in geom.shapes]
-    for item in plan._items.values():
-        if isinstance(item, CellGeom):
-            refs = {fp.ref for fp in members_of(item)}
-            if not refs & occ.pending:
-                boxes.extend(c.box for c in occ.copper if c.owner == item.name)
+    boxes.extend(c.box for c in occ.copper if c.owner not in occ.pending)
     boxes.extend(op.box for op in plan.copper if isinstance(op, (Track, Via, Pour, Text)))
     return Box.union(boxes) if boxes else None
 

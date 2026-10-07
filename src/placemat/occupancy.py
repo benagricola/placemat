@@ -1258,11 +1258,28 @@ class Occupancy:
         if self.__dict__.get("_congestion") is not None:
             self._congestion_refresh(owners)
 
+    def _lift_owners(self, refs) -> set[str]:
+        """A whole cell's members and its copper share a temporary lift.
+
+        A partial member move leaves the cell's copper in place. Empty parent
+        groups never acquire ownership of another cell's copper.
+        Like pending itself, lifts are sets, not nested reference-counted scopes:
+        callers must restore the same owner set they lifted.
+        """
+        refs = set(refs)
+        for name, cell in self.geometry.cells.items():
+            members = {fp.ref for fp in cell.members}
+            if name in refs:
+                refs |= members
+            elif members and members <= refs:
+                refs.add(name)
+        return refs
+
     def lift(self, refs) -> None:
         """Take placed items off the board for a moment: they are no obstacle,
         and the ratsnest and the escapes forget their pads, until `unlift` or
         a commit puts them back."""
-        refs = set(refs)
+        refs = self._lift_owners(refs)
         self.pending |= refs
         if self.__dict__.get("_ratsnest") is not None:
             self._ratsnest_refresh(refs)
@@ -1272,7 +1289,7 @@ class Occupancy:
             self._congestion_refresh(refs)
 
     def unlift(self, refs) -> None:
-        refs = set(refs)
+        refs = self._lift_owners(refs)
         self.pending -= refs
         if self.__dict__.get("_ratsnest") is not None:
             self._ratsnest_refresh(refs)

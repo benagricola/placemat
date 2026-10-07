@@ -137,9 +137,14 @@ class Delta:
         return Change(terms, sum(terms.values()))
 
     def native(self, rots, face):
-        """Wire/crossing kernel for prepared turns; no sweep adoption yet."""
+        """Six non-escape terms for prepared turns; no sweep adoption yet."""
         if self.has_push or self.lanes is not None or self.rn.mirror is None:
             return None
+        if self.grid is not None:
+            frame = self.grid.board
+            if any(not frame.contains_point(point) for pads in self.occ.__dict__['_congestion_pads'].values()
+                   for point in pads.values()):
+                return None  # invalid fixed geometry is reportable by the Python oracle, never clipped natively
         from .geometry import _native
         if _native is None or not hasattr(_native, 'NativeDelta'):
             return None
@@ -153,4 +158,46 @@ class Delta:
                 sorted(net for net in self.rest.keys() | {a[0] for turn in anchors for a in turn} if net not in self.quiet),
                 (cfg.score_crossing, cfg.score_impedance, cfg.score_crossing_pair_net,
                  cfg.score_crossing_plane, cfg.score_pair_crossing))
+            origins = [Placement(Location(0, 0), r, face) for r in rots]
+            boxes, links, pad_boxes = [], [], []
+            def bounds(box):
+                return box.left, box.top, box.right, box.bottom
+            for origin in origins:
+                geometries, copper = self.occ.placed_geometries(self.item, origin)
+                shapes = [shape for geom in geometries.values() for shape in geom.shapes] + copper
+                boxes.append(bounds(Box.union(shape.box for shape in shapes) or Box(0, 0, 0, 0)))
+                pad_boxes.append([(shape.net, bounds(shape.box)) for ref, geom in geometries.items()
+                                  for shape in geom.shapes if shape.kind in ('pad', 'through')
+                                  and shape.owner == ref and shape.net and shape.net not in self.quiet])
+                pads = self.occ.candidate_pad_locations(self.item, origin)
+                prepared = []
+                for link in self.links:
+                    def endpoint(endpoint):
+                        if endpoint[0] in self.own:
+                            point = pads.get(endpoint)
+                            return (point.x, point.y, True) if point is not None else None
+                        if endpoint[0] in self.occ.items and endpoint[0] not in self.occ.pending:
+                            point = self.occ.pad_location(*endpoint)
+                            return point.x, point.y, False
+                        return None
+                    a, b = endpoint(link.a), endpoint(link.b)
+                    if a is not None and b is not None and (a[2] or b[2]):
+                        prepared.append((*a, *b, float(link.weight), link.limit_mm))
+                links.append(prepared)
+            fit = None
+            if self.board._fit:
+                from .values import Axis
+                fit = (bounds(self.others_box) if self.others_box is not None else None, self.board._fit_margin,
+                       self.board._frame_width if self.board._fit_axis is Axis.Y else None,
+                       self.board._frame_height if self.board._fit_axis is Axis.X else None, self.base_area)
+            grid = None
+            if self.grid is not None:
+                classes = self.board.geometry.netclasses.values()
+                pitch = min((c.track_width for c in classes), default=0.2) + (self.board.geometry.default_clearance or 0.2)
+                rest = [(net, point.x, point.y) for net, points in self.occ.__dict__['_congestion_pads'].items()
+                        for point in points.values()]
+                grid = (bounds(self.grid.board), max(1, len(self.board.geometry.layers)), pitch,
+                        self.grid.step, self.grid.cell, rest, pad_boxes)
+            self._native[key].configure_layout(links, boxes, fit, grid,
+                (cfg.score_link, cfg.score_link_over, cfg.score_area, cfg.score_congestion))
         return self._native[key]

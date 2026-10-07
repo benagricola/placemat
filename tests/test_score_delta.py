@@ -280,3 +280,204 @@ def test_cell_candidate_view_replaces_its_copper_and_matches_real_commit():
     assert after == pytest.approx(expected, abs=1e-6)
     for term, value in change.terms.items():
         assert value == pytest.approx(after[term] - lifted[term], abs=1e-6), term
+
+
+@pytest.mark.parametrize('fitted', [False, True])
+def test_native_layout_terms_match_python_delta_and_raw_whole(fitted):
+    from dataclasses import replace
+    from placemat import geometry, score
+    from placemat.score_delta import Delta
+    from placemat.values import LinkWeight, Location, PadRef, Part
+    from tests.test_score_measures import _two_part_board
+    if geometry._native is None or not hasattr(geometry._native.NativeDelta, 'configure_layout'):
+        pytest.skip('NativeDelta layout not built')
+    board = _two_part_board()
+    if fitted:
+        board.rect(fit=True)
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(30, 30))
+    board.link(PadRef(Part('c1'), 1), PadRef(Part('u1'), 1), weight=LinkWeight.SHORT, limit_mm=15.0)
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['c1']
+    original = plan.placement('c1')
+    occ.lift(['C1'])
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    turns = [0.0, 90.0, 33.0]
+    native = delta.native(turns, original.face)
+    assert native is not None
+    keys = ('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion')
+    rng = random.Random(21)
+    before = score.whole(board, occ, plan)
+    for turn, rotation in enumerate(turns):
+        for _ in range(30):
+            candidate = replace(original, rotation=rotation, location=Location(30+rng.uniform(-0.1, 0.1), 30+rng.uniform(-0.1, 0.1)))
+            expected = delta(candidate)
+            measured = dict(zip(keys, native.terms(candidate.location.x, candidate.location.y, turn)))
+            assert measured == pytest.approx({k: expected.terms[k] for k in keys}, abs=1e-6)
+            occ.commit(item, candidate)
+            after = score.whole(board, occ, plan)
+            assert measured == pytest.approx({k: after[k] - before[k] for k in keys}, abs=1e-6)
+            occ.lift(['C1'])
+
+
+def test_native_congestion_matches_one_ulp_step_boundaries_and_repeated_candidates():
+    from placemat import geometry
+    from placemat.congestion import RudyGrid
+    from placemat.values import Box, Location
+    native = geometry._native
+    if native is None or not hasattr(native.NativeDelta, 'configure_layout'):
+        pytest.skip('NativeDelta layout not built')
+    boundary = 0.05 * (1 - 1e-9)
+    pitches = [boundary]
+    low = high = boundary
+    for _ in range(4):
+        low = math.nextafter(low, -math.inf)
+        high = math.nextafter(high, math.inf)
+        pitches.extend([low, high])
+    levels = set()
+    for pitch in pitches:
+        grid = RudyGrid(Box(0, 0, 2, 2), 2, pitch, 0.05)
+        point = Location(0.25, 0.25)
+        grid.add_net('n', [point])
+        expected = grid.change({'n': [point, point]})
+        levels.add(expected)
+        delta = native.NativeDelta(native.NativeRatsnest(), [], [[]], [], (4.0, 3.0, 5.0, 0.0, 2.0))
+        delta.configure_layout([[]], [(0, 0, 0, 0)], None,
+            ((0, 0, 2, 2), 2, pitch, 0.05, 0.5, [('n', 0.25, 0.25)], [[('n', (0.25, 0.25, 0.25, 0.25))]]),
+            (0.0, 0.0, 0.0, 1.0))
+        for _ in range(20):
+            assert delta.terms(0.0, 0.0, 0)[-1] == expected
+    assert levels == {0, 1}
+
+
+def test_native_multinet_scratch_cells_match_signed_rebuilds_without_drift():
+    from placemat import geometry
+    from placemat.congestion import RudyGrid
+    from placemat.values import Box, Location
+    native = geometry._native
+    if native is None or not hasattr(native.NativeDelta, 'configure_layout'):
+        pytest.skip('NativeDelta layout not built')
+    rng = random.Random(19)
+    rest = {str(n): [Location(rng.uniform(0.5, 9.5), rng.uniform(0.5, 9.5)) for _ in range(3)] for n in range(8)}
+    grid = RudyGrid(Box(0, 0, 10, 10), 2, 0.4, 0.05)
+    for net, points in rest.items():
+        grid.add_net(net, points)
+    pads = [(net, p.x, p.y) for net, points in rest.items() for p in points]
+    moving = [('0', (0.0, 0.0, 0.0, 0.0)), ('1', (0.2, 0.1, 0.2, 0.1)), ('2', (-0.2, -0.1, -0.2, -0.1))]
+    delta = native.NativeDelta(native.NativeRatsnest(), [], [[]], [], (4.0, 3.0, 5.0, 0.0, 2.0))
+    delta.configure_layout([[]], [(0, 0, 0, 0)], None,
+        ((0, 0, 10, 10), 2, 0.4, 0.05, 0.5, pads, [moving]), (0.0, 0.0, 0.0, 1.0))
+    changes = set()
+    for _ in range(100):
+        x, y = rng.uniform(1, 9), rng.uniform(1, 9)
+        replacements = {net: rest[net] + [Location(geometry._clean(b[0] + x), geometry._clean(b[1] + y))]
+                        for net, b in moving}
+        expected = grid.change(replacements)
+        changes.add(expected)
+        assert delta.terms(x, y, 0)[-1] == expected
+        assert delta.terms(x, y, 0)[-1] == expected
+    assert min(changes) < 0  # spreading can lower the worst cell despite adding pads
+
+
+def test_native_cell_layout_includes_carried_copper_in_fitted_bounds():
+    from dataclasses import replace
+    from placemat import geometry, score
+    from placemat.layout import Board
+    from placemat.score_delta import Delta
+    from placemat.values import Box, Cell, Face, Location
+    from tests.test_cell_drops import _geom
+    if geometry._native is None or not hasattr(geometry._native.NativeDelta, 'configure_layout'):
+        pytest.skip('NativeDelta layout not built')
+    board = Board(_geom(), edge_margin=0.5)
+    board.rect(fit=True)
+    board.place(Cell('m'), at=Location(20, 20))
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['m']
+    occ.board_box = Box(0, 0, 80, 80)
+    occ.lift(['U1'])
+    before = score.whole(board, occ, plan)
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    keys = ('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion')
+    for face in [Face.FRONT, Face.BACK]:
+        kernel = delta.native([0, 90], face)
+        assert kernel is not None
+        for turn, rotation in enumerate([0, 90]):
+            candidate = replace(plan.placement('m'), face=face, rotation=rotation, location=Location(25.00123, 25.00456))
+            terms = dict(zip(keys, kernel.terms(candidate.location.x, candidate.location.y, turn)))
+            expected = delta(candidate).terms
+            assert terms == pytest.approx({k: expected[k] for k in keys}, abs=1e-6)
+            occ.commit(item, candidate)
+            after = score.whole(board, occ, plan)
+            assert terms == pytest.approx({k: after[k] - before[k] for k in keys}, abs=1e-6)
+            occ.lift(['U1'])
+
+
+def test_native_grid_refuses_outside_and_overflowing_rest_snapshots():
+    from placemat import geometry
+    native = geometry._native
+    if native is None or not hasattr(native.NativeDelta, 'configure_layout'):
+        pytest.skip('NativeDelta layout not built')
+    delta = native.NativeDelta(native.NativeRatsnest(), [], [[]], [], (4.0, 3.0, 5.0, 0.0, 2.0))
+    with pytest.raises(ValueError, match='rest pads'):
+        delta.configure_layout([[]], [(0, 0, 0, 0)], None,
+            ((0, 0, 2, 2), 2, 0.4, 0.05, 0.5, [('n', 1e300, 1e300)], [[]]), (0.0, 0.0, 0.0, 1.0))
+    with pytest.raises(ValueError, match='grid|capacity'):
+        delta.configure_layout([[]], [(0, 0, 0, 0)], None,
+            ((-1e308, -1e308, 1e308, 1e308), 2, 0.4, 0.05, 0.5,
+             [('n', 1e300, 1e300)], [[]]), (0.0, 0.0, 0.0, 1.0))
+
+
+def test_invalid_fixed_geometry_falls_back_with_its_validity_and_wire_evidence():
+    from placemat import score
+    from placemat.score_delta import Delta
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _two_part_board
+    board = _two_part_board(keep_going=True)
+    board.place(Part('u1'), at=Location(100, 100))
+    board.place(Part('c1'), at=Location(20, 20))
+    plan = board.resolve()
+    measured = score.plan_measures(board, plan)
+    assert not score.Validity.of(measured).valid
+    assert measured['airwire_mm'] > 100
+    occ = plan.occupancy
+    occ.lift(['C1'])
+    delta = Delta(board, occ, plan._items['c1'], plan.links, plan=plan)
+    assert delta.native([0.0], plan.placement('c1').face) is None
+    change = delta(plan.placement('c1'))
+    assert change.terms['airwire'] > 100
+    assert not score.Validity.of(measured).valid
+
+
+def test_whole_cell_lift_owns_copper_but_partial_member_move_does_not():
+    from placemat.escapes import search_near
+    from placemat.occupancy import Occupancy
+    from tests.fixtures import board_geometry, footprint
+    from tests.test_cell_drops import _via
+    geometry = board_geometry([
+        footprint('U1', 10, 10, cell='m'), footprint('U2', 15, 10, cell='m'),
+        footprint('U3', 30, 30, cell='other')], cells=['m', 'other'],
+        copper=[_via('A', 12, 10, 'm'), _via('A', 30, 30, 'other')])
+    occ = Occupancy(geometry)
+    occ.escapes()  # Exercise refresh as well as the uncached obstacle reader.
+    original = tuple(occ.copper)
+    before = search_near(occ)
+    obstacles = occ._obstacle_shapes(occ.pending)
+    lifted = []
+    for owners in [{'U1', 'U2'}, {'m'}, occ._geometry(geometry.cells['m']).owners]:
+        occ.lift(owners)
+        assert occ.pending == {'U1', 'U2', 'm'}
+        assert all(s.owner not in occ.pending for s in search_near(occ))
+        assert any(s.owner == 'other' for s in search_near(occ))
+        lifted.append((search_near(occ), occ._obstacle_shapes(occ.pending), (dict(occ.escapes()._corr), dict(occ.escapes()._blockers))))
+        occ.unlift(owners)
+        assert not occ.pending
+        assert tuple(occ.copper) == original
+        assert search_near(occ) == before
+        assert occ._obstacle_shapes(occ.pending) == obstacles
+    assert lifted[0] == lifted[1] == lifted[2]
+    occ.lift({'U1'})
+    assert occ.pending == {'U1'}
+    assert any(s.owner == 'm' for s in search_near(occ))
+    assert any(s.owner == 'U2' for s in search_near(occ))
+    occ.unlift({'U1'})
+    assert search_near(occ) == before

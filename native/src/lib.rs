@@ -6,6 +6,7 @@
 mod board;
 mod cutouts;
 mod delta;
+mod score_layout;
 mod escapes;
 mod exact;
 mod fill;
@@ -794,7 +795,7 @@ impl NativeBoard {
 
 /// Exact signed wire and crossing changes of a lifted item's pad anchors.
 #[pyclass]
-struct NativeDelta { inner: delta::Delta }
+struct NativeDelta { inner: delta::Delta, layout: Option<score_layout::Layout> }
 
 #[pymethods]
 impl NativeDelta {
@@ -802,12 +803,31 @@ impl NativeDelta {
     fn new(rn: &NativeRatsnest, own: Vec<String>, anchors: Vec<Vec<(String, String, String, f64, f64)>>,
            signal_nets: Vec<String>, settings: (f64, f64, f64, f64, f64)) -> PyResult<Self> {
         Ok(Self { inner: delta::Delta::new(rn.inner.snapshots().map_err(PyValueError::new_err)?, anchors, &own, signal_nets, settings)
-            .map_err(PyValueError::new_err)? })
+            .map_err(PyValueError::new_err)?, layout: None })
     }
 
     fn wire_cross(&mut self, x: f64, y: f64, turn: usize) -> PyResult<(f64, f64)> {
         self.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err)
     }
+
+    #[allow(clippy::type_complexity)]
+    fn configure_layout(&mut self, links: Vec<Vec<score_layout::Link>>, boxes: Vec<score_layout::Bounds>,
+        fit: Option<(Option<score_layout::Bounds>, f64, Option<f64>, Option<f64>, f64)>,
+        grid: Option<(score_layout::Bounds, usize, f64, f64, f64, Vec<(String,f64,f64)>, Vec<Vec<(String,score_layout::Bounds)>>)>,
+        weights: (f64,f64,f64,f64)) -> PyResult<()> {
+        let grid = grid.map(|(frame,layers,pitch,step,cell,pads,turns)|
+            score_layout::Grid::new(frame,layers,pitch,step,cell,pads,turns)).transpose().map_err(PyValueError::new_err)?;
+        self.layout = Some(score_layout::Layout::new(links,boxes,fit,grid,weights).map_err(PyValueError::new_err)?);
+        Ok(())
+    }
+
+    fn terms(&mut self, x:f64, y:f64, turn:usize) -> PyResult<(f64,f64,f64,f64,f64,f64)> {
+        let layout = self.layout.as_mut().ok_or_else(|| PyValueError::new_err("NativeDelta layout is not configured"))?;
+        let (wire,cross) = self.inner.wire_cross(x,y,turn).map_err(PyValueError::new_err)?;
+        let (link,over,area,congestion) = layout.terms(x,y,turn).map_err(PyValueError::new_err)?;
+        Ok((wire,cross,link,over,area,congestion))
+    }
+
 }
 
 /// The pads walled off by a candidate the scorer did not weigh (pruned, or past a
