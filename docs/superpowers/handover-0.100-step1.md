@@ -35,6 +35,14 @@ merging to main. Main was merged into the feature branch at 9b4f8be4; step 1 has
 - Step 2 owns final routed-board electrical judgments and the common Standing/report adapter in its Task 17 after
   consuming reviewed step 1. The final integrated review must check that routed results supersede placement checks.
 
+Required-width proof was tightened in b677898a after review found false certificates through filled copper and
+intermediate pads. Each polygon/layer is separate. A required-width track path may certify a connection; filled
+regions and intermediate pad interiors cannot currently certify corridor width. Endpoint pads certify only a track
+node at their actual anchor: an offset entry through the pad interior is also unmeasured. Unrestricted diagnostic
+paths retain measured narrow track spans and explicitly set width_unknown for those interiors. This limitation can
+make a physically adequate pour or offset pad entry unproven; it must not be hidden by repinning a reference result.
+The focused graph/width regressions and independent reviewer gate passed; physical/reference gates remain pending.
+
 Keep the real-board lock and two-worker limits below. Reference runners acquire the lock internally: do not wrap
 them in another flock on the same file. The reviewer must approve concrete final changes before merge or release.
 
