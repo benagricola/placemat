@@ -71,11 +71,32 @@ rounds with a scoped re-review, the ledger updated after every step.
   round was dispatched to the implementer. The ledger lists all 11 items. If the fix round has no commit on the branch,
   re-dispatch it from the ledger. The user decided the neck rule there: the neck allowance covers copper within neck_mm of
   each pad only up to half the path's length from each end, so a short connection keeps full width in its middle.
-- **splitflap_driver regression (KRT test test_run23_summary_min):** decided by the user after seeing annotated
-  pictures (scratchpad splitflap-pics/out/): fix the router's rip-up so that, when a pin is boxed in, it first rips the
-  nets whose copper bounds the pin's reachable pocket. An agent is building it on placemat/upstream-2026-10b
-  (KRT-base-10b); report task-ripwall-report.md in the ledger folder. After it and Task 6a land, rebase
-  placemat/connections onto the base.
+- **splitflap_driver regression (KRT test test_run23_summary_min), fix decided, not yet confirmed done.**
+  - The problem: on the rebased router, U7 pin 10 (+3V3) stays open on 3 of 6 order-jitter seeds (6/6 before the
+    rebase).
+  - The pictures and their captions are in docs/superpowers/research/2026-10-07/splitflap-pin10/ (passing.png,
+    failing.png, mechanism.png, captions.md).
+  - What happens: upstream 39dd0327 stops treating finished nets as stub-proximity sources. That changes costs
+    elsewhere on the board. Earlier routes shift, and CLOCK_IN's bottom-layer tap to U7 pin 11 ends up across the space
+    +3V3 used to escape through.
+  - Pin 10 is then walled into a closed 4.7 mm2 pocket. Four taps fail, and the router's rip ladder rips Net-(U5-Pad9),
+    /SENSOR_D and /LATCH_IN, never the copper walling pin 10. It accepts the result with pin 10 open.
+  - In the passing run one tap fails, and the ladder rips MOTOR_F_PHASE_A (the net under the pad), so the retry joins.
+  - The fix (the user's choice after seeing the pictures): in the fork's rip ladder, when a failed tap's endpoint is boxed
+    in, first rip the nets whose copper bounds that endpoint's reachable region. Find the region with a flood from the
+    endpoint on the router's grid at the task's width and clearance, and order the nets by how much of the boundary
+    each owns. Then fall back to the ladder's existing choices, keeping its attempt limits and acceptance rule. Mark it
+    as a FORK DIVERGENCE.
+  - It may share the pocket code with Task 6a's `blocked_by`.
+  - Rejected alternatives: re-pinning the test, and undoing 39dd0327's one line as a divergence.
+  - Done means:
+    - test_run23_summary_min passes on all of seeds 0-5;
+    - KRT `--fast` shows only the known failure (test_887_iso_render);
+    - placemat's test (a) is no worse on any of the eight boards, before against after.
+  - Status at handover: an agent was building it on placemat/upstream-2026-10b (worktree /home/ben/work/KRT-base-10b,
+    from 78a16663). Its report goes to task-ripwall-report.md in the ledger folder. If there is no commit after 78a16663
+    on that branch, build it from this description. After it and Task 6a land, rebase placemat/connections onto the
+    base. Then re-record test (a) (Task 5a).
 - **Task 6 (`--bus-nets`)** is done (e0870e1c, 3a818aae on placemat/connections; a net in two stated groups stays in
   the first). **Task 6a (failure evidence)** is being built on placemat/connections.
 - **Task 13** fix round committed (f5a3e38f); its re-review was running.
