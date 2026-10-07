@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -29,6 +30,7 @@ from fixtures.reference import fetch, lock, prepare   # noqa: E402
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 LOCAL = {"obstructed-route": REPO / "fixtures/obstructed_route"}
+LOCAL_PROTOCOL = {"obstructed-route": {"KICAD_NET_RESCUE": "0"}}
 RESULTS = HERE / "results.json"
 COMPONENTS = ("placemat", "krt", "pcb")
 WIDTHS = ("class", "human")
@@ -72,6 +74,7 @@ class FResult:
     versions: dict
     failure: str = ""
     detail: str = ""
+    protocol: dict = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -203,12 +206,14 @@ def run_local(name: str, work: pathlib.Path, versions: dict | None = None) -> FR
     src, work = LOCAL[name], pathlib.Path(work)
     versions = dict(versions if versions is not None else current_versions())
     versions.setdefault("krt", "unknown")
+    protocol = dict(LOCAL_PROTOCOL.get(name, {}))
+    env = dict(os.environ, **protocol)
     try:
         work.mkdir(parents=True, exist_ok=True)
         for filename in ("layout.kicad_pcb", "layout.kicad_pro", "placemat.toml"):
             shutil.copy(src / filename, work / filename)
         versions["krt"] = _krt_version(work / "layout.kicad_pcb")
-        report = _route(work / "layout.kicad_pcb", work / "route", (src / "placemat.toml").read_text())
+        report = _route(work / "layout.kicad_pcb", work / "route", (src / "placemat.toml").read_text(), env=env)
         if report.get("error"):
             raise RuntimeError("placemat route failed: %s" % report["error"])
         phases = [{"name": phase["name"], "asked": phase["asked"], "joined": phase["joined"],
@@ -221,16 +226,16 @@ def run_local(name: str, work: pathlib.Path, versions: dict | None = None) -> FR
                       if "final_open" in phase else {})}
                   for phase in report.get("phases") or ()]
     except Exception as error:   # like a failed reference board, keep the failure for inspection
-        return FResult(name, [], 0, None, 0, 0.0, False, 0.0, versions, type(error).__name__, str(error))
+        return FResult(name, [], 0, None, 0, 0.0, False, 0.0, versions, type(error).__name__, str(error), protocol)
     return FResult(name, phases, report.get("widths_failed", 0), report.get("drc_new"), report.get("vias", 0),
-                   report.get("track_mm", 0.0), True, report.get("seconds", 0.0), versions)
+                   report.get("track_mm", 0.0), True, report.get("seconds", 0.0), versions, protocol=protocol)
 
 
 def compare_local(old: dict | None, new: FResult, changing: set[str]) -> Comparison:
     """A fixture records observed behavior; comparisons say same or changed, never better or worse."""
     if old is None:
         return Comparison("new", [])
-    keys = ("phases", "widths_failed", "drc_new", "passed", "failure")
+    keys = ("phases", "widths_failed", "drc_new", "passed", "failure", "protocol")
     value = "same" if all(old.get(key) == getattr(new, key) for key in keys) else "changed"
     differ = comparable(old.get("versions", {}), new.versions, changing)
     return Comparison("not comparable", differ, value) if differ else Comparison(value, [])
@@ -289,7 +294,7 @@ def current_versions() -> dict:
     return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb_version()}
 
 
-def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None) -> dict:
+def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None) -> dict:
     """`placemat route pcb --full` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict."""
     config = pathlib.Path(pcb).with_name("placemat.toml")
     if toml is None:
@@ -297,7 +302,7 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None) -> dict:
     else:
         config.write_text(toml)
     cmd = [sys.executable, "-m", "placemat", "route", str(pcb), "--full", "--no-resume", "--out", str(work)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=ROUTE_TIMEOUT_S)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=ROUTE_TIMEOUT_S, env=env)
     out = pathlib.Path(work) / "route.json"
     if not out.exists():
         raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, (proc.stderr or proc.stdout)[-500:]))

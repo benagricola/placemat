@@ -40,7 +40,7 @@ def test_local_route_retains_deduplicated_blocker_evidence_and_final_widths(tmp_
                   {"ref": "U1"}, {"ref": "U1"}, {"net": "N1"}]}}
     report = {"phases": [{"name": "legs", "asked": 1, "joined": 0, "closure_clean": 0.0,
                           "final_closure_clean": 0.0, "open": [opened]}], "widths_failed": 1, "drc_new": 0}
-    monkeypatch.setattr(route_ref, "_route", lambda *args: report)
+    monkeypatch.setattr(route_ref, "_route", lambda *args, **kwargs: report)
     got = route_ref.run_local("obstructed-route", tmp_path, {"placemat": "p", "pcb": "z"})
     assert got.passed and got.widths_failed == 1 and got.versions["krt"] == "router"
     assert got.phases[0]["open"][0]["blockers"] == ["U1", "N1 copper"]
@@ -60,7 +60,7 @@ def test_later_phase_break_is_recorded_and_compared_on_the_final_board(tmp_path,
     opened = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "J2", "pad": "1"}}
     phase = {"name": "legs", "asked": 1, "joined": 1, "closure_clean": 1.0, "open": [],
              "final_asked": 1, "final_joined": 0, "final_closure_clean": 0.0, "final_open": [opened]}
-    monkeypatch.setattr(route_ref, "_route", lambda *args: {"phases": [phase], "drc_new": 0})
+    monkeypatch.setattr(route_ref, "_route", lambda *args, **kwargs: {"phases": [phase], "drc_new": 0})
     got = route_ref.run_local("obstructed-route", tmp_path, {})
     assert got.passed and got.phases[0]["open"] == []
     assert got.phases[0]["final_asked"] == 1 and got.phases[0]["final_open"][0]["net"] == "VB"
@@ -94,3 +94,20 @@ def test_unknown_name_lists_boards_and_local_fixtures(tmp_path, capsys):
         route_ref.main(["absent", "--results", str(tmp_path / "results.json")])
     assert error.value.code == 2
     assert "obstructed-route" in capsys.readouterr().err
+
+
+def test_local_search_protocol_is_explicit_and_does_not_change_parent_environment(tmp_path, monkeypatch):
+    import os
+    monkeypatch.setenv("KICAD_NET_RESCUE", "1")
+    monkeypatch.setattr(route_ref, "_krt_version", lambda _: "router")
+    seen = {}
+    def route(*args, env):
+        seen.update(env)
+        return {"phases": [], "drc_new": 0}
+    monkeypatch.setattr(route_ref, "_route", route)
+    got = route_ref.run_local("obstructed-route", tmp_path, {})
+    assert got.passed and got.protocol == {"KICAD_NET_RESCUE": "0"}
+    assert seen["KICAD_NET_RESCUE"] == "0" and os.environ["KICAD_NET_RESCUE"] == "1"
+    old = route_ref.asdict(got)
+    old["protocol"] = {"KICAD_NET_RESCUE": "1"}
+    assert route_ref.compare_local(old, got, set()).status == "changed"

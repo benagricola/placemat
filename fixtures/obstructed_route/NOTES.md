@@ -17,3 +17,12 @@ The generator assigns deterministic board-item UUIDs and saves using KiCad's
 current format. Record and compare the actual router evidence with
 `fixtures/reference/route_ref.py obstructed-route`; do not adjust the board to
 hide a mismatch with the expected behavior.
+
+The local reference protocol explicitly sets `KICAD_NET_RESCUE=0` for this
+fixture's route subprocess and records that setting in the result's `protocol`.
+It disables expensive fine-parameter rescue while retaining initial A* search
+and its blocker evidence. The unchanged default-rescue run took 1135.4 seconds
+and produced the expected initial failed wide leg, later narrow join, and final
+failed width. The bounded protocol does not prove geometric impossibility:
+search exhaustion and a diagnosis of `unknown` remain truthful outcomes. Other
+reference boards and the caller's environment retain their own rescue policy.
