@@ -71,12 +71,14 @@ rounds with a scoped re-review, the ledger updated after every step.
   round was dispatched to the implementer. The ledger lists all 11 items. If the fix round has no commit on the branch,
   re-dispatch it from the ledger. The user decided the neck rule there: the neck allowance covers copper within neck_mm of
   each pad only up to half the path's length from each end, so a short connection keeps full width in its middle.
-- **splitflap_driver regression (KRT test test_run23_summary_min):** on the rebased router U7 pin 10 (+3V3) stays open on
-  3 of 6 seeds. Cause: fork fe49a838 (exact pads) with upstream 39dd0327 (finished nets no longer stub-proximity sources).
-  The user did not understand the explanation and asked for pictures. An agent was rendering annotated images to
-  /tmp/claude-1000/-home-ben-work-placemat/2bd7aed4-b7ad-44b9-b938-13be6bbfe8c8/scratchpad/splitflap-pics/out/
-  (passing.png, failing.png, mechanism.png, captions.md). Show them to the user, then ask again: accept and re-pin the
-  test, a one-line fork divergence after checks, or a new escape-protection rule.
+- **splitflap_driver regression (KRT test test_run23_summary_min):** decided by the user after seeing annotated
+  pictures (scratchpad splitflap-pics/out/): fix the router's rip-up so that, when a pin is boxed in, it first rips the
+  nets whose copper bounds the pin's reachable pocket. An agent is building it on placemat/upstream-2026-10b
+  (KRT-base-10b); report task-ripwall-report.md in the ledger folder. After it and Task 6a land, rebase
+  placemat/connections onto the base.
+- **Task 6 (`--bus-nets`)** is done (e0870e1c, 3a818aae on placemat/connections; a net in two stated groups stays in
+  the first). **Task 6a (failure evidence)** is being built on placemat/connections.
+- **Task 13** fix round committed (f5a3e38f); its re-review was running.
 
 ## Next, in order
 
