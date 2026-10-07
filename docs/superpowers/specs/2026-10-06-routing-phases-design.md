@@ -181,11 +181,22 @@ rest, each commented. These defaults reproduce today's stages.
 KRT always closes a whole net: it groups the net's pads by existing copper and joins the groups (connectivity.py
 `find_connected_groups`). The fork gains:
 
-- `--connections FILE`: a JSON list of `{net, from: "REF.PAD", to: "REF.PAD", widths: {layer: mm}}`. The router routes
-  only these pad pairs, each as a two-terminal task on its net, at the given width per layer, and leaves the net's
-  other pads alone. The tasks may use the net's existing copper. A task whose ends are already joined is skipped and
-  reported as such.
-- Each task's outcome goes in the `--json-out` summary: joined or not, its length and its narrowest width per layer.
+- `--connections FILE` (KRT fork commit 39647d82, docs/connections.md there): a JSON list of
+  `{"net": str, "from": {"ref": str, "pad": str}, "to": {"ref": str, "pad": str}, "widths": {layer: mm}}`, where
+  `widths` names every layer the call routes on. The ends are structured, never "REF.PAD" strings; an end is every
+  pad of that footprint with that number on the net. The router routes only these pad pairs, at the given width per
+  layer, and leaves the net's other pads alone; same-net pads of an end's footprint that are not ends are obstacles.
+  The tasks may use the net's copper already joined to their ends; the net's other copper is an obstacle for the
+  call. `--connections` refuses `--nets` and `--power-nets` alongside.
+- Each task's outcome goes in the `--json-out` summary as `connections`, one record per task in file order:
+  `{"net", "from": {"ref", "pad"}, "to": {"ref", "pad"}, "status", "reason", "joined", "length_mm",
+  "min_width_mm": {layer: mm}, "path"}`, measured on the written board. `status` is `routed`, `failed`,
+  `joined_before` (joined before the call at its width), `joined_narrow` (joined before the call by copper narrower
+  than `widths` on some layer: not routed, counted joined, `path` lists the joining segments as
+  `{"layer", "start": [x, y], "end": [x, y], "width"}`), `deferred` (another group of the same net was routed in this
+  call; route it again) or `refused`, whose `reason` is `unknown_ref`, `unknown_pad`, `pad_not_on_net`,
+  `layer_not_routed` or `width_under_board_minimum`. `path` is null on every other record. The whole-net summary keys
+  still describe whole nets.
 
 placemat writes the file from the phase's `connections` or `current_paths`. The change is made in the fork, on a branch
 off `placemat/upstream-2026-10`, with its own tests in KRT's suite, and pushed to the fork. It is never offered upstream.
