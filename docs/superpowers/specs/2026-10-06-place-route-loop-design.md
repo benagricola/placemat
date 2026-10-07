@@ -44,14 +44,17 @@ command, or a few, that runs the loop the same way every time.
    then restarts.
 8. **Stop** at full clean closure with no round improving, when every level has plateaued, when a budget runs out, or at
    `--rounds N` (default from settings).
-9. **Write** the incumbent: the board, the routed board, the snapshot, run.json, and one summary.
+9. **Route the final placement** once through every phase, as a fresh route, so the reported board follows the
+   routing phases rule that a phase's copper lasts for one route of one placement. Rebuild proposals were judged on
+   local reroutes; this route is the one reported (decided with the user, 2026-10-07).
+10. **Write** the result: the board, the routed board, the snapshot, run.json, and one summary.
 
 Both refine stages and the pin study (inside coarse refine) are part of every run, with no flag to ask for them. `refine.enabled = false` turns refine off,
 for a measurement. The pin study runs only on a board with a part that has a pin pool.
 
 Options:
-- `--restarts N`: run N fresh constructions (`--fresh`, different seeds) through the same loop, in parallel within
-  `--jobs`, and keep the best. This replaces `--explore SECONDS`.
+- `--restarts N`: up to N fresh constructions (`--fresh`, different seeds) through the same loop, in parallel within
+  `--jobs`, started only once the rebuild is exhausted with connections still open, and keep the best. This replaces `--explore SECONDS`.
 - `--place-only`: steps 1-2 and the placement score, with no routing. This replaces `preview` for iterating placement.
 - `--detach`: as now. `watch --summary` prints the loop's summary.
 
@@ -71,8 +74,9 @@ When routing stalls, the loop escalates in a fixed order, each level within the 
    connection, across module boundaries, lifted and rearranged together with the rest of the board held. Each
    arrangement is an atomic proposal, routed locally and judged by `score.rank`. After an accepted rebuild the loop goes
    back to level 1 from the new incumbent.
-3. **Restarts:** fresh constructions (`--restarts N`) run through the same loop, levels 1 and 2 included. They reach
-   arrangements a local change cannot.
+3. **Restarts:** fresh constructions (`--restarts N`) run through the same loop, levels 1 and 2 included. They begin
+   only after the rebuild is exhausted with connections still open (decided with the user, 2026-10-07); a board that
+   closes never pays for them. They reach arrangements a local change cannot.
 
 **Plateau.** Each level is counted in unsuccessful routed proposals: an attempt that reached routing and did not rank
 above the incumbent. An attempt the constraint check refuses, a duplicate of an earlier one, or one screened out
@@ -126,7 +130,8 @@ A quick route of the fairing core takes about 5 minutes. A loop of three rounds 
 plus the restarts in parallel. The defaults are set from measurement once phases and refine exist:
 - `loop.rounds`;
 - `loop.route_when`: the threshold on moved items or proxy change that triggers a re-route;
-- `loop.plateau`: unsuccessful routed rounds of board-wide fine refine before the loop escalates. Provisional 1;
+- `loop.plateau`: unsuccessful routed rounds of board-wide fine refine before the loop escalates. 1 (decided with the
+  user, 2026-10-07: a round that improves nothing escalates), tuned with the bench;
 - `loop.route_calls`: every route call in one run (board-wide rounds and rebuild proposals together), a budget apart
   from the rounds. Provisional 24.
 
@@ -143,7 +148,9 @@ The loop is recoverable: a stopped run keeps its rounds and resumes.
 - **Ranking by `score.rank`:** a round that improves a later phase and worsens an earlier one is undone; a round that
   routes more but leaves the board invalid is undone; a tie keeps the incumbent.
 - **Escalation order,** with a stand-in router: board-wide refine, then the rebuild after `loop.plateau` unsuccessful
-  routed rounds, then restarts; back to board-wide refine after an accepted rebuild; no rebuild at full clean closure;
+  routed rounds, then restarts, which start only once the rebuild is exhausted with connections open; back to
+  board-wide refine after an accepted rebuild; no rebuild or restart at full clean closure; the final placement is
+  routed once through every phase before the result is written;
   route calls never exceed `loop.route_calls`.
 - **Rollback:** a rejected round or proposal, and one whose route call fails, leaves the incumbent's poses, copper ids
   and records unchanged; a run stopped mid-proposal resumes from the incumbent.
@@ -163,10 +170,3 @@ The loop is recoverable: a stopped run keeps its rounds and resumes.
 - Changing the capture, such as pin remaps. These are reported for the user.
 - Another command or flag for the neighbourhood rebuild: it is a level of the loop.
 
-## Open questions
-
-1. **When restarts run.** Today `--restarts N` runs its constructions in parallel from the start. As the third level of
-   the escalation, should they start only once the main construction's rebuild is exhausted with connections still
-   open (saving their cost on boards that close), or stay in parallel from the start?
-2. The refine spec's open questions on a local or full reroute after an accepted rebuild, and on `loop.plateau`, bear
-   on the loop's cost too.

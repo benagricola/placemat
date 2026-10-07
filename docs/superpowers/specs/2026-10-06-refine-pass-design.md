@@ -336,7 +336,7 @@ command or flag.
 Fine refine's escalation, inside the same `placemat run` loop (loop spec, "Escalation"). Board-wide fine refine stays
 and runs first. When its rounds stop improving the routed board (a plateau, below), the loop lifts a bounded group of
 items round one open connection, tries arrangements of them that single moves cannot reach, and routes each one.
-Restarts come after it.
+Restarts come after it, and begin only once it is exhausted with connections still open.
 
 ### Seeds
 
@@ -428,7 +428,8 @@ them), together with the obligations of each removed module track. Each keeps it
 asked widths and its layers. Obligations the removal did not break keep their copper, with the same ids.
 
 The proposal is routed with the router's `--connections` on those obligations only, phase by phase in phase order, with
-the kept copper fixed (locked as a phase's copper is between phases). Deleting copper from a pcbnew board uses
+the kept copper fixed (locked as a phase's copper is between phases). This local reroute is used to judge proposals;
+the loop routes the final placement once through every phase before it reports (loop spec, step 9). Deleting copper from a pcbnew board uses
 `board.Delete` (project rule).
 
 **One obligation set for the comparison.** A module track's obligation is not in any phase's asked set, since its pads
@@ -606,13 +607,10 @@ that refine replaces cleanup, and that `refine.enabled = false` turns it off.
 - One command runs the whole loop: see 2026-10-06-place-route-loop-design.md.
 - The neighbourhood rebuild is part of fine refine, as an escalation of the run loop, not a command (2026-10-07). It
   brings explore's unbuilt "phase two" (lift a cluster and rebuild it) into this design.
+- A rebuild proposal reroutes only the obligations its removal broke. Before the loop reports its result, the final
+  placement is routed once through every phase, so the reported board follows the routing phases rule that a phase's
+  copper lasts for one route of one placement (2026-10-07).
+- `loop.plateau` stays 1: a board-wide round that improves nothing escalates. It is tuned with the bench (2026-10-07).
+- Whole-board restarts begin only after the rebuild is exhausted with connections still open: refine, then the
+  rebuild, then restarts (2026-10-07).
 
-## Open questions
-
-1. **Local or full reroute.** A proposal reroutes only the obligations its removal broke, with the rest of the
-   incumbent's copper kept. The routing phases spec says a phase's copper lasts for one route of one placement, so this
-   is a divergence from it. Is the local reroute the result, or should an accepted rebuild be routed again in full
-   before the run ends (one more full route per acceptance, or one at the end)?
-2. **Board-wide refine's plateau.** `loop.plateau` counts full routes of the board, each several minutes on a large
-   one. Keep the loop spec's present rule (provisional 1: a round that improves nothing ends it), or allow 2-3 rounds
-   before escalating?
