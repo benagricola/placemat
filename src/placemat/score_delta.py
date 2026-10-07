@@ -28,11 +28,13 @@ class Delta:
     """Exact twin for one lifted rest-board snapshot.
 
     Discard on any fixed geometry, pending-set or frame change. Search must
-    rebuild after adoption; moving-owner commit/lift used by oracle tests is
-    allowed only when the rest remains unchanged.
+    rebuild after adoption. Even a moving-owner commit/lift can rebase a cell's
+    arrangement and reference, so every occupancy mutation ends this lifetime.
     """
     def __init__(self, board, occ, item, links, pushes=(), lanes=None, *, plan):
         self.board, self.occ, self.item, self.plan = board, occ, item, plan
+        self._revision = occ.__dict__.get('_score_revision', 0)
+        self._pending, self._frame = frozenset(occ.pending), occ.board_box
         self.links, self.pushes, self.lanes = tuple(links), tuple(pushes), lanes
         self.has_push = bool(self.pushes) or any(i.pushes for i in board._placements()) or bool(board._annotations)
         self.own = frozenset(fp.ref for fp in members_of(item))
@@ -126,9 +128,18 @@ class Delta:
                     rn._grid.setdefault(cell, []).append(edge)
         return rn
 
-    def __call__(self, placement, prune_above=math.inf):
+    def _check_snapshot(self):
         if not self.own <= self.occ.pending:
             raise ValueError('Delta snapshot requires the moving item to remain lifted')
+        if self.occ.__dict__.get('_score_revision', 0) != self._revision:
+            raise ValueError('Delta occupancy changed; rebuild the lifted snapshot')
+        if frozenset(self.occ.pending) != self._pending:
+            raise ValueError('Delta pending geometry changed; rebuild the lifted snapshot')
+        if self.occ.board_box != self._frame:
+            raise ValueError('Delta frame changed; rebuild the lifted snapshot')
+
+    def __call__(self, placement, prune_above=math.inf):
+        self._check_snapshot()
         cfg = self.board.settings
         if self.grid is not None and self.grid.board != (self.occ.board_box or Box(0, 0, 0, 0)):
             raise ValueError("Delta frame changed; rebuild the lifted snapshot")
@@ -185,8 +196,7 @@ class Delta:
 
     def native(self, rots, face):
         """Six non-escape terms for prepared turns; no sweep adoption yet."""
-        if not self.own <= self.occ.pending:
-            raise ValueError('Delta snapshot requires the moving item to remain lifted')
+        self._check_snapshot()
         if self.grid is not None and self.grid.board != (self.occ.board_box or Box(0, 0, 0, 0)):
             raise ValueError("Delta frame changed; rebuild the lifted snapshot")
         if self.has_push or self.lanes is not None or self.rn.mirror is None:

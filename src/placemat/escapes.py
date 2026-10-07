@@ -1229,6 +1229,8 @@ class EscapeDelta:
     """
     def __init__(self, occ, own):
         self.occ, self.own = occ, frozenset(own)
+        self._revision = occ.__dict__.get('_score_revision', 0)
+        self._pending, self._frame = frozenset(occ.pending), occ.board_box
         if not self.own <= occ.pending:
             raise ValueError('EscapeDelta requires the moving item to be lifted')
         # Own index/caches: later verification commits cannot refresh this
@@ -1264,6 +1266,10 @@ class EscapeDelta:
         """
         if not self.own <= self.occ.pending:
             raise ValueError('EscapeDelta snapshot requires the moving item to remain lifted')
+        if self.occ.__dict__.get('_score_revision', 0) != self._revision:
+            raise ValueError('EscapeDelta occupancy changed; rebuild the lifted snapshot')
+        if frozenset(self.occ.pending) != self._pending or self.occ.board_box != self._frame:
+            raise ValueError('EscapeDelta pending geometry or frame changed; rebuild the lifted snapshot')
         esc = copy.copy(self.base)
         esc.occ, esc.mirror, esc.searched = view, None, 0
         esc._lane_cache = dict(self.base._lane_cache)

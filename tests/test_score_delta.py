@@ -65,6 +65,7 @@ def test_python_escape_delta_matches_whole_and_carries_unpriced_wall_evidence():
     delta = Delta(board, occ, main, plan.links, plan=plan)
     counts = []
     for candidate in (original, replace(original, location=Location(30, 20)), original):
+        delta = Delta(board, occ, main, plan.links, plan=plan)
         change = delta(candidate, prune_above=-math.inf)
         assert score.whole(board, occ, plan) == before
         occ.commit(main, candidate)
@@ -443,6 +444,7 @@ def test_python_delta_matches_raw_live_whole_terms_without_mutation(fitted, push
         lifted = score.whole(board, occ, plan)
         delta = Delta(board, occ, item, plan.links, plan=plan)
         for _ in range(20):
+            delta = Delta(board, occ, item, plan.links, plan=plan)
             candidate = replace(original, location=Location(original.location.x + rng.uniform(-0.1, 0.1),
                                                            original.location.y + rng.uniform(-0.1, 0.1)))
             change = delta(candidate, prune_above=-math.inf)
@@ -538,6 +540,9 @@ def test_native_layout_terms_match_python_delta_and_raw_whole(fitted):
     before = score.whole(board, occ, plan)
     for turn, rotation in enumerate(turns):
         for _ in range(30):
+            delta = Delta(board, occ, item, plan.links, plan=plan)
+            native = delta.native(turns, original.face)
+            assert native is not None
             candidate = replace(original, rotation=rotation, location=Location(30+rng.uniform(-0.1, 0.1), 30+rng.uniform(-0.1, 0.1)))
             expected = delta(candidate)
             measured = dict(zip(keys, native.terms(candidate.location.x, candidate.location.y, turn)))
@@ -627,14 +632,21 @@ def test_native_cell_layout_includes_carried_copper_in_fitted_bounds():
     delta = Delta(board, occ, item, plan.links, plan=plan)
     keys = ('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion')
     for face in [Face.FRONT, Face.BACK]:
-        kernel = delta.native([0, 90], face)
-        assert kernel is not None
-        for turn, rotation in enumerate([0, 90]):
-            candidate = replace(plan.placement('m'), face=face, rotation=rotation, location=Location(25.00123, 25.00456))
+        for turn, rotation in enumerate([0, 37, 90, 143]):
+            delta = Delta(board, occ, item, plan.links, plan=plan)
+            kernel = delta.native([0, 37, 90, 143], face)
+            assert kernel is not None
+            candidate = replace(plan.placement('m'), face=face, rotation=rotation,
+                                location=Location(25.0000000005, 25.0000000005))
             terms = dict(zip(keys, kernel.terms(candidate.location.x, candidate.location.y, turn)))
             expected = delta(candidate).terms
-            assert terms == pytest.approx({k: expected[k] for k in keys}, abs=1e-6)
+            anchors = occ.candidate_named_anchors(item, candidate)
+            assert terms == pytest.approx({k: expected[k] for k in keys}, abs=1e-6), (face, rotation)
+            assert terms['airwire'] == pytest.approx(expected['airwire'], rel=0, abs=1e-12)
+            assert terms['crossings'] == expected['crossings']
             occ.commit(item, candidate)
+            assert anchors == [(net, ref, pad, occ.pad_anchor(ref, pad).x, occ.pad_anchor(ref, pad).y)
+                               for net, ref, pad, _, _ in anchors]
             after = score.whole(board, occ, plan)
             assert terms == pytest.approx({k: after[k] - before[k] for k in keys}, abs=1e-6)
             occ.lift(['U1'])
@@ -746,6 +758,8 @@ def test_repository_module_and_core_non_escape_delta_parity():
                 if occ.legal(item, candidate, board.geometry.default_clearance) is None:
                     candidates.append(candidate)
             for candidate in candidates:
+                delta = Delta(board, occ, item, plan.links, plan=plan)
+                kernel = delta.native([step.placement.rotation], step.placement.face)
                 change = delta(candidate)
                 view, geometries, copper = delta._view(candidate)
                 from placemat.escapes import judging
@@ -833,6 +847,7 @@ def test_lift_owner_closure_is_independent_of_cell_mapping_order():
 
 
 def test_candidate_anchors_match_committed_affine_at_half_nanometre_translations():
+    from placemat import geometry
     from placemat.score_delta import Delta
     from placemat.values import Face, Location, Part
     from placemat.placement import Placement
@@ -851,6 +866,8 @@ def test_candidate_anchors_match_committed_affine_at_half_nanometre_translations
                 actual = occ.candidate_named_anchors(item, candidate)
                 delta = Delta(board, occ, item, plan.links, plan=plan)
                 kernel = delta.native([rotation], face)
+                if hasattr(getattr(geometry._native, 'NativeDelta', None), 'configure_affines'):
+                    assert kernel is not None
                 change = delta(candidate)
                 if kernel is not None:
                     wire, crossings = kernel.wire_cross(candidate.location.x, candidate.location.y, 0)
@@ -892,3 +909,64 @@ def test_native_anchor_affine_configuration_refuses_malformed_records_atomically
         with pytest.raises(ValueError):
             kernel.configure_affines([[row] + records[1:]])
         assert kernel.wire_cross(20, 20, 0) == baseline
+
+
+@pytest.mark.parametrize('changed', ['moving', 'rest', 'lift'])
+def test_delta_refuses_mutated_occupancy_and_fresh_snapshot_rebuilds(changed):
+    from placemat.score_delta import Delta
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _two_part_board
+    board = _two_part_board()
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(20, 20))
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['c1']
+    original = plan.placement('c1')
+    occ.lift(['C1'])
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    first = delta(original)
+    assert delta(original) == first
+    if changed == 'moving':
+        occ.commit(item, original)
+        occ.lift(['C1'])
+    elif changed == 'rest':
+        occ.commit(plan._items['u1'], plan.placement('u1'))
+    else:
+        occ.unlift(['C1'])
+        occ.lift(['C1'])
+    with pytest.raises(ValueError, match='occupancy changed'):
+        delta(original)
+    with pytest.raises(ValueError, match='occupancy changed'):
+        delta.native([original.rotation], original.face)
+    view, geometries, copper = delta._view(original)
+    with pytest.raises(ValueError, match='occupancy changed'):
+        delta._escape_delta.change(view, geometries, copper)
+    fresh = Delta(board, occ, item, plan.links, plan=plan)
+    assert fresh(original) == first
+
+
+def test_delta_refuses_direct_pending_change_and_frame_change_without_congestion():
+    from dataclasses import replace
+    from placemat.score_delta import Delta
+    from placemat.values import Box, Location, Part
+    from tests.test_score_measures import _two_part_board
+    board = _two_part_board()
+    board.settings = replace(board.settings, score_congestion_step=0)
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(20, 20))
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['c1']
+    original = plan.placement('c1')
+    occ.lift(['C1'])
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    occ.pending.add('U1')
+    with pytest.raises(ValueError, match='pending geometry'):
+        delta(original)
+    with pytest.raises(ValueError, match='pending geometry'):
+        delta.native([original.rotation], original.face)
+    occ.pending.remove('U1')
+    occ.board_box = Box(0, 0, 80, 80)
+    with pytest.raises(ValueError, match='frame changed'):
+        delta(original)
+    with pytest.raises(ValueError, match='frame changed'):
+        delta.native([original.rotation], original.face)

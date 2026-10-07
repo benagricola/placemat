@@ -1248,6 +1248,7 @@ class Occupancy:
         """Record that `item` now sits at `placement`; later checks see it there. A placement that names an arrangement
         commits the cell as that arrangement stands it. Re-committing a cell with arrangement "" keeps the arrangement the
         cell stands in; it does not revert to the module's default layout."""
+        self._score_revision = self.__dict__.get('_score_revision', 0) + 1
         item = self._arranged(item, placement)
         owners = self._geometry(item).owners
         self._commit(item, placement)
@@ -1282,6 +1283,7 @@ class Occupancy:
         """Take placed items off the board for a moment: they are no obstacle,
         and the ratsnest and the escapes forget their pads, until `unlift` or
         a commit puts them back."""
+        self._score_revision = self.__dict__.get('_score_revision', 0) + 1
         refs = self._lift_owners(refs)
         self.pending |= refs
         if self.__dict__.get("_ratsnest") is not None:
@@ -1292,6 +1294,7 @@ class Occupancy:
             self._congestion_refresh(refs)
 
     def unlift(self, refs) -> None:
+        self._score_revision = self.__dict__.get('_score_revision', 0) + 1
         refs = self._lift_owners(refs)
         self.pending -= refs
         if self.__dict__.get("_ratsnest") is not None:

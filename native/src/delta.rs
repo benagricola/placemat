@@ -316,13 +316,44 @@ struct Touched {
     tree: TreeDelta,
 }
 
+struct AnchorAffine {
+    a: f64, b: f64, c: f64, d: f64,
+    tx: f64, ty: f64,
+    source: (f64, f64),
+}
+
+impl AnchorAffine {
+    fn from_record(values: &[f64]) -> Self {
+        Self { a: values[0], b: values[1], c: values[2], d: values[3],
+               tx: values[4], ty: values[5], source: (values[6], values[7]) }
+    }
+
+    fn at(&self, location: (f64, f64)) -> (f64, f64) {
+        // Association matches Transform.apply after pose_transform appended
+        // the candidate translation. Never fold source terms into tx/ty.
+        (crate::exact::clean9(self.a*self.source.0+self.b*self.source.1+(self.tx+location.0)),
+         crate::exact::clean9(self.c*self.source.0+self.d*self.source.1+(self.ty+location.1)))
+    }
+}
+
+struct AnchorPose {
+    member: Option<AnchorAffine>,
+    read: AnchorAffine,
+}
+
+impl AnchorPose {
+    fn at(&self, location: (f64, f64)) -> (f64, f64) {
+        self.read.at(self.member.as_ref().map_or(location, |member| member.at(location)))
+    }
+}
+
 pub struct Delta {
     snapshots: Vec<Snapshot>,
     turns: Vec<Vec<Touched>>,
     prices: Vec<Vec<f64>>,
     signal: HashSet<String>,
     impedance: f64,
-    affines: Option<Vec<HashMap<(String, String, String), Vec<f64>>>>,
+    affines: Option<Vec<HashMap<(String, String, String), AnchorPose>>>,
 }
 
 impl Delta {
@@ -438,7 +469,11 @@ impl Delta {
                     || (values[0] != 0.0 && values[0] != 1.0) {
                     return Err("NativeDelta affine record invalid".into());
                 }
-                if map.insert((net, reference, number), values).is_some() {
+                let pose = AnchorPose {
+                    member: if values[0] == 1.0 { Some(AnchorAffine::from_record(&values[1..9])) } else { None },
+                    read: AnchorAffine::from_record(&values[9..17]),
+                };
+                if map.insert((net, reference, number), pose).is_some() {
                     return Err("NativeDelta duplicate affine anchor".into());
                 }
             }
@@ -510,13 +545,8 @@ impl Delta {
             let change = if let Some(affines) = &self.affines {
                 let mut added = touched.added.clone();
                 for p in &mut added {
-                    let v = &affines[turn][&(self.snapshots[touched.index].name.clone(), p.2.clone(), p.3.clone())];
-                    let member = if v[0] == 1.0 {
-                        (crate::exact::clean9(v[1]*v[7]+v[2]*v[8]+(v[5]+x)),
-                         crate::exact::clean9(v[3]*v[7]+v[4]*v[8]+(v[6]+y)))
-                    } else { (x, y) };
-                    p.0 = crate::exact::clean9(v[9]*v[15]+v[10]*v[16]+(v[13]+member.0));
-                    p.1 = crate::exact::clean9(v[11]*v[15]+v[12]*v[16]+(v[14]+member.1));
+                    let pose = &affines[turn][&(self.snapshots[touched.index].name.clone(), p.2.clone(), p.3.clone())];
+                    (p.0, p.1) = pose.at((x, y));
                     if !point_valid(p.0, p.1) {
                         return Err("NativeDelta affine anchor exceeds representable nm".into());
                     }
