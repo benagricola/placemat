@@ -46,9 +46,13 @@ indirectly from short wires. The score gains an **area** term:
 - **Incremental form:** the bounding box recomputed from the moved items' boxes against the others' running extents.
 - **Weight:** `score.area`, per mm2. It is zero on a board with a fixed outline, and on by default for a fitted frame.
 
-**Ranking order:**
-- **Board:** the phases' closures in order, then the clean closure, then the run score.
-- **Module:** the phases' closures (100% expected), then the area, then the rest of the run score.
+**Ranking order** (amended 2026-10-07: legality first):
+- **Both:** first legality: no DRC error beyond the board's baseline, every required width met on the final board, no
+  critical finding (unplaced, walled escape, copper clash). A buildable board beats a better-connected one that is not.
+- **Board:** then the phases' closures in order, judged on the final board over each phase's fixed asked set, then the
+  clean closure, then the run score.
+- **Module:** then the phases' closures (100% expected), then the area, then the rest of the run score.
+- **Ties** within the run score's noise keep the incumbent.
 
 The loop, restarts and refine all use the order for the script's context, as one function in `score.py`.
 
@@ -153,3 +157,14 @@ lower a congestion cell. So no term's change is assumed non-negative except wher
 - a candidate is pruned only when the exact terms so far plus the remaining lower bounds reach the best total;
 - a test holds the pruned search's choice equal to the exhaustive one on adversarial scenes, beside the
   incremental-against-whole test.
+
+Amended 2026-10-07, from an outside review: **the exceptions are named.** One objective does not mean every decision
+optimises the whole of it. These differ, on purpose:
+- the pin study keeps its bend and group terms, which have no run-score term; it generates maps with its own scorer,
+  and its finalists are rescored by the run-score change before a gain is reported or a map chosen;
+- findings other than escapes are judged only on the finished board (after a construction or refine), not per
+  candidate;
+- give-way, back-face and arrangement costs are added by the scan at the action or face a candidate takes;
+- an item with a push or a declared escape lane is scored in Python, with the same terms.
+The speed gate is also measured end to end (lift, setup, commit, Python share, the resolve's time and result), not only
+per candidate.
