@@ -685,6 +685,7 @@ def test_native_grid_refuses_outside_and_overflowing_rest_snapshots():
 
 
 def test_invalid_fixed_geometry_falls_back_with_its_validity_and_wire_evidence():
+    from dataclasses import replace
     from placemat import score
     from placemat.score_delta import Delta
     from placemat.values import Location, Part
@@ -699,6 +700,11 @@ def test_invalid_fixed_geometry_falls_back_with_its_validity_and_wire_evidence()
     occ = plan.occupancy
     occ.lift(['C1'])
     delta = Delta(board, occ, plan._items['c1'], plan.links, plan=plan)
+    assert delta.scorable(plan.placement('c1'))
+    outside = replace(plan.placement('c1'), location=Location(100, 100))
+    assert not delta.scorable(outside)
+    with pytest.raises(ValueError, match='candidate pads exceed the fixed search frame'):
+        delta(outside)
     assert delta.native([0.0], plan.placement('c1').face) is None
     change = delta(plan.placement('c1'))
     assert change.terms['airwire'] > 100

@@ -215,8 +215,9 @@ def _turn_better(f):
     """The largest two signed changes in the common objective."""
     changed = sorted(f['change'].items(), key=lambda row: (-abs(row[1]), row[0]))
     bits = ['%s %+.3g' % (term.replace('_', ' '), value) for term, value in changed if value][:2]
-    return "%s %s turned %g degrees, to %g degrees: gain %g (%s)" % (
+    text = "%s %s turned %g degrees, to %g degrees: gain %g (%s)" % (
         f['kind'], f['item'], f['turn_deg'], f['to_deg'], f['gain'], ', '.join(bits))
+    return text + ('; this pose requires changing its position anchor' if f.get('held_by') == 'anchor' else '')
 
 
 # ------------------------------------------------------------------ setup

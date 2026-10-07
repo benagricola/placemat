@@ -284,6 +284,8 @@ def test_cheaper_turn_cannot_increase_walled_pad_evidence(tmp_path, monkeypatch)
         def __init__(self, *args, **kwargs):
             self.delta = real_delta(*args, **kwargs)
             self.base = None
+        def scorable(self, placement):
+            return self.delta.scorable(placement)
         def __call__(self, placement):
             result = self.delta(placement)
             if self.base is None:
@@ -294,3 +296,37 @@ def test_cheaper_turn_cannot_increase_walled_pad_evidence(tmp_path, monkeypatch)
     plan.findings = [f for f in plan.findings if f.cause is not C.TURN_BETTER]
     b._report_turns(plan.occupancy, plan)
     assert turns(plan) == []
+
+
+@pytest.mark.parametrize('anchor', ['origin', 'axis', 'center', 'free'])
+def test_asymmetric_origin_turn_does_not_offer_an_edit_that_moves_position_anchor(anchor):
+    from placemat.values import Centre, LinkWeight, Near, PadRef, Part
+    fp = footprint('R1', 25, 24, w=2.2, h=0.8, nets=('A1', 'B1'), inst='r1')
+    body = Box(fp.body_box.left + 1, fp.body_box.top, fp.body_box.right + 1, fp.body_box.bottom)
+    fp = dataclasses.replace(fp, body_box=body, courtyard_box=body.inflate(0.1))
+    b = Board(board_geometry(parts()[:2] + [fp], width=50, height=50), keep_going=True,
+              settings=dataclasses.replace(Settings(), cleanup_enabled=False, place_turn_gain_mm=0.01,
+                                           place_turn_gain_share=0.0))
+    b.place(Part('u1'), at=Location(17, 25))
+    b.place(Part('j1'), at=Location(33, 25))
+    kwargs = {'origin': {'at': Location(25, 24)},
+              'axis': {'at': (25, None), 'radius': 0.2},
+              'center': {'at': Centre(25, 24, coordinates=True)},
+              'free': {'at': Near(Location(25, 24)), 'radius': 0.2}}[anchor]
+    b.place(Part('r1'), rotation=180, **kwargs)
+    b.link(PadRef(Part('u1'), 1), PadRef(Part('r1'), 1), weight=LinkWeight.SHORT)
+    b.link(PadRef(Part('r1'), 2), PadRef(Part('j1'), 1), weight=LinkWeight.PREFER)
+    plan = b.resolve()
+    (finding,) = turns(plan, 'r1')
+    if anchor in ('origin', 'axis'):
+        assert finding.facts['held_by'] == 'anchor'
+        assert finding.suggestions == ()
+        assert 'requires changing its position anchor' in str(finding)
+    else:
+        assert finding.facts.get('held_by') != 'anchor'
+        assert finding.suggestions
+        if anchor == 'center':
+            intent = next(i for i in b._placements() if i.key == 'r1')
+            edited, _ = b._firm_placement(plan.occupancy, plan,
+                                         dataclasses.replace(intent, rotation=finding.facts['to_deg']))
+            assert (edited.location.x, edited.location.y) == pytest.approx(finding.facts['at'], abs=1e-4)

@@ -175,16 +175,8 @@ class Delta:
             frame = self.board._fit_bound(content.inflate(self.board._fit_margin))
             terms['area'] = cfg.score_area * (frame.width * frame.height - self.base_area)
         if self.grid is not None:
-            new = {}
-            for ref, geom in geometries.items():
-                for shape in geom.shapes:
-                    if shape.kind in ('pad', 'through') and shape.owner == ref and shape.net \
-                            and shape.net not in self.quiet:
-                        new.setdefault(shape.net, []).append(shape.box.center)
-            frame = self.grid.board
-            if any(p.x < frame.left - 1e-9 or p.x > frame.right + 1e-9
-                   or p.y < frame.top - 1e-9 or p.y > frame.bottom + 1e-9
-                   for points in new.values() for p in points):
+            new = self._congestion_points(geometries)
+            if not self._in_grid(new):
                 raise ValueError("Delta candidate pads exceed the fixed search frame")
             pads = self.occ.__dict__['_congestion_pads']
             replacements = {net: list(pads.get(net, {}).values()) + points for net, points in new.items()}
@@ -194,6 +186,33 @@ class Delta:
         # Pruning is intentionally absent until every remaining signed term
         # has a proved lower bound. Walled evidence never enters the scalar.
         return Change(terms, sum(terms.values()), walled_change, walled)
+
+    def _congestion_points(self, geometries):
+        new = {}
+        for ref, geom in geometries.items():
+            for shape in geom.shapes:
+                if shape.kind in ('pad', 'through') and shape.owner == ref and shape.net and shape.net not in self.quiet:
+                    new.setdefault(shape.net, []).append(shape.box.center)
+        return new
+
+    def _in_grid(self, pads):
+        frame = self.grid.board
+        return not any(p.x < frame.left - 1e-9 or p.x > frame.right + 1e-9
+                       or p.y < frame.top - 1e-9 or p.y > frame.bottom + 1e-9
+                       for points in pads.values() for p in points)
+
+    def scorable(self, placement):
+        """Whether this candidate lies in the fixed congestion domain.
+
+        An invalid kept-going placement can still be diagnosed independently,
+        but a turn comparison must not clip its pads to invent a lower cost.
+        Other snapshot/geometry errors propagate rather than becoming a skip.
+        """
+        self._check_snapshot()
+        if self.grid is None:
+            return True
+        _, geometries, _ = self._view(placement)
+        return self._in_grid(self._congestion_points(geometries))
 
     def native_shapes(self, rots, face):
         """Exact prepared candidate polygons, explicitly for parity until integrated."""

@@ -5638,6 +5638,8 @@ class Board:
             occ.lift(lifted)
             try:
                 delta = Delta(self, occ, item, plan.links, plan=plan)
+                if not delta.scorable(base):
+                    continue
                 now = delta(base)
                 own_wire = max(0.0, now.terms['airwire'] + now.terms['link'])
                 for rot in others:
@@ -5645,7 +5647,7 @@ class Board:
                     c = occ.body_box(item, turn).center
                     q = dataclasses.replace(turn, location=Location(base.location.x + centre.x - c.x,
                                                                     base.location.y + centre.y - c.y))
-                    if not legal(q):
+                    if not legal(q) or not delta.scorable(q):
                         continue
                     then = delta(q)
                     gain = now.total - then.total
@@ -5668,6 +5670,17 @@ class Board:
                 "rotations_given": bool(i.rotations), "rotation_given": bool(i.rotation_given), "fixed": fixed,
                 "at": [round(q.location.x, 4), round(q.location.y, 4)]}
             held = self._turn_held_by(i, st, fixed)
+            if not held:
+                # The edit changes rotation only. A body-centred candidate
+                # that requires moving an origin/pad/edge anchor is advice,
+                # never an executable promise to reproduce this gain.
+                dx, dy = q.location.x - base.location.x, q.location.y - base.location.y
+                origin_moves = i.at is not None and (abs(dx) > 1e-9 or abs(dy) > 1e-9)
+                axis_moves = i.pinned_by == 'at' and (
+                    (i.pin_x is not None and abs(dx) > 1e-9) or (i.pin_y is not None and abs(dy) > 1e-9))
+                if origin_moves or axis_moves or i.pin is not None or i.cell_pin is not None \
+                        or any(v is not None for v in (i.edge, i.run, i.rim, i.beside, i.row_of)):
+                    held = 'anchor'
             if held:
                 facts["held_by"] = held
             plan.findings.append(self._finding(C.TURN_BETTER, facts))
