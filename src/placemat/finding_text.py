@@ -210,18 +210,13 @@ def _pins_reversed(f):
 
 
 # ------------------------------------------------------------------ turn
-def _links_by(group: dict, word: str) -> str:
-    return "%s %.2f mm %s" % (_plural(group["links"], "link", "links"), group["mm"], word)
-
-
-@renders(C.TURN_BETTER, "item", "kind", "rotation_deg", "to_deg", "turn_deg", "shorter", "longer", "crossings_delta")
+@renders(C.TURN_BETTER, "item", "kind", "rotation_deg", "to_deg", "turn_deg", "change", "gain")
 def _turn_better(f):
-    """A searched item at the same spot turned by `turn_deg`, to `to_deg`: its links that would shorten and lengthen, each
-    `{links, mm}`, and the change in weighted crossings (turned less present)."""
-    bits = [_links_by(g, w) for g, w in ((f["shorter"], "shorter"), (f["longer"], "longer")) if g["links"]]
-    d = f["crossings_delta"]
-    bits.append("%g weighted crossings %s" % (abs(d), "fewer" if d < 0 else "more"))
-    return "%s %s turned %g degrees, to %g degrees: %s" % (f["kind"], f["item"], f["turn_deg"], f["to_deg"], ", ".join(bits))
+    """The largest two signed changes in the common objective."""
+    changed = sorted(f['change'].items(), key=lambda row: (-abs(row[1]), row[0]))
+    bits = ['%s %+.3g' % (term.replace('_', ' '), value) for term, value in changed if value][:2]
+    return "%s %s turned %g degrees, to %g degrees: gain %g (%s)" % (
+        f['kind'], f['item'], f['turn_deg'], f['to_deg'], f['gain'], ', '.join(bits))
 
 
 # ------------------------------------------------------------------ setup

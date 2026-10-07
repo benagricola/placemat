@@ -5587,10 +5587,9 @@ class Board:
 
     def _report_turns(self, occ: Occupancy, plan: Plan) -> None:
         """Each placed part or cell that another turn would serve better where it stands: the turn held at the same body
-        centre, legal there, judged on the search's own wire and crossing terms (`Scorer`) - its links' weighted pad-to-pad
-        length and the weighted crossings of its airwires. It must come out lower on the two together, and either shorten the
-        links by `place.turn_gain_mm` and `place.turn_gain_share` of their weighted length or remove
-        `place.turn_crossings_min` weighted crossings. A searched item is judged at the other turns its declaration allows;
+        centre, legal there, judged on the common objective's exact signed change (`Delta`). Its gain must reach
+        `place.turn_gain_mm` and `place.turn_gain_share` of its own wire/link contribution, without increasing walled pads.
+        A searched item is judged at the other turns its declaration allows;
         one whose turn is fixed at every turn it could take (`_turn_choices`). A `turn.better` notice, judged once on the
         finished board; a turn something holds (`_turn_held_by`) is said with `held_by` and no edit. A part the pin map
         study turns is left to that advice. A turn that follows the spot (a tangent's, facing out, a ring member's) has
@@ -5601,8 +5600,7 @@ class Board:
         for st in plan.steps:
             if st.placement is not None:
                 last[st.item] = st
-        placed = {r for r in occ.items if r not in occ.pending}
-        rn = occ.ratsnest() if s.score_crossing > 0 else None
+        from .score_delta import Delta
         for i in self._placements():
             if i.kind not in ("part", "cell") or i.tangent is not None or i.outward:
                 continue
@@ -5624,16 +5622,9 @@ class Board:
             own = frozenset(fp.ref for fp in members_of(item))
             if own & turned:
                 continue
-            targets = self._targets(item, occ, placed)
-            if not targets:
-                continue
-
-            def measured(q):
-                pads = occ.candidate_pad_locations(item, q)
-                lengths = [(pads[k].distance(t), w) for k, t, w in targets if k in pads]
-                cross = rn.leaf_costs(occ.candidate_anchors(item, q), own, s.place_escape_depth)[0] if rn is not None else 0.0
-                return lengths, cross
-
+            lifted = occ._lift_owners(own)
+            if lifted & occ.pending:
+                continue                    # temporary lifts are sets, not nested scopes
             def legal(q):
                 if not i.freedom.decided:
                     return occ.legal(item, q, self.clearance) is None
@@ -5642,40 +5633,38 @@ class Board:
                                      by_corners=True) is None
 
             base = occ._geometry(item).reference
-            now, cross_now = measured(base)
-            weighted_now = sum(d * w for d, w in now)
             centre = occ.body_box(item, base).center
             best = None
-            for rot in others:
-                turn = dataclasses.replace(base, rotation=base.rotation + rot - here)
-                c = occ.body_box(item, turn).center
-                q = dataclasses.replace(turn, location=Location(base.location.x + centre.x - c.x,
-                                                                base.location.y + centre.y - c.y))
-                then, cross = measured(q)
-                saved = sum((a - b) * w for (a, w), (b, _) in zip(now, then))
-                fewer = cross_now - cross
-                gain = saved + s.score_crossing * fewer
-                if gain <= 1e-9:
-                    continue
-                on_length = saved >= s.place_turn_gain_mm and saved >= s.place_turn_gain_share * weighted_now
-                if not (on_length or fewer >= s.place_turn_crossings_min):
-                    continue
-                if best is not None and gain <= best[0]:
-                    continue
-                if not legal(q):
-                    continue
-                best = (gain, rot, q, now, then, saved, cross - cross_now)
+            occ.lift(lifted)
+            try:
+                delta = Delta(self, occ, item, plan.links, plan=plan)
+                now = delta(base)
+                own_wire = max(0.0, now.terms['airwire'] + now.terms['link'])
+                for rot in others:
+                    turn = dataclasses.replace(base, rotation=base.rotation + rot - here)
+                    c = occ.body_box(item, turn).center
+                    q = dataclasses.replace(turn, location=Location(base.location.x + centre.x - c.x,
+                                                                    base.location.y + centre.y - c.y))
+                    if not legal(q):
+                        continue
+                    then = delta(q)
+                    gain = now.total - then.total
+                    if then.walled > now.walled or gain <= 1e-9:
+                        continue
+                    if gain < s.place_turn_gain_mm or gain < s.place_turn_gain_share * own_wire:
+                        continue
+                    if best is not None and gain <= best[0]:
+                        continue
+                    best = (gain, rot, q, {term: then.terms[term] - value for term, value in now.terms.items()})
+            finally:
+                occ.unlift(lifted)
             if best is None:
                 continue
-            gain, rot, q, now, then, saved, delta = best
-            short = [a - b for (a, _), (b, _) in zip(now, then) if b < a - 1e-6]
-            long_ = [b - a for (a, _), (b, _) in zip(now, then) if b > a + 1e-6]
+            gain, rot, q, change = best
             facts = {
                 "item": i.key, "kind": i.kind, "rotation_deg": round(here, 3), "to_deg": round(rot, 3),
                 "turn_deg": round((rot - here) % 360.0, 3), "face": p.face.value,
-                "shorter": {"links": len(short), "mm": round(float(sum(short)), 3)},
-                "longer": {"links": len(long_), "mm": round(float(sum(long_)), 3)},
-                "weighted_mm": round(saved, 3), "crossings_delta": round(delta, 3), "gain": round(gain, 3),
+                "change": {term: round(value, 3) for term, value in change.items()}, "gain": round(gain, 3),
                 "rotations_given": bool(i.rotations), "rotation_given": bool(i.rotation_given), "fixed": fixed,
                 "at": [round(q.location.x, 4), round(q.location.y, 4)]}
             held = self._turn_held_by(i, st, fixed)

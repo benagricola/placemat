@@ -207,11 +207,9 @@ class Settings:
     place_approach_detour: float = S(2.0, "mm",
         "how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding")
     place_turn_gain_mm: float = S(2.0, "mm",
-        "the least another allowed turn of a searched part or cell, at the same spot, must shorten its links for a `turn.better` finding, in weighted mm: each link's length times its weight, as the search scores it")
+        "the least reduction of the common run score for another legal turn at the same body centre to produce a `turn.better` finding")
     place_turn_gain_share: float = S(0.05, "share",
-        "the least share of the item's weighted link length that turn must save as well, for a `turn.better` finding on length")
-    place_turn_crossings_min: float = S(2.0, "count",
-        "the fewest weighted crossings another allowed turn must remove for a `turn.better` finding on crossings alone; either way the turn's links and crossings together, as the search prices them, must come out lower")
+        "the least share of the item's wire and declared-link contribution the common run-score gain must reach for a `turn.better` finding")
     place_turn_held_words: tuple = S(("turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"), "list",
         "words that, in the `why=` of an item whose turn the script fixes, say the turn was chosen: a better turn is then a `turn.better` notice with `held_by` \"why\" and no edit")
     place_split_min_group: int = S(2, "count",
@@ -756,7 +754,7 @@ _ABOVE_ZERO = frozenset((
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height",
     "pins_seeds", "pins_anneal_moves", "pins_budget_steps", "pins_reversed_min", "pins_joint_combinations", "pins_probe_budget_steps"))
 _AT_LEAST_ZERO = frozenset((
-    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "place_turn_crossings_min", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise",
     "score_link_over", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_crossing_pair_net", "score_impedance", "score_escape_crossed", "score_escape_closed", "score_escape_lane", "score_escape_via", "score_congestion",
@@ -888,6 +886,7 @@ _MOVED = {
 _VALIDITY = ("counts in the validity tier of the board comparison (score.rank), before closure and the run score, "
              "with no weight")
 _REPLACED = {
+    "place_turn_crossings_min": "crossings are priced in the common run score; set place.turn_gain_mm and place.turn_gain_share",
     "score_unplaced": "an unplaced part " + _VALIDITY,
     "score_unplaced_high": "an unplaced part " + _VALIDITY + ", a high priority one before a default before a low",
     "score_unplaced_default": "an unplaced part " + _VALIDITY + ", a high priority one before a default before a low",

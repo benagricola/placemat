@@ -5,6 +5,10 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100
+
+- **`place.turn_crossings_min` is retired.** Crossings now contribute their `[score]` price to the same exact change as wire, links, area, congestion and escapes. Set `place.turn_gain_mm` for the minimum run-score gain and `place.turn_gain_share` for the minimum share of the item's wire/link contribution. A turn that increases walled pads is refused. `turn.better` facts replace `shorter`, `longer`, `weighted_mm` and `crossings_delta` with signed per-term `change` and total `gain`; clients reading those facts must migrate.
+
 ## To 0.99.35
 
 ### Removed

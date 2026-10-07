@@ -1259,9 +1259,8 @@ def turn_better(f, settings):
         return []                       # the script holds the turn for a reason it states: said, not offered
     if f.get("rotations_given"):
         return [_set("place", item, "rotations", {"list": [{"num": to}]}, text, "turn")]
-    why = ("A run's finding (turn.better): turned %g degrees where it stood, %s %s's links came %s mm shorter in weighted "
-           "length, with %g weighted crossings %s." % (f["turn_deg"], f["kind"], item, _mm(f["weighted_mm"]),
-                                                       abs(f["crossings_delta"]), "fewer" if f["crossings_delta"] < 0 else "more"))
+    why = ("A run's finding (turn.better): turned %g degrees where it stood, %s %s lowers the run score by %s." %
+           (f['turn_deg'], f['kind'], item, _mm(f['gain'])))
     return [_set("place", item, "rotation", _const(_name(item, "rotation", "deg"), to, why), text, "turn")]
 
 

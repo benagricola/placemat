@@ -3,6 +3,8 @@ clearly beats on its links' pad-to-pad length or crossings: a `turn.better` noti
 with a suggestion that writes the turn into the script."""
 import dataclasses
 
+import pytest
+
 from placemat import lock as L
 from placemat import suggestions as sg
 from placemat.board_geometry import Footprint
@@ -39,9 +41,9 @@ for k in (1, 2):
 '''
 
 
-def board(tmp_path, body=BODY, **settings):
+def board(tmp_path, body=BODY, _copper=(), **settings):
     path = script(tmp_path, body, imports=IMPORTS.replace("(board, ", "(board, Cell, "))
-    b = Board(board_geometry(parts(), cells=["term"], width=50, height=50), edge_margin=1.0, keep_going=True,
+    b = Board(board_geometry(parts(), cells=["term"], width=50, height=50, copper=_copper), edge_margin=1.0, keep_going=True,
               settings=dataclasses.replace(Settings(), cleanup_enabled=False, **settings))
     b.script_file = str(path)
     run_script(path, b)
@@ -83,17 +85,16 @@ def test_a_cell_held_at_the_reversed_turn_is_a_notice_naming_the_turn_its_links_
     facts = f.facts
     assert (facts["item"], facts["kind"], facts["rotation_deg"], facts["to_deg"], facts["turn_deg"]) == \
         ("term", "cell", 180.0, 0.0, 180.0)
-    assert facts["shorter"] == {"links": 4, "mm": 5.05} and facts["longer"] == {"links": 0, "mm": 0.0}
-    assert facts["crossings_delta"] == -4.0 and facts["weighted_mm"] > 0 and facts["rotations_given"]
-    assert f == "cell term turned 180 degrees, to 0 degrees: 4 links 5.05 mm shorter, 4 weighted crossings fewer"
+    assert facts['change']['crossings'] < 0 and facts['change']['link'] < 0 and facts['rotations_given']
+    assert facts['gain'] == pytest.approx(-sum(facts['change'].values()), abs=0.01)
 
 
-def test_links_that_lengthen_are_said_beside_those_that_shorten():
+def test_largest_signed_terms_are_said_in_magnitude_order():
     from placemat.finding_text import render
     facts = {"item": "u3", "kind": "part", "rotation_deg": 90.0, "to_deg": 270.0, "turn_deg": 180.0,
-             "shorter": {"links": 3, "mm": 2.4}, "longer": {"links": 1, "mm": 0.5}, "crossings_delta": 0.0}
+             "change": {'link': -3.0, 'airwire': 0.5, 'crossings': -8.0}, 'gain': 10.5}
     assert render(C.TURN_BETTER, facts) == \
-        "part u3 turned 180 degrees, to 270 degrees: 3 links 2.40 mm shorter, 1 link 0.50 mm longer, 0 weighted crossings more"
+        "part u3 turned 180 degrees, to 270 degrees: gain 10.5 (crossings -8, link -3)"
 
 
 def test_a_locked_item_is_held_by_the_lock_and_its_suggestion_is_the_lock_release(tmp_path):
@@ -177,11 +178,119 @@ def test_a_part_at_the_turn_its_links_favour_is_no_finding(tmp_path):
 
 
 def test_a_gain_under_the_settings_is_no_finding(tmp_path):
-    plan, _ = locked_at(tmp_path, 180.0, place_turn_gain_mm=1000.0, place_turn_crossings_min=1000.0)
+    plan, _ = locked_at(tmp_path, 180.0, place_turn_gain_mm=1000.0)
     assert turns(plan) == []
 
 
 def test_an_item_the_pin_study_turns_is_left_to_that_advice(tmp_path, monkeypatch):
     monkeypatch.setattr(Board, "_pin_study_turned", lambda self, plan: {"R1"})
     plan, _ = locked_at(tmp_path, 180.0)
+    assert turns(plan) == []
+
+
+def test_crossing_price_controls_the_common_gain_threshold(tmp_path):
+    weights = dict(score_congestion=0.0, score_escape_crossed=0.0, score_escape_closed=0.0,
+                   score_escape_via=0.0, score_link=0.0)
+    high, _ = locked_at(tmp_path, 180.0, score_crossing=20.0, place_turn_gain_mm=50.0, **weights)
+    low, _ = locked_at(tmp_path, 180.0, score_crossing=0.0, place_turn_gain_mm=50.0, **weights)
+    assert turns(high)
+    assert turns(low) == []
+    assert turns(high)[0].facts['change']['crossings'] < -50
+
+
+def test_crossings_alone_can_trigger_a_turn_without_wire_length_gain(tmp_path):
+    from placemat.values import CopperLayer, Net
+    body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
+                        'at=Location(25, 25), rotation=180')
+    def resolve(price):
+        b, _ = board(tmp_path, body, score_crossing=price, score_crossing_plane=1.0,
+                     score_link=0.0, score_congestion=0.0, score_escape_crossed=0.0,
+                     score_escape_closed=0.0, score_escape_via=0.0, place_turn_gain_mm=50)
+        for net in ('A1', 'A2', 'B1', 'B2'):
+            b.plane(Net(net), [CopperLayer.B])
+        return b.resolve()
+    high, low = resolve(20), resolve(0)
+    (finding,) = turns(high)
+    assert finding.facts['change']['airwire'] == 0
+    assert finding.facts['change']['link'] == 0
+    assert finding.facts['change']['crossings'] < -50
+    assert turns(low) == []
+
+
+def test_linkless_turn_can_reduce_fitted_area_and_restores_exact_occupancy():
+    from placemat import score
+    from placemat.values import Part
+    fps = [footprint('R1', 10, 10, w=6, h=1, nets=('', ''), inst='r1'),
+           footprint('R2', 40, 10, w=1, h=1, nets=('', ''), inst='r2')]
+    b = Board(board_geometry(fps), keep_going=True,
+              settings=dataclasses.replace(Settings(), cleanup_enabled=False, place_turn_gain_mm=0.01,
+                                           place_turn_gain_share=0.0))
+    b.rect(fit=True, margin=5)
+    b.place(Part('r1'), at=Location(10, 10), rotation=90)
+    b.place(Part('r2'), at=Location(40, 10), rotation=0)
+    plan = b.resolve()
+    (finding,) = turns(plan, 'r1')
+    assert finding.facts['change']['area'] < 0
+    assert finding.facts['change']['airwire'] == 0
+    occ = plan.occupancy
+    before = (dict(occ.items), tuple(occ.copper), frozenset(occ.pending), score.whole(b, occ, plan))
+    plan.findings = [f for f in plan.findings if f.cause is not C.TURN_BETTER]
+    b._report_turns(occ, plan)
+    after = (dict(occ.items), tuple(occ.copper), frozenset(occ.pending), score.whole(b, occ, plan))
+    assert after == before
+
+
+@pytest.mark.parametrize('pending', [{'R1'}, {'term'}])
+def test_turn_check_preserves_preexisting_member_or_parent_lift(tmp_path, monkeypatch, pending):
+    b, _ = board(tmp_path)
+    plan = b.resolve()
+    intent = next(i for i in b._placements() if i.key == 'term')
+    monkeypatch.setattr(b, '_placements', lambda: [intent])
+    occ = plan.occupancy
+    occ.lift(pending)
+    before = (frozenset(occ.pending), dict(occ.items), tuple(occ.copper))
+    b._report_turns(occ, plan)
+    assert (frozenset(occ.pending), dict(occ.items), tuple(occ.copper)) == before
+    occ.unlift(pending)
+
+
+def test_turn_check_restores_occupancy_when_delta_raises(tmp_path, monkeypatch):
+    from placemat import score, score_delta
+    from tests.test_cell_drops import _via
+    b, _ = board(tmp_path, _copper=[_via('A1', 25, 25, 'term')])
+    plan = b.resolve()
+    intent = next(i for i in b._placements() if i.key == 'term')
+    monkeypatch.setattr(b, '_placements', lambda: [intent])
+    occ = plan.occupancy
+    assert any(s.owner == 'term' for s in occ.copper)
+    before = (frozenset(occ.pending), dict(occ.items), tuple(occ.copper), score.whole(b, occ, plan))
+    def fail(*args, **kwargs):
+        raise RuntimeError('injected score failure')
+    monkeypatch.setattr(score_delta, 'Delta', fail)
+    with pytest.raises(RuntimeError, match='injected score failure'):
+        b._report_turns(occ, plan)
+    assert (frozenset(occ.pending), dict(occ.items), tuple(occ.copper), score.whole(b, occ, plan)) == before
+
+
+def test_cheaper_turn_cannot_increase_walled_pad_evidence(tmp_path, monkeypatch):
+    from placemat import score_delta
+    body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
+                        'at=Location(25, 25), rotation=180')
+    b, _ = board(tmp_path, body)
+    plan = b.resolve()
+    assert turns(plan)
+    real_delta = score_delta.Delta
+    class WithNewWall:
+        def __init__(self, *args, **kwargs):
+            self.delta = real_delta(*args, **kwargs)
+            self.base = None
+        def __call__(self, placement):
+            result = self.delta(placement)
+            if self.base is None:
+                self.base = result
+                return result
+            return dataclasses.replace(result, walled=self.base.walled + 1)
+    monkeypatch.setattr(score_delta, 'Delta', WithNewWall)
+    plan.findings = [f for f in plan.findings if f.cause is not C.TURN_BETTER]
+    b._report_turns(plan.occupancy, plan)
     assert turns(plan) == []

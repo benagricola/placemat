@@ -122,9 +122,9 @@ SAMPLES = [
      "0.300 mm apart, under the 0.381 mm a 0.127 mm track and two clearances need; within 1.00 mm of the airwire every "
      "other way is closed by copper or crosses another net's airwire"),
     (C.TURN_BETTER, {"item": "displayterms", "kind": "cell", "rotation_deg": 270.0, "to_deg": 90.0, "turn_deg": 180.0,
-                     "face": "front", "shorter": {"links": 4, "mm": 2.4}, "longer": {"links": 0, "mm": 0.0},
-                     "weighted_mm": 19.2, "crossings_delta": 0.0, "gain": 19.2, "rotations_given": True, "at": [31.2, 40.4]},
-     "cell displayterms turned 180 degrees, to 90 degrees: 4 links 2.40 mm shorter, 0 weighted crossings more"),
+                     "face": "front", "change": {"link": -19.2}, "gain": 19.2,
+                     "rotations_given": True, "at": [31.2, 40.4]},
+     "cell displayterms turned 180 degrees, to 90 degrees: gain 19.2 (link -19.2)"),
     (C.PINS_REVERSED, {"refs": ["U1", "J1"], "mirror": "U1", "mirror_also": "", "nets": [["SCK", "MOSI", "DC"], ["DC", "MOSI", "SCK"]],
                        "pins": ["22", "23", "24"], "far": [["R5", "1"], ["R6", "1"], ["R7", "1"]], "crossings": 6,
                        "crossings_mirrored": 3, "rules": [{"ref": "U1", "pool": True, "group": "display"},
