@@ -110,6 +110,27 @@ class Delta:
             view.__dict__.pop(key, None)
         return view, geometries, copper
 
+    def _candidate_ratsnest(self, added, changed):
+        """Reuse the proved sparse trees rather than rebuilding every MST.
+
+        A fresh Python-only index keeps candidate judgement independent of the
+        lifted board's mirror and caches. Anchor order matches occupancy's
+        ref/pad sort, including raw nearest-target tie semantics.
+        """
+        from .ratsnest import Ratsnest, _cells, _ends, _nm
+        rn = Ratsnest(self.rn.kinds, partners=self.rn.partners, prices=self.rn.prices)
+        for net in self.rest.keys() | added.keys():
+            rn._anchors[net] = sorted(self.rest.get(net, []) + added.get(net, []),
+                                       key=lambda a: (a.ref, a.number))
+            rn._edges[net] = changed[net][0] if net in changed else self.old.get(net, [])
+            if not rn._kept(net):
+                rn._edges[net] = []
+            for edge in rn._edges[net]:
+                rn._nmends[id(edge)] = (_nm(edge.a.x), _nm(edge.a.y), _nm(edge.b.x), _nm(edge.b.y))
+                for cell in _cells(*_ends(edge)):
+                    rn._grid.setdefault(cell, []).append(edge)
+        return rn
+
     def __call__(self, placement, prune_above=math.inf):
         if not self.own <= self.occ.pending:
             raise ValueError('Delta snapshot requires the moving item to remain lifted')
@@ -130,6 +151,9 @@ class Delta:
             if net not in self.quiet:
                 wire += difference * (cfg.score_impedance if self.kinds.get(net) == KIND_IMPEDANCE else 1.0)
         view, geometries, copper = self._view(placement)
+        view._ratsnest = self._candidate_ratsnest(added, changed)
+        view._rn_anchors = {net: {(a.ref, a.number): a for a in nodes}
+                            for net, nodes in view._ratsnest._anchors.items()}
         link, excess = score._links_mm(self.board, view, self.plan, self.links)
         terms = {'airwire': wire, 'crossings': self._crossing_change(changed),
                  'link': cfg.score_link * (link - self.base_link[0]),

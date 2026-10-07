@@ -114,6 +114,120 @@ def test_new_nearer_target_can_reduce_a_remote_pads_escape_price():
     assert change.terms['escape_closed'] == after['escape_closed'] - before['escape_closed'] < 0
 
 
+def test_candidate_escape_view_reuses_proved_trees_without_whole_mst_or_shared_cache_mutation(monkeypatch):
+    from placemat import ratsnest, score
+    from placemat.score_delta import Delta
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _two_part_board
+    board = _two_part_board()
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(30, 30))
+    plan = board.resolve()
+    occ = plan.occupancy
+    item = plan._items[plan.steps[0].item]
+    occ.lift({'U1'})
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    before = score.whole(board, occ, plan)
+    anchors = dict(occ.ratsnest()._anchors)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('candidate rebuilt a whole MST')
+    monkeypatch.setattr(ratsnest, 'mst', forbidden)
+    change = delta(plan.placement('u1'))
+    assert math.isfinite(change.total)
+    assert occ.ratsnest()._anchors == anchors
+    # Compare the complete candidate oracle outside the guarded hot path.
+    monkeypatch.undo()
+    occ.commit(item, plan.placement('u1'))
+    after = score.whole(board, occ, plan)
+    assert change.terms == pytest.approx({k: after[k] - before[k] for k in change.terms}, abs=1e-6)
+    with pytest.raises(ValueError, match='remain lifted'):
+        delta(plan.placement('u1'))
+    with pytest.raises(ValueError, match='remain lifted'):
+        delta.native([0], plan.placement('u1').face)
+
+
+@pytest.mark.parametrize('moving_ref', ['A0', 'M0', 'Z0'])
+def test_sparse_candidate_view_preserves_raw_nearest_ties_and_multiland_anchor_identity(moving_ref):
+    from dataclasses import replace
+    from placemat import score
+    from placemat.escapes import judging
+    from placemat.score_delta import Delta
+    from placemat.values import Face, Location
+    from tests.fixtures import board_geometry, pad
+    from tests.test_final_board import _placed
+    from tests.test_surface_escapes import _part_of
+    def part(ref, x, y):
+        return _part_of(ref, ref.lower(), [pad(ref, ref.lower(), 1, 'S', x, y, 0.3, 0.3)], x, y)
+    parts = [part('B0', 28, 30), part('P0', 30, 30), part('Y0', 32, 30)]
+    lands = [replace(pad(moving_ref, 'm', 1, 'S', 29.75, 28, 0.2, 0.3), anchor=Location(30, 28)),
+             replace(pad(moving_ref, 'm', 1, 'S', 30.25, 28, 0.2, 0.3, face=Face.BACK), anchor=Location(30, 28))]
+    moving = _part_of(moving_ref, 'm', lands, 30, 28)
+    board, plan = _placed(board_geometry(parts + [moving]))
+    occ = plan.occupancy
+    occ.lift({moving_ref})
+    delta = Delta(board, occ, moving, plan.links, plan=plan)
+    before = score.whole(board, occ, plan)
+    baseline_anchors = dict(occ.ratsnest()._anchors)
+    baseline_mirror = occ.ratsnest().mirror
+    observed = []
+    original = delta._escape_change
+    def check(view):
+        rn = view.ratsnest()
+        assert len([a for a in rn._anchors['S'] if a.ref == moving_ref]) == 1
+        assert [(a.ref, a.number) for a in rn._anchors['S']] == sorted((a.ref, a.number) for a in rn._anchors['S'])
+        observed.append(judging(view)._aim('P0', '1', 'S', Location(30, 30)))
+        return original(view)
+    delta._escape_change = check
+    first = delta(plan.placement('m'))
+    assert delta(plan.placement('m')) == first
+    assert observed == [(0.0, -2.0) if moving_ref == 'A0' else (-2.0, 0.0)] * 2
+    assert occ.ratsnest()._anchors == baseline_anchors and occ.ratsnest().mirror is baseline_mirror
+    occ.commit(moving, plan.placement('m'))
+    after = score.whole(board, occ, plan)
+    assert first.terms == pytest.approx({k: after[k] - before[k] for k in first.terms}, abs=1e-6)
+
+
+def test_native_signed_escape_crossings_match_whole_including_cancelled_joint_changes():
+    from placemat import geometry
+    from placemat.ratsnest import Ratsnest, prices_of
+    from placemat.settings import Settings
+    module = geometry._native
+    if not hasattr(getattr(module, 'NativeDelta', None), 'escape_cross'):
+        pytest.skip('native signed escape kernel not built')
+    cfg = Settings()
+    rng = random.Random(43)
+    rest = {net: [Anchor(ref, net, rng.uniform(-3, 3), rng.uniform(-3, 3))
+                  for ref in ('U1', 'U2', 'U3')] for net in ('a', 'b', 'c')}
+    def whole(nodes):
+        rn = Ratsnest()
+        for net, points in nodes.items():
+            rn.set_net(net, points)
+        return rn
+    base = whole(rest)
+    mirror = module.NativeRatsnest()
+    rn = Ratsnest(mirror=mirror, prices=prices_of(cfg))
+    for net, points in rest.items():
+        rn.set_net(net, points)
+    origin = [(net, 'N', net, rng.uniform(-0.5, 0.5), rng.uniform(-0.5, 0.5)) for net in rest]
+    kernel = module.NativeDelta(mirror, ['N'], [origin], list(rest),
+        (cfg.score_crossing, cfg.score_impedance, cfg.score_crossing_pair_net,
+         cfg.score_crossing_plane, cfg.score_pair_crossing))
+    values = []
+    for _ in range(100):
+        x, y = rng.uniform(-4, 4), rng.uniform(-4, 4)
+        nodes = {net: points + [Anchor('N', pad, px + x, py + y)]
+                 for net, _, pad, px, py in origin for points in [rest[net]]}
+        candidate = whole(nodes)
+        for depth in (0.0, 0.25, 1.0, 5.0):
+            expected = candidate.crossed_pairs(depth) - base.crossed_pairs(depth)
+            assert kernel.escape_cross(x, y, 0, depth) == expected
+            values.append(expected)
+    assert min(values) < 0 < max(values)
+    for depth in (-1.0, math.inf, math.nan):
+        with pytest.raises(ValueError, match='escape'):
+            kernel.escape_cross(0.0, 0.0, 0, depth)
+
+
 def test_mst_addition_refuses_prejoined_copper_clusters():
     rest = [Anchor("R1", "1", 0, 0), Anchor("R2", "1", 1, 0)]
     previous = mst("n", rest, joined=[(0, 1)])

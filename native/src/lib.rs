@@ -811,6 +811,14 @@ impl NativeDelta {
         self.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err)
     }
 
+    fn escape_cross(&mut self, x: f64, y: f64, turn: usize, depth: f64) -> PyResult<i64> {
+        if !depth.is_finite() || depth < 0.0 {
+            return Err(PyValueError::new_err("NativeDelta escape depth invalid"));
+        }
+        self.inner.wire_cross(x,y,turn).map_err(PyValueError::new_err)?;
+        self.inner.escape_cross(turn,depth).map_err(PyValueError::new_err)
+    }
+
     #[allow(clippy::type_complexity)]
     fn configure_layout(&mut self, links: Vec<Vec<score_layout::Link>>, boxes: Vec<score_layout::Bounds>,
         fit: Option<(Option<score_layout::Bounds>, f64, Option<f64>, Option<f64>, f64)>,

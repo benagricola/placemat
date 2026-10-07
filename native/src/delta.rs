@@ -62,6 +62,38 @@ fn point_valid(x: f64, y: f64) -> bool {
     x.is_finite() && y.is_finite() && x.abs() <= limit && y.abs() <= limit
 }
 
+/// Count each crossed escape pair once, as Ratsnest.crossed_pair_list does.
+/// Crossings use nm predicates, but proximity uses the raw crossing point.
+fn escaped(a: &[Node], ae: &[Pair], b: &[Node], be: &[Pair], depth: f64) -> i64 {
+    let mut count = 0;
+    for &(i, j) in ae {
+        for &(k, l) in be {
+            let (p, q, r, t) = (&a[i], &a[j], &b[k], &b[l]);
+            if !segments_cross((p.0, p.1), (q.0, q.1), (r.0, r.1), (t.0, t.1)) {
+                continue;
+            }
+            let den = (p.0 - q.0) * (r.1 - t.1) - (p.1 - q.1) * (r.0 - t.0);
+            if den == 0.0 {
+                continue;
+            }
+            let u = ((p.0 - r.0) * (r.1 - t.1) - (p.1 - r.1) * (r.0 - t.0)) / den;
+            let at = (p.0 + u * (q.0 - p.0), p.1 + u * (q.1 - p.1));
+            if [&p.2, &q.2].iter().any(|&name| {
+                !name.is_empty()
+                    && (name == &r.2 || name == &t.2)
+                    && !(name == &p.2 && name == &q.2)
+                    && !(name == &r.2 && name == &t.2)
+                    && [p, q, r, t].iter().any(|v| {
+                        &v.2 == name && crate::exact::hypot(at.0 - v.0, at.1 - v.1) <= depth
+                    })
+            }) {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
 fn find_root(parent: &mut [usize], mut i: usize) -> usize {
     while parent[i] != i {
         parent[i] = parent[parent[i]];
@@ -451,6 +483,52 @@ impl Delta {
             }
         }
         Ok((wire, self.crossing_change(&self.turns[turn])))
+    }
+
+    /// After wire_cross solved this turn: the same signed bilinear expansion
+    /// as crossings, with the raw near-shared-part escape predicate.
+    pub fn escape_cross(&self, turn: usize, depth: f64) -> Result<i64, String> {
+        if turn >= self.turns.len() || !depth.is_finite() || depth < 0.0 {
+            return Err("NativeDelta escape turn/depth invalid".into());
+        }
+        let touched = &self.turns[turn];
+        let mut count = 0;
+        for (k, a) in touched.iter().enumerate() {
+            let tree = &a.tree;
+            for (i, other) in self.snapshots.iter().enumerate() {
+                if touched.iter().any(|t| t.index == i) {
+                    continue;
+                }
+                count += escaped(&tree.nodes, &tree.added, &other.nodes, &other.edges, depth)
+                    - escaped(
+                        &tree.nodes,
+                        &tree.dropped,
+                        &other.nodes,
+                        &other.edges,
+                        depth,
+                    );
+            }
+            for b in &touched[k + 1..] {
+                let old = &self.snapshots[a.index];
+                count += escaped(&tree.nodes, &tree.added, &b.tree.nodes, &b.tree.tree, depth)
+                    - escaped(
+                        &tree.nodes,
+                        &tree.dropped,
+                        &b.tree.nodes,
+                        &b.tree.tree,
+                        depth,
+                    )
+                    + escaped(&old.nodes, &old.edges, &b.tree.nodes, &b.tree.added, depth)
+                    - escaped(
+                        &old.nodes,
+                        &old.edges,
+                        &b.tree.nodes,
+                        &b.tree.dropped,
+                        depth,
+                    );
+            }
+        }
+        Ok(count)
     }
 }
 
